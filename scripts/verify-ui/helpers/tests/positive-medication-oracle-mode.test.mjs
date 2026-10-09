@@ -6,7 +6,7 @@ import {
   assertPositiveMedicationSelectionPage,
   medicationOracleModeForCase,
 } from '../../workflows/verify-cda-zero-column-related-medication.mjs';
-import { registry } from '../../registry.mjs';
+import { coverageDrift, registry } from '../../registry.mjs';
 
 test('fixture oracle bound is separate from the existing owned-CDA 1,000-root bound', () => {
   assert.deepEqual(medicationOracleModeForCase('medication-preserve-parent'), {
@@ -26,6 +26,9 @@ test('positive fixture lifecycle is a separate registered native case from the r
   assert.equal(cdaCase.requiredChecks.length, 11);
   assert.equal(cdaCase.requiredChecks.at(-1), 'CDA watched source and API build stayed unchanged');
   assert.equal(fixtureCase.playwrightTest, 'scripts/verify-ui/specs/related-medication-positive-fixture.spec.mjs');
+  assert.equal(fixtureCase.playwrightGrep, 'preserve and exclude exact positive Medication matches through native edit and reload$');
+  assert.equal(fixtureCase.expectedIdentity, undefined,
+    'The fixture runner creates a fresh per-run owned project; the case binds its concrete identity in the scoped oracle and adapter.');
   assert.equal(fixtureCase.requiredChecks.length, 14);
   assert.deepEqual(fixtureCase.requiredChecks.slice(0, 10), cdaCase.requiredChecks.slice(0, 10));
   assert.deepEqual(fixtureCase.requiredChecks.slice(10, 12), [
@@ -40,8 +43,14 @@ test('positive fixture lifecycle is a separate registered native case from the r
     'medication-preserve-parent scans the first 1,000 sorted project/generation Specimen roots; medication-positive-fixture scans exactly its two fixture roots before independently traversing the same five-hop Medication route');
   assert.match(scenario.requiredTransitions[4], /positive fixture also cancels the EXCLUDE edit and removal/);
   const positiveCoverage = scenario.coverage.find(({ feature }) => feature.startsWith('positive match values'));
-  assert.equal(positiveCoverage.status, 'untested');
-  assert.match(positiveCoverage.reason, /lifecycle map has one cancel phase mapped to the original PRESERVE_PARENT proposal/);
+  assert.equal(positiveCoverage.status, 'implemented', 'Epoch145 remains historical implementation evidence while current-source closure is pending.');
+  assert.deepEqual(positiveCoverage.acceptance.checks,
+    { choice: 2, proposal: 3, cancel: 10, apply: 5, savedRows: 5, reload: 6, edit: 7, restoration: 8 },
+    'the lifecycle Cancel phase maps to the saved EXCLUDE-edit Cancel, not the initial PRESERVE_PARENT proposal');
+  assert.deepEqual(coverageDrift([scenario]), [], 'the positive case remains a valid named lifecycle contract');
+  assert.match(positiveCoverage.reason, /both Cancel checks/);
+  assert.match(positiveCoverage.reason, /RelatedExpandEditor nullability behavior changed after Epoch145/);
+  assert.match(positiveCoverage.reason, /cda-five-hop-related-expansion-medication-positive-epoch145-report\.json/);
 
   const spec = readFileSync(new URL('../../specs/related-medication-positive-fixture.spec.mjs', import.meta.url), 'utf8');
   assert.match(spec, /from '\.\.\/helpers\/fixtures\.mjs'/);

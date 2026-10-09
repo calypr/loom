@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { includeBrowserDiagnostics } from '../cda-playwright.mjs';
-import { lifecycleAcceptanceDrift, registry, scenarioCaseFor } from '../../registry.mjs';
+import { classifyEvidence, summarizeLifecycleEvidence } from '../coverage-status.mjs';
+import { coverageDrift, hasLifecycleContract, lifecycleAcceptanceDrift, registry, scenarioCaseFor } from '../../registry.mjs';
 import {
   assertNoUnexpectedCdaDiagnostics,
   assertCountRowsGroupLabelEditIdentity,
@@ -24,6 +25,43 @@ const oracleRows = [
   scoped('observation-literal-empty', { component: [] }),
   scoped('observation-null', { component: null }),
 ];
+
+const missingComponentLifecycleContract = (registeredCase) => ({
+  ...registeredCase,
+  expectedIdentity: registeredCase.expectedIdentity ?? {
+    project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1',
+  },
+  playwrightGrep: registeredCase.playwrightGrep
+    ?? 'preserves missing-component owners through EXPANDED and GROUP removal Cancel$',
+  lifecycleEvidence: registeredCase.lifecycleEvidence ?? {
+    persistence: {
+      checks: [
+        'Apply and reload preserve all five raw-oracle EXPANDED rows',
+        'applied Group survives reload with exact four-row counts',
+        'Applying saved GROUP output-label edit preserves stable step/output IDs and exact rows after reload',
+        'applying GROUP removal restores the exact five-row source EXPANDED table after reload',
+      ],
+    },
+    performance: {
+      check: 'all native action-to-render checkpoints complete within five seconds',
+      checkpointBudgetMs: 5000,
+    },
+  },
+});
+
+const lifecycleReport = (contract, performanceEvidence, performanceDimension = 'performance') => {
+  const performanceCheck = contract.lifecycleEvidence.performance.check;
+  return {
+    schemaVersion: 2,
+    status: 'passed',
+    target: { ...contract.expectedIdentity },
+    playwrightGrep: contract.playwrightGrep,
+    dimensions: { persistence: 'passed', performance: 'passed' },
+    assertions: contract.requiredChecks.map(name => name === performanceCheck
+      ? { name, dimension: performanceDimension, status: 'passed', evidence: performanceEvidence }
+      : { name, status: 'passed' }),
+  };
+};
 
 test('the registered missing-component GROUP case stays separate from literal-empty coverage', () => {
   const scenario = registry.find(item => item.id === 'cda-repeated-missing-component-group');
@@ -62,6 +100,192 @@ test('the registered missing-component GROUP case stays separate from literal-em
   assert.match(spec, /missingComponentGroupSkipReason\(result\)/);
   for (const check of registeredCase.requiredChecks.filter(name => name !== 'CDA watched source and API build stayed unchanged')) {
     assert(workflow.includes(check), `Registered native check is not emitted by the workflow: ${check}`);
+  }
+});
+
+test('the registered missing-component lifecycle needs real render checkpoints and under-budget action evidence', () => {
+  const scenario = registry.find(item => item.id === 'cda-repeated-missing-component-group');
+  assert(scenario, 'Missing-component GROUP scenario is not registered');
+  const registeredCase = scenarioCaseFor(scenario, 'missing-component-expanded-group-cancel-restore');
+  const contract = missingComponentLifecycleContract(registeredCase);
+  const lifecycleContract = registeredCase.lifecycleEvidence ? registeredCase : contract;
+
+  assert.deepEqual(contract.expectedIdentity, {
+    project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1',
+  });
+  assert.equal(contract.playwrightGrep,
+    'preserves missing-component owners through EXPANDED and GROUP removal Cancel$');
+  assert.deepEqual(contract.lifecycleEvidence, {
+    persistence: {
+      checks: [
+        'Apply and reload preserve all five raw-oracle EXPANDED rows',
+        'applied Group survives reload with exact four-row counts',
+        'Applying saved GROUP output-label edit preserves stable step/output IDs and exact rows after reload',
+        'applying GROUP removal restores the exact five-row source EXPANDED table after reload',
+      ],
+    },
+    performance: {
+      check: 'all native action-to-render checkpoints complete within five seconds',
+      checkpointBudgetMs: 5000,
+    },
+  });
+  for (const name of [
+    ...contract.lifecycleEvidence.persistence.checks,
+    contract.lifecycleEvidence.performance.check,
+  ]) {
+    assert(registeredCase.requiredChecks.includes(name), `Lifecycle check is not registered: ${name}`);
+  }
+
+  const timingCheckpoints = Array.from({ length: 34 }, (_, index) => ({
+    name: `action-to-render transition ${index + 1}`,
+    durationMs: 900 + index * 14,
+  }));
+  const passingReport = lifecycleReport(contract, {
+    measuredTransitionCount: 34,
+    actionCount: 38,
+    maxActionMs: 242,
+    checkpointBudgetMs: 5000,
+    timingCheckpoints,
+  });
+  const passing = summarizeLifecycleEvidence(passingReport, contract);
+  assert.equal(passing.status, 'passed');
+  assert.deepEqual(passing.dimensions, { persistence: 'passed', performance: 'passed' });
+  assert.equal(passing.renderCheckpoints.count, 34);
+  assert.equal(passing.renderCheckpoints.maximumDurationMs, 1362);
+  assert.equal(passing.dimensionEvidence.performance.maximumActionDurationMs, 242);
+  assert.equal(classifyEvidence(passingReport, registeredCase.requiredChecks, lifecycleContract, passing), 'passed');
+
+  const retainedEpoch144Report = lifecycleReport(contract, {
+    checkpointCount: 34,
+    maximumCheckpointMs: 1388,
+    timings: Array.from({ length: 34 }, (_, index) => ({
+      name: `action-to-render transition ${index + 1}`,
+      durationMs: 1388,
+      limitMs: 5000,
+    })),
+  }, 'correctness');
+  assert.equal(retainedEpoch144Report.assertions.find(({ name }) =>
+    name === contract.lifecycleEvidence.performance.check).dimension, 'correctness');
+  const retainedEpoch144 = summarizeLifecycleEvidence(retainedEpoch144Report, contract);
+  assert.equal(retainedEpoch144.status, 'unverified');
+  assert.equal(retainedEpoch144.dimensions.performance, 'unverified');
+  assert.equal(retainedEpoch144.dimensionEvidence.performance.status, 'unverified');
+  assert.equal(retainedEpoch144.renderCheckpoints.status, 'absent');
+  assert.equal(retainedEpoch144.renderCheckpoints.count, 0);
+  assert.equal(classifyEvidence(retainedEpoch144Report, registeredCase.requiredChecks, lifecycleContract, retainedEpoch144), 'partial');
+
+  const missingTimingReport = lifecycleReport(contract, {
+    measuredTransitionCount: 34,
+    actionCount: 38,
+    maxActionMs: 242,
+    checkpointBudgetMs: 5000,
+  });
+  const missingTiming = summarizeLifecycleEvidence(missingTimingReport, contract);
+  assert.equal(missingTiming.dimensions.performance, 'unverified');
+  assert.equal(missingTiming.renderCheckpoints.status, 'absent');
+  assert.equal(classifyEvidence(missingTimingReport, registeredCase.requiredChecks, lifecycleContract, missingTiming), 'partial');
+
+  const malformedTimingReport = lifecycleReport(contract, {
+    measuredTransitionCount: 34,
+    actionCount: 38,
+    maxActionMs: 242,
+    checkpointBudgetMs: 5000,
+    timingCheckpoints: timingCheckpoints.map((checkpoint, index) => index === 12
+      ? { ...checkpoint, durationMs: 'not-a-duration' }
+      : checkpoint),
+  });
+  const malformedTiming = summarizeLifecycleEvidence(malformedTimingReport, contract);
+  assert.equal(malformedTiming.dimensions.performance, 'unverified');
+  assert.equal(malformedTiming.renderCheckpoints.status, 'malformed');
+  assert.equal(malformedTiming.renderCheckpoints.issues.length, 1);
+  assert.equal(classifyEvidence(malformedTimingReport, registeredCase.requiredChecks, lifecycleContract, malformedTiming), 'partial');
+});
+
+test('the populated component-array lifecycle maps to its exact native case, oracle, and owned target', () => {
+  const scenario = registry.find(item => item.id === 'cda-repeated-rows');
+  assert(scenario, 'Populated component-array scenario is not registered');
+  const registeredCase = scenarioCaseFor(scenario, 'component-array-source-expand-field-remove-and-row-restoration');
+  assert.equal(registeredCase.playwrightTest, 'scripts/verify-ui/specs/standalone-cda-rows.spec.mjs');
+  assert.equal(registeredCase.playwrightGrep,
+    'applies source expansion, verifies item values, and restores original Observation rows$');
+  assert.deepEqual(registeredCase.expectedIdentity, { project, generation });
+  assert(registeredCase.requiredChecks.includes('expanded item identities are unique and stable across proposals and saved reload'));
+  assert(registeredCase.requiredChecks.includes('fresh Explorer source table renders the exact raw-oracle Observation IDs'));
+  assert(registeredCase.requiredChecks.includes('native sibling field preview matches exact raw Observation/component tuples'));
+  assert(registeredCase.requiredChecks.includes('native Apply persists canonical component[].valueString at base occurrence'));
+  assert(registeredCase.requiredChecks.includes('all native action-to-render checkpoints complete within five seconds'));
+  assert.deepEqual(registeredCase.lifecycleEvidence.persistence.checks, [
+    'reload renders the applied repeated component rows',
+    'native Apply persists canonical component[].valueString at base occurrence',
+    'native field removal restores prior columns and preserves repeated rows',
+    'row-definition edit and reload restore one row per selected Observation',
+    'source restoration preserves original population, route, field bindings and exact CDA members',
+  ]);
+  assert.deepEqual(registeredCase.lifecycleEvidence.performance, {
+    check: 'all native action-to-render checkpoints complete within five seconds',
+    checkpointBudgetMs: 5000,
+  });
+  const timingCheckpoints = [
+    { name: 'reload-added-component-field', durationMs: 1420 },
+    { name: 'native-component-field-apply', durationMs: 1710 },
+    { name: 'reload-after-row-restoration', durationMs: 1330 },
+  ];
+  const performanceCheck = registeredCase.lifecycleEvidence.performance.check;
+  const report = {
+    schemaVersion: 2,
+    status: 'passed',
+    target: { ...registeredCase.expectedIdentity },
+    playwrightGrep: registeredCase.playwrightGrep,
+    dimensions: { persistence: 'passed', performance: 'passed' },
+    assertions: registeredCase.requiredChecks.map(name => name === performanceCheck
+      ? { name, dimension: 'performance', status: 'passed', evidence: {
+        measuredTransitionCount: timingCheckpoints.length,
+        actionCount: 18,
+        maxActionMs: 244,
+        checkpointBudgetMs: 5000,
+        timingCheckpoints,
+      } }
+      : { name, status: 'passed' }),
+  };
+  const evidence = summarizeLifecycleEvidence(report, registeredCase);
+  assert.equal(evidence.status, 'passed');
+  assert.equal(evidence.renderCheckpoints.count, timingCheckpoints.length);
+  assert.equal(evidence.dimensionEvidence.performance.maximumActionDurationMs, 244);
+  assert.equal(classifyEvidence(report, registeredCase.requiredChecks, registeredCase, evidence), 'passed');
+
+  const builderAuthoring = registry.find(item => item.id === 'builder-authoring');
+  const repeatedValues = builderAuthoring.coverage.find(item => item.feature === 'repeated-value rows');
+  assert.deepEqual(repeatedValues.acceptance, {
+    intent: 'row-lifecycle', kind: 'lifecycle', scenario: 'cda-repeated-rows',
+    case: 'component-array-source-expand-field-remove-and-row-restoration',
+    checks: { choice: 2, proposal: 7, cancel: 3, apply: 4, savedRows: 5, reload: 6, edit: 8, restoration: 11 },
+  });
+  assert.equal(hasLifecycleContract(repeatedValues, builderAuthoring), true);
+  assert.deepEqual(lifecycleAcceptanceDrift([scenario]), []);
+  assert.deepEqual(coverageDrift(registry), []);
+
+  const emptyScenario = registry.find(item => item.id === 'cda-repeated-empty');
+  const missingScenario = registry.find(item => item.id === 'cda-repeated-missing-component-group');
+  assert(emptyScenario && missingScenario, 'Empty-array and missing-property scenarios must stay registered independently');
+  assert.notEqual(emptyScenario.id, scenario.id);
+  assert.notEqual(missingScenario.id, scenario.id);
+  assert(!registeredCase.requiredChecks.some(name => /missing component|literal-empty|empty-array/i.test(name)),
+    'The populated component-array lifecycle must not claim missing-property or literal-empty behavior');
+
+  const spec = readFileSync(new URL('../../specs/standalone-cda-rows.spec.mjs', import.meta.url), 'utf8');
+  const workflow = readFileSync(new URL('../../workflows/verify-cda-repeated-rows-browser.mjs', import.meta.url), 'utf8');
+  assert.match(spec, /cdaScenarioID: 'cda-repeated-rows'/);
+  assert.match(spec, /cdaCaseName: 'component-array-source-expand-field-remove-and-row-restoration'/);
+  assert.match(workflow, /FILTER IS_ARRAY\(r\.payload\.component\)/);
+  assert.match(workflow, /SORT r\.id LIMIT 1000/);
+  assert.match(workflow, /components\.length < 2 \|\| components\.length > 20/);
+  assert.match(workflow, /new Set\(componentValues\.map\(item => item\.value\)\)\.size < 2/);
+  assert.match(workflow, /verifyStableItemIdentities\(\)/);
+  assert.match(workflow, /summarizeCdaActionToRenderTimings\(report\.timings/);
+  assert.match(workflow, /assertion\.name === actionToRenderPerformanceCheck \? 'performance' : 'correctness'/);
+  for (const check of registeredCase.requiredChecks.filter(name =>
+    name !== 'CDA watched source and API build stayed unchanged')) {
+    assert(workflow.includes(check), `Registered native check is not emitted by the component-array workflow: ${check}`);
   }
 });
 

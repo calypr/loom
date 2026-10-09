@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { createNativeCdaWorkflowTools, validatedArangoContainer } from '../helpers/native-cda-workflow-tools.mjs';
+import { assertExactContributorRows, deriveContributorRuleOracle } from '../helpers/contributor-rule-oracle.mjs';
 
 export async function contributorRulesWorkflow({ page, cda, caseOptions = {} }) {
   const { click, fill, selectOption, navigate, inspect, clickControl, fillControl, selectControl,
@@ -14,9 +15,10 @@ export async function contributorRulesWorkflow({ page, cda, caseOptions = {} }) 
   const apiOrigin = String(cda.apiOrigin).replace(/\/$/, '');
   const uiOrigin = String(cda.uiOrigin).replace(/\/$/, '');
   const arangoContainer = validatedArangoContainer(target, caseOptions.arangoContainer);
+  const recordCheck = (dimension, name, passed = true, evidence = {}) => cda.check(dimension, name, Boolean(passed), evidence);
   assert(project && generation && apiOrigin && uiOrigin, 'The CDA fixture must bind project, generation, API origin, and UI origin explicitly.');
   assert.equal(generation, 'cda-fhir-v1', 'This verifier requires the loaded CDA FHIR generation.');
-const explorer = `contributor-rules-browser-${Date.now()}`;
+const explorer = `contributor-rules-browser-${randomUUID()}`;
 const root = `/api/v1/projects/${project}/explorers`;
 const base = `${root}/${explorer}/authoring/v2`;
 const pageURL = `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`;
@@ -164,9 +166,7 @@ const revealControl = async (selector, includes) => {
 };
 
 const assertRows = (actual, expected, name) => {
-  assert.equal(actual.length, Math.min(25, expected.length), `${name}: visible row count differs`);
-  const permitted = new Set(expected.map((row) => JSON.stringify(row)));
-  for (const row of actual) assert(permitted.has(JSON.stringify(row)), `${name}: row is absent from the independent CDA oracle: ${JSON.stringify(row)}`);
+  return assertExactContributorRows(actual, expected, name);
 };
 
 const recordAction = (name, startedAt, details = {}) => {
@@ -630,25 +630,18 @@ report.errors = cda.report.errors;
 
   try {
 const witnesses = sourceWitnesses();
+const oracle = deriveContributorRuleOracle(witnesses);
 report.oracle = {
   project,
   generation,
   relationship: 'Observation --subject_Patient--> Patient',
   witnesses,
-  countByBucket: Object.fromEntries(witnesses.map((item) => [item.bucket, item.observations.length])),
+  ...oracle,
 };
-const baselineRows = witnesses.map((item) => [item.patient.id]);
-const selectedObservationID = witnesses.find((item) => item.bucket === 'many').observations[0].id;
-const selectedMatches = witnesses.flatMap((item) => item.observations
-  .filter((observation) => observation.id === selectedObservationID)
-  .map((observation) => [item.patient.id, observation.id]));
-assert.equal(selectedMatches.length, 1, 'The selected CDA Observation ID must identify exactly one related source record');
-const allRows = witnesses.flatMap((item) => {
-  const matches = item.observations.filter((observation) => observation.id === selectedObservationID);
-  return matches.length ? matches.map((observation) => [item.patient.id, observation.id]) : [[item.patient.id, '—']];
+recordCheck('correctness', 'Independent scoped CDA oracle supplies distinct zero, one, and many Patient witnesses and exactly one selected Observation ID match', true, {
+  project, generation, selectedObservationID: oracle.selectedObservationId, countByBucket: oracle.countByBucket,
 });
-const excludedRows = selectedMatches;
-assert(allRows.length > excludedRows.length, 'PRESERVE_PARENT must retain the zero-match source witness');
+const { baselineRows, selectedObservationId: selectedObservationID, preserveParentRows: allRows, excludeRows: excludedRows } = oracle;
 
 await api(root, { name: explorer, title: 'Contributor rules lifecycle QA' });
 builder = await api(base + '/builder');
@@ -669,6 +662,7 @@ const selection = await api(base.replace('/authoring/v2', '/selections'), {
   })) } },
 });
 assert.equal(selection.memberCount, 3, 'Selection must contain the three independently witnessed source rows');
+report.selection = { id: selection.id, memberCount: selection.memberCount };
 const routes = await api(base + '/population-routes', {
   snapshotToken: builder.catalog.snapshotToken, outputId, selectionRevisionId: selection.id, limit: 50,
 });
@@ -684,10 +678,17 @@ browserEvents = cda.captureRequests(root + '/' + explorer, { responsePaths: { ap
 
 
 await open(baselineRows, 'source-selection-zero-one-many');
+recordCheck('correctness', 'Initial source preview matches the exact three raw Patient witnesses', true, { rows: baselineRows });
 let panel = await startRelatedExpand();
 await chooseContributorIDEquals(panel, selectedObservationID, 'configure-contributor-rule-controls');
+recordCheck('usability', 'Native Contributor controls select Observation.id EQUALS with the exact raw-oracle value', true, {
+  source: 'Observation.id', operator: 'EQUALS', value: selectedObservationID,
+});
 let startedAt = Date.now();
 await proposal('contributor-id-equals-preview', startedAt, allRows);
+recordCheck('correctness', 'EQUALS PRESERVE_PARENT proposal rows exactly match every raw-oracle Patient result', true, {
+  rows: allRows, selectedObservationID,
+});
 const beforeCancel = await api(base + '/builder');
 startedAt = Date.now();
 await nativeClick(page, '[data-testid="construction-cancel-proposal"]', {});
@@ -698,6 +699,7 @@ builder = await api(base + '/builder');
 assert.deepEqual(builder.workspace, beforeCancel.workspace, 'Cancel must leave the saved workspace unchanged');
 assert.deepEqual(documentForOutput(builder), original, 'Cancel must preserve the exact source table');
 report.cases.push({ name: 'contributor-rule-cancel-preserves-source', workspaceUnchanged: true });
+recordCheck('persistence', 'Cancel preserves the exact source document, population, and rendered rows', true, { rows: baselineRows });
 
 panel = await startRelatedExpand();
 await chooseContributorIDEquals(panel, selectedObservationID, 'reconfigure-contributor-rule-after-cancel');
@@ -718,11 +720,21 @@ assert.equal(relatedStep.operation.relatedExpand.emptyPolicy, 'PRESERVE_PARENT')
 assert.equal(relatedStep.operation.relatedExpand.contributorRule.predicate.operator, 'EQUALS');
 assert.equal(relatedStep.operation.relatedExpand.contributorRule.predicate.value.string, selectedObservationID);
 assert.equal(relatedStep.operation.relatedExpand.contributorSource.path, 'id');
-await open(allRows, 'reload-contributor-id-exists');
+recordCheck('persistence', 'PRESERVE_PARENT Apply saves the exact EQUALS rule and raw-oracle rows', true, {
+  operator: 'EQUALS', value: selectedObservationID, emptyPolicy: 'PRESERVE_PARENT', rows: allRows,
+});
+await open(allRows, 'reload-contributor-id-equals');
 
 const beforeEdit = await api(base + '/builder');
 assertStableSourceProjection(beforeEdit, original, canonicalSourceColumnId, 'reload after initial contributor Apply');
 relatedStep = documentForOutput(beforeEdit).construction.steps.find((step) => step.operation.kind === 'RELATED_EXPAND');
+assert.equal(relatedStep.operation.relatedExpand.emptyPolicy, 'PRESERVE_PARENT');
+assert.equal(relatedStep.operation.relatedExpand.contributorRule.predicate.operator, 'EQUALS');
+assert.equal(relatedStep.operation.relatedExpand.contributorRule.predicate.value.string, selectedObservationID);
+assert.equal(relatedStep.operation.relatedExpand.contributorSource.path, 'id');
+recordCheck('persistence', 'EQUALS rows, policy, and source binding survive reload', true, {
+  operator: 'EQUALS', value: selectedObservationID, emptyPolicy: 'PRESERVE_PARENT', rows: allRows,
+});
 await beginEdit(relatedStep.id);
 const policySelector = '[data-testid="construction-related-expand-editor"] select[aria-label="If a current row has no matches"]';
 assert.equal(await cda.inspect(([__arg0]) => { return document.querySelector(__arg0)?.value; }, [policySelector]), 'PRESERVE_PARENT');
@@ -735,11 +747,22 @@ assertStableSourceProjection(builder, original, canonicalSourceColumnId, 'edited
 assert.equal(relatedStep.operation.relatedExpand.emptyPolicy, 'EXCLUDE');
 assert.equal(relatedStep.operation.relatedExpand.contributorRule.predicate.operator, 'EQUALS');
 assert.equal(relatedStep.operation.relatedExpand.contributorRule.predicate.value.string, selectedObservationID);
+assert.equal(relatedStep.operation.relatedExpand.contributorSource.path, 'id');
+recordCheck('correctness', 'EXCLUDE edit retains the EQUALS source binding and renders only exact raw matches', true, {
+  operator: 'EQUALS', value: selectedObservationID, emptyPolicy: 'EXCLUDE', rows: excludedRows,
+});
 await open(excludedRows, 'reload-edited-exclude-policy');
 
 const beforeRemoval = await api(base + '/builder');
 assertStableSourceProjection(beforeRemoval, original, canonicalSourceColumnId, 'reload after edited EXCLUDE policy');
 relatedStep = documentForOutput(beforeRemoval).construction.steps.find((step) => step.operation.kind === 'RELATED_EXPAND');
+assert.equal(relatedStep.operation.relatedExpand.emptyPolicy, 'EXCLUDE');
+assert.equal(relatedStep.operation.relatedExpand.contributorRule.predicate.operator, 'EQUALS');
+assert.equal(relatedStep.operation.relatedExpand.contributorRule.predicate.value.string, selectedObservationID);
+assert.equal(relatedStep.operation.relatedExpand.contributorSource.path, 'id');
+recordCheck('persistence', 'EXCLUDE rows, policy, and source binding survive reload', true, {
+  operator: 'EQUALS', value: selectedObservationID, emptyPolicy: 'EXCLUDE', rows: excludedRows,
+});
 const remove = async () => {
   await nativeClick(page, `[data-testid="construction-history-step-${relatedStep.id}"]`, {});
   startedAt = Date.now();
@@ -756,6 +779,7 @@ builder = await api(base + '/builder');
 assert.deepEqual(builder.workspace, beforeRemoval.workspace, 'Cancel removal must preserve the authored Contributor rule');
 assertStableSourceProjection(builder, original, canonicalSourceColumnId, 'cancel remove');
 report.cases.push({ name: 'remove-cancel-preserves-contributor-rule', workspaceUnchanged: true });
+recordCheck('persistence', 'Cancel removal preserves the saved EQUALS workspace and exact rows', true, { rows: excludedRows });
 await remove();
 await applyProposal(baselineRows, 'apply-remove-to-render');
 const restored = documentForOutput(builder);
@@ -764,9 +788,16 @@ assert.deepEqual(restored.construction?.steps ?? [], original.construction?.step
 assertStableSourceProjection(builder, original, canonicalSourceColumnId, 'remove Apply');
 assert.deepEqual(restored.rows, original.rows, 'Removing Contributor rules must restore the exact row definition');
 assert.deepEqual(restored.population, original.population, 'Removing Contributor rules must restore the exact selected population');
+recordCheck('persistence', 'Removal Apply restores exact source construction, columns, rows, and population', true, {
+  rows: baselineRows, constructionStepCount: restored.construction?.steps?.length ?? 0,
+});
 await open(baselineRows, 'reload-restored-source-table');
 builder = await api(base + '/builder');
 assertStableSourceProjection(builder, original, canonicalSourceColumnId, 'reload after Contributor removal');
+assert.deepEqual(documentForOutput(builder).construction?.steps ?? [], original.construction?.steps ?? []);
+assert.deepEqual(documentForOutput(builder).rows, original.rows);
+assert.deepEqual(documentForOutput(builder).population, original.population);
+recordCheck('persistence', 'Restored source schema, population, and exact baseline rows survive reload', true, { rows: baselineRows });
 await browserEvents?.flush();
 cda.includeBrowserDiagnostics();
 failedResponses = report.nativeRequests.filter(entry => entry.status >= 400).map(entry => ({
@@ -774,9 +805,22 @@ failedResponses = report.nativeRequests.filter(entry => entry.status >= 400).map
 }));
 markProvenCancellationDiagnostics(provenContributorSearchCancellations);
 markProvenCancellationDiagnostics(provenContributorProposalCancellations);
+assert.deepEqual(failedResponses, [],
+  'Contributor EQUALS lifecycle does not expect HTTP error responses; exact stale-request cancellations must remain network failures');
 assert.deepEqual(report.errors.filter(error => !isProvenContributorSearchError(error)
   && !isProvenContributorProposalError(error)), [],
   'Only exact paired unfiltered contributor lookup and proposal cancellations may be classified as expected');
+recordCheck('integrity', 'Only proven contributor request supersessions are expected; unrelated diagnostics remain fatal', true, {
+  expectedCancellationCount: cda.report.expectedCancellations?.length ?? 0,
+  failedHttpResponseCount: failedResponses.length,
+  unexpectedErrorCount: report.errors.filter(error => !isProvenContributorSearchError(error)
+    && !isProvenContributorProposalError(error)).length,
+});
+const actionDurations = report.cases.map(item => item.durationMs).filter(Number.isFinite);
+const maxActionMs = actionDurations.length ? Math.max(...actionDurations) : 0;
+recordCheck('performance', 'All Contributor EQUALS lifecycle actions finish within five seconds', actionDurations.length > 0 && maxActionMs <= 5000, {
+  actionCount: actionDurations.length, maxActionMs, budgetMs: 5000,
+});
 report.status = 'passed';
   } finally {
     try { await browserEvents?.flush(); } catch (error) { report.requestFlushError = String(error); }

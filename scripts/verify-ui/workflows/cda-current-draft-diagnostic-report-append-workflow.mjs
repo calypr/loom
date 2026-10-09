@@ -22,6 +22,11 @@ const TABLE_SELECTOR = '[data-testid="preview-table-scroll"] [role="table"]';
 const encoded = value => encodeURIComponent(value);
 const apiRoot = (project, explorer) => `/api/v1/projects/${encoded(project)}/explorers/${encoded(explorer)}`;
 const normalized = value => String(value ?? '').replace(/\s+/g, ' ').trim();
+export const readDiagnosticReportAppendSelectOptions = element => [...element.options].map(option => ({
+  value: option.value,
+  text: String(option.textContent ?? '').replace(/\s+/g, ' ').trim(),
+  disabled: option.disabled,
+}));
 const sortRows = rows => [...rows].map(row => JSON.stringify(row)).sort();
 
 function runAQL(container, query, label) {
@@ -571,9 +576,7 @@ export async function cdaCurrentDraftDiagnosticReportAppendWorkflow({ page, cda 
         'Saved DiagnosticReport GROUP must have the expected COUNT_ROWS aggregate and status key');
       await openSavedGroupEditor(source);
       const summarySelector = 'select[aria-label="Summary 1"]';
-      const summaryOptions = await page.locator(summarySelector).evaluate(element => [...element.options].map(option => ({
-        value: option.value, text: normalized(option.textContent), disabled: option.disabled,
-      })));
+      const summaryOptions = await page.locator(summarySelector).evaluate(readDiagnosticReportAppendSelectOptions);
       const distinctOptions = summaryOptions.filter(option => !option.disabled && option.value === 'COUNT_DISTINCT');
       assert.equal(distinctOptions.length, 1,
         `Saved GROUP editor must expose one COUNT_DISTINCT option: ${JSON.stringify(summaryOptions)}`);
@@ -582,9 +585,7 @@ export async function cdaCurrentDraftDiagnosticReportAppendWorkflow({ page, cda 
         page.locator(summarySelector), distinctOptions[0].value,
         async () => waitSelector('select[aria-label="Summary field 1"]'));
       const fieldSelector = 'select[aria-label="Summary field 1"]';
-      const fieldOptions = await page.locator(fieldSelector).evaluate(element => [...element.options].map(option => ({
-        value: option.value, text: normalized(option.textContent), disabled: option.disabled,
-      })));
+      const fieldOptions = await page.locator(fieldSelector).evaluate(readDiagnosticReportAppendSelectOptions);
       const statusOptions = fieldOptions.filter(option => !option.disabled && option.value === source.statusColumn.id);
       assert.equal(statusOptions.length, 1,
         `COUNT_DISTINCT must bind the exact selected DiagnosticReport.status column: ${JSON.stringify(fieldOptions)}`);

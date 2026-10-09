@@ -121,6 +121,25 @@ let browserPending = new Set();
 
 const q = value => JSON.stringify(value);
 const recordAssertion = (name, evidence) => report.assertions.push({ name, status: 'passed', evidence });
+const actionToRenderPerformanceCheck = 'all native action-to-render checkpoints complete within five seconds';
+const actionToRenderEvidence = () => {
+  const timingSummary = summarizeCdaActionToRenderTimings(report.timings);
+  const actionDurations = (cda.report.actions ?? []).map(action => action.elapsedMs);
+  const actionDurationsValid = actionDurations.length > 0 && actionDurations.every(Number.isFinite);
+  const maxActionMs = actionDurationsValid ? Math.max(...actionDurations) : null;
+  const evidence = {
+    measuredTransitionCount: timingSummary.checkpointCount,
+    actionCount: actionDurations.length,
+    maxActionMs,
+    maximumActionToRenderMs: timingSummary.maximumDurationMs,
+    checkpointBudgetMs: CDA_ACTION_TO_RENDER_BUDGET_MS,
+    timingCheckpoints: timingSummary.checkpoints,
+  };
+  return {
+    evidence,
+    passed: timingSummary.withinBudget && actionDurationsValid && maxActionMs <= CDA_ACTION_TO_RENDER_BUDGET_MS,
+  };
+};
 const api = async (path, body, allowFailure = false) => {
   const requestId = 'cda-repeated-empty-' + randomUUID();
   const startedAt = Date.now();
@@ -813,7 +832,10 @@ const finish = async () => {
   }
   cda.report[missingGroupOnly ? 'standaloneCdaMissingComponentGroup' : 'standaloneCdaRows'] = report;
   await cda.attachReport(missingGroupOnly ? 'standalone-cda-missing-component-group.json' : 'standalone-cda-repeated-empty.json', report);
-  for (const assertion of report.assertions) cda.check('correctness', assertion.name, assertion.status === 'passed', assertion.evidence ?? {});
+  for (const assertion of report.assertions) {
+    const dimension = assertion.name === actionToRenderPerformanceCheck ? 'performance' : 'correctness';
+    cda.check(dimension, assertion.name, assertion.status === 'passed', assertion.evidence ?? {});
+  }
   if (report.status === 'failed' || report.status === 'invalidated') {
     throw new Error(`${missingGroupOnly ? 'Missing-component GROUP' : 'Repeated-empty'} workflow ${report.status}: ${JSON.stringify(report.failures ?? report.invalidations)}`);
   }
@@ -1173,11 +1195,10 @@ const main = async () => {
     assert.deepEqual(report.browserErrors.modules, [], 'Browser failed to load a module');
     assert.deepEqual(report.browserErrors.http.filter(error => error.expected !== true), [], 'Browser received unexpected 4xx/5xx responses');
     assert.deepEqual(report.errors.filter(error => error.expected !== true), [], 'Playwright request capture reported an owned API, runtime, or console failure');
-    const maximumCheckpointMs = Math.max(...report.timings.map(item => item.durationMs));
-    assert(report.timings.length > 0 && report.timings.every(item => item.durationMs <= 5000), 'A native action checkpoint exceeded five seconds');
-    recordAssertion('all native action-to-render checkpoints complete within five seconds', {
-      checkpointCount: report.timings.length, maximumCheckpointMs, timings: report.timings,
-    });
+    const timing = actionToRenderEvidence();
+    assert(timing.passed, 'A native action-to-render checkpoint or action exceeded its five-second budget');
+    report.performance = timing.evidence;
+    recordAssertion(actionToRenderPerformanceCheck, timing.evidence);
     recordAssertion('no unexpected browser, module, console, or HTTP errors', {
       workflow: report.browserErrors, fixture: fixtureDiagnostics,
     });
@@ -1245,21 +1266,9 @@ const main = async () => {
   assert.deepEqual(report.browserErrors.modules, [], 'Browser failed to load a module');
   assert.deepEqual(report.browserErrors.http.filter(error => error.expected !== true), [], 'Browser received unexpected 4xx/5xx responses');
   assert.deepEqual(report.errors.filter(error => error.expected !== true), [], 'Playwright request capture reported an owned API, runtime, or console failure');
-  const timingSummary = summarizeCdaActionToRenderTimings(report.timings);
-  const actionDurations = (cda.report.actions ?? []).map(action => action.elapsedMs);
-  const actionDurationsValid = actionDurations.length > 0 && actionDurations.every(Number.isFinite);
-  const maxActionMs = actionDurationsValid ? Math.max(...actionDurations) : null;
-  const timingEvidence = {
-    measuredTransitionCount: timingSummary.checkpointCount,
-    actionCount: actionDurations.length,
-    maxActionMs,
-    maximumActionToRenderMs: timingSummary.maximumDurationMs,
-    checkpointBudgetMs: CDA_ACTION_TO_RENDER_BUDGET_MS,
-    timingCheckpoints: timingSummary.checkpoints,
-  };
-  cda.check('performance', 'all native action-to-render checkpoints complete within five seconds',
-    timingSummary.withinBudget && actionDurationsValid && maxActionMs <= CDA_ACTION_TO_RENDER_BUDGET_MS, timingEvidence);
-  report.performance = timingEvidence;
+  const timing = actionToRenderEvidence();
+  cda.check('performance', actionToRenderPerformanceCheck, timing.passed, timing.evidence);
+  report.performance = timing.evidence;
   recordAssertion('native row-policy lifecycle had no browser, module, console, or unexpected HTTP errors', report.browserErrors);
 };
 

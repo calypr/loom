@@ -5,6 +5,17 @@ import { repeatedEmptyWorkflow } from '../workflows/verify-cda-repeated-empty-br
 import { repeatedRowsWorkflow } from '../workflows/verify-cda-repeated-rows-browser.mjs';
 import { missingComponentGroupSkipReason } from '../helpers/missing-component-group-oracle.mjs';
 import { fixtureUnavailableSkipReason } from '../helpers/cda-fixture-outcomes.mjs';
+import {
+  statusOneAllLifecycleCheckNames,
+  zeroObservationLifecycleCheckNames,
+} from '../helpers/related-one-all-lifecycle-contract.mjs';
+
+const expectLifecycleChecks = (assertions, names) => {
+  const byName = new Map(assertions.map(assertion => [assertion.name, assertion]));
+  for (const name of names) {
+    expect(byName.get(name), name).toMatchObject({ status: 'passed' });
+  }
+};
 
 const relatedMode = process.env.LOOM_RELATED_ONE_ALL_MODE ?? 'cda';
 const relatedField = process.env.LOOM_RELATED_ONE_ALL_FIELD ?? 'id';
@@ -79,6 +90,116 @@ test.describe('CDA zero Observation related source ONE and ALL', () => {
     const skipReason = fixtureUnavailableSkipReason(result);
     if (skipReason) test.skip(true, skipReason);
     expect(result.cases.length).toBeGreaterThan(0);
+    expect(result).toMatchObject({ project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' });
+    expect(result.oracle.exactMembershipScope).toMatchObject({
+      project: 'loom_dev_cda_fhir',
+      generation: 'cda-fhir-v1',
+      rootResourceType: 'Patient',
+      selectedRootCount: 1,
+      incomingObservationEdgeCount: 0,
+    });
+    expect(result.oracle).toMatchObject({
+      finalScopedRereadMatched: true,
+      witnessSummary: { rootCount: 1, distinctIncomingObservationCount: 0 },
+    });
+    expect(result.zeroObservationExpansion).toMatchObject({
+      savedPolicy: 'PRESERVE_PARENT',
+      previewRowCount: 1,
+      outputNullable: true,
+      previewSchemaNullable: true,
+      unmatchedObservationOutputIsNull: true,
+    });
+    expect(result.zeroObservationOne).toMatchObject({ previewStatus: 'READY', rowCount: 1, value: null });
+    expect(result.zeroObservationAll).toMatchObject({ previewStatus: 'READY', rowCount: 1, values: [] });
+    expect(result.zeroObservationSavedAll).toMatchObject({
+      candidateSourceMatches: true,
+      form: 'ALL',
+      rowValuePolicy: 'ALL',
+      savedParentCount: 1,
+      previewValues: [],
+      reloadParentCount: 1,
+      reloadValues: [],
+      reloadSourceMatches: true,
+    });
+    expect(result.relatedSourceRestoration).toMatchObject({
+      constructionMatchesBaseline: true,
+      populationMatchesBaseline: true,
+      columnsMatchBaseline: true,
+      previewRowsMatchBaseline: true,
+      relatedOutputAbsent: true,
+    });
+    expectLifecycleChecks(cda.report.assertions, zeroObservationLifecycleCheckNames);
+    expect(result.status).toBe('passed');
+  });
+});
+
+test.describe('CDA related Observation.status grouped-row ONE to ALL', () => {
+  test.use({
+    ...(process.env.LOOM_API_ORIGIN ? { cdaApiOrigin: process.env.LOOM_API_ORIGIN } : {}),
+    ...(process.env.LOOM_UI_ORIGIN ? { cdaUiOrigin: process.env.LOOM_UI_ORIGIN } : {}),
+    cdaScenarioID: 'cda-related-one-all-observation-status',
+    cdaCaseName: 'observation-status-one-to-all-same-chooser-lifecycle',
+  });
+
+  test('repairs a distinct-status ONE rejection through the same chooser and restores the exact Group', async ({ page, cda }) => {
+    const result = await relatedOneAllWorkflow({ page, cda, mode: 'cda', fieldMode: 'status' });
+    const skipReason = fixtureUnavailableSkipReason(result);
+    if (skipReason) test.skip(true, skipReason);
+    expect(result.cases.length).toBeGreaterThan(0);
+    expect(result).toMatchObject({
+      project: 'loom_dev_cda_fhir',
+      generation: 'cda-fhir-v1',
+      statusSourceContract: {
+        path: 'Observation.status',
+        logicalType: 'string',
+        cardinality: 'optional_one',
+        relatedSourceForm: 'ALL',
+      },
+      oneRejection: { status: 422, errorCode: 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES' },
+      oneChooserAfterRejection: {
+        open: true,
+        policy: 'ONE',
+        routeChecked: true,
+        formChecked: true,
+        addEnabled: true,
+        savedGroupUnchanged: true,
+      },
+      relatedAllOutputEvidence: { policy: 'ALL', form: 'ALL', contributorPolicy: 'ALL_MATCHES', identitiesMatch: true },
+      relatedAllCancelEvidence: {
+        workspaceUnchanged: true,
+        constructionUnchanged: true,
+        populationUnchanged: true,
+        renderedRowsMatch: true,
+      },
+      relatedAllSavedEvidence: { candidateSourceMatches: true, form: 'ALL', rowValuePolicy: 'ALL', reloadSourceMatches: true },
+      relatedOutputEditEvidence: { labelChanged: true, candidateSourceMatches: true, policy: 'ALL' },
+      relatedSourceRestoration: {
+        constructionMatchesBaseline: true,
+        populationMatchesBaseline: true,
+        columnsMatchBaseline: true,
+        previewRowsMatchBaseline: true,
+        relatedOutputAbsent: true,
+      },
+    });
+    expect(result.oneRejection.distinctStatusValues.length).toBeGreaterThan(1);
+    expect(result.relatedAllOutputEvidence.previewValues).toEqual(result.relatedAllOutputEvidence.expectedValues);
+    expect(result.relatedAllSavedEvidence.reloadValues).toEqual(result.relatedAllSavedEvidence.expectedValues);
+    expect(result.relatedOutputEditEvidence.reloadValues).toEqual(result.relatedOutputEditEvidence.expectedValues);
+    expect(result.oracle.exactMembershipScope).toMatchObject({
+      project: 'loom_dev_cda_fhir',
+      generation: 'cda-fhir-v1',
+      rootResourceType: 'Specimen',
+    });
+    expect(result.oracle).toMatchObject({ finalScopedRereadMatched: true });
+    const manyWitness = result.oracle.witnesses.find(witness => witness.category === 'many-distinct-statuses');
+    expect(result.oracle.finalStatusMembership.observationPairs).toEqual(
+      manyWitness.observationKeys.map((key, index) => ({
+        id: manyWitness.observationIds[index],
+        _id: key,
+        status: manyWitness.observationStatuses[index],
+      })).sort((left, right) => left._id.localeCompare(right._id)),
+    );
+    expectLifecycleChecks(cda.report.assertions, statusOneAllLifecycleCheckNames);
     expect(result.status).toBe('passed');
   });
 });

@@ -3,17 +3,19 @@ import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { browserURL } from './builder-url.mjs';
 import { configureNativePage } from '../helpers/playwright-authoring-page.mjs';
+import { findRenderedBuilderHeaderIndex, waitForBuilderRenderedGrid } from '../helpers/builder-rendered-grid.mjs';
 
 const expectedPatientIDs = ['dev-patient-001', 'dev-patient-002'];
 const proposalPanel = '[data-testid="construction-proposal-panel"]';
 const proposalPreview = '[data-testid="construction-proposal-preview"]';
+const renderedTableSelector = '[data-testid="preview-table-scroll"] [role="table"]';
 
 const readNDJSON = path => readFileSync(path, 'utf8')
   .split(/\r?\n/)
   .filter(Boolean)
   .map(line => JSON.parse(line));
 
-export const groupEntryWorkflow = async ({ page, report, check, action }, context) => {
+export const openFreshPatientTable = async ({ page, report, check, action }, context, purpose) => {
   configureNativePage(page);
   assert.equal(context.custom, false, 'This case requires a fresh owned fixture project.');
   assert.equal(context.seed?.fresh, true, 'This case must use a fresh verification project.');
@@ -23,8 +25,10 @@ export const groupEntryWorkflow = async ({ page, report, check, action }, contex
     .filter(resource => resource?.resourceType === 'Patient')
     .map(resource => resource.id)
     .sort();
+  assert.deepEqual(fixtureIDs, expectedPatientIDs, 'fresh Patient.ndjson must provide the exact two-record identity oracle');
   const fixtureOracle = {
     source: 'fresh project Patient.ndjson',
+    path: join(context.target.fixtureDir, 'Patient.ndjson'),
     project: context.target.fixtureProject,
     generation: context.target.fixtureGeneration,
     resourceType: 'Patient',
@@ -32,10 +36,21 @@ export const groupEntryWorkflow = async ({ page, report, check, action }, contex
     expectedCountRows: fixtureIDs.length,
   };
   report.target.fixtureRawOracle = fixtureOracle;
+  report.target.qaIsolation = {
+    project: context.target.fixtureProject,
+    generation: context.target.fixtureGeneration,
+    fixtureDir: context.target.fixtureDir,
+    fixtureOracle,
+    bootstrapExplorerId: context.target.bootstrapExplorerId,
+    explorer: null,
+    workflowMutations: [],
+    cleanupMutations: [],
+    workflowCleanup: 'native Group removal restores the original Patient row shape; the harness retains the fresh loom_dev_verify project and its Explorers after the case',
+  };
   check('correctness', 'basic Patient fixture contains the two independently known records',
     JSON.stringify(fixtureIDs) === JSON.stringify(expectedPatientIDs), fixtureOracle);
 
-  const explorerName = `Verify ${context.runID.slice(-10)} group entry`;
+  const explorerName = `Verify ${context.runID.slice(-10)} ${purpose}`;
   const bootstrapBuilderPath = `/api/v1/projects/${encodeURIComponent(context.target.fixtureProject)}`
     + `/explorers/${encodeURIComponent(context.target.bootstrapExplorerId)}/authoring/v2/builder`;
   const bootstrapResponsePromise = page.waitForResponse(response => {
@@ -78,6 +93,8 @@ export const groupEntryWorkflow = async ({ page, report, check, action }, contex
   assert(explorer && explorer !== context.target.bootstrapExplorerId,
     'Group entry requires a newly created Explorer');
   report.target.explorer = explorer;
+  report.target.qaIsolation.explorer = explorer;
+  report.target.qaIsolation.workflowMutations.push('native UI created a blank Explorer in the fresh fixture project');
 
   const tableName = page.locator('#first-table-name');
   await action('name Patient table', tableName, () => tableName.fill('Patients'), {
@@ -95,6 +112,7 @@ export const groupEntryWorkflow = async ({ page, report, check, action }, contex
     timeout: 5000,
     budget: 5000,
   });
+  report.target.qaIsolation.workflowMutations.push('native UI created a Patient root table from the two fixture Patient records');
 
   const apiRoot = `/api/v1/projects/${encodeURIComponent(context.target.fixtureProject)}`
     + `/explorers/${encodeURIComponent(explorer)}`;
@@ -109,8 +127,19 @@ export const groupEntryWorkflow = async ({ page, report, check, action }, contex
     'Expected a scoped current Builder snapshot.');
   const document = builder.workspace?.documents?.find(item => item.rootResourceType === 'Patient');
   assert(document?.output?.id, 'Fresh Builder Explorer must contain its native Patient table.');
+  const sourceIdColumn = document.columns?.find(column => column.source?.field?.path === 'id');
+  const sourceIdColumnId = sourceIdColumn?.columnId ?? sourceIdColumn?.id;
+  assert(sourceIdColumnId && sourceIdColumn.label, 'Fresh Patient table must expose its native Patient.id column.');
   const outputId = document.output.id;
-  report.target.table = { outputId, rootResourceType: 'Patient', rawRowCount: fixtureIDs.length };
+  report.target.table = { outputId, rootResourceType: 'Patient', rawRowCount: fixtureIDs.length,
+    patientIDColumn: { id: sourceIdColumnId, label: sourceIdColumn.label } };
+  return { fixtureIDs, fixtureOracle, explorerName, explorer, apiRoot, builder, document, outputId, sourceIdColumn, sourceIdColumnId };
+};
+
+export const groupEntryWorkflow = async (workflow, context) => {
+  const { page, report, check, action } = workflow;
+  const { fixtureIDs, explorer, apiRoot, builder, outputId, sourceIdColumn, sourceIdColumnId } =
+    await openFreshPatientTable(workflow, context, 'group entry');
 
   const groupProposalPath = `${apiRoot}/authoring/v2/construction-proposals`;
   const groupRequests = [];
@@ -238,7 +267,7 @@ export const groupEntryWorkflow = async ({ page, report, check, action }, contex
   }, { panelSelector: proposalPanel, previewSelector: proposalPreview });
   assert.equal(initialView.summary, 'COUNT_ROWS', 'Initial standard Group must select Count rows before any edit.');
   assert.deepEqual(initialView.groupKeys, [], 'Initial standard Group must keep the row key list empty.');
-  const countHeaderIndex = initialView.headers.findIndex(header => header.toLowerCase() === 'row count');
+  const countHeaderIndex = findRenderedBuilderHeaderIndex(initialView.headers, 'row count');
   assert(countHeaderIndex >= 0, 'Initial standard Group Preview must expose the Row count column.');
   assert.equal(initialView.rows.length, 1, 'A whole-table COUNT_ROWS summary must preview one group row.');
   assert.equal(initialView.rows[0]?.[countHeaderIndex], String(fixtureIDs.length),
@@ -289,4 +318,240 @@ export const groupEntryWorkflow = async ({ page, report, check, action }, contex
       rows: initialView.rows,
       expectedCount: fixtureIDs.length,
     });
+
+  const directGroupCheckNames = [
+    'direct standard Group entry defaults to empty-key COUNT_ROWS without an edit',
+    'native Builder automatically proposes the exact empty-key COUNT_ROWS GROUP',
+    'automatic Group proposal Preview returns one row with the independently expected count 2',
+  ];
+  report.target.qaIsolation.requiredEntryChecks = directGroupCheckNames;
+
+  await action('Apply initial empty-key COUNT_ROWS Group', page.getByTestId('construction-apply-proposal'),
+    () => page.getByTestId('construction-apply-proposal').click(), {
+      after: () => waitForBuilderRenderedGrid(page, { tableSelector: renderedTableSelector,
+        expectedRows: [{ 'Row count': String(fixtureIDs.length) }] }),
+    });
+  report.target.qaIsolation.workflowMutations.push('native UI applied the empty-key COUNT_ROWS Group');
+
+  const rows = await page.evaluate(() => {
+    const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+    const rowList = [...(table?.querySelectorAll('[role="row"]') ?? [])];
+    return {
+      headers: [...(rowList[0]?.querySelectorAll('[role="columnheader"]') ?? [])].map(cell => cell.innerText.trim()),
+      rows: rowList.slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim())),
+    };
+  });
+  const countIndex = findRenderedBuilderHeaderIndex(rows.headers, 'row count');
+  assert.equal(rows.rows.length, 1, 'applied empty-key Group must retain one group row');
+  assert.equal(rows.rows[0]?.[countIndex], String(fixtureIDs.length), 'applied Group must render the exact fixture count');
+  check('correctness', 'applied empty-key Group renders the independently expected count 2', true, {
+    headers: rows.headers,
+    rows: rows.rows,
+    expectedCount: fixtureIDs.length,
+  });
+
+  const readBuilder = async () => {
+    const response = await fetch(context.target.apiUrl + `${apiRoot}/authoring/v2/builder`, {
+      signal: AbortSignal.timeout(30000),
+    });
+    const value = await response.json();
+    if (!response.ok) throw new Error(`Builder read returned HTTP ${response.status}.`);
+    return value;
+  };
+  let savedBuilder = await readBuilder();
+  const savedDocument = savedBuilder.workspace.documents.find(item => item.output?.id === outputId);
+  const originalGroup = savedDocument?.construction?.steps?.find(step => step.operation?.kind === 'GROUP');
+  assert(originalGroup?.id, 'applied Group must retain its exact saved step identity');
+  assert(sourceIdColumnId && sourceIdColumn.label, 'Patient root must expose its source identity as a Group key');
+
+  const openRowsHistory = async () => {
+    const history = page.getByTestId('construction-row-operation-history');
+    if (!await history.isVisible().catch(() => false)) {
+      const settings = page.getByTestId('construction-rows-settings-trigger');
+      await action('open saved row operations', settings, () => settings.click(), {
+        after: () => history.waitFor({ state: 'visible' }),
+      });
+    }
+  };
+  const editSelector = `[data-testid="construction-row-edit-${originalGroup.id}"]`;
+  await openRowsHistory();
+  await action('open saved Group edit', page.locator(editSelector), () => page.locator(editSelector).click(), {
+    after: () => page.getByRole('checkbox', { name: `Group by ${sourceIdColumn.label}`, exact: true }).waitFor({ state: 'visible' }),
+  });
+  const sourceIdKey = page.getByRole('checkbox', { name: `Group by ${sourceIdColumn.label}`, exact: true });
+  await action('preview keyed Patient Group edit', sourceIdKey, () => sourceIdKey.check(), {
+    after: () => page.waitForFunction(() => document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus === 'ready'
+      && document.querySelector('[data-testid="construction-proposal-preview"]')?.dataset.previewStatus === 'ready'),
+  });
+  const editedPreview = await page.evaluate(() => {
+    const preview = document.querySelector('[data-testid="construction-proposal-preview"]');
+    const headers = [...(preview?.querySelectorAll('thead th') ?? [])]
+      .map(cell => (cell.querySelector('span')?.innerText ?? cell.innerText).replace(/\s+/g, ' ').trim());
+    const rows = [...(preview?.querySelectorAll('tbody tr[data-testid="construction-proposal-preview-row"]') ?? [])]
+      .map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText.trim()));
+    const keys = [...document.querySelectorAll('[data-testid="construction-reshape-group"] input[aria-label^="Group by"]')]
+      .filter(input => input.checked).map(input => input.getAttribute('aria-label'));
+    return { headers, rows, keys };
+  });
+  const editedIDIndex = findRenderedBuilderHeaderIndex(editedPreview.headers, sourceIdColumn.label);
+  const editedCountIndex = findRenderedBuilderHeaderIndex(editedPreview.headers, 'row count');
+  const editedIDs = editedPreview.rows.map(row => row[editedIDIndex]).sort();
+  assert.deepEqual(editedIDs, fixtureIDs, 'keyed Group edit Preview must show both literal fixture Patient IDs');
+  assert(editedPreview.rows.every(row => row[editedCountIndex] === '1'), 'each distinct Patient key must count exactly one source row');
+  assert.deepEqual(editedPreview.keys, [`Group by ${sourceIdColumn.label}`]);
+  check('correctness', 'saved Group edit previews exact Patient IDs as one row per key', true, editedPreview);
+
+  const beforeEdit = savedBuilder;
+  await action('Cancel keyed Group edit', page.getByTestId('construction-cancel-proposal'),
+    () => page.getByTestId('construction-cancel-proposal').click(), {
+      after: () => page.waitForFunction(() => !document.querySelector('[data-testid="construction-proposal-panel"]')),
+    });
+  savedBuilder = await readBuilder();
+  assert.deepEqual(savedBuilder.workspace, beforeEdit.workspace, 'Cancel must leave the saved empty-key Group unchanged');
+  assert.equal(savedBuilder.draftVersion, beforeEdit.draftVersion, 'Cancel must preserve the exact saved draft version');
+  assert.equal(savedBuilder.draftDigest, beforeEdit.draftDigest, 'Cancel must preserve the exact saved draft digest');
+  check('persistence', 'Cancel preserves the saved empty-key Group and exact draft', true, {
+    draftVersion: savedBuilder.draftVersion,
+    draftDigest: savedBuilder.draftDigest,
+    groupStepId: originalGroup.id,
+  });
+
+  await openRowsHistory();
+  await action('reopen saved Group edit', page.locator(editSelector), () => page.locator(editSelector).click(), {
+    after: () => page.getByRole('checkbox', { name: `Group by ${sourceIdColumn.label}`, exact: true }).waitFor({ state: 'visible' }),
+  });
+  await action('reapply keyed Patient Group edit', page.getByRole('checkbox', { name: `Group by ${sourceIdColumn.label}`, exact: true }),
+    () => page.getByRole('checkbox', { name: `Group by ${sourceIdColumn.label}`, exact: true }).check(), {
+      after: () => page.waitForFunction(() => document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus === 'ready'),
+    });
+  await action('Apply keyed Patient Group edit', page.getByTestId('construction-apply-proposal'),
+    () => page.getByTestId('construction-apply-proposal').click(), {
+      after: () => waitForBuilderRenderedGrid(page, { tableSelector: renderedTableSelector,
+        expectedRows: fixtureIDs.map(patientID => ({ [sourceIdColumn.label]: patientID, 'Row count': '1' })) }),
+    });
+  report.target.qaIsolation.workflowMutations.push('native UI edited the saved Group to use the Patient ID key and applied the edit');
+  check('correctness', 'saved Group edit applies one row per exact Patient ID', true, {
+    stepId: originalGroup.id,
+    keyColumnId: sourceIdColumnId,
+    patientIDs: fixtureIDs,
+    preview: editedPreview,
+  });
+  savedBuilder = await readBuilder();
+  const keyedGroup = savedBuilder.workspace.documents.find(item => item.output?.id === outputId)
+    ?.construction?.steps?.find(step => step.operation?.kind === 'GROUP');
+  assert.equal(keyedGroup?.id, originalGroup.id, 'editing Group must preserve its saved construction identity');
+  assert.deepEqual(keyedGroup.operation.group.keys.map(key => key.inputColumnId), [sourceIdColumnId]);
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.getByTestId(`construction-table-${outputId}`).waitFor({ state: 'visible' });
+  if (!await page.locator('[data-testid="preview-table-scroll"] [role="table"]').isVisible()) {
+    await page.getByTestId(`construction-table-${outputId}`).click();
+  }
+  await page.locator('[data-testid="preview-table-scroll"] [role="table"]').waitFor({ state: 'visible' });
+  await waitForBuilderRenderedGrid(page, { tableSelector: renderedTableSelector,
+    expectedRows: fixtureIDs.map(patientID => ({ [sourceIdColumn.label]: patientID, 'Row count': '1' })) });
+  const keyedReload = await page.evaluate(({ tableSelector }) => {
+    const table = document.querySelector(tableSelector);
+    const rowList = [...(table?.querySelectorAll('[role="row"]') ?? [])];
+    const headers = [...(rowList[0]?.querySelectorAll('[role="columnheader"]') ?? [])].map(cell => cell.innerText.trim());
+    const rows = rowList.slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim()));
+    return { headers, rows };
+  }, { tableSelector: renderedTableSelector });
+  const keyedReloadIDIndex = findRenderedBuilderHeaderIndex(keyedReload.headers, sourceIdColumn.label);
+  const keyedReloadIDs = keyedReloadIDIndex < 0 ? [] : keyedReload.rows.map(row => row[keyedReloadIDIndex]).sort();
+  assert.deepEqual(keyedReloadIDs, fixtureIDs, 'keyed Group output must retain exact Patient IDs after reload');
+  check('persistence', 'keyed Group edit and exact Patient rows survive reload', true, {
+    groupStepId: keyedGroup.id,
+    draftVersion: savedBuilder.draftVersion,
+    draftDigest: savedBuilder.draftDigest,
+    headers: keyedReload.headers,
+    rows: keyedReload.rows,
+    patientIDs: keyedReloadIDs,
+  });
+
+  const removalSelector = `[data-testid="construction-row-remove-${keyedGroup.id}"]`;
+  await openRowsHistory();
+  await action('propose removing keyed Group', page.locator(removalSelector), () => page.locator(removalSelector).click(), {
+    after: () => page.waitForFunction(() => document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus === 'ready'
+      && Boolean(document.querySelector('[data-testid="construction-removal-summary"]'))),
+  });
+  const restoredPreview = await page.evaluate(() => {
+    const preview = document.querySelector('[data-testid="construction-proposal-preview"]');
+    const headers = [...(preview?.querySelectorAll('thead th') ?? [])]
+      .map(cell => (cell.querySelector('span')?.innerText ?? cell.innerText).replace(/\s+/g, ' ').trim());
+    const rows = [...(preview?.querySelectorAll('tbody tr[data-testid="construction-proposal-preview-row"]') ?? [])]
+      .map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText.trim()));
+    return { headers, rows };
+  });
+  const restoredIDIndex = findRenderedBuilderHeaderIndex(restoredPreview.headers, sourceIdColumn.label);
+  assert.deepEqual(restoredPreview.rows.map(row => row[restoredIDIndex]).sort(), fixtureIDs,
+    'removing Group must preview the exact two original Patient rows');
+  check('correctness', 'Group removal previews both literal source Patient rows', true, {
+    headers: restoredPreview.headers,
+    rows: restoredPreview.rows,
+    patientIDs: fixtureIDs,
+  });
+  await action('Cancel keyed Group removal', page.getByTestId('construction-cancel-proposal'),
+    () => page.getByTestId('construction-cancel-proposal').click(), {
+      after: () => page.waitForFunction(() => !document.querySelector('[data-testid="construction-proposal-panel"]')),
+    });
+  const afterRemovalCancel = await readBuilder();
+  assert.deepEqual(afterRemovalCancel.workspace, savedBuilder.workspace, 'Cancel removal must preserve the saved keyed Group');
+  assert.equal(afterRemovalCancel.draftVersion, savedBuilder.draftVersion, 'Cancel removal must preserve the exact saved draft version');
+  assert.equal(afterRemovalCancel.draftDigest, savedBuilder.draftDigest, 'Cancel removal must preserve the exact saved draft digest');
+  check('persistence', 'Cancel preserves the saved keyed Group and exact draft', true, {
+    draftVersion: afterRemovalCancel.draftVersion,
+    draftDigest: afterRemovalCancel.draftDigest,
+    groupStepId: keyedGroup.id,
+  });
+
+  await openRowsHistory();
+  await action('reopen keyed Group removal', page.locator(removalSelector), () => page.locator(removalSelector).click(), {
+    after: () => page.waitForFunction(() => document.querySelector('[data-testid="construction-removal-summary"]') !== null),
+  });
+  await action('Apply keyed Group removal', page.getByTestId('construction-apply-proposal'),
+    () => page.getByTestId('construction-apply-proposal').click(), {
+      after: () => waitForBuilderRenderedGrid(page, { tableSelector: renderedTableSelector,
+        expectedRows: fixtureIDs.map(patientID => ({ [sourceIdColumn.label]: patientID })) }),
+    });
+  report.target.qaIsolation.workflowMutations.push('native UI removed the keyed Group and restored source Patient rows');
+  report.target.qaIsolation.cleanupMutations.push('native UI removed the case-owned Group step to restore the original Patient row shape');
+  const removedBuilder = await readBuilder();
+  const removedDocument = removedBuilder.workspace.documents.find(item => item.output?.id === outputId);
+  assert.deepEqual(removedDocument?.construction?.steps ?? [], [], 'removing the sole Group must restore the source construction');
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.getByTestId(`construction-table-${outputId}`).waitFor({ state: 'visible' });
+  if (!await page.locator('[data-testid="preview-table-scroll"] [role="table"]').isVisible()) {
+    await page.getByTestId(`construction-table-${outputId}`).click();
+  }
+  await page.locator('[data-testid="preview-table-scroll"] [role="table"]').waitFor({ state: 'visible' });
+  await waitForBuilderRenderedGrid(page, { tableSelector: renderedTableSelector,
+    expectedRows: fixtureIDs.map(patientID => ({ [sourceIdColumn.label]: patientID })) });
+  const restoredRows = await page.evaluate(({ tableSelector }) => {
+    const table = document.querySelector(tableSelector);
+    const rowList = [...(table?.querySelectorAll('[role="row"]') ?? [])];
+    const headers = [...(rowList[0]?.querySelectorAll('[role="columnheader"]') ?? [])].map(cell => cell.innerText.trim());
+    const rows = rowList.slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim()));
+    return { headers, rows };
+  }, { tableSelector: renderedTableSelector });
+  const restoredRowsIDIndex = findRenderedBuilderHeaderIndex(restoredRows.headers, sourceIdColumn.label);
+  const restoredIDs = restoredRowsIDIndex < 0 ? [] : restoredRows.rows.map(row => row[restoredRowsIDIndex]).sort();
+  assert.deepEqual(restoredIDs, fixtureIDs, 'removing Group and reloading must restore both exact source Patient IDs');
+  check('persistence', 'removing keyed Group restores the exact source Patient rows after reload', true, {
+    draftVersion: removedBuilder.draftVersion,
+    draftDigest: removedBuilder.draftDigest,
+    headers: restoredRows.headers,
+    rows: restoredRows.rows,
+    patientIDs: restoredIDs,
+  });
+  report.target.qaIsolation.requiredLifecycleChecks = [
+    'applied empty-key Group renders the independently expected count 2',
+    'saved Group edit previews exact Patient IDs as one row per key',
+    'Cancel preserves the saved empty-key Group and exact draft',
+    'saved Group edit applies one row per exact Patient ID',
+    'keyed Group edit and exact Patient rows survive reload',
+    'Group removal previews both literal source Patient rows',
+    'Cancel preserves the saved keyed Group and exact draft',
+    'removing keyed Group restores the exact source Patient rows after reload',
+  ];
 };

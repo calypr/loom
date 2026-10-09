@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { scenarioCaseFor } from '../../registry.mjs';
+import { coverageDrift, hasLifecycleContract, registry, scenarioCaseFor } from '../../registry.mjs';
 import { cdaNullableEmptyRemovalPreviewEvidence } from '../cda-nullable-code-join-oracle.mjs';
 import {
   matchesPublishedAppendSourceProjectionResponse,
@@ -16,7 +16,13 @@ test('published CDA APPEND spec binds its report to all 34 registered lifecycle 
   assert.match(spec, /cdaScenarioID:\s*'cda-published-upstream-append'/);
   assert.match(spec, /cdaCaseName:\s*'published-append'/);
 
-  const registered = scenarioCaseFor(scenarioID, caseName).requiredChecks;
+  const scenario = registry.find(({ id }) => id === scenarioID);
+  const contract = scenarioCaseFor(scenario, caseName);
+  assert.equal(contract.playwrightTest, 'scripts/verify-ui/specs/cda-published-upstream-append.spec.mjs');
+  assert.equal(contract.playwrightGrep, 'publish exact raw CDA sources, Append with null padding, and restore the rooted target$');
+  assert.deepEqual(contract.expectedIdentity, { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' });
+
+  const registered = contract.requiredChecks;
   assert.equal(registered.length, 34);
   assert.equal(new Set(registered).size, registered.length);
   for (const required of [
@@ -28,6 +34,22 @@ test('published CDA APPEND spec binds its report to all 34 registered lifecycle 
     'applying APPEND removal restores the exact pre-combine rooted empty target',
     'published raw CDA source tables and exact Explorer scope remain unchanged through APPEND lifecycle',
   ]) assert(registered.includes(required), `registry is missing ${required}`);
+
+  const coverage = scenario.coverage.find(({ feature }) => feature.startsWith('published-source CDA APPEND'));
+  assert.deepEqual(coverage.acceptance.checks,
+    { choice: 13, proposal: 12, cancel: 14, apply: 16, savedRows: 16, reload: 18, edit: 25, restoration: 31 });
+  assert.equal(hasLifecycleContract(coverage, scenario), true);
+  assert.deepEqual(coverageDrift([scenario]), [], 'the historical APPEND case remains a valid named lifecycle contract');
+  for (const [phase, index, expected] of [
+    ['choice', 13, 'APPEND proposal pins the three exact source revisions and explicit Patient status null padding'],
+    ['proposal', 12, 'native APPEND preview equals the exact duplicate-preserving CDA union with Patient null padding'],
+    ['cancel', 14, 'Canceling the initial published APPEND proposal preserves the exact rooted empty target'],
+    ['apply', 16, 'applied APPEND matches the exact CDA multiset and null padding'],
+    ['savedRows', 16, 'applied APPEND matches the exact CDA multiset and null padding'],
+    ['reload', 18, 'APPEND Apply reload reaches exact null-padded CDA rows within five seconds renders exact saved APPEND rows'],
+    ['edit', 25, 'saved APPEND label edit retains stable step and explicit Patient null padding'],
+    ['restoration', 31, 'APPEND removal reload restores exact rooted empty target within five seconds'],
+  ]) assert.equal(registered[index], expected, `lifecycle ${phase} mapping must resolve to its named APPEND evidence`);
 });
 
 test('source-projection response binding accepts exact native evidence and rejects shifted identity', () => {

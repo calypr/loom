@@ -15,6 +15,10 @@ import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp
 import { expectedRelatedSourceOneValidation, relatedSourceProposalCandidate, selectedRelatedSourceProposal as matchSelectedRelatedSourceProposal } from '../helpers/related-source-capture.mjs';
 import { createNativeAbortProbeSource, nativeAbortProbeEvidenceForRequest, nativeAbortDomOwnerRules } from '../helpers/native-abort-probe.mjs';
 import { fixtureUnavailableOutcome } from '../helpers/cda-fixture-outcomes.mjs';
+import {
+  statusOneAllLifecycleChecks,
+  zeroObservationLifecycleChecks,
+} from '../helpers/related-one-all-lifecycle-contract.mjs';
 
 // Adapted from verify-cda-group-related-values-browser.mjs and
 // verify-cda-coded-field-lifecycle-browser.mjs. The raw CDA oracle is kept
@@ -66,7 +70,7 @@ const patientObservationRouteLabel = basicMode || zeroObservationMode
   ? `${relatedChoiceLabel}: Patient <-[subject]- Observation`
   : `${relatedChoiceLabel}: Specimen -[subject]-> Patient <-[subject]- Observation`;
 const protectedExplorer = 'cda-builder-full-qa-1790440983382';
-const explorer = `related-one-all-${Date.now()}`;
+const explorer = `related-one-all-${Date.now()}-${randomUUID()}`;
 const evidence = cda.evidence;
 const apiOrigin = process.env.LOOM_API_ORIGIN ?? cda.apiOrigin;
 const uiOrigin = process.env.LOOM_UI_ORIGIN ?? cda.uiOrigin;
@@ -798,12 +802,10 @@ const expand = async (hop, witnesses, expectedRows, sourcePopulationBaseline) =>
       'The PRESERVE_PARENT proposal response must retain the related Observation identity output');
     const preview = expansionResponse?.preview;
     const previewExpansionColumn = preview?.columns?.find((column) => column.column === expansionOutput.name);
-    if (savedEmptyPolicyEdit) {
-      assert.equal(normalizedExpansionOutput.nullable, true,
-        'The normalized PRESERVE_PARENT related Observation identity output must be nullable');
-      assert.equal(previewExpansionColumn?.nullable, true,
-        'The compiled PRESERVE_PARENT preview schema must mark the related Observation identity nullable');
-    }
+    assert.equal(normalizedExpansionOutput.nullable, true,
+      'The normalized PRESERVE_PARENT related Observation identity output must be nullable');
+    assert.equal(previewExpansionColumn?.nullable, true,
+      'The compiled PRESERVE_PARENT preview schema must mark the related Observation identity nullable');
     assert.equal(preview?.rowCount, 1, 'The native PRESERVE_PARENT proposal must retain the exact zero-match Patient row');
     assert.equal(preview?.rows?.length, 1, 'The zero-match proposal must return the retained parent row');
     const parentColumn = preview.columns.find((column) => column.label === 'Patient ID');
@@ -816,21 +818,18 @@ const expand = async (hop, witnesses, expectedRows, sourcePopulationBaseline) =>
       row[column.column] === null || row[column.column] === undefined ? '—' : String(row[column.column])));
     assert.deepEqual(rowsFromProposal, expectedRows,
       'The native proposal rows must agree with the independently reread Patient root and zero-edge oracle');
-    zeroExpandEvidence = savedEmptyPolicyEdit
-      ? { stepId: expansionStep.id,
-        patientId: witnesses[0].patient.id,
-        routeChoiceId: expansionStep.operation.relatedExpand.choiceId,
-        targetNodeId: expansionStep.operation.relatedExpand.targetNodeId,
-        targetResourceType: expansionStep.operation.relatedExpand.targetResourceType,
-        route: expansionStep.operation.relatedExpand.route,
-        relatedRecordColumnId: expansionStep.operation.relatedExpand.relatedRecordColumnId,
-        outputNullable: normalizedExpansionOutput.nullable,
-        previewSchemaNullable: previewExpansionColumn?.nullable,
-        emptyPolicy: expansionStep.operation.relatedExpand.emptyPolicy,
-        previewRowCount: preview.rowCount,
-        unmatchedObservationOutputIsNull: preview.rows[0][expansionOutput.name] === null }
-      : { emptyPolicy: expansionStep.operation.relatedExpand.emptyPolicy,
-        previewRowCount: preview.rowCount, unmatchedObservationOutputIsNull: true };
+    zeroExpandEvidence = { stepId: expansionStep.id,
+      patientId: witnesses[0].patient.id,
+      routeChoiceId: expansionStep.operation.relatedExpand.choiceId,
+      targetNodeId: expansionStep.operation.relatedExpand.targetNodeId,
+      targetResourceType: expansionStep.operation.relatedExpand.targetResourceType,
+      route: expansionStep.operation.relatedExpand.route,
+      relatedRecordColumnId: expansionStep.operation.relatedExpand.relatedRecordColumnId,
+      outputNullable: normalizedExpansionOutput.nullable,
+      previewSchemaNullable: previewExpansionColumn?.nullable,
+      emptyPolicy: expansionStep.operation.relatedExpand.emptyPolicy,
+      previewRowCount: preview.rowCount,
+      unmatchedObservationOutputIsNull: preview.rows[0][expansionOutput.name] === null };
   }
   const value = await proposal(`expand-${hop.from}-${hop.to}-preview`, proposalStarted, rowsFromProposal, proposalFromIndex);
   assert(report.nativeRequests.slice(proposalFromIndex).some((entry) => protocolResponse(entry)?.proposalId === value.proposalId), 'The displayed expansion preview must match its captured native proposal');
@@ -1116,7 +1115,7 @@ RETURN {
         authorizationScope: 'unrestricted local Arango scope' },
       fixtureAvailability: { zeroIncomingObservationWitnessAvailable: true, patientCandidateLimit },
       witnessSummary: { category: witness.category, rootResourceType: 'Patient', rootCount: 1,
-        ...(savedEmptyPolicyEdit ? { patientId: witness.patient.id, patientKey: witness.patient._id } : {}),
+        patientId: witness.patient.id, patientKey: witness.patient._id,
         distinctIncomingObservationCount: 0 },
     });
   } else if (basicMode) {
@@ -1125,6 +1124,7 @@ RETURN {
 FOR p IN (
   FOR scopedPatient IN Patient
     FILTER scopedPatient.project == ${JSON.stringify(project)} AND scopedPatient.dataset_generation == ${JSON.stringify(generation)}
+      AND scopedPatient.resourceType == "Patient" AND scopedPatient.payload.resourceType == "Patient"
     SORT scopedPatient.id
     LIMIT ${patientCandidateLimit}
     RETURN { id: scopedPatient.id, _id: scopedPatient._id }
@@ -1376,11 +1376,13 @@ FOR p IN (
 )
   LET specimens = (
     FOR e IN fhir_edge
-      FILTER e._to == p._id AND STARTS_WITH(e._from, "Specimen/") AND e.label == "subject_Patient"
+      FILTER e._to == p._id AND e.from_type == "Specimen" AND e.to_type == "Patient"
+        AND STARTS_WITH(e._from, "Specimen/") AND e.label == "subject_Patient"
         AND e.project == ${JSON.stringify(project)} AND e.dataset_generation == ${JSON.stringify(generation)}
       COLLECT specimenKey = e._from
       LET s = DOCUMENT(specimenKey)
       FILTER s.project == ${JSON.stringify(project)} AND s.dataset_generation == ${JSON.stringify(generation)}
+        AND s.resourceType == "Specimen" AND s.payload.resourceType == "Specimen"
         AND s.payload.subject.reference == CONCAT("Patient/", p.id)
       SORT s.id
       LIMIT ${specimensPerPatient}
@@ -1389,11 +1391,14 @@ FOR p IN (
   FILTER LENGTH(specimens) == ${specimensPerPatient}
   LET observations = (
     FOR e IN fhir_edge
-      FILTER e._to == p._id AND STARTS_WITH(e._from, "Observation/") AND e.label == "subject_Patient"
+      FILTER e._to == p._id AND e.from_type == "Observation" AND e.to_type == "Patient"
+        AND STARTS_WITH(e._from, "Observation/") AND e.label == "subject_Patient"
         AND e.project == ${JSON.stringify(project)} AND e.dataset_generation == ${JSON.stringify(generation)}
       COLLECT observationKey = e._from
       LET o = DOCUMENT(observationKey)
       FILTER o.project == ${JSON.stringify(project)} AND o.dataset_generation == ${JSON.stringify(generation)}
+        AND o.resourceType == "Observation" AND o.payload.resourceType == "Observation"
+        ${statusFieldMode ? 'AND IS_STRING(o.payload.status)' : ''}
       SORT o.id
       LIMIT ${observationWitnessLimit}
       RETURN { id: o.id, _id: o._id${statusFieldMode ? ', status: o.payload.status' : ''} }
@@ -1452,20 +1457,27 @@ FOR p IN (
 LET selectedKeys = ${JSON.stringify(selectedKeys)}
 FOR s IN Specimen
   FILTER s._id IN selectedKeys AND s.project == ${JSON.stringify(project)} AND s.dataset_generation == ${JSON.stringify(generation)}
+    AND s.resourceType == "Specimen" AND s.payload.resourceType == "Specimen"
   LET patientEdge = FIRST(
     FOR e IN fhir_edge
-      FILTER e._from == s._id AND e.label == "subject_Patient" AND e.project == ${JSON.stringify(project)}
+      FILTER e._from == s._id AND e.from_type == "Specimen" AND e.to_type == "Patient"
+        AND e.label == "subject_Patient" AND e.project == ${JSON.stringify(project)}
         AND e.dataset_generation == ${JSON.stringify(generation)}
       RETURN e
   )
   FILTER patientEdge != null
   LET p = DOCUMENT(patientEdge._to)
+  FILTER p != null AND p.project == ${JSON.stringify(project)} AND p.dataset_generation == ${JSON.stringify(generation)}
+    AND p.resourceType == "Patient" AND p.payload.resourceType == "Patient"
   LET observations = (
     FOR e IN fhir_edge
-      FILTER e._to == p._id AND STARTS_WITH(e._from, "Observation/") AND e.label == "subject_Patient"
+      FILTER e._to == p._id AND e.from_type == "Observation" AND e.to_type == "Patient"
+        AND STARTS_WITH(e._from, "Observation/") AND e.label == "subject_Patient"
         AND e.project == ${JSON.stringify(project)} AND e.dataset_generation == ${JSON.stringify(generation)}
       LET o = DOCUMENT(e._from)
       FILTER o.project == ${JSON.stringify(project)} AND o.dataset_generation == ${JSON.stringify(generation)}
+        AND o.resourceType == "Observation" AND o.payload.resourceType == "Observation"
+        ${statusFieldMode ? 'AND IS_STRING(o.payload.status)' : ''}
       RETURN DISTINCT { id: o.id, _id: o._id${statusFieldMode ? ', status: o.payload.status' : ''} }
   )
   RETURN {
@@ -1511,9 +1523,11 @@ FOR s IN Specimen
   assert(manyWitness && manyWitness.observationIds.length > 1, 'The independent many witness must predict an actual ONE disagreement');
   selectedMembers = witnesses.flatMap((witness) => witness.members);
   Object.assign(report.oracle, {
-    exactMembershipQuery, exactMembershipScope: { selectedSpecimenCount: selectedKeys.length,
+    exactMembershipQuery, selectedSpecimenKeys: selectedKeys,
+    exactMembershipScope: { project, generation, rootResourceType: 'Specimen', selectedSpecimenCount: selectedKeys.length,
       selectedSpecimensPerPatient: specimensPerPatient,
-      maximumExpectedDistinctObservationsPerPatient: 10, observationSetsReadCompletelyForSelectedAtMostTenWitnesses: true },
+      maximumExpectedDistinctObservationsPerPatient: 10, observationSetsReadCompletelyForSelectedAtMostTenWitnesses: true,
+      patientIds: witnesses.map((witness) => witness.patient.id) },
     witnesses: witnesses.map(({ category, patient, members, observationIds, observationKeys, observationCount, observationStatuses, distinctStatusValues, expectedContributorRows }) => ({
       category, patient, observationCount, observationIds, observationKeys,
       ...(statusFieldMode ? { observationStatuses, distinctStatusValues } : {}),
@@ -1662,14 +1676,24 @@ FOR s IN Specimen
     assert.equal(oneRow[oneOutput.name], null,
       'The typed nullable ONE source must return null for zero matching Observation values');
     report.zeroObservationOne = { status: oneProposal.status, previewStatus: oneResponse.previewStatus,
-      rowCount: oneResponse.preview.rowCount, nullableValueIsNull: true };
+      rowCount: oneResponse.preview.rowCount, patientId: witnesses[0].patient.id,
+      parentValue: oneRow[groupKeyName], relatedValue: oneRow[oneOutput.name], value: oneRow[oneOutput.name],
+      nullableValueIsNull: true };
 
     const cancelOneStarted = Date.now();
     await cancelColumnProposal();
     await rendered(groupedRows);
-    assert.deepEqual((await api(`${base}/builder`)).workspace, groupedWorkspace,
+    const canceledOneBuilder = await api(`${base}/builder`);
+    const canceledOneDocument = doc(canceledOneBuilder);
+    assert.deepEqual(canceledOneBuilder.workspace, groupedWorkspace,
       'Canceling zero-match ONE must preserve the exact grouped source workspace');
-    record('cancel-zero-observation-one-preserves-group', cancelOneStarted);
+    assert.deepEqual(canceledOneDocument.construction, groupedBaseline.construction,
+      'Canceling zero-match ONE must preserve the exact grouped construction');
+    assert.deepEqual(canceledOneDocument.population, groupedBaseline.population,
+      'Canceling zero-match ONE must preserve the exact grouped population');
+    report.zeroObservationOneCancel = { workspaceUnchanged: true, constructionUnchanged: true,
+      populationUnchanged: true, renderedRowsMatch: true };
+    record('cancel-zero-observation-one-preserves-group', cancelOneStarted, report.zeroObservationOneCancel);
     await openRelatedFieldChooser();
     await selectRelatedPolicy('ALL');
   } else if (basicMode) {
@@ -1745,6 +1769,7 @@ FOR s IN Specimen
     }, { routeSelector, formSelector });
     assert.deepEqual(retainedChooser, { open: true, policy: 'ONE', routeChecked: true, formChecked: true, addEnabled: true },
       'ONE rejection must retain the same related-source chooser, exact route, form, and source selection for direct repair');
+    report.oneChooserAfterRejection = { ...retainedChooser, savedGroupUnchanged: true };
     await selectRelatedPolicy('ALL');
   }
   const allRepairStarted = Date.now();
@@ -1778,7 +1803,9 @@ FOR s IN Specimen
       assert(Array.isArray(proposed.values), 'The typed ALL output must remain an array when its exact raw route has zero terminals');
       assert.equal(proposed.values.length, 0,
         'The typed ALL output must contain no fabricated value when the exact raw route has zero terminals');
-      report.zeroObservationAll = { previewStatus: firstAllResponse.previewStatus, previewValueIsEmptyArray: true,
+      report.zeroObservationAll = { previewStatus: firstAllResponse.previewStatus,
+        rowCount: firstAllResponse.preview.rowCount, patientId: witness.patient.id,
+        values: proposed.values, previewValueIsEmptyArray: true,
         sourceContract: 'RELATED_SOURCE ALL returns a typed array subplan with empty-on-null behavior when no terminal record matches' };
     }
     if (referenceFieldMode) {
@@ -1791,11 +1818,29 @@ FOR s IN Specimen
     }
     assert.deepEqual(proposed.values, relatedValuesFor(witness), `${witness.category} ALL output differs from the independent raw oracle`);
   }
+  if (statusFieldMode && !basicMode) {
+    const proposed = proposedValues.find(({ patientReference }) => patientReference === manyWitness.patient.id);
+    report.relatedAllOutputEvidence = { ...report.directAllRepair,
+      patientId: manyWitness.patient.id,
+      expectedValues: relatedValuesFor(manyWitness), previewValues: proposed?.values,
+      identitiesMatch: JSON.stringify(proposed?.values) === JSON.stringify(relatedValuesFor(manyWitness)),
+    };
+  }
   const cancelAllStarted = Date.now();
   await cancelColumnProposal();
   await rendered(groupedRows);
-  assert.deepEqual((await api(`${base}/builder`)).workspace, groupedWorkspace, 'Canceling the successful ALL preview must preserve the exact grouped workspace');
-  record('cancel-related-all-proposal-preserves-group', cancelAllStarted);
+  const canceledAllBuilder = await api(`${base}/builder`);
+  const canceledAllDocument = doc(canceledAllBuilder);
+  assert.deepEqual(canceledAllBuilder.workspace, groupedWorkspace, 'Canceling the successful ALL preview must preserve the exact grouped workspace');
+  assert.deepEqual(canceledAllDocument.construction, groupedBaseline.construction,
+    'Canceling the successful ALL preview must preserve the exact Group construction');
+  assert.deepEqual(canceledAllDocument.population, groupedBaseline.population,
+    'Canceling the successful ALL preview must preserve the exact source population');
+  const allCancelEvidence = { workspaceUnchanged: true, constructionUnchanged: true,
+    populationUnchanged: true, renderedRowsMatch: true };
+  if (zeroObservationMode) report.zeroObservationAllCancel = allCancelEvidence;
+  if (statusFieldMode && !basicMode) report.relatedAllCancelEvidence = allCancelEvidence;
+  record('cancel-related-all-proposal-preserves-group', cancelAllStarted, allCancelEvidence);
 
   await openRelatedFieldChooser();
   await selectRelatedPolicy('ALL');
@@ -1987,6 +2032,51 @@ FOR s IN Specimen
     }
     assert.deepEqual(row[relatedColumn.column], relatedValuesFor(witness));
   }
+  const reloadedBuilder = await api(`${base}/builder`);
+  const reloadedDocument = doc(reloadedBuilder);
+  const reloadedRelatedStep = reloadedDocument.construction.steps.find((step) => step.id === savedRelatedStep.id);
+  assert(reloadedRelatedStep, 'Reload must retain the exact saved related-source step identity');
+  assert.deepEqual(reloadedRelatedStep.operation.relatedSource, related,
+    'Reload must retain the exact related source candidate, signed route, and ALL policy');
+  const savedWitnessRow = savedPreview.rows.find((candidate) => candidate[groupKeyName] === witnesses[0].patient.id);
+  const reloadedWitnessRow = reloadedPreview.rows.find((candidate) => candidate[groupKeyName] === witnesses[0].patient.id);
+  const savedOutputValues = savedWitnessRow?.[relatedColumn.column];
+  const reloadedOutputValues = reloadedWitnessRow?.[relatedColumn.column];
+  const expectedSavedRoute = zeroObservationMode ? expectedPatientObservationRoute : expectedReferenceRoute;
+  const savedRouteShape = related.route.map(({ fromResourceType, toResourceType, relationship, storageDirection }) =>
+    ({ fromResourceType, toResourceType, relationship, storageDirection }));
+  const savedSourceMatches = savedRelatedStep.operation.relatedSource.source?.candidateId === report.relatedFieldCandidate.candidateId &&
+    savedRelatedStep.operation.relatedSource.source?.nodeId === report.relatedFieldCandidate.nodeId &&
+    savedRelatedStep.operation.relatedSource.source?.path === relatedFieldPath &&
+    savedRelatedStep.operation.relatedSource.choiceId === report.currentRelatedChoiceId &&
+    JSON.stringify(savedRouteShape) === JSON.stringify(expectedSavedRoute) &&
+    savedRelatedStep.operation.relatedSource.form === 'ALL' &&
+    (savedRelatedStep.operation.relatedSource.rowValuePolicy ?? 'ALL') === 'ALL';
+  if (zeroObservationMode) {
+    report.zeroObservationSavedAll = {
+      candidateSourceMatches: savedSourceMatches,
+      form: related.form,
+      rowValuePolicy: related.rowValuePolicy ?? 'ALL',
+      savedParentCount: savedPreview.rowCount,
+      previewValues: savedOutputValues,
+      reloadParentCount: reloadedPreview.rowCount,
+      reloadValues: reloadedOutputValues,
+      reloadSourceMatches: savedSourceMatches && JSON.stringify(reloadedRelatedStep.operation.relatedSource) === JSON.stringify(related),
+      receiptId: savedPreview.receiptId,
+    };
+  }
+  if (statusFieldMode && !basicMode) {
+    report.relatedAllSavedEvidence = {
+      candidateSourceMatches: savedSourceMatches,
+      form: related.form,
+      rowValuePolicy: related.rowValuePolicy ?? 'ALL',
+      expectedValues: relatedValuesFor(manyWitness),
+      previewValues: savedOutputValues,
+      reloadValues: reloadedOutputValues,
+      reloadSourceMatches: savedSourceMatches && JSON.stringify(reloadedRelatedStep.operation.relatedSource) === JSON.stringify(related),
+      receiptId: savedPreview.receiptId,
+    };
+  }
 
   let activeRelatedColumnLabel = relatedColumn.label;
   {
@@ -2058,6 +2148,15 @@ FOR s IN Specimen
       assert(row, `Edited/reloaded Preview omitted ${witness.category} witness`);
       assert.deepEqual(row[relatedColumn.column], relatedValuesFor(witness), 'Renaming the Group output changed its source values');
     }
+    const editedWitnessRow = editedPreview.rows.find((candidate) => candidate[groupKeyName] === witnesses[0].patient.id);
+    report.relatedOutputEditEvidence = {
+      labelChanged: editedOutput.label === renamedLabel && editedHeaders.includes(renamedLabel),
+      candidateSourceMatches: JSON.stringify(editedStep.operation.relatedSource) === JSON.stringify(related),
+      policy: editedStep.operation.relatedSource.rowValuePolicy ?? 'ALL',
+      expectedValues: relatedValuesFor(witnesses[0]),
+      reloadValues: editedWitnessRow?.[relatedColumn.column],
+      label: renamedLabel,
+    };
     activeRelatedColumnLabel = renamedLabel;
   }
 
@@ -2216,6 +2315,17 @@ FOR s IN Specimen
     assert.equal(row.row_count, witness.expectedContributorRows, `${witness.category} grouped count differs from the raw CDA oracle`);
     assert.equal(Object.hasOwn(row, relatedColumn.column), false, `${witness.category} restored row still contains the removed related value`);
   }
+  report.relatedSourceRestoration = {
+    constructionMatchesBaseline: true,
+    populationMatchesBaseline: true,
+    columnsMatchBaseline: true,
+    previewRowsMatchBaseline: true,
+    relatedOutputAbsent: !restoredPreview.columns.some((column) => column.column === relatedColumn.column) &&
+      restoredPreview.rows.every((row) => !Object.hasOwn(row, relatedColumn.column)),
+    reloadedRowCount: restoredPreview.rowCount,
+    expectedRowCount: witnesses.length,
+    patientIds: witnesses.map((witness) => witness.patient.id),
+  };
 
   if (savedEmptyPolicyEdit) {
     const beforeApplyEdit = await api(`${base}/builder`);
@@ -2447,6 +2557,24 @@ FOR s IN Specimen
       manyWitness.observationKeys.map((_id, index) => ({ _id, specimenReference: manyWitness.observationReferences[index] })),
       'The independent raw Observation reference membership changed during the native Explorer lifecycle');
     report.referenceOracleAssertions.finalRawRereadMatched = true;
+  }
+  if (statusFieldMode && !basicMode) {
+    const finalStatusMembers = rawQuery(report.oracle.exactMembershipQuery);
+    assert.deepEqual(finalStatusMembers.map(({ _id }) => _id).sort(), report.oracle.selectedSpecimenKeys,
+      'The exact status-witness reread must preserve the selected project/generation-scoped Specimen roots');
+    const finalStatusByIdentity = new Map(finalStatusMembers.flatMap(({ observationValues }) => observationValues)
+      .map((observation) => [observation._id, { id: observation.id, _id: observation._id, status: observation.status }]));
+    const finalStatusPairs = [...finalStatusByIdentity.values()].sort((left, right) => left._id.localeCompare(right._id));
+    const expectedStatusPairs = manyWitness.observationKeys.map((key, index) => ({
+      id: manyWitness.observationIds[index], _id: key, status: manyWitness.observationStatuses[index],
+    })).sort((left, right) => left._id.localeCompare(right._id));
+    assert.deepEqual(finalStatusPairs, expectedStatusPairs,
+      'The final raw reread must preserve every exact Observation identity/status pair used by the ONE-to-ALL witness');
+    report.oracle.finalStatusMembership = { project, generation,
+      selectedSpecimenKeys: report.oracle.selectedSpecimenKeys,
+      selectedPatientIds: report.oracle.exactMembershipScope.patientIds,
+      observationPairs: finalStatusPairs };
+    report.oracle.finalScopedRereadMatched = true;
   }
   await settleNativeResponses();
   await officialRequestCapture.flush();
@@ -2683,6 +2811,16 @@ FOR s IN Specimen
         } : {}),
         exactRawOracle: true, oneValidationCount: report.nativeRequests.filter(entry => entry.status === 422).length,
       });
+      if (zeroObservationMode) {
+        for (const check of zeroObservationLifecycleChecks(report)) {
+          cda.check(check.dimension, check.name, check.passed, check.evidence);
+        }
+      }
+      if (statusFieldMode && !basicMode) {
+        for (const check of statusOneAllLifecycleChecks(report)) {
+          cda.check(check.dimension, check.name, check.passed, check.evidence);
+        }
+      }
     }
   }
   if (report.status === 'failed' || report.status === 'invalidated') {

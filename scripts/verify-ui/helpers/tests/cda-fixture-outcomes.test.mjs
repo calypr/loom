@@ -69,6 +69,6 @@ test('optional witness gaps stay attached to a completed lifecycle without a ski
 test('all standalone row fixture skips use the explicit outcome boundary', () => {
   const spec = readFileSync(new URL('../../specs/standalone-cda-rows.spec.mjs', import.meta.url), 'utf8');
   assert.doesNotMatch(spec, /if \(result\.status !== 'passed'\) test\.skip\(true,/);
-  assert.equal([...spec.matchAll(/fixtureUnavailableSkipReason\(result\)/g)].length, 6);
+  assert.equal([...spec.matchAll(/fixtureUnavailableSkipReason\(result\)/g)].length, 7);
   assert.match(spec, /missingComponentGroupSkipReason\(result\)/);
 });

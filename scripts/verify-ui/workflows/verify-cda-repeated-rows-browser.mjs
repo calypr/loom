@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { browserEval, click as clickPage, navigate as navigatePage, selectOption as selectPageOption, waitForBrowser, captureRequests, includeBrowserDiagnostics } from '../helpers/cda-playwright.mjs';
+import { CDA_ACTION_TO_RENDER_BUDGET_MS, summarizeCdaActionToRenderTimings } from '../helpers/cda-action-to-render-budget.mjs';
 import { fixtureUnavailableOutcome } from '../helpers/cda-fixture-outcomes.mjs';
 
 export async function repeatedRowsWorkflow({ page, cda }) {
@@ -49,6 +50,25 @@ let outputId;
 let browserEvents;
 
 const recordAssertion = (name, evidence) => report.assertions.push({ name, status: 'passed', evidence });
+const actionToRenderPerformanceCheck = 'all native action-to-render checkpoints complete within five seconds';
+const actionToRenderEvidence = () => {
+  const timingSummary = summarizeCdaActionToRenderTimings(report.timings, CDA_ACTION_TO_RENDER_BUDGET_MS);
+  const actionDurations = (cda.report.actions ?? []).map(action => action.elapsedMs);
+  const actionDurationsValid = actionDurations.length > 0 && actionDurations.every(Number.isFinite);
+  const maxActionMs = actionDurationsValid ? Math.max(...actionDurations) : null;
+  const evidence = {
+    measuredTransitionCount: timingSummary.checkpointCount,
+    actionCount: actionDurations.length,
+    maxActionMs,
+    maximumActionToRenderMs: timingSummary.maximumDurationMs,
+    checkpointBudgetMs: CDA_ACTION_TO_RENDER_BUDGET_MS,
+    timingCheckpoints: timingSummary.checkpoints,
+  };
+  return {
+    evidence,
+    passed: timingSummary.withinBudget && actionDurationsValid && maxActionMs <= CDA_ACTION_TO_RENDER_BUDGET_MS,
+  };
+};
 const api = async (path, body, allowFailure = false) => {
   const requestId = `cda-repeated-rows-${randomUUID()}`;
   const startedAt = Date.now();
@@ -148,8 +168,8 @@ const measure = async (name, action) => {
   const startedAt = Date.now();
   await action(startedAt);
   const durationMs = Date.now() - startedAt;
-  report.timings.push({ name, durationMs, limitMs: 5000 });
-  assert(durationMs <= 5000, `${name} took ${durationMs}ms`);
+  report.timings.push({ name, durationMs, limitMs: CDA_ACTION_TO_RENDER_BUDGET_MS });
+  assert(durationMs <= CDA_ACTION_TO_RENDER_BUDGET_MS, `${name} took ${durationMs}ms`);
   return durationMs;
 };
 
@@ -405,7 +425,8 @@ const finish = async () => {
   cda.report.standaloneCdaRows = report;
   await cda.attachReport('standalone-cda-repeated-rows.json', report);
   for (const assertion of report.assertions) {
-    cda.check('correctness', assertion.name, assertion.status === 'passed', assertion.evidence ?? {});
+    const dimension = assertion.name === actionToRenderPerformanceCheck ? 'performance' : 'correctness';
+    cda.check(dimension, assertion.name, assertion.status === 'passed', assertion.evidence ?? {});
   }
   if (report.status === 'failed' || report.status === 'invalidated') {
     throw new Error(`Repeated component rows ${report.status}: ${JSON.stringify(report.failures ?? report.invalidations)}`);
@@ -472,6 +493,16 @@ try {
     monitorBrowser();
     await openTable(initialRowCount, 'fresh-explorer-load-to-render');
     await saveDOM('initial-source-record-rows');
+    const initialRows = await fieldPreviewRows();
+    const initialIdIndex = initialRows.headers.findIndex(header =>
+      header.split(String.fromCharCode(10))[0].trim().toUpperCase() === 'OBSERVATION ID');
+    assert(initialIdIndex >= 0, `Initial source preview is missing Observation ID: ${JSON.stringify(initialRows.headers)}`);
+    const initialIDs = initialRows.rows.map(row => row[initialIdIndex].text).sort();
+    assert.deepEqual(initialIDs, sourceRecords.map(resource => resource.id).sort(),
+      'Fresh Explorer source rows must render exactly the independently selected raw Observation IDs');
+    recordAssertion('fresh Explorer source table renders the exact raw-oracle Observation IDs', {
+      memberIDs: initialIDs, rowCount: initialIDs.length,
+    });
 
     await openRowSettings();
     const shapeSelect = 'select[aria-label="What should each row represent?"]';
@@ -544,6 +575,10 @@ try {
     report.browserErrors.incidental.push(...(cda.diagnostics.assetFailures ?? []));
     verifyStableItemIdentities();
     verifySourceRestoration();
+    const timing = actionToRenderEvidence();
+    assert(timing.passed, 'A native action-to-render checkpoint or action exceeded its five-second budget');
+    report.performance = timing.evidence;
+    recordAssertion(actionToRenderPerformanceCheck, timing.evidence);
     assert.deepEqual(report.browserErrors.exceptions, [], 'Browser raised JavaScript exceptions');
     assert.deepEqual(report.browserErrors.console, [], 'Browser logged console errors');
     assert.deepEqual(report.browserErrors.modules, [], 'Browser failed to load a module');

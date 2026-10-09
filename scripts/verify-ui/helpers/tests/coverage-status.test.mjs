@@ -708,14 +708,9 @@ test('builder-authoring rows map only registered cases or remain explicit unreso
     assert.ok(scenarioCaseFor(scenario, caseName).requiredChecks.length > 1);
   }
   const explicitGaps = unmappedLifecycleCoverage(registry);
-  assert.equal(explicitGaps.count, 6);
+  assert.equal(explicitGaps.count, 1);
   assert.deepEqual(new Set(explicitGaps.rows.map((row) => row.feature)), new Set([
-    'raw ONE disagreement rejection for two Patient IDs',
-    'direct related Observation.status chooser ONE→ALL repair',
-    'repeated-value rows',
     'coded Pivot',
-    'coded columns',
-    'contributor rules',
   ]));
   for (const row of owner.coverage.filter((coverage) => coverage.acceptance?.kind === 'unmapped')) {
     assert.equal(row.status, 'untested');

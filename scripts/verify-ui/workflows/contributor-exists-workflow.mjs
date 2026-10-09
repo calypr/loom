@@ -78,7 +78,7 @@ export async function contributorExistsWorkflow({ page, cda, caseOptions = {} })
   const arangoContainer = validatedArangoContainer(target, caseOptions.arangoContainer);
   assert(project && generation && apiOrigin && uiOrigin, 'The CDA fixture must bind project, generation, API origin, and UI origin explicitly.');
   assert.equal(generation, 'cda-fhir-v1', 'This verifier requires the loaded CDA FHIR generation.');
-const explorer = `contributor-exists-browser-${Date.now()}`;
+const explorer = `contributor-exists-browser-${randomUUID()}`;
 
 const root = `/api/v1/projects/${project}/explorers`;
 const base = `${root}/${explorer}/authoring/v2`;
@@ -701,6 +701,7 @@ const selection = await api(base.replace('/authoring/v2', '/selections'), {
   })) } },
 });
 assert.equal(selection.memberCount, 3, 'Selection must contain the three independently witnessed source rows');
+report.selection = { id: selection.id, memberCount: selection.memberCount };
 const routes = await api(base + '/population-routes', {
   snapshotToken: builder.catalog.snapshotToken, outputId, selectionRevisionId: selection.id, limit: 50,
 });

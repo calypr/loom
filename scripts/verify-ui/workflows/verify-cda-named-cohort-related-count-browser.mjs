@@ -4,6 +4,9 @@ import { spawnSync } from 'node:child_process';
 import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
 import { sanitizeReportPayload, sanitizeText } from '../helpers/playwright-browser.mjs';
 
+export const namedCohortAddColumnsEditorSelector = '[data-testid="construction-operation-editor"][data-operation-family="ADD_COLUMNS"]';
+export const namedCohortAddColumnsRawFieldsSummarySelector = `${namedCohortAddColumnsEditorSelector} [data-testid="feature-catalog-raw-fields"] > summary`;
+
 const rawQueryOutputLimit = 1000;
 const boundedRawQueryText = value => {
   const text = sanitizeText(Buffer.isBuffer(value) ? value.toString('utf8') : String(value ?? ''));
@@ -531,19 +534,24 @@ const proposalPreview = async (startedAt, expectedGroupCounts) => {
 };
 
 const addRelatedObservation = async expectedGroupCounts => {
+  const addColumnsEditor = namedCohortAddColumnsEditorSelector;
   await click(page, '[data-testid="construction-action-add-columns"]');
-  await click(page, '[aria-label="Column types"] button', { includes: 'Fields and related data' });
-  await waitForBrowser(page, (args) => { return Boolean((document.querySelector('[data-testid="construction-add-columns-source"]'))); });
-  if (!await browserEval(page, (args) => { return document.querySelector('[aria-label="Related resources"] summary')?.parentElement.open; })) {
-    await click(page, '[aria-label="Related resources"] summary');
+  await click(page, `${addColumnsEditor} [aria-label="Column types"] button`, { includes: 'Fields and related data' });
+  const addColumnsSource = `${addColumnsEditor} [data-testid="construction-add-columns-source"]`;
+  await waitForBrowser(page, (args) => { return Boolean((document.querySelector(args[0]))); }, [addColumnsSource]);
+  const relatedResourcesSummary = `${addColumnsEditor} [aria-label="Related resources"] summary`;
+  if (!await browserEval(page, (args) => { return document.querySelector(args[0])?.parentElement.open; }, [relatedResourcesSummary])) {
+    await click(page, relatedResourcesSummary);
   }
-  await click(page, '[data-testid="construction-add-columns-source-option"][aria-label="Observation, Related resource"]');
-  if (!await browserEval(page, (args) => { return document.querySelector('[data-testid="feature-catalog-raw-fields"] summary')?.parentElement.open; })) {
-    await click(page, '[data-testid="feature-catalog-raw-fields"] summary');
+  await click(page, `${addColumnsEditor} [data-testid="construction-add-columns-source-option"][aria-label="Observation, Related resource"]`);
+  const rawFieldsSummary = namedCohortAddColumnsRawFieldsSummarySelector;
+  if (!await browserEval(page, (args) => { return document.querySelector(args[0])?.parentElement.open; }, [rawFieldsSummary])) {
+    await click(page, rawFieldsSummary);
   }
-  await waitForBrowser(page, (args) => { return Boolean((document.querySelector('input[aria-label="Select Observation.id"]:not(:disabled)'))); });
-  await click(page, 'input[aria-label="Select Observation.id"]');
-  await click(page, '[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
+  const observationIdInput = `${addColumnsEditor} input[aria-label="Select Observation.id"]:not(:disabled)`;
+  await waitForBrowser(page, (args) => { return Boolean((document.querySelector(args[0]))); }, [observationIdInput]);
+  await click(page, observationIdInput);
+  await click(page, `${addColumnsEditor} button`, { includes: 'Add 1 selected feature' });
   await waitForBrowser(page, (args) => { return Boolean((document.querySelector('[role="dialog"]'))); });
   if (!await browserEval(page, (args) => { return [...document.querySelectorAll('[role="dialog"] summary')].find(summary=>summary.innerText.includes('Other relationship paths'))?.parentElement.open; })) {
     await click(page, '[role="dialog"] summary', { includes: 'Other relationship paths' });

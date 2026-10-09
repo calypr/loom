@@ -482,6 +482,10 @@ const BuilderWorkspaceContent = ({
     }
   }, [selectedTableStorageKey]);
   const [message, setMessage] = useState<string>();
+  const [suggestionsFailure, setSuggestionsFailure] = useState<{
+    readonly key: string;
+    readonly message: string;
+  }>();
   const [pendingRowChange, setPendingRowChange] =
     useState<PendingRowChange>();
   const [pendingRowChangePreview, setPendingRowChangePreview] =
@@ -1414,6 +1418,9 @@ const BuilderWorkspaceContent = ({
               : {}),
           },
           form,
+          ...(form === 'ALL' && selection.constructionChoice.rowValuePolicy
+            ? { rowValuePolicy: selection.constructionChoice.rowValuePolicy }
+            : {}),
           outputColumnId,
         },
       },
@@ -1581,8 +1588,8 @@ const BuilderWorkspaceContent = ({
         throw new Error('Add one related field at a time so Loom can preview its exact route.');
       }
       const candidate = buildRelatedSourceCandidate(relatedSelections[0]!);
-      constructionLifecycle.onCandidateChange(candidate.intent);
-      return 'preview-pending' as const;
+      await constructionLifecycle.proposeCandidateAndWait(candidate.intent);
+      return 'preview-ready' as const;
     }
     const current = latestState.current;
     const proposalOwnerKey = ownerKey;
@@ -1874,13 +1881,14 @@ const BuilderWorkspaceContent = ({
     if (!currentOccurrence || !current.catalog.snapshotToken) return;
     const key = `${current.explorerId}:${current.catalog.snapshotToken}:${currentOccurrence.id}`;
     if (suggestionRequestKey.current === key) return;
-    suggestionRequestKey.current = key;
     if (
       (current.catalog.candidates ?? []).some(
         (candidate) => candidate.nodeId === currentOccurrence.nodeId,
       )
     )
       return;
+    suggestionRequestKey.current = key;
+    setSuggestionsFailure(undefined);
     const request = getSuggestions({
       project: projectId,
       explorerId: current.explorerId,
@@ -1894,18 +1902,29 @@ const BuilderWorkspaceContent = ({
       .then((value) => {
         const latest = latestState.current;
         if (
+          latest.explorerId === current.explorerId &&
           value.snapshotToken === latest.catalog.snapshotToken &&
           latest.selectedOccurrenceId === currentOccurrence.id
         ) {
           dispatch({ type: 'candidatesLoaded', candidates: value.candidates });
+          setSuggestionsFailure(undefined);
+        } else if (suggestionRequestKey.current === key) {
+          suggestionRequestKey.current = '';
         }
       })
       .catch((error: ExplorerAuthoringApiError) => {
+        if (suggestionRequestKey.current === key) suggestionRequestKey.current = '';
         if (error.code !== 'CLIENT_CANCELLED') {
           const suffix = error.code ? ` (${error.code})` : '';
-          setMessage(
-            `Available columns could not be loaded: ${error.message}${suffix}`,
-          );
+          const latest = latestState.current;
+          if (latest.explorerId === current.explorerId &&
+            latest.catalog.snapshotToken === current.catalog.snapshotToken &&
+            latest.selectedOccurrenceId === currentOccurrence.id) {
+            setSuggestionsFailure({
+              key,
+              message: `Available columns could not be loaded: ${error.message}${suffix}`,
+            });
+          }
         }
       });
   }, [authResourcePath, dispatch, getSuggestions, projectId]);
@@ -4244,6 +4263,21 @@ const BuilderWorkspaceContent = ({
               />
               )}
               <div className="min-w-0 space-y-3">
+              {suggestionsFailure?.key === suggestionIdentity ? (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"
+                  role="alert" data-testid="builder-suggestions-error">
+                  <p>{suggestionsFailure.message}</p>
+                  <button type="button" className="mt-2 font-semibold text-blue-800 underline"
+                    data-testid="builder-suggestions-retry"
+                    onClick={() => {
+                      suggestionRequestKey.current = '';
+                      setSuggestionsFailure(undefined);
+                      ensureSuggestions();
+                    }}>
+                    Retry finding columns
+                  </button>
+                </div>
+              ) : null}
               <ColumnSelector
                 catalog={state.catalog}
                 interpretationContext={interpretationContext}

@@ -47,24 +47,30 @@ test.describe('standalone CDA reshape workflows', () => {
     });
   };
 
-  for (const mode of ['integer', 'string']) {
-    register(`coded-pivot-${mode}`, runCodedPivotWorkflow, { mode });
-  }
+  register('coded-pivot-integer', runCodedPivotWorkflow, { mode: 'integer' }, {
+    cdaScenarioID: 'standalone-reshape-coded-pivot',
+  });
+  register('coded-pivot-string', runCodedPivotWorkflow, { mode: 'string' }, {
+    cdaScenarioID: 'standalone-reshape-coded-pivot',
+  });
 
   for (const mode of ['root', 'related', 'related-source-key']) {
     register(`implicit-pivot-${mode}`, runImplicitPivotWorkflow, { mode });
   }
 
   register('group-add-fields', runGroupAddFieldsBrowserWorkflow, {}, {
+    cdaScenarioID: 'standalone-reshape-group-add-fields',
     cdaUiRouting: 'explicit-query',
   });
   register('group-one-conflict', runGroupOneConflictBrowserWorkflow, {}, {
+    cdaScenarioID: 'standalone-reshape-group-one-conflict',
     cdaUiRouting: 'explicit-query',
   });
   register('group-related-values', runGroupRelatedValuesBrowserWorkflow);
   register('related-group', runRelatedGroupBrowserWorkflow);
   register('group-related-summary', runGroupRelatedSummaryBrowserWorkflow);
   register('group-edit-before-related-column', runGroupEditBeforeRelatedColumnBrowserWorkflow, {}, {
+    cdaScenarioID: 'standalone-reshape-group-edit-before-related-column',
     cdaUiRouting: 'explicit-query',
   });
 
@@ -81,7 +87,10 @@ test.describe('standalone CDA reshape workflows', () => {
   register('quantity-pivot-native-drag', runQuantityPivotNativeDragBrowserWorkflow);
   register('quantity-pivot-native-drag-full-population', runQuantityPivotNativeDragBrowserWorkflow, { fullPopulation: true });
 
-  for (const caseName of ['gender-all', 'gender-null-all', 'resource-type-all', 'id-count']) {
+  register('related-field-after-unpivot-gender-all', runRelatedFieldAfterUnpivotBrowserWorkflow, { caseName: 'gender-all' }, {
+    cdaScenarioID: 'standalone-reshape-related-field-after-unpivot-gender-all',
+  });
+  for (const caseName of ['gender-null-all', 'resource-type-all', 'id-count']) {
     register(`related-field-after-unpivot-${caseName}`, runRelatedFieldAfterUnpivotBrowserWorkflow, { caseName });
   }
 

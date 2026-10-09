@@ -11,6 +11,67 @@ import { deriveGroupRowsFromCdaWitnesses, findMappedMemberRemovalWithGroupCountC
 import { scenarioCaseFor } from '../registry.mjs';
 
 export const populationMemberRemovalRawFieldsSummarySelector = '[data-testid="construction-operation-editor"] [data-testid="feature-catalog-raw-fields"] > summary';
+export const POPULATION_MEMBER_REMOVAL_RENDER_BUDGET_MS = 5000;
+export const POPULATION_MEMBER_REMOVAL_RENDER_CHECKPOINTS = Object.freeze([
+  'remove-click-to-exact-candidate-rows',
+  'cancel-click-to-exact-baseline-rows',
+  'reopen-click-to-exact-candidate-rows',
+  'apply-click-to-exact-candidate-rows',
+  'reload-to-exact-candidate-rows',
+  'undo-click-to-exact-baseline-rows',
+  'restore-reload-to-exact-baseline-rows',
+]);
+
+export const buildPopulationMemberRemovalLifecycleEvidence = ({ checkpoints, actionDurationsMs }) => {
+  assert(Array.isArray(checkpoints), 'Population member removal checkpoints must be an array');
+  assert.equal(checkpoints.length, POPULATION_MEMBER_REMOVAL_RENDER_CHECKPOINTS.length,
+    'Population member removal must measure every registered lifecycle transition');
+  assert(Array.isArray(actionDurationsMs) && actionDurationsMs.length > 0,
+    'Population member removal must include its native action timings');
+  assert(actionDurationsMs.every(durationMs => Number.isFinite(durationMs) && durationMs >= 0),
+    'Native action timings must be finite non-negative numbers');
+  assert(actionDurationsMs.every(durationMs => durationMs <= POPULATION_MEMBER_REMOVAL_RENDER_BUDGET_MS),
+    'Native action timings must stay within the five-second budget');
+  const byName = new Map();
+  for (const checkpoint of checkpoints) {
+    assert(checkpoint && typeof checkpoint === 'object' && !Array.isArray(checkpoint),
+      'Population member removal checkpoint must be an object');
+    assert(typeof checkpoint.name === 'string' && checkpoint.name.length > 0,
+      'Population member removal checkpoint needs a name');
+    assert(Number.isFinite(checkpoint.durationMs) && checkpoint.durationMs >= 0,
+      'Population member removal checkpoint duration must be finite and non-negative');
+    assert(checkpoint.durationMs <= POPULATION_MEMBER_REMOVAL_RENDER_BUDGET_MS,
+      `Population member removal checkpoint ${checkpoint.name} exceeded the five-second budget`);
+    assert(!byName.has(checkpoint.name), `Duplicate population member removal checkpoint: ${checkpoint.name}`);
+    byName.set(checkpoint.name, checkpoint.durationMs);
+  }
+  assert.deepEqual([...byName.keys()].sort(), [...POPULATION_MEMBER_REMOVAL_RENDER_CHECKPOINTS].sort(),
+    'Population member removal checkpoint names must match the registered lifecycle');
+  const rendered = POPULATION_MEMBER_REMOVAL_RENDER_CHECKPOINTS.map(name => {
+    const durationMs = byName.get(name);
+    return {
+      name,
+      durationMs,
+      budgetMs: POPULATION_MEMBER_REMOVAL_RENDER_BUDGET_MS,
+      withinBudget: durationMs <= POPULATION_MEMBER_REMOVAL_RENDER_BUDGET_MS,
+    };
+  });
+  return {
+    actionCount: actionDurationsMs.length,
+    maxActionMs: Math.max(...actionDurationsMs),
+    measuredTransitionCount: rendered.length,
+    checkpoints: rendered,
+  };
+};
+
+export const recordPopulationMemberRemovalLifecycleCheckpoint = (checkpoints, name, durationMs) => {
+  assert(Array.isArray(checkpoints), 'Population member removal checkpoints must be an array');
+  assert(typeof name === 'string' && name.length > 0, 'Population member removal checkpoint needs a name');
+  return {
+    checkpoints: [...checkpoints, { name, durationMs }],
+    withinBudget: durationMs <= POPULATION_MEMBER_REMOVAL_RENDER_BUDGET_MS,
+  };
+};
 
 const sensitiveName = /authorization|cookie|password|passwd|token|secret|credential|session|api[_-]?key/i;
 const sanitizeText = value => String(value ?? '')
@@ -51,8 +112,8 @@ export async function populationMemberRemovalWorkflow(page, nativeReport, action
   const target = context.target ?? {};
   const project = context.project ?? target.project ?? target.fixtureProject ?? env.LOOM_CDA_PROJECT;
   const generation = 'cda-fhir-v1';
-  const explorer = context.explorer ?? target.explorer ?? env.LOOM_CDA_EXPLORER ?? `population-member-removal-${Date.now()}`;
-  assert(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(explorer), 'LOOM_CDA_EXPLORER must be a simple owned Explorer identifier.');
+  const explorer = `population-member-removal-${randomUUID()}`;
+  assert(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(explorer), 'Generated QA Explorer identifier must be simple and valid.');
   assert.notEqual(explorer, 'cda-builder-full-qa-1790440983382', 'The shared protected CDA Explorer is not an owned test target');
   const apiOrigin = String(context.apiOrigin ?? target.apiOrigin ?? target.apiUrl ?? env.LOOM_CDA_API_ORIGIN ?? '').replace(/\/$/, '');
   const uiOrigin = String(context.uiOrigin ?? target.uiOrigin ?? target.uiUrl ?? env.LOOM_CDA_UI_ORIGIN ?? '').replace(/\/$/, '');
@@ -88,6 +149,18 @@ export async function populationMemberRemovalWorkflow(page, nativeReport, action
   nativeReport.scenario = scenario;
   nativeReport.case = caseName;
   report.requiredChecks = requiredChecks;
+  let lifecycleCheckpoints = [];
+  if (mappedGroupCountChange) report.lifecycleCheckpoints = lifecycleCheckpoints;
+  const recordMappedCheckpoint = (name, durationMs) => {
+    if (!mappedGroupCountChange) return durationMs <= POPULATION_MEMBER_REMOVAL_RENDER_BUDGET_MS;
+    const recorded = recordPopulationMemberRemovalLifecycleCheckpoint(lifecycleCheckpoints, name, durationMs);
+    lifecycleCheckpoints = recorded.checkpoints;
+    report.lifecycleCheckpoints = lifecycleCheckpoints;
+    return recorded.withinBudget;
+  };
+  const assertMappedCheckpointWithinBudget = (name, durationMs, message) =>
+    assert(recordMappedCheckpoint(name, durationMs), message);
+  let proposalLifecycleCheckpointIndex = 0;
 
 let requestMonitor;
 let builder;
@@ -199,7 +272,15 @@ const waitForMemberProposal = async (startAt, { expectedRows, expected }) => {
   assert.equal(panelPreview.table, true, 'The UI must render the candidate table under the removal proposal');
   assertExactPreviewMultiset(panelPreview.rows, expectedRows, 'member-proposal preview multiset');
   const durationMs = Date.now() - startAt;
-  assert(durationMs <= 5000, `Removal click-to-ready proposal DOM took ${durationMs}ms`);
+  if (mappedGroupCountChange) {
+    const checkpointName = proposalLifecycleCheckpointIndex === 0
+      ? 'remove-click-to-exact-candidate-rows'
+      : 'reopen-click-to-exact-candidate-rows';
+    assertMappedCheckpointWithinBudget(checkpointName, durationMs, `Removal click-to-ready proposal DOM took ${durationMs}ms`);
+    proposalLifecycleCheckpointIndex++;
+  } else {
+    assertMappedCheckpointWithinBudget(undefined, durationMs, `Removal click-to-ready proposal DOM took ${durationMs}ms`);
+  }
   report.cases.push({ name: 'mapped-member-auto-impact-preview', durationMs, proposalId: value.proposalId, candidateSelectionId: candidate.id, rowCount: value.preview.rowCount });
   return { entry, value, candidate };
 };
@@ -510,7 +591,7 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   await assertRendered(baselineRows);
   const afterCancel = await refreshBuilder();
   const cancelDurationMs = Date.now() - cancelStarted;
-  assert(cancelDurationMs <= 5000, `Cancel-to-unchanged-render took ${cancelDurationMs}ms`);
+  assertMappedCheckpointWithinBudget('cancel-click-to-exact-baseline-rows', cancelDurationMs, `Cancel-to-unchanged-render took ${cancelDurationMs}ms`);
   assert.equal(networkRequests.filter(request => request.path === `${authoring}/commands` &&
     request.startedAt >= cancelStarted && request.startedAt <= Date.now()).length, 0,
   'Cancel must not issue an authoring command');
@@ -536,7 +617,8 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   await assertRendered(candidateRows);
   await requestMonitor.flush();
   const applyDomEnded = Date.now();
-  assert(applyDomEnded - applyStarted <= 5000, `Apply click-to-updated-preview DOM took ${applyDomEnded - applyStarted}ms`);
+  assertMappedCheckpointWithinBudget('apply-click-to-exact-candidate-rows', applyDomEnded - applyStarted,
+    `Apply click-to-updated-preview DOM took ${applyDomEnded - applyStarted}ms`);
   const afterApply = await refreshBuilder();
   assert(Date.now() - applyStarted <= 5000, `Apply click through refreshed draft state took ${Date.now() - applyStarted}ms`);
   assert(afterApply.draftVersion > originalVersion, 'Applying the exact proposal must advance the draft');
@@ -579,7 +661,7 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   const reloadStarted = Date.now();
   await openBuilder(candidateRows);
   const reloadDurationMs = Date.now() - reloadStarted;
-  assert(reloadDurationMs <= 5000, `Reload-to-render took ${reloadDurationMs}ms`);
+  assertMappedCheckpointWithinBudget('reload-to-exact-candidate-rows', reloadDurationMs, `Reload-to-render took ${reloadDurationMs}ms`);
   report.cases.push({ name: 'reload-applied-candidate-to-render', durationMs: reloadDurationMs });
   const reloaded = await refreshBuilder();
   const reloadedDocument = currentDocument(reloaded);
@@ -610,6 +692,7 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   await waitFor(digest => { const p=document.querySelector('[data-testid="construction-preview"]'); return p?.dataset.previewStatus === 'ready' && p.dataset.currentDraftDigest !== digest; }, reloaded.draftDigest, 30000);
   await assertRendered(baselineRows);
   const undoRenderMs = Date.now() - undoStarted;
+  const undoWithinBudget = recordMappedCheckpoint('undo-click-to-exact-baseline-rows', undoRenderMs);
   const restored = await refreshBuilder();
   assert(restored.draftVersion > reloaded.draftVersion, 'Undo must advance the current draft CAS version');
   assert.equal(restored.draftDigest, originalDigest, 'Undo must restore the exact pre-removal workspace digest');
@@ -619,7 +702,7 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   assert.deepEqual(currentDocument(restored).columns, savedDocument.columns);
   assert.deepEqual(await rawMembership(baseSelection.id), refs);
   const undoVerificationMs = Date.now() - undoStarted;
-  assert(undoRenderMs <= 5000, `Undo-to-restored rows took ${undoRenderMs}ms`);
+  assert(undoWithinBudget, `Undo-to-restored rows took ${undoRenderMs}ms`);
   report.cases.push({ name: 'undo-restores-original-membership-and-rows', durationMs: undoRenderMs, verificationDurationMs: undoVerificationMs });
   const restorationReloadStarted = Date.now();
   await openBuilder(baselineRows);
@@ -628,7 +711,7 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   assert.deepEqual(currentDocument(restoredReload).construction, savedDocument.construction);
   assert.deepEqual(currentDocument(restoredReload).columns, savedDocument.columns);
   const restorationReloadMs = Date.now() - restorationReloadStarted;
-  assert(restorationReloadMs <= 5000, `Restoration reload took ${restorationReloadMs}ms`);
+  assertMappedCheckpointWithinBudget('restore-reload-to-exact-baseline-rows', restorationReloadMs, `Restoration reload took ${restorationReloadMs}ms`);
   report.cases.push({ name: 'reload-restored-original-collection-and-rows', durationMs: restorationReloadMs });
   mark(mappedGroupCountChange
     ? requiredChecks[9]
@@ -643,6 +726,12 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
     ? 'apply-exact-proposal-to-changed-nonempty-group'
     : 'apply-exact-proposal-to-empty-related-source') && testCase.durationMs <= 5000));
   assert(report.cases.some(testCase => testCase.name === 'reload-applied-candidate-to-render' && testCase.durationMs <= 5000));
+  if (mappedGroupCountChange) {
+    report.lifecycleEvidence = buildPopulationMemberRemovalLifecycleEvidence({
+      checkpoints: lifecycleCheckpoints,
+      actionDurationsMs: report.cases.map(testCase => testCase.durationMs),
+    });
+  }
   mark(mappedGroupCountChange ? requiredChecks[10] : requiredChecks[9]);
   report.status = 'passed';
   };
