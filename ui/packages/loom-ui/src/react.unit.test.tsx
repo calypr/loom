@@ -83,6 +83,91 @@ describe('Loom React queries', () => {
     await waitFor(() => expect(result.current.data?.draftDigest).toBe(args.expectedDraftDigest));
   });
 
+  it('aborts and ignores a configured-context owner while disabled, then accepts the re-enabled owner', async () => {
+    const requests: Array<{
+      readonly url: string;
+      readonly body: string;
+      readonly signal?: AbortSignal;
+      readonly resolve: (response: Response) => void;
+    }> = [];
+    const fetch = vi.fn<typeof globalThis.fetch>((input, init) => new Promise<Response>((resolve) => {
+      requests.push({
+        url: String(input),
+        body: String(init?.body),
+        signal: init?.signal ?? undefined,
+        resolve,
+      });
+    }));
+    const client = createLoomClient({ fetch });
+    const wrapper = ({ children }: { readonly children: React.ReactNode }) => (
+      <LoomProvider client={client}>{children}</LoomProvider>
+    );
+    const firstArgs: ResolveConfiguredColumnContextsArgs = {
+      project: 'project-first', explorerId: 'explorer-first', authResourcePath: '/auth/first',
+      snapshotToken: 'snapshot-first', expectedDraftVersion: 1, expectedDraftDigest: 'sha256:first',
+    };
+    const nextArgs: ResolveConfiguredColumnContextsArgs = {
+      project: 'project-next', explorerId: 'explorer-next', authResourcePath: '/auth/next',
+      snapshotToken: 'snapshot-next', expectedDraftVersion: 4, expectedDraftDigest: 'sha256:next',
+    };
+    const response = (args: ResolveConfiguredColumnContextsArgs, libraryId: string) => new Response(JSON.stringify({
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      libraries: [{ id: libraryId, updatedAt: '2026-10-08T00:00:00Z' }],
+      pinnedRevisions: [],
+      columns: [],
+    }), { status: 200 });
+    type Props = { readonly args: ResolveConfiguredColumnContextsArgs | undefined; readonly key: string };
+    const { result, rerender } = renderHook<ReturnType<typeof useResolveConfiguredColumnContextsQuery>, Props>(
+      ({ args, key }: Props) => useResolveConfiguredColumnContextsQuery(args, key),
+      { initialProps: { args: firstArgs, key: 'first-table-progress-owner' }, wrapper },
+    );
+
+    await waitFor(() => expect(requests).toHaveLength(1));
+    const firstRequest = requests[0];
+    if (!firstRequest) throw new Error('Initial configured-context request did not start.');
+    expect(new URL(firstRequest.url, 'http://loom.test').pathname)
+      .toBe('/api/v1/projects/project-first/explorers/explorer-first/authoring/v2/configured-column-context');
+    expect(JSON.parse(firstRequest.body)).toEqual({
+      snapshotToken: firstArgs.snapshotToken,
+      expectedDraftVersion: firstArgs.expectedDraftVersion,
+      expectedDraftDigest: firstArgs.expectedDraftDigest,
+    });
+
+    rerender({ args: undefined, key: 'first-table-progress-disabled' });
+    await waitFor(() => expect(firstRequest.signal?.aborted).toBe(true));
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.isFetching).toBe(false);
+
+    await act(async () => firstRequest.resolve(response(firstArgs, 'stale-disabled-owner')));
+    expect(result.current.data).toBeUndefined();
+    expect(result.current.error).toBeUndefined();
+    expect(result.current.isLoading).toBe(false);
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    rerender({ args: nextArgs, key: 'first-table-progress-reenabled-owner' });
+    await waitFor(() => expect(requests).toHaveLength(2));
+    const nextRequest = requests[1];
+    if (!nextRequest) throw new Error('Re-enabled configured-context request did not start.');
+    expect(nextRequest.signal?.aborted).toBe(false);
+    expect(new URL(nextRequest.url, 'http://loom.test').pathname)
+      .toBe('/api/v1/projects/project-next/explorers/explorer-next/authoring/v2/configured-column-context');
+    expect(JSON.parse(nextRequest.body)).toEqual({
+      snapshotToken: nextArgs.snapshotToken,
+      expectedDraftVersion: nextArgs.expectedDraftVersion,
+      expectedDraftDigest: nextArgs.expectedDraftDigest,
+    });
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.data).toBeUndefined();
+
+    await act(async () => nextRequest.resolve(response(nextArgs, 'current-reenabled-owner')));
+    await waitFor(() => expect(result.current.data?.libraries[0]?.id).toBe('current-reenabled-owner'));
+    expect(result.current.data?.snapshotToken).toBe(nextArgs.snapshotToken);
+    expect(result.current.data?.draftDigest).toBe(nextArgs.expectedDraftDigest);
+    expect(result.current.data?.libraries.map(library => library.id)).toEqual(['current-reenabled-owner']);
+  });
+
   it('aborts prior configured-context owners and ignores stale navigation and refresh results', async () => {
     const requests: Array<{
       readonly url: string;
