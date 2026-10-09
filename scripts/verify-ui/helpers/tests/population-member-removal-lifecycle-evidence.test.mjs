@@ -1,9 +1,16 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { registry, scenarioCaseFor } from '../../registry.mjs';
 import {
   buildPopulationMemberRemovalLifecycleEvidence,
   recordPopulationMemberRemovalLifecycleCheckpoint,
 } from '../../workflows/population-member-removal-workflow.mjs';
+
+const retainedEpoch96Report = JSON.parse(readFileSync(new URL(
+  '../../../../docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch96-lifecycle-report.json',
+  import.meta.url,
+), 'utf8'));
 
 const checkpointNames = [
   'remove-click-to-exact-candidate-rows',
@@ -21,6 +28,31 @@ const input = () => ({
     durationMs: [100, 200, 300, 400, 1800, 437, 2410][index],
   })),
   actionDurationsMs: [261, 222, 266, 287, 5000],
+});
+
+test('registers the retained Undo restoration assertion as a required lifecycle check', () => {
+  const scenarioID = 'builder-population-member-removal';
+  const caseName = 'mapped-plus-orphan-to-empty';
+  const lifecycleCase = scenarioCaseFor(scenarioID, caseName);
+  const retainedAssertion = retainedEpoch96Report.workflowAssertionsBeyondRegistry;
+  const restorationCheck = 'Undo restores the original population and its exact attached selection';
+
+  assert.equal(retainedAssertion.name, restorationCheck);
+  assert.equal(retainedAssertion.status, 'passed');
+  assert.equal(retainedAssertion.countedAsRegisteredRequiredChecks, false);
+  assert.ok(!retainedEpoch96Report.requiredChecks.names.includes(restorationCheck));
+  assert.equal(retainedEpoch96Report.assertionCounts.undoAssertion.name, restorationCheck);
+  assert.equal(retainedEpoch96Report.assertionCounts.undoAssertion.passed, true);
+  assert.ok(lifecycleCase.requiredChecks.includes(restorationCheck));
+  assert.deepEqual(retainedAssertion.checkpointEvidence.map(({ name }) => name), [
+    'undo-restores-original-membership-and-rows',
+    'reload-restored-original-collection-and-rows',
+  ]);
+
+  const coverage = registry.find(({ id }) => id === scenarioID).coverage
+    .filter(({ acceptance }) => acceptance?.case === caseName);
+  assert.ok(coverage.length > 0);
+  assert.ok(coverage.every(({ acceptance }) => acceptance.checks.restoration === 9));
 });
 
 test('builds performance evidence from the exact seven required rendered transitions', () => {
