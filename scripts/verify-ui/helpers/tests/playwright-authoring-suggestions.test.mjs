@@ -4,11 +4,11 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import {
-  abortSuggestionRouteAfterUserAction,
   builderAuthoringSuggestionsWorkflow,
   captureSuggestionUiState,
   classifySuggestionDiagnostics,
   isOwnedRootSuggestionRequest,
+  releaseSuggestionRouteAfterGate,
   sanitizedSuggestionRequestBinding,
   waitForOwnedRootSuggestionRequest,
 } from '../playwright-authoring-suggestions.mjs';
@@ -118,7 +118,7 @@ test('suggestion abort classifier refuses console attribution when another faile
   assert.deepEqual(result.unexpected, [competingRequest, exactAbortConsole]);
 });
 
-test('suggestion fault ownership is limited to the active root request and abort waits for the native action', async () => {
+test('suggestion fault ownership is limited to the active root request and abort waits for the root-table gate', async () => {
   const request = {
     method: 'POST',
     url: suggestionsURL,
@@ -142,16 +142,16 @@ test('suggestion fault ownership is limited to the active root request and abort
   const actionCompleted = new Promise(resolve => { releaseAction = resolve; });
   const events = [];
   const route = { abort: async reason => { events.push(`abort:${reason}`); } };
-  const pendingAbort = abortSuggestionRouteAfterUserAction(route, actionCompleted);
+  const pendingAbort = releaseSuggestionRouteAfterGate(route, actionCompleted);
   await Promise.resolve();
   assert.deepEqual(events, []);
-  events.push('open Raw FHIR fields');
+  events.push('choose Patient rows and settle the exact preview');
   releaseAction(true);
   assert.equal(await pendingAbort, true);
-  assert.deepEqual(events, ['open Raw FHIR fields', 'abort:failed']);
+  assert.deepEqual(events, ['choose Patient rows and settle the exact preview', 'abort:failed']);
 });
 
-test('missing owned request and missing native action fail within bounds and release the held route', async () => {
+test('wrong root binding is ignored and a missing root-table action continues the held route within bounds', async () => {
   const unrelated = {
     method: 'POST',
     url: suggestionsURL,
@@ -167,12 +167,19 @@ test('missing owned request and missing native action fail within bounds and rel
 
   const events = [];
   const chronology = {};
-  const route = { abort: async reason => { events.push(`abort:${reason}`); } };
+  const route = {
+    abort: async reason => { events.push(`abort:${reason}`); },
+    continue: async () => { events.push('continue'); },
+  };
   const actionNeverCompleted = new Promise(() => {});
-  assert.equal(await abortSuggestionRouteAfterUserAction(route, actionNeverCompleted, 5, chronology), false);
-  assert.deepEqual(events, ['abort:failed']);
-  assert.equal(chronology.abortStartedAtMs > 0, true);
-  assert.equal(chronology.routeReleasedAtMs >= chronology.abortStartedAtMs, true);
+  const gateStartedAt = Date.now();
+  assert.equal(await releaseSuggestionRouteAfterGate(route, actionNeverCompleted, 5, chronology), false);
+  assert.equal(Date.now() - gateStartedAt < 1_000, true);
+  assert.deepEqual(events, ['continue']);
+  assert.equal(chronology.releaseAction, 'continue');
+  assert.equal(chronology.abortStartedAtMs, undefined);
+  assert.equal(chronology.releaseStartedAtMs > 0, true);
+  assert.equal(chronology.routeReleasedAtMs >= chronology.releaseStartedAtMs, true);
 });
 
 test('sanitized suggestion binding retains request identity without the raw snapshot token', () => {
@@ -274,7 +281,7 @@ test('suggestion UI capture reads Explorer, Raw FHIR details, and failure contro
   });
 });
 
-test('production suggestions workflow retains abort chronology when the retry alert never appears', async () => {
+test('production suggestions workflow gates the lazy abort on the root action and settled preview', async () => {
   const fixtureDir = fileURLToPath(new URL('../../../../testdata/devloop-fixture', import.meta.url));
   const workflowTarget = {
     uiUrl: target.uiUrl,
@@ -290,28 +297,28 @@ test('production suggestions workflow retains abort chronology when the retry al
   const missingAlert = new Error('builder-suggestions-error did not appear');
   let lazyRoutePromise;
   let failedAlertWaits = 0;
-  let rawFieldsVisibleWaits = 0;
   const routeEvents = [];
-  let uiPhase = 'before-add-columns';
+  const actionNames = [];
+  let uiPhase = 'before-root-table';
   const uiStates = {
-    'before-add-columns': {
-      explorerId: 'explorer-new', explorerTitle: 'Verify workflow-binding-regression suggestions',
-      tableHeading: 'Editing Patients', fieldsModeSelected: false, searchScope: null,
+    'before-root-table': {
+      explorerId: 'explorer-new', explorerTitle: 'Verify root-table-gate suggestions',
+      tableHeading: 'Build your first table', fieldsModeSelected: null, searchScope: null,
       rawFieldsOpen: false, selectedOccurrenceId: null, selectedOccurrenceObservable: false,
       failureAlertVisible: false, failureAlertText: null, failureAlertCode: null,
       retryVisible: false, retryEnabled: null,
     },
-    'raw-fields-open': {
-      explorerId: 'explorer-new', explorerTitle: 'Verify workflow-binding-regression suggestions',
+    'root-table-action': {
+      explorerId: 'explorer-new', explorerTitle: 'Verify root-table-gate suggestions',
       tableHeading: 'Editing Patients', fieldsModeSelected: true, searchScope: 'All accessible resources',
-      rawFieldsOpen: true, selectedOccurrenceId: null, selectedOccurrenceObservable: false,
+      rawFieldsOpen: false, selectedOccurrenceId: null, selectedOccurrenceObservable: false,
       failureAlertVisible: false, failureAlertText: null, failureAlertCode: null,
       retryVisible: false, retryEnabled: null,
     },
     'after-failure': {
-      explorerId: 'explorer-new', explorerTitle: 'Verify workflow-binding-regression suggestions',
+      explorerId: 'explorer-new', explorerTitle: 'Verify root-table-gate suggestions',
       tableHeading: 'Editing Patients', fieldsModeSelected: true, searchScope: 'All accessible resources',
-      rawFieldsOpen: true, selectedOccurrenceId: null, selectedOccurrenceObservable: false,
+      rawFieldsOpen: false, selectedOccurrenceId: null, selectedOccurrenceObservable: false,
       failureAlertVisible: false, failureAlertText: null, failureAlertCode: null,
       retryVisible: false, retryEnabled: null,
     },
@@ -382,6 +389,7 @@ test('production suggestions workflow retains abort chronology when the retry al
       }
       if (label === 'builder-suggestions-error' && options?.state === 'visible') {
         failedAlertWaits += 1;
+        await lazyRoutePromise;
         throw missingAlert;
       }
     },
@@ -398,7 +406,6 @@ test('production suggestions workflow retains abort chronology when the retry al
   const previewScroll = {
     getByRole: role => ({ all: async () => {
       assert.equal(role, 'row');
-      startLazyRequest();
       return previewRows;
     } }),
   };
@@ -416,6 +423,7 @@ test('production suggestions workflow retains abort chronology when the retry al
     locator: selector => locator(selector),
   };
   const action = async (name, _target, perform, options = {}) => {
+    actionNames.push(name);
     await perform();
     if (name === 'create blank Explorer') {
       await dispatch(request({ method: 'GET', url: builderURL, requestId: 'builder-new-1' }));
@@ -424,10 +432,8 @@ test('production suggestions workflow retains abort chronology when the retry al
         method: 'POST', url: suggestionURL, requestId: 'first-table-suggestions-1',
         body: { nodeId: 'Patient', snapshotToken: 'snapshot-1' },
       }));
-    } else if (name === 'open Raw FHIR fields') {
-      uiPhase = 'raw-fields-open';
-      await options.after?.();
-      await lazyRoutePromise;
+      uiPhase = 'root-table-action';
+      startLazyRequest();
     }
   };
 
@@ -442,33 +448,52 @@ test('production suggestions workflow retains abort chronology when the retry al
     error => error === missingAlert,
   );
   assert.equal(failedAlertWaits, 1);
-  assert.equal(rawFieldsVisibleWaits, 1);
   assert.equal(report.network.length, 1);
   assert.deepEqual(routeEvents, ['abort:failed']);
+  assert.equal(actionNames.includes('open Add columns'), false,
+    'the lazy root request is gated before any later Add columns or Raw FHIR actions');
   const chronology = report.target.suggestionsFaultChronology;
   assert.equal(chronology.firstTable.requestId, 'first-table-suggestions-1');
   assert.equal(chronology.firstTable.responseStatus, 200);
+  assert.deepEqual(chronology.rootTableAction, {
+    name: 'choose Patient rows',
+    startedAtMs: chronology.rootTableAction.startedAtMs,
+    startedSequence: chronology.rootTableAction.startedSequence,
+    actionCompleted: true,
+    firstTableRequestId: 'first-table-suggestions-1',
+    firstTableResponseRequestId: 'first-table-suggestions-1',
+    firstTableResponseStatus: 200,
+    firstTableResponseOK: true,
+    previewIds: ['dev-patient-001', 'dev-patient-002'],
+    previewMatchesFixture: true,
+    completed: true,
+    completedAtMs: chronology.rootTableAction.completedAtMs,
+    completedSequence: chronology.rootTableAction.completedSequence,
+  });
   assert.equal(chronology.lazy.attemptId, 'lazy:suggestions-base');
   assert.equal(chronology.lazy.nodeId, chronology.firstTable.nodeId);
   assert.equal(chronology.lazy.snapshotTokenSHA256, chronology.firstTable.snapshotTokenSHA256);
   assert.equal(chronology.lazy.sameRootNodeAsFirstTable, true);
   assert.equal(chronology.lazy.sameSnapshotAsFirstTable, true);
+  assert.equal(chronology.lazy.requestDuringRootTableAction, true);
+  assert.equal(chronology.lazy.sequence < chronology.rootTableAction.completedSequence, true);
   assert.equal(chronology.lazy.actionCompletedBeforeAbort, true);
-  assert.equal(chronology.rawFieldsAction.opened, true);
+  assert.equal(chronology.lazy.releaseAction, 'abort');
+  assert.equal(chronology.lazy.uiBeforeAbort.rootTableActionCompleted, true);
+  assert.equal(chronology.lazy.uiBeforeAbort.firstTableResponseStatus, 200);
+  assert.deepEqual(chronology.lazy.uiBeforeAbort.previewIds, ['dev-patient-001', 'dev-patient-002']);
+  assert.equal(chronology.lazy.uiBeforeAbort.previewMatchesFixture, true);
+  assert.equal(chronology.rootTableAction.completedSequence < chronology.lazy.uiBeforeAbortSequence, true);
   assert.equal(chronology.lazy.abortAction, 'failed');
-  assert.equal(chronology.lazy.abortStartedAtMs >= chronology.rawFieldsAction.signaledAtMs, true);
   assert.equal(chronology.lazy.routeReleased, true);
   assert.equal(chronology.lazy.routeReleasedAtMs >= chronology.lazy.abortStartedAtMs, true);
-  assert.equal(chronology.lazy.failureRecordCaptured, true);
+  assert.equal(chronology.lazy.failureRecordCaptured, true, JSON.stringify({
+    lazyRequestId: chronology.lazy.requestId,
+    network: report.network,
+  }));
   assert.equal(chronology.lazy.requestOccurrenceId, 'base');
-  assert.equal(chronology.lazy.requestBeforeRawFieldsAction, true);
   assert.equal(chronology.lazy.uiAtRequest.explorerId, 'explorer-new');
   assert.equal(chronology.lazy.uiAtRequest.explorerMatchesRequest, true);
-  assert.equal(chronology.lazy.uiAtRequest.rawFieldsOpen, false);
-  assert.equal(chronology.rawFieldsAction.uiBeforeAction.rawFieldsOpen, false);
-  assert.equal(chronology.rawFieldsAction.uiBeforeAbort.rawFieldsOpen, true);
-  assert.equal(chronology.rawFieldsAction.uiBeforeAbort.explorerMatchesRequest, true);
-  assert.equal(chronology.rawFieldsAction.uiBeforeAbort.fieldsModeSelected, true);
   assert.equal(chronology.lazy.catchOutcome.requestFailureObserved, true);
   assert.equal(chronology.lazy.catchOutcome.failureAlertVisible, false);
   assert.equal(chronology.lazy.catchOutcome.appErrorCodeFromVisibleAlert, null);
@@ -476,8 +501,8 @@ test('production suggestions workflow retains abort chronology when the retry al
   assert.equal(chronology.lazy.catchOutcome.catchVisibleIdentity.explorerMatchesRequest, true);
   assert.equal(chronology.lazy.catchOutcome.catchVisibleIdentity.selectedOccurrenceObservable, false);
   assert.equal(chronology.lazy.catchOutcome.catchVisibleIdentity.snapshotTokenObservable, false);
-  assert.equal(report.checks.some(check => check.name === 'lazy suggestions request was captured before the Raw FHIR fields transition' && check.passed), true);
-  assert.equal(report.checks.some(check => check.name === 'injected lazy route was released after Raw FHIR fields opened' && check.passed), true);
+  assert.equal(report.checks.some(check => check.name === 'injected lazy route was released after the exact root preview settled' && check.passed), true);
+  assert.equal(report.checks.some(check => check.name === 'native Patient root preview renders exact independent fixture IDs before candidate selection' && check.passed), true);
   assert.equal(report.checks.some(check => check.name === 'lazy suggestion failure UI state was captured for the owned request' && check.passed), true);
   assert.equal(report.checks.some(check => check.name === 'one failed lazy suggestion request exposes an actionable retry control' && !check.passed), true);
   assert.deepEqual(chronology.lazy.catchOutcome, {

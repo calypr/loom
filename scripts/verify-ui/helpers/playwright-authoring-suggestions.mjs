@@ -188,12 +188,13 @@ export const waitForOwnedRootSuggestionRequest = async (requestSeen, timeoutMs =
   }
 };
 
-export const abortSuggestionRouteAfterUserAction = async (
+export const releaseSuggestionRouteAfterGate = async (
   route, actionCompleted, timeoutMs = 5_000, chronology = {}, beforeAbort,
 ) => {
   let timer;
+  let completed = false;
   try {
-    const completed = await Promise.race([
+    completed = await Promise.race([
       actionCompleted,
       new Promise(resolve => { timer = setTimeout(() => resolve(false), timeoutMs); }),
     ]) === true;
@@ -201,8 +202,14 @@ export const abortSuggestionRouteAfterUserAction = async (
     return completed;
   } finally {
     clearTimeout(timer);
-    chronology.abortStartedAtMs = Date.now();
-    await route.abort('failed');
+    chronology.releaseStartedAtMs = Date.now();
+    chronology.releaseAction = completed ? 'abort' : 'continue';
+    if (completed) {
+      chronology.abortStartedAtMs = chronology.releaseStartedAtMs;
+      await route.abort('failed');
+    } else {
+      await route.continue();
+    }
     chronology.routeReleasedAtMs = Date.now();
   }
 };
@@ -298,19 +305,55 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
     endpoint: '/authoring/v2/suggestions',
     firstTable: null,
     lazy: null,
-    rawFieldsAction: {
-      name: 'open Raw FHIR fields',
+    rootTableAction: {
+      name: 'choose Patient rows',
       startedAtMs: null,
-      signaledAtMs: null,
-      opened: null,
+      startedSequence: null,
+      actionCompleted: false,
+      firstTableRequestId: null,
+      firstTableResponseRequestId: null,
+      firstTableResponseStatus: null,
+      firstTableResponseOK: null,
+      previewIds: null,
+      previewMatchesFixture: null,
+      completed: false,
+      completedAtMs: null,
+      completedSequence: null,
     },
   };
   report.target.suggestionsFaultChronology = suggestionsFaultChronology;
   let firstTableAttempt;
   let resolveFirstLazyRequest;
   const firstLazyRequestSeen = new Promise(resolve => { resolveFirstLazyRequest = resolve; });
-  let completeRawFieldsAction;
-  const rawFieldsActionCompleted = new Promise(resolve => { completeRawFieldsAction = resolve; });
+  let resolveFirstLazyRouteReleased;
+  const firstLazyRouteReleased = new Promise(resolve => { resolveFirstLazyRouteReleased = resolve; });
+  let completeRootTableAction;
+  const rootTableActionCompleted = new Promise(resolve => { completeRootTableAction = resolve; });
+  let rootTableActionSignaled = false;
+  let choosePatientRowsActionCompleted = false;
+  const signalRootTableAction = (firstTableResponse, previewIds) => {
+    if (rootTableActionSignaled) return;
+    rootTableActionSignaled = true;
+    const responseRequestId = firstTableResponse?.request()?.headers()['x-request-id'] ?? null;
+    const previewMatchesFixture = Array.isArray(previewIds) &&
+      JSON.stringify(previewIds) === JSON.stringify(expectedIds);
+    const exactFirstTableResponse = Boolean(firstTableAttempt &&
+      responseRequestId === firstTableAttempt.requestId &&
+      firstTableResponse.status() === 200 && firstTableResponse.ok());
+    Object.assign(suggestionsFaultChronology.rootTableAction, {
+      actionCompleted: choosePatientRowsActionCompleted,
+      firstTableRequestId: firstTableAttempt?.requestId ?? null,
+      firstTableResponseRequestId: responseRequestId,
+      firstTableResponseStatus: firstTableResponse?.status() ?? null,
+      firstTableResponseOK: firstTableResponse?.ok() ?? null,
+      previewIds: Array.isArray(previewIds) ? [...previewIds] : null,
+      previewMatchesFixture,
+      completed: choosePatientRowsActionCompleted && exactFirstTableResponse && previewMatchesFixture,
+      completedAtMs: Date.now(),
+      completedSequence: ++driverSequence,
+    });
+    completeRootTableAction(suggestionsFaultChronology.rootTableAction.completed);
+  };
   await page.route(url => url.origin === uiOrigin && url.pathname === suggestionsPath, async route => {
     const request = route.request();
     if (request.method() !== 'POST') {
@@ -353,32 +396,43 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
         ? requestId.slice('suggestions-'.length) : null;
       attempt.evidence.explorerId = explorer;
       attempt.evidence.uiAtRequest = await captureExplorerScopedUiState();
+      attempt.evidence.requestDuringRootTableAction =
+        suggestionsFaultChronology.rootTableAction.startedSequence !== null &&
+        attempt.evidence.sequence > suggestionsFaultChronology.rootTableAction.startedSequence &&
+        suggestionsFaultChronology.rootTableAction.completed !== true;
       attempt.evidence.sameRootNodeAsFirstTable = body?.nodeId === firstTableAttempt?.body?.nodeId;
       attempt.evidence.sameSnapshotAsFirstTable = body?.snapshotToken === firstTableAttempt?.body?.snapshotToken;
       attempt.evidence.requestIdDiffersFromFirstTable = requestId !== firstTableAttempt?.requestId;
       suggestionsFaultChronology.lazy ??= attempt.evidence;
       suggestionAttempts.push(attempt);
       if (suggestionAttempts.filter(candidate => candidate.kind === 'lazy').length === 1) {
-        attempt.injectedFault = true;
-        attempt.evidence.injectedFault = true;
-        attempt.evidence.abortAction = 'failed';
         attempt.evidence.faultArmedAtMs = Date.now();
         attempt.evidence.actionGateWaitStartedAtMs = Date.now();
         attempt.evidence.actionGateWaitTimeoutMs = 5_000;
         const chronology = {};
         resolveFirstLazyRequest(attempt);
         try {
-          attempt.actionCompletedBeforeAbort = await abortSuggestionRouteAfterUserAction(
-            route, rawFieldsActionCompleted, 5_000, chronology,
+          attempt.actionCompletedBeforeAbort = await releaseSuggestionRouteAfterGate(
+            route, rootTableActionCompleted, 5_000, chronology,
             async () => {
               chronology.uiBeforeAbortSequence = ++driverSequence;
-              return captureExplorerScopedUiState();
+              return {
+                ...await captureExplorerScopedUiState(),
+                rootTableActionCompleted: suggestionsFaultChronology.rootTableAction.completed,
+                firstTableResponseStatus: suggestionsFaultChronology.rootTableAction.firstTableResponseStatus,
+                previewIds: suggestionsFaultChronology.rootTableAction.previewIds,
+                previewMatchesFixture: suggestionsFaultChronology.rootTableAction.previewMatchesFixture,
+                rootTableActionCompletedSequence:
+                  suggestionsFaultChronology.rootTableAction.completedSequence,
+              };
             });
           attempt.evidence.actionCompletedBeforeAbort = attempt.actionCompletedBeforeAbort;
+          attempt.injectedFault = attempt.actionCompletedBeforeAbort;
+          attempt.evidence.injectedFault = attempt.actionCompletedBeforeAbort;
+          attempt.evidence.abortAction = chronology.releaseAction === 'abort' ? 'failed' : null;
           suggestionsFaultChronology.lazy.actionCompletedBeforeAbort = attempt.actionCompletedBeforeAbort;
         } finally {
           Object.assign(attempt.evidence, chronology);
-          suggestionsFaultChronology.rawFieldsAction.uiBeforeAbort = chronology.uiBeforeAbort ?? null;
           attempt.routeReleased = Number.isFinite(chronology.routeReleasedAtMs);
           attempt.evidence.routeReleased = attempt.routeReleased;
           suggestionsFaultChronology.lazy.actionGateWaitStartedAtMs = attempt.evidence.actionGateWaitStartedAtMs;
@@ -386,19 +440,30 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
           suggestionsFaultChronology.lazy.actionCompletedBeforeAbort =
             attempt.evidence.actionCompletedBeforeAbort ?? false;
           suggestionsFaultChronology.lazy.abortAction = attempt.evidence.abortAction;
+          suggestionsFaultChronology.lazy.releaseAction = chronology.releaseAction ?? null;
+          suggestionsFaultChronology.lazy.releaseStartedAtMs = chronology.releaseStartedAtMs ?? null;
           suggestionsFaultChronology.lazy.abortStartedAtMs = chronology.abortStartedAtMs ?? null;
           suggestionsFaultChronology.lazy.routeReleasedAtMs = chronology.routeReleasedAtMs ?? null;
           suggestionsFaultChronology.lazy.routeReleased = attempt.routeReleased;
           attempt.evidence.routeReleasedSequence = ++driverSequence;
           suggestionsFaultChronology.lazy.routeReleasedSequence = attempt.evidence.routeReleasedSequence;
-          const routeReleasedAfterUi = attempt.actionCompletedBeforeAbort === true &&
-            attempt.routeReleased === true && chronology.uiBeforeAbort?.rawFieldsOpen === true;
-          check('correctness', 'injected lazy route was released after Raw FHIR fields opened', routeReleasedAfterUi, {
+          const routeReleasedAfterSettledPreview = attempt.actionCompletedBeforeAbort === true &&
+            chronology.releaseAction === 'abort' &&
+            attempt.routeReleased === true &&
+            chronology.uiBeforeAbort?.rootTableActionCompleted === true &&
+            chronology.uiBeforeAbort?.firstTableResponseStatus === 200 &&
+            chronology.uiBeforeAbort?.previewMatchesFixture === true &&
+            chronology.uiBeforeAbortSequence > chronology.uiBeforeAbort?.rootTableActionCompletedSequence;
+          check('correctness', 'injected lazy route was released after the exact root preview settled',
+            routeReleasedAfterSettledPreview, {
             actionCompletedBeforeAbort: attempt.actionCompletedBeforeAbort === true,
             routeReleased: attempt.routeReleased === true,
-            rawFieldsOpenBeforeAbort: chronology.uiBeforeAbort?.rawFieldsOpen ?? null,
+            firstTableResponseStatus: chronology.uiBeforeAbort?.firstTableResponseStatus ?? null,
+            previewIdsBeforeAbort: chronology.uiBeforeAbort?.previewIds ?? null,
+            previewMatchesFixture: chronology.uiBeforeAbort?.previewMatchesFixture ?? null,
           });
           suggestionsFaultChronology.lazy.uiBeforeAbort = chronology.uiBeforeAbort ?? null;
+          resolveFirstLazyRouteReleased(attempt);
         }
         return;
       }
@@ -407,16 +472,9 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
   });
 
   const tableName = page.locator('#first-table-name');
-  let rawFieldsActionSignaled = false;
   let firstLazyAttempt;
-  const signalRawFieldsAction = didOpen => {
-    if (rawFieldsActionSignaled) return;
-    rawFieldsActionSignaled = true;
-    suggestionsFaultChronology.rawFieldsAction.signaledAtMs = Date.now();
-    suggestionsFaultChronology.rawFieldsAction.signaledSequence = ++driverSequence;
-    suggestionsFaultChronology.rawFieldsAction.opened = didOpen === true;
-    completeRawFieldsAction(didOpen);
-  };
+  let firstTableResponse;
+  let initialPatientIds;
   try {
     await act('name Patient table', tableName, () => tableName.fill('Patients'), { editable: true });
     const firstTableSuggestionsResponse = page.waitForResponse(response => {
@@ -425,9 +483,12 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
       return request.method() === 'POST' && url.origin === uiOrigin && url.pathname === suggestionsPath &&
         (request.headers()['x-request-id'] ?? '').startsWith('first-table-suggestions-');
     });
+    suggestionsFaultChronology.rootTableAction.startedAtMs = Date.now();
+    suggestionsFaultChronology.rootTableAction.startedSequence = ++driverSequence;
     await act('choose Patient rows', page.getByRole('button', { name: 'Choose Patient rows' }),
       () => page.getByRole('button', { name: 'Choose Patient rows' }).click());
-    const firstTableResponse = await firstTableSuggestionsResponse;
+    choosePatientRowsActionCompleted = true;
+    firstTableResponse = await firstTableSuggestionsResponse;
     if (firstTableAttempt?.evidence) {
       firstTableAttempt.evidence.responseStatus = firstTableResponse.status();
       firstTableAttempt.evidence.responseOK = firstTableResponse.ok();
@@ -443,11 +504,13 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
     await page.waitForFunction(rowCount =>
       document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === String(rowCount),
     expectedIds.length + 1);
-    const initialPatientIds = await assertPreviewPatientIds(page, expectedIds);
+    initialPatientIds = await assertPreviewPatientIds(page, expectedIds);
     check('correctness', 'native Patient root preview renders exact independent fixture IDs before candidate selection',
       JSON.stringify(initialPatientIds) === JSON.stringify(expectedIds),
       { expectedIds, visibleIds: initialPatientIds });
+    signalRootTableAction(firstTableResponse, initialPatientIds);
     firstLazyAttempt = await waitForOwnedRootSuggestionRequest(firstLazyRequestSeen, 5_000);
+    await firstLazyRouteReleased;
     check('correctness', 'injected transport fault owns the exact lazy Patient root request and snapshot',
       isOwnedRootSuggestionRequest({
         method: 'POST',
@@ -460,45 +523,10 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
       }) && firstLazyAttempt.injectedFault,
       { requestId: firstLazyAttempt.requestId, rootNodeId: firstLazyAttempt.body?.nodeId,
         snapshotToken: firstLazyAttempt.body?.snapshotToken });
-    await page.getByTestId('construction-action-add-columns').waitFor({ state: 'visible' });
-    await page.waitForFunction(() => {
-      const button = document.querySelector('[data-testid="construction-action-add-columns"]');
-      return button && !button.disabled;
-    });
-    const addColumns = page.getByRole('button', { name: /Add columns:/ });
-    await act('open Add columns', addColumns, () => addColumns.click());
-    await page.locator('[aria-label="Add columns editor"]').waitFor({ state: 'visible' });
-    const fieldsRelated = page.getByRole('button', { name: 'Fields and related data' });
-    await act('choose Fields and related data', fieldsRelated, () => fieldsRelated.click());
-    const rawFields = page.getByText('Raw FHIR fields (advanced)', { exact: true });
-    suggestionsFaultChronology.rawFieldsAction.startedAtMs = Date.now();
-    suggestionsFaultChronology.rawFieldsAction.startedSequence = ++driverSequence;
-    if (firstLazyAttempt?.evidence) {
-      firstLazyAttempt.evidence.requestBeforeRawFieldsAction =
-        firstLazyAttempt.evidence.sequence < suggestionsFaultChronology.rawFieldsAction.startedSequence;
-      suggestionsFaultChronology.lazy.requestBeforeRawFieldsAction =
-        firstLazyAttempt.evidence.requestBeforeRawFieldsAction;
-      firstLazyAttempt.evidence.uiBeforeRawFieldsAction = await captureExplorerScopedUiState();
-      suggestionsFaultChronology.rawFieldsAction.uiBeforeAction = firstLazyAttempt.evidence.uiBeforeRawFieldsAction;
-      check('correctness', 'lazy suggestions request was captured before the Raw FHIR fields transition',
-        firstLazyAttempt.evidence.requestBeforeRawFieldsAction &&
-          firstLazyAttempt.evidence.uiAtRequest?.rawFieldsOpen === false &&
-          firstLazyAttempt.evidence.uiBeforeRawFieldsAction.rawFieldsOpen === false,
-        {
-          requestSequence: firstLazyAttempt.evidence.sequence,
-          actionSequence: suggestionsFaultChronology.rawFieldsAction.startedSequence,
-          requestRawFieldsOpen: firstLazyAttempt.evidence.uiAtRequest?.rawFieldsOpen ?? null,
-          actionStartRawFieldsOpen: firstLazyAttempt.evidence.uiBeforeRawFieldsAction.rawFieldsOpen ?? null,
-        });
-    }
-    await act('open Raw FHIR fields', rawFields, () => rawFields.click(), {
-      after: async () => {
-        await page.getByTestId('feature-catalog-raw-fields').waitFor({ state: 'visible' });
-        signalRawFieldsAction(true);
-      },
-    });
+    assert(firstLazyAttempt.injectedFault,
+      'The exact root suggestion request may be aborted only after the root-table response and preview gate passes.');
   } finally {
-    signalRawFieldsAction(false);
+    signalRootTableAction(firstTableResponse, initialPatientIds);
   }
   const rawFieldSection = page.getByTestId('feature-catalog-raw-fields');
   const failedLazyAlert = page.getByTestId('builder-suggestions-error');
@@ -571,7 +599,7 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
   }
   const failedLazyAttempt = lazyAttemptsBeforeRetry[0];
   assert.equal(failedLazyAttempt, firstLazyAttempt,
-    'The exact root request held until Raw FHIR fields opened must be the injected transport failure.');
+    'The exact root request must be aborted only after the root-table preview gate passes.');
   assert(failureRecord, 'The report must retain the exact failed request signature for the injected lazy suggestion transport failure.');
   const retry = page.getByTestId('builder-suggestions-retry');
   await unique(retry);
@@ -591,6 +619,20 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
     { explorer, requestIds: lazyAttempts.map(candidate => candidate.requestId),
       bodies: lazyAttempts.map(candidate => candidate.body), retryStatus: retryResponse.status() });
   await failedLazyAlert.waitFor({ state: 'hidden' });
+  await page.getByTestId('construction-action-add-columns').waitFor({ state: 'visible' });
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-testid="construction-action-add-columns"]');
+    return button && !button.disabled;
+  });
+  const addColumns = page.getByRole('button', { name: /Add columns:/ });
+  await act('open Add columns', addColumns, () => addColumns.click());
+  await page.locator('[aria-label="Add columns editor"]').waitFor({ state: 'visible' });
+  const fieldsRelated = page.getByRole('button', { name: 'Fields and related data' });
+  await act('choose Fields and related data', fieldsRelated, () => fieldsRelated.click());
+  const rawFields = page.getByText('Raw FHIR fields (advanced)', { exact: true });
+  await act('open Raw FHIR fields', rawFields, () => rawFields.click(), {
+    after: async () => page.getByTestId('feature-catalog-raw-fields').waitFor({ state: 'visible' }),
+  });
   const catalogChoices = rawFieldSection.locator('input[aria-label^="Select Patient."]');
   await catalogChoices.first().waitFor({ state: 'visible' });
   const candidateCount = await catalogChoices.count();
