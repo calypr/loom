@@ -33,6 +33,47 @@ export function buildContributorExistsRawQueryInvocation(container, query) {
   return buildArangoShellInvocation({ container, script, database: 'loom_dev' });
 }
 
+export const CONTRIBUTOR_EXISTS_CANDIDATE_SCAN_LIMIT = 2000;
+
+const contributorExistsBucketPredicates = Object.freeze({
+  zero: 'sampleCount == 0',
+  one: 'sampleCount == 1',
+  many: 'sampleCount >= 2 AND sampleCount < 23',
+});
+
+export function buildContributorExistsCandidateQuery(project, generation, bucket) {
+  const predicate = contributorExistsBucketPredicates[bucket];
+  assert(predicate, `Unknown CDA contributor EXISTS witness bucket: ${bucket}`);
+  return `LET candidates = (
+    FOR p IN Patient
+      FILTER p.project == ${JSON.stringify(project)} AND p.dataset_generation == ${JSON.stringify(generation)}
+      SORT p._key
+      LIMIT ${CONTRIBUTOR_EXISTS_CANDIDATE_SCAN_LIMIT}
+      RETURN { id: p.id, _id: p._id, _key: p._key }
+  )
+  FOR p IN candidates
+    LET sample = (
+      FOR e IN fhir_edge
+        FILTER e._to == p._id AND e.label == "subject_Patient"
+          AND e.project == ${JSON.stringify(project)} AND e.dataset_generation == ${JSON.stringify(generation)}
+          AND STARTS_WITH(e._from, "Observation/")
+        COLLECT observationKey = e._from
+        LIMIT 23
+        RETURN observationKey
+    )
+    LET sampleCount = LENGTH(sample)
+    FILTER ${predicate}
+    SORT p._key
+    LIMIT 1
+    RETURN { id: p.id, _id: p._id }`;
+}
+
+export function requireContributorExistsCandidateWitness(bucket, patient) {
+  assert(patient?.id && patient?._id,
+    `CDA ${bucket} witness is unavailable within the bounded first ${CONTRIBUTOR_EXISTS_CANDIDATE_SCAN_LIMIT} scoped Patient candidates; Patients outside this page were not checked`);
+  return { bucket, patient };
+}
+
 export function unfilteredRelatedExpandStep(proposalRequest) {
   const steps = proposalRequest?.candidateConstruction?.steps;
   assert(Array.isArray(steps), 'Native ALL_MATCHES baseline proposal was not captured as a top-level request body');
@@ -134,32 +175,15 @@ const byBucketCountsAreExact = witnesses => {
 };
 
 const sourceWitnesses = () => {
-  const findPatient = (bucket, predicate) => {
-    const query = `FOR p IN Patient
-      FILTER p.project == ${JSON.stringify(project)} AND p.dataset_generation == ${JSON.stringify(generation)}
-      LET sample = (
-        FOR e IN fhir_edge
-          FILTER e._to == p._id AND e.label == "subject_Patient"
-            AND e.project == ${JSON.stringify(project)} AND e.dataset_generation == ${JSON.stringify(generation)}
-            AND STARTS_WITH(e._from, "Observation/")
-          COLLECT observationKey = e._from
-          LIMIT 23
-          RETURN observationKey
-      )
-      LET sampleCount = LENGTH(sample)
-      FILTER ${predicate}
-      SORT p.id
-      LIMIT 1
-      RETURN { id: p.id, _id: p._id }`;
-    const [patient] = rawQuery(query);
-    assert(patient?.id && patient?._id, `CDA fixture has no Patient with ${bucket} related Observation records`);
-    return { bucket, patient };
-  };
+  const findPatient = bucket => requireContributorExistsCandidateWitness(
+    bucket,
+    rawQuery(buildContributorExistsCandidateQuery(project, generation, bucket))[0],
+  );
 
   const selected = [
-    findPatient('zero', 'sampleCount == 0'),
-    findPatient('one', 'sampleCount == 1'),
-    findPatient('many', 'sampleCount >= 2 AND sampleCount < 23'),
+    findPatient('zero'),
+    findPatient('one'),
+    findPatient('many'),
   ];
   assert.equal(new Set(selected.map((item) => item.patient._id)).size, 3, 'CDA zero/one/many witnesses must be distinct');
   const refs = selected.map((item) => item.patient._id);
@@ -642,6 +666,7 @@ const witnesses = sourceWitnesses();
 report.oracle = {
   project,
   generation,
+  candidateScanLimit: CONTRIBUTOR_EXISTS_CANDIDATE_SCAN_LIMIT,
   relationship: 'Observation --subject_Patient--> Patient',
   witnesses,
   countByBucket: Object.fromEntries(witnesses.map((item) => [item.bucket, item.observations.length])),

@@ -810,7 +810,7 @@ assert.deepEqual(failedResponses, [],
 assert.deepEqual(report.errors.filter(error => !isProvenContributorSearchError(error)
   && !isProvenContributorProposalError(error)), [],
   'Only exact paired unfiltered contributor lookup and proposal cancellations may be classified as expected');
-recordCheck('integrity', 'Only proven contributor request supersessions are expected; unrelated diagnostics remain fatal', true, {
+recordCheck('correctness', 'Only proven contributor request supersessions are expected; unrelated diagnostics remain fatal', true, {
   expectedCancellationCount: cda.report.expectedCancellations?.length ?? 0,
   failedHttpResponseCount: failedResponses.length,
   unexpectedErrorCount: report.errors.filter(error => !isProvenContributorSearchError(error)

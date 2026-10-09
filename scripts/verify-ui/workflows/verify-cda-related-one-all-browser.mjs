@@ -11,6 +11,7 @@ import {
 import { createPendingResponseReads } from '../helpers/pending-response-reads.mjs';
 import { captureSourceFreeze } from '../helpers/source-freeze.mjs';
 import { sourceFingerprint } from '../helpers/source-fingerprint.mjs';
+import { createdExplorerScope } from '../helpers/created-explorer-scope.mjs';
 import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp } from '../helpers/api-build-freeze.mjs';
 import { expectedRelatedSourceOneValidation, relatedSourceProposalCandidate, selectedRelatedSourceProposal as matchSelectedRelatedSourceProposal } from '../helpers/related-source-capture.mjs';
 import { createNativeAbortProbeSource, nativeAbortProbeEvidenceForRequest, nativeAbortDomOwnerRules } from '../helpers/native-abort-probe.mjs';
@@ -70,7 +71,8 @@ const patientObservationRouteLabel = basicMode || zeroObservationMode
   ? `${relatedChoiceLabel}: Patient <-[subject]- Observation`
   : `${relatedChoiceLabel}: Specimen -[subject]-> Patient <-[subject]- Observation`;
 const protectedExplorer = 'cda-builder-full-qa-1790440983382';
-const explorer = `related-one-all-${Date.now()}-${randomUUID()}`;
+const requestedExplorerName = `related-one-all-${Date.now()}-${randomUUID()}`;
+let explorer;
 const evidence = cda.evidence;
 const apiOrigin = process.env.LOOM_API_ORIGIN ?? cda.apiOrigin;
 const uiOrigin = process.env.LOOM_UI_ORIGIN ?? cda.uiOrigin;
@@ -80,14 +82,15 @@ const arangoContainer = cda.target?.arangoContainer ?? cda.env?.LOOM_CDA_ARANGO_
 const arangoDatabase = cda.target?.arangoDatabase ?? cda.env?.LOOM_ARANGO_DATABASE
   ?? process.env.LOOM_ARANGO_DATABASE ?? (cda.target ? 'loom_dev' : undefined);
 const composeProject = cda.target?.composeProject ?? cda.env?.LOOM_CDA_COMPOSE_PROJECT ?? process.env.LOOM_CDA_COMPOSE_PROJECT;
-const root = `/api/v1/projects/${project}/explorers`;
-const base = `${root}/${explorer}/authoring/v2`;
+const explorerCollection = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
+let base;
 assert(project && generation && apiOrigin && uiOrigin, 'Set the explicit isolated project, generation, API origin, and UI origin.');
 assert(apiBuildContainer && arangoContainer && arangoDatabase && composeProject,
   'Set explicit isolated CDA API/Arango containers, Arango database, and Compose project.');
 const sourceRoot = cda.target.sourceRoot ?? fileURLToPath(new URL('../../..', import.meta.url));
 const report = {
-  explorer, project, generation, protectedExplorerUntouched: true, relatedChoiceAssertions: [],
+  requestedExplorer: requestedExplorerName, explorer: null, project, generation,
+  protectedExplorerUntouched: true, relatedChoiceAssertions: [],
   mode: basicMode ? 'basic-fixture' : 'cda', fieldMode, witnessMode,
   ...(savedEmptyPolicyEdit ? { savedEmptyPolicyEdit: true } : {}),
   scenario: zeroObservationMode
@@ -128,7 +131,7 @@ const sourceFreezeStartedAt = new Date().toISOString();
 const sourceFreeze = await captureSourceFreeze(sourceRoot);
 report.sourceFreeze = { startedAt: sourceFreezeStartedAt, watchedFileCount: sourceFreeze.watchedFileCount };
 
-const officialRequestCapture = cda.captureRequests(`${root}/${encodeURIComponent(explorer)}`);
+let officialRequestCapture;
 let builder;
 let outputId;
 let frozenApiBuild;
@@ -353,13 +356,13 @@ const waitForNativeRequestChange = timeoutMs => new Promise(resolve => {
 });
 const appOrigins = new Set([apiOrigin, uiOrigin].map(value => new URL(value).origin));
 const uiApiOrigin = new URL(uiOrigin).origin;
-const ownedApiPath = `${base}/`;
+let ownedApiPath;
 const requestURL = request => {
   try { return new URL(request.url()); } catch { return undefined; }
 };
 const isOwnedNativeRequest = request => {
   const url = requestURL(request);
-  return Boolean(url && url.origin === uiApiOrigin && url.pathname.startsWith(ownedApiPath));
+  return Boolean(ownedApiPath && url && url.origin === uiApiOrigin && url.pathname.startsWith(ownedApiPath));
 };
 const parseSanitizedBody = value => {
   const text = String(value ?? '');
@@ -1004,7 +1007,7 @@ const readPreviewTable = async (expectedRows, expectedColumns, name) => {
 };
 
 try {
-  assert.notEqual(explorer, protectedExplorer, 'Only a fresh QA Explorer may be used');
+  assert.notEqual(requestedExplorerName, protectedExplorer, 'Only a fresh QA Explorer may be requested');
   apiBuildCheckStarted = true;
   report.apiBuildFreeze = { target: 'running local API build stamp', container: apiBuildContainer, invalidatesRun: true, productFailure: false };
   frozenApiBuild = await captureApiBuildFreeze(() => checkContainerApiBuildStamp(apiBuildContainer));
@@ -1539,7 +1542,15 @@ FOR s IN Specimen
 
   const rootTitle = `${rootResourceType} ID`;
   const tableTitle = zeroObservationMode ? 'Zero Observation related ID ONE to ALL QA' : referenceFieldMode ? 'Related Observation specimen reference QA' : statusFieldMode ? 'Related Observation status code QA' : 'Related ID ONE to ALL QA';
-  await api(root, { name: explorer, title: tableTitle });
+  const createdExplorer = await api(explorerCollection, { name: requestedExplorerName, title: tableTitle });
+  const createdScope = createdExplorerScope(project, createdExplorer);
+  explorer = createdScope.explorerId;
+  base = createdScope.authoringBase;
+  ownedApiPath = `${base}/`;
+  report.explorer = explorer;
+  report.explorerRoot = createdScope.explorerRoot;
+  officialRequestCapture = cda.captureRequests(createdScope.explorerRoot);
+  assert.notEqual(explorer, protectedExplorer, 'The server-assigned Explorer must be a fresh QA Explorer');
   builder = await api(`${base}/builder`);
   assert.equal(builder.catalog.generation, generation);
   if (statusFieldMode) assertStatusCandidate(builder);

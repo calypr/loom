@@ -4,8 +4,11 @@ import test from 'node:test';
 import { buildArangoShellInvocation } from '../owned-arangosh-command.mjs';
 import {
   assertCompletePreview,
+  buildContributorExistsCandidateQuery,
   buildContributorExistsRawQueryInvocation,
   proposalResponseCandidateMatchesRequest,
+  CONTRIBUTOR_EXISTS_CANDIDATE_SCAN_LIMIT,
+  requireContributorExistsCandidateWitness,
   unfilteredRelatedExpandStep,
 } from '../../workflows/contributor-exists-workflow.mjs';
 import { expectedPreviewColumns } from '../complete-preview-row-projection.mjs';
@@ -13,6 +16,36 @@ import { registry, scenarioCaseFor, coverageDrift, hasLifecycleContract } from '
 
 const workflowURL = new URL('../../workflows/contributor-exists-workflow.mjs', import.meta.url);
 const specURL = new URL('../../specs/standalone-cda-fields.spec.mjs', import.meta.url);
+
+test('EXISTS source oracle bounds deterministic scoped Patient candidates before exact related-edge buckets', () => {
+  assert.equal(CONTRIBUTOR_EXISTS_CANDIDATE_SCAN_LIMIT, 2000);
+  const expectedPredicates = new Map([
+    ['zero', 'sampleCount == 0'],
+    ['one', 'sampleCount == 1'],
+    ['many', 'sampleCount >= 2 AND sampleCount < 23'],
+  ]);
+
+  for (const [bucket, predicate] of expectedPredicates) {
+    const query = buildContributorExistsCandidateQuery('loom_dev_cda_fhir', 'cda-fhir-v1', bucket);
+    const candidateLimit = query.indexOf('LIMIT 2000');
+    const candidatePageEnd = query.indexOf('FOR p IN candidates');
+    const edgeExpansion = query.indexOf('FOR e IN fhir_edge');
+    assert(candidateLimit >= 0 && candidatePageEnd > candidateLimit,
+      `${bucket}: the hard candidate page must be ordered before iterating its Patients`);
+    assert(edgeExpansion > candidatePageEnd,
+      `${bucket}: related-edge counting must start only after the bounded candidate page`);
+    assert.match(query, /FILTER p\.project == "loom_dev_cda_fhir" AND p\.dataset_generation == "cda-fhir-v1"/);
+    assert.match(query, /SORT p\._key\s+LIMIT 2000\s+RETURN \{ id: p\.id, _id: p\._id, _key: p\._key \}/);
+    assert.match(query, /COLLECT observationKey = e\._from\s+LIMIT 23\s+RETURN observationKey/);
+    assert(query.includes(`FILTER ${predicate}`), `${bucket}: exact edge-count bucket predicate must remain unchanged`);
+  }
+
+  assert.deepEqual(requireContributorExistsCandidateWitness('zero', { id: 'patient-0', _id: 'Patient/0' }), {
+    bucket: 'zero', patient: { id: 'patient-0', _id: 'Patient/0' },
+  });
+  assert.throws(() => requireContributorExistsCandidateWitness('zero', undefined),
+    /unavailable within the bounded first 2000 scoped Patient candidates; Patients outside this page were not checked/);
+});
 
 test('proposal response comparison derives only the changed RELATED_EXPAND record nullability from policy', () => {
   const request = {

@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { assertExactContributorRows, deriveContributorRuleOracle } from '../contributor-rule-oracle.mjs';
+import { createReport, recordCheck, reportDimensions } from '../report.mjs';
+
+const workflowURL = new URL('../../workflows/contributor-rules-workflow.mjs', import.meta.url);
 
 const witnesses = () => [
   { bucket: 'zero', patient: { id: 'patient-zero', _id: 'Patient/zero' }, observations: [] },
@@ -12,6 +16,22 @@ const witnesses = () => [
     { id: 'observation-other', _id: 'Observation/other' },
   ] },
 ];
+
+test('EQUALS strict diagnostic check records through a supported report dimension', async () => {
+  const workflow = await readFile(workflowURL, 'utf8');
+  const checkName = 'Only proven contributor request supersessions are expected; unrelated diagnostics remain fatal';
+  const checkCall = workflow.match(/recordCheck\('([^']+)', 'Only proven contributor request supersessions are expected; unrelated diagnostics remain fatal'/);
+  assert(checkCall, 'the EQUALS workflow must emit its strict diagnostic check');
+  assert.equal(checkCall[1], 'correctness');
+  assert(reportDimensions.includes(checkCall[1]), 'the workflow check dimension must be supported by the report schema');
+
+  const report = createReport({ scenario: 'cda-contributor-equals', caseName: 'contributor-equals' });
+  assert.equal(recordCheck(report, checkCall[1], checkName, true, { unexpectedErrorCount: 0 }), true);
+  assert.deepEqual(report.assertions, [{
+    dimension: 'correctness', name: checkName, status: 'passed', evidence: { unexpectedErrorCount: 0 },
+  }]);
+  assert.equal(report.dimensions.correctness.status, 'passed');
+});
 
 test('EQUALS oracle derives exact PRESERVE_PARENT and EXCLUDE rows from scoped Patient witnesses', () => {
   assert.deepEqual(deriveContributorRuleOracle(witnesses()), {
