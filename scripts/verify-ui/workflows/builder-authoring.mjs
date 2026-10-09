@@ -731,7 +731,7 @@ export const cohortRecodeWorkflow = async ({ page, report, check, action }, cont
     'Cancel must leave the Builder draft digest unchanged');
   assert.equal(await assertRenderedMemberCell(category, 'Visible ALL category after Cancel').then(cell => cell.value), category,
     'Cancel must leave the rendered ALL category unchanged');
-  check('cancellation', 'Cancel preserves the saved ALL recoding, exact Builder draft, and visible category values', true,
+  check('correctness', 'Cancel preserves the saved ALL recoding, exact Builder draft, and visible category values', true,
     { draftVersion: savedAfterCancel.draftVersion, draftDigest: savedAfterCancel.draftDigest,
       workspaceUnchanged: true, policy: 'ALL', rendered: category });
 

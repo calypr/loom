@@ -286,6 +286,16 @@ export const registry = Object.freeze([
               'scripts/verify-ui/registry.mjs',
             ],
           },
+          {
+            id: 'builder-authoring-report-dimensions',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/builder-authoring-report-dimensions.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/helpers/report.mjs',
+              'scripts/verify-ui/workflows/builder-authoring.mjs',
+              'scripts/verify-ui/registry.mjs',
+            ],
+          },
         ],
         requiredChecks: [
           "fixture cohort binds exactly the two independent Patient IDs",
@@ -1283,6 +1293,15 @@ export const registry = Object.freeze([
               'scripts/verify-ui/helpers/builder-combine-nullable-helpers.mjs',
               'scripts/verify-ui/workflows/builder-combine-nullable.mjs',
               'scripts/verify-ui/specs/nullable-combine.spec.mjs',
+            ],
+          },
+          {
+            id: 'nullable-native-abort-owner-observation',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/native-abort-probe.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/helpers/native-abort-probe.mjs',
+              'scripts/verify-ui/workflows/cda-current-draft-nullable-code-join-workflow.mjs',
             ],
           },
         ],
