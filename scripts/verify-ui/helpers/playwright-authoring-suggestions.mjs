@@ -133,7 +133,19 @@ export const captureSuggestionUiState = async page => {
   const capturedAtMs = Date.now();
   try {
     const state = await page.evaluate(() => {
-      const visible = element => Boolean(element && element.getClientRects().length > 0);
+      const visible = element => {
+        if (!element || element.getClientRects().length === 0) return false;
+        for (let ancestor = element; ancestor; ancestor = ancestor.parentElement) {
+          if (ancestor.hasAttribute('hidden') || ancestor.getAttribute('aria-hidden') === 'true') return false;
+          const style = ancestor.ownerDocument.defaultView?.getComputedStyle(ancestor);
+          if (style?.display === 'none' || style?.visibility === 'hidden' || style?.visibility === 'collapse') return false;
+          if (ancestor.tagName === 'DETAILS' && !ancestor.hasAttribute('open')) {
+            const summary = [...ancestor.children].find(child => child.tagName === 'SUMMARY');
+            if (!summary?.contains(element)) return false;
+          }
+        }
+        return true;
+      };
       const text = element => element?.textContent?.trim() || null;
       const explorer = document.querySelector('select[aria-label="Explorer"]');
       const activeMode = document.querySelector('[role="group"][aria-label="Column types"] [aria-pressed="true"]');
@@ -146,7 +158,9 @@ export const captureSuggestionUiState = async page => {
         '[data-occurrence-id][aria-pressed="true"], [data-occurrence-id][data-selected="true"]',
       );
       const failureText = text(failureAlert);
-      const errorCode = failureText?.match(/\(([A-Z][A-Z0-9_]*)\)\s*$/)?.[1] ?? null;
+      const errorCode = visible(failureAlert)
+        ? failureText?.match(/\(([A-Z][A-Z0-9_]*)\)\s*$/)?.[1] ?? null
+        : null;
       return {
         explorerId: explorer?.value || null,
         explorerTitle: text(explorer?.selectedOptions?.[0]),

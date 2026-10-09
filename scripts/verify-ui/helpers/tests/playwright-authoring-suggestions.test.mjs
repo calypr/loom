@@ -199,8 +199,8 @@ test('sanitized suggestion binding retains request identity without the raw snap
   assert.equal(JSON.stringify(binding).includes('secret-snapshot-token'), false);
 });
 
-test('suggestion UI capture reads Explorer, Raw FHIR details, and failure controls from the DOM', async () => {
-  const capture = async ({ rawFieldsOpen, failureMarkup = '' }) => {
+test('suggestion UI capture respects the closed source-setup disclosure around failure controls', async () => {
+  const capture = async ({ rawFieldsOpen, setupOpen = false, failureMarkup = '' }) => {
     const dom = new JSDOM(`
       <select aria-label="Explorer">
         <option value="explorer-old">Earlier run</option>
@@ -217,7 +217,10 @@ test('suggestion UI capture reads Explorer, Raw FHIR details, and failure contro
         <details data-testid="feature-catalog-raw-fields" ${rawFieldsOpen ? 'open' : ''}>
           <summary>Raw FHIR fields</summary>
         </details>
-        ${failureMarkup}
+        <details data-testid="construction-source-setup" ${setupOpen ? 'open' : ''}>
+          <summary>Advanced source setup</summary>
+          ${failureMarkup}
+        </details>
       </main>
     `);
     const { document } = dom.window;
@@ -259,8 +262,30 @@ test('suggestion UI capture reads Explorer, Raw FHIR details, and failure contro
     retryVisible: false,
     retryEnabled: null,
   });
+  const closedSetupFailure = stateFields(await capture({
+    rawFieldsOpen: false,
+    failureMarkup: '<div data-testid="builder-suggestions-error">Suggestion unavailable (FETCH_ERROR)</div>' +
+      '<button data-testid="builder-suggestions-retry">Retry suggestions</button>',
+  }));
+  assert.deepEqual(closedSetupFailure, {
+    status: 'captured',
+    explorerId: 'explorer-new',
+    explorerTitle: 'Verify Suggestions',
+    tableHeading: 'Editing Patients',
+    fieldsModeSelected: true,
+    searchScope: 'All accessible resources',
+    rawFieldsOpen: false,
+    selectedOccurrenceId: null,
+    selectedOccurrenceObservable: false,
+    failureAlertVisible: false,
+    failureAlertText: 'Suggestion unavailable (FETCH_ERROR)',
+    failureAlertCode: null,
+    retryVisible: false,
+    retryEnabled: true,
+  });
   assert.deepEqual(stateFields(await capture({
     rawFieldsOpen: true,
+    setupOpen: true,
     failureMarkup: '<div data-testid="builder-suggestions-error">Suggestion unavailable (FETCH_ERROR)</div>' +
       '<button data-testid="builder-suggestions-retry">Retry suggestions</button>',
   })), {

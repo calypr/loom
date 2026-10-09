@@ -3801,6 +3801,21 @@ const BuilderWorkspaceContent = ({
             ) : null}
           </section>
         )}
+        {suggestionsFailure?.key === suggestionIdentity ? (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"
+            role="alert" data-testid="builder-suggestions-error">
+            <p>{suggestionsFailure.message}</p>
+            <button type="button" className="mt-2 font-semibold text-blue-800 underline"
+              data-testid="builder-suggestions-retry"
+              onClick={() => {
+                suggestionRequestKey.current = '';
+                setSuggestionsFailure(undefined);
+                ensureSuggestions();
+              }}>
+              Retry finding columns
+            </button>
+          </div>
+        ) : null}
         {pendingRowChange && table ? (
           <RowChangeRepairPanel
             unresolved={pendingRowChange.assessment.unresolved}
@@ -4263,21 +4278,6 @@ const BuilderWorkspaceContent = ({
               />
               )}
               <div className="min-w-0 space-y-3">
-              {suggestionsFailure?.key === suggestionIdentity ? (
-                <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"
-                  role="alert" data-testid="builder-suggestions-error">
-                  <p>{suggestionsFailure.message}</p>
-                  <button type="button" className="mt-2 font-semibold text-blue-800 underline"
-                    data-testid="builder-suggestions-retry"
-                    onClick={() => {
-                      suggestionRequestKey.current = '';
-                      setSuggestionsFailure(undefined);
-                      ensureSuggestions();
-                    }}>
-                    Retry finding columns
-                  </button>
-                </div>
-              ) : null}
               <ColumnSelector
                 catalog={state.catalog}
                 interpretationContext={interpretationContext}
