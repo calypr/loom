@@ -89,53 +89,39 @@ export const cohortRecodeWorkflow = async ({ page, report, check, action }, cont
   const sourceIDs = oracleBefore.sourceIDs;
   const title = `Verify ${context.runID.slice(-10)} cohort recode`;
   const bootstrapPath = `/api/v1/projects/${encodeURIComponent(context.target.fixtureProject)}/explorers/${encodeURIComponent(context.target.bootstrapExplorerId)}/authoring/v2/construction-capabilities`;
-  const bootstrapRequests = new Map();
   const bootstrapRequestEvidence = [];
   report.target.bootstrapCapabilitiesRequests = bootstrapRequestEvidence;
-  let requestSequence = 0;
-  let explorerCreationStarted = false;
   page.on('request', request => {
     const url = new URL(request.url());
     if (url.origin !== new URL(context.target.uiUrl).origin || url.pathname !== bootstrapPath || request.method() !== 'POST') return;
-    const observed = {
-      identity: `bootstrap-capabilities-${++requestSequence}`,
-      requestObjectIdentity: `playwright-request-${requestSequence}`,
+    bootstrapRequestEvidence.push({
+      identity: `bootstrap-capabilities-${bootstrapRequestEvidence.length + 1}`,
       origin: url.origin, path: url.pathname, method: request.method(),
-      beganBeforeExplorerCreation: !explorerCreationStarted, phase: explorerCreationStarted ? 'after-explorer-creation-started' : 'bootstrap-builder-before-explorer-creation',
-      requestId: request.headers()['x-request-id'] ?? null, failure: null, status: null,
-    };
-    bootstrapRequests.set(request, observed);
-    bootstrapRequestEvidence.push(observed);
+      requestId: request.headers()['x-request-id'] ?? null,
+    });
   });
-  page.on('response', response => {
-    const observed = bootstrapRequests.get(response.request());
-    if (!observed) return;
-    observed.status = response.status();
-    observed.requestId ??= response.headers()['x-request-id'] ?? null;
-  });
-  page.on('requestfailed', request => {
-    const observed = bootstrapRequests.get(request);
-    if (observed) observed.failure = request.failure()?.errorText ?? 'unknown request failure';
-  });
-  const bootstrapResponsePromise = page.waitForResponse(response => {
-    const url = new URL(response.url());
-    return url.origin === new URL(context.target.uiUrl).origin
-      && url.pathname === bootstrapPath && response.request().method() === 'POST';
-  }, { timeout: 5000 });
+  const bootstrapReadyDeadline = Date.now() + 5000;
   await page.goto(browserURL(context.target, context.target.fixtureProject, context.target.bootstrapExplorerId, 'builder'),
-    { waitUntil: 'domcontentloaded' });
-  const bootstrapResponse = await bootstrapResponsePromise;
-  const bootstrapResponseBody = await bootstrapResponse.json();
-  const bootstrapRequest = bootstrapRequests.get(bootstrapResponse.request());
-  assert(bootstrapRequest, 'bootstrap construction-capabilities response must match its exact observed Playwright Request');
-  assert.equal(bootstrapResponse.status(), 200, 'bootstrap construction-capabilities request must complete successfully before Explorer creation');
-  report.target.bootstrapCapabilitiesRequest = {
-    ...bootstrapRequest,
-    responseBodyReadable: Boolean(bootstrapResponseBody),
+    { waitUntil: 'domcontentloaded', timeout: 5000 });
+  const firstTableHeading = page.getByRole('heading', { name: 'Build your first table', exact: true });
+  const bootstrapExplorer = page.getByRole('combobox', { name: 'Explorer', exact: true });
+  const choosePatientRows = page.getByRole('button', { name: 'Choose Patient rows', exact: true });
+  const remainingBootstrapReadyMs = Math.max(1, bootstrapReadyDeadline - Date.now());
+  await Promise.all([
+    firstTableHeading.waitFor({ state: 'visible', timeout: remainingBootstrapReadyMs }),
+    bootstrapExplorer.waitFor({ state: 'visible', timeout: remainingBootstrapReadyMs }),
+    choosePatientRows.waitFor({ state: 'visible', timeout: remainingBootstrapReadyMs }),
+  ]);
+  assert.equal(await bootstrapExplorer.inputValue(), context.target.bootstrapExplorerId,
+    'bootstrap readiness must remain on the exact owned empty Explorer');
+  assert.deepEqual(bootstrapRequestEvidence, [],
+    'the blank first-table home must not request construction capabilities before a saved output exists');
+  report.target.bootstrapHomeReadiness = {
+    heading: 'Build your first table', explorerId: context.target.bootstrapExplorerId,
+    patientRowChoiceVisible: true, constructionCapabilitiesRequests: bootstrapRequestEvidence,
   };
   const newExplorer = page.getByText('New explorer', { exact: true });
   await newExplorer.waitFor({ state: 'visible' });
-  explorerCreationStarted = true;
   await action('open Explorer creation', newExplorer, () => newExplorer.click(), {
     after: async () => page.locator('#new-explorer-name').waitFor({ state: 'visible' }),
   });

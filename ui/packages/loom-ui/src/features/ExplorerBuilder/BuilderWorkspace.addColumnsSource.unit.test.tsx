@@ -562,6 +562,28 @@ describe('BuilderWorkspace Add columns source selection', () => {
     (useGetExplorerCandidateSuggestionsV2Mutation as Mock).mockReturnValue(mutationResult());
   });
 
+  it('renders the blank first-table home without requesting construction capabilities', async () => {
+    const emptyWorkspace: ExplorerBuilderWorkspace = { ...workspace, documents: [], tabs: [] };
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, workspace: emptyWorkspace },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    mockLoomClient.getConstructionCapabilities.mockClear();
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Build your first table' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Choose Patient rows' })).toBeInTheDocument();
+    expect(mockLoomClient.getConstructionCapabilities).not.toHaveBeenCalled();
+  });
+
   it('saves the primary Columns-menu policy edit as one versioned command using the physical field name', async () => {
     const initialWorkspace = namedGroupWorkspace('ALL');
     const savedWorkspace = namedGroupWorkspace('ONE');
