@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { browserURL } from '../workflows/builder-url.mjs';
 import { recordCheck } from './report.mjs';
 import { configureNativePage } from './playwright-authoring-page.mjs';
+import { flushNativeAbortProbeEvents, installNativeAbortProbe } from './native-abort-probe.mjs';
 
 const patientSource = target => {
   const contents = readFileSync(join(target.fixtureDir, 'Patient.ndjson'));
@@ -160,6 +161,13 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
   const { page, report, action, check } = workflow;
   configureNativePage(page);
   const target = context.target;
+  await installNativeAbortProbe({
+    page,
+    report,
+    project: target.fixtureProject,
+    explorer: { mode: 'project-routes' },
+    apiOrigin: new URL(target.uiUrl).origin,
+  });
   const { ids: allIds, sha256: fixtureSHA256 } = patientSource(target);
   const expectedIds = patientWindow(target, allIds);
   const cdaData = allIds.length > 25;
@@ -244,6 +252,7 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
   check('performance', `apply ${addedField.label} column action-to-render within budget`, renderMs <= 5000, { elapsedMs: renderMs, budgetMs: 5000 });
   await act('close operation editor', page.getByRole('button', { name: 'Close operation editor' }),
     () => page.getByRole('button', { name: 'Close operation editor' }).click());
+  await flushNativeAbortProbeEvents(page);
 
   const visibleIds = allIds.length <= 25
     ? await assertPreviewPatientIds(page, expectedIds)

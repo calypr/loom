@@ -4,7 +4,13 @@ import { readFileSync } from 'node:fs';
 import { correlateRequestFailure } from '../network-timing.mjs';
 import test from 'node:test';
 import { captureCDARequests } from '../cda-playwright-requests.mjs';
-import { classifyExpectedCdaCancellation, environmentSnapshot, finalizeCdaExplorerMetadata, gateFailure } from '../cda-fixtures.mjs';
+import {
+  captureCdaActionEpoch,
+  classifyExpectedCdaCancellation,
+  environmentSnapshot,
+  finalizeCdaExplorerMetadata,
+  gateFailure,
+} from '../cda-fixtures.mjs';
 
 const greenCdaReport = (nativeRequests = []) => ({
   runnerStatus: 'passed',
@@ -14,6 +20,32 @@ const greenCdaReport = (nativeRequests = []) => ({
   network: [],
   errors: [],
   nativeRequests,
+});
+
+test('CDA action epoch records the actual wall-clock interval around a trusted Close click', () => {
+  const startedAt = 1_791_548_796_304;
+  const trustedCloseAt = 1_791_548_796_412;
+  let clockSamples = 0;
+  const epoch = captureCdaActionEpoch(startedAt, () => {
+    clockSamples += 1;
+    return 1_791_548_796_447;
+  });
+
+  assert.equal(clockSamples, 1, 'the final epoch must sample the controlled clock exactly once');
+  assert.deepEqual(epoch, {
+    startedAtEpochMs: startedAt,
+    finishedAtEpochMs: 1_791_548_796_447,
+  });
+  assert(epoch.startedAtEpochMs <= trustedCloseAt && trustedCloseAt <= epoch.finishedAtEpochMs,
+    'the measured action interval must enclose the trusted native Close click');
+});
+
+test('CDA action epoch does not fabricate missing or invalid wall-clock bounds from elapsed time', () => {
+  const elapsedMs = 5_000;
+  assert.equal(captureCdaActionEpoch(undefined, () => 1_791_548_796_447, elapsedMs), undefined);
+  assert.equal(captureCdaActionEpoch(Number.NaN, () => 1_791_548_796_447, elapsedMs), undefined);
+  assert.equal(captureCdaActionEpoch(1_791_548_796_500, () => 1_791_548_796_447, elapsedMs), undefined);
+  assert.equal(captureCdaActionEpoch(1_791_548_796_304, () => Number.NaN, elapsedMs), undefined);
 });
 
 test('CDA environment snapshot retains the explicit oracle database without forwarding host credentials', () => {

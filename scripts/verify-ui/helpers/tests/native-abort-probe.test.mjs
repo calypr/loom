@@ -1639,6 +1639,87 @@ test('finishReport replays the retained 57ceb Apply-overlap and fresh CASE-008/0
     'the original network error remains unchanged while the separate proof classifies it');
 });
 
+test('finishReport derives only the exact Basic abort projection and ignores passed timing summaries', () => {
+  const { report } = schemaFieldsCloseReport();
+  delete report.nativeAbortSignalObservations;
+  report.actions.push({
+    name: 'confirmed-cohort-preview', status: 'passed', elapsedMs: 42,
+    renderTimeoutMs: 5000, performanceBudgetMs: 5000,
+  });
+  const rawNetwork = structuredClone(report.network);
+
+  finishReport(report);
+
+  assert.equal(report.status, 'passed', JSON.stringify(report.errors));
+  assert.equal(report.expectedOwnerRetirements.length, 1);
+  assert.equal(report.nativeAbortSignalObservations.length, 1,
+    'finishReport materializes the projection from the exact Basic ledger and probe tuple');
+  assert.equal(report.nativeAbortSignalObservations[0].requestId,
+    'schema-fields-9cc92c67-46c0-4340-8628-f0ad83feaa9e');
+  assert.equal(report.nativeAbortSignalObservations[0].browserRequestId, 'request-263');
+  assert.equal(report.nativeAbortSignalObservations[0].requestIdentityMatchCount, 1);
+  assert.deepEqual(report.network, rawNetwork, 'projection leaves the raw network record unchanged');
+});
+
+test('finishReport does not treat malformed or failed timing summaries as non-actions', () => {
+  const invalidSummaries = [
+    ['a passed timing-shaped item with a real action id is still an action', {
+      id: 'action-malformed', name: 'confirmed-cohort-preview', status: 'passed', elapsedMs: 42,
+      renderTimeoutMs: 5000, performanceBudgetMs: 5000,
+    }],
+    ['a failed timing summary remains fatal', {
+      name: 'confirmed-cohort-preview', status: 'failed', elapsedMs: 42,
+      renderTimeoutMs: 5000, performanceBudgetMs: 5000,
+    }],
+    ['an unresolved timing summary remains fatal', {
+      name: 'confirmed-cohort-preview', status: 'running', elapsedMs: 42,
+      renderTimeoutMs: 5000, performanceBudgetMs: 5000,
+    }],
+  ];
+  for (const [description, summary] of invalidSummaries) {
+    const { report } = schemaFieldsCloseReport();
+    report.actions.push(summary);
+    finishReport(report);
+    assert.equal(report.status, 'failed', description);
+    assert.equal(report.expectedOwnerRetirements?.length ?? 0, 0, description);
+  }
+});
+
+test('finishReport cannot derive a Basic projection across raw identity, probe, or terminal mismatches', () => {
+  const invalidReports = [
+    ['a mismatched raw Playwright request ID', report => {
+      report.network[0].playwrightRequestId = 'request-other';
+    }],
+    ['a probe event for another request ID', report => {
+      report.nativeAbortProbeEvents[0].requests[0].requestId = 'schema-fields-other';
+    }],
+    ['a probe event for another origin', report => {
+      report.nativeAbortProbeEvents[0].requests[0].origin = 'http://127.0.0.1:30009';
+    }],
+    ['a ledger terminal without exact browser Request identity', report => {
+      report.nativeRequestTerminalLedger.requests[0].nativeEventChronology.at(-1).objectMatch = false;
+    }],
+    ['a pending native request ledger', report => {
+      const entry = report.nativeRequestTerminalLedger.requests[0];
+      entry.nativeEventChronology = entry.nativeEventChronology.slice(0, 1);
+      entry.status = null;
+      entry.failure = null;
+      entry.terminalEvent = null;
+      entry.state = 'pending';
+      entry.complete = false;
+    }],
+  ];
+  for (const [description, mutate] of invalidReports) {
+    const { report } = schemaFieldsCloseReport();
+    delete report.nativeAbortSignalObservations;
+    mutate(report);
+    finishReport(report);
+    assert.equal(report.status, 'failed', description);
+    assert.equal(report.expectedOwnerRetirements?.length ?? 0, 0, description);
+    assert.equal(report.nativeAbortSignalObservations, undefined, description);
+  }
+});
+
 test('finishReport requires all non-owner actions to be passed and complete by trusted Close', () => {
   const actionStartedAt = 2600;
   const closeAt = 3000;

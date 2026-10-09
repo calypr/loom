@@ -210,6 +210,12 @@ const validatedRootQuantityValidationRecord = (report, record) => {
   return evidence.requests.includes(record);
 };
 
+const isPassedTimingSummary = (action) => action?.status === 'passed' &&
+  typeof action.name === 'string' && action.name.length > 0 &&
+  Number.isFinite(action.elapsedMs) && Number.isFinite(action.renderTimeoutMs) &&
+  Number.isFinite(action.performanceBudgetMs) &&
+  !Object.hasOwn(action, 'id') && !Object.hasOwn(action, 'label');
+
 const expectedSchemaFieldsOwnerRetirement = (report, record) => {
   if (record.kind !== 'network' || record.method !== 'POST' || record.resourceType !== 'fetch' ||
       record.errorText !== 'net::ERR_ABORTED' || (record.status !== undefined && record.status !== null) || record.internalError ||
@@ -256,10 +262,16 @@ const expectedSchemaFieldsOwnerRetirement = (report, record) => {
   const observations = [
     ...(report.nativeAbortSignalObservations ?? []),
     ...(report.nativeAbortProbeCorrelations ?? []),
-  ].filter(item => item.requestId === requestId && item.origin === origin && item.path === path && item.method === 'POST');
-  if (observations.length !== 1 || observations[0].requestIdentityMatchCount !== 1) return null;
-  const projection = observations[0];
-  if (projection.browserRequestId !== undefined && projection.browserRequestId !== browserRequestId) return null;
+  ];
+  const relatedProjections = observations.filter(item => item.requestId === requestId ||
+    item.browserRequestId === browserRequestId);
+  if (relatedProjections.length > 1) return null;
+  const projection = relatedProjections[0] ?? null;
+  if (projection && (projection.requestId !== requestId || projection.origin !== origin ||
+      projection.path !== path || projection.method !== 'POST' || projection.requestIdentityMatchCount !== 1 ||
+      (projection.browserRequestId !== undefined && projection.browserRequestId !== browserRequestId))) return null;
+  const canDeriveBasicProjection = !projection && record.playwrightRequestId === browserRequestId;
+  if (!projection && !canDeriveBasicProjection) return null;
 
   const matchingLedger = ledger.requests.filter(entry => entry.requestId === requestId ||
     entry.browserRequestId === browserRequestId);
@@ -287,16 +299,17 @@ const expectedSchemaFieldsOwnerRetirement = (report, record) => {
         responseEvent.observedAt < chronology[0].observedAt || chronology[2].observedAt < responseEvent.observedAt
       : entry.status !== null) return null;
 
-  const projected = projection.observation;
   const recomputed = nativeAbortSignalObservationForRequest({
     ...entry,
     requestCorrelationId: entry.requestId,
     requestIdentityMatchCount: 1,
   }, report.nativeAbortProbeEvents ?? []);
-  const projectionMatchesRawProbe = projected?.exactRequestSignalCorrelation === true && projected.matchCount === 1 &&
-    projected.nativeEntryIdentityMatchCount === 1 && projected.requestId === requestId && projected.origin === origin &&
-    projected.controllerId === recomputed.controllerId && Object.entries(projected)
-    .every(([key, value]) => JSON.stringify(value) === JSON.stringify(recomputed[key]));
+  const projected = projection?.observation;
+  const projectionMatchesRawProbe = canDeriveBasicProjection ||
+    (projected?.exactRequestSignalCorrelation === true && projected.matchCount === 1 &&
+      projected.nativeEntryIdentityMatchCount === 1 && projected.requestId === requestId && projected.origin === origin &&
+      projected.controllerId === recomputed.controllerId && Object.entries(projected)
+      .every(([key, value]) => JSON.stringify(value) === JSON.stringify(recomputed[key])));
   if (!projectionMatchesRawProbe ||
       recomputed.exactRequestSignalCorrelation !== true || recomputed.matchCount !== 1 ||
       recomputed.nativeEntryIdentityMatchCount !== 1 || recomputed.requestId !== requestId ||
@@ -333,7 +346,7 @@ const expectedSchemaFieldsOwnerRetirement = (report, record) => {
       responseEvent.observedAt < recomputed.fetchSettledAt || responseEvent.observedAt < recomputed.fetchSettlementObservedAt)) return null;
 
   const actionId = record.requestTimeline?.action?.id;
-  const actions = report.actions ?? [];
+  const actions = (report.actions ?? []).filter(action => !isPassedTimingSummary(action));
   const closeActions = actions.filter(action => Number.isFinite(action.startedAtEpochMs) &&
     Number.isFinite(action.finishedAtEpochMs) && action.startedAtEpochMs <= close.at &&
     close.at <= action.finishedAtEpochMs);
@@ -361,6 +374,19 @@ const expectedSchemaFieldsOwnerRetirement = (report, record) => {
 
   if (actionId) {
     if (associatedAction.status !== 'passed') return null;
+  }
+
+  if (canDeriveBasicProjection) {
+    report.nativeAbortSignalObservations ??= [];
+    report.nativeAbortSignalObservations.push({
+      requestId,
+      browserRequestId,
+      origin,
+      path,
+      method: 'POST',
+      requestIdentityMatchCount: 1,
+      observation: recomputed,
+    });
   }
 
   return {

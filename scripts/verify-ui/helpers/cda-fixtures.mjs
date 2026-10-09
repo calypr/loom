@@ -36,6 +36,12 @@ const MAX_DIAGNOSTICS = 100;
 const sourceRoot = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 const safeText = value => sanitizeText(value).slice(0, 4_000);
 
+export const captureCdaActionEpoch = (startedAt, clock = Date.now) => {
+  const finishedAt = clock();
+  if (!Number.isFinite(startedAt) || !Number.isFinite(finishedAt) || finishedAt < startedAt) return undefined;
+  return { startedAtEpochMs: startedAt, finishedAtEpochMs: finishedAt };
+};
+
 function safeURL(raw) {
   try {
     const url = new URL(raw);
@@ -809,6 +815,7 @@ export const test = base.extend({
         failureReason = error?.message ?? error;
         throw error;
       } finally {
+        const actionEpoch = captureCdaActionEpoch(startedAt);
         elapsedMs ??= performance.now() - started;
         const passed = performCompleted && (!after || afterCompleted) && elapsedMs <= budgetMs;
         actionContext.failurePhase = passed ? null : failurePhase ?? actionContext.failurePhase ?? 'unknown';
@@ -827,6 +834,7 @@ export const test = base.extend({
           });
         }
         report.actions.push({
+          ...(actionEpoch ?? {}),
           id: actionContext.id, label: safeText(label), status: passed ? 'passed' : 'failed', elapsedMs: Math.round(elapsedMs),
           failurePhase: actionContext.failurePhase, phases,
           locator: safeText(locator.toString()),
