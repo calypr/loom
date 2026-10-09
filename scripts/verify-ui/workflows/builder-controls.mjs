@@ -41,6 +41,16 @@ export const assertPatientRows = (rows, expectedIDs, expectedGenderByID, headerR
   return actualIDs;
 };
 
+export const tableIdentityByTitle = async (page, title) => {
+  const tab = page.getByRole('button', { name: title, exact: true });
+  assert.equal(await tab.count(), 1, `Expected exactly one table tab titled "${title}"`);
+  const testId = await tab.getAttribute('data-testid');
+  const prefix = 'construction-table-';
+  assert.ok(testId?.startsWith(prefix) && testId.length > prefix.length,
+    `Table tab "${title}" must expose its output-derived test ID`);
+  return { testId, outputId: testId.slice(prefix.length) };
+};
+
 const previewRows = async page => page.getByTestId('preview-table-scroll').getByRole('row').allInnerTexts();
 
 const checkPreviewPatients = async (page, report, expectedIDs, check, expectedGenderByID) => {
@@ -422,15 +432,25 @@ export const tablesWorkflow = async ({ page, report, action, check }, context) =
   report.target.originalTableTestId = originalTableTestId;
 
   const duplicate = page.getByTestId('construction-duplicate-table');
+  const duplicateTitle = 'Patients copy';
+  let duplicatedTableIdentity;
   await action('duplicate configured table', duplicate, () => duplicate.click(), {
     after: async () => {
-      await page.getByTestId('construction-table-patients-copy').waitFor({ state: 'visible' });
+      await page.getByRole('button', { name: duplicateTitle, exact: true }).waitFor({ state: 'visible' });
       await page.waitForFunction(() => document.querySelectorAll('[data-testid^="construction-table-"]').length === 2);
+      duplicatedTableIdentity = await tableIdentityByTitle(page, duplicateTitle);
+      await page.waitForFunction(testId => {
+        const selected = [...document.querySelectorAll('[data-testid^="construction-table-"][aria-current="page"]')];
+        return selected.length === 1 && selected[0].getAttribute('data-testid') === testId;
+      }, duplicatedTableIdentity.testId);
     },
   });
+  assert.notEqual(duplicatedTableIdentity.testId, originalTableTestId,
+    'Duplicating a table must create a distinct output-derived tab identity');
+  report.target.duplicatedTableTestId = duplicatedTableIdentity.testId;
   const selectedAfterDuplicate = page.locator('[data-testid^="construction-table-"][aria-current="page"]');
   check('persistence', 'newly duplicated table is selected immediately',
-    await selectedAfterDuplicate.getAttribute('data-testid') === 'construction-table-patients-copy',
+    await selectedAfterDuplicate.getAttribute('data-testid') === duplicatedTableIdentity.testId,
     { selectedTableTestId: await selectedAfterDuplicate.getAttribute('data-testid') });
   await checkPreviewPatients(page, report, oracle.ids, check, oracle.genderByID);
 
@@ -442,11 +462,11 @@ export const tablesWorkflow = async ({ page, report, action, check }, context) =
     report.target.renameDialogType = dialog.type();
     await dialog.accept('Renamed Patients');
   });
-  const rename = page.getByTestId('construction-rename-table-patients-copy');
+  const rename = page.getByTestId(`construction-rename-table-${duplicatedTableIdentity.outputId}`);
   await action('rename duplicated table', rename, () => rename.click(), {
     after: async () => {
       await renameResponse;
-      await page.getByTestId('construction-table-patients-copy').filter({ hasText: 'Renamed Patients' }).waitFor({ state: 'visible' });
+      await page.getByTestId(duplicatedTableIdentity.testId).filter({ hasText: 'Renamed Patients' }).waitFor({ state: 'visible' });
     },
   });
   const renameResult = await renameResponse;
@@ -459,10 +479,10 @@ export const tablesWorkflow = async ({ page, report, action, check }, context) =
     document.querySelectorAll('[data-testid^="construction-table-"]').length === count &&
     document.body.innerText.includes('DATASET WORKSPACE'),
   { explorer: created.explorer, count: 2 }, { timeout: 5000 });
-  const renamedTable = page.getByTestId('construction-table-patients-copy');
+  const renamedTable = page.getByTestId(duplicatedTableIdentity.testId);
   check('persistence', 'duplicated and renamed tables survive reload', await renamedTable.innerText().then(text => text.includes('Renamed Patients')));
   let selectedAfterReload = await page.locator('[data-testid^="construction-table-"][aria-current="page"]').getAttribute('data-testid');
-  check('persistence', 'newly duplicated table selection survives reload', selectedAfterReload === 'construction-table-patients-copy',
+  check('persistence', 'newly duplicated table selection survives reload', selectedAfterReload === duplicatedTableIdentity.testId,
     { selectedTableTestId: selectedAfterReload });
   await checkPreviewPatients(page, report, oracle.ids, check, oracle.genderByID);
 
@@ -478,9 +498,9 @@ export const tablesWorkflow = async ({ page, report, action, check }, context) =
   check('persistence', 'manual table selection survives reload', selectedAfterReload === originalTableTestId,
     { expectedTableTestId: originalTableTestId, selectedTableTestId: selectedAfterReload });
 
-  const renamedCopy = page.getByTestId('construction-table-patients-copy');
+  const renamedCopy = page.getByTestId(duplicatedTableIdentity.testId);
   await action('select renamed table before deletion', renamedCopy, () => renamedCopy.click(), {
-    after: () => page.waitForFunction(() => document.querySelector('[data-testid="construction-table-patients-copy"]')?.getAttribute('aria-current') === 'page'),
+    after: () => page.waitForFunction(testId => document.querySelector(`[data-testid="${CSS.escape(testId)}"]`)?.getAttribute('aria-current') === 'page', duplicatedTableIdentity.testId),
   });
   page.once('dialog', async dialog => {
     report.target.deleteDialogType = dialog.type();
@@ -489,19 +509,22 @@ export const tablesWorkflow = async ({ page, report, action, check }, context) =
   const deleteButton = page.getByTestId('construction-delete-table');
   await action('delete duplicated table', deleteButton, () => deleteButton.click(), {
     after: async () => {
-      await page.getByTestId('construction-table-patients').waitFor({ state: 'visible' });
-      await page.waitForFunction(() => document.querySelectorAll('[data-testid^="construction-table-"]').length === 1 &&
-        document.querySelector('[data-testid="construction-table-patients"]')?.getAttribute('aria-current') === 'page');
+      await page.getByTestId(originalTableTestId).waitFor({ state: 'visible' });
+      await page.waitForFunction(testId => {
+        const selected = [...document.querySelectorAll('[data-testid^="construction-table-"][aria-current="page"]')];
+        return document.querySelectorAll('[data-testid^="construction-table-"]').length === 1 &&
+          selected.length === 1 && selected[0].getAttribute('data-testid') === testId;
+      }, originalTableTestId);
     },
   });
   check('persistence', 'selected-table deletion immediately falls back to the remaining table',
-    await page.getByTestId('construction-table-patients').getAttribute('aria-current') === 'page',
+    await page.getByTestId(originalTableTestId).getAttribute('aria-current') === 'page',
     { selectedTableTestId: await page.locator('[data-testid^="construction-table-"][aria-current="page"]').getAttribute('data-testid'), dialogType: report.target.deleteDialogType });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForFunction(({ explorer, count }) => document.querySelector('select[aria-label="Explorer"]')?.value === explorer &&
     document.querySelectorAll('[data-testid^="construction-table-"]').length === count &&
     document.body.innerText.includes('DATASET WORKSPACE'), { explorer: created.explorer, count: 1 }, { timeout: 5000 });
-  const renamedStillPresent = await page.getByTestId('construction-table-patients-copy').count();
+  const renamedStillPresent = await page.getByTestId(duplicatedTableIdentity.testId).count();
   check('persistence', 'deleted table stays absent after reload', renamedStillPresent === 0, { count: renamedStillPresent });
   selectedAfterReload = await page.locator('[data-testid^="construction-table-"][aria-current="page"]').getAttribute('data-testid');
   check('persistence', 'selected-table removal falls back to the remaining table after reload', selectedAfterReload === originalTableTestId,

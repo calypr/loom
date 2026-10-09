@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { chromium } from '@playwright/test';
 import { browserURL } from '../../workflows/builder-url.mjs';
-import { assertPatientRows, patientOracle } from '../../workflows/builder-controls.mjs';
+import { assertPatientRows, patientOracle, tableIdentityByTitle } from '../../workflows/builder-controls.mjs';
 import { scenarioCaseFor } from '../../registry.mjs';
 import { classifyEvidence, summarizeRenderCheckpoints } from '../coverage-status.mjs';
 
@@ -61,6 +62,38 @@ test('tables workflow compares exact fixture Gender values and preserves null as
   assert.throws(() => assertPatientRows(rows, oracle.ids, oracle.genderByID, 'ROW\nPATIENT ID\nSTATUS'),
     /must show the Gender column header/,
     'correct-looking values under another column cannot satisfy the source-value oracle');
+});
+
+test('duplicated table locator resolves its generated output ID from the visible tab title', async () => {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(`
+      <nav aria-label="Tables">
+        <button type="button" aria-current="page" data-testid="construction-table-out_263993b7714206b20f630d0b">
+          <span aria-hidden="true">▤</span><span>Patients</span>
+        </button>
+        <button type="button" data-testid="construction-table-out_ab961bb107422a8da3a4f7dc">
+          <span aria-hidden="true">▤</span><span>Patients copy</span>
+        </button>
+      </nav>
+    `);
+
+    assert.deepEqual(await tableIdentityByTitle(page, 'Patients copy'), {
+      testId: 'construction-table-out_ab961bb107422a8da3a4f7dc',
+      outputId: 'out_ab961bb107422a8da3a4f7dc',
+    });
+    await assert.rejects(tableIdentityByTitle(page, 'Missing table'), /Expected exactly one table tab/);
+
+    await page.setContent(`
+      <button type="button" data-testid="construction-table-out_one">Patients copy</button>
+      <button type="button" data-testid="construction-table-out_two">Patients copy</button>
+    `);
+    await assert.rejects(tableIdentityByTitle(page, 'Patients copy'), /Expected exactly one table tab/,
+      'ambiguous duplicate titles must not silently choose one output identity');
+  } finally {
+    await browser.close();
+  }
 });
 
 test('first-table reload timing is a required performance check with the five-second limit', () => {
