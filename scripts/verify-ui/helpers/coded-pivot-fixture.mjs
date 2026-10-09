@@ -9,6 +9,11 @@ export function codedPivotRemovalProposalReady({ id }) {
   return panel?.getAttribute('data-proposal-status') === 'ready' && panel.innerText.includes(id);
 }
 
+export function codedPivotFirstTableReady() {
+  return document.body.innerText.includes('Build your first table') &&
+    Boolean(document.querySelector('button[aria-label="Choose Observation rows"]:not(:disabled)'));
+}
+
 const modes = Object.freeze({
   integer: Object.freeze([
     Object.freeze({ system: 'https://cda.readthedocs.io', code: 'days_to_collection', label: 'Days to collection', type: 'integer', value: '162' }),
@@ -41,7 +46,7 @@ export const codedPivotValuesFor = (source, { mode, project, generation }) => {
         coding.system === 'https://cda.readthedocs.io' && coding.code === code));
     if (matches.length !== 1) throw new Error(`Expected exactly one raw component for Coding.code ${code}; found ${matches.length}.`);
     const component = matches[0];
-    const actual = type === 'integer' ? component.valueQuantity?.value : component.valueString;
+    const actual = type === 'integer' ? component.valueInteger : component.valueString;
     if (type === 'integer' && (!Number.isSafeInteger(actual) || String(actual) !== value)) {
       throw new Error(`Raw integer Coding.code ${code} must equal ${value}.`);
     }

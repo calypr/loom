@@ -2,11 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
+import { chromium } from 'playwright';
 import { hasLifecycleContract, registry, scenarioCaseFor } from '../../registry.mjs';
 import { DEFAULT_ACTION_TO_RENDER_BUDGET_MS, recordPivotActionToRender } from '../quantity-pivot-budget.mjs';
 import {
   CODED_PIVOT_OBSERVATION_ID,
   codedPivotExpectedHeaderValuesFor,
+  codedPivotFirstTableReady,
   codedPivotFixtureFor,
   codedPivotRemovalProposalReady,
   codedPivotRenderedValuesFor,
@@ -32,9 +34,10 @@ const codedComponent = (code, value) => ({
 test('integer and string coded Pivot fixtures require the exact scoped Observation values', () => {
   const integer = codedPivotFixtureFor('integer');
   assert.deepEqual(integer.map(({ system, code, type, value }) => ({ system, code, type, value })), [{ system: 'https://cda.readthedocs.io', code: 'days_to_collection', type: 'integer', value: '162' }]);
-  assert.deepEqual(codedPivotValuesFor(source([
-    codedComponent('days_to_collection', { valueQuantity: { value: 162 } }),
-  ]), { mode: 'integer', project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' }), [
+  const rawArtifact = JSON.parse(readFileSync(new URL('./fixtures/coded-pivot-integer-raw-observation.json', import.meta.url), 'utf8'));
+  assert.equal(rawArtifact.rowCount, 1);
+  const observedInteger = { ...rawArtifact.rows[0], project: rawArtifact.scope.project, generation: rawArtifact.scope.generation };
+  assert.deepEqual(codedPivotValuesFor(observedInteger, { mode: 'integer', project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' }), [
     { code: 'days_to_collection', type: 'integer', value: '162' },
   ]);
 
@@ -54,14 +57,26 @@ test('integer and string coded Pivot fixtures require the exact scoped Observati
 
 test('coded Pivot raw oracle rejects scope drift, duplicate codes, and wrong scalar types', () => {
   const options = { mode: 'integer', project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' };
-  const exact = codedComponent('days_to_collection', { valueQuantity: { value: 162 } });
+  const exact = codedComponent('days_to_collection', { valueInteger: 162 });
   assert.throws(() => codedPivotValuesFor(source([exact], { id: 'different-observation' }), options), /exact Observation fixture/);
   assert.throws(() => codedPivotValuesFor(source([exact], { resourceType: 'Patient' }), options), /exact Observation fixture/);
   assert.throws(() => codedPivotValuesFor(source([exact], { project: 'different-project' }), options), /project and generation/);
   assert.throws(() => codedPivotValuesFor(source([exact], { generation: 'other-generation' }), options), /project and generation/);
   assert.throws(() => codedPivotValuesFor(source([exact, exact]), options), /exactly one raw component/);
   assert.throws(() => codedPivotValuesFor(source([]), options), /exactly one raw component/);
-  assert.throws(() => codedPivotValuesFor(source([codedComponent('days_to_collection', { valueQuantity: { value: '162' } })]), options), /integer/);
+  assert.throws(() => codedPivotValuesFor(source([codedComponent('days_to_collection', { valueInteger: '162' })]), options), /integer/);
+  const rawArtifact = JSON.parse(readFileSync(new URL('./fixtures/coded-pivot-integer-raw-observation.json', import.meta.url), 'utf8'));
+  const rawSource = () => ({ ...rawArtifact.rows[0], project: rawArtifact.scope.project, generation: rawArtifact.scope.generation });
+  const wrongValue = rawSource();
+  wrongValue.component[0].valueInteger = 163;
+  assert.throws(() => codedPivotValuesFor(wrongValue, options), /must equal 162/);
+  const missingValue = rawSource();
+  delete missingValue.component[0].valueInteger;
+  assert.throws(() => codedPivotValuesFor(missingValue, options), /must equal 162/);
+  const quantityInsteadOfInteger = rawSource();
+  delete quantityInsteadOfInteger.component[0].valueInteger;
+  quantityInsteadOfInteger.component[0].valueQuantity = { value: 162 };
+  assert.throws(() => codedPivotValuesFor(quantityInsteadOfInteger, options), /must equal 162/);
   assert.throws(() => codedPivotValuesFor(source([
     codedComponent('specimen_type', { valueString: 42 }),
     codedComponent('primary_disease_type', { valueString: 'Ductal and lobular neoplasms' }),
@@ -125,6 +140,45 @@ test('serialized browser predicates use their explicit ID arguments', () => {
     '[data-testid="construction-proposal-panel"]',
     '[data-testid="construction-proposal-panel"]',
   ]);
+});
+
+test('first-table readiness predicate accepts the retained heading and enabled Observation choice in native Playwright', async t => {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const capturedPage = (heading = 'Build your first table', disabled = false) => `
+    <main>
+      <section>
+        <h2>${heading}</h2>
+        <p>Choose a populated record type. Loom will add its direct ID column and load a preview. The table name is optional.</p>
+        <section aria-label="Choose row type">
+          <button type="button" aria-label="Choose Observation rows" ${disabled ? 'disabled' : ''}>
+            <span>Observation</span><span>815,261 authorized records</span>
+          </button>
+        </section>
+      </section>
+    </main>`;
+  await page.route('http://coded-pivot.test/**', route => route.fulfill({
+    contentType: 'text/html',
+    body: '<!doctype html><html><body></body></html>',
+  }));
+  const baseURL = 'http://coded-pivot.test/?project=loom_dev_cda_fhir&explorer=owned-explorer&mode=builder';
+  const selectedURL = `${baseURL}&selection=owned-selection`;
+
+  for (const url of [baseURL, selectedURL]) {
+    await page.goto(url);
+    await page.setContent(capturedPage());
+    assert.equal(page.url(), url);
+    assert.equal(await page.evaluate(codedPivotFirstTableReady), true);
+    assert.equal(await page.getByRole('button', { name: 'Choose Observation rows' }).isEnabled(), true);
+  }
+
+  await page.setContent(capturedPage('Build another table'));
+  assert.equal(await page.evaluate(codedPivotFirstTableReady), false);
+
+  await page.setContent(capturedPage('Build your first table', true));
+  assert.equal(await page.evaluate(codedPivotFirstTableReady), false);
+  assert.equal(await page.getByRole('button', { name: 'Choose Observation rows' }).isEnabled(), false);
 });
 
 test('native request evidence rejects pending, failed, and statusless requests', () => {

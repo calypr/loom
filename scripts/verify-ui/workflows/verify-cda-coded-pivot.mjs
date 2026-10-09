@@ -13,6 +13,7 @@ import { scenarioCaseFor } from '../registry.mjs';
 import {
   CODED_PIVOT_OBSERVATION_ID,
   codedPivotExpectedHeaderValuesFor,
+  codedPivotFirstTableReady,
   codedPivotFixtureFor,
   codedPivotRemovalProposalReady,
   codedPivotRenderedValuesFor,
@@ -198,12 +199,10 @@ try {
 
   requestCapture = captureCDARequests(page, { apiOrigin: uiOrigin, appOrigins: [apiOrigin, uiOrigin], ownedPathPrefix: createdScope.explorerRoot, report, responsePaths: /frame-source-options|semantic-inventory|construction-proposals|commands|builder|selections|preview/ });
   await cda.navigate( baseURL);
-  await waitNative( () => document.body.innerText.includes('DATASET WORKSPACE'), {}, 5000);
+  await waitNative(codedPivotFirstTableReady, {}, 5000);
   assert.equal(await cda.inspect( () => [...document.querySelectorAll('button')].some(button => button.innerText.trim() === 'Preview')), false, 'Manual Preview button should not exist');
   await cda.navigate( selectedURL);
-  await waitNative( () => document.body.innerText.includes('DATASET WORKSPACE'), {}, 5000);
-  await action('Open new table', page.getByRole('button', { name: 'New table', exact: true }));
-  await waitNative( () => Boolean(document.querySelector('button[aria-label="Choose Observation rows"]:not(:disabled)')), {}, 5000);
+  await waitNative(codedPivotFirstTableReady, {}, 5000);
   await fill('Name the table', page.locator('#first-table-name'), tableName);
   await action('Choose Observation rows', page.getByRole('button', { name: 'Choose Observation rows', exact: true }));
   created = true;
@@ -236,7 +235,7 @@ try {
     normalizeLabel(`${option.title} ${option.description}`) === normalizeLabel(matchingSource.text));
   assert.equal(matchingOptions.length, 1, `The native ${mode} label must identify exactly one direct Observation source option`);
   const selectedSourceOption = matchingOptions[0];
-  const expectedValuePath = mode === 'integer' ? /valueQuantity\.value$/i : /valueString$/i;
+  const expectedValuePath = mode === 'integer' ? /valueInteger$/i : /valueString$/i;
   assert(expectedValuePath.test(selectedSourceOption.valuePath), `The ${mode} source must bind its expected scalar value path: ${selectedSourceOption.valuePath}`);
   report.selectedSourceOption = selectedSourceOption;
   const semanticInventoryRequestStart = report.nativeRequests.length;
