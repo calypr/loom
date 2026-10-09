@@ -85,6 +85,38 @@ const check = (report, dimension, name, passed, evidence = {}) => {
   if (!passed) throw new Error('required draft Combine check failed: ' + name + '; evidence=' + JSON.stringify(evidence).slice(0, 1600));
 };
 
+export const openDraftAppendNativeRequestScope = (nativeRequestLedger, target) => {
+  if (!nativeRequestLedger?.openScope || typeof target?.fixtureProject !== 'string' ||
+      !target.fixtureProject.trim() || typeof target.uiUrl !== 'string') {
+    throw new TypeError('Draft APPEND native request scope requires the fixture project, UI URL, and fixture request ledger.');
+  }
+  return nativeRequestLedger.openScope({ project: target.fixtureProject, origin: new URL(target.uiUrl).origin });
+};
+
+export const flushDraftAppendNativeRequestScope = async ({
+  nativeRequestLedger, scope, explorer, report, timeoutMs = 5000,
+} = {}) => {
+  if (!nativeRequestLedger?.flush || !scope || !report || typeof report !== 'object') {
+    throw new TypeError('Draft APPEND native request flush requires its ledger scope and workflow report.');
+  }
+  const snapshot = await nativeRequestLedger.flush(scope, { explorer, timeoutMs });
+  Object.assign(report, {
+    nativeRequests: snapshot.nativeRequests,
+    nativeRequestDrainEvidence: snapshot.nativeRequestDrainEvidence,
+    excludedNativeRequests: snapshot.excludedNativeRequests,
+    excludedNativeRequestDrainEvidence: snapshot.excludedNativeRequestDrainEvidence,
+    nativeRequestCorrelationErrors: snapshot.nativeRequestCorrelationErrors,
+    nativeRequestTerminalLedger: snapshot.nativeRequestTerminalLedger,
+  });
+  if (!snapshot.nativeRequestTerminalLedger.complete) {
+    const error = new Error('Draft APPEND native request ledger did not reach a complete terminal state: ' +
+      JSON.stringify(snapshot.nativeRequestTerminalLedger));
+    error.nativeRequestSnapshot = snapshot;
+    throw error;
+  }
+  return snapshot;
+};
+
 const parseNDJSON = (path) => readFileSync(path, 'utf8').split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
 const fixture = (directory) => {
   const patients = parseNDJSON(join(directory, 'Patient.ndjson')).map(({ id, gender }) => ({ id, gender }));
@@ -1876,12 +1908,16 @@ export const draftMembershipWorkflow = async ({ page, report }, context) => {
   }
 };
 
-export const draftAppendWorkflow = async ({ page, report }, context, { upstreamDeriveEdit = false } = {}) => {
-  const run = await beginOwnedWorkspace(context, page, report, 'append');
-  const previewLifecycle = upstreamDeriveEdit ? captureOwnedPreviewLifecycle(page, context.target, run.explorer) : undefined;
+export const draftAppendWorkflow = async ({ page, report, nativeRequestLedger }, context, { upstreamDeriveEdit = false } = {}) => {
+  const nativeRequestScope = upstreamDeriveEdit ? undefined : openDraftAppendNativeRequestScope(nativeRequestLedger, context.target);
+  let run;
+  let previewLifecycle;
   const sources = [];
   let sourceDocumentsAfterEdit;
+  let workflowFailed = false;
   try {
+    run = await beginOwnedWorkspace(context, page, report, 'append');
+    previewLifecycle = upstreamDeriveEdit ? captureOwnedPreviewLifecycle(page, context.target, run.explorer) : undefined;
     sources.push(await createGroupSource(context, page, report, run.explorer, { resourceType: 'Observation', title: 'Observation status counts', fieldPath: 'status', rawRows: run.raw.observations }));
     sources.push(await createGroupSource(context, page, report, run.explorer, { resourceType: 'DiagnosticReport', title: 'Report status counts', fieldPath: 'status', rawRows: run.raw.reports }));
     sources.push(await createGroupSource(context, page, report, run.explorer, {
@@ -2185,9 +2221,23 @@ export const draftAppendWorkflow = async ({ page, report }, context, { upstreamD
           sources[2].group.outputs.find((output) => sources[2].group.operation.group.aggregates.some((aggregate) => aggregate.outputColumnId === output.id))?.label,
           'Count plus two'], report.upstreamDeriveEdit.editedPatientRows);
     }
+  } catch (error) {
+    workflowFailed = true;
+    throw error;
   } finally {
-    run.stopPublish();
+    run?.stopPublish();
     if (previewLifecycle) report.previewRequestLifecycle = previewLifecycle.stop();
+    if (nativeRequestScope) {
+      try {
+        await flushDraftAppendNativeRequestScope({ nativeRequestLedger, scope: nativeRequestScope, explorer: run?.explorer, report });
+      } catch (error) {
+        report.nativeRequestFlushFailure = {
+          message: error instanceof Error ? error.message : String(error),
+          terminalLedger: error?.nativeRequestSnapshot?.nativeRequestTerminalLedger ?? report.nativeRequestTerminalLedger ?? null,
+        };
+        if (!workflowFailed) throw error;
+      }
+    }
   }
 };
 

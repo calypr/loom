@@ -105,22 +105,26 @@ test('construction capability diagnostics bind exact owned origin, project, expl
 
 test('APPEND capability diagnostics use the seeded project and always release listeners after the full lifecycle', () => {
   const source = readFileSync(new URL('../../workflows/builder-combine.mjs', import.meta.url), 'utf8');
-  const appendWorkflow = source.indexOf('export const appendWorkflow = async ({ page, report, action }, context) =>');
+  const appendWorkflow = source.indexOf('export const appendWorkflow = async ({ page, report, action, nativeRequestLedger }, context) =>');
+  const scope = source.indexOf('openAppendNativeRequestScope(nativeRequestLedger, context.target);', appendWorkflow);
   const capture = source.indexOf('captureConstructionCapabilitiesFailuresWithPlaywright(page, report', appendWorkflow);
-  const lifecycle = source.indexOf('try {\n    const builderAtTarget', capture);
+  const lifecycle = source.indexOf('let builderAtTarget = await readBuilder', capture);
   const completedLifecycle = source.lastIndexOf('report.target.combineTarget = target;');
-  const finalizer = source.indexOf('capabilitiesFailures.stop();', lifecycle);
-  assert.ok(appendWorkflow >= 0 && capture > appendWorkflow && lifecycle > capture && completedLifecycle > lifecycle && finalizer > completedLifecycle);
+  const listenerCleanup = source.indexOf('capabilitiesFailures?.stop();', completedLifecycle);
+  const requestFlush = source.indexOf('await flushAppendNativeRequestScope({ nativeRequestLedger, scope: nativeRequestScope, explorer, report });', completedLifecycle);
+  assert.ok(appendWorkflow >= 0 && scope > appendWorkflow && scope < capture && lifecycle > capture &&
+    completedLifecycle > lifecycle && listenerCleanup > completedLifecycle && requestFlush > listenerCleanup);
   assert.doesNotMatch(source, /const runAppend\s*=/, 'APPEND must not remain an executable legacy runner path');
   assert.doesNotMatch(source, /runBuilderCombine|runJoin|runPlaywrightCase|executeScenario|parseArgs/,
     'Combine lifecycles must be driven through their native Playwright specifications');
   const officialSpec = readFileSync(new URL('../../specs/append.spec.mjs', import.meta.url), 'utf8');
   assert.match(officialSpec, /import \{ test \} from '\.\.\/helpers\/fixtures\.mjs'/);
   assert.match(officialSpec, /test\.use\(\{ scenarioID: 'builder-combine', caseName: 'append', fixtureDir: 'testdata\/verify-combine' \}\)/);
-  assert.match(officialSpec, /appendWorkflow\(\{ page, report: workflow\.report, action: workflow\.action \}, loomContext\)/);
+  assert.match(officialSpec, /nativeRequestLedger: workflow\.nativeRequestLedger/);
+  assert.match(source.slice(appendWorkflow, scope), /owned isolated fixture/);
   assert.match(source.slice(capture, lifecycle), /project: context\.target\.fixtureProject/);
-  assert.match(source.slice(lifecycle, finalizer), /const builderAtTarget = await readBuilder/);
-  assert.match(source.slice(completedLifecycle, finalizer + 40), /finally/);
+  assert.match(source.slice(completedLifecycle, requestFlush), /finally/);
+  assert.match(source.slice(requestFlush), /if \(!workflowFailed\) throw error/);
   const diagnosticsHelper = source.slice(source.indexOf('const captureConstructionCapabilitiesFailuresWithPlaywright'),
     source.indexOf('const captureOwnedConstructionProposals'));
   assert.match(diagnosticsHelper, /page\.off\('request'/);
@@ -131,7 +135,7 @@ test('APPEND capability diagnostics use the seeded project and always release li
 test('KEY_JOIN lifecycle is exported for the native Playwright spec', () => {
   const source = readFileSync(new URL('../../workflows/builder-combine.mjs', import.meta.url), 'utf8');
   const joinWorkflow = source.indexOf('export const joinWorkflow = async ({ page, report, action }, context) =>');
-  const appendWorkflow = source.indexOf('export const appendWorkflow = async ({ page, report, action }, context) =>');
+  const appendWorkflow = source.indexOf('export const appendWorkflow = async ({ page, report, action, nativeRequestLedger }, context) =>');
   assert.ok(joinWorkflow >= 0 && appendWorkflow > joinWorkflow, 'Join lifecycle must be available before the APPEND workflow');
   const body = source.slice(joinWorkflow, appendWorkflow);
   for (const name of [

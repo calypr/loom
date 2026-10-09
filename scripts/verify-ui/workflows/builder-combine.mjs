@@ -114,6 +114,39 @@ const recordReloadTiming = (report, name, startedAt, evidence = {}) => {
   check(report, 'performance', name, elapsedMs <= 5000, { elapsedMs, limitMs: 5000, ...evidence });
 };
 
+export const openAppendNativeRequestScope = (nativeRequestLedger, target) => {
+  if (!nativeRequestLedger?.openScope || typeof target?.fixtureProject !== 'string' ||
+      !target.fixtureProject.trim() || typeof target.uiUrl !== 'string') {
+    throw new TypeError('APPEND native request scope requires the fixture project, UI URL, and fixture request ledger.');
+  }
+  const origin = new URL(target.uiUrl).origin;
+  return nativeRequestLedger.openScope({ project: target.fixtureProject, origin });
+};
+
+export const flushAppendNativeRequestScope = async ({
+  nativeRequestLedger, scope, explorer, report, timeoutMs = 5000,
+} = {}) => {
+  if (!nativeRequestLedger?.flush || !scope || !report || typeof report !== 'object') {
+    throw new TypeError('APPEND native request flush requires its ledger scope and workflow report.');
+  }
+  const snapshot = await nativeRequestLedger.flush(scope, { explorer, timeoutMs });
+  Object.assign(report, {
+    nativeRequests: snapshot.nativeRequests,
+    nativeRequestDrainEvidence: snapshot.nativeRequestDrainEvidence,
+    excludedNativeRequests: snapshot.excludedNativeRequests,
+    excludedNativeRequestDrainEvidence: snapshot.excludedNativeRequestDrainEvidence,
+    nativeRequestCorrelationErrors: snapshot.nativeRequestCorrelationErrors,
+    nativeRequestTerminalLedger: snapshot.nativeRequestTerminalLedger,
+  });
+  if (!snapshot.nativeRequestTerminalLedger.complete) {
+    const error = new Error('APPEND native request ledger did not reach a complete terminal state: ' +
+      JSON.stringify(snapshot.nativeRequestTerminalLedger));
+    error.nativeRequestSnapshot = snapshot;
+    throw error;
+  }
+  return snapshot;
+};
+
 const parseNDJSON = (path) => readFileSync(path, 'utf8')
   .split(/\r?\n/)
   .filter(Boolean)
@@ -1091,7 +1124,7 @@ const assertAppendNullPaddingStep = (report, name, step, api) => {
   return { actualInputs, actualProjections, outputNullability };
 };
 
-export const appendWorkflow = async ({ page, report, action }, context) => {
+export const appendWorkflow = async ({ page, report, action, nativeRequestLedger }, context) => {
   assert.equal(context.custom, false, 'Combine authoring requires an owned isolated fixture.');
   assert.equal(context.seed?.fresh, true, 'Combine authoring requires a fresh verification project.');
   const fixture = exactFixture(context.target.fixtureDir);
@@ -1116,19 +1149,26 @@ export const appendWorkflow = async ({ page, report, action }, context) => {
       expectedUnionRows: fixture.patients.length + fixture.observations.length + fixture.diagnosticReports.length,
     });
 
-  const prepared = await createAndPublishSourcesWithPlaywright(context, page, action, report, true);
-  const { explorer, docs, api } = prepared;
-  report.target.fixtureRawOracle = { ...report.target.fixtureRawOracle, appendNullPaddingRows: rawAppendOracle };
-  const initialCancelProbeTarget = await startCombineTargetWithPlaywright(context, page, action, report, explorer, docs.observation.output.id, api.builder);
-  let target = initialCancelProbeTarget;
-  report.target.combineTarget = target;
-  report.target.initialCancelProbeTarget = initialCancelProbeTarget;
-  const capabilitiesFailures = captureConstructionCapabilitiesFailuresWithPlaywright(page, report, {
-    uiUrl: context.target.uiUrl, project: context.target.fixtureProject, explorer,
-  });
+  const nativeRequestScope = openAppendNativeRequestScope(nativeRequestLedger, context.target);
+  let explorer;
+  let docs;
+  let api;
+  let target;
+  let capabilitiesFailures;
   let proposalCapture;
+  let workflowFailed = false;
 
   try {
+    const prepared = await createAndPublishSourcesWithPlaywright(context, page, action, report, true);
+    ({ explorer, docs, api } = prepared);
+    report.target.fixtureRawOracle = { ...report.target.fixtureRawOracle, appendNullPaddingRows: rawAppendOracle };
+    const initialCancelProbeTarget = await startCombineTargetWithPlaywright(context, page, action, report, explorer, docs.observation.output.id, api.builder);
+    target = initialCancelProbeTarget;
+    report.target.combineTarget = target;
+    report.target.initialCancelProbeTarget = initialCancelProbeTarget;
+    capabilitiesFailures = captureConstructionCapabilitiesFailuresWithPlaywright(page, report, {
+      uiUrl: context.target.uiUrl, project: context.target.fixtureProject, explorer,
+    });
     let builderAtTarget = await readBuilder(context, explorer);
     const builderBeforeInitialProbe = builderAtTarget;
     const initialProbeEmptyTargetBaseline = snapshotSourceDocument(readTargetDocument(builderAtTarget, target.outputId));
@@ -1482,6 +1522,9 @@ export const appendWorkflow = async ({ page, report, action }, context) => {
     await assertSourceImmutability(context, explorer, docs, api, report);
     report.target.explorer = explorer;
     report.target.combineTarget = target;
+  } catch (error) {
+    workflowFailed = true;
+    throw error;
   } finally {
     proposalCapture?.stop();
     report.nativeAppendProposals = (proposalCapture?.entries ?? []).map(entry => ({
@@ -1496,6 +1539,15 @@ export const appendWorkflow = async ({ page, report, action }, context) => {
       expectedDraftVersion: entry.body?.expectedDraftVersion ?? null,
       expectedDraftDigest: entry.body?.expectedDraftDigest ?? null,
     }));
-    capabilitiesFailures.stop();
+    capabilitiesFailures?.stop();
+    try {
+      await flushAppendNativeRequestScope({ nativeRequestLedger, scope: nativeRequestScope, explorer, report });
+    } catch (error) {
+      report.nativeRequestFlushFailure = {
+        message: error instanceof Error ? error.message : String(error),
+        terminalLedger: error?.nativeRequestSnapshot?.nativeRequestTerminalLedger ?? report.nativeRequestTerminalLedger ?? null,
+      };
+      if (!workflowFailed) throw error;
+    }
   }
 };

@@ -23,6 +23,7 @@ test.describe('Builder Combine Draft Append', () => {
   test('three-source current-draft APPEND supports cancel, apply, edit, removal, and reload', async ({ page, workflow, loomContext }) => {
     await draftAppendWorkflow({
       page, report: workflow.report, action: workflow.action, check: workflow.check, fault: workflow.fault,
+      nativeRequestLedger: workflow.nativeRequestLedger,
     }, loomContext);
   });
 });

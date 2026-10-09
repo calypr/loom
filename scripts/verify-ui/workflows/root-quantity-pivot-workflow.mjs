@@ -274,7 +274,7 @@ export function classifyRootQuantityPivotValidationConsoleBatch({
   assert.equal(fixtureHTTPIndexes.length, 1, 'Fixture error ledger must retain its single deduplicated matching HTTP response event');
 
   const fixtureRequestPairs = validatedRequests.map(item => {
-    const networkIndexes = fixtureRequestNetworkIndexes.filter(index => fixtureNetwork[index].requestId === item.requestId);
+    const networkIndexes = fixtureRequestNetworkIndexes.filter(index => fixtureNetwork[index].requestDetails?.requestId === item.requestId);
     assert.equal(networkIndexes.length, 1, `Fixture network request must bind to exact response ${item.requestId}`);
     const networkEntry = fixtureNetwork[networkIndexes[0]];
     assert.equal(networkEntry.requestDetails?.requestId, item.requestId);

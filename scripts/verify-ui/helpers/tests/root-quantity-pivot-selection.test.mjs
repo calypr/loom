@@ -633,7 +633,6 @@ const validationBatchFixture = ({ retainedCase016 = false } = {}) => {
       method: 'POST',
       url,
       requestDetails: { requestId, draftVersion: 4, draftDigest, outputId },
-      requestId,
       playwrightRequestId: fixturePlaywrightRequestId,
       responseBody: { captureState: 'completed', body: JSON.stringify(response) },
     };
@@ -884,6 +883,29 @@ test('retained CASE-016 422 requests are classified only after their exact same-
       }],
     },
   ]);
+});
+
+test('CASE-016 binds native fixture responses through requestDetails.requestId and rejects wrong IDs or bodies', () => {
+  const fixture = validationBatchFixture({ retainedCase016: true });
+  const nativeRequests = fixture.fixtureNetwork.filter(entry => entry.kind === 'network');
+  assert.equal(nativeRequests.length, 2);
+  assert(nativeRequests.every(entry => !Object.hasOwn(entry, 'requestId')),
+    'the fixture-native shape keeps the server request identity under requestDetails and the browser identity under playwrightRequestId');
+  const result = classifyFixture(fixture);
+  assert.deepEqual(result.fixtureRequestPairs.map(pair => pair.requestId), result.requestIDs);
+  assert.deepEqual(result.fixtureRequestPairs.map(pair => pair.playwrightRequestId), ['request-121', 'request-126']);
+
+  const wrongIdentity = validationBatchFixture({ retainedCase016: true });
+  const wrongIdentityEntry = wrongIdentity.fixtureNetwork.find(entry => entry.kind === 'network');
+  wrongIdentityEntry.requestId = wrongIdentity.validations[0].requestId;
+  wrongIdentityEntry.requestDetails.requestId = 'construction-proposal-wrong-native-id';
+  assert.throws(() => classifyFixture(wrongIdentity), /Fixture network request must bind to exact response/,
+    'a correct-looking top-level decoy cannot substitute for the nested native request identity');
+
+  const wrongBody = validationBatchFixture({ retainedCase016: true });
+  wrongBody.fixtureNetwork.find(entry => entry.kind === 'network').responseBody.body = '{"error":"different response"}';
+  assert.throws(() => classifyFixture(wrongBody), /Fixture response body must match the locally captured and validated proposal response/,
+    'the exact native request ID still requires its exact completed response body');
 });
 
 test('captured request event order remains sufficient when native timestamps share a millisecond', () => {
