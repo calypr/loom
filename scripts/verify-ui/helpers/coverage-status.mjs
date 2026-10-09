@@ -15,13 +15,6 @@ const reportDimensionStatus = (report, dimension) => {
   return typeof value === 'string' ? value : value?.status;
 };
 
-const validCheckpointList = (value, durationField) => Array.isArray(value)
-  && value.length > 0
-  && value.every((checkpoint) => checkpoint
-    && typeof checkpoint.name === 'string'
-    && checkpoint.name.trim().length > 0
-    && finiteDuration(checkpoint[durationField]));
-
 export const summarizeRenderCheckpoints = (report, {
   performanceCheckNames = [],
   requiredCheckNames = [],
@@ -29,58 +22,130 @@ export const summarizeRenderCheckpoints = (report, {
   const declared = new Set(Array.isArray(performanceCheckNames) ? performanceCheckNames : []);
   const required = new Set(Array.isArray(requiredCheckNames) ? requiredCheckNames : []);
   const checkpoints = [];
+  const issues = [];
+  const appendTimingMetadataIssues = (source, evidencePath, checkName) => {
+    for (const field of ['budgetMs', 'limitMs']) {
+      if (Object.hasOwn(source, field) && (!Number.isFinite(source[field]) || source[field] <= 0)) {
+        issues.push({ checkName, evidencePath: `${evidencePath}.${field}`, reason: `${field} must be a finite positive number.` });
+      }
+    }
+    if (Object.hasOwn(source, 'withinBudget') && typeof source.withinBudget !== 'boolean') {
+      issues.push({ checkName, evidencePath: `${evidencePath}.withinBudget`, reason: 'withinBudget must be a boolean.' });
+    }
+  };
   for (const assertion of Array.isArray(report?.assertions) ? report.assertions : []) {
     const checkName = assertion?.name;
     const evidence = assertion.evidence;
-    const checkpointField = evidence && typeof evidence === 'object'
+    const legacyCheckpointField = evidence && typeof evidence === 'object'
       ? (['lifecycleCheckpointDurations', 'timingCheckpoints', 'workflowCheckpoints']
         .find((field) => Object.hasOwn(evidence, field)) ?? null)
       : null;
+    const genericCheckpointField = evidence && typeof evidence === 'object' && Object.hasOwn(evidence, 'checkpoints')
+      ? 'checkpoints' : null;
+    const checkpointField = legacyCheckpointField ?? genericCheckpointField;
+    const declaredPerformanceEvidence = assertion.dimension === 'performance' || declared.has(checkName);
     const isRegisteredPerformanceEvidence = required.has(checkName)
-      && (assertion.dimension === 'performance' || declared.has(checkName) || checkpointField !== null);
+      && (declaredPerformanceEvidence || (legacyCheckpointField !== null));
     if (!isRegisteredPerformanceEvidence) continue;
     if (checkpointField) {
       const renderCheckpoints = evidence[checkpointField];
-      if (!validCheckpointList(renderCheckpoints, 'durationMs')) continue;
-      for (const checkpoint of renderCheckpoints) {
-        checkpoints.push({
+      const listPath = `assertions[].evidence.${checkpointField}`;
+      if (!Array.isArray(renderCheckpoints) || renderCheckpoints.length === 0) {
+        issues.push({ checkName, evidencePath: listPath, reason: 'Expected a non-empty checkpoint list.' });
+        continue;
+      }
+      for (const [index, checkpoint] of renderCheckpoints.entries()) {
+        const checkpointPath = `${listPath}[${index}]`;
+        const issueCount = issues.length;
+        if (!checkpoint || typeof checkpoint !== 'object' || Array.isArray(checkpoint)) {
+          issues.push({ checkName, evidencePath: checkpointPath, reason: 'Checkpoint must be an object.' });
+          continue;
+        }
+        if (typeof checkpoint.name !== 'string' || checkpoint.name.trim().length === 0) {
+          issues.push({ checkName, evidencePath: `${checkpointPath}.name`, reason: 'Checkpoint name must be a non-empty string.' });
+        }
+        if (!finiteDuration(checkpoint.durationMs)) {
+          issues.push({ checkName, evidencePath: `${checkpointPath}.durationMs`, reason: 'Duration must be a finite non-negative number.' });
+        }
+        appendTimingMetadataIssues(checkpoint, checkpointPath, checkName);
+        if (issues.length > issueCount) continue;
+
+        const normalized = {
           checkName: assertion.name,
           name: checkpoint.name,
           durationMs: checkpoint.durationMs,
-          evidencePath: `assertions[].evidence.${checkpointField}[].durationMs`,
-        });
+        };
+        for (const field of ['budgetMs', 'limitMs', 'withinBudget']) {
+          if (Object.hasOwn(checkpoint, field)) normalized[field] = checkpoint[field];
+        }
+        checkpoints.push({ ...normalized, evidencePath: `${listPath}[].durationMs` });
       }
       continue;
     }
     if (Array.isArray(evidence?.actions)) {
-      for (const action of evidence.actions) {
-        if (!finiteDuration(action?.durationMs)) continue;
-        checkpoints.push({
+      for (const [index, action] of evidence.actions.entries()) {
+        const actionPath = `assertions[].evidence.actions[${index}]`;
+        const issueCount = issues.length;
+        if (!action || typeof action !== 'object' || Array.isArray(action)) {
+          issues.push({ checkName, evidencePath: actionPath, reason: 'Action timing entry must be an object.' });
+          continue;
+        }
+        if (!finiteDuration(action.durationMs)) {
+          issues.push({ checkName, evidencePath: `${actionPath}.durationMs`, reason: 'Duration must be a finite non-negative number.' });
+        }
+        appendTimingMetadataIssues(action, actionPath, checkName);
+        if (issues.length > issueCount) continue;
+        const normalized = {
           checkName: assertion.name,
           name: typeof action.name === 'string' ? action.name : null,
           durationMs: action.durationMs,
-          evidencePath: 'assertions[].evidence.actions[].durationMs',
-        });
+        };
+        for (const field of ['budgetMs', 'limitMs', 'withinBudget']) {
+          if (Object.hasOwn(action, field)) normalized[field] = action[field];
+        }
+        checkpoints.push({ ...normalized, evidencePath: 'assertions[].evidence.actions[].durationMs' });
       }
       continue;
     }
-    const elapsedMs = evidence?.elapsedMs ?? evidence?.durationMs;
-    if (finiteDuration(elapsedMs)) {
-      checkpoints.push({
+    const durationField = evidence && typeof evidence === 'object'
+      ? evidence.elapsedMs !== undefined && evidence.elapsedMs !== null ? 'elapsedMs'
+        : evidence.durationMs !== undefined && evidence.durationMs !== null ? 'durationMs'
+          : Object.hasOwn(evidence, 'elapsedMs') ? 'elapsedMs'
+            : Object.hasOwn(evidence, 'durationMs') ? 'durationMs' : null
+      : null;
+    if (durationField !== null) {
+      const issueCount = issues.length;
+      const elapsedMs = evidence[durationField];
+      if (!finiteDuration(elapsedMs)) {
+        issues.push({
+          checkName,
+          evidencePath: `assertions[].evidence.${durationField}`,
+          reason: 'Duration must be a finite non-negative number.',
+        });
+      }
+      appendTimingMetadataIssues(evidence, 'assertions[].evidence', checkName);
+      if (issues.length > issueCount) continue;
+      const normalized = {
         checkName: assertion.name,
         name: assertion.name,
         durationMs: elapsedMs,
-        evidencePath: Number.isFinite(evidence.elapsedMs)
-          ? 'assertions[].evidence.elapsedMs'
-          : 'assertions[].evidence.durationMs',
+      };
+      for (const field of ['budgetMs', 'limitMs', 'withinBudget']) {
+        if (Object.hasOwn(evidence, field)) normalized[field] = evidence[field];
+      }
+      checkpoints.push({
+        ...normalized,
+        evidencePath: `assertions[].evidence.${durationField}`,
       });
       continue;
     }
   }
   return {
+    status: issues.length ? 'malformed' : checkpoints.length ? 'present' : 'absent',
     count: checkpoints.length,
     maximumDurationMs: checkpoints.length ? Math.max(...checkpoints.map((checkpoint) => checkpoint.durationMs)) : null,
     checkpoints,
+    issues,
   };
 };
 
@@ -137,18 +202,41 @@ const assertionStatus = (report, checkName) => {
 export const summarizeLifecycleEvidence = (report, contract) => {
   const declaration = contract?.lifecycleEvidence;
   const assertions = Array.isArray(report?.assertions) ? report.assertions : [];
-  const declaredPerformanceChecks = declaration?.performance?.check
-    ? [declaration.performance.check]
-    : [];
   const requiredChecks = contract?.requiredChecks ?? [];
+  const declaredPerformanceChecks = new Set();
+  if (declaration?.performance?.check) declaredPerformanceChecks.add(declaration.performance.check);
+  if (typeof contract?.performanceCheckName === 'string') declaredPerformanceChecks.add(contract.performanceCheckName);
+  for (const assertion of assertions) {
+    if (requiredChecks.includes(assertion?.name) && assertion?.dimension === 'performance') {
+      declaredPerformanceChecks.add(assertion.name);
+    }
+  }
   const renderCheckpoints = summarizeRenderCheckpoints(report, {
-    performanceCheckNames: declaredPerformanceChecks,
+    performanceCheckNames: [...declaredPerformanceChecks],
     requiredCheckNames: requiredChecks,
   });
+  const malformedPerformanceIssues = renderCheckpoints.issues.filter((issue) => declaredPerformanceChecks.has(issue.checkName));
+  const overBudgetCheckpoints = renderCheckpoints.checkpoints.filter((checkpoint) =>
+    declaredPerformanceChecks.has(checkpoint.checkName)
+      && (checkpoint.withinBudget === false
+        || ['budgetMs', 'limitMs'].some((field) => Number.isFinite(checkpoint[field])
+          && checkpoint.durationMs > checkpoint[field])));
   const dimensionEvidence = {};
 
   if (declaration === undefined) {
-    return { status: 'not-required', dimensions: {}, dimensionEvidence, renderCheckpoints };
+    if (overBudgetCheckpoints.length > 0) {
+      dimensionEvidence.performance = { status: 'failed', overBudgetCheckpoints };
+    } else if (malformedPerformanceIssues.length > 0) {
+      dimensionEvidence.performance = { status: 'unverified', checkpointIssues: malformedPerformanceIssues };
+    }
+    return {
+      status: overBudgetCheckpoints.length > 0 ? 'failed'
+        : malformedPerformanceIssues.length > 0 ? 'unverified' : 'not-required',
+      dimensions: overBudgetCheckpoints.length > 0 ? { performance: 'failed' }
+        : malformedPerformanceIssues.length > 0 ? { performance: 'unverified' } : {},
+      dimensionEvidence,
+      renderCheckpoints,
+    };
   }
 
   const contractIssues = lifecycleEvidenceContractIssues(contract);
@@ -193,9 +281,11 @@ export const summarizeLifecycleEvidence = (report, contract) => {
         && evidence.actionCount > 0
         && finiteDuration(evidence.maxActionMs);
       const overBudget = finiteDuration(evidence?.maxActionMs) && evidence.maxActionMs > budgetMs
-        || renderCheckpoints.checkpoints.some((checkpoint) => checkpoint.durationMs > budgetMs);
+        || renderCheckpoints.checkpoints.some((checkpoint) => checkpoint.durationMs > budgetMs)
+        || overBudgetCheckpoints.some((checkpoint) => checkpoint.checkName === checkName);
       const complete = status === 'passed'
         && renderCheckpoints.count > 0
+        && renderCheckpoints.issues.length === 0
         && checkpointCountMatches
         && actionEvidenceValid
         && evidence.maxActionMs <= budgetMs
@@ -211,8 +301,22 @@ export const summarizeLifecycleEvidence = (report, contract) => {
         actionCount: Number.isSafeInteger(evidence?.actionCount) ? evidence.actionCount : null,
         maximumActionDurationMs: finiteDuration(evidence?.maxActionMs) ? evidence.maxActionMs : null,
         evidencePaths: [...new Set(renderCheckpoints.checkpoints.map((checkpoint) => checkpoint.evidencePath))],
+        checkpointIssues: renderCheckpoints.issues,
       };
     }
+  }
+  if (overBudgetCheckpoints.length > 0 && dimensionEvidence.performance?.status !== 'failed') {
+    dimensionEvidence.performance = {
+      ...dimensionEvidence.performance,
+      status: 'failed',
+      overBudgetCheckpoints,
+    };
+  } else if (malformedPerformanceIssues.length > 0 && dimensionEvidence.performance?.status !== 'failed') {
+    dimensionEvidence.performance = {
+      ...dimensionEvidence.performance,
+      status: 'unverified',
+      checkpointIssues: malformedPerformanceIssues,
+    };
   }
 
   const statuses = Object.values(dimensionEvidence).map((evidence) => evidence.status);

@@ -299,26 +299,26 @@ export const registry = Object.freeze([
       { feature: 'starting-record selection', status: 'untested', reason: 'No registered authoring case attaches or resolves a saved starting selection.' },
       { feature: 'named cohort selection', status: 'implemented', reason: 'Registered cohort-recode basic lifecycle passes with two independently known Patient refs; real CDA membership variants have separate cases.' },
       { feature: 'transformed named-cohort member values and ALL/ONE policy', status: 'implemented', reason: 'Registered cohort-recode passes exact ALL/ONE recode, reload and removal/restoration on the basic fixture; CDA follow-up remains separate.' },
-      { feature: 'authored list EXPAND from a named-cohort ALL member field', acceptance: {"intent":"row-lifecycle"}, status: 'untested', reason: 'Historical exact basic-fixture lifecycle passed 18/18 checks with 20 actions (max 2,000 ms), preserving the two Patient IDs through Apply/edit/removal/reload (docs/BUILDER_VERIFICATION.tsv, “Expand list values”; /tmp/loom-authored-expand-header-case/report.json.cohort-expand). The retained fingerprint is aggregate-only (5b4791ae…; 1,125 files), so current-source freshness is unknown. This is the same user behavior despite the historical scenario label; CDA and nested coding remain separate.' },
-      { feature: 'raw ONE disagreement rejection for two Patient IDs', acceptance: {"intent":"row-lifecycle"}, status: 'untested', reason: 'The basic transformed cycle restores raw ALL and stops before attempting the expected raw ONE rejection; the CDA transformed-category driver covers that refusal.' },
+      { feature: 'authored list EXPAND from a named-cohort ALL member field', acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', case: 'cohort-expand', checks: { choice: 5, proposal: 6, cancel: 8, apply: 10, savedRows: 10, reload: 11, edit: 13, restoration: 17 } }, status: 'untested', reason: 'Historical exact basic-fixture lifecycle passed 18/18 checks with 20 actions (max 2,000 ms), preserving the two Patient IDs through Apply/edit/removal/reload (docs/BUILDER_VERIFICATION.tsv, “Expand list values”; /tmp/loom-authored-expand-header-case/report.json.cohort-expand). The retained fingerprint is aggregate-only (5b4791ae…; 1,125 files), so current-source freshness is unknown. This is the same user behavior despite the historical scenario label; CDA and nested coding remain separate.' },
+      { feature: 'raw ONE disagreement rejection for two Patient IDs', acceptance: { intent: 'row-lifecycle', kind: 'unmapped', unmappedReason: 'No registered case proves raw ONE rejection for two Patient IDs; the adjacent transformed-category refusal uses Specimen IDs and is unregistered.' }, status: 'untested', reason: 'No registered case proves the exact two-Patient-ID ONE disagreement. The adjacent transformed-category refusal uses Specimen identities and its scenario/case is not registered.' },
       { feature: 'selected-resource population coverage check', status: 'untested', reason: 'No registered case attaches a saved selection and published receipt, then activates the coverage check.' },
-      { feature: 'grouping rows', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
+      { feature: 'grouping rows', acceptance: { intent: 'row-lifecycle', kind: 'probe', scenario: 'standalone-reshape-group-one-conflict', case: 'group-one-conflict' }, status: 'untested', reason: 'Narrow probe: group-one-conflict groups two Specimen rows sharing one Patient and verifies the resulting Group row through Apply and reload. Multiple output groups and other key shapes remain unproven.' },
       { feature: 'direct empty-key COUNT_ROWS GROUP automatic entry Preview', acceptance: {"intent":"row-lifecycle","kind":"probe","case":"group-entry"}, status: 'implemented', reason: 'The registered group-entry case opens standard Group directly on a fresh two-Patient table and checks the native proposal request plus its automatic one-row count Preview before any field edit; saved Group edit/removal and keyed grouping remain outside this case.' },
       { feature: 'legacy semantics v9 digest and row-action lifecycle', acceptance: {"intent":"row-lifecycle","kind":"probe","case":"legacy-v9-rows"}, status: 'implemented', reason: 'Epoch37 passed all 12 required checks on the basic Patient fixture: exact saved v9 digest/reload, actionable Related/List open and Cancel, and Group Preview/Cancel/Apply/reload with COUNT_ROWS 2. Related/List Apply, Group edit/removal/restoration, and real CDA follow-up remain unverified.' },
-      { feature: 'related-record rows', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
-      { feature: 'direct related Observation.status chooser ONE→ALL repair', acceptance: {"intent":"row-lifecycle"}, status: 'untested', reason: 'The standalone related-field verifier defines the direct chooser repair requirement, but native status-mode evidence has not been registered as a passing case; keep this transition unverified until a bounded native run passes.' },
-      { feature: 'repeated-value rows', acceptance: {"intent":"row-lifecycle"}, status: 'untested', reason: 'The registered repeated-empty case covers only Observation.component literal-empty and missing policies; other repeated fields and source shapes remain untested.' },
+      { feature: 'related-record rows', acceptance: { intent: 'row-lifecycle', kind: 'probe', scenario: 'standalone-reshape-related-unpivot', case: 'related-unpivot' }, status: 'untested', reason: 'Narrow probe: related-unpivot verifies exact Specimen→Patient→Observation rows on one bounded route and preserves their related bindings through Unpivot and restoration. Other routes and authorization scopes remain separate.' },
+      { feature: 'direct related Observation.status chooser ONE→ALL repair', acceptance: { intent: 'row-lifecycle', kind: 'unmapped', unmappedReason: 'No registered case exercises the multiple-status Observation.status ONE 422 to same-chooser ALL repair; the registered ONE/ALL case uses Observation.specimen.reference.' }, status: 'untested', reason: 'The status-mode workflow exists but no registered case asserts its multiple-status ONE 422 and same-chooser ALL repair. The registered ONE/ALL case covers Observation.specimen.reference.' },
+      { feature: 'repeated-value rows', acceptance: { intent: 'row-lifecycle', kind: 'unmapped', unmappedReason: 'The component-array native test has no registered scenario, case, or named checks; repeated-empty covers only its narrower policy case.' }, status: 'untested', reason: 'The component-array native Playwright case exists but is not bracket-registered with required checks. The registered repeated-empty case covers only literal-empty and missing-list policies.' },
       { feature: 'Observation.component literal-empty and missing-list policies with saved Expand lifecycle', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"repeated-empty","checks":{"choice":4,"proposal":5,"cancel":17,"apply":38,"savedRows":20,"reload":21,"edit":48,"restoration":26}}, status: 'implemented', reason: 'The registered case checks exact ID/item pairs for PRESERVE_PARENT and EXCLUDE, Cancel retention of the saved policy/step identity, reloads both policies, and removes Expand.' },
       { feature: 'ordinary Pivot', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","scenario":"root-quantity-pivot","case":"fixture-lifecycle","checks":{"choice":1,"proposal":2,"cancel":3,"apply":4,"savedRows":5,"reload":5,"edit":5,"restoration":6}}, status: 'implemented', reason: 'The registered quantity Pivot cases verify typed category discovery and native fixture lifecycle; full CDA lifecycle remains separately gated on its own full-population run.' },
-      { feature: 'coded Pivot', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
+      { feature: 'coded Pivot', acceptance: { intent: 'row-lifecycle', kind: 'unmapped', unmappedReason: 'Standalone integer and string coded-Pivot workflows are not bracket-registered; the registered coded GROUP case is a different operation.' }, status: 'untested', reason: 'Standalone integer and string coded-Pivot Playwright cases have no bracket registry contract. Composite coded GROUP is a different lifecycle and does not prove standalone coded Pivot.' },
       { feature: 'Unpivot', acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', scenario: 'standalone-reshape-related-unpivot', case: 'related-unpivot', checks: { choice: 3, proposal: 4, cancel: 5, apply: 6, savedRows: 7, reload: 8, edit: 9, restoration: 12 } }, status: 'implemented', reason: 'Epoch130 passed 17/17 native lifecycle checks and 62 native actions (max control time 202ms), with CLOSED_PASS source/API identity closure. Historical source fingerprint dfa2bce29c6c102f79bec2dc56eea6b19c484ebf2f19fb4f6335178e37f06800 (1,554 files); API build identity 98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135. Report SHA-256 471d16ed7c79485483b515b1db6abf6d51152112fa2306fc45d48783e1983706; closure SHA-256 a53aad9e11a0b55aa986b3b9ee713ba6eea028b16dd942d65fe24b4ddbb58a71. Epoch131 passed the current-source full native lifecycle: 17/17 registered checks and all four dimensions, 62 actions (max 206 ms), 31 domain workflow checkpoints (max 1,624 ms), and 74.151 seconds for the complete bracket. Source commit 306d1807f9ce2fcb90d99905ca3e612c6a4bf4ae; fingerprint 442ce31c103cb6ee358e86ee6934b734572433e796475a2601eb99c032a36aff (1,642 files); API identity 786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:ce684c31db8b835d3cbc164086e1e5184df7e3affff5ffa4493c07ea01125ec5 unchanged. Summary /private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-standalone-reshape-related-unpivot-related-unpivot-Gjgq37/summary.json (SHA-256 1d0706f153d59063788927c7cad068c5908bf3f6af8008fa5ef6ace36f835f17); raw domain report /private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-standalone-reshape-related-unpivot-related-unpivot-Gjgq37/playwright-results/standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/attachments/cda-domain-report-json-f9b5f37d0c8e2ef645d2ef1f3e162d64e155b316.json (SHA-256 e7bed095a4c916301309694e699e629735867e57a7063a2b760faf183cb72c95). Restricted-authorization boundaries and other relationship routes/transitions remain separate.' },
       { feature: 'Filter rows', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","scenario":"cda-filter-browser","case":"filter-lifecycle","checks":{"choice":0,"proposal":1,"cancel":2,"apply":3,"savedRows":4,"reload":5,"edit":6,"restoration":7}}, status: 'implemented', reason: 'Current native source-table Filter lifecycle passed 9/9 registered checks across usability, correctness, persistence, and performance. The independent scoped source oracle matched rendered and saved rows; native choice, proposal, Cancel, Apply, edit, removal, reload, and restoration passed. Strict request census found 52/52 owned API requests terminal with HTTP 200, no pending requests, and no report errors. Nineteen native actions completed with a maximum of 200 ms; all 14 action-to-render checkpoints passed the 5000 ms budget with a maximum of 1889 ms. Integrity closure passed with source fingerprint 567e1ee9e5ed2c308f21920389b03dfef9de265671503a39cb02524db4d1dbb5 across 1654 files, unchanged API build identity, docs, mounts, and pre/post health. Summary: /private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-filter-browser-filter-lifecycle-NPGybJ/summary.json; domain report: /private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-filter-browser-filter-lifecycle-NPGybJ/playwright-results/standalone-cda-other-CDA-f-1afeb-d-remove-a-typed-CDA-filter/attachments/cda-domain-report-json-40ff8dfed0f1c45ad25c2ccb9954286069a5d9bc.json. Target validation was configuration-only and did not check runtime dataset identity. Restricted authorization and other source/value shapes remain separate.' },
-      { feature: 'direct columns', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
-      { feature: 'coded columns', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
-      { feature: 'related columns', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
-      { feature: 'ONE/ALL contributing values', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
-      { feature: 'contributor rules', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
-      { feature: 'missing-match policies', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
+      { feature: 'direct columns', acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', scenario: 'standalone-reshape-group-add-fields', case: 'group-add-fields', checks: { choice: 5, proposal: 5, cancel: 6, apply: 7, savedRows: 7, reload: 8, edit: 9, restoration: 10 } }, status: 'untested', reason: 'Narrow lifecycle mapping: direct Specimen.resourceType on the grouped CDA row. Other field families and starting outputs remain unverified; this feature row stays untested.' },
+      { feature: 'coded columns', acceptance: { intent: 'row-lifecycle', kind: 'unmapped', unmappedReason: 'No registered case saves a coded source column; existing coded suggestion tests are unregistered and the coded GROUP case keeps source columns unchanged.' }, status: 'untested', reason: 'No registered lifecycle saves a coded source column. Coded suggestion tests are unregistered, and coded GROUP intentionally does not add a saved source column.' },
+      { feature: 'related columns', acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', scenario: 'standalone-reshape-related-source-after-pivot', case: 'related-source-after-pivot', checks: { choice: 9, proposal: 12, cancel: 11, apply: 13, savedRows: 13, reload: 13, edit: 18, restoration: 22 } }, status: 'untested', reason: 'Narrow lifecycle mapping: post-Pivot Patient.id ALL through Observation.subject to Patient. Other related routes, fields, and source operations remain unverified; this row stays untested.' },
+      { feature: 'ONE/ALL contributing values', acceptance: { intent: 'row-lifecycle', kind: 'probe', scenario: 'cda-related-one-all-specimen-reference', case: 'cda-specimen-reference-raw-oracle-one-all-lifecycle' }, status: 'untested', reason: 'Narrow probe: the registered case asserts exact ONE/ALL raw values and row identities for Observation.specimen.reference. Other related fields and routes remain separate.' },
+      { feature: 'contributor rules', acceptance: { intent: 'row-lifecycle', kind: 'unmapped', unmappedReason: 'The exact EQUALS contributor-rules workflow is not registered; the existing registered EXISTS policy case proves a different condition.' }, status: 'untested', reason: 'No registered case proves the direct EQUALS contributor-rule workflow. The registered contributor-exists case uses EXISTS and does not establish EQUALS behavior.' },
+      { feature: 'missing-match policies', acceptance: { intent: 'row-lifecycle', kind: 'probe', scenario: 'cda-contributor-exists', case: 'contributor-exists' }, status: 'untested', reason: 'Narrow probe: contributor-exists asserts ERROR repair choices and PRESERVE_PARENT/EXCLUDE saved policy behavior for the Observation.id EXISTS rule. Other contributor operators remain separate.' },
       { feature: 'coverage inspection', status: 'untested' },
       { feature: 'column renaming', status: 'untested' },
       { feature: 'column chart configuration', status: 'untested' },
@@ -3948,22 +3948,37 @@ export const lifecycleAcceptanceDrift = (entries = registry) => entries.flatMap(
     if (!requiresLifecycleAcceptance(coverage)) return [];
     const acceptance = coverage.acceptance;
     const label = `${entry.id}: ${coverage.feature}`;
-    if (!['probe', 'lifecycle'].includes(acceptance.kind)) {
-      return coverage.status === 'implemented'
-        ? [`${label}: implemented row coverage must be classified as a probe or lifecycle`]
-        : [];
+    if (acceptance.kind === 'unmapped') {
+      const unexpectedFields = Object.keys(acceptance).filter((key) =>
+        !['intent', 'kind', 'unmappedReason'].includes(key));
+      if (coverage.status !== 'untested') return [`${label}: explicitly unmapped row-lifecycle coverage must remain untested`];
+      if (typeof acceptance.unmappedReason !== 'string' || acceptance.unmappedReason.trim() === '') {
+        return [`${label}: explicitly unmapped row-lifecycle coverage needs a nonempty unmappedReason`];
+      }
+      if (unexpectedFields.length) {
+        return [`${label}: unmapped row-lifecycle acceptance cannot include scenario, case, or phase mappings: ${unexpectedFields.join(', ')}`];
+      }
+      return [];
     }
+    const kindError = !['probe', 'lifecycle'].includes(acceptance.kind)
+      ? [coverage.status === 'implemented'
+        ? `${label}: implemented row coverage must be classified as a probe or lifecycle`
+        : `${label}: row-lifecycle coverage must be classified as a probe, lifecycle, or explicitly unmapped`]
+      : [];
     const contractScenario = acceptance.scenario
       ? entries.find((scenario) => scenario.id === acceptance.scenario) ?? registry.find((scenario) => scenario.id === acceptance.scenario)
       : entry;
-    if (!contractScenario) return [`${label}: acceptance references an unregistered scenario`];
-    if (typeof acceptance.case !== 'string' || !contractScenario.cases[acceptance.case]) {
-      return [`${label}: acceptance references an unregistered case`];
+    if (!contractScenario) return [...kindError, `${label}: acceptance.scenario must reference a registered scenario`];
+    if (typeof acceptance.case !== 'string' || !contractScenario.cases?.[acceptance.case]) {
+      return [...kindError, `${label}: acceptance.case must name a registered native case for scenario ${contractScenario.id}`];
     }
-    if (acceptance.kind === 'probe') return [];
     let contract;
     try { contract = scenarioCaseFor(contractScenario, acceptance.case); }
-    catch (error) { return [`${label}: ${error.message}`]; }
+    catch (error) {
+      return [...kindError, `${label}: acceptance.case must resolve to a runnable native case for scenario ${contractScenario.id} (${error.message})`];
+    }
+    if (kindError.length) return kindError;
+    if (acceptance.kind === 'probe') return [];
     const checks = acceptance.checks ?? {};
     const contractGaps = acceptance.contractGaps ?? {};
     const notApplicable = acceptance.notApplicable ?? {};
@@ -4033,3 +4048,10 @@ export const coverageDrift = (entries = registry) => [
   ]),
   ...lifecycleAcceptanceDrift(entries),
 ];
+
+export const unmappedLifecycleCoverage = (entries = registry) => {
+  const rows = entries.flatMap((entry) => entry.coverage
+    .filter((coverage) => requiresLifecycleAcceptance(coverage) && coverage.acceptance?.kind === 'unmapped')
+    .map((coverage) => ({ scenario: entry.id, feature: coverage.feature, reason: coverage.acceptance.unmappedReason })));
+  return { count: rows.length, rows };
+};

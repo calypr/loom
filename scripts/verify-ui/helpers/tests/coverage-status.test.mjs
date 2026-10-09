@@ -4,8 +4,8 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, sep } from 'node:path';
-import { classifyEvidence, classifyFreshness, lifecycleEvidenceContractIssues, readReports, summarizeCoverage } from '../coverage-status.mjs';
-import { caseNamesFor, coverageDrift, hasLifecycleContract, registry, requiresLifecycleAcceptance, scenarioCaseFor } from '../../registry.mjs';
+import { classifyEvidence, classifyFreshness, lifecycleEvidenceContractIssues, readReports, summarizeCoverage, summarizeRenderCheckpoints } from '../coverage-status.mjs';
+import { caseNamesFor, coverageDrift, hasLifecycleContract, registry, requiresLifecycleAcceptance, scenarioCaseFor, unmappedLifecycleCoverage } from '../../registry.mjs';
 import { buildArangoShellInvocation } from '../owned-arangosh-command.mjs';
 import { finalOutputSchema, sourceColumnSchema } from '../unpivot-schema.mjs';
 
@@ -44,6 +44,186 @@ const postPivotCountReport = () => {
     assertions,
   };
 };
+
+test('render checkpoint summary preserves explicit budgets and outcomes across named transition lists', () => {
+  const checks = [
+    'both Patient collection replacement click-to-grid transitions complete within five seconds',
+    'All native action and action-to-render checkpoints complete within five seconds',
+    'all native action-to-render checkpoints complete within five seconds',
+    'approved full-population Pivot action-to-render checkpoint',
+  ];
+  const summary = summarizeRenderCheckpoints({ assertions: [
+    {
+      name: checks[0],
+      dimension: 'performance',
+      evidence: { checkpoints: [
+        { name: 'one-member Patient attachment Replace click through exact APPEND grid', durationMs: 1219.387416999998, budgetMs: 5000, withinBudget: true },
+        { name: 'restored two-member Patient attachment Replace click through exact APPEND grid', durationMs: 1213.6332089999996, budgetMs: 5000, withinBudget: true },
+      ] },
+    },
+    {
+      name: checks[1],
+      dimension: 'performance',
+      evidence: { workflowCheckpoints: [
+        { name: 'related-chain-unpivot-preview', durationMs: 939 },
+        { name: 'Cancel Unpivot removal to exact saved rows', durationMs: 1624, limitMs: 5000, withinBudget: true },
+      ] },
+    },
+    {
+      name: checks[2],
+      dimension: 'performance',
+      evidence: { timingCheckpoints: [
+        { name: 'reload-preserve-parent', durationMs: 1294 },
+        { name: 'empty-only-error-repair-cancel', durationMs: 1631 },
+      ] },
+    },
+    {
+      name: checks[3],
+      dimension: 'performance',
+      evidence: { checkpoints: [
+        { name: 'full-population-pivot-discovery-to-render', durationMs: 9500, budgetMs: 10_000, withinBudget: true },
+      ] },
+    },
+  ] }, { requiredCheckNames: checks });
+
+  assert.equal(summary.status, 'present');
+  assert.equal(summary.count, 7);
+  assert.equal(summary.maximumDurationMs, 9500);
+  assert.deepEqual(summary.checkpoints.map(({ name, durationMs, budgetMs, limitMs, withinBudget, evidencePath }) => [
+    name, durationMs, budgetMs, limitMs, withinBudget, evidencePath,
+  ]), [
+    ['one-member Patient attachment Replace click through exact APPEND grid', 1219.387416999998, 5000, undefined, true, 'assertions[].evidence.checkpoints[].durationMs'],
+    ['restored two-member Patient attachment Replace click through exact APPEND grid', 1213.6332089999996, 5000, undefined, true, 'assertions[].evidence.checkpoints[].durationMs'],
+    ['related-chain-unpivot-preview', 939, undefined, undefined, undefined, 'assertions[].evidence.workflowCheckpoints[].durationMs'],
+    ['Cancel Unpivot removal to exact saved rows', 1624, undefined, 5000, true, 'assertions[].evidence.workflowCheckpoints[].durationMs'],
+    ['reload-preserve-parent', 1294, undefined, undefined, undefined, 'assertions[].evidence.timingCheckpoints[].durationMs'],
+    ['empty-only-error-repair-cancel', 1631, undefined, undefined, undefined, 'assertions[].evidence.timingCheckpoints[].durationMs'],
+    ['full-population-pivot-discovery-to-render', 9500, 10_000, undefined, true, 'assertions[].evidence.checkpoints[].durationMs'],
+  ]);
+  assert.equal(Object.hasOwn(summary.checkpoints[2], 'budgetMs'), false,
+    'The summary does not infer a five-second budget from the registered check name.');
+});
+
+test('declared malformed checkpoint lists report issues and differ from absent timing evidence', () => {
+  const checkName = 'declared action-to-render checkpoint list';
+  const summary = summarizeRenderCheckpoints({ assertions: [
+    {
+      name: checkName,
+      dimension: 'performance',
+      evidence: { checkpoints: [
+        { name: 'valid checkpoint', durationMs: 100, budgetMs: 500, withinBudget: true },
+        { name: 'nonfinite duration', durationMs: Number.NaN, budgetMs: 500, withinBudget: false },
+        { name: 'negative duration', durationMs: -1, budgetMs: 500, withinBudget: false },
+        { name: 'nonfinite budget', durationMs: 100, budgetMs: Number.POSITIVE_INFINITY, withinBudget: true },
+        { name: 'negative source budget', durationMs: 100, limitMs: -1, withinBudget: true },
+        { name: 'invalid recorded outcome', durationMs: 100, budgetMs: 500, withinBudget: 'yes' },
+      ] },
+    },
+    { name: checkName, dimension: 'performance', evidence: { timingCheckpoints: [] } },
+  ] }, { requiredCheckNames: [checkName] });
+
+  assert.equal(summary.status, 'malformed');
+  assert.equal(summary.count, 1);
+  assert.equal(summary.maximumDurationMs, 100);
+  assert.deepEqual(summary.issues.map(({ evidencePath, reason }) => [evidencePath, reason]), [
+    ['assertions[].evidence.checkpoints[1].durationMs', 'Duration must be a finite non-negative number.'],
+    ['assertions[].evidence.checkpoints[2].durationMs', 'Duration must be a finite non-negative number.'],
+    ['assertions[].evidence.checkpoints[3].budgetMs', 'budgetMs must be a finite positive number.'],
+    ['assertions[].evidence.checkpoints[4].limitMs', 'limitMs must be a finite positive number.'],
+    ['assertions[].evidence.checkpoints[5].withinBudget', 'withinBudget must be a boolean.'],
+    ['assertions[].evidence.timingCheckpoints', 'Expected a non-empty checkpoint list.'],
+  ]);
+
+  const absent = summarizeRenderCheckpoints({ assertions: [{ name: checkName, dimension: 'performance', evidence: {} }] }, {
+    requiredCheckNames: [checkName],
+  });
+  assert.equal(absent.status, 'absent');
+  assert.equal(absent.count, 0);
+  assert.deepEqual(absent.issues, []);
+});
+
+test('action and scalar timing evidence validate and preserve explicit metadata', () => {
+  const checkName = 'declared native timing evidence';
+  const summary = summarizeRenderCheckpoints({ assertions: [
+    {
+      name: checkName,
+      dimension: 'performance',
+      evidence: { actions: [
+        { name: 'valid action', durationMs: 25, budgetMs: 5000, withinBudget: true },
+        { name: 'invalid action outcome', durationMs: 20, budgetMs: 5000, withinBudget: 'yes' },
+        { name: 'invalid action budget', durationMs: 10, limitMs: 0, withinBudget: false },
+        { name: 'negative action duration', durationMs: -1, budgetMs: 5000, withinBudget: false },
+        { name: 'nonfinite action budget', durationMs: 8, budgetMs: Number.NaN, withinBudget: true },
+      ] },
+    },
+    {
+      name: checkName,
+      dimension: 'performance',
+      evidence: { elapsedMs: 12, limitMs: 5000, withinBudget: false },
+    },
+    {
+      name: checkName,
+      dimension: 'performance',
+      evidence: { durationMs: 100, budgetMs: Number.NaN, withinBudget: true },
+    },
+    {
+      name: checkName,
+      dimension: 'performance',
+      evidence: { elapsedMs: Number.POSITIVE_INFINITY, budgetMs: 5000, withinBudget: false },
+    },
+    {
+      name: checkName,
+      dimension: 'performance',
+      evidence: { elapsedMs: 14, limitMs: -1, withinBudget: 'no' },
+    },
+  ] }, { requiredCheckNames: [checkName] });
+
+  assert.equal(summary.status, 'malformed');
+  assert.equal(summary.count, 2);
+  assert.equal(summary.maximumDurationMs, 25);
+  assert.deepEqual(summary.checkpoints.map(({ name, durationMs, budgetMs, limitMs, withinBudget, evidencePath }) => [
+    name, durationMs, budgetMs, limitMs, withinBudget, evidencePath,
+  ]), [
+    ['valid action', 25, 5000, undefined, true, 'assertions[].evidence.actions[].durationMs'],
+    [checkName, 12, undefined, 5000, false, 'assertions[].evidence.elapsedMs'],
+  ]);
+  assert.deepEqual(summary.issues.map(({ evidencePath, reason }) => [evidencePath, reason]), [
+    ['assertions[].evidence.actions[1].withinBudget', 'withinBudget must be a boolean.'],
+    ['assertions[].evidence.actions[2].limitMs', 'limitMs must be a finite positive number.'],
+    ['assertions[].evidence.actions[3].durationMs', 'Duration must be a finite non-negative number.'],
+    ['assertions[].evidence.actions[4].budgetMs', 'budgetMs must be a finite positive number.'],
+    ['assertions[].evidence.budgetMs', 'budgetMs must be a finite positive number.'],
+    ['assertions[].evidence.elapsedMs', 'Duration must be a finite non-negative number.'],
+    ['assertions[].evidence.limitMs', 'limitMs must be a finite positive number.'],
+    ['assertions[].evidence.withinBudget', 'withinBudget must be a boolean.'],
+  ]);
+});
+
+test('generic checkpoints require declared performance evidence while legacy fields retain compatibility', () => {
+  const checkName = 'required correctness assertion';
+  const genericReport = { assertions: [{
+    name: checkName,
+    dimension: 'correctness',
+    evidence: { checkpoints: [{ name: 'generic checkpoint', durationMs: 12 }] },
+  }] };
+  const genericUnclassified = summarizeRenderCheckpoints(genericReport, { requiredCheckNames: [checkName] });
+  assert.equal(genericUnclassified.status, 'absent');
+  assert.equal(genericUnclassified.count, 0);
+  assert.deepEqual(genericUnclassified.issues, []);
+
+  const genericDeclared = summarizeRenderCheckpoints(genericReport, {
+    performanceCheckNames: [checkName],
+    requiredCheckNames: [checkName],
+  });
+  assert.deepEqual(genericDeclared.checkpoints.map(({ name, durationMs }) => [name, durationMs]), [['generic checkpoint', 12]]);
+
+  const legacy = summarizeRenderCheckpoints({ assertions: [{
+    name: checkName,
+    dimension: 'correctness',
+    evidence: { workflowCheckpoints: [{ name: 'legacy checkpoint', durationMs: 13 }] },
+  }] }, { requiredCheckNames: [checkName] });
+  assert.deepEqual(legacy.checkpoints.map(({ name, durationMs }) => [name, durationMs]), [['legacy checkpoint', 13]]);
+});
 
 
 
@@ -272,6 +452,12 @@ test('row-operation coverage distinguishes lifecycle acceptance from a runnable 
     coverage: [{ feature: 'a feature label with no operation keyword', status: 'implemented', acceptance: { intent: 'row-lifecycle' } }],
   }]).filter((message) => message.includes('must be classified')).length, 1,
   'once a coverage row declares row-lifecycle intent, its implemented status requires probe or lifecycle classification');
+  assert.match(coverageDrift([{
+    id: 'unclassified-row',
+    cases: {},
+    coverage: [{ feature: 'a feature label with no operation keyword', status: 'implemented', acceptance: { intent: 'row-lifecycle' } }],
+  }]).join('\n'), /acceptance\.case must name a registered native case/,
+  'classification and native-case mapping are independent requirements');
 
   const duplicateCheckScenarios = ['row-alpha', 'row-beta'].map((id) => ({
     id,
@@ -400,7 +586,7 @@ test('row-operation gate rejects missing lifecycle links and invalid named-check
   const implemented = (acceptance) => ({
     feature: 'native GROUP row lifecycle', status: 'implemented', acceptance: { intent: 'row-lifecycle', ...acceptance },
   });
-  assert.match(coverageDrift([{ ...scenario, coverage: [implemented({ kind: undefined })] }]).join('\n'), /must be classified/);
+  assert.match(coverageDrift([{ ...scenario, coverage: [implemented({ kind: undefined, case: 'probe' })] }]).join('\n'), /must be classified/);
   assert.match(coverageDrift([{ ...scenario, coverage: [implemented({ kind: 'lifecycle', case: 'probe', checks: {
     choice: 0, proposal: 1, cancel: 2, apply: 3, savedRows: 4, reload: 99, edit: 6, restoration: 7,
   } })] }]).join('\n'), /reload/);
@@ -462,6 +648,125 @@ test('row-operation gate rejects missing lifecycle links and invalid named-check
   'a phase cannot be both not applicable and an uncovered registry contract gap');
 });
 
+test('explicitly unmapped row-lifecycle entries stay visible and never count as a lifecycle pass', () => {
+  const unmapped = {
+    id: 'row-test',
+    cases: {},
+    coverage: [{
+      feature: 'coded source column lifecycle',
+      status: 'untested',
+      acceptance: { intent: 'row-lifecycle', kind: 'unmapped', unmappedReason: 'No registered case saves this coded source column.' },
+    }],
+  };
+  const row = unmapped.coverage[0];
+  assert.deepEqual(coverageDrift([unmapped]), []);
+  assert.equal(row.status, 'untested');
+  assert.equal(hasLifecycleContract(row, unmapped, [unmapped]), false);
+  assert.deepEqual(unmappedLifecycleCoverage([unmapped]), {
+    count: 1,
+    rows: [{ scenario: 'row-test', feature: 'coded source column lifecycle', reason: 'No registered case saves this coded source column.' }],
+  });
+
+  for (const status of ['implemented', 'failed']) {
+    assert.match(coverageDrift([{ ...unmapped, coverage: [{ ...row, status }] }]).join('\n'), /must remain untested/);
+  }
+  assert.match(coverageDrift([{ ...unmapped, coverage: [{ ...row, acceptance: { intent: 'row-lifecycle', kind: 'unmapped', unmappedReason: '  ' } }] }]).join('\n'), /nonempty unmappedReason/);
+  assert.match(coverageDrift([{ ...unmapped, coverage: [{ ...row, acceptance: {
+    ...row.acceptance, scenario: 'row-test', case: 'missing', checks: { choice: 0 },
+  } }] }]).join('\n'), /cannot include scenario, case, or phase mappings/);
+});
+
+test('builder-authoring rows map only registered cases or remain explicit unresolved gaps', () => {
+  const owner = registry.find((entry) => entry.id === 'builder-authoring');
+  const expectedProbes = new Map([
+    ['grouping rows', ['standalone-reshape-group-one-conflict', 'group-one-conflict', /Group by Patient preview matches the exact independent raw rows/]],
+    ['related-record rows', ['standalone-reshape-related-unpivot', 'related-unpivot', /native Related choices preserve exact raw rows/]],
+    ['ONE/ALL contributing values', ['cda-related-one-all-specimen-reference', 'cda-specimen-reference-raw-oracle-one-all-lifecycle', /related ONE\/ALL lifecycle preserves exact raw-source values/]],
+    ['missing-match policies', ['cda-contributor-exists', 'contributor-exists', /Scoped ERROR validation exposes enabled PRESERVE_PARENT and EXCLUDE repair choices/]],
+  ]);
+  const expectedLifecycles = new Map([
+    ['authored list EXPAND from a named-cohort ALL member field', ['builder-authoring', 'cohort-expand']],
+    ['direct columns', ['standalone-reshape-group-add-fields', 'group-add-fields']],
+    ['related columns', ['standalone-reshape-related-source-after-pivot', 'related-source-after-pivot']],
+  ]);
+  for (const [feature, [scenarioId, caseName, checkPattern]] of expectedProbes) {
+    const row = owner.coverage.find((coverage) => coverage.feature === feature);
+    assert.equal(row.status, 'untested', `${feature} remains untested at the current evidence freshness`);
+    assert.equal(row.acceptance.kind, 'probe');
+    const scenario = registry.find((entry) => entry.id === scenarioId);
+    const contract = scenarioCaseFor(scenario, caseName);
+    assert.match(contract.requiredChecks.join('\n'), checkPattern, `${feature} points to a check that proves its narrow scope`);
+  }
+  for (const [feature, [scenarioId, caseName]] of expectedLifecycles) {
+    const row = owner.coverage.find((coverage) => coverage.feature === feature);
+    assert.equal(row.status, 'untested', `${feature} remains untested at the current evidence freshness`);
+    assert.equal(row.acceptance.kind, 'lifecycle');
+    assert.equal(row.acceptance.case, caseName);
+    if (scenarioId !== 'builder-authoring') assert.equal(row.acceptance.scenario, scenarioId);
+    const scenario = registry.find((entry) => entry.id === scenarioId);
+    assert.ok(hasLifecycleContract(row, owner, registry), `${feature} resolves to a complete named lifecycle contract`);
+    assert.ok(scenarioCaseFor(scenario, caseName).requiredChecks.length > 1);
+  }
+  const explicitGaps = unmappedLifecycleCoverage(registry);
+  assert.equal(explicitGaps.count, 6);
+  assert.deepEqual(new Set(explicitGaps.rows.map((row) => row.feature)), new Set([
+    'raw ONE disagreement rejection for two Patient IDs',
+    'direct related Observation.status chooser ONE→ALL repair',
+    'repeated-value rows',
+    'coded Pivot',
+    'coded columns',
+    'contributor rules',
+  ]));
+  for (const row of owner.coverage.filter((coverage) => coverage.acceptance?.kind === 'unmapped')) {
+    assert.equal(row.status, 'untested');
+    assert.equal(hasLifecycleContract(row, owner, registry), false);
+    assert.ok(row.acceptance.unmappedReason.trim());
+  }
+});
+
+test('untested row-lifecycle coverage still requires a registered acceptance scenario and case', () => {
+  const caseContract = {
+    playwrightTest: 'row-operation.spec.mjs',
+    requiredChecks: ['choice', 'proposal', 'Cancel', 'Apply', 'saved rows', 'reload', 'edit', 'restore'],
+  };
+  const missingCase = {
+    id: 'row-test',
+    cases: { complete: caseContract },
+    coverage: [{
+      feature: 'starting-collection member removal lifecycle',
+      status: 'untested',
+      acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', scenario: 'row-test' },
+    }],
+  };
+  assert.deepEqual(coverageDrift([missingCase]), [
+    'row-test: starting-collection member removal lifecycle: acceptance.case must name a registered native case for scenario row-test',
+  ]);
+
+  const unknownScenario = {
+    ...missingCase,
+    coverage: [{
+      ...missingCase.coverage[0],
+      acceptance: { intent: 'row-lifecycle', kind: 'probe', scenario: 'missing-scenario', case: 'complete' },
+    }],
+  };
+  assert.deepEqual(coverageDrift([unknownScenario]), [
+    'row-test: starting-collection member removal lifecycle: acceptance.scenario must reference a registered scenario',
+  ]);
+
+  const mappedUntested = {
+    ...missingCase,
+    coverage: [{
+      ...missingCase.coverage[0],
+      acceptance: {
+        intent: 'row-lifecycle', kind: 'lifecycle', case: 'complete',
+        checks: { choice: 0, proposal: 1, cancel: 2, apply: 3, savedRows: 4, reload: 5, edit: 6, restoration: 7 },
+      },
+    }],
+  };
+  assert.deepEqual(coverageDrift([mappedUntested]), [],
+    'a valid acceptance mapping does not change the row status from untested');
+});
+
 test('partial long-route collection repair owns one registered case while legacy variants stay unregistered', () => {
   const scenario = registry.find((entry) => entry.id === 'cda-collection-repair-partial');
   assert.ok(scenario, 'the exact partial long-route variant has a registry contract');
@@ -495,6 +800,106 @@ test('current reports use passing named requirements while keeping optional dime
     assertions: [{ name: 'required transition', status: 'passed' }],
     dimensions: { ...complete, persistence: { status: 'untested' } },
   }, ['required transition']), 'passed');
+});
+
+test('malformed required performance timing prevents a full classification without a lifecycle timing contract', () => {
+  const legacyPerformanceCheck = 'registered native render timing';
+  const legacyContract = {
+    requiredChecks: [legacyPerformanceCheck],
+    performanceCheckName: legacyPerformanceCheck,
+  };
+  const legacyReport = (evidence) => ({
+    schemaVersion: 2,
+    status: 'passed',
+    dimensions: complete,
+    assertions: [{ name: legacyPerformanceCheck, status: 'passed', evidence }],
+  });
+
+  assert.equal(classifyEvidence(legacyReport({ checkpoints: [
+    { name: 'one-member Patient attachment Replace click through exact APPEND grid', durationMs: 1219.387416999998, budgetMs: 5000, withinBudget: true },
+    { name: 'restored two-member Patient attachment Replace click through exact APPEND grid', durationMs: 1213.6332089999996, budgetMs: 5000, withinBudget: true },
+  ] }), legacyContract.requiredChecks, legacyContract), 'passed',
+  'a valid Patient-style generic checkpoint list remains accepted as a performance check');
+
+  const pivotPerformanceCheck = 'approved full-population Pivot action-to-render checkpoint';
+  const pivotContract = {
+    requiredChecks: [pivotPerformanceCheck],
+    lifecycleEvidence: { performance: { check: pivotPerformanceCheck, checkpointBudgetMs: 10_000 } },
+  };
+  assert.equal(classifyEvidence({
+    schemaVersion: 2,
+    status: 'passed',
+    dimensions: complete,
+    assertions: [{
+      name: pivotPerformanceCheck,
+      status: 'passed',
+      dimension: 'performance',
+      evidence: {
+        actionCount: 1,
+        measuredTransitionCount: 1,
+        maxActionMs: 500,
+        checkpoints: [{ name: 'full-population-pivot-discovery-to-render', durationMs: 9500, budgetMs: 10_000, withinBudget: true }],
+      },
+    }],
+  }, pivotContract.requiredChecks, pivotContract), 'passed',
+  'the approved 10-second Pivot checkpoint remains within its explicit and registered budget');
+
+  assert.equal(classifyEvidence(legacyReport({ checkpoints: [
+    { name: 'Patient render with malformed duration', durationMs: Number.NaN, budgetMs: 5000, withinBudget: true },
+  ] }), legacyContract.requiredChecks, legacyContract), 'partial',
+  'a malformed declared performance checkpoint is not promoted to a full lifecycle pass');
+
+  const dimensionedPerformanceCheck = 'required performance assertion';
+  const dimensionedPerformanceContract = { requiredChecks: [dimensionedPerformanceCheck] };
+  assert.equal(classifyEvidence({
+    schemaVersion: 2,
+    status: 'passed',
+    dimensions: complete,
+    assertions: [{
+      name: dimensionedPerformanceCheck,
+      status: 'passed',
+      dimension: 'performance',
+      evidence: { elapsedMs: -1, budgetMs: 5000, withinBudget: false },
+    }],
+  }, dimensionedPerformanceContract.requiredChecks, dimensionedPerformanceContract), 'partial',
+  'a malformed duration on a required performance assertion is incomplete evidence');
+
+  const explicitBudgetCheck = 'performance assertion with a tighter local budget';
+  const explicitBudgetContract = {
+    requiredChecks: [explicitBudgetCheck],
+    lifecycleEvidence: { performance: { check: explicitBudgetCheck, checkpointBudgetMs: 5000 } },
+  };
+  assert.notEqual(classifyEvidence({
+    schemaVersion: 2,
+    status: 'passed',
+    dimensions: complete,
+    assertions: [{
+      name: explicitBudgetCheck,
+      status: 'passed',
+      dimension: 'performance',
+      evidence: {
+        actionCount: 1,
+        measuredTransitionCount: 1,
+        maxActionMs: 500,
+        checkpoints: [{ name: 'locally-budgeted transition', durationMs: 1000, budgetMs: 500, withinBudget: false }],
+      },
+    }],
+  }, explicitBudgetContract.requiredChecks, explicitBudgetContract), 'passed',
+  'a recorded withinBudget:false and tighter explicit budget cannot pass under the larger registered budget');
+
+  const correctnessCheck = 'required correctness assertion';
+  assert.equal(classifyEvidence({
+    schemaVersion: 2,
+    status: 'passed',
+    dimensions: complete,
+    assertions: [{
+      name: correctnessCheck,
+      status: 'passed',
+      dimension: 'correctness',
+      evidence: { checkpoints: [{ name: 'unrelated value', durationMs: Number.NaN }] },
+    }],
+  }, [correctnessCheck], { requiredChecks: [correctnessCheck] }), 'passed',
+  'generic checkpoint-shaped correctness evidence is not interpreted as render timing');
 });
 
 test('declared lifecycle dimensions require exact persistence checks and complete timing evidence', () => {
