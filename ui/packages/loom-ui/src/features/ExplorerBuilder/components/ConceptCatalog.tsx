@@ -581,6 +581,7 @@ const ConceptCatalogContent = ({
         limit: PAGE_SIZE,
         requestId: `feature-catalog-${window.crypto.randomUUID()}`,
       },
+      signal,
     );
     if (!signal.aborted) {
       if (selectionContext.current && selectionContext.current !== response.contextToken) {
@@ -705,7 +706,7 @@ const ConceptCatalogContent = ({
         project, explorerId, authResourcePath, snapshotToken, nodeId: schemaNodeId,
         query, cursor: nextCursor, limit: 50,
         requestId: `schema-fields-${window.crypto.randomUUID()}`,
-      });
+      }, signal);
       if (signal.aborted) return [];
       if (page.snapshotToken !== snapshotToken || page.nodeId !== schemaNodeId) {
         throw new Error('Loom returned generated fields for another source.');

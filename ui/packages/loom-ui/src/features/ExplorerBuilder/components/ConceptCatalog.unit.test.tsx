@@ -318,9 +318,9 @@ describe('ConceptCatalog', () => {
   });
 
   it('clears prior selection on actual scope change and ignores the late prior inventory response', async () => {
-    const pending: Array<{ resolve: (response: Response) => void }> = [];
-    const fetch = vi.fn<typeof globalThis.fetch>(() => new Promise<Response>((resolve) => {
-      pending.push({ resolve });
+    const pending: Array<{ resolve: (response: Response) => void; signal: AbortSignal | null | undefined }> = [];
+    const fetch = vi.fn<typeof globalThis.fetch>((_input, init) => new Promise<Response>((resolve) => {
+      pending.push({ resolve, signal: init?.signal });
     }));
     const client = createLoomClient({ fetch });
     const onAddSelected = vi.fn().mockResolvedValue(undefined);
@@ -344,6 +344,7 @@ describe('ConceptCatalog', () => {
     expect(screen.getByRole('button', { name: 'Add 1 selected feature' })).toBeEnabled();
     view.rerender(renderAtScope('snapshot-b', 'Observation'));
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(pending[0]?.signal?.aborted).toBe(true));
 
     const firstRequest = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as {
       snapshotToken?: string;
@@ -373,6 +374,91 @@ describe('ConceptCatalog', () => {
     }));
     await waitFor(() => expect(screen.queryByRole('checkbox', { name: 'Select Old scope result' })).not.toBeInTheDocument());
     expect(screen.getByRole('checkbox', { name: 'Select New scope result' })).toBeInTheDocument();
+  });
+
+  it('aborts both inventory and generated-field reads when their scope owner changes', async () => {
+    const pending: Array<{
+      readonly url: string;
+      readonly resolve: (response: Response) => void;
+      readonly signal: AbortSignal | null | undefined;
+    }> = [];
+    const fetch = vi.fn<typeof globalThis.fetch>((input, init) => new Promise<Response>((resolve) => {
+      pending.push({ url: String(input), resolve, signal: init?.signal });
+    }));
+    const client = createFullLoomClient({ fetch });
+    const oldChoice = fieldChoice('old-generated-choice', 'old-generated-field', 'patient-node', 'Patient', 'old_marker');
+    const currentChoice = fieldChoice('current-generated-choice', 'current-generated-field', 'patient-node', 'Patient', 'gender');
+    const schemaResponse = (snapshotToken: string, path: string, constructionChoice: ConstructionChoice) => ({
+      apiVersion: 'loom.calypr.org/explorer-authoring/v2',
+      kind: 'ExplorerBuilderGeneratedSchemaFields',
+      snapshotToken,
+      schemaDigest: 'a'.repeat(64),
+      nodeId: 'patient-node',
+      resourceType: 'Patient',
+      query: '',
+      complete: true,
+      truncated: false,
+      fields: [{
+        origin: 'GENERATED_SCHEMA',
+        nodeId: 'patient-node',
+        resourceType: 'Patient',
+        path,
+        primitiveType: 'string',
+        cardinality: 'optional_one',
+        constructionChoice,
+      }],
+    });
+    const renderAtScope = (snapshotToken: string) => (
+      <LoomProvider client={client}>
+        <ConceptCatalog
+          project="project-a"
+          explorerId="explorer-a"
+          snapshotToken={snapshotToken}
+          outputId="patients"
+          rowRoot="Patient"
+          resourceType="Patient"
+          sourceNodeId="patient-node"
+          catalog={catalog}
+        />
+      </LoomProvider>
+    );
+    const view = render(renderAtScope('snapshot-a'));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(pending[0]?.url.endsWith('/semantic-inventory')).toBe(true);
+    expect(pending[1]?.url.endsWith('/schema-fields')).toBe(true);
+
+    view.rerender(renderAtScope('snapshot-b'));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(4));
+    await waitFor(() => {
+      expect(pending[0]?.signal?.aborted).toBe(true);
+      expect(pending[1]?.signal?.aborted).toBe(true);
+    });
+    expect(pending[2]?.signal?.aborted).toBe(false);
+    expect(pending[3]?.signal?.aborted).toBe(false);
+
+    pending[2]?.resolve(new Response(JSON.stringify(page([
+      item('current-scope', 'Current scope result', 3),
+    ])), { status: 200, headers: { 'content-type': 'application/json' } }));
+    pending[3]?.resolve(new Response(JSON.stringify(schemaResponse('snapshot-b', 'gender', currentChoice)), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    expect(await screen.findByRole('checkbox', { name: 'Select Current scope result' })).toBeInTheDocument();
+    expect(await screen.findByRole('checkbox', { name: 'Select Patient.gender' })).toBeInTheDocument();
+
+    pending[0]?.resolve(new Response(JSON.stringify(page([
+      item('old-scope', 'Old scope result', 1),
+    ])), { status: 200, headers: { 'content-type': 'application/json' } }));
+    pending[1]?.resolve(new Response(JSON.stringify(schemaResponse('snapshot-a', 'old_marker', oldChoice)), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    await waitFor(() => {
+      expect(screen.queryByRole('checkbox', { name: 'Select Old scope result' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('checkbox', { name: 'Select Patient.old_marker' })).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole('checkbox', { name: 'Select Current scope result' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Select Patient.gender' })).toBeInTheDocument();
   });
 
   it('opens the existing route and result-form dialog for a ready-to-add paired concept without adding it', async () => {
