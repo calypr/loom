@@ -28,6 +28,10 @@ import {
 import { validatedArangoContainer } from '../helpers/native-cda-workflow-tools.mjs';
 import { proposalPreviewReadinessExpression, readProposalPreviewState } from '../helpers/proposal-preview-readiness.mjs';
 import { validateNullableJoinSwitch } from '../nullable-join-cancel.mjs';
+import {
+  createNativeAbortProbeSource,
+  nativeAbortSignalObservationForRequest,
+} from '../helpers/native-abort-probe.mjs';
 
 const generationExpected = 'cda-fhir-v1';
 const tidy = value => String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -67,6 +71,7 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
     rawOracleApplicationAuthorizationClaimed: false,
     authoringAuthorizationScope: 'Builder catalog and every selection revision are bound to the exact authorizationScopeDigest.' };
   report.cases ??= [];
+  report.nativeAbortProbeEvents ??= [];
   const api = async (path, body) => {
     const headers = { 'X-Request-ID': `cda-nullable-code-join-${randomUUID()}` };
     const response = body === undefined
@@ -129,6 +134,13 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
   const authoring = `${base}/authoring/v2`;
   const uiURL = `${uiOrigin}/?project=${encode(project)}&explorer=${encode(explorer)}&mode=builder`;
   const capture = cda.captureRequests(authoring, { responsePaths: /commands|construction-choice-proposals|construction-proposals|construction-capabilities|preview/ });
+  await page.context().exposeBinding('__loomNativeAbortProbeBinding', (_source, payload) => {
+    let event;
+    try { event = JSON.parse(payload); }
+    catch { report.nativeAbortProbeEvents.push({ kind: 'probe-payload-invalid', payloadLength: String(payload).length }); return; }
+    report.nativeAbortProbeEvents.push(event);
+  });
+  await page.context().addInitScript(createNativeAbortProbeSource({ project, explorer, apiOrigin }));
   let builder = await api(`${authoring}/builder`);
   const empty = builderDraftStateEvidence(builder, 'empty');
   assert(empty.ok, `Fresh CDA Explorer must start with an empty draft: ${JSON.stringify(empty)}`);
@@ -962,6 +974,19 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
   } finally {
     page.off('request', onRequest);
     await capture.flush();
+    for (const entry of report.nativeRequests ?? []) {
+      if (entry.path?.endsWith('/construction-capabilities') || entry.path?.endsWith('/semantic-inventory')) {
+        const requestId = entry.requestDetails?.requestId;
+        const requestIdentityMatchCount = typeof requestId === 'string'
+          ? report.nativeRequests.filter((candidate) => candidate.requestDetails?.requestId === requestId &&
+            candidate.origin === entry.origin && candidate.path === entry.path &&
+            candidate.method === entry.method).length
+          : 0;
+        entry.abortControllerSignalObservation = nativeAbortSignalObservationForRequest(
+          { ...entry, requestIdentityMatchCount }, report.nativeAbortProbeEvents,
+        );
+      }
+    }
     report.finished = new Date().toISOString();
     await cda.attachReport('nullable-code-join', report);
   }

@@ -5,11 +5,13 @@ import {
   createNativeAbortProbeSource,
   nativeAbortNetworkFailureClock,
   nativeAbortProbeEvidenceForRequest,
+  nativeAbortSignalObservationForRequest,
 } from '../native-abort-probe.mjs';
 import { classifyExpectedOwnedCancellation, nativeReadRequestMatchesExpectedScope } from '../native-request-ownership.mjs';
 
 const project = 'loom_dev_test';
 const explorer = 'abort-probe-test';
+const apiOrigin = 'http://127.0.0.1:8188';
 const apiPath = (endpoint) => `/api/v1/projects/${project}/explorers/${explorer}/authoring/v2/${endpoint}`;
 const requestId = (prefix, tail) => `${prefix}${tail}-0000-4000-8000-000000000000`;
 const withCDPIdentity = (entry) => ({
@@ -29,6 +31,10 @@ const matchesSelector = (element, selector) => {
   if (selector === '[data-testid^="frame-categories-"]') return element.getAttribute('data-testid')?.startsWith('frame-categories-') === true;
   if (selector === '[data-testid="paired-column-suggestions"]') return element.getAttribute('data-testid') === 'paired-column-suggestions';
   if (selector === '[data-testid="construction-related-expand-editor"]') return element.getAttribute('data-testid') === 'construction-related-expand-editor';
+  if (selector === '[data-testid^="construction-table-"][aria-current="page"]') {
+    return element.getAttribute('data-testid')?.startsWith('construction-table-') === true &&
+      element.getAttribute('aria-current') === 'page';
+  }
   if (selector === '[aria-label="Starting collection"]') return element.getAttribute('aria-label') === 'Starting collection';
   if (selector === '#feature-catalog-search') return element.getAttribute('id') === 'feature-catalog-search';
   return false;
@@ -111,6 +117,15 @@ const featureCatalogDom = (label = 'Add 1 selected feature') => {
   return { nodes: [owner, add], owner, add };
 };
 
+const constructionCapabilitiesDom = (outputId = 'out_fcb5bc77cf3b4ac9b41498b4') => {
+  const table = fakeNode({ tagName: 'BUTTON', attributes: {
+    'data-testid': `construction-table-${outputId}`,
+    'aria-current': 'page',
+    'aria-pressed': 'true',
+  } });
+  return { nodes: [table], table };
+};
+
 const startProbe = ({ dom } = {}) => {
   const events = [];
   const listeners = new Map();
@@ -121,9 +136,29 @@ const startProbe = ({ dom } = {}) => {
     observe() {}
   }
   class FakeAbortController {
-    constructor() { this.signal = { aborted: false }; }
-    abort() { this.signal.aborted = true; }
+    constructor() {
+      const listeners = new Set();
+      this.signal = {
+        aborted: false,
+        addEventListener: (_type, listener) => listeners.add(listener),
+      };
+      this.listeners = listeners;
+    }
+    abort() {
+      this.signal.aborted = true;
+      for (const listener of this.listeners) listener();
+    }
   }
+  class FakeHeaders {
+    constructor(input) {
+      this.values = new Map();
+      const entries = input instanceof FakeHeaders ? [...input.values] : Object.entries(input ?? {});
+      for (const [name, value] of entries) this.set(name, value);
+    }
+    get(name) { return this.values.get(String(name).toLowerCase()) ?? null; }
+    set(name, value) { this.values.set(String(name).toLowerCase(), String(value)); }
+  }
+  const fetchCalls = [];
   const document = {
     addEventListener: (type, listener) => listeners.set(type, listener),
     querySelectorAll: (selector) => (dom?.nodes ?? []).filter((element) => matchesSelector(element, selector)),
@@ -141,17 +176,26 @@ const startProbe = ({ dom } = {}) => {
     Number,
     String,
     Promise,
+    Headers: FakeHeaders,
+    crypto: { randomUUID: () => '12345678-1234-4123-8123-123456789abc' },
     location: { href: 'http://127.0.0.1:30008/' },
     document,
     MutationObserver: FakeMutationObserver,
-    fetch: () => new Promise(() => {}),
+    fetch: (...args) => {
+      fetchCalls.push(args);
+      const promise = new Promise((_resolve, reject) => {
+        args[1]?.signal?.addEventListener?.('abort', () => reject(new Error('The operation was aborted.')));
+      });
+      promise.catch(() => {});
+      return promise;
+    },
     __loomNativeAbortProbeBinding: (payload) => events.push(JSON.parse(payload)),
   };
   sandbox.globalThis = sandbox;
-  const source = createNativeAbortProbeSource({ project, explorer });
+  const source = createNativeAbortProbeSource({ project, explorer, apiOrigin });
   assert.doesNotThrow(() => new Function(source));
   vm.runInNewContext(source, sandbox);
-  return { sandbox, events, listeners, advanceTime: (value) => { now = value; } };
+  return { sandbox, events, listeners, fetchCalls, advanceTime: (value) => { now = value; } };
 };
 
 test('probe links an exact scoped authoring fetch to the AbortSignal that was canceled', () => {
@@ -228,6 +272,107 @@ test('probe ignores wrong-scope, unknown-endpoint, and unrecognized-request-id f
   const event = events.find((item) => item.kind === 'abort-controller-call');
   assert(event);
   assert.deepEqual(event.requests, []);
+});
+
+test('probe assigns a scoped exact ID to an untagged capabilities signal and reports it without terminal classification', async () => {
+  const dom = constructionCapabilitiesDom();
+  const { sandbox, events, fetchCalls } = startProbe({ dom });
+  const controller = new sandbox.AbortController();
+  const path = apiPath('construction-capabilities');
+  const body = JSON.stringify({
+    snapshotToken: 'snapshot-current',
+    expectedDraftVersion: 10,
+    expectedDraftDigest: 'sha256:440a0bd-current',
+    outputId: 'out_fcb5bc77cf3b4ac9b41498b4',
+    stageId: 'source_projection',
+  });
+  sandbox.fetch(`http://127.0.0.1:8188${path}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: controller.signal,
+  });
+
+  const [forwardedUrl, forwardedInit] = fetchCalls[0];
+  const id = forwardedInit.headers.get('X-Request-ID');
+  assert.match(id, /^cda-request-[0-9a-f-]{36}$/i);
+  assert.equal(forwardedUrl, `http://127.0.0.1:8188${path}`);
+  assert.equal(forwardedInit.signal, controller.signal);
+  assert.equal(forwardedInit.body, body, 'The probe adds only its diagnostic header and preserves the JSON body.');
+  assert.equal(forwardedInit.headers.get('Content-Type'), 'application/json');
+
+  dom.table.attributes['aria-current'] = undefined;
+  dom.table.attributes['aria-pressed'] = 'false';
+  controller.abort();
+  await new Promise((resolve) => setImmediate(resolve));
+  const event = events.find((item) => item.kind === 'abort-controller-call');
+  assert.equal(event.requests.length, 1);
+  assert.equal(event.requests[0].requestId, id);
+  assert.equal(event.requests[0].requestIdSource, 'probe-injected');
+  assert.equal(event.requests[0].requestContext.outputId, 'out_fcb5bc77cf3b4ac9b41498b4');
+  assert.equal(event.requests[0].requestContext.expectedDraftVersion, 10);
+  assert.equal(event.requests[0].ownerDomAtFetch.ruleOwner, 'construction-lifecycle-capabilities');
+  assert.equal(event.requests[0].ownerDomAtFetch.ownerAttributes.selectedTableTestId,
+    'construction-table-out_fcb5bc77cf3b4ac9b41498b4');
+  assert.equal(event.requests[0].ownerOutputBindingAtFetch, true);
+
+  const nativeEntry = { requestDetails: { requestId: id }, requestIdentityMatchCount: 1, origin: apiOrigin, path, method: 'POST' };
+  const observation = nativeAbortSignalObservationForRequest(nativeEntry, events);
+  assert.equal(observation.exactRequestSignalCorrelation, true);
+  assert.equal(observation.requestId, id);
+  assert.equal(observation.signalWasAlreadyAborted, false);
+  assert.equal(observation.ownerOutputBindingAtFetch, true);
+  assert.equal(observation.ownerOutputBindingAtAbort, true);
+  assert.equal(observation.selectedOwnerStateAtAbort.ariaCurrent, undefined);
+  assert.equal(observation.selectedOwnerStateAtAbort.ariaPressed, 'false');
+  assert.equal(observation.nativeTerminalObserved, false);
+  assert.equal(observation.fetchStateAfterAbort, 'rejected');
+  assert.match(observation.classificationEffect, /does not make an unfinished native request terminal/);
+  assert.equal(nativeAbortSignalObservationForRequest({ ...nativeEntry, requestDetails: { requestId: 'wrong-id' } }, events)
+    .exactRequestSignalCorrelation, false);
+  assert.equal(nativeAbortSignalObservationForRequest({ ...nativeEntry, path: apiPath('semantic-inventory') }, events)
+    .exactRequestSignalCorrelation, false);
+  assert.equal(nativeAbortSignalObservationForRequest({ ...nativeEntry, origin: 'http://127.0.0.1:8189' }, events)
+    .exactRequestSignalCorrelation, false);
+  assert.equal(nativeAbortSignalObservationForRequest({ ...nativeEntry, requestIdentityMatchCount: 2 }, events)
+    .exactRequestSignalCorrelation, false);
+  assert.equal(nativeAbortSignalObservationForRequest({ requestId: id, requestIdentityMatchCount: 1, path, method: 'POST' }, events)
+    .exactRequestSignalCorrelation, false, 'A Playwright fallback request ID cannot substitute for the exact X-Request-ID.');
+  const duplicateEvent = events.find((item) => item.kind === 'abort-controller-call');
+  const ambiguous = nativeAbortSignalObservationForRequest(nativeEntry, [duplicateEvent, structuredClone(duplicateEvent)]);
+  assert.equal(ambiguous.exactRequestSignalCorrelation, false);
+  assert.equal(ambiguous.matchCount, 2);
+});
+
+test('probe does not add a diagnostic ID to an unowned or out-of-scope capabilities request', () => {
+  const { sandbox, fetchCalls } = startProbe({ dom: constructionCapabilitiesDom() });
+  const path = apiPath('construction-capabilities');
+  const unownedSignal = { aborted: false };
+  const controller = new sandbox.AbortController();
+  sandbox.fetch(`http://127.0.0.1:8188${path}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', signal: unownedSignal,
+  });
+  sandbox.fetch(`http://127.0.0.1:8188${path.replace(explorer, 'other-explorer')}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', signal: unownedSignal,
+  });
+  sandbox.fetch(`http://127.0.0.1:8189${path}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', signal: controller.signal,
+  });
+  assert.equal(fetchCalls.length, 3);
+  for (const [, init] of fetchCalls) {
+    assert.equal(Object.keys(init.headers).some((name) => name.toLowerCase() === 'x-request-id'), false);
+  }
+});
+
+test('probe preserves a valid capabilities request ID supplied by the application', () => {
+  const { sandbox, events, fetchCalls } = startProbe({ dom: constructionCapabilitiesDom() });
+  const controller = new sandbox.AbortController();
+  const id = requestId('cda-request-', 'abcdefab');
+  sandbox.fetch(`http://127.0.0.1:8188${apiPath('construction-capabilities')}`, {
+    method: 'POST', headers: { 'X-Request-ID': id }, body: '{}', signal: controller.signal,
+  });
+  assert.equal(fetchCalls[0][1].headers['X-Request-ID'], id);
+  controller.abort();
+  const record = events.find((item) => item.kind === 'abort-controller-call').requests[0];
+  assert.equal(record.requestId, id);
+  assert.equal(record.requestIdSource, 'request-header');
 });
 
 test('captured trusted interaction is metadata-only and tied to the later abort event', () => {

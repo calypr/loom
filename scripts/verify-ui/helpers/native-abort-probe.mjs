@@ -3,6 +3,13 @@ const bindingName = '__loomNativeAbortProbeBinding';
 /** Page anchors and user actions that can prove a same-document owner retirement. */
 export const nativeAbortDomOwnerRules = [
   {
+    endpoint: 'construction-capabilities',
+    requestIdPrefix: 'cda-request-',
+    owner: 'construction-lifecycle-capabilities',
+    selector: '[data-testid^="construction-table-"][aria-current="page"]',
+    ownerAttributes: { selectedTableTestId: 'data-testid' },
+  },
+  {
     endpoint: 'semantic-inventory',
     requestIdPrefix: 'feature-catalog-',
     owner: 'feature-catalog',
@@ -64,6 +71,7 @@ export const nativeAbortDomOwnerRules = [
 ];
 
 const requestPrefixes = {
+  'construction-capabilities': ['cda-request-'],
   'semantic-inventory': ['feature-catalog-', 'frame-categories-', 'paired-column-inventory-'],
   'population-routes': ['population-routes-'],
   'frame-source-options': ['frame-source-options-'],
@@ -71,12 +79,16 @@ const requestPrefixes = {
   'construction-choices': ['paired-column-choices-', 'construction-choices-'],
 };
 
-/** Build a page-only probe. It records exact signal-to-fetch ownership without request bodies or credentials. */
-export const createNativeAbortProbeSource = ({ project, explorer }) => `(() => {
+/** Build a page-only probe. It records exact signal ownership and selected request metadata, never raw bodies or credentials. */
+export const createNativeAbortProbeSource = ({ project, explorer, apiOrigin }) => `(() => {
   const marker = '__loomNativeAbortProbeInstalled';
   if (globalThis[marker]) return;
   Object.defineProperty(globalThis, marker, { value: true, configurable: false });
-  const scope = { project: ${JSON.stringify(project)}, explorer: ${JSON.stringify(explorer)} };
+  const scope = {
+    project: ${JSON.stringify(project)},
+    explorer: ${JSON.stringify(explorer)},
+    apiOrigin: ${JSON.stringify(apiOrigin ?? null)},
+  };
   const prefixes = ${JSON.stringify(requestPrefixes)};
   const ownerRules = ${JSON.stringify(nativeAbortDomOwnerRules)};
   const controllersBySignal = new WeakMap();
@@ -121,6 +133,14 @@ export const createNativeAbortProbeSource = ({ project, explorer }) => `(() => {
     if (!group) return undefined;
     const selected = [...(group.querySelectorAll?.('button[aria-pressed="true"]') ?? [])];
     return selected.length === 1 ? buttonLabel(selected[0]) : undefined;
+  };
+  const selectedOwnerState = (element) => {
+    const ariaCurrent = element?.getAttribute?.('aria-current');
+    const ariaPressed = element?.getAttribute?.('aria-pressed');
+    return {
+      ...(ariaCurrent !== null && ariaCurrent !== undefined ? { ariaCurrent } : {}),
+      ...(ariaPressed !== null && ariaPressed !== undefined ? { ariaPressed } : {}),
+    };
   };
   const exactElements = (selector) => {
     try { return [...(globalThis.document?.querySelectorAll?.(selector) ?? [])]; } catch { return []; }
@@ -170,6 +190,7 @@ export const createNativeAbortProbeSource = ({ project, explorer }) => `(() => {
       connectedAtFetch: connected,
       ruleOwner: rule.owner,
       retirementAction: rule.retirementAction,
+      ...selectedOwnerState(element),
       tabGroupId: domId(tabGroup),
       selectedTabAtFetch: selectedTab(tabGroup),
       dialogId: domId(dialog),
@@ -202,22 +223,40 @@ export const createNativeAbortProbeSource = ({ project, explorer }) => `(() => {
           .filter(([, value]) => typeof value === 'string' && value.length > 0)),
       } : {}),
       observedAtAbort: abortedAt,
+      ...selectedOwnerState(refs.element),
     };
   };
   const requestMetadata = (input, init) => {
     let url;
     try { url = new URL(typeof input === 'string' ? input : input.url, globalThis.location.href); } catch { return undefined; }
     const prefix = '/api/v1/projects/' + encodeURIComponent(scope.project) + '/explorers/' + encodeURIComponent(scope.explorer) + '/authoring/v2/';
-    if (!url.pathname.startsWith(prefix)) return undefined;
+    if ((scope.apiOrigin && url.origin !== scope.apiOrigin) || !url.pathname.startsWith(prefix)) return undefined;
     const endpoint = url.pathname.slice(prefix.length);
     if (!Object.hasOwn(prefixes, endpoint)) return undefined;
     const method = String(init?.method ?? input?.method ?? 'GET').toUpperCase();
     if (method !== 'POST') return undefined;
     const headers = init?.headers ?? input?.headers;
     const requestId = readHeader(headers, 'X-Request-ID');
+    if (endpoint === 'construction-capabilities' && (requestId === undefined || requestId === null || requestId === '')) {
+      return { requestId: undefined, origin: url.origin, path: url.pathname, method, endpoint, requestIdSource: 'probe-injected' };
+    }
     if (typeof requestId !== 'string' || !prefixes[endpoint].some((item) => requestId.startsWith(item))) return undefined;
     if (!/^[a-z0-9-]{3,80}-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(requestId)) return undefined;
-    return { requestId, path: url.pathname, method, endpoint };
+    return { requestId, origin: url.origin, path: url.pathname, method, endpoint, requestIdSource: 'request-header' };
+  };
+  const constructionRequestContext = (init, endpoint) => {
+    if (endpoint !== 'construction-capabilities' || typeof init?.body !== 'string') return undefined;
+    try {
+      const body = JSON.parse(init.body);
+      if (!body || typeof body !== 'object' || Array.isArray(body)) return undefined;
+      return {
+        snapshotToken: typeof body.snapshotToken === 'string' ? body.snapshotToken : undefined,
+        expectedDraftVersion: Number.isSafeInteger(body.expectedDraftVersion) ? body.expectedDraftVersion : undefined,
+        expectedDraftDigest: typeof body.expectedDraftDigest === 'string' ? body.expectedDraftDigest : undefined,
+        outputId: typeof body.outputId === 'string' ? body.outputId : undefined,
+        stageId: typeof body.stageId === 'string' ? body.stageId : undefined,
+      };
+    } catch { return undefined; }
   };
   const observer = typeof globalThis.MutationObserver === 'function' && globalThis.document
     ? new globalThis.MutationObserver(() => {
@@ -229,23 +268,41 @@ export const createNativeAbortProbeSource = ({ project, explorer }) => `(() => {
   try { observer?.observe(globalThis.document, { childList: true, subtree: true }); } catch { /* Synchronous isConnected sampling remains authoritative. */ }
   const originalFetch = globalThis.fetch;
   globalThis.fetch = function(...args) {
-    const metadata = requestMetadata(args[0], args[1]);
+    let metadata = requestMetadata(args[0], args[1]);
     const signal = args[1]?.signal ?? args[0]?.signal;
     const owner = signal && controllersBySignal.get(signal);
+    let fetchArgs = args;
+    if (metadata?.endpoint === 'construction-capabilities' && metadata.requestId === undefined && owner &&
+        typeof globalThis.crypto?.randomUUID === 'function' && typeof globalThis.Headers === 'function') {
+      try {
+        const requestId = 'cda-request-' + globalThis.crypto.randomUUID();
+        const init = args[1] && typeof args[1] === 'object' ? args[1] : {};
+        const headers = new globalThis.Headers(init.headers ?? args[0]?.headers);
+        headers.set('X-Request-ID', requestId);
+        fetchArgs = [args[0], { ...init, headers }];
+        metadata = { ...metadata, requestId };
+      } catch { metadata = undefined; }
+    }
     let record;
-    if (metadata && owner) {
+    if (metadata?.requestId && owner) {
       const rule = findOwnerRule(metadata);
       const captured = captureOwnerDom(rule);
+      const requestContext = constructionRequestContext(fetchArgs[1], metadata.endpoint);
+      const selectedTableTestId = captured?.record?.ownerAttributes?.selectedTableTestId;
       record = {
         ...metadata,
         startedAt: wallNow(),
         fetchStateAtAbort: 'pending',
         ownerDomAtFetch: captured?.record ?? captured,
+        requestContext,
+        ownerOutputBindingAtFetch: requestContext?.outputId
+          ? selectedTableTestId === 'construction-table-' + requestContext.outputId
+          : undefined,
       };
       owner.requests.set(metadata.requestId, record);
       if (captured?.refs) domOwnersByRequest.set(record, captured.refs);
     }
-    const result = Reflect.apply(originalFetch, this, args);
+    const result = Reflect.apply(originalFetch, this, fetchArgs);
     if (record && result && typeof result.then === 'function') {
       result.then(
         () => { record.fetchStateAtAbort = 'fulfilled'; record.settledAt = wallNow(); },
@@ -303,7 +360,25 @@ export const createNativeAbortProbeSource = ({ project, explorer }) => `(() => {
           if (refs) observedDomOwners.delete(refs);
         }
       }
-      return super.abort(...args);
+      const result = super.abort(...args);
+      if (owner && owner.requests.size > 0) {
+        Promise.resolve().then(() => {
+          send({
+            kind: 'abort-controller-fetch-settlement',
+            controllerId: owner.id,
+            observedAt: wallNow(),
+            requests: [...owner.requests.values()].map((request) => ({
+              requestId: request.requestId,
+              origin: request.origin,
+              path: request.path,
+              method: request.method,
+              fetchStateAfterAbort: request.fetchStateAtAbort,
+              settledAt: request.settledAt,
+            })),
+          });
+        });
+      }
+      return result;
     }
   };
   const targetSummary = (target) => {
@@ -473,6 +548,69 @@ export const nativeAbortProbeEvidenceForRequest = (entry, events) => {
       };
     });
   });
+};
+
+/** Correlate an AbortController event with the exact native request ID without classifying it as terminal. */
+export const nativeAbortSignalObservationForRequest = (entry, events) => {
+  const requestCorrelationId = entry.requestCorrelationId ?? entry.requestDetails?.requestId;
+  if (typeof requestCorrelationId !== 'string' || requestCorrelationId.length === 0 ||
+      typeof entry.origin !== 'string' || typeof entry.path !== 'string' || typeof entry.method !== 'string' ||
+      entry.requestIdentityMatchCount !== 1) {
+    return { exactRequestSignalCorrelation: false, matchCount: 0, reason: 'native request identity is incomplete' };
+  }
+  const matches = (events ?? []).flatMap((event) => {
+    if (event.kind !== 'abort-controller-call' || typeof event.controllerId !== 'string') return [];
+    return (event.requests ?? []).filter((request) =>
+      request.requestId === requestCorrelationId && request.origin === entry.origin && request.path === entry.path &&
+      request.method === entry.method,
+    ).map((request) => ({ event, request }));
+  });
+  if (matches.length !== 1) {
+    return {
+      exactRequestSignalCorrelation: false,
+      matchCount: matches.length,
+      reason: matches.length === 0 ? 'no exact AbortSignal event was captured' : 'multiple exact AbortSignal events were captured',
+    };
+  }
+  const [{ event, request }] = matches;
+  const settlements = (events ?? []).flatMap((candidate) => candidate.kind === 'abort-controller-fetch-settlement' &&
+    candidate.controllerId === event.controllerId
+      ? (candidate.requests ?? []).filter((item) => item.requestId === request.requestId &&
+        item.origin === request.origin && item.path === request.path && item.method === request.method)
+        .map((item) => ({ event: candidate, request: item }))
+      : []);
+  return {
+    exactRequestSignalCorrelation: true,
+    matchCount: 1,
+    nativeEntryIdentityMatchCount: entry.requestIdentityMatchCount,
+    requestId: request.requestId,
+    requestIdSource: request.requestIdSource,
+    origin: request.origin,
+    controllerId: event.controllerId,
+    controllerCreatedAt: event.createdAt,
+    controllerAbortedAt: event.abortedAt,
+    signalWasAlreadyAborted: event.signalWasAlreadyAborted,
+    fetchStateAtAbort: request.fetchStateAtAbort,
+    ownerDomAtFetch: request.ownerDomAtFetch,
+    ownerDomAtAbort: request.ownerDomAtAbort,
+    requestContext: request.requestContext,
+    ownerOutputBindingAtFetch: request.ownerOutputBindingAtFetch,
+    ownerOutputBindingAtAbort: request.requestContext?.outputId
+      ? request.ownerDomAtAbort?.ownerAttributes?.selectedTableTestId ===
+        'construction-table-' + request.requestContext.outputId
+      : undefined,
+    selectedOwnerStateAtAbort: {
+      ariaCurrent: request.ownerDomAtAbort?.ariaCurrent,
+      ariaPressed: request.ownerDomAtAbort?.ariaPressed,
+    },
+    ...(settlements.length === 1 ? {
+      fetchStateAfterAbort: settlements[0].request.fetchStateAfterAbort,
+      fetchSettledAt: settlements[0].request.settledAt,
+      fetchSettlementObservedAt: settlements[0].event.observedAt,
+    } : { fetchSettlementMatchCount: settlements.length }),
+    nativeTerminalObserved: Boolean(entry.terminalEvent || entry.completedAt || entry.loadingFailed),
+    classificationEffect: 'diagnostic only; does not make an unfinished native request terminal or expected',
+  };
 };
 
 export const nativeAbortOwnerRetirementActionFor = ownerRetirementActionForRule;
