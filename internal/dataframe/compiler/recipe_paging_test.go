@@ -396,6 +396,50 @@ func TestCompileRecipeOutputPageFiltersMissingConstructionRowsBeforeRootWindow(t
 	}
 }
 
+func TestCompileRecipeOutputPageDirectRootExistsOrdersPredicateBeforeLimit(t *testing.T) {
+	output := constructionEqualsPageOutput("")
+	output.Name = "observations"
+	output.RootResourceType = "Observation"
+	output.RowGrain = "observation"
+	output.Construction.Steps[0].Operation.Filter.Operator = recipe.FilterExists
+	output.Construction.Steps[0].Operation.Filter.Values = nil
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "construction-exists-root-page-structure",
+		TranslationVersion:  "construction-exists-root-page-structure",
+		Outputs:             []recipe.Output{output},
+	}
+	bindings := recipe.RuntimeBindings{Project: "project-a", SelectionProject: "project/a", DatasetGeneration: "generation-a"}
+	semanticPlan, err := semantic.BuildRecipePlan(bundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(semanticPlan, "scope-a", bindings.DatasetGeneration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageSize := 2
+	page, err := CompileRecipeOutputPageWithPolicy(compiled.Outputs[0], bindings, pageSize, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursorFilter := strings.Index(page.RootKeysQuery, "FILTER root._key > @"+RootPageAfterKeyBind)
+	projectedID := strings.Index(page.RootKeysQuery, " = root.payload.id")
+	existsFilter := strings.Index(page.RootKeysQuery, "FILTER __loom_construction_input_1 != null")
+	sort := strings.Index(page.RootKeysQuery, "SORT root._key ASC")
+	limit := strings.Index(page.RootKeysQuery, "LIMIT @"+RootPageSizeBind)
+	if cursorFilter < 0 || projectedID <= cursorFilter || existsFilter <= projectedID || sort <= existsFilter || limit <= sort {
+		t.Fatalf("compiled direct-root EXISTS query must place its predicate after the cursor and before root-key sorting/limiting: cursor=%d projection=%d exists=%d sort=%d limit=%d\n%s", cursorFilter, projectedID, existsFilter, sort, limit, page.RootKeysQuery)
+	}
+	if got := page.RootKeysBindVars[RootPageSizeBind]; got != pageSize {
+		t.Fatalf("compiled root page size = %#v, want %d", got, pageSize)
+	}
+}
+
 func TestCompileRecipeOutputPageRendersEveryValueFilterBeforeRootWindow(t *testing.T) {
 	stringValue := func(value string) recipe.FilterValue {
 		return recipe.FilterValue{Kind: recipe.FilterString, String: &value}

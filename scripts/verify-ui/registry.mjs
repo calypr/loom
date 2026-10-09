@@ -10,6 +10,25 @@ export const registry = Object.freeze([
     cases: {
       "tables": {
         playwrightTest: "scripts/verify-ui/specs/builder-controls.spec.mjs",
+        playwrightGrep: 'Duplicate, rename, select, delete, copy, and reload tables$',
+        focusedChecks: [
+          {
+            id: 'builder-controls-table-render-contract',
+            cwd: '.',
+            command: [
+              'node-test',
+              'scripts/verify-ui/helpers/tests/builder-controls.test.mjs',
+              'scripts/verify-ui/helpers/tests/builder-controls-table-preview-readiness.test.mjs',
+            ],
+            sourceFiles: [
+              'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/workflows/builder-controls.mjs',
+              'scripts/verify-ui/helpers/report.mjs',
+              'scripts/verify-ui/helpers/coverage-status.mjs',
+              'testdata/devloop-fixture/Patient.ndjson',
+            ],
+          },
+        ],
         requiredChecks: [
           "duplicated and renamed tables survive reload",
           "newly duplicated table is selected immediately",
@@ -20,6 +39,7 @@ export const registry = Object.freeze([
           "selected-table removal falls back to the remaining table after reload",
           "copied Explorer retains configured fields after reload",
           "deleting the last table persists an empty workspace",
+          "table lifecycle actions and reloads render exact rows or the empty workspace within five seconds",
         ],
       },
       "recompile": {

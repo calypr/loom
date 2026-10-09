@@ -53,28 +53,83 @@ export const tableIdentityByTitle = async (page, title) => {
 
 const previewRows = async page => page.getByTestId('preview-table-scroll').getByRole('row').allInnerTexts();
 
-const checkPreviewPatients = async (page, report, expectedIDs, check, expectedGenderByID) => {
-  const table = page.getByTestId('preview-table-scroll').getByRole('table');
-  await table.waitFor({ state: 'visible', timeout: 5000 });
-  const rows = await previewRows(page);
-  const ids = assertPatientRows(rows.slice(1), expectedIDs, expectedGenderByID, rows[0]);
+const recordPreviewPatients = (rows, ids, report, expectedIDs, check, expectedGenderByID) => {
   check('correctness', 'Preview renders both independent fixture Patients', ids.length === expectedIDs.length,
     { rows, patientIDs: ids, expectedPatientIDs: expectedIDs, ...(expectedGenderByID ? { expectedGenderByID } : {}) });
   recordCheck(report, 'correctness', 'automatic Preview is visible after authoring', true);
   return rows;
 };
 
-const currentPreviewReady = () => {
+const checkPreviewPatients = async (page, report, expectedIDs, check, expectedGenderByID, timeoutMs = 5000) => {
+  const table = page.getByTestId('preview-table-scroll').getByRole('table');
+  await table.waitFor({ state: 'visible', timeout: timeoutMs });
+  const rows = await previewRows(page);
+  const ids = assertPatientRows(rows.slice(1), expectedIDs, expectedGenderByID, rows[0]);
+  return recordPreviewPatients(rows, ids, report, expectedIDs, check, expectedGenderByID);
+};
+
+export const currentPreviewReady = expectedOutputId => {
   const workspace = document.querySelector('[data-testid="construction-workspace"]');
   const preview = document.querySelector('[data-testid="construction-preview"]');
-  const selectedTable = document.querySelector('[data-testid^="construction-table-"][aria-current="page"]');
+  const selectedTables = document.querySelectorAll('[data-testid^="construction-table-"][aria-current="page"]');
+  const selectedTable = selectedTables.length === 1 ? selectedTables[0] : null;
   const outputId = selectedTable?.getAttribute('data-testid')?.slice('construction-table-'.length);
   const pending = [...document.querySelectorAll('[role="status"]')].some(node =>
     /^(Checking .* fields|Creating .* table|Adding the ID column|Loading the preview|Loom is (?:refreshing the current table draft|finishing the previous table update))/.test(node.innerText?.trim() || ''));
   return Boolean(workspace && preview && outputId && !pending && preview.dataset.previewStatus === 'ready' &&
     preview.dataset.previewReceiptId && preview.dataset.previewOutputId === outputId &&
+    (!expectedOutputId || outputId === expectedOutputId) &&
     preview.dataset.currentDraftVersion === workspace.dataset.draftVersion &&
     preview.dataset.currentDraftDigest === workspace.dataset.draftDigest);
+};
+
+const readCurrentPreviewSnapshot = expectedOutputId => {
+  const workspace = document.querySelector('[data-testid="construction-workspace"]');
+  const preview = document.querySelector('[data-testid="construction-preview"]');
+  const selectedTables = document.querySelectorAll('[data-testid^="construction-table-"][aria-current="page"]');
+  const selectedTable = selectedTables.length === 1 ? selectedTables[0] : null;
+  const outputId = selectedTable?.getAttribute('data-testid')?.slice('construction-table-'.length);
+  const pending = [...document.querySelectorAll('[role="status"]')].some(node =>
+    /^(Checking .* fields|Creating .* table|Adding the ID column|Loading the preview|Loom is (?:refreshing the current table draft|finishing the previous table update))/.test(node.innerText?.trim() || ''));
+  const ready = Boolean(workspace && preview && outputId && !pending && preview.dataset.previewStatus === 'ready' &&
+    preview.dataset.previewReceiptId && preview.dataset.previewOutputId === outputId && outputId === expectedOutputId &&
+    preview.dataset.currentDraftVersion === workspace.dataset.draftVersion &&
+    preview.dataset.currentDraftDigest === workspace.dataset.draftDigest);
+  const table = ready && document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+  if (!table) return null;
+  return {
+    ariaRowCount: table.getAttribute('aria-rowcount'),
+    rows: [...table.querySelectorAll('[role="row"]')].map(row => row.innerText),
+  };
+};
+
+export const waitForCurrentPreviewRows = async ({
+  page, report, outputId, expectedIDs, expectedGenderByID, check, timeoutMs = 5000,
+}) => {
+  assert(outputId, 'A current preview check must bind the selected output ID');
+  const deadline = performance.now() + timeoutMs;
+  let lastMismatch;
+  while (performance.now() < deadline) {
+    const snapshot = await page.evaluate(readCurrentPreviewSnapshot, outputId);
+    if (performance.now() >= deadline) break;
+    if (snapshot && snapshot.ariaRowCount === String(expectedIDs.length + 1) &&
+        snapshot.rows.length === expectedIDs.length + 1) {
+      let ids;
+      try {
+        ids = assertPatientRows(snapshot.rows.slice(1), expectedIDs, expectedGenderByID, snapshot.rows[0]);
+      } catch (error) {
+        lastMismatch = error;
+      }
+      if (ids) return recordPreviewPatients(snapshot.rows, ids, report, expectedIDs, check, expectedGenderByID);
+    }
+    const remainingMs = deadline - performance.now();
+    if (remainingMs <= 0) break;
+    await page.waitForTimeout(Math.min(50, remainingMs));
+  }
+  const detail = lastMismatch instanceof Error ? `: ${lastMismatch.message}` : '';
+  throw new Error(`Preview for output ${outputId} did not render the exact fixture rows within its action deadline${detail}`, {
+    cause: lastMismatch,
+  });
 };
 
 const installFirstTableObserver = async page => page.evaluate(() => {
@@ -412,6 +467,140 @@ export const firstTableWorkflow = async ({ page, report, action, check }, contex
 export const tablesWorkflow = async ({ page, report, action, check }, context) => {
   const oracle = patientOracle(context.target);
   report.target.fixtureOracle = { path: oracle.path, sha256: oracle.sha256, patientIDs: oracle.ids, genderByID: oracle.genderByID };
+  const tableRenderCheck = 'table lifecycle actions and reloads render exact rows or the empty workspace within five seconds';
+  const tableRenderCheckpoints = [];
+  const publishTableCheckpoints = () => {
+    report.target.tableLifecycleCheckpoints = [...tableRenderCheckpoints];
+  };
+  const recordFailedTableTransition = (name, startedAt, error) => {
+    const elapsedMs = performance.now() - startedAt;
+    const checkpoint = {
+      name,
+      durationMs: Math.round(elapsedMs),
+      budgetMs: 5000,
+      withinBudget: false,
+      failure: error instanceof Error ? error.message : String(error),
+    };
+    tableRenderCheckpoints.push(checkpoint);
+    publishTableCheckpoints();
+    recordCheck(report, 'performance', tableRenderCheck, false, {
+      budgetMs: 5000,
+      checkpoints: [...tableRenderCheckpoints],
+      failedTransition: name,
+    });
+  };
+  const recordTableTransition = (name, startedAt) => {
+    const elapsedMs = performance.now() - startedAt;
+    const durationMs = Math.round(elapsedMs);
+    const checkpoint = { name, durationMs, budgetMs: 5000, withinBudget: elapsedMs <= 5000 };
+    tableRenderCheckpoints.push(checkpoint);
+    publishTableCheckpoints();
+    if (!checkpoint.withinBudget) {
+      const error = new Error(`${name} exceeded its five-second action-to-render budget`);
+      recordCheck(report, 'performance', tableRenderCheck, false, {
+        budgetMs: 5000,
+        checkpoints: [...tableRenderCheckpoints],
+        failedTransition: name,
+      });
+      throw error;
+    }
+  };
+  const remainingMs = (deadline, name) => {
+    const remaining = Math.ceil(deadline - performance.now());
+    assert(remaining > 0, `${name} exhausted its original five-second action-to-render deadline`);
+    return remaining;
+  };
+  const selectedTableIdentity = async () => {
+    const selected = page.locator('[data-testid^="construction-table-"][aria-current="page"]');
+    assert.equal(await selected.count(), 1, 'Expected exactly one selected Builder table');
+    const testId = await selected.getAttribute('data-testid');
+    assert(testId?.startsWith('construction-table-'), 'The selected Builder table must expose its output identity');
+    return { testId, outputId: testId.slice('construction-table-'.length) };
+  };
+  const waitForSelectedTable = (testId, timeout) => page.waitForFunction(expected => {
+    const selected = [...document.querySelectorAll('[data-testid^="construction-table-"][aria-current="page"]')];
+    return selected.length === 1 && selected[0].getAttribute('data-testid') === expected;
+  }, testId, { timeout });
+  const waitForWorkspaceTable = async ({ explorerId, count, testId, empty, remaining }) => {
+    await page.waitForFunction(({ expectedExplorer, expectedCount, expectedTestId, expectEmpty }) => {
+      const explorer = document.querySelector('select[aria-label="Explorer"]')?.value;
+      const tabs = [...document.querySelectorAll('[data-testid^="construction-table-"]')];
+      const selected = tabs.filter(tab => tab.getAttribute('aria-current') === 'page');
+      return explorer === expectedExplorer && tabs.length === expectedCount &&
+        (expectEmpty ? selected.length === 0 : selected.length === 1 && selected[0].getAttribute('data-testid') === expectedTestId);
+    }, { expectedExplorer: explorerId, expectedCount: count, expectedTestId: testId, expectEmpty: empty },
+    { timeout: remaining() });
+  };
+  const waitForRows = (outputId, timeout) => waitForCurrentPreviewRows({
+    page,
+    report,
+    outputId,
+    expectedIDs: oracle.ids,
+    expectedGenderByID: oracle.genderByID,
+    check,
+    timeoutMs: timeout,
+  });
+  const measuredTableAction = async (label, locator, perform, { outputId, before, after, editable = false } = {}) => {
+    const startedAt = performance.now();
+    const deadline = startedAt + 5000;
+    const remaining = () => remainingMs(deadline, label);
+    try {
+      if (before) await before(remaining);
+      await action(label, locator, perform, {
+        timeout: remaining(),
+        budget: 5000,
+        editable,
+        after: async () => {
+          if (after) await after(remaining);
+          const expectedOutputId = typeof outputId === 'function' ? await outputId() : outputId;
+          if (expectedOutputId) await waitForRows(expectedOutputId, remaining());
+        },
+      });
+      recordTableTransition(label, startedAt);
+    } catch (error) {
+      if (!tableRenderCheckpoints.some(checkpoint => checkpoint.name === label &&
+          (!checkpoint.withinBudget || checkpoint.failure))) {
+        recordFailedTableTransition(label, startedAt, error);
+      }
+      throw error;
+    }
+  };
+  const reloadTableWorkspace = async ({ label, explorerId, count, testId, outputId, after }) => {
+    const startedAt = performance.now();
+    const deadline = startedAt + 5000;
+    const remaining = () => remainingMs(deadline, label);
+    try {
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: remaining() });
+      await waitForWorkspaceTable({ explorerId, count, testId, empty: false, remaining });
+      if (after) await after(remaining);
+      await waitForRows(outputId, remaining());
+      recordTableTransition(label, startedAt);
+    } catch (error) {
+      if (!tableRenderCheckpoints.some(checkpoint => checkpoint.name === label &&
+          (!checkpoint.withinBudget || checkpoint.failure))) {
+        recordFailedTableTransition(label, startedAt, error);
+      }
+      throw error;
+    }
+  };
+  const reloadEmptyWorkspace = async ({ label, explorerId }) => {
+    const startedAt = performance.now();
+    const deadline = startedAt + 5000;
+    const remaining = () => remainingMs(deadline, label);
+    try {
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: remaining() });
+      await waitForWorkspaceTable({ explorerId, count: 0, testId: null, empty: true, remaining });
+      await page.getByText('Build your first table', { exact: true }).waitFor({ state: 'visible', timeout: remaining() });
+      recordTableTransition(label, startedAt);
+    } catch (error) {
+      if (!tableRenderCheckpoints.some(checkpoint => checkpoint.name === label &&
+          (!checkpoint.withinBudget || checkpoint.failure))) {
+        recordFailedTableTransition(label, startedAt, error);
+      }
+      throw error;
+    }
+  };
+
   const created = await createBlankExplorerWithUI({ page, action, target: context.target, context, check }, 'controls');
   report.target.explorer = created.explorer;
   await createPatientTableWithUI({ page, action }, oracle.ids);
@@ -419,30 +608,32 @@ export const tablesWorkflow = async ({ page, report, action, check }, context) =
   await configurePatientGenderWithUI({ page, action });
   await checkPreviewPatients(page, report, oracle.ids, check, oracle.genderByID);
   const closeEditor = page.getByRole('button', { name: 'Close operation editor', exact: true });
-  await action('return to the selected Patient table after applying Gender', closeEditor, () => closeEditor.click(), {
-    after: async () => {
-      await page.locator('[aria-label="Add columns editor"]').waitFor({ state: 'hidden' });
-      await page.getByRole('button', { name: /Add columns:/ }).waitFor({ state: 'visible' });
+  const initialTableIdentity = await selectedTableIdentity();
+  await measuredTableAction('return to the selected Patient table after applying Gender', closeEditor, () => closeEditor.click(), {
+    outputId: initialTableIdentity.outputId,
+    after: async remaining => {
+      await page.locator('[aria-label="Add columns editor"]').waitFor({ state: 'hidden', timeout: remaining() });
+      await page.getByRole('button', { name: /Add columns:/ }).waitFor({ state: 'visible', timeout: remaining() });
     },
   });
-  const selectedTable = page.locator('[data-testid^="construction-table-"][aria-current="page"]');
-  assert.equal(await selectedTable.count(), 1, 'Prepared Explorer must have exactly one selected table');
-  const originalTableTestId = await selectedTable.getAttribute('data-testid');
-  assert(originalTableTestId, 'Prepared Explorer selected table must expose its identity');
+  const originalTableTestId = initialTableIdentity.testId;
+  const originalOutputId = initialTableIdentity.outputId;
   report.target.originalTableTestId = originalTableTestId;
 
   const duplicate = page.getByTestId('construction-duplicate-table');
   const duplicateTitle = 'Patients copy';
   let duplicatedTableIdentity;
-  await action('duplicate configured table', duplicate, () => duplicate.click(), {
-    after: async () => {
-      await page.getByRole('button', { name: duplicateTitle, exact: true }).waitFor({ state: 'visible' });
-      await page.waitForFunction(() => document.querySelectorAll('[data-testid^="construction-table-"]').length === 2);
+  await measuredTableAction('duplicate configured table', duplicate, () => duplicate.click(), {
+    after: async remaining => {
+      await page.getByRole('button', { name: duplicateTitle, exact: true }).waitFor({ state: 'visible', timeout: remaining() });
+      await page.waitForFunction(() => document.querySelectorAll('[data-testid^="construction-table-"]').length === 2,
+        undefined, { timeout: remaining() });
       duplicatedTableIdentity = await tableIdentityByTitle(page, duplicateTitle);
-      await page.waitForFunction(testId => {
-        const selected = [...document.querySelectorAll('[data-testid^="construction-table-"][aria-current="page"]')];
-        return selected.length === 1 && selected[0].getAttribute('data-testid') === testId;
-      }, duplicatedTableIdentity.testId);
+      await waitForSelectedTable(duplicatedTableIdentity.testId, remaining());
+    },
+    outputId: async () => {
+      assert(duplicatedTableIdentity, 'Duplicating a table must expose its generated output identity');
+      return duplicatedTableIdentity.outputId;
     },
   });
   assert.notEqual(duplicatedTableIdentity.testId, originalTableTestId,
@@ -452,84 +643,95 @@ export const tablesWorkflow = async ({ page, report, action, check }, context) =
   check('persistence', 'newly duplicated table is selected immediately',
     await selectedAfterDuplicate.getAttribute('data-testid') === duplicatedTableIdentity.testId,
     { selectedTableTestId: await selectedAfterDuplicate.getAttribute('data-testid') });
-  await checkPreviewPatients(page, report, oracle.ids, check, oracle.genderByID);
 
   const project = context.target.fixtureProject;
   const commandsPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(created.explorer)}/authoring/v2/commands`;
-  const renameResponse = page.waitForResponse(response => response.request().method() === 'POST' &&
-    new URL(response.url()).origin === new URL(context.target.uiUrl).origin && new URL(response.url()).pathname === commandsPath, { timeout: 5000 });
+  let renameResponse;
   page.once('dialog', async dialog => {
     report.target.renameDialogType = dialog.type();
     await dialog.accept('Renamed Patients');
   });
   const rename = page.getByTestId(`construction-rename-table-${duplicatedTableIdentity.outputId}`);
-  await action('rename duplicated table', rename, () => rename.click(), {
-    after: async () => {
-      await renameResponse;
-      await page.getByTestId(duplicatedTableIdentity.testId).filter({ hasText: 'Renamed Patients' }).waitFor({ state: 'visible' });
+  await measuredTableAction('rename duplicated table', rename, () => rename.click(), {
+    before: remaining => {
+      renameResponse = page.waitForResponse(response => response.request().method() === 'POST' &&
+        new URL(response.url()).origin === new URL(context.target.uiUrl).origin && new URL(response.url()).pathname === commandsPath,
+      { timeout: remaining() });
     },
+    after: async remaining => {
+      await renameResponse;
+      await page.getByTestId(duplicatedTableIdentity.testId).filter({ hasText: 'Renamed Patients' })
+        .waitFor({ state: 'visible', timeout: remaining() });
+    },
+    outputId: duplicatedTableIdentity.outputId,
   });
   const renameResult = await renameResponse;
   check('correctness', 'rename request returned success', renameResult.status() >= 200 && renameResult.status() < 300,
     { status: renameResult.status(), path: commandsPath, dialogType: report.target.renameDialogType });
 
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(({ explorer, count }) =>
-    document.querySelector('select[aria-label="Explorer"]')?.value === explorer &&
-    document.querySelectorAll('[data-testid^="construction-table-"]').length === count &&
-    document.body.innerText.includes('DATASET WORKSPACE'),
-  { explorer: created.explorer, count: 2 }, { timeout: 5000 });
+  await reloadTableWorkspace({
+    label: 'reload duplicated and renamed table to exact rows',
+    explorerId: created.explorer,
+    count: 2,
+    testId: duplicatedTableIdentity.testId,
+    outputId: duplicatedTableIdentity.outputId,
+    after: remaining => page.getByTestId(duplicatedTableIdentity.testId).filter({ hasText: 'Renamed Patients' })
+      .waitFor({ state: 'visible', timeout: remaining() }),
+  });
   const renamedTable = page.getByTestId(duplicatedTableIdentity.testId);
   check('persistence', 'duplicated and renamed tables survive reload', await renamedTable.innerText().then(text => text.includes('Renamed Patients')));
   let selectedAfterReload = await page.locator('[data-testid^="construction-table-"][aria-current="page"]').getAttribute('data-testid');
   check('persistence', 'newly duplicated table selection survives reload', selectedAfterReload === duplicatedTableIdentity.testId,
     { selectedTableTestId: selectedAfterReload });
-  await checkPreviewPatients(page, report, oracle.ids, check, oracle.genderByID);
 
   const originalTable = page.getByTestId(originalTableTestId);
-  await action('select original table manually', originalTable, () => originalTable.click(), {
-    after: () => page.waitForFunction(testId => document.querySelector(`[data-testid="${CSS.escape(testId)}"]`)?.getAttribute('aria-current') === 'page', originalTableTestId),
+  await measuredTableAction('select original table manually', originalTable, () => originalTable.click(), {
+    after: remaining => waitForSelectedTable(originalTableTestId, remaining()),
+    outputId: originalOutputId,
   });
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(({ explorer, testId }) => document.querySelector('select[aria-label="Explorer"]')?.value === explorer &&
-    document.querySelector(`[data-testid="${CSS.escape(testId)}"]`)?.getAttribute('aria-current') === 'page',
-  { explorer: created.explorer, testId: originalTableTestId }, { timeout: 5000 });
+  await reloadTableWorkspace({
+    label: 'reload manual table selection to exact rows',
+    explorerId: created.explorer,
+    count: 2,
+    testId: originalTableTestId,
+    outputId: originalOutputId,
+  });
   selectedAfterReload = await page.locator('[data-testid^="construction-table-"][aria-current="page"]').getAttribute('data-testid');
   check('persistence', 'manual table selection survives reload', selectedAfterReload === originalTableTestId,
     { expectedTableTestId: originalTableTestId, selectedTableTestId: selectedAfterReload });
 
   const renamedCopy = page.getByTestId(duplicatedTableIdentity.testId);
-  await action('select renamed table before deletion', renamedCopy, () => renamedCopy.click(), {
-    after: () => page.waitForFunction(testId => document.querySelector(`[data-testid="${CSS.escape(testId)}"]`)?.getAttribute('aria-current') === 'page', duplicatedTableIdentity.testId),
+  await measuredTableAction('select renamed table before deletion', renamedCopy, () => renamedCopy.click(), {
+    after: remaining => waitForSelectedTable(duplicatedTableIdentity.testId, remaining()),
+    outputId: duplicatedTableIdentity.outputId,
   });
   page.once('dialog', async dialog => {
     report.target.deleteDialogType = dialog.type();
     await dialog.accept();
   });
   const deleteButton = page.getByTestId('construction-delete-table');
-  await action('delete duplicated table', deleteButton, () => deleteButton.click(), {
-    after: async () => {
-      await page.getByTestId(originalTableTestId).waitFor({ state: 'visible' });
-      await page.waitForFunction(testId => {
-        const selected = [...document.querySelectorAll('[data-testid^="construction-table-"][aria-current="page"]')];
-        return document.querySelectorAll('[data-testid^="construction-table-"]').length === 1 &&
-          selected.length === 1 && selected[0].getAttribute('data-testid') === testId;
-      }, originalTableTestId);
+  await measuredTableAction('delete duplicated table and render fallback rows', deleteButton, () => deleteButton.click(), {
+    after: async remaining => {
+      await page.getByTestId(originalTableTestId).waitFor({ state: 'visible', timeout: remaining() });
+      await waitForSelectedTable(originalTableTestId, remaining());
     },
+    outputId: originalOutputId,
   });
   check('persistence', 'selected-table deletion immediately falls back to the remaining table',
     await page.getByTestId(originalTableTestId).getAttribute('aria-current') === 'page',
     { selectedTableTestId: await page.locator('[data-testid^="construction-table-"][aria-current="page"]').getAttribute('data-testid'), dialogType: report.target.deleteDialogType });
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(({ explorer, count }) => document.querySelector('select[aria-label="Explorer"]')?.value === explorer &&
-    document.querySelectorAll('[data-testid^="construction-table-"]').length === count &&
-    document.body.innerText.includes('DATASET WORKSPACE'), { explorer: created.explorer, count: 1 }, { timeout: 5000 });
+  await reloadTableWorkspace({
+    label: 'reload deletion fallback to exact rows',
+    explorerId: created.explorer,
+    count: 1,
+    testId: originalTableTestId,
+    outputId: originalOutputId,
+  });
   const renamedStillPresent = await page.getByTestId(duplicatedTableIdentity.testId).count();
   check('persistence', 'deleted table stays absent after reload', renamedStillPresent === 0, { count: renamedStillPresent });
   selectedAfterReload = await page.locator('[data-testid^="construction-table-"][aria-current="page"]').getAttribute('data-testid');
   check('persistence', 'selected-table removal falls back to the remaining table after reload', selectedAfterReload === originalTableTestId,
     { expectedTableTestId: originalTableTestId, selectedTableTestId: selectedAfterReload });
-  await checkPreviewPatients(page, report, oracle.ids, check, oracle.genderByID);
 
   const newExplorer = page.getByText('New explorer', { exact: true });
   await action('open Explorer copy creation', newExplorer, () => newExplorer.click(), {
@@ -541,46 +743,64 @@ export const tablesWorkflow = async ({ page, report, action, check }, context) =
   const copyOption = page.getByRole('checkbox', { name: 'Start with a copy of the current explorer', exact: true });
   await action('select copy current Explorer option', copyOption, () => copyOption.check());
   const copyButton = page.getByRole('button', { name: 'Create copy', exact: true });
-  await action('copy configured Explorer', copyButton, () => copyButton.click(), {
-    timeout: 5000,
-    budget: 5000,
-    after: () => page.waitForFunction(expected => document.querySelector('select[aria-label="Explorer"]')?.selectedOptions[0]?.textContent?.trim() === expected &&
-      Boolean(document.querySelector('button[aria-label^="Select Patient ID"]')) && Boolean(document.querySelector('button[aria-label^="Select Gender"]')), copyTitle, { timeout: 5000 }),
+  let copyExplorer;
+  let copiedTableIdentity;
+  await measuredTableAction('copy configured Explorer and render exact rows', copyButton, () => copyButton.click(), {
+    after: async remaining => {
+      await page.waitForFunction(expected => document.querySelector('select[aria-label="Explorer"]')?.selectedOptions[0]?.textContent?.trim() === expected &&
+        Boolean(document.querySelector('button[aria-label^="Select Patient ID"]')) && Boolean(document.querySelector('button[aria-label^="Select Gender"]')),
+      copyTitle, { timeout: remaining() });
+      copyExplorer = await page.getByRole('combobox', { name: 'Explorer' }).inputValue();
+      copiedTableIdentity = await selectedTableIdentity();
+    },
+    outputId: async () => {
+      assert(copiedTableIdentity, 'Copied Explorer must select its configured output table');
+      return copiedTableIdentity.outputId;
+    },
   });
   report.target.sourceExplorer = created.explorer;
-  const copyExplorer = await page.getByRole('combobox', { name: 'Explorer' }).inputValue();
   report.target.explorer = copyExplorer;
   check('correctness', 'copied Explorer is distinct from its source', Boolean(copyExplorer && copyExplorer !== created.explorer),
     { sourceExplorer: created.explorer, copiedExplorer: copyExplorer, title: copyTitle });
-  await checkPreviewPatients(page, report, oracle.ids, check, oracle.genderByID);
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(({ explorer, title }) => document.querySelector('select[aria-label="Explorer"]')?.value === explorer &&
-    document.querySelector('select[aria-label="Explorer"]')?.selectedOptions[0]?.textContent?.trim() === title &&
-    Boolean(document.querySelector('button[aria-label^="Select Patient ID"]')) &&
-    Boolean(document.querySelector('button[aria-label^="Select Gender"]')), { explorer: copyExplorer, title: copyTitle }, { timeout: 5000 });
+  await reloadTableWorkspace({
+    label: 'reload copied Explorer to exact rows',
+    explorerId: copyExplorer,
+    count: 1,
+    testId: copiedTableIdentity.testId,
+    outputId: copiedTableIdentity.outputId,
+    after: async remaining => page.waitForFunction(({ explorer, title }) =>
+      document.querySelector('select[aria-label="Explorer"]')?.value === explorer &&
+      document.querySelector('select[aria-label="Explorer"]')?.selectedOptions[0]?.textContent?.trim() === title,
+    { explorer: copyExplorer, title: copyTitle }, { timeout: remaining() }),
+  });
   check('persistence', 'copied Explorer retains configured fields after reload', true,
     { sourceExplorer: created.explorer, copiedExplorer: copyExplorer, title: copyTitle });
-  await checkPreviewPatients(page, report, oracle.ids, check, oracle.genderByID);
 
   page.once('dialog', async dialog => {
     report.target.emptyWorkspaceDeleteDialogType = dialog.type();
     await dialog.accept();
   });
   const deleteLastTable = page.getByTestId('construction-delete-table');
-  await action('delete the last configured table', deleteLastTable, () => deleteLastTable.click(), {
-    after: async () => {
-      await page.getByText('Build your first table', { exact: true }).waitFor({ state: 'visible' });
-      await page.waitForFunction(() => document.querySelectorAll('[data-testid^="construction-table-"]').length === 0);
+  await measuredTableAction('delete the last configured table to an empty workspace', deleteLastTable, () => deleteLastTable.click(), {
+    after: async remaining => {
+      await page.getByText('Build your first table', { exact: true }).waitFor({ state: 'visible', timeout: remaining() });
+      await page.waitForFunction(() => document.querySelectorAll('[data-testid^="construction-table-"]').length === 0,
+        undefined, { timeout: remaining() });
     },
   });
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.getByText('Build your first table', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
+  await reloadEmptyWorkspace({ label: 'reload empty copied Explorer workspace', explorerId: copyExplorer });
   check('persistence', 'deleting the last table persists an empty workspace', await page.locator('[data-testid^="construction-table-"]').count() === 0,
     { explorer: copyExplorer, title: copyTitle });
   await createPatientTableWithUI({ page, action }, oracle.ids);
   await checkPreviewPatients(page, report, oracle.ids, check);
   await configurePatientGenderWithUI({ page, action });
   await checkPreviewPatients(page, report, oracle.ids, check, oracle.genderByID);
+  const allTableTransitionsWithinBudget = tableRenderCheckpoints.length === 13 &&
+    tableRenderCheckpoints.every(checkpoint => checkpoint.withinBudget && checkpoint.durationMs <= 5000);
+  check('performance', tableRenderCheck, allTableTransitionsWithinBudget, {
+    budgetMs: 5000,
+    checkpoints: [...tableRenderCheckpoints],
+  });
   const sourceAfter = createHash('sha256').update(readFileSync(oracle.path)).digest('hex');
   check('correctness', 'independent Patient source stayed unchanged during Builder verification', sourceAfter === oracle.sha256,
     { before: oracle.sha256, after: sourceAfter, path: oracle.path });

@@ -96,6 +96,42 @@ test('duplicated table locator resolves its generated output ID from the visible
   }
 });
 
+
+test('tables lifecycle timing requires every exact-preview transition to stay within five seconds', () => {
+  const contract = scenarioCaseFor('builder-controls', 'tables');
+  const checkName = 'table lifecycle actions and reloads render exact rows or the empty workspace within five seconds';
+  assert.ok(contract.requiredChecks.includes(checkName));
+  assert.equal(contract.playwrightGrep, 'Duplicate, rename, select, delete, copy, and reload tables$');
+
+  const reportFor = durationMs => ({
+    schemaVersion: 2,
+    status: 'passed',
+    dimensions: {
+      usability: { status: 'passed' },
+      correctness: { status: 'passed' },
+      persistence: { status: 'passed' },
+      performance: { status: 'passed' },
+    },
+    assertions: contract.requiredChecks.map(name => ({
+      name,
+      status: 'passed',
+      dimension: name === checkName ? 'performance' : 'persistence',
+      ...(name === checkName ? { evidence: { budgetMs: 5000, checkpoints: Array.from({ length: 13 }, (_, index) => ({
+        name: `table transition ${index + 1}`,
+        durationMs,
+        budgetMs: 5000,
+      })) } } : {}),
+    })),
+  });
+
+  const atBoundary = reportFor(5000);
+  const summary = summarizeRenderCheckpoints(atBoundary, { requiredCheckNames: [checkName] });
+  assert.equal(summary.checkpoints.length, 13);
+  assert.ok(summary.checkpoints.every(checkpoint => checkpoint.durationMs === 5000));
+  assert.equal(classifyEvidence(atBoundary, contract.requiredChecks, contract), 'passed');
+  assert.equal(classifyEvidence(reportFor(5001), contract.requiredChecks, contract), 'failed');
+});
+
 test('first-table reload timing is a required performance check with the five-second limit', () => {
   const contract = scenarioCaseFor('builder-controls', 'first-table');
   const persistenceChecks = [

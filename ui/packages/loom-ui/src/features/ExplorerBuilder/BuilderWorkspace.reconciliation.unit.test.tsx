@@ -2543,6 +2543,66 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
+  it('aborts pending reconciliation when the selected table changes or is deleted', async () => {
+    const patientDocument: ExplorerBuilderWorkspace['documents'][number] = {
+      ...workspace.documents[0],
+      output: { id: 'patients', title: 'Patients' },
+      rootResourceType: 'Patient',
+      route: { occurrenceId: 'base', resourceType: 'Patient' },
+      columns: [column],
+    };
+    const multiTableWorkspace: ExplorerBuilderWorkspace = {
+      ...workspace,
+      documents: [workspace.documents[0], patientDocument],
+      tabs: [
+        ...workspace.tabs,
+        { id: 'patients-tab', title: 'Patients', outputId: 'patients', order: 1, visible: true },
+      ],
+    };
+    const originalTableReconcile = abortableRequest<ExplorerBuilderCompileResult>();
+    const selectedTableReconcile = abortableRequest<ExplorerBuilderCompileResult>();
+    reconcile
+      .mockReturnValueOnce(originalTableReconcile)
+      .mockReturnValueOnce(selectedTableReconcile);
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, workspace: multiTableWorkspace },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId('construction-table-specimens')).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select second table' }));
+    await waitFor(() => expect(screen.getByTestId('construction-table-patients')).toHaveAttribute(
+      'aria-current',
+      'page',
+    ));
+    await waitFor(() => expect(originalTableReconcile.abort).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
+    expect(selectedTableReconcile.abort).not.toHaveBeenCalled();
+
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete selected table' }));
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
+      commands: [{ type: 'DELETE_TABLE', outputId: 'patients' }],
+    })));
+    await waitFor(() => expect(selectedTableReconcile.abort).toHaveBeenCalled());
+    expect(originalTableReconcile.abort).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('does not resume stale preview recovery after a patient column changes', async () => {
     let resolveRefresh: (
       value: { readonly data: typeof builderState },
