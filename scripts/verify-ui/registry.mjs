@@ -401,6 +401,20 @@ export const registry = Object.freeze([
               'scripts/verify-ui/registry.mjs',
             ],
           },
+          {
+            id: 'builder-repeated-capabilities-readiness',
+            cwd: '.',
+            command: [
+              'node-test',
+              'scripts/verify-ui/helpers/tests/construction-capabilities-readiness.test.mjs',
+              'scripts/verify-ui/helpers/tests/builder-repeated-native-abort-probe.test.mjs',
+            ],
+            sourceFiles: [
+              'scripts/verify-ui/helpers/construction-capabilities-readiness.mjs',
+              'scripts/verify-ui/helpers/playwright-authoring-page.mjs',
+              'scripts/verify-ui/workflows/builder-repeated.mjs',
+            ],
+          },
         ],
         requiredChecks: [
           "case started with a fresh owned project and the exact repeated-empty fixture contract",
@@ -838,6 +852,20 @@ export const registry = Object.freeze([
               'scripts/verify-ui/workflows/root-quantity-pivot-workflow.mjs',
               'scripts/verify-ui/specs/root-quantity-pivot.spec.mjs',
               'scripts/verify-ui/registry.mjs',
+            ],
+          },
+          {
+            id: 'root-quantity-pivot-capabilities-readiness',
+            cwd: '.',
+            command: [
+              'node-test',
+              'scripts/verify-ui/helpers/tests/construction-capabilities-readiness.test.mjs',
+              'scripts/verify-ui/helpers/tests/root-quantity-pivot-selection.test.mjs',
+            ],
+            sourceFiles: [
+              'scripts/verify-ui/helpers/construction-capabilities-readiness.mjs',
+              'scripts/verify-ui/helpers/playwright-authoring-page.mjs',
+              'scripts/verify-ui/workflows/root-quantity-pivot-workflow.mjs',
             ],
           },
         ],
@@ -3421,6 +3449,24 @@ export const registry = Object.freeze([
     cases: {
       "group-join": {
         playwrightTest: "scripts/verify-ui/specs/cda-current-draft-group-join.spec.mjs",
+        focusedChecks: [
+          {
+            id: 'group-join-native-request-capture',
+            cwd: '.',
+            command: [
+              'node-test',
+              'scripts/verify-ui/helpers/cda-current-draft-group-join-workflow.test.mjs',
+              'scripts/verify-ui/helpers/tests/cda-playwright-requests.test.mjs',
+            ],
+            sourceFiles: [
+              'scripts/verify-ui/workflows/cda-current-draft-group-join-workflow.mjs',
+              'scripts/verify-ui/helpers/native-abort-probe.mjs',
+              'scripts/verify-ui/helpers/cda-fixtures.mjs',
+              'scripts/verify-ui/helpers/cda-playwright.mjs',
+              'scripts/verify-ui/helpers/cda-playwright-requests.mjs',
+            ],
+          },
+        ],
         requiredChecks: [
           "CDA raw oracle finds independent bounded Observation memberships with shared and left-only subject.reference Group keys",
           "fresh CDA Explorer matches project, generation, snapshot, authorization scope, and empty baseline",

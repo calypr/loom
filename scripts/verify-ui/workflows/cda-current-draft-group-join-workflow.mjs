@@ -14,6 +14,7 @@ import {
 } from '../helpers/builder-combine-draft-helpers.mjs';
 import { nativeCombineTargetBindingEvidence, rootedEmptyTargetRestorationEvidence } from '../helpers/builder-combine-helpers.mjs';
 import { proposalPreviewReadinessExpression } from '../helpers/proposal-preview-readiness.mjs';
+import { installNativeAbortProbe } from '../helpers/native-abort-probe.mjs';
 
 const ACTION_CHECK = 'all native lifecycle actions complete within five seconds';
 const TABLE_SELECTOR = '[data-testid="preview-table-scroll"] [role="table"]';
@@ -88,6 +89,32 @@ export function prepareCdaGroupJoinOracle(rows) {
     expectedInner: joinGroupedCounts(expectedLeftInitial, expectedRight, 'INNER'),
     expectedDistinctInner: joinGroupedCounts(expectedLeftDistinct, expectedRight, 'INNER'),
   };
+}
+
+export async function installGroupJoinNativeCapture({ page, cda, project, explorer, uiOrigin }) {
+  assert(cda?.report?.target && typeof cda.captureRequests === 'function',
+    'Group/Join native capture needs the CDA report and shared request tracker');
+  assert(typeof project === 'string' && project.length > 0, 'Group/Join native capture needs the exact project');
+  assert(typeof explorer === 'string' && explorer.length > 0, 'Group/Join native capture needs the fresh Explorer');
+  assert.equal(cda.report.target.project, project, 'Group/Join capture must use the exact reported CDA project');
+
+  const explorerBase = apiRoot(project, explorer);
+  const ownedPathPrefix = `${explorerBase}/authoring/v2`;
+  const origin = new URL(uiOrigin).origin;
+  assert.equal(new URL(cda.report.target.uiUrl).origin, origin,
+    'Group/Join probe and native capture must use the exact owned UI origin');
+  await installNativeAbortProbe({ page, report: cda.report, project, explorer, apiOrigin: uiOrigin });
+
+  cda.report.explorer = explorer;
+  cda.report.target.explorer = explorer;
+  cda.report.nativeRequestCaptureScope = {
+    project,
+    explorer,
+    selectedExplorer: explorer,
+    origin,
+    observedPathPrefix: ownedPathPrefix,
+  };
+  return cda.captureRequests(ownedPathPrefix, { responsePaths: /commands|construction-proposals/ });
 }
 
 export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
@@ -995,8 +1022,8 @@ export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
     explorer = explorerResponse.explorerId ?? explorerResponse.id ?? explorerResponse.explorer?.id ?? rawExplorer;
     assert.equal(explorer, rawExplorer, 'Fresh Explorer creation must preserve the exact owned unique ID');
     explorerBase = apiRoot(project, explorer);
-    requestCapture = cda.captureRequests(`${explorerBase}/authoring/v2`, {
-      responsePaths: /commands|construction-proposals/,
+    requestCapture = await installGroupJoinNativeCapture({
+      page, cda, project, explorer, uiOrigin,
     });
     const explorerList = await api(`/api/v1/projects/${encoded(project)}/explorers`);
     const summaries = Array.isArray(explorerList) ? explorerList : explorerList.explorers ?? explorerList.value ?? [];
