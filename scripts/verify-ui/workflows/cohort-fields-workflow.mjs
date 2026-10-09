@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { isDeepStrictEqual } from 'node:util';
 import { test, expect } from '../helpers/cda-fixtures.mjs';
 import { createNativeCdaWorkflowTools, validatedArangoContainer } from '../helpers/native-cda-workflow-tools.mjs';
+import { assertCohortMemberFieldBinding } from '../helpers/cohort-identities.mjs';
 
 export async function cohortFieldsWorkflow({ page, cda, caseOptions = {} }) {
   const { click, fill, selectOption, navigate, clickControl, fillControl, selectControl,
@@ -28,6 +29,9 @@ const postCohortFilter=caseOptions.postCohortFilter === true;
 const collectionRoundTrip=caseOptions.collectionRoundTrip === true;
 const removeCohortAnchor=caseOptions.removeCohortAnchor === true;
 const authoredExpand=caseOptions.authoredExpand === true;
+const assertDefaultResourceTypeBinding = memberField === 'resourceType'
+  && !authoredFilter && !filterOneMember && !editCohortPolicy && !postCohortFilter
+  && !collectionRoundTrip && !removeCohortAnchor && !authoredExpand;
 assert(!filterOneMember || authoredFilter, 'LOOM_COHORT_FILTER_ONE requires LOOM_COHORT_COMPOSITION=1');
 assert(!removeCohortAnchor || (authoredFilter&&!filterOneMember), 'Anchor removal requires the source EXISTS composition case');
 assert(!authoredExpand || (memberField==='id' && !authoredFilter && !filterOneMember && !editCohortPolicy && !postCohortFilter && !collectionRoundTrip && !removeCohortAnchor), 'Authored cohort EXPAND requires the isolated Specimen.id ALL-member lifecycle mode');
@@ -267,6 +271,21 @@ await nativeClick(page, '[data-testid="construction-choice-proposal-panel"] butt
 await waitUI(`!document.querySelector('[data-testid="construction-choice-proposal-panel"]')&&!document.body.innerText.includes('Loading your table…')&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='4'`);
 recordRender('cohort-member-field-apply',start);
 builder=await api(base+'/builder');
+const defaultMemberFieldBinding=assertDefaultResourceTypeBinding
+  ? assertCohortMemberFieldBinding(doc(builder), {
+    cohortRevisionId: cohort.revisionId,
+    selectionRevisionId: selection.id,
+    fieldPath: memberField,
+  })
+  : undefined;
+if(defaultMemberFieldBinding) report.memberFieldBinding={
+  cohortRevisionId: defaultMemberFieldBinding.cohortRevisionId,
+  selectionRevisionId: defaultMemberFieldBinding.selectionRevisionId,
+  columnId: defaultMemberFieldBinding.binding.columnId,
+  column: defaultMemberFieldBinding.column.column,
+  policy: defaultMemberFieldBinding.binding.policy,
+  source: defaultMemberFieldBinding.column.source,
+};
 report.savedFieldDocument=structuredClone(doc(builder));
 let cohortExpandBaseline;
 let cohortExpandMemberColumn;
@@ -307,10 +326,25 @@ const verifyReload=async(withField)=>{
 };
 await verifyReload(true);
 builder=await api(base+'/builder');
+if(defaultMemberFieldBinding){
+  const reloadedMemberFieldBinding=assertCohortMemberFieldBinding(doc(builder), {
+    cohortRevisionId: cohort.revisionId,
+    selectionRevisionId: selection.id,
+    fieldPath: memberField,
+  });
+  assert.equal(reloadedMemberFieldBinding.binding.columnId,defaultMemberFieldBinding.binding.columnId,
+    'Reload must retain the exact ALL member-field column binding');
+  assert.equal(reloadedMemberFieldBinding.column.column,defaultMemberFieldBinding.column.column,
+    'Reload must retain the exact ALL member-field physical column');
+}
 const memberFieldReloadMatches = isDeepStrictEqual(doc(builder), report.savedFieldDocument);
 assert.deepEqual(doc(builder), report.savedFieldDocument, 'Applied member field and cohort document must survive Builder reload exactly');
 cda.check('persistence', 'ALL member field and cohort persist exactly after Builder reload', memberFieldReloadMatches,
-  { outputId, cohortRevisionId: cohort.revisionId, selectionRevisionId: selection.id, field: memberField });
+  { outputId, cohortRevisionId: cohort.revisionId, selectionRevisionId: selection.id, field: memberField,
+    ...(defaultMemberFieldBinding ? { policy: defaultMemberFieldBinding.binding.policy,
+      memberColumnId: defaultMemberFieldBinding.binding.columnId,
+      memberColumn: defaultMemberFieldBinding.column.column,
+      source: defaultMemberFieldBinding.column.source } : {}) });
 if(authoredExpand){
   const readGrid=async()=>inspect(()=>{
     const proposal=document.querySelector('[data-testid="construction-proposal-preview"]');

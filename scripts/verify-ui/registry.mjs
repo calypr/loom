@@ -4170,6 +4170,18 @@ export const registry = Object.freeze([
     cases: {
       "cohort-fields": {
         playwrightTest: "scripts/verify-ui/specs/standalone-cda-fields.spec.mjs",
+        focusedChecks: [
+          {
+            id: 'cohort-fields-saved-member-binding-contract',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/cohort-identities.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/helpers/cohort-identities.mjs',
+              'scripts/verify-ui/workflows/cohort-fields-workflow.mjs',
+              'scripts/verify-ui/registry.mjs',
+            ],
+          },
+        ],
         requiredChecks: [
           "raw CDA oracle and immutable selection match the exact two scoped Specimen IDs",
           "saved cohort and Apply controls are enabled in native Rows settings",
