@@ -5,6 +5,7 @@ import { mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, 
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, sep } from 'node:path';
 import { classifyEvidence, classifyFreshness, lifecycleEvidenceContractIssues, readReports, summarizeCoverage, summarizeRenderCheckpoints } from '../coverage-status.mjs';
+import { createReport, recordCheck } from '../report.mjs';
 import { caseNamesFor, coverageDrift, hasLifecycleContract, registry, requiresLifecycleAcceptance, scenarioCaseFor, unmappedLifecycleCoverage } from '../../registry.mjs';
 import { buildArangoShellInvocation } from '../owned-arangosh-command.mjs';
 import { finalOutputSchema, sourceColumnSchema } from '../unpivot-schema.mjs';
@@ -197,6 +198,33 @@ test('action and scalar timing evidence validate and preserve explicit metadata'
     ['assertions[].evidence.limitMs', 'limitMs must be a finite positive number.'],
     ['assertions[].evidence.withinBudget', 'withinBudget must be a boolean.'],
   ]);
+});
+
+test('native action total elapsed time is the performance checkpoint and enforces the five-second ceiling', () => {
+  const checkName = 'native click to rendered value within budget';
+  const contract = { requiredChecks: [checkName] };
+  const reportFor = (elapsedMs, afterMs) => {
+    const report = createReport({
+      scenario: 'native-action-timing', target: {}, caseName: 'action-timing', requiredChecks: [checkName],
+    });
+    recordCheck(report, 'performance', checkName, true, { elapsedMs, afterMs, budgetMs: 5000 });
+    report.status = 'passed';
+    return report;
+  };
+
+  const atBudget = reportFor(5000, 4999);
+  const atBudgetAssertion = atBudget.assertions[0];
+  assert.deepEqual(atBudgetAssertion.evidence, { elapsedMs: 5000, afterMs: 4999, budgetMs: 5000 });
+  const atBudgetSummary = summarizeRenderCheckpoints(atBudget, { requiredCheckNames: [checkName] });
+  assert.equal(atBudgetSummary.count, 1);
+  assert.deepEqual(atBudgetSummary.checkpoints.map(({ durationMs, budgetMs }) => [durationMs, budgetMs]), [[5000, 5000]]);
+  assert.equal(classifyEvidence(atBudget, [checkName], contract), 'passed');
+
+  const overBudget = reportFor(5001, 1);
+  const overBudgetSummary = summarizeRenderCheckpoints(overBudget, { requiredCheckNames: [checkName] });
+  assert.deepEqual(overBudgetSummary.checkpoints.map(({ durationMs, budgetMs }) => [durationMs, budgetMs]), [[5001, 5000]]);
+  assert.equal(classifyEvidence(overBudget, [checkName], contract), 'failed',
+    'Coverage must reject total elapsed time over budget even when afterMs is small and the assertion reports passed');
 });
 
 test('generic checkpoints require declared performance evidence while legacy fields retain compatibility', () => {

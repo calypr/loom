@@ -85,25 +85,55 @@ export const registry = Object.freeze([
       'list and builder-state read faults show the V2 error alert and an actionable in-app retry',
       'reload separately restores list or builder-state reads when Retry is unavailable',
     ],
-    gateReasons: [
-      'builder load error currently has no retry control',
-    ],
+    gateReasons: [],
     script: 'builder-load.mjs',
     cases: {
       "list": {
         playwrightTest: "scripts/verify-ui/specs/builder-load.spec.mjs",
+        playwrightGrep: 'Builder load list recovery shows the list failure and recovers through the in-app Retry',
+        focusedChecks: [
+          {
+            id: 'builder-load-retry-contract',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/builder-load.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/workflows/builder-load.mjs',
+              'scripts/verify-ui/specs/builder-load.spec.mjs',
+              'scripts/verify-ui/helpers/fixtures.mjs',
+              'scripts/verify-ui/helpers/coverage-status.mjs',
+            ],
+          },
+        ],
         requiredChecks: [
           "builder failure is exposed in an alert",
           "builder failure exposes an actionable in-app retry",
           "builder recovered through in-app Retry",
+          "builder in-app Retry action-to-render within budget",
         ],
       },
       "state": {
         playwrightTest: "scripts/verify-ui/specs/builder-load.spec.mjs",
+        playwrightGrep: 'Builder load state recovery shows the state failure and recovers through the in-app Retry',
+        focusedChecks: [
+          {
+            id: 'builder-load-retry-contract',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/builder-load.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/workflows/builder-load.mjs',
+              'scripts/verify-ui/specs/builder-load.spec.mjs',
+              'scripts/verify-ui/helpers/fixtures.mjs',
+              'scripts/verify-ui/helpers/coverage-status.mjs',
+            ],
+          },
+        ],
         requiredChecks: [
           "builder failure is exposed in an alert",
           "builder failure exposes an actionable in-app retry",
           "builder recovered through in-app Retry",
+          "builder in-app Retry action-to-render within budget",
         ],
       },
     },

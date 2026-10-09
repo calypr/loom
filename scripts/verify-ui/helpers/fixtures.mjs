@@ -472,7 +472,7 @@ export const test = base.extend({
           { elapsedMs: Math.round(elapsedMs), afterMs: afterMs === undefined ? null : Math.round(afterMs) });
         if (after) {
           recordCheck(report, 'performance', requiredCheck ?? `${label} action-to-render within budget`,
-            passed, { afterMs: afterMs === undefined ? null : Math.round(afterMs), budgetMs });
+            passed, { elapsedMs: Math.round(elapsedMs), afterMs: afterMs === undefined ? null : Math.round(afterMs), budgetMs });
         }
         if (activeActionContext === actionContext) activeActionContext = undefined;
         if (activeAction?.id === actionID) activeAction = undefined;
