@@ -6,8 +6,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { browserURL } from './builder-url.mjs';
 import { recordCheck } from '../helpers/report.mjs';
-import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
-import { assertNullableNativeRequestLedgerComplete, buildNullableNativeRequestLedger, builderCancelStateEvidence, nativeResponseScopeEvidence, removalProposalEvidence, retainNullableNativeCaptureErrors } from '../helpers/builder-combine-nullable-helpers.mjs';
+import { assertNullableNativeRequestLedgerComplete, builderCancelStateEvidence, nativeResponseScopeEvidence, removalProposalEvidence } from '../helpers/builder-combine-nullable-helpers.mjs';
 import { classifyNativeBrowserApiRequest } from '../helpers/native-browser-api-scope.mjs';
 import {
   builderRequestURL,
@@ -789,17 +788,15 @@ const performNullableJoinLifecycle = async ({ page, report, action }, context) =
   } finally { proposalCapture.stop(); }
 };
 
-export const nullableJoinWorkflow = async ({ page, report, action }, context) => {
+export const nullableJoinWorkflow = async ({ page, report, action, nativeRequestLedger }, context) => {
   const workflow = { page, report, action };
-  const uiOrigin = new URL(context.target.uiUrl).origin;
   const projectPath = `/api/v1/projects/${encodeURIComponent(context.target.fixtureProject)}/explorers`;
-  const captureReport = { nativeRequests: [], errors: [] };
-  const capture = captureCDARequests(page, {
-    apiOrigin: uiOrigin,
-    browserRequestOrigin: uiOrigin,
-    appOrigins: [uiOrigin],
-    ownedPathPrefix: projectPath,
-    report: captureReport,
+  if (!nativeRequestLedger?.openScope || !nativeRequestLedger?.flush) {
+    throw new TypeError('Nullable Combine requires the fixture-owned native request ledger.');
+  }
+  const scope = nativeRequestLedger.openScope({
+    project: context.target.fixtureProject,
+    origin: new URL(context.target.uiUrl).origin,
   });
 
   let workflowError;
@@ -810,37 +807,40 @@ export const nullableJoinWorkflow = async ({ page, report, action }, context) =>
   }
 
   let captureError;
+  let ledger;
   try {
-    await capture.flush({ timeoutMs: 5000, waitForNativeRequestTerminals: true });
+    ledger = await nativeRequestLedger.flush(scope, {
+      explorer: report.target?.explorer,
+      timeoutMs: 5000,
+    });
   } catch (error) {
     captureError = error;
   }
 
-  const ledger = buildNullableNativeRequestLedger({
-    project: context.target.fixtureProject,
-    explorer: report.target?.explorer,
-    nativeRequests: captureReport.nativeRequests,
-    nativeRequestDrainEvidence: captureReport.nativeRequestDrainEvidence,
-  });
-  report.nativeRequests = ledger.nativeRequests;
-  report.nativeRequestDrainEvidence = ledger.nativeRequestDrainEvidence;
-  report.nativeRequestTerminalLedger = ledger.nativeRequestTerminalLedger;
-  report.nativeRequestCaptureScope = {
-    observedPathPrefix: projectPath,
-    observedScope: 'all Explorer routes inside the fresh fixture project, including other Explorers seen by the prefix-wide flush',
-    terminalLedgerScope: ledger.nativeRequestTerminalLedger.scope,
-    excludedFromSelectedExplorerLedger: {
-      meaning: 'Other same-project Explorer requests are retained as diagnostic context but are not evidence about the selected Explorer lifecycle.',
-      requests: ledger.excludedNativeRequests.map(({ requestId, browserRequestId, method, path, status, failure, nativeEventChronology }) => ({
-        requestId, browserRequestId, method, path, status: status ?? null, failure: failure ?? null,
-        terminalEvent: (nativeEventChronology ?? []).find(({ event }) => event === 'requestfinished' || event === 'requestfailed')?.event ?? null,
-      })),
-      drainEvidence: ledger.excludedNativeRequestDrainEvidence,
-    },
-  };
-  retainNullableNativeCaptureErrors(report, captureReport.errors);
+  if (ledger) {
+    report.nativeRequests = ledger.nativeRequests;
+    report.nativeRequestDrainEvidence = ledger.nativeRequestDrainEvidence;
+    report.excludedNativeRequests = ledger.excludedNativeRequests;
+    report.excludedNativeRequestDrainEvidence = ledger.excludedNativeRequestDrainEvidence;
+    report.nativeRequestCorrelationErrors = ledger.nativeRequestCorrelationErrors;
+    report.nativeRequestTerminalLedger = ledger.nativeRequestTerminalLedger;
+    report.nativeRequestCaptureScope = {
+      observedPathPrefix: projectPath,
+      observedScope: 'all Explorer routes inside the fresh fixture project, including other Explorers seen by the prefix-wide flush',
+      terminalLedgerScope: ledger.nativeRequestTerminalLedger.scope,
+      excludedFromSelectedExplorerLedger: {
+        meaning: 'Other same-project Explorer requests are retained as diagnostic context but are not evidence about the selected Explorer lifecycle.',
+        requests: ledger.excludedNativeRequests.map(({ requestId, browserRequestId, method, path, status, failure, nativeEventChronology }) => ({
+          requestId, browserRequestId, method, path, status: status ?? null, failure: failure ?? null,
+          terminalEvent: (nativeEventChronology ?? []).find(({ event }) => event === 'requestfinished' || event === 'requestfailed')?.event ?? null,
+        })),
+        drainEvidence: ledger.excludedNativeRequestDrainEvidence,
+      },
+    };
+  }
 
   if (workflowError) throw workflowError;
   if (captureError) throw captureError;
+  if (!ledger) throw new Error('Nullable Combine native request ledger was not finalized.');
   assertNullableNativeRequestLedgerComplete(ledger);
 };

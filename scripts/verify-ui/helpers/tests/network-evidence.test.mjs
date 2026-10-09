@@ -72,13 +72,23 @@ test('a fulfilled 422 consumes only the matching console diagnostic once', () =>
     playwrightRequestId: 'request-422', method: 'POST', rawURL,
   };
   const message = 'Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
-  const result = applyInjectedFaultPolicy([
-    { kind: 'network', status: 422, method: 'POST', url: target.uiUrl + route, rawURL, playwrightRequestId: 'request-422' },
-    { kind: 'console-error', text: message, location: target.uiUrl + route, rawLocation: rawURL },
-    { kind: 'console-error', text: message, location: target.uiUrl + route, rawLocation: rawURL },
-    { kind: 'console-error', text: message, location: target.uiUrl + route + '?other=1', rawLocation: target.uiUrl + route + '?other=1' },
-    { kind: 'console-error', text: 'Failed to load resource: the server responded with a status of 500 (Internal Server Error)', location: target.uiUrl + route, rawLocation: rawURL },
-  ], [fault]);
+  const diagnostics = [
+    { kind: 'network', status: 422, method: 'POST', url: target.uiUrl + route, rawURL, playwrightRequestId: 'request-422', source: 'http-request' },
+    { kind: 'console-error', text: message, location: target.uiUrl + route, rawLocation: rawURL, source: 'expected-console' },
+    { kind: 'console-error', text: message, location: target.uiUrl + route, rawLocation: rawURL, source: 'duplicate-console' },
+    { kind: 'console-error', text: message, location: target.uiUrl + route + '?other=1', rawLocation: target.uiUrl + route + '?other=1', source: 'other-url-console' },
+    { kind: 'console-error', text: 'Failed to load resource: the server responded with a status of 500 (Internal Server Error)', location: target.uiUrl + route, rawLocation: rawURL, source: 'fatal-console' },
+    { kind: 'exception', message: 'later diagnostic', source: 'tail' },
+  ];
+  const result = applyInjectedFaultPolicy(diagnostics, [fault]);
+  assert.equal(result.length, diagnostics.length,
+    'fixture Request identity association remains a one-to-one projection, including console replacement');
+  assert.equal(result[0].source, 'http-request', 'the HTTP diagnostic remains at its original Request-associated position');
+  assert.equal(result[1].injectedRequestId, 'injected-422', 'the console replacement stays in its source position');
+  assert.equal(result[2].source, 'duplicate-console', 'an unconsumed duplicate stays at its source position');
+  assert.equal(result[3].source, 'other-url-console', 'an unrelated URL stays at its source position');
+  assert.equal(result[4].source, 'fatal-console', 'a fatal HTTP console diagnostic stays at its source position');
+  assert.equal(result[5].source, 'tail', 'later diagnostics are not shifted onto another Request');
   assert.equal(result[0].injectedFault, true);
   assert.equal(result[1].kind, 'network');
   assert.equal(result[1].status, 422);

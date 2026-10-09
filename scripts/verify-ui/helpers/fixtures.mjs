@@ -1,7 +1,6 @@
 import { test as base, expect } from '@playwright/test';
 import { performance } from 'node:perf_hooks';
 import {
-  applyInjectedFaultPolicy,
   captureInjectedFaultRequest,
   capabilityBinding,
   capabilityResponseMatches,
@@ -25,6 +24,11 @@ import { sourceFingerprintChangedPaths, sourceFingerprintWithManifest } from './
 import { captureNativeFailureEvidence, MAX_NATIVE_FAILURE_CAPTURE_MS } from './native-failure-evidence.mjs';
 import { correlateRequestFailure } from './network-timing.mjs';
 import { captureConstructionChoiceProposalRequest } from './construction-choice-request.mjs';
+import {
+  createFixtureNativeRequestLedger,
+  finalizeFixtureNativeRequestReport,
+  projectFixtureNetworkDiagnostics,
+} from './native-request-ledger.mjs';
 
 const ACTION_TIMEOUT_MS = 5_000;
 const CONTEXT_SETUP_TIMEOUT_MS = 120_000;
@@ -226,6 +230,7 @@ export const test = base.extend({
     const capabilityRequests = new Map();
     const requestIDs = new WeakMap();
     const requestMetadata = new WeakMap();
+    const nativeRequestLedger = createFixtureNativeRequestLedger();
     const mainFrameNavigations = [];
     let navigationSequence = 0;
     let droppedNavigationTimings = 0;
@@ -292,6 +297,17 @@ export const test = base.extend({
           navigationSequenceAtStart: navigationSequence,
         };
         requestMetadata.set(request, metadata);
+        nativeRequestLedger.recordRequest(request, {
+          requestId: metadata.requestDetails.requestId ?? requestId,
+          browserRequestId: requestId,
+          method: metadata.method,
+          resourceType: metadata.resourceType,
+          url: metadata.url,
+          requestDetails: metadata.requestDetails,
+          startedAt: Date.now(),
+          action: metadata.action,
+          navigationSequenceAtStart: metadata.navigationSequenceAtStart,
+        });
       }
       const binding = capabilityBinding(request, { ...target, explorer: report.target.explorer ?? target.bootstrapExplorerId });
       if (binding) capabilityRequests.set(request, { binding, sequence: ++requestSequence, status: null, requestAction: actionSnapshot()?.label ?? null });
@@ -332,6 +348,10 @@ export const test = base.extend({
       kind: 'exception', message: safeText(error.message), stack: safeText(error.stack),
     });
     const onResponse = (response) => {
+      nativeRequestLedger.recordResponse(response.request(), {
+        status: response.status(),
+        serverRequestId: response.headers()?.['x-request-id'],
+      });
       const ownedRequest = capabilityRequests.get(response.request());
       if (ownedRequest) {
         ownedRequest.status = response.status();
@@ -360,6 +380,7 @@ export const test = base.extend({
         }) } : {}),
         responseBody,
       };
+      nativeRequestLedger.associateDiagnostic(request, entry);
       if (!addDiagnostic(entry)) return;
       void response.text().then(body => {
         responseBody.captureState = 'completed';
@@ -370,13 +391,17 @@ export const test = base.extend({
       });
     };
     const onRequestFailed = (request) => {
+      const rawErrorText = request.failure()?.errorText ?? null;
+      nativeRequestLedger.recordFailed(request, {
+        failure: rawErrorText == null ? null : safeText(rawErrorText).replace(/https?:\/\/[^\s"'<>]+/g, value => safeURL(value)),
+      });
       if (!belongsToTarget(request)) return;
       const ownedRequest = capabilityRequests.get(request);
       if (ownedRequest) ownedRequest.failed = true;
       const failedAt = performance.now();
       const metadata = requestMetadata.get(request);
       const errorText = safeText(request.failure()?.errorText).replace(/https?:\/\/[^\s\"'<>]+/g, value => safeURL(value));
-      addDiagnostic({
+      const entry = {
         kind: 'network', method: request.method(), url: metadata?.url ?? safeURL(request.url()),
         resourceType: request.resourceType(), errorText,
         rawURL: request.url(),
@@ -389,9 +414,12 @@ export const test = base.extend({
           navigations: mainFrameNavigations,
         }) } : { failedAtMs: Math.round(failedAt - workflowStartedAt) }),
         ...capabilityRequests.get(request), triggerAction: metadata?.action?.label ?? null,
-      });
+      };
+      nativeRequestLedger.associateDiagnostic(request, entry);
+      addDiagnostic(entry);
     };
     const onRequestFinished = request => {
+      nativeRequestLedger.recordFinished(request);
       const ownedRequest = capabilityRequests.get(request);
       if (ownedRequest) ownedRequest.finished = true;
     };
@@ -532,7 +560,7 @@ export const test = base.extend({
     };
 
     try {
-      await use({ ...loomContext, page, check, action, fault });
+      await use({ ...loomContext, page, check, action, fault, nativeRequestLedger });
     } finally {
       for (const handler of faultRouteHandlers) await page.unroute('**/*', handler);
       page.removeListener('requestfinished', onRequestFinished);
@@ -542,7 +570,7 @@ export const test = base.extend({
       page.removeListener('pageerror', onPageError);
       page.removeListener('response', onResponse);
       page.removeListener('requestfailed', onRequestFailed);
-      report.network = applyInjectedFaultPolicy(report.network, faultAttempts);
+      projectFixtureNetworkDiagnostics({ report, ledger: nativeRequestLedger, faults: faultAttempts });
       for (const failure of report.network) {
         const replacement = supersedingCapabilityRequest(failure, [...capabilityRequests.values()]);
         if (!replacement) continue;
@@ -550,6 +578,7 @@ export const test = base.extend({
         failure.cancellationReason = 'superseded capability binding has a later successful replacement';
         failure.replacement = { sequence: replacement.sequence, status: replacement.status, finished: replacement.finished, responseMatches: replacement.responseMatches, binding: replacement.binding };
       }
+      finalizeFixtureNativeRequestReport({ report, ledger: nativeRequestLedger, project: target.fixtureProject });
       if (report.assetFailures.length) recordCheck(report, 'correctness', 'incidental asset failures are explicitly recorded', true, { failures: report.assetFailures });
       report.navigationTimings = mainFrameNavigations.map(({ id, atMs, url }) => ({ id, atMs, url }));
       report.browserLifecycle = {
