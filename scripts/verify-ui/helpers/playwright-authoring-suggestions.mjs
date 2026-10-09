@@ -106,6 +106,42 @@ const explorerFromAuthoringPath = pathname => {
   return match ? decodeURIComponent(match[1]) : undefined;
 };
 
+export const isOwnedRootSuggestionRequest = ({
+  method, url, expectedURL, requestId, body, rootNodeId, snapshotToken,
+}) => method === 'POST' && url === expectedURL &&
+  typeof requestId === 'string' && /^suggestions-.+/.test(requestId) &&
+  !requestId.startsWith('first-table-suggestions-') &&
+  typeof rootNodeId === 'string' && body?.nodeId === rootNodeId &&
+  typeof snapshotToken === 'string' && body?.snapshotToken === snapshotToken;
+
+export const waitForOwnedRootSuggestionRequest = async (requestSeen, timeoutMs = 5_000) => {
+  let timer;
+  try {
+    return await Promise.race([
+      requestSeen,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Timed out waiting for the owned root suggestion request.')),
+          timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+export const abortSuggestionRouteAfterUserAction = async (route, actionCompleted, timeoutMs = 5_000) => {
+  let timer;
+  try {
+    return await Promise.race([
+      actionCompleted,
+      new Promise(resolve => { timer = setTimeout(() => resolve(false), timeoutMs); }),
+    ]) === true;
+  } finally {
+    clearTimeout(timer);
+    await route.abort('failed');
+  }
+};
+
 export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => {
   const { page, report, action, check } = workflow;
   configureNativePage(page);
@@ -184,6 +220,11 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
 
   const suggestionAttempts = [];
   const suggestionsPath = `${projectPath}${encodeURIComponent(explorer)}/authoring/v2/suggestions`;
+  let firstTableAttempt;
+  let resolveFirstLazyRequest;
+  const firstLazyRequestSeen = new Promise(resolve => { resolveFirstLazyRequest = resolve; });
+  let completeRawFieldsAction;
+  const rawFieldsActionCompleted = new Promise(resolve => { completeRawFieldsAction = resolve; });
   await page.route(url => url.origin === uiOrigin && url.pathname === suggestionsPath, async route => {
     const request = route.request();
     if (request.method() !== 'POST') {
@@ -194,16 +235,32 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
     try { body = request.postDataJSON(); } catch { body = undefined; }
     const requestId = request.headers()['x-request-id'] ?? body?.requestId ?? null;
     if (typeof requestId === 'string' && requestId.startsWith('first-table-suggestions-')) {
-      suggestionAttempts.push({ kind: 'first-table', requestId, body });
+      const attempt = { kind: 'first-table', requestId, body };
+      firstTableAttempt ??= attempt;
+      suggestionAttempts.push(attempt);
       await route.continue();
       return;
     }
-    if (typeof requestId === 'string' && requestId.startsWith('suggestions-')) {
+    if (isOwnedRootSuggestionRequest({
+      method: request.method(),
+      url: request.url(),
+      expectedURL: `${uiOrigin}${suggestionsPath}`,
+      requestId,
+      body,
+      rootNodeId: firstTableAttempt?.body?.nodeId,
+      snapshotToken: firstTableAttempt?.body?.snapshotToken,
+    })) {
       const attempt = { kind: 'lazy', requestId, body, explorer };
       suggestionAttempts.push(attempt);
       if (suggestionAttempts.filter(candidate => candidate.kind === 'lazy').length === 1) {
         attempt.injectedFault = true;
-        await route.abort('failed');
+        resolveFirstLazyRequest(attempt);
+        try {
+          attempt.actionCompletedBeforeAbort = await abortSuggestionRouteAfterUserAction(
+            route, rawFieldsActionCompleted, 5_000);
+        } finally {
+          attempt.routeReleased = true;
+        }
         return;
       }
     }
@@ -211,45 +268,79 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
   });
 
   const tableName = page.locator('#first-table-name');
-  await act('name Patient table', tableName, () => tableName.fill('Patients'), { editable: true });
-  const firstTableSuggestionsResponse = page.waitForResponse(response => {
-    const request = response.request();
-    const url = new URL(response.url());
-    return request.method() === 'POST' && url.origin === uiOrigin && url.pathname === suggestionsPath &&
-      (request.headers()['x-request-id'] ?? '').startsWith('first-table-suggestions-');
-  });
-  await act('choose Patient rows', page.getByRole('button', { name: 'Choose Patient rows' }),
-    () => page.getByRole('button', { name: 'Choose Patient rows' }).click());
-  const firstTableResponse = await firstTableSuggestionsResponse;
-  const firstTableAttempt = suggestionAttempts.find(candidate => candidate.kind === 'first-table');
-  check('correctness', 'first-table Patient suggestions request succeeds before the lazy retry case',
-    Boolean(firstTableAttempt && firstTableResponse.ok() && firstTableAttempt.requestId.startsWith('first-table-suggestions-')),
-    { requestId: firstTableAttempt?.requestId ?? null, status: firstTableResponse.status() });
-  await page.waitForFunction(rowCount =>
-    document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === String(rowCount),
-  expectedIds.length + 1);
-  const initialPatientIds = await assertPreviewPatientIds(page, expectedIds);
-  check('correctness', 'native Patient root preview renders exact independent fixture IDs before candidate selection',
-    JSON.stringify(initialPatientIds) === JSON.stringify(expectedIds),
-    { expectedIds, visibleIds: initialPatientIds });
-  await page.getByTestId('construction-action-add-columns').waitFor({ state: 'visible' });
-  await page.waitForFunction(() => {
-    const button = document.querySelector('[data-testid="construction-action-add-columns"]');
-    return button && !button.disabled;
-  });
-  const addColumns = page.getByRole('button', { name: /Add columns:/ });
-  await act('open Add columns', addColumns, () => addColumns.click());
-  await page.locator('[aria-label="Add columns editor"]').waitFor({ state: 'visible' });
-  const fieldsRelated = page.getByRole('button', { name: 'Fields and related data' });
-  await act('choose Fields and related data', fieldsRelated, () => fieldsRelated.click());
-  const rawFields = page.getByText('Raw FHIR fields (advanced)', { exact: true });
-  await act('open Raw FHIR fields', rawFields, () => rawFields.click());
+  let rawFieldsActionSignaled = false;
+  let firstLazyAttempt;
+  const signalRawFieldsAction = didOpen => {
+    if (rawFieldsActionSignaled) return;
+    rawFieldsActionSignaled = true;
+    completeRawFieldsAction(didOpen);
+  };
+  try {
+    await act('name Patient table', tableName, () => tableName.fill('Patients'), { editable: true });
+    const firstTableSuggestionsResponse = page.waitForResponse(response => {
+      const request = response.request();
+      const url = new URL(response.url());
+      return request.method() === 'POST' && url.origin === uiOrigin && url.pathname === suggestionsPath &&
+        (request.headers()['x-request-id'] ?? '').startsWith('first-table-suggestions-');
+    });
+    await act('choose Patient rows', page.getByRole('button', { name: 'Choose Patient rows' }),
+      () => page.getByRole('button', { name: 'Choose Patient rows' }).click());
+    const firstTableResponse = await firstTableSuggestionsResponse;
+    const rootNodeId = firstTableAttempt?.body?.nodeId;
+    const rootSnapshotToken = firstTableAttempt?.body?.snapshotToken;
+    check('correctness', 'first-table root suggestions request succeeds before the lazy retry case',
+      Boolean(firstTableAttempt && firstTableResponse.ok() && firstTableAttempt.requestId.startsWith('first-table-suggestions-') &&
+        typeof rootNodeId === 'string' && rootNodeId.length > 0 && typeof rootSnapshotToken === 'string'),
+      { requestId: firstTableAttempt?.requestId ?? null, nodeId: rootNodeId ?? null,
+        snapshotToken: rootSnapshotToken ?? null, status: firstTableResponse.status() });
+    await page.waitForFunction(rowCount =>
+      document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === String(rowCount),
+    expectedIds.length + 1);
+    const initialPatientIds = await assertPreviewPatientIds(page, expectedIds);
+    check('correctness', 'native Patient root preview renders exact independent fixture IDs before candidate selection',
+      JSON.stringify(initialPatientIds) === JSON.stringify(expectedIds),
+      { expectedIds, visibleIds: initialPatientIds });
+    firstLazyAttempt = await waitForOwnedRootSuggestionRequest(firstLazyRequestSeen, 5_000);
+    check('correctness', 'injected transport fault owns the exact lazy Patient root request and snapshot',
+      isOwnedRootSuggestionRequest({
+        method: 'POST',
+        url: `${uiOrigin}${suggestionsPath}`,
+        expectedURL: `${uiOrigin}${suggestionsPath}`,
+        requestId: firstLazyAttempt.requestId,
+        body: firstLazyAttempt.body,
+        rootNodeId,
+        snapshotToken: rootSnapshotToken,
+      }) && firstLazyAttempt.injectedFault,
+      { requestId: firstLazyAttempt.requestId, rootNodeId: firstLazyAttempt.body?.nodeId,
+        snapshotToken: firstLazyAttempt.body?.snapshotToken });
+    await page.getByTestId('construction-action-add-columns').waitFor({ state: 'visible' });
+    await page.waitForFunction(() => {
+      const button = document.querySelector('[data-testid="construction-action-add-columns"]');
+      return button && !button.disabled;
+    });
+    const addColumns = page.getByRole('button', { name: /Add columns:/ });
+    await act('open Add columns', addColumns, () => addColumns.click());
+    await page.locator('[aria-label="Add columns editor"]').waitFor({ state: 'visible' });
+    const fieldsRelated = page.getByRole('button', { name: 'Fields and related data' });
+    await act('choose Fields and related data', fieldsRelated, () => fieldsRelated.click());
+    const rawFields = page.getByText('Raw FHIR fields (advanced)', { exact: true });
+    await act('open Raw FHIR fields', rawFields, () => rawFields.click(), {
+      after: async () => signalRawFieldsAction(true),
+    });
+  } finally {
+    signalRawFieldsAction(false);
+  }
   const rawFieldSection = page.getByTestId('feature-catalog-raw-fields');
   const failedLazyAlert = page.getByTestId('builder-suggestions-error');
   await failedLazyAlert.waitFor({ state: 'visible' });
   const lazyAttemptsBeforeRetry = suggestionAttempts.filter(candidate => candidate.kind === 'lazy');
-  const firstLazyAttempt = lazyAttemptsBeforeRetry[0];
-  assert(firstLazyAttempt?.injectedFault, 'The first lazy Patient suggestions request must be the injected transport failure.');
+  const failedLazyAttempt = lazyAttemptsBeforeRetry[0];
+  assert.equal(failedLazyAttempt, firstLazyAttempt,
+    'The exact root request held until Raw FHIR fields opened must be the injected transport failure.');
+  check('correctness', 'injected lazy suggestion route was released after the Raw FHIR fields action',
+    firstLazyAttempt.actionCompletedBeforeAbort === true && firstLazyAttempt.routeReleased === true,
+    { actionCompletedBeforeAbort: firstLazyAttempt.actionCompletedBeforeAbort ?? false,
+      routeReleased: firstLazyAttempt.routeReleased ?? false });
   const failureRecord = report.network.find(item => item.kind === 'network' &&
     item.requestDetails?.requestId === firstLazyAttempt.requestId && item.method === 'POST' &&
     item.url === `${uiOrigin}${suggestionsPath}` && item.rawURL === `${uiOrigin}${suggestionsPath}` &&
