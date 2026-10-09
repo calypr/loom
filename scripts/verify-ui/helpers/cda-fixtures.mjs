@@ -24,11 +24,12 @@ import {
 } from './cda-playwright.mjs';
 import { applyInjectedFaultPolicy, matchExpectedHttpConsole, ownedFaultTarget, matchesOwnedFaultRequest } from './network-evidence.mjs';
 import { registry, scenarioCaseFor } from '../registry.mjs';
-import { classifyNetworkRecord, createReport, finishReport, recordCheck, writeReport } from './report.mjs';
+import { classifyNetworkRecord, createReport, finishReport, recordCheck, runAfterNativeRequestDrain, writeReport } from './report.mjs';
 import { sanitizeBody, sanitizePayload, sanitizeText } from './playwright-browser.mjs';
 import { captureNativeFailureEvidence, MAX_NATIVE_FAILURE_CAPTURE_MS } from './native-failure-evidence.mjs';
 import { correlateRequestFailure } from './network-timing.mjs';
 import { createPendingResponseReads } from './pending-response-reads.mjs';
+import { flushNativeAbortProbeEvents } from './native-abort-probe.mjs';
 
 const ACTION_TIMEOUT_MS = 5_000;
 const MAX_DIAGNOSTICS = 100;
@@ -452,6 +453,8 @@ export const test = base.extend({
       }
     };
     const trackers = new Set();
+    const afterNativeRequestDrainProjections = [];
+    let projectionRegistrationOpen = true;
     const faultAttempts = [];
     const faultHandlers = [];
     const requestIDs = new WeakMap();
@@ -1121,6 +1124,11 @@ export const test = base.extend({
         trackers.add(tracker);
         return tracker;
       },
+      registerAfterNativeRequestDrainProjection: projection => {
+        if (!projectionRegistrationOpen) throw new Error('CDA report projections must be registered before native request drain.');
+        if (typeof projection !== 'function') throw new TypeError('CDA report projection must be a function.');
+        afterNativeRequestDrainProjections.push(projection);
+      },
       waitForCapturedResponse: (tracker, predicate, timeout) => waitForCapturedResponse(page, tracker, predicate, timeout),
       includeBrowserDiagnostics: () => includeBrowserDiagnostics(diagnostics, report),
       attachReport: async (name, value = report) => {
@@ -1136,6 +1144,7 @@ export const test = base.extend({
     report.target.apiBuildIdentity = identity.apiBuildIdentity;
     report.fixtureTimings.setupMs = Math.round(performance.now() - setupStarted);
     await use(cda);
+    projectionRegistrationOpen = false;
 
     let freezeError;
     let diagnosticDrainError;
@@ -1147,12 +1156,25 @@ export const test = base.extend({
     } catch (error) {
       diagnosticDrainFailures.push(error);
     }
-    const drainResults = await Promise.allSettled([
-      ...[...trackers].map(tracker => tracker.flush({ timeoutMs: 5_000, waitForNativeRequestTerminals: true })),
-      flushHttpDiagnostics({ timeoutMs: 5_000 }),
-    ]);
-    for (const result of drainResults) {
+    const finalizationResults = await runAfterNativeRequestDrain({
+      terminalDrains: [
+        ...[...trackers].map(tracker => () => tracker.flush({ timeoutMs: 5_000, waitForNativeRequestTerminals: true })),
+      ],
+      postDrainDrains: [
+        () => flushHttpDiagnostics({ timeoutMs: 5_000 }),
+        ...(Array.isArray(report.nativeAbortProbeEvents) ? [() => flushNativeAbortProbeEvents(page)] : []),
+      ],
+      projections: afterNativeRequestDrainProjections,
+    });
+    for (const result of [...finalizationResults.terminalDrainResults, ...finalizationResults.postDrainResults]) {
       if (result.status === 'rejected') diagnosticDrainFailures.push(result.reason);
+    }
+    for (const result of finalizationResults.projectionResults) {
+      if (result.status === 'rejected') {
+        const error = result.reason instanceof Error ? result.reason : new Error(safeText(result.reason));
+        report.errors.push({ kind: 'native-report-projection', message: safeText(error.message) });
+        diagnosticDrainFailures.push(error);
+      }
     }
     if (diagnosticDrainFailures.length) {
       diagnosticDrainError = new Error(diagnosticDrainFailures

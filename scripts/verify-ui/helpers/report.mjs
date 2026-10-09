@@ -41,6 +41,28 @@ export const recordUntested = (report, dimension, name, reason) => {
   current.evidence.push({ name, status: 'untested', reason });
 };
 
+export async function runAfterNativeRequestDrain({ terminalDrains = [], postDrainDrains = [], projections = [] }) {
+  if (!Array.isArray(terminalDrains) || terminalDrains.some(drain => typeof drain !== 'function') ||
+      !Array.isArray(postDrainDrains) || postDrainDrains.some(drain => typeof drain !== 'function')) {
+    throw new TypeError('Native report finalization needs terminal and post-drain callbacks.');
+  }
+  if (!Array.isArray(projections) || projections.some(project => typeof project !== 'function')) {
+    throw new TypeError('Native report finalization needs projection callbacks.');
+  }
+
+  const terminalDrainResults = await Promise.allSettled(terminalDrains.map(drain => Promise.resolve().then(drain)));
+  const postDrainResults = await Promise.allSettled(postDrainDrains.map(drain => Promise.resolve().then(drain)));
+  const projectionResults = [];
+  for (const project of projections) {
+    try {
+      projectionResults.push({ status: 'fulfilled', value: await project() });
+    } catch (reason) {
+      projectionResults.push({ status: 'rejected', reason });
+    }
+  }
+  return { terminalDrainResults, postDrainResults, projectionResults };
+}
+
 const validatedObsoleteNetworkReads = new WeakMap();
 
 const isCodedSourceColumnReport = (report) =>
@@ -192,8 +214,6 @@ const expectedSchemaFieldsOwnerRetirement = (report, record) => {
   if (record.kind !== 'network' || record.method !== 'POST' || record.resourceType !== 'fetch' ||
       record.errorText !== 'net::ERR_ABORTED' || (record.status !== undefined && record.status !== null) || record.internalError ||
       typeof record.playwrightRequestId !== 'string' || record.playwrightRequestId.length === 0) return null;
-  if ((report.network ?? []).filter(candidate => candidate.kind === 'network' &&
-      candidate.playwrightRequestId === record.playwrightRequestId).length !== 1) return null;
 
   const target = report.target;
   const captureScope = report.nativeRequestCaptureScope;
@@ -228,11 +248,24 @@ const expectedSchemaFieldsOwnerRetirement = (report, record) => {
   const ledger = report.nativeRequestTerminalLedger;
   if (typeof requestId !== 'string' || !requestId.startsWith('schema-fields-') ||
       ledger?.requests?.length === undefined) return null;
+  const browserRequestId = record.browserRequestId ?? record.playwrightRequestId;
+  if (typeof browserRequestId !== 'string' || browserRequestId.length === 0 ||
+      (report.network ?? []).filter(candidate => candidate.kind === 'network' &&
+        candidate.method === 'POST' && candidate.requestDetails?.requestId === requestId &&
+        (candidate.browserRequestId ?? candidate.playwrightRequestId) === browserRequestId).length !== 1) return null;
+  const observations = [
+    ...(report.nativeAbortSignalObservations ?? []),
+    ...(report.nativeAbortProbeCorrelations ?? []),
+  ].filter(item => item.requestId === requestId && item.origin === origin && item.path === path && item.method === 'POST');
+  if (observations.length !== 1 || observations[0].requestIdentityMatchCount !== 1) return null;
+  const projection = observations[0];
+  if (projection.browserRequestId !== undefined && projection.browserRequestId !== browserRequestId) return null;
+
   const matchingLedger = ledger.requests.filter(entry => entry.requestId === requestId ||
-    entry.browserRequestId === record.playwrightRequestId);
+    entry.browserRequestId === browserRequestId);
   if (matchingLedger.length !== 1) return null;
   const entry = matchingLedger[0];
-  if (entry.requestId !== requestId || entry.browserRequestId !== record.playwrightRequestId ||
+  if (entry.requestId !== requestId || entry.browserRequestId !== browserRequestId ||
       entry.origin !== origin || entry.path !== path || entry.method !== 'POST' ||
       ![null, 200].includes(entry.status) || entry.failure !== 'net::ERR_ABORTED' || entry.terminalEvent !== 'requestfailed' ||
       entry.state !== 'failed' || entry.complete !== true || entry.frameIdentityStatus !== 'exact' ||
@@ -254,12 +287,7 @@ const expectedSchemaFieldsOwnerRetirement = (report, record) => {
         responseEvent.observedAt < chronology[0].observedAt || chronology[2].observedAt < responseEvent.observedAt
       : entry.status !== null) return null;
 
-  const observations = [
-    ...(report.nativeAbortSignalObservations ?? []),
-    ...(report.nativeAbortProbeCorrelations ?? []),
-  ].filter(item => item.requestId === requestId && item.origin === origin && item.path === path && item.method === 'POST');
-  if (observations.length !== 1 || observations[0].requestIdentityMatchCount !== 1) return null;
-  const projected = observations[0].observation;
+  const projected = projection.observation;
   const recomputed = nativeAbortSignalObservationForRequest({
     ...entry,
     requestCorrelationId: entry.requestId,
@@ -324,12 +352,12 @@ const expectedSchemaFieldsOwnerRetirement = (report, record) => {
       (closeAction.startedAtEpochMs > requestStartedAt || closeAction.finishedAtEpochMs < requestStartedAt)) return null;
 
   const otherActions = actions.filter(action => action.id !== closeAction.id && action.id !== associatedAction?.id);
-  const unresolvedAtFetch = otherActions.some(action => Number.isFinite(action.startedAtEpochMs) &&
-    action.startedAtEpochMs <= requestStartedAt &&
-    (!Number.isFinite(action.finishedAtEpochMs) || action.finishedAtEpochMs > requestStartedAt));
-  const interveningBeforeClose = otherActions.some(action => Number.isFinite(action.startedAtEpochMs) &&
-    action.startedAtEpochMs > requestStartedAt && action.startedAtEpochMs < close.at);
-  if (unresolvedAtFetch || interveningBeforeClose) return null;
+  const unresolvedOrFailedAtClose = otherActions.some(action => {
+    if (Number.isFinite(action.startedAtEpochMs) && action.startedAtEpochMs > close.at) return false;
+    return action.status !== 'passed' || !Number.isFinite(action.finishedAtEpochMs) ||
+      action.finishedAtEpochMs > close.at;
+  });
+  if (unresolvedOrFailedAtClose) return null;
 
   if (actionId) {
     if (associatedAction.status !== 'passed') return null;
@@ -339,7 +367,7 @@ const expectedSchemaFieldsOwnerRetirement = (report, record) => {
     kind: 'same-document-owner-retirement',
     endpoint: 'schema-fields',
     requestId,
-    browserRequestId: record.playwrightRequestId,
+    browserRequestId,
     project: target.project,
     explorer: target.explorer,
     owner: 'feature-catalog-generated-fields',

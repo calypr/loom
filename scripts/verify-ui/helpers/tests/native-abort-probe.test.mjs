@@ -3,6 +3,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 import {
   createNativeAbortProbeSource,
+  flushNativeAbortProbeEvents,
   installNativeAbortProbe,
   nativeAbortNetworkFailureClock,
   nativeAbortProbeEvidenceForRequest,
@@ -1339,6 +1340,9 @@ const schemaFieldsCloseReport = (overrides = {}) => {
     explorer: 'verify-fixture-a-cohort-recode',
     requestId: 'schema-fields-9cc92c67-46c0-4340-8628-f0ad83feaa9e',
     browserRequestId: 'request-263',
+    networkPlaywrightRequestId: undefined,
+    networkBrowserRequestId: undefined,
+    projectedBrowserRequestId: undefined,
     controllerId: 'abort-controller-24',
     fetchStartedAt: 2500,
     nativeRequestObservedAt: 2500,
@@ -1433,7 +1437,8 @@ const schemaFieldsCloseReport = (overrides = {}) => {
   });
   report.network.push({
     kind: 'network', method: 'POST', url: `${closeOrigin}${closePath}`, resourceType: 'fetch',
-    errorText: 'net::ERR_ABORTED', playwrightRequestId: browserRequestId,
+    errorText: 'net::ERR_ABORTED', playwrightRequestId: config.networkPlaywrightRequestId ?? browserRequestId,
+    ...(config.networkBrowserRequestId === undefined ? {} : { browserRequestId: config.networkBrowserRequestId }),
     requestDetails: { requestId }, status: config.networkStatus, requestTimeline: request.requestTimeline,
   });
   report.actions.push(...structuredClone(config.actions));
@@ -1444,7 +1449,9 @@ const schemaFieldsCloseReport = (overrides = {}) => {
   report.nativeRequestTerminalLedger = { complete: true, requests: [request] };
   report.nativeAbortProbeEvents = [event, settlement];
   report.nativeAbortSignalObservations = [{
-    requestId, origin: closeOrigin, path: closePath, method: 'POST', requestIdentityMatchCount: 1, observation,
+    requestId, origin: closeOrigin, path: closePath, method: 'POST', requestIdentityMatchCount: 1,
+    ...(config.projectedBrowserRequestId === undefined ? {} : { browserRequestId: config.projectedBrowserRequestId }),
+    observation,
   }];
   recordCheck(report, 'correctness', 'Apply exact generated field completed', true, {
     outputId: 'out-fixture', receiptId: 'receipt-fixture', renderedValues: ['dev-patient-001', 'dev-patient-002'],
@@ -1593,13 +1600,135 @@ test('finishReport replays the retained 57ceb Apply-overlap and fresh CASE-008/0
   assert.equal(unexpectedResponseStatus.status, 'failed', 'non-200 HTTP responses remain fatal');
   assert.equal(unexpectedResponseStatus.expectedOwnerRetirements?.length ?? 0, 0);
 
-  const actionDuringIdleRead = schemaFieldsCloseReport(retainedReports[2].config).report;
-  actionDuringIdleRead.actions.push({ id: 'action-unrelated', status: 'passed',
-    startedAtEpochMs: retainedReports[2].config.fetchStartedAt + 10,
-    finishedAtEpochMs: retainedReports[2].config.fetchStartedAt + 20 });
-  finishReport(actionDuringIdleRead);
-  assert.equal(actionDuringIdleRead.status, 'failed', 'a different action between catalog fetch and Close prevents retirement classification');
-  assert.equal(actionDuringIdleRead.expectedOwnerRetirements?.length ?? 0, 0);
+  const completedInterveningActions = schemaFieldsCloseReport({
+    ...retainedReports[2].config,
+    requestAction: { id: 'action-fields', label: 'click Fields and related data' },
+    actions: [
+      { id: 'action-fields', label: 'click Fields and related data', status: 'passed',
+        startedAtEpochMs: retainedReports[2].config.fetchStartedAt - 100,
+        finishedAtEpochMs: retainedReports[2].config.fetchStartedAt + 30 },
+      { id: 'action-17', label: 'click Raw FHIR fields (advanced)', status: 'passed',
+        startedAtEpochMs: retainedReports[2].config.fetchStartedAt + 40,
+        finishedAtEpochMs: retainedReports[2].config.fetchStartedAt + 80 },
+      { id: 'action-18', label: 'click Select Observation.component[].code.text', status: 'passed',
+        startedAtEpochMs: retainedReports[2].config.fetchStartedAt + 90,
+        finishedAtEpochMs: retainedReports[2].config.fetchStartedAt + 120 },
+      { id: 'action-19', label: 'click Add 1 selected feature', status: 'passed',
+        startedAtEpochMs: retainedReports[2].config.fetchStartedAt + 130,
+        finishedAtEpochMs: retainedReports[2].config.fetchStartedAt + 160 },
+      { id: 'action-20', label: 'click Component Code Text: Use the first value', status: 'passed',
+        startedAtEpochMs: retainedReports[2].config.fetchStartedAt + 170,
+        finishedAtEpochMs: retainedReports[2].config.fetchStartedAt + 200 },
+      { id: 'action-21', label: 'click Add 1 column', status: 'passed',
+        startedAtEpochMs: retainedReports[2].config.fetchStartedAt + 210,
+        finishedAtEpochMs: retainedReports[2].config.fetchStartedAt + 240 },
+      { id: 'action-22', label: 'click Apply columns', status: 'passed',
+        startedAtEpochMs: retainedReports[2].config.fetchStartedAt + 250,
+        finishedAtEpochMs: retainedReports[2].config.fetchStartedAt + 280 },
+      { id: 'action-close', label: 'close operation editor', status: 'passed',
+        startedAtEpochMs: retainedReports[2].config.closeAt - 20,
+        finishedAtEpochMs: retainedReports[2].config.closeAt + 40 },
+    ],
+  }).report;
+  const unmodifiedNetwork = structuredClone(completedInterveningActions.network);
+  finishReport(completedInterveningActions);
+  assert.equal(completedInterveningActions.status, 'passed',
+    'completed CASE-010 catalog and column actions between fetch and trusted Close do not block exact retirement');
+  assert.equal(completedInterveningActions.expectedOwnerRetirements[0].associatedAction.id, 'action-fields');
+  assert.deepEqual(completedInterveningActions.network, unmodifiedNetwork,
+    'the original network error remains unchanged while the separate proof classifies it');
+});
+
+test('finishReport requires all non-owner actions to be passed and complete by trusted Close', () => {
+  const actionStartedAt = 2600;
+  const closeAt = 3000;
+  const invalidActions = [
+    ['failed before Close', { id: 'action-failed', status: 'failed',
+      startedAtEpochMs: actionStartedAt, finishedAtEpochMs: actionStartedAt + 20 }],
+    ['failed action without a start timestamp cannot be placed after Close', { id: 'action-failed-untimed', status: 'failed' }],
+    ['still running at Close', { id: 'action-running', status: 'running',
+      startedAtEpochMs: actionStartedAt }],
+    ['marked passed only after Close', { id: 'action-late', status: 'passed',
+      startedAtEpochMs: actionStartedAt, finishedAtEpochMs: closeAt + 1 }],
+  ];
+  for (const [description, action] of invalidActions) {
+    const { report } = schemaFieldsCloseReport();
+    report.actions.push(action);
+    finishReport(report);
+    assert.equal(report.status, 'failed', description);
+    assert.equal(report.expectedOwnerRetirements?.length ?? 0, 0, description);
+    assert.equal(report.assertions.find(item => item.name === 'no unexpected network, module, or browser errors')?.status,
+      'failed', description);
+  }
+});
+
+test('finishReport resolves a CDA projection browser ID without rewriting its raw network ID', () => {
+  const networkPlaywrightRequestId = 'cda-request-raw-preserved';
+  const projectedBrowserRequestId = 'playwright-browser-request-263';
+  const { report } = schemaFieldsCloseReport({
+    browserRequestId: projectedBrowserRequestId,
+    networkPlaywrightRequestId,
+    networkBrowserRequestId: projectedBrowserRequestId,
+    projectedBrowserRequestId,
+  });
+  const rawNetwork = structuredClone(report.network);
+  finishReport(report);
+  assert.equal(report.status, 'passed');
+  assert.equal(report.expectedOwnerRetirements[0].browserRequestId, projectedBrowserRequestId);
+  assert.equal(report.nativeAbortSignalObservations[0].browserRequestId, projectedBrowserRequestId);
+  assert.deepEqual(report.network, rawNetwork);
+  assert.equal(report.network[0].playwrightRequestId, networkPlaywrightRequestId);
+
+  const rawBrowserIDReport = schemaFieldsCloseReport({
+    browserRequestId: projectedBrowserRequestId,
+    networkPlaywrightRequestId,
+    networkBrowserRequestId: projectedBrowserRequestId,
+    projectedBrowserRequestId,
+  }).report;
+  const rawBrowserIDNetwork = structuredClone(rawBrowserIDReport.network);
+  finishReport(rawBrowserIDReport);
+  assert.equal(rawBrowserIDReport.status, 'passed', 'a raw exact browserRequestId takes precedence over the CDA correlation label');
+  assert.equal(rawBrowserIDReport.expectedOwnerRetirements[0].browserRequestId, projectedBrowserRequestId);
+  assert.deepEqual(rawBrowserIDReport.network, rawBrowserIDNetwork);
+
+  const mismatchedBasicRawId = schemaFieldsCloseReport({
+    networkPlaywrightRequestId: 'playwright-basic-raw-request',
+    projectedBrowserRequestId: 'request-263',
+  }).report;
+  finishReport(mismatchedBasicRawId);
+  assert.equal(mismatchedBasicRawId.status, 'failed', 'a CDA-style projection cannot replace a mismatched Basic raw Playwright request ID');
+  assert.equal(mismatchedBasicRawId.expectedOwnerRetirements?.length ?? 0, 0);
+
+  const mismatchedProjection = schemaFieldsCloseReport({
+    networkPlaywrightRequestId,
+    networkBrowserRequestId: projectedBrowserRequestId,
+    projectedBrowserRequestId: 'playwright-other-request',
+  }).report;
+  finishReport(mismatchedProjection);
+  assert.equal(mismatchedProjection.status, 'failed', 'a projection from another browser Request cannot classify this raw error');
+  assert.equal(mismatchedProjection.expectedOwnerRetirements?.length ?? 0, 0);
+});
+
+test('CASE-050 request-only schema failures remain fatal beside one proven owner retirement', () => {
+  const { report } = schemaFieldsCloseReport();
+  const origin = new URL(report.target.uiUrl).origin;
+  const project = encodeURIComponent(report.target.project);
+  const explorer = encodeURIComponent(report.target.explorer);
+  const path = `/api/v1/projects/${project}/explorers/${explorer}/authoring/v2/schema-fields`;
+  const requestOnlyFailures = Array.from({ length: 5 }, (_, index) => ({
+    kind: 'network', method: 'POST', url: `${origin}${path}`, resourceType: 'fetch',
+    errorText: 'net::ERR_ABORTED', playwrightRequestId: `cda-request-only-${index + 1}`,
+    browserRequestId: `playwright-request-only-${index + 1}`,
+    requestDetails: { requestId: `schema-fields-request-only-${index + 1}` },
+    requestTimeline: { mainFrameNavigations: [] },
+  }));
+  const originalRequestOnlyFailures = structuredClone(requestOnlyFailures);
+  report.network.push(...requestOnlyFailures);
+  finishReport(report);
+  assert.equal(report.status, 'failed');
+  assert.equal(report.expectedOwnerRetirements.length, 1, 'only the separately proven request is classified');
+  assert.deepEqual(report.network.slice(1), originalRequestOnlyFailures, 'all five raw request-only records stay unchanged');
+  assert.equal(report.assertions.find(item => item.name === 'no unexpected network, module, or browser errors')?.evidence.count, 5);
 });
 
 test('schema-fields Close classification rejects incomplete Apply, untrusted owner retirement, or identity drift', () => {
@@ -1620,6 +1749,26 @@ test('schema-fields Close classification rejects incomplete Apply, untrusted own
     ['the UI origin is different', report => { report.nativeAbortSignalObservations[0].origin = 'http://127.0.0.1:30009'; }],
     ['the native request did not fail with ERR_ABORTED', report => {
       report.nativeRequestTerminalLedger.requests[0].nativeEventChronology[1].failure = 'net::ERR_FAILED';
+    }],
+    ['the native ledger has no terminal request event', report => {
+      const entry = report.nativeRequestTerminalLedger.requests[0];
+      entry.nativeEventChronology = entry.nativeEventChronology.slice(0, 1);
+      entry.status = null;
+      entry.failure = null;
+      entry.terminalEvent = null;
+      entry.state = 'pending';
+      entry.complete = false;
+    }],
+    ['the browser Request object identity differs from the terminal event', report => {
+      report.nativeRequestTerminalLedger.requests[0].nativeEventChronology.at(-1).objectMatch = false;
+    }],
+    ['a second native ledger row cannot share the browser Request identity', report => {
+      report.nativeRequestTerminalLedger.requests.push({
+        ...structuredClone(report.nativeRequestTerminalLedger.requests[0]), requestId: 'schema-fields-second',
+      });
+    }],
+    ['a duplicate exact request projection cannot establish one-to-one identity', report => {
+      report.nativeAbortSignalObservations.push(structuredClone(report.nativeAbortSignalObservations[0]));
     }],
     ['a duplicate raw browser request identity cannot borrow the same owner proof', report => {
       report.network.push(structuredClone(report.network[0]));
@@ -1708,4 +1857,60 @@ test('schema-fields Close classification leaves a request-only capability drain 
     nativeRequestDrainEvidence: pendingReport.nativeRequestDrainEvidence,
     nativeRequestCorrelationErrors: pendingReport.nativeRequestCorrelationErrors,
   }), /did not reach a complete terminal state/, 'the production repeated-empty gate still rejects the request-only capability drain');
+});
+
+test('native abort probe flush waits for exposed binding messages before report projection', async () => {
+  const received = [];
+  const sandbox = {
+    AbortController,
+    URL,
+    Date,
+    Error,
+    Headers,
+    setTimeout,
+    clearTimeout,
+    crypto: { randomUUID: () => '12345678-1234-4123-8123-123456789abc' },
+    location: { href: 'http://127.0.0.1:30008/' },
+    document: { addEventListener() {}, querySelectorAll: () => [] },
+    MutationObserver: class { observe() {} },
+    fetch: async () => ({ ok: true }),
+    __loomNativeAbortProbeBinding: payload => new Promise(resolve => {
+      setTimeout(() => { received.push(JSON.parse(payload)); resolve(); }, 10);
+    }),
+  };
+  sandbox.globalThis = sandbox;
+  vm.runInNewContext(createNativeAbortProbeSource({
+    project: 'loom_dev_test', explorer: 'close-drain-test', apiOrigin,
+  }), sandbox);
+  assert.equal(received.length, 0, 'probe event is in flight before the fixture finalizer joins it');
+
+  const page = { evaluate: expression => vm.runInNewContext(expression, sandbox) };
+  const result = await flushNativeAbortProbeEvents(page, { timeoutMs: 1_000 });
+  assert.equal(received.length, 1);
+  assert.equal(received[0].kind, 'probe-installed');
+  assert.deepEqual({ pending: result.pending, failures: result.failures }, { pending: 0, failures: 0 });
+});
+
+test('native abort probe binding failures reject the bounded report flush', async () => {
+  const sandbox = {
+    AbortController,
+    URL,
+    Date,
+    Error,
+    Headers,
+    setTimeout,
+    clearTimeout,
+    crypto: { randomUUID: () => '12345678-1234-4123-8123-000000000000' },
+    location: { href: 'http://127.0.0.1:30008/' },
+    document: { addEventListener() {}, querySelectorAll: () => [] },
+    MutationObserver: class { observe() {} },
+    fetch: async () => ({ ok: true }),
+    __loomNativeAbortProbeBinding: async () => { throw new Error('binding unavailable'); },
+  };
+  sandbox.globalThis = sandbox;
+  vm.runInNewContext(createNativeAbortProbeSource({
+    project: 'loom_dev_test', explorer: 'close-drain-test', apiOrigin,
+  }), sandbox);
+  const page = { evaluate: expression => vm.runInNewContext(expression, sandbox) };
+  await assert.rejects(flushNativeAbortProbeEvents(page, { timeoutMs: 1_000 }), /binding unavailable/);
 });

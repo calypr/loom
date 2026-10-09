@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import vm from 'node:vm';
+import { runAfterNativeRequestDrain } from './report.mjs';
+import { flushNativeAbortProbeEvents } from './native-abort-probe.mjs';
 import {
   installGroupJoinNativeCapture,
   prepareCdaGroupJoinOracle,
+  registerGroupJoinNativeRequestProjection,
 } from '../workflows/cda-current-draft-group-join-workflow.mjs';
 
 test('subject.reference witness keeps overlapping Group counts 2 to 1 through Count distinct', () => {
@@ -149,4 +152,216 @@ test('Group/Join installs the exact Explorer probe before opening the shared nat
   assert.equal(abortEvents.find(event => event.requests?.includes(exactMatches[0])).signalWasAlreadyAborted, false);
   assert.equal(abortEvents.flatMap(event => event.requests ?? []).some(request =>
     [wrongOriginRequestId, wrongExplorerRequestId].includes(request.requestId)), false);
+});
+
+test('Group/Join projects after native drain and probe collection while preserving unresolved requests', async () => {
+  const project = 'loom_dev_cda_fhir';
+  const explorer = 'cda-cdj-fresh-91b6';
+  const origin = 'http://127.0.0.1:30008';
+  const pathFor = endpoint => `/api/v1/projects/${project}/explorers/${explorer}/authoring/v2/${endpoint}`;
+  const mainFrame = {};
+  const page = { mainFrame: () => mainFrame };
+  const makeRequest = (requestId, path) => ({
+    url: () => `${origin}${path}`,
+    method: () => 'POST',
+    headers: () => ({ 'x-request-id': requestId }),
+    frame: () => mainFrame,
+  });
+  const requestA = makeRequest('schema-fields-11111111-1111-4111-8111-111111111111', pathFor('schema-fields'));
+  const requestB = makeRequest('schema-fields-22222222-2222-4222-8222-222222222222', pathFor('schema-fields'));
+  const capabilitiesRequest = makeRequest('cda-request-capabilities-1', pathFor('construction-capabilities'));
+  const semanticRequests = Array.from({ length: 4 }, (_, index) =>
+    makeRequest(`feature-catalog-semantic-${index + 1}`, pathFor('semantic-inventory')));
+  const nativeRows = [
+    {
+      requestId: requestA.headers()['x-request-id'], browserRequestId: 'playwright-16', origin, path: pathFor('schema-fields'), method: 'POST',
+      status: null,
+      nativeEventChronology: [{ event: 'request', browserRequestId: 'playwright-16', observedAt: 10, objectMatch: true }],
+    },
+    {
+      requestId: requestB.headers()['x-request-id'], browserRequestId: 'playwright-17', origin, path: pathFor('schema-fields'), method: 'POST',
+      status: 200,
+      nativeEventChronology: [
+        { event: 'request', browserRequestId: 'playwright-17', observedAt: 40, objectMatch: true },
+        { event: 'response', browserRequestId: 'playwright-17', observedAt: 50, objectMatch: true },
+        { event: 'requestfinished', browserRequestId: 'playwright-17', observedAt: 60, objectMatch: true },
+      ],
+    },
+    {
+      requestId: capabilitiesRequest.headers()['x-request-id'], browserRequestId: 'playwright-18', origin,
+      path: pathFor('construction-capabilities'), method: 'POST', status: null,
+      nativeEventChronology: [{ event: 'request', browserRequestId: 'playwright-18', observedAt: 70, objectMatch: true }],
+    },
+    ...semanticRequests.map((request, index) => ({
+      requestId: request.headers()['x-request-id'], browserRequestId: `playwright-${19 + index}`, origin,
+      path: pathFor('semantic-inventory'), method: 'POST', status: null,
+      nativeEventChronology: [{ event: 'request', browserRequestId: `playwright-${19 + index}`, observedAt: 80 + index, objectMatch: true }],
+    })),
+  ];
+  const networkRows = nativeRows.slice(0, 2).map((entry, index) => ({
+    kind: 'network',
+    method: entry.method,
+    resourceType: 'fetch',
+    url: `${origin}${entry.path}`,
+    rawURL: `${origin}${entry.path}`,
+    requestId: entry.requestId,
+    requestDetails: { requestId: entry.requestId },
+    requestScope: { expectedProject: project, requestProject: project, requestExplorer: explorer },
+    requestTimeline: { mainFrameNavigations: [] },
+    playwrightRequestId: `cda-request-diagnostic-${index + 1}`,
+    browserRequestId: entry.browserRequestId,
+    errorText: undefined,
+  }));
+  const probeEvents = [];
+  const lateProbeEvent = {
+    kind: 'abort-controller-call',
+    controllerId: 'controller-schema-fields-1',
+    createdAt: 5,
+    abortedAt: 25,
+    signalWasAlreadyAborted: false,
+    requests: [{
+      requestId: requestA.headers()['x-request-id'], origin, path: pathFor('schema-fields'), method: 'POST',
+      startedAt: 10, requestIdSource: 'request-header', fetchStateAtAbort: 'pending',
+    }],
+  };
+  const drainEvidence = [{ status: 'timed-out', unresolvedRequests: [{ requestId: 'raw-pending-evidence' }] }];
+  const report = {
+    target: { project, explorer, uiUrl: `${origin}/` },
+    nativeRequestCaptureScope: {
+      project,
+      explorer,
+      selectedExplorer: explorer,
+      origin,
+      observedPathPrefix: `/api/v1/projects/${project}/explorers/${explorer}/authoring/v2`,
+    },
+    nativeRequests: nativeRows,
+    network: networkRows,
+    nativeAbortProbeEvents: probeEvents,
+    nativeRequestDrainEvidence: drainEvidence,
+  };
+  const tracker = {
+    byRequest: new Map([
+      [requestA, nativeRows[0]],
+      [requestB, nativeRows[1]],
+      [capabilitiesRequest, nativeRows[2]],
+      ...semanticRequests.map((request, index) => [request, nativeRows[3 + index]]),
+    ]),
+  };
+  const projections = [];
+  const cda = {
+    report,
+    registerAfterNativeRequestDrainProjection(callback) { projections.push(callback); },
+  };
+  registerGroupJoinNativeRequestProjection({ cda, tracker, page });
+  assert.equal(report.nativeRequestTerminalLedger, undefined);
+  assert.equal(report.nativeAbortProbeCorrelations, undefined);
+  const pageScope = {
+    Set,
+    Promise,
+    Date,
+    setTimeout,
+    clearTimeout,
+    __loomNativeAbortProbePendingBindingCalls: new Set(),
+    __loomNativeAbortProbeBindingFailures: [],
+  };
+  pageScope.globalThis = pageScope;
+  page.evaluate = expression => vm.runInNewContext(expression, pageScope);
+  let pendingBodyRead;
+  const finalization = await runAfterNativeRequestDrain({
+    terminalDrains: [
+      async () => {
+        nativeRows[0].status = 200;
+        nativeRows[0].failure = 'net::ERR_ABORTED';
+        nativeRows[0].completedAt = 30;
+        nativeRows[0].nativeEventChronology.push(
+          { event: 'response', browserRequestId: 'playwright-16', observedAt: 20, objectMatch: true },
+          { event: 'requestfailed', browserRequestId: 'playwright-16', observedAt: 30, objectMatch: true },
+        );
+        let pendingProbeCall;
+        pendingProbeCall = new Promise(resolve => setTimeout(() => {
+          probeEvents.push(lateProbeEvent);
+          resolve();
+        }, 10)).then(() => pageScope.__loomNativeAbortProbePendingBindingCalls.delete(pendingProbeCall));
+        pageScope.__loomNativeAbortProbePendingBindingCalls.add(pendingProbeCall);
+        pendingBodyRead = new Promise(resolve => setTimeout(() => {
+          networkRows[0].status = 200;
+          networkRows[0].errorText = 'net::ERR_ABORTED';
+          networkRows[0].response = { body: { code: 'REQUEST_ABORTED' }, bodyNotRead: false };
+          resolve();
+        }, 10));
+      },
+    ],
+    postDrainDrains: [
+      async () => { await pendingBodyRead; },
+      () => flushNativeAbortProbeEvents(page, { timeoutMs: 1_000 }),
+    ],
+    projections,
+  });
+  assert.deepEqual(finalization.terminalDrainResults.map(result => result.status), ['fulfilled']);
+  assert.deepEqual(finalization.postDrainResults.map(result => result.status), ['fulfilled', 'fulfilled']);
+  assert.deepEqual(finalization.projectionResults.map(result => result.status), ['fulfilled']);
+  const projection = finalization.projectionResults[0].value;
+  assert.deepEqual(networkRows[0].response, { body: { code: 'REQUEST_ABORTED' }, bodyNotRead: false },
+    'response body delivery during post-drain flush precedes the projection');
+  const rawEvidence = {
+    nativeRequests: structuredClone(report.nativeRequests),
+    network: structuredClone(report.network),
+    probeEvents: structuredClone(report.nativeAbortProbeEvents),
+    drainEvidence: structuredClone(report.nativeRequestDrainEvidence),
+  };
+
+  assert.deepEqual(projection.correlations.map(({ requestId, browserRequestId, playwrightRequestId, requestIdentityMatchCount, observation }) => ({
+    requestId, browserRequestId, playwrightRequestId, requestIdentityMatchCount,
+    exactRequestSignalCorrelation: observation.exactRequestSignalCorrelation,
+  })), [
+    {
+      requestId: requestA.headers()['x-request-id'], browserRequestId: 'playwright-16',
+      playwrightRequestId: 'cda-request-diagnostic-1', requestIdentityMatchCount: 1,
+      exactRequestSignalCorrelation: true,
+    },
+    {
+      requestId: requestB.headers()['x-request-id'], browserRequestId: 'playwright-17',
+      playwrightRequestId: 'cda-request-diagnostic-2', requestIdentityMatchCount: 1,
+      exactRequestSignalCorrelation: false,
+    },
+  ]);
+  assert.equal(projection.terminalLedger.complete, false);
+  assert.deepEqual(projection.terminalLedger.counts, { total: 7, finished: 1, failed: 1, pending: 5 });
+  assert.deepEqual(projection.terminalLedger.requests.map(({ requestId, browserRequestId, state, frameIdentityStatus, frameIsMainFrame }) => ({
+    requestId, browserRequestId, state, frameIdentityStatus, frameIsMainFrame,
+  })), [
+    { requestId: requestA.headers()['x-request-id'], browserRequestId: 'playwright-16', state: 'failed', frameIdentityStatus: 'exact', frameIsMainFrame: true },
+    { requestId: requestB.headers()['x-request-id'], browserRequestId: 'playwright-17', state: 'finished', frameIdentityStatus: 'exact', frameIsMainFrame: true },
+    { requestId: capabilitiesRequest.headers()['x-request-id'], browserRequestId: 'playwright-18', state: 'pending', frameIdentityStatus: 'exact', frameIsMainFrame: true },
+    ...semanticRequests.map((request, index) => ({
+      requestId: request.headers()['x-request-id'], browserRequestId: `playwright-${19 + index}`,
+      state: 'pending', frameIdentityStatus: 'exact', frameIsMainFrame: true,
+    })),
+  ]);
+  assert.equal(projection.terminalLedger.requests[0].playwrightRequestId, 'cda-request-diagnostic-1');
+  assert.notEqual(projection.terminalLedger.requests[0].browserRequestId, projection.terminalLedger.requests[0].playwrightRequestId);
+  assert.deepEqual(projection.terminalLedger.requests[0].nativeEventChronology.at(-1), {
+    event: 'requestfailed', browserRequestId: 'playwright-16', observedAt: 30, objectMatch: true, failure: 'net::ERR_ABORTED',
+  });
+  assert.strictEqual(report.nativeRequests, nativeRows);
+  assert.strictEqual(report.network, networkRows);
+  assert.strictEqual(report.nativeAbortProbeEvents, probeEvents);
+  assert.strictEqual(report.nativeRequestDrainEvidence, drainEvidence);
+  assert.deepEqual(report.nativeRequests, rawEvidence.nativeRequests);
+  assert.deepEqual(report.network, rawEvidence.network);
+  assert.deepEqual(report.nativeAbortProbeEvents, rawEvidence.probeEvents);
+  assert.deepEqual(report.nativeRequestDrainEvidence, rawEvidence.drainEvidence);
+});
+
+test('post-drain projection failures remain visible to the fixture finalizer', async () => {
+  const projectionError = new Error('projection failed');
+  const result = await runAfterNativeRequestDrain({
+    terminalDrains: [async () => undefined],
+    postDrainDrains: [async () => undefined],
+    projections: [async () => { throw projectionError; }],
+  });
+  assert.equal(result.terminalDrainResults[0].status, 'fulfilled');
+  assert.equal(result.postDrainResults[0].status, 'fulfilled');
+  assert.equal(result.projectionResults[0].status, 'rejected');
+  assert.strictEqual(result.projectionResults[0].reason, projectionError);
 });

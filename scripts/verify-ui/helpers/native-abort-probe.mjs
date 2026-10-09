@@ -111,6 +111,11 @@ export const createNativeAbortProbeSource = ({ project, explorer, apiOrigin }) =
   const domOwnersByRequest = new WeakMap();
   const observedDomOwners = new Set();
   const trustedInteractions = [];
+  const pendingBindingCalls = globalThis.__loomNativeAbortProbePendingBindingCalls instanceof Set
+    ? globalThis.__loomNativeAbortProbePendingBindingCalls : new Set();
+  const bindingFailures = globalThis.__loomNativeAbortProbeBindingFailures ?? [];
+  globalThis.__loomNativeAbortProbePendingBindingCalls = pendingBindingCalls;
+  globalThis.__loomNativeAbortProbeBindingFailures = bindingFailures;
   let nextController = 1;
   let nextDomId = 1;
   let lastTrustedInteraction;
@@ -124,8 +129,19 @@ export const createNativeAbortProbeSource = ({ project, explorer, apiOrigin }) =
   }).slice(0, 6);
   const send = (event) => {
     try {
-      if (typeof globalThis.${bindingName} === 'function') globalThis.${bindingName}(JSON.stringify(event));
-    } catch { /* Probe evidence must never affect the application request. */ }
+      if (typeof globalThis.${bindingName} !== 'function') return;
+      const bindingCall = globalThis.${bindingName}(JSON.stringify(event));
+      if (bindingCall && typeof bindingCall.then === 'function') {
+        let trackedCall;
+        trackedCall = Promise.resolve(bindingCall).then(
+          () => undefined,
+          error => { bindingFailures.push(String(error?.message ?? error).slice(0, 500)); },
+        ).then(() => pendingBindingCalls.delete(trackedCall));
+        pendingBindingCalls.add(trackedCall);
+      }
+    } catch (error) {
+      bindingFailures.push(String(error?.message ?? error).slice(0, 500));
+    }
   };
   const readHeader = (headers, name) => {
     try {
@@ -496,6 +512,33 @@ export const installNativeAbortProbe = async ({ page, report, project, explorer,
   await browserContext.addInitScript(source);
   await page.evaluate(source);
   return report.nativeAbortProbeEvents;
+};
+
+/** Wait for probe binding messages already emitted by the current document to reach the report. */
+export const flushNativeAbortProbeEvents = async (page, { timeoutMs = 5_000 } = {}) => {
+  if (!page || typeof page.evaluate !== 'function') throw new TypeError('Native abort probe flush requires a Playwright page.');
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 5_000) {
+    throw new RangeError('Native abort probe flush timeout must be between zero and five seconds.');
+  }
+  const expression = `(${async ({ timeoutMs }) => {
+    const pending = globalThis.__loomNativeAbortProbePendingBindingCalls;
+    const failures = globalThis.__loomNativeAbortProbeBindingFailures ?? [];
+    const deadline = Date.now() + timeoutMs;
+    while (pending instanceof Set && pending.size > 0) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) throw new Error('Timed out waiting for native abort probe events to reach the report.');
+      let timer;
+      const timedOut = await Promise.race([
+        Promise.allSettled([...pending]).then(() => false),
+        new Promise(resolve => { timer = setTimeout(() => resolve(true), remaining); }),
+      ]);
+      clearTimeout(timer);
+      if (timedOut) throw new Error('Timed out waiting for native abort probe events to reach the report.');
+    }
+    if (failures.length > 0) throw new Error('Native abort probe binding failed: ' + failures.join('; ').slice(0, 1000));
+    return { pending: pending instanceof Set ? pending.size : 0, failures: failures.length };
+  }})(${JSON.stringify({ timeoutMs })})`;
+  return page.evaluate(expression);
 };
 
 const ownerRetirementActionForRule = (owner) =>

@@ -14,7 +14,8 @@ import {
 } from '../helpers/builder-combine-draft-helpers.mjs';
 import { nativeCombineTargetBindingEvidence, rootedEmptyTargetRestorationEvidence } from '../helpers/builder-combine-helpers.mjs';
 import { proposalPreviewReadinessExpression } from '../helpers/proposal-preview-readiness.mjs';
-import { installNativeAbortProbe } from '../helpers/native-abort-probe.mjs';
+import { installNativeAbortProbe, nativeAbortSignalObservationForRequest } from '../helpers/native-abort-probe.mjs';
+import { createFixtureNativeRequestLedger } from '../helpers/native-request-ledger.mjs';
 
 const ACTION_CHECK = 'all native lifecycle actions complete within five seconds';
 const TABLE_SELECTOR = '[data-testid="preview-table-scroll"] [role="table"]';
@@ -115,6 +116,146 @@ export async function installGroupJoinNativeCapture({ page, cda, project, explor
     observedPathPrefix: ownedPathPrefix,
   };
   return cda.captureRequests(ownedPathPrefix, { responsePaths: /commands|construction-proposals/ });
+}
+
+const terminalRequestEvents = new Set(['requestfinished', 'requestfailed']);
+
+const requestRouteIdentity = (request) => {
+  try {
+    const url = new URL(request.url());
+    return { origin: url.origin, path: url.pathname, method: request.method() };
+  } catch {
+    return null;
+  }
+};
+
+const exactTrackerRequestFor = (entry, request) => {
+  const route = requestRouteIdentity(request);
+  if (!route || route.origin !== entry.origin || route.path !== entry.path || route.method !== entry.method) return false;
+  let headers;
+  try { headers = request.headers(); }
+  catch { return false; }
+  const headerRequestId = headers?.['x-request-id'] ?? headers?.['X-Request-ID'];
+  return (headerRequestId ?? entry.browserRequestId) === entry.requestId;
+};
+
+const exactNetworkDiagnosticsFor = (report, entry) => (report.network ?? []).filter((record) => {
+  if (record?.kind !== 'network' || record.requestId !== entry.requestId ||
+      record.requestDetails?.requestId !== entry.requestId || record.browserRequestId !== entry.browserRequestId ||
+      record.method !== entry.method) return false;
+  try {
+    const url = new URL(record.rawURL ?? record.url);
+    return url.origin === entry.origin && url.pathname === entry.path;
+  } catch {
+    return false;
+  }
+});
+
+/** Project the CDA capture into the retained classifier shape without changing raw capture evidence. */
+export function projectGroupJoinNativeRequestEvidence({ report, tracker, page }) {
+  if (!report || !Array.isArray(report.nativeRequests) || !Array.isArray(report.nativeAbortProbeEvents) ||
+      !tracker?.byRequest || typeof tracker.byRequest.entries !== 'function' || !page || typeof page.mainFrame !== 'function') {
+    throw new TypeError('Group/Join native projection needs raw requests, probe events, the CDA tracker, and its Playwright page.');
+  }
+
+  const nativeRequests = report.nativeRequests;
+  const trackerEntries = [...tracker.byRequest.entries()];
+  const matchedObjectsFor = (entry) => trackerEntries
+    .filter(([request, captured]) => captured === entry && exactTrackerRequestFor(entry, request))
+    .map(([request]) => request);
+  const frameLedger = createFixtureNativeRequestLedger();
+  const terminalRows = nativeRequests.map((entry) => {
+    const requestObjects = matchedObjectsFor(entry);
+    const request = requestObjects.length === 1 ? requestObjects[0] : null;
+    const frameIdentity = request
+      ? frameLedger.frameIdentityForRequest(request, page, entry.ownerPageId ?? 'playwright-page-1')
+      : { pageId: entry.ownerPageId ?? null, frameId: null, frameIsMainFrame: null, frameIdentityStatus: 'unavailable' };
+    const diagnostics = exactNetworkDiagnosticsFor(report, entry);
+    const diagnostic = diagnostics.length === 1 ? diagnostics[0] : null;
+    const chronology = (entry.nativeEventChronology ?? []).map((event) => ({
+      ...event,
+      ...(event.event === 'response' && Number.isInteger(entry.status) ? { status: entry.status } : {}),
+      ...(event.event === 'requestfailed' && typeof entry.failure === 'string' ? { failure: entry.failure } : {}),
+    }));
+    const terminalEvent = [...chronology].reverse().find(event => terminalRequestEvents.has(event.event))?.event ?? null;
+    const state = terminalEvent === 'requestfinished' ? 'finished' : terminalEvent === 'requestfailed' ? 'failed' : 'pending';
+    const status = Number.isInteger(entry.status) ? entry.status : null;
+    const failure = typeof entry.failure === 'string' ? entry.failure : null;
+    return {
+      requestId: entry.requestId ?? null,
+      browserRequestId: entry.browserRequestId ?? null,
+      ...(diagnostic ? { playwrightRequestId: diagnostic.playwrightRequestId } : {}),
+      origin: entry.origin ?? null,
+      path: entry.path ?? null,
+      method: entry.method ?? null,
+      status,
+      failure,
+      terminalEvent,
+      state,
+      complete: state !== 'pending' && (Number.isInteger(status) || Boolean(failure)),
+      pageId: frameIdentity.pageId,
+      frameId: frameIdentity.frameId,
+      frameIsMainFrame: frameIdentity.frameIsMainFrame,
+      frameIdentityStatus: frameIdentity.frameIdentityStatus,
+      ...(diagnostic?.requestTimeline ? { requestTimeline: structuredClone(diagnostic.requestTimeline) } : {}),
+      nativeEventChronology: chronology,
+    };
+  });
+  const counts = {
+    total: terminalRows.length,
+    finished: terminalRows.filter(entry => entry.state === 'finished').length,
+    failed: terminalRows.filter(entry => entry.state === 'failed').length,
+    pending: terminalRows.filter(entry => entry.state === 'pending').length,
+  };
+  const terminalLedger = {
+    scope: 'exact Explorer CDA request capture',
+    project: report.target?.project ?? report.nativeRequestCaptureScope?.project ?? null,
+    explorer: report.target?.explorer ?? report.nativeRequestCaptureScope?.selectedExplorer ?? null,
+    complete: counts.pending === 0 && terminalRows.every(entry => entry.complete),
+    counts,
+    requests: terminalRows,
+  };
+
+  const schemaFieldsPath = `${report.nativeRequestCaptureScope?.observedPathPrefix ?? ''}/schema-fields`;
+  const correlations = [];
+  for (const [nativeRequestIndex, entry] of nativeRequests.entries()) {
+    if (entry.path !== schemaFieldsPath || entry.method !== 'POST') continue;
+    const requestObjects = matchedObjectsFor(entry);
+    const tupleMatches = nativeRequests.filter(candidate => candidate.requestId === entry.requestId &&
+      candidate.origin === entry.origin && candidate.path === entry.path && candidate.method === entry.method);
+    const requestIdentityMatchCount = tupleMatches.filter(candidate => matchedObjectsFor(candidate).length === 1).length;
+    const diagnostics = exactNetworkDiagnosticsFor(report, entry);
+    const diagnostic = diagnostics.length === 1 ? diagnostics[0] : null;
+    const requestId = typeof entry.requestId === 'string' ? entry.requestId : null;
+    const observation = nativeAbortSignalObservationForRequest({
+      ...entry,
+      requestCorrelationId: requestId,
+      requestIdentityMatchCount: requestObjects.length === 1 ? requestIdentityMatchCount : 0,
+    }, report.nativeAbortProbeEvents);
+    correlations.push({
+      nativeRequestIndex,
+      requestId,
+      browserRequestId: entry.browserRequestId ?? null,
+      ...(diagnostic ? { playwrightRequestId: diagnostic.playwrightRequestId } : {}),
+      origin: entry.origin ?? null,
+      path: entry.path,
+      method: entry.method ?? null,
+      requestIdentityMatchCount: requestObjects.length === 1 ? requestIdentityMatchCount : 0,
+      observation,
+    });
+  }
+
+  report.nativeRequestTerminalLedger = terminalLedger;
+  report.nativeAbortProbeCorrelations = correlations;
+  return { terminalLedger, correlations };
+}
+
+export function registerGroupJoinNativeRequestProjection({ cda, tracker, page }) {
+  if (!cda || typeof cda.registerAfterNativeRequestDrainProjection !== 'function') {
+    throw new TypeError('Group/Join native evidence requires the CDA post-drain report projection seam.');
+  }
+  return cda.registerAfterNativeRequestDrainProjection(() =>
+    projectGroupJoinNativeRequestEvidence({ report: cda.report, tracker, page }));
 }
 
 export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
@@ -1335,9 +1476,15 @@ export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
     });
     assert(noPublish && noPinnedSources, 'Current-draft Group and Join workflow must never Publish or pin TABLE_REVISION inputs');
   } finally {
-    page.off('request', onRequest);
-    page.off('response', onSelectionResponse);
-    page.off('requestfinished', onSelectionRequestFinished);
-    page.off('requestfailed', onSelectionRequestFailed);
+    try {
+      if (requestCapture?.byRequest) {
+        registerGroupJoinNativeRequestProjection({ cda, tracker: requestCapture, page });
+      }
+    } finally {
+      page.off('request', onRequest);
+      page.off('response', onSelectionResponse);
+      page.off('requestfinished', onSelectionRequestFinished);
+      page.off('requestfailed', onSelectionRequestFailed);
+    }
   }
 }
