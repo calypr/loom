@@ -69,12 +69,32 @@ const routeOwner = (url, endpoint) => {
   }
 };
 
+export const normalizeFrameSourceRequest = (body, headerRequestId) => {
+  if (!body || typeof body !== 'object' ||
+      (body.query !== undefined && typeof body.query !== 'string')) return undefined;
+  const requestId = body.requestId ?? body.requestID ?? headerRequestId;
+  const requestIdSource = typeof body.requestId === 'string' || typeof body.requestID === 'string'
+    ? 'body' : typeof headerRequestId === 'string' ? 'header' : undefined;
+  if (typeof requestId !== 'string' || !requestId || !requestIdSource ||
+      typeof body.outputId !== 'string' || !body.outputId ||
+      typeof body.snapshotToken !== 'string' || !body.snapshotToken) return undefined;
+  return {
+    requestId,
+    requestIdSource,
+    query: typeof body.query === 'string' ? body.query : '',
+    queryFieldPresent: Object.hasOwn(body, 'query') && typeof body.query === 'string',
+    outputId: body.outputId,
+    snapshotToken: body.snapshotToken,
+  };
+};
+
 export const frameSourceFailureCaptureRecord = (capture, reportRecord) => {
   const owner = routeOwner(capture?.url, 'frame-source-options');
   const body = capture?.body;
   if (capture?.kind !== 'frame-source-options' || capture.method !== 'POST' || !owner ||
       owner.project !== capture.project || owner.explorerId !== capture.explorerId ||
       typeof body?.requestId !== 'string' || !body.requestId || typeof body.query !== 'string' ||
+      !['body', 'header'].includes(body.requestIdSource) || typeof body.queryFieldPresent !== 'boolean' ||
       typeof body.outputId !== 'string' || !body.outputId ||
       typeof body.snapshotToken !== 'string' || !body.snapshotToken ||
       !Number.isFinite(capture.startedAtMs) || !Number.isFinite(capture.failedAtMs) ||
@@ -87,7 +107,9 @@ export const frameSourceFailureCaptureRecord = (capture, reportRecord) => {
     project: owner.project,
     explorerId: owner.explorerId,
     requestId: body.requestId,
+    requestIdSource: body.requestIdSource,
     query: body.query,
+    queryFieldPresent: body.queryFieldPresent,
     outputId: body.outputId,
     snapshotToken: body.snapshotToken,
     errorText: typeof capture.errorText === 'string' ? capture.errorText : null,
@@ -456,19 +478,23 @@ export const builderCodedSourceColumnWorkflow = async (workflow, context) => {
     if (explorerId !== (report.target.explorer ?? target.bootstrapExplorerId)) return undefined;
     let body;
     try { body = request.postDataJSON(); } catch { return undefined; }
+    const requestHeaders = request.headers();
+    const headerRequestId = requestHeaders['x-request-id'] ?? requestHeaders['X-Request-ID'];
+    const frameBody = match[3] === 'frame-source-options'
+      ? normalizeFrameSourceRequest(body, headerRequestId)
+      : undefined;
     const common = {
       url: url.origin + url.pathname,
       project: decodeURIComponent(match[1]),
       explorerId,
       method: request.method(),
       body,
-      requestId: request.headers()['x-request-id'] ?? body?.requestId ?? body?.requestID ?? null,
+      requestId: frameBody?.requestId ?? headerRequestId ?? body?.requestId ?? body?.requestID ?? null,
     };
     common.startedAt = performance.now();
     common.startedAtMs = common.startedAt - requestCaptureStartedAt;
-    if (match[3] === 'frame-source-options' && typeof body?.requestId === 'string' &&
-        typeof body.outputId === 'string' && typeof body.snapshotToken === 'string' && typeof body.query === 'string') {
-      return { ...common, kind: 'frame-source-options' };
+    if (match[3] === 'frame-source-options' && frameBody) {
+      return { ...common, body: frameBody, kind: 'frame-source-options' };
     }
     if (match[3] === 'construction-capabilities' && typeof body?.snapshotToken === 'string' &&
         Number.isInteger(body.expectedDraftVersion) && typeof body.expectedDraftDigest === 'string' &&

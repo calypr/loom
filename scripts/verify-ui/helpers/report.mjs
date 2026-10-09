@@ -47,9 +47,11 @@ const isCodedSourceColumnReport = (report) =>
 
 const validationSnapshot = (report, record, proof) => {
   const assertionNames = new Set([proof.assertion?.name, proof.assertion?.reloadName].filter(Boolean));
+  const networkRecord = { ...record };
+  delete networkRecord.rawURL;
   return JSON.stringify({
     proof,
-    record,
+    record: networkRecord,
     fixtureOracle: report.target?.fixtureOracle,
     actions: (report.actions ?? []).filter(action => action.id === proof.action?.id),
     assertions: (report.assertions ?? []).filter(assertion => assertionNames.has(assertion.name)),
@@ -57,11 +59,12 @@ const validationSnapshot = (report, record, proof) => {
 };
 
 const exactValidatedObsoleteRead = (report, record) => {
-  const registered = validatedObsoleteNetworkReads.get(report)?.get(record);
+  const registered = validatedObsoleteNetworkReads.get(report)?.get(record.playwrightRequestId);
   const proof = registered?.proof;
   if (!proof || !isCodedSourceColumnReport(report) || record.kind !== 'network' ||
       record.errorText !== 'net::ERR_ABORTED' || record.status >= 400 || record.internalError ||
       record.expectedObsolete !== true || record.obsolescenceEvidence !== proof ||
+      (record.rawURL !== undefined && record.rawURL !== record.url) ||
       typeof record.playwrightRequestId !== 'string' || !record.playwrightRequestId ||
       proof.failedRequest?.playwrightRequestId !== record.playwrightRequestId ||
       (report.network ?? []).filter(candidate => candidate === record).length !== 1 ||
@@ -85,13 +88,14 @@ export const registerValidatedObsoleteNetworkRead = (report, record, proof) => {
         candidate.playwrightRequestId === record.playwrightRequestId).length !== 1 ||
       (report.expectedObsolete ?? []).filter(candidate => candidate === proof).length !== 1 ||
       (report.expectedObsolete ?? []).filter(candidate =>
-        candidate?.failedRequest?.playwrightRequestId === record.playwrightRequestId).length !== 1) return false;
-  let proofsByRecord = validatedObsoleteNetworkReads.get(report);
-  if (!proofsByRecord) {
-    proofsByRecord = new Map();
-    validatedObsoleteNetworkReads.set(report, proofsByRecord);
+        candidate?.failedRequest?.playwrightRequestId === record.playwrightRequestId).length !== 1 ||
+      (record.rawURL !== undefined && record.rawURL !== record.url)) return false;
+  let proofsByRequestID = validatedObsoleteNetworkReads.get(report);
+  if (!proofsByRequestID) {
+    proofsByRequestID = new Map();
+    validatedObsoleteNetworkReads.set(report, proofsByRequestID);
   }
-  const prior = proofsByRecord.get(record);
+  const prior = proofsByRequestID.get(record.playwrightRequestId);
   if (prior && prior.proof !== proof) return false;
   let snapshot;
   try {
@@ -99,7 +103,7 @@ export const registerValidatedObsoleteNetworkRead = (report, record, proof) => {
   } catch {
     return false;
   }
-  proofsByRecord.set(record, Object.freeze({ proof, snapshot }));
+  proofsByRequestID.set(record.playwrightRequestId, Object.freeze({ proof, snapshot }));
   return true;
 };
 

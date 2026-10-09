@@ -5,11 +5,14 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { generatedJ01ConceptNDJSON } from '../../../loom-dev.mjs';
 import { adjudicatePendingLifecycle, createReport, finishReport } from '../report.mjs';
+import { applyInjectedFaultPolicy } from '../network-evidence.mjs';
+import { finishCdaReport } from '../cda-fixtures.mjs';
 import {
   appendCapabilityCommandInvalidationProof,
   appendFrameSearchInvalidationProof,
   classifyCodedColumnDiagnostics,
   frameSourceFailureCaptureRecord,
+  normalizeFrameSourceRequest,
   previewHeaderMatches,
 } from '../../workflows/builder-coded-source-column.mjs';
 
@@ -525,15 +528,14 @@ const retainedCodedReport = () => {
 test('retained request-126 diagnostics preserve exact frame-search request binding and timing without excusing the abort', () => {
   const report = retainedCodedReport();
   const failed = report.network[0];
+  const normalizedBody = normalizeFrameSourceRequest({
+    outputId: failed.requestDetails.outputId,
+    snapshotToken: 'sha256:retained-frame-search-snapshot',
+  }, failed.requestDetails.requestId);
   const capture = {
     kind: 'frame-source-options', method: 'POST', url: failed.url,
     project: 'loom_dev_verify_mv0k3tqk-5211624', explorerId: 'verify-qk-5211624-coded-source',
-    body: {
-      requestId: failed.requestDetails.requestId,
-      query: '',
-      outputId: failed.requestDetails.outputId,
-      snapshotToken: 'sha256:retained-frame-search-snapshot',
-    },
+    body: normalizedBody,
     errorText: 'net::ERR_ABORTED', startedAtMs: 100, failedAtMs: 229, durationMs: 129,
   };
   const evidence = frameSourceFailureCaptureRecord(capture, failed);
@@ -545,7 +547,9 @@ test('retained request-126 diagnostics preserve exact frame-search request bindi
     project: 'loom_dev_verify_mv0k3tqk-5211624',
     explorerId: 'verify-qk-5211624-coded-source',
     requestId: 'frame-source-options-8612512d-9a0f-4439-a95f-7b7d42f39b31',
+    requestIdSource: 'header',
     query: '',
+    queryFieldPresent: false,
     outputId: 'out_55eb6102c01a77480b5a05a5',
     snapshotToken: 'sha256:retained-frame-search-snapshot',
     errorText: 'net::ERR_ABORTED',
@@ -559,6 +563,18 @@ test('retained request-126 diagnostics preserve exact frame-search request bindi
   assert(classified.unexpected.includes(failed), 'Request 126 stays fatal without independently validated replacement proof.');
   finishReport(report);
   assert(report.errors.some(error => error.playwrightRequestId === 'request-126' && error.errorText === 'net::ERR_ABORTED'));
+});
+
+test('frame-source capture normalizes header request IDs and omitted empty queries while preserving wire presence', () => {
+  assert.deepEqual(normalizeFrameSourceRequest({ outputId: 'out-a', snapshotToken: 'snapshot-a' }, 'request-from-header'), {
+    requestId: 'request-from-header', requestIdSource: 'header', query: '', queryFieldPresent: false,
+    outputId: 'out-a', snapshotToken: 'snapshot-a',
+  });
+  assert.deepEqual(normalizeFrameSourceRequest({ requestId: 'request-from-body', outputId: 'out-a',
+    snapshotToken: 'snapshot-a', query: 'Observation' }, 'different-header-id'), {
+    requestId: 'request-from-body', requestIdSource: 'body', query: 'Observation', queryFieldPresent: true,
+    outputId: 'out-a', snapshotToken: 'snapshot-a',
+  });
 });
 
 test('finishReport consumes only the exact validated request-148 and request-271 retained proofs', () => {
@@ -576,6 +592,42 @@ test('finishReport consumes only the exact validated request-148 and request-271
   adjudicatePendingLifecycle(report);
   assert.equal(report.lifecycle.status, 'failed');
   assert.deepEqual(report.lifecycle.failure.unexpectedNetwork.map(record => record.url), [report.network[0].url]);
+});
+
+test('CDA network projection clones validated records and strips rawURL without losing exact coded proof ownership', () => {
+  const report = retainedCodedReport();
+  const originalRecords = report.network;
+  const classified = classifyCodedColumnDiagnostics(report);
+  assert.deepEqual(classified.cancelledReads.map(record => record.playwrightRequestId), ['request-148', 'request-271']);
+  assert(report.expectedObsoleteReads.every(record => record.rawURL === record.url));
+
+  report.network = applyInjectedFaultPolicy(report.network, []);
+  assert.notEqual(report.network, originalRecords, 'Production fault projection replaces the network array.');
+  assert.notEqual(report.network[1], originalRecords[1], 'Production fault projection shallow-clones each record.');
+  assert(report.network.every(record => !Object.hasOwn(record, 'rawURL')),
+    'Production fault projection removes rawURL from finalized network records.');
+  const projectedNetwork = report.network;
+  finishCdaReport(report);
+  assert.equal(report.network, projectedNetwork, 'CDA finish restores the projected network after final status calculation.');
+  assert.deepEqual(report.errors.filter(error => error.errorText === 'net::ERR_ABORTED')
+    .map(error => error.playwrightRequestId), ['request-126']);
+});
+
+test('finalization allows only URL-identical rawURL enrichment after proof validation', () => {
+  const enriched = retainedCodedReport();
+  enriched.network.slice(1).forEach(record => { delete record.rawURL; });
+  classifyCodedColumnDiagnostics(enriched);
+  enriched.network.slice(1).forEach(record => { record.rawURL = record.url; });
+  finishReport(enriched);
+  assert.deepEqual(enriched.errors.filter(error => error.errorText === 'net::ERR_ABORTED')
+    .map(error => error.playwrightRequestId), ['request-126']);
+
+  const mismatched = retainedCodedReport();
+  classifyCodedColumnDiagnostics(mismatched);
+  mismatched.network[1].rawURL = `${mismatched.network[1].url}?unmatched=1`;
+  finishReport(mismatched);
+  assert.deepEqual(mismatched.errors.filter(error => error.errorText === 'net::ERR_ABORTED')
+    .map(error => error.playwrightRequestId), ['request-126', 'request-148']);
 });
 
 test('finishReport rejects forged read lists, missing proofs, and mismatched request IDs', () => {
