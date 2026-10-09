@@ -1,0 +1,123 @@
+{
+  "sourceArtifact": {
+    "wave": 149,
+    "path": "/private/tmp/loom-related-text-only-pivot-wave149/run-root-quantity-pivot-related-text-only-full-population-lifecycle-JwD810/playwright-results/root-quantity-pivot-Relate-c5a05-M-MAX-across-the-full-route/cda-evidence/report.json",
+    "sha256": "9c2c682417d6235626fd976bd3e09d9e4a5b12cf287c3cabce188666660bd216"
+  },
+  "outputId": "out_953a29d53dbabe5c629a62be",
+  "since": 1791373902000,
+  "state": {
+    "draftVersion": 6,
+    "draftDigest": "sha256:19a425f2404285f42a3ebb3fd423ad77312b757218d1d6bb3520be06ea4a9110",
+    "catalog": {
+      "snapshotToken": "sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7"
+    }
+  },
+  "authoringRequests": [
+    {
+      "endpoint": "reconcile",
+      "requestId": "builder-1-1",
+      "status": 200,
+      "requestStartedAtMs": 1791373895310,
+      "responseFinishedAtMs": 1791373895444,
+      "requestDraftVersion": 3,
+      "requestDraftDigest": "sha256:babe94b60acf38bd3b1df2a0f27698947689420f2b96ee4ce484cbb09b1b0a83",
+      "body": {
+        "snapshotToken": "sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7",
+        "draftVersion": 3,
+        "draftDigest": "sha256:babe94b60acf38bd3b1df2a0f27698947689420f2b96ee4ce484cbb09b1b0a83"
+      },
+      "responseReceiptId": "receipt_466bef7a726f07181848c206dddbf699af2367a9935db833a1811dacfc3f5c9b",
+      "response": {
+        "receiptId": "receipt_466bef7a726f07181848c206dddbf699af2367a9935db833a1811dacfc3f5c9b",
+        "builder": {
+          "documents": [
+            {
+              "output": {
+                "id": "out_953a29d53dbabe5c629a62be"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "endpoint": "reconcile",
+      "requestId": "builder-1-1",
+      "status": 200,
+      "requestStartedAtMs": 1791373902179,
+      "responseFinishedAtMs": 1791373902298,
+      "requestDraftVersion": 6,
+      "requestDraftDigest": "sha256:19a425f2404285f42a3ebb3fd423ad77312b757218d1d6bb3520be06ea4a9110",
+      "body": {
+        "snapshotToken": "sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7",
+        "draftVersion": 6,
+        "draftDigest": "sha256:19a425f2404285f42a3ebb3fd423ad77312b757218d1d6bb3520be06ea4a9110"
+      },
+      "responseReceiptId": "receipt_ccb18af5575a40c3ef2557d4164bcc94b219166dd30e65056b84362a18bd7d0c",
+      "response": {
+        "receiptId": "receipt_ccb18af5575a40c3ef2557d4164bcc94b219166dd30e65056b84362a18bd7d0c",
+        "builder": {
+          "documents": [
+            {
+              "output": {
+                "id": "out_953a29d53dbabe5c629a62be"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "endpoint": "reconcile",
+      "requestId": "builder-1-1",
+      "status": 200,
+      "requestStartedAtMs": 1791373902179,
+      "responseFinishedAtMs": 1791373902298,
+      "requestDraftVersion": 6,
+      "requestDraftDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "body": {
+        "snapshotToken": "sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7",
+        "draftVersion": 6,
+        "draftDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "responseReceiptId": "receipt_wrong_digest",
+      "response": {
+        "receiptId": "receipt_wrong_digest",
+        "builder": {
+          "documents": [
+            {
+              "output": {
+                "id": "out_953a29d53dbabe5c629a62be"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "endpoint": "preview",
+      "requestId": "playwright-43",
+      "status": 200,
+      "requestStartedAtMs": 1791373902295,
+      "responseFinishedAtMs": 1791373902421,
+      "requestOutputId": "out_953a29d53dbabe5c629a62be",
+      "requestReceiptId": "receipt_ccb18af5575a40c3ef2557d4164bcc94b219166dd30e65056b84362a18bd7d0c",
+      "responseReceiptId": "receipt_ccb18af5575a40c3ef2557d4164bcc94b219166dd30e65056b84362a18bd7d0c",
+      "responseOutputId": "out_953a29d53dbabe5c629a62be",
+      "reconcileRequestId": "builder-1-1",
+      "reconciledDraftVersion": 6,
+      "reconciledDraftDigest": "sha256:19a425f2404285f42a3ebb3fd423ad77312b757218d1d6bb3520be06ea4a9110",
+      "body": {
+        "receiptId": "receipt_ccb18af5575a40c3ef2557d4164bcc94b219166dd30e65056b84362a18bd7d0c",
+        "outputId": "out_953a29d53dbabe5c629a62be",
+        "limit": 25
+      },
+      "response": {
+        "receiptId": "receipt_ccb18af5575a40c3ef2557d4164bcc94b219166dd30e65056b84362a18bd7d0c",
+        "outputId": "out_953a29d53dbabe5c629a62be",
+        "rowCount": 25
+      }
+    }
+  ]
+}

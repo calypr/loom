@@ -877,11 +877,19 @@ export const registry = Object.freeze([
           {
             id: 'related-quantity-pivot-oracle',
             cwd: '.',
-            command: ['node-test', 'scripts/verify-ui/helpers/tests/related-quantity-pivot-oracle.test.mjs'],
+            command: [
+              'node-test',
+              'scripts/verify-ui/helpers/tests/related-quantity-pivot-oracle.test.mjs',
+              'scripts/verify-ui/helpers/tests/related-quantity-pivot-discovery-parity.test.mjs',
+              'scripts/verify-ui/helpers/tests/related-quantity-pivot-discovery-process.test.mjs',
+              'scripts/verify-ui/helpers/tests/owned-arangosh-command.test.mjs',
+            ],
             sourceFiles: [
               'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/specs/root-quantity-pivot.spec.mjs',
               'scripts/verify-ui/workflows/verify-cda-quantity-pivot-native-drag-browser.mjs',
               'scripts/verify-ui/helpers/related-quantity-pivot-oracle.mjs',
+              'scripts/verify-ui/helpers/related-quantity-pivot-discovery-process.mjs',
               'scripts/verify-ui/helpers/owned-arangosh-command.mjs',
               'scripts/verify-ui/helpers/cda-playwright.mjs',
               'scripts/verify-ui/helpers/tests/fixtures/wave149-saved-preview-reconcile.json',
