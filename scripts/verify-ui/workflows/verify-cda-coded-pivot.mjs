@@ -19,6 +19,8 @@ import {
   codedPivotRemovalProposalReady,
   codedPivotRenderedValuesFor,
   codedPivotRestoredSourceRowVisible,
+  codedPivotSourceControls,
+  codedPivotSourceRadioFor,
   codedPivotValuesFor,
 } from '../helpers/coded-pivot-fixture.mjs';
 
@@ -241,7 +243,7 @@ try {
   sourceOptionsRequestBody = requestCapture.rawRequestBody(sourceOptionsRequest);
   sourceOptionsResponseBody = requestCapture.rawResponseBody(sourceOptionsRequest);
   const sourceOptions = sourceOptionsResponseBody.sources;
-  report.sources = await cda.inspect( () => [...document.querySelectorAll('input[name="coded-pivot-source"]')].map(input => ({ text: input.closest('label')?.innerText, checked: input.checked, disabled: input.disabled })));
+  report.sources = await cda.inspect(codedPivotSourceControls);
   const matchingSource = report.sources.find(source => source.text?.includes('component') && source.text.toLowerCase().includes(mode));
   assert(matchingSource, `Direct component ${mode} source is missing`);
   const normalizeLabel = value => String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -253,7 +255,8 @@ try {
   assert(expectedValuePath.test(selectedSourceOption.valuePath), `The ${mode} source must bind its expected scalar value path: ${selectedSourceOption.valuePath}`);
   report.selectedSourceOption = selectedSourceOption;
   const semanticInventoryRequestStart = report.nativeRequests.length;
-  await action(`Select ${mode} coded source`, page.locator('section[aria-label="Coded values as columns"] label').filter({ hasText: matchingSource.text }));
+  const matchingSourceRadio = codedPivotSourceRadioFor(page, matchingSource.text);
+  await action(`Select ${mode} coded source`, matchingSourceRadio);
   await waitNative( ({ label }) => [...document.querySelectorAll('section[aria-label="Coded values as columns"] input[type="checkbox"]')].some(input => input.closest('label')?.innerText.toLowerCase().includes(label)), { label: expected[0].label.toLowerCase() }, 5000);
   const semanticInventoryRequest = await requestCapture.waitFor(entry => {
     const request = requestCapture.rawRequestBody(entry);

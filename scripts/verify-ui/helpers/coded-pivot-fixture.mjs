@@ -14,6 +14,20 @@ export function codedPivotFirstTableReady() {
     Boolean(document.querySelector('button[aria-label="Choose Observation rows"]:not(:disabled)'));
 }
 
+export function codedPivotSourceControls() {
+  return [...document.querySelectorAll('input[name="coded-pivot-source"]')].map(input => ({
+    text: input.closest('label')?.innerText,
+    checked: input.checked,
+    disabled: input.disabled,
+  }));
+}
+
+export function codedPivotSourceRadioFor(page, label) {
+  const normalizedLabel = String(label ?? '').replace(/\s+/g, ' ').trim();
+  return page.locator('section[aria-label="Coded values as columns"]')
+    .getByRole('radio', { name: normalizedLabel, exact: true });
+}
+
 export function codedPivotFailureDomSnapshot({ mode }) {
   const section = document.querySelector('section[aria-label="Coded values as columns"]');
   const allSourceControls = [...(section?.querySelectorAll('input[name="coded-pivot-source"]') ?? [])].map(input => ({
@@ -28,8 +42,10 @@ export function codedPivotFailureDomSnapshot({ mode }) {
     const label = control.labelText.toLowerCase();
     return label.includes('component') && label.includes(String(mode).toLowerCase());
   });
-  const sourceControls = allSourceControls.slice(0, maxSourceControls);
-  if (modeLabel && !sourceControls.includes(modeLabel)) sourceControls[sourceControls.length === maxSourceControls ? maxSourceControls - 1 : sourceControls.length] = modeLabel;
+  const sourceControlPreview = allSourceControls.slice(0, maxSourceControls);
+  const sourceControls = modeLabel && !sourceControlPreview.includes(modeLabel)
+    ? [...sourceControlPreview.slice(0, maxSourceControls - (sourceControlPreview.length === maxSourceControls ? 1 : 0)), modeLabel]
+    : sourceControlPreview;
   const sectionHTML = section?.outerHTML ?? null;
   const maxSectionCharacters = 48_000;
   return {

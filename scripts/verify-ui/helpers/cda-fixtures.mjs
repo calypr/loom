@@ -10,7 +10,7 @@ import { startVerificationIdentity } from './cda-verification-identity.mjs';
 import { assertOwnedCdaTarget } from './owned-cda-target.mjs';
 import { assertOwnedDevSession, createDevSession } from '../../loom-dev.mjs';
 import {
-  browserEval,
+  createCdaInspector,
   captureRequests,
   click,
   fill,
@@ -1109,7 +1109,7 @@ export const test = base.extend({
         uiRouting: cdaUiRouting,
         navigateTo: url => navigate(page, url, context),
       }),
-      inspect: (callback, args) => browserEval(page, callback, args),
+      inspect: createCdaInspector(page),
       wait: (callback, args, timeout) => waitForBrowser(page, callback, args, timeout),
       captureRequests: (ownedPathPrefix, options = {}) => {
         const tracker = captureRequests(page, report, ownedPathPrefix, {

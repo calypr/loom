@@ -166,6 +166,8 @@ export async function browserEval(page, inspect, args = []) {
   return page.evaluate(inspect, args);
 }
 
+export const createCdaInspector = page => (callback, args) => browserEval(page, callback, args);
+
 export async function waitForBrowser(page, predicate, args = [], timeout = 5000) {
   requireInspectionCallback(predicate, 'Browser waits');
   if (typeof args === 'string') throw new TypeError('Browser wait arguments must be structured data, not source code.');

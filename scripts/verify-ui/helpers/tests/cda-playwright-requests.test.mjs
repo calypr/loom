@@ -276,6 +276,97 @@ test('native request flush waits for a delayed response and requestfinished even
   assert.equal(report.nativeRequestDrainEvidence, undefined);
 });
 
+test('finalizer observes request terminals across navigation before Page/context disposal and keeps close-only requests unresolved', async () => {
+  const makePage = () => {
+    const page = new EventEmitter();
+    const context = new EventEmitter();
+    let url = 'http://127.0.0.1:3000/?project=loom_dev_cda_fhir&explorer=owned&mode=builder';
+    page.url = () => url;
+    page.context = () => context;
+    page.navigate = nextURL => {
+      url = nextURL;
+      page.emit('framenavigated', { url: () => url });
+    };
+    page.dispose = async () => {
+      page.emit('close');
+      context.emit('close');
+    };
+    return page;
+  };
+  const makeReport = () => ({
+    runnerStatus: 'passed', requiredChecks: ['required interaction completed'], missingRequiredChecks: [],
+    assertions: [{ name: 'required interaction completed', status: 'passed' }], network: [], errors: [], nativeRequests: [],
+  });
+  const path = '/api/v1/projects/loom_dev_cda_fhir/explorers/owned/authoring/v2/schema-fields';
+
+  const page = makePage();
+  const report = makeReport();
+  const capture = captureCDARequests(page, {
+    apiOrigin: 'http://127.0.0.1:8188',
+    ownedPathPrefix: '/api/v1/projects/loom_dev_cda_fhir/explorers/owned',
+    responsePaths: /schema-fields/,
+    report,
+  });
+  const request = {
+    url: () => `http://127.0.0.1:8188${path}`,
+    method: () => 'POST', headers: () => ({ 'x-request-id': 'finalizer-request-terminal' }), postData: () => '{}',
+  };
+  page.emit('request', request);
+  let finalized = false;
+  const finalizer = capture.flush({ timeoutMs: 500, waitForNativeRequestTerminals: true })
+    .then(() => { finalized = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(finalized, false, 'the finalizer must snapshot request A while its terminal is still outstanding');
+
+  page.navigate('http://127.0.0.1:3000/?project=loom_dev_cda_fhir&explorer=owned&mode=builder&reload=1');
+  page.emit('response', {
+    request: () => request, status: () => 200, headers: () => ({}), text: async () => '{"fields":[]}',
+  });
+  page.emit('requestfinished', request);
+  await finalizer;
+  await page.dispose();
+
+  const [completed] = report.nativeRequests;
+  assert.deepEqual(completed.nativeEventChronology.map(({ event }) => event), ['request', 'response', 'requestfinished']);
+  assert.equal(completed.status, 200);
+  assert(Number.isFinite(completed.completedAt));
+  assert.equal(report.nativeRequestDrainEvidence, undefined,
+    'a terminal observed during finalization must prevent a false unresolved drain result');
+
+  const closedPage = makePage();
+  const closedReport = makeReport();
+  const closedCapture = captureCDARequests(closedPage, {
+    apiOrigin: 'http://127.0.0.1:8188',
+    ownedPathPrefix: '/api/v1/projects/loom_dev_cda_fhir/explorers/owned',
+    report: closedReport,
+  });
+  const pendingRequest = {
+    url: () => `http://127.0.0.1:8188${path}`,
+    method: () => 'POST', headers: () => ({ 'x-request-id': 'finalizer-request-close-only' }), postData: () => '{}',
+  };
+  closedPage.emit('request', pendingRequest);
+  await closedCapture.flush({ timeoutMs: 20, waitForNativeRequestTerminals: true });
+  await closedPage.dispose();
+
+  const [pending] = closedReport.nativeRequests;
+  assert.deepEqual(pending.nativeEventChronology.map(({ event }) => event), ['request']);
+  assert.equal(pending.completedAt, undefined);
+  assert.equal(pending.failure, undefined, 'Page/context disposal cannot synthesize a requestfailed event');
+  assert.deepEqual(closedReport.nativeRequestDrainEvidence[0].unresolvedRequests, [{
+    index: 0,
+    requestId: 'finalizer-request-close-only',
+    browserRequestId: 'playwright-1',
+    method: 'POST',
+    path,
+  }]);
+  const failure = gateFailure(closedReport);
+  assert(failure);
+  const details = JSON.parse(failure.message.replace(/^CDA verification evidence is incomplete: /, ''));
+  assert.deepEqual(details.unfinishedNativeRequests, [{
+    index: 0, requestId: 'finalizer-request-close-only', path,
+  }]);
+});
+
 test('native request flush resolves on requestfailed without inferring a response', async () => {
   const page = new EventEmitter();
   const report = { nativeRequests: [], errors: [] };

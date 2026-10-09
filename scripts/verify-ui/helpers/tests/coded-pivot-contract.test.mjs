@@ -5,6 +5,7 @@ import { runInNewContext } from 'node:vm';
 import { chromium } from 'playwright';
 import { hasLifecycleContract, registry, scenarioCaseFor } from '../../registry.mjs';
 import { captureCDARequests } from '../cda-playwright-requests.mjs';
+import { createCdaInspector } from '../cda-playwright.mjs';
 import { DEFAULT_ACTION_TO_RENDER_BUDGET_MS, recordPivotActionToRender } from '../quantity-pivot-budget.mjs';
 import {
   CODED_PIVOT_OBSERVATION_ID,
@@ -15,6 +16,8 @@ import {
   codedPivotRemovalProposalReady,
   codedPivotRenderedValuesFor,
   codedPivotRestoredSourceRowVisible,
+  codedPivotSourceControls,
+  codedPivotSourceRadioFor,
   codedPivotValuesFor,
 } from '../coded-pivot-fixture.mjs';
 import {
@@ -187,6 +190,62 @@ test('first-table readiness predicate accepts the retained heading and enabled O
   assert.equal(await page.getByRole('button', { name: 'Choose Observation rows' }).isEnabled(), false);
 });
 
+test('coded Pivot source options are inspected and selected through the native radio label', async t => {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.setContent(`<!doctype html><html><head><style>.block{display:block}.text-xs{font-size:.75rem}</style></head><body>
+    <section aria-label="Coded values as columns">
+      <div><h3>Coded values as columns</h3><p>Keep one row per Observation record. Each selected code becomes a column filled by its paired value.</p></div>
+      <label>Find a coded source<input type="search" placeholder="Search sources"></label>
+      <fieldset>
+        <legend>Source of coded values</legend>
+        <label class="flex gap-2"><input type="radio" name="coded-pivot-source"><span><strong class="block">Observation component values (string)</strong><span class="text-xs">Codes and their paired values on Observation records.</span></span></label>
+        <label class="flex gap-2"><input type="radio" name="coded-pivot-source"><span><strong class="block">Observation component values (integer)</strong><span class="text-xs">Codes and their paired values on Observation records.</span></span></label>
+      </fieldset>
+    </section>
+  </body></html>`);
+
+  // This is the same inspector installed as cda.inspect in cda-fixtures.mjs.
+  const cda = { inspect: createCdaInspector(page) };
+  const previousFailureCapture = () => {
+    const sourceControls = [];
+    const modeLabel = {};
+    sourceControls[sourceControls.length] = modeLabel;
+    return sourceControls;
+  };
+  await assert.rejects(cda.inspect(previousFailureCapture), /Browser inspection callbacks may inspect results only/,
+    'The cda.inspect guard reproduces the mutation failure recorded in the retained bracket.');
+  const sourceLabels = [
+    { mode: 'integer', title: 'Observation component values (integer)' },
+    { mode: 'string', title: 'Observation component values (string)' },
+  ];
+  const description = 'Codes and their paired values on Observation records.';
+
+  for (const { mode, title } of sourceLabels) {
+    const sources = await cda.inspect(codedPivotSourceControls);
+    const matchingSource = sources.find(source => source.text?.includes(title));
+    assert.ok(matchingSource, `The native chooser must render its direct ${mode} source.`);
+    assert.equal(matchingSource.text, `${title}\n${description}`);
+    assert.equal(matchingSource.disabled, false);
+
+    const previousLocator = page.locator('section[aria-label="Coded values as columns"] label')
+      .filter({ hasText: matchingSource.text });
+    assert.equal(await previousLocator.count(), 0, 'Captured innerText line breaks do not make the old hasText locator reliable.');
+
+    const sourceRadio = codedPivotSourceRadioFor(page, matchingSource.text);
+    assert.equal(await sourceRadio.count(), 1);
+    await sourceRadio.click();
+    const selectedSources = await cda.inspect(codedPivotSourceControls);
+    assert.equal(selectedSources.find(source => source.text === matchingSource.text)?.checked, true,
+      `Selecting the ${mode} label must use native radio behavior.`);
+
+    const domSnapshot = await cda.inspect(codedPivotFailureDomSnapshot, { mode });
+    assert.equal(domSnapshot.mode, mode);
+    assert.ok(domSnapshot.sourceControls.some(control => control.labelText === matchingSource.text));
+  }
+});
+
 test('coded Pivot failure evidence retains the first chooser DOM and exact matching source across cleanup', async t => {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   t.after(() => browser.close());
@@ -247,7 +306,8 @@ test('coded Pivot failure evidence retains the first chooser DOM and exact match
     mode: 'integer', action: { label: 'Select integer coded source', startedAt: 10 },
     captureDom: async () => {
       captureOrder.push('dom');
-      return page.evaluate(codedPivotFailureDomSnapshot, { mode: 'integer' });
+      const cda = { inspect: createCdaInspector(page) };
+      return cda.inspect(codedPivotFailureDomSnapshot, { mode: 'integer' });
     },
     captureSourceOptions: domSnapshot => {
       captureOrder.push('source-options');
