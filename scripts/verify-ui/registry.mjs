@@ -265,6 +265,18 @@ export const registry = Object.freeze([
       },
       "cohort-recode": {
         playwrightTest: "scripts/verify-ui/specs/builder-authoring.spec.mjs",
+        focusedChecks: [
+          {
+            id: 'cohort-recode-saved-member-binding-contract',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/cohort-identities.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/helpers/cohort-identities.mjs',
+              'scripts/verify-ui/workflows/builder-authoring.mjs',
+              'scripts/verify-ui/registry.mjs',
+            ],
+          },
+        ],
         requiredChecks: [
           "fixture cohort binds exactly the two independent Patient IDs",
           "Patient.id starts as distinct raw values under ALL",
@@ -272,6 +284,9 @@ export const registry = Object.freeze([
           "ONE accepts different raw Patient IDs after they recode to the same category",
           "transformed ONE policy and exact recoding survive reload",
           "returning from ONE to ALL restores the shared-category array",
+          "Cancel preserves the saved ALL recoding, exact Builder draft, and visible category values",
+          "saved recoding edits apply exact category values on the same cohort binding",
+          "edited category mapping survives reload on the same cohort and Patient IDs",
           "removing recoding restores both exact raw Patient IDs under ALL",
           "raw ALL restoration survives reload on the same cohort and column identity",
         ],
@@ -472,8 +487,8 @@ export const registry = Object.freeze([
       { feature: 'configured-column interpretation context', status: 'untested', reason: 'Basic authoring adds columns and publishes, but it does not inspect or assert the saved-column context.' },
       { feature: 'graph route editing', status: 'untested' },
       { feature: 'starting-record selection', status: 'untested', reason: 'No registered authoring case attaches or resolves a saved starting selection.' },
-      { feature: 'named cohort selection', status: 'implemented', reason: 'Registered cohort-recode basic lifecycle passes with two independently known Patient refs; real CDA membership variants have separate cases.' },
-      { feature: 'transformed named-cohort member values and ALL/ONE policy', status: 'implemented', reason: 'Registered cohort-recode passes exact ALL/ONE recode, reload and removal/restoration on the basic fixture; CDA follow-up remains separate.' },
+      { feature: 'named cohort selection', status: 'untested', reason: 'Historical basic-fixture evidence claimed two independently known Patient refs, but its referenced report is unavailable. The current 11-check cohort-recode contract has not run; real CDA membership variants remain separate.' },
+      { feature: 'transformed named-cohort member values and ALL/ONE policy', status: 'untested', reason: 'The historical TSV claims the basic-fixture ALL/ONE recode, reload, and restoration passed, but the referenced report is unavailable. The expanded 11-check contract, including mapping-edit Cancel/Apply/reload, remains unverified; CDA follow-up is separate.' },
       { feature: 'authored list EXPAND from a named-cohort ALL member field', acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', case: 'cohort-expand', checks: { choice: 5, proposal: 6, cancel: 8, apply: 10, savedRows: 10, reload: 11, edit: 13, restoration: 17 } }, status: 'untested', reason: 'Historical exact basic-fixture lifecycle passed 18/18 checks with 20 actions (max 2,000 ms), preserving the two Patient IDs through Apply/edit/removal/reload (docs/BUILDER_VERIFICATION.tsv, “Expand list values”; /tmp/loom-authored-expand-header-case/report.json.cohort-expand). The retained fingerprint is aggregate-only (5b4791ae…; 1,125 files), so current-source freshness is unknown. This is the same user behavior despite the historical scenario label; CDA and nested coding remain separate.' },
       { feature: 'raw ONE disagreement rejection for two Patient IDs', acceptance: { intent: 'row-lifecycle', kind: 'probe', case: 'patient-one-disagreement' }, status: 'untested', reason: 'The registered basic-fixture native case submits raw Patient.id with ONE against two independently enumerated IDs, checks the exact multiple-values 422 and unchanged saved Group, then repairs the same selection with ALL. No browser lifecycle has run yet; this does not establish CDA behavior.' },
       { feature: 'selected-resource population coverage check', status: 'untested', reason: 'No registered case attaches a saved selection and published receipt, then activates the coverage check.' },

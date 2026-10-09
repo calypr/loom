@@ -34,6 +34,25 @@ test('keeps CDA legacy Patient ID identity outside cohort member bindings', () =
   assert.equal(result.binding.policy, 'ALL');
 });
 
+test('resolves the cohort-bound Patient ID beside the legacy ID in a saved GROUPS document', () => {
+  const document = cdaDocument();
+  document.rows = {
+    kind: 'GROUPS',
+    groups: {
+      source: { kind: 'EXPLICIT', explicit: { revisionId: 'grouprev_case008' } },
+      rowValues: [{ columnId: 'member_9a8d0d0e', policy: 'ALL' }],
+    },
+  };
+  document.population = { selectionRevisionId: 'selection_case008' };
+
+  const result = assertCohortPatientIDColumns(document, document.columns[0]);
+  assert.equal(result.legacy.columnId, 'source_5d01133eea8dbceb2d782092');
+  assert.equal(result.member.columnId, 'member_9a8d0d0e');
+  assert.equal(result.binding.policy, 'ALL');
+  assert.equal(document.rows.groups.source.explicit.revisionId, 'grouprev_case008');
+  assert.equal(document.population.selectionRevisionId, 'selection_case008');
+});
+
 test('supports the synthetic legacy Patient ID shape without a columnId', () => {
   const legacy = {
     column: 'patient_id',

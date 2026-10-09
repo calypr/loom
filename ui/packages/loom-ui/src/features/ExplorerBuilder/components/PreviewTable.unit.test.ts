@@ -360,8 +360,38 @@ describe('PreviewTable column controls', () => {
     };
     rendered.rerender(props({ ...recodeTable, document: { ...recodeTable.document, columns: [savedColumn] } }));
     fireEvent.click(screen.getByText('Edit exact category recoding'));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Replacement value 1 for Patient gender' }), {
+      target: { value: 'draft F' },
+    });
+    expect(onTransformationChange).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('list', { name: 'Table columns' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
+    fireEvent.click(screen.getByText('Edit exact category recoding'));
+    expect((screen.getByRole('textbox', { name: 'Replacement value 1 for Patient gender' }) as HTMLInputElement).value).toBe('F');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Replacement value 1 for Patient gender' }), {
+      target: { value: 'FEMALE' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save recoding' }));
+    expect(onTransformationChange).toHaveBeenNthCalledWith(2, 'patient_gender', {
+      kind: 'SET',
+      transformation: {
+        kind: 'EXACT_CATEGORY_RECODE',
+        exactCategoryRecode: { mappings: [{ from: 'female', to: 'FEMALE' }], unknownPolicy: 'ERROR' },
+      },
+    });
+
+    const editedColumn: ExplorerBuilderColumn = {
+      ...recodeColumn,
+      valueTransformation: {
+        kind: 'EXACT_CATEGORY_RECODE',
+        exactCategoryRecode: { mappings: [{ from: 'female', to: 'FEMALE' }], unknownPolicy: 'ERROR' },
+      },
+    };
+    rendered.rerender(props({ ...recodeTable, document: { ...recodeTable.document, columns: [editedColumn] } }));
     fireEvent.click(screen.getByRole('button', { name: 'Remove recoding' }));
-    expect(onTransformationChange).toHaveBeenLastCalledWith('patient_gender', { kind: 'REMOVE' });
+    expect(onTransformationChange).toHaveBeenNthCalledWith(3, 'patient_gender', { kind: 'REMOVE' });
   });
 
   it('edits only saved explicit-group member policies by their stable column binding', () => {

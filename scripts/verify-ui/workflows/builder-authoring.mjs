@@ -540,9 +540,27 @@ export const cohortRecodeWorkflow = async ({ page, report, check, action }, cont
   };
 
   let renderedTypedPreview = fieldPreview.response;
-  const assertRenderedMemberCell = async (expectedText, label) => {
+  const assertRenderedMemberCell = async (expectedText, label, { waitForExactCell = false } = {}) => {
     const typedColumns = renderedTypedPreview.columns.map(column => ({ column: column.column, label: column.label }));
     const sourceColumn = idColumn.column;
+    if (waitForExactCell) {
+      await page.waitForFunction(data => {
+        const normalize = value => String(value ?? '').replace(/\s+/g, ' ').trim();
+        const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+        if (!table) return false;
+        const rows = [...table.querySelectorAll('[role="row"]')];
+        const headers = [...(rows[0]?.querySelectorAll('[role="columnheader"]') ?? [])].map(cell => normalize(cell.innerText));
+        const index = data.typedColumns.findIndex(column => column.column === data.sourceColumn);
+        const dataRows = rows.slice(1);
+        const cells = [...(dataRows[0]?.querySelectorAll('[role="cell"]') ?? [])];
+        const typedColumn = index < 0 ? null : data.typedColumns[index];
+        return dataRows.length === 1 && data.typedColumns.filter(column => column.column === data.sourceColumn).length === 1
+          && typedColumn?.label?.toLowerCase() === data.sourceLabel.toLowerCase()
+          && data.typedColumns.length === headers.length && cells.length === headers.length
+          && index >= 0 && headers[index]?.toLowerCase() === typedColumn.label.toLowerCase()
+          && normalize(cells[index]?.innerText) === data.expectedText;
+      }, { typedColumns, sourceColumn, sourceLabel: idColumn.label, expectedText }, { timeout: 5000 });
+    }
     const rendered = await page.getByTestId('preview-table-scroll').getByRole('table').evaluate((table, data) => {
       const normalize = value => String(value ?? '').replace(/\s+/g, ' ').trim();
       const rows = [...table.querySelectorAll('[role="row"]')];
@@ -722,7 +740,123 @@ export const cohortRecodeWorkflow = async ({ page, report, check, action }, cont
     'return to ALL must be saved on the same Patient.id binding');
   check('correctness', 'returning from ONE to ALL restores the shared-category array', true,
     { value: allPreview.response.rows[0]?.[idColumn.column], rendered: recodedAllAgainCell });
+
+  const savedBeforeEdit = await readBuilder();
+  const savedDocumentBeforeEdit = savedBeforeEdit.workspace.documents.find(item => item.output.id === outputId);
+  const savedColumnBeforeEdit = savedDocumentBeforeEdit?.columns.find(column => column.columnId === idColumn.columnId);
+  const savedBindingBeforeEdit = savedDocumentBeforeEdit?.rows.groups.rowValues.find(binding => binding.columnId === idColumn.columnId);
+  assert(savedDocumentBeforeEdit && savedColumnBeforeEdit && savedBindingBeforeEdit,
+    'saved recoding edit must start from the existing Patient.id document and binding');
+  assert.deepEqual(savedColumnBeforeEdit.valueTransformation, transform,
+    'saved recoding edit must start from the original exact two-ID mapping');
+  assert.equal(savedBindingBeforeEdit.policy, 'ALL', 'saved recoding edit must start under ALL');
+  const unchangedSavedState = {
+    workspace: savedBeforeEdit.workspace,
+    draftVersion: savedBeforeEdit.draftVersion,
+    draftDigest: savedBeforeEdit.draftDigest,
+  };
+
   await openConfiguredFeatureEditor('Edit exact category recoding');
+  const firstReplacement = await configuredFeatureControl(`input[aria-label=${JSON.stringify(`Replacement value 1 for ${idColumn.label}`)}]`);
+  assert.equal(await firstReplacement.inputValue(), category, 'saved mapping editor must display its current replacement value');
+  await action('change a saved replacement before Cancel', firstReplacement,
+    () => firstReplacement.fill('Draft-only category'), { editable: true });
+  await action('Cancel saved recoding edit with Escape', columnsToggle,
+    () => page.keyboard.press('Escape'), {
+      after: async () => columnsMenu.waitFor({ state: 'hidden' }),
+    });
+  const savedAfterCancel = await readBuilder();
+  assert.deepEqual(savedAfterCancel.workspace, unchangedSavedState.workspace,
+    'Cancel must leave the exact saved Builder workspace unchanged');
+  assert.equal(savedAfterCancel.draftVersion, unchangedSavedState.draftVersion,
+    'Cancel must leave the Builder draft version unchanged');
+  assert.equal(savedAfterCancel.draftDigest, unchangedSavedState.draftDigest,
+    'Cancel must leave the Builder draft digest unchanged');
+  assert.equal(await assertRenderedMemberCell(category, 'Visible ALL category after Cancel').then(cell => cell.value), category,
+    'Cancel must leave the rendered ALL category unchanged');
+  check('cancellation', 'Cancel preserves the saved ALL recoding, exact Builder draft, and visible category values', true,
+    { draftVersion: savedAfterCancel.draftVersion, draftDigest: savedAfterCancel.draftDigest,
+      workspaceUnchanged: true, policy: 'ALL', rendered: category });
+
+  const editedCategory = 'Edited shared fixture category';
+  const editedMappings = rawIDs.map(from => ({ from, to: editedCategory }));
+  const editedTransform = {
+    kind: 'EXACT_CATEGORY_RECODE',
+    exactCategoryRecode: { mappings: editedMappings, unknownPolicy: 'KEEP_ORIGINAL' },
+  };
+  await openConfiguredFeatureEditor('Edit exact category recoding');
+  for (let index = 0; index < editedMappings.length; index += 1) {
+    const replacement = await configuredFeatureControl(`input[aria-label=${JSON.stringify(`Replacement value ${index + 1} for ${idColumn.label}`)}]`);
+    assert.equal(await replacement.inputValue(), category,
+      `reopened editor must restore saved replacement ${index + 1} after Cancel`);
+    await action(`edit saved replacement category ${index + 1}`, replacement,
+      () => replacement.fill(editedCategory), { editable: true });
+  }
+  const editedPreviewIndex = previewEntries.length;
+  let editedAllCell;
+  const saveEditedRecode = await configuredFeatureRow().then(row => row.getByRole('button', { name: 'Save recoding', exact: true }));
+  await action('apply edited exact category recoding', saveEditedRecode, () => saveEditedRecode.click(), {
+    after: async () => {
+      preview = await waitPreview(editedPreviewIndex, 'Edited Patient.id ALL Preview');
+      renderedTypedPreview = preview.response;
+      await page.waitForFunction(() => !document.body.innerText.includes('Loading your table…')
+        && document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === '2');
+      editedAllCell = await assertRenderedMemberCell(editedCategory, 'Edited recoding ALL Preview', { waitForExactCell: true });
+    },
+  });
+  assert.deepEqual(preview.response.rows[0]?.[idColumn.column], [editedCategory],
+    'applying the edited mapping must recode both literal Patient IDs to the new category under ALL');
+  builder = await readBuilder();
+  document = builder.workspace.documents.find(item => item.output.id === outputId);
+  idColumn = document.columns.find(column => column.columnId === idColumn.columnId);
+  const editedIDColumns = assertCohortPatientIDColumns(document, legacyIdentity);
+  assert.equal(editedIDColumns.member.columnId, savedColumnBeforeEdit.columnId,
+    'applying a mapping edit must keep the same Patient.id member column identity');
+  assert.equal(editedIDColumns.binding.policy, 'ALL', 'applying a mapping edit must keep the member binding at ALL');
+  assert.equal(document.rows.groups.source.explicit.revisionId, cohort.revisionId,
+    'applying a mapping edit must keep the exact named cohort revision');
+  assert.equal(document.population.selectionRevisionId, selection.id,
+    'applying a mapping edit must keep the exact immutable selection revision');
+  assert.deepEqual(idColumn.valueTransformation, editedTransform,
+    'Apply must save the exact edited mapping for both raw Patient IDs');
+  check('correctness', 'saved recoding edits apply exact category values on the same cohort binding', true,
+    { rawIDs, mappings: editedMappings, value: preview.response.rows[0]?.[idColumn.column], rendered: editedAllCell,
+      columnId: idColumn.columnId, cohortRevisionId: cohort.revisionId, selectionRevisionId: selection.id });
+
+  await closeColumnsMenu();
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  const editedTableControl = page.getByTestId(`construction-table-${outputId}`);
+  await editedTableControl.waitFor({ state: 'visible' });
+  let reloadedEditedCell;
+  await action('open Patient table after edited recoding reload', editedTableControl,
+    () => editedTableControl.click(), {
+      after: async () => {
+        await page.waitForFunction(() => !document.body.innerText.includes('Loading your table…')
+          && document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === '2');
+        reloadedEditedCell = await assertRenderedMemberCell(editedCategory, 'Reloaded edited ALL Preview', { waitForExactCell: true });
+      },
+    });
+  builder = await readBuilder();
+  document = builder.workspace.documents.find(item => item.output.id === outputId);
+  idColumn = document.columns.find(column => column.columnId === idColumn.columnId);
+  const reloadedEditedIDColumns = assertCohortPatientIDColumns(document, legacyIdentity);
+  assert.equal(reloadedEditedIDColumns.member.columnId, savedColumnBeforeEdit.columnId,
+    'reload must retain the same Patient.id member column identity');
+  assert.equal(reloadedEditedIDColumns.binding.policy, 'ALL', 'reload must retain the ALL member policy');
+  assert.equal(document.rows.groups.source.explicit.revisionId, cohort.revisionId,
+    'reload must retain the exact named cohort revision');
+  assert.equal(document.population.selectionRevisionId, selection.id,
+    'reload must retain the exact immutable selection revision');
+  assert.deepEqual(idColumn.valueTransformation, editedTransform,
+    'reload must retain the exact edited mapping for both raw Patient IDs');
+  check('persistence', 'edited category mapping survives reload on the same cohort and Patient IDs', true,
+    { rawIDs, mappings: editedMappings, value: editedCategory, rendered: reloadedEditedCell,
+      columnId: idColumn.columnId, cohortRevisionId: cohort.revisionId, selectionRevisionId: selection.id });
+
+  await ensureColumnsMenu();
+  await openConfiguredFeatureEditor('Edit exact category recoding');
+  assert.equal(await configuredFeatureControl('select[aria-label^="Values per cohort member for "]').then(control => control.inputValue()), 'ALL',
+    'removing the edited mapping must keep the saved member policy at ALL');
   const restorePreviewIndex = previewEntries.length;
   const removeRecode = await configuredFeatureRow().then(row => row.getByRole('button', { name: 'Remove recoding', exact: true }));
   await action('remove exact category recoding', removeRecode, () => removeRecode.click(), {
