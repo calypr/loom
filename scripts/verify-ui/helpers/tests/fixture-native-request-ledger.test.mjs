@@ -14,11 +14,12 @@ const explorer = 'selected-explorer';
 const explorerPath = `/api/v1/projects/${project}/explorers/${explorer}`;
 const projectExplorerPath = `/api/v1/projects/${project}/explorers`;
 
-const fakeRequest = ({ origin: requestOrigin = origin, path, method = 'GET', requestId }) => ({
+const fakeRequest = ({ origin: requestOrigin = origin, path, method = 'GET', requestId, frame }) => ({
   url: () => `${requestOrigin}${path}`,
   method: () => method,
   headers: () => ({ 'x-request-id': requestId }),
   resourceType: () => 'fetch',
+  frame: () => frame,
 });
 
 const requestDetails = (request, requestId, overrides = {}) => ({
@@ -97,6 +98,76 @@ test('fixture native request ledger keeps an empty selected scope incomplete', a
   assert.equal(snapshot.nativeRequests.length, 0);
   assert.equal(snapshot.nativeRequestTerminalLedger.complete, false);
   assert.deepEqual(snapshot.incompleteRequests, []);
+});
+
+test('native request and navigation capture share exact Frame identity while pending stays fatal', async () => {
+  const mainFrame = {};
+  const childFrame = {};
+  const page = { mainFrame: () => mainFrame };
+  const ledger = createFixtureNativeRequestLedger();
+  const scope = ledger.openScope({ project, origin });
+  const request = fakeRequest({
+    path: `${explorerPath}/authoring/v2/semantic-inventory`,
+    requestId: 'semantic-inventory-pending',
+    frame: mainFrame,
+  });
+  const requestFrame = ledger.frameIdentityForRequest(request, page);
+  const sameFrameNavigation = ledger.frameIdentityForFrame(mainFrame, page);
+  const otherFrameNavigation = ledger.frameIdentityForFrame(childFrame, page);
+  const unavailableFrameRequest = ledger.frameIdentityForRequest({ frame: () => { throw new Error('service-worker request'); } }, page);
+
+  assert.equal(requestFrame.frameIdentityStatus, 'exact');
+  assert.equal(requestFrame.frameIsMainFrame, true);
+  assert.equal(requestFrame.frameId, sameFrameNavigation.frameId,
+    'the same Playwright Frame object must join a request to its later navigation record');
+  assert.notEqual(requestFrame.frameId, otherFrameNavigation.frameId,
+    'a different Frame object must not inherit the request owner identity');
+  assert.equal(unavailableFrameRequest.frameIdentityStatus, 'unavailable');
+  assert.equal(unavailableFrameRequest.frameId, null,
+    'requests without an exact Playwright Frame must remain explicitly unlinked');
+
+  createRequest(ledger);
+  ledger.recordRequest(request, {
+    ...requestDetails(request, 'semantic-inventory-pending'),
+    ...requestFrame,
+    navigationSequenceAtStart: 11,
+  });
+  const report = createReport({
+    scenario: 'fixture-ledger-test',
+    caseName: 'same-frame-navigation-diagnostic',
+    target: { fixtureProject: project },
+    requiredChecks: [],
+  });
+  report.navigationTimings = [
+    { id: 'navigation-12', sequence: 12, phase: 'request-start', ...sameFrameNavigation },
+    { id: 'navigation-13', sequence: 13, phase: 'frame-navigated', ...sameFrameNavigation },
+    { id: 'navigation-14', sequence: 14, phase: 'frame-navigated', ...otherFrameNavigation },
+  ];
+  const snapshot = await ledger.flush(scope, { explorer, timeoutMs: 10 });
+  finalizeFixtureNativeRequestReport({ report, ledger, project });
+  const pending = snapshot.nativeRequests.find(entry => entry.requestId === 'semantic-inventory-pending');
+  const terminal = snapshot.nativeRequestTerminalLedger.requests.find(entry => entry.requestId === 'semantic-inventory-pending');
+  const projected = report.nativeRequests.find(entry => entry.requestId === 'semantic-inventory-pending');
+  const projectedTerminal = report.nativeRequestTerminalLedger.requests.find(entry => entry.requestId === 'semantic-inventory-pending');
+
+  assert.equal(pending.pageId, 'playwright-page-1');
+  assert.equal(pending.frameId, sameFrameNavigation.frameId);
+  assert.equal(terminal.frameId, sameFrameNavigation.frameId);
+  assert.equal(terminal.frameIsMainFrame, true);
+  assert.equal(terminal.navigationSequenceAtStart, 11);
+  assert.equal(terminal.state, 'pending');
+  assert.equal(terminal.terminalEvent, null);
+  assert.equal(snapshot.nativeRequestTerminalLedger.complete, false,
+    'same-frame navigation correlation is diagnostic evidence, not a terminal-event waiver');
+  assert.deepEqual(projected.sameFrameNavigationEventsAfterStart, [
+    { id: 'navigation-12', sequence: 12, phase: 'request-start' },
+    { id: 'navigation-13', sequence: 13, phase: 'frame-navigated' },
+  ], 'the actual report finalizer must link only later navigation events from the exact same Frame');
+  assert.deepEqual(projectedTerminal.sameFrameNavigationEventsAfterStart, projected.sameFrameNavigationEventsAfterStart,
+    'the same-frame chronology must reach the terminal-ledger view');
+  assert.equal(projectedTerminal.state, 'pending');
+  assert.equal(report.nativeRequestTerminalLedger.complete, false,
+    'the report finalizer must not infer terminality from a later same-frame navigation');
 });
 
 test('same-URL Request objects cannot borrow the recorded request terminal state', async () => {

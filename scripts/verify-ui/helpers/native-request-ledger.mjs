@@ -30,6 +30,16 @@ const safeClone = (value) => {
   catch { return undefined; }
 };
 
+const sameFrameNavigationEventsAfterStart = (request, navigationTimings) => {
+  if (request.frameIdentityStatus !== 'exact' || typeof request.pageId !== 'string' ||
+      typeof request.frameId !== 'string' || !Number.isSafeInteger(request.navigationSequenceAtStart)) return [];
+  return navigationTimings
+    .filter(navigation => navigation.frameIdentityStatus === 'exact' &&
+      navigation.pageId === request.pageId && navigation.frameId === request.frameId &&
+      Number.isSafeInteger(navigation.sequence) && navigation.sequence > request.navigationSequenceAtStart)
+    .map(({ id, sequence, phase }) => ({ id, sequence, phase: phase ?? null }));
+};
+
 const hasTerminalPayload = (entry) => Number.isInteger(entry.status) ||
   (typeof entry.failure === 'string' && entry.failure.trim().length > 0);
 
@@ -67,6 +77,8 @@ export function createFixtureNativeRequestLedger() {
   const records = [];
   const scopes = [];
   const waiters = new Set();
+  const frameIDs = new WeakMap();
+  let frameIDSequence = 0;
 
   const notify = () => {
     for (const resolve of [...waiters]) resolve();
@@ -161,6 +173,11 @@ export function createFixtureNativeRequestLedger() {
         terminalEvent,
         state,
         complete: state !== 'pending' && hasTerminalPayload(entry),
+        pageId: entry.pageId ?? null,
+        frameId: entry.frameId ?? null,
+        frameIsMainFrame: entry.frameIsMainFrame ?? null,
+        frameIdentityStatus: entry.frameIdentityStatus ?? 'unavailable',
+        navigationSequenceAtStart: entry.navigationSequenceAtStart ?? null,
         ...Object.fromEntries(['expected', 'canceled', 'cancellationReason', 'expectedCancellation',
           'expectedHttpFailure', 'expectedInjectedFault', 'injectedFault', 'injectedAction', 'injectedRequestId',
           'injectedStatus', 'replacement', 'binding', 'requestTimeline']
@@ -204,6 +221,34 @@ export function createFixtureNativeRequestLedger() {
   };
 
   const ledger = {
+    frameIdentityForFrame(frame, page, pageId = 'playwright-page-1') {
+      if (!page || typeof page.mainFrame !== 'function' || typeof pageId !== 'string' || !pageId.trim()) {
+        throw new TypeError('Native frame identity requires a Playwright Page and non-empty page ID.');
+      }
+      if (!frame || typeof frame !== 'object') {
+        return { pageId, frameId: null, frameIsMainFrame: null, frameIdentityStatus: 'unavailable' };
+      }
+      let frameId = frameIDs.get(frame);
+      if (!frameId) {
+        frameId = `playwright-frame-${++frameIDSequence}`;
+        frameIDs.set(frame, frameId);
+      }
+      return {
+        pageId,
+        frameId,
+        frameIsMainFrame: frame === page.mainFrame(),
+        frameIdentityStatus: 'exact',
+      };
+    },
+
+    frameIdentityForRequest(request, page, pageId = 'playwright-page-1') {
+      try {
+        return ledger.frameIdentityForFrame(request?.frame?.(), page, pageId);
+      } catch {
+        return ledger.frameIdentityForFrame(null, page, pageId);
+      }
+    },
+
     openScope({ project, origin } = {}) {
       if (typeof project !== 'string' || !project.trim()) {
         throw new TypeError('Native request ledger scope needs a project ID.');
@@ -422,6 +467,13 @@ export function finalizeFixtureNativeRequestReport({ report, ledger, project }) 
   report.excludedNativeRequestDrainEvidence = snapshot.excludedNativeRequestDrainEvidence;
   report.nativeRequestCorrelationErrors = snapshot.nativeRequestCorrelationErrors;
   report.nativeRequestTerminalLedger = snapshot.nativeRequestTerminalLedger;
+  const navigationTimings = Array.isArray(report.navigationTimings) ? report.navigationTimings : [];
+  for (const request of report.nativeRequests) {
+    request.sameFrameNavigationEventsAfterStart = sameFrameNavigationEventsAfterStart(request, navigationTimings);
+  }
+  for (const request of report.nativeRequestTerminalLedger.requests) {
+    request.sameFrameNavigationEventsAfterStart = sameFrameNavigationEventsAfterStart(request, navigationTimings);
+  }
   if (snapshot.nativeRequestCorrelationErrors.length) {
     report.errors ??= [];
     report.errors.push(...snapshot.nativeRequestCorrelationErrors.map(entry => ({ ...entry, expected: false })));

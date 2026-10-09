@@ -275,12 +275,14 @@ export const test = base.extend({
     };
     const onRequest = request => {
       const requestId = playwrightRequestId(request);
-      if (belongsToTarget(request) && request.isNavigationRequest?.() && request.frame() === page.mainFrame()) {
+      const frameIdentity = nativeRequestLedger.frameIdentityForRequest(request, page);
+      if (belongsToTarget(request) && request.isNavigationRequest?.() && frameIdentity.frameIsMainFrame === true) {
         const startedAt = performance.now();
         const sequence = ++navigationSequence;
         if (mainFrameNavigations.length < MAX_DIAGNOSTICS) {
           mainFrameNavigations.push({ id: `navigation-${sequence}`, sequence, startedAt,
-            atMs: Math.round(startedAt - workflowStartedAt), url: safeURL(request.url()), phase: 'request-start' });
+            atMs: Math.round(startedAt - workflowStartedAt), url: safeURL(request.url()), phase: 'request-start',
+            ...frameIdentity, browserRequestId: requestId });
         } else droppedNavigationTimings += 1;
       }
       if (belongsToTarget(request)) {
@@ -295,6 +297,7 @@ export const test = base.extend({
           startedMs: Math.round(startedAt - workflowStartedAt),
           action: actionSnapshot(),
           navigationSequenceAtStart: navigationSequence,
+          ...frameIdentity,
         };
         requestMetadata.set(request, metadata);
         nativeRequestLedger.recordRequest(request, {
@@ -307,6 +310,10 @@ export const test = base.extend({
           startedAt: Date.now(),
           action: metadata.action,
           navigationSequenceAtStart: metadata.navigationSequenceAtStart,
+          pageId: metadata.pageId,
+          frameId: metadata.frameId,
+          frameIsMainFrame: metadata.frameIsMainFrame,
+          frameIdentityStatus: metadata.frameIdentityStatus,
         });
       }
       const binding = capabilityBinding(request, { ...target, explorer: report.target.explorer ?? target.bootstrapExplorerId });
@@ -329,6 +336,8 @@ export const test = base.extend({
         startedAt,
         atMs: Math.round(startedAt - workflowStartedAt),
         url: safeURL(frame.url()),
+        ...nativeRequestLedger.frameIdentityForFrame(frame, page),
+        phase: 'frame-navigated',
       });
     };
     const onConsole = (message) => {
@@ -578,9 +587,13 @@ export const test = base.extend({
         failure.cancellationReason = 'superseded capability binding has a later successful replacement';
         failure.replacement = { sequence: replacement.sequence, status: replacement.status, finished: replacement.finished, responseMatches: replacement.responseMatches, binding: replacement.binding };
       }
+      report.navigationTimings = mainFrameNavigations.map(({ id, sequence, atMs, url, phase, pageId, frameId,
+        frameIsMainFrame, frameIdentityStatus, browserRequestId }) => ({
+        id, sequence, atMs, url, phase, pageId, frameId, frameIsMainFrame, frameIdentityStatus,
+        ...(browserRequestId ? { browserRequestId } : {}),
+      }));
       finalizeFixtureNativeRequestReport({ report, ledger: nativeRequestLedger, project: target.fixtureProject });
       if (report.assetFailures.length) recordCheck(report, 'correctness', 'incidental asset failures are explicitly recorded', true, { failures: report.assetFailures });
-      report.navigationTimings = mainFrameNavigations.map(({ id, atMs, url }) => ({ id, atMs, url }));
       report.browserLifecycle = {
         kind: 'official-playwright-page',
         status: testInfo.status,
