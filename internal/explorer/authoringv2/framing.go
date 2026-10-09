@@ -203,10 +203,9 @@ func frameIdentityID(source capability.SemanticFrameFamily, route []capability.C
 }
 
 func cloneFrameRoute(route []capability.ConstructionRouteStep) []capability.ConstructionRouteStep {
-	if route == nil {
-		return []capability.ConstructionRouteStep{}
-	}
-	return append([]capability.ConstructionRouteStep(nil), route...)
+	cloned := make([]capability.ConstructionRouteStep, len(route))
+	copy(cloned, route)
+	return cloned
 }
 
 // ResolveFrameSource attaches a frame choice already authorized by lifecycle.

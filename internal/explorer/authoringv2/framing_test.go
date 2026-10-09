@@ -1,6 +1,7 @@
 package authoringv2
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -79,6 +80,144 @@ func TestFrameSourcePersistsAndRoundTripsWithoutChangingRows(t *testing.T) {
 	}
 	if len(reloaded.Documents[0].Frames) != 1 || reloaded.Documents[0].Frames[0].ID != frame.ID || reloaded.Documents[0].Frames[0].Form != capability.ConstructionChoiceValue {
 		t.Fatalf("saved frame source did not survive canonical reload: %#v", reloaded.Documents[0].Frames)
+	}
+}
+
+func TestDirectSemanticFrameChoicePersistsEmptyRouteAsArray(t *testing.T) {
+	candidate := capability.Candidate{
+		ID: "observation-height-value", NodeID: "observation", ResourceType: "Observation",
+		FieldPath: "valueQuantity.value", LogicalType: "decimal", Cardinality: "optional_one",
+		ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+	}
+	choice, err := capability.NewSemanticFrameConstructionChoice("snapshot", "context", "build", capability.SemanticFrameChoiceSource{
+		Kind: capability.ConstructionChoiceSourceSemanticFrame, AnchorConceptID: "concept-height",
+		Family: capability.SemanticFrameFamily{
+			BindingID: "observation-height", ResourceType: "Observation", SourcePath: "code",
+			KeyPath: "code.coding[]", ValuePath: "valueQuantity.value", ChoiceArms: []string{"valueQuantity"},
+			LogicalType: "decimal", RuleVersion: "4", SchemaVersion: 1,
+		},
+		CandidateID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath,
+	}, []capability.ConstructionRouteStep{}, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := capability.DecodeConstructionChoiceID(choice.ChoiceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity.Route == nil || len(identity.Route) != 0 {
+		t.Fatalf("direct semantic choice route = %#v, want an empty array", identity.Route)
+	}
+	frameSource := identity.Source.(capability.SemanticFrameChoiceSource).Family
+	frame, err := NewFrameDefinition("Observation height", "Height observations.", frameSource, identity.Route, capability.ConstructionChoiceValue)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	workspace := emptyCommandWorkspace()
+	workspace.Documents = []Document{{
+		Kind: Kind, Output: Output{ID: "out", Title: "Observations"}, RootResourceType: "Observation",
+		Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Observation"}, Rows: RecordsRowDefinition(), Columns: []Column{},
+	}}
+	workspace.Tabs = []Tab{{ID: "tab-out", Title: "Observations", OutputID: "out", Visible: true}}
+	command := Command{Type: CommandSetFrameSource, OutputID: "out", FrameChoiceID: choice.ChoiceID, FrameForm: capability.ConstructionChoiceValue}
+	if err := command.ResolveFrameSource(frame); err != nil {
+		t.Fatal(err)
+	}
+	after, _, err := ApplyCommands(workspace, observationFrameCatalog(), "direct-frame-source", []Command{command})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := after.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire struct {
+		Documents []struct {
+			Frames []json.RawMessage `json:"frames"`
+		} `json:"documents"`
+	}
+	if err := json.Unmarshal(encoded, &wire); err != nil {
+		t.Fatal(err)
+	}
+	if len(wire.Documents) != 1 || len(wire.Documents[0].Frames) != 1 {
+		t.Fatalf("canonical workspace has no single saved frame: %s", encoded)
+	}
+	var frameWire map[string]json.RawMessage
+	if err := json.Unmarshal(wire.Documents[0].Frames[0], &frameWire); err != nil {
+		t.Fatal(err)
+	}
+	if route := string(frameWire["route"]); route != "[]" {
+		t.Fatalf("saved direct frame route = %s, want []: %s", route, encoded)
+	}
+	reloaded, err := DecodeWorkspace(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if route := reloaded.Documents[0].Frames[0].Route; route == nil || len(route) != 0 {
+		t.Fatalf("reloaded direct frame route = %#v, want an empty array", route)
+	}
+}
+
+func TestLegacyFrameWithNullRouteKeepsItsPersistedIdentity(t *testing.T) {
+	source := capability.SemanticFrameFamily{
+		BindingID: "observation-height", ResourceType: "Observation", SourcePath: "code",
+		KeyPath: "code.coding[]", ValuePath: "valueQuantity.value", ChoiceArms: []string{"valueQuantity"},
+		LogicalType: "decimal", RuleVersion: "4", SchemaVersion: 1,
+	}
+	legacyID := frameIdentityID(source, nil)
+	if currentDirectID := frameIdentityID(source, []capability.ConstructionRouteStep{}); currentDirectID == legacyID {
+		t.Fatal("legacy null route and new empty-array route unexpectedly share an identity")
+	}
+	workspace := emptyCommandWorkspace()
+	workspace.Documents = []Document{{
+		Kind: Kind, Output: Output{ID: "out", Title: "Observations"}, RootResourceType: "Observation",
+		Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Observation"}, Rows: RecordsRowDefinition(), Columns: []Column{},
+		Frames: []FrameDefinition{{
+			ID: legacyID, Title: "Observation height", Description: "Height observations.", Source: source,
+			Route: nil, Form: capability.ConstructionChoiceValue,
+			ZeroPolicy: FrameZeroNull, ManyPolicy: FrameManyInvalidMultipleValues,
+		}},
+	}}
+	workspace.Tabs = []Tab{{ID: "tab-out", Title: "Observations", OutputID: "out", Visible: true}}
+
+	legacyWire, err := json.Marshal(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeWorkspace(legacyWire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame := decoded.Documents[0].Frames[0]
+	if frame.ID != legacyID || frame.Route != nil {
+		t.Fatalf("legacy frame changed during decode: id=%q route=%#v, want id=%q route:null", frame.ID, frame.Route, legacyID)
+	}
+	canonical, err := decoded.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire struct {
+		Documents []struct {
+			Frames []struct {
+				ID    string          `json:"id"`
+				Route json.RawMessage `json:"route"`
+			} `json:"frames"`
+		} `json:"documents"`
+	}
+	if err := json.Unmarshal(canonical, &wire); err != nil {
+		t.Fatal(err)
+	}
+	if len(wire.Documents) != 1 || len(wire.Documents[0].Frames) != 1 ||
+		wire.Documents[0].Frames[0].ID != legacyID || string(wire.Documents[0].Frames[0].Route) != "null" {
+		t.Fatalf("legacy frame was silently migrated or rekeyed: %s", canonical)
+	}
+	reloaded, err := DecodeWorkspace(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.Documents[0].Frames[0]; got.ID != legacyID || got.Route != nil {
+		t.Fatalf("legacy frame changed after canonical reload: id=%q route=%#v", got.ID, got.Route)
 	}
 }
 
