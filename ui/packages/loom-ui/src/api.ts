@@ -1424,7 +1424,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
         outputId: args.outputId,
         snapshotToken: args.snapshotToken,
         stageId: args.stageId,
-      }), signal, args.requestId,
+      }), signal, args.requestId ?? `construction-capabilities-${globalThis.crypto.randomUUID()}`,
     )).then((value) => constructionCapabilitiesResponseSchema.parse(value));
   const discoverConstructionCategories = (args: DiscoverConstructionCategoriesArgs, signal?: AbortSignal) =>
     request(durableAuthoringPath(args, '/construction-category-discoveries'), withJson(

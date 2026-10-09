@@ -9,6 +9,27 @@ import {
 } from './types';
 
 const tracedFeature = { outputId: 'patients', column: 'gender', authoredColumn: 'patient_gender', occurrenceId: 'base', label: 'Gender', logicalType: 'string', sourceResourceType: 'Patient', sourcePath: 'gender', projectionMode: 'VALUE', lossless: true, lossReasons: [] };
+const constructionCapabilitiesResponse = {
+  snapshotToken: 'snapshot-1',
+  draftVersion: 7,
+  draftDigest: 'draft-7',
+  outputId: 'patients',
+  stageId: 'source_projection',
+  baseConstruction: { version: 1, steps: [] },
+  stages: [{
+    id: 'source_projection',
+    inputStageId: '',
+    columns: [{ id: 'column_patient_id', name: 'patient_id', label: 'Patient ID', type: 'string' }],
+    capabilities: [{ kind: 'FILTER', supported: true }],
+  }],
+  selectedStage: {
+    id: 'source_projection',
+    inputStageId: '',
+    columns: [{ id: 'column_patient_id', name: 'patient_id', label: 'Patient ID', type: 'string' }],
+    capabilities: [{ kind: 'FILTER', supported: true }],
+  },
+  workspaceInputs: [],
+} as const;
 
 describe('Loom project paths', () => {
   it('accepts a removal-only construction proposal without a changed step', () => {
@@ -21,6 +42,42 @@ describe('Loom project paths', () => {
       candidateConstruction: { version: 1, steps: [] },
     });
     expect(parsed.changedStepId).toBeUndefined();
+  });
+
+  it('assigns a construction-capabilities UUID when the caller omits a request ID', async () => {
+    const endpoint = '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2/construction-capabilities';
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValue(new Response(JSON.stringify(constructionCapabilitiesResponse), { status: 200 }));
+    const client = createLoomClient({ fetch });
+
+    await expect(client.getConstructionCapabilities({
+      project: 'project-a', explorerId: 'explorer-a', snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 7, expectedDraftDigest: 'draft-7', outputId: 'patients', stageId: 'source_projection',
+    })).resolves.toEqual(constructionCapabilitiesResponse);
+
+    expect(fetch).toHaveBeenCalledWith(endpoint, expect.objectContaining({
+      headers: expect.objectContaining({
+        'X-Request-ID': expect.stringMatching(/^construction-capabilities-[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i),
+      }),
+    }));
+  });
+
+  it('preserves an explicit construction-capabilities request ID exactly', async () => {
+    const endpoint = '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2/construction-capabilities';
+    const requestId = 'caller-provided-correlation-ID-Case-016';
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValue(new Response(JSON.stringify(constructionCapabilitiesResponse), { status: 200 }));
+    const client = createLoomClient({ fetch });
+
+    await expect(client.getConstructionCapabilities({
+      project: 'project-a', explorerId: 'explorer-a', snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 7, expectedDraftDigest: 'draft-7', outputId: 'patients', stageId: 'source_projection',
+      requestId,
+    })).resolves.toEqual(constructionCapabilitiesResponse);
+
+    expect(fetch).toHaveBeenCalledWith(endpoint, expect.objectContaining({
+      headers: expect.objectContaining({ 'X-Request-ID': requestId }),
+    }));
   });
 
   it('loads compiler stage choices and sends exact construction proposals', async () => {
@@ -40,6 +97,7 @@ describe('Loom project paths', () => {
       baseConstruction: construction,
       stages: [selectedStage],
       selectedStage,
+      workspaceInputs: [],
     } as const;
     const proposal = {
       outputId: 'patients',

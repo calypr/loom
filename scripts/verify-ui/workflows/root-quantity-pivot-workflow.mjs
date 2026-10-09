@@ -10,6 +10,7 @@ import { collectPreviewRows } from '../helpers/playwright-preview-rows.mjs';
 import { captureSourceFreeze } from '../helpers/source-freeze.mjs';
 import { assertBoundedPreviewCount, assertPreviewRowsMatchRawObservations, assertReloadPreviewContext } from '../helpers/root-quantity-raw-preview.mjs';
 import { captureValidationWaitFailure, refreshValidationWaitFailureRequests } from '../helpers/validation-wait-evidence.mjs';
+import { installNativeAbortProbe } from '../helpers/native-abort-probe.mjs';
 import { sourceFingerprint } from '../helpers/source-fingerprint.mjs';
 import { captureApiBuildFreeze, checkContainerApiBuildStamp } from '../helpers/api-build-freeze.mjs';
 import { fixtureSourceDigest } from '../../loom-dev.mjs';
@@ -1694,6 +1695,15 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
     draftDigest: builder.draftDigest,
   };
 
+  if (isFixture) {
+    await installNativeAbortProbe({
+      page,
+      report,
+      project,
+      explorer,
+      apiOrigin: new URL(uiOrigin).origin,
+    });
+  }
   browserRequestCapture = captureCDARequests(page, {
     apiOrigin: uiOrigin,
     appOrigins: [apiOrigin, uiOrigin],

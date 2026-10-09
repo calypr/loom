@@ -7,6 +7,7 @@ import { createFixtureBrowserDiagnostics } from '../fixtures.mjs';
 import {
   createFixtureNativeRequestLedger,
   finalizeFixtureNativeRequestReport,
+  openBasicFixtureNativeRequestScope,
   projectFixtureNetworkDiagnostics,
 } from '../native-request-ledger.mjs';
 import { classifyNetworkRecord, createReport, finishReport, recordCheck } from '../report.mjs';
@@ -99,6 +100,80 @@ test('workflow times the role-aware selection postcondition instead of requiring
   assert.match(workflow, /after:\s*\(\)\s*=>\s*waitForObservable\(page,\s*pivotSourceSelectionReady/);
   assert.match(workflow, /const selectPivotSource = async \(label, path\) =>[\s\S]*?await action\(/);
   assert.doesNotMatch(workflow, /const selectPivotSource = async \(label, path\) =>[\s\S]*?await selectNative\(page, selector, matches\[0\]\.value\)/);
+});
+
+test('CASE-016 installs exact abort diagnostics before Builder navigation and keeps pending capabilities fatal', async () => {
+  const workflow = await readFile(new URL('../../workflows/root-quantity-pivot-workflow.mjs', import.meta.url), 'utf8');
+  const fixtureProbeSetup = workflow.indexOf('if (isFixture) {\n    await installNativeAbortProbe({');
+  const probeInstall = workflow.indexOf('await installNativeAbortProbe({', fixtureProbeSetup);
+  const builderNavigation = workflow.indexOf(
+    "await gotoPage(page, browserURL({ uiUrl: uiOrigin }, project, explorer, 'builder'));",
+    probeInstall,
+  );
+  assert(fixtureProbeSetup >= 0 && probeInstall > fixtureProbeSetup && builderNavigation > probeInstall,
+    'the fixture workflow must install abort instrumentation before the initial Builder document boots');
+  assert.match(workflow.slice(fixtureProbeSetup, builderNavigation),
+    /project,\s*explorer,\s*apiOrigin: new URL\(uiOrigin\)\.origin,/,
+    'the probe must use the exact fresh fixture project, Explorer, and browser request origin');
+
+  const project = 'loom_dev_verify_case016-pending';
+  const explorer = 'root-quantity-category-case016';
+  const origin = 'http://127.0.0.1:30008';
+  const url = `${origin}/api/v1/projects/${project}/explorers/${explorer}/authoring/v2/construction-capabilities`;
+  const requestId = 'construction-capabilities-pending-case016';
+  const ledger = createFixtureNativeRequestLedger();
+  openBasicFixtureNativeRequestScope(ledger, {
+    kind: 'isolated', fixtureProject: project, uiUrl: `${origin}/builder`, bootstrapExplorerId: explorer,
+  });
+  const request = {
+    url: () => url,
+    method: () => 'POST',
+    headers: () => ({ 'x-request-id': requestId }),
+    resourceType: () => 'fetch',
+  };
+  ledger.recordRequest(request, {
+    requestId,
+    browserRequestId: 'playwright-request-382',
+    method: 'POST',
+    resourceType: 'fetch',
+    url,
+    startedAt: 1,
+  });
+  const report = createReport({
+    scenario: 'root-quantity-pivot',
+    caseName: 'fixture-lifecycle-pending-capabilities',
+    target: { fixtureProject: project, explorer },
+    requiredChecks: [],
+  });
+  report.rootQuantityPivot = {
+    nativeAbortProbeEvents: [{
+      kind: 'abort-controller-call',
+      controllerId: 'controller-1',
+      createdAt: 1,
+      abortedAt: 2,
+      signalWasAlreadyAborted: false,
+      requests: [{
+        requestId,
+        origin,
+        path: new URL(url).pathname,
+        method: 'POST',
+        startedAt: 1,
+        fetchStateAtAbort: 'pending',
+      }],
+    }],
+  };
+
+  const snapshot = await finalizeFixtureNativeRequestReport({ report, ledger, project, timeoutMs: 10 });
+  finishReport(report);
+
+  assert.equal(report.rootQuantityPivot.nativeAbortProbeEvents[0].requests[0].requestId, requestId);
+  assert.equal(snapshot.nativeRequestTerminalLedger.counts.pending, 1);
+  assert.equal(snapshot.nativeRequestTerminalLedger.complete, false,
+    'probe evidence cannot turn a capabilities request without a native terminal event into a complete ledger');
+  assert.equal(report.assertions.find(assertion =>
+    assertion.name === 'basic fixture native request ledger observed a complete selected Explorer lifecycle')?.status,
+  'failed');
+  assert.equal(report.status, 'failed');
 });
 
 test('fixture workflow diagnostics drain owned HTTP bodies and keep raw browser projection explicit', async () => {
