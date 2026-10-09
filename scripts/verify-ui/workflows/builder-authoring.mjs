@@ -5,6 +5,7 @@ import { createInterface } from 'node:readline';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { assertCohortPatientIDColumns } from '../helpers/cohort-identities.mjs';
+import { createBuilderAuthoringRequestEntries } from '../helpers/builder-authoring-request-entries.mjs';
 import { configureNativePage } from '../helpers/playwright-authoring-page.mjs';
 
 
@@ -296,44 +297,14 @@ export const cohortRecodeWorkflow = async ({ page, report, check, action }, cont
     `first-table Patient ID must retain its physical column identity: ${JSON.stringify(legacyIDColumn)}`);
   const legacyIdentity = { column: legacyIDColumn.column, columnId: legacyIDColumn.columnId, source: legacyIDColumn.source };
 
-  const previewEntries = [];
-  const previewByRequest = new Map();
-  const choiceProposalEntries = [];
-  const commandEntries = [];
-  const reconciliationEntries = [];
-  const lifecycleByRequest = new Map();
+  const requestEntries = createBuilderAuthoringRequestEntries({ apiRoot, uiUrl: context.target.uiUrl });
+  const { previewEntries, previewByRequest, choiceProposalEntries, commandEntries, reconciliationEntries, lifecycleByRequest } = requestEntries;
   const networkWaiters = new Set();
   const signalNetworkChange = () => {
     for (const wake of networkWaiters) wake();
     networkWaiters.clear();
   };
-  const entryFor = request => {
-    let url;
-    try { url = new URL(request.url()); } catch { return undefined; }
-    if (url.origin !== new URL(context.target.uiUrl).origin || !url.pathname.startsWith(`${apiRoot}/`)) return undefined;
-    const path = url.pathname;
-    let body;
-    try { body = request.postDataJSON(); } catch { body = undefined; }
-    const requestObjectIdentity = `playwright-request-${++requestSequence}`;
-    const requestId = request.headers()['x-request-id'] ?? null;
-    const requestOrigin = url.origin;
-    if (path.endsWith('/preview')) {
-      const entry = { identity: `preview-${requestSequence}`, requestObjectIdentity, requestId, origin: requestOrigin, method: request.method(), path, outputId: body?.outputId, request, status: undefined, response: undefined };
-      previewByRequest.set(request, entry);
-      previewEntries.push(entry);
-      return entry;
-    }
-    const collection = path.endsWith('/construction-choice-proposals') ? choiceProposalEntries
-      : path.endsWith('/commands') ? commandEntries
-        : path.endsWith('/reconcile') ? reconciliationEntries
-          : undefined;
-    if (!collection) return undefined;
-    const entry = { identity: `${collection === choiceProposalEntries ? 'proposal' : collection === commandEntries ? 'command' : 'reconcile'}-${requestSequence}`, requestObjectIdentity, requestId, origin: requestOrigin, method: request.method(), path, body, request, startedAt: Date.now(), status: undefined, response: undefined };
-    lifecycleByRequest.set(request, entry);
-    collection.push(entry);
-    return entry;
-  };
-  page.on('request', entryFor);
+  page.on('request', requestEntries.entryFor);
   page.on('response', response => {
     const request = response.request();
     const entry = previewByRequest.get(request) ?? lifecycleByRequest.get(request);
