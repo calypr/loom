@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { readFileSync } from 'node:fs';
 import { openFreshPatientTable } from './builder-group-entry.mjs';
 import { findRenderedBuilderHeaderIndex, waitForBuilderRenderedGrid } from '../helpers/builder-rendered-grid.mjs';
+import { sanitizePayload } from '../helpers/playwright-browser.mjs';
 
 const proposalPanel = '[data-testid="construction-proposal-panel"]';
 const choiceProposalPanel = '[data-testid="construction-choice-proposal-panel"]';
@@ -28,6 +29,66 @@ export const readNativeGroupProposal = (doc = globalThis.document) => {
   return { proposalSummary: text(ready?.querySelector('p')), headers, rows, groupKeys };
 };
 
+export const readPatientOnePreviewBinding = (doc = globalThis.document) => {
+  const preview = doc.querySelector('[data-testid="construction-preview"]');
+  if (!preview) return null;
+  const draftVersion = Number(preview.getAttribute('data-current-draft-version'));
+  return {
+    status: preview.getAttribute('data-preview-status'),
+    receiptId: preview.getAttribute('data-preview-receipt-id'),
+    outputId: preview.getAttribute('data-preview-output-id'),
+    draftVersion: Number.isInteger(draftVersion) ? draftVersion : null,
+    draftDigest: preview.getAttribute('data-current-draft-digest'),
+  };
+};
+
+export const capturePatientOnePreOneState = ({ builder, previewBinding, renderedGrid, project, explorerId, outputId }) => {
+  const savedDocument = builder?.workspace?.documents?.find(document => document.output?.id === outputId);
+  assert(savedDocument, `Builder state omitted saved output ${outputId}`);
+  const groupStep = savedDocument.construction?.steps?.find(step => step.operation?.kind === 'GROUP');
+  assert(groupStep?.id, `Saved output ${outputId} has no applied Group step`);
+  assert.equal(builder.kind, 'ExplorerBuilderState', 'pre-ONE state must come from the native BuilderState endpoint');
+  assert(Number.isInteger(builder.draftVersion) && builder.draftVersion > 0, 'saved draft version must be present');
+  assert(builder.draftDigest, 'saved draft digest must be present');
+  assert(builder.catalog?.generation, 'saved Builder catalog generation must be present');
+  assert(builder.catalog?.snapshotToken, 'saved Builder catalog snapshot must be present');
+  assert.equal(previewBinding?.status, 'ready', 'saved Group output preview must be ready before the ONE request');
+  assert(previewBinding.receiptId, 'saved Group output preview must expose its actual receipt identity');
+  assert.equal(previewBinding.outputId, outputId, 'saved Group preview must bind the same output');
+  assert.equal(previewBinding.draftVersion, builder.draftVersion, 'saved preview must bind the Builder draft version');
+  assert.equal(previewBinding.draftDigest, builder.draftDigest, 'saved preview must bind the Builder draft digest');
+  assert(Array.isArray(renderedGrid?.headers) && Array.isArray(renderedGrid?.rows), 'saved Group rendered grid is required');
+
+  return sanitizePayload({
+    schemaVersion: 1,
+    capturePoint: 'saved Builder state immediately before the raw Patient.id ONE proposal',
+    project,
+    explorerId,
+    draftBinding: {
+      version: builder.draftVersion,
+      digest: builder.draftDigest,
+      generation: builder.catalog.generation,
+      snapshotToken: builder.catalog.snapshotToken,
+    },
+    outputBinding: {
+      outputId,
+      title: savedDocument.output.title,
+      rootResourceType: savedDocument.rootResourceType,
+      receiptId: previewBinding.receiptId,
+      previewStatus: previewBinding.status,
+    },
+    savedDocument,
+    renderedPreview: {
+      outputId: previewBinding.outputId,
+      receiptId: previewBinding.receiptId,
+      draftVersion: previewBinding.draftVersion,
+      draftDigest: previewBinding.draftDigest,
+      headers: renderedGrid.headers,
+      rows: renderedGrid.rows,
+    },
+  });
+};
+
 const requireCheck = (workflow, dimension, name, passed, evidence = {}) =>
   workflow.check(dimension, name, passed, evidence);
 
@@ -46,7 +107,7 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
   report.target.qaIsolation.outputId = outputId;
   report.target.qaIsolation.setupMutations = [...report.target.qaIsolation.workflowMutations];
   report.target.qaIsolation.workflowMutations.push('native UI created a two-Patient root table from the raw fixture records');
-  report.target.qaIsolation.workflowCleanup = 'none; the harness retains the fresh loom_dev_verify project and case-owned Explorer with the final applied ALL repair';
+  report.target.qaIsolation.workflowCleanup = 'none; bracket teardown deletes neither the fresh verification project nor the case-owned Explorer, so partial saved state remains if the workflow stops early';
 
   const readBuilder = async () => {
     const response = await fetch(context.target.apiUrl + `${apiRoot}/authoring/v2/builder`, {
@@ -129,6 +190,28 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
   assert.equal(beforeONE.draftDigest, groupedBuilder.draftDigest);
   assert.equal(beforeONE.catalog?.generation, context.target.fixtureGeneration);
   assert.equal(beforeONE.catalog?.snapshotToken, groupedBuilder.catalog?.snapshotToken);
+  const preOneState = capturePatientOnePreOneState({
+    builder: beforeONE,
+    previewBinding: await page.evaluate(readPatientOnePreviewBinding),
+    renderedGrid: await readTable(),
+    project: context.target.fixtureProject,
+    explorerId: explorer,
+    outputId,
+  });
+  const preOneStateBytes = Buffer.from(`${JSON.stringify(preOneState, null, 2)}\n`);
+  const preOneStateFile = 'patient-one-pre-one-saved-state.json';
+  writeFileSync(join(report.evidenceDirectory, preOneStateFile), preOneStateBytes, { flag: 'wx', mode: 0o600 });
+  const preOneStateDigest = createHash('sha256').update(preOneStateBytes).digest('hex');
+  report.preOneSavedStateArtifact = {
+    fileName: preOneStateFile,
+    sha256: preOneStateDigest,
+    byteLength: preOneStateBytes.length,
+    ...preOneState,
+  };
+  requireCheck(workflow, 'correctness', 'pre-ONE evidence binds the saved Group document to its exact receipt and draft', true,
+    { fileName: preOneStateFile, sha256: preOneStateDigest, outputId,
+      receiptId: preOneState.outputBinding.receiptId, draftVersion: preOneState.draftBinding.version,
+      draftDigest: preOneState.draftBinding.digest });
   const choiceProposalPath = `${apiRoot}/authoring/v2/construction-choice-proposals`;
   const uiOrigin = new URL(context.target.uiUrl).origin;
   const expectedONEResponse = page.waitForResponse(response => {
@@ -189,6 +272,7 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
   report.expectedFailures.push({ method: 'POST', path: choiceProposalPath, status: 422,
     code: oneResponseBody.error.code, outputId, draftVersion: beforeONE.draftVersion,
     draftDigest: beforeONE.draftDigest, snapshotToken: beforeONE.catalog.snapshotToken,
+    preOneSavedStateArtifact: { fileName: preOneStateFile, sha256: preOneStateDigest },
     field: { choiceId: oneChoice.choiceId, title: oneChoice.title, rowValuePolicy: oneChoice.rowValuePolicy },
     rawPatientIDs: fixtureIDs, networkDiagnostics: expectedDiagnostic, consoleDiagnostics });
   for (const diagnostic of [...expectedDiagnostic, ...consoleDiagnostics]) {
