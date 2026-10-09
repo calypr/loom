@@ -21,6 +21,7 @@ import {
 } from '../helpers/coded-pivot-native-evidence.mjs';
 import { createdExplorerScope } from '../helpers/created-explorer-scope.mjs';
 import { scenarioCaseFor } from '../registry.mjs';
+import { sameWorkspaceIgnoringEmptySourceConstruction } from './verify-cda-related-source-after-pivot-browser.mjs';
 import {
   CODED_PIVOT_OBSERVATION_ID,
   codedPivotExpectedHeaderValuesFor,
@@ -768,7 +769,13 @@ try {
   timing('restoration-reload-to-source-render', restorationReloadStarted);
   const restoredBuilder = await api(`${createdScope.authoringBase}/builder`);
   const restoredDocument = documentFor(restoredBuilder);
-  assert.deepEqual(restoredDocument, prePivotDocument, 'Removing the coded Pivot must restore the exact pre-Pivot source construction');
+  const restoredWorkspaceMatches = sameWorkspaceIgnoringEmptySourceConstruction(
+    { workspace: { documents: [prePivotDocument] } },
+    { workspace: { documents: [restoredDocument] } },
+    report.tableOutputId,
+  );
+  assert(restoredWorkspaceMatches,
+    'Removing the coded Pivot must restore the exact pre-Pivot source construction, allowing only its canonical empty default');
   assert.deepEqual(report.restored.headers, ['OBSERVATION ID']);
   recordCheck(6, 'persistence', true, { draftVersion: restoredBuilder.draftVersion, draftDigest: restoredBuilder.draftDigest,
     restoredDocument, prePivotDocument, headers: report.restored.headers, observationId });

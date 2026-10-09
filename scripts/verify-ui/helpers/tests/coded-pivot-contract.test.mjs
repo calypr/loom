@@ -35,6 +35,7 @@ import {
   codedPivotSourceOptionsDiagnosticFor,
   summarizeCodedPivotNativeRequests,
 } from '../coded-pivot-native-evidence.mjs';
+import { sameWorkspaceIgnoringEmptySourceConstruction } from '../../workflows/verify-cda-related-source-after-pivot-browser.mjs';
 
 const scenarioID = 'standalone-reshape-coded-pivot';
 const source = (component, overrides = {}) => ({
@@ -72,6 +73,80 @@ test('integer and string coded Pivot fixtures require the exact scoped Observati
     { code: 'specimen_type', type: 'string', value: 'analyte' },
     { code: 'primary_disease_type', type: 'string', value: 'Ductal and lobular neoplasms' },
   ]);
+});
+
+test('retained coded Pivot removal diffs permit only the canonical empty source construction', () => {
+  // The retained bounded reports preserve each prePivotSource.document and the
+  // failing assert's complete actual diff. In both, every displayed document
+  // field matches and the sole addition is construction:{version:1,steps:[]}.
+  // Report SHA-256s: integer 6cc8c01e8492b57c2c4c738fc277ce5a0a46cf0e231883a7b6e5f8a326788387;
+  // string 83d7f9bbad6090b1071fd4ceeddae12a89f5320f3977501d4fbcf8f5ebb54d1a.
+  const retainedSourceDocuments = [
+    {
+      outputId: 'out_9b8e7f441ce8908077ef8813',
+      document: {
+        kind: 'ExplorerBuilderDocument',
+        output: { id: 'out_9b8e7f441ce8908077ef8813', title: 'Coded pivot integer QA 1791534719945' },
+        rootResourceType: 'Observation',
+        route: { occurrenceId: 'base', resourceType: 'Observation' },
+        rows: { kind: 'RECORDS', records: {} },
+        population: {
+          selectionRevisionId: 'selection_505cd7ee80ea0486253e10a84222672aced5c3bbd7ad4bf30e2774321616d848',
+          route: [],
+        },
+        columns: [{
+          columnId: 'source_e8b94c008f51f2ab785d2646',
+          column: 'col_1e92a10748c5abb0c144fc98',
+          label: 'Observation ID',
+          logicalType: 'string',
+          occurrenceId: 'base',
+          source: { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } },
+          table: { visible: true, order: 0 },
+        }],
+      },
+    },
+    {
+      outputId: 'out_9082c0b54524fa2f9fbbec84',
+      document: {
+        kind: 'ExplorerBuilderDocument',
+        output: { id: 'out_9082c0b54524fa2f9fbbec84', title: 'Coded pivot string QA 1791534716434' },
+        rootResourceType: 'Observation',
+        route: { occurrenceId: 'base', resourceType: 'Observation' },
+        rows: { kind: 'RECORDS', records: {} },
+        population: {
+          selectionRevisionId: 'selection_aad0e9545a25c53583aa7330e22ef229f5757fee5e0220b7d0e11cafc6abf2cd',
+          route: [],
+        },
+        columns: [{
+          columnId: 'source_da7cde2990e548ad3ab97ac0',
+          column: 'col_db6e9e5c800d4abc6badde9c',
+          label: 'Observation ID',
+          logicalType: 'string',
+          occurrenceId: 'base',
+          source: { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } },
+          table: { visible: true, order: 0 },
+        }],
+      },
+    },
+  ];
+
+  for (const { outputId, document } of retainedSourceDocuments) {
+    const before = { workspace: { documents: [document] } };
+    const after = structuredClone(before);
+    after.workspace.documents[0].construction = { version: 1, steps: [] };
+    assert.notDeepEqual(after.workspace.documents[0], document,
+      'The retained report reproduces the strict-equality mismatch that failed the native workflow.');
+    assert.equal(sameWorkspaceIgnoringEmptySourceConstruction(before, after, outputId), true);
+
+    const changedSource = structuredClone(after);
+    changedSource.workspace.documents[0].columns[0].column = 'different-column';
+    assert.equal(sameWorkspaceIgnoringEmptySourceConstruction(before, changedSource, outputId), false,
+      'Empty construction normalization must not mask other source-document changes.');
+    const nonemptyConstruction = structuredClone(after);
+    nonemptyConstruction.workspace.documents[0].construction.steps.push({ id: 'unexpected-step' });
+    assert.equal(sameWorkspaceIgnoringEmptySourceConstruction(before, nonemptyConstruction, outputId), false,
+      'Nonempty construction must remain a restoration failure.');
+  }
 });
 
 test('coded Pivot raw oracle rejects scope drift, duplicate codes, and wrong scalar types', () => {
