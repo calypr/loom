@@ -14,6 +14,35 @@ import { assertOwnedCdaTarget } from '../helpers/owned-cda-target.mjs';
 import { finalOutputSchema, sourceColumnSchema } from '../helpers/unpivot-schema.mjs';
 
 
+export async function flushRelatedUnpivotNativeRequests(capture, report, timeoutMs = 5_000) {
+  assert.equal(typeof capture?.flush, 'function', 'Related Unpivot native request capture must provide a flush operation');
+  assert(Array.isArray(report?.nativeRequests), 'Related Unpivot native request report must expose captured requests');
+  await capture.flush({ timeoutMs, waitForNativeRequestTerminals: true });
+  assert(report.nativeRequests.length > 0,
+    'Related Unpivot lifecycle captured no owned native requests; terminal drain cannot be established');
+
+  const isExactTerminal = entry => (entry.nativeEventChronology ?? []).some(event =>
+    (event.event === 'requestfinished' || event.event === 'requestfailed') &&
+    event.objectMatch === true && event.browserRequestId === entry.browserRequestId);
+  const pending = report.nativeRequests.filter(entry => !isExactTerminal(entry));
+  const drainEvidence = report.nativeRequestDrainEvidence ?? [];
+  assert.equal(pending.length, 0,
+    `Related Unpivot requests did not reach an exact native terminal event: ${JSON.stringify(pending.map(entry => ({
+      requestId: entry.requestId ?? null, browserRequestId: entry.browserRequestId ?? null,
+      method: entry.method ?? null, path: entry.path ?? null,
+    })))}`);
+  assert.equal(drainEvidence.length, 0,
+    `Related Unpivot native request terminal drain timed out: ${JSON.stringify(drainEvidence)}`);
+
+  const finished = report.nativeRequests.filter(entry =>
+    (entry.nativeEventChronology ?? []).some(event => event.event === 'requestfinished' &&
+      event.objectMatch === true && event.browserRequestId === entry.browserRequestId)).length;
+  const failed = report.nativeRequests.filter(entry =>
+    (entry.nativeEventChronology ?? []).some(event => event.event === 'requestfailed' &&
+      event.objectMatch === true && event.browserRequestId === entry.browserRequestId)).length;
+  return { timeoutMs, total: report.nativeRequests.length, finished, failed, pending: pending.length };
+}
+
 export async function runRelatedUnpivotBrowserWorkflow({ page, cda }, originalArgs = {}) {
   const environment = cda.env ?? process.env;
 const includeFixtureDiagnostics = domainReport => {
@@ -643,7 +672,7 @@ try {
       restoredColumns: doc(builder).columns, restoredPopulation: doc(builder).population, rows: restoreReload.rows,
       applyDurationMs: restoreApply.durationMs, reloadDurationMs: restoreReload.durationMs });
 
-  await fixtureRequestCapture.flush();
+  report.nativeRequestTerminalDrain = await flushRelatedUnpivotNativeRequests(fixtureRequestCapture, cda.report);
   includeFixtureDiagnostics(report);
   const unexpectedOwnedErrors = (cda.report.errors ?? []).filter(item => item.expected !== true &&
     !item.expectedCancellation && !item.expectedInjectedFault && !item.expectedHttpFailure);

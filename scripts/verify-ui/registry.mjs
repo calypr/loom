@@ -2592,6 +2592,20 @@ export const registry = Object.freeze([
               'scripts/loom-dev.mjs',
             ],
           },
+          {
+            id: 'related-unpivot-native-terminal-ledger',
+            cwd: '.',
+            command: [
+              'node-test',
+              'scripts/verify-ui/helpers/tests/related-unpivot-native-terminal.test.mjs',
+            ],
+            sourceFiles: [
+              'scripts/verify-ui/workflows/verify-cda-related-unpivot-browser.mjs',
+              'scripts/verify-ui/helpers/cda-playwright-requests.mjs',
+              'scripts/verify-ui/helpers/playwright-browser.mjs',
+              'scripts/verify-ui/helpers/pending-response-reads.mjs',
+            ],
+          },
         ],
         requiredChecks: [
           'bounded raw CDA oracle selects a complete two-to-twenty-four-row Specimen Related chain',
