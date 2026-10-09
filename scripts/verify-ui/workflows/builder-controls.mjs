@@ -103,6 +103,21 @@ const readCurrentPreviewSnapshot = expectedOutputId => {
   };
 };
 
+export const currentReadyPreviewOutputId = () => {
+  const workspaces = document.querySelectorAll('[data-testid="construction-workspace"]');
+  const previews = document.querySelectorAll('[data-testid="construction-preview"]');
+  if (workspaces.length !== 1 || previews.length !== 1 ||
+      !document.querySelector('[aria-label="Add columns editor"]')) return null;
+  const [workspace] = workspaces;
+  const [preview] = previews;
+  const outputId = preview.dataset.previewOutputId;
+  const table = preview.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+  const ready = Boolean(outputId && table && preview.dataset.previewStatus === 'ready' &&
+    preview.dataset.previewReceiptId && preview.dataset.currentDraftVersion === workspace.dataset.draftVersion &&
+    preview.dataset.currentDraftDigest === workspace.dataset.draftDigest);
+  return ready ? outputId : null;
+};
+
 export const waitForCurrentPreviewRows = async ({
   page, report, outputId, expectedIDs, expectedGenderByID, check, timeoutMs = 5000,
 }) => {
@@ -608,12 +623,18 @@ export const tablesWorkflow = async ({ page, report, action, check }, context) =
   await configurePatientGenderWithUI({ page, action });
   await checkPreviewPatients(page, report, oracle.ids, check, oracle.genderByID);
   const closeEditor = page.getByRole('button', { name: 'Close operation editor', exact: true });
-  const initialTableIdentity = await selectedTableIdentity();
+  const previewOutputId = await page.evaluate(currentReadyPreviewOutputId);
+  assert(previewOutputId, 'The ready Preview must bind the Patient table while its Add columns editor is open');
+  let initialTableIdentity;
   await measuredTableAction('return to the selected Patient table after applying Gender', closeEditor, () => closeEditor.click(), {
-    outputId: initialTableIdentity.outputId,
+    outputId: () => initialTableIdentity?.outputId,
     after: async remaining => {
       await page.locator('[aria-label="Add columns editor"]').waitFor({ state: 'hidden', timeout: remaining() });
       await page.getByRole('button', { name: /Add columns:/ }).waitFor({ state: 'visible', timeout: remaining() });
+      await waitForSelectedTable(`construction-table-${previewOutputId}`, remaining());
+      initialTableIdentity = await selectedTableIdentity();
+      assert.equal(initialTableIdentity.outputId, previewOutputId,
+        'Returning from the Add columns editor must restore the Preview-bound selected table');
     },
   });
   const originalTableTestId = initialTableIdentity.testId;

@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { chromium } from '@playwright/test';
 import {
+  currentReadyPreviewOutputId,
   currentPreviewReady,
   patientOracle,
   waitForCurrentPreviewRows,
@@ -11,6 +12,45 @@ import {
 const rowMarkup = cells => `<div role="row">${cells.map(cell =>
   `<div role="cell" style="display: block">${cell}</div>`,
 ).join('')}</div>`;
+
+test('reads the current Preview output while the Add columns editor has no table tab', async () => {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  try {
+    const page = await browser.newPage();
+    const outputId = 'out_patient_gender';
+    await page.setContent(`
+      <main data-testid="construction-workspace" data-draft-version="12" data-draft-digest="sha256:draft-current">
+        <section aria-label="Add columns editor"></section>
+        <section data-testid="construction-preview" data-preview-status="ready"
+          data-preview-receipt-id="receipt-current" data-preview-output-id="${outputId}"
+          data-current-draft-version="12" data-current-draft-digest="sha256:draft-current">
+          <div data-testid="preview-table-scroll">
+            <div role="table" aria-rowcount="2">${rowMarkup(['ROW', 'PATIENT ID'])}</div>
+          </div>
+        </section>
+      </main>
+    `);
+
+    assert.equal(await page.locator('[data-testid^="construction-table-"][aria-current="page"]').count(), 0,
+      'the table tabs are unmounted while the Add columns editor is open');
+    assert.equal(await page.evaluate(currentReadyPreviewOutputId), outputId,
+      'the ready Preview exposes the actual output binding without inventing a table tab');
+
+    await page.locator('[data-testid="construction-preview"]').evaluate(node => {
+      node.dataset.currentDraftDigest = 'sha256:stale-draft';
+    });
+    assert.equal(await page.evaluate(currentReadyPreviewOutputId), null,
+      'a Preview bound to a stale draft cannot identify the selected output');
+    await page.locator('[data-testid="construction-preview"]').evaluate(node => {
+      node.dataset.currentDraftDigest = 'sha256:draft-current';
+      node.dataset.previewReceiptId = '';
+    });
+    assert.equal(await page.evaluate(currentReadyPreviewOutputId), null,
+      'a Preview without a receipt cannot identify a current output');
+  } finally {
+    await browser.close();
+  }
+});
 
 test('waits for selected current-draft rows instead of same-count stale Patient values', async () => {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
