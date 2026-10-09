@@ -129,6 +129,50 @@ export const sanitizedSuggestionRequestBinding = ({ kind, requestId, body, obser
   };
 };
 
+export const captureSuggestionUiState = async page => {
+  const capturedAtMs = Date.now();
+  try {
+    const state = await page.evaluate(() => {
+      const visible = element => Boolean(element && element.getClientRects().length > 0);
+      const text = element => element?.textContent?.trim() || null;
+      const explorer = document.querySelector('select[aria-label="Explorer"]');
+      const activeMode = document.querySelector('[role="group"][aria-label="Column types"] [aria-pressed="true"]');
+      const activeSearchScope = document.querySelector('[role="group"][aria-label="Search scope"] [aria-pressed="true"]');
+      const rawFields = document.querySelector('[data-testid="feature-catalog-raw-fields"]');
+      const failureAlert = document.querySelector('[data-testid="builder-suggestions-error"]');
+      const retry = document.querySelector('[data-testid="builder-suggestions-retry"]');
+      const selectedOccurrence = document.querySelector(
+        '[data-occurrence-id][aria-current="true"], [data-occurrence-id][aria-selected="true"], ' +
+        '[data-occurrence-id][aria-pressed="true"], [data-occurrence-id][data-selected="true"]',
+      );
+      const failureText = text(failureAlert);
+      const errorCode = failureText?.match(/\(([A-Z][A-Z0-9_]*)\)\s*$/)?.[1] ?? null;
+      return {
+        explorerId: explorer?.value || null,
+        explorerTitle: text(explorer?.selectedOptions?.[0]),
+        tableHeading: text(document.querySelector('main h1')),
+        fieldsModeSelected: activeMode ? text(activeMode) === 'Fields and related data' : null,
+        searchScope: text(activeSearchScope),
+        rawFieldsOpen: rawFields ? rawFields.open : null,
+        selectedOccurrenceId: selectedOccurrence?.getAttribute('data-occurrence-id') ?? null,
+        selectedOccurrenceObservable: Boolean(selectedOccurrence),
+        failureAlertVisible: visible(failureAlert),
+        failureAlertText: failureText,
+        failureAlertCode: errorCode,
+        retryVisible: visible(retry),
+        retryEnabled: retry ? !retry.disabled : null,
+      };
+    });
+    return { status: 'captured', capturedAtMs, ...state };
+  } catch (error) {
+    return {
+      status: 'unavailable',
+      capturedAtMs,
+      captureError: error instanceof Error ? error.message : String(error),
+    };
+  }
+};
+
 export const waitForOwnedRootSuggestionRequest = async (requestSeen, timeoutMs = 5_000) => {
   let timer;
   try {
@@ -144,13 +188,17 @@ export const waitForOwnedRootSuggestionRequest = async (requestSeen, timeoutMs =
   }
 };
 
-export const abortSuggestionRouteAfterUserAction = async (route, actionCompleted, timeoutMs = 5_000, chronology = {}) => {
+export const abortSuggestionRouteAfterUserAction = async (
+  route, actionCompleted, timeoutMs = 5_000, chronology = {}, beforeAbort,
+) => {
   let timer;
   try {
-    return await Promise.race([
+    const completed = await Promise.race([
       actionCompleted,
       new Promise(resolve => { timer = setTimeout(() => resolve(false), timeoutMs); }),
     ]) === true;
+    if (completed && beforeAbort) chronology.uiBeforeAbort = await beforeAbort();
+    return completed;
   } finally {
     clearTimeout(timer);
     chronology.abortStartedAtMs = Date.now();
@@ -236,7 +284,16 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
     { explorer, originalCandidateCount: shapedCatalog?.candidateCount ?? null, shaped: shapedCatalog?.shaped ?? false });
 
   const suggestionAttempts = [];
+  let driverSequence = 0;
   const suggestionsPath = `${projectPath}${encodeURIComponent(explorer)}/authoring/v2/suggestions`;
+  const captureExplorerScopedUiState = async () => {
+    const state = await captureSuggestionUiState(page);
+    return {
+      ...state,
+      explorerMatchesRequest: state.status === 'captured' && typeof state.explorerId === 'string'
+        ? state.explorerId === explorer : null,
+    };
+  };
   const suggestionsFaultChronology = {
     endpoint: '/authoring/v2/suggestions',
     firstTable: null,
@@ -268,6 +325,9 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
       attempt.evidence = sanitizedSuggestionRequestBinding({
         kind: attempt.kind, requestId, body, observedAtMs: attempt.observedAtMs,
       });
+      attempt.evidence.sequence = ++driverSequence;
+      attempt.evidence.projectId = target.fixtureProject;
+      attempt.evidence.explorerId = explorer;
       suggestionsFaultChronology.firstTable = attempt.evidence;
       firstTableAttempt ??= attempt;
       suggestionAttempts.push(attempt);
@@ -287,6 +347,12 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
       attempt.evidence = sanitizedSuggestionRequestBinding({
         kind: attempt.kind, requestId, body, observedAtMs: attempt.observedAtMs,
       });
+      attempt.evidence.sequence = ++driverSequence;
+      attempt.evidence.projectId = target.fixtureProject;
+      attempt.evidence.requestOccurrenceId = requestId.startsWith('suggestions-')
+        ? requestId.slice('suggestions-'.length) : null;
+      attempt.evidence.explorerId = explorer;
+      attempt.evidence.uiAtRequest = await captureExplorerScopedUiState();
       attempt.evidence.sameRootNodeAsFirstTable = body?.nodeId === firstTableAttempt?.body?.nodeId;
       attempt.evidence.sameSnapshotAsFirstTable = body?.snapshotToken === firstTableAttempt?.body?.snapshotToken;
       attempt.evidence.requestIdDiffersFromFirstTable = requestId !== firstTableAttempt?.requestId;
@@ -303,11 +369,16 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
         resolveFirstLazyRequest(attempt);
         try {
           attempt.actionCompletedBeforeAbort = await abortSuggestionRouteAfterUserAction(
-            route, rawFieldsActionCompleted, 5_000, chronology);
+            route, rawFieldsActionCompleted, 5_000, chronology,
+            async () => {
+              chronology.uiBeforeAbortSequence = ++driverSequence;
+              return captureExplorerScopedUiState();
+            });
           attempt.evidence.actionCompletedBeforeAbort = attempt.actionCompletedBeforeAbort;
           suggestionsFaultChronology.lazy.actionCompletedBeforeAbort = attempt.actionCompletedBeforeAbort;
         } finally {
           Object.assign(attempt.evidence, chronology);
+          suggestionsFaultChronology.rawFieldsAction.uiBeforeAbort = chronology.uiBeforeAbort ?? null;
           attempt.routeReleased = Number.isFinite(chronology.routeReleasedAtMs);
           attempt.evidence.routeReleased = attempt.routeReleased;
           suggestionsFaultChronology.lazy.actionGateWaitStartedAtMs = attempt.evidence.actionGateWaitStartedAtMs;
@@ -318,6 +389,16 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
           suggestionsFaultChronology.lazy.abortStartedAtMs = chronology.abortStartedAtMs ?? null;
           suggestionsFaultChronology.lazy.routeReleasedAtMs = chronology.routeReleasedAtMs ?? null;
           suggestionsFaultChronology.lazy.routeReleased = attempt.routeReleased;
+          attempt.evidence.routeReleasedSequence = ++driverSequence;
+          suggestionsFaultChronology.lazy.routeReleasedSequence = attempt.evidence.routeReleasedSequence;
+          const routeReleasedAfterUi = attempt.actionCompletedBeforeAbort === true &&
+            attempt.routeReleased === true && chronology.uiBeforeAbort?.rawFieldsOpen === true;
+          check('correctness', 'injected lazy route was released after Raw FHIR fields opened', routeReleasedAfterUi, {
+            actionCompletedBeforeAbort: attempt.actionCompletedBeforeAbort === true,
+            routeReleased: attempt.routeReleased === true,
+            rawFieldsOpenBeforeAbort: chronology.uiBeforeAbort?.rawFieldsOpen ?? null,
+          });
+          suggestionsFaultChronology.lazy.uiBeforeAbort = chronology.uiBeforeAbort ?? null;
         }
         return;
       }
@@ -332,6 +413,7 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
     if (rawFieldsActionSignaled) return;
     rawFieldsActionSignaled = true;
     suggestionsFaultChronology.rawFieldsAction.signaledAtMs = Date.now();
+    suggestionsFaultChronology.rawFieldsAction.signaledSequence = ++driverSequence;
     suggestionsFaultChronology.rawFieldsAction.opened = didOpen === true;
     completeRawFieldsAction(didOpen);
   };
@@ -390,6 +472,25 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
     await act('choose Fields and related data', fieldsRelated, () => fieldsRelated.click());
     const rawFields = page.getByText('Raw FHIR fields (advanced)', { exact: true });
     suggestionsFaultChronology.rawFieldsAction.startedAtMs = Date.now();
+    suggestionsFaultChronology.rawFieldsAction.startedSequence = ++driverSequence;
+    if (firstLazyAttempt?.evidence) {
+      firstLazyAttempt.evidence.requestBeforeRawFieldsAction =
+        firstLazyAttempt.evidence.sequence < suggestionsFaultChronology.rawFieldsAction.startedSequence;
+      suggestionsFaultChronology.lazy.requestBeforeRawFieldsAction =
+        firstLazyAttempt.evidence.requestBeforeRawFieldsAction;
+      firstLazyAttempt.evidence.uiBeforeRawFieldsAction = await captureExplorerScopedUiState();
+      suggestionsFaultChronology.rawFieldsAction.uiBeforeAction = firstLazyAttempt.evidence.uiBeforeRawFieldsAction;
+      check('correctness', 'lazy suggestions request was captured before the Raw FHIR fields transition',
+        firstLazyAttempt.evidence.requestBeforeRawFieldsAction &&
+          firstLazyAttempt.evidence.uiAtRequest?.rawFieldsOpen === false &&
+          firstLazyAttempt.evidence.uiBeforeRawFieldsAction.rawFieldsOpen === false,
+        {
+          requestSequence: firstLazyAttempt.evidence.sequence,
+          actionSequence: suggestionsFaultChronology.rawFieldsAction.startedSequence,
+          requestRawFieldsOpen: firstLazyAttempt.evidence.uiAtRequest?.rawFieldsOpen ?? null,
+          actionStartRawFieldsOpen: firstLazyAttempt.evidence.uiBeforeRawFieldsAction.rawFieldsOpen ?? null,
+        });
+    }
     await act('open Raw FHIR fields', rawFields, () => rawFields.click(), {
       after: async () => {
         await page.getByTestId('feature-catalog-raw-fields').waitFor({ state: 'visible' });
@@ -402,6 +503,8 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
   const rawFieldSection = page.getByTestId('feature-catalog-raw-fields');
   const failedLazyAlert = page.getByTestId('builder-suggestions-error');
   let failureRecord;
+  let failureUiState;
+  const lazyAttemptsBeforeRetry = suggestionAttempts.filter(candidate => candidate.kind === 'lazy');
   try {
     await failedLazyAlert.waitFor({ state: 'visible' });
   } finally {
@@ -411,6 +514,54 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
       item.errorText === 'net::ERR_FAILED' && typeof item.playwrightRequestId === 'string');
     suggestionsFaultChronology.lazy.failureRecordCaptured = Boolean(failureRecord);
     suggestionsFaultChronology.lazy.failureObservedAtMs = failureRecord ? Date.now() : null;
+    failureUiState = await captureExplorerScopedUiState();
+    const failureCaptureSequence = ++driverSequence;
+    suggestionsFaultChronology.lazy.catchOutcome = {
+      observedAtMs: failureUiState.capturedAtMs,
+      sequence: failureCaptureSequence,
+      requestFailureObserved: Boolean(failureRecord),
+      requestErrorText: failureRecord?.errorText ?? null,
+      failureAlertVisible: failureUiState.failureAlertVisible ?? null,
+      failureAlertText: failureUiState.failureAlertText ?? null,
+      appErrorCodeFromVisibleAlert: failureUiState.failureAlertCode ?? null,
+      retryVisible: failureUiState.retryVisible ?? null,
+      requestIdentity: {
+        projectId: target.fixtureProject,
+        explorerId: explorer,
+        occurrenceIdFromRequestId: firstLazyAttempt?.evidence?.requestOccurrenceId ?? null,
+        nodeId: firstLazyAttempt?.evidence?.nodeId ?? null,
+        snapshotTokenSHA256: firstLazyAttempt?.evidence?.snapshotTokenSHA256 ?? null,
+      },
+      catchVisibleIdentity: {
+        explorerId: failureUiState.explorerId ?? null,
+        explorerMatchesRequest: typeof failureUiState.explorerId === 'string'
+          ? failureUiState.explorerId === explorer : null,
+        selectedOccurrenceId: failureUiState.selectedOccurrenceId ?? null,
+        selectedOccurrenceObservable: failureUiState.selectedOccurrenceObservable ?? false,
+        snapshotTokenSHA256: null,
+        snapshotTokenObservable: false,
+      },
+    };
+    check('correctness', 'lazy suggestion failure UI state was captured for the owned request',
+      failureUiState.status === 'captured', {
+        requestId: firstLazyAttempt?.requestId ?? null,
+        captureStatus: failureUiState.status,
+        failureAlertVisible: failureUiState.failureAlertVisible ?? null,
+        appErrorCodeFromVisibleAlert: failureUiState.failureAlertCode ?? null,
+      });
+    const retryControlAvailable = failureUiState.failureAlertVisible === true &&
+      failureUiState.retryVisible === true && failureUiState.retryEnabled === true &&
+      lazyAttemptsBeforeRetry.length === 1;
+    check('usability', 'one failed lazy suggestion request exposes an actionable retry control',
+      retryControlAvailable, {
+        retry: {
+          visible: failureUiState.retryVisible ?? null,
+          enabled: failureUiState.retryEnabled ?? null,
+        },
+        failureAlertVisible: failureUiState.failureAlertVisible ?? null,
+        lazyFailureRequestId: firstLazyAttempt?.requestId ?? null,
+        lazyAttemptCount: lazyAttemptsBeforeRetry.length,
+      });
     if (failureRecord) {
       failureRecord.injectedFault = true;
       failureRecord.injectedAction = 'abort';
@@ -418,21 +569,12 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
       failureRecord.injectedReason = 'the first lazy Patient suggestion request was intentionally aborted by this case';
     }
   }
-  const lazyAttemptsBeforeRetry = suggestionAttempts.filter(candidate => candidate.kind === 'lazy');
   const failedLazyAttempt = lazyAttemptsBeforeRetry[0];
   assert.equal(failedLazyAttempt, firstLazyAttempt,
     'The exact root request held until Raw FHIR fields opened must be the injected transport failure.');
-  check('correctness', 'injected lazy suggestion route was released after the Raw FHIR fields action',
-    firstLazyAttempt.actionCompletedBeforeAbort === true && firstLazyAttempt.routeReleased === true,
-    { actionCompletedBeforeAbort: firstLazyAttempt.actionCompletedBeforeAbort ?? false,
-      routeReleased: firstLazyAttempt.routeReleased ?? false });
   assert(failureRecord, 'The report must retain the exact failed request signature for the injected lazy suggestion transport failure.');
   const retry = page.getByTestId('builder-suggestions-retry');
   await unique(retry);
-  const retryState = { visible: await retry.isVisible(), enabled: await retry.isEnabled() };
-  check('usability', 'one failed lazy suggestion request exposes an actionable retry control',
-    retryState.visible && retryState.enabled && lazyAttemptsBeforeRetry.length === 1,
-    { retry: retryState, lazyFailureRequestId: firstLazyAttempt.requestId });
   const retryResponsePromise = page.waitForResponse(response => {
     const request = response.request();
     const url = new URL(response.url());
