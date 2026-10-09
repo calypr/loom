@@ -15,6 +15,8 @@ const PROJECT_SCOPE = 'loom_dev_cda_fhir';
 const GENERATION_SCOPE = 'cda-fhir-v1';
 const MAX_RUNTIME_SECONDS = 8;
 const MAX_MEMORY_BYTES = 268435456;
+const MAX_CAPTURED_ROWS = 300;
+const MAX_CAPTURED_ROWS_BYTES = 65536;
 const SAFE_INTEGER_COUNT_KEYS = new Set([
   'scoped_roots',
   'scoped_patients',
@@ -250,10 +252,32 @@ try {
 }
 
 /** Build the single bounded read-only db._query request script. */
-export function buildExecuteRequestScript({ query, bindVars, maxRuntimeSeconds, memoryLimitBytes, safeIntegerCounts = false }) {
+export function buildExecuteRequestScript({ query, bindVars, maxRuntimeSeconds, memoryLimitBytes, safeIntegerCounts = false, captureRows = false }) {
   const queryLiteral = quoteJavaScript(query);
   const bindLiteral = quoteJavaScript(bindVars);
   const marker = quoteJavaScript(MARKER);
+  const captureSetup = captureRows ? `
+  let capturedRows = [];
+  let capturedRowsBytes = 2;
+  function utf8ByteLength(value) {
+    let bytes = 0;
+    for (const character of value) {
+      const codePoint = character.codePointAt(0);
+      bytes += codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4;
+    }
+    return bytes;
+  }` : '';
+  const captureRow = captureRows ? `
+    const serializedRow = JSON.stringify(row);
+    if (typeof serializedRow !== 'string') throw new Error('row-capture-invalid-json');
+    const rowBytes = utf8ByteLength(serializedRow);
+    const projectedBytes = capturedRowsBytes + (capturedRows.length > 0 ? 1 : 0) + rowBytes;
+    if (capturedRows.length + 1 > ${MAX_CAPTURED_ROWS} || projectedBytes > ${MAX_CAPTURED_ROWS_BYTES}) {
+      throw new Error('row-capture-limit-exceeded');
+    }
+    capturedRows.push(JSON.parse(serializedRow));
+    capturedRowsBytes = projectedBytes;` : '';
+  const captureResult = captureRows ? '\n  result.rows = capturedRows;' : '';
   const script = `
 const started = Date.now();
 try {
@@ -271,10 +295,10 @@ try {
     return {id, calls, items, runtime};
   }
   let resultCount = 0;
-  let safeIntegerCounts = null;
+  let safeIntegerCounts = null;${captureSetup}
   while (cursor.hasNext()) {
     const row = cursor.next();
-    resultCount += 1;
+    resultCount += 1;${captureRow}
     if (${safeIntegerCounts}) {
       if (resultCount !== 1 || !row || typeof row !== 'object' || Array.isArray(row)) {
         throw new Error('query did not return one integer-count object');
@@ -312,6 +336,7 @@ try {
   } catch (_) {}
   const result = {ok:true, elapsedMs:Date.now()-started, resultCount, stats, warnings};
   if (${safeIntegerCounts}) result.safeIntegerCounts = safeIntegerCounts;
+  ${captureResult}
   print(${marker} + JSON.stringify(result));
 } catch (error) {
   print(${marker} + JSON.stringify({
@@ -325,7 +350,7 @@ try {
 }
 
 function parseArguments(argv) {
-  const options = { execute: false, safeIntegerCounts: false, maxRuntimeSeconds: MAX_RUNTIME_SECONDS, memoryLimitBytes: MAX_MEMORY_BYTES };
+  const options = { execute: false, safeIntegerCounts: false, captureRows: false, maxRuntimeSeconds: MAX_RUNTIME_SECONDS, memoryLimitBytes: MAX_MEMORY_BYTES };
   const valueOptions = new Set(['--query', '--bind-vars', '--output', '--max-runtime-seconds', '--memory-limit-bytes', '--expected-index']);
   const seen = new Set();
   for (let index = 0; index < argv.length; index += 1) {
@@ -336,6 +361,10 @@ function parseArguments(argv) {
     }
     if (option === '--safe-integer-counts') {
       options.safeIntegerCounts = true;
+      continue;
+    }
+    if (option === '--capture-rows') {
+      options.captureRows = true;
       continue;
     }
     if (!valueOptions.has(option) || index + 1 >= argv.length || argv[index + 1].startsWith('--')) {
@@ -364,6 +393,7 @@ function parseArguments(argv) {
 function validateCliOptions(options) {
   if (!options.queryPath || !options.bindVarsPath || !options.outputPath) return 'query, bind-vars, and output paths are required';
   if (options.safeIntegerCounts && !options.execute) return 'safe-integer-counts requires execute';
+  if (options.captureRows && !options.execute) return 'capture-rows requires execute';
   if (!Number.isFinite(options.maxRuntimeSeconds) || options.maxRuntimeSeconds <= 0 || options.maxRuntimeSeconds > MAX_RUNTIME_SECONDS) {
     return `max-runtime-seconds must be positive and no greater than ${MAX_RUNTIME_SECONDS}`;
   }
@@ -407,6 +437,7 @@ function baseReport(options) {
       memoryLimitBytes: options.memoryLimitBytes,
       explainHostTimeoutMs: EXPLAIN_HOST_TIMEOUT_MS,
       executeHostTimeoutMs: options.execute ? executionHostTimeout(options.maxRuntimeSeconds) : null,
+      ...(options.captureRows ? { captureRows: true, maxCapturedRows: MAX_CAPTURED_ROWS, maxCapturedRowsBytes: MAX_CAPTURED_ROWS_BYTES } : {}),
     },
     timing: {
       inspectHostElapsedMs: null,
@@ -506,6 +537,16 @@ function parseMarker(stdout) {
   const line = String(stdout ?? '').split(/\r?\n/).find(value => value.includes(MARKER));
   if (!line) return null;
   try { return JSON.parse(line.slice(line.indexOf(MARKER) + MARKER.length)); } catch { return null; }
+}
+
+function validCapturedRows(rows, resultCount) {
+  if (!Array.isArray(rows) || !Number.isSafeInteger(resultCount) || resultCount < 0
+    || rows.length !== resultCount || rows.length > MAX_CAPTURED_ROWS) return false;
+  try {
+    return Buffer.byteLength(JSON.stringify(rows), 'utf8') <= MAX_CAPTURED_ROWS_BYTES;
+  } catch {
+    return false;
+  }
 }
 
 function planReadOnlySummary(envelope, expectedIndex) {
@@ -660,6 +701,7 @@ async function main() {
                   maxRuntimeSeconds: options.maxRuntimeSeconds,
                   memoryLimitBytes: options.memoryLimitBytes,
                   safeIntegerCounts: options.safeIntegerCounts,
+                  captureRows: options.captureRows,
                 });
                 const executeInvocation = buildArangoShellInvocation({
                   container: CONTAINER,
@@ -710,6 +752,14 @@ async function main() {
                       report.execution.safeIntegerCounts = Object.fromEntries(
                         Object.entries(counts).sort(([left], [right]) => left.localeCompare(right)),
                       );
+                    }
+                  }
+                  if (report.failure === null && options.captureRows
+                    && !executeResult.error && executeResult.status === 0) {
+                    if (!validCapturedRows(executeEnvelope.rows, executeEnvelope.resultCount)) {
+                      fail(report, 'row-capture', 'bounded JSON row capture was invalid or exceeded its limits');
+                    } else {
+                      report.execution.rows = executeEnvelope.rows;
                     }
                   }
                   if (report.failure === null) {

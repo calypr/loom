@@ -148,6 +148,7 @@ if (operation === 'explain') {
   process.stdout.write(marker + JSON.stringify(envelope) + '\\n');
 } else {
   const scenario = process.env.PROBE_EXECUTE_SCENARIO ?? 'normal';
+  const captureRows = process.env.PROBE_CAPTURE_ROWS === '1';
   const envelope = scenario === 'no-stats'
     ? { ok: true, elapsedMs: 7, resultCount: 2, stats: null }
     : scenario === 'error'
@@ -170,12 +171,21 @@ if (operation === 'explain') {
             { id: 11, calls: 1, items: 3, runtime: '0.004' },
           ],
         } }
+      : scenario === 'rows-over-host-cap'
+        ? { ok: true, elapsedMs: 7, resultCount: 301, rows: Array.from({length:301}, (_, index) => ({index})), stats: null }
+        : scenario === 'rows-count-mismatch'
+          ? { ok: true, elapsedMs: 7, resultCount: 3, rows: [{ id: 1 }, null], stats: null }
+        : scenario === 'rows-bytes-over-host-cap'
+          ? { ok: true, elapsedMs: 7, resultCount: 1, rows: ['x'.repeat(65537)], stats: null }
       : { ok: true, elapsedMs: 7, resultCount: 2, rows: [{ category: ${JSON.stringify(sensitiveCategory)} }], stats: {
         executionTime: 0.007, scannedIndex: 11, scannedFull: 0, peakMemoryUsage: 123456,
         documentLookups: 5,
         nodes: [{ id: 7, calls: 2, items: 12, runtime: 0.007,
           expression: ${JSON.stringify(sensitiveProfileExpression)}, document: ${JSON.stringify(sensitiveProfileDocument)}, extra: ${JSON.stringify(sensitiveProfileExtra)} }],
       } };
+  if (captureRows && envelope.ok === true && ['normal', 'no-stats'].includes(scenario)) {
+    envelope.rows = [{ id: 1, nested: { values: ['alpha', null, 3] } }, null];
+  }
   const marker = [...shellCommand.matchAll(/__LOOM_[A-Z0-9_]+__/g)].map(match => match[0])[0];
   if (!marker) process.exit(22);
   process.stdout.write(marker + JSON.stringify(envelope) + '\\n');
@@ -215,6 +225,7 @@ async function runProbe(t, {
     PROBE_DOCKER_FAIL: dockerFail ? '1' : '0',
     PROBE_EXPLAIN_SCENARIO: explainScenario,
     PROBE_EXECUTE_SCENARIO: executeScenario,
+    PROBE_CAPTURE_ROWS: args.includes('--capture-rows') ? '1' : '0',
     PROBE_HANG_OPERATION: hangOperation,
   };
   const command = spawnSync(process.execPath, [
@@ -289,6 +300,7 @@ test('execute runs one bounded query only after a safe EXPLAIN and reports scan/
   assert.equal(keysNamed(run.report, 'scannedFull')[0], 0);
   assert.equal(keysNamed(run.report, 'peakMemoryUsage')[0], 123456);
   assert.equal(run.report.execution.documentLookups, 5);
+  assert.equal(Object.hasOwn(run.report.bounds, 'captureRows'), false);
   assert.deepEqual(run.report.execution.nodes, [{ id: 7, calls: 2, items: 12, runtime: 0.007 }]);
   assert.deepEqual(Object.keys(run.report.execution.nodes[0]).sort(), ['calls', 'id', 'items', 'runtime']);
   assert.deepEqual(run.report.plan.nodes, [
@@ -321,6 +333,101 @@ test('execute runs one bounded query only after a safe EXPLAIN and reports scan/
   assert.ok(Object.entries(run.report.timing ?? {}).some(([key, value]) => /HostElapsedMs$/.test(key) && Number.isFinite(value)));
   assert.ok(Object.keys(run.report.timing ?? {}).some(key => /server|arang/i.test(key)));
   assertNoSensitiveValues(run);
+});
+
+test('opt-in row capture returns bounded generic nested JSON without changing query execution count', async (t) => {
+  const run = await runProbe(t, { args: ['--execute', '--capture-rows'] });
+  assert.equal(run.command.status, 0, run.command.stderr);
+  assert.deepEqual(run.events.map(event => event.operation), ['explain', 'execute']);
+  assert.deepEqual(run.report.execution.rows, [{ id: 1, nested: { values: ['alpha', null, 3] } }, null]);
+  assert.deepEqual(run.report.bounds, {
+    execute: true,
+    maxRuntimeSeconds: 8,
+    memoryLimitBytes: 268435456,
+    explainHostTimeoutMs: 15000,
+    executeHostTimeoutMs: 10000,
+    captureRows: true,
+    maxCapturedRows: 300,
+    maxCapturedRowsBytes: 65536,
+  });
+  assert.equal(run.report.querySha256, sha256(run.queryBytes));
+  assertNoSensitiveValues(run);
+});
+
+test('capture mode rejects host envelopes over either cap and exposes no partial rows', async (t) => {
+  for (const executeScenario of ['rows-over-host-cap', 'rows-bytes-over-host-cap', 'rows-count-mismatch']) {
+    const run = await runProbe(t, { args: ['--execute', '--capture-rows'], executeScenario });
+    assert.notEqual(run.command.status, 0);
+    assert.equal(run.report.failure.stage, 'row-capture');
+    assert.equal(Object.hasOwn(run.report.execution, 'rows'), false);
+    assert.deepEqual(run.events.map(event => event.operation), ['explain', 'execute']);
+    assertNoSensitiveValues(run);
+  }
+});
+
+test('capture mode exposes no rows on query failure or malformed success envelope', async (t) => {
+  for (const executeScenario of ['error', 'malformed-envelope']) {
+    const run = await runProbe(t, { args: ['--execute', '--capture-rows'], executeScenario });
+    assert.notEqual(run.command.status, 0);
+    assert.equal(Object.hasOwn(run.report.execution, 'rows'), false);
+    assertNoSensitiveValues(run);
+  }
+  const withoutExecute = await runProbe(t, { args: ['--capture-rows'] });
+  assert.notEqual(withoutExecute.command.status, 0);
+  assert.equal(withoutExecute.report.failure.stage, 'arguments');
+  assert.equal(withoutExecute.dockerCalls.length, 0);
+  assertNoSensitiveValues(withoutExecute);
+});
+
+test('generated capture script enforces both caps and drops all rows on serialization or query failure', () => {
+  const script = buildExecuteRequestScript({
+    query: queryText,
+    bindVars: unrestrictedBinds,
+    maxRuntimeSeconds: 8,
+    memoryLimitBytes: 268435456,
+    captureRows: true,
+  });
+  const runRows = rows => {
+    const printed = [];
+    let offset = 0;
+    vm.runInNewContext(script, {
+      Date, JSON, Number, Object, Array,
+      print: value => printed.push(value),
+      db: { _query: () => ({
+        hasNext: () => offset < rows.length,
+        next: () => rows[offset++],
+        getExtra: () => ({ stats: null }),
+      }) },
+    });
+    return JSON.parse(printed[0].slice(printed[0].indexOf('__LOOM_OWNED_QUERY_PROBE__') + '__LOOM_OWNED_QUERY_PROBE__'.length));
+  };
+  const nestedRows = [{ id: 1, child: ['x', { ok: true }] }, null];
+  assert.deepEqual(runRows(nestedRows).rows, nestedRows);
+  for (const rows of [
+    Array.from({ length: 301 }, (_, index) => index),
+    ['x'.repeat(65537)],
+    [undefined],
+  ]) {
+    const envelope = runRows(rows);
+    assert.equal(envelope.ok, false);
+    assert.equal(Object.hasOwn(envelope, 'rows'), false);
+    assert.equal(envelope.message, 'Arango reported a query error.');
+  }
+  const printed = [];
+  let offset = 0;
+  vm.runInNewContext(script, {
+    Date, JSON, Number, Object, Array,
+    print: value => printed.push(value),
+    db: { _query: () => ({
+      hasNext: () => offset < 2,
+      next: () => { if (offset++ === 0) return { completed: true }; throw new Error('PRIVATE_QUERY_ERROR_DETAIL'); },
+      getExtra: () => ({ stats: null }),
+    }) },
+  });
+  const failed = JSON.parse(printed[0].slice(printed[0].indexOf('__LOOM_OWNED_QUERY_PROBE__') + '__LOOM_OWNED_QUERY_PROBE__'.length));
+  assert.equal(failed.ok, false);
+  assert.equal(Object.hasOwn(failed, 'rows'), false);
+  assert.equal(JSON.stringify(failed).includes('PRIVATE_QUERY_ERROR_DETAIL'), false);
 });
 
 test('profile counters omit malformed values and expose only approved numeric fields', async (t) => {
@@ -670,6 +777,7 @@ test('generated JavaScript restores every escaped bind marker and the exact null
     memoryLimitBytes: 268435456,
   });
   assert(!executeScript.includes('@'));
+  assert(!executeScript.includes('capturedRows'));
   let capturedQuery;
   let capturedBinds;
   const executePrinted = [];
