@@ -12,6 +12,7 @@ import {
   codedPivotExpectedHeaderValuesFor,
   codedPivotFailureDomSnapshot,
   codedPivotFirstTableReady,
+  codedPivotBackToTableControl,
   codedPivotFixtureFor,
   codedPivotRemovalProposalReady,
   codedPivotRenderedValuesFor,
@@ -22,6 +23,7 @@ import {
 } from '../coded-pivot-fixture.mjs';
 import {
   codedPivotProposalRequestMatches,
+  codedPivotPolicyReplacementCancellationEvidenceFor,
   codedPivotFirstFailureEvidenceFor,
   codedPivotRemovalRequestMatches,
   codedPivotPersistedSourceBindingsEqual,
@@ -339,6 +341,157 @@ test('coded Pivot proposal matcher accepts retained integer and string native re
   assert.equal(codedPivotProposalRequestMatches(wrongInputs, integerInitial.expected), false, 'The native source-projection input is part of the proposal contract.');
 });
 
+test('coded Pivot policy replacement admits only the retained NULL abort paired with a successful exact ERROR proposal', () => {
+  // Reduced literal nativeRequests[59] and [60] from the retained integer report. The run-scoped
+  // snapshot/draft/source choice and IDs are redacted aliases; pair equality and policy are preserved.
+  // Report SHA-256: 674aa41a68795aebf7dcfaa2b30d1959edb8ca202a1388a8fb94452ba3a17035.
+  // The report records action 15 "Set missing value policy" at 56 ms; its absolute action timestamp
+  // is not retained, so request times are kept as offsets from the report's old-request start.
+  const origin = 'http://127.0.0.1:30008';
+  const explorerId = 'qa-reshape-coded-pivot-integer-4dd6c5b0-a8c9-4f91-ab0c-37fde1622';
+  const path = `/api/v1/projects/loom_dev_cda_fhir/explorers/${explorerId}/authoring/v2/construction-proposals`;
+  const snapshotToken = 'sha256:<redacted-run-snapshot>';
+  const draftDigest = 'sha256:<redacted-run-draft-digest>';
+  const outputId = 'out_<retained-run-output>';
+  const stepId = 'coded-pivot_<retained-run-step>';
+  const sourceChoiceId = 'cc2.<redacted-run-frame-choice>';
+  const columnId = 'coded-column_<days_to_collection>';
+  const actionLabel = 'Set missing value policy';
+  const reason = 'Selecting ERROR superseded the exact in-flight NULL candidate for this coded Pivot edit.';
+  const categories = [{
+    system: 'https://cda.readthedocs.io',
+    code: 'days_to_collection',
+    label: 'Days to collection',
+    outputColumnId: columnId,
+  }];
+  const proof = {
+    contract: 'coded-pivot-policy-replacement', actionLabel, mode: 'integer',
+    project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1', explorerId,
+    outputId, snapshotToken, draftVersion: 4, draftDigest, stepId, sourceChoiceId,
+    categories, fromPolicy: 'NULL', toPolicy: 'ERROR',
+  };
+  const expected = { origin, path, ...proof, reason };
+  const policyAction = { label: actionLabel, startedAt: 100, completedAt: 156 };
+  const retainedBody = {
+    snapshotToken,
+    expectedDraftVersion: 4,
+    expectedDraftDigest: draftDigest,
+    outputId,
+    changedStepId: stepId,
+    candidateConstruction: {
+      version: 1,
+      steps: [{
+        id: stepId,
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: { kind: 'CODED_PIVOT', codedPivot: {
+          constructionId: stepId,
+          sourceChoiceId,
+          categories: [{ system: categories[0].system, code: categories[0].code, outputColumnId: columnId }],
+          duplicatePolicy: 'ERROR',
+          missingCellPolicy: 'NULL',
+        } },
+        outputs: [{ id: columnId, name: 'days_to_collection', label: 'Days to collection', type: 'INFER' }],
+      }],
+    },
+    limit: 25,
+  };
+  const canceledRequest = {
+    origin, path, method: 'POST', browserRequestId: 'playwright-60',
+    requestId: 'construction-proposal-5e7d9cde-78fe-4f52-9334-f1acdfaddafb',
+    startedAt: 108, completedAt: 578, failure: 'net::ERR_ABORTED', body: structuredClone(retainedBody),
+  };
+  const replacementBody = structuredClone(retainedBody);
+  replacementBody.candidateConstruction.steps[0].operation.codedPivot.missingCellPolicy = 'ERROR';
+  const replacementRequest = {
+    origin, path, method: 'POST', browserRequestId: 'playwright-61',
+    requestId: 'construction-proposal-4dfe0e7b-7937-4f3d-a593-f2f71376d9a9',
+    startedAt: 861, responseReceivedAt: 1321, completedAt: 1349, status: 200,
+    body: replacementBody,
+    response: {
+      proposalId: 'receipt_<retained-replacement-proposal>',
+      previewStatus: 'READY', outputId, snapshotToken,
+    },
+  };
+  const cancellation = {
+    requestId: canceledRequest.requestId,
+    method: 'POST',
+    url: `${origin}${path}`,
+    reason,
+    proof: {
+      ...proof,
+      scopeAction: actionLabel,
+      scopeRequest: { requestId: canceledRequest.requestId, draftVersion: 4, draftDigest, outputId, stageId: null },
+    },
+  };
+  const expectedCancellations = [cancellation];
+  const evidence = (requests = [canceledRequest, replacementRequest], replacements = expectedCancellations,
+    action = policyAction, expectedProof = expected) => codedPivotPolicyReplacementCancellationEvidenceFor({
+      requests, expectedCancellations: replacements, replacementRequest, policyAction: action, expected: expectedProof,
+    });
+
+  const matched = evidence();
+  assert.equal(matched.status, 'matched-cancellation');
+  assert.equal(matched.canceledRequestId, canceledRequest.requestId);
+  assert.equal(matched.replacementRequestId, replacementRequest.requestId);
+  assert.equal(matched.canceledAt, 578);
+  assert.equal(matched.replacementStartedAt, 861);
+
+  const noAbort = structuredClone(canceledRequest);
+  delete noAbort.failure;
+  noAbort.status = 200;
+  noAbort.completedAt = 500;
+  assert.equal(evidence([noAbort, replacementRequest], []).status, 'no-cancellation',
+    'If the prior NULL proposal completes normally, the exact ERROR proposal remains valid without a waiver.');
+
+  for (const wrongIdentity of [
+    { project: 'loom_dev_other' },
+    { generation: 'other-generation' },
+    { explorerId: 'other-explorer' },
+    { outputId: 'out_other' },
+    { snapshotToken: 'sha256:other-snapshot' },
+    { draftVersion: 5 },
+    { draftDigest: 'sha256:other-digest' },
+    { stepId: 'coded-pivot_other' },
+    { sourceChoiceId: 'cc2.other-choice' },
+  ]) {
+    assert.equal(evidence([canceledRequest, replacementRequest], expectedCancellations, policyAction,
+      { ...expected, ...wrongIdentity }).status, 'invalid', `wrong binding ${Object.keys(wrongIdentity)[0]} is rejected`);
+  }
+
+  const wrongPath = structuredClone(replacementRequest);
+  wrongPath.path = path.replace(explorerId, 'other-explorer');
+  assert.equal(evidence([canceledRequest, wrongPath]).status, 'invalid', 'replacement must use the created Explorer path');
+  const failedReplacement = structuredClone(replacementRequest);
+  failedReplacement.status = 500;
+  assert.equal(evidence([canceledRequest, failedReplacement]).status, 'invalid', 'failed replacement is never waived');
+  const wrongPolicyAbort = structuredClone(canceledRequest);
+  wrongPolicyAbort.body.candidateConstruction.steps[0].operation.codedPivot.missingCellPolicy = 'ERROR';
+  assert.equal(evidence([wrongPolicyAbort, replacementRequest]).status, 'invalid', 'only the NULL candidate can be the superseded request');
+  const outsidePolicyWindow = structuredClone(canceledRequest);
+  outsidePolicyWindow.completedAt = 50;
+  assert.equal(evidence([outsidePolicyWindow, replacementRequest]).status, 'invalid', 'an abort before action 15 is not classified');
+  const lateAbort = structuredClone(canceledRequest);
+  lateAbort.completedAt = replacementRequest.startedAt;
+  assert.equal(evidence([lateAbort, replacementRequest]).status, 'invalid', 'an abort after replacement start is not classified');
+  const duplicateAbort = { ...structuredClone(canceledRequest), requestId: 'construction-proposal-duplicate' };
+  assert.equal(evidence([canceledRequest, duplicateAbort, replacementRequest]).status, 'invalid', 'duplicate candidate aborts remain fatal');
+  assert.equal(evidence([canceledRequest, replacementRequest], [...expectedCancellations, structuredClone(cancellation)]).status, 'invalid',
+    'duplicate cancellation ledger entries remain fatal');
+
+  const unmarkedSummary = summarizeCodedPivotNativeRequests([canceledRequest]);
+  assert.equal(unmarkedSummary.passed, false, 'An abort is fatal before the pair matcher validates it.');
+  const markedRequest = {
+    ...canceledRequest,
+    expectedCancellation: { contract: 'coded-pivot-policy-replacement', requestId: canceledRequest.requestId },
+  };
+  assert.equal(summarizeCodedPivotNativeRequests([markedRequest], {
+    acceptedExpectedCancellationRequestIds: [canceledRequest.requestId],
+  }).passed, true);
+  assert.throws(() => summarizeCodedPivotNativeRequests([{ ...canceledRequest, expectedCancellation: undefined }], {
+    acceptedExpectedCancellationRequestIds: [canceledRequest.requestId],
+  }), /validated policy-replacement marker/);
+});
+
 test('coded Pivot removal matcher accepts the UI removal-only request and empty source-base construction', () => {
   // BuilderWorkspace.removeConstructionStep filters the current steps, sets removeStepIds:[stepId], and omits changedStepId.
   // The retained prePivotSource.document has no `construction` key, so workflow fallback is the literal empty base below.
@@ -461,6 +614,35 @@ test('first-table readiness predicate accepts the retained heading and enabled O
   await page.setContent(capturedPage('Build your first table', true));
   assert.equal(await page.evaluate(codedPivotFirstTableReady), false);
   assert.equal(await page.getByRole('button', { name: 'Choose Observation rows' }).isEnabled(), false);
+});
+
+test('coded Pivot Back to table control locator follows the operation editor markup in native Playwright', async t => {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  // BuilderWorkspace.tsx around line 3102 renders this button with visible text "Back to table"
+  // but aria-label="Close operation editor", which takes precedence as its accessible name.
+  await page.setContent(`<!doctype html><html><body>
+    <button type="button" aria-label="Close operation editor" data-testid="construction-close-operation-editor" class="rounded px-2 py-1 text-sm text-slate-500 hover:bg-slate-100">
+      Back to table
+    </button>
+  </body></html>`);
+
+  const control = codedPivotBackToTableControl(page);
+  assert.equal(await control.count(), 1);
+  assert.equal(await control.getAttribute('aria-label'), 'Close operation editor');
+  assert.equal((await control.innerText()).trim(), 'Back to table');
+  assert.equal(await control.isVisible(), true);
+  assert.equal(await control.isEnabled(), true);
+  assert.equal(await page.getByRole('button', { name: 'Back to table', exact: true }).count(), 0,
+    'The visible Back to table text is not the accessible name when aria-label is present.');
+  await page.evaluate(() => {
+    document.body.addEventListener('click', event => {
+      document.body.dataset.clickedTestId = event.target?.getAttribute('data-testid') ?? '';
+    });
+  });
+  await control.click();
+  assert.equal(await page.locator('body').getAttribute('data-clicked-test-id'), 'construction-close-operation-editor');
 });
 
 test('coded Pivot source options are inspected and selected through the native radio label', async t => {
@@ -739,6 +921,7 @@ test('integer and string native cases have separate registered four-dimension li
   assert.match(sourceText, /semantic-inventory/);
   assert.match(sourceText, /codedPivotProposalRequestMatches\(requestCapture\.rawRequestBody\(entry\)/);
   assert.match(nativeEvidenceText, /export const codedPivotProposalRequestMatches/);
+  assert.match(nativeEvidenceText, /export const codedPivotPolicyReplacementCancellationEvidenceFor/);
   assert.match(sourceText, /report\.proposedSourceBindings = proposedSourceBindings/);
   assert.match(sourceText, /codedPivotPersistedSourceMatchesOption\(proposedCodedStep, selectedSourceOption\)/);
   assert.match(sourceText, /codedPivotPersistedSourceMatchesOption\(codedStep, selectedSourceOption\)/);
@@ -756,13 +939,16 @@ test('integer and string native cases have separate registered four-dimension li
   assert.match(nativeEvidenceText, /terminalFailures/);
   assert.match(nativeEvidenceText, /invalidStatuses/);
   assert.match(sourceText, /CODED_PIVOT/);
-  assert.ok(sourceText.indexOf('const editStarted = Date.now();') < sourceText.indexOf("await select('Set missing value policy'"));
-  assert.ok(sourceText.indexOf('const editRequestStart = report.nativeRequests.length;') < sourceText.indexOf("await select('Set missing value policy'"));
+  assert.ok(sourceText.indexOf('const editStarted = Date.now();') < sourceText.indexOf('await select(policyAction.label'));
+  assert.ok(sourceText.indexOf('const editRequestStart = report.nativeRequests.length;') < sourceText.indexOf('await select(policyAction.label'));
   assert.ok(sourceText.indexOf('const reapplyStarted = Date.now();') < sourceText.indexOf("await select('Set missing value policy after Cancel'"));
   assert.ok(sourceText.indexOf('const reapplyRequestStart = report.nativeRequests.length;') < sourceText.indexOf("await select('Set missing value policy after Cancel'"));
-  assert.match(sourceText, /const editProposal = await requestCapture\.waitFor\([\s\S]*codedPivotProposalRequestMatches\(requestCapture\.rawRequestBody\(entry\)/);
+  assert.match(sourceText, /editProposal = await requestCapture\.waitFor\([\s\S]*codedPivotProposalRequestMatches\(requestCapture\.rawRequestBody\(entry\)/);
   assert.match(sourceText, /const reapplyProposal = await requestCapture\.waitFor\([\s\S]*codedPivotProposalRequestMatches\(requestCapture\.rawRequestBody\(entry\)/);
   assert.match(sourceText, /codedPivotRemovalRequestMatches\(requestCapture\.rawRequestBody\(entry\)/);
+  assert.match(sourceText, /cda\.withExpectedCancellations\(/);
+  assert.match(sourceText, /codedPivotPolicyReplacementCancellationEvidenceFor\(/);
+  assert.match(sourceText, /codedPivotBackToTableControl\(page\)/);
   assert.match(nativeEvidenceText, /export const codedPivotRemovalRequestMatches/);
   assert.match(sourceText, /codedPivotBindingsFor\(editedCodedStep\), report\.initialStepBindings/);
   assert.match(sourceText, /report\.cancelReloadAssociation, report\.outputAssociation/);

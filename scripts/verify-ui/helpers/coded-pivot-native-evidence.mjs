@@ -48,6 +48,131 @@ export const codedPivotProposalRequestMatches = (request, {
   return matched.size === categories.length && outputIds.size === outputs.length;
 };
 
+export const codedPivotPolicyReplacementCancellationEvidenceFor = ({
+  requests,
+  expectedCancellations,
+  replacementRequest,
+  policyAction,
+  expected,
+}) => {
+  const invalid = reason => ({ status: 'invalid', reason });
+  if (!Array.isArray(requests) || !Array.isArray(expectedCancellations) ||
+      !replacementRequest || !policyAction || !expected) return invalid('Coded Pivot policy-replacement evidence is incomplete.');
+  const required = ['origin', 'path', 'project', 'generation', 'explorerId', 'mode', 'outputId', 'snapshotToken',
+    'draftDigest', 'stepId', 'sourceChoiceId', 'fromPolicy', 'toPolicy', 'reason', 'actionLabel'];
+  if (required.some(key => !nonempty(expected[key])) || !['integer', 'string'].includes(expected.mode) ||
+      !Array.isArray(expected.categories) || expected.categories.length === 0 ||
+      !Number.isInteger(expected.draftVersion) || expected.draftVersion < 0 ||
+      expected.fromPolicy !== 'NULL' || expected.toPolicy !== 'ERROR' || policyAction.label !== expected.actionLabel ||
+      !Number.isFinite(policyAction.startedAt) || !Number.isFinite(policyAction.completedAt) ||
+      policyAction.completedAt < policyAction.startedAt) {
+    return invalid('Coded Pivot policy replacement must bind the exact NULL-to-ERROR action and request identity.');
+  }
+
+  const proposalRequests = requests.filter(entry => entry?.path === expected.path && entry.method === 'POST' &&
+    typeof entry.requestId === 'string' && entry.requestId.startsWith('construction-proposal-'));
+  const failedRequests = proposalRequests.filter(entry => typeof entry.failure === 'string' && entry.failure.length > 0);
+  const unexpectedFailures = failedRequests.filter(entry => entry.failure !== 'net::ERR_ABORTED');
+  if (unexpectedFailures.length) return invalid('The policy-change window contains a non-abort proposal failure.');
+
+  const replacementMatches = proposalRequests.filter(entry => codedPivotProposalRequestMatches(entry.body, {
+    outputId: expected.outputId,
+    snapshotToken: expected.snapshotToken,
+    sourceChoiceId: expected.sourceChoiceId,
+    missingCellPolicy: expected.toPolicy,
+    categories: expected.categories,
+    stepId: expected.stepId,
+  }));
+  if (replacementMatches.length !== 1 || replacementMatches[0] !== replacementRequest) {
+    return invalid('The policy-change window must contain exactly one captured matching ERROR proposal.');
+  }
+  const replacement = replacementMatches[0];
+  if (replacement.origin !== expected.origin || replacement.body?.expectedDraftVersion !== expected.draftVersion ||
+      replacement.body?.expectedDraftDigest !== expected.draftDigest || replacement.status !== 200 || !Number.isFinite(replacement.startedAt) ||
+      !Number.isFinite(replacement.completedAt) || replacement.completedAt < replacement.startedAt ||
+      replacement.response?.outputId !== expected.outputId || replacement.response?.snapshotToken !== expected.snapshotToken ||
+      typeof replacement.response?.proposalId !== 'string' || !replacement.response.proposalId ||
+      replacement.response?.previewStatus !== 'READY') {
+    return invalid('The exact ERROR replacement proposal did not reach its successful native response.');
+  }
+
+  const nullCandidates = proposalRequests.filter(entry => codedPivotProposalRequestMatches(entry.body, {
+    outputId: expected.outputId,
+    snapshotToken: expected.snapshotToken,
+    sourceChoiceId: expected.sourceChoiceId,
+    missingCellPolicy: expected.fromPolicy,
+    categories: expected.categories,
+    stepId: expected.stepId,
+  }));
+  const abortedRequests = failedRequests.filter(entry => entry.failure === 'net::ERR_ABORTED');
+  const cancellationRecords = expectedCancellations.filter(entry => entry?.proof?.contract === 'coded-pivot-policy-replacement');
+  if (abortedRequests.length === 0) {
+    if (cancellationRecords.length !== 0) return invalid('A cancellation record exists without an observed NULL candidate abort.');
+    return {
+      status: 'no-cancellation',
+      replacementRequestId: replacement.requestId,
+      actionLabel: policyAction.label,
+      actionStartedAt: policyAction.startedAt,
+      actionCompletedAt: policyAction.completedAt,
+    };
+  }
+  if (abortedRequests.length !== 1 || nullCandidates.length !== 1 || abortedRequests[0] !== nullCandidates[0]) {
+    return invalid('Only one exact NULL candidate may be aborted during the policy replacement.');
+  }
+
+  const canceled = abortedRequests[0];
+  if (canceled.origin !== expected.origin || canceled.body?.expectedDraftVersion !== expected.draftVersion ||
+      canceled.body?.expectedDraftDigest !== expected.draftDigest || !Number.isFinite(canceled.startedAt) || !Number.isFinite(canceled.completedAt) ||
+      canceled.completedAt < policyAction.startedAt || canceled.completedAt >= replacement.startedAt) {
+    return invalid('The NULL candidate abort did not occur after the policy action and before its ERROR replacement started.');
+  }
+  if (replacement.startedAt < policyAction.startedAt || policyAction.completedAt > replacement.completedAt) {
+    return invalid('The ERROR replacement is outside the recorded policy-change action window.');
+  }
+  if (cancellationRecords.length !== 1) return invalid('The exact NULL candidate abort needs one matching fixture cancellation record.');
+  const cancellation = cancellationRecords[0];
+  const expectedProof = {
+    contract: 'coded-pivot-policy-replacement',
+    actionLabel: expected.actionLabel,
+    mode: expected.mode,
+    project: expected.project,
+    generation: expected.generation,
+    explorerId: expected.explorerId,
+    outputId: expected.outputId,
+    snapshotToken: expected.snapshotToken,
+    draftVersion: expected.draftVersion,
+    draftDigest: expected.draftDigest,
+    stepId: expected.stepId,
+    sourceChoiceId: expected.sourceChoiceId,
+    categories: expected.categories,
+    fromPolicy: expected.fromPolicy,
+    toPolicy: expected.toPolicy,
+  };
+  const proof = cancellation.proof;
+  const { scopeAction, scopeRequest, ...actualProof } = proof ?? {};
+  if (cancellation.requestId !== canceled.requestId || cancellation.method !== 'POST' ||
+      cancellation.url !== `${expected.origin}${expected.path}` || cancellation.reason !== expected.reason ||
+      scopeAction !== expected.actionLabel || !isDeepStrictEqual(actualProof, expectedProof) ||
+      scopeRequest?.requestId !== canceled.requestId || scopeRequest?.draftVersion !== expected.draftVersion ||
+      scopeRequest?.draftDigest !== expected.draftDigest || scopeRequest?.outputId !== expected.outputId) {
+    return invalid('The fixture cancellation record does not prove this exact coded Pivot NULL-to-ERROR replacement.');
+  }
+
+  return {
+    status: 'matched-cancellation',
+    canceledRequestId: canceled.requestId,
+    replacementRequestId: replacement.requestId,
+    reason: cancellation.reason,
+    cancellation,
+    actionLabel: policyAction.label,
+    actionStartedAt: policyAction.startedAt,
+    actionCompletedAt: policyAction.completedAt,
+    canceledAt: canceled.completedAt,
+    replacementStartedAt: replacement.startedAt,
+    replacementCompletedAt: replacement.completedAt,
+  };
+};
+
 export const codedPivotRemovalRequestMatches = (request, {
   outputId, snapshotToken, removedStepId, candidateConstruction,
 }) => Boolean(
@@ -213,8 +338,24 @@ export async function codedPivotFirstFailureEvidenceFor({ mode, action, captureD
   return evidence;
 }
 
-export const summarizeCodedPivotNativeRequests = requests => {
+export const summarizeCodedPivotNativeRequests = (requests, { acceptedExpectedCancellationRequestIds = [] } = {}) => {
   if (!Array.isArray(requests)) throw new TypeError('Coded Pivot request evidence must be an array.');
+  if (!Array.isArray(acceptedExpectedCancellationRequestIds) ||
+      acceptedExpectedCancellationRequestIds.some(id => typeof id !== 'string' || !id) ||
+      new Set(acceptedExpectedCancellationRequestIds).size !== acceptedExpectedCancellationRequestIds.length) {
+    throw new TypeError('Accepted coded Pivot cancellation IDs must be unique native request IDs.');
+  }
+  const acceptedCancellationIds = new Set(acceptedExpectedCancellationRequestIds);
+  for (const id of acceptedCancellationIds) {
+    if (requests.filter(request => request.requestId === id).length !== 1) {
+      throw new Error(`Accepted coded Pivot cancellation request ${id} must identify one captured request.`);
+    }
+    const request = requests.find(candidate => candidate.requestId === id);
+    if (request.failure !== 'net::ERR_ABORTED' || request.expectedCancellation?.contract !== 'coded-pivot-policy-replacement' ||
+        request.expectedCancellation?.requestId !== id) {
+      throw new Error(`Accepted coded Pivot cancellation request ${id} lacks the validated policy-replacement marker.`);
+    }
+  }
   const details = requests.map(request => {
     const explicitFailure = typeof request.failure === 'string' && request.failure.length > 0
       ? request.failure
@@ -230,17 +371,20 @@ export const summarizeCodedPivotNativeRequests = requests => {
       status: request.status,
       terminal,
       ...(explicitFailure ? { failure: explicitFailure } : {}),
+      ...(acceptedCancellationIds.has(request.requestId) ? { expectedPolicyReplacementCancellation: true } : {}),
       ...(request.expectedCancellation ? { expectedCancellation: request.expectedCancellation } : {}),
     };
   });
   const pending = details.filter(request => !request.terminal);
-  const terminalFailures = details.filter(request => request.failure);
-  const invalidStatuses = details.filter(request => !Number.isFinite(request.status) || request.status >= 400);
+  const terminalFailures = details.filter(request => request.failure && !request.expectedPolicyReplacementCancellation);
+  const invalidStatuses = details.filter(request => !request.expectedPolicyReplacementCancellation &&
+    (!Number.isFinite(request.status) || request.status >= 400));
   return {
     total: details.length,
     pending,
     terminalFailures,
     invalidStatuses,
+    expectedPolicyReplacementCancellations: details.filter(request => request.expectedPolicyReplacementCancellation),
     passed: details.length > 0 && pending.length === 0 && terminalFailures.length === 0 && invalidStatuses.length === 0,
   };
 };

@@ -28,6 +28,10 @@ export function codedPivotSourceRadioFor(page, label) {
     .getByRole('radio', { name: normalizedLabel, exact: true });
 }
 
+export function codedPivotBackToTableControl(page) {
+  return page.getByTestId('construction-close-operation-editor');
+}
+
 export function codedPivotFailureDomSnapshot({ mode }) {
   const section = document.querySelector('section[aria-label="Coded values as columns"]');
   const allSourceControls = [...(section?.querySelectorAll('input[name="coded-pivot-source"]') ?? [])].map(input => ({

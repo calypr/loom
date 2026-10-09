@@ -310,7 +310,7 @@ test('late request-failure copies inherit exact cancellation evidence and leave 
 });
 
 
-test('actual CDA handlers retain scope, body allowlist, action, navigation and timing for late owned request 450', () => {
+test('actual CDA handlers use the workflow-created Explorer in late owned request diagnostics', () => {
   const source = readFileSync(new URL('../cda-fixtures.mjs', import.meta.url), 'utf8');
   const sourceOf = (startMarker, endMarker) => {
     const start = source.indexOf(startMarker);
@@ -361,15 +361,18 @@ test('actual CDA handlers retain scope, body allowlist, action, navigation and t
   `);
   let now = 1000;
   const mainFrame = { url: () => 'http://127.0.0.1:30008/builder' };
-  const report = { target: { explorer: 'explorer-owned' }, network: [] };
+  const requestedExplorer = 'cda-authored-expand-requested';
+  const createdExplorer = 'cda-authored-expand-1791465817471';
+  const failingRequestPath = `/api/v1/projects/loom_dev_cda_fhir/explorers/${createdExplorer}/authoring/v2/reconcile`;
+  const report = { target: { explorer: createdExplorer }, network: [] };
   const target = {
     fixtureProject: 'loom_dev_cda_fhir', project: 'loom_dev_cda_fhir',
-    fixtureGeneration: 'cda-fhir-v1', explorer: null,
+    fixtureGeneration: 'cda-fhir-v1', explorer: requestedExplorer,
   };
   const handlers = makeHandlers({ report, target, page: { mainFrame: () => mainFrame },
     performance: { now: () => now }, correlateRequestFailure });
   const makeRequest = (index, navigation = false) => ({
-    url: () => 'http://127.0.0.1:8188/api/v1/projects/loom_dev_cda_fhir/explorers/explorer-owned/authoring/v2/reconcile',
+    url: () => `http://127.0.0.1:8188${failingRequestPath}`,
     method: () => 'POST', resourceType: () => 'fetch',
     headers: () => ({ 'x-request-id': `builder-${index}` }),
     postDataJSON: () => ({ expectedDraftVersion: 14, expectedDraftDigest: 'sha256:expected-14',
@@ -400,10 +403,12 @@ test('actual CDA handlers retain scope, body allowlist, action, navigation and t
   assert.equal(failure.requestDetails.stageId, 'append');
   assert.equal('authorization' in failure.requestDetails, false);
   assert.equal(failure.expected, false, 'diagnostic enrichment must leave a native failure unexpected');
+  assert.equal(new URL(failure.rawURL).pathname, failingRequestPath, 'the failed request path must identify the workflow-created Explorer');
   assert.deepEqual(failure.requestScope, {
-    expectedProject: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1', configuredExplorer: 'explorer-owned',
-    requestProject: 'loom_dev_cda_fhir', requestExplorer: 'explorer-owned',
+    expectedProject: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1', configuredExplorer: createdExplorer,
+    requestProject: 'loom_dev_cda_fhir', requestExplorer: createdExplorer,
   });
+  assert(gateFailure(report), 'a native request failure remains fatal after diagnostic scope enrichment');
   assert.deepEqual(failure.requestTimeline, {
     requestStartedMs: 450, failedAtMs: 500, durationMs: 50,
     action: { id: 'cda-action-9', label: 'reload after upstream edit' },
@@ -413,7 +418,7 @@ test('actual CDA handlers retain scope, body allowlist, action, navigation and t
   assert.equal(failure.requestAction.id, 'cda-action-9');
   assert.equal(requestStartedAt, 1450, 'the last request was recorded after 449 earlier request events');
   assert.deepEqual(report.navigationTimings, [
-    { id: 'navigation-1', atMs: 1, url: 'http://127.0.0.1:8188/api/v1/projects/loom_dev_cda_fhir/explorers/explorer-owned/authoring/v2/reconcile', phase: 'request-start' },
+    { id: 'navigation-1', atMs: 1, url: `http://127.0.0.1:8188${failingRequestPath}`, phase: 'request-start' },
     { id: 'navigation-2', atMs: 470, url: 'http://127.0.0.1:30008/builder', phase: 'commit' },
   ]);
 

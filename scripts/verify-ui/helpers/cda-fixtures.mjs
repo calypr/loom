@@ -609,14 +609,14 @@ export const test = base.extend({
           return {
             expectedProject: target.fixtureProject ?? target.project ?? null,
             generation: target.fixtureGeneration ?? null,
-            configuredExplorer: target.explorer ?? report.target.explorer ?? null,
+            configuredExplorer: report.target?.explorer ?? target.explorer ?? null,
             requestProject: match ? decodeURIComponent(match[1]) : null,
             requestExplorer: match ? decodeURIComponent(match[2]) : null,
           };
         } catch {
           return { expectedProject: target.fixtureProject ?? target.project ?? null,
             generation: target.fixtureGeneration ?? null,
-            configuredExplorer: target.explorer ?? report.target.explorer ?? null,
+            configuredExplorer: report.target?.explorer ?? target.explorer ?? null,
             requestProject: null, requestExplorer: null };
         }
       })();
