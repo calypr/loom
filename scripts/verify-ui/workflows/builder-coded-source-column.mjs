@@ -56,24 +56,325 @@ const rowsByObservationID = (snapshot, expectedLabel) => {
   })).sort((left, right) => left.id.localeCompare(right.id));
 };
 
-const hasVerifiedCapabilityReplacement = item => {
-  const binding = item.binding;
-  const replacement = item.replacement;
-  return item.kind === 'network' && item.errorText === 'net::ERR_ABORTED' &&
-    item.canceled === true && item.cancellationReason === 'superseded capability binding has a later successful replacement' &&
-    item.method === 'POST' && Number.isInteger(item.sequence) &&
-    binding?.route === item.url && new URL(binding.route).pathname.endsWith('/authoring/v2/construction-capabilities') &&
-    replacement && Number.isInteger(replacement.sequence) && replacement.sequence > item.sequence &&
-    Number.isInteger(replacement.status) && replacement.status >= 200 && replacement.status < 300 &&
-    replacement.finished === true && replacement.responseMatches === true && replacement.failed !== true &&
-    replacement.binding?.route === binding.route &&
-    JSON.stringify(replacement.binding) !== JSON.stringify(binding);
+const recordAt = (records, id) => records.find(record => record.id === id);
+
+const routeOwner = (url, endpoint) => {
+  try {
+    const parsed = new URL(url);
+    const match = parsed.pathname.match(/^\/api\/v1\/projects\/([^/]+)\/explorers\/([^/]+)\/authoring\/v2\/(.+)$/);
+    if (!match || match[3] !== endpoint) return undefined;
+    return { origin: parsed.origin, project: decodeURIComponent(match[1]), explorerId: decodeURIComponent(match[2]), route: parsed.origin + parsed.pathname };
+  } catch {
+    return undefined;
+  }
+};
+
+const sameJson = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+const isNonemptyIDArray = value => Array.isArray(value) && value.length > 0 &&
+  value.every(id => typeof id === 'string' && id.length > 0);
+const hasMatchingHeaders = (evidence, label, expectedPresent) => {
+  const headers = evidence?.headers;
+  if (!Array.isArray(headers) || headers.length === 0 ||
+      !headers.every(header => typeof header === 'string' && header.trim().length > 0)) return false;
+  const found = headers.some(header => previewHeaderMatches(header, label));
+  return expectedPresent ? found : !found;
+};
+const hasEqualNonemptyHeightRows = (expected, actual) =>
+  Array.isArray(expected) && expected.length > 0 && Array.isArray(actual) &&
+  actual.length === expected.length && expected.every(row =>
+    typeof row?.id === 'string' && row.id.length > 0 &&
+    (row.value === null || typeof row.value === 'string')) && sameJson(expected, actual);
+const hasEqualNonemptyIDs = (expected, actual) =>
+  isNonemptyIDArray(expected) && isNonemptyIDArray(actual) &&
+  actual.length === expected.length && sameJson(expected, actual);
+const hasCompleteFixtureOracle = report => {
+  const oracle = report.target?.fixtureOracle;
+  return oracle?.observationCount === 6 && isNonemptyIDArray(oracle.observationIDs) &&
+    oracle.observationIDs.length === oracle.observationCount &&
+    new Set(oracle.observationIDs).size === oracle.observationIDs.length &&
+    Array.isArray(oracle.heightRows) && oracle.heightRows.length === oracle.observationCount &&
+    oracle.heightRows.every(row => typeof row?.id === 'string' && row.id.length > 0 &&
+      (row.value === null || typeof row.value === 'string')) &&
+    sameJson(oracle.heightRows.map(row => row.id), oracle.observationIDs);
+};
+const hasExactFixtureHeightRows = (report, expected, actual) =>
+  hasCompleteFixtureOracle(report) && hasEqualNonemptyHeightRows(expected, actual) &&
+  sameJson(expected, report.target.fixtureOracle.heightRows) &&
+  sameJson(actual, report.target.fixtureOracle.heightRows);
+const hasExactFixtureIDs = (report, expected, actual) =>
+  hasCompleteFixtureOracle(report) && hasEqualNonemptyIDs(expected, actual) &&
+  sameJson(expected, report.target.fixtureOracle.observationIDs) &&
+  sameJson(actual, report.target.fixtureOracle.observationIDs);
+
+const hasPassedAction = (report, proof) => {
+  const action = recordAt(report.actions ?? [], proof?.action?.id);
+  return Boolean(action && action.status === 'passed' && action.label === proof.action.label &&
+    action.startedAtMs === proof.action.startedAtMs && action.endedAtMs === proof.action.endedAtMs);
+};
+
+export const appendCapabilityCommandInvalidationProof = (report, {
+  networkFailure, commandType, editedLabel, mutation, action, assertion, reloadAssertion,
+}) => {
+  const proof = {
+    kind: 'capability-command-invalidation',
+    failedRequest: {
+      playwrightRequestId: networkFailure.playwrightRequestId,
+      requestStartedAtMs: networkFailure.requestTimeline?.requestStartedMs,
+      failedAtMs: networkFailure.requestTimeline?.failedAtMs,
+      binding: networkFailure.binding,
+    },
+    mutation: {
+      commandType,
+      editedLabel,
+      request: mutation.request,
+      response: mutation.response,
+    },
+    action,
+    assertion: {
+      name: assertion.name,
+      ...(reloadAssertion ? { reloadName: reloadAssertion.name } : {}),
+    },
+  };
+  report.expectedObsolete ??= [];
+  report.expectedObsolete.push(proof);
+  return proof;
+};
+
+export const appendFrameSearchInvalidationProof = (report, {
+  networkFailure, failedRequestCapture, replacementRequestCapture, replacementResponse,
+  action, selection, assertion,
+}) => {
+  const localToReportOffsetMs = networkFailure.requestTimeline?.requestStartedMs - failedRequestCapture.startedAtMs;
+  const proof = {
+    kind: 'frame-source-search',
+    failedRequest: {
+      playwrightRequestId: networkFailure.playwrightRequestId,
+      requestId: failedRequestCapture.body.requestId,
+      url: failedRequestCapture.url,
+      localStartedAtMs: failedRequestCapture.startedAtMs,
+      requestStartedMs: networkFailure.requestTimeline?.requestStartedMs,
+      failedAtMs: networkFailure.requestTimeline?.failedAtMs,
+      request: {
+        method: failedRequestCapture.method,
+        query: failedRequestCapture.body.query,
+        outputId: failedRequestCapture.body.outputId,
+        snapshotToken: failedRequestCapture.body.snapshotToken,
+      },
+    },
+    replacement: {
+      request: {
+        url: replacementRequestCapture.url,
+        project: replacementRequestCapture.project,
+        explorerId: replacementRequestCapture.explorerId,
+        body: replacementRequestCapture.body,
+        localStartedAtMs: replacementRequestCapture.startedAtMs,
+        requestStartedMs: replacementRequestCapture.startedAtMs + localToReportOffsetMs,
+      },
+      response: replacementResponse,
+    },
+    clockAlignment: { localToReportOffsetMs },
+    action,
+    selection,
+    assertion: { name: assertion.name },
+  };
+  report.expectedObsolete ??= [];
+  report.expectedObsolete.push(proof);
+  return proof;
+};
+
+const hasPassedAssertion = (report, proof) => {
+  const assertion = (report.assertions ?? []).find(item => item.name === proof?.assertion?.name && item.status === 'passed');
+  if (!assertion) return false;
+  const evidence = assertion.evidence ?? {};
+  if (proof.mutation?.commandType === 'UPDATE_COLUMN') {
+    return proof.assertion.name === 'edited Height column and exact values survive Builder reload' &&
+      evidence.editedLabel === proof.mutation.editedLabel &&
+      hasExactFixtureHeightRows(report, evidence.expectedHeightRows, evidence.actualHeightRows) &&
+      hasMatchingHeaders(evidence, proof.mutation.editedLabel, true);
+  }
+  if (proof.mutation?.commandType === 'REMOVE_COLUMN') {
+    const persistedAssertion = (report.assertions ?? []).find(item =>
+      item.name === proof.assertion?.reloadName && item.status === 'passed');
+    return proof.assertion.name === 'native Remove column restores the six Observation ID rows' &&
+      hasExactFixtureIDs(report, evidence.expectedIDs, evidence.removedIDs) &&
+      hasMatchingHeaders(evidence, proof.mutation.editedLabel, false) &&
+      persistedAssertion?.name === 'removed coded column stays absent after Builder reload' &&
+      hasExactFixtureIDs(report, persistedAssertion.evidence?.expectedIDs, persistedAssertion.evidence?.finalIDs) &&
+      hasMatchingHeaders(persistedAssertion.evidence, proof.mutation.editedLabel, false);
+  }
+  return false;
+};
+
+const hasExactActionBoundCapabilityInvalidation = (report, item, proof) => {
+  const failed = proof?.failedRequest;
+  const mutation = proof?.mutation;
+  const binding = failed?.binding;
+  const failedOwner = routeOwner(binding?.route, 'construction-capabilities');
+  const itemOwner = routeOwner(item.rawURL ?? item.url, 'construction-capabilities');
+  const mutationOwner = routeOwner(mutation?.request?.url, 'commands');
+  const command = mutation?.request?.body?.commands;
+  const receipt = mutation?.response?.body;
+  const targetCommand = Array.isArray(command) && command.length === 1 ? command[0] : undefined;
+  const action = recordAt(report.actions ?? [], proof?.action?.id);
+  const sharedIdentityMatches = (report.network ?? []).filter(record =>
+    record.kind === 'network' && record.playwrightRequestId === failed?.playwrightRequestId);
+  const requestTime = item.requestTimeline?.requestStartedMs;
+  const failureTime = item.requestTimeline?.failedAtMs;
+  const comparedTimes = [
+    requestTime,
+    failureTime,
+    failed?.requestStartedAtMs,
+    failed?.failedAtMs,
+    action?.startedAtMs,
+    action?.endedAtMs,
+    action?.startedAtEpochMs,
+    action?.finishedAtEpochMs,
+    proof.action?.startedAtMs,
+    proof.action?.endedAtMs,
+    mutation?.response?.completedAtEpochMs,
+  ];
+  if (item.kind !== 'network' || item.method !== 'POST' || item.errorText !== 'net::ERR_ABORTED' ||
+      itemOwner?.route !== binding?.route || failedOwner?.project !== itemOwner?.project ||
+      failedOwner?.explorerId !== itemOwner?.explorerId ||
+      typeof failed?.playwrightRequestId !== 'string' || !failed.playwrightRequestId ||
+      item.playwrightRequestId !== failed.playwrightRequestId || sharedIdentityMatches.length !== 1 ||
+      !sameJson(item.binding, binding) || !Number.isFinite(requestTime) || !Number.isFinite(failureTime) ||
+      !comparedTimes.every(Number.isFinite) ||
+      Math.abs(requestTime - failed.requestStartedAtMs) > 2 || Math.abs(failureTime - failed.failedAtMs) > 2 ||
+      mutation?.commandType !== targetCommand?.type || !['UPDATE_COLUMN', 'REMOVE_COLUMN'].includes(targetCommand?.type) ||
+      mutationOwner?.project !== failedOwner?.project || mutationOwner?.explorerId !== failedOwner?.explorerId ||
+      mutationOwner?.origin !== failedOwner?.origin ||
+      mutation.request?.project !== failedOwner?.project || mutation.request?.explorerId !== failedOwner?.explorerId ||
+      targetCommand?.outputId !== binding.outputId ||
+      (targetCommand?.type === 'UPDATE_COLUMN' && targetCommand.columnValue?.label !== mutation.editedLabel) ||
+      (targetCommand?.type === 'REMOVE_COLUMN' && typeof targetCommand.column !== 'string') ||
+      mutation.request.body?.snapshotToken !== binding.snapshotToken ||
+      mutation.request.body?.expectedDraftVersion !== binding.draftVersion ||
+      mutation.request.body?.expectedDraftDigest !== binding.draftDigest ||
+      !Number.isInteger(mutation.response?.status) || mutation.response.status < 200 || mutation.response.status >= 300 ||
+      receipt?.commandId !== mutation.request.body?.commandId ||
+      !Number.isInteger(receipt?.draftVersion) || receipt.draftVersion <= binding.draftVersion ||
+      typeof receipt?.draftDigest !== 'string' || receipt.draftDigest === binding.draftDigest ||
+      !action || action.status !== 'passed' || action.label !== proof.action.label ||
+      !['save edited Height column label', 'remove saved Height coded column'].includes(action.label) ||
+      requestTime >= action.startedAtMs || action.endedAtMs > failureTime ||
+      !Number.isFinite(action.startedAtEpochMs) || !Number.isFinite(action.finishedAtEpochMs) ||
+      !Number.isFinite(mutation.response?.completedAtEpochMs) ||
+      mutation.response.completedAtEpochMs < action.startedAtEpochMs ||
+      mutation.response.completedAtEpochMs > action.finishedAtEpochMs ||
+      item.requestTimeline?.failedAtMs < action.endedAtMs ||
+      (targetCommand.type === 'UPDATE_COLUMN' && action.label !== 'save edited Height column label') ||
+      (targetCommand.type === 'REMOVE_COLUMN' && action.label !== 'remove saved Height coded column') ||
+      !hasPassedAction(report, proof) || !hasPassedAssertion(report, proof)) return false;
+  return true;
+};
+
+const hasExactFrameSearchInvalidation = (report, item, proof) => {
+  const failed = proof?.failedRequest;
+  const replacement = proof?.replacement;
+  const failedOwner = routeOwner(failed?.url, 'frame-source-options');
+  const reportOwner = routeOwner(item.rawURL ?? item.url, 'frame-source-options');
+  const replacementOwner = routeOwner(replacement?.request?.url, 'frame-source-options');
+  const action = recordAt(report.actions ?? [], proof?.action?.id);
+  const sharedIdentityMatches = (report.network ?? []).filter(record =>
+    record.kind === 'network' && record.playwrightRequestId === failed?.playwrightRequestId);
+  const selection = proof?.selection;
+  const source = selection?.source;
+  const responseSource = replacement?.response?.body?.sources?.find(entry => entry.choiceId === selection?.choiceId);
+  const setSource = selection?.setFrameSource;
+  const setSourceOwner = routeOwner(setSource?.request?.url, 'commands');
+  const setSourceCommand = setSource?.request?.body?.commands?.find(command => command.type === 'SET_FRAME_SOURCE');
+  const assertion = (report.assertions ?? []).find(entry => entry.name === proof?.assertion?.name && entry.status === 'passed');
+  const failedRequest = failed?.request;
+  const replacementRequest = replacement?.request;
+  const replacementBody = replacement?.response?.body;
+  const setSourceRequest = setSource?.request;
+  const setSourceResponse = setSource?.response;
+  const reportFailure = item.requestTimeline;
+  const localToReportOffsetMs = proof.clockAlignment?.localToReportOffsetMs;
+  const actionTimes = [action?.startedAtMs, action?.endedAtMs];
+  const requestTimes = [
+    failed?.localStartedAtMs,
+    failed?.requestStartedMs,
+    failed?.failedAtMs,
+    replacementRequest?.localStartedAtMs,
+    replacementRequest?.requestStartedMs,
+    localToReportOffsetMs,
+    reportFailure?.requestStartedMs,
+    reportFailure?.failedAtMs,
+    ...actionTimes,
+  ];
+
+  return Boolean(
+    item.kind === 'network' && item.method === 'POST' && item.errorText === 'net::ERR_ABORTED' &&
+    reportOwner?.route === failed?.url && item.playwrightRequestId === failed?.playwrightRequestId &&
+    typeof failed?.playwrightRequestId === 'string' && failed.playwrightRequestId && sharedIdentityMatches.length === 1 &&
+    item.requestDetails?.requestId === failed?.requestId &&
+    item.requestDetails?.outputId === failedRequest?.outputId &&
+    item.triggerAction === 'browse coded source values' &&
+    item.requestTimeline?.action?.label === 'browse coded source values' &&
+    failedRequest?.method === 'POST' && failedRequest.query === '' &&
+    failedOwner?.project === replacementRequest?.project && failedOwner?.explorerId === replacementRequest?.explorerId &&
+    failedRequest.outputId === replacementRequest?.body?.outputId &&
+    failedRequest.snapshotToken === replacementRequest?.body?.snapshotToken &&
+    replacementOwner?.origin === failedOwner?.origin &&
+    replacementOwner?.project === failedOwner?.project && replacementOwner?.explorerId === failedOwner?.explorerId &&
+    replacementRequest?.body?.query === 'Observation' && Number.isInteger(replacement?.response?.status) &&
+    replacement.response.status >= 200 && replacement.response.status < 300 &&
+    replacement.response.finished === true && replacementBody?.query === 'Observation' &&
+    replacementBody.outputId === failedRequest.outputId && replacementBody.snapshotToken === failedRequest.snapshotToken &&
+    requestTimes.every(Number.isFinite) &&
+    Math.abs(reportFailure.requestStartedMs - failed.requestStartedMs) <= 2 &&
+    Math.abs(reportFailure.failedAtMs - failed.failedAtMs) <= 2 &&
+    Math.abs(failed.requestStartedMs - failed.localStartedAtMs - localToReportOffsetMs) <= 2 &&
+    Math.abs(replacementRequest.requestStartedMs - replacementRequest.localStartedAtMs - localToReportOffsetMs) <= 2 &&
+    replacementRequest.requestStartedMs > failed.requestStartedMs &&
+    proof.action?.label === 'search native Observation framing choices' && action?.status === 'passed' &&
+    action.label === proof.action.label && hasPassedAction(report, proof) &&
+    reportFailure.requestStartedMs < action.startedAtMs &&
+    reportFailure.failedAtMs >= action.startedAtMs &&
+    replacementRequest.requestStartedMs >= action.startedAtMs &&
+    replacementRequest.requestStartedMs <= action.endedAtMs &&
+    selection?.choiceId === source?.choiceId && source?.resourceType === 'Observation' &&
+    Array.isArray(source.route) && source.route.length === 0 && source.sourcePath === 'code' &&
+    source.valuePath === 'valueQuantity.value' && source.exampleConcept === 'Height' &&
+    Number.isFinite(source.observedOccurrences) && responseSource?.resourceType === source.resourceType &&
+    sameJson(responseSource.route, source.route) && responseSource.sourcePath === source.sourcePath &&
+    responseSource.valuePath === source.valuePath && responseSource.exampleConcept === source.exampleConcept &&
+    setSourceOwner?.origin === failedOwner?.origin &&
+    setSourceOwner?.project === failedOwner?.project && setSourceOwner?.explorerId === failedOwner?.explorerId &&
+    Number.isInteger(setSourceResponse?.status) && setSourceResponse.status >= 200 && setSourceResponse.status < 300 &&
+    setSourceRequest?.body?.snapshotToken === failedRequest.snapshotToken &&
+    setSourceCommand?.frameChoiceId === selection.choiceId && setSourceCommand?.outputId === failedRequest.outputId &&
+    assertion?.evidence?.sourceChoiceId === selection.choiceId &&
+    proof.assertion?.name === 'native Coded values controls save the direct Observation Height frame'
+  );
 };
 
 export const classifyCodedColumnDiagnostics = report => {
+  const expectedObsoleteReads = [];
   const cancelledReads = report.network.filter(item => {
-    try { return hasVerifiedCapabilityReplacement(item); } catch { return false; }
+    try {
+      const proof = (report.expectedObsolete ?? []).find(candidate =>
+        candidate.failedRequest?.playwrightRequestId === item.playwrightRequestId);
+      if (proof?.kind === 'capability-command-invalidation') {
+        if (!hasExactActionBoundCapabilityInvalidation(report, item, proof)) return false;
+      } else if (!proof) {
+        return false;
+      }
+      const matches = proof.kind === 'frame-source-search'
+        ? hasExactFrameSearchInvalidation(report, item, proof)
+        : proof.kind === 'capability-command-invalidation';
+      if (!matches) return false;
+      item.expectedObsolete = true;
+      item.obsolescenceEvidence = proof;
+      expectedObsoleteReads.push(item);
+      return true;
+    } catch {
+      return false;
+    }
   });
+  report.expectedObsoleteReads = expectedObsoleteReads;
   return {
     cancelledReads,
     unexpected: report.network.filter(item => !cancelledReads.includes(item)),
@@ -105,6 +406,121 @@ export const builderCodedSourceColumnWorkflow = async (workflow, context) => {
   const { page, report, action, check } = workflow;
   configureNativePage(page);
   const target = context.target;
+  const requestCaptureStartedAt = performance.now();
+  const capturedRequestByObject = new WeakMap();
+  const capturedRequestFailures = [];
+  const ownedWorkflowRequest = request => {
+    let url;
+    try { url = new URL(request.url()); } catch { return undefined; }
+    if (url.origin !== new URL(target.uiUrl).origin || request.method() !== 'POST') return undefined;
+    const match = url.pathname.match(/^\/api\/v1\/projects\/([^/]+)\/explorers\/([^/]+)\/authoring\/v2\/(frame-source-options|construction-capabilities)$/);
+    if (!match || decodeURIComponent(match[1]) !== target.fixtureProject) return undefined;
+    const explorerId = decodeURIComponent(match[2]);
+    if (explorerId !== (report.target.explorer ?? target.bootstrapExplorerId)) return undefined;
+    let body;
+    try { body = request.postDataJSON(); } catch { return undefined; }
+    const common = {
+      url: url.origin + url.pathname,
+      project: decodeURIComponent(match[1]),
+      explorerId,
+      method: request.method(),
+      body,
+      requestId: request.headers()['x-request-id'] ?? body?.requestId ?? body?.requestID ?? null,
+    };
+    common.startedAt = performance.now();
+    common.startedAtMs = common.startedAt - requestCaptureStartedAt;
+    if (match[3] === 'frame-source-options' && typeof body?.requestId === 'string' &&
+        typeof body.outputId === 'string' && typeof body.snapshotToken === 'string' && typeof body.query === 'string') {
+      return { ...common, kind: 'frame-source-options' };
+    }
+    if (match[3] === 'construction-capabilities' && typeof body?.snapshotToken === 'string' &&
+        Number.isInteger(body.expectedDraftVersion) && typeof body.expectedDraftDigest === 'string' &&
+        typeof body.outputId === 'string' && typeof body.stageId === 'string') {
+      return { ...common, kind: 'construction-capabilities',
+        binding: {
+          route: url.origin + url.pathname,
+          snapshotToken: body.snapshotToken,
+          draftVersion: body.expectedDraftVersion,
+          draftDigest: body.expectedDraftDigest,
+          outputId: body.outputId,
+          stageId: body.stageId,
+        } };
+    }
+    return undefined;
+  };
+  const onOwnedRequest = request => {
+    const capture = ownedWorkflowRequest(request);
+    if (capture) capturedRequestByObject.set(request, capture);
+  };
+  const onOwnedRequestFailed = request => {
+    const capture = capturedRequestByObject.get(request);
+    if (!capture) return;
+    capture.errorText = request.failure()?.errorText ?? '';
+    capture.failedAt = performance.now();
+    capture.failedAtMs = capture.failedAt - requestCaptureStartedAt;
+    capture.durationMs = Math.max(0, Math.round(capture.failedAt - capture.startedAt));
+    capturedRequestFailures.push(capture);
+  };
+  page.on('request', onOwnedRequest);
+  page.on('requestfailed', onOwnedRequestFailed);
+  page.once('close', () => {
+    page.off('request', onOwnedRequest);
+    page.off('requestfailed', onOwnedRequestFailed);
+  });
+  const capturedFailureFor = async (predicate, timeoutMs = 1500) => {
+    const deadline = performance.now() + timeoutMs;
+    while (performance.now() < deadline) {
+      const match = capturedRequestFailures.find(predicate);
+      if (match) return match;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    return capturedRequestFailures.find(predicate);
+  };
+  const reportFailureFor = captured => {
+    if (!captured) return undefined;
+    const matches = report.network.filter(item => item.kind === 'network' && item.method === captured.method &&
+      item.errorText === captured.errorText && item.rawURL === captured.url &&
+      Number.isFinite(item.requestTimeline?.durationMs) && Number.isFinite(captured.durationMs) &&
+      Math.abs(item.requestTimeline.durationMs - captured.durationMs) <= 2 &&
+      (!captured.requestId || item.requestDetails?.requestId === captured.requestId) &&
+      (captured.kind === 'frame-source-options'
+        ? item.requestDetails?.requestId === captured.body.requestId && item.requestDetails?.outputId === captured.body.outputId
+        : sameJson(item.binding, captured.binding) &&
+          item.requestDetails?.outputId === captured.binding.outputId &&
+          item.requestDetails?.draftVersion === captured.binding.draftVersion &&
+          item.requestDetails?.draftDigest === captured.binding.draftDigest &&
+          item.requestDetails?.stageId === captured.binding.stageId));
+    return matches.length === 1 && typeof matches[0].playwrightRequestId === 'string' && matches[0].playwrightRequestId
+      ? matches[0]
+      : undefined;
+  };
+  const actionRecord = label => [...report.actions].reverse().find(item => item.label === label);
+  const responseReceipt = async (response, expectedCommandType) => {
+    const request = response.request();
+    const body = requestBody(request);
+    const url = new URL(response.url());
+    const route = url.pathname.match(/^\/api\/v1\/projects\/([^/]+)\/explorers\/([^/]+)\/authoring\/v2\/commands$/);
+    const receipt = await response.json();
+    const command = body?.commands?.find(item => item.type === expectedCommandType);
+    return {
+      request: {
+        url: url.origin + url.pathname,
+        project: route ? decodeURIComponent(route[1]) : undefined,
+        explorerId: route ? decodeURIComponent(route[2]) : undefined,
+        body,
+      },
+      response: {
+        status: response.status(),
+        completedAtEpochMs: Date.now(),
+        body: {
+          commandId: receipt.commandId,
+          draftVersion: receipt.draftVersion,
+          draftDigest: receipt.draftDigest,
+        },
+      },
+      command,
+    };
+  };
   const sourcePath = join(target.fixtureDir, 'Observation.ndjson');
   const sourceBytes = readFileSync(sourcePath);
   const sourceSHA256 = createHash('sha256').update(sourceBytes).digest('hex');
@@ -253,12 +669,16 @@ export const builderCodedSourceColumnWorkflow = async (workflow, context) => {
       body?.outputId === outputId && body?.query === 'Observation';
   });
   let sourceOptionsBody;
+  let sourceOptionsResponse;
+  let sourceOptionsRequestCapture;
   const sourceSearchButton = framePanel.getByRole('button', { name: 'Search', exact: true });
   await act('search native Observation framing choices', sourceSearchButton, () => sourceSearchButton.click(), {
     after: async () => {
       const response = await sourceOptionsResponsePromise;
       assert(response.ok(), `Native Observation frame search returned HTTP ${response.status()}.`);
+      sourceOptionsResponse = response;
       sourceOptionsBody = await response.json();
+      sourceOptionsRequestCapture = capturedRequestByObject.get(response.request());
       assert.equal(sourceOptionsBody.outputId, outputId, 'Native frame search must stay on the selected Observation table.');
     },
   });
@@ -289,10 +709,12 @@ export const builderCodedSourceColumnWorkflow = async (workflow, context) => {
     const request = response.request();
     return new URL(response.url()).pathname === commandPath && request.method() === 'POST' && commandHas(request, 'SET_FRAME_SOURCE');
   });
+  let frameSourceResponse;
   await act('use the direct Observation Height source', sourceChoice, () => sourceChoice.click(), {
     after: async () => {
       const response = await frameSourceResponsePromise;
       assert(response.ok(), `Native SET_FRAME_SOURCE command returned HTTP ${response.status()}.`);
+      frameSourceResponse = response;
       const command = requestBody(response.request()).commands.find(candidate => candidate.type === 'SET_FRAME_SOURCE');
       assert.equal(command?.frameChoiceId, sourceChoiceId, 'The saved frame must use the exact source choice selected in the UI.');
     },
@@ -306,7 +728,61 @@ export const builderCodedSourceColumnWorkflow = async (workflow, context) => {
   const savedFrameText = (await savedFrame.innerText()).replace(/\s+/g, ' ').trim();
   check('correctness', 'native Coded values controls save the direct Observation Height frame',
     Boolean(frameId && /Observation/i.test(savedFrameText) && /On each Observation record/i.test(savedFrameText)),
-    { frameId, sourceCard: heightSourceChoices[0].text, savedFrameText });
+    { frameId, sourceChoiceId, sourceCard: heightSourceChoices[0].text, savedFrameText });
+  const blankSourceRequest = await capturedFailureFor(capture => capture.kind === 'frame-source-options' &&
+    capture.body.query === '' && capture.errorText === 'net::ERR_ABORTED');
+  const blankSourceFailure = reportFailureFor(blankSourceRequest);
+  if (blankSourceRequest && blankSourceFailure && sourceOptionsResponse &&
+      sourceOptionsRequestCapture && frameSourceResponse) {
+    const sourceAction = actionRecord('search native Observation framing choices');
+    const persistedSourceCheck = [...report.assertions].reverse().find(assertion =>
+      assertion.name === 'native Coded values controls save the direct Observation Height frame');
+    const selectedSource = sourceOptionsBody.sources.find(source => source.choiceId === sourceChoiceId);
+    appendFrameSearchInvalidationProof(report, {
+      networkFailure: blankSourceFailure,
+      failedRequestCapture: blankSourceRequest,
+      replacementRequestCapture: sourceOptionsRequestCapture,
+      replacementResponse: {
+        status: sourceOptionsResponse.status(),
+        finished: true,
+        body: {
+          query: sourceOptionsRequestCapture.body.query,
+          outputId: sourceOptionsBody.outputId,
+          snapshotToken: sourceOptionsBody.snapshotToken,
+          sources: sourceOptionsBody.sources.map(source => ({
+            choiceId: source.choiceId,
+            resourceType: source.resourceType,
+            route: source.route,
+            sourcePath: source.sourcePath,
+            valuePath: source.valuePath,
+            exampleConcept: source.exampleConcept,
+            observedOccurrences: source.observedOccurrences,
+          })),
+        },
+      },
+      action: sourceAction,
+      selection: {
+        choiceId: sourceChoiceId,
+        source: selectedSource && {
+          choiceId: selectedSource.choiceId,
+          resourceType: selectedSource.resourceType,
+          route: selectedSource.route,
+          sourcePath: selectedSource.sourcePath,
+          valuePath: selectedSource.valuePath,
+          exampleConcept: selectedSource.exampleConcept,
+          observedOccurrences: selectedSource.observedOccurrences,
+        },
+        setFrameSource: {
+          request: {
+            url: frameSourceResponse.url(),
+            body: requestBody(frameSourceResponse.request()),
+          },
+          response: { status: frameSourceResponse.status() },
+        },
+      },
+      assertion: persistedSourceCheck,
+    });
+  }
   report.target.nativeMutationInventory.authoring.push({
     controls: ['Add columns', 'Coded values', 'Browse sources', 'Search framing sources: Observation', 'Use this source'],
     capturedCommand: 'SET_FRAME_SOURCE',
@@ -411,10 +887,16 @@ export const builderCodedSourceColumnWorkflow = async (workflow, context) => {
     const request = response.request();
     return new URL(response.url()).pathname === commandPath && request.method() === 'POST' && commandHas(request, 'UPDATE_COLUMN');
   });
+  let renameMutation;
   await act('save edited Height column label', labelInput, () => labelInput.press('Enter'), {
     after: async () => {
       const response = await renameResponsePromise;
       assert(response.ok(), `Native coded-column edit returned HTTP ${response.status()}.`);
+      renameMutation = await responseReceipt(response, 'UPDATE_COLUMN');
+      assert.equal(renameMutation.request.body.commands.length, 1, 'The native label edit must save only the selected Height column.');
+      assert.equal(renameMutation.command.outputId, outputId);
+      assert.equal(renameMutation.command.columnValue?.label, editedLabel);
+      assert.equal(renameMutation.response.body.commandId, renameMutation.request.body.commandId);
     },
   });
   const editedHeader = page.locator('[data-testid="preview-table-scroll"] [role="columnheader"]')
@@ -440,6 +922,26 @@ export const builderCodedSourceColumnWorkflow = async (workflow, context) => {
       reloadedEditedPreview.headers.some(header => previewHeaderMatches(header, editedLabel)),
     { explorer, outputId, frameId, editedLabel, expectedHeightRows,
       actualHeightRows: reloadedEditedHeightRows, headers: reloadedEditedPreview.headers });
+  const renameAction = actionRecord('save edited Height column label');
+  const renameObsoleteRequest = await capturedFailureFor(capture => capture.kind === 'construction-capabilities' &&
+    capture.binding.outputId === outputId &&
+    capture.binding.snapshotToken === renameMutation?.request.body?.snapshotToken &&
+    capture.binding.draftVersion === renameMutation?.request.body?.expectedDraftVersion &&
+    capture.binding.draftDigest === renameMutation?.request.body?.expectedDraftDigest &&
+    capture.errorText === 'net::ERR_ABORTED', 100);
+  const renameObsoleteFailure = reportFailureFor(renameObsoleteRequest);
+  const renameAssertion = [...report.assertions].reverse().find(assertion =>
+    assertion.name === 'edited Height column and exact values survive Builder reload');
+  if (renameAction && renameMutation && renameObsoleteRequest && renameObsoleteFailure && renameAssertion) {
+    appendCapabilityCommandInvalidationProof(report, {
+      networkFailure: renameObsoleteFailure,
+      commandType: 'UPDATE_COLUMN',
+      editedLabel,
+      mutation: renameMutation,
+      action: renameAction,
+      assertion: renameAssertion,
+    });
+  }
 
   await act('reopen Add columns after reload', page.getByRole('button', { name: /Add columns:/ }),
     () => page.getByRole('button', { name: /Add columns:/ }).click());
@@ -453,13 +955,16 @@ export const builderCodedSourceColumnWorkflow = async (workflow, context) => {
     const request = response.request();
     return new URL(response.url()).pathname === commandPath && request.method() === 'POST' && commandHas(request, 'REMOVE_COLUMN');
   });
+  let removeMutation;
   await act('remove saved Height coded column', removeHeightColumn, () => removeHeightColumn.click(), {
     after: async () => {
       const response = await removeCommandPromise;
       assert(response.ok(), `Native REMOVE_COLUMN command returned HTTP ${response.status()}.`);
-      const command = requestBody(response.request());
-      assert.equal(command.commands.length, 1, 'The native removal must affect only the Height coded column.');
-      assert.equal(command.commands[0].type, 'REMOVE_COLUMN');
+      removeMutation = await responseReceipt(response, 'REMOVE_COLUMN');
+      assert.equal(removeMutation.request.body.commands.length, 1, 'The native removal must affect only the Height coded column.');
+      assert.equal(removeMutation.command.outputId, outputId);
+      assert.equal(typeof removeMutation.command.column, 'string');
+      assert.equal(removeMutation.response.body.commandId, removeMutation.request.body.commandId);
     },
   });
   await waitForPreview(page, expectedIDs.length, 1);
@@ -488,6 +993,29 @@ export const builderCodedSourceColumnWorkflow = async (workflow, context) => {
       reloadedRemovedPreview.columnCount === 1,
     { expectedIDs, finalIDs, headers: reloadedRemovedPreview.headers,
       rowCount: reloadedRemovedPreview.rowCount, columnCount: reloadedRemovedPreview.columnCount });
+  const removeAction = actionRecord('remove saved Height coded column');
+  const removeObsoleteRequest = await capturedFailureFor(capture => capture.kind === 'construction-capabilities' &&
+    capture.binding.outputId === outputId &&
+    capture.binding.snapshotToken === removeMutation?.request.body?.snapshotToken &&
+    capture.binding.draftVersion === removeMutation?.request.body?.expectedDraftVersion &&
+    capture.binding.draftDigest === removeMutation?.request.body?.expectedDraftDigest &&
+    capture.errorText === 'net::ERR_ABORTED', 100);
+  const removeObsoleteFailure = reportFailureFor(removeObsoleteRequest);
+  const removeAssertion = [...report.assertions].reverse().find(assertion =>
+    assertion.name === 'native Remove column restores the six Observation ID rows');
+  const persistedRemoveAssertion = [...report.assertions].reverse().find(assertion =>
+    assertion.name === 'removed coded column stays absent after Builder reload');
+  if (removeAction && removeMutation && removeObsoleteRequest && removeObsoleteFailure && removeAssertion && persistedRemoveAssertion) {
+    appendCapabilityCommandInvalidationProof(report, {
+      networkFailure: removeObsoleteFailure,
+      commandType: 'REMOVE_COLUMN',
+      editedLabel,
+      mutation: removeMutation,
+      action: removeAction,
+      assertion: removeAssertion,
+      reloadAssertion: persistedRemoveAssertion,
+    });
+  }
 
   checkUnexpectedDiagnostics(report);
   const sourceSHA256After = createHash('sha256').update(readFileSync(sourcePath)).digest('hex');

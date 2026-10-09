@@ -244,7 +244,7 @@ export const registry = Object.freeze([
         requiredChecks: [
           "created a fresh Explorer distinct from the bootstrap",
           "new Explorer catalog candidates are suppressed only in the test read response",
-          "first-table Patient suggestions request succeeds before the lazy retry case",
+          "first-table root suggestions request succeeds before the lazy retry case",
           "one failed lazy suggestion request exposes an actionable retry control",
           "retry resends the same Explorer, snapshot, and Patient root suggestion request",
           "Patient candidates render after the successful lazy suggestion retry",
