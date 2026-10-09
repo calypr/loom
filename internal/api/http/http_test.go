@@ -10,11 +10,20 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/gofiber/fiber/v3"
 )
+
+type logRecordChannel chan string
+
+func (records logRecordChannel) Write(data []byte) (int, error) {
+	records <- string(data)
+	return len(data), nil
+}
 
 func TestLivenessDoesNotCheckDependencies(t *testing.T) {
 	checks := 0
@@ -138,6 +147,106 @@ func TestLoggingMiddlewareEmitsStructuredResponseDiagnostics(t *testing.T) {
 		if !strings.Contains(logText, want) {
 			t.Fatalf("logs missing %q:\n%s", want, logText)
 		}
+	}
+}
+
+func TestLoggingMiddlewareRecordsRequestEntryBeforeHandlerCompletes(t *testing.T) {
+	logs := make(logRecordChannel, 4)
+	logger := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	server, err := NewHTTPServer(HTTPConfig{
+		Authenticator: authscope.StaticAuthenticator{},
+		Authorizer:    authscope.AllowAllAuthorizer{},
+		Logger:        logger,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handlerStarted := make(chan struct{})
+	releaseHandler := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseHandler) }) }
+	t.Cleanup(release)
+	server.App().Get("/blocked", func(c fiber.Ctx) error {
+		close(handlerStarted)
+		<-releaseHandler
+		return c.SendStatus(http.StatusOK)
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/blocked", strings.NewReader("request-body-secret"))
+	request.Header.Set("X-Request-ID", "request-arrival-diagnostic")
+	request.Header.Set("Authorization", "Bearer auth-header-secret")
+	responseDone := make(chan struct {
+		response *http.Response
+		err      error
+	}, 1)
+	go func() {
+		response, err := server.App().Test(request)
+		responseDone <- struct {
+			response *http.Response
+			err      error
+		}{response: response, err: err}
+	}()
+
+	var entry string
+	select {
+	case entry = <-logs:
+	case <-time.After(time.Second):
+		t.Fatal("request-entry log was not emitted while the handler was blocked")
+	}
+	if !strings.Contains(entry, `msg="http request started"`) ||
+		!strings.Contains(entry, "request_id=request-arrival-diagnostic") ||
+		!strings.Contains(entry, "phase=started") ||
+		!strings.Contains(entry, "method=GET") ||
+		!strings.Contains(entry, "path=/blocked") {
+		t.Fatalf("request-entry record = %q", entry)
+	}
+	for _, secret := range []string{"request-body-secret", "Bearer auth-header-secret"} {
+		if strings.Contains(entry, secret) {
+			t.Fatalf("request-entry record unexpectedly contains %q: %s", secret, entry)
+		}
+	}
+	select {
+	case <-handlerStarted:
+	case <-time.After(time.Second):
+		t.Fatal("request handler did not start")
+	}
+	select {
+	case premature := <-logs:
+		t.Fatalf("request completion was logged while handler was still blocked: %q", premature)
+	default:
+	}
+
+	release()
+	select {
+	case result := <-responseDone:
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		defer result.response.Body.Close()
+		if result.response.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want %d", result.response.StatusCode, http.StatusOK)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("request did not finish after releasing handler")
+	}
+
+	select {
+	case completion := <-logs:
+		if !strings.Contains(completion, `msg="http request"`) ||
+			!strings.Contains(completion, "request_id=request-arrival-diagnostic") ||
+			!strings.Contains(completion, "phase=completed") ||
+			!strings.Contains(completion, "method=GET") ||
+			!strings.Contains(completion, "path=/blocked") {
+			t.Fatalf("completion record = %q", completion)
+		}
+		for _, secret := range []string{"request-body-secret", "Bearer auth-header-secret"} {
+			if strings.Contains(completion, secret) {
+				t.Fatalf("completion record unexpectedly contains %q: %s", secret, completion)
+			}
+		}
+	case <-time.After(time.Second):
+		t.Fatal("request completion log was not emitted after handler returned")
 	}
 }
 
