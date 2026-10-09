@@ -5,6 +5,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { browserEval, click as clickPage, navigate as navigatePage, selectOption as selectPageOption, waitForBrowser, captureRequests, includeBrowserDiagnostics } from '../helpers/cda-playwright.mjs';
 import { CDA_ACTION_TO_RENDER_BUDGET_MS, summarizeCdaActionToRenderTimings } from '../helpers/cda-action-to-render-budget.mjs';
+import { navigateAfterOwnedConstructionCapabilities } from '../helpers/cda-playwright-requests.mjs';
 import { fixtureUnavailableOutcome } from '../helpers/cda-fixture-outcomes.mjs';
 
 export async function repeatedRowsWorkflow({ page, cda }) {
@@ -175,7 +176,26 @@ const measure = async (name, action) => {
 
 const openTable = async (expectedRows, name) => measure(name, async startedAt => {
   const url = `${values['ui-origin']}/?project=${encodeURIComponent(values.project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`;
-  await navigate(page, url);
+  const navigation = await navigateAfterOwnedConstructionCapabilities(
+    cda,
+    browserEvents,
+    () => report.browserRequests,
+    `${base}/construction-capabilities`,
+    Math.max(1, startedAt + CDA_ACTION_TO_RENDER_BUDGET_MS - Date.now()),
+    () => navigate(page, url),
+  );
+  if (navigation.settledEntries.length) {
+    (report.preNavigationCapabilitySettlements ??= []).push({
+      observedAt: new Date().toISOString(),
+      requests: navigation.settledEntries.map(entry => ({
+        requestId: entry.requestId,
+        browserRequestId: entry.browserRequestId,
+        status: entry.status,
+        startedAt: entry.startedAt,
+        completedAt: entry.completedAt,
+      })),
+    });
+  }
   await fastWait(startedAt, ([id]) => Boolean(document.querySelector(`[data-testid="construction-table-${id}"]`)), [outputId], 'Explorer table discovery');
   await click(page, `[data-testid="construction-table-${outputId}"]`);
   await fastWait(startedAt, rowsReady, [expectedRows], 'CDA table render');

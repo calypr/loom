@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import { scenarioCaseFor } from '../../registry.mjs';
 import { assertRelatedSourceStepAfterUpstreamChange, assertSavedPreviewIdentity, cdaExplorerSelectionsPath, isPostPivotRawOracleUnavailable, matchesSavedPreviewRequest, readPivotSelectOptions, readProposalPreviewDocument, relatedRouteChoice, proveSourceBinding, relatedSourceEditEvidence, sameConstructionIgnoringPivotCategoryOutputIDs, sameWorkspace, sameWorkspaceIgnoringEmptySourceConstruction, sameWorkspaceIgnoringPivotCategoryOutputIDs, uniqueEnabledSelectValue, waitForCdaCapturedResponse, withoutRelatedSourceFromWorkspace } from '../../workflows/verify-cda-related-source-after-pivot-browser.mjs';
-import { navigateAfterOwnedConstructionCapabilities } from '../cda-playwright-requests.mjs';
+import { captureCDARequests, navigateAfterOwnedConstructionCapabilities } from '../cda-playwright-requests.mjs';
 import { choosePostPivotRelatedSourcePair, verifyPostPivotRelatedSourceWitness } from '../post-pivot-related-source-oracle.mjs';
 import { assertVisibleRowsMatchOracle } from '../cda-row-oracle.mjs';
 
@@ -788,6 +788,93 @@ test('retained repeated-empty source-projection request is settled before saved-
   assert.equal(result.navigationResult, 'saved-table-reloaded');
   assert.deepEqual(result.settledEntries, [pending]);
   assert.equal(navigationCalls, 1);
+});
+
+test('retained GAP-003 v7 source-projection request is settled inside the action deadline before table navigation', async () => {
+  const explorerPath = '/api/v1/projects/loom_dev_cda_fhir/explorers/cda-repeated-rows-1791520369741';
+  const capabilityPath = explorerPath + '/authoring/v2/construction-capabilities';
+  const listeners = new Map();
+  const page = { on(event, listener) { listeners.set(event, listener); } };
+  const report = { nativeRequests: [], errors: [] };
+  const tracker = captureCDARequests(page, {
+    apiOrigin: 'http://127.0.0.1:30008',
+    browserRequestOrigin: 'http://127.0.0.1:30008',
+    appOrigins: ['http://127.0.0.1:30008'],
+    ownedPathPrefix: explorerPath,
+    report,
+    responsePaths: /construction-capabilities/,
+  });
+  const requestBody = {
+    snapshotToken: 'sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7',
+    expectedDraftVersion: 7,
+    expectedDraftDigest: 'sha256:6691dbacc0d076f8ebd2f6d3cda80b5198a6bbbfc7f589c57ff7f1b2fda27181',
+    outputId: 'out_2e0e7cd8d64998f7fd7581ba',
+    stageId: 'source_projection',
+  };
+  const request = {
+    url: () => 'http://127.0.0.1:30008' + capabilityPath,
+    method: () => 'POST',
+    headers: () => ({ 'x-request-id': 'playwright-75' }),
+    postData: () => JSON.stringify(requestBody),
+  };
+  listeners.get('request')(request);
+  const pending = report.nativeRequests[0];
+  let resolveBody;
+  const body = new Promise(resolve => { resolveBody = resolve; });
+  const response = {
+    request: () => request,
+    headers: () => ({ 'x-request-id': 'playwright-75' }),
+    status: () => 200,
+    text: () => body,
+  };
+  const actionStartedAt = Date.now();
+  const actionDeadline = actionStartedAt + 5000;
+  let waitTimeout;
+  let waitStartedAt;
+  let navigationCalls = 0;
+  const cda = {
+    waitForCapturedResponse(actualTracker, predicate, timeout) {
+      waitTimeout = timeout;
+      waitStartedAt = Date.now();
+      return actualTracker.waitFor(predicate, { timeoutMs: timeout });
+    },
+  };
+
+  const navigation = navigateAfterOwnedConstructionCapabilities(
+    cda,
+    tracker,
+    () => report.nativeRequests,
+    capabilityPath,
+    Math.max(1, actionDeadline - Date.now()),
+    async () => {
+      assert.equal(pending.body.expectedDraftVersion, 7);
+      assert.equal(pending.body.expectedDraftDigest, 'sha256:6691dbacc0d076f8ebd2f6d3cda80b5198a6bbbfc7f589c57ff7f1b2fda27181');
+      assert.equal(pending.body.outputId, 'out_2e0e7cd8d64998f7fd7581ba');
+      assert.equal(pending.body.stageId, 'source_projection');
+      assert.equal(pending.status, 200);
+      assert.deepEqual(pending.response, { capabilities: [] });
+      assert(pending.nativeEventChronology.some(event => event.event === 'requestfinished'),
+        'Navigation must wait for the native requestfinished event as well as its captured body.');
+      navigationCalls += 1;
+      return 'reloaded-saved-table';
+    },
+  );
+
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(navigationCalls, 0, 'Navigation must stay inside the action until the current-draft request settles.');
+  assert(waitTimeout > 0 && waitTimeout <= actionDeadline - waitStartedAt + 1,
+    'The request wait must consume only the original action budget that remains.');
+  assert.equal(pending.requestId, 'playwright-75');
+  listeners.get('response')(response);
+  listeners.get('requestfinished')(request);
+  resolveBody(JSON.stringify({ capabilities: [] }));
+
+  const result = await navigation;
+  assert.equal(result.navigationResult, 'reloaded-saved-table');
+  assert.deepEqual(result.settledEntries, [pending]);
+  assert.equal(navigationCalls, 1);
+  await tracker.flush({ timeoutMs: 100, waitForNativeRequestTerminals: true });
+  assert.deepEqual(report.nativeRequestDrainEvidence ?? [], [], 'The settled native request must have no unfinished terminal evidence.');
 });
 
 test('an in-flight owned capabilities transport failure blocks navigation without inventing an HTTP status', async () => {
