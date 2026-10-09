@@ -24,6 +24,7 @@ import { scenarioCaseFor } from '../registry.mjs';
 import { sourceFingerprintChangedPaths, sourceFingerprintWithManifest } from './source-fingerprint.mjs';
 import { captureNativeFailureEvidence, MAX_NATIVE_FAILURE_CAPTURE_MS } from './native-failure-evidence.mjs';
 import { correlateRequestFailure } from './network-timing.mjs';
+import { captureConstructionChoiceProposalRequest } from './construction-choice-request.mjs';
 
 const ACTION_TIMEOUT_MS = 5_000;
 const CONTEXT_SETUP_TIMEOUT_MS = 120_000;
@@ -44,6 +45,7 @@ const requestDiagnostic = (request) => {
   try { body = request.postDataJSON(); } catch { body = undefined; }
   const input = body?.variables?.input ?? body ?? {};
   const headers = request.headers();
+  const constructionChoiceProposal = captureConstructionChoiceProposalRequest(request, body);
   let previewReceiptId;
   try {
     if (new URL(request.url()).pathname.endsWith('/authoring/v2/preview')) previewReceiptId = input.receiptId ?? null;
@@ -54,6 +56,7 @@ const requestDiagnostic = (request) => {
     draftDigest: input.expectedDraftDigest ?? input.draftDigest ?? null,
     outputId: input.outputId ?? null,
     stageId: input.stageId ?? null,
+    ...(constructionChoiceProposal ? { constructionChoiceProposal } : {}),
     ...(previewReceiptId === undefined ? {} : { receiptId: previewReceiptId }),
   });
 };
