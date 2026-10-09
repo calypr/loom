@@ -12,6 +12,8 @@ import {
   codedPivotPersistedSourceBindingsEqual,
   codedPivotPersistedSourceBindingsFor,
   codedPivotPersistedSourceMatchesOption,
+  codedPivotProposalRequestMatches,
+  codedPivotRemovalRequestMatches,
   codedPivotSourceOptionsDiagnosticFor,
   summarizeCodedPivotNativeRequests,
 } from '../helpers/coded-pivot-native-evidence.mjs';
@@ -103,15 +105,6 @@ const timing = (name, started) => {
 };
 const recordCheck = (index, dimension, passed, evidence = {}) => cda.check(dimension, requiredChecks[index], passed, evidence);
 const documentFor = state => state.workspace.documents.find(document => document.output.title === tableName);
-const proposalUsesCodedPivot = (entry, { policy, sourceChoiceId, categoryChoiceIds }) => {
-  const candidate = requestCapture.rawRequestBody(entry)?.candidateConstruction;
-  const step = candidate?.steps?.find(item => item.operation?.kind === 'CODED_PIVOT');
-  if (!step) return false;
-  const codedPivot = step.operation.codedPivot;
-  const selectedChoiceIds = codedPivot.categories?.map(category => category.choiceId).sort();
-  return codedPivot.sourceChoiceId === sourceChoiceId && codedPivot.missingCellPolicy === policy &&
-    JSON.stringify(selectedChoiceIds) === JSON.stringify([...categoryChoiceIds].sort());
-};
 const codedPivotBindingsFor = step => ({
   stepId: step.id,
   inputs: step.inputs,
@@ -182,6 +175,7 @@ try {
   assert.equal(creationRequest?.request?.name, requestedExplorerName);
   const createdScope = createdExplorerScope(project, createdExplorer);
   sourceOptionsEndpointPath = `${createdScope.explorerRoot}/authoring/v2/frame-source-options`;
+  const proposalEndpointPath = `${createdScope.explorerRoot}/authoring/v2/construction-proposals`;
   explorerId = createdScope.explorerId;
   report.explorerId = explorerId;
   report.explorer = explorerId;
@@ -278,7 +272,11 @@ try {
   for (const category of exactInventoryCategories) {
     assert(category.constructionChoice?.choiceId, `Selected ${category.system}|${category.code} category must have a current construction choice`);
   }
-  const categoryChoiceIds = exactInventoryCategories.map(category => category.constructionChoice.choiceId);
+  const proposalCategories = exactInventoryCategories.map(category => {
+    const fixtureCategory = expected.find(pair => pair.system === category.system && pair.code === category.code);
+    assert(fixtureCategory, `The selected ${category.system}|${category.code} choice must match the independent coded-value fixture`);
+    return { system: category.system, code: category.code, label: fixtureCategory.label, choiceId: category.constructionChoice.choiceId };
+  });
   report.categories = await cda.inspect( () => [...document.querySelectorAll('section[aria-label="Coded values as columns"] input[type="checkbox"]')].map(input => ({ text: input.closest('label')?.innerText, disabled: input.disabled })));
   const proposalStarted = Date.now();
   const proposalRequestStart = report.nativeRequests.length;
@@ -296,8 +294,11 @@ try {
   assert.deepEqual(report.selectedChooser.categories.map(text => expected.find(pair => text.toLowerCase().includes(pair.label.toLowerCase()))?.label).sort(), expected.map(pair => pair.label).sort());
   recordCheck(1, 'usability', true, { mode, selectedSource: matchingSource, selectedSourceOption, selectedChooser: report.selectedChooser,
     exactInventoryCategories, expectedCategories: expected.map(({ system, code, label }) => ({ system, code, label })) });
-  const proposal = await requestCapture.waitFor(entry => entry.path.endsWith('/construction-proposals') && entry.method === 'POST' &&
-    proposalUsesCodedPivot(entry, { policy: 'NULL', sourceChoiceId: selectedSourceOption.choiceId, categoryChoiceIds }),
+  const proposal = await requestCapture.waitFor(entry => entry.path === proposalEndpointPath && entry.method === 'POST' &&
+    codedPivotProposalRequestMatches(requestCapture.rawRequestBody(entry), {
+      outputId: report.tableOutputId, snapshotToken: report.snapshotToken, sourceChoiceId: selectedSourceOption.choiceId,
+      missingCellPolicy: 'NULL', categories: proposalCategories,
+    }),
   { fromIndex: proposalRequestStart, timeoutMs: Math.max(1, 5000 - (Date.now() - proposalStarted)) });
   await waitNative( () => ['ready', 'error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')), {}, Math.max(1, 5000 - (Date.now() - proposalStarted)));
   assert.equal(proposal.status, 200);
@@ -332,7 +333,9 @@ try {
   const prePivotDocument = documentFor(prePivotBuilder);
   assert(prePivotDocument, `The saved source table ${tableName} must exist before coded Pivot Apply`);
   assert.equal(prePivotDocument.output.id, report.tableOutputId, 'Coded Pivot must preserve the initial source table output binding.');
-  report.prePivotSource = { document: prePivotDocument, draftVersion: prePivotBuilder.draftVersion, draftDigest: prePivotBuilder.draftDigest };
+  const prePivotConstruction = prePivotDocument.construction ?? { version: 1, steps: [] };
+  assert.deepEqual(prePivotConstruction, { version: 1, steps: [] }, 'The fresh source table must have the empty base construction before coded Pivot Apply.');
+  report.prePivotSource = { document: prePivotDocument, construction: prePivotConstruction, draftVersion: prePivotBuilder.draftVersion, draftDigest: prePivotBuilder.draftDigest };
   const applyStarted = Date.now();
   await action('Apply coded pivot', page.locator('[data-testid="construction-apply-proposal"]'));
   await waitNative( () => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1, {}, 5000);
@@ -371,6 +374,10 @@ try {
     source: report.initialStepBindings.source, selectedSource: matchingSource.text, categories: durableCategories, saved: report.saved };
   recordCheck(4, 'persistence', true, { tableOutputId: report.tableOutputId, draftVersion: appliedBuilder.draftVersion, draftDigest: appliedBuilder.draftDigest,
     stepId: codedStep.id, operation: codedStep.operation, categories: durableCategories, expectedCategories, visibleRows: report.saved.rows, headers: report.saved.headers });
+  const persistedProposalCategories = report.initialStepBindings.categories.map(category => ({
+    ...category,
+    label: expected.find(pair => pair.system === category.system && pair.code === category.code)?.label,
+  }));
   await action('Select coded pivot history', page.locator('[data-testid^="construction-history-step-"]'));
   await waitNative( () => Boolean(document.querySelector('[data-testid^="construction-edit-step-"]:not(:disabled)')), {}, 5000);
   await action('Edit coded pivot', page.locator('[data-testid^="construction-edit-step-"]:not(:disabled)'));
@@ -388,8 +395,11 @@ try {
   const editStarted = Date.now();
   const editRequestStart = report.nativeRequests.length;
   await select('Set missing value policy', section.locator('select').nth(1), 'ERROR');
-  const editProposal = await requestCapture.waitFor(entry => entry.path.endsWith('/construction-proposals') && entry.method === 'POST' &&
-    proposalUsesCodedPivot(entry, { policy: 'ERROR', sourceChoiceId: selectedSourceOption.choiceId, categoryChoiceIds }),
+  const editProposal = await requestCapture.waitFor(entry => entry.path === proposalEndpointPath && entry.method === 'POST' &&
+    codedPivotProposalRequestMatches(requestCapture.rawRequestBody(entry), {
+      outputId: report.tableOutputId, snapshotToken: report.snapshotToken, sourceChoiceId: selectedSourceOption.choiceId,
+      missingCellPolicy: 'ERROR', categories: persistedProposalCategories, stepId: codedStep.id,
+    }),
   { fromIndex: editRequestStart, timeoutMs: 5000 });
   await waitNative( () => ['ready', 'error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')), {}, 5000);
   report.editedProposal = await cda.inspect(() => {
@@ -459,8 +469,11 @@ try {
   const reapplyStarted = Date.now();
   const reapplyRequestStart = report.nativeRequests.length;
   await select('Set missing value policy after Cancel', reopenedSection.locator('select').nth(1), 'ERROR');
-  const reapplyProposal = await requestCapture.waitFor(entry => entry.path.endsWith('/construction-proposals') && entry.method === 'POST' &&
-    proposalUsesCodedPivot(entry, { policy: 'ERROR', sourceChoiceId: selectedSourceOption.choiceId, categoryChoiceIds }),
+  const reapplyProposal = await requestCapture.waitFor(entry => entry.path === proposalEndpointPath && entry.method === 'POST' &&
+    codedPivotProposalRequestMatches(requestCapture.rawRequestBody(entry), {
+      outputId: report.tableOutputId, snapshotToken: report.snapshotToken, sourceChoiceId: selectedSourceOption.choiceId,
+      missingCellPolicy: 'ERROR', categories: persistedProposalCategories, stepId: codedStep.id,
+    }),
   { fromIndex: reapplyRequestStart, timeoutMs: 5000 });
   await waitNative( () => ['ready', 'error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')), {}, 5000);
   report.confirmedEditedProposal = await cda.inspect( () => ({ status: document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'), text: document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText }));
@@ -513,7 +526,14 @@ try {
   const removalStart = report.nativeRequests.length;
   const removalProposalStarted = Date.now();
   await action('Remove coded pivot group', page.locator('[data-testid^="construction-remove-step-"]'));
-  await requestCapture.waitFor(entry => entry.path.endsWith('/construction-proposals') && entry.method === 'POST', { fromIndex: removalStart, timeoutMs: 5000 });
+  const removalProposal = await requestCapture.waitFor(entry => entry.path === proposalEndpointPath && entry.method === 'POST' &&
+    codedPivotRemovalRequestMatches(requestCapture.rawRequestBody(entry), {
+      outputId: report.tableOutputId,
+      snapshotToken: report.snapshotToken,
+      removedStepId: editedCodedStep.id,
+      candidateConstruction: prePivotConstruction,
+    }), { fromIndex: removalStart, timeoutMs: 5000 });
+  assert.equal(removalProposal.status, 200, 'Removing coded Pivot must return a successful exact-source restoration proposal.');
   await waitNative(codedPivotRemovalProposalReady, { id: observationId }, 5000);
   timing('remove-action-to-restoration-proposal', removalProposalStarted);
   const removalApplyStarted = Date.now();

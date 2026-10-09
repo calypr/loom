@@ -5,6 +5,61 @@ const maxSourceOptionsDiagnosticEntries = 50;
 const nonempty = value => typeof value === 'string' && value.trim().length > 0;
 const normalizedSourceLabel = value => String(value ?? '').replace(/\s+/g, ' ').trim();
 
+export const codedPivotProposalRequestMatches = (request, {
+  outputId, snapshotToken, sourceChoiceId, missingCellPolicy, categories, stepId,
+}) => {
+  if (![outputId, snapshotToken, sourceChoiceId, missingCellPolicy].every(nonempty) || !Array.isArray(categories) || categories.length === 0) return false;
+  const candidate = request?.candidateConstruction;
+  if (request?.outputId !== outputId || request?.snapshotToken !== snapshotToken ||
+      !candidate || candidate.version !== 1 || !Array.isArray(candidate.steps) || candidate.steps.length !== 1) return false;
+  const step = candidate.steps[0];
+  const codedPivot = step?.operation?.kind === 'CODED_PIVOT' ? step.operation.codedPivot : undefined;
+  if (!codedPivot || !nonempty(step.id) || request.changedStepId !== step.id ||
+      (stepId !== undefined && step.id !== stepId) || codedPivot.constructionId !== step.id ||
+      !Array.isArray(step.inputs) || !isDeepStrictEqual(step.inputs, [{ kind: 'SOURCE_PROJECTION' }]) ||
+      codedPivot.sourceChoiceId !== sourceChoiceId || codedPivot.missingCellPolicy !== missingCellPolicy ||
+      codedPivot.duplicatePolicy !== 'ERROR') return false;
+
+  const actualCategories = codedPivot.categories;
+  const outputs = step.outputs;
+  if (!Array.isArray(actualCategories) || actualCategories.length !== categories.length ||
+      !Array.isArray(outputs) || outputs.length !== categories.length) return false;
+  const choiceForm = actualCategories.every(category => nonempty(category?.choiceId));
+  const canonicalForm = actualCategories.every(category => !category?.choiceId && nonempty(category?.system) && nonempty(category?.code));
+  if (!choiceForm && !canonicalForm) return false;
+
+  const matched = new Set();
+  const outputIds = new Set();
+  for (const category of actualCategories) {
+    const matches = categories.filter(expected => choiceForm
+      ? expected.choiceId === category.choiceId
+      : expected.system === category.system && expected.code === category.code);
+    if (matches.length !== 1) return false;
+    const expected = matches[0];
+    if (matched.has(expected) || (category.system !== undefined && category.system !== expected.system) ||
+        (category.code !== undefined && category.code !== expected.code) ||
+        !nonempty(category.outputColumnId) || outputIds.has(category.outputColumnId) ||
+        (expected.outputColumnId !== undefined && category.outputColumnId !== expected.outputColumnId)) return false;
+    const outputMatches = outputs.filter(output => output?.id === category.outputColumnId);
+    if (outputMatches.length !== 1 || outputMatches[0].name !== expected.code || outputMatches[0].label !== expected.label) return false;
+    matched.add(expected);
+    outputIds.add(category.outputColumnId);
+  }
+  return matched.size === categories.length && outputIds.size === outputs.length;
+};
+
+export const codedPivotRemovalRequestMatches = (request, {
+  outputId, snapshotToken, removedStepId, candidateConstruction,
+}) => Boolean(
+  nonempty(outputId) && nonempty(snapshotToken) && nonempty(removedStepId) &&
+  request?.outputId === outputId && request?.snapshotToken === snapshotToken &&
+  !Object.hasOwn(request, 'changedStepId') &&
+  isDeepStrictEqual(request?.removeStepIds, [removedStepId]) &&
+  isDeepStrictEqual(request?.candidateConstruction, candidateConstruction) &&
+  Array.isArray(candidateConstruction?.steps) &&
+  candidateConstruction.steps.every(step => step?.operation?.kind !== 'CODED_PIVOT')
+);
+
 export const codedPivotPersistedSourceBindingsFor = step => {
   const source = step?.operation?.codedPivot?.source;
   return source && typeof source === 'object' && source.family && typeof source.family === 'object' ? source : null;

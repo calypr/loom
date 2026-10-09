@@ -3475,139 +3475,161 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(screen.queryByRole('button', { name: /preview/i })).not.toBeInTheDocument();
   });
 
-  it('automatically previews history removal, lets Cancel preserve the saved step, and applies only the exact proposal receipt', async () => {
-    const savedConstruction: Construction = {
-      version: 1,
-      steps: [{
-        id: 'saved-filter',
-        inputs: [{ kind: 'SOURCE_PROJECTION' }],
-        operation: { kind: 'FILTER', filter: { columnId: 'specimen_identifier_id', operator: 'EXISTS' } },
-        outputs: [{ id: 'specimen_identifier_id', name: 'specimen_identifier', label: 'Specimen identifier' }],
-      }],
-    };
-    const savedWorkspace: ExplorerBuilderWorkspace = {
-      ...workspace,
-      documents: [{ ...workspace.documents[0]!, construction: savedConstruction }],
-    };
-    const workspaceAfterRemoval: ExplorerBuilderWorkspace = {
-      ...workspace,
-      documents: [{ ...workspace.documents[0]! }],
-    };
-    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
-      data: { ...builderState, workspace: savedWorkspace },
-      isLoading: false,
-      refetch: vi.fn(),
-    });
-    reconcile.mockImplementation((args: { readonly draftVersion: number }) => resolvedRequest({
-      ...receipt,
-      receiptId: `receipt-v${args.draftVersion}`,
-      builder: args.draftVersion > 1 ? workspaceAfterRemoval : savedWorkspace,
-    }));
-    mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
-      readonly snapshotToken: string;
-      readonly expectedDraftVersion: number;
-      readonly expectedDraftDigest: string;
-      readonly outputId: string;
-      readonly stageId: string;
-    }) => {
-      const selectedStage = {
-        id: args.stageId,
-        inputStageId: '',
-        rowIdentityColumn: 'source-row-id',
-        columns: [{ id: 'specimen_identifier_id', name: 'specimen_identifier', label: 'Specimen identifier', type: 'string' }],
-        capabilities: [{ kind: 'FILTER' as const, supported: true }],
+  it.each(['FILTER', 'CODED_PIVOT'] as const)(
+    'automatically previews %s history removal, lets Cancel preserve the saved step, and applies only the exact proposal receipt',
+    async (operationKind) => {
+      const stepId = operationKind === 'FILTER' ? 'saved-filter' : 'saved-coded-pivot';
+      const savedConstruction: Construction = {
+        version: 1,
+        steps: [operationKind === 'FILTER' ? {
+          id: stepId,
+          inputs: [{ kind: 'SOURCE_PROJECTION' }],
+          operation: { kind: 'FILTER', filter: { columnId: 'specimen_identifier_id', operator: 'EXISTS' } },
+          outputs: [{ id: 'specimen_identifier_id', name: 'specimen_identifier', label: 'Specimen identifier' }],
+        } : {
+          id: stepId,
+          inputs: [{ kind: 'SOURCE_PROJECTION' }],
+          operation: { kind: 'CODED_PIVOT', codedPivot: {
+            constructionId: stepId,
+            source: {
+              family: {
+                bindingId: 'observation-type', resourceType: 'Observation', sourcePath: 'type.coding',
+                owningScope: 'Observation', keyPath: 'type.coding', valuePath: 'type', logicalType: 'string',
+                ruleVersion: '1', schemaVersion: 1,
+              },
+              candidateId: 'candidate', nodeId: 'observation', fieldPath: 'type.coding', route: [],
+            },
+            categories: [{ system: 'urn:example', code: 'specimen-type', outputColumnId: 'specimen-type-output' }],
+            duplicatePolicy: 'ERROR', missingCellPolicy: 'NULL',
+          } },
+          outputs: [{ id: 'specimen-type-output', name: 'specimen_type', label: 'Specimen type' }],
+        }],
       };
-      return {
-        snapshotToken: args.snapshotToken,
-        draftVersion: args.expectedDraftVersion,
-        draftDigest: args.expectedDraftDigest,
-        outputId: args.outputId,
-        stageId: args.stageId,
-        baseConstruction: savedConstruction,
-        stages: [selectedStage],
-        selectedStage,
+      const proposalPrefix = `remove-${operationKind.toLowerCase()}-proposal`;
+      const savedWorkspace: ExplorerBuilderWorkspace = {
+        ...workspace,
+        documents: [{ ...workspace.documents[0]!, construction: savedConstruction }],
       };
-    });
-    mockLoomClient.proposeConstruction.mockReset();
-    mockLoomClient.proposeConstruction.mockImplementation(async (
-      args: ProposeConstructionArgs,
-    ): Promise<ConstructionProposalResponse> => {
-      const proposalNumber = mockLoomClient.proposeConstruction.mock.calls.length;
-      const proposalId = `remove-filter-proposal-${proposalNumber}`;
-      return {
-        proposalId,
-        outputId: args.outputId,
-        snapshotToken: args.snapshotToken,
-        draftVersion: args.expectedDraftVersion,
-        draftDigest: args.expectedDraftDigest,
-        baseDocumentDigest: 'filter-document-v1',
-        candidateWorkspaceDigest: `sha256:remove-filter-${proposalNumber}`,
-        changedStepId: args.changedStepId ?? '',
-        candidateConstruction: args.candidateConstruction,
-        dependencyImpact: { affectedStepIds: [], removedStepIds: args.removeStepIds ?? [] },
-        stages: [],
-        previewStatus: 'READY',
-        previewDurationMs: 1,
-        preview: {
-          apiVersion,
-          kind: 'ExplorerBuilderPreview',
-          rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
-          receiptId: proposalId,
+      const workspaceAfterRemoval: ExplorerBuilderWorkspace = {
+        ...workspace,
+        documents: [{ ...workspace.documents[0]! }],
+      };
+      (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+        data: { ...builderState, workspace: savedWorkspace },
+        isLoading: false,
+        refetch: vi.fn(),
+      });
+      reconcile.mockImplementation((args: { readonly draftVersion: number }) => resolvedRequest({
+        ...receipt,
+        receiptId: `receipt-v${args.draftVersion}`,
+        builder: args.draftVersion > 1 ? workspaceAfterRemoval : savedWorkspace,
+      }));
+      mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
+        readonly snapshotToken: string;
+        readonly expectedDraftVersion: number;
+        readonly expectedDraftDigest: string;
+        readonly outputId: string;
+        readonly stageId: string;
+      }) => {
+        const selectedStage = {
+          id: args.stageId,
+          inputStageId: '',
+          rowIdentityColumn: 'source-row-id',
+          columns: [{ id: 'specimen_identifier_id', name: 'specimen_identifier', label: 'Specimen identifier', type: 'string' }],
+          capabilities: [{ kind: operationKind, supported: true }],
+        };
+        return {
+          snapshotToken: args.snapshotToken,
+          draftVersion: args.expectedDraftVersion,
+          draftDigest: args.expectedDraftDigest,
           outputId: args.outputId,
-          columns: receipt.outputs[0]!.columns,
-          rows: [{ specimen_identifier: `without-filter-${proposalNumber}` }],
-          rowCount: 1,
-          diagnostics: [],
-        },
-      };
-    });
-    applyCommands.mockImplementation((args: { readonly commandId: string }) => resolvedRequest({
-      commandId: args.commandId,
-      workspace: workspaceAfterRemoval,
-      draftVersion: 2,
-      draftDigest: 'sha256:draft-2',
-      results: [{ type: 'TABLE_CHANGED', outputId: 'specimens', column: 'specimen_identifier' }],
-      diagnostics: [],
-    }));
+          stageId: args.stageId,
+          baseConstruction: savedConstruction,
+          stages: [selectedStage],
+          selectedStage,
+        };
+      });
+      mockLoomClient.proposeConstruction.mockReset();
+      mockLoomClient.proposeConstruction.mockImplementation(async (
+        args: ProposeConstructionArgs,
+      ): Promise<ConstructionProposalResponse> => {
+        const proposalNumber = mockLoomClient.proposeConstruction.mock.calls.length;
+        const proposalId = `${proposalPrefix}-${proposalNumber}`;
+        return {
+          proposalId,
+          outputId: args.outputId,
+          snapshotToken: args.snapshotToken,
+          draftVersion: args.expectedDraftVersion,
+          draftDigest: args.expectedDraftDigest,
+          baseDocumentDigest: `${operationKind.toLowerCase()}-document-v1`,
+          candidateWorkspaceDigest: `sha256:remove-${operationKind.toLowerCase()}-${proposalNumber}`,
+          changedStepId: args.changedStepId ?? '',
+          candidateConstruction: args.candidateConstruction,
+          dependencyImpact: { affectedStepIds: [], removedStepIds: args.removeStepIds ?? [] },
+          stages: [],
+          previewStatus: 'READY',
+          previewDurationMs: 1,
+          preview: {
+            apiVersion,
+            kind: 'ExplorerBuilderPreview',
+            rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
+            receiptId: proposalId,
+            outputId: args.outputId,
+            columns: receipt.outputs[0]!.columns,
+            rows: [{ specimen_identifier: `without-${operationKind.toLowerCase()}-${proposalNumber}` }],
+            rowCount: 1,
+            diagnostics: [],
+          },
+        };
+      });
+      applyCommands.mockImplementation((args: { readonly commandId: string }) => resolvedRequest({
+        commandId: args.commandId,
+        workspace: workspaceAfterRemoval,
+        draftVersion: 2,
+        draftDigest: 'sha256:draft-2',
+        results: [{ type: 'TABLE_CHANGED', outputId: 'specimens', column: 'specimen_identifier' }],
+        diagnostics: [],
+      }));
 
-    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
-    await screen.findByTestId('construction-history-step-saved-filter');
-    fireEvent.click(screen.getByTestId('construction-history-step-saved-filter'));
-    fireEvent.click(screen.getByTestId('construction-remove-step-saved-filter'));
-    await screen.findByTestId('construction-proposal-ready');
-    expect(screen.getByTestId('construction-proposal-panel')).toHaveAttribute('data-proposal-id', 'remove-filter-proposal-1');
-    expect(screen.getByTestId('construction-proposal-ready')).toHaveTextContent('Removal preview');
-    expect(screen.getByTestId('construction-proposal-panel')).toHaveAttribute('data-proposal-id', 'remove-filter-proposal-1');
-    await waitFor(() => expect(mockLoomClient.proposeConstruction).toHaveBeenCalledTimes(1));
-    const firstRemoval = mockLoomClient.proposeConstruction.mock.calls[0]?.[0] as ProposeConstructionArgs;
-    expect(firstRemoval.removeStepIds).toEqual(['saved-filter']);
-    expect(firstRemoval.candidateConstruction.steps).toEqual([]);
-    expect(Object.hasOwn(firstRemoval, 'changedStepId')).toBe(false);
-    expect(applyCommands).not.toHaveBeenCalled();
+      render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+      await screen.findByTestId(`construction-history-step-${stepId}`);
+      fireEvent.click(screen.getByTestId(`construction-history-step-${stepId}`));
+      fireEvent.click(screen.getByTestId(`construction-remove-step-${stepId}`));
+      await screen.findByTestId('construction-proposal-ready');
+      expect(screen.getByTestId('construction-proposal-panel')).toHaveAttribute('data-proposal-id', `${proposalPrefix}-1`);
+      expect(screen.getByTestId('construction-proposal-ready')).toHaveTextContent('Removal preview');
+      expect(screen.getByTestId('construction-proposal-panel')).toHaveAttribute('data-proposal-id', `${proposalPrefix}-1`);
+      await waitFor(() => expect(mockLoomClient.proposeConstruction).toHaveBeenCalledTimes(1));
+      const firstRemoval = mockLoomClient.proposeConstruction.mock.calls[0]?.[0] as ProposeConstructionArgs;
+      expect(firstRemoval.removeStepIds).toEqual([stepId]);
+      expect(firstRemoval.candidateConstruction).toEqual({ version: 1, steps: [] });
+      expect(Object.hasOwn(firstRemoval, 'changedStepId')).toBe(false);
+      expect(applyCommands).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByTestId('construction-cancel-proposal'));
-    expect(screen.queryByTestId('construction-proposal-panel')).not.toBeInTheDocument();
-    expect(screen.getByTestId('construction-history-step-saved-filter')).toBeInTheDocument();
-    expect(applyCommands).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByTestId('construction-cancel-proposal'));
+      expect(screen.queryByTestId('construction-proposal-panel')).not.toBeInTheDocument();
+      expect(screen.getByTestId(`construction-history-step-${stepId}`)).toBeInTheDocument();
+      expect(applyCommands).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByTestId('construction-history-step-saved-filter'));
-    fireEvent.click(screen.getByTestId('construction-remove-step-saved-filter'));
-    await screen.findByTestId('construction-proposal-ready');
-    await waitFor(() => expect(mockLoomClient.proposeConstruction).toHaveBeenCalledTimes(2));
-    expect(screen.getByTestId('construction-proposal-panel')).toHaveAttribute('data-proposal-id', 'remove-filter-proposal-2');
-    expect(screen.getByTestId('construction-proposal-preview')).toHaveAttribute('data-preview-receipt-id', 'remove-filter-proposal-2');
-    expect(screen.getByTestId('construction-apply-proposal')).toHaveTextContent('Apply removal');
-    expect(screen.getByTestId('construction-apply-proposal')).toBeEnabled();
-    expect(applyCommands).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId('construction-apply-proposal'));
-    await waitFor(() => expect(applyCommands).toHaveBeenCalledOnce());
-    expect(applyCommands.mock.calls[0]?.[0].commands).toEqual([{
-      type: 'APPLY_CONSTRUCTION_PROPOSAL',
-      outputId: 'specimens',
-      proposalId: 'remove-filter-proposal-2',
-    }]);
-    await waitFor(() => expect(screen.queryByTestId('construction-history-step-saved-filter')).not.toBeInTheDocument());
-  });
+      fireEvent.click(screen.getByTestId(`construction-history-step-${stepId}`));
+      fireEvent.click(screen.getByTestId(`construction-remove-step-${stepId}`));
+      await screen.findByTestId('construction-proposal-ready');
+      await waitFor(() => expect(mockLoomClient.proposeConstruction).toHaveBeenCalledTimes(2));
+      expect(screen.getByTestId('construction-proposal-panel')).toHaveAttribute('data-proposal-id', `${proposalPrefix}-2`);
+      expect(screen.getByTestId('construction-proposal-preview')).toHaveAttribute('data-preview-receipt-id', `${proposalPrefix}-2`);
+      expect(screen.getByTestId('construction-apply-proposal')).toHaveTextContent('Apply removal');
+      expect(screen.getByTestId('construction-apply-proposal')).toBeEnabled();
+      expect(applyCommands).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByTestId('construction-apply-proposal'));
+      await waitFor(() => expect(applyCommands).toHaveBeenCalledOnce());
+      expect(applyCommands.mock.calls[0]?.[0].commands).toEqual([{
+        type: 'APPLY_CONSTRUCTION_PROPOSAL',
+        outputId: 'specimens',
+        proposalId: `${proposalPrefix}-2`,
+      }]);
+      await waitFor(() => expect(screen.queryByTestId(`construction-history-step-${stepId}`)).not.toBeInTheDocument());
+    },
+  );
 
   it('restores the server-provided previous draft revision through the normal CAS command path', async () => {
     (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({

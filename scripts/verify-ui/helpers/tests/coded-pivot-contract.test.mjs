@@ -21,7 +21,9 @@ import {
   codedPivotValuesFor,
 } from '../coded-pivot-fixture.mjs';
 import {
+  codedPivotProposalRequestMatches,
   codedPivotFirstFailureEvidenceFor,
+  codedPivotRemovalRequestMatches,
   codedPivotPersistedSourceBindingsEqual,
   codedPivotPersistedSourceBindingsFor,
   codedPivotPersistedSourceMatchesOption,
@@ -159,6 +161,209 @@ test('saved coded Pivot retains the selected native frame as canonical source bi
     const changedRoute = { ...source, route: [{ stepId: 'unrelated-step' }] };
     assert.equal(codedPivotPersistedSourceMatchesOption(stepFor(changedRoute), selectedOption), false);
   }
+});
+
+test('coded Pivot proposal matcher accepts retained integer and string native request shapes', () => {
+  // Reduced literal DTOs from bounded reports: integer SHA-256 70f2c13139dd129d5c4e8ddaa82a9e793fdd7dc645e864419ef29ea3bc5c0ea9
+  // (nativeRequests[26], [45]); string SHA-256 ab8ba56cb2c54826229acd9a61c292412d031fcf9fe43ec3107af5f1d7e027cb
+  // (nativeRequests[26], [45]). Run-scoped signed choice IDs, snapshot tokens, and draft digests use explicit redacted stand-ins;
+  // output, step, and column IDs are stable aliases, with all same-request equality links preserved.
+  const snapshotToken = 'sha256:<redacted-run-snapshot>';
+  const outputId = 'out_<redacted-run-output>';
+  const stepId = 'coded-pivot_<redacted-run-step>';
+  const integerSourceChoiceId = 'cc2.<redacted-integer-frame-choice>';
+  const stringSourceChoiceId = 'cc2.<redacted-string-frame-choice>';
+  const integerCategoryChoiceId = 'cc2.<redacted-days-to-collection-category-choice>';
+  const specimenCategoryChoiceId = 'cc2.<redacted-specimen-type-category-choice>';
+  const diseaseCategoryChoiceId = 'cc2.<redacted-primary-disease-type-category-choice>';
+  const system = 'https://cda.readthedocs.io';
+
+  const cases = [
+    {
+      name: 'integer initial NULL proposal from nativeRequests[26]',
+      request: {
+        snapshotToken,
+        expectedDraftVersion: 3,
+        expectedDraftDigest: 'sha256:<redacted-integer-initial-draft-digest>',
+        outputId,
+        changedStepId: stepId,
+        candidateConstruction: {
+          version: 1,
+          steps: [{
+            id: stepId,
+            inputs: [{ kind: 'SOURCE_PROJECTION' }],
+            operation: { kind: 'CODED_PIVOT', codedPivot: {
+              constructionId: stepId,
+              sourceChoiceId: integerSourceChoiceId,
+              categories: [{ choiceId: integerCategoryChoiceId, outputColumnId: 'coded-column_<days_to_collection>' }],
+              duplicatePolicy: 'ERROR', missingCellPolicy: 'NULL',
+            } },
+            outputs: [{ id: 'coded-column_<days_to_collection>', name: 'days_to_collection', label: 'Days to collection', type: 'INFER' }],
+          }],
+        },
+        limit: 25,
+      },
+      expected: {
+        outputId, snapshotToken, sourceChoiceId: integerSourceChoiceId, missingCellPolicy: 'NULL', stepId,
+        categories: [{ system, code: 'days_to_collection', label: 'Days to collection', choiceId: integerCategoryChoiceId }],
+      },
+    },
+    {
+      name: 'integer edit ERROR proposal from nativeRequests[45]',
+      request: {
+        snapshotToken,
+        expectedDraftVersion: 4,
+        expectedDraftDigest: 'sha256:<redacted-integer-edit-draft-digest>',
+        outputId,
+        changedStepId: stepId,
+        candidateConstruction: {
+          version: 1,
+          steps: [{
+            id: stepId,
+            inputs: [{ kind: 'SOURCE_PROJECTION' }],
+            operation: { kind: 'CODED_PIVOT', codedPivot: {
+              constructionId: stepId,
+              sourceChoiceId: integerSourceChoiceId,
+              categories: [{ system, code: 'days_to_collection', outputColumnId: 'coded-column_<days_to_collection>' }],
+              duplicatePolicy: 'ERROR', missingCellPolicy: 'ERROR',
+            } },
+            outputs: [{ id: 'coded-column_<days_to_collection>', name: 'days_to_collection', label: 'Days to collection', type: 'INFER' }],
+          }],
+        },
+        limit: 25,
+      },
+      expected: {
+        outputId, snapshotToken, sourceChoiceId: integerSourceChoiceId, missingCellPolicy: 'ERROR', stepId,
+        categories: [{ system, code: 'days_to_collection', label: 'Days to collection', outputColumnId: 'coded-column_<days_to_collection>' }],
+      },
+    },
+    {
+      name: 'string initial NULL proposal from nativeRequests[26]',
+      request: {
+        snapshotToken,
+        expectedDraftVersion: 3,
+        expectedDraftDigest: 'sha256:<redacted-string-initial-draft-digest>',
+        outputId,
+        changedStepId: stepId,
+        candidateConstruction: {
+          version: 1,
+          steps: [{
+            id: stepId,
+            inputs: [{ kind: 'SOURCE_PROJECTION' }],
+            operation: { kind: 'CODED_PIVOT', codedPivot: {
+              constructionId: stepId,
+              sourceChoiceId: stringSourceChoiceId,
+              categories: [
+                { choiceId: specimenCategoryChoiceId, outputColumnId: 'coded-column_<specimen_type>' },
+                { choiceId: diseaseCategoryChoiceId, outputColumnId: 'coded-column_<primary_disease_type>' },
+              ],
+              duplicatePolicy: 'ERROR', missingCellPolicy: 'NULL',
+            } },
+            outputs: [
+              { id: 'coded-column_<specimen_type>', name: 'specimen_type', label: 'Specimen type', type: 'INFER' },
+              { id: 'coded-column_<primary_disease_type>', name: 'primary_disease_type', label: 'Primary disease type', type: 'INFER' },
+            ],
+          }],
+        },
+        limit: 25,
+      },
+      expected: {
+        outputId, snapshotToken, sourceChoiceId: stringSourceChoiceId, missingCellPolicy: 'NULL', stepId,
+        categories: [
+          { system, code: 'specimen_type', label: 'Specimen type', choiceId: specimenCategoryChoiceId },
+          { system, code: 'primary_disease_type', label: 'Primary disease type', choiceId: diseaseCategoryChoiceId },
+        ],
+      },
+    },
+    {
+      name: 'string edit ERROR proposal from nativeRequests[45]',
+      request: {
+        snapshotToken,
+        expectedDraftVersion: 4,
+        expectedDraftDigest: 'sha256:<redacted-string-edit-draft-digest>',
+        outputId,
+        changedStepId: stepId,
+        candidateConstruction: {
+          version: 1,
+          steps: [{
+            id: stepId,
+            inputs: [{ kind: 'SOURCE_PROJECTION' }],
+            operation: { kind: 'CODED_PIVOT', codedPivot: {
+              constructionId: stepId,
+              sourceChoiceId: stringSourceChoiceId,
+              categories: [
+                { system, code: 'specimen_type', outputColumnId: 'coded-column_<specimen_type>' },
+                { system, code: 'primary_disease_type', outputColumnId: 'coded-column_<primary_disease_type>' },
+              ],
+              duplicatePolicy: 'ERROR', missingCellPolicy: 'ERROR',
+            } },
+            outputs: [
+              { id: 'coded-column_<specimen_type>', name: 'specimen_type', label: 'Specimen type', type: 'INFER' },
+              { id: 'coded-column_<primary_disease_type>', name: 'primary_disease_type', label: 'Primary disease type', type: 'INFER' },
+            ],
+          }],
+        },
+        limit: 25,
+      },
+      expected: {
+        outputId, snapshotToken, sourceChoiceId: stringSourceChoiceId, missingCellPolicy: 'ERROR', stepId,
+        categories: [
+          { system, code: 'specimen_type', label: 'Specimen type', outputColumnId: 'coded-column_<specimen_type>' },
+          { system, code: 'primary_disease_type', label: 'Primary disease type', outputColumnId: 'coded-column_<primary_disease_type>' },
+        ],
+      },
+    },
+  ];
+
+  for (const { name, request, expected } of cases) {
+    assert.equal(codedPivotProposalRequestMatches(request, expected), true, name);
+    assert.equal(codedPivotProposalRequestMatches({ ...request, outputId: 'out_wrong' }, expected), false, `${name}: output binding`);
+    assert.equal(codedPivotProposalRequestMatches({ ...request, snapshotToken: 'sha256:wrong' }, expected), false, `${name}: snapshot binding`);
+    assert.equal(codedPivotProposalRequestMatches(request, { ...expected, sourceChoiceId: 'cc2.<wrong-choice>' }), false, `${name}: source choice`);
+    assert.equal(codedPivotProposalRequestMatches(request, { ...expected, missingCellPolicy: expected.missingCellPolicy === 'NULL' ? 'ERROR' : 'NULL' }), false,
+      `${name}: missing-cell policy`);
+
+    const wrongOutput = structuredClone(request);
+    wrongOutput.candidateConstruction.steps[0].outputs[0].label = 'Swapped output';
+    assert.equal(codedPivotProposalRequestMatches(wrongOutput, expected), false, `${name}: category-to-output association`);
+    const wrongChangedStep = { ...request, changedStepId: 'coded-pivot_other-step' };
+    assert.equal(codedPivotProposalRequestMatches(wrongChangedStep, expected), false, `${name}: changed step`);
+  }
+
+  const integerInitial = cases[0];
+  const extraStep = structuredClone(integerInitial.request);
+  extraStep.candidateConstruction.steps.push(structuredClone(extraStep.candidateConstruction.steps[0]));
+  assert.equal(codedPivotProposalRequestMatches(extraStep, integerInitial.expected), false, 'A proposal must contain exactly one CODED_PIVOT step.');
+  const wrongInputs = structuredClone(integerInitial.request);
+  wrongInputs.candidateConstruction.steps[0].inputs = [];
+  assert.equal(codedPivotProposalRequestMatches(wrongInputs, integerInitial.expected), false, 'The native source-projection input is part of the proposal contract.');
+});
+
+test('coded Pivot removal matcher accepts the UI removal-only request and empty source-base construction', () => {
+  // BuilderWorkspace.removeConstructionStep filters the current steps, sets removeStepIds:[stepId], and omits changedStepId.
+  // The retained prePivotSource.document has no `construction` key, so workflow fallback is the literal empty base below.
+  // useConstructionLifecycle.unit.test.tsx already proves removal-only transport; this is not a retained native removal request.
+  const prePivotConstruction = { version: 1, steps: [] };
+  const request = {
+    outputId: 'out_<redacted-run-output>',
+    snapshotToken: 'sha256:<redacted-run-snapshot>',
+    candidateConstruction: prePivotConstruction,
+    removeStepIds: ['coded-pivot_<redacted-run-step>'],
+  };
+  const expected = {
+    outputId: 'out_<redacted-run-output>',
+    snapshotToken: 'sha256:<redacted-run-snapshot>',
+    removedStepId: 'coded-pivot_<redacted-run-step>',
+    candidateConstruction: { version: 1, steps: [] },
+  };
+
+  assert.equal(codedPivotRemovalRequestMatches(request, expected), true);
+  assert.equal(codedPivotRemovalRequestMatches({ ...request, changedStepId: expected.removedStepId }, expected), false,
+    'Removal must not send changedStepId.');
+  assert.equal(codedPivotRemovalRequestMatches({ ...request, removeStepIds: ['different-step'] }, expected), false);
+  assert.equal(codedPivotRemovalRequestMatches({ ...request, outputId: 'out_wrong' }, expected), false);
+  assert.equal(codedPivotRemovalRequestMatches({ ...request, snapshotToken: 'sha256:wrong' }, expected), false);
+  assert.equal(codedPivotRemovalRequestMatches({ ...request, candidateConstruction: { version: 1, steps: [{ operation: { kind: 'CODED_PIVOT' } }] } }, expected), false);
 });
 
 test('rendered coded values bind each exact Coding to its persisted output header and cell', () => {
@@ -532,7 +737,8 @@ test('integer and string native cases have separate registered four-dimension li
   assert.match(sourceText, /construction-cancel-proposal/);
   assert.match(sourceText, /frame-source-options/);
   assert.match(sourceText, /semantic-inventory/);
-  assert.match(sourceText, /proposalUsesCodedPivot\(entry, \{ policy: 'NULL', sourceChoiceId: selectedSourceOption\.choiceId, categoryChoiceIds \}\)/);
+  assert.match(sourceText, /codedPivotProposalRequestMatches\(requestCapture\.rawRequestBody\(entry\)/);
+  assert.match(nativeEvidenceText, /export const codedPivotProposalRequestMatches/);
   assert.match(sourceText, /report\.proposedSourceBindings = proposedSourceBindings/);
   assert.match(sourceText, /codedPivotPersistedSourceMatchesOption\(proposedCodedStep, selectedSourceOption\)/);
   assert.match(sourceText, /codedPivotPersistedSourceMatchesOption\(codedStep, selectedSourceOption\)/);
@@ -554,8 +760,10 @@ test('integer and string native cases have separate registered four-dimension li
   assert.ok(sourceText.indexOf('const editRequestStart = report.nativeRequests.length;') < sourceText.indexOf("await select('Set missing value policy'"));
   assert.ok(sourceText.indexOf('const reapplyStarted = Date.now();') < sourceText.indexOf("await select('Set missing value policy after Cancel'"));
   assert.ok(sourceText.indexOf('const reapplyRequestStart = report.nativeRequests.length;') < sourceText.indexOf("await select('Set missing value policy after Cancel'"));
-  assert.match(sourceText, /const editProposal = await requestCapture\.waitFor\([\s\S]*proposalUsesCodedPivot\(entry, \{ policy: 'ERROR'/);
-  assert.match(sourceText, /const reapplyProposal = await requestCapture\.waitFor\([\s\S]*proposalUsesCodedPivot\(entry, \{ policy: 'ERROR'/);
+  assert.match(sourceText, /const editProposal = await requestCapture\.waitFor\([\s\S]*codedPivotProposalRequestMatches\(requestCapture\.rawRequestBody\(entry\)/);
+  assert.match(sourceText, /const reapplyProposal = await requestCapture\.waitFor\([\s\S]*codedPivotProposalRequestMatches\(requestCapture\.rawRequestBody\(entry\)/);
+  assert.match(sourceText, /codedPivotRemovalRequestMatches\(requestCapture\.rawRequestBody\(entry\)/);
+  assert.match(nativeEvidenceText, /export const codedPivotRemovalRequestMatches/);
   assert.match(sourceText, /codedPivotBindingsFor\(editedCodedStep\), report\.initialStepBindings/);
   assert.match(sourceText, /report\.cancelReloadAssociation, report\.outputAssociation/);
 
