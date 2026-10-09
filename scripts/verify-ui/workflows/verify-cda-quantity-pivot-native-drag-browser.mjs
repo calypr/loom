@@ -16,6 +16,7 @@ import { captureApiBuildFreeze, checkContainerApiBuildStamp } from '../helpers/a
 import { assertOwnedCdaTarget } from '../helpers/owned-cda-target.mjs';
 import { buildArangoShellInvocation } from '../helpers/owned-arangosh-command.mjs';
 import { discoverCompleteRelatedQuantityRouteInProcess } from '../helpers/related-quantity-pivot-discovery-process.mjs';
+import { loadRelatedQuantityPivotDiscoveryArtifact } from '../helpers/related-quantity-pivot-discovery-artifact.mjs';
 import {
   buildRelatedQuantityOracleExecuteScript,
   expectedTextOnlyQuantityPivotRows,
@@ -131,6 +132,31 @@ const includeFixtureDiagnostics = domainReport => {
   const captureFailure = async (error, details = {}) => cda.attachReport('failure-evidence', { error: String(error), details, diagnostics: cda.diagnostics });
 const textOnly = originalArgs.textOnly === true;
 assert(!textOnly || originalArgs.fullPopulation === true, 'Text-only quantity lifecycle requires the complete source population');
+const retainedDiscoveryConfig = originalArgs.discoveryArtifactConfig;
+const retainedDiscoveryConfigFields = [
+  'artifactPath', 'artifactSha256', 'sourceCapturePath', 'sourceCaptureSha256',
+];
+let useRetainedDiscoveryArtifact = false;
+if (retainedDiscoveryConfig !== undefined) {
+  assert(retainedDiscoveryConfig && typeof retainedDiscoveryConfig === 'object' && !Array.isArray(retainedDiscoveryConfig),
+    'Quantity discovery artifact config must be an object');
+  assert(Object.keys(retainedDiscoveryConfig).every(field => retainedDiscoveryConfigFields.includes(field)),
+    'Quantity discovery artifact config contains an unsupported field');
+  const configuredFields = retainedDiscoveryConfigFields.filter(field => retainedDiscoveryConfig[field] !== undefined);
+  assert(configuredFields.length === 0 || configuredFields.length === retainedDiscoveryConfigFields.length,
+    'Retained quantity discovery requires all four artifact and source-capture inputs');
+  if (configuredFields.length > 0) {
+    for (const field of ['artifactPath', 'sourceCapturePath']) {
+      assert(typeof retainedDiscoveryConfig[field] === 'string' && retainedDiscoveryConfig[field].trim() !== '',
+        `Retained quantity discovery ${field} must be a non-empty path`);
+    }
+    for (const field of ['artifactSha256', 'sourceCaptureSha256']) {
+      assert(typeof retainedDiscoveryConfig[field] === 'string' && /^[a-f0-9]{64}$/.test(retainedDiscoveryConfig[field]),
+        `Retained quantity discovery ${field} must be a 64-character lowercase SHA-256 hex digest`);
+    }
+    useRetainedDiscoveryArtifact = true;
+  }
+}
 const registeredActionToRenderBudgetMs = actionToRenderBudgetMsForReport(cda.report);
 let activePivotActionToRenderBudgetMs = DEFAULT_ACTION_TO_RENDER_BUDGET_MS;
 const project = cda.project;
@@ -696,17 +722,46 @@ try {
       emptyPolicies: ['PRESERVE_PARENT', 'PRESERVE_PARENT'] };
     let discoveryRun;
     try {
-      discoveryRun = await discoverCompleteRelatedQuantityRouteInProcess({
-        scope,
-        container: cda.target.arangoContainer ?? cda.env?.LOOM_ARANGO_CONTAINER,
-        database: cda.target.arangoDatabase ?? cda.env?.LOOM_ARANGO_DATABASE,
-      });
-      report.relatedQuantityDiscoveryProcess = discoveryRun.processIdentity;
+      const arangoContainer = cda.target.arangoContainer ?? cda.env?.LOOM_ARANGO_CONTAINER;
+      const database = cda.target.arangoDatabase ?? cda.env?.LOOM_ARANGO_DATABASE;
+      if (useRetainedDiscoveryArtifact) {
+        discoveryRun = await loadRelatedQuantityPivotDiscoveryArtifact({
+          ...retainedDiscoveryConfig,
+          expectedScope: scope,
+          expectedTarget: {
+            project,
+            generation: source.generation,
+            arangoContainer,
+            database,
+            authScope: {
+              auth_resource_paths_unrestricted: scope.auth_resource_paths_unrestricted,
+              auth_resource_paths: scope.auth_resource_paths,
+              scope_allowed: scope.scope_allowed,
+            },
+          },
+          expectedSourceRoot: sourceRoot,
+        });
+        report.relatedQuantityDiscoveryArtifact = discoveryRun.artifactProvenance;
+      } else {
+        discoveryRun = await discoverCompleteRelatedQuantityRouteInProcess({ scope, container: arangoContainer, database });
+        report.relatedQuantityDiscoveryProcess = discoveryRun.processIdentity;
+      }
     } catch (error) {
-      report.relatedQuantityDiscoveryProcess = error.discoveryIdentity ?? {
-        status: 'failed',
-        failure: String(error?.message ?? error).slice(0, 300),
-      };
+      if (useRetainedDiscoveryArtifact) {
+        report.relatedQuantityDiscoveryArtifact = {
+          status: 'failed',
+          artifactPath: retainedDiscoveryConfig.artifactPath,
+          artifactSha256: retainedDiscoveryConfig.artifactSha256,
+          sourceCapturePath: retainedDiscoveryConfig.sourceCapturePath,
+          sourceCaptureSha256: retainedDiscoveryConfig.sourceCaptureSha256,
+          failure: String(error?.message ?? error).slice(0, 300),
+        };
+      } else {
+        report.relatedQuantityDiscoveryProcess = error.discoveryIdentity ?? {
+          status: 'failed',
+          failure: String(error?.message ?? error).slice(0, 300),
+        };
+      }
       throw error;
     }
     const independentDiscovery = discoveryRun.discovery;

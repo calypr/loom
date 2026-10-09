@@ -40,6 +40,15 @@ cdaTest.describe('Related text-only quantity Pivot full population lifecycle', (
     cdaExplorer: `qa-related-text-pivot-${randomUUID()}`, cdaUiRouting: 'explicit-query' });
 
   cdaTest('related quantity Pivot groups by text and applies SUM/MAX across the full route', async ({ page, cda }) => {
-    await runQuantityPivotNativeDragBrowserWorkflow({ page, cda }, { fullPopulation: true, textOnly: true });
+    await runQuantityPivotNativeDragBrowserWorkflow({ page, cda }, {
+      fullPopulation: true,
+      textOnly: true,
+      discoveryArtifactConfig: {
+        artifactPath: process.env.LOOM_QUANTITY_DISCOVERY_ARTIFACT_PATH,
+        artifactSha256: process.env.LOOM_QUANTITY_DISCOVERY_ARTIFACT_SHA256,
+        sourceCapturePath: process.env.LOOM_QUANTITY_DISCOVERY_SOURCE_CAPTURE_PATH,
+        sourceCaptureSha256: process.env.LOOM_QUANTITY_DISCOVERY_SOURCE_CAPTURE_SHA256,
+      },
+    });
   });
 });
