@@ -6,7 +6,17 @@ export function codedPivotRestoredSourceRowVisible({ id }) {
 
 export function codedPivotRemovalProposalReady({ id }) {
   const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
-  return panel?.getAttribute('data-proposal-status') === 'ready' && panel.innerText.includes(id);
+  if (panel?.getAttribute('data-proposal-status') !== 'ready') return false;
+
+  const proposalId = panel.getAttribute('data-proposal-id');
+  if (!proposalId) return false;
+
+  const preview = document.querySelector('[data-testid="construction-proposal-preview"]');
+  if (preview?.getAttribute('data-preview-status') !== 'ready') return false;
+  if (preview.getAttribute('data-preview-receipt-id') !== proposalId) return false;
+
+  return [...preview.querySelectorAll('[data-testid="construction-proposal-preview-row"]')]
+    .some(row => row.innerText.includes(id));
 }
 
 export function codedPivotFirstTableReady() {

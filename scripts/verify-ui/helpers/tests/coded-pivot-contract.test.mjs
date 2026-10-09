@@ -23,6 +23,7 @@ import {
 } from '../coded-pivot-fixture.mjs';
 import {
   codedPivotProposalRequestMatches,
+  codedPivotEditorDisposalCancellationEvidenceFor,
   codedPivotPolicyReplacementCancellationEvidenceFor,
   codedPivotFirstFailureEvidenceFor,
   codedPivotRemovalRequestMatches,
@@ -492,6 +493,245 @@ test('coded Pivot policy replacement admits only the retained NULL abort paired 
   }), /validated policy-replacement marker/);
 });
 
+test('coded Pivot action-after-Cancel validates its own retained NULL abort and ERROR replacement', () => {
+  // Reduced nativeRequests[59]/[60] from both 78d retained reports. IDs, snapshot, digest, and signed
+  // choice values are run-scoped aliases; request shape, exact action labels, policy, statuses, and
+  // event offsets are retained. The absolute action start is not in cda-report.json, so request
+  // offsets are measured from the NULL request start and the recorded action duration is preserved.
+  // Integer report SHA-256: 7a5c967019b4cdb1d68f090eabe8f6c36d13c8695d5cdf7718efce8365018685.
+  // String report SHA-256: 07d0483c5e05067fa6938799ca07cf3fbd25deaf2382302cbf0daf5e9d094e7e.
+  const origin = 'http://127.0.0.1:30008';
+  const scenarios = [
+    {
+      mode: 'integer', actionNumber: 21, actionDurationMs: 60,
+      explorerId: 'qa-reshape-coded-pivot-integer-<retained-run>',
+      draftDigest: 'sha256:<retained-integer-draft>', outputId: 'out_<retained-integer-output>',
+      stepId: 'coded-pivot_<retained-integer-step>', sourceChoiceId: 'cc2.<retained-integer-choice>',
+      nullCompletedAt: 476, errorStartedAt: 756, errorResponseReceivedAt: 1222, errorCompletedAt: 1253,
+      canceledRequestId: 'construction-proposal-e63b2efb-63d0-474e-9e4f-cf818ebed4d0',
+      replacementRequestId: 'construction-proposal-f83e61da-f5d5-4ae0-a7fc-5ffd91e03549',
+      categories: [{ system: 'https://cda.readthedocs.io', code: 'days_to_collection',
+        label: 'Days to collection', outputColumnId: 'coded-column_<days_to_collection>' }],
+    },
+    {
+      mode: 'string', actionNumber: 22, actionDurationMs: 58,
+      explorerId: 'qa-reshape-coded-pivot-string-<retained-run>',
+      draftDigest: 'sha256:<retained-string-draft>', outputId: 'out_<retained-string-output>',
+      stepId: 'coded-pivot_<retained-string-step>', sourceChoiceId: 'cc2.<retained-string-choice>',
+      nullCompletedAt: 507, errorStartedAt: 791, errorResponseReceivedAt: 1320, errorCompletedAt: 1351,
+      canceledRequestId: 'construction-proposal-091f516d-15ca-4f4c-82ba-6c6c3f3fe777',
+      replacementRequestId: 'construction-proposal-c367e253-874d-470a-9a51-75db8d1ec395',
+      categories: [
+        { system: 'https://cda.readthedocs.io', code: 'specimen_type', label: 'Specimen type', outputColumnId: 'coded-column_<specimen_type>' },
+        { system: 'https://cda.readthedocs.io', code: 'primary_disease_type', label: 'Primary disease type', outputColumnId: 'coded-column_<primary_disease_type>' },
+      ],
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    const {
+      mode, actionNumber, actionDurationMs, explorerId, draftDigest, outputId, stepId, sourceChoiceId,
+      nullCompletedAt, errorStartedAt, errorResponseReceivedAt, errorCompletedAt, canceledRequestId, replacementRequestId, categories,
+    } = scenario;
+    const snapshotToken = 'sha256:<retained-catalog-snapshot>';
+    const path = `/api/v1/projects/loom_dev_cda_fhir/explorers/${explorerId}/authoring/v2/construction-proposals`;
+    const actionLabel = 'Set missing value policy after Cancel';
+    const reason = 'Selecting ERROR after Cancel superseded the exact in-flight NULL candidate for this coded Pivot edit.';
+    const proof = {
+      contract: 'coded-pivot-policy-replacement', actionLabel, mode,
+      project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1', explorerId, outputId, snapshotToken,
+      draftVersion: 4, draftDigest, stepId, sourceChoiceId, categories,
+      fromPolicy: 'NULL', toPolicy: 'ERROR',
+    };
+    const expected = { origin, path, ...proof, reason };
+    const bodyFor = missingCellPolicy => ({
+      snapshotToken,
+      expectedDraftVersion: 4,
+      expectedDraftDigest: draftDigest,
+      outputId,
+      changedStepId: stepId,
+      candidateConstruction: {
+        version: 1,
+        steps: [{
+          id: stepId,
+          inputs: [{ kind: 'SOURCE_PROJECTION' }],
+          operation: { kind: 'CODED_PIVOT', codedPivot: {
+            constructionId: stepId,
+            sourceChoiceId,
+            categories: categories.map(({ system, code, outputColumnId }) => ({ system, code, outputColumnId })),
+            duplicatePolicy: 'ERROR',
+            missingCellPolicy,
+          } },
+          outputs: categories.map(({ code, label, outputColumnId }) => ({ id: outputColumnId, name: code, label, type: 'INFER' })),
+        }],
+      },
+    });
+    const canceledRequest = {
+      origin, path, method: 'POST', browserRequestId: 'playwright-60', requestId: canceledRequestId,
+      startedAt: 0, completedAt: nullCompletedAt, failure: 'net::ERR_ABORTED', body: bodyFor('NULL'),
+    };
+    const replacementRequest = {
+      origin, path, method: 'POST', browserRequestId: 'playwright-61', requestId: replacementRequestId,
+      startedAt: errorStartedAt, responseReceivedAt: errorResponseReceivedAt,
+      completedAt: errorCompletedAt, status: 200, body: bodyFor('ERROR'),
+      response: { proposalId: 'receipt_<retained-replacement>', previewStatus: 'READY', outputId, snapshotToken },
+    };
+    const cancellation = {
+      requestId: canceledRequestId, method: 'POST', url: `${origin}${path}`, reason,
+      proof: {
+        ...proof,
+        scopeAction: actionLabel,
+        scopeRequest: { requestId: canceledRequestId, draftVersion: 4, draftDigest, outputId, stageId: null },
+      },
+    };
+    const expectedCancellations = [cancellation];
+    const policyAction = { label: actionLabel, startedAt: 0, completedAt: actionDurationMs };
+    const matched = codedPivotPolicyReplacementCancellationEvidenceFor({
+      requests: [canceledRequest, replacementRequest], expectedCancellations, replacementRequest, policyAction, expected,
+    });
+    assert.equal(matched.status, 'matched-cancellation', `${mode} action ${actionNumber}`);
+    assert.equal(matched.canceledRequestId, canceledRequestId);
+    assert.equal(matched.replacementRequestId, replacementRequestId);
+    assert.equal(matched.canceledAt, nullCompletedAt);
+    assert.equal(matched.replacementStartedAt, errorStartedAt);
+
+    const firstActionLabel = 'Set missing value policy';
+    const firstAction = { label: firstActionLabel, startedAt: 0, completedAt: actionDurationMs };
+    const firstActionExpected = {
+      ...expected,
+      actionLabel: firstActionLabel,
+      reason: 'Selecting ERROR superseded the exact in-flight NULL candidate for this coded Pivot edit.',
+    };
+    const nullCompleted = { ...canceledRequest, startedAt: 1, completedAt: 20, failure: undefined, status: 200 };
+    const firstErrorProposal = {
+      ...replacementRequest,
+      startedAt: actionDurationMs + 1,
+      responseReceivedAt: actionDurationMs + 30,
+      completedAt: actionDurationMs + 50,
+    };
+    assert.equal(codedPivotPolicyReplacementCancellationEvidenceFor({
+      requests: [nullCompleted, firstErrorProposal],
+      expectedCancellations,
+      replacementRequest: firstErrorProposal,
+      policyAction: firstAction,
+      expected: firstActionExpected,
+    }).status, 'no-cancellation', 'The later action cancellation ledger must not contaminate the earlier policy action.');
+
+    const wrongActionRecord = structuredClone(cancellation);
+    wrongActionRecord.proof.actionLabel = firstActionLabel;
+    assert.equal(codedPivotPolicyReplacementCancellationEvidenceFor({
+      requests: [canceledRequest, replacementRequest],
+      expectedCancellations: [wrongActionRecord], replacementRequest, policyAction, expected,
+    }).status, 'invalid', 'An abort marked for another policy action remains fatal.');
+  }
+});
+
+test('coded Pivot editor disposal consumes only an exact cloned navigation-away proof', () => {
+  // Reduced from bounded-coded-pivot-string.json in the 1XP3OL run, request playwright-78;
+  // report SHA-256 07d0483c5e05067fa6938799ca07cf3fbd25deaf2382302cbf0daf5e9d094e7e.
+  // The original artifact records bodyNotRead; this reduced request/event chronology is used only
+  // to validate the cancellation contract, not to claim a current-source lifecycle pass.
+  const origin = 'http://127.0.0.1:30008';
+  const project = 'loom_dev_cda_fhir';
+  const generation = 'cda-fhir-v1';
+  const explorerId = 'qa-reshape-coded-pivot-string-73bad3fe-b944-497d-8ad1-c344fb0a87';
+  const selectionId = 'selection_c69336fc8f401f4657365e6437dc5ed4eaa6819362f300f0eb8b8c71d0182dbd';
+  const outputId = 'out_f775dacbb10ef7b3e5c0395c';
+  const snapshotToken = 'sha256:7e9a025e<retained-string-snapshot>';
+  const sourceChoiceId = 'cc2.<retained-string-source-choice>';
+  const path = `/api/v1/projects/${project}/explorers/${explorerId}/authoring/v2/semantic-inventory`;
+  const action = { label: 'Back to table', startedAt: 1791529413900, completedAt: 1791529413950 };
+  const reason = 'The Back to table action retired this exact Coded Pivot semantic-inventory response-body read.';
+  const expected = {
+    origin, path, project, generation, explorerId, selectionId, mode: 'string', outputId, snapshotToken,
+    sourceChoiceId, rowRoot: 'Observation', limit: 50, actionLabel: action.label, reason,
+  };
+  const proof = {
+    contract: 'coded-pivot-editor-disposal', actionLabel: action.label, mode: 'string', project, generation,
+    explorerId, selectionId, outputId, snapshotToken, sourceChoiceId, rowRoot: 'Observation', limit: 50,
+  };
+  const fixtureCancellation = {
+    requestId: 'cda-request-633', playwrightRequestId: 'cda-request-633', browserRequestId: 'playwright-78',
+    method: 'POST', url: `${origin}${path}`, reason,
+    proof: { ...proof, scopeAction: action.label, scopeRequest: {
+      requestId: null, draftVersion: null, draftDigest: null, outputId, stageId: null,
+    } },
+  };
+  const entry = {
+    requestId: 'playwright-78', browserRequestId: 'playwright-78', ownerPageId: 'playwright-page-1',
+    ownerPageUrlAtRequest: `${origin}/?project=${project}&explorer=${explorerId}&mode=builder&selection=${selectionId}`,
+    rawURL: `${origin}${path}`, origin, path, method: 'POST', query: {},
+    startedAt: 1791529413647,
+    body: { snapshotToken, rowRoot: 'Observation', sourceChoiceId, outputId, limit: 50 },
+    nativeEventChronology: [
+      { event: 'request', browserRequestId: 'playwright-78', observedAt: 1791529413647, objectMatch: true },
+      { event: 'response', browserRequestId: 'playwright-78', observedAt: 1791529413918, objectMatch: true },
+      { event: 'requestfailed', browserRequestId: 'playwright-78', observedAt: 1791529413929, objectMatch: true },
+    ],
+    status: 200, responseReceivedAt: 1791529413918, completedAt: 1791529413940,
+    failure: 'net::ERR_ABORTED',
+    responseReadError: 'response.text: Protocol error (Network.getResponseBody): No data found for resource with given identifier\nResponse body is not available for a response that was navigated away from. Read response.body() before triggering any navigation.',
+  };
+  const fixtureFailure = {
+    errorText: 'net::ERR_ABORTED', expected: true, cancellationAction: action.label,
+    triggerAction: action.label, failureAction: { label: action.label }, playwrightRequestId: 'cda-request-633',
+    browserRequestId: 'playwright-78',
+    requestScope: { expectedProject: project, generation, configuredExplorer: explorerId,
+      requestProject: project, requestExplorer: explorerId },
+    expectedCancellation: fixtureCancellation,
+  };
+  const candidate = (overrides = {}) => codedPivotEditorDisposalCancellationEvidenceFor({
+    requests: [entry], expectedCancellations: [fixtureCancellation], fixtureNetworkFailures: [fixtureFailure],
+    request: entry, action, expected, ...overrides,
+  });
+
+  const beforeFinalization = candidate();
+  assert.equal(beforeFinalization.status, 'verified-retirement-candidate');
+  const finalized = candidate({ finalized: true });
+  assert.equal(finalized.status, 'matched-cancellation');
+  assert.equal(finalized.requestId, entry.requestId);
+  assert.equal(finalized.browserRequestId, fixtureCancellation.browserRequestId);
+  assert.equal(finalized.responseReadError, entry.responseReadError);
+
+  const localCancellation = {
+    contract: 'coded-pivot-editor-disposal', requestId: entry.requestId,
+    browserRequestId: entry.browserRequestId, method: entry.method, url: `${origin}${path}`, reason,
+    proof: fixtureCancellation.proof, fixtureCancellation,
+  };
+  const locallyClassified = { ...entry, expected: true, canceled: true, expectedCancellation: localCancellation };
+  const summary = summarizeCodedPivotNativeRequests([locallyClassified], {
+    acceptedEditorDisposalRequestIds: [entry.requestId],
+  });
+  assert.equal(summary.passed, true);
+  assert.equal(summary.expectedEditorDisposalCancellations.length, 1);
+
+  const wrongAction = structuredClone(fixtureFailure);
+  wrongAction.cancellationAction = 'Apply coded Pivot';
+  assert.equal(candidate({ fixtureNetworkFailures: [wrongAction] }).status, 'invalid');
+  assert.equal(candidate({ expected: { ...expected, outputId: 'different-output' } }).status, 'invalid');
+  assert.equal(candidate({ expected: { ...expected, explorerId: 'different-explorer' } }).status, 'invalid');
+  assert.equal(candidate({ expected: { ...expected, sourceChoiceId: 'different-choice' } }).status, 'invalid');
+  assert.equal(candidate({ action: { ...action, startedAt: 1791529413930 } }).status, 'invalid',
+    'The captured request may start before Back to table, but its terminal abort must be inside that action window.');
+  assert.equal(candidate({ requests: [entry, { ...entry, browserRequestId: 'playwright-79' }] }).status, 'invalid',
+    'A duplicate aborted semantic-inventory request remains fatal.');
+  assert.equal(candidate({ requests: [entry, { ...entry, requestId: 'playwright-79', browserRequestId: 'playwright-79', failure: 'net::ERR_FAILED' }] }).status, 'invalid',
+    'An extra non-abort failure remains fatal.');
+  const wrongBodyRead = { ...entry, responseReadError: 'response.text: unrelated transport failure' };
+  assert.equal(candidate({ requests: [wrongBodyRead], request: wrongBodyRead }).status, 'invalid');
+  assert.throws(() => summarizeCodedPivotNativeRequests([{ ...locallyClassified,
+    responseReadError: 'response.text: unrelated transport failure' }], {
+    acceptedEditorDisposalRequestIds: [entry.requestId],
+  }), /exact editor-disposal marker/);
+
+  const normalIntegerRequest = { ...entry, requestId: 'playwright-integer', browserRequestId: 'playwright-integer',
+    status: 200, failure: undefined, responseReadError: undefined, completedAt: action.completedAt };
+  assert.equal(codedPivotEditorDisposalCancellationEvidenceFor({
+    requests: [normalIntegerRequest], expectedCancellations: [], fixtureNetworkFailures: [],
+    request: undefined, action, expected: { ...expected, mode: 'integer' },
+  }).status, 'no-cancellation', 'A no-abort integer edit must not require a disposal candidate.');
+});
+
 test('coded Pivot removal matcher accepts the UI removal-only request and empty source-base construction', () => {
   // BuilderWorkspace.removeConstructionStep filters the current steps, sets removeStepIds:[stepId], and omits changedStepId.
   // The retained prePivotSource.document has no `construction` key, so workflow fallback is the literal empty base below.
@@ -546,35 +786,129 @@ test('rendered coded values bind each exact Coding to its persisted output heade
   assert.throws(() => codedPivotRenderedValuesFor({ ...rendered, rows: [[CODED_PIVOT_OBSERVATION_ID, 'Ductal and lobular neoplasms', 'analyte']] }, codedStep, expected), /specimen_type value must be "analyte" under "Specimen type"/);
 });
 
-test('serialized browser predicates use their explicit ID arguments', () => {
-  const calls = [];
+test('serialized browser predicates bind readiness to their explicit ID and linked preview rows', () => {
+  const restorationCalls = [];
   const browserRestorationPredicate = runInNewContext(`(${codedPivotRestoredSourceRowVisible.toString()})`, {
     document: {
       querySelector(selector) {
-        calls.push(selector);
+        restorationCalls.push(selector);
         return { innerText: `Observation ${CODED_PIVOT_OBSERVATION_ID}` };
       },
     },
   });
   assert.equal(browserRestorationPredicate({ id: CODED_PIVOT_OBSERVATION_ID }), true);
   assert.equal(browserRestorationPredicate({ id: 'different-observation' }), false);
-
-  const browserRemovalPredicate = runInNewContext(`(${codedPivotRemovalProposalReady.toString()})`, {
-    document: {
-      querySelector(selector) {
-        calls.push(selector);
-        return { getAttribute: () => 'ready', innerText: `Restores ${CODED_PIVOT_OBSERVATION_ID}` };
-      },
-    },
-  });
-  assert.equal(browserRemovalPredicate({ id: CODED_PIVOT_OBSERVATION_ID }), true);
-  assert.equal(browserRemovalPredicate({ id: 'different-observation' }), false);
-  assert.deepEqual(calls, [
+  assert.deepEqual(restorationCalls, [
     '[data-testid="preview-table-scroll"]',
     '[data-testid="preview-table-scroll"]',
-    '[data-testid="construction-proposal-panel"]',
-    '[data-testid="construction-proposal-panel"]',
   ]);
+
+  const removalPredicateFor = ({
+    panelStatus = 'ready',
+    proposalId = 'receipt-1',
+    previewStatus = 'ready',
+    previewReceiptId = 'receipt-1',
+    panelText = 'Removal preview',
+    rows = [{ innerText: `Observation ${CODED_PIVOT_OBSERVATION_ID}` }],
+  } = {}) => {
+    const calls = [];
+    const panel = {
+      innerText: panelText,
+      getAttribute(name) {
+        if (name === 'data-proposal-status') return panelStatus;
+        if (name === 'data-proposal-id') return proposalId;
+        return null;
+      },
+    };
+    const preview = {
+      getAttribute(name) {
+        if (name === 'data-preview-status') return previewStatus;
+        if (name === 'data-preview-receipt-id') return previewReceiptId;
+        return null;
+      },
+      querySelectorAll(selector) {
+        calls.push(selector);
+        return selector === '[data-testid="construction-proposal-preview-row"]' ? rows : [];
+      },
+    };
+    const predicate = runInNewContext(`(${codedPivotRemovalProposalReady.toString()})`, {
+      document: {
+        querySelector(selector) {
+          calls.push(selector);
+          if (selector === '[data-testid="construction-proposal-panel"]') return panel;
+          if (selector === '[data-testid="construction-proposal-preview"]') return preview;
+          return null;
+        },
+      },
+    });
+    return { evaluate: id => predicate({ id }), calls };
+  };
+
+  const readyRemoval = removalPredicateFor();
+  assert.equal(readyRemoval.evaluate(CODED_PIVOT_OBSERVATION_ID), true);
+  assert.equal(readyRemoval.evaluate('different-observation'), false);
+  assert.deepEqual(readyRemoval.calls, [
+    '[data-testid="construction-proposal-panel"]',
+    '[data-testid="construction-proposal-preview"]',
+    '[data-testid="construction-proposal-preview-row"]',
+    '[data-testid="construction-proposal-panel"]',
+    '[data-testid="construction-proposal-preview"]',
+    '[data-testid="construction-proposal-preview-row"]',
+  ]);
+  assert.equal(removalPredicateFor({
+    panelText: `Removal preview mentions ${CODED_PIVOT_OBSERVATION_ID}`,
+    rows: [{ innerText: 'Different Observation ID' }],
+  }).evaluate(CODED_PIVOT_OBSERVATION_ID), false, 'The panel summary cannot stand in for the preview row.');
+  assert.equal(removalPredicateFor({ previewReceiptId: 'other-receipt' }).evaluate(CODED_PIVOT_OBSERVATION_ID), false,
+    'The rendered preview must carry the exact proposal receipt.');
+  assert.equal(removalPredicateFor({ panelStatus: 'previewing' }).evaluate(CODED_PIVOT_OBSERVATION_ID), false);
+  assert.equal(removalPredicateFor({ previewStatus: 'previewing' }).evaluate(CODED_PIVOT_OBSERVATION_ID), false);
+});
+
+test('coded Pivot removal readiness follows the native sibling preview and exact receipt', async t => {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const fixture = ({
+    panelStatus = 'ready',
+    proposalId = 'proposal-42',
+    previewStatus = 'ready',
+    previewReceiptId = 'proposal-42',
+    rowId = CODED_PIVOT_OBSERVATION_ID,
+    includePreview = true,
+  } = {}) => `<!doctype html><html><body>
+    <section data-testid="construction-proposal-panel" data-proposal-status="${panelStatus}" data-proposal-id="${proposalId}">
+      <div data-testid="construction-proposal-ready"><p>Remove coded Pivot. The preview shows the resulting table.</p></div>
+    </section>
+    ${includePreview ? `<section aria-label="Table result">
+      <div data-testid="construction-proposal-preview" data-preview-status="${previewStatus}" data-preview-receipt-id="${previewReceiptId}" data-preview-output-id="out-coded">
+        <table><tbody><tr data-testid="construction-proposal-preview-row"><td>${rowId}</td></tr></tbody></table>
+      </div>
+    </section>` : ''}
+  </body></html>`;
+
+  await page.setContent(fixture());
+  assert.equal(await page.evaluate(codedPivotRemovalProposalReady, { id: CODED_PIVOT_OBSERVATION_ID }), true,
+    'A ready panel and its linked sibling preview row restore the exact source Observation.');
+  assert.equal(await page.evaluate(codedPivotRemovalProposalReady, { id: 'different-observation' }), false,
+    'A different Observation must not satisfy the restoration check.');
+
+  await page.setContent(fixture({ previewReceiptId: 'other-proposal' }));
+  assert.equal(await page.evaluate(codedPivotRemovalProposalReady, { id: CODED_PIVOT_OBSERVATION_ID }), false,
+    'A preview from another receipt cannot satisfy the removal proposal.');
+
+  await page.setContent(fixture({ rowId: 'different-observation' }));
+  assert.equal(await page.evaluate(codedPivotRemovalProposalReady, { id: CODED_PIVOT_OBSERVATION_ID }), false,
+    'The linked preview must contain the exact Observation row.');
+
+  await page.setContent(fixture({ includePreview: false }));
+  assert.equal(await page.evaluate(codedPivotRemovalProposalReady, { id: CODED_PIVOT_OBSERVATION_ID }), false,
+    'The summary panel alone is not proof of the resulting table.');
+
+  await page.setContent(fixture({ panelStatus: 'previewing' }));
+  assert.equal(await page.evaluate(codedPivotRemovalProposalReady, { id: CODED_PIVOT_OBSERVATION_ID }), false);
+  await page.setContent(fixture({ previewStatus: 'previewing' }));
+  assert.equal(await page.evaluate(codedPivotRemovalProposalReady, { id: CODED_PIVOT_OBSERVATION_ID }), false);
 });
 
 test('first-table readiness predicate accepts the retained heading and enabled Observation choice in native Playwright', async t => {
@@ -941,14 +1275,17 @@ test('integer and string native cases have separate registered four-dimension li
   assert.match(sourceText, /CODED_PIVOT/);
   assert.ok(sourceText.indexOf('const editStarted = Date.now();') < sourceText.indexOf('await select(policyAction.label'));
   assert.ok(sourceText.indexOf('const editRequestStart = report.nativeRequests.length;') < sourceText.indexOf('await select(policyAction.label'));
-  assert.ok(sourceText.indexOf('const reapplyStarted = Date.now();') < sourceText.indexOf("await select('Set missing value policy after Cancel'"));
-  assert.ok(sourceText.indexOf('const reapplyRequestStart = report.nativeRequests.length;') < sourceText.indexOf("await select('Set missing value policy after Cancel'"));
+  assert.ok(sourceText.indexOf('const reapplyStarted = Date.now();') < sourceText.indexOf('await select(reapplyPolicyAction.label'));
+  assert.ok(sourceText.indexOf('const reapplyRequestStart = report.nativeRequests.length;') < sourceText.indexOf('await select(reapplyPolicyAction.label'));
   assert.match(sourceText, /editProposal = await requestCapture\.waitFor\([\s\S]*codedPivotProposalRequestMatches\(requestCapture\.rawRequestBody\(entry\)/);
-  assert.match(sourceText, /const reapplyProposal = await requestCapture\.waitFor\([\s\S]*codedPivotProposalRequestMatches\(requestCapture\.rawRequestBody\(entry\)/);
+  assert.match(sourceText, /reapplyProposal = await requestCapture\.waitFor\([\s\S]*codedPivotProposalRequestMatches\(requestCapture\.rawRequestBody\(entry\)/);
   assert.match(sourceText, /codedPivotRemovalRequestMatches\(requestCapture\.rawRequestBody\(entry\)/);
   assert.match(sourceText, /cda\.withExpectedCancellations\(/);
   assert.match(sourceText, /codedPivotPolicyReplacementCancellationEvidenceFor\(/);
   assert.match(sourceText, /codedPivotBackToTableControl\(page\)/);
+  assert.ok(sourceText.indexOf('const editorDisposalRequestStart = report.nativeRequests.length;') < sourceText.indexOf("await action('Reopen coded pivot editor'"),
+    'The semantic-inventory request window must include requests created while opening the editor.');
+  assert.match(sourceText, /await cda\.withExpectedCancellations\(\{[\s\S]*contract: 'coded-pivot-editor-disposal'[\s\S]*actionLabel: editorDisposalAction\.label/);
   assert.match(nativeEvidenceText, /export const codedPivotRemovalRequestMatches/);
   assert.match(sourceText, /codedPivotBindingsFor\(editedCodedStep\), report\.initialStepBindings/);
   assert.match(sourceText, /report\.cancelReloadAssociation, report\.outputAssociation/);

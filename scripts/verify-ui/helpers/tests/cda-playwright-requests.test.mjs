@@ -1281,27 +1281,33 @@ test('a proposal captured during its trigger click remains visible to the waiter
 
 const navigationBodyReadError = new Error('response.text: Protocol error (Network.getResponseBody): No data found for resource with given identifier\nResponse body is not available for a response that was navigated away from. Read response.body() before triggering any navigation.');
 
-function makeResponseReadFailureHarness() {
+function makeResponseReadFailureHarness({
+  apiOrigin = 'http://127.0.0.1:30102',
+  ownedPathPrefix = '/api/v1/projects/isolated/explorers/owned',
+  responsePaths = /commands/,
+} = {}) {
   const page = new EventEmitter();
   const report = { nativeRequests: [], errors: [] };
   const requestFailures = new WeakMap();
   const capture = captureCDARequests(page, {
-    apiOrigin: 'http://127.0.0.1:30102',
-    ownedPathPrefix: '/api/v1/projects/isolated/explorers/owned',
+    apiOrigin,
+    ownedPathPrefix,
     report,
-    responsePaths: /commands/,
+    responsePaths,
   });
   const trackers = new Set([capture]);
   let nextRequestId = 1;
 
-  const requestFor = () => {
+  const requestFor = ({ path, method = 'POST', body = {}, requestId } = {}) => {
     const id = nextRequestId++;
+    const requestURL = `${apiOrigin}${path ?? `${ownedPathPrefix}/authoring/v2/commands`}`;
+    const capturedRequestId = requestId ?? `body-read-${id}`;
     let observedFailure = null;
     const request = {
-      url: () => 'http://127.0.0.1:30102/api/v1/projects/isolated/explorers/owned/authoring/v2/commands',
-      method: () => 'POST',
-      headers: () => ({ 'x-request-id': `body-read-${id}` }),
-      postData: () => '{}',
+      url: () => requestURL,
+      method: () => method,
+      headers: () => ({ 'x-request-id': capturedRequestId }),
+      postData: () => body === null ? null : JSON.stringify(body),
       failure: () => observedFailure,
     };
     page.emit('request', request);
@@ -1323,17 +1329,224 @@ function makeResponseReadFailureHarness() {
           errorText,
           method: request.method(),
           url: request.url(),
-          requestId: request.headers()['x-request-id'],
+          requestId: capturedRequestId,
           playwrightRequestId: `cda-request-${entry.browserRequestId}`,
         };
         requestFailures.set(request, failure);
         page.emit('requestfailed', request);
+      },
+      finish() {
+        page.emit('requestfinished', request);
       },
     };
   };
 
   return { capture, report, requestFailures, trackers, requestFor };
 }
+
+const codedPivotDisposalTarget = Object.freeze({
+  project: 'loom_dev_cda_fhir',
+  generation: 'cda-fhir-v1',
+  explorerId: 'qa-reshape-coded-pivot-string-73bad3fe-b944-497d-8ad1-c344fb0a87',
+  outputId: 'out_f775dacbb10ef7b3e5c0395c',
+  // These run-scoped signed values are redacted from the retained report fixture; equality is still exact within this test.
+  snapshotToken: 'sha256:<redacted-run-scoped-snapshot>',
+  sourceChoiceId: 'cc2.<redacted-run-scoped-choice>',
+  rowRoot: 'Observation',
+  limit: 50,
+  browserRequestId: 'playwright-78',
+});
+
+function codedPivotDisposalRequest(target = codedPivotDisposalTarget) {
+  return {
+    snapshotToken: target.snapshotToken,
+    rowRoot: target.rowRoot,
+    sourceChoiceId: target.sourceChoiceId,
+    outputId: target.outputId,
+    limit: target.limit,
+  };
+}
+
+function codedPivotDisposalProof(target = codedPivotDisposalTarget) {
+  return {
+    contract: 'coded-pivot-editor-disposal',
+    actionLabel: 'Back to table',
+    project: target.project,
+    generation: target.generation,
+    explorerId: target.explorerId,
+    outputId: target.outputId,
+    snapshotToken: target.snapshotToken,
+    sourceChoiceId: target.sourceChoiceId,
+    rowRoot: target.rowRoot,
+    limit: target.limit,
+    request: {
+      browserRequestId: target.browserRequestId,
+      method: 'POST',
+      path: `/api/v1/projects/${target.project}/explorers/${target.explorerId}/authoring/v2/semantic-inventory`,
+      body: codedPivotDisposalRequest(target),
+    },
+  };
+}
+
+function matchesCodedPivotDisposalProof({ request, entry, actionLabel, proof, target = codedPivotDisposalTarget }) {
+  const path = `/api/v1/projects/${target.project}/explorers/${target.explorerId}/authoring/v2/semantic-inventory`;
+  let requestBody;
+  try {
+    requestBody = JSON.parse(request.postData());
+  } catch {
+    return false;
+  }
+  return actionLabel === 'Back to table' && proof?.contract === 'coded-pivot-editor-disposal' &&
+    proof.actionLabel === actionLabel && proof.project === target.project && proof.generation === target.generation &&
+    proof.explorerId === target.explorerId && proof.outputId === target.outputId &&
+    proof.snapshotToken === target.snapshotToken && proof.sourceChoiceId === target.sourceChoiceId &&
+    proof.rowRoot === target.rowRoot && proof.limit === target.limit &&
+    proof.request?.browserRequestId === entry.browserRequestId && entry.browserRequestId === target.browserRequestId &&
+    proof.request.method === request.method() && proof.request.path === path &&
+    proof.request.path === new URL(request.url()).pathname &&
+    JSON.stringify(proof.request.body) === JSON.stringify(codedPivotDisposalRequest(target)) &&
+    JSON.stringify(requestBody) === JSON.stringify(codedPivotDisposalRequest(target));
+}
+
+function classifyCodedPivotEditorDisposal(harness, failedRequest, actionLabel, proof, target = codedPivotDisposalTarget) {
+  const entry = harness.capture.byRequest.get(failedRequest);
+  if (!entry || entry.status !== 200 || entry.failure !== 'net::ERR_ABORTED' ||
+    entry.responseReadError !== navigationBodyReadError.message ||
+    !matchesCodedPivotDisposalProof({ request: failedRequest, entry, actionLabel, proof, target })) return undefined;
+  return classifyExpectedCdaCancellation({
+    request: failedRequest,
+    reason: 'Closing the Coded Pivot editor disposed its exact semantic-inventory owner.',
+    proof,
+    report: harness.report,
+    requestFailures: harness.requestFailures,
+    trackers: harness.trackers,
+  });
+}
+
+async function seedCodedPivotRequestSequence(harness, count = 77) {
+  for (let index = 0; index < count; index += 1) {
+    const prior = harness.requestFor({ body: null });
+    prior.respond(204);
+    prior.finish();
+  }
+  await harness.capture.flush({ waitForNativeRequestTerminals: true });
+}
+
+test('Coded Pivot editor disposal retires only its exact semantic-inventory body read', async () => {
+  const target = codedPivotDisposalTarget;
+  const path = `/api/v1/projects/${target.project}/explorers/${target.explorerId}/authoring/v2/semantic-inventory`;
+  const harness = makeResponseReadFailureHarness({
+    ownedPathPrefix: `/api/v1/projects/${target.project}/explorers/${target.explorerId}`,
+    responsePaths: /semantic-inventory/,
+  });
+
+  // The retained string report's request is playwright-78: POST semantic-inventory, status 200,
+  // then net::ERR_ABORTED while leaving via action cda-action-27, "Back to table". The report's
+  // collector did not read the response body; this harness reproduces the same action/request
+  // identity with the exact retained navigation-away body-read error to cover collector flush.
+  // Provenance: run `run-standalone-reshape-coded-pivot-coded-pivot-string-1XP3OL`,
+  // cda-report.json SHA-256 07d0483c5e05067fa6938799ca07cf3fbd25deaf2382302cbf0daf5e9d094e7e;
+  // response at 1791529413918, requestfailed at 1791529413929, action cda-action-27.
+  await seedCodedPivotRequestSequence(harness);
+  const failed = harness.requestFor({ path, body: codedPivotDisposalRequest(), requestId: target.browserRequestId });
+  assert.equal(failed.entry.browserRequestId, target.browserRequestId, 'the captured Playwright request identity must match retained evidence');
+  failed.respond();
+  await new Promise(resolve => setImmediate(resolve));
+  failed.fail();
+
+  const proof = codedPivotDisposalProof();
+  const cancellation = classifyCodedPivotEditorDisposal(harness, failed.request, 'Back to table', proof);
+  assert(cancellation, 'the exact retained Coded Pivot action and request must classify');
+  assert.deepEqual(cancellation.proof, sanitizePayload(proof),
+    'the production classifier must retain the complete scope/action/request proof with normal sensitive-field redaction');
+  assert.equal(failed.entry.status, 200);
+  assert.equal(failed.entry.failure, 'net::ERR_ABORTED');
+  assert.equal(failed.entry.responseReadError, navigationBodyReadError.message);
+  assert.equal(failed.entry.expectedCancellation.browserRequestId, target.browserRequestId);
+  assert.equal(cancellation.requestId, target.browserRequestId);
+  assert.equal(cancellation.method, 'POST');
+  assert.equal(cancellation.url, `http://127.0.0.1:30102${path}`);
+  assert.deepEqual(harness.report.expectedCancellations, [cancellation]);
+  const expectedNetworkDiagnostic = harness.report.errors.find(error => error.browserRequestId === target.browserRequestId);
+  assert.equal(expectedNetworkDiagnostic?.expected, true);
+  assert.deepEqual(expectedNetworkDiagnostic?.expectedCancellation, cancellation,
+    'the exact cancellation marker must be cloned to the captured network diagnostic');
+  await assert.doesNotReject(harness.capture.flush({ waitForNativeRequestTerminals: true }));
+  assert.equal(gateFailure(harness.report), undefined, 'the exact classified request must pass the final CDA gate');
+
+  const mismatches = [
+    { name: 'wrong Explorer', actionLabel: 'Back to table', target: { ...target, explorerId: `${target.explorerId}-other` } },
+    { name: 'wrong output', actionLabel: 'Back to table', target: { ...target, outputId: `${target.outputId}-other` } },
+    { name: 'wrong source choice', actionLabel: 'Back to table', target: { ...target, sourceChoiceId: `${target.sourceChoiceId}-other` } },
+    { name: 'wrong action', actionLabel: 'Close another editor', target },
+  ];
+  for (const mismatch of mismatches) {
+    const negative = makeResponseReadFailureHarness({
+      ownedPathPrefix: `/api/v1/projects/${target.project}/explorers/${target.explorerId}`,
+      responsePaths: /semantic-inventory/,
+    });
+    await seedCodedPivotRequestSequence(negative);
+    const request = negative.requestFor({ path, body: codedPivotDisposalRequest(), requestId: target.browserRequestId });
+    request.respond();
+    await new Promise(resolve => setImmediate(resolve));
+    request.fail();
+    const wrongProof = codedPivotDisposalProof(mismatch.target);
+    const classified = classifyCodedPivotEditorDisposal(negative, request.request, mismatch.actionLabel, wrongProof);
+    assert.equal(classified, undefined, `${mismatch.name} must not classify the owned abort`);
+    assert.equal(request.entry.expectedCancellation, undefined);
+    await assert.rejects(negative.capture.flush(), /Failed owned CDA response reads/, `${mismatch.name} body read must remain fatal at flush`);
+    assert(gateFailure(negative.report), `${mismatch.name} abort must remain fatal at the final gate`);
+  }
+
+  const wrongRequest = makeResponseReadFailureHarness({
+    ownedPathPrefix: `/api/v1/projects/${target.project}/explorers/${target.explorerId}`,
+    responsePaths: /semantic-inventory/,
+  });
+  await seedCodedPivotRequestSequence(wrongRequest);
+  const exact = wrongRequest.requestFor({ path, body: codedPivotDisposalRequest(), requestId: target.browserRequestId });
+  const sibling = wrongRequest.requestFor({ path, body: codedPivotDisposalRequest(), requestId: 'playwright-sibling' });
+  exact.respond();
+  await new Promise(resolve => setImmediate(resolve));
+  exact.fail();
+  sibling.fail();
+  const exactProof = codedPivotDisposalProof();
+  const siblingClassification = classifyCodedPivotEditorDisposal(wrongRequest, sibling.request, 'Back to table', exactProof);
+  assert.equal(siblingClassification, undefined, 'proof for another native request cannot classify the response-read failure');
+  await assert.rejects(wrongRequest.capture.flush(), /Failed owned CDA response reads/);
+  assert(gateFailure(wrongRequest.report));
+
+  const wrongError = makeResponseReadFailureHarness({
+    ownedPathPrefix: `/api/v1/projects/${target.project}/explorers/${target.explorerId}`,
+    responsePaths: /semantic-inventory/,
+  });
+  await seedCodedPivotRequestSequence(wrongError);
+  const failedWithWrongError = wrongError.requestFor({ path, body: codedPivotDisposalRequest(), requestId: target.browserRequestId });
+  const otherReadError = new Error('response.text: Protocol error (Network.getResponseBody): response body unavailable for another reason.');
+  failedWithWrongError.respond(200, () => Promise.reject(otherReadError));
+  await new Promise(resolve => setImmediate(resolve));
+  failedWithWrongError.fail();
+  assert.equal(classifyCodedPivotEditorDisposal(wrongError, failedWithWrongError.request, 'Back to table', codedPivotDisposalProof()), undefined,
+    'a different response-body error cannot consume the exact disposal marker');
+  assert.equal(failedWithWrongError.entry.expectedCancellation, undefined);
+  await assert.rejects(wrongError.capture.flush(), /Failed owned CDA response reads/);
+  assert(gateFailure(wrongError.report));
+
+  const httpFailure = makeResponseReadFailureHarness({
+    ownedPathPrefix: `/api/v1/projects/${target.project}/explorers/${target.explorerId}`,
+    responsePaths: /semantic-inventory/,
+  });
+  await seedCodedPivotRequestSequence(httpFailure);
+  const failedHttp = httpFailure.requestFor({ path, body: codedPivotDisposalRequest(), requestId: target.browserRequestId });
+  failedHttp.respond(500, async () => JSON.stringify({ error: { code: 'INTERNAL' } }));
+  await new Promise(resolve => setImmediate(resolve));
+  failedHttp.fail();
+  assert.equal(classifyCodedPivotEditorDisposal(httpFailure, failedHttp.request, 'Back to table', codedPivotDisposalProof()), undefined,
+    'an HTTP 500 cannot be classified as the disposal body-read case');
+  await assert.doesNotReject(httpFailure.capture.flush());
+  assert(httpFailure.report.errors.some(error => error.kind === 'http' && error.status === 500),
+    'the HTTP 500 response remains an unexpected diagnostic');
+  assert(gateFailure(httpFailure.report));
+});
 
 const classifyBodyReadCancellation = (harness, request) => classifyExpectedCdaCancellation({
   request,

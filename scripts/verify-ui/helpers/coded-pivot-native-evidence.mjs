@@ -105,7 +105,8 @@ export const codedPivotPolicyReplacementCancellationEvidenceFor = ({
     stepId: expected.stepId,
   }));
   const abortedRequests = failedRequests.filter(entry => entry.failure === 'net::ERR_ABORTED');
-  const cancellationRecords = expectedCancellations.filter(entry => entry?.proof?.contract === 'coded-pivot-policy-replacement');
+  const cancellationRecords = expectedCancellations.filter(entry =>
+    entry?.proof?.contract === 'coded-pivot-policy-replacement' && entry.proof.actionLabel === expected.actionLabel);
   if (abortedRequests.length === 0) {
     if (cancellationRecords.length !== 0) return invalid('A cancellation record exists without an observed NULL candidate abort.');
     return {
@@ -170,6 +171,161 @@ export const codedPivotPolicyReplacementCancellationEvidenceFor = ({
     canceledAt: canceled.completedAt,
     replacementStartedAt: replacement.startedAt,
     replacementCompletedAt: replacement.completedAt,
+  };
+};
+
+const codedPivotEditorRetiredBodyReadError = 'response.text: Protocol error (Network.getResponseBody): No data found for resource with given identifier\nResponse body is not available for a response that was navigated away from. Read response.body() before triggering any navigation.';
+
+export const codedPivotEditorDisposalCancellationEvidenceFor = ({
+  requests,
+  expectedCancellations,
+  fixtureNetworkFailures,
+  request,
+  action,
+  expected,
+  finalized = false,
+}) => {
+  const invalid = reason => ({ status: 'invalid', reason });
+  if (!Array.isArray(requests) || !Array.isArray(expectedCancellations) ||
+      !Array.isArray(fixtureNetworkFailures) || !action || !expected) {
+    return invalid('Coded Pivot editor-disposal evidence is incomplete.');
+  }
+  const required = ['origin', 'path', 'project', 'generation', 'explorerId', 'selectionId', 'mode',
+    'outputId', 'snapshotToken', 'sourceChoiceId', 'actionLabel', 'reason'];
+  if (required.some(key => !nonempty(expected[key])) || expected.actionLabel !== 'Back to table' ||
+      !['integer', 'string'].includes(expected.mode) || expected.rowRoot !== 'Observation' || expected.limit !== 50 ||
+      !Number.isFinite(action.startedAt) || !Number.isFinite(action.completedAt) ||
+      action.completedAt < action.startedAt || action.label !== expected.actionLabel) {
+    return invalid('Coded Pivot editor disposal must bind the exact Back to table action, project, Explorer, output, source, and row scope.');
+  }
+
+  const explorerPath = `/api/v1/projects/${encodeURIComponent(expected.project)}/explorers/${encodeURIComponent(expected.explorerId)}/authoring/v2/semantic-inventory`;
+  if (expected.path !== explorerPath || new URL(expected.origin).origin !== expected.origin) {
+    return invalid('Coded Pivot editor disposal must use the exact owned semantic-inventory endpoint.');
+  }
+  const scopedRequests = requests.filter(entry => entry?.path === expected.path && entry?.method === 'POST');
+  const abortedRequests = scopedRequests.filter(entry => entry?.failure === 'net::ERR_ABORTED');
+  if (scopedRequests.some(entry => typeof entry?.failure === 'string' && entry.failure.length > 0 &&
+      entry.failure !== 'net::ERR_ABORTED')) {
+    return invalid('A non-abort semantic-inventory failure remains fatal during editor disposal.');
+  }
+  const cancellationRecords = expectedCancellations.filter(entry => entry?.proof?.contract === 'coded-pivot-editor-disposal');
+  if (abortedRequests.length === 0) {
+    if (cancellationRecords.length !== 0) return invalid('An editor-disposal cancellation record exists without an observed native abort.');
+    return { status: 'no-cancellation' };
+  }
+  if (abortedRequests.length !== 1 || abortedRequests[0] !== request || scopedRequests.filter(entry => entry === request).length !== 1) {
+    return invalid('Only one captured semantic-inventory request may be retired by this editor action.');
+  }
+
+  const entry = request;
+  const rawBody = entry.body;
+  const expectedBody = {
+    snapshotToken: expected.snapshotToken,
+    rowRoot: expected.rowRoot,
+    sourceChoiceId: expected.sourceChoiceId,
+    outputId: expected.outputId,
+    limit: expected.limit,
+  };
+  let ownerURL;
+  let rawURL;
+  try {
+    ownerURL = new URL(entry.ownerPageUrlAtRequest);
+    rawURL = new URL(entry.rawURL);
+  } catch {
+    return invalid('The retired semantic-inventory request must retain its owning Builder page and request URL.');
+  }
+  const selections = ownerURL.searchParams.getAll('selection');
+  if (entry.origin !== expected.origin || entry.requestId !== entry.browserRequestId ||
+      !nonempty(entry.browserRequestId) || !nonempty(entry.ownerPageId) || entry.status !== 200 ||
+      entry.failure !== 'net::ERR_ABORTED' || !Number.isFinite(entry.startedAt) ||
+      !Number.isFinite(entry.responseReceivedAt) || !Number.isFinite(entry.completedAt) ||
+      entry.completedAt < entry.responseReceivedAt || !isDeepStrictEqual(rawBody, expectedBody) ||
+      rawURL.origin !== expected.origin || rawURL.pathname !== expected.path || rawURL.search || rawURL.hash ||
+      ownerURL.origin !== expected.origin || ownerURL.pathname !== '/' || ownerURL.searchParams.get('project') !== expected.project ||
+      ownerURL.searchParams.get('explorer') !== expected.explorerId || ownerURL.searchParams.get('mode') !== 'builder' ||
+      selections.length !== 1 || selections[0] !== expected.selectionId ||
+      entry.query === undefined || Object.keys(entry.query).length !== 0) {
+    return invalid('The retired request did not match the exact owned Builder route and semantic-inventory payload.');
+  }
+
+  const chronology = entry.nativeEventChronology;
+  if (!Array.isArray(chronology) || chronology.length !== 3 ||
+      !isDeepStrictEqual(chronology.map(event => event.event), ['request', 'response', 'requestfailed']) ||
+      chronology.some(event => event.browserRequestId !== entry.browserRequestId || event.objectMatch !== true || !Number.isFinite(event.observedAt)) ||
+      chronology.some((event, index) => index > 0 && event.observedAt < chronology[index - 1].observedAt) ||
+      chronology[2].observedAt < action.startedAt || chronology[2].observedAt > action.completedAt ||
+      chronology[0].observedAt < entry.startedAt || chronology[0].observedAt - entry.startedAt > 1_000 ||
+      chronology[1].observedAt > entry.responseReceivedAt || entry.responseReceivedAt - chronology[1].observedAt > 1_000 ||
+      chronology[2].observedAt > entry.completedAt || entry.completedAt - chronology[2].observedAt > 1_000) {
+    return invalid('The native response and abort must belong to this exact Back to table action window.');
+  }
+
+  const fixtureFailures = fixtureNetworkFailures.filter(failure => failure?.browserRequestId === entry.browserRequestId);
+  if (fixtureFailures.length !== 1) return invalid('The editor-disposal proof must match one cloned fixture network failure.');
+  const fixtureFailure = fixtureFailures[0];
+  if (fixtureFailure.errorText !== 'net::ERR_ABORTED' || fixtureFailure.expected !== true ||
+      fixtureFailure.cancellationAction !== expected.actionLabel ||
+      (fixtureFailure.triggerAction != null && fixtureFailure.triggerAction !== expected.actionLabel) ||
+      (fixtureFailure.failureAction?.label != null && fixtureFailure.failureAction.label !== expected.actionLabel) ||
+      !isDeepStrictEqual(fixtureFailure.requestScope, {
+        expectedProject: expected.project,
+        generation: expected.generation,
+        configuredExplorer: expected.explorerId,
+        requestProject: expected.project,
+        requestExplorer: expected.explorerId,
+      })) {
+    return invalid('The fixture failure was not observed under the exact owned Explorer and editor-disposal action.');
+  }
+
+  if (cancellationRecords.length !== 1) return invalid('The exact editor-disposal abort needs one fixture cancellation record.');
+  const cancellation = cancellationRecords[0];
+  const expectedProof = {
+    contract: 'coded-pivot-editor-disposal',
+    actionLabel: expected.actionLabel,
+    mode: expected.mode,
+    project: expected.project,
+    generation: expected.generation,
+    explorerId: expected.explorerId,
+    selectionId: expected.selectionId,
+    outputId: expected.outputId,
+    snapshotToken: expected.snapshotToken,
+    sourceChoiceId: expected.sourceChoiceId,
+    rowRoot: expected.rowRoot,
+    limit: expected.limit,
+  };
+  const { scopeAction, scopeRequest, ...actualProof } = cancellation.proof ?? {};
+  if (cancellation.browserRequestId !== entry.browserRequestId ||
+      cancellation.requestId !== fixtureFailure.playwrightRequestId ||
+      cancellation.playwrightRequestId !== fixtureFailure.playwrightRequestId ||
+      cancellation.method !== 'POST' || cancellation.url !== `${expected.origin}${expected.path}` ||
+      cancellation.reason !== expected.reason || scopeAction !== expected.actionLabel ||
+      !isDeepStrictEqual(actualProof, expectedProof) ||
+      !isDeepStrictEqual(scopeRequest, {
+        requestId: null,
+        draftVersion: null,
+        draftDigest: null,
+        outputId: expected.outputId,
+        stageId: null,
+      }) || !isDeepStrictEqual(fixtureFailure.expectedCancellation, cancellation)) {
+    return invalid('The cloned fixture cancellation does not prove this exact semantic-inventory request and action.');
+  }
+
+  if (entry.responseReadError !== codedPivotEditorRetiredBodyReadError || entry.response !== undefined) {
+    return invalid('Only the exact browser navigation-away response-body diagnostic can be consumed as editor disposal.');
+  }
+
+  return {
+    status: finalized ? 'matched-cancellation' : 'verified-retirement-candidate',
+    requestId: entry.requestId,
+    browserRequestId: entry.browserRequestId,
+    reason: cancellation.reason,
+    cancellation,
+    actionStartedAt: action.startedAt,
+    actionCompletedAt: action.completedAt,
+    responseReceivedAt: entry.responseReceivedAt,
+    failedAt: chronology[2].observedAt,
+    responseReadError: entry.responseReadError,
   };
 };
 
@@ -338,11 +494,17 @@ export async function codedPivotFirstFailureEvidenceFor({ mode, action, captureD
   return evidence;
 }
 
-export const summarizeCodedPivotNativeRequests = (requests, { acceptedExpectedCancellationRequestIds = [] } = {}) => {
+export const summarizeCodedPivotNativeRequests = (requests, {
+  acceptedExpectedCancellationRequestIds = [],
+  acceptedEditorDisposalRequestIds = [],
+} = {}) => {
   if (!Array.isArray(requests)) throw new TypeError('Coded Pivot request evidence must be an array.');
   if (!Array.isArray(acceptedExpectedCancellationRequestIds) ||
-      acceptedExpectedCancellationRequestIds.some(id => typeof id !== 'string' || !id) ||
-      new Set(acceptedExpectedCancellationRequestIds).size !== acceptedExpectedCancellationRequestIds.length) {
+      !Array.isArray(acceptedEditorDisposalRequestIds) ||
+      [...acceptedExpectedCancellationRequestIds, ...acceptedEditorDisposalRequestIds]
+        .some(id => typeof id !== 'string' || !id) ||
+      new Set([...acceptedExpectedCancellationRequestIds, ...acceptedEditorDisposalRequestIds]).size !==
+        acceptedExpectedCancellationRequestIds.length + acceptedEditorDisposalRequestIds.length) {
     throw new TypeError('Accepted coded Pivot cancellation IDs must be unique native request IDs.');
   }
   const acceptedCancellationIds = new Set(acceptedExpectedCancellationRequestIds);
@@ -354,6 +516,29 @@ export const summarizeCodedPivotNativeRequests = (requests, { acceptedExpectedCa
     if (request.failure !== 'net::ERR_ABORTED' || request.expectedCancellation?.contract !== 'coded-pivot-policy-replacement' ||
         request.expectedCancellation?.requestId !== id) {
       throw new Error(`Accepted coded Pivot cancellation request ${id} lacks the validated policy-replacement marker.`);
+    }
+  }
+  const acceptedEditorDisposalIds = new Set(acceptedEditorDisposalRequestIds);
+  for (const id of acceptedEditorDisposalIds) {
+    if (requests.filter(request => request.requestId === id).length !== 1) {
+      throw new Error(`Accepted coded Pivot editor-disposal request ${id} must identify one captured request.`);
+    }
+    const request = requests.find(candidate => candidate.requestId === id);
+    const cancellation = request.expectedCancellation;
+    if (request.failure !== 'net::ERR_ABORTED' || cancellation?.contract !== 'coded-pivot-editor-disposal' ||
+        request.expected !== true || request.canceled !== true || request.status !== 200 ||
+        request.responseReadError !== codedPivotEditorRetiredBodyReadError || request.response !== undefined ||
+        cancellation?.requestId !== id || cancellation?.browserRequestId !== request.browserRequestId ||
+        cancellation?.method !== 'POST' || cancellation?.url !== `${request.origin}${request.path}` ||
+        !nonempty(cancellation?.reason) ||
+        cancellation?.fixtureCancellation?.browserRequestId !== request.browserRequestId ||
+        cancellation?.fixtureCancellation?.reason !== cancellation.reason ||
+        cancellation?.fixtureCancellation?.requestId !== cancellation?.fixtureCancellation?.playwrightRequestId ||
+        cancellation?.fixtureCancellation?.proof?.contract !== 'coded-pivot-editor-disposal' ||
+        cancellation?.proof?.contract !== 'coded-pivot-editor-disposal' ||
+        cancellation?.proof?.actionLabel !== 'Back to table' ||
+        cancellation?.proof?.scopeAction !== 'Back to table') {
+      throw new Error(`Accepted coded Pivot editor-disposal request ${id} lacks the validated exact editor-disposal marker.`);
     }
   }
   const details = requests.map(request => {
@@ -372,12 +557,15 @@ export const summarizeCodedPivotNativeRequests = (requests, { acceptedExpectedCa
       terminal,
       ...(explicitFailure ? { failure: explicitFailure } : {}),
       ...(acceptedCancellationIds.has(request.requestId) ? { expectedPolicyReplacementCancellation: true } : {}),
+      ...(acceptedEditorDisposalIds.has(request.requestId) ? { expectedEditorDisposalCancellation: true } : {}),
       ...(request.expectedCancellation ? { expectedCancellation: request.expectedCancellation } : {}),
     };
   });
   const pending = details.filter(request => !request.terminal);
-  const terminalFailures = details.filter(request => request.failure && !request.expectedPolicyReplacementCancellation);
+  const terminalFailures = details.filter(request => request.failure && !request.expectedPolicyReplacementCancellation &&
+    !request.expectedEditorDisposalCancellation);
   const invalidStatuses = details.filter(request => !request.expectedPolicyReplacementCancellation &&
+    !request.expectedEditorDisposalCancellation &&
     (!Number.isFinite(request.status) || request.status >= 400));
   return {
     total: details.length,
@@ -385,6 +573,7 @@ export const summarizeCodedPivotNativeRequests = (requests, { acceptedExpectedCa
     terminalFailures,
     invalidStatuses,
     expectedPolicyReplacementCancellations: details.filter(request => request.expectedPolicyReplacementCancellation),
+    expectedEditorDisposalCancellations: details.filter(request => request.expectedEditorDisposalCancellation),
     passed: details.length > 0 && pending.length === 0 && terminalFailures.length === 0 && invalidStatuses.length === 0,
   };
 };

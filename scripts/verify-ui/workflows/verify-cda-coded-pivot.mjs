@@ -9,6 +9,7 @@ import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
 import { DEFAULT_ACTION_TO_RENDER_BUDGET_MS, recordPivotActionToRender } from '../helpers/quantity-pivot-budget.mjs';
 import {
   codedPivotFirstFailureEvidenceFor,
+  codedPivotEditorDisposalCancellationEvidenceFor,
   codedPivotPolicyReplacementCancellationEvidenceFor,
   codedPivotPersistedSourceBindingsEqual,
   codedPivotPersistedSourceBindingsFor,
@@ -77,10 +78,16 @@ let sourceOptionsRequest;
 let sourceOptionsRequestBody;
 let sourceOptionsResponseBody;
 let sourceOptionsEndpointPath;
+let semanticInventoryEndpointPath;
 let created = false;
 let selectedURL;
+let editorDisposalWindow;
 const tracker = { activeAction: undefined, actions: [] };
 const acceptedExpectedCancellationRequestIds = [];
+const acceptedEditorDisposalRequestIds = [];
+const acceptedEditorDisposalBrowserRequestIds = [];
+const policyReplacementCancellationsFor = actionLabel => (cda.report.expectedCancellations ?? []).filter(entry =>
+  entry?.proof?.contract === 'coded-pivot-policy-replacement' && entry.proof.actionLabel === actionLabel);
 const trackedAction = async (label, locator, perform, options = {}) => {
   tracker.activeAction = { label, startedAt: Date.now() };
   const elapsedMs = await cda.action(label, locator, perform, { timeout: DEFAULT_ACTION_TO_RENDER_BUDGET_MS, budget: DEFAULT_ACTION_TO_RENDER_BUDGET_MS, ...options });
@@ -178,6 +185,7 @@ try {
   assert.equal(creationRequest?.request?.name, requestedExplorerName);
   const createdScope = createdExplorerScope(project, createdExplorer);
   sourceOptionsEndpointPath = `${createdScope.explorerRoot}/authoring/v2/frame-source-options`;
+  semanticInventoryEndpointPath = `${createdScope.explorerRoot}/authoring/v2/semantic-inventory`;
   const proposalEndpointPath = `${createdScope.explorerRoot}/authoring/v2/construction-proposals`;
   explorerId = createdScope.explorerId;
   report.explorerId = explorerId;
@@ -207,6 +215,7 @@ try {
     source: { kind: 'resources', resources: { refs: [{ project, generation: report.generation, resourceType: 'Observation', id: observationId }] } },
   });
   assert(selection.id);
+  report.selectionId = selection.id;
   const baseURL = `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`;
   selectedURL = `${baseURL}&selection=${encodeURIComponent(selection.id)}`;
 
@@ -437,7 +446,7 @@ try {
   });
   const policyReplacementEvidence = codedPivotPolicyReplacementCancellationEvidenceFor({
     requests: report.nativeRequests.slice(editRequestStart),
-    expectedCancellations: cda.report.expectedCancellations ?? [],
+    expectedCancellations: policyReplacementCancellationsFor(policyAction.label),
     replacementRequest: editProposal,
     policyAction,
     expected: {
@@ -536,13 +545,68 @@ try {
   const reopenedSection = page.locator('section[aria-label="Coded values as columns"]');
   const reapplyStarted = Date.now();
   const reapplyRequestStart = report.nativeRequests.length;
-  await select('Set missing value policy after Cancel', reopenedSection.locator('select').nth(1), 'ERROR');
-  const reapplyProposal = await requestCapture.waitFor(entry => entry.path === proposalEndpointPath && entry.method === 'POST' &&
-    codedPivotProposalRequestMatches(requestCapture.rawRequestBody(entry), {
-      outputId: report.tableOutputId, snapshotToken: report.snapshotToken, sourceChoiceId: selectedSourceOption.choiceId,
-      missingCellPolicy: 'ERROR', categories: persistedProposalCategories, stepId: codedStep.id,
-    }),
-  { fromIndex: reapplyRequestStart, timeoutMs: 5000 });
+  const reapplyPolicyAction = { label: 'Set missing value policy after Cancel', startedAt: Date.now() };
+  const reapplyPolicyReplacementProof = {
+    ...policyReplacementProof,
+    actionLabel: reapplyPolicyAction.label,
+  };
+  const reapplyPolicyReplacementReason = 'Selecting ERROR after Cancel superseded the exact in-flight NULL candidate for this coded Pivot edit.';
+  let reapplyProposal;
+  await cda.withExpectedCancellations({
+    origin: uiOrigin,
+    method: 'POST',
+    paths: [proposalEndpointPath],
+    requestIdPrefixes: ['construction-proposal-'],
+    reason: reapplyPolicyReplacementReason,
+    proof: reapplyPolicyReplacementProof,
+    actionLabel: reapplyPolicyAction.label,
+  }, async () => {
+    await select(reapplyPolicyAction.label, reopenedSection.locator('select').nth(1), 'ERROR');
+    reapplyPolicyAction.completedAt = Date.now();
+    reapplyProposal = await requestCapture.waitFor(entry => entry.path === proposalEndpointPath && entry.method === 'POST' &&
+      codedPivotProposalRequestMatches(requestCapture.rawRequestBody(entry), {
+        outputId: report.tableOutputId, snapshotToken: report.snapshotToken, sourceChoiceId: selectedSourceOption.choiceId,
+        missingCellPolicy: 'ERROR', categories: persistedProposalCategories, stepId: codedStep.id,
+      }),
+    { fromIndex: reapplyRequestStart, timeoutMs: 5000 });
+  });
+  const reapplyPolicyReplacementEvidence = codedPivotPolicyReplacementCancellationEvidenceFor({
+    requests: report.nativeRequests.slice(reapplyRequestStart),
+    expectedCancellations: policyReplacementCancellationsFor(reapplyPolicyAction.label),
+    replacementRequest: reapplyProposal,
+    policyAction: reapplyPolicyAction,
+    expected: {
+      origin: uiOrigin,
+      path: proposalEndpointPath,
+      ...reapplyPolicyReplacementProof,
+      reason: reapplyPolicyReplacementReason,
+    },
+  });
+  assert.notEqual(reapplyPolicyReplacementEvidence.status, 'invalid', JSON.stringify(reapplyPolicyReplacementEvidence));
+  report.reapplyPolicyReplacementEvidence = reapplyPolicyReplacementEvidence;
+  if (reapplyPolicyReplacementEvidence.status === 'matched-cancellation') {
+    const canceledRequest = report.nativeRequests.filter(entry => entry.requestId === reapplyPolicyReplacementEvidence.canceledRequestId);
+    assert.equal(canceledRequest.length, 1, 'The post-Cancel policy replacement must identify one local native request capture.');
+    const localCancellation = {
+      contract: 'coded-pivot-policy-replacement',
+      requestId: reapplyPolicyReplacementEvidence.canceledRequestId,
+      browserRequestId: canceledRequest[0].browserRequestId,
+      reason: reapplyPolicyReplacementReason,
+      proof: reapplyPolicyReplacementProof,
+      fixtureCancellation: reapplyPolicyReplacementEvidence.cancellation,
+    };
+    canceledRequest[0].expected = true;
+    canceledRequest[0].expectedCancellation = localCancellation;
+    acceptedExpectedCancellationRequestIds.push(canceledRequest[0].requestId);
+    for (const error of report.errors) {
+      if (error.requestId !== canceledRequest[0].requestId) continue;
+      error.expected = true;
+      error.expectedCancellation = localCancellation;
+    }
+  }
+  const policyReplacementActions = new Set([policyAction.label, reapplyPolicyAction.label]);
+  assert((cda.report.expectedCancellations ?? []).every(entry => entry?.proof?.contract !== 'coded-pivot-policy-replacement' ||
+    policyReplacementActions.has(entry.proof.actionLabel)), 'Every coded Pivot policy cancellation must match one of the two validated policy actions.');
   await waitNative( () => ['ready', 'error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')), {}, 5000);
   report.confirmedEditedProposal = await cda.inspect( () => ({ status: document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'), text: document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText }));
   assert.equal(report.confirmedEditedProposal.status, 'ready', report.confirmedEditedProposal.text);
@@ -566,13 +630,81 @@ try {
   await action('Reopen coded pivot table', page.locator('[data-testid^="construction-table-"]').filter({ hasText: tableName }));
   await action('Select coded pivot history after reload', page.locator('[data-testid^="construction-history-step-"]'));
   await waitNative( () => Boolean(document.querySelector('[data-testid^="construction-edit-step-"]:not(:disabled)')), {}, 5000);
+  const editorDisposalRequestStart = report.nativeRequests.length;
   await action('Reopen coded pivot editor', page.locator('[data-testid^="construction-edit-step-"]:not(:disabled)'));
   await waitNative( () => document.querySelectorAll('section[aria-label="Coded values as columns"] select')[1]?.value === 'ERROR', {}, 5000);
   timing('edit-reload-to-error-policy', editReloadStarted);
   report.editedReload = await cda.inspect( () => ({ policies: [...document.querySelectorAll('section[aria-label="Coded values as columns"] select')].map(input => input.value) }));
   const editedPreviewStarted = Date.now();
-  await action('Back to table', codedPivotBackToTableControl(page));
-  await waitNative( () => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1, {}, 5000);
+  const editorDisposalAction = { label: 'Back to table', startedAt: Date.now() };
+  const editorDisposalReason = 'The Back to table action retired this exact Coded Pivot semantic-inventory response-body read.';
+  const editorDisposalProof = {
+    contract: 'coded-pivot-editor-disposal',
+    actionLabel: editorDisposalAction.label,
+    mode,
+    project,
+    generation: report.generation,
+    explorerId,
+    selectionId: report.selectionId,
+    outputId: report.tableOutputId,
+    snapshotToken: report.snapshotToken,
+    sourceChoiceId: selectedSourceOption.choiceId,
+    rowRoot: 'Observation',
+    limit: 50,
+  };
+  const editorDisposalExpected = {
+    origin: uiOrigin,
+    path: semanticInventoryEndpointPath,
+    ...editorDisposalProof,
+    reason: editorDisposalReason,
+  };
+  editorDisposalWindow = { fromIndex: editorDisposalRequestStart, action: editorDisposalAction, expected: editorDisposalExpected };
+  await cda.withExpectedCancellations({
+    origin: uiOrigin,
+    method: 'POST',
+    paths: [semanticInventoryEndpointPath],
+    requestIdPrefixes: ['cda-request-'],
+    reason: editorDisposalReason,
+    proof: editorDisposalProof,
+    actionLabel: editorDisposalAction.label,
+  }, async () => {
+    await action(editorDisposalAction.label, codedPivotBackToTableControl(page));
+    await waitNative(() => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1, {}, 5000);
+    editorDisposalAction.completedAt = Date.now();
+  });
+  const editorDisposalRequests = report.nativeRequests.slice(editorDisposalWindow.fromIndex);
+  const editorDisposalCandidate = editorDisposalRequests.find(entry => entry.path === semanticInventoryEndpointPath && entry.failure === 'net::ERR_ABORTED');
+  const editorDisposalObservation = codedPivotEditorDisposalCancellationEvidenceFor({
+    requests: editorDisposalRequests,
+    expectedCancellations: cda.report.expectedCancellations ?? [],
+    fixtureNetworkFailures: cda.diagnostics.networkFailures,
+    request: editorDisposalCandidate,
+    action: editorDisposalAction,
+    expected: editorDisposalExpected,
+  });
+  report.editorDisposalObservation = editorDisposalObservation;
+  assert.notEqual(editorDisposalObservation.status, 'invalid', JSON.stringify(editorDisposalObservation));
+  if (editorDisposalObservation.status === 'verified-retirement-candidate') {
+    const localCancellation = {
+      contract: 'coded-pivot-editor-disposal',
+      requestId: editorDisposalObservation.requestId,
+      browserRequestId: editorDisposalObservation.browserRequestId,
+      method: 'POST',
+      url: `${uiOrigin}${semanticInventoryEndpointPath}`,
+      reason: editorDisposalReason,
+      proof: editorDisposalObservation.cancellation.proof,
+      fixtureCancellation: editorDisposalObservation.cancellation,
+    };
+    editorDisposalCandidate.expected = true;
+    editorDisposalCandidate.canceled = true;
+    editorDisposalCandidate.cancellationReason = editorDisposalReason;
+    editorDisposalCandidate.expectedCancellation = localCancellation;
+    for (const error of report.errors) {
+      if (error.browserRequestId !== editorDisposalCandidate.browserRequestId) continue;
+      error.expected = true;
+      error.expectedCancellation = localCancellation;
+    }
+  }
   report.editedReload.historyCount = 1;
   report.editedSaved = await waitForRenderedTable(reapplyCodedStep);
   assert.deepEqual(report.editedSaved, report.saved, 'Changing missing-value handling changed populated CDA values');
@@ -689,12 +821,46 @@ try {
       report.__nativeFailure = true;
     }
   }
+  if (editorDisposalWindow) {
+    try {
+      const editorDisposalRequests = report.nativeRequests.slice(editorDisposalWindow.fromIndex);
+      const editorDisposalCandidate = editorDisposalRequests.find(entry =>
+        entry.path === editorDisposalWindow.expected.path && entry.failure === 'net::ERR_ABORTED');
+      const finalizedEditorDisposal = codedPivotEditorDisposalCancellationEvidenceFor({
+        requests: editorDisposalRequests,
+        expectedCancellations: cda.report.expectedCancellations ?? [],
+        fixtureNetworkFailures: cda.diagnostics.networkFailures,
+        request: editorDisposalCandidate,
+        action: editorDisposalWindow.action,
+        expected: editorDisposalWindow.expected,
+        finalized: true,
+      });
+      report.editorDisposalEvidence = finalizedEditorDisposal;
+      if (finalizedEditorDisposal.status === 'matched-cancellation') {
+        acceptedEditorDisposalRequestIds.push(finalizedEditorDisposal.requestId);
+        acceptedEditorDisposalBrowserRequestIds.push(finalizedEditorDisposal.browserRequestId);
+      } else if (finalizedEditorDisposal.status !== 'no-cancellation') {
+        throw new Error(`Coded Pivot editor-disposal proof did not survive finalization: ${JSON.stringify(finalizedEditorDisposal)}`);
+      }
+    } catch (error) {
+      report.editorDisposalFailure = String(error.stack ?? error);
+      report.failures.push(report.editorDisposalFailure);
+      report.__nativeFailure = true;
+    }
+  }
   report.nativeRequestEvidence = summarizeCodedPivotNativeRequests(report.nativeRequests, {
     acceptedExpectedCancellationRequestIds,
+    acceptedEditorDisposalRequestIds,
   });
   const unexpectedWorkflowErrors = report.errors.filter(error => !error.expectedCancellation);
-  const unexpectedFixtureNetworkFailures = cda.diagnostics.networkFailures.filter(error =>
-    !acceptedExpectedCancellationRequestIds.includes(error.requestId) || !error.expectedCancellation);
+  const unexpectedFixtureNetworkFailures = cda.diagnostics.networkFailures.filter(error => {
+    const cancellation = error.expectedCancellation;
+    const acceptedPolicyReplacement = error.expected === true && cancellation?.contract === 'coded-pivot-policy-replacement' &&
+      acceptedExpectedCancellationRequestIds.includes(error.requestId);
+    const acceptedEditorDisposal = error.expected === true && cancellation?.contract === 'coded-pivot-editor-disposal' &&
+      acceptedEditorDisposalBrowserRequestIds.includes(error.browserRequestId);
+    return !acceptedPolicyReplacement && !acceptedEditorDisposal;
+  });
   const cleanNativeDiagnostics = unexpectedWorkflowErrors.length === 0 && report.nativeRequestEvidence.passed &&
     cda.diagnostics.console.length === 0 && cda.diagnostics.pageErrors.length === 0 &&
     unexpectedFixtureNetworkFailures.length === 0 && cda.diagnostics.httpFailures.length === 0;
