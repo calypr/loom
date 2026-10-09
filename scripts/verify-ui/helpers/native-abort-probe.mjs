@@ -662,6 +662,22 @@ export const nativeAbortSignalObservationForRequest = (entry, events) => {
     };
   }
   const [{ event, request, afterAbort }] = matches;
+  const abortAt = afterAbort ? event.controllerAbortedAt : event.abortedAt;
+  const trustedInteractions = (event.trustedInteractions ?? (event.lastTrustedInteraction ? [event.lastTrustedInteraction] : []))
+    .filter((interaction) => (interaction?.isTrusted === true ||
+      (interaction?.isTrusted === undefined && Array.isArray(event.trustedInteractions) &&
+        event.trustedInteractions.includes(interaction))) &&
+      interaction?.type === 'click' && Number.isFinite(interaction.at) &&
+      interaction.at >= request.startedAt && interaction.at <= abortAt)
+    .map((interaction) => ({
+      ...interaction,
+      isTrusted: true,
+      trustEvidence: interaction.isTrusted === true
+        ? 'native-event-isTrusted-true'
+        : 'trusted-interaction-list-membership',
+    }));
+  const ownerRetirementAction = trustedInteractions.find((interaction) =>
+    interactionProvesOwnerRetirementAction(request, request.ownerDomAtAbort, interaction, abortAt));
   const settlements = (events ?? []).flatMap((candidate) => candidate.kind === 'abort-controller-fetch-settlement' &&
     candidate.controllerId === event.controllerId
       ? (candidate.requests ?? []).filter((item) => item.requestId === request.requestId &&
@@ -683,6 +699,11 @@ export const nativeAbortSignalObservationForRequest = (entry, events) => {
     fetchStateAtAbort: request.fetchStateAtAbort,
     ownerDomAtFetch: request.ownerDomAtFetch,
     ownerDomAtAbort: request.ownerDomAtAbort,
+    ownerRetirementAction: ownerRetirementAction ?? null,
+    sameDocumentOwnerRetirement: Boolean(ownerRetirementAction) &&
+      request.ownerDomAtFetch?.status === 'unique' && request.ownerDomAtFetch?.connectedAtFetch === true &&
+      request.ownerDomAtFetch.anchorId === request.ownerDomAtAbort?.anchorId &&
+      request.ownerDomAtAbort?.detachedAtAbort === true && request.ownerDomAtAbort?.connectedAtAbort === false,
     requestContext: request.requestContext,
     ownerOutputBindingAtFetch: request.ownerOutputBindingAtFetch,
     ownerOutputBindingAtAbort: request.requestContext?.outputId

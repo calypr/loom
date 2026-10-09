@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { nativeAbortSignalObservationForRequest } from './native-abort-probe.mjs';
 
 export const reportDimensions = Object.freeze(['usability', 'correctness', 'persistence', 'performance']);
 
@@ -187,11 +188,147 @@ const validatedRootQuantityValidationRecord = (report, record) => {
   return evidence.requests.includes(record);
 };
 
+const expectedSchemaFieldsOwnerRetirement = (report, record) => {
+  if (record.kind !== 'network' || record.method !== 'POST' || record.resourceType !== 'fetch' ||
+      record.errorText !== 'net::ERR_ABORTED' || (record.status !== undefined && record.status !== null) || record.internalError ||
+      typeof record.playwrightRequestId !== 'string' || record.playwrightRequestId.length === 0) return null;
+  if ((report.network ?? []).filter(candidate => candidate.kind === 'network' &&
+      candidate.playwrightRequestId === record.playwrightRequestId).length !== 1) return null;
+
+  const target = report.target;
+  const captureScope = report.nativeRequestCaptureScope;
+  if (typeof target?.uiUrl !== 'string' || typeof target.project !== 'string' || typeof target.explorer !== 'string' ||
+      !captureScope) return null;
+
+  let origin;
+  try {
+    origin = new URL(target.uiUrl).origin;
+  } catch {
+    return null;
+  }
+  const project = encodeURIComponent(target.project);
+  const explorer = encodeURIComponent(target.explorer);
+  const pathPrefix = `/api/v1/projects/${project}/explorers/${explorer}`;
+  const path = `${pathPrefix}/authoring/v2/schema-fields`;
+  let requestURL;
+  try {
+    requestURL = new URL(record.url);
+  } catch {
+    return null;
+  }
+  if (requestURL.origin !== origin || requestURL.pathname !== path ||
+      record.url !== `${origin}${path}` || captureScope.project !== undefined && captureScope.project !== target.project ||
+      captureScope.origin !== undefined && captureScope.origin !== origin ||
+      (captureScope.selectedExplorer ?? captureScope.explorer) !== target.explorer ||
+      captureScope.observedPathPrefix !== undefined && captureScope.observedPathPrefix !== `${pathPrefix.slice(0, pathPrefix.lastIndexOf('/'))}`) {
+    return null;
+  }
+
+  const requestId = record.requestDetails?.requestId;
+  const ledger = report.nativeRequestTerminalLedger;
+  if (typeof requestId !== 'string' || !requestId.startsWith('schema-fields-') ||
+      ledger?.requests?.length === undefined) return null;
+  const matchingLedger = ledger.requests.filter(entry => entry.requestId === requestId ||
+    entry.browserRequestId === record.playwrightRequestId);
+  if (matchingLedger.length !== 1) return null;
+  const entry = matchingLedger[0];
+  if (entry.requestId !== requestId || entry.browserRequestId !== record.playwrightRequestId ||
+      entry.origin !== origin || entry.path !== path || entry.method !== 'POST' ||
+      entry.status !== null || entry.failure !== 'net::ERR_ABORTED' || entry.terminalEvent !== 'requestfailed' ||
+      entry.state !== 'failed' || entry.complete !== true || entry.frameIdentityStatus !== 'exact' ||
+      entry.frameIsMainFrame !== true || typeof entry.pageId !== 'string' || typeof entry.frameId !== 'string') return null;
+  const chronology = entry.nativeEventChronology;
+  if (!Array.isArray(chronology) || chronology.length !== 2 ||
+      chronology[0]?.event !== 'request' || chronology[0]?.browserRequestId !== entry.browserRequestId ||
+      chronology[0]?.objectMatch !== true || !Number.isFinite(chronology[0]?.observedAt) ||
+      chronology[1]?.event !== 'requestfailed' || chronology[1]?.browserRequestId !== entry.browserRequestId ||
+      chronology[1]?.objectMatch !== true || chronology[1]?.failure !== 'net::ERR_ABORTED' ||
+      !Number.isFinite(chronology[1]?.observedAt) || chronology[1].observedAt < chronology[0].observedAt ||
+      entry.requestTimeline?.mainFrameNavigations?.length !== 0 ||
+      record.requestTimeline?.mainFrameNavigations?.length !== 0) return null;
+
+  const observations = [
+    ...(report.nativeAbortSignalObservations ?? []),
+    ...(report.nativeAbortProbeCorrelations ?? []),
+  ].filter(item => item.requestId === requestId && item.origin === origin && item.path === path && item.method === 'POST');
+  if (observations.length !== 1 || observations[0].requestIdentityMatchCount !== 1) return null;
+  const projected = observations[0].observation;
+  const recomputed = nativeAbortSignalObservationForRequest({
+    ...entry,
+    requestCorrelationId: entry.requestId,
+    requestIdentityMatchCount: 1,
+  }, report.nativeAbortProbeEvents ?? []);
+  if (!projected || JSON.stringify(projected) !== JSON.stringify(recomputed) ||
+      recomputed.exactRequestSignalCorrelation !== true || recomputed.matchCount !== 1 ||
+      recomputed.nativeEntryIdentityMatchCount !== 1 || recomputed.requestId !== requestId ||
+      recomputed.origin !== origin || typeof recomputed.controllerId !== 'string' ||
+      recomputed.signalWasAlreadyAborted !== false || recomputed.requestObservedAfterAbort !== false ||
+      recomputed.fetchStateAtAbort !== 'pending' || recomputed.fetchStateAfterAbort !== 'rejected' ||
+      recomputed.nativeTerminalObserved !== true || recomputed.sameDocumentOwnerRetirement !== true ||
+      recomputed.ownerDomAtFetch?.ruleOwner !== 'feature-catalog-generated-fields' ||
+      recomputed.ownerDomAtFetch?.selector !== '#feature-catalog-search' ||
+      recomputed.ownerDomAtFetch?.status !== 'unique' || recomputed.ownerDomAtFetch?.connectedAtFetch !== true ||
+      recomputed.ownerDomAtAbort?.detachedAtAbort !== true || recomputed.ownerDomAtAbort?.connectedAtAbort !== false) return null;
+
+  const close = recomputed.ownerRetirementAction;
+  const requestStartedAt = chronology[0].observedAt;
+  const failedAt = chronology[1].observedAt;
+  if (!close || close.type !== 'click' || close.isTrusted !== true ||
+      !['native-event-isTrusted-true', 'trusted-interaction-list-membership'].includes(close.trustEvidence) ||
+      close.closestButton?.testId !== 'construction-close-operation-editor' ||
+      close.closestButton?.accessibleLabel !== 'Close operation editor' ||
+      !Number.isFinite(close.at) || requestStartedAt > close.at ||
+      !Number.isFinite(recomputed.controllerAbortedAt) || recomputed.controllerAbortedAt < close.at ||
+      recomputed.controllerAbortedAt > failedAt ||
+      !Number.isFinite(recomputed.ownerDomAtAbort.detachedObservedAt) ||
+      recomputed.ownerDomAtAbort.detachedObservedAt < close.at ||
+      recomputed.ownerDomAtAbort.detachedObservedAt > recomputed.controllerAbortedAt ||
+      !Number.isFinite(recomputed.fetchSettledAt) || recomputed.fetchSettledAt < recomputed.controllerAbortedAt ||
+      recomputed.fetchSettledAt > failedAt ||
+      !Number.isFinite(recomputed.fetchSettlementObservedAt) ||
+      recomputed.fetchSettlementObservedAt < recomputed.controllerAbortedAt ||
+      recomputed.fetchSettlementObservedAt > failedAt) return null;
+
+  const actionId = record.requestTimeline?.action?.id;
+  const sourceActions = (report.actions ?? []).filter(action => action.id === actionId);
+  const closeActions = (report.actions ?? []).filter(action => Number.isFinite(action.startedAtEpochMs) &&
+    Number.isFinite(action.finishedAtEpochMs) && action.startedAtEpochMs <= close.at &&
+    close.at <= action.finishedAtEpochMs);
+  if (sourceActions.length !== 1 || closeActions.length !== 1 || closeActions[0].status !== 'passed') return null;
+  const sourceAction = sourceActions[0];
+  if (!Number.isFinite(sourceAction.startedAtEpochMs) ||
+      sourceAction.startedAtEpochMs > requestStartedAt || sourceAction.finishedAtEpochMs < requestStartedAt) return null;
+  if (sourceAction.id === closeActions[0].id) {
+    if (sourceAction.status !== 'passed') return null;
+  } else if (sourceAction.status !== 'passed' || !Number.isFinite(sourceAction.finishedAtEpochMs) ||
+      sourceAction.finishedAtEpochMs > close.at) {
+    return null;
+  }
+
+  return {
+    kind: 'same-document-owner-retirement',
+    endpoint: 'schema-fields',
+    requestId,
+    browserRequestId: record.playwrightRequestId,
+    project: target.project,
+    explorer: target.explorer,
+    owner: 'feature-catalog-generated-fields',
+    selector: '#feature-catalog-search',
+    controllerId: recomputed.controllerId,
+    controllerAbortedAt: recomputed.controllerAbortedAt,
+    closeAt: close.at,
+    requestFailedAt: failedAt,
+    associatedAction: { id: sourceAction.id, status: sourceAction.status, finishedAtEpochMs: sourceAction.finishedAtEpochMs },
+    reason: 'the exact generated-field catalog owner was retired by trusted Close after its associated action completed',
+  };
+};
+
 const classifyReportNetworkRecord = (report, record) => {
   if (isCodedSourceColumnReport(report) && record.errorText === 'net::ERR_ABORTED') {
     return exactValidatedObsoleteRead(report, record) ? 'cancelled' : 'unexpected-error';
   }
   if (validatedRootQuantityValidationRecord(report, record)) return 'expected-validated-http';
+  if (expectedSchemaFieldsOwnerRetirement(report, record)) return 'cancelled';
   return classifyNetworkRecord(record);
 };
 
@@ -214,6 +351,12 @@ export const isActionable = (snapshot) =>
   && Boolean(snapshot?.receivesPointer);
 
 export const finishReport = (report) => {
+  const expectedOwnerRetirements = report.network.flatMap(record => {
+    const evidence = expectedSchemaFieldsOwnerRetirement(report, record);
+    return evidence ? [evidence] : [];
+  });
+  if (expectedOwnerRetirements.length) report.expectedOwnerRetirements = expectedOwnerRetirements;
+  else delete report.expectedOwnerRetirements;
   const unexpected = report.network.filter((record) => classifyReportNetworkRecord(report, record) === 'unexpected-error');
   if (unexpected.length) {
     report.errors.push(...unexpected.map((record) => ({ kind: 'unexpected-network', ...record })));

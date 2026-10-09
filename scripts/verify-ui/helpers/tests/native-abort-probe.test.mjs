@@ -9,6 +9,9 @@ import {
   nativeAbortSignalObservationForRequest,
 } from '../native-abort-probe.mjs';
 import { classifyExpectedOwnedCancellation, nativeReadRequestMatchesExpectedScope } from '../native-request-ownership.mjs';
+import { createReport, finishReport, recordCheck } from '../report.mjs';
+import { createFixtureNativeRequestLedger, finalizeFixtureNativeRequestReport } from '../native-request-ledger.mjs';
+import { assertRepeatedEmptyNativeRequestLedgerComplete } from '../../workflows/builder-repeated.mjs';
 
 const project = 'loom_dev_test';
 const explorer = 'abort-probe-test';
@@ -1305,4 +1308,223 @@ test('request evidence requires exact ID, path, and abort-before-CDP-failure and
     requests: [{ ...abortEvent.requests[0], startedAt: 181 }],
   }]), []);
   assert.equal(entry.loadingFailed.errorText, 'net::ERR_ABORTED');
+});
+
+
+const schemaFieldsCloseReport = () => {
+  const closeProject = 'loom_dev_verify_fixture-a';
+  const closeExplorer = 'verify-fixture-a-cohort-recode';
+  const closeOrigin = 'http://127.0.0.1:30008';
+  const closePath = `/api/v1/projects/${encodeURIComponent(closeProject)}/explorers/${encodeURIComponent(closeExplorer)}/authoring/v2/schema-fields`;
+  const requestId = 'schema-fields-9cc92c67-46c0-4340-8628-f0ad83feaa9e';
+  const browserRequestId = 'request-263';
+  const controllerId = 'abort-controller-24';
+  const requestStartedAt = 2500;
+  const applyFinishedAt = 2800;
+  const closeAt = 3000;
+  const controllerAbortedAt = 3020;
+  const requestFailedAt = 3040;
+  const ownerDomAtFetch = {
+    status: 'unique', selector: '#feature-catalog-search', matchCount: 1, capturedAt: requestStartedAt,
+    anchorId: 'dom-node-9', connectedAtFetch: true, ruleOwner: 'feature-catalog-generated-fields',
+    retirementAction: 'close-operation-editor',
+  };
+  const ownerDomAtAbort = {
+    anchorId: 'dom-node-9', connectedAtAbort: false, detachedAtAbort: true,
+    detachedObservedAt: 3018, observedAtAbort: controllerAbortedAt,
+  };
+  const closeInteraction = {
+    type: 'click', at: closeAt, isTrusted: true,
+    target: { tag: 'BUTTON', testId: 'construction-close-operation-editor', ariaLabel: 'Close operation editor' },
+    closestButton: {
+      id: 'dom-node-12', accessibleLabel: 'Close operation editor',
+      testId: 'construction-close-operation-editor',
+    },
+  };
+  const event = {
+    kind: 'abort-controller-call', controllerId, createdAt: 1000, abortedAt: controllerAbortedAt,
+    abortCount: 1, signalWasAlreadyAborted: false,
+    requests: [{
+      requestId, origin: closeOrigin, path: closePath, method: 'POST', endpoint: 'schema-fields',
+      explorer: closeExplorer, requestIdSource: 'request-header', startedAt: requestStartedAt,
+      fetchStateAtAbort: 'pending', ownerDomAtFetch, ownerDomAtAbort,
+    }],
+    trustedInteractions: [closeInteraction], lastTrustedInteraction: closeInteraction,
+  };
+  const settlement = {
+    kind: 'abort-controller-fetch-settlement', controllerId, observedAt: controllerAbortedAt,
+    requests: [{
+      requestId, origin: closeOrigin, path: closePath, method: 'POST',
+      fetchStateAfterAbort: 'rejected', settledAt: controllerAbortedAt,
+    }],
+  };
+  const request = {
+    requestId, browserRequestId, method: 'POST', origin: closeOrigin, path: closePath,
+    status: null, failure: 'net::ERR_ABORTED', terminalEvent: 'requestfailed', state: 'failed', complete: true,
+    pageId: 'playwright-page-1', frameId: 'playwright-frame-1', frameIsMainFrame: true,
+    frameIdentityStatus: 'exact',
+    requestTimeline: {
+      requestStartedMs: 2500, failedAtMs: 3040, durationMs: 540,
+      action: { id: 'action-apply', label: 'Apply exact generated field' }, mainFrameNavigations: [],
+    },
+    nativeEventChronology: [
+      { event: 'request', browserRequestId, observedAt: requestStartedAt, objectMatch: true },
+      { event: 'requestfailed', browserRequestId, observedAt: requestFailedAt, objectMatch: true, failure: 'net::ERR_ABORTED' },
+    ],
+  };
+  const entry = { ...request, requestCorrelationId: requestId, requestIdentityMatchCount: 1 };
+  const observation = nativeAbortSignalObservationForRequest(entry, [event, settlement]);
+  const report = createReport({
+    scenario: 'builder-authoring', caseName: 'cohort-recode',
+    target: { uiUrl: closeOrigin, project: closeProject, explorer: closeExplorer },
+    requiredChecks: ['Apply exact generated field completed'],
+  });
+  report.network.push({
+    kind: 'network', method: 'POST', url: `${closeOrigin}${closePath}`, resourceType: 'fetch',
+    errorText: 'net::ERR_ABORTED', playwrightRequestId: browserRequestId,
+    requestDetails: { requestId }, requestTimeline: request.requestTimeline,
+  });
+  report.actions.push(
+    { id: 'action-apply', label: 'Apply exact generated field', status: 'passed',
+      startedAtEpochMs: 2400, finishedAtEpochMs: applyFinishedAt },
+    { id: 'action-close', label: 'close operation editor', status: 'passed',
+      startedAtEpochMs: 2900, finishedAtEpochMs: 3050 },
+  );
+  report.nativeRequestCaptureScope = {
+    observedPathPrefix: `/api/v1/projects/${encodeURIComponent(closeProject)}/explorers`,
+    selectedExplorer: closeExplorer,
+  };
+  report.nativeRequestTerminalLedger = { complete: true, requests: [request] };
+  report.nativeAbortProbeEvents = [event, settlement];
+  report.nativeAbortSignalObservations = [{
+    requestId, origin: closeOrigin, path: closePath, method: 'POST', requestIdentityMatchCount: 1, observation,
+  }];
+  recordCheck(report, 'correctness', 'Apply exact generated field completed', true, {
+    outputId: 'out-fixture', receiptId: 'receipt-fixture', renderedValues: ['dev-patient-001', 'dev-patient-002'],
+  });
+  return { report, request, closeInteraction };
+};
+
+test('finishReport accepts only a terminal schema-fields abort after its exact Catalog owner closes', () => {
+  const { report } = schemaFieldsCloseReport();
+  const originalNetwork = structuredClone(report.network);
+  finishReport(report);
+  assert.equal(report.status, 'passed', JSON.stringify({ expected: report.expectedOwnerRetirements, errors: report.errors, failed: report.assertions.find(item => item.name === 'no unexpected network, module, or browser errors') }));
+  assert.deepEqual(report.missingRequiredChecks, []);
+  assert.deepEqual(report.expectedOwnerRetirements, [{
+    kind: 'same-document-owner-retirement', endpoint: 'schema-fields',
+    requestId: 'schema-fields-9cc92c67-46c0-4340-8628-f0ad83feaa9e', browserRequestId: 'request-263',
+    project: 'loom_dev_verify_fixture-a', explorer: 'verify-fixture-a-cohort-recode',
+    owner: 'feature-catalog-generated-fields', selector: '#feature-catalog-search',
+    controllerId: 'abort-controller-24', controllerAbortedAt: 3020, closeAt: 3000, requestFailedAt: 3040,
+    associatedAction: { id: 'action-apply', status: 'passed', finishedAtEpochMs: 2800 },
+    reason: 'the exact generated-field catalog owner was retired by trusted Close after its associated action completed',
+  }]);
+  assert.deepEqual(report.network, originalNetwork, 'the original failed request stays in raw network evidence');
+  assert.equal(Object.hasOwn(report.network[0], 'canceled'), false, 'classification does not rewrite the raw failure');
+});
+
+test('schema-fields Close classification rejects incomplete Apply, untrusted owner retirement, or identity drift', () => {
+  const mutations = [
+    ['the action that began with the request did not complete', report => { report.actions[0].status = 'failed'; }],
+    ['the action that began with the request completed after Close', report => { report.actions[0].finishedAtEpochMs = 3001; }],
+    ['the Close target is not the construction editor', report => {
+      report.nativeAbortProbeEvents[0].trustedInteractions[0].closestButton.testId = 'other-close';
+    }],
+    ['the Catalog owner remained attached', report => {
+      report.nativeAbortProbeEvents[0].requests[0].ownerDomAtAbort.detachedAtAbort = false;
+      report.nativeAbortProbeEvents[0].requests[0].ownerDomAtAbort.connectedAtAbort = true;
+    }],
+    ['the request correlation ID is different', report => { report.nativeAbortProbeEvents[0].requests[0].requestId = 'schema-fields-other'; }],
+    ['the UI origin is different', report => { report.nativeAbortSignalObservations[0].origin = 'http://127.0.0.1:30009'; }],
+    ['the native request did not fail with ERR_ABORTED', report => {
+      report.nativeRequestTerminalLedger.requests[0].nativeEventChronology[1].failure = 'net::ERR_FAILED';
+    }],
+    ['a duplicate raw browser request identity cannot borrow the same owner proof', report => {
+      report.network.push(structuredClone(report.network[0]));
+    }],
+  ];
+  for (const [description, mutate] of mutations) {
+    const { report } = schemaFieldsCloseReport();
+    mutate(report);
+    finishReport(report);
+    assert.equal(report.status, 'failed', description);
+    assert.equal(report.expectedOwnerRetirements?.length ?? 0, 0, description);
+    assert.equal(report.assertions.find(item => item.name === 'no unexpected network, module, or browser errors')?.status,
+      'failed', description);
+  }
+});
+
+test('schema-fields Close classification never exempts a failed mutation request', () => {
+  const { report } = schemaFieldsCloseReport();
+  const mutationURL = `http://127.0.0.1:30008/api/v1/projects/${encodeURIComponent(report.target.project)}/explorers/${encodeURIComponent(report.target.explorer)}/authoring/v2/commands`;
+  report.network.push({
+    kind: 'network', method: 'POST', url: mutationURL, resourceType: 'fetch',
+    errorText: 'net::ERR_ABORTED', playwrightRequestId: 'request-mutation-failed',
+    requestDetails: { requestId: 'builder-command-failed' },
+    requestTimeline: { action: { id: 'action-apply', label: 'Apply exact generated field' }, mainFrameNavigations: [] },
+  });
+  finishReport(report);
+  assert.equal(report.expectedOwnerRetirements.length, 1, 'only the separately proven schema-fields retirement is classified');
+  assert.equal(report.status, 'failed', 'a failed mutation route remains fatal');
+  assert(report.errors.some(error => error.url === mutationURL && error.errorText === 'net::ERR_ABORTED'));
+});
+
+test('schema-fields Close classification leaves a request-only capability drain pending and incomplete', async () => {
+  const pendingProject = 'loom_dev_verify_fixture-pending';
+  const pendingExplorer = 'verify-fixture-pending';
+  const pendingOrigin = 'http://127.0.0.1:30008';
+  const pendingExplorerPath = `/api/v1/projects/${pendingProject}/explorers/${pendingExplorer}`;
+  const pageFrame = {};
+  const page = { mainFrame: () => pageFrame };
+  const ledger = createFixtureNativeRequestLedger();
+  const scope = ledger.openScope({ project: pendingProject, origin: pendingOrigin });
+  const requestFor = (path, method, id) => ({
+    url: () => `${pendingOrigin}${path}`,
+    method: () => method,
+    headers: () => ({ 'x-request-id': id }),
+    resourceType: () => 'fetch',
+    frame: () => pageFrame,
+  });
+  const recordFinished = (path, method, id, status) => {
+    const request = requestFor(path, method, id);
+    ledger.recordRequest(request, {
+      requestId: id, browserRequestId: `request-${id}`, startedAt: Date.now(),
+      ...ledger.frameIdentityForRequest(request, page),
+    });
+    ledger.recordResponse(request, { status, observedAt: Date.now() + 1 });
+    ledger.recordFinished(request, { observedAt: Date.now() + 2 });
+  };
+  recordFinished(`/api/v1/projects/${pendingProject}/explorers`, 'POST', 'create-explorer', 201);
+  recordFinished(`${pendingExplorerPath}/authoring/v2/builder`, 'GET', 'builder-state', 200);
+  const pendingID = 'cda-request-64539307-f9ee-4059-8e8d-a66e7852f2fb';
+  const pendingRequest = requestFor(`${pendingExplorerPath}/authoring/v2/construction-capabilities`, 'POST', pendingID);
+  ledger.recordRequest(pendingRequest, {
+    requestId: pendingID, browserRequestId: 'request-396', startedAt: Date.now(),
+    ...ledger.frameIdentityForRequest(pendingRequest, page),
+  });
+  const snapshot = await ledger.flush(scope, { explorer: pendingExplorer, timeoutMs: 1 });
+  const pendingReport = createReport({
+    scenario: 'builder-authoring', caseName: 'repeated-empty',
+    target: { uiUrl: pendingOrigin, project: pendingProject, explorer: pendingExplorer },
+  });
+  await finalizeFixtureNativeRequestReport({ report: pendingReport, ledger, project: pendingProject });
+  finishReport(pendingReport);
+
+  assert.equal(snapshot.nativeRequestTerminalLedger.complete, false);
+  assert.equal(snapshot.nativeRequestTerminalLedger.counts.pending, 1);
+  assert.deepEqual(snapshot.nativeRequestTerminalLedger.requests.find(item => item.requestId === pendingID).nativeEventChronology
+    .map(event => event.event), ['request'], 'the capability request has no fabricated terminal event');
+  assert.equal(snapshot.nativeRequestDrainEvidence[0].status, 'timed-out');
+  assert.deepEqual(snapshot.nativeRequestDrainEvidence[0].unresolvedRequests.map(item => item.browserRequestId), ['request-396']);
+  assert.equal(pendingReport.nativeRequestTerminalLedger.complete, false, 'report finalization retains the incomplete ledger');
+  assert.equal(pendingReport.nativeRequestTerminalLedger.counts.pending, 1);
+  assert.equal(pendingReport.nativeRequestDrainEvidence[0].status, 'timed-out');
+  assert.equal(pendingReport.expectedOwnerRetirements, undefined, 'a pending capability read is not a schema-fields retirement');
+  assert.throws(() => assertRepeatedEmptyNativeRequestLedgerComplete({
+    nativeRequestTerminalLedger: pendingReport.nativeRequestTerminalLedger,
+    incompleteRequests: snapshot.incompleteRequests,
+    nativeRequestDrainEvidence: pendingReport.nativeRequestDrainEvidence,
+    nativeRequestCorrelationErrors: pendingReport.nativeRequestCorrelationErrors,
+  }), /did not reach a complete terminal state/, 'the production repeated-empty gate still rejects the request-only capability drain');
 });

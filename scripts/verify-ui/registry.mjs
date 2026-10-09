@@ -307,6 +307,7 @@ export const registry = Object.freeze([
             sourceFiles: [
               'scripts/verify-ui/helpers/native-abort-probe.mjs',
               'scripts/verify-ui/helpers/native-request-ownership.mjs',
+              'scripts/verify-ui/helpers/report.mjs',
               'scripts/verify-ui/workflows/builder-authoring.mjs',
               'scripts/verify-ui/specs/builder-authoring.spec.mjs',
               'scripts/verify-ui/registry.mjs',
@@ -352,6 +353,7 @@ export const registry = Object.freeze([
             sourceFiles: [
               'scripts/verify-ui/helpers/native-abort-probe.mjs',
               'scripts/verify-ui/helpers/native-request-ownership.mjs',
+              'scripts/verify-ui/helpers/report.mjs',
               'scripts/verify-ui/workflows/builder-cohort-expand.mjs',
               'scripts/verify-ui/specs/builder-authoring.spec.mjs',
               'scripts/verify-ui/registry.mjs',
@@ -393,6 +395,7 @@ export const registry = Object.freeze([
             ],
             sourceFiles: [
               'scripts/verify-ui/helpers/native-abort-probe.mjs',
+              'scripts/verify-ui/helpers/report.mjs',
               'scripts/verify-ui/workflows/builder-repeated.mjs',
               'scripts/verify-ui/specs/builder-authoring.spec.mjs',
               'scripts/verify-ui/registry.mjs',
