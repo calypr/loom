@@ -558,19 +558,29 @@ function pendingRequestStatus(request) {
 
 function unfinishedRequestEvidence(report) {
   const directEvidence = report?.failureEvidence?.unfinishedNativeRequests;
-  if (Array.isArray(directEvidence)) return directEvidence;
-  const reason = report?.failureEvidence?.reason;
-  const marker = typeof reason === 'string' ? reason.indexOf('CDA verification evidence is incomplete:') : -1;
-  if (marker < 0 || reason.length > 32_768) return [];
-  const start = reason.indexOf('{', marker);
-  const end = reason.lastIndexOf('}');
-  if (start < 0 || end < start) return [];
-  try {
-    const evidence = JSON.parse(reason.slice(start, end + 1));
-    return Array.isArray(evidence.unfinishedNativeRequests) ? evidence.unfinishedNativeRequests : [];
-  } catch {
-    return [];
+  let failureRequests = Array.isArray(directEvidence) ? directEvidence : [];
+  if (!Array.isArray(directEvidence)) {
+    const reason = report?.failureEvidence?.reason;
+    const marker = typeof reason === 'string' ? reason.indexOf('CDA verification evidence is incomplete:') : -1;
+    if (marker >= 0 && reason.length <= 32_768) {
+      const start = reason.indexOf('{', marker);
+      const end = reason.lastIndexOf('}');
+      if (start >= 0 && end >= start) {
+        try {
+          const evidence = JSON.parse(reason.slice(start, end + 1));
+          failureRequests = Array.isArray(evidence.unfinishedNativeRequests) ? evidence.unfinishedNativeRequests : [];
+        } catch {
+          failureRequests = [];
+        }
+      }
+    }
   }
+
+  const drainedRequests = (Array.isArray(report?.nativeRequestDrainEvidence) ? report.nativeRequestDrainEvidence : [])
+    .filter((drain) => drain?.status === 'timed-out')
+    .flatMap((drain) => (Array.isArray(drain.unresolvedRequests) ? drain.unresolvedRequests : [])
+      .map((request) => ({ ...request, reason: request?.reason ?? drain.reason })));
+  return [...failureRequests, ...drainedRequests];
 }
 
 function summarizePendingOwnedRequests(report, scenario) {
@@ -586,7 +596,8 @@ function summarizePendingOwnedRequests(report, scenario) {
     const endpoint = endpointForNativeRequest(request, report, scenario, Boolean(gateEvidence));
     if (!endpoint || typeof requestID !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(requestID)) continue;
     const reason = gateEvidence
-      ? diagnosticLine(request?.reason) ?? 'No completion event was recorded before verification finished.'
+      ? diagnosticLine(gateEvidence.reason) ?? diagnosticLine(request?.reason)
+        ?? 'No completion event was recorded before verification finished.'
       : null;
     requests.push({ endpoint, requestID, status, ...(reason ? { reason } : {}) });
   }

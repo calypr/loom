@@ -1148,6 +1148,95 @@ test('retained GAP-003 request IDs and unfinished reasons reach the review packe
   ]);
 });
 
+test('native request drain evidence remains visible after an earlier assertion failure', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const scenarioID = 'root-quantity-pivot';
+  const caseName = 'full-population-lifecycle';
+  const project = 'loom_dev_cda_fhir';
+  const explorer = 'summary-owned-explorer';
+  const capabilitiesPath = `/api/v1/projects/${project}/explorers/${explorer}/authoring/v2/construction-capabilities`;
+  const finishedSchemaPath = `/api/v1/projects/${project}/explorers/${explorer}/authoring/v2/schema-fields`;
+  const wrongScopeSchemaPath = `/api/v1/projects/${project}/explorers/other-explorer/authoring/v2/schema-fields`;
+  const drainReason = 'No Playwright requestfinished or requestfailed event was observed before the bounded native request drain deadline.';
+  const fake = fakeRunner({
+    scenarioID,
+    caseName,
+    rootDir: root,
+    browserReport: 'cda',
+    domainReportOverride: {
+      status: 'failed',
+      errors: [],
+      target: {
+        project,
+        generation: 'cda-fhir-v1',
+        explorer,
+        uiUrl: 'http://127.0.0.1:30008',
+      },
+      failureEvidence: { reason: 'Error: Earlier assertion failed before native request drain.' },
+      nativeRequests: [
+        {
+          requestId: 'pending-capabilities',
+          method: 'POST',
+          path: capabilitiesPath,
+          origin: 'http://127.0.0.1:30008',
+          status: 200,
+          completedAt: 1791518512997,
+          nativeEventChronology: [{ event: 'request' }, { event: 'response' }],
+        },
+        {
+          requestId: 'finished-schema',
+          method: 'POST',
+          path: finishedSchemaPath,
+          origin: 'http://127.0.0.1:30008',
+          status: 200,
+          completedAt: 1791518513007,
+          nativeEventChronology: [{ event: 'request' }, { event: 'response' }, { event: 'requestfinished' }],
+        },
+        {
+          requestId: 'wrong-scope-schema',
+          method: 'POST',
+          path: wrongScopeSchemaPath,
+          origin: 'http://127.0.0.1:30008',
+          status: 200,
+          completedAt: 1791518513017,
+          nativeEventChronology: [{ event: 'request' }, { event: 'response' }],
+        },
+      ],
+      nativeRequestDrainEvidence: [{
+        status: 'timed-out',
+        reason: drainReason,
+        unresolvedRequests: [
+          { index: 0, requestId: 'pending-capabilities', path: capabilitiesPath },
+          { index: 2, requestId: 'wrong-scope-schema', path: wrongScopeSchemaPath },
+        ],
+      }],
+    },
+  });
+  const summary = await runNativeVerificationBracket({
+    scenarioID,
+    caseName,
+    grep: 'native request drain evidence remains visible after an earlier assertion failure$',
+    evidenceParent: parent,
+    root,
+    env: fake.env,
+    commandRunner: fake.commandRunner,
+  });
+
+  assert.equal(summary.status, 'failed', JSON.stringify({
+    lifecycle: summary.lifecycle,
+    integrity: summary.integrity,
+    notes: summary.notes,
+  }, null, 2));
+  assert.equal(summary.reviewPacket.firstFailureReason, 'Error: Earlier assertion failed before native request drain.');
+  assert.deepEqual(summary.reviewPacket.pendingOwnedRequests, [{
+    endpoint: 'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-capabilities',
+    requestID: 'pending-capabilities',
+    status: 'pending',
+    reason: drainReason,
+  }]);
+});
+
 test('runner summary and review packet preserve normalized render evidence fields', async (t) => {
   const scenarioID = 'root-quantity-pivot';
   const caseName = 'full-population-lifecycle';
