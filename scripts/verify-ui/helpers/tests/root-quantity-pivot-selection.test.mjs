@@ -9,7 +9,7 @@ import {
   finalizeFixtureNativeRequestReport,
   projectFixtureNetworkDiagnostics,
 } from '../native-request-ledger.mjs';
-import { classifyNetworkRecord, createReport, finishReport } from '../report.mjs';
+import { classifyNetworkRecord, createReport, finishReport, recordCheck } from '../report.mjs';
 import {
   classifyRootQuantityPivotValidationConsoleBatch,
   markRootQuantityPivotValidationBatchExpected,
@@ -785,6 +785,135 @@ const validationBatchFixture = ({ retainedCase016 = false } = {}) => {
 };
 
 const classifyFixture = fixture => classifyRootQuantityPivotValidationConsoleBatch(fixture);
+
+const finishExpectedValidationBatch = ({ fixture = validationBatchFixture({ retainedCase016: true }), mutate } = {}) => {
+  const validationBatch = classifyFixture(fixture);
+  const batchEvidence = {
+    kind: 'expected-root-quantity-pivot-validation-console-batch',
+    project: fixture.project,
+    explorer: fixture.explorer,
+    route: validationBatch.route,
+    status: validationBatch.status,
+    code: validationBatch.code,
+    duplicatePolicy: 'ERROR',
+    outputId: fixture.outputId,
+    snapshotToken: fixture.initialDraft.snapshotToken,
+    draftVersion: fixture.initialDraft.draftVersion,
+    draftDigest: fixture.initialDraft.draftDigest,
+    rawDuplicateBucket: {
+      rawWitnessIDs: fixture.duplicateWitness.rawWitnessIDs,
+      status: fixture.duplicateWitness.status,
+      category: JSON.stringify({ kind: 'STRING', string: fixture.duplicateWitness.value }),
+      rowCount: fixture.duplicateWitness.rowCount,
+      numericCount: fixture.duplicateWitness.numericCount,
+      sum: fixture.duplicateWitness.valueSum,
+      max: fixture.duplicateWitness.valueMax,
+    },
+    requestIDs: validationBatch.requestIDs,
+    sumRepairPairs: validationBatch.sumRepairPairs,
+    fixtureRequestPairs: validationBatch.fixtureRequestPairs,
+    consoleEventCount: validationBatch.fixtureConsoleNetworkIndexes.length,
+    consoleEventsHaveRequestIDs: false,
+    association: validationBatch.association,
+  };
+  const report = createReport({
+    scenario: 'root-quantity-pivot',
+    caseName: 'fixture-lifecycle',
+    target: {
+      kind: 'isolated',
+      project: fixture.project,
+      fixtureProject: fixture.project,
+      generation: 'devloop-v1',
+      uiUrl: fixture.origin,
+      explorer: fixture.explorer,
+    },
+    requiredChecks: ['root quantity fixture finalizer retains the exact validation proof'],
+  });
+  report.explorer = fixture.explorer;
+  report.network = fixture.fixtureNetwork;
+  report.errors = fixture.fixtureErrors;
+  recordCheck(report, 'correctness', report.requiredChecks[0], true, { requestIDs: validationBatch.requestIDs });
+  markRootQuantityPivotValidationBatchExpected({
+    validationBatch,
+    batchEvidence,
+    workflowErrors: fixture.workflowErrors,
+    nativeReport: report,
+    browserConsoleDiagnostics: fixture.fixtureDiagnostics.console,
+  });
+  report.expectedHttpFailureBatches = [batchEvidence];
+  projectFixtureNetworkDiagnostics({ report, ledger: { linkProjectedDiagnostics() {} }, faults: [] });
+  mutate?.({ report, fixture, validationBatch, batchEvidence });
+  finishReport(report);
+  return { report, fixture, validationBatch, batchEvidence };
+};
+
+test('Basic finishReport accepts the exact request-bound CASE-016 validation batch after SUM repair', () => {
+  const fixture = validationBatchFixture({ retainedCase016: true });
+  const { report, validationBatch } = finishExpectedValidationBatch({
+    fixture,
+    mutate: ({ report }) => {
+      for (const event of report.network.filter(record => record.kind === 'console-error')) {
+        event.expectedHttpFailure = JSON.parse(JSON.stringify(event.expectedHttpFailure));
+      }
+    },
+  });
+  assert.equal(report.project, undefined, 'The retained browser report stores project identity under target.project');
+  assert.equal(report.target.project, fixture.project);
+  assert.equal(validationBatch.requestIDs.length, 2);
+  assert.equal(report.network.length, 4, 'The two completed HTTP bodies and two console observations remain in the raw network evidence');
+  assert.equal(report.network.filter(entry => entry.kind === 'network' && entry.status === 422).length, 2);
+  assert.equal(report.network.filter(entry => entry.kind === 'console-error').length, 2);
+  assert.equal(classifyNetworkRecord(report.network.find(entry => entry.kind === 'network')), 'unexpected-error',
+    'The plain classifier does not trust expected flags; the report boundary must revalidate the whole batch proof');
+  assert.equal(report.status, 'passed', 'The generic fixture finalizer must honor only the exact validated batch proof');
+  assert.deepEqual(report.missingRequiredChecks, []);
+  assert.equal(report.assertions.some(assertion => assertion.name === 'no unexpected network, module, or browser errors'), false);
+  assert.equal(report.errors.some(error => error.kind === 'unexpected-network'), false);
+});
+
+test('Basic finishReport rejects a validation batch bound to a different target project', () => {
+  const wrongTarget = finishExpectedValidationBatch({
+    mutate: ({ report }) => { report.target.project = 'another-project'; },
+  });
+  assert.equal(wrongTarget.report.status, 'failed');
+  assert(wrongTarget.report.assertions.some(assertion => assertion.name === 'no unexpected network, module, or browser errors' && assertion.status === 'failed'));
+});
+
+test('Basic finishReport keeps copied request proofs, wrong response bodies, and extra console errors fatal', () => {
+  const sameRoute422 = finishExpectedValidationBatch({
+    mutate: ({ report }) => {
+      const source = report.network.find(entry => entry.kind === 'network');
+      report.network.push({
+        ...source,
+        playwrightRequestId: 'unrelated-playwright-request',
+        requestDetails: { ...source.requestDetails, requestId: 'unrelated-server-request' },
+      });
+    },
+  });
+  assert.equal(sameRoute422.report.status, 'failed', 'Copying the proof onto another request ID cannot consume a same-route 422');
+  assert(sameRoute422.report.assertions.some(assertion => assertion.name === 'no unexpected network, module, or browser errors' && assertion.status === 'failed'));
+
+  const extraConsole = finishExpectedValidationBatch({
+    mutate: ({ report }) => {
+      const source = report.network.find(entry => entry.kind === 'console-error');
+      report.network.push({ ...source });
+    },
+  });
+  assert.equal(extraConsole.report.status, 'failed', 'An additional ambiguous console error invalidates the two-event proof and remains fatal');
+
+  const wrongBody = finishExpectedValidationBatch({
+    mutate: ({ report }) => {
+      const request = report.network.find(entry => entry.kind === 'network');
+      request.responseBody.body = JSON.stringify({ error: { code: 'OTHER', requestId: request.requestDetails.requestId } });
+    },
+  });
+  assert.equal(wrongBody.report.status, 'failed', 'The finalizer rechecks the completed response body instead of trusting an expected flag');
+
+  const flagOnly = finishExpectedValidationBatch({
+    mutate: ({ report }) => { report.expectedHttpFailureBatches = []; },
+  });
+  assert.equal(flagOnly.report.status, 'failed', 'Expected markers without the validated batch proof remain fatal');
+});
 
 test('full-population root quantity validation batch matches two exact ERROR proposals and raw witness', () => {
   const result = classifyFixture(validationBatchFixture());

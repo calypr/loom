@@ -89,13 +89,19 @@ const requestPrefixes = {
 };
 
 /** Build a page-only probe. It records exact signal ownership and selected request metadata, never raw bodies or credentials. */
-export const createNativeAbortProbeSource = ({ project, explorer, apiOrigin }) => `(() => {
+export const createNativeAbortProbeSource = ({ project, explorer, apiOrigin }) => {
+  const projectRouteExplorerScope = explorer?.mode === 'project-routes';
+  if (!projectRouteExplorerScope && (typeof explorer !== 'string' || explorer.length === 0)) {
+    throw new TypeError('Native abort probe source requires an exact Explorer or project-routes Explorer scope.');
+  }
+  return `(() => {
   const marker = '__loomNativeAbortProbeInstalled';
   if (globalThis[marker]) return;
   Object.defineProperty(globalThis, marker, { value: true, configurable: false });
   const scope = {
     project: ${JSON.stringify(project)},
-    explorer: ${JSON.stringify(explorer)},
+    explorer: ${JSON.stringify(projectRouteExplorerScope ? null : explorer)},
+    explorerScope: ${JSON.stringify(projectRouteExplorerScope ? 'project-routes' : 'exact')},
     apiOrigin: ${JSON.stringify(apiOrigin ?? null)},
   };
   const prefixes = ${JSON.stringify(requestPrefixes)};
@@ -238,9 +244,14 @@ export const createNativeAbortProbeSource = ({ project, explorer, apiOrigin }) =
   const requestMetadata = (input, init) => {
     let url;
     try { url = new URL(typeof input === 'string' ? input : input.url, globalThis.location.href); } catch { return undefined; }
-    const prefix = '/api/v1/projects/' + encodeURIComponent(scope.project) + '/explorers/' + encodeURIComponent(scope.explorer) + '/authoring/v2/';
+    const prefix = '/api/v1/projects/' + encodeURIComponent(scope.project) + '/explorers/';
     if ((scope.apiOrigin && url.origin !== scope.apiOrigin) || !url.pathname.startsWith(prefix)) return undefined;
-    const endpoint = url.pathname.slice(prefix.length);
+    const route = url.pathname.slice(prefix.length).split('/');
+    if (route.length !== 4 || route[1] !== 'authoring' || route[2] !== 'v2' || !route[0] || !route[3]) return undefined;
+    let routeExplorer;
+    try { routeExplorer = decodeURIComponent(route[0]); } catch { return undefined; }
+    if (scope.explorerScope === 'exact' && routeExplorer !== scope.explorer) return undefined;
+    const endpoint = route[3];
     if (!Object.hasOwn(prefixes, endpoint)) return undefined;
     const method = String(init?.method ?? input?.method ?? 'GET').toUpperCase();
     if (method !== 'POST') return undefined;
@@ -251,7 +262,7 @@ export const createNativeAbortProbeSource = ({ project, explorer, apiOrigin }) =
     }
     if (typeof requestId !== 'string' || !prefixes[endpoint].some((item) => requestId.startsWith(item))) return undefined;
     if (!/^[a-z0-9-]{3,80}-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(requestId)) return undefined;
-    return { requestId, origin: url.origin, path: url.pathname, method, endpoint, requestIdSource: 'request-header' };
+    return { requestId, origin: url.origin, path: url.pathname, method, endpoint, explorer: routeExplorer, requestIdSource: 'request-header' };
   };
   const constructionRequestContext = (init, endpoint) => {
     if (endpoint !== 'construction-capabilities' || typeof init?.body !== 'string') return undefined;
@@ -318,6 +329,18 @@ export const createNativeAbortProbeSource = ({ project, explorer, apiOrigin }) =
         () => { record.fetchStateAtAbort = 'rejected'; record.settledAt = wallNow(); },
       );
     }
+    if (record && owner && signal?.aborted === true && Number.isFinite(owner.lastAbortAt)) {
+      send({
+        kind: 'abort-controller-fetch-observed-after-abort',
+        controllerId: owner.id,
+        controllerCreatedAt: owner.createdAt,
+        controllerAbortedAt: owner.lastAbortAt,
+        abortCount: owner.abortCount,
+        observedAt: record.startedAt,
+        signalWasAlreadyAborted: true,
+        request: record,
+      });
+    }
     return result;
   };
   const NativeAbortController = globalThis.AbortController;
@@ -330,6 +353,7 @@ export const createNativeAbortProbeSource = ({ project, explorer, apiOrigin }) =
         createdStack: safeStack(new Error('abort-controller-created').stack),
         requests: new Map(),
         abortCount: 0,
+        lastAbortAt: undefined,
       };
       controllersBySignal.set(this.signal, owner);
     }
@@ -338,6 +362,7 @@ export const createNativeAbortProbeSource = ({ project, explorer, apiOrigin }) =
       if (owner) {
         owner.abortCount += 1;
         const abortedAt = wallNow();
+        owner.lastAbortAt = abortedAt;
         const requests = [...owner.requests.values()].map((request) => ({
           ...request,
           ownerDomAtAbort: recordOwnerAtAbort(domOwnersByRequest.get(request), abortedAt),
@@ -430,14 +455,16 @@ export const createNativeAbortProbeSource = ({ project, explorer, apiOrigin }) =
       lastTrustedInteraction = interaction;
     }, true);
   }
-  send({ kind: 'probe-installed', at: wallNow(), project: scope.project, explorer: scope.explorer });
+  send({ kind: 'probe-installed', at: wallNow(), project: scope.project, explorer: scope.explorer, explorerScope: scope.explorerScope });
 })();`;
+};
 
 /** Install the probe for the current document and future navigations in its browser context. */
 export const installNativeAbortProbe = async ({ page, report, project, explorer, apiOrigin }) => {
   if (!page || typeof page.context !== 'function' || typeof page.evaluate !== 'function' ||
       !report || typeof report !== 'object' || typeof project !== 'string' || project.length === 0 ||
-      typeof explorer !== 'string' || explorer.length === 0 || typeof apiOrigin !== 'string') {
+      (typeof explorer !== 'string' && explorer?.mode !== 'project-routes') ||
+      (typeof explorer === 'string' && explorer.length === 0) || typeof apiOrigin !== 'string') {
     throw new TypeError('Native abort capture requires a Playwright page, report, project, Explorer, and API origin.');
   }
 
@@ -611,11 +638,21 @@ export const nativeAbortSignalObservationForRequest = (entry, events) => {
     return { exactRequestSignalCorrelation: false, matchCount: 0, reason: 'native request identity is incomplete' };
   }
   const matches = (events ?? []).flatMap((event) => {
-    if (event.kind !== 'abort-controller-call' || typeof event.controllerId !== 'string') return [];
+    if (typeof event.controllerId !== 'string') return [];
+    if (event.kind === 'abort-controller-fetch-observed-after-abort') {
+      const request = event.request;
+      const exactAbortWasCaptured = (events ?? []).some((candidate) => candidate.kind === 'abort-controller-call' &&
+        candidate.controllerId === event.controllerId && candidate.abortedAt === event.controllerAbortedAt);
+      return exactAbortWasCaptured && request?.requestId === requestCorrelationId && request.origin === entry.origin &&
+        request.path === entry.path && request.method === entry.method
+        ? [{ event, request, afterAbort: true }]
+        : [];
+    }
+    if (event.kind !== 'abort-controller-call') return [];
     return (event.requests ?? []).filter((request) =>
       request.requestId === requestCorrelationId && request.origin === entry.origin && request.path === entry.path &&
       request.method === entry.method,
-    ).map((request) => ({ event, request }));
+    ).map((request) => ({ event, request, afterAbort: false }));
   });
   if (matches.length !== 1) {
     return {
@@ -624,7 +661,7 @@ export const nativeAbortSignalObservationForRequest = (entry, events) => {
       reason: matches.length === 0 ? 'no exact AbortSignal event was captured' : 'multiple exact AbortSignal events were captured',
     };
   }
-  const [{ event, request }] = matches;
+  const [{ event, request, afterAbort }] = matches;
   const settlements = (events ?? []).flatMap((candidate) => candidate.kind === 'abort-controller-fetch-settlement' &&
     candidate.controllerId === event.controllerId
       ? (candidate.requests ?? []).filter((item) => item.requestId === request.requestId &&
@@ -639,9 +676,10 @@ export const nativeAbortSignalObservationForRequest = (entry, events) => {
     requestIdSource: request.requestIdSource,
     origin: request.origin,
     controllerId: event.controllerId,
-    controllerCreatedAt: event.createdAt,
-    controllerAbortedAt: event.abortedAt,
-    signalWasAlreadyAborted: event.signalWasAlreadyAborted,
+    controllerCreatedAt: afterAbort ? event.controllerCreatedAt : event.createdAt,
+    controllerAbortedAt: afterAbort ? event.controllerAbortedAt : event.abortedAt,
+    signalWasAlreadyAborted: afterAbort ? true : event.signalWasAlreadyAborted,
+    requestObservedAfterAbort: afterAbort,
     fetchStateAtAbort: request.fetchStateAtAbort,
     ownerDomAtFetch: request.ownerDomAtFetch,
     ownerDomAtAbort: request.ownerDomAtAbort,

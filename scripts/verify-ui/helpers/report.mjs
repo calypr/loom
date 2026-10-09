@@ -107,10 +107,91 @@ export const registerValidatedObsoleteNetworkRead = (report, record, proof) => {
   return true;
 };
 
+const expectedRootQuantityValidationConsoleMessage =
+  'Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
+
+const parseCapturedResponse = (record) => {
+  if (record.responseBody?.captureState !== 'completed' || typeof record.responseBody.body !== 'string') return null;
+  try { return JSON.parse(record.responseBody.body); } catch { return null; }
+};
+
+const exactRootQuantityValidationBatch = (report) => {
+  const target = report?.target;
+  const { project, explorer } = target ?? {};
+  if (report?.scenario !== 'root-quantity-pivot' || report?.case !== 'fixture-lifecycle' ||
+      typeof project !== 'string' || !project || typeof explorer !== 'string' || !explorer ||
+      (report.explorer !== undefined && report.explorer !== explorer) || typeof target?.uiUrl !== 'string') return null;
+  let origin;
+  try {
+    const targetURL = new URL(target.uiUrl);
+    if (targetURL.origin !== target.uiUrl) return null;
+    origin = targetURL.origin;
+  } catch { return null; }
+
+  const route = `/api/v1/projects/${project}/explorers/${explorer}/authoring/v2/construction-proposals`;
+  const batches = (report.expectedHttpFailureBatches ?? []).filter(batch => batch?.kind === 'expected-root-quantity-pivot-validation-console-batch');
+  if (batches.length !== 1) return null;
+  const batch = batches[0];
+  const { requestIDs, fixtureRequestPairs: pairs, sumRepairPairs: repairs } = batch;
+  if (batch.project !== project || batch.explorer !== explorer || batch.route !== route || batch.status !== 422 ||
+      batch.code !== 'TABLE_PIVOT_CELL_CARDINALITY' || batch.duplicatePolicy !== 'ERROR' ||
+      typeof batch.outputId !== 'string' || typeof batch.snapshotToken !== 'string' ||
+      !Number.isInteger(batch.draftVersion) || typeof batch.draftDigest !== 'string' ||
+      batch.consoleEventCount !== 2 || batch.consoleEventsHaveRequestIDs !== false ||
+      !Array.isArray(requestIDs) || requestIDs.length !== 2 || new Set(requestIDs).size !== 2 ||
+      !Array.isArray(pairs) || pairs.length !== 2 || !Array.isArray(repairs) || repairs.length !== 2) return null;
+  const pairByRequestID = new Map(pairs.map(pair => [pair?.requestId, pair]));
+  const repairByRequestID = new Map(repairs.map(repair => [repair?.validationRequestId, repair]));
+  if (pairByRequestID.size !== 2 || repairByRequestID.size !== 2 || requestIDs.some(id =>
+      !pairByRequestID.has(id) || !repairByRequestID.has(id)) ||
+      new Set(pairs.map(pair => pair?.browserRequestId)).size !== 2 ||
+      new Set(pairs.map(pair => pair?.playwrightRequestId)).size !== 2 ||
+      new Set(pairs.map(pair => pair?.networkIndex)).size !== 2) return null;
+
+  const url = `${origin}${route}`;
+  const requests = pairs.map(pair => Number.isInteger(pair.networkIndex) ? report.network?.[pair.networkIndex] : null);
+  const matchingRequests = (report.network ?? []).filter(record => record.kind === 'network' && record.method === 'POST' &&
+    record.status === 422 && record.url === url);
+  if (requests.some(record => !record) || matchingRequests.length !== 2 || requests.some(record => !matchingRequests.includes(record))) return null;
+  for (const pair of pairs) {
+    const requestId = pair.requestId;
+    const record = report.network[pair.networkIndex];
+    const repair = repairByRequestID.get(requestId);
+    const expectedProof = { ...batch, requestId, browserRequestId: pair.browserRequestId,
+      playwrightRequestId: pair.playwrightRequestId, sumRepair: repair };
+    if (record.playwrightRequestId !== pair.playwrightRequestId || record.requestDetails?.requestId !== requestId ||
+        record.expected !== true || JSON.stringify(record.expectedHttpFailure) !== JSON.stringify(expectedProof) ||
+        record.requestDetails?.outputId !== batch.outputId || record.requestDetails?.draftVersion !== batch.draftVersion ||
+        record.requestDetails?.draftDigest !== batch.draftDigest) return null;
+    const response = parseCapturedResponse(record);
+    const diagnostic = response?.error?.diagnostic;
+    if (response?.error?.code !== batch.code || response.error?.requestId !== requestId ||
+        response?.diagnostics?.length !== 1 || diagnostic?.code !== batch.code || diagnostic?.requestId !== requestId ||
+        diagnostic?.stage !== 'preview' || diagnostic?.severity !== 'error' ||
+        response.diagnostics[0]?.code !== batch.code || response.diagnostics[0]?.requestId !== requestId ||
+        response.diagnostics[0]?.stage !== 'preview' || response.diagnostics[0]?.severity !== 'error') return null;
+  }
+
+  const consoles = (report.network ?? []).filter(record => record.kind === 'console-error' &&
+    record.location === url && record.text === expectedRootQuantityValidationConsoleMessage);
+  if (consoles.length !== 2 || consoles.some(record => record.expected !== true ||
+      JSON.stringify(record.expectedHttpFailure) !== JSON.stringify(batch))) return null;
+  return { batch, requests, consoles };
+};
+
+const validatedRootQuantityValidationRecord = (report, record) => {
+  const evidence = exactRootQuantityValidationBatch(report);
+  if (!evidence) return false;
+  if (record.kind === 'console-error') return evidence.consoles.includes(record);
+  if (record.kind !== 'network') return false;
+  return evidence.requests.includes(record);
+};
+
 const classifyReportNetworkRecord = (report, record) => {
   if (isCodedSourceColumnReport(report) && record.errorText === 'net::ERR_ABORTED') {
     return exactValidatedObsoleteRead(report, record) ? 'cancelled' : 'unexpected-error';
   }
+  if (validatedRootQuantityValidationRecord(report, record)) return 'expected-validated-http';
   return classifyNetworkRecord(record);
 };
 

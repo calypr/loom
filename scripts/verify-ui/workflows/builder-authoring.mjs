@@ -39,6 +39,13 @@ const readPatientOracle = async fixtureDir => {
 
 const performCohortRecodeLifecycle = async ({ page, report, check, action }, context) => {
   configureNativePage(page);
+  await installNativeAbortProbe({
+    page,
+    report,
+    project: context.target.fixtureProject,
+    explorer: { mode: 'project-routes' },
+    apiOrigin: new URL(context.target.uiUrl).origin,
+  });
   const oracleBefore = await readPatientOracle(context.target.fixtureDir);
   const sourceIDs = oracleBefore.sourceIDs;
   const title = `Verify ${context.runID.slice(-10)} cohort recode`;
@@ -92,13 +99,6 @@ const performCohortRecodeLifecycle = async ({ page, report, check, action }, con
   const explorer = await explorerControl.inputValue();
   assert(explorer && explorer !== context.target.bootstrapExplorerId, 'cohort recode requires a newly created Explorer');
   report.target.explorer = explorer;
-  await installNativeAbortProbe({
-    page,
-    report,
-    project: context.target.fixtureProject,
-    explorer,
-    apiOrigin: new URL(context.target.uiUrl).origin,
-  });
   const tableName = page.locator('#first-table-name');
   await action('name Patient table', tableName, () => tableName.fill('Patients'), { editable: true });
   const choosePatients = page.getByRole('button', { name: 'Choose Patient rows', exact: true });

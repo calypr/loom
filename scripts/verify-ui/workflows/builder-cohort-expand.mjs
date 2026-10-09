@@ -108,6 +108,13 @@ const assertGroupPairs = (grid, expectedIDs, expectedItemLabel, phase) => {
 const performCohortExpandLifecycle = async (workflow, context = workflow) => {
   const { page, report } = workflow;
   configureNativePage(page);
+  await installNativeAbortProbe({
+    page,
+    report,
+    project: context.target.fixtureProject,
+    explorer: { mode: 'project-routes' },
+    apiOrigin: new URL(context.target.uiUrl).origin,
+  });
   assert.equal(context.custom, false, 'This authoring case requires an owned isolated fixture project.');
   assert.equal(context.seed?.fresh, true, 'This case must use a fresh verification project.');
   assert(context.target.fixtureProject?.startsWith('loom_dev_verify_'), 'Expected a fresh loom_dev_verify project.');
@@ -129,13 +136,6 @@ const performCohortExpandLifecycle = async (workflow, context = workflow) => {
 
   const { explorer } = await createBlankExplorer(page, workflow, context.target, context.runID, 'cohort-expand', report);
   report.target.explorer = explorer;
-  await installNativeAbortProbe({
-    page,
-    report,
-    project: context.target.fixtureProject,
-    explorer,
-    apiOrigin: new URL(context.target.uiUrl).origin,
-  });
   await addPatientTableRoot(page, workflow, report, 'Patients');
 
   const project = context.target.fixtureProject;

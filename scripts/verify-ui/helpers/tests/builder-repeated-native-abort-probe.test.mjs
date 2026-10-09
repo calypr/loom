@@ -8,21 +8,21 @@ import {
 
 const workflowSource = readFileSync(new URL('../../workflows/builder-repeated.mjs', import.meta.url), 'utf8');
 
-test('CASE-010 probes the fresh active Explorer before its first source selection', () => {
+test('CASE-010 installs the exact-project probe before the Builder document constructs its client', () => {
   assert.match(workflowSource, /import\s*\{[^}]*\binstallNativeAbortProbe\b[^}]*\}\s*from\s*['"]\.\.\/helpers\/native-abort-probe\.mjs['"]/);
 
-  const explorerBoundary = workflowSource.indexOf('const { explorer } = await createBlankExplorer(');
   const probeInstall = workflowSource.indexOf('await installNativeAbortProbe({');
+  const explorerBoundary = workflowSource.indexOf('const { explorer } = await createBlankExplorer(');
   const firstSourceSelection = workflowSource.indexOf("action: () => click(workflow, 'button', { name: 'Choose Observation rows' })");
-  assert(explorerBoundary >= 0 && probeInstall > explorerBoundary && firstSourceSelection > probeInstall,
-    'the probe must install after the fresh Explorer is known and before the first source/catalog action');
+  assert(probeInstall >= 0 && explorerBoundary > probeInstall && firstSourceSelection > explorerBoundary,
+    'the init script must install before page.goto creates the app client, before the fresh-Explorer workflow and source selection');
 
   const installation = workflowSource.slice(probeInstall, workflowSource.indexOf('});', probeInstall) + 3);
   assert.match(installation, /page,/);
   assert.match(installation, /report,/);
   assert.match(installation, /project:\s*context\.target\.fixtureProject/);
-  assert.match(installation, /explorer,/);
-  assert.match(installation, /apiOrigin:\s*new URL\(page\.url\(\)\)\.origin/);
+  assert.match(installation, /explorer:\s*\{\s*mode:\s*'project-routes'\s*\}/);
+  assert.match(installation, /apiOrigin:\s*new URL\(context\.target\.uiUrl\)\.origin/);
 
   const scopeOpen = workflowSource.indexOf('nativeRequestLedger.openScope({');
   const lifecycleRun = workflowSource.indexOf('await runRepeatedEmptyWorkflow(workflow, context);');
@@ -35,6 +35,29 @@ test('CASE-010 probes the fresh active Explorer before its first source selectio
     /explorer:\s*report\.target\?\.explorer[\s\S]*timeoutMs:\s*5000/);
   assert.match(workflowSource, /if \(!ledger\?\.nativeRequestTerminalLedger\?\.complete\)/);
   assert.match(workflowSource, /entry\.state === 'failed'/);
+});
+
+test('CASE-008/009 also install the project-scoped probe before their Builder navigation', () => {
+  const callers = [
+    {
+      path: '../../workflows/builder-authoring.mjs',
+      firstNavigation: 'await page.goto(browserURL(',
+    },
+    {
+      path: '../../workflows/builder-cohort-expand.mjs',
+      firstNavigation: "const { explorer } = await createBlankExplorer(page, workflow, context.target, context.runID, 'cohort-expand'",
+    },
+  ];
+  for (const { path, firstNavigation } of callers) {
+    const source = readFileSync(new URL(path, import.meta.url), 'utf8');
+    const install = source.indexOf('await installNativeAbortProbe({');
+    const navigation = source.indexOf(firstNavigation);
+    assert(install >= 0 && navigation > install, `${path} must install before its first Builder navigation`);
+    const options = source.slice(install, source.indexOf('});', install) + 3);
+    assert.match(options, /project:\s*context\.target\.fixtureProject/);
+    assert.match(options, /explorer:\s*\{\s*mode:\s*'project-routes'\s*\}/);
+    assert.match(options, /apiOrigin:\s*new URL\(context\.target\.uiUrl\)\.origin/);
+  }
 });
 
 test('CASE-010 persists exact schema-fields signal correlations separately without classifying cancellation', () => {
@@ -67,7 +90,8 @@ test('CASE-010 persists exact schema-fields signal correlations separately witho
     signalWasAlreadyAborted: false,
     requests: [{ requestId, origin, path, method: 'POST', requestIdSource: 'request-header',
       ownerDomAtFetch: { status: 'unique', ruleOwner: 'feature-catalog-generated-fields' },
-      ownerDomAtAbort: { status: 'unique', connectedAtAbort: true } }],
+      ownerDomAtAbort: { status: 'unique', connectedAtAbort: true },
+    }],
   }];
   const report = { nativeAbortProbeEvents: probeEvents };
 

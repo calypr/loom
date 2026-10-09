@@ -220,6 +220,13 @@ const openRowDefinition = (report, page, workflow, name) =>
 const runRepeatedEmptyWorkflow = async (workflow, context) => {
   const { page, report } = workflow;
   configureNativePage(page);
+  await installNativeAbortProbe({
+    page,
+    report,
+    project: context.target.fixtureProject,
+    explorer: { mode: 'project-routes' },
+    apiOrigin: new URL(context.target.uiUrl).origin,
+  });
   const contract = fixtureContract(context);
     requireCheck(report, 'correctness', 'case started with a fresh owned project and the exact repeated-empty fixture contract',
       contract.passed, { ...contract.summary, errors: contract.errors });
@@ -227,13 +234,6 @@ const runRepeatedEmptyWorkflow = async (workflow, context) => {
 
     const { explorer } = await createBlankExplorer(page, workflow, context.target, context.runID, 'repeated-empty', report);
     report.target.explorer = explorer;
-    await installNativeAbortProbe({
-      page,
-      report,
-      project: context.target.fixtureProject,
-      explorer,
-      apiOrigin: new URL(page.url()).origin,
-    });
     const assertScope = async (name) => {
       const scope = await evaluate(page, `(()=>{const query=new URLSearchParams(location.search);return {project:query.get('project'),explorer:query.get('explorer'),mode:query.get('mode')}})()`);
       const passed = scope.project === context.target.fixtureProject && scope.explorer === explorer && scope.mode === 'builder' &&

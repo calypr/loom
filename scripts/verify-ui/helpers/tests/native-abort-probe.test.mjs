@@ -130,7 +130,7 @@ const constructionCapabilitiesDom = (outputId = 'out_fcb5bc77cf3b4ac9b41498b4') 
   return { nodes: [table], table };
 };
 
-const startProbe = ({ dom, origin = apiOrigin, scopeProject = project, scopeExplorer = explorer, source, bindingCallback } = {}) => {
+const startProbe = ({ dom, origin = apiOrigin, scopeProject = project, scopeExplorer = explorer, source, bindingCallback, installSource = true } = {}) => {
   const events = [];
   const listeners = new Map();
   let now = 100;
@@ -187,8 +187,10 @@ const startProbe = ({ dom, origin = apiOrigin, scopeProject = project, scopeExpl
     MutationObserver: FakeMutationObserver,
     fetch: (...args) => {
       fetchCalls.push(args);
+      const signal = args[1]?.signal;
       const promise = new Promise((_resolve, reject) => {
-        args[1]?.signal?.addEventListener?.('abort', () => reject(new Error('The operation was aborted.')));
+        if (signal?.aborted) reject(new Error('The operation was aborted.'));
+        else signal?.addEventListener?.('abort', () => reject(new Error('The operation was aborted.')));
       });
       promise.catch(() => {});
       return promise;
@@ -201,8 +203,9 @@ const startProbe = ({ dom, origin = apiOrigin, scopeProject = project, scopeExpl
   sandbox.globalThis = sandbox;
   const probeSource = source ?? createNativeAbortProbeSource({ project: scopeProject, explorer: scopeExplorer, apiOrigin: origin });
   assert.doesNotThrow(() => new Function(probeSource));
-  vm.runInNewContext(probeSource, sandbox);
-  return { sandbox, events, listeners, fetchCalls, advanceTime: (value) => { now = value; } };
+  const installProbe = () => vm.runInNewContext(probeSource, sandbox);
+  if (installSource) installProbe();
+  return { sandbox, events, listeners, fetchCalls, advanceTime: (value) => { now = value; }, installProbe };
 };
 
 test('probe links an exact scoped authoring fetch to the AbortSignal that was canceled', () => {
@@ -225,6 +228,139 @@ test('probe links an exact scoped authoring fetch to the AbortSignal that was ca
   ]);
   assert(!JSON.stringify(event).includes('Authorization'));
   assert(!JSON.stringify(event).includes('must-not-be-captured'));
+});
+
+test('pre-navigation project route probe captures a bound Builder client and keeps request scope exact', () => {
+  const lateProbe = startProbe({ scopeExplorer: { mode: 'project-routes' }, installSource: false });
+  const clientFetchBoundBeforeProbe = lateProbe.sandbox.fetch.bind(lateProbe.sandbox);
+  lateProbe.installProbe();
+  const lateController = new lateProbe.sandbox.AbortController();
+  const lateID = requestId('schema-fields-', '33333333');
+  clientFetchBoundBeforeProbe(`http://127.0.0.1:8188${apiPathFor(project, 'fresh-explorer-created-by-this-run', 'schema-fields')}`, {
+    method: 'POST', headers: { 'X-Request-ID': lateID }, signal: lateController.signal,
+  });
+  lateController.abort();
+  assert.deepEqual(lateProbe.events.find((event) => event.kind === 'abort-controller-call').requests, [],
+    'a Builder client that bound fetch before the probe bypasses later fetch wrapping');
+
+  const dynamicExplorerProbe = startProbe({ scopeExplorer: { mode: 'project-routes' } });
+  // Builder's Loom client binds global fetch when the client is constructed.
+  // This models page.addInitScript running before the document constructs it.
+  const builderClientFetch = dynamicExplorerProbe.sandbox.fetch.bind(dynamicExplorerProbe.sandbox);
+  const controller = new dynamicExplorerProbe.sandbox.AbortController();
+  const id = requestId('schema-fields-', '11111111');
+  const path = apiPathFor(project, 'fresh-explorer-created-by-this-run', 'schema-fields');
+
+  builderClientFetch(`http://127.0.0.1:8188${apiPathFor('loom_dev_other_run', 'wrong-project-explorer', 'schema-fields')}`, {
+    method: 'POST', headers: { 'X-Request-ID': id }, signal: controller.signal,
+  });
+  builderClientFetch(`http://127.0.0.1:30009${path}`, {
+    method: 'POST', headers: { 'X-Request-ID': id }, signal: controller.signal,
+  });
+  builderClientFetch(`http://127.0.0.1:8188${apiPathFor(project, 'another-explorer-in-same-run', 'schema-fields')}`, {
+    method: 'POST', headers: { 'X-Request-ID': 'schema-fields-22222222-0000-4000-8000-000000000000' }, signal: controller.signal,
+  });
+  builderClientFetch(`http://127.0.0.1:8188${path}`, {
+    method: 'POST', headers: { 'X-Request-ID': id }, signal: controller.signal,
+  });
+  controller.abort();
+
+  const abortEvent = dynamicExplorerProbe.events.find((event) => event.kind === 'abort-controller-call');
+  assert.deepEqual(abortEvent.requests.map(({ requestId, origin: requestOrigin, path: requestPath, explorer }) =>
+    ({ requestId, origin: requestOrigin, path: requestPath, explorer })), [
+    {
+      requestId: 'schema-fields-22222222-0000-4000-8000-000000000000',
+      origin: apiOrigin,
+      path: apiPathFor(project, 'another-explorer-in-same-run', 'schema-fields'),
+      explorer: 'another-explorer-in-same-run',
+    },
+    { requestId: id, origin: apiOrigin, path, explorer: 'fresh-explorer-created-by-this-run' },
+  ], 'wrong origin and project identities are excluded while each same-project Explorer retains its own exact path');
+
+  const nativeEntry = {
+    requestId: 'cdp-request-44444444', requestDetails: { requestId: id }, origin: apiOrigin, path, method: 'POST',
+    requestIdentityMatchCount: 1, cdpRequestId: 'cdp-request-44444444', cdpRequestMatchCount: 1,
+    requestTimestamp: 1, requestWallTime: 1, loadingFailed: { timestamp: 1.127, at: 1127 },
+    terminalEvent: 'requestfailed', failure: 'net::ERR_ABORTED',
+  };
+  assert.equal(nativeAbortSignalObservationForRequest(nativeEntry, dynamicExplorerProbe.events).exactRequestSignalCorrelation, true);
+  assert.equal(nativeAbortSignalObservationForRequest({
+    ...nativeEntry,
+    path: apiPathFor(project, 'another-explorer-in-same-run', 'schema-fields'),
+  }, dynamicExplorerProbe.events).exactRequestSignalCorrelation, false,
+  'an otherwise matching request ID cannot be attributed to another Explorer path');
+});
+
+test('pre-navigation probe correlates an exact fetch that uses a signal aborted before fetch', () => {
+  const probe = startProbe({ scopeExplorer: { mode: 'project-routes' } });
+  const clientFetchBoundBeforeNavigation = probe.sandbox.fetch.bind(probe.sandbox);
+  const controller = new probe.sandbox.AbortController();
+  const id = requestId('schema-fields-', '44444444');
+  const path = apiPathFor(project, 'fresh-explorer-created-by-this-run', 'schema-fields');
+
+  controller.abort();
+  const abortEvent = probe.events.find((event) => event.kind === 'abort-controller-call');
+  assert(abortEvent, 'the signal abort event must be retained even before its request starts');
+  assert.equal(abortEvent.signalWasAlreadyAborted, false);
+  assert.deepEqual(abortEvent.requests, [], 'the request did not exist at AbortController.abort() time');
+
+  probe.advanceTime(127);
+  clientFetchBoundBeforeNavigation(`http://127.0.0.1:8188${apiPathFor('loom_dev_other_run', 'wrong-explorer', 'schema-fields')}`, {
+    method: 'POST', headers: { 'X-Request-ID': id }, signal: controller.signal,
+  });
+  clientFetchBoundBeforeNavigation(`http://127.0.0.1:30009${path}`, {
+    method: 'POST', headers: { 'X-Request-ID': id }, signal: controller.signal,
+  });
+  clientFetchBoundBeforeNavigation(`http://127.0.0.1:8188${path}`, {
+    method: 'POST', headers: { 'X-Request-ID': id }, signal: controller.signal,
+  });
+
+  const observations = probe.events.filter((event) => event.kind === 'abort-controller-fetch-observed-after-abort');
+  assert.equal(observations.length, 1, 'only the exact project and origin request may be retained');
+  assert.deepEqual({
+    requestId: observations[0].request.requestId,
+    origin: observations[0].request.origin,
+    path: observations[0].request.path,
+    method: observations[0].request.method,
+    controllerId: observations[0].controllerId,
+    controllerAbortedAt: observations[0].controllerAbortedAt,
+    observedAt: observations[0].observedAt,
+    signalWasAlreadyAborted: observations[0].signalWasAlreadyAborted,
+  }, {
+    requestId: id,
+    origin: apiOrigin,
+    path,
+    method: 'POST',
+    controllerId: abortEvent.controllerId,
+    controllerAbortedAt: abortEvent.abortedAt,
+    observedAt: 127,
+    signalWasAlreadyAborted: true,
+  });
+
+  const nativeEntry = {
+    requestId: 'cdp-request-44444444', requestDetails: { requestId: id }, origin: apiOrigin, path, method: 'POST',
+    requestIdentityMatchCount: 1, cdpRequestId: 'cdp-request-44444444', cdpRequestMatchCount: 1,
+    requestTimestamp: 1, requestWallTime: 1, loadingFailed: { timestamp: 1.127, at: 1127 },
+    terminalEvent: 'requestfailed', failure: 'net::ERR_ABORTED',
+  };
+  const observation = nativeAbortSignalObservationForRequest(nativeEntry, probe.events);
+  assert.equal(observation.exactRequestSignalCorrelation, true);
+  assert.equal(observation.requestObservedAfterAbort, true);
+  assert.equal(observation.signalWasAlreadyAborted, true);
+  assert.equal(observation.controllerId, abortEvent.controllerId);
+  assert.equal(observation.controllerAbortedAt, abortEvent.abortedAt);
+  assert.equal(observation.nativeTerminalObserved, true);
+  assert.equal(observation.classificationEffect,
+    'diagnostic only; does not make an unfinished native request terminal or expected');
+  assert.equal(nativeAbortSignalObservationForRequest(nativeEntry, observations).exactRequestSignalCorrelation, false,
+    'a fetch-after-abort record without its matching AbortController call is insufficient attribution');
+  assert.deepEqual(nativeAbortProbeEvidenceForRequest(nativeEntry, probe.events), [],
+    'an abort-before-fetch correlation must not be reclassified as a proven owner-retirement cancellation');
+  assert.equal(nativeAbortSignalObservationForRequest({
+    ...nativeEntry,
+    path: apiPathFor(project, 'different-explorer', 'schema-fields'),
+  }, probe.events).exactRequestSignalCorrelation, false,
+  'the same request ID cannot correlate to a different Explorer path');
 });
 
 test('one suggestions owner records each exact fetch sharing its signal', () => {
