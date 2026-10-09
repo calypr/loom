@@ -174,6 +174,55 @@ test('single remote discovery script executes ordered bounded keyset, pair, and 
   assert.equal(calls.length, 6);
 });
 
+test('generated discovery phases bind exactly their declared AQL parameters', () => {
+  const built = buildRelatedQuantityPivotDiscoveryProcess(scope, bounds);
+  const writes = [];
+  const calls = [];
+  const bindingMismatches = [];
+  const context = {
+    db: { _query(query, bindVars, options) {
+      const declared = [...new Set([...query.matchAll(/@@?([A-Za-z_][A-Za-z0-9_]*)/g)].map((match) => match[1]))].sort();
+      const supplied = Object.keys(bindVars).map((name) => name.replace(/^@/, '')).sort();
+      const phase = query === built.queries.specimenPage ? 'specimenPage'
+        : query === built.queries.specimenPatientPairs ? 'specimenPatientPairs'
+          : query === built.queries.patientBatch ? 'patientBatch' : 'unknown';
+      if (JSON.stringify(supplied) !== JSON.stringify(declared)) bindingMismatches.push({ phase, supplied, declared });
+      assert.equal(options.maxRuntime, 30);
+      assert.equal(options.memoryLimit, 268_435_456);
+      calls.push({ phase, bindVars });
+      if (query === built.queries.specimenPage) return { toArray: () => [{
+        project: scope.project, generation: scope.dataset_generation, authScope,
+        afterSpecimenKey: '', pageSize: bounds.specimenPageSize,
+        specimens: [{ specimenId: 'Specimen/root-a', specimenKey: 'root-a' }],
+        hasMore: false, nextAfterSpecimenKey: null,
+      }] };
+      if (query === built.queries.specimenPatientPairs) return { toArray: () => [{
+        project: scope.project, generation: scope.dataset_generation, authScope,
+        specimenIds: bindVars.specimen_ids,
+        rows: [{ specimenId: 'Specimen/root-a', patientId: 'Patient/patient-a' }],
+        overflow: false, truncated: false,
+      }] };
+      if (query === built.queries.patientBatch) return { toArray: () => [{
+        project: scope.project, generation: scope.dataset_generation, authScope,
+        patientIds: bindVars.patient_ids, groups: [makeGroup('Patient/patient-a')],
+        overflow: false, truncated: false,
+      }] };
+      throw new Error('Unexpected query template');
+    } },
+    print: value => writes.push(value), Date, JSON, Set, Error,
+  };
+  vm.runInNewContext(built.script, context, { timeout: 1000 });
+
+  const records = writes.filter(value => value.startsWith(RELATED_QUANTITY_DISCOVERY_MARKER))
+    .map(value => JSON.parse(value.slice(RELATED_QUANTITY_DISCOVERY_MARKER.length)));
+  assert.deepEqual(calls.map(({ phase }) => phase), ['specimenPage', 'specimenPatientPairs', 'patientBatch']);
+  assert.deepEqual(bindingMismatches, [], 'Every executed query must receive only its declared AQL binds');
+  assert.deepEqual(records.filter(record => record.type === 'result').map(record => record.kind), [
+    'specimenPage', 'specimenPatientPairs', 'patientBatch',
+  ]);
+  assert.equal(records.at(-1).type, 'done');
+});
+
 test('generated script failures keep script context separate from the last completed query', () => {
   const built = buildRelatedQuantityPivotDiscoveryProcess(scope, bounds);
   const writes = [];

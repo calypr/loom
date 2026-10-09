@@ -261,7 +261,6 @@ export function buildRelatedQuantityPivotSpecimenPatientPairs(scope, specimenIds
   boundedLimit(maxRows, 'maxRows');
   const bindVars = {
     ...discoveryBindVars(scope),
-    '@root_collection': 'Specimen',
     specimen_ids: ids,
     max_rows: maxRows,
   };
