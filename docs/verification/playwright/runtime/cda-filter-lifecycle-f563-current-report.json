@@ -1,0 +1,2285 @@
+{
+  "schemaVersion": 1,
+  "recordKind": "sanitized-native-domain-report",
+  "captureId": "case030-f563-2026-10-09",
+  "scenario": "cda-filter-browser",
+  "case": "filter-lifecycle",
+  "title": "create, edit, cancel, apply, and remove a typed CDA filter",
+  "status": "passed",
+  "startedAt": "2026-10-09T11:32:14.972Z",
+  "finishedAt": "2026-10-09T11:32:39.815Z",
+  "registeredChecks": {
+    "total": 9,
+    "passed": 9,
+    "failed": 0,
+    "missing": 0,
+    "names": [
+      "native Filter rows controls expose an enabled source column and typed condition",
+      "filter proposals and rendered result values match an independent scoped CDA source oracle within five seconds",
+      "Cancel preserves the exact pre-proposal construction and rendered rows within five seconds",
+      "Apply persists the filter construction and exact result rows within five seconds",
+      "saved filter rows match the independent scoped CDA oracle",
+      "reload restores the saved filter and exact rendered rows",
+      "edit reopens the exact saved column and condition before applying a replacement within five seconds",
+      "filter removal restores the exact source columns, population, and rows after reload",
+      "All native Filter actions and action-to-render checkpoints complete within five seconds"
+    ]
+  },
+  "assertions": [
+    {
+      "name": "▤ Filter lifecycle QA completed",
+      "status": "passed",
+      "dimension": "usability",
+      "evidence": {
+        "elapsedMs": 95
+      }
+    },
+    {
+      "name": "Filter rows: Choose which rows appear in the table output. completed",
+      "status": "passed",
+      "dimension": "usability",
+      "evidence": {
+        "elapsedMs": 102
+      }
+    },
+    {
+      "name": "Select MISSING completed",
+      "status": "passed",
+      "dimension": "usability",
+      "evidence": {
+        "elapsedMs": 50
+      }
+    },
+    {
+      "name": "Cancel completed",
+      "status": "passed",
+      "dimension": "usability",
+      "evidence": {
+        "elapsedMs": 208
+      }
+    },
+    {
+      "name": "Filter rows: Choose which rows appear in the table output. completed",
+      "status": "passed",
+      "dimension": "usability",
+      "evidence": {
+        "elapsedMs": 78
+      }
+    },
+    {
+      "name": "Select EQUALS completed",
+      "status": "passed",
+      "dimension": "usability",
+      "evidence": {
+        "elapsedMs": 32
+      }
+    },
+    {
+      "name": "Select MISSING completed",
+      "status": "passed",
+      "dimension": "usability",
+      "evidence": {
+        "elapsedMs": 41
+      }
+    },
+    {
+      "name": "Apply change completed",
+      "status": "passed",
+      "dimension": "usability",
+      "evidence": {
+        "elapsedMs": 102
+      }
+    },
+    {
+      "name": "▤ Filter lifecycle QA completed",
+      "status": "passed",
+      "dimension": "usability",
+      "evidence": {
+        "elapsedMs": 67
+      }
+    },
+    {
+      "name": "1. Filter rows completed",
+      "status": "passed",
+      "dimension": "usability",
+      "evidence": {
+        "elapsedMs": 109
+      }
+    },
+    {
+      "name": "Edit completed",
+      "status": "passed",
+      "dimension": "usability",
+      "evidence": {
+        "elapsedMs": 104
+      }
+    },
+    {
+      "name": "Select EQUALS completed",
+      "status": "passed",
+      "dimension": "usability",
+      "evidence": {
+        "elapsedMs": 32
+      }
+    },
+    {
+      "name": "Value completed",
+      "status": "passed",
+      "dimension": "usability",
+      "evidence": {
+        "elapsedMs": 74
+      }
+    },
+    {
+      "name": "Apply change completed",
+      "status": "passed",
+      "dimension": "usability",
+      "evidence": {
+        "elapsedMs": 112
+      }
+    },
+    {
+      "name": "▤ Filter lifecycle QA completed",
+      "status": "passed",
+      "dimension": "usability",
+      "evidence": {
+        "elapsedMs": 102
+      }
+    },
+    {
+      "name": "1. Filter rows completed",
+      "status": "passed",
+      "dimension": "usability",
+      "evidence": {
+        "elapsedMs": 120
+      }
+    },
+    {
+      "name": "Remove completed",
+      "status": "passed",
+      "dimension": "usability",
+      "evidence": {
+        "elapsedMs": 95
+      }
+    },
+    {
+      "name": "Apply removal completed",
+      "status": "passed",
+      "dimension": "usability",
+      "evidence": {
+        "elapsedMs": 119
+      }
+    },
+    {
+      "name": "▤ Filter lifecycle QA completed",
+      "status": "passed",
+      "dimension": "usability",
+      "evidence": {
+        "elapsedMs": 151
+      }
+    },
+    {
+      "name": "native Filter rows controls expose an enabled source column and typed condition",
+      "status": "passed",
+      "dimension": "usability",
+      "evidence": {
+        "durationMs": 190
+      }
+    },
+    {
+      "name": "filter proposals and rendered result values match an independent scoped CDA source oracle within five seconds",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "Cancel preserves the exact pre-proposal construction and rendered rows within five seconds",
+      "status": "passed",
+      "dimension": "persistence"
+    },
+    {
+      "name": "Apply persists the filter construction and exact result rows within five seconds",
+      "status": "passed",
+      "dimension": "persistence",
+      "evidence": {
+        "draftVersion": 5,
+        "draftDigest": "sha256:f2659afacb0755a597817592803b49cff553d30ec5f104ae9938f2b94d6e84e1"
+      }
+    },
+    {
+      "name": "saved filter rows match the independent scoped CDA oracle",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "reload restores the saved filter and exact rendered rows",
+      "status": "passed",
+      "dimension": "persistence",
+      "evidence": {
+        "durationMs": 1924,
+        "draftVersion": 5,
+        "draftDigest": "sha256:f2659afacb0755a597817592803b49cff553d30ec5f104ae9938f2b94d6e84e1"
+      }
+    },
+    {
+      "name": "edit reopens the exact saved column and condition before applying a replacement within five seconds",
+      "status": "passed",
+      "dimension": "persistence"
+    },
+    {
+      "name": "filter removal restores the exact source columns, population, and rows after reload",
+      "status": "passed",
+      "dimension": "persistence",
+      "evidence": {
+        "durationMs": 1871
+      }
+    },
+    {
+      "name": "All native Filter actions and action-to-render checkpoints complete within five seconds",
+      "status": "passed",
+      "dimension": "performance",
+      "evidence": {
+        "workflowCheckpoints": [
+          {
+            "name": "reload-to-persisted-state",
+            "durationMs": 1990
+          },
+          {
+            "name": "open-filter-editor",
+            "durationMs": 190
+          },
+          {
+            "name": "missing-ID-preview",
+            "durationMs": 794
+          },
+          {
+            "name": "cancel-to-source-rows",
+            "durationMs": 783
+          },
+          {
+            "name": "confirmed-missing-ID-preview",
+            "durationMs": 663
+          },
+          {
+            "name": "apply-to-persisted-state",
+            "durationMs": 962
+          },
+          {
+            "name": "reload-to-persisted-state",
+            "durationMs": 1897
+          },
+          {
+            "name": "edit-filter-to-controls",
+            "durationMs": 795
+          },
+          {
+            "name": "edit-equality-preview",
+            "durationMs": 810
+          },
+          {
+            "name": "apply-to-persisted-state",
+            "durationMs": 1053
+          },
+          {
+            "name": "reload-to-persisted-state",
+            "durationMs": 1924
+          },
+          {
+            "name": "remove-filter-preview",
+            "durationMs": 723
+          },
+          {
+            "name": "apply-to-persisted-state",
+            "durationMs": 1086
+          },
+          {
+            "name": "filter-removal-to-restored-state",
+            "durationMs": 1871
+          }
+        ]
+      }
+    },
+    {
+      "name": "CDA watched source and API build stayed unchanged",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "incidental asset failures are explicitly recorded",
+      "status": "passed",
+      "dimension": "correctness"
+    }
+  ],
+  "actions": {
+    "count": 19,
+    "maximumElapsedMs": 208,
+    "records": [
+      {
+        "label": "▤ Filter lifecycle QA",
+        "elapsedMs": 95
+      },
+      {
+        "label": "Filter rows: Choose which rows appear in the table output.",
+        "elapsedMs": 102
+      },
+      {
+        "label": "Select MISSING",
+        "elapsedMs": 50
+      },
+      {
+        "label": "Cancel",
+        "elapsedMs": 208
+      },
+      {
+        "label": "Filter rows: Choose which rows appear in the table output.",
+        "elapsedMs": 78
+      },
+      {
+        "label": "Select EQUALS",
+        "elapsedMs": 32
+      },
+      {
+        "label": "Select MISSING",
+        "elapsedMs": 41
+      },
+      {
+        "label": "Apply change",
+        "elapsedMs": 102
+      },
+      {
+        "label": "▤ Filter lifecycle QA",
+        "elapsedMs": 67
+      },
+      {
+        "label": "1. Filter rows",
+        "elapsedMs": 109
+      },
+      {
+        "label": "Edit",
+        "elapsedMs": 104
+      },
+      {
+        "label": "Select EQUALS",
+        "elapsedMs": 32
+      },
+      {
+        "label": "Value",
+        "elapsedMs": 74
+      },
+      {
+        "label": "Apply change",
+        "elapsedMs": 112
+      },
+      {
+        "label": "▤ Filter lifecycle QA",
+        "elapsedMs": 102
+      },
+      {
+        "label": "1. Filter rows",
+        "elapsedMs": 120
+      },
+      {
+        "label": "Remove",
+        "elapsedMs": 95
+      },
+      {
+        "label": "Apply removal",
+        "elapsedMs": 119
+      },
+      {
+        "label": "▤ Filter lifecycle QA",
+        "elapsedMs": 151
+      }
+    ]
+  },
+  "actualExplorer": {
+    "id": "filter-browser-1791545536588",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "freshOwnedCaseExplorer": true
+  },
+  "target": {
+    "kind": "owned-cda",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "targetConfigPath": ".codex/owned-cda-target.json",
+    "configurationBinding": "bound",
+    "runtimeDatasetIdentity": "not-checked",
+    "apiOrigin": "http://127.0.0.1:8188",
+    "uiOrigin": "http://127.0.0.1:30008",
+    "composeProject": "loom-dev-6d7df93d6a37"
+  },
+  "rawOracle": {
+    "scope": {
+      "project": "loom_dev_cda_fhir",
+      "generation": "cda-fhir-v1"
+    },
+    "selectedSourceId": "b7cad184-db67-5542-a975-10fffa3e89e7",
+    "missingPredicateRows": 0,
+    "equalityPredicateRows": 1
+  },
+  "dimensions": {
+    "usability": "passed",
+    "correctness": "passed",
+    "persistence": "passed",
+    "performance": "passed"
+  },
+  "renderEvidence": {
+    "standardizedCheckpointCount": 14,
+    "maximumActionToSettledMs": 1990,
+    "checkpoints": [
+      {
+        "checkName": "All native Filter actions and action-to-render checkpoints complete within five seconds",
+        "name": "reload-to-persisted-state",
+        "durationMs": 1990,
+        "evidencePath": "assertions[].evidence.workflowCheckpoints[].durationMs"
+      },
+      {
+        "checkName": "All native Filter actions and action-to-render checkpoints complete within five seconds",
+        "name": "open-filter-editor",
+        "durationMs": 190,
+        "evidencePath": "assertions[].evidence.workflowCheckpoints[].durationMs"
+      },
+      {
+        "checkName": "All native Filter actions and action-to-render checkpoints complete within five seconds",
+        "name": "missing-ID-preview",
+        "durationMs": 794,
+        "evidencePath": "assertions[].evidence.workflowCheckpoints[].durationMs"
+      },
+      {
+        "checkName": "All native Filter actions and action-to-render checkpoints complete within five seconds",
+        "name": "cancel-to-source-rows",
+        "durationMs": 783,
+        "evidencePath": "assertions[].evidence.workflowCheckpoints[].durationMs"
+      },
+      {
+        "checkName": "All native Filter actions and action-to-render checkpoints complete within five seconds",
+        "name": "confirmed-missing-ID-preview",
+        "durationMs": 663,
+        "evidencePath": "assertions[].evidence.workflowCheckpoints[].durationMs"
+      },
+      {
+        "checkName": "All native Filter actions and action-to-render checkpoints complete within five seconds",
+        "name": "apply-to-persisted-state",
+        "durationMs": 962,
+        "evidencePath": "assertions[].evidence.workflowCheckpoints[].durationMs"
+      },
+      {
+        "checkName": "All native Filter actions and action-to-render checkpoints complete within five seconds",
+        "name": "reload-to-persisted-state",
+        "durationMs": 1897,
+        "evidencePath": "assertions[].evidence.workflowCheckpoints[].durationMs"
+      },
+      {
+        "checkName": "All native Filter actions and action-to-render checkpoints complete within five seconds",
+        "name": "edit-filter-to-controls",
+        "durationMs": 795,
+        "evidencePath": "assertions[].evidence.workflowCheckpoints[].durationMs"
+      },
+      {
+        "checkName": "All native Filter actions and action-to-render checkpoints complete within five seconds",
+        "name": "edit-equality-preview",
+        "durationMs": 810,
+        "evidencePath": "assertions[].evidence.workflowCheckpoints[].durationMs"
+      },
+      {
+        "checkName": "All native Filter actions and action-to-render checkpoints complete within five seconds",
+        "name": "apply-to-persisted-state",
+        "durationMs": 1053,
+        "evidencePath": "assertions[].evidence.workflowCheckpoints[].durationMs"
+      },
+      {
+        "checkName": "All native Filter actions and action-to-render checkpoints complete within five seconds",
+        "name": "reload-to-persisted-state",
+        "durationMs": 1924,
+        "evidencePath": "assertions[].evidence.workflowCheckpoints[].durationMs"
+      },
+      {
+        "checkName": "All native Filter actions and action-to-render checkpoints complete within five seconds",
+        "name": "remove-filter-preview",
+        "durationMs": 723,
+        "evidencePath": "assertions[].evidence.workflowCheckpoints[].durationMs"
+      },
+      {
+        "checkName": "All native Filter actions and action-to-render checkpoints complete within five seconds",
+        "name": "apply-to-persisted-state",
+        "durationMs": 1086,
+        "evidencePath": "assertions[].evidence.workflowCheckpoints[].durationMs"
+      },
+      {
+        "checkName": "All native Filter actions and action-to-render checkpoints complete within five seconds",
+        "name": "filter-removal-to-restored-state",
+        "durationMs": 1871,
+        "evidencePath": "assertions[].evidence.workflowCheckpoints[].durationMs"
+      }
+    ]
+  },
+  "nativeRequestLedger": {
+    "ownedCount": 52,
+    "http200Count": 52,
+    "terminalCount": 52,
+    "terminalEventCounts": {
+      "request": 52,
+      "response": 52,
+      "requestfinished": 52
+    },
+    "pendingOwnedCount": 0,
+    "unexpectedErrorCount": 0,
+    "records": [
+      {
+        "requestId": "playwright-1",
+        "browserRequestId": "playwright-1",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/builder",
+        "method": "GET",
+        "startedAt": 1791545540868,
+        "status": 200,
+        "responseReceivedAt": 1791545541424,
+        "completedAt": 1791545541424,
+        "serverRequestId": "d45281a9-aa71-4575-ac13-6cf36b6267dc",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-1",
+            "observedAt": 1791545540868,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-1",
+            "observedAt": 1791545541424,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-1",
+            "observedAt": 1791545541425,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "playwright-2",
+        "browserRequestId": "playwright-2",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/capability",
+        "method": "GET",
+        "startedAt": 1791545540868,
+        "status": 200,
+        "responseReceivedAt": 1791545540872,
+        "completedAt": 1791545540873,
+        "serverRequestId": "7af7ccc2-d5e1-4df4-bc8c-a8191ffa2e04",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-2",
+            "observedAt": 1791545540868,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-2",
+            "observedAt": 1791545540872,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-2",
+            "observedAt": 1791545540873,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "feature-catalog-4ecd2cd8-5124-48f0-bdbb-99db61cf9771",
+        "browserRequestId": "playwright-3",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/semantic-inventory",
+        "method": "POST",
+        "startedAt": 1791545541562,
+        "status": 200,
+        "responseReceivedAt": 1791545541571,
+        "completedAt": 1791545541571,
+        "serverRequestId": "feature-catalog-4ecd2cd8-5124-48f0-bdbb-99db61cf9771",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-3",
+            "observedAt": 1791545541562,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-3",
+            "observedAt": 1791545541571,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-3",
+            "observedAt": 1791545541603,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "configured-column-context-3fc12c7c-6abd-4ede-bf7d-729b1d2e0b72",
+        "browserRequestId": "playwright-4",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/configured-column-context",
+        "method": "POST",
+        "startedAt": 1791545541563,
+        "status": 200,
+        "responseReceivedAt": 1791545541602,
+        "completedAt": 1791545541602,
+        "serverRequestId": "configured-column-context-3fc12c7c-6abd-4ede-bf7d-729b1d2e0b72",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-4",
+            "observedAt": 1791545541563,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-4",
+            "observedAt": 1791545541602,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-4",
+            "observedAt": 1791545541605,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "playwright-5",
+        "browserRequestId": "playwright-5",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/construction-capabilities",
+        "method": "POST",
+        "startedAt": 1791545541563,
+        "status": 200,
+        "responseReceivedAt": 1791545542086,
+        "completedAt": 1791545542101,
+        "serverRequestId": "b1f68779-9df1-4928-a5a8-9516326446a1",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-5",
+            "observedAt": 1791545541563,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-5",
+            "observedAt": 1791545542086,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-5",
+            "observedAt": 1791545542086,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "builder-1-1",
+        "browserRequestId": "playwright-6",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/reconcile",
+        "method": "POST",
+        "startedAt": 1791545541563,
+        "status": 200,
+        "responseReceivedAt": 1791545541605,
+        "completedAt": 1791545541605,
+        "serverRequestId": "builder-1-1",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-6",
+            "observedAt": 1791545541563,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-6",
+            "observedAt": 1791545541605,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-6",
+            "observedAt": 1791545541641,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "playwright-7",
+        "browserRequestId": "playwright-7",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/preview",
+        "method": "POST",
+        "startedAt": 1791545541698,
+        "status": 200,
+        "responseReceivedAt": 1791545541742,
+        "completedAt": 1791545541761,
+        "serverRequestId": "025310a1-fb2a-4c1f-9f96-e20c1878d245",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-7",
+            "observedAt": 1791545541698,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-7",
+            "observedAt": 1791545541742,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-7",
+            "observedAt": 1791545541746,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "construction-proposal-e763de07-3c78-40e2-b07a-ac3c87e47672",
+        "browserRequestId": "playwright-8",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/construction-proposals",
+        "method": "POST",
+        "startedAt": 1791545542920,
+        "status": 200,
+        "responseReceivedAt": 1791545543219,
+        "completedAt": 1791545543248,
+        "serverRequestId": "construction-proposal-e763de07-3c78-40e2-b07a-ac3c87e47672",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-8",
+            "observedAt": 1791545542920,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-8",
+            "observedAt": 1791545543219,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-8",
+            "observedAt": 1791545543219,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "feature-catalog-3ab50c03-d6c6-406b-b3be-1250003a0ac5",
+        "browserRequestId": "playwright-9",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/semantic-inventory",
+        "method": "POST",
+        "startedAt": 1791545543991,
+        "status": 200,
+        "responseReceivedAt": 1791545543998,
+        "completedAt": 1791545543998,
+        "serverRequestId": "feature-catalog-3ab50c03-d6c6-406b-b3be-1250003a0ac5",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-9",
+            "observedAt": 1791545543991,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-9",
+            "observedAt": 1791545543998,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-9",
+            "observedAt": 1791545543998,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "construction-proposal-dcea7df2-e716-4ab2-838b-ed1ba61df93e",
+        "browserRequestId": "playwright-10",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/construction-proposals",
+        "method": "POST",
+        "startedAt": 1791545545091,
+        "status": 200,
+        "responseReceivedAt": 1791545545368,
+        "completedAt": 1791545545396,
+        "serverRequestId": "construction-proposal-dcea7df2-e716-4ab2-838b-ed1ba61df93e",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-10",
+            "observedAt": 1791545545091,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-10",
+            "observedAt": 1791545545368,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-10",
+            "observedAt": 1791545545368,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "builder-command-147d9705-3a2d-4a21-b477-42347dba7d12",
+        "browserRequestId": "playwright-11",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/commands",
+        "method": "POST",
+        "startedAt": 1791545545513,
+        "status": 200,
+        "responseReceivedAt": 1791545545606,
+        "completedAt": 1791545545697,
+        "serverRequestId": "builder-command-147d9705-3a2d-4a21-b477-42347dba7d12",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-11",
+            "observedAt": 1791545545513,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-11",
+            "observedAt": 1791545545606,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-11",
+            "observedAt": 1791545545606,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "feature-catalog-fed784c2-c8ba-4ac7-9b65-dc40de0db4a3",
+        "browserRequestId": "playwright-12",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/semantic-inventory",
+        "method": "POST",
+        "startedAt": 1791545545696,
+        "status": 200,
+        "responseReceivedAt": 1791545545703,
+        "completedAt": 1791545545703,
+        "serverRequestId": "feature-catalog-fed784c2-c8ba-4ac7-9b65-dc40de0db4a3",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-12",
+            "observedAt": 1791545545696,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-12",
+            "observedAt": 1791545545703,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-12",
+            "observedAt": 1791545545703,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "configured-column-context-416aa540-044e-48d9-aebe-bc5e92b61e53",
+        "browserRequestId": "playwright-13",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/configured-column-context",
+        "method": "POST",
+        "startedAt": 1791545545696,
+        "status": 200,
+        "responseReceivedAt": 1791545545703,
+        "completedAt": 1791545545703,
+        "serverRequestId": "configured-column-context-416aa540-044e-48d9-aebe-bc5e92b61e53",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-13",
+            "observedAt": 1791545545696,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-13",
+            "observedAt": 1791545545703,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-13",
+            "observedAt": 1791545545703,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "playwright-14",
+        "browserRequestId": "playwright-14",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/construction-capabilities",
+        "method": "POST",
+        "startedAt": 1791545545696,
+        "status": 200,
+        "responseReceivedAt": 1791545545801,
+        "completedAt": 1791545545822,
+        "serverRequestId": "0d1c568c-0461-467a-bcaf-b87df065db20",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-14",
+            "observedAt": 1791545545696,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-14",
+            "observedAt": 1791545545801,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-14",
+            "observedAt": 1791545545802,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "builder-3-1",
+        "browserRequestId": "playwright-15",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/reconcile",
+        "method": "POST",
+        "startedAt": 1791545545696,
+        "status": 200,
+        "responseReceivedAt": 1791545545745,
+        "completedAt": 1791545545745,
+        "serverRequestId": "builder-3-1",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-15",
+            "observedAt": 1791545545696,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-15",
+            "observedAt": 1791545545745,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-15",
+            "observedAt": 1791545545751,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "playwright-16",
+        "browserRequestId": "playwright-16",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/preview",
+        "method": "POST",
+        "startedAt": 1791545545753,
+        "status": 200,
+        "responseReceivedAt": 1791545545787,
+        "completedAt": 1791545545800,
+        "serverRequestId": "0a5a9db7-9af4-4d9a-ba89-12e298b66465",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-16",
+            "observedAt": 1791545545753,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-16",
+            "observedAt": 1791545545787,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-16",
+            "observedAt": 1791545545788,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "playwright-17",
+        "browserRequestId": "playwright-17",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/builder",
+        "method": "GET",
+        "startedAt": 1791545546708,
+        "status": 200,
+        "responseReceivedAt": 1791545547313,
+        "completedAt": 1791545547313,
+        "serverRequestId": "96d138a6-5078-4688-8ab6-742e848c7f9d",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-17",
+            "observedAt": 1791545546708,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-17",
+            "observedAt": 1791545547313,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-17",
+            "observedAt": 1791545547316,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "playwright-18",
+        "browserRequestId": "playwright-18",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/capability",
+        "method": "GET",
+        "startedAt": 1791545546708,
+        "status": 200,
+        "responseReceivedAt": 1791545546712,
+        "completedAt": 1791545546712,
+        "serverRequestId": "b3cce330-3557-4f6f-8b1b-3f01903b5b9e",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-18",
+            "observedAt": 1791545546708,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-18",
+            "observedAt": 1791545546712,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-18",
+            "observedAt": 1791545546712,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "feature-catalog-aab87847-b9d8-4fa0-90c0-50eb910ec81d",
+        "browserRequestId": "playwright-19",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/semantic-inventory",
+        "method": "POST",
+        "startedAt": 1791545547413,
+        "status": 200,
+        "responseReceivedAt": 1791545547421,
+        "completedAt": 1791545547421,
+        "serverRequestId": "feature-catalog-aab87847-b9d8-4fa0-90c0-50eb910ec81d",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-19",
+            "observedAt": 1791545547413,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-19",
+            "observedAt": 1791545547421,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-19",
+            "observedAt": 1791545547422,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "configured-column-context-eaf875c6-958f-42c7-8a85-8944e48e6383",
+        "browserRequestId": "playwright-20",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/configured-column-context",
+        "method": "POST",
+        "startedAt": 1791545547414,
+        "status": 200,
+        "responseReceivedAt": 1791545547422,
+        "completedAt": 1791545547422,
+        "serverRequestId": "configured-column-context-eaf875c6-958f-42c7-8a85-8944e48e6383",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-20",
+            "observedAt": 1791545547414,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-20",
+            "observedAt": 1791545547422,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-20",
+            "observedAt": 1791545547422,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "playwright-21",
+        "browserRequestId": "playwright-21",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/construction-capabilities",
+        "method": "POST",
+        "startedAt": 1791545547414,
+        "status": 200,
+        "responseReceivedAt": 1791545547530,
+        "completedAt": 1791545547588,
+        "serverRequestId": "b15825ef-adcd-4732-99b2-89f3d057b510",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-21",
+            "observedAt": 1791545547414,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-21",
+            "observedAt": 1791545547530,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-21",
+            "observedAt": 1791545547531,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "builder-1-1",
+        "browserRequestId": "playwright-22",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/reconcile",
+        "method": "POST",
+        "startedAt": 1791545547415,
+        "status": 200,
+        "responseReceivedAt": 1791545547524,
+        "completedAt": 1791545547524,
+        "serverRequestId": "builder-1-1",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-22",
+            "observedAt": 1791545547415,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-22",
+            "observedAt": 1791545547524,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-22",
+            "observedAt": 1791545547530,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "playwright-23",
+        "browserRequestId": "playwright-23",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/preview",
+        "method": "POST",
+        "startedAt": 1791545547532,
+        "status": 200,
+        "responseReceivedAt": 1791545547588,
+        "completedAt": 1791545547609,
+        "serverRequestId": "e2004b1f-8cd3-4b26-8c8a-be13fd7e8f33",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-23",
+            "observedAt": 1791545547532,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-23",
+            "observedAt": 1791545547588,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-23",
+            "observedAt": 1791545547589,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "playwright-24",
+        "browserRequestId": "playwright-24",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/construction-capabilities",
+        "method": "POST",
+        "startedAt": 1791545549056,
+        "status": 200,
+        "responseReceivedAt": 1791545549586,
+        "completedAt": 1791545549605,
+        "serverRequestId": "5f570d31-e930-4a05-9b19-27499c081cc2",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-24",
+            "observedAt": 1791545549056,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-24",
+            "observedAt": 1791545549586,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-24",
+            "observedAt": 1791545549586,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "construction-proposal-c8aec90f-5c44-4623-93b8-7d396f78c931",
+        "browserRequestId": "playwright-25",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/construction-proposals",
+        "method": "POST",
+        "startedAt": 1791545550006,
+        "status": 200,
+        "responseReceivedAt": 1791545550373,
+        "completedAt": 1791545550404,
+        "serverRequestId": "construction-proposal-c8aec90f-5c44-4623-93b8-7d396f78c931",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-25",
+            "observedAt": 1791545550006,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-25",
+            "observedAt": 1791545550373,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-25",
+            "observedAt": 1791545550374,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "builder-command-dd058919-af98-4782-b547-6307ae22931e",
+        "browserRequestId": "playwright-26",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/commands",
+        "method": "POST",
+        "startedAt": 1791545550545,
+        "status": 200,
+        "responseReceivedAt": 1791545550640,
+        "completedAt": 1791545550730,
+        "serverRequestId": "builder-command-dd058919-af98-4782-b547-6307ae22931e",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-26",
+            "observedAt": 1791545550545,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-26",
+            "observedAt": 1791545550640,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-26",
+            "observedAt": 1791545550641,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "feature-catalog-e177b000-b6e6-49d3-a5f0-84a63c66b529",
+        "browserRequestId": "playwright-27",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/semantic-inventory",
+        "method": "POST",
+        "startedAt": 1791545550729,
+        "status": 200,
+        "responseReceivedAt": 1791545550737,
+        "completedAt": 1791545550737,
+        "serverRequestId": "feature-catalog-e177b000-b6e6-49d3-a5f0-84a63c66b529",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-27",
+            "observedAt": 1791545550729,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-27",
+            "observedAt": 1791545550737,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-27",
+            "observedAt": 1791545550737,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "configured-column-context-87266581-6496-4a48-8b38-a8ab04d54ec4",
+        "browserRequestId": "playwright-28",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/configured-column-context",
+        "method": "POST",
+        "startedAt": 1791545550730,
+        "status": 200,
+        "responseReceivedAt": 1791545550737,
+        "completedAt": 1791545550737,
+        "serverRequestId": "configured-column-context-87266581-6496-4a48-8b38-a8ab04d54ec4",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-28",
+            "observedAt": 1791545550730,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-28",
+            "observedAt": 1791545550737,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-28",
+            "observedAt": 1791545550737,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "playwright-29",
+        "browserRequestId": "playwright-29",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/construction-capabilities",
+        "method": "POST",
+        "startedAt": 1791545550730,
+        "status": 200,
+        "responseReceivedAt": 1791545550842,
+        "completedAt": 1791545550864,
+        "serverRequestId": "4e552ebd-1857-4a0f-a702-da6987ea2ea6",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-29",
+            "observedAt": 1791545550730,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-29",
+            "observedAt": 1791545550842,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-29",
+            "observedAt": 1791545550842,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "builder-3-1",
+        "browserRequestId": "playwright-30",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/reconcile",
+        "method": "POST",
+        "startedAt": 1791545550730,
+        "status": 200,
+        "responseReceivedAt": 1791545550783,
+        "completedAt": 1791545550783,
+        "serverRequestId": "builder-3-1",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-30",
+            "observedAt": 1791545550730,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-30",
+            "observedAt": 1791545550783,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-30",
+            "observedAt": 1791545550789,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "playwright-31",
+        "browserRequestId": "playwright-31",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/preview",
+        "method": "POST",
+        "startedAt": 1791545550791,
+        "status": 200,
+        "responseReceivedAt": 1791545550827,
+        "completedAt": 1791545550841,
+        "serverRequestId": "d0c0b534-9a8d-4363-aefc-7bb7f485a6f3",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-31",
+            "observedAt": 1791545550791,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-31",
+            "observedAt": 1791545550827,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-31",
+            "observedAt": 1791545550827,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "playwright-32",
+        "browserRequestId": "playwright-32",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/builder",
+        "method": "GET",
+        "startedAt": 1791545551824,
+        "status": 200,
+        "responseReceivedAt": 1791545552451,
+        "completedAt": 1791545552451,
+        "serverRequestId": "d173372d-9455-41e0-b625-8c47d14bbd56",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-32",
+            "observedAt": 1791545551824,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-32",
+            "observedAt": 1791545552451,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-32",
+            "observedAt": 1791545552471,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "playwright-33",
+        "browserRequestId": "playwright-33",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/capability",
+        "method": "GET",
+        "startedAt": 1791545551825,
+        "status": 200,
+        "responseReceivedAt": 1791545551830,
+        "completedAt": 1791545551830,
+        "serverRequestId": "a96747da-a82e-4873-8ffa-7702c34d1ef6",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-33",
+            "observedAt": 1791545551825,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-33",
+            "observedAt": 1791545551830,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-33",
+            "observedAt": 1791545551830,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "feature-catalog-afee381d-8cf1-4484-8568-b47fcbb1677e",
+        "browserRequestId": "playwright-34",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/semantic-inventory",
+        "method": "POST",
+        "startedAt": 1791545552567,
+        "status": 200,
+        "responseReceivedAt": 1791545552619,
+        "completedAt": 1791545552619,
+        "serverRequestId": "feature-catalog-afee381d-8cf1-4484-8568-b47fcbb1677e",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-34",
+            "observedAt": 1791545552567,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-34",
+            "observedAt": 1791545552619,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-34",
+            "observedAt": 1791545552625,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "configured-column-context-084a5d78-d4b0-487a-a545-68ab42d39bd2",
+        "browserRequestId": "playwright-35",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/configured-column-context",
+        "method": "POST",
+        "startedAt": 1791545552568,
+        "status": 200,
+        "responseReceivedAt": 1791545552577,
+        "completedAt": 1791545552577,
+        "serverRequestId": "configured-column-context-084a5d78-d4b0-487a-a545-68ab42d39bd2",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-35",
+            "observedAt": 1791545552568,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-35",
+            "observedAt": 1791545552577,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-35",
+            "observedAt": 1791545552578,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "playwright-36",
+        "browserRequestId": "playwright-36",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/construction-capabilities",
+        "method": "POST",
+        "startedAt": 1791545552568,
+        "status": 200,
+        "responseReceivedAt": 1791545552744,
+        "completedAt": 1791545552760,
+        "serverRequestId": "57c8f3a7-f276-4a6e-9d88-f23bb26515db",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-36",
+            "observedAt": 1791545552568,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-36",
+            "observedAt": 1791545552744,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-36",
+            "observedAt": 1791545552745,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "builder-1-1",
+        "browserRequestId": "playwright-37",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/reconcile",
+        "method": "POST",
+        "startedAt": 1791545552569,
+        "status": 200,
+        "responseReceivedAt": 1791545552665,
+        "completedAt": 1791545552665,
+        "serverRequestId": "builder-1-1",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-37",
+            "observedAt": 1791545552569,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-37",
+            "observedAt": 1791545552665,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-37",
+            "observedAt": 1791545552669,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "playwright-38",
+        "browserRequestId": "playwright-38",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/preview",
+        "method": "POST",
+        "startedAt": 1791545552669,
+        "status": 200,
+        "responseReceivedAt": 1791545552719,
+        "completedAt": 1791545552735,
+        "serverRequestId": "e16a8b06-3a02-483e-8079-8f6fff47a9d3",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-38",
+            "observedAt": 1791545552669,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-38",
+            "observedAt": 1791545552719,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-38",
+            "observedAt": 1791545552720,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "construction-proposal-6b215bcc-4633-40b4-b115-7cc6b6e9ee49",
+        "browserRequestId": "playwright-39",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/construction-proposals",
+        "method": "POST",
+        "startedAt": 1791545554464,
+        "status": 200,
+        "responseReceivedAt": 1791545554768,
+        "completedAt": 1791545554797,
+        "serverRequestId": "construction-proposal-6b215bcc-4633-40b4-b115-7cc6b6e9ee49",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-39",
+            "observedAt": 1791545554464,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-39",
+            "observedAt": 1791545554768,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-39",
+            "observedAt": 1791545554769,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "builder-command-52524af3-0d25-46e3-b48b-ecfa3b6a7e3e",
+        "browserRequestId": "playwright-40",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/commands",
+        "method": "POST",
+        "startedAt": 1791545554943,
+        "status": 200,
+        "responseReceivedAt": 1791545555053,
+        "completedAt": 1791545555141,
+        "serverRequestId": "builder-command-52524af3-0d25-46e3-b48b-ecfa3b6a7e3e",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-40",
+            "observedAt": 1791545554943,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-40",
+            "observedAt": 1791545555053,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-40",
+            "observedAt": 1791545555053,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "feature-catalog-48af9289-9a6d-4647-994a-8da0ffd9b677",
+        "browserRequestId": "playwright-41",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/semantic-inventory",
+        "method": "POST",
+        "startedAt": 1791545555140,
+        "status": 200,
+        "responseReceivedAt": 1791545555179,
+        "completedAt": 1791545555179,
+        "serverRequestId": "feature-catalog-48af9289-9a6d-4647-994a-8da0ffd9b677",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-41",
+            "observedAt": 1791545555140,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-41",
+            "observedAt": 1791545555179,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-41",
+            "observedAt": 1791545555185,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "configured-column-context-fdc18af3-4bed-4419-b9d0-a5098e4ecbab",
+        "browserRequestId": "playwright-42",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/configured-column-context",
+        "method": "POST",
+        "startedAt": 1791545555141,
+        "status": 200,
+        "responseReceivedAt": 1791545555147,
+        "completedAt": 1791545555147,
+        "serverRequestId": "configured-column-context-fdc18af3-4bed-4419-b9d0-a5098e4ecbab",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-42",
+            "observedAt": 1791545555141,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-42",
+            "observedAt": 1791545555147,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-42",
+            "observedAt": 1791545555148,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "playwright-43",
+        "browserRequestId": "playwright-43",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/construction-capabilities",
+        "method": "POST",
+        "startedAt": 1791545555141,
+        "status": 200,
+        "responseReceivedAt": 1791545555684,
+        "completedAt": 1791545555700,
+        "serverRequestId": "2dd6868a-1683-4779-9870-98cb0c0ec25d",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-43",
+            "observedAt": 1791545555141,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-43",
+            "observedAt": 1791545555684,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-43",
+            "observedAt": 1791545555685,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "builder-3-1",
+        "browserRequestId": "playwright-44",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/reconcile",
+        "method": "POST",
+        "startedAt": 1791545555141,
+        "status": 200,
+        "responseReceivedAt": 1791545555223,
+        "completedAt": 1791545555223,
+        "serverRequestId": "builder-3-1",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-44",
+            "observedAt": 1791545555141,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-44",
+            "observedAt": 1791545555223,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-44",
+            "observedAt": 1791545555223,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "playwright-45",
+        "browserRequestId": "playwright-45",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/preview",
+        "method": "POST",
+        "startedAt": 1791545555224,
+        "status": 200,
+        "responseReceivedAt": 1791545555281,
+        "completedAt": 1791545555296,
+        "serverRequestId": "51d4f588-58c9-416f-8589-45c95581dafa",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-45",
+            "observedAt": 1791545555224,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-45",
+            "observedAt": 1791545555281,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-45",
+            "observedAt": 1791545555282,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "playwright-46",
+        "browserRequestId": "playwright-46",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/builder",
+        "method": "GET",
+        "startedAt": 1791545556231,
+        "status": 200,
+        "responseReceivedAt": 1791545556829,
+        "completedAt": 1791545556829,
+        "serverRequestId": "44851d04-145f-42c0-8138-62935002b075",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-46",
+            "observedAt": 1791545556231,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-46",
+            "observedAt": 1791545556829,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-46",
+            "observedAt": 1791545556833,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "playwright-47",
+        "browserRequestId": "playwright-47",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/capability",
+        "method": "GET",
+        "startedAt": 1791545556231,
+        "status": 200,
+        "responseReceivedAt": 1791545556235,
+        "completedAt": 1791545556235,
+        "serverRequestId": "f413ae55-f599-40d3-bdfd-24299b27649c",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-47",
+            "observedAt": 1791545556231,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-47",
+            "observedAt": 1791545556235,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-47",
+            "observedAt": 1791545556235,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "feature-catalog-015327c1-eea8-43f3-9a5d-41836690fbe8",
+        "browserRequestId": "playwright-48",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/semantic-inventory",
+        "method": "POST",
+        "startedAt": 1791545556930,
+        "status": 200,
+        "responseReceivedAt": 1791545556979,
+        "completedAt": 1791545556979,
+        "serverRequestId": "feature-catalog-015327c1-eea8-43f3-9a5d-41836690fbe8",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-48",
+            "observedAt": 1791545556930,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-48",
+            "observedAt": 1791545556979,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-48",
+            "observedAt": 1791545556986,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "configured-column-context-e5db7159-9ff0-4764-b6a4-14fc6889c5a2",
+        "browserRequestId": "playwright-49",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/configured-column-context",
+        "method": "POST",
+        "startedAt": 1791545556931,
+        "status": 200,
+        "responseReceivedAt": 1791545556940,
+        "completedAt": 1791545556940,
+        "serverRequestId": "configured-column-context-e5db7159-9ff0-4764-b6a4-14fc6889c5a2",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-49",
+            "observedAt": 1791545556931,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-49",
+            "observedAt": 1791545556940,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-49",
+            "observedAt": 1791545556940,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "playwright-50",
+        "browserRequestId": "playwright-50",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/construction-capabilities",
+        "method": "POST",
+        "startedAt": 1791545556931,
+        "status": 200,
+        "responseReceivedAt": 1791545557579,
+        "completedAt": 1791545557593,
+        "serverRequestId": "5156598b-a513-4b8f-9585-d8566f581951",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-50",
+            "observedAt": 1791545556931,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-50",
+            "observedAt": 1791545557579,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-50",
+            "observedAt": 1791545557580,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "builder-1-1",
+        "browserRequestId": "playwright-51",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/reconcile",
+        "method": "POST",
+        "startedAt": 1791545556931,
+        "status": 200,
+        "responseReceivedAt": 1791545557077,
+        "completedAt": 1791545557077,
+        "serverRequestId": "builder-1-1",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-51",
+            "observedAt": 1791545556931,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-51",
+            "observedAt": 1791545557077,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-51",
+            "observedAt": 1791545557078,
+            "objectMatch": true
+          }
+        ]
+      },
+      {
+        "requestId": "playwright-52",
+        "browserRequestId": "playwright-52",
+        "ownerPageId": "playwright-page-1",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/filter-browser-1791545536588/authoring/v2/preview",
+        "method": "POST",
+        "startedAt": 1791545557078,
+        "status": 200,
+        "responseReceivedAt": 1791545557134,
+        "completedAt": 1791545557169,
+        "serverRequestId": "2d5f5f03-03b2-4cfc-a4c5-a1ccc35b43f7",
+        "nativeEvents": [
+          {
+            "event": "request",
+            "browserRequestId": "playwright-52",
+            "observedAt": 1791545557078,
+            "objectMatch": true
+          },
+          {
+            "event": "response",
+            "browserRequestId": "playwright-52",
+            "observedAt": 1791545557134,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfinished",
+            "browserRequestId": "playwright-52",
+            "observedAt": 1791545557136,
+            "objectMatch": true
+          }
+        ]
+      }
+    ]
+  },
+  "sourceApplicability": {
+    "testedSourceCommit": "f563bbd339e4a30ca9b4e6397395835b30c45af1",
+    "testedSourceFingerprint": {
+      "sha256": "f4ab9738d5c52d0faa2ecde92729edc5f62141e80dba74e4e195d41a28163d11",
+      "files": 1729
+    },
+    "reviewedCommit": "57ceb78b49033e6a4863ec7b218acb33373d36f1",
+    "reviewFinding": "Root-only report branch; no CDA caller or runtime behavior effect."
+  },
+  "integrity": {
+    "status": "PASS",
+    "sourceBeforeAfter": {
+      "sha256": "f4ab9738d5c52d0faa2ecde92729edc5f62141e80dba74e4e195d41a28163d11",
+      "files": 1729
+    },
+    "docsBeforeAfter": {
+      "sha256": "a762a4e847cdf3397ad3e856841261aefc7f47583d871d8782b2588e6438b574",
+      "files": 313
+    },
+    "apiBuildIdentity": "5068be64023db5a82cc1c263ea3c078cb5c57133deb9004d10c62e65ffe1ebc6:5068be64023db5a82cc1c263ea3c078cb5c57133deb9004d10c62e65ffe1ebc6:db6a8af11c85b84f97e804442c8434e8d3f6c4ab21b93db757f9ff4fb70e0796",
+    "mounts": "PASS unchanged",
+    "healthBefore": "PASS 3/3",
+    "healthAfter": "PASS 3/3"
+  },
+  "scopeLimitations": [
+    "Target project/generation is configuration-bound; runtime dataset identity was not checked.",
+    "Restricted-authorization exclusion was not tested."
+  ],
+  "externalEvidence": {
+    "summary": {
+      "path": "/private/tmp/loom-verification-brackets/case030-current-strict/run-cda-filter-browser-filter-lifecycle-coltSD/summary.json",
+      "sha256": "5eeeb749eb1f1fcb73d9af0953097f3f554b79af982a6fcb92bdaac4a6762e8d"
+    },
+    "rawDomainReport": {
+      "path": "/private/tmp/loom-verification-brackets/case030-current-strict/run-cda-filter-browser-filter-lifecycle-coltSD/playwright-results/standalone-cda-other-CDA-f-1afeb-d-remove-a-typed-CDA-filter/attachments/cda-domain-report-json-516a409a3dfe19ed1ff19065207fae5ae9c99ec3.json",
+      "sha256": "d79d5f4bb6c911b3f8e0769d7a3068f4f43cf183eafc83aa7e1799dc1db85e9b"
+    }
+  },
+  "sanitization": "Request/response bodies, headers, raw URLs, and bulk result payloads are omitted; native request identity, status, timestamps, server request ID, and terminal-event chronology are retained."
+}
