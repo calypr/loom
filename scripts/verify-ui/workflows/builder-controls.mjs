@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { browserURL } from './builder-url.mjs';
 import { recordCheck } from '../helpers/report.mjs';
 
-const patientOracle = target => {
+export const patientOracle = target => {
   const path = join(target.fixtureDir, 'Patient.ndjson');
   const bytes = readFileSync(path);
   const patients = bytes.toString('utf8').split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
@@ -14,7 +14,7 @@ const patientOracle = target => {
   return { path, sha256: createHash('sha256').update(bytes).digest('hex'), ids };
 };
 
-const assertPatientRows = (rows, expectedIDs) => {
+export const assertPatientRows = (rows, expectedIDs) => {
   const actualIDs = rows.map(row => {
     const matches = expectedIDs.filter(id => row.includes(id));
     return matches.length === 1 ? matches[0] : `INVALID:${row}`;
@@ -278,6 +278,104 @@ export const firstTableWorkflow = async ({ page, report, action, check }, contex
     },
   });
   check('usability', 'Add columns closes from the verified-ID first table', !await page.locator('[aria-label="Add columns editor"]').isVisible());
+
+  const explorerSelector = page.getByRole('combobox', { name: 'Explorer' });
+  const selectedExplorerBeforeReload = await explorerSelector.inputValue();
+  const selectedTable = page.locator('[data-testid^="construction-table-"][aria-current="page"]');
+  const selectedTableCount = await selectedTable.count();
+  const selectedTableTestId = selectedTableCount === 1 ? await selectedTable.getAttribute('data-testid') : null;
+  const selectedOutputId = selectedTableTestId?.slice('construction-table-'.length) ?? null;
+  const workspaceBeforeReload = page.getByTestId('construction-workspace');
+  const beforeReload = {
+    explorerId: selectedExplorerBeforeReload,
+    selectedTableTestId,
+    outputId: selectedOutputId,
+    draftVersion: await workspaceBeforeReload.getAttribute('data-draft-version'),
+    draftDigest: await workspaceBeforeReload.getAttribute('data-draft-digest'),
+    patientIDs: oracle.ids,
+  };
+  const reloadStartedAt = performance.now();
+  const reloadDeadline = reloadStartedAt + 5000;
+  const remainingReloadMs = () => Math.max(1, Math.ceil(reloadDeadline - performance.now()));
+  let reloadFailure;
+  let reloadedRows = [];
+  let selectedExplorerAfterReload = null;
+  let selectedTableAfterReload = null;
+  let idFieldCountAfterReload = 0;
+  try {
+    assert(selectedTableCount === 1 && selectedTableTestId && selectedOutputId,
+      'first-table reload starts from exactly one selected saved table');
+    assert.equal(selectedExplorerBeforeReload, explorer, 'first-table reload stays scoped to its newly created Explorer');
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: remainingReloadMs() });
+    await page.waitForFunction(explorerId =>
+      document.querySelector('select[aria-label="Explorer"]')?.value === explorerId,
+    selectedExplorerBeforeReload, { timeout: remainingReloadMs() });
+    await page.waitForFunction(tableTestId => {
+      const selected = [...document.querySelectorAll('[data-testid^="construction-table-"][aria-current="page"]')];
+      return selected.length === 1 && selected[0].getAttribute('data-testid') === tableTestId;
+    }, selectedTableTestId, { timeout: remainingReloadMs() });
+    await page.waitForFunction(currentPreviewReady, undefined, { timeout: remainingReloadMs() });
+    await page.waitForFunction(rowCount =>
+      document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === String(rowCount),
+    oracle.ids.length + 1, { timeout: remainingReloadMs() });
+    await page.getByTestId('preview-table-scroll').getByRole('table').waitFor({
+      state: 'visible', timeout: remainingReloadMs(),
+    });
+    reloadedRows = await previewRows(page);
+    selectedExplorerAfterReload = await explorerSelector.inputValue();
+    selectedTableAfterReload = await page.locator('[data-testid^="construction-table-"][aria-current="page"]').getAttribute('data-testid');
+    idFieldCountAfterReload = await page.getByRole('button', { name: /^Select Patient ID/ }).count();
+  } catch (error) {
+    reloadFailure = error;
+  }
+  const reloadElapsedMs = Math.round(performance.now() - reloadStartedAt);
+  const reloadedPatientIDs = [];
+  let rowIdentityFailure;
+  if (!reloadFailure) {
+    try {
+      reloadedPatientIDs.push(...assertPatientRows(reloadedRows.slice(1), oracle.ids));
+    } catch (error) {
+      rowIdentityFailure = error;
+    }
+  }
+  const explorerRestored = selectedExplorerAfterReload === selectedExplorerBeforeReload;
+  const tableRestored = selectedTableAfterReload === selectedTableTestId;
+  const idFieldRestored = idFieldCountAfterReload === 1;
+  const rowsRestored = !reloadFailure && !rowIdentityFailure && reloadedPatientIDs.length === oracle.ids.length;
+  const reloadWithinBudget = !reloadFailure && reloadElapsedMs <= 5000;
+  const afterReload = {
+    explorerId: selectedExplorerAfterReload,
+    selectedTableTestId: selectedTableAfterReload,
+    outputId: selectedTableAfterReload?.slice('construction-table-'.length) ?? null,
+    draftVersion: await page.getByTestId('construction-workspace').getAttribute('data-draft-version').catch(() => null),
+    draftDigest: await page.getByTestId('construction-workspace').getAttribute('data-draft-digest').catch(() => null),
+    patientIDs: reloadedPatientIDs,
+    rows: reloadedRows,
+  };
+  report.target.firstTablePersistence = {
+    beforeReload,
+    afterReload,
+    elapsedMs: reloadElapsedMs,
+    budgetMs: 5000,
+    ...(reloadFailure ? { reloadFailure: reloadFailure instanceof Error ? reloadFailure.message : String(reloadFailure) } : {}),
+    ...(rowIdentityFailure ? { rowIdentityFailure: rowIdentityFailure instanceof Error ? rowIdentityFailure.message : String(rowIdentityFailure) } : {}),
+  };
+  recordCheck(report, 'persistence', 'first Patient table remains selected after reload', explorerRestored && tableRestored,
+    { expectedExplorerId: selectedExplorerBeforeReload, actualExplorerId: selectedExplorerAfterReload,
+      expectedTableTestId: selectedTableTestId, actualTableTestId: selectedTableAfterReload });
+  recordCheck(report, 'persistence', 'first Patient ID field survives reload', idFieldRestored,
+    { count: idFieldCountAfterReload, selectedTableTestId: selectedTableAfterReload });
+  recordCheck(report, 'persistence', 'reloaded Preview renders both exact independent fixture Patients', rowsRestored,
+    { rows: reloadedRows, patientIDs: reloadedPatientIDs, expectedPatientIDs: oracle.ids,
+      rowIdentityFailure: rowIdentityFailure instanceof Error ? rowIdentityFailure.message : null });
+  recordCheck(report, 'performance', 'first-table reload-to-exact-rows within five seconds', reloadWithinBudget,
+    { elapsedMs: reloadElapsedMs, budgetMs: 5000, afterMs: reloadElapsedMs,
+      failure: reloadFailure instanceof Error ? reloadFailure.message : null });
+  assert(!reloadFailure, 'first-table reload restored a settled current-draft Preview');
+  assert(explorerRestored && tableRestored, 'first Patient table remains selected after reload');
+  assert(idFieldRestored, 'first Patient ID field survives reload');
+  assert(rowsRestored, 'reloaded Preview renders both exact independent fixture Patients');
+  assert(reloadWithinBudget, 'first-table reload-to-exact-rows stayed within five seconds');
   const sourceAfter = createHash('sha256').update(readFileSync(oracle.path)).digest('hex');
   check('correctness', 'independent Patient source stayed unchanged during Builder verification', sourceAfter === oracle.sha256,
     { before: oracle.sha256, after: sourceAfter, path: oracle.path });

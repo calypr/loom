@@ -32,6 +32,22 @@ export const registry = Object.freeze([
       },
       "first-table": {
         playwrightTest: "scripts/verify-ui/specs/builder-controls.spec.mjs",
+        playwrightGrep: 'Add columns waits for a current-draft preview',
+        focusedChecks: [
+          {
+            id: 'builder-first-table-persistence-contract',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/builder-controls.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/workflows/builder-controls.mjs',
+              'scripts/verify-ui/workflows/builder-url.mjs',
+              'scripts/verify-ui/helpers/report.mjs',
+              'scripts/verify-ui/helpers/coverage-status.mjs',
+              'testdata/devloop-fixture/Patient.ndjson',
+            ],
+          },
+        ],
         requiredChecks: [
           "Add columns stays disabled until a current-draft preview is accepted",
           "Add columns becomes enabled after the accepted current-draft preview",
@@ -39,6 +55,10 @@ export const registry = Object.freeze([
           "Preview renders both independent fixture Patients",
           "Add columns opens from the verified-ID first table",
           "Add columns closes from the verified-ID first table",
+          'first Patient table remains selected after reload',
+          'first Patient ID field survives reload',
+          'reloaded Preview renders both exact independent fixture Patients',
+          'first-table reload-to-exact-rows within five seconds',
         ],
       },
     },
