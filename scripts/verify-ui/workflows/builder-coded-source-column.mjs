@@ -80,6 +80,18 @@ export const classifyCodedColumnDiagnostics = report => {
   };
 };
 
+export const directHeightQuantityChoices = (renderedChoices, sourceOptions) => {
+  const optionsByChoiceID = new Map(sourceOptions.map(source => [source.choiceId, source]));
+  return renderedChoices.filter(choice => {
+    if (!/Example:\s*Height\b/i.test(choice.text)) return false;
+    const prefix = 'frame-source-choice-';
+    if (typeof choice.testId !== 'string' || !choice.testId.startsWith(prefix)) return false;
+    const source = optionsByChoiceID.get(choice.testId.slice(prefix.length));
+    return source?.resourceType === 'Observation' && Array.isArray(source.route) && source.route.length === 0 &&
+      /(?:^|\.)code(?:\.|$)/i.test(source.sourcePath) && source.valuePath === 'valueQuantity.value';
+  });
+};
+
 const checkUnexpectedDiagnostics = report => {
   const { cancelledReads, unexpected } = classifyCodedColumnDiagnostics(report);
   report.cancelledOwnedReads = cancelledReads;
@@ -256,10 +268,9 @@ export const builderCodedSourceColumnWorkflow = async (workflow, context) => {
     testId: button.getAttribute('data-testid'),
     text: button.parentElement?.innerText?.replace(/\s+/g, ' ').trim() ?? '',
   })));
-  const heightSourceChoices = sourceChoices.filter(choice =>
-    /On each Observation record/i.test(choice.text) && /Example:\s*Height\b/i.test(choice.text));
+  const heightSourceChoices = directHeightQuantityChoices(sourceChoices, sourceOptionsBody.sources);
   assert.equal(heightSourceChoices.length, 1,
-    `The native search must expose one direct Observation source with the Height example; choices: ${JSON.stringify(sourceChoices)}`);
+    `The native search must expose one direct Observation Height Quantity source; choices: ${JSON.stringify(sourceChoices)}`);
   const sourceChoiceId = heightSourceChoices[0].testId.replace(/^frame-source-choice-/, '');
   const sourceOption = sourceOptionsBody.sources.find(source => source.choiceId === sourceChoiceId);
   assert(sourceOption, 'The native Height source control must map to its own frame-source response item.');

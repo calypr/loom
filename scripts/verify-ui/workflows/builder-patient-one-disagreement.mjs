@@ -12,6 +12,22 @@ const renderedTableSelector = '[data-testid="preview-table-scroll"] [role="table
 export const readNativeGroupSummary = page =>
   page.getByRole('combobox', { name: 'Summary 1', exact: true }).inputValue();
 
+export const readNativeGroupProposal = (doc = globalThis.document) => {
+  const panel = doc.querySelector('[data-testid="construction-proposal-panel"]');
+  const ready = panel?.querySelector('[data-testid="construction-proposal-ready"]');
+  const editor = doc.querySelector('[data-testid="construction-reshape-editor"]');
+  const preview = doc.querySelector('[data-testid="construction-preview"] [data-testid="construction-proposal-preview"]');
+  const table = preview?.querySelector('table');
+  const text = element => (element?.innerText ?? element?.textContent ?? '').replace(/\s+/g, ' ').trim();
+  const headers = [...(table?.querySelectorAll('thead th') ?? [])]
+    .map(cell => text(cell.querySelector('span') ?? cell));
+  const rows = [...(table?.querySelectorAll('tbody tr[data-testid="construction-proposal-preview-row"]') ?? [])]
+    .map(row => [...row.querySelectorAll('td')].map(cell => ({ text: text(cell), raw: cell.getAttribute('title') })));
+  const groupKeys = [...(editor?.querySelectorAll('[data-testid="construction-reshape-group"] input[aria-label^="Group by"]') ?? [])]
+    .filter(input => input.checked).map(input => input.getAttribute('aria-label'));
+  return { proposalSummary: text(ready?.querySelector('p')), headers, rows, groupKeys };
+};
+
 const requireCheck = (workflow, dimension, name, passed, evidence = {}) =>
   workflow.check(dimension, name, passed, evidence);
 
@@ -49,20 +65,6 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
       rows: rows.slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim())),
     };
   }, { tableSelector: '[data-testid="preview-table-scroll"] [role="table"]' });
-  const readChoicePreview = async () => page.evaluate(selector => {
-    const panel = document.querySelector(selector);
-    const preview = document.querySelector('[data-testid="construction-preview"] [data-testid="construction-proposal-preview"]');
-    const table = preview?.querySelector('table');
-    const headers = [...(table?.querySelectorAll('thead th') ?? [])]
-      .map(cell => (cell.querySelector('span')?.innerText ?? cell.innerText).replace(/\s+/g, ' ').trim());
-    const rows = [...(table?.querySelectorAll('tbody tr[data-testid="construction-proposal-preview-row"]') ?? [])]
-      .map(row => [...row.querySelectorAll('td')].map(cell => ({
-        text: cell.innerText.trim(),
-        raw: cell.getAttribute('title'),
-      })));
-    return { headers, rows };
-  }, choiceProposalPanel);
-
   const openRows = page.getByTestId('construction-rows-settings-trigger');
   await workflow.action('open Patient row settings for empty-key Group', openRows, () => openRows.click(), {
     after: () => page.getByTestId('construction-action-group-rows').waitFor({ state: 'visible' }),
@@ -70,23 +72,17 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
   const groupAction = page.getByTestId('construction-action-group-rows');
   await workflow.action('open native empty-key Group proposal', groupAction, () => groupAction.click(), {
     after: () => page.waitForFunction(() => document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus === 'ready'
-      && document.querySelector('[data-testid="construction-proposal-preview"]')?.dataset.previewStatus === 'ready'),
+      && document.querySelector('[data-testid="construction-preview"] [data-testid="construction-proposal-preview"]')?.dataset.previewStatus === 'ready'),
   });
-  const groupPreview = await page.evaluate(selector => {
-    const panel = document.querySelector(selector);
-    const table = panel?.querySelector('[data-testid="construction-proposal-preview"] table');
-    const headers = [...(table?.querySelectorAll('thead th') ?? [])]
-      .map(cell => (cell.querySelector('span')?.innerText ?? cell.innerText).replace(/\s+/g, ' ').trim());
-    const rows = [...(table?.querySelectorAll('tbody tr[data-testid="construction-proposal-preview-row"]') ?? [])]
-      .map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText.trim()));
-    return { headers, rows, groupKeys: [...(panel?.querySelectorAll('[data-testid="construction-reshape-group"] input[aria-label^="Group by"]') ?? [])]
-      .filter(input => input.checked).map(input => input.getAttribute('aria-label')) };
-  }, proposalPanel);
-  const countIndex = groupPreview.headers.findIndex(header => header.toLowerCase() === 'row count');
+  const groupPreview = await page.evaluate(readNativeGroupProposal);
+  const countIndex = findRenderedBuilderHeaderIndex(groupPreview.headers, 'row count');
   assert.deepEqual(groupPreview.groupKeys, [], 'ONE disagreement requires one empty-key group across both Patients');
+  assert.match(groupPreview.proposalSummary, /^1 row and 1 column\b/,
+    'the separate proposal panel must summarize one row and one count column');
   assert.equal(await readNativeGroupSummary(page), 'COUNT_ROWS');
+  assert(countIndex >= 0, `empty-key Group proposal must expose Row count: ${JSON.stringify(groupPreview.headers)}`);
   assert.equal(groupPreview.rows.length, 1);
-  assert.equal(groupPreview.rows[0]?.[countIndex], String(fixtureIDs.length));
+  assert.equal(groupPreview.rows[0]?.[countIndex]?.text, String(fixtureIDs.length));
   requireCheck(workflow, 'correctness', 'empty-key Group prepares one row for the two raw Patient records', true,
     { groupPreview, rawPatientIDs: fixtureIDs, expectedCount: fixtureIDs.length });
   await workflow.action('Apply empty-key COUNT_ROWS Group', page.getByTestId('construction-apply-proposal'),
@@ -249,13 +245,17 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     'ALL repair must use the same raw Patient.id catalog selection as the rejected ONE request');
   assert.equal(allChoice?.rowValuePolicy, 'ALL');
   assert.equal(allChoice?.title, sourceIdColumn.label);
-  const allPreview = await readChoicePreview();
+  const allPreview = await page.evaluate(readNativeGroupProposal);
   const idHeaderIndex = findRenderedBuilderHeaderIndex(allPreview.headers, sourceIdColumn.label);
+  const allCountHeaderIndex = findRenderedBuilderHeaderIndex(allPreview.headers, 'row count');
   assert.equal(allPreview.rows.length, 1, 'ALL repair preview must retain one empty-key Group row');
   assert(idHeaderIndex >= 0, `ALL repair preview must expose ${sourceIdColumn.label}: ${JSON.stringify(allPreview.headers)}`);
+  assert(allCountHeaderIndex >= 0, `ALL repair preview must expose Row count: ${JSON.stringify(allPreview.headers)}`);
   const rawPreviewIDs = JSON.parse(allPreview.rows[0][idHeaderIndex].raw);
   assert.deepEqual(sorted(rawPreviewIDs), fixtureIDs,
     'ALL repair preview must contain exactly the independent literal Patient IDs');
+  assert.equal(allPreview.rows[0][allCountHeaderIndex].text, String(fixtureIDs.length),
+    'ALL repair preview must retain a row count of two for the exact raw Patient IDs');
   requireCheck(workflow, 'correctness', 'same-editor ALL repair preview matches both literal raw Patient IDs', true,
     { status: allResponse.status(), code: allResponseBody?.error?.code ?? null,
       choiceId: allChoice.choiceId, rowValuePolicy: allChoice.rowValuePolicy,

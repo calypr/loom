@@ -74,9 +74,29 @@ test('completed native responses have terminal status and completion time', () =
     path: '/construction-capabilities',
     status: 200,
     completedAt: 1791465845711,
+    nativeEventChronology: [
+      { event: 'request' }, { event: 'response' }, { event: 'requestfinished' },
+    ],
   }]);
 
   assert.equal(gateFailure(report), undefined);
+});
+
+test('response status and body completion without a Playwright terminal event remain unfinished', () => {
+  const report = greenCdaReport([{
+    requestId: 'playwright-2',
+    path: '/construction-capabilities',
+    status: 200,
+    completedAt: 1791465845711,
+    nativeEventChronology: [{ event: 'request' }, { event: 'response' }],
+  }]);
+
+  const failure = gateFailure(report);
+  assert(failure);
+  const details = JSON.parse(failure.message.replace(/^CDA verification evidence is incomplete: /, ''));
+  assert.deepEqual(details.unfinishedNativeRequests, [{
+    index: 0, requestId: 'playwright-2', path: '/construction-capabilities',
+  }]);
 });
 
 test('an explicit completed request failure remains fatal through the existing errors gate', () => {
@@ -85,6 +105,7 @@ test('an explicit completed request failure remains fatal through the existing e
     path: '/construction-capabilities',
     failure: 'net::ERR_ABORTED',
     completedAt: 1791465845711,
+    nativeEventChronology: [{ event: 'request' }, { event: 'requestfailed' }],
   }]);
   report.errors.push({ kind: 'network', requestId: 'playwright-1', error: 'net::ERR_ABORTED' });
 

@@ -843,6 +843,214 @@ test('passed Medication report does not leak its fallback failure evidence into 
   assert.equal(summary.reviewPacket.firstFailureReason, null);
 });
 
+test('retained EXISTS expected errors remain in the report without becoming a failure reason', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const scenarioID = 'cda-contributor-exists';
+  const caseName = 'contributor-exists';
+  // Relevant fields retained from CASE-060's passed cda-report.json
+  // (SHA-256 1e29340f5b658cf49363e04ba89638f8da5dbe73356b64ae7f8313676f7d037e).
+  const retainedExpectedErrors = [
+    {
+      kind: 'network',
+      origin: 'http://127.0.0.1:30008',
+      path: '/api/v1/projects/loom_dev_cda_fhir/explorers/contributor-exists-browser-416fcf5e-9df9-484b-8a8e-f501fa4bcb39/authoring/v2/related-expand-contributors',
+      requestId: 'playwright-28',
+      method: 'POST',
+      error: 'net::ERR_ABORTED',
+      expected: true,
+      expectedCancellation: {
+        requestId: 'cda-request-139',
+        reason: 'Selecting a contributor condition invalidates the all-matching proposal; the explicit id search supersedes the unfiltered contributor lookup.',
+      },
+    },
+    {
+      kind: 'http',
+      status: 422,
+      requestId: 'cda-request-146',
+      method: 'POST',
+      expected: true,
+    },
+  ];
+  const fake = fakeRunner({
+    scenarioID,
+    caseName,
+    rootDir: root,
+    browserReport: 'cda',
+    domainReportOverride: { errors: retainedExpectedErrors },
+  });
+  const summary = await runNativeVerificationBracket({
+    scenarioID,
+    caseName,
+    grep: 'retained CASE-060 expected errors$',
+    evidenceParent: parent,
+    root,
+    env: fake.env,
+    commandRunner: fake.commandRunner,
+  });
+
+  assert.equal(summary.status, 'passed');
+  assert.equal(summary.reviewPacket.firstFailureReason, null);
+  assert.deepEqual(summary.reviewPacket.pendingOwnedRequests, []);
+  const attachedReport = JSON.parse(readFileSync(summary.reviewPacket.report, 'utf8'));
+  assert.deepEqual(attachedReport.errors, retainedExpectedErrors);
+});
+
+test('expected fault and HTTP markers match the CDA error gate', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const scenarioID = 'cda-contributor-exists';
+  const caseName = 'contributor-exists';
+  const expectedErrors = [
+    { kind: 'network', expectedInjectedFault: { requestId: 'injected-request' }, error: 'expected injected network failure' },
+    { kind: 'http', expectedHttpFailure: { requestId: 'expected-http-request' }, error: 'expected HTTP failure' },
+    { kind: 'expected-injected', injectedFault: true, error: 'expected injected response' },
+  ];
+  const fake = fakeRunner({
+    scenarioID,
+    caseName,
+    rootDir: root,
+    browserReport: 'cda',
+    domainReportOverride: { errors: expectedErrors },
+  });
+  const summary = await runNativeVerificationBracket({
+    scenarioID,
+    caseName,
+    grep: 'expected report gate markers$',
+    evidenceParent: parent,
+    root,
+    env: fake.env,
+    commandRunner: fake.commandRunner,
+  });
+
+  assert.equal(summary.status, 'passed');
+  assert.equal(summary.reviewPacket.firstFailureReason, null);
+});
+
+test('unmarked or explicitly unqualified error variants remain failure diagnostics', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const scenarioID = 'cda-contributor-exists';
+  const caseName = 'contributor-exists';
+  const unexpectedErrors = [
+    { kind: 'expected-injected', injectedFault: false, error: 'injected marker without injected fault' },
+    { kind: 'http', expectedHttpFailure: false, error: 'unqualified HTTP failure' },
+    { kind: 'network', expectedInjectedFault: false, error: 'unqualified injected fault' },
+  ];
+
+  for (const error of unexpectedErrors) {
+    const fake = fakeRunner({
+      scenarioID,
+      caseName,
+      rootDir: root,
+      browserReport: 'cda',
+      domainReportOverride: { errors: [error] },
+    });
+    const summary = await runNativeVerificationBracket({
+      scenarioID,
+      caseName,
+      grep: 'negative report gate marker$',
+      evidenceParent: parent,
+      root,
+      env: fake.env,
+      commandRunner: fake.commandRunner,
+    });
+
+    assert.equal(summary.reviewPacket.firstFailureReason, error.error);
+  }
+});
+
+test('retained GAP-003 request IDs and unfinished reasons reach the review packet', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const scenarioID = 'cda-repeated-rows';
+  const caseName = 'component-array-source-expand-field-remove-and-row-restoration';
+  const unfinishedNativeRequests = [
+    {
+      index: 42,
+      requestId: 'schema-fields-df524b0d-bdba-490e-9967-983aad2ccbc5',
+      path: '/api/v1/projects/loom_dev_cda_fhir/explorers/cda-repeated-rows-1791518492126/authoring/v2/schema-fields',
+    },
+    {
+      index: 74,
+      requestId: 'playwright-75',
+      path: '/api/v1/projects/loom_dev_cda_fhir/explorers/cda-repeated-rows-1791518492126/authoring/v2/construction-capabilities',
+    },
+  ];
+  // Relevant fields retained from GAP-003's cda-report.json
+  // (SHA-256 0f32c95ee9f7d81709bc848b0151bebe8f3c2017c4f528656ea7d43559a58aa1).
+  const failureReason = 'Error: CDA verification evidence is incomplete: ' + JSON.stringify({
+    missingRequiredChecks: [],
+    failedAssertions: [],
+    unexpectedNetwork: [],
+    unfinishedNativeRequests,
+    unexpectedErrors: [],
+  });
+  const nativeRequests = unfinishedNativeRequests.map(({ requestId, path, index }) => {
+    const browserRequestId = index === 42 ? 'playwright-43' : requestId;
+    const startedAt = index === 42 ? 1791518506338 : 1791518512987;
+    return {
+      requestId,
+      browserRequestId,
+      path,
+      method: 'POST',
+      origin: 'http://127.0.0.1:30008',
+      startedAt,
+      // The terminal gate's retained evidence remains authoritative even if
+      // an HTTP status/completion stamp exists without a native terminal event.
+      status: 200,
+      completedAt: startedAt + 10,
+      nativeEventChronology: [{ event: 'request', browserRequestId, observedAt: startedAt, objectMatch: true }],
+    };
+  });
+  const fake = fakeRunner({
+    scenarioID,
+    caseName,
+    rootDir: root,
+    browserExit: 1,
+    browserReport: 'cda',
+    domainReportOverride: {
+      status: 'failed',
+      missingRequiredChecks: [],
+      target: {
+        project: 'loom_dev_cda_fhir',
+        generation: 'cda-fhir-v1',
+        explorer: null,
+        uiUrl: 'http://127.0.0.1:30008',
+      },
+      errors: [{ kind: 'verification-gate' }],
+      failureEvidence: { reason: failureReason, action: {} },
+      nativeRequests,
+    },
+  });
+  const summary = await runNativeVerificationBracket({
+    scenarioID,
+    caseName,
+    grep: 'retained GAP-003 unfinished requests$',
+    evidenceParent: parent,
+    root,
+    env: fake.env,
+    commandRunner: fake.commandRunner,
+  });
+
+  assert.equal(summary.status, 'failed');
+  assert.match(summary.reviewPacket.firstFailureReason, /^Error: CDA verification evidence is incomplete:/);
+  assert.deepEqual(summary.reviewPacket.pendingOwnedRequests, [
+    {
+      endpoint: 'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/schema-fields',
+      requestID: 'schema-fields-df524b0d-bdba-490e-9967-983aad2ccbc5',
+      status: 'pending',
+      reason: 'No completion event was recorded before verification finished.',
+    },
+    {
+      endpoint: 'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-capabilities',
+      requestID: 'playwright-75',
+      status: 'pending',
+      reason: 'No completion event was recorded before verification finished.',
+    },
+  ]);
+});
+
 test('runner summary and review packet preserve normalized render evidence fields', async (t) => {
   const scenarioID = 'root-quantity-pivot';
   const caseName = 'full-population-lifecycle';
@@ -1440,11 +1648,14 @@ test('a pending owned request does not invent a failure on a passing report', as
   const scenarioID = 'root-quantity-pivot';
   const caseName = 'full-population-lifecycle';
   const contract = scenarioCaseFor(scenarioID, caseName);
-  assert.deepEqual(retainedRootQuantityLifecycle.requiredChecks.passedNames, contract.requiredChecks);
+  assert.equal(retainedRootQuantityLifecycle.requiredChecks.total, 10);
+  assert.equal(retainedRootQuantityLifecycle.requiredChecks.passed, 10);
+  assert.ok(retainedRootQuantityLifecycle.requiredChecks.passedNames.includes(
+    'all full-population native lifecycle actions complete within five seconds each'));
   const retainedPerformance = retainedRootQuantityLifecycle.performanceEvidence.completeActionToRender;
   assert.equal(retainedPerformance.thresholdMs, 5000);
   assert.equal(retainedPerformance.withinThreshold, true);
-  const assertions = structuredClone(retainedRootQuantityLifecycle.assertions);
+  const assertions = contract.requiredChecks.map((name) => ({ name, status: 'passed' }));
   const performanceAssertion = assertions.find(({ name }) => name === contract.performanceCheckName);
   assert.ok(performanceAssertion);
   performanceAssertion.evidence = { actions: retainedPerformance.checkpoints };
@@ -1454,10 +1665,6 @@ test('a pending owned request does not invent a failure on a passing report', as
     rootDir: root,
     browserReport: 'cda',
     domainReportOverride: {
-      ...structuredClone(retainedRootQuantityLifecycle),
-      schemaVersion: 2,
-      requiredChecks: contract.requiredChecks,
-      missingRequiredChecks: [],
       assertions,
       target: wave152Failure.target,
       actions: [{ label: 'Select SUM', status: 'passed' }],

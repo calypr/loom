@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import {
@@ -6,6 +7,7 @@ import {
   builderAuthoringSuggestionsWorkflow,
   classifySuggestionDiagnostics,
   isOwnedRootSuggestionRequest,
+  sanitizedSuggestionRequestBinding,
   waitForOwnedRootSuggestionRequest,
 } from '../playwright-authoring-suggestions.mjs';
 
@@ -159,13 +161,33 @@ test('missing owned request and missing native action fail within bounds and rel
   );
 
   const events = [];
+  const chronology = {};
   const route = { abort: async reason => { events.push(`abort:${reason}`); } };
   const actionNeverCompleted = new Promise(() => {});
-  assert.equal(await abortSuggestionRouteAfterUserAction(route, actionNeverCompleted, 5), false);
+  assert.equal(await abortSuggestionRouteAfterUserAction(route, actionNeverCompleted, 5, chronology), false);
   assert.deepEqual(events, ['abort:failed']);
+  assert.equal(chronology.abortStartedAtMs > 0, true);
+  assert.equal(chronology.routeReleasedAtMs >= chronology.abortStartedAtMs, true);
 });
 
-test('production suggestions workflow retains the intercepted request through its post-action checks', async () => {
+test('sanitized suggestion binding retains request identity without the raw snapshot token', () => {
+  const binding = sanitizedSuggestionRequestBinding({
+    kind: 'lazy', requestId: 'suggestions-base',
+    body: { nodeId: 'n_root_123', snapshotToken: 'secret-snapshot-token' },
+    observedAtMs: 1234,
+  });
+
+  assert.deepEqual(binding, {
+    kind: 'lazy', endpoint: '/authoring/v2/suggestions', method: 'POST',
+    attemptId: 'lazy:suggestions-base', requestId: 'suggestions-base', nodeId: 'n_root_123',
+    snapshotTokenPresent: true,
+    snapshotTokenSHA256: createHash('sha256').update('secret-snapshot-token').digest('hex'),
+    observedAtMs: 1234,
+  });
+  assert.equal(JSON.stringify(binding).includes('secret-snapshot-token'), false);
+});
+
+test('production suggestions workflow retains abort chronology when the retry alert never appears', async () => {
   const fixtureDir = fileURLToPath(new URL('../../../../testdata/devloop-fixture', import.meta.url));
   const workflowTarget = {
     uiUrl: target.uiUrl,
@@ -178,9 +200,11 @@ test('production suggestions workflow retains the intercepted request through it
   const registeredRoutes = [];
   const responseWaiters = [];
   const rowIds = ['dev-patient-001', 'dev-patient-002'];
-  const stopAtRetry = new Error('production workflow reached retry after using the captured request');
+  const missingAlert = new Error('builder-suggestions-error did not appear');
   let lazyRoutePromise;
   let failedAlertWaits = 0;
+  let rawFieldsVisibleWaits = 0;
+  const routeEvents = [];
 
   const request = ({ method, url, requestId, body }) => ({
     method: () => method,
@@ -205,7 +229,10 @@ test('production suggestions workflow retains the intercepted request through it
     fetch: async () => response(req, body),
     fulfill: async ({ response: original }) => emitResponse(original),
     continue: async () => emitResponse(response(req)),
-    abort: async () => onAbort?.(),
+    abort: async reason => {
+      routeEvents.push(`abort:${reason}`);
+      return onAbort?.();
+    },
   });
   const dispatch = async req => {
     const url = new URL(req.url());
@@ -215,7 +242,8 @@ test('production suggestions workflow retains the intercepted request through it
       body: { catalog: { candidates: [{ id: 'candidate-1' }] } },
       onAbort: () => report.network.push({
         kind: 'network', method: req.method(), url: req.url(), rawURL: req.url(),
-        errorText: 'net::ERR_FAILED', playwrightRequestId: 'playwright-lazy-1',
+        errorText: 'net::ERR_FAILED', injectedFault: true, injectedAction: 'abort',
+        playwrightRequestId: 'playwright-lazy-1',
         requestDetails: { requestId: req.headers()['x-request-id'] },
       }),
     }));
@@ -237,7 +265,13 @@ test('production suggestions workflow retains the intercepted request through it
     fill: async () => {},
     check: async () => {},
     waitFor: async options => {
-      if (label === 'builder-suggestions-error' && options?.state === 'visible') failedAlertWaits += 1;
+      if (label === 'feature-catalog-raw-fields' && options?.state === 'visible') {
+        rawFieldsVisibleWaits += 1;
+      }
+      if (label === 'builder-suggestions-error' && options?.state === 'visible') {
+        failedAlertWaits += 1;
+        throw missingAlert;
+      }
     },
     isVisible: async () => true,
     isEnabled: async () => true,
@@ -280,8 +314,6 @@ test('production suggestions workflow retains the intercepted request through it
     } else if (name === 'open Raw FHIR fields') {
       await options.after?.();
       await lazyRoutePromise;
-    } else if (name === 'retry finding columns') {
-      throw stopAtRetry;
     }
   };
 
@@ -290,8 +322,26 @@ test('production suggestions workflow retains the intercepted request through it
       target: workflowTarget,
       runID: 'workflow-binding-regression',
     }),
-    error => error === stopAtRetry,
+    error => error === missingAlert,
   );
   assert.equal(failedAlertWaits, 1);
+  assert.equal(rawFieldsVisibleWaits, 1);
   assert.equal(report.network.length, 1);
+  assert.deepEqual(routeEvents, ['abort:failed']);
+  const chronology = report.target.suggestionsFaultChronology;
+  assert.equal(chronology.firstTable.requestId, 'first-table-suggestions-1');
+  assert.equal(chronology.firstTable.responseStatus, 200);
+  assert.equal(chronology.lazy.attemptId, 'lazy:suggestions-lazy-1');
+  assert.equal(chronology.lazy.nodeId, chronology.firstTable.nodeId);
+  assert.equal(chronology.lazy.snapshotTokenSHA256, chronology.firstTable.snapshotTokenSHA256);
+  assert.equal(chronology.lazy.sameRootNodeAsFirstTable, true);
+  assert.equal(chronology.lazy.sameSnapshotAsFirstTable, true);
+  assert.equal(chronology.lazy.actionCompletedBeforeAbort, true);
+  assert.equal(chronology.rawFieldsAction.opened, true);
+  assert.equal(chronology.lazy.abortAction, 'failed');
+  assert.equal(chronology.lazy.abortStartedAtMs >= chronology.rawFieldsAction.signaledAtMs, true);
+  assert.equal(chronology.lazy.routeReleased, true);
+  assert.equal(chronology.lazy.routeReleasedAtMs >= chronology.lazy.abortStartedAtMs, true);
+  assert.equal(chronology.lazy.failureRecordCaptured, true);
+  assert.equal(JSON.stringify(report).includes('snapshot-1'), false);
 });

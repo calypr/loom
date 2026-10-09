@@ -114,6 +114,21 @@ export const isOwnedRootSuggestionRequest = ({
   typeof rootNodeId === 'string' && body?.nodeId === rootNodeId &&
   typeof snapshotToken === 'string' && body?.snapshotToken === snapshotToken;
 
+export const sanitizedSuggestionRequestBinding = ({ kind, requestId, body, observedAtMs }) => {
+  const snapshotToken = typeof body?.snapshotToken === 'string' ? body.snapshotToken : '';
+  return {
+    kind,
+    endpoint: '/authoring/v2/suggestions',
+    method: 'POST',
+    attemptId: typeof requestId === 'string' ? `${kind}:${requestId.slice(0, 180)}` : null,
+    requestId: typeof requestId === 'string' ? requestId.slice(0, 200) : null,
+    nodeId: typeof body?.nodeId === 'string' ? body.nodeId.slice(0, 200) : null,
+    snapshotTokenPresent: snapshotToken.length > 0,
+    snapshotTokenSHA256: snapshotToken ? createHash('sha256').update(snapshotToken).digest('hex') : null,
+    observedAtMs,
+  };
+};
+
 export const waitForOwnedRootSuggestionRequest = async (requestSeen, timeoutMs = 5_000) => {
   let timer;
   try {
@@ -129,7 +144,7 @@ export const waitForOwnedRootSuggestionRequest = async (requestSeen, timeoutMs =
   }
 };
 
-export const abortSuggestionRouteAfterUserAction = async (route, actionCompleted, timeoutMs = 5_000) => {
+export const abortSuggestionRouteAfterUserAction = async (route, actionCompleted, timeoutMs = 5_000, chronology = {}) => {
   let timer;
   try {
     return await Promise.race([
@@ -138,7 +153,9 @@ export const abortSuggestionRouteAfterUserAction = async (route, actionCompleted
     ]) === true;
   } finally {
     clearTimeout(timer);
+    chronology.abortStartedAtMs = Date.now();
     await route.abort('failed');
+    chronology.routeReleasedAtMs = Date.now();
   }
 };
 
@@ -220,6 +237,18 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
 
   const suggestionAttempts = [];
   const suggestionsPath = `${projectPath}${encodeURIComponent(explorer)}/authoring/v2/suggestions`;
+  const suggestionsFaultChronology = {
+    endpoint: '/authoring/v2/suggestions',
+    firstTable: null,
+    lazy: null,
+    rawFieldsAction: {
+      name: 'open Raw FHIR fields',
+      startedAtMs: null,
+      signaledAtMs: null,
+      opened: null,
+    },
+  };
+  report.target.suggestionsFaultChronology = suggestionsFaultChronology;
   let firstTableAttempt;
   let resolveFirstLazyRequest;
   const firstLazyRequestSeen = new Promise(resolve => { resolveFirstLazyRequest = resolve; });
@@ -235,7 +264,11 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
     try { body = request.postDataJSON(); } catch { body = undefined; }
     const requestId = request.headers()['x-request-id'] ?? body?.requestId ?? null;
     if (typeof requestId === 'string' && requestId.startsWith('first-table-suggestions-')) {
-      const attempt = { kind: 'first-table', requestId, body };
+      const attempt = { kind: 'first-table', requestId, body, observedAtMs: Date.now() };
+      attempt.evidence = sanitizedSuggestionRequestBinding({
+        kind: attempt.kind, requestId, body, observedAtMs: attempt.observedAtMs,
+      });
+      suggestionsFaultChronology.firstTable = attempt.evidence;
       firstTableAttempt ??= attempt;
       suggestionAttempts.push(attempt);
       await route.continue();
@@ -250,16 +283,41 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
       rootNodeId: firstTableAttempt?.body?.nodeId,
       snapshotToken: firstTableAttempt?.body?.snapshotToken,
     })) {
-      const attempt = { kind: 'lazy', requestId, body, explorer };
+      const attempt = { kind: 'lazy', requestId, body, explorer, observedAtMs: Date.now() };
+      attempt.evidence = sanitizedSuggestionRequestBinding({
+        kind: attempt.kind, requestId, body, observedAtMs: attempt.observedAtMs,
+      });
+      attempt.evidence.sameRootNodeAsFirstTable = body?.nodeId === firstTableAttempt?.body?.nodeId;
+      attempt.evidence.sameSnapshotAsFirstTable = body?.snapshotToken === firstTableAttempt?.body?.snapshotToken;
+      attempt.evidence.requestIdDiffersFromFirstTable = requestId !== firstTableAttempt?.requestId;
+      suggestionsFaultChronology.lazy ??= attempt.evidence;
       suggestionAttempts.push(attempt);
       if (suggestionAttempts.filter(candidate => candidate.kind === 'lazy').length === 1) {
         attempt.injectedFault = true;
+        attempt.evidence.injectedFault = true;
+        attempt.evidence.abortAction = 'failed';
+        attempt.evidence.faultArmedAtMs = Date.now();
+        attempt.evidence.actionGateWaitStartedAtMs = Date.now();
+        attempt.evidence.actionGateWaitTimeoutMs = 5_000;
+        const chronology = {};
         resolveFirstLazyRequest(attempt);
         try {
           attempt.actionCompletedBeforeAbort = await abortSuggestionRouteAfterUserAction(
-            route, rawFieldsActionCompleted, 5_000);
+            route, rawFieldsActionCompleted, 5_000, chronology);
+          attempt.evidence.actionCompletedBeforeAbort = attempt.actionCompletedBeforeAbort;
+          suggestionsFaultChronology.lazy.actionCompletedBeforeAbort = attempt.actionCompletedBeforeAbort;
         } finally {
-          attempt.routeReleased = true;
+          Object.assign(attempt.evidence, chronology);
+          attempt.routeReleased = Number.isFinite(chronology.routeReleasedAtMs);
+          attempt.evidence.routeReleased = attempt.routeReleased;
+          suggestionsFaultChronology.lazy.actionGateWaitStartedAtMs = attempt.evidence.actionGateWaitStartedAtMs;
+          suggestionsFaultChronology.lazy.actionGateWaitTimeoutMs = attempt.evidence.actionGateWaitTimeoutMs;
+          suggestionsFaultChronology.lazy.actionCompletedBeforeAbort =
+            attempt.evidence.actionCompletedBeforeAbort ?? false;
+          suggestionsFaultChronology.lazy.abortAction = attempt.evidence.abortAction;
+          suggestionsFaultChronology.lazy.abortStartedAtMs = chronology.abortStartedAtMs ?? null;
+          suggestionsFaultChronology.lazy.routeReleasedAtMs = chronology.routeReleasedAtMs ?? null;
+          suggestionsFaultChronology.lazy.routeReleased = attempt.routeReleased;
         }
         return;
       }
@@ -273,6 +331,8 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
   const signalRawFieldsAction = didOpen => {
     if (rawFieldsActionSignaled) return;
     rawFieldsActionSignaled = true;
+    suggestionsFaultChronology.rawFieldsAction.signaledAtMs = Date.now();
+    suggestionsFaultChronology.rawFieldsAction.opened = didOpen === true;
     completeRawFieldsAction(didOpen);
   };
   try {
@@ -286,6 +346,11 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
     await act('choose Patient rows', page.getByRole('button', { name: 'Choose Patient rows' }),
       () => page.getByRole('button', { name: 'Choose Patient rows' }).click());
     const firstTableResponse = await firstTableSuggestionsResponse;
+    if (firstTableAttempt?.evidence) {
+      firstTableAttempt.evidence.responseStatus = firstTableResponse.status();
+      firstTableAttempt.evidence.responseOK = firstTableResponse.ok();
+      firstTableAttempt.evidence.responseObservedAtMs = Date.now();
+    }
     const rootNodeId = firstTableAttempt?.body?.nodeId;
     const rootSnapshotToken = firstTableAttempt?.body?.snapshotToken;
     check('correctness', 'first-table root suggestions request succeeds before the lazy retry case',
@@ -324,15 +389,35 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
     const fieldsRelated = page.getByRole('button', { name: 'Fields and related data' });
     await act('choose Fields and related data', fieldsRelated, () => fieldsRelated.click());
     const rawFields = page.getByText('Raw FHIR fields (advanced)', { exact: true });
+    suggestionsFaultChronology.rawFieldsAction.startedAtMs = Date.now();
     await act('open Raw FHIR fields', rawFields, () => rawFields.click(), {
-      after: async () => signalRawFieldsAction(true),
+      after: async () => {
+        await page.getByTestId('feature-catalog-raw-fields').waitFor({ state: 'visible' });
+        signalRawFieldsAction(true);
+      },
     });
   } finally {
     signalRawFieldsAction(false);
   }
   const rawFieldSection = page.getByTestId('feature-catalog-raw-fields');
   const failedLazyAlert = page.getByTestId('builder-suggestions-error');
-  await failedLazyAlert.waitFor({ state: 'visible' });
+  let failureRecord;
+  try {
+    await failedLazyAlert.waitFor({ state: 'visible' });
+  } finally {
+    failureRecord = report.network.find(item => item.kind === 'network' &&
+      item.requestDetails?.requestId === firstLazyAttempt?.requestId && item.method === 'POST' &&
+      item.url === `${uiOrigin}${suggestionsPath}` && item.rawURL === `${uiOrigin}${suggestionsPath}` &&
+      item.errorText === 'net::ERR_FAILED' && typeof item.playwrightRequestId === 'string');
+    suggestionsFaultChronology.lazy.failureRecordCaptured = Boolean(failureRecord);
+    suggestionsFaultChronology.lazy.failureObservedAtMs = failureRecord ? Date.now() : null;
+    if (failureRecord) {
+      failureRecord.injectedFault = true;
+      failureRecord.injectedAction = 'abort';
+      failureRecord.injectedRequestId = firstLazyAttempt.requestId;
+      failureRecord.injectedReason = 'the first lazy Patient suggestion request was intentionally aborted by this case';
+    }
+  }
   const lazyAttemptsBeforeRetry = suggestionAttempts.filter(candidate => candidate.kind === 'lazy');
   const failedLazyAttempt = lazyAttemptsBeforeRetry[0];
   assert.equal(failedLazyAttempt, firstLazyAttempt,
@@ -341,15 +426,7 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
     firstLazyAttempt.actionCompletedBeforeAbort === true && firstLazyAttempt.routeReleased === true,
     { actionCompletedBeforeAbort: firstLazyAttempt.actionCompletedBeforeAbort ?? false,
       routeReleased: firstLazyAttempt.routeReleased ?? false });
-  const failureRecord = report.network.find(item => item.kind === 'network' &&
-    item.requestDetails?.requestId === firstLazyAttempt.requestId && item.method === 'POST' &&
-    item.url === `${uiOrigin}${suggestionsPath}` && item.rawURL === `${uiOrigin}${suggestionsPath}` &&
-    item.errorText === 'net::ERR_FAILED' && typeof item.playwrightRequestId === 'string');
   assert(failureRecord, 'The report must retain the exact failed request signature for the injected lazy suggestion transport failure.');
-  failureRecord.injectedFault = true;
-  failureRecord.injectedAction = 'abort';
-  failureRecord.injectedRequestId = firstLazyAttempt.requestId;
-  failureRecord.injectedReason = 'the first lazy Patient suggestion request was intentionally aborted by this case';
   const retry = page.getByTestId('builder-suggestions-retry');
   await unique(retry);
   const retryState = { visible: await retry.isVisible(), enabled: await retry.isEnabled() };

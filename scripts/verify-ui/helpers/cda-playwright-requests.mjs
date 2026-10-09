@@ -3,6 +3,9 @@ import { sanitizePayload, sanitizeText } from './playwright-browser.mjs';
 import { createPendingResponseReads } from './pending-response-reads.mjs';
 
 const maxBodyLength = 32768;
+const nativeRequestTerminalStates = new WeakMap();
+const nativeRequestTerminalEvents = new Set(['requestfinished', 'requestfailed']);
+const nativeRequestTerminalTimeoutReason = 'No Playwright requestfinished or requestfailed event was observed before the bounded native request drain deadline.';
 const parseBody = body => {
   const text = String(body ?? '');
   if (text.length > maxBodyLength) return { truncated: true, length: text.length };
@@ -17,6 +20,64 @@ const parseRawBody = body => {
   catch { return String(body ?? ''); }
 };
 const retiredResponseBodyReadError = /^response\.text: Protocol error \(Network\.getResponseBody\): No data found for resource with given identifier\nResponse body is not available for a response that was navigated away from\. Read response\.body\(\) before triggering any navigation\.$/;
+
+function nativeRequestTerminalState(request) {
+  let state = nativeRequestTerminalStates.get(request);
+  if (!state) {
+    state = { terminalEvent: undefined, terminalObservedAt: undefined, waitPromise: undefined,
+      waitOutcome: undefined, waitDeadlineAt: undefined, waitStartedAt: undefined, waitTimeoutMs: undefined,
+      resolveWait: undefined, timer: undefined };
+    nativeRequestTerminalStates.set(request, state);
+  }
+  return state;
+}
+
+function waitForNativeRequestTerminal(request, startedAt, deadlineAt, timeoutMs) {
+  const state = nativeRequestTerminalState(request);
+  if (state.waitOutcome) return Promise.resolve(state.waitOutcome);
+  if (state.terminalEvent) {
+    return Promise.resolve({ status: 'terminal', event: state.terminalEvent, observedAt: state.terminalObservedAt });
+  }
+  if (state.waitPromise) return state.waitPromise;
+
+  state.waitDeadlineAt = deadlineAt;
+  state.waitStartedAt = startedAt;
+  state.waitTimeoutMs = timeoutMs;
+  state.waitPromise = new Promise(resolve => {
+    const settle = outcome => {
+      if (state.waitOutcome) return;
+      state.waitOutcome = outcome;
+      clearTimeout(state.timer);
+      state.timer = undefined;
+      state.resolveWait = undefined;
+      resolve(outcome);
+    };
+    state.resolveWait = observedAt => {
+      if (observedAt <= state.waitDeadlineAt) {
+        settle({ status: 'terminal', event: state.terminalEvent, observedAt });
+      } else {
+        settle({ status: 'timed-out', startedAt: state.waitStartedAt, deadlineAt: state.waitDeadlineAt,
+          timeoutMs: state.waitTimeoutMs, terminalEventAfterDeadline: state.terminalEvent,
+          terminalObservedAt: observedAt, reason: nativeRequestTerminalTimeoutReason });
+      }
+    };
+    const remainingMs = Math.max(0, state.waitDeadlineAt - Date.now());
+    state.timer = setTimeout(() => settle({ status: 'timed-out', startedAt: state.waitStartedAt,
+      deadlineAt: state.waitDeadlineAt, timeoutMs: state.waitTimeoutMs,
+      reason: nativeRequestTerminalTimeoutReason }), remainingMs);
+  });
+  return state.waitPromise;
+}
+
+function recordNativeRequestTerminal(request, event, observedAt) {
+  if (!nativeRequestTerminalEvents.has(event)) return;
+  const state = nativeRequestTerminalState(request);
+  if (!state.terminalEvent) {
+    state.terminalEvent = event;
+    state.terminalObservedAt = observedAt;
+  }
+  state.resolveWait?.(observedAt);
+}
 
 export const findCompletedNativeResponse = (entries, responseFor, predicate, fromIndex = 0) =>
   entries.slice(fromIndex).find(entry => {
@@ -101,6 +162,7 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
   const responseReads = createPendingResponseReads();
   const { pendingReads } = responseReads;
   const waiters = new Set();
+  const terminalDrainEvidenceKeys = new Set();
   let nextBrowserRequestId = 1;
   const findOwnedMatch = (fromIndex, predicate) => report.nativeRequests.slice(fromIndex)
     .find(entry => rawBodies.has(entry) && entry.completedAt && predicate(entry));
@@ -130,7 +192,7 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
         observedAt,
         objectMatch: true,
       });
-      return;
+      return observedAt;
     }
     let url;
     try {
@@ -150,6 +212,7 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
       message: `Playwright ${event} request object did not match an exact captured request object`,
     };
     (report.errors ??= []).push(diagnostic);
+    return observedAt;
   };
 
   page.on('request', request => {
@@ -172,6 +235,7 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
       ...(body !== undefined ? { body } : {}),
     };
     byRequest.set(request, entry);
+    nativeRequestTerminalState(request);
     rawBodies.set(entry, { request: request.postData() === null ? undefined : parseRawBody(request.postData()) });
     report.nativeRequests.push(entry);
     recordNativeEvent('request', request, entry);
@@ -235,7 +299,8 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
       recordNativeEvent('requestfinished', request);
       return;
     }
-    recordNativeEvent('requestfinished', request, entry);
+    const observedAt = recordNativeEvent('requestfinished', request, entry);
+    recordNativeRequestTerminal(request, 'requestfinished', observedAt);
   });
 
   page.on('requestfailed', request => {
@@ -244,7 +309,8 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
       recordNativeEvent('requestfailed', request);
       return;
     }
-    recordNativeEvent('requestfailed', request, entry);
+    const observedAt = recordNativeEvent('requestfailed', request, entry);
+    recordNativeRequestTerminal(request, 'requestfailed', observedAt);
     entry.completedAt = Date.now();
     entry.failure = sanitizeText(request.failure()?.errorText);
     report.errors.push({ kind: 'network', origin: entry.origin, path: entry.path, url: `${entry.origin}${entry.path}`, requestId: entry.requestId, browserRequestId: entry.browserRequestId, method: entry.method, startedAt: entry.startedAt, error: entry.failure,
@@ -307,7 +373,54 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
         waiters.add(waiter);
       });
     },
-    async flush({ timeoutMs = 5_000 } = {}) {
+    async flush({ timeoutMs = 5_000, waitForNativeRequestTerminals = false } = {}) {
+      if (waitForNativeRequestTerminals) {
+        if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+          throw new RangeError('Native request terminal-event flush timeout must be a finite positive number of milliseconds.');
+        }
+        const pendingNativeRequests = [...byRequest.entries()].filter(([, entry]) =>
+          !(entry.nativeEventChronology ?? []).some(({ event }) => nativeRequestTerminalEvents.has(event)));
+        if (pendingNativeRequests.length) {
+          const startedAt = Date.now();
+          const deadlineAt = startedAt + timeoutMs;
+          const outcomes = await Promise.all(pendingNativeRequests.map(([request]) =>
+            waitForNativeRequestTerminal(request, startedAt, deadlineAt, timeoutMs)));
+          const timedOutByDeadline = new Map();
+          for (let index = 0; index < outcomes.length; index += 1) {
+            const outcome = outcomes[index];
+            if (outcome.status !== 'timed-out') continue;
+            const deadline = outcome.deadlineAt;
+            const entries = timedOutByDeadline.get(deadline) ?? [];
+            entries.push({ entry: pendingNativeRequests[index][1], outcome });
+            timedOutByDeadline.set(deadline, entries);
+          }
+          for (const [deadline, unresolved] of timedOutByDeadline) {
+            const evidence = {
+              status: 'timed-out',
+              startedAt: unresolved[0].outcome.startedAt,
+              deadlineAt: deadline,
+              timeoutMs: unresolved[0].outcome.timeoutMs,
+              reason: nativeRequestTerminalTimeoutReason,
+              unresolvedRequests: unresolved.map(({ entry, outcome }) => ({
+                index: report.nativeRequests.indexOf(entry),
+                requestId: entry.requestId ?? null,
+                browserRequestId: entry.browserRequestId ?? null,
+                method: entry.method ?? null,
+                path: entry.path ?? null,
+                ...(outcome.terminalEventAfterDeadline ? {
+                  terminalEventAfterDeadline: outcome.terminalEventAfterDeadline,
+                  terminalObservedAt: outcome.terminalObservedAt,
+                } : {}),
+              })),
+            };
+            const evidenceKey = JSON.stringify(evidence);
+            const keys = terminalDrainEvidenceKeys;
+            if (keys.has(evidenceKey)) continue;
+            keys.add(evidenceKey);
+            (report.nativeRequestDrainEvidence ??= []).push(evidence);
+          }
+        }
+      }
       await responseReads.flush({
         timeoutMs,
         label: 'owned CDA response reads',

@@ -12,7 +12,7 @@ import {
 import { sanitizePayload, sanitizeReportPayload } from '../playwright-browser.mjs';
 import { createPendingResponseReads } from '../pending-response-reads.mjs';
 import { expectedRelatedSourceOneValidation } from '../related-source-capture.mjs';
-import { classifyExpectedCdaCancellation } from '../cda-fixtures.mjs';
+import { classifyExpectedCdaCancellation, gateFailure } from '../cda-fixtures.mjs';
 
 test('completed proposal selection skips an unrelated removal and binds the exact step, output, and draft', () => {
   const expected = {
@@ -240,6 +240,187 @@ test('native request chronology records exact Playwright events and diagnoses re
   for (const privateValue of ['private-header', 'private-cookie', 'private-response-payload', 'unmatched-response-payload', 'draft6-success', 'server-private-id']) {
     assert(!diagnostics.includes(privateValue), `native event diagnostics must not expose ${privateValue}`);
   }
+});
+
+test('native request flush waits for a delayed response and requestfinished event', async () => {
+  const page = new EventEmitter();
+  const report = { nativeRequests: [], errors: [] };
+  const capture = captureCDARequests(page, {
+    apiOrigin: 'http://127.0.0.1:8188',
+    ownedPathPrefix: '/api/v1/projects/loom_dev_cda_fhir/explorers/owned',
+    report,
+  });
+  const request = {
+    url: () => 'http://127.0.0.1:8188/api/v1/projects/loom_dev_cda_fhir/explorers/owned/authoring/v2/schema-fields',
+    method: () => 'POST', headers: () => ({ 'x-request-id': 'delayed-schema-fields' }), postData: () => '{}',
+  };
+  page.emit('request', request);
+  let flushed = false;
+  const flushing = capture.flush({ timeoutMs: 500, waitForNativeRequestTerminals: true }).then(() => { flushed = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(flushed, false, 'flush must wait while the owned request has no terminal event');
+
+  await new Promise(resolve => setTimeout(resolve, 10));
+  page.emit('response', {
+    request: () => request, status: () => 200, headers: () => ({}), text: async () => '{"fields":[]}',
+  });
+  page.emit('requestfinished', request);
+  await flushing;
+
+  const [entry] = report.nativeRequests;
+  assert.equal(entry.status, 200);
+  assert(Number.isFinite(entry.completedAt));
+  assert.deepEqual(entry.nativeEventChronology.map(({ event }) => event), ['request', 'response', 'requestfinished']);
+  assert.equal(report.nativeRequestDrainEvidence, undefined);
+});
+
+test('native request flush resolves on requestfailed without inferring a response', async () => {
+  const page = new EventEmitter();
+  const report = { nativeRequests: [], errors: [] };
+  const capture = captureCDARequests(page, {
+    apiOrigin: 'http://127.0.0.1:8188',
+    ownedPathPrefix: '/api/v1/projects/loom_dev_cda_fhir/explorers/owned',
+    report,
+  });
+  const request = {
+    url: () => 'http://127.0.0.1:8188/api/v1/projects/loom_dev_cda_fhir/explorers/owned/authoring/v2/construction-capabilities',
+    method: () => 'POST', headers: () => ({ 'x-request-id': 'failed-capabilities' }), postData: () => '{}',
+    failure: () => ({ errorText: 'net::ERR_FAILED' }),
+  };
+  page.emit('request', request);
+  let flushed = false;
+  const flushing = capture.flush({ timeoutMs: 500, waitForNativeRequestTerminals: true }).then(() => { flushed = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(flushed, false, 'flush must wait for an actual terminal event');
+
+  page.emit('requestfailed', request);
+  await flushing;
+  const [entry] = report.nativeRequests;
+  assert.equal(entry.status, undefined, 'requestfailed must not invent an HTTP status');
+  assert.equal(entry.failure, 'net::ERR_FAILED');
+  assert(Number.isFinite(entry.completedAt));
+  assert.deepEqual(entry.nativeEventChronology.map(({ event }) => event), ['request', 'requestfailed']);
+  assert.equal(report.nativeRequestDrainEvidence, undefined);
+});
+
+test('native request flush retains the exact unresolved deadline diagnostic and gate failure', async () => {
+  const page = new EventEmitter();
+  const report = {
+    runnerStatus: 'passed', requiredChecks: ['required interaction completed'], missingRequiredChecks: [],
+    assertions: [{ name: 'required interaction completed', status: 'passed' }], network: [], errors: [], nativeRequests: [],
+  };
+  const capture = captureCDARequests(page, {
+    apiOrigin: 'http://127.0.0.1:8188',
+    ownedPathPrefix: '/api/v1/projects/loom_dev_cda_fhir/explorers/owned',
+    responsePaths: /schema-fields/,
+    report,
+  });
+  const path = '/api/v1/projects/loom_dev_cda_fhir/explorers/owned/authoring/v2/schema-fields';
+  const request = {
+    url: () => 'http://127.0.0.1:8188' + path,
+    method: () => 'POST', headers: () => ({ 'x-request-id': 'unresolved-schema-fields' }), postData: () => '{}',
+  };
+  page.emit('request', request);
+  page.emit('response', {
+    request: () => request, status: () => 200, headers: () => ({}), text: async () => '{"fields":[]}',
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  await capture.flush({ timeoutMs: 25, waitForNativeRequestTerminals: true });
+
+  const [entry] = report.nativeRequests;
+  const [drain] = report.nativeRequestDrainEvidence;
+  assert.equal(drain.status, 'timed-out');
+  assert.equal(drain.timeoutMs, 25);
+  assert.equal(drain.deadlineAt, drain.startedAt + 25);
+  assert.match(drain.reason, /requestfinished or requestfailed/);
+  assert.deepEqual(drain.unresolvedRequests, [{
+    index: 0, requestId: 'unresolved-schema-fields', browserRequestId: 'playwright-1', method: 'POST', path,
+  }]);
+  assert.equal(entry.status, 200);
+  assert(Number.isFinite(entry.completedAt), 'the response body was captured before terminal draining');
+  assert.deepEqual(capture.rawResponseBody(entry), { fields: [] });
+  assert.equal(entry.failure, undefined);
+  assert.deepEqual(entry.nativeEventChronology.map(({ event }) => event), ['request', 'response'],
+    'deadline evidence must not synthesize requestfinished, requestfailed, or cancellation');
+
+  const failure = gateFailure(report);
+  assert(failure);
+  const details = JSON.parse(failure.message.replace(/^CDA verification evidence is incomplete: /, ''));
+  assert.deepEqual(details.unfinishedNativeRequests, [{ index: 0, requestId: 'unresolved-schema-fields', path }]);
+  assert.deepEqual(details.nativeRequestDrainEvidence, report.nativeRequestDrainEvidence,
+    'the final gate must retain the exact unresolved request IDs, paths, deadline, and reason');
+});
+
+test('a request arriving during the final terminal drain remains gate-unfinished outside the drain batch', async () => {
+  const page = new EventEmitter();
+  const report = {
+    runnerStatus: 'passed', requiredChecks: ['required interaction completed'], missingRequiredChecks: [],
+    assertions: [{ name: 'required interaction completed', status: 'passed' }], network: [], errors: [], nativeRequests: [],
+  };
+  const capture = captureCDARequests(page, {
+    apiOrigin: 'http://127.0.0.1:8188',
+    ownedPathPrefix: '/api/v1/projects/loom_dev_cda_fhir/explorers/owned',
+    responsePaths: /schema-fields/,
+    report,
+  });
+  const pathA = '/api/v1/projects/loom_dev_cda_fhir/explorers/owned/authoring/v2/schema-fields';
+  const requestA = {
+    url: () => `http://127.0.0.1:8188${pathA}`,
+    method: () => 'POST', headers: () => ({ 'x-request-id': 'drain-request-a' }), postData: () => '{}',
+  };
+  page.emit('request', requestA);
+  page.emit('response', {
+    request: () => requestA, status: () => 200, headers: () => ({}), text: async () => '{"fields":[]}',
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert(Number.isFinite(report.nativeRequests[0].completedAt));
+
+  let drainSettled = false;
+  const draining = capture.flush({ timeoutMs: 500, waitForNativeRequestTerminals: true })
+    .then(() => { drainSettled = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(drainSettled, false, 'the drain must still be waiting for request A after taking its snapshot');
+  const pathB = '/api/v1/projects/loom_dev_cda_fhir/explorers/owned/authoring/v2/construction-capabilities';
+  const requestB = {
+    url: () => `http://127.0.0.1:8188${pathB}`,
+    method: () => 'POST', headers: () => ({ 'x-request-id': 'drain-request-b' }), postData: () => '{}',
+  };
+  page.emit('request', requestB);
+  page.emit('requestfinished', requestA);
+  await draining;
+
+  assert.deepEqual(report.nativeRequests[1].nativeEventChronology.map(({ event }) => event), ['request']);
+  const failure = gateFailure(report);
+  assert(failure, 'a request outside the terminal-drain snapshot must still fail final gate evaluation');
+  const details = JSON.parse(failure.message.replace(/^CDA verification evidence is incomplete: /, ''));
+  assert.deepEqual(details.unfinishedNativeRequests, [{
+    index: 1, requestId: 'drain-request-b', path: pathB,
+  }]);
+  assert.deepEqual(details.nativeRequestDrainEvidence, [],
+    'request B is gate-unfinished but was not in the timed-out drain batch for request A');
+});
+
+test('idle native request flush returns without scheduling a wait timer', async () => {
+  const page = new EventEmitter();
+  const report = { nativeRequests: [], errors: [] };
+  const capture = captureCDARequests(page, {
+    apiOrigin: 'http://127.0.0.1:8188',
+    ownedPathPrefix: '/api/v1/projects/loom_dev_cda_fhir/explorers/owned',
+    report,
+  });
+  const originalSetTimeout = globalThis.setTimeout;
+  let scheduledTimers = 0;
+  globalThis.setTimeout = (...args) => {
+    scheduledTimers += 1;
+    return originalSetTimeout(...args);
+  };
+  try {
+    await capture.flush({ timeoutMs: 5_000, waitForNativeRequestTerminals: true });
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
+  assert.equal(scheduledTimers, 0);
+  assert.equal(report.nativeRequestDrainEvidence, undefined);
 });
 
 test('related expand choice responses are retained as sanitized diagnostics', async () => {

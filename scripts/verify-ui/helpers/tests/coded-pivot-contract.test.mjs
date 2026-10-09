@@ -221,7 +221,11 @@ test('coverage maps only the exact integer and string coded forms and leaves oth
 
 test('both native coded forms join the exact scenario while retaining distinct Playwright case names', () => {
   const spec = readFileSync(new URL('../../specs/standalone-reshape.spec.mjs', import.meta.url), 'utf8');
-  assert.match(spec, /register\(`coded-pivot-\$\{mode\}`, runCodedPivotWorkflow, \{ mode \}, \{/);
-  assert.match(spec, /cdaScenarioID: 'standalone-reshape-coded-pivot'/);
-  assert.match(spec, /for \(const mode of \['integer', 'string'\]\)/);
+  const codedCaseNames = [...spec.matchAll(/register\('coded-pivot-([^']+)'/g)].map(([, mode]) => `coded-pivot-${mode}`);
+  assert.deepEqual(codedCaseNames, ['coded-pivot-integer', 'coded-pivot-string']);
+
+  const codedRegistrations = [...spec.matchAll(/register\('coded-pivot-(integer|string)',\s*runCodedPivotWorkflow,\s*\{\s*mode:\s*'(integer|string)'\s*\},\s*\{\s*cdaScenarioID:\s*'standalone-reshape-coded-pivot'\s*,?\s*\}\s*\);/g)]
+    .map(([, caseMode, workflowMode]) => [caseMode, workflowMode]);
+  assert.deepEqual(codedRegistrations, [['integer', 'integer'], ['string', 'string']],
+    'Each explicit native case must bind its matching fixture mode to the shared coded Pivot scenario.');
 });

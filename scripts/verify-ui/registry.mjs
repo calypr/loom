@@ -472,7 +472,11 @@ export const registry = Object.freeze([
           {
             id: 'coded-column-exact-cancellation-and-header-matching',
             cwd: '.',
-            command: ['node-test', 'scripts/verify-ui/helpers/tests/builder-coded-column-diagnostics.test.mjs'],
+            command: [
+              'node-test',
+              'scripts/verify-ui/helpers/tests/builder-coded-column-diagnostics.test.mjs',
+              'scripts/verify-ui/helpers/tests/builder-coded-source-choice.test.mjs',
+            ],
             sourceFiles: [
               'scripts/verify-ui/workflows/builder-coded-source-column.mjs',
             ],

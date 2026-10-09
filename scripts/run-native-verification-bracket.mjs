@@ -503,7 +503,7 @@ function summarizeLastCompletedAction(report) {
   return label ? { label, status: String(completed.status).toLowerCase() } : null;
 }
 
-function endpointForNativeRequest(request, report, scenario) {
+function endpointForNativeRequest(request, report, scenario, allowUnregistered = false) {
   if (!request || typeof request !== 'object' || Array.isArray(request)) return null;
   const method = typeof request.method === 'string' ? request.method.toUpperCase() : '';
   if (!method) return null;
@@ -523,9 +523,9 @@ function endpointForNativeRequest(request, report, scenario) {
   if (projectIndex < 0 || explorerIndex !== projectIndex + 2) return null;
   const project = report?.target?.project;
   const explorer = report?.target?.explorer;
-  if (typeof project !== 'string' || typeof explorer !== 'string'
-    || pathSegments[projectIndex + 1] !== project
-    || pathSegments[explorerIndex + 1] !== explorer) return null;
+  if (typeof project !== 'string' || pathSegments[projectIndex + 1] !== project) return null;
+  if (typeof explorer === 'string' && pathSegments[explorerIndex + 1] !== explorer) return null;
+  if (explorer !== null && typeof explorer !== 'string') return null;
 
   for (const endpoint of scenario?.endpoints ?? []) {
     const [registeredMethod, template] = String(endpoint).split(/\s+/, 2);
@@ -536,7 +536,12 @@ function endpointForNativeRequest(request, report, scenario) {
       /^\{[^/{}]+\}$/.test(segment) || segment === pathSegments[index]);
     if (matches) return method + ' ' + template;
   }
-  return null;
+  if (!allowUnregistered || explorer !== null) return null;
+  const templateSegments = pathSegments.map((segment, index) =>
+    index === projectIndex + 1 ? '{project}'
+      : index === explorerIndex + 1 ? '{explorer}'
+        : segment);
+  return method + ' /' + templateSegments.join('/');
 }
 
 function pendingRequestStatus(request) {
@@ -550,17 +555,49 @@ function pendingRequestStatus(request) {
   return request?.completedAt || request?.endedAt || request?.finishedAt ? null : 'pending';
 }
 
+function unfinishedRequestEvidence(report) {
+  const directEvidence = report?.failureEvidence?.unfinishedNativeRequests;
+  if (Array.isArray(directEvidence)) return directEvidence;
+  const reason = report?.failureEvidence?.reason;
+  const marker = typeof reason === 'string' ? reason.indexOf('CDA verification evidence is incomplete:') : -1;
+  if (marker < 0 || reason.length > 32_768) return [];
+  const start = reason.indexOf('{', marker);
+  const end = reason.lastIndexOf('}');
+  if (start < 0 || end < start) return [];
+  try {
+    const evidence = JSON.parse(reason.slice(start, end + 1));
+    return Array.isArray(evidence.unfinishedNativeRequests) ? evidence.unfinishedNativeRequests : [];
+  } catch {
+    return [];
+  }
+}
+
 function summarizePendingOwnedRequests(report, scenario) {
   const requests = [];
+  const unfinishedByID = new Map(unfinishedRequestEvidence(report)
+    .filter((request) => typeof request?.requestId === 'string')
+    .map((request) => [request.requestId, request]));
   for (const request of Array.isArray(report?.nativeRequests) ? report.nativeRequests : []) {
-    const status = pendingRequestStatus(request);
-    if (!status) continue;
-    const endpoint = endpointForNativeRequest(request, report, scenario);
     const requestID = request?.requestID ?? request?.requestId;
+    const gateEvidence = unfinishedByID.get(requestID);
+    const status = gateEvidence ? 'pending' : pendingRequestStatus(request);
+    if (!status) continue;
+    const endpoint = endpointForNativeRequest(request, report, scenario, Boolean(gateEvidence));
     if (!endpoint || typeof requestID !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(requestID)) continue;
-    requests.push({ endpoint, requestID, status });
+    const reason = gateEvidence
+      ? diagnosticLine(request?.reason) ?? 'No completion event was recorded before verification finished.'
+      : null;
+    requests.push({ endpoint, requestID, status, ...(reason ? { reason } : {}) });
   }
   return requests;
+}
+
+function isExpectedReportError(error) {
+  return error?.expected === true
+    || Boolean(error?.expectedCancellation)
+    || Boolean(error?.expectedInjectedFault)
+    || Boolean(error?.expectedHttpFailure)
+    || (error?.kind === 'expected-injected' && error?.injectedFault === true);
 }
 
 function summarizeFirstFailureReason(report, workflowFailure, selectedTest) {
@@ -570,13 +607,16 @@ function summarizeFirstFailureReason(report, workflowFailure, selectedTest) {
   const evidenceAction = report?.failureEvidence?.action;
   const selectedFailure = selectedPlaywrightFailureReason(selectedTest);
   const reportErrors = Array.isArray(report?.errors) ? report.errors : [];
-  const reportErrorReasons = reportErrors
+  const unexpectedReportErrors = reportErrors.filter((error) => !isExpectedReportError(error));
+  const reportErrorReasons = unexpectedReportErrors
     .map((error) => diagnosticLine(typeof error === 'string' ? error : error?.message ?? error?.error ?? error?.reason))
     .filter(Boolean);
-  if (reportErrors.length && reportErrorReasons.length === 0) reportErrorReasons.push('Domain report contains errors.');
+  const genericReportErrorReason = unexpectedReportErrors.length && reportErrorReasons.length === 0
+    ? 'Domain report contains errors.'
+    : null;
   const actionFailure = failedReportAction || summarizeFailedAction(report)
     || diagnosticLine(evidenceAction?.error) || diagnosticLine(evidenceAction?.message);
-  if (report?.status === 'passed' && reportErrors.length === 0 && !actionFailure
+  if (report?.status === 'passed' && unexpectedReportErrors.length === 0 && !actionFailure
     && !diagnosticLine(workflowFailure) && !selectedFailure) return null;
   const candidates = [
     workflowFailure,
@@ -589,6 +629,7 @@ function summarizeFirstFailureReason(report, workflowFailure, selectedTest) {
     report?.failureEvidence?.reason,
     report?.failureEvidence?.error,
     report?.failureEvidence?.message,
+    genericReportErrorReason,
   ];
   for (const candidate of candidates) {
     const reason = diagnosticLine(candidate);

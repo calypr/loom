@@ -126,20 +126,26 @@ export function gateFailure(report) {
   const unfinishedNativeRequests = (report.nativeRequests ?? []).flatMap((entry, index) => {
     const hasStatus = Number.isInteger(entry?.status) && entry.status >= 100 && entry.status <= 599;
     const hasFailure = typeof entry?.failure === 'string' && entry.failure.trim().length > 0;
-    if (Number.isFinite(entry?.completedAt) && (hasStatus || hasFailure)) return [];
+    const hasTerminalEvent = (entry?.nativeEventChronology ?? []).some(({ event }) =>
+      event === 'requestfinished' || event === 'requestfailed');
+    if (Number.isFinite(entry?.completedAt) && (hasStatus || hasFailure) && hasTerminalEvent) return [];
     return [{ index, requestId: entry?.requestId ?? null, path: entry?.path ?? null }];
   });
+  const nativeRequestDrainEvidence = (report.nativeRequestDrainEvidence ?? [])
+    .filter(entry => entry?.status === 'timed-out');
   const unexpectedErrors = (report.errors ?? []).filter(entry => {
     if (entry.expected === true || entry.expectedCancellation || entry.expectedInjectedFault || entry.expectedHttpFailure) return false;
     if (entry.kind === 'expected-injected' && entry.injectedFault === true) return false;
     return true;
   });
-  if (!missing.length && !failedAssertions.length && !unexpectedNetwork.length && !unfinishedNativeRequests.length && !unexpectedErrors.length) return undefined;
+  if (!missing.length && !failedAssertions.length && !unexpectedNetwork.length && !unfinishedNativeRequests.length &&
+    !nativeRequestDrainEvidence.length && !unexpectedErrors.length) return undefined;
   return new Error(`CDA verification evidence is incomplete: ${JSON.stringify({
     missingRequiredChecks: missing,
     failedAssertions: failedAssertions.map(({ dimension, name, evidence }) => ({ dimension, name, evidence })),
     unexpectedNetwork: unexpectedNetwork.map(({ kind, method, url, status, errorText, message }) => ({ kind, method, url, status, errorText, message })),
     unfinishedNativeRequests,
+    nativeRequestDrainEvidence,
     unexpectedErrors: unexpectedErrors.map(({ kind, method, url, status, message, error }) => ({ kind, method, url, status, message, error })),
   })}`);
 }
@@ -1142,7 +1148,7 @@ export const test = base.extend({
       diagnosticDrainFailures.push(error);
     }
     const drainResults = await Promise.allSettled([
-      ...[...trackers].map(tracker => tracker.flush({ timeoutMs: 5_000 })),
+      ...[...trackers].map(tracker => tracker.flush({ timeoutMs: 5_000, waitForNativeRequestTerminals: true })),
       flushHttpDiagnostics({ timeoutMs: 5_000 }),
     ]);
     for (const result of drainResults) {
