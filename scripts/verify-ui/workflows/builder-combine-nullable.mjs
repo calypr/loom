@@ -8,6 +8,7 @@ import { browserURL } from './builder-url.mjs';
 import { recordCheck } from '../helpers/report.mjs';
 import { assertNullableNativeRequestLedgerComplete, builderCancelStateEvidence, nativeResponseScopeEvidence, removalProposalEvidence } from '../helpers/builder-combine-nullable-helpers.mjs';
 import { classifyNativeBrowserApiRequest } from '../helpers/native-browser-api-scope.mjs';
+import { createNativeAbortProbeSource, nativeAbortSignalObservationForRequest } from '../helpers/native-abort-probe.mjs';
 import {
   builderRequestURL,
   builderResponseIdentity,
@@ -42,6 +43,27 @@ const check = (report, dimension, name, condition, evidence = {}) => {
   }
   recordCheck(report, dimension, name, Boolean(condition), evidence);
   if (!condition) throw new Error('required nullable KEY_JOIN check failed: ' + name + '; evidence=' + JSON.stringify(evidence).slice(0, 1400));
+};
+
+export const installNullableNativeAbortProbe = async ({ page, report, project, explorer, uiProxyOrigin }) => {
+  if (!page?.context || !report || typeof project !== 'string' || typeof explorer !== 'string') {
+    throw new TypeError('Nullable native abort capture requires its page, report, project, and selected Explorer.');
+  }
+  const apiOrigin = new URL(uiProxyOrigin).origin;
+  const browserContext = page.context();
+  report.nativeAbortProbeEvents ??= [];
+  await browserContext.exposeBinding('__loomNativeAbortProbeBinding', (_source, payload) => {
+    let event;
+    try { event = JSON.parse(payload); }
+    catch {
+      report.nativeAbortProbeEvents.push({ kind: 'probe-payload-invalid', payloadLength: String(payload).length });
+      return;
+    }
+    report.nativeAbortProbeEvents.push(event);
+  });
+  const source = createNativeAbortProbeSource({ project, explorer, apiOrigin });
+  await browserContext.addInitScript(source);
+  await page.evaluate(source);
 };
 
 const nativeApiScope = (context, explorer) => ({
@@ -474,6 +496,13 @@ const createAndPublishSources = async (context, page, report, _includePatient, r
   check(report, 'persistence', 'created a fresh Explorer distinct from the bootstrap',
     Boolean(explorer) && explorer !== context.target.bootstrapExplorerId,
     { explorer, bootstrapExplorerId: context.target.bootstrapExplorerId });
+  await installNullableNativeAbortProbe({
+    page,
+    report,
+    project: context.target.fixtureProject,
+    explorer,
+    uiProxyOrigin: new URL(context.target.uiUrl).origin,
+  });
 
   const addRoot = async (resourceType, tableTitle, rows) => {
     await fill(page, '#first-table-name', tableTitle);
@@ -824,6 +853,18 @@ export const nullableJoinWorkflow = async ({ page, report, action, nativeRequest
     report.excludedNativeRequestDrainEvidence = ledger.excludedNativeRequestDrainEvidence;
     report.nativeRequestCorrelationErrors = ledger.nativeRequestCorrelationErrors;
     report.nativeRequestTerminalLedger = ledger.nativeRequestTerminalLedger;
+    for (const entry of report.nativeRequests) {
+      if (!entry.path?.endsWith('/construction-capabilities') && !entry.path?.endsWith('/semantic-inventory')) continue;
+      const requestId = entry.requestDetails?.requestId;
+      const requestIdentityMatchCount = typeof requestId === 'string'
+        ? report.nativeRequests.filter((candidate) => candidate.requestDetails?.requestId === requestId &&
+          candidate.origin === entry.origin && candidate.path === entry.path &&
+          candidate.method === entry.method).length
+        : 0;
+      entry.abortControllerSignalObservation = nativeAbortSignalObservationForRequest(
+        { ...entry, requestIdentityMatchCount }, report.nativeAbortProbeEvents ?? [],
+      );
+    }
     report.nativeRequestCaptureScope = {
       observedPathPrefix: projectPath,
       observedScope: 'all Explorer routes inside the fresh fixture project, including other Explorers seen by the prefix-wide flush',

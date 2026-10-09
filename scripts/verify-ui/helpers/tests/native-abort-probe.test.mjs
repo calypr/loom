@@ -16,6 +16,7 @@ const apiPath = (endpoint) => `/api/v1/projects/${project}/explorers/${explorer}
 const requestId = (prefix, tail) => `${prefix}${tail}-0000-4000-8000-000000000000`;
 const withCDPIdentity = (entry) => ({
   ...entry,
+  origin: entry.origin ?? apiOrigin,
   cdpRequestId: entry.cdpRequestId ?? `cdp-${entry.requestId}`,
   cdpRequestMatchCount: entry.cdpRequestMatchCount ?? 1,
 });
@@ -126,7 +127,7 @@ const constructionCapabilitiesDom = (outputId = 'out_fcb5bc77cf3b4ac9b41498b4') 
   return { nodes: [table], table };
 };
 
-const startProbe = ({ dom } = {}) => {
+const startProbe = ({ dom, origin = apiOrigin } = {}) => {
   const events = [];
   const listeners = new Map();
   let now = 100;
@@ -178,7 +179,7 @@ const startProbe = ({ dom } = {}) => {
     Promise,
     Headers: FakeHeaders,
     crypto: { randomUUID: () => '12345678-1234-4123-8123-123456789abc' },
-    location: { href: 'http://127.0.0.1:30008/' },
+    location: { href: `${origin}/` },
     document,
     MutationObserver: FakeMutationObserver,
     fetch: (...args) => {
@@ -192,7 +193,7 @@ const startProbe = ({ dom } = {}) => {
     __loomNativeAbortProbeBinding: (payload) => events.push(JSON.parse(payload)),
   };
   sandbox.globalThis = sandbox;
-  const source = createNativeAbortProbeSource({ project, explorer, apiOrigin });
+  const source = createNativeAbortProbeSource({ project, explorer, apiOrigin: origin });
   assert.doesNotThrow(() => new Function(source));
   vm.runInNewContext(source, sandbox);
   return { sandbox, events, listeners, fetchCalls, advanceTime: (value) => { now = value; } };
@@ -680,6 +681,66 @@ test('ConceptCatalog read retires only after the exact single-feature Add action
   assert.equal(wrongEvidence[0].sameDocumentOwnerRetirement, false, 'a different catalog action does not count');
 });
 
+test('schema-fields probe records exact generated-field owner retirement on Close operation editor', () => {
+  const dom = featureCatalogDom();
+  const close = fakeNode({ tagName: 'BUTTON', attributes: {
+    'data-testid': 'construction-close-operation-editor',
+  }, text: 'Close operation editor' });
+  dom.nodes.push(close);
+  const uiProxyOrigin = 'http://127.0.0.1:30008';
+  const { sandbox, events, listeners, advanceTime } = startProbe({ dom, origin: uiProxyOrigin });
+  const controller = new sandbox.AbortController();
+  const id = requestId('schema-fields-', '8ba1b927');
+  const path = apiPath('schema-fields');
+  sandbox.fetch(`${uiProxyOrigin}${path}`, {
+    method: 'POST', headers: { 'X-Request-ID': id }, signal: controller.signal,
+  });
+  advanceTime(110);
+  listeners.get('click')({ isTrusted: true, target: close });
+  dom.owner.isConnected = false;
+  advanceTime(111);
+  controller.abort();
+
+  const event = events.find((item) => item.kind === 'abort-controller-call');
+  const entry = {
+    requestId: 'cdp-schema-fields-request', requestCorrelationId: id,
+    origin: uiProxyOrigin, path, method: 'POST', requestTimestamp: 1, requestWallTime: 0.1,
+    loadingFailed: { timestamp: 1.012, at: 999, errorText: 'net::ERR_ABORTED', canceled: true },
+  };
+  const evidence = nativeAbortProbeEvidenceForRequest(withCDPIdentity(entry), [event]);
+  assert.equal(evidence.length, 1);
+  assert.equal(evidence[0].exactRequestSignalCorrelation, true);
+  assert.equal(evidence[0].sameDocumentOwnerRetirement, true);
+  assert.equal(evidence[0].request.ownerDomAtFetch.ruleOwner, 'feature-catalog-generated-fields');
+  assert.equal(evidence[0].ownerRetirementAction.closestButton.testId, 'construction-close-operation-editor');
+
+  const wrongOrigin = startProbe({ dom: featureCatalogDom(), origin: apiOrigin });
+  const wrongOriginController = new wrongOrigin.sandbox.AbortController();
+  wrongOrigin.sandbox.fetch(`${uiProxyOrigin}${path}`, {
+    method: 'POST', headers: { 'X-Request-ID': id }, signal: wrongOriginController.signal,
+  });
+  wrongOriginController.abort();
+  const wrongOriginAbort = wrongOrigin.events.find((item) => item.kind === 'abort-controller-call');
+  assert.deepEqual(wrongOriginAbort.requests, [], 'the probe must not widen its endpoint scope to another origin');
+  assert.deepEqual(nativeAbortProbeEvidenceForRequest(withCDPIdentity(entry), [wrongOriginAbort]), [],
+    'an out-of-origin fetch cannot inherit this native request identity');
+
+  const wrongActionDom = featureCatalogDom();
+  const wrongActionRun = startProbe({ dom: wrongActionDom, origin: uiProxyOrigin });
+  const wrongActionController = new wrongActionRun.sandbox.AbortController();
+  wrongActionRun.sandbox.fetch(`${uiProxyOrigin}${path}`, {
+    method: 'POST', headers: { 'X-Request-ID': id }, signal: wrongActionController.signal,
+  });
+  wrongActionRun.advanceTime(110);
+  wrongActionRun.listeners.get('click')({ isTrusted: true, target: wrongActionDom.add });
+  wrongActionDom.owner.isConnected = false;
+  wrongActionRun.advanceTime(111);
+  wrongActionController.abort();
+  const wrongActionEvent = wrongActionRun.events.find((item) => item.kind === 'abort-controller-call');
+  assert.equal(nativeAbortProbeEvidenceForRequest(withCDPIdentity(entry), [wrongActionEvent])[0].sameDocumentOwnerRetirement, false,
+    'an unrelated catalog action cannot explain generated-field cancellation');
+});
+
 test('related-expand rule classifies only the exact scoped request after trusted Apply detaches its same stage/output owner', () => {
   const stageId = 'related-stage-1';
   const outputId = 'output-1';
@@ -800,6 +861,7 @@ test('request evidence requires exact ID, path, and abort-before-CDP-failure and
   const entry = {
     requestId: 'cdp-correlation-request',
     requestCorrelationId: requestId('population-routes-', '11111111'),
+    origin: apiOrigin,
     path: apiPath('population-routes'),
     method: 'POST',
     requestTimestamp: 10,
@@ -809,7 +871,7 @@ test('request evidence requires exact ID, path, and abort-before-CDP-failure and
   const abortEvent = {
     kind: 'abort-controller-call', controllerId: 'abort-controller-1', createdAt: 100, abortedAt: 180,
     signalWasAlreadyAborted: false,
-    requests: [{ requestId: entry.requestCorrelationId, path: entry.path, method: 'POST', startedAt: 150 }],
+    requests: [{ requestId: entry.requestCorrelationId, origin: entry.origin, path: entry.path, method: 'POST', startedAt: 150 }],
   };
   const evidence = nativeAbortProbeEvidenceForRequest(withCDPIdentity(entry), [abortEvent]);
   assert.equal(evidence.length, 1);

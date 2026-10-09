@@ -313,6 +313,18 @@ export const registry = Object.freeze([
       },
       "cohort-expand": {
         playwrightTest: "scripts/verify-ui/specs/builder-authoring.spec.mjs",
+        focusedChecks: [
+          {
+            id: 'cohort-expand-raw-fields-selector',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/builder-cohort-expand-raw-fields-locator.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/helpers/add-columns-raw-fields-selectors.mjs',
+              'scripts/verify-ui/workflows/builder-cohort-expand.mjs',
+              'scripts/verify-ui/specs/builder-authoring.spec.mjs',
+            ],
+          },
+        ],
         requiredChecks: [
           "two fixture Patient rows are read from the independent fixture oracle",
           "fixture named cohort revision contains exactly the two Patients",
@@ -743,6 +755,18 @@ export const registry = Object.freeze([
       },
       "fixture-lifecycle": {
         playwrightTest: "scripts/verify-ui/specs/root-quantity-pivot.spec.mjs",
+        focusedChecks: [
+          {
+            id: 'root-quantity-pivot-retained-validation-repair',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/root-quantity-pivot-selection.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/workflows/root-quantity-pivot-workflow.mjs',
+              'scripts/verify-ui/helpers/cda-playwright.mjs',
+              'scripts/verify-ui/helpers/cda-fixtures.mjs',
+            ],
+          },
+        ],
         requiredChecks: [
           "fresh owned project contains the four exact raw Observation IDs and independent MISSING, NULL, and string d quantity-code states",
           "ERROR-policy preview reports only TABLE_PIVOT_CELL_CARDINALITY for the exact draft and offers visible SUM repair",
@@ -1301,7 +1325,7 @@ export const registry = Object.freeze([
             command: ['node-test', 'scripts/verify-ui/helpers/tests/native-abort-probe.test.mjs'],
             sourceFiles: [
               'scripts/verify-ui/helpers/native-abort-probe.mjs',
-              'scripts/verify-ui/workflows/cda-current-draft-nullable-code-join-workflow.mjs',
+              'scripts/verify-ui/workflows/builder-combine-nullable.mjs',
             ],
           },
         ],

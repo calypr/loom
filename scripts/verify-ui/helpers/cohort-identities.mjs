@@ -1,5 +1,21 @@
 import assert from 'node:assert/strict';
 
+export const assertCohortGroupProvenance = (document, { selection, cohort }) => {
+  assert(document && typeof document === 'object', 'saved cohort document must be present');
+  assert(typeof selection?.id === 'string' && selection.id.length > 0,
+    'expected immutable selection revision must be present');
+  assert(typeof cohort?.revisionId === 'string' && cohort.revisionId.length > 0,
+    'expected explicit cohort revision must be present');
+  assert.equal(cohort.sourceSelectionRevisionId, selection.id,
+    'explicit cohort must reference the exact immutable selection revision');
+  assert.equal(document.rows?.kind, 'GROUPS', 'saved named cohort document must retain grouped rows');
+  assert.equal(document.rows.groups?.source?.kind, 'EXPLICIT',
+    'saved named cohort document must retain its explicit group source');
+  assert.equal(document.rows.groups.source.explicit?.revisionId, cohort.revisionId,
+    'saved named cohort document must retain the exact explicit cohort revision');
+  return { selectionRevisionId: selection.id, cohortRevisionId: cohort.revisionId };
+};
+
 export const assertCohortMemberFieldBinding = (document, { cohortRevisionId, selectionRevisionId, fieldPath }) => {
   assert(document && typeof document === 'object', 'saved cohort document must be present');
   assert(typeof cohortRevisionId === 'string' && cohortRevisionId.length > 0, 'expected cohort revision must be present');

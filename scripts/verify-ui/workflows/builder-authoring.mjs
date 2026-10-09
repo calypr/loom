@@ -4,7 +4,7 @@ import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
-import { assertCohortPatientIDColumns } from '../helpers/cohort-identities.mjs';
+import { assertCohortGroupProvenance, assertCohortPatientIDColumns } from '../helpers/cohort-identities.mjs';
 import { createBuilderAuthoringRequestEntries } from '../helpers/builder-authoring-request-entries.mjs';
 import { configureNativePage } from '../helpers/playwright-authoring-page.mjs';
 
@@ -288,8 +288,7 @@ export const cohortRecodeWorkflow = async ({ page, report, check, action }, cont
   assert.equal(await previewTable.getAttribute('aria-rowcount'), '2', 'named cohort must render one group row and one header');
   builder = await readBuilder();
   let document = builder.workspace.documents.find(item => item.output.id === outputId);
-  assert.equal(document?.rows?.groups?.source?.explicit?.revisionId, cohort.revisionId,
-    'applying the named cohort must save its exact explicit-group revision');
+  assertCohortGroupProvenance(document, { selection, cohort });
   const legacyIDColumns = document.columns.filter(column => column.source?.kind === 'field' && column.source.field?.path === 'id');
   assert.equal(legacyIDColumns.length, 1, 'first-table Patient ID source must be a unique legacy identity column');
   const legacyIDColumn = legacyIDColumns[0];
@@ -770,10 +769,7 @@ export const cohortRecodeWorkflow = async ({ page, report, check, action }, cont
   assert.equal(editedIDColumns.member.columnId, savedColumnBeforeEdit.columnId,
     'applying a mapping edit must keep the same Patient.id member column identity');
   assert.equal(editedIDColumns.binding.policy, 'ALL', 'applying a mapping edit must keep the member binding at ALL');
-  assert.equal(document.rows.groups.source.explicit.revisionId, cohort.revisionId,
-    'applying a mapping edit must keep the exact named cohort revision');
-  assert.equal(document.population.selectionRevisionId, selection.id,
-    'applying a mapping edit must keep the exact immutable selection revision');
+  assertCohortGroupProvenance(document, { selection, cohort });
   assert.deepEqual(idColumn.valueTransformation, editedTransform,
     'Apply must save the exact edited mapping for both raw Patient IDs');
   check('correctness', 'saved recoding edits apply exact category values on the same cohort binding', true,
@@ -800,10 +796,7 @@ export const cohortRecodeWorkflow = async ({ page, report, check, action }, cont
   assert.equal(reloadedEditedIDColumns.member.columnId, savedColumnBeforeEdit.columnId,
     'reload must retain the same Patient.id member column identity');
   assert.equal(reloadedEditedIDColumns.binding.policy, 'ALL', 'reload must retain the ALL member policy');
-  assert.equal(document.rows.groups.source.explicit.revisionId, cohort.revisionId,
-    'reload must retain the exact named cohort revision');
-  assert.equal(document.population.selectionRevisionId, selection.id,
-    'reload must retain the exact immutable selection revision');
+  assertCohortGroupProvenance(document, { selection, cohort });
   assert.deepEqual(idColumn.valueTransformation, editedTransform,
     'reload must retain the exact edited mapping for both raw Patient IDs');
   check('persistence', 'edited category mapping survives reload on the same cohort and Patient IDs', true,
@@ -851,6 +844,7 @@ export const cohortRecodeWorkflow = async ({ page, report, check, action }, cont
   idColumn = document.columns.find(column => column.columnId === idColumn.columnId);
   const finalIDBinding = document.rows.groups.rowValues.find(binding => binding.columnId === idColumn.columnId);
   const finalIDColumns = assertCohortPatientIDColumns(document, legacyIdentity);
+  assertCohortGroupProvenance(document, { selection, cohort });
   assert.equal(finalIDColumns.member.columnId, idColumn.columnId,
     'reload must preserve the same distinct Patient.id member column identity');
   assert(!idColumn.valueTransformation && finalIDBinding?.policy === 'ALL',

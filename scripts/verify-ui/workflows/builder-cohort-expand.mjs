@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { browserURL } from './builder-url.mjs';
 import { click, configureNativePage, evaluate, fill, inspectAction, isActionable, recordPlaywrightTiming, reload, waitFor, goto } from '../helpers/playwright-authoring-page.mjs';
+import { addColumnsRawFieldsDisclosureSelector, addColumnsRawFieldsSummarySelector } from '../helpers/add-columns-raw-fields-selectors.mjs';
 import { recordCheck } from '../helpers/report.mjs';
 
 
@@ -226,7 +227,7 @@ export const cohortExpandWorkflow = async (workflow, context = workflow) => {
 
   await waitFor(page, "document.querySelector('[data-testid=construction-action-add-columns]')?.disabled === false", 5000);
   const memberPolicySelector = 'select[aria-label="Values per grouped row"]';
-  const rawFieldDetails = '[data-testid="feature-catalog-raw-fields"]';
+  const rawFieldDetails = addColumnsRawFieldsDisclosureSelector;
   const patientIDChoice = 'input[aria-label="Select Patient.id"]';
   await recordPlaywrightTiming(report, page, workflow, {
     name: 'propose Patient.id cohort member field with ALL',
@@ -240,7 +241,7 @@ export const cohortExpandWorkflow = async (workflow, context = workflow) => {
       await fill(workflow, memberPolicySelector, 'ALL');
       await waitFor(page, `Boolean(document.querySelector(${JSON.stringify(rawFieldDetails)}))`, 5000);
       const rawFieldsOpen = await evaluate(page, `Boolean(document.querySelector(${JSON.stringify(rawFieldDetails)})?.open)`);
-      if (!rawFieldsOpen) await click(workflow, `${rawFieldDetails} summary`);
+      if (!rawFieldsOpen) await click(workflow, addColumnsRawFieldsSummarySelector);
       await waitFor(page, `Boolean(document.querySelector(${JSON.stringify(patientIDChoice)}))`, 5000);
       const candidateAction = await inspectAction(page, patientIDChoice);
       if (!isActionable(candidateAction)) throw new Error(`Patient.id field is not natively selectable: ${JSON.stringify(candidateAction)}`);

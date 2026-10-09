@@ -4,6 +4,7 @@ import test from 'node:test';
 import { caseNamesFor, hasLifecycleContract, registry, scenarioCaseFor } from '../../registry.mjs';
 import { builderCancelStateEvidence, nativeResponseScopeEvidence, removalProposalEvidence, targetDocumentStateEvidence } from '../builder-combine-nullable-helpers.mjs';
 import { classifyNativeBrowserApiRequest } from '../native-browser-api-scope.mjs';
+import { installNullableNativeAbortProbe } from '../../workflows/builder-combine-nullable.mjs';
 
 const driver = readFileSync(new URL('../../workflows/builder-combine-nullable.mjs', import.meta.url), 'utf8');
 
@@ -49,6 +50,42 @@ test('nullable lifecycle is discovered by the official Playwright Test runner', 
   assert.match(spec, /test\.use\(\{ scenarioID: 'builder-combine-nullable', caseName: 'lifecycle', fixtureDir: 'testdata\/verify-combine-nullable-duplicates' \}\)/);
   assert.match(spec, /test\('nullable KEY_JOIN duplicate-key multiplicity and NULL non-equality lifecycle'/);
   assert.match(spec, /nativeRequestLedger: workflow\.nativeRequestLedger/);
+});
+
+test('the registered nullable spec installs its probe on the selected Explorer and UI proxy origin', async () => {
+  const spec = readFileSync(new URL('../../specs/nullable-combine.spec.mjs', import.meta.url), 'utf8');
+  const installAt = driver.indexOf('await installNullableNativeAbortProbe(');
+  assert.ok(installAt > driver.indexOf('report.target.explorer = explorer'));
+  assert.ok(installAt < driver.indexOf('const addRoot = async'));
+  assert.match(spec, /nullableJoinWorkflow\(/);
+
+  let binding;
+  const calls = [];
+  const browserContext = {
+    exposeBinding: async (name, callback) => { calls.push(['binding', name]); binding = callback; },
+    addInitScript: async (source) => calls.push(['init', source]),
+  };
+  const page = {
+    context: () => browserContext,
+    evaluate: async (source) => calls.push(['current-page', source]),
+  };
+  const report = {};
+  await installNullableNativeAbortProbe({
+    page, report, project: 'loom_dev_verify_case027', explorer: 'verify-case027-combine',
+    uiProxyOrigin: 'http://127.0.0.1:30008/path-is-ignored',
+  });
+
+  assert.deepEqual(calls.map(([kind]) => kind), ['binding', 'init', 'current-page']);
+  assert.equal(calls[0][1], '__loomNativeAbortProbeBinding');
+  assert.equal(calls[1][1], calls[2][1]);
+  assert.ok(calls[1][1].includes('project: "loom_dev_verify_case027"'));
+  assert.ok(calls[1][1].includes('explorer: "verify-case027-combine"'));
+  assert.ok(calls[1][1].includes('apiOrigin: "http://127.0.0.1:30008"'));
+  assert.ok(!calls[1][1].includes('8188'), 'the probe must use the browser UI proxy origin, not the backend origin');
+
+  const installed = { kind: 'probe-installed', project: 'loom_dev_verify_case027', explorer: 'verify-case027-combine' };
+  binding({}, JSON.stringify(installed));
+  assert.deepEqual(report.nativeAbortProbeEvents, [installed]);
 });
 
 test('nullable native case authors the exact optional source paths and checks the bound proposal receipt', () => {

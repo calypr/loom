@@ -43,6 +43,36 @@ export function assertProposalPanelHeaders(actualHeaders, columns, label) {
   assert.deepEqual(actualHeaders, expectedHeaders, `${label} proposal headers must show the exact native labels and logical types`);
 }
 
+function assertFinishedProposalCapture(request, label) {
+  assert(Number.isFinite(request.startedAt)
+    && Number.isFinite(request.responseReceivedAt)
+    && Number.isFinite(request.completedAt)
+    && request.startedAt <= request.responseReceivedAt
+    && request.responseReceivedAt <= request.completedAt,
+  `${label} must retain request, response, and completion timestamps`);
+  assert.equal(typeof request.browserRequestId, 'string', `${label} must retain its browser request ID`);
+  const chronology = request.nativeEventChronology ?? [];
+  const eventNames = ['request', 'response', 'requestfinished'];
+  const eventIndexes = eventNames.map(eventName => {
+    const matches = chronology.filter(event => event.event === eventName);
+    assert.equal(matches.length, 1, `${label} must retain exactly one ${eventName} event`);
+    const event = matches[0];
+    assert.equal(event.browserRequestId, request.browserRequestId, `${label} ${eventName} event must bind to its exact browser request`);
+    assert.equal(event.objectMatch, true, `${label} ${eventName} event must bind to the captured request object`);
+    assert(Number.isFinite(event.observedAt), `${label} ${eventName} event must retain its observation time`);
+    return chronology.indexOf(event);
+  });
+  assert(eventIndexes[0] < eventIndexes[1] && eventIndexes[1] < eventIndexes[2],
+    `${label} must preserve native request, response, and requestfinished array order`);
+  const events = eventIndexes.map(index => chronology[index]);
+  assert(events[0].observedAt <= events[1].observedAt && events[1].observedAt <= events[2].observedAt,
+    `${label} must finish after receiving its response`);
+}
+
+export function unexpectedRootQuantityPivotConsoleErrors(errors) {
+  return errors.filter(error => error.kind === 'console' && error.expectedRootQuantityPivotValidation !== true);
+}
+
 export function classifyRootQuantityPivotValidationConsoleBatch({
   validations,
   authoringRequests,
@@ -73,7 +103,11 @@ export function classifyRootQuantityPivotValidationConsoleBatch({
     && Number.isInteger(initialDraft.draftVersion) && typeof initialDraft.draftDigest === 'string',
   'Expected validation batch needs the original saved draft identity');
 
-  const expectedBucket = {
+  const expectedBucket = Array.isArray(duplicateWitness.rawWitnessIDs) ? {
+    rawWitnessIDs: [...duplicateWitness.rawWitnessIDs],
+    status: duplicateWitness.status,
+    category: JSON.stringify({ kind: 'STRING', string: duplicateWitness.value }),
+  } : {
     status: duplicateWitness.status,
     category: JSON.stringify({ kind: 'STRING', string: duplicateWitness.value }),
     rowCount: duplicateWitness.rowCount,
@@ -93,8 +127,7 @@ export function classifyRootQuantityPivotValidationConsoleBatch({
     assert.equal(request.origin, origin);
     assert.equal(request.path, route, 'Expected validation must use the exact owned proposal route');
     assert.equal(request.status, 422);
-    assert(Number.isFinite(request.startedAt) && Number.isFinite(request.completedAt) && request.completedAt > request.startedAt,
-      `Expected validation ${requestId} must have a completed response capture`);
+    assertFinishedProposalCapture(request, `Expected validation ${requestId}`);
     assert.equal(request.requestId, request.serverRequestId, 'Proposal request ID must match its response request ID');
     assert.equal(validation.backendRequestId, request.requestId);
     assert.equal(validation.code, code);
@@ -133,14 +166,79 @@ export function classifyRootQuantityPivotValidationConsoleBatch({
     assert.deepEqual(sourceColumnIDs, expectedColumnIDs, 'Rejected Pivot source bindings must exactly cover the group, category, and value columns');
 
     const response = request.response;
-    assert.equal(response?.error?.code, code);
+    assert.equal(response?.error?.code, code, 'Expected validation response must report only TABLE_PIVOT_CELL_CARDINALITY');
     assert.equal(response?.error?.requestId, request.requestId);
     assert.equal(response?.error?.diagnostic?.code, code);
     assert.equal(response?.error?.diagnostic?.requestId, request.requestId, 'Response diagnostic must identify the exact proposal request');
     assert.equal(response?.error?.diagnostic?.stage, 'preview');
     assert.equal(response?.error?.diagnostic?.severity, 'error');
     assert.deepEqual(response?.diagnostics, [response.error.diagnostic], 'Expected response must contain only its exact cardinality diagnostic');
-    return { requestId, request, validation, message: response.error.message };
+    if (Array.isArray(duplicateWitness.rawWitnessIDs)) {
+      assert.deepEqual(validation.rawDuplicateWitnessIDs, duplicateWitness.rawWitnessIDs,
+        'Fixture validation must retain exactly the raw row IDs that prove its duplicate category');
+    }
+    const sumRepairBody = structuredClone(body);
+    sumRepairBody.candidateConstruction.steps[0].operation.pivot.duplicatePolicy = 'SUM';
+    return { requestId, request, validation, message: response.error.message, sumRepairBody };
+  });
+
+  const proposalRequests = authoringRequests
+    .filter(request => request.endpoint === 'construction-proposals')
+    .sort((left, right) => left.startedAt - right.startedAt);
+  const sumRepairPairs = validatedRequests.map(item => {
+    const validationIndex = proposalRequests.findIndex(request => request.requestId === item.requestId);
+    assert(validationIndex >= 0, `Expected validation ${item.requestId} must appear in proposal chronology`);
+    const repair = proposalRequests[validationIndex + 1];
+    assert(repair, `Expected validation ${item.requestId} must be immediately followed by its SUM repair proposal`);
+    assert.equal(repair.method, 'POST');
+    assert.equal(repair.endpoint, 'construction-proposals');
+    assert.equal(repair.origin, origin);
+    assert.equal(repair.path, route, 'SUM repair must use the exact owned project and Explorer route');
+    assert.equal(repair.status, 200, 'SUM repair must complete successfully');
+    assert.deepEqual(repair.body, item.sumRepairBody,
+      'SUM repair must preserve the rejected proposal bindings and change only duplicate policy');
+    assert(repair.startedAt >= item.request.completedAt,
+      'SUM repair must occur after the exact completed ERROR validation in captured proposal order');
+    assert.equal(repair.requestId, repair.serverRequestId, 'SUM repair request ID must match its response request ID');
+    assert.notEqual(repair.requestId, item.requestId);
+    assertFinishedProposalCapture(repair, `SUM repair ${repair.requestId}`);
+
+    const response = repair.response;
+    assert(response && typeof response === 'object', 'SUM repair must retain its completed response body');
+    assert.equal(response.snapshotToken, initialDraft.snapshotToken, 'SUM repair response must use the saved snapshot');
+    assert.equal(response.draftVersion, initialDraft.draftVersion, 'SUM repair response must use the saved draft version');
+    assert.equal(response.draftDigest, initialDraft.draftDigest, 'SUM repair response must use the saved draft digest');
+    assert.equal(response.outputId, outputId, 'SUM repair response must retain the exact output');
+    assert.equal(response.previewStatus, 'READY', 'SUM repair must reach a valid READY preview terminal');
+    assert.deepEqual(response.candidateConstruction?.steps, repair.body.candidateConstruction.steps,
+      'SUM repair response must retain the exact submitted Pivot construction');
+    assert.equal(typeof response.proposalId, 'string');
+    assert.equal(response.preview?.kind, 'ExplorerBuilderPreview');
+    assert.equal(response.preview?.outputId, outputId);
+    assert.equal(response.preview?.receiptId, response.proposalId,
+      'SUM repair preview must bind its terminal receipt to the returned proposal ID');
+    assert(Number.isInteger(response.preview?.rowCount) && response.preview.rowCount > 0,
+      'SUM repair preview must contain rendered rows');
+    assert(Array.isArray(response.preview?.rows) && response.preview.rows.length > 0,
+      'SUM repair must retain its rendered preview rows');
+    assert.deepEqual(response.preview?.diagnostics, [], 'SUM repair preview must have no remaining diagnostics');
+    return {
+      validationRequestId: item.requestId,
+      requestId: repair.requestId,
+      browserRequestId: repair.browserRequestId,
+      startedAt: repair.startedAt,
+      validationCompletedAt: item.request.completedAt,
+      completedAt: repair.completedAt,
+      status: repair.status,
+      previewStatus: response.previewStatus,
+      outputId: response.outputId,
+      snapshotToken: response.snapshotToken,
+      draftVersion: response.draftVersion,
+      draftDigest: response.draftDigest,
+      proposalId: response.proposalId,
+      previewReceiptId: response.preview.receiptId,
+      rowCount: response.preview.rowCount,
+    };
   });
 
   const localConsoleIndexes = workflowErrors.flatMap((error, index) =>
@@ -207,6 +305,7 @@ export function classifyRootQuantityPivotValidationConsoleBatch({
     code,
     status: 422,
     requestIDs: validatedRequests.map(item => item.requestId),
+    sumRepairPairs,
     fixtureRequestPairs,
     localConsoleIndexes,
     localHTTPIndexes,
@@ -233,6 +332,7 @@ export function markRootQuantityPivotValidationBatchExpected({
     requestId: pair.requestId,
     browserRequestId: pair.browserRequestId,
     playwrightRequestId: pair.playwrightRequestId,
+    sumRepair: validationBatch.sumRepairPairs.find(repair => repair.validationRequestId === pair.requestId),
   }]));
   for (const index of validationBatch.localConsoleIndexes) {
     Object.assign(workflowErrors[index], {
@@ -409,8 +509,7 @@ const selectOption = async (page, selector, value, { settledWhen } = {}) => {
 const syncAuthoringRequests = () => {
   report.authoringRequests.splice(0, report.authoringRequests.length, ...authoringRequestsFromNative(report.nativeRequests, browserRequestCapture));
   report.browserErrors.runtime = report.errors.filter(error => error.kind === 'runtime');
-  report.browserErrors.console = report.errors.filter(error =>
-    error.kind === 'console' && error.expectedRootQuantityPivotValidation !== true);
+  report.browserErrors.console = unexpectedRootQuantityPivotConsoleErrors(report.errors);
   const ownedFailures = report.nativeRequests.filter(request => request.failure).map(request => ({ pathname: request.path, errorText: request.failure, canceled: request.failure === 'net::ERR_ABORTED' }));
   const allFailures = browserNetworkFailures.map(failure => ({ pathname: new URL(failure.url, apiOrigin).pathname, errorText: failure.failure, canceled: failure.failure === 'net::ERR_ABORTED' }));
   report.browserErrors.network = [...ownedFailures, ...allFailures.filter(failure => !ownedFailures.some(owned => owned.pathname === failure.pathname && owned.errorText === failure.errorText))];
@@ -1775,15 +1874,93 @@ const editor=document.querySelector('[data-testid="construction-reshape-pivot"]'
       { project, generation: expectedGeneration, sourceIDs: oracle.fixtureRows.map(row => row.id).sort(), fixtureDigest: oracle.fixtureDigest });
       await runFixtureLifecycle(discovery, oracle, prePivotWorkspace, prePivotDocument, requestOffset);
       await drainResponseReads();
+      const timedActions = report.cases.filter(item => typeof item.durationMs === 'number');
+      recordRequirement(requiredChecks[7], timedActions.length === 14 && timedActions.every(item => item.durationMs <= actionRenderBudgetMs),
+        { actionCount: timedActions.length, budgetMs: actionRenderBudgetMs, actions: timedActions });
+      await context.flushHttpDiagnostics({ timeoutMs: 5_000 });
+      context.includeBrowserDiagnostics();
+      const duplicateCode = JSON.stringify({ kind: 'STRING', string: 'd' });
+      const duplicateRows = oracle.fixtureRows.filter(row => row.category === duplicateCode);
+      assert.equal(duplicateRows.length, 2, 'The fixture ERROR validation needs the two independent raw d witnesses');
+      const duplicateValues = duplicateRows.map(row => row.value).filter(Number.isFinite);
+      assert.equal(duplicateValues.length, 2, 'Both raw d witnesses must retain numeric quantity values');
+      const fixtureDuplicateWitness = {
+        status: duplicateRows[0].status,
+        present: true,
+        value: 'd',
+        rawWitnessIDs: duplicateRows.map(row => row.id),
+        rowCount: duplicateRows.length,
+        numericCount: duplicateValues.length,
+        valueSum: duplicateValues.reduce((sum, value) => sum + value, 0),
+        valueMax: Math.max(...duplicateValues),
+      };
+      assert(duplicateValues.length > 1 && Math.abs(fixtureDuplicateWitness.valueSum - fixtureDuplicateWitness.valueMax) > 1e-9,
+        'The raw d witnesses must independently prove that SUM differs from MAX');
+      const validationBatch = classifyRootQuantityPivotValidationConsoleBatch({
+        validations: report.expectedAuthoringValidations,
+        authoringRequests: report.authoringRequests,
+        workflowErrors: report.errors,
+        fixtureNetwork: nativeReport.network,
+        fixtureErrors: nativeReport.errors,
+        fixtureConsoleDiagnostics: context.diagnostics?.console ?? [],
+        project,
+        explorer,
+        outputId,
+        origin: uiOrigin,
+        initialDraft: initialDraftIdentity,
+        duplicateWitness: fixtureDuplicateWitness,
+      });
+      const batchEvidence = {
+        kind: 'expected-root-quantity-pivot-validation-console-batch',
+        project,
+        explorer,
+        route: validationBatch.route,
+        status: validationBatch.status,
+        code: validationBatch.code,
+        duplicatePolicy: 'ERROR',
+        outputId,
+        snapshotToken: initialDraftIdentity.snapshotToken,
+        draftVersion: initialDraftIdentity.draftVersion,
+        draftDigest: initialDraftIdentity.draftDigest,
+        rawDuplicateBucket: {
+          rawWitnessIDs: fixtureDuplicateWitness.rawWitnessIDs,
+          status: fixtureDuplicateWitness.status,
+          category: duplicateCode,
+          rowCount: fixtureDuplicateWitness.rowCount,
+          numericCount: fixtureDuplicateWitness.numericCount,
+          sum: fixtureDuplicateWitness.valueSum,
+          max: fixtureDuplicateWitness.valueMax,
+        },
+        requestIDs: validationBatch.requestIDs,
+        sumRepairPairs: validationBatch.sumRepairPairs,
+        fixtureRequestPairs: validationBatch.fixtureRequestPairs,
+        consoleEventCount: validationBatch.fixtureConsoleNetworkIndexes.length,
+        consoleEventsHaveRequestIDs: false,
+        association: validationBatch.association,
+      };
+      markRootQuantityPivotValidationBatchExpected({
+        validationBatch,
+        batchEvidence,
+        workflowErrors: report.errors,
+        nativeReport,
+        browserConsoleDiagnostics: context.diagnostics.console,
+      });
+      report.fixtureLifecycle.expectedValidationConsoleBatch = batchEvidence;
+      nativeReport.expectedHttpFailureBatches ??= [];
+      nativeReport.expectedHttpFailureBatches.push(batchEvidence);
       assert.equal(report.expectedAuthoringValidations?.length, 2, 'Only the two explicit ERROR-policy previews should be classified as expected validation');
       recordRequirement(requiredChecks[1], report.expectedAuthoringValidations.every(validation =>
         validation.code === 'TABLE_PIVOT_CELL_CARDINALITY' && validation.duplicatePolicy === 'ERROR'
-          && validation.project === project && validation.outputId === outputId && validation.rawDuplicateWitnessIDs?.length === 2),
+          && validation.project === project && validation.explorer === explorer && validation.outputId === outputId
+          && validation.snapshotToken === initialDraftIdentity.snapshotToken
+          && validation.draftVersion === initialDraftIdentity.draftVersion
+          && validation.rawDuplicateWitnessIDs?.length === 2),
       { validations: report.expectedAuthoringValidations });
       recordRequirement(requiredChecks[2], report.fixtureLifecycle.initialExpected?.[0]?.missing_value === 3
         && report.fixtureLifecycle.initialExpected?.[0]?.null_value === 5
         && report.fixtureLifecycle.initialExpected?.[0]?.d === 6,
       { expectedRows: report.fixtureLifecycle.initialExpected });
+      syncAuthoringRequests();
       assert.deepEqual(report.browserErrors.runtime, [], `Browser runtime exceptions after lifecycle: ${JSON.stringify(report.browserErrors.runtime)}`);
       assert.deepEqual(report.browserErrors.console, [], `Browser console errors after lifecycle: ${JSON.stringify(report.browserErrors.console)}`);
       assert.deepEqual(report.browserErrors.network, [], `Unexpected browser network failures after lifecycle: ${JSON.stringify(report.browserErrors.network)}`);
@@ -1791,9 +1968,6 @@ const editor=document.querySelector('[data-testid="construction-reshape-pivot"]'
       const failedAuthoringRequests = report.authoringRequests.filter(request => typeof request.status === 'number' && request.status >= 400 && !expectedValidationRequestIDs.has(request.requestId));
       assert.deepEqual(failedAuthoringRequests, [], `Unexpected authoring request errors after lifecycle: ${JSON.stringify(failedAuthoringRequests)}`);
       report.fixtureLifecycle.finalErrors = { runtime: [], console: [], network: [], authoringHTTP: [] };
-      const timedActions = report.cases.filter(item => typeof item.durationMs === 'number');
-      recordRequirement(requiredChecks[7], timedActions.length === 14 && timedActions.every(item => item.durationMs <= actionRenderBudgetMs),
-        { actionCount: timedActions.length, budgetMs: actionRenderBudgetMs, actions: timedActions });
       report.domainStatus = 'passed';
     } else if (mode === 'full-population-lifecycle') {
       await runFullPopulationLifecycle(discovery, oracle, prePivotWorkspace, prePivotDocument, requestOffset);

@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assertCohortMemberFieldBinding, assertCohortPatientIDColumns } from '../cohort-identities.mjs';
+import {
+  assertCohortGroupProvenance,
+  assertCohortMemberFieldBinding,
+  assertCohortPatientIDColumns,
+} from '../cohort-identities.mjs';
 
 const idSource = { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } };
 
@@ -51,6 +55,50 @@ test('resolves the cohort-bound Patient ID beside the legacy ID in a saved GROUP
   assert.equal(result.binding.policy, 'ALL');
   assert.equal(document.rows.groups.source.explicit.revisionId, 'grouprev_case008');
   assert.equal(document.population.selectionRevisionId, 'selection_case008');
+});
+
+test('validates saved CASE-008 GROUPS provenance from a DTO with no population field', () => {
+  const selection = { id: 'selection_case008' };
+  const cohort = { sourceSelectionRevisionId: selection.id, revisionId: 'grouprev_case008' };
+  const document = {
+    columns: [
+      {
+        columnId: 'source_patient_id',
+        column: 'col_source_patient_id',
+        source: idSource,
+      },
+      {
+        columnId: 'member_patient_id',
+        column: 'col_member_patient_id',
+        logicalType: 'string',
+        source: idSource,
+      },
+    ],
+    rows: {
+      kind: 'GROUPS',
+      groups: {
+        source: { kind: 'EXPLICIT', explicit: { revisionId: cohort.revisionId } },
+        rowValues: [{ columnId: 'member_patient_id', policy: 'ALL' }],
+      },
+    },
+  };
+
+  assert.equal(Object.hasOwn(document, 'population'), false);
+  assert.deepEqual(assertCohortGroupProvenance(document, { selection, cohort }), {
+    selectionRevisionId: selection.id,
+    cohortRevisionId: cohort.revisionId,
+  });
+  const idColumns = assertCohortPatientIDColumns(document, document.columns[0]);
+  assert.equal(idColumns.member.columnId, 'member_patient_id');
+  assert.equal(idColumns.binding.policy, 'ALL');
+
+  assert.throws(() => assertCohortGroupProvenance(document, {
+    selection: { id: 'selection_other' }, cohort,
+  }), /exact immutable selection revision/);
+  const changedGroup = structuredClone(document);
+  changedGroup.rows.groups.source.explicit.revisionId = 'grouprev_other';
+  assert.throws(() => assertCohortGroupProvenance(changedGroup, { selection, cohort }),
+    /exact explicit cohort revision/);
 });
 
 test('supports the synthetic legacy Patient ID shape without a columnId', () => {

@@ -7,6 +7,7 @@ import {
   classifyRootQuantityPivotValidationConsoleBatch,
   markRootQuantityPivotValidationBatchExpected,
   pivotSourceSelectionReady,
+  unexpectedRootQuantityPivotConsoleErrors,
 } from '../../workflows/root-quantity-pivot-workflow.mjs';
 
 const installDocument = ({ controls, checkboxes = [] }) => {
@@ -128,18 +129,35 @@ test('live fixture diagnostics are projected before batch classification and rep
   assert.deepEqual(report.errors, once, 'The fixture teardown projection must not duplicate live diagnostics');
 });
 
-const validationBatchFixture = () => {
-  const project = 'loom_dev_cda_fhir';
-  const explorer = 'root-quantity-category-test';
+const validationBatchFixture = ({ retainedCase016 = false } = {}) => {
+  const project = retainedCase016 ? 'loom_dev_verify_mv0shkfb-b03838f' : 'loom_dev_cda_fhir';
+  const explorer = retainedCase016 ? 'root-quantity-category-1791539714311' : 'root-quantity-category-test';
   const origin = 'http://127.0.0.1:30008';
-  const outputId = 'out_root_quantity';
+  const outputId = retainedCase016 ? 'out_22c2a6b07c411065a0389d20' : 'out_root_quantity';
   const route = `/api/v1/projects/${project}/explorers/${explorer}/authoring/v2/construction-proposals`;
   const url = origin + route;
-  const snapshotToken = 'sha256:test-snapshot';
-  const draftDigest = 'sha256:test-draft';
+  const snapshotToken = retainedCase016
+    ? 'sha256:d334a20d129ce3945acb0f1e5f8494c5d666e7770919e92abedd89ddc4451a0c'
+    : 'sha256:test-snapshot';
+  const draftDigest = retainedCase016
+    ? 'sha256:6531c650dfebe410e10ea7101daa192de3a6545e05a84a447ef528d56314415f'
+    : 'sha256:test-draft';
   const initialDraft = { snapshotToken, draftVersion: 4, draftDigest };
-  const duplicateWitness = { status: 'final', present: true, value: 'd', rowCount: 100, numericCount: 100, valueSum: 250, valueMax: 5 };
-  const rawDuplicateBucket = {
+  const duplicateWitness = retainedCase016 ? {
+    status: 'final',
+    present: true,
+    value: 'd',
+    rawWitnessIDs: ['quantity-pivot-string-a', 'quantity-pivot-string-b'],
+    rowCount: 2,
+    numericCount: 2,
+    valueSum: 6,
+    valueMax: 4,
+  } : { status: 'final', present: true, value: 'd', rowCount: 100, numericCount: 100, valueSum: 250, valueMax: 5 };
+  const rawDuplicateBucket = Array.isArray(duplicateWitness.rawWitnessIDs) ? {
+    rawWitnessIDs: duplicateWitness.rawWitnessIDs,
+    status: duplicateWitness.status,
+    category: JSON.stringify({ kind: 'STRING', string: duplicateWitness.value }),
+  } : {
     status: duplicateWitness.status,
     category: JSON.stringify({ kind: 'STRING', string: duplicateWitness.value }),
     rowCount: duplicateWitness.rowCount,
@@ -149,11 +167,68 @@ const validationBatchFixture = () => {
   };
   const consoleMessage = 'Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
   const ids = [
-    'construction-proposal-first',
-    'construction-proposal-second',
+    ...(retainedCase016
+      ? ['construction-proposal-fb900a9e-e9af-453d-a738-2892f86a4903', 'construction-proposal-e85f11fc-a0ce-45f9-bc8a-b344001c7f84']
+      : ['construction-proposal-first', 'construction-proposal-second']),
+  ];
+  const retainedRequests = [
+    {
+      browserRequestId: 'playwright-10',
+      sumRepairRequestId: 'construction-proposal-f901ead8-28ad-4eba-b8d9-d8ecc70421f6',
+      sumRepairBrowserRequestId: 'playwright-11',
+      startedAt: 1791539720045,
+      responseReceivedAt: 1791539720167,
+      completedAt: 1791539720174,
+      sumStartedAt: 1791539720523,
+      sumResponseReceivedAt: 1791539720715,
+      sumCompletedAt: 1791539720724,
+      stepId: 'pivot_919622f5-ce3f-461d-bf17-db4cd2d9b40c',
+      groupColumnId: 'pivot-input_9ddd2203-33e2-442a-a49f-afc2290af9a7',
+      categoryColumnId: 'pivot-input_4d186de2-b4b4-4421-b0f3-4088c91987b8',
+      valueColumnId: 'pivot-input_6ab2db72-9e61-42cc-8e73-21fdcad2af73',
+      sourceProjectionOrder: ['category', 'value', 'group'],
+      outputColumnIds: [
+        'pivot-column_bd6e752c-ff20-4bfe-a85a-fda3b8a02125',
+        'pivot-column_0b5eda0a-846d-475c-a896-a5976e89f25b',
+        'pivot-column_c9a0da9a-1b1c-4281-9917-525161925b3c',
+      ],
+      repairReceiptId: 'receipt_be91ba4e4304854ed3eeb2b96091d1460eab53a5610fbabdfab52646ff08f175',
+      baseReceiptId: 'receipt_94f7a493206257080cc6d7a330024ae8df0c7f1d476e18283ce43bf6f8dca67c',
+      baseDocumentDigest: 'sha256:660fe947fac69f9f5091adeb3289cf6b6e1baaa17b803f10662576ed607c0607',
+    },
+    {
+      browserRequestId: 'playwright-15',
+      sumRepairRequestId: 'construction-proposal-fa2f8a0f-a574-4ca8-b3a1-4a206c9be524',
+      sumRepairBrowserRequestId: 'playwright-16',
+      startedAt: 1791539721984,
+      responseReceivedAt: 1791539722122,
+      completedAt: 1791539722129,
+      sumStartedAt: 1791539722473,
+      sumResponseReceivedAt: 1791539722620,
+      sumCompletedAt: 1791539722628,
+      stepId: 'pivot_2067f5cd-0561-4859-a56e-ef434917a958',
+      groupColumnId: 'pivot-input_54383f9d-4197-4ef4-9519-2d6ac11e9e6a',
+      categoryColumnId: 'pivot-input_0f59ce48-34e7-4854-98de-40d6a12a5001',
+      valueColumnId: 'pivot-input_65b4136d-c7f4-45d9-8693-da1a39bd3851',
+      sourceProjectionOrder: ['category', 'group', 'value'],
+      outputColumnIds: [
+        'pivot-column_69676191-7b38-443b-83ad-c7ef5b1515a2',
+        'pivot-column_623dcd7d-9710-4cf9-896a-bd73261dc972',
+        'pivot-column_bfc2ce1e-b836-494e-beca-ebfabfe7516b',
+      ],
+      repairReceiptId: 'receipt_0310f871b4c08d282611b39c88ab5cd1142a63a75f465e789d1724fc8b174a83',
+      baseReceiptId: 'receipt_94f7a493206257080cc6d7a330024ae8df0c7f1d476e18283ce43bf6f8dca67c',
+      baseDocumentDigest: 'sha256:660fe947fac69f9f5091adeb3289cf6b6e1baaa17b803f10662576ed607c0607',
+    },
+  ];
+  const chronology = (browserRequestId, startedAt, responseReceivedAt, completedAt) => [
+    { event: 'request', browserRequestId, observedAt: startedAt, objectMatch: true },
+    { event: 'response', browserRequestId, observedAt: responseReceivedAt, objectMatch: true },
+    { event: 'requestfinished', browserRequestId, observedAt: responseReceivedAt + 1, objectMatch: true },
   ];
   const validated = ids.map((requestId, index) => {
-    const browserRequestId = `playwright-${index + 10}`;
+    const retained = retainedCase016 ? retainedRequests[index] : null;
+    const browserRequestId = retained?.browserRequestId ?? `playwright-${index + 10}`;
     const diagnostic = {
       code: 'TABLE_PIVOT_CELL_CARDINALITY',
       message: 'More than one record matched a Pivot cell; choose how to handle duplicates or filter the input rows.',
@@ -170,29 +245,45 @@ const validationBatchFixture = () => {
       snapshotToken,
       expectedDraftVersion: initialDraft.draftVersion,
       expectedDraftDigest: draftDigest,
-      changedStepId: `pivot-step-${index}`,
+      changedStepId: retained?.stepId ?? `pivot-step-${index}`,
       candidateConstruction: {
         version: 1,
         steps: [{
-          id: `pivot-step-${index}`,
+          id: retained?.stepId ?? `pivot-step-${index}`,
+          ...(retained ? { inputs: [{ kind: 'SOURCE_PROJECTION' }] } : {}),
           operation: {
             kind: 'PIVOT',
             pivot: {
-              groupKeyIds: ['group-column'],
-              categoryColumnId: 'category-column',
-              valueColumnId: 'value-column',
-              categories: [{ key: { kind: 'STRING', string: 'd' }, outputColumnId: 'output-d' }],
+              ...(retained ? { constructionId: retained.stepId } : {}),
+              groupKeyIds: [retained?.groupColumnId ?? 'group-column'],
+              categoryColumnId: retained?.categoryColumnId ?? 'category-column',
+              valueColumnId: retained?.valueColumnId ?? 'value-column',
+              categories: retainedCase016 ? [
+                { key: { kind: 'MISSING' }, outputColumnId: 'pivot-column_bd6e752c-ff20-4bfe-a85a-fda3b8a02125' },
+                { key: { kind: 'NULL' }, outputColumnId: 'pivot-column_0b5eda0a-846d-475c-a896-a5976e89f25b' },
+                { key: { kind: 'STRING', string: 'd' }, outputColumnId: 'pivot-column_c9a0da9a-1b1c-4281-9917-525161925b3c' },
+              ] : [{ key: { kind: 'STRING', string: 'd' }, outputColumnId: 'output-d' }],
               duplicatePolicy: 'ERROR',
+              ...(retained ? { missingCellPolicy: 'NULL', unlistedCategoryPolicy: 'ERROR' } : {}),
             },
           },
+          ...(retained ? { outputs: [
+            { id: retained.groupColumnId, name: 'status', label: 'Observation.status', type: 'string' },
+            { id: retained.outputColumnIds[0], name: 'missing_value', label: 'Missing', type: 'decimal' },
+            { id: retained.outputColumnIds[1], name: 'null_value', label: 'Null', type: 'decimal' },
+            { id: retained.outputColumnIds[2], name: 'd', label: 'd', type: 'decimal' },
+          ] } : {}),
         }],
       },
       pivotSources: [
-        { choiceId: `choice-group-${index}`, columnId: 'group-column' },
-        { choiceId: `choice-category-${index}`, columnId: 'category-column' },
-        { choiceId: `choice-value-${index}`, columnId: 'value-column' },
+        { choiceId: `choice-group-${index}`, columnId: retained?.groupColumnId ?? 'group-column' },
+        { choiceId: `choice-category-${index}`, columnId: retained?.categoryColumnId ?? 'category-column' },
+        { choiceId: `choice-value-${index}`, columnId: retained?.valueColumnId ?? 'value-column' },
       ],
     };
+    const startedAt = retained?.startedAt ?? 100 + index * 100;
+    const responseReceivedAt = retained?.responseReceivedAt ?? startedAt + 10;
+    const completedAt = retained?.completedAt ?? startedAt + 20;
     const request = {
       requestId,
       browserRequestId,
@@ -200,9 +291,10 @@ const validationBatchFixture = () => {
       path: route,
       origin,
       method: 'POST',
-      startedAt: 100 + index * 100,
-      responseReceivedAt: 110 + index * 100,
-      completedAt: 120 + index * 100,
+      startedAt,
+      responseReceivedAt,
+      completedAt,
+      nativeEventChronology: chronology(browserRequestId, startedAt, responseReceivedAt, completedAt),
       serverRequestId: requestId,
       status: 422,
       body,
@@ -219,6 +311,7 @@ const validationBatchFixture = () => {
       snapshotToken,
       draftVersion: initialDraft.draftVersion,
       rawDuplicateBucket,
+      ...(retained ? { rawDuplicateWitnessIDs: duplicateWitness.rawWitnessIDs } : {}),
       visibleRepair: {
         alert: diagnostic.message,
         policy: 'ERROR',
@@ -227,7 +320,9 @@ const validationBatchFixture = () => {
       },
       classification: 'expected-domain-validation-repaired-by-user-selected-SUM',
     };
-    const fixturePlaywrightRequestId = `cda-request-${index + 121}`;
+    const fixturePlaywrightRequestId = retained?.browserRequestId === 'playwright-10' ? 'request-121'
+      : retained?.browserRequestId === 'playwright-15' ? 'request-126'
+        : `cda-request-${index + 121}`;
     const fixtureNetworkRequest = {
       kind: 'network',
       status: 422,
@@ -247,6 +342,112 @@ const validationBatchFixture = () => {
       fixtureConsoleDiagnostic: { kind: 'console-error', text: consoleMessage, location: url },
       workflowConsole: { kind: 'console', message: consoleMessage, location: url },
       workflowHTTP: { kind: 'http', requestId, browserRequestId, url, status: 422 },
+      sumRepair: retained ? {
+        requestId: retained.sumRepairRequestId,
+        browserRequestId: retained.sumRepairBrowserRequestId,
+        endpoint: 'construction-proposals',
+        path: route,
+        origin,
+        method: 'POST',
+        startedAt: retained.sumStartedAt,
+        responseReceivedAt: retained.sumResponseReceivedAt,
+        completedAt: retained.sumCompletedAt,
+        nativeEventChronology: chronology(retained.sumRepairBrowserRequestId, retained.sumStartedAt, retained.sumResponseReceivedAt, retained.sumCompletedAt),
+        serverRequestId: retained.sumRepairRequestId,
+        status: 200,
+        body: (() => {
+          const repairBody = structuredClone(body);
+          repairBody.candidateConstruction.steps[0].operation.pivot.duplicatePolicy = 'SUM';
+          return repairBody;
+        })(),
+        response: {
+          candidateConstruction: {
+            sourceProjections: retained.sourceProjectionOrder.map(role => ({
+              columnId: role === 'category' ? retained.categoryColumnId : role === 'value' ? retained.valueColumnId : retained.groupColumnId,
+              fhirType: role === 'value' ? 'decimal' : 'string',
+              fieldPath: role === 'category' ? 'valueQuantity.code' : role === 'value' ? 'valueQuantity.value' : 'status',
+              label: role === 'category' ? 'Observation.valueQuantity.code' : role === 'value' ? 'Observation.valueQuantity.value' : 'Observation.status',
+              logicalType: role === 'value' ? 'decimal' : 'string',
+              occurrenceId: 'base',
+              ownerStepId: retained.stepId,
+            })),
+            steps: (() => {
+              const steps = structuredClone(body.candidateConstruction.steps);
+              steps[0].operation.pivot.duplicatePolicy = 'SUM';
+              return steps;
+            })(),
+          },
+          baseReceiptId: retained.baseReceiptId,
+          baseDocumentDigest: retained.baseDocumentDigest,
+          draftVersion: initialDraft.draftVersion,
+          draftDigest,
+          outputId,
+          snapshotToken,
+          previewStatus: 'READY',
+          proposalId: retained.repairReceiptId,
+          preview: {
+            kind: 'ExplorerBuilderPreview',
+            outputId,
+            receiptId: retained.repairReceiptId,
+            partialValidation: true,
+            columns: [
+              { chartable: true, column: 'status', filterable: true, label: 'Observation.status', logicalType: 'string', nullable: true, shape: 'scalar' },
+              { chartable: true, column: 'missing_value', filterable: true, label: 'Missing', logicalType: 'decimal', nullable: true, shape: 'scalar' },
+              { chartable: true, column: 'null_value', filterable: true, label: 'Null', logicalType: 'decimal', nullable: true, shape: 'scalar' },
+              { chartable: true, column: 'd', filterable: true, label: 'd', logicalType: 'decimal', nullable: true, shape: 'scalar' },
+            ],
+            rowCount: 1,
+            rows: [{
+              __loom_row_id: `["GROUPED_PIVOT","${retained.stepId}",["STRING","final"]]`,
+              d: 6,
+              missing_value: 3,
+              null_value: 5,
+              status: 'final',
+            }],
+            diagnostics: [],
+          },
+        },
+      } : (() => {
+        const sumStartedAt = completedAt + 10;
+        const sumResponseReceivedAt = sumStartedAt + 10;
+        const sumCompletedAt = sumStartedAt + 20;
+        const sumRequestId = `construction-proposal-sum-${index + 1}`;
+        const sumBrowserRequestId = `playwright-sum-${index + 1}`;
+        const sumBody = structuredClone(body);
+        sumBody.candidateConstruction.steps[0].operation.pivot.duplicatePolicy = 'SUM';
+        return {
+          requestId: sumRequestId,
+          browserRequestId: sumBrowserRequestId,
+          endpoint: 'construction-proposals',
+          path: route,
+          origin,
+          method: 'POST',
+          startedAt: sumStartedAt,
+          responseReceivedAt: sumResponseReceivedAt,
+          completedAt: sumCompletedAt,
+          nativeEventChronology: chronology(sumBrowserRequestId, sumStartedAt, sumResponseReceivedAt, sumCompletedAt),
+          serverRequestId: sumRequestId,
+          status: 200,
+          body: sumBody,
+          response: {
+            candidateConstruction: { steps: structuredClone(sumBody.candidateConstruction.steps) },
+            draftVersion: initialDraft.draftVersion,
+            draftDigest,
+            outputId,
+            snapshotToken,
+            previewStatus: 'READY',
+            proposalId: `receipt-sum-${index + 1}`,
+            preview: {
+              kind: 'ExplorerBuilderPreview',
+              outputId,
+              receiptId: `receipt-sum-${index + 1}`,
+              rowCount: 1,
+              rows: [{ status: 'final', d: 6 }],
+              diagnostics: [],
+            },
+          },
+        };
+      })(),
     };
   });
   const fixtureErrors = [];
@@ -271,7 +472,7 @@ const validationBatchFixture = () => {
     initialDraft,
     duplicateWitness,
     validations: validated.map(item => item.validation),
-    authoringRequests: validated.map(item => item.request),
+    authoringRequests: validated.flatMap(item => [item.request, item.sumRepair]),
     workflowErrors: validated.flatMap(item => [item.workflowConsole, item.workflowHTTP]),
     fixtureNetwork: validated.flatMap(item => [item.fixtureNetworkRequest, item.consoleError]),
     fixtureErrors,
@@ -282,7 +483,7 @@ const validationBatchFixture = () => {
 
 const classifyFixture = fixture => classifyRootQuantityPivotValidationConsoleBatch(fixture);
 
-test('expected root quantity validation console batch matches two exact ERROR proposals and raw witness', () => {
+test('full-population root quantity validation batch matches two exact ERROR proposals and raw witness', () => {
   const result = classifyFixture(validationBatchFixture());
   assert.deepEqual(result.requestIDs, ['construction-proposal-first', 'construction-proposal-second']);
   assert.equal(result.status, 422);
@@ -294,11 +495,115 @@ test('expected root quantity validation console batch matches two exact ERROR pr
   assert.deepEqual(result.fixtureConsoleErrorDiagnosticIndexes, []);
   assert.equal(result.fixtureHTTPIndexes.length, 1);
   assert.equal(result.fixtureRequestPairs.length, 2);
+  assert.equal(result.sumRepairPairs.length, 2, 'Both full-population ERROR proposals must be repaired by captured SUM previews');
   assert.deepEqual(result.fixtureRequestPairs.map(({ browserRequestId, playwrightRequestId, networkIndex }) => ({ browserRequestId, playwrightRequestId, networkIndex })), [
     { browserRequestId: 'playwright-10', playwrightRequestId: 'cda-request-121', networkIndex: 0 },
     { browserRequestId: 'playwright-11', playwrightRequestId: 'cda-request-122', networkIndex: 2 },
   ]);
   assert.match(result.association, /console events have no request IDs/);
+});
+
+test('retained CASE-016 422 requests are classified only after their exact same-draft SUM proposals reach READY', () => {
+  // Reduced projection of the retained CASE-016 report (SHA-256 97577a90b6155ab1c7aed0b713f21a09a58337455ad980b3bea37c03b156fe58); request IDs, target/draft bindings, source columns, timings, receipt, and preview fields come from that artifact.
+  const fixture = validationBatchFixture({ retainedCase016: true });
+  const result = classifyFixture(fixture);
+  assert.equal(fixture.project, 'loom_dev_verify_mv0shkfb-b03838f');
+  assert.equal(fixture.explorer, 'root-quantity-category-1791539714311');
+  assert.equal(fixture.outputId, 'out_22c2a6b07c411065a0389d20');
+  assert.deepEqual(result.requestIDs, [
+    'construction-proposal-fb900a9e-e9af-453d-a738-2892f86a4903',
+    'construction-proposal-e85f11fc-a0ce-45f9-bc8a-b344001c7f84',
+  ]);
+  assert.deepEqual(result.sumRepairPairs.map(({ validationRequestId, requestId, status, previewStatus, outputId, snapshotToken, draftVersion, draftDigest }) => ({
+    validationRequestId, requestId, status, previewStatus, outputId, snapshotToken, draftVersion, draftDigest,
+  })), [
+    {
+      validationRequestId: 'construction-proposal-fb900a9e-e9af-453d-a738-2892f86a4903',
+      requestId: 'construction-proposal-f901ead8-28ad-4eba-b8d9-d8ecc70421f6',
+      status: 200,
+      previewStatus: 'READY',
+      outputId: 'out_22c2a6b07c411065a0389d20',
+      snapshotToken: 'sha256:d334a20d129ce3945acb0f1e5f8494c5d666e7770919e92abedd89ddc4451a0c',
+      draftVersion: 4,
+      draftDigest: 'sha256:6531c650dfebe410e10ea7101daa192de3a6545e05a84a447ef528d56314415f',
+    },
+    {
+      validationRequestId: 'construction-proposal-e85f11fc-a0ce-45f9-bc8a-b344001c7f84',
+      requestId: 'construction-proposal-fa2f8a0f-a574-4ca8-b3a1-4a206c9be524',
+      status: 200,
+      previewStatus: 'READY',
+      outputId: 'out_22c2a6b07c411065a0389d20',
+      snapshotToken: 'sha256:d334a20d129ce3945acb0f1e5f8494c5d666e7770919e92abedd89ddc4451a0c',
+      draftVersion: 4,
+      draftDigest: 'sha256:6531c650dfebe410e10ea7101daa192de3a6545e05a84a447ef528d56314415f',
+    },
+  ]);
+  assert.deepEqual(result.sumRepairPairs.map(pair => [pair.startedAt > pair.validationCompletedAt, pair.previewReceiptId === pair.proposalId]), [
+    [true, true],
+    [true, true],
+  ]);
+  assert.deepEqual(result.sumRepairPairs.map(pair => pair.rowCount), [1, 1]);
+  const repairs = fixture.authoringRequests.filter(request => request.status === 200);
+  assert.deepEqual(repairs.map(request => ({
+    projectionColumns: request.response.candidateConstruction.sourceProjections.map(projection => projection.columnId),
+    previewColumns: request.response.preview.columns.map(column => column.column),
+    previewRows: request.response.preview.rows,
+  })), [
+    {
+      projectionColumns: [
+        'pivot-input_4d186de2-b4b4-4421-b0f3-4088c91987b8',
+        'pivot-input_6ab2db72-9e61-42cc-8e73-21fdcad2af73',
+        'pivot-input_9ddd2203-33e2-442a-a49f-afc2290af9a7',
+      ],
+      previewColumns: ['status', 'missing_value', 'null_value', 'd'],
+      previewRows: [{
+        __loom_row_id: '["GROUPED_PIVOT","pivot_919622f5-ce3f-461d-bf17-db4cd2d9b40c",["STRING","final"]]',
+        d: 6,
+        missing_value: 3,
+        null_value: 5,
+        status: 'final',
+      }],
+    },
+    {
+      projectionColumns: [
+        'pivot-input_0f59ce48-34e7-4854-98de-40d6a12a5001',
+        'pivot-input_54383f9d-4197-4ef4-9519-2d6ac11e9e6a',
+        'pivot-input_65b4136d-c7f4-45d9-8693-da1a39bd3851',
+      ],
+      previewColumns: ['status', 'missing_value', 'null_value', 'd'],
+      previewRows: [{
+        __loom_row_id: '["GROUPED_PIVOT","pivot_2067f5cd-0561-4859-a56e-ef434917a958",["STRING","final"]]',
+        d: 6,
+        missing_value: 3,
+        null_value: 5,
+        status: 'final',
+      }],
+    },
+  ]);
+});
+
+test('captured request event order remains sufficient when native timestamps share a millisecond', () => {
+  const fixture = validationBatchFixture();
+  for (const request of fixture.authoringRequests) {
+    request.startedAt = 500;
+    request.responseReceivedAt = 500;
+    request.completedAt = 500;
+    for (const event of request.nativeEventChronology) event.observedAt = 500;
+  }
+  const result = classifyFixture(fixture);
+  assert.equal(result.requestIDs.length, 2);
+  assert.equal(result.sumRepairPairs.length, 2);
+
+  const reorderedFixture = validationBatchFixture();
+  for (const request of reorderedFixture.authoringRequests) {
+    request.startedAt = 500;
+    request.responseReceivedAt = 500;
+    request.completedAt = 500;
+    for (const event of request.nativeEventChronology) event.observedAt = 500;
+  }
+  reorderedFixture.authoringRequests[1].nativeEventChronology.reverse();
+  assert.throws(() => classifyFixture(reorderedFixture), /preserve native request, response, and requestfinished array order/,
+    'Equal timestamps must not make a reordered native event sequence look complete');
 });
 
 test('projected expected validation events retain raw evidence and finish without re-emitting failures', () => {
@@ -375,18 +680,64 @@ test('finishReport still fails on an unrelated unexpected network error after th
   finishCdaReport(nativeReport);
   assert.equal(nativeReport.status, 'failed', 'An unrelated network failure must remain fatal after batch classification');
   assert(nativeReport.assertions.some(entry => entry.name === 'no unexpected network, module, or browser errors' && entry.status === 'failed'));
+
+  const consoleFixture = validationBatchFixture();
+  const consoleBatch = classifyFixture(consoleFixture);
+  markRootQuantityPivotValidationBatchExpected({
+    validationBatch: consoleBatch,
+    batchEvidence: { reason: 'exact scoped Pivot ERROR validation pair', requestIDs: consoleBatch.requestIDs },
+    workflowErrors: consoleFixture.workflowErrors,
+    nativeReport: {
+      status: 'running',
+      requiredChecks: [],
+      assertions: [],
+      network: consoleFixture.fixtureNetwork,
+      errors: consoleFixture.fixtureErrors,
+    },
+    browserConsoleDiagnostics: consoleFixture.fixtureDiagnostics.console,
+  });
+  const unrelatedConsole = { kind: 'console', message: 'Unexpected browser console error' };
+  consoleFixture.workflowErrors.push(unrelatedConsole);
+  assert.deepEqual(unexpectedRootQuantityPivotConsoleErrors(consoleFixture.workflowErrors), [unrelatedConsole],
+    'The production error projection must suppress only the tagged expected 422 console events');
 });
 
 test('expected root quantity validation console batch rejects route, response, CAS, policy, and witness mismatches', () => {
   const mutations = [
-    [fixture => { fixture.authoringRequests[1].path += '/other'; }, /exact owned proposal route/],
-    [fixture => { fixture.authoringRequests[1].response.error.diagnostic.requestId = 'unrelated-request'; }, /exact proposal request/],
-    [fixture => { fixture.authoringRequests[1].body.expectedDraftDigest = 'sha256:stale'; }, /draft digest/],
-    [fixture => { fixture.authoringRequests[1].body.candidateConstruction.steps[0].operation.pivot.duplicatePolicy = 'SUM'; }, /duplicate policy/],
+    [fixture => { fixture.authoringRequests[2].path += '/other'; }, /exact owned proposal route/],
+    [fixture => { fixture.authoringRequests[2].response.error.diagnostic.requestId = 'unrelated-request'; }, /exact proposal request/],
+    [fixture => { fixture.authoringRequests[2].body.expectedDraftDigest = 'sha256:stale'; }, /draft digest/],
+    [fixture => { fixture.authoringRequests[2].body.candidateConstruction.steps[0].operation.pivot.duplicatePolicy = 'SUM'; }, /duplicate policy/],
     [fixture => { fixture.validations[1].rawDuplicateBucket.sum += 1; }, /raw duplicate bucket/],
   ];
   for (const [mutate, message] of mutations) {
     const fixture = validationBatchFixture();
+    mutate(fixture);
+    assert.throws(() => classifyFixture(fixture), message);
+  }
+});
+
+test('root quantity validation batch rejects generic 422s, mismatched SUM bindings, and incomplete repair captures', () => {
+  const mutations = [
+    [fixture => {
+      const extra = structuredClone(fixture.authoringRequests[0]);
+      extra.requestId = 'unrelated-generic-422';
+      extra.serverRequestId = extra.requestId;
+      fixture.authoringRequests.push(extra);
+    }, /only failed native proposal requests/],
+    [fixture => { fixture.authoringRequests[0].response.error.code = 'UNRELATED_422'; }, /only TABLE_PIVOT_CELL_CARDINALITY/],
+    [fixture => { fixture.authoringRequests[1].path = fixture.authoringRequests[1].path.replace('root-quantity-category-', 'other-explorer-'); }, /exact owned project and Explorer route/],
+    [fixture => { fixture.authoringRequests[1].body.outputId = 'out_other'; }, /SUM repair must preserve the rejected proposal bindings/],
+    [fixture => { fixture.authoringRequests[1].body.snapshotToken = 'sha256:other-snapshot'; }, /SUM repair must preserve the rejected proposal bindings/],
+    [fixture => { fixture.authoringRequests[1].body.pivotSources[0].columnId = 'other-column'; }, /SUM repair must preserve the rejected proposal bindings/],
+    [fixture => { fixture.authoringRequests[1].response.previewStatus = 'RUNNING'; }, /valid READY preview terminal/],
+    [fixture => { fixture.authoringRequests[1].response.draftVersion += 1; }, /SUM repair response must use the saved draft version/],
+    [fixture => { fixture.authoringRequests[1].response = undefined; }, /SUM repair must retain its completed response body/],
+    [fixture => { fixture.authoringRequests[1].nativeEventChronology.pop(); }, /exactly one requestfinished event/],
+    [fixture => { fixture.authoringRequests[0].nativeEventChronology.pop(); }, /exactly one requestfinished event/],
+  ];
+  for (const [mutate, message] of mutations) {
+    const fixture = validationBatchFixture({ retainedCase016: true });
     mutate(fixture);
     assert.throws(() => classifyFixture(fixture), message);
   }

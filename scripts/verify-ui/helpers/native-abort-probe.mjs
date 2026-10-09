@@ -16,6 +16,13 @@ export const nativeAbortDomOwnerRules = [
     selector: '#feature-catalog-search',
   },
   {
+    endpoint: 'schema-fields',
+    requestIdPrefix: 'schema-fields-',
+    owner: 'feature-catalog-generated-fields',
+    selector: '#feature-catalog-search',
+    retirementAction: 'close-operation-editor',
+  },
+  {
     endpoint: 'semantic-inventory',
     requestIdPrefix: 'frame-categories-',
     owner: 'frame-category-catalog',
@@ -73,6 +80,7 @@ export const nativeAbortDomOwnerRules = [
 const requestPrefixes = {
   'construction-capabilities': ['cda-request-'],
   'semantic-inventory': ['feature-catalog-', 'frame-categories-', 'paired-column-inventory-'],
+  'schema-fields': ['schema-fields-'],
   'population-routes': ['population-routes-'],
   'frame-source-options': ['frame-source-options-'],
   'related-expand-choices': ['related-expand-choices-'],
@@ -488,6 +496,11 @@ const interactionProvesOwnerRetirementAction = (request, ownerDomAtAbort, intera
     return interaction.closestButton?.accessibleLabel === 'Add 1 selected feature';
   }
 
+  if (rule.retirementAction === 'close-operation-editor') {
+    return interaction.closestButton?.testId === 'construction-close-operation-editor' &&
+      interaction.closestButton?.accessibleLabel === 'Close operation editor';
+  }
+
   return false;
 };
 
@@ -500,7 +513,7 @@ export const nativeAbortProbeEvidenceForRequest = (entry, events) => {
     if (event.kind !== 'abort-controller-call' || event.signalWasAlreadyAborted !== false ||
         !Number.isFinite(event.abortedAt) || event.abortedAt > failedAt) return [];
     return (event.requests ?? []).filter((request) =>
-      request.requestId === entry.requestCorrelationId && request.path === entry.path &&
+      request.requestId === entry.requestCorrelationId && request.origin === entry.origin && request.path === entry.path &&
       request.method === entry.method && Number.isFinite(request.startedAt) && request.startedAt <= event.abortedAt,
     ).map((request) => {
       const hasTrustedInteractionList = Array.isArray(event.trustedInteractions);
