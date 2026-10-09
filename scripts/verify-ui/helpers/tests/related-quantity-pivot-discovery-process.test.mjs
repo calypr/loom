@@ -65,6 +65,16 @@ const makeGroup = patientId => ({
   numericMax: 5,
 });
 
+const compactGroup = group => [
+  group.patientId, group.firstHopMissing, group.secondHopMissing, group.observationPresent,
+  group.conceptPresent, group.conceptType, group.textPresent, group.textType, group.text,
+  group.quantityPresent, group.quantityType, group.codePresent, group.codeType, group.code,
+  group.routeRows, group.actualRouteRows, group.emptyFirstHopRows, group.emptySecondHopRows,
+  group.textMissingRows, group.textNullRows, group.textStringRows, group.textOtherRows,
+  group.numericCount, group.missingValueCount, group.explicitNullValueCount,
+  group.terminalNullValueRows, group.nonNumericValueCount, group.numericSum, group.numericMax,
+];
+
 const oneRootRecords = manifest => [
   { type: 'begin', manifest },
   { type: 'result', index: 0, kind: 'specimenPage', phase: 'specimen-page', queryHash: manifest.queryHashes.specimenPage,
@@ -75,14 +85,14 @@ const oneRootRecords = manifest => [
     } },
   { type: 'result', index: 1, kind: 'specimenPatientPairs', phase: 'specimen-patient-pairs', queryHash: manifest.queryHashes.specimenPatientPairs,
     startedAt: 12, finishedAt: 13, payload: {
-      project: scope.project, generation: scope.dataset_generation, authScope,
-      specimenIds: ['Specimen/root-a'], rows: [{ specimenId: 'Specimen/root-a', patientId: 'Patient/patient-a' }],
+      wireVersion: 1, project: scope.project, generation: scope.dataset_generation, authScope,
+      specimenIds: ['Specimen/root-a'], rows: [['Specimen/root-a', 'Patient/patient-a']],
       overflow: false, truncated: false,
     } },
   { type: 'result', index: 2, kind: 'patientBatch', phase: 'patient-observation-groups', queryHash: manifest.queryHashes.patientBatch,
     startedAt: 14, finishedAt: 15, payload: {
       project: scope.project, generation: scope.dataset_generation, authScope,
-      patientIds: ['Patient/patient-a'], groups: [makeGroup('Patient/patient-a')], overflow: false, truncated: false,
+      wireVersion: 1, patientIds: ['Patient/patient-a'], groups: [compactGroup(makeGroup('Patient/patient-a'))], overflow: false, truncated: false,
     } },
   { type: 'done', queryCount: 3, pageCount: 1, pairPageCount: 1, patientBatchCount: 1, distinctPatientCount: 1 },
 ];
@@ -119,6 +129,16 @@ const fakeProcess = (stdoutText, { code = 0, closeSignal = null, beforeClose } =
 
 test('single remote discovery script executes ordered bounded keyset, pair, and Patient phases', () => {
   const built = buildRelatedQuantityPivotDiscoveryProcess(scope, bounds, { deadlineMs: 15_000 });
+  assert.equal(built.manifest.bounds.maxRetainedRawGroups, 25_000);
+  assert.equal(built.manifest.bounds.maxRetainedRawGroupBytes, 67_108_864);
+  assert.equal(built.manifest.maxRetainedRawGroups, 25_000);
+  assert.equal(built.manifest.maxRetainedRawGroupBytes, 67_108_864);
+  assert.throws(() => buildRelatedQuantityPivotDiscoveryProcess(scope, {
+    ...bounds, maxRetainedRawGroups: 25_001,
+  }), /Raw Patient group retention exceeds its frozen limits/);
+  assert.throws(() => buildRelatedQuantityPivotDiscoveryProcess(scope, {
+    ...bounds, maxRetainedRawGroupBytes: 67_108_865,
+  }), /Raw Patient group retention exceeds its frozen limits/);
   const writes = [];
   const calls = [];
   const pageRows = [
@@ -132,15 +152,14 @@ test('single remote discovery script executes ordered bounded keyset, pair, and 
   ];
   const pairRows = [
     { project: scope.project, generation: scope.dataset_generation, authScope,
-      specimenIds: ['Specimen/a', 'Specimen/b'], rows: [
-        { specimenId: 'Specimen/a', patientId: 'Patient/shared' },
-        { specimenId: 'Specimen/b', patientId: 'Patient/shared' },
+      wireVersion: 1, specimenIds: ['Specimen/a', 'Specimen/b'], rows: [
+        ['Specimen/a', 'Patient/shared'], ['Specimen/b', 'Patient/shared'],
       ], overflow: false, truncated: false },
     { project: scope.project, generation: scope.dataset_generation, authScope,
-      specimenIds: ['Specimen/c'], rows: [{ specimenId: 'Specimen/c', patientId: 'Patient/other' }], overflow: false, truncated: false },
+      wireVersion: 1, specimenIds: ['Specimen/c'], rows: [['Specimen/c', 'Patient/other']], overflow: false, truncated: false },
   ];
   const groupRows = patientIds => ({
-    project: scope.project, generation: scope.dataset_generation, authScope, patientIds,
+    project: scope.project, generation: scope.dataset_generation, authScope, wireVersion: 1, patientIds,
     groups: [], overflow: false, truncated: false,
   });
   const context = {
@@ -199,12 +218,12 @@ test('generated discovery phases bind exactly their declared AQL parameters', ()
       if (query === built.queries.specimenPatientPairs) return { toArray: () => [{
         project: scope.project, generation: scope.dataset_generation, authScope,
         specimenIds: bindVars.specimen_ids,
-        rows: [{ specimenId: 'Specimen/root-a', patientId: 'Patient/patient-a' }],
+        wireVersion: 1, rows: [['Specimen/root-a', 'Patient/patient-a']],
         overflow: false, truncated: false,
       }] };
       if (query === built.queries.patientBatch) return { toArray: () => [{
         project: scope.project, generation: scope.dataset_generation, authScope,
-        patientIds: bindVars.patient_ids, groups: [makeGroup('Patient/patient-a')],
+        wireVersion: 1, patientIds: bindVars.patient_ids, groups: [compactGroup(makeGroup('Patient/patient-a'))],
         overflow: false, truncated: false,
       }] };
       throw new Error('Unexpected query template');
@@ -249,6 +268,199 @@ test('generated script failures keep script context separate from the last compl
     kind: 'specimenPage', phase: 'specimen-page', queryHash: built.manifest.queryHashes.specimenPage,
     index: 0, startedAt: result.startedAt, finishedAt: result.finishedAt,
   });
+});
+
+test('late generated Patient batch failure preserves bounded truthful query chronology and phase wire bytes', async () => {
+  const built = buildRelatedQuantityPivotDiscoveryProcess(scope, bounds);
+  const priorResults = oneRootRecords(built.manifest).filter(record => record.type === 'result').slice(0, 2);
+  const writes = [];
+  const context = {
+    db: { _query(query) {
+      if (query === built.queries.specimenPage) return { toArray: () => [priorResults[0].payload] };
+      if (query === built.queries.specimenPatientPairs) return { toArray: () => [priorResults[1].payload] };
+      if (query === built.queries.patientBatch) {
+        const error = new Error('late patient batch failure');
+        error.errorNum = 1501;
+        throw error;
+      }
+      throw new Error('Unexpected query template');
+    } },
+    print: value => writes.push(value), Date, JSON, Set, Error,
+  };
+  vm.runInNewContext(built.script, context, { timeout: 1000 });
+  const records = writes.filter(value => value.startsWith(RELATED_QUANTITY_DISCOVERY_MARKER))
+    .map(value => JSON.parse(value.slice(RELATED_QUANTITY_DISCOVERY_MARKER.length)));
+  assert.deepEqual(records.map(record => record.type), ['begin', 'result', 'result', 'failure']);
+  const remoteScriptPath = '/tmp/loom-arangosh.LateBatch123';
+  const remotePid = 20001;
+  const stdoutText = [
+    `__LOOM_ARANGOSH_SCRIPT__:${remoteScriptPath}\n`,
+    `__LOOM_RQ_DISCOVERY_PID__:${remotePid}:${remoteScriptPath}\n`,
+    ...writes.map(value => `${value}\n`),
+  ].join('');
+  const stopCalls = [];
+  const outcome = await discoverCompleteRelatedQuantityRouteInProcess({
+    scope, bounds, container: 'owned-arango',
+    processOptions: {
+      spawnImpl: () => fakeProcess(stdoutText),
+      stopImpl: async request => { stopCalls.push(request); return 'term'; },
+    },
+  }).then(value => ({ value }), error => ({ error }));
+
+  assert.equal(outcome.value, undefined);
+  assert.match(outcome.error?.message ?? '', /Remote related quantity discovery failed/);
+  assert.deepEqual(stopCalls.map(({ container, processId, scriptPath }) => ({ container, processId, scriptPath })), [{
+    container: 'owned-arango', processId: remotePid, scriptPath: remoteScriptPath,
+  }]);
+  const identity = outcome.error.discoveryIdentity;
+  const snapshot = identity.failureSnapshot;
+  assert.equal(identity.remoteFailure.queryIndex, 2);
+  assert.equal(identity.remoteFailure.queryHash, built.manifest.queryHashes.patientBatch);
+  assert.equal(identity.remoteFailure.lastCompletedQuery.index, 1);
+  assert.equal(identity.remoteFailure.lastCompletedQuery.finishedAt,
+    snapshot.completedQueryRecords.at(-1).finishedAt);
+  assert.equal(snapshot.completedQueryCount, 2);
+  assert.equal(snapshot.hostVerifiedQueryCount, 2);
+  assert.deepEqual(snapshot.completedQueryRecords.map(({ index, kind, phase, queryHash, startedAt, finishedAt, hostVerification }) => ({
+    index, kind, phase, queryHash, startedAt, finishedAt, hostVerification,
+  })), [
+    ...records.filter(record => record.type === 'result').map(record => ({
+      index: record.index, kind: record.kind, phase: record.phase, queryHash: record.queryHash,
+      startedAt: record.startedAt, finishedAt: record.finishedAt, hostVerification: 'verified',
+    })),
+  ]);
+  assert.ok(snapshot.completedQueryRecords[1].startedAt >= snapshot.completedQueryRecords[0].finishedAt);
+  assert.deepEqual(snapshot.completedQueryRecords.map(record => record.wireBytes),
+    records.filter(record => record.type === 'result').map(record => Buffer.byteLength(
+      `${RELATED_QUANTITY_DISCOVERY_MARKER}${JSON.stringify(record)}\n`,
+    )));
+  const expectedPhaseWireBytes = {};
+  for (const record of records.filter(record => typeof record.phase === 'string')) {
+    expectedPhaseWireBytes[record.phase] = (expectedPhaseWireBytes[record.phase] ?? 0)
+      + Buffer.byteLength(`${RELATED_QUANTITY_DISCOVERY_MARKER}${JSON.stringify(record)}\n`);
+  }
+  assert.deepEqual(snapshot.phaseWireBytes, expectedPhaseWireBytes);
+  assert.deepEqual(snapshot.phaseQueryMetrics, {
+    'specimen-page': { received: 1, hostVerified: 1 },
+    'specimen-patient-pairs': { received: 1, hostVerified: 1 },
+  });
+  assert.deepEqual(identity.hostConsumedCounts, { pageCount: 1, pairPageCount: 1, patientBatchCount: 0 });
+  assert.equal(identity.partialSnapshot.complete, false);
+  assert.equal(identity.partialSnapshot.verified, true);
+  assert.equal(identity.partialSnapshot.totalSpecimens, 1);
+  assert.equal(identity.partialSnapshot.distinctSpecimenPatientPairs, 1);
+  assert.equal(identity.partialSnapshot.patientsWithSpecimenRoots, 1);
+  assert.equal(identity.partialSnapshot.patientObservationGroups, 0);
+  assert.equal(identity.partialSnapshot.retainedRawGroupCount, 0);
+  assert.equal(JSON.stringify(snapshot).includes('payload'), false, 'failure diagnostics exclude query payloads');
+  assert.ok(Buffer.byteLength(JSON.stringify(snapshot)) < 12_000, 'failure diagnostics remain bounded');
+});
+
+test('raw group cap failure leaves failed Patient batch out of accumulator partial state', async () => {
+  const cappedBounds = { ...bounds, maxRetainedRawGroups: 1 };
+  const built = buildRelatedQuantityPivotDiscoveryProcess(scope, cappedBounds);
+  const records = oneRootRecords(built.manifest);
+  const secondGroup = { ...makeGroup('Patient/patient-a'), text: 'OTHER' };
+  records[3].payload.groups = [compactGroup(makeGroup('Patient/patient-a')), compactGroup(secondGroup)];
+  const remoteScriptPath = '/tmp/loom-arangosh.RawCap123';
+  const remotePid = 20005;
+  const stdoutText = [
+    `__LOOM_ARANGOSH_SCRIPT__:${remoteScriptPath}\n`,
+    `__LOOM_RQ_DISCOVERY_PID__:${remotePid}:${remoteScriptPath}\n`,
+    protocolLines(records),
+  ].join('');
+  const stopCalls = [];
+  const outcome = await discoverCompleteRelatedQuantityRouteInProcess({
+    scope, bounds: cappedBounds, container: 'owned-arango',
+    processOptions: {
+      spawnImpl: () => fakeProcess(stdoutText),
+      stopImpl: async request => { stopCalls.push(request); return 'term'; },
+    },
+  }).then(value => ({ value }), error => ({ error }));
+
+  assert.equal(outcome.value, undefined);
+  assert.match(outcome.error?.message ?? '', /retained raw group|raw group.*limit|Raw Patient/i);
+  assert.equal(stopCalls.length, 1);
+  const identity = outcome.error.discoveryIdentity;
+  assert.deepEqual(identity.hostConsumedCounts, { pageCount: 1, pairPageCount: 1, patientBatchCount: 0 });
+  assert.equal(identity.partialSnapshot.totalSpecimens, 1);
+  assert.equal(identity.partialSnapshot.distinctSpecimenPatientPairs, 1);
+  assert.equal(identity.partialSnapshot.patientObservationGroups, 0);
+  assert.equal(identity.partialSnapshot.retainedRawGroupCount, 0, 'neither failed batch group is committed');
+  assert.equal(identity.partialSnapshot.retainedRawGroupBytes, 0);
+  assert.equal(identity.failureSnapshot.hostVerifiedQueryCount, 2);
+  assert.equal(identity.failureSnapshot.completedQueryRecords.at(-1).hostVerification, 'failed');
+});
+
+test('host callback failure snapshots received versus verified query counters without payloads', async () => {
+  const built = buildRelatedQuantityPivotDiscoveryProcess(scope, bounds);
+  const remoteScriptPath = '/tmp/loom-arangosh.CallbackFail123';
+  const remotePid = 20002;
+  const records = oneRootRecords(built.manifest);
+  const stdoutText = [
+    `__LOOM_ARANGOSH_SCRIPT__:${remoteScriptPath}\n`,
+    `__LOOM_RQ_DISCOVERY_PID__:${remotePid}:${remoteScriptPath}\n`,
+    protocolLines(records),
+  ].join('');
+  const stopCalls = [];
+  const outcome = await runRelatedQuantityPivotDiscoveryProcess({
+    scope, bounds, container: 'owned-arango',
+    spawnImpl: () => fakeProcess(stdoutText),
+    stopImpl: async request => { stopCalls.push(request); return 'term'; },
+    onRecord(record) {
+      if (record.kind === 'patientBatch') throw new Error('host accumulator rejected patient batch');
+    },
+  }).then(value => ({ value }), error => ({ error }));
+
+  assert.equal(outcome.value, undefined);
+  assert.match(outcome.error?.message ?? '', /host accumulator rejected patient batch/);
+  assert.equal(stopCalls.length, 1);
+  const snapshot = outcome.error.discoveryIdentity.failureSnapshot;
+  assert.equal(snapshot.completedQueryCount, 3, 'the remote query itself completed before host callback rejection');
+  assert.equal(snapshot.hostVerifiedQueryCount, 2);
+  assert.equal(snapshot.phaseQueryMetrics['patient-observation-groups'].received, 1);
+  assert.equal(snapshot.phaseQueryMetrics['patient-observation-groups'].hostVerified, 0);
+  assert.equal(snapshot.completedQueryRecords.at(-1).index, 2);
+  assert.equal(snapshot.completedQueryRecords.at(-1).hostVerification, 'failed');
+  assert.equal(JSON.stringify(snapshot).includes('FINAL'), false, 'failure snapshot does not retain result payloads');
+});
+
+test('failure snapshot bounds retained query chronology while keeping full verified counts', async () => {
+  const built = buildRelatedQuantityPivotDiscoveryProcess(scope, bounds);
+  const remoteScriptPath = '/tmp/loom-arangosh.BoundedSnapshot123';
+  const remotePid = 20003;
+  const results = Array.from({ length: 40 }, (_, index) => ({
+    type: 'result', index, kind: 'specimenPage', phase: 'specimen-page',
+    queryHash: built.manifest.queryHashes.specimenPage,
+    startedAt: index * 2, finishedAt: index * 2 + 1, payload: { pageIndex: index },
+  }));
+  const last = results.at(-1);
+  const failure = {
+    type: 'failure', code: 'max-specimen-pages', phase: 'specimen-page',
+    queryHash: null, queryIndex: results.length, startedAt: null, finishedAt: null,
+    lastCompletedQuery: lastCompletedQuery(last), errorNum: null,
+  };
+  const stdoutText = [
+    `__LOOM_ARANGOSH_SCRIPT__:${remoteScriptPath}\n`,
+    `__LOOM_RQ_DISCOVERY_PID__:${remotePid}:${remoteScriptPath}\n`,
+    protocolLines([{ type: 'begin', manifest: built.manifest }, ...results, failure]),
+  ].join('');
+  const outcome = await runRelatedQuantityPivotDiscoveryProcess({
+    scope, bounds, container: 'owned-arango', spawnImpl: () => fakeProcess(stdoutText),
+    stopImpl: async () => 'term', onRecord() {},
+  }).then(value => ({ value }), error => ({ error }));
+
+  assert.equal(outcome.value, undefined);
+  const snapshot = outcome.error.discoveryIdentity.failureSnapshot;
+  assert.equal(snapshot.completedQueryCount, 40);
+  assert.equal(snapshot.hostVerifiedQueryCount, 40);
+  assert.equal(snapshot.completedQueryRecords.length, 32);
+  assert.equal(snapshot.completedQueryRecords[0].index, 8);
+  assert.equal(snapshot.completedQueryRecords.at(-1).index, 39);
+  assert.equal(snapshot.phaseQueryMetrics['specimen-page'].received, 40);
+  assert.equal(snapshot.phaseQueryMetrics['specimen-page'].hostVerified, 40);
+  assert.equal(snapshot.completedQueryRecords.some(record => 'payload' in record), false);
+  assert.ok(Buffer.byteLength(JSON.stringify(snapshot)) < 16_000);
 });
 
 test('generated shape failure after a prior result reports only the last emitted query as completed', () => {
@@ -336,6 +548,35 @@ test('one managed process streams a literal discovery into the existing multipli
   ]);
 });
 
+test('process protocol accounts exact compact pair and patient tuple wire records', async () => {
+  const built = buildRelatedQuantityPivotDiscoveryProcess(scope, bounds);
+  const records = oneRootRecords(built.manifest);
+  const remoteScriptPath = '/tmp/loom-arangosh.CompactWire123';
+  const remotePid = 20004;
+  const stdoutText = [
+    `__LOOM_ARANGOSH_SCRIPT__:${remoteScriptPath}\n`,
+    `__LOOM_RQ_DISCOVERY_PID__:${remotePid}:${remoteScriptPath}\n`,
+    protocolLines(records),
+  ].join('');
+  const consumed = [];
+  const result = await runRelatedQuantityPivotDiscoveryProcess({
+    scope, bounds, container: 'owned-arango', spawnImpl: () => fakeProcess(stdoutText),
+    onRecord: record => consumed.push(record),
+  });
+
+  assert.equal(result.identity.status, 'complete');
+  assert.equal(consumed[1].payload.wireVersion, 1);
+  assert.deepEqual(consumed[1].payload.rows, [['Specimen/root-a', 'Patient/patient-a']]);
+  assert.equal(consumed[2].payload.wireVersion, 1);
+  assert.equal(consumed[2].payload.groups[0].length, 29);
+  assert.equal(result.identity.phaseWireBytes['specimen-patient-pairs'], Buffer.byteLength(
+    `${RELATED_QUANTITY_DISCOVERY_MARKER}${JSON.stringify(records[2])}\n`,
+  ));
+  assert.equal(result.identity.phaseWireBytes['patient-observation-groups'], Buffer.byteLength(
+    `${RELATED_QUANTITY_DISCOVERY_MARKER}${JSON.stringify(records[3])}\n`,
+  ));
+});
+
 test('remote AQL failure after streamed results stops its exact process and never returns a partial oracle', async () => {
   const deadlineMs = 1000;
   const built = buildRelatedQuantityPivotDiscoveryProcess(scope, bounds, { deadlineMs });
@@ -401,10 +642,14 @@ test('remote AQL failure after streamed results stops its exact process and neve
     {
       index: 0, kind: 'specimenPage', phase: 'specimen-page',
       queryHash: built.manifest.queryHashes.specimenPage, startedAt: 10, finishedAt: 11, protocolLineCount: 2,
+      wireBytes: Buffer.byteLength(`${RELATED_QUANTITY_DISCOVERY_MARKER}${JSON.stringify(partialResults[0])}\n`),
+      hostVerification: 'verified',
     },
     {
       index: 1, kind: 'specimenPatientPairs', phase: 'specimen-patient-pairs',
       queryHash: built.manifest.queryHashes.specimenPatientPairs, startedAt: 12, finishedAt: 13, protocolLineCount: 3,
+      wireBytes: Buffer.byteLength(`${RELATED_QUANTITY_DISCOVERY_MARKER}${JSON.stringify(partialResults[1])}\n`),
+      hostVerification: 'verified',
     },
   ], 'failure evidence preserves the ordered successful query chronology');
   assert.equal(outcome.error.discoveryIdentity.protocolLineCount, 4);

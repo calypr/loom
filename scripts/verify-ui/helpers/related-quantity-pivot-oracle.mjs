@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer';
+
 const assertString = (value, label) => {
   if (typeof value !== 'string' || value.trim() === '') throw new Error(`${label} must be a non-empty string`);
 };
@@ -218,6 +220,50 @@ const singleDiscoveryPayload = result => {
   return payload;
 };
 
+const specimenPatientPairWireVersion = 1;
+const specimenPatientPairWireTupleSize = 2;
+const patientBatchWireVersion = 1;
+const patientBatchWireFields = Object.freeze([
+  'patientId', 'firstHopMissing', 'secondHopMissing', 'observationPresent',
+  'conceptPresent', 'conceptType', 'textPresent', 'textType', 'text',
+  'quantityPresent', 'quantityType', 'codePresent', 'codeType', 'code',
+  'routeRows', 'actualRouteRows', 'emptyFirstHopRows', 'emptySecondHopRows',
+  'textMissingRows', 'textNullRows', 'textStringRows', 'textOtherRows',
+  'numericCount', 'missingValueCount', 'explicitNullValueCount', 'terminalNullValueRows',
+  'nonNumericValueCount', 'numericSum', 'numericMax',
+]);
+
+export function decodeRelatedQuantityPivotSpecimenPatientPairs(payload) {
+  if (payload?.wireVersion !== specimenPatientPairWireVersion || !Array.isArray(payload.rows)) {
+    throw new Error('Specimen patient-pair result has an unsupported compact wire version');
+  }
+  const rows = payload.rows.map((tuple, index) => {
+    if (!Array.isArray(tuple) || tuple.length !== specimenPatientPairWireTupleSize) {
+      throw new Error(`Specimen patient-pair tuple ${index} has an invalid shape`);
+    }
+    const [specimenId, patientId] = tuple;
+    if (typeof specimenId !== 'string' || specimenId.trim() === ''
+      || (patientId !== null && (typeof patientId !== 'string' || patientId.trim() === ''))) {
+      throw new Error(`Specimen patient-pair tuple ${index} has an invalid identifier`);
+    }
+    return { specimenId, patientId };
+  });
+  return { ...payload, rows };
+}
+
+export function decodeRelatedQuantityPivotPatientBatch(payload) {
+  if (payload?.wireVersion !== patientBatchWireVersion || !Array.isArray(payload.groups)) {
+    throw new Error('Patient batch result has an unsupported compact wire version');
+  }
+  const groups = payload.groups.map((tuple, index) => {
+    if (!Array.isArray(tuple) || tuple.length !== patientBatchWireFields.length) {
+      throw new Error(`Patient batch tuple ${index} has an invalid shape`);
+    }
+    return Object.fromEntries(patientBatchWireFields.map((field, fieldIndex) => [field, tuple[fieldIndex]]));
+  });
+  return { ...payload, groups };
+}
+
 export function buildRelatedQuantityPivotSpecimenPage(scope, { afterSpecimenKey = '', pageSize = 100 } = {}) {
   discoveryAuthScope(scope);
   if (typeof afterSpecimenKey !== 'string') throw new Error('afterSpecimenKey must be a string');
@@ -304,12 +350,14 @@ LET emptyRootRows = (
 LET allRows = APPEND(patientPairs, emptyRootRows)
 LET sortedRows = (FOR row IN allRows SORT row.specimenId, row.patientId RETURN row)
 LET overflow = LENGTH(sortedRows) > @max_rows
+LET compactRows = (FOR row IN SLICE(sortedRows, 0, @max_rows) RETURN [row.specimenId, row.patientId])
 RETURN {
+  wireVersion: 1,
   project: @project,
   generation: @generation,
   authScope: {auth_resource_paths_unrestricted: @auth_resource_paths_unrestricted, auth_resource_paths: @auth_resource_paths, scope_allowed: @scope_allowed},
   specimenIds: @specimen_ids,
-  rows: SLICE(sortedRows, 0, @max_rows),
+  rows: compactRows,
   overflow,
   truncated: overflow
 }`;
@@ -400,14 +448,24 @@ LET emptyPatientGroups = (
 )
 LET allGroups = APPEND(observationGroups, emptyPatientGroups)
 LET sortedGroups = (FOR group IN allGroups SORT group.patientId, group.textType, TO_STRING(group.text), group.codeType, TO_STRING(group.code), group.secondHopMissing RETURN group)
-LET boundedGroups = SLICE(sortedGroups, 0, @max_rows + 1)
-LET overflow = LENGTH(boundedGroups) > @max_rows
+LET overflow = LENGTH(sortedGroups) > @max_rows
+LET compactGroups = (
+  FOR group IN SLICE(sortedGroups, 0, @max_rows)
+    RETURN [group.patientId, group.firstHopMissing, group.secondHopMissing, group.observationPresent,
+      group.conceptPresent, group.conceptType, group.textPresent, group.textType, group.text,
+      group.quantityPresent, group.quantityType, group.codePresent, group.codeType, group.code,
+      group.routeRows, group.actualRouteRows, group.emptyFirstHopRows, group.emptySecondHopRows,
+      group.textMissingRows, group.textNullRows, group.textStringRows, group.textOtherRows,
+      group.numericCount, group.missingValueCount, group.explicitNullValueCount,
+      group.terminalNullValueRows, group.nonNumericValueCount, group.numericSum, group.numericMax]
+)
 RETURN {
+  wireVersion: 1,
   project: @project,
   generation: @generation,
   authScope: {auth_resource_paths_unrestricted: @auth_resource_paths_unrestricted, auth_resource_paths: @auth_resource_paths, scope_allowed: @scope_allowed},
   patientIds: @patient_ids,
-  groups: SLICE(boundedGroups, 0, @max_rows),
+  groups: compactGroups,
   overflow,
   truncated: overflow
 }`;
@@ -446,16 +504,14 @@ const rawGroupIdentity = row => stableJson([
   row.codePresent, row.codeType, row.code,
 ]);
 
-const addWeightedRawGroup = (groups, row, multiplicity) => {
-  const identity = rawGroupIdentity(row);
-  let target = groups.get(identity);
-  const counterFields = [
-    'routeRows', 'actualRouteRows', 'emptyFirstHopRows', 'emptySecondHopRows',
-    'textMissingRows', 'textNullRows', 'textStringRows', 'textOtherRows',
-    'numericCount', 'missingValueCount', 'explicitNullValueCount', 'terminalNullValueRows', 'nonNumericValueCount',
-  ];
-  if (!target) {
-    target = {
+const rawGroupCounterFields = [
+  'routeRows', 'actualRouteRows', 'emptyFirstHopRows', 'emptySecondHopRows',
+  'textMissingRows', 'textNullRows', 'textStringRows', 'textOtherRows',
+  'numericCount', 'missingValueCount', 'explicitNullValueCount', 'terminalNullValueRows', 'nonNumericValueCount',
+];
+
+const mergeWeightedRawGroup = (previous, row, multiplicity) => {
+  const target = previous ? { ...previous } : {
       patientId: null,
       firstHopMissing: row.firstHopMissing,
       secondHopMissing: row.secondHopMissing,
@@ -486,26 +542,63 @@ const addWeightedRawGroup = (groups, row, multiplicity) => {
       numericSum: 0,
       numericMax: null,
     };
-    groups.set(identity, target);
-  }
-  for (const field of counterFields) target[field] += safeCount(row[field], `patient group ${field}`) * multiplicity;
-  if (counterFields.some(field => !Number.isSafeInteger(target[field]))) throw new Error('Weighted route count exceeded the safe integer range');
+  for (const field of rawGroupCounterFields) target[field] += safeCount(row[field], `patient group ${field}`) * multiplicity;
+  if (rawGroupCounterFields.some(field => !Number.isSafeInteger(target[field]))) throw new Error('Weighted route count exceeded the safe integer range');
   if (typeof row.numericSum !== 'number' || !Number.isFinite(row.numericSum)) throw new Error('Patient group numericSum must be finite');
   target.numericSum += row.numericSum * multiplicity;
   if (!Number.isFinite(target.numericSum)) throw new Error('Weighted numericSum exceeded the finite numeric range');
   if (row.numericMax !== null && (typeof row.numericMax !== 'number' || !Number.isFinite(row.numericMax))) throw new Error('Patient group numericMax must be null or finite');
   if (row.numericMax !== null) target.numericMax = target.numericMax === null ? row.numericMax : Math.max(target.numericMax, row.numericMax);
+  return target;
+};
+
+const rawGroupAccountedBytes = (identity, group) => Buffer.byteLength(identity, 'utf8')
+  + Buffer.byteLength(stableJson(group), 'utf8') + 1024;
+
+const prepareRawGroupUpdates = (groups, accountedBytes, additions, {
+  maxRetainedRawGroups,
+  maxRetainedRawGroupBytes,
+}) => {
+  const updates = new Map();
+  for (const { row, multiplicity } of additions) {
+    const identity = rawGroupIdentity(row);
+    const previous = updates.has(identity) ? updates.get(identity) : groups.get(identity);
+    updates.set(identity, mergeWeightedRawGroup(previous, row, multiplicity));
+  }
+  let retainedCount = groups.size;
+  let nextAccountedBytes = accountedBytes;
+  for (const [identity, group] of updates) {
+    const previous = groups.get(identity);
+    if (previous) nextAccountedBytes -= rawGroupAccountedBytes(identity, previous);
+    else retainedCount += 1;
+    nextAccountedBytes += rawGroupAccountedBytes(identity, group);
+  }
+  if (retainedCount > maxRetainedRawGroups) {
+    throw new Error(`Retained raw group count exceeds ${maxRetainedRawGroups}`);
+  }
+  if (!Number.isSafeInteger(nextAccountedBytes) || nextAccountedBytes > maxRetainedRawGroupBytes) {
+    throw new Error(`Retained raw group byte accounting exceeds ${maxRetainedRawGroupBytes}`);
+  }
+  return { updates, retainedCount, accountedBytes: nextAccountedBytes };
+};
+
+const commitRawGroupUpdates = (groups, plan) => {
+  for (const [identity, group] of plan.updates) groups.set(identity, group);
 };
 
 export function createRelatedQuantityPivotDiscoveryAccumulator(scope, {
   specimenPageSize = 100,
   maxSpecimenPatientRows = 10000,
   maxPatientGroups = 25000,
+  maxRetainedRawGroups = 25000,
+  maxRetainedRawGroupBytes = 64 * 1024 * 1024,
 } = {}) {
   const scopeIdentity = discoveryAuthScope(scope);
   boundedLimit(specimenPageSize, 'specimenPageSize', { maximum: 1000 });
   boundedLimit(maxSpecimenPatientRows, 'maxSpecimenPatientRows');
   boundedLimit(maxPatientGroups, 'maxPatientGroups');
+  boundedLimit(maxRetainedRawGroups, 'maxRetainedRawGroups', { maximum: 25000 });
+  boundedLimit(maxRetainedRawGroupBytes, 'maxRetainedRawGroupBytes', { maximum: 64 * 1024 * 1024 });
   let expectedAfterKey = '';
   let previousPageAdvertisedMore = false;
   let currentPage = null;
@@ -514,13 +607,17 @@ export function createRelatedQuantityPivotDiscoveryAccumulator(scope, {
   let emptyFirstHopSpecimenRoots = 0;
   let distinctSpecimenPatientPairs = 0;
   const patientMultiplicity = new Map();
-  let patientBatchCursor = '';
+  let sortedPatientIds = null;
+  let patientBatchCursor = 0;
   let activePatientBatch = null;
   let patientObservationGroups = 0;
   let uniquePatientObservationPairs = 0;
   let emptySecondHopPatientRows = 0;
   let emptySecondHopPatientCount = 0;
   const rawGroups = new Map();
+  let rawGroupBytes = 0;
+  let rawGroupCountHighWater = 0;
+  let rawGroupBytesHighWater = 0;
   let finalized = false;
 
   const assertPayloadScope = payload => {
@@ -627,10 +724,14 @@ export function createRelatedQuantityPivotDiscoveryAccumulator(scope, {
       for (const [specimenId, patients] of roots) {
         if (patients.size === 0) throw new Error(`Specimen ${specimenId} is missing its valid Patient pair or PRESERVE_PARENT sentinel`);
       }
+      const rawAdditions = [];
+      const multiplicityUpdates = new Map();
+      let patientPairRows = 0;
+      let emptyFirstHopDelta = 0;
       for (const [specimenId, patients] of roots) {
         if (patients.has('\u0000NULL_PATIENT')) {
-          emptyFirstHopSpecimenRoots += 1;
-          addWeightedRawGroup(rawGroups, {
+          emptyFirstHopDelta += 1;
+          rawAdditions.push({ row: {
             patientId: null, firstHopMissing: true, secondHopMissing: false, observationPresent: false,
             conceptPresent: true, conceptType: 'NULL', textPresent: true, textType: 'NULL', text: null,
             quantityPresent: true, quantityType: 'NULL', codePresent: true, codeType: 'NULL', code: null,
@@ -638,17 +739,31 @@ export function createRelatedQuantityPivotDiscoveryAccumulator(scope, {
             textMissingRows: 0, textNullRows: 1, textStringRows: 0, textOtherRows: 0,
             numericCount: 0, missingValueCount: 0, explicitNullValueCount: 0, terminalNullValueRows: 1,
             nonNumericValueCount: 0, numericSum: 0, numericMax: null,
-          }, 1);
+          }, multiplicity: 1 });
         } else {
           for (const identity of patients) {
-            const multiplicity = patientMultiplicity.get(identity) ?? 0;
-            patientMultiplicity.set(identity, multiplicity + 1);
-            distinctSpecimenPatientPairs += 1;
+            const multiplicity = multiplicityUpdates.has(identity)
+              ? multiplicityUpdates.get(identity)
+              : patientMultiplicity.get(identity) ?? 0;
+            multiplicityUpdates.set(identity, multiplicity + 1);
+            patientPairRows += 1;
           }
         }
       }
+      const rawPlan = prepareRawGroupUpdates(rawGroups, rawGroupBytes, rawAdditions, {
+        maxRetainedRawGroups, maxRetainedRawGroupBytes,
+      });
+      const nextPairCount = distinctSpecimenPatientPairs + patientPairRows;
+      const nextEmptyFirstHopCount = emptyFirstHopSpecimenRoots + emptyFirstHopDelta;
+      if (!Number.isSafeInteger(nextPairCount) || !Number.isSafeInteger(nextEmptyFirstHopCount)) throw new Error('Specimen pair counts exceeded the safe integer range');
+      commitRawGroupUpdates(rawGroups, rawPlan);
+      rawGroupBytes = rawPlan.accountedBytes;
+      rawGroupCountHighWater = Math.max(rawGroupCountHighWater, rawPlan.retainedCount);
+      rawGroupBytesHighWater = Math.max(rawGroupBytesHighWater, rawGroupBytes);
+      for (const [patientId, multiplicity] of multiplicityUpdates) patientMultiplicity.set(patientId, multiplicity);
+      distinctSpecimenPatientPairs = nextPairCount;
+      emptyFirstHopSpecimenRoots = nextEmptyFirstHopCount;
       currentPage = null;
-      if (!Number.isSafeInteger(distinctSpecimenPatientPairs) || !Number.isSafeInteger(emptyFirstHopSpecimenRoots)) throw new Error('Specimen pair counts exceeded the safe integer range');
       return this;
     },
 
@@ -656,7 +771,8 @@ export function createRelatedQuantityPivotDiscoveryAccumulator(scope, {
       if (finalized || !pagesDone || currentPage) throw new Error('Patient batches begin only after all specimen pages and pairs are consumed');
       if (activePatientBatch) throw new Error('Current patient batch must be consumed before requesting another');
       boundedLimit(limit, 'patient batch limit', { maximum: 100 });
-      const ids = [...patientMultiplicity.keys()].filter(id => id > patientBatchCursor).sort().slice(0, limit);
+      sortedPatientIds ??= [...patientMultiplicity.keys()].sort();
+      const ids = sortedPatientIds.slice(patientBatchCursor, patientBatchCursor + limit);
       if (ids.length > 0) activePatientBatch = ids;
       return ids;
     },
@@ -668,7 +784,6 @@ export function createRelatedQuantityPivotDiscoveryAccumulator(scope, {
       if (JSON.stringify(payload.patientIds) !== JSON.stringify(activePatientBatch)) throw new Error('Patient batch result does not match the requested patient IDs');
       if (payload.overflow === true || payload.truncated === true) throw new Error('Patient batch result overflowed its fatal group bound');
       if (payload.overflow !== false || payload.truncated !== false || !Array.isArray(payload.groups) || payload.groups.length > maxPatientGroups) throw new Error('Patient batch result is malformed or unbounded');
-      if (patientObservationGroups + payload.groups.length > maxPatientGroups) throw new Error(`Global patient group count exceeds ${maxPatientGroups}`);
       const allowedPatients = new Set(activePatientBatch);
       const groupsByPatient = new Map(activePatientBatch.map(id => [id, []]));
       const identitiesByPatient = new Map(activePatientBatch.map(id => [id, new Set()]));
@@ -688,29 +803,72 @@ export function createRelatedQuantityPivotDiscoveryAccumulator(scope, {
         const multiplicity = patientMultiplicity.get(patientId);
         if (!Number.isSafeInteger(multiplicity) || multiplicity < 1) throw new Error('Patient batch has no validated Specimen multiplicity');
       }
+      const rawAdditions = [];
+      let nextPatientObservationGroups = patientObservationGroups;
+      let nextUniquePatientObservationPairs = uniquePatientObservationPairs;
+      let nextEmptySecondHopPatientRows = emptySecondHopPatientRows;
+      let nextEmptySecondHopPatientCount = emptySecondHopPatientCount;
       for (const patientId of activePatientBatch) {
         const patientGroups = groupsByPatient.get(patientId);
         const multiplicity = patientMultiplicity.get(patientId);
         for (const row of patientGroups) {
-          addWeightedRawGroup(rawGroups, row, multiplicity);
-          patientObservationGroups += 1;
-          uniquePatientObservationPairs += safeCount(row.actualRouteRows, 'patient group actualRouteRows');
-          emptySecondHopPatientRows += safeCount(row.emptySecondHopRows, 'patient group emptySecondHopRows') * multiplicity;
+          rawAdditions.push({ row, multiplicity });
+          nextPatientObservationGroups += 1;
+          nextUniquePatientObservationPairs += safeCount(row.actualRouteRows, 'patient group actualRouteRows');
+          nextEmptySecondHopPatientRows += safeCount(row.emptySecondHopRows, 'patient group emptySecondHopRows') * multiplicity;
         }
-        if (patientGroups[0].secondHopMissing) emptySecondHopPatientCount += 1;
+        if (patientGroups[0].secondHopMissing) nextEmptySecondHopPatientCount += 1;
       }
-      patientBatchCursor = activePatientBatch.at(-1);
-      activePatientBatch = null;
-      for (const count of [patientObservationGroups, uniquePatientObservationPairs, emptySecondHopPatientRows, emptySecondHopPatientCount]) {
+      for (const count of [nextPatientObservationGroups, nextUniquePatientObservationPairs, nextEmptySecondHopPatientRows, nextEmptySecondHopPatientCount]) {
         if (!Number.isSafeInteger(count)) throw new Error('Patient route count exceeded the safe integer range');
       }
+      const rawPlan = prepareRawGroupUpdates(rawGroups, rawGroupBytes, rawAdditions, {
+        maxRetainedRawGroups, maxRetainedRawGroupBytes,
+      });
+      commitRawGroupUpdates(rawGroups, rawPlan);
+      rawGroupBytes = rawPlan.accountedBytes;
+      rawGroupCountHighWater = Math.max(rawGroupCountHighWater, rawPlan.retainedCount);
+      rawGroupBytesHighWater = Math.max(rawGroupBytesHighWater, rawGroupBytes);
+      patientObservationGroups = nextPatientObservationGroups;
+      uniquePatientObservationPairs = nextUniquePatientObservationPairs;
+      emptySecondHopPatientRows = nextEmptySecondHopPatientRows;
+      emptySecondHopPatientCount = nextEmptySecondHopPatientCount;
+      patientBatchCursor += activePatientBatch.length;
+      activePatientBatch = null;
       return this;
+    },
+
+    partialSnapshot() {
+      return {
+        complete: false,
+        verified: true,
+        phase: finalized ? 'finalize' : currentPage ? 'specimen-patient-pairs' : pagesDone ? 'patient-observation-groups' : 'specimen-pages',
+        totalSpecimens,
+        emptyFirstHopSpecimenRoots,
+        distinctSpecimenPatientPairs,
+        patientsWithSpecimenRoots: patientMultiplicity.size,
+        patientObservationGroups,
+        uniquePatientObservationPairs,
+        emptySecondHopPatientRows,
+        emptySecondHopPatientCount,
+        retainedRawGroupCount: rawGroups.size,
+        retainedRawGroupBytes: rawGroupBytes,
+        retainedRawGroupCountHighWater: rawGroupCountHighWater,
+        retainedRawGroupBytesHighWater: rawGroupBytesHighWater,
+        maxRetainedRawGroups,
+        maxRetainedRawGroupBytes,
+        sortedPatientCount: sortedPatientIds?.length ?? null,
+        patientBatchCursor,
+        activePatientBatchSize: activePatientBatch?.length ?? 0,
+        currentSpecimenPageSize: currentPage?.ids.length ?? 0,
+      };
     },
 
     finalize() {
       if (finalized) throw new Error('Related quantity discovery accumulator was already finalized');
       if (!pagesDone || currentPage || activePatientBatch) throw new Error('Cannot finalize before all bounded pages and patient batches are consumed');
-      if ([...patientMultiplicity.keys()].some(id => id > patientBatchCursor)) throw new Error('Cannot finalize before all distinct Patients are aggregated');
+      sortedPatientIds ??= [...patientMultiplicity.keys()].sort();
+      if (patientBatchCursor !== sortedPatientIds.length) throw new Error('Cannot finalize before all distinct Patients are aggregated');
       finalized = true;
       const groups = [...rawGroups.values()].sort((a, b) => rawGroupIdentity(a).localeCompare(rawGroupIdentity(b)));
       const sourceRows = groups.reduce((sum, group) => sum + group.routeRows, 0);
@@ -752,6 +910,9 @@ export function createRelatedQuantityPivotDiscoveryAccumulator(scope, {
         leftJoinOutputRows: sourceRows,
         nonNumericValueCount,
         rawTextTypedCodeGroupCount: groups.length,
+        retainedRawGroupAccountingBytes: rawGroupBytes,
+        retainedRawGroupCountHighWater: rawGroupCountHighWater,
+        retainedRawGroupBytesHighWater: rawGroupBytesHighWater,
         visibleTextGroupCount: visibleTextDomain.length,
         unsupportedTextGroupCount: unsupportedText.size,
         visiblePivotCellCount: pivotCells.size,

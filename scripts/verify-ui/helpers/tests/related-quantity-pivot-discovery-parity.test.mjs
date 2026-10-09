@@ -6,6 +6,8 @@ import {
   buildRelatedQuantityPivotSpecimenPage,
   buildRelatedQuantityPivotSpecimenPatientPairs,
   createRelatedQuantityPivotDiscoveryAccumulator,
+  decodeRelatedQuantityPivotPatientBatch,
+  decodeRelatedQuantityPivotSpecimenPatientPairs,
   summarizeRelatedQuantityPivotDiscoveryResult,
 } from '../related-quantity-pivot-oracle.mjs';
 
@@ -23,6 +25,18 @@ const authScope = {
   auth_resource_paths: ['/case018/allowed'],
   scope_allowed: true,
 };
+
+const patientBatchWireFields = [
+  'patientId', 'firstHopMissing', 'secondHopMissing', 'observationPresent',
+  'conceptPresent', 'conceptType', 'textPresent', 'textType', 'text',
+  'quantityPresent', 'quantityType', 'codePresent', 'codeType', 'code',
+  'routeRows', 'actualRouteRows', 'emptyFirstHopRows', 'emptySecondHopRows',
+  'textMissingRows', 'textNullRows', 'textStringRows', 'textOtherRows',
+  'numericCount', 'missingValueCount', 'explicitNullValueCount', 'terminalNullValueRows',
+  'nonNumericValueCount', 'numericSum', 'numericMax',
+];
+
+const patientGroupToWireTuple = group => patientBatchWireFields.map(field => group[field]);
 
 const page1 = {
   project: 'case018-project',
@@ -318,6 +332,8 @@ test('CASE-018 paged discovery weights shared routes and matches literal typed h
   assertEdgeScope(pairQuery.query, {
     edgeFilter: 'e\\._from IN scopedSpecimenIds AND e\\.project == @project AND e\\.dataset_generation == @generation\\s+AND e\\.label == "subject_Patient" AND e\\.from_type == "Specimen" AND e\\.to_type == "Patient"',
   });
+  assert.match(pairQuery.query, /RETURN \[row\.specimenId, row\.patientId\]/);
+  assert.match(pairQuery.query, /wireVersion: 1/);
   assert.match(pairQuery.query, /COLLECT patientId = p\._id/);
   assert.match(pairQuery.query, /LIMIT \@max_rows \+ 1/);
   assertEntityScope(batchQuery.query, { alias: 'p', resourceType: 'Patient', allowedVariable: 'allowed' });
@@ -325,6 +341,9 @@ test('CASE-018 paged discovery weights shared routes and matches literal typed h
   assertEdgeScope(batchQuery.query, {
     edgeFilter: 'e\\._to IN scopedPatientIds AND e\\.project == @project AND e\\.dataset_generation == @generation\\s+AND e\\.label == "subject_Patient" AND e\\.from_type == "Observation" AND e\\.to_type == "Patient"',
   });
+  assert.match(batchQuery.query, /LET compactGroups =/);
+  assert.match(batchQuery.query, /RETURN \[group\.patientId, group\.firstHopMissing, group\.secondHopMissing, group\.observationPresent/);
+  assert.match(batchQuery.query, /wireVersion: 1/);
   assert.match(batchQuery.query, /COLLECT observationId = candidate\._id/);
   assert.match(batchQuery.query, /LIMIT \@max_rows \+ 1/);
 
@@ -402,6 +421,9 @@ test('CASE-018 paged discovery weights shared routes and matches literal typed h
       actualRouteRows: 11,
       leftJoinOutputRows: 13,
       rawTextTypedCodeGroupCount: 6,
+      retainedRawGroupAccountingBytes: 10150,
+      retainedRawGroupCountHighWater: 6,
+      retainedRawGroupBytesHighWater: 10150,
       visibleTextGroupCount: 3,
       unsupportedTextGroupCount: 1,
       visiblePivotCellCount: 4,
@@ -629,6 +651,205 @@ test('CASE-018 streaming discovery preserves one shared Observation on distinct 
   });
 });
 
+test('CASE-018 compact discovery wire decoders restore literal pair and typed Patient-group objects', () => {
+  const pairPayload = {
+    wireVersion: 1,
+    project: scope.project,
+    generation: scope.dataset_generation,
+    authScope,
+    specimenIds: ['Specimen/root-a', 'Specimen/root-b'],
+    rows: [['Specimen/root-a', 'Patient/patient-a'], ['Specimen/root-b', null]],
+    overflow: false,
+    truncated: false,
+  };
+  assert.deepEqual(decodeRelatedQuantityPivotSpecimenPatientPairs(pairPayload), {
+    ...pairPayload,
+    rows: [
+      { specimenId: 'Specimen/root-a', patientId: 'Patient/patient-a' },
+      { specimenId: 'Specimen/root-b', patientId: null },
+    ],
+  });
+
+  const expectedGroup = patientBatchA.groups[0];
+  assert.equal(patientBatchWireFields.length, 29);
+  const patientPayload = {
+    wireVersion: 1,
+    project: scope.project,
+    generation: scope.dataset_generation,
+    authScope,
+    patientIds: ['Patient/patient-a'],
+    groups: [patientGroupToWireTuple(expectedGroup)],
+    overflow: false,
+    truncated: false,
+  };
+  assert.deepEqual(decodeRelatedQuantityPivotPatientBatch(patientPayload), {
+    ...patientPayload,
+    groups: [expectedGroup],
+  });
+
+  assert.throws(() => decodeRelatedQuantityPivotSpecimenPatientPairs({ ...pairPayload, wireVersion: 2 }), /unsupported compact wire version/i);
+  assert.throws(() => decodeRelatedQuantityPivotSpecimenPatientPairs({ ...pairPayload, rows: [['Specimen/root-a']] }), /invalid shape/i);
+  assert.throws(() => decodeRelatedQuantityPivotSpecimenPatientPairs({ ...pairPayload, rows: [['', 'Patient/patient-a']] }), /invalid identifier/i);
+  assert.throws(() => decodeRelatedQuantityPivotPatientBatch({ ...patientPayload, wireVersion: 2 }), /unsupported compact wire version/i);
+  assert.throws(() => decodeRelatedQuantityPivotPatientBatch({ ...patientPayload, groups: [[...patientGroupToWireTuple(expectedGroup).slice(0, -1)]] }), /invalid shape/i);
+});
+
+test('CASE-018 accumulates one typed raw group across more than 25,000 bounded Patient groups', () => {
+  const patientGroupCount = 25_001;
+  const patientIds = Array.from({ length: patientGroupCount }, (_, index) => `Patient/p-${String(index).padStart(5, '0')}`);
+  const accumulator = createRelatedQuantityPivotDiscoveryAccumulator(scope, {
+    specimenPageSize: 1,
+    maxSpecimenPatientRows: patientGroupCount,
+    maxPatientGroups: 25_000,
+    maxRetainedRawGroups: 10,
+    maxRetainedRawGroupBytes: 1024 * 1024,
+  });
+  accumulator.addSpecimenPage({
+    project: scope.project,
+    generation: scope.dataset_generation,
+    authScope,
+    afterSpecimenKey: '',
+    pageSize: 1,
+    specimens: [{ specimenId: 'Specimen/root-a', specimenKey: 'root-a' }],
+    hasMore: false,
+    nextAfterSpecimenKey: null,
+  });
+  const compactPairs = {
+    wireVersion: 1,
+    project: scope.project,
+    generation: scope.dataset_generation,
+    authScope,
+    specimenIds: ['Specimen/root-a'],
+    rows: patientIds.map(patientId => ['Specimen/root-a', patientId]),
+    overflow: false,
+    truncated: false,
+  };
+  accumulator.addSpecimenPatientPairs(decodeRelatedQuantityPivotSpecimenPatientPairs(compactPairs));
+
+  let processedPatientGroups = 0;
+  while (processedPatientGroups < patientGroupCount) {
+    const requestedPatients = accumulator.nextPatientBatch(100);
+    assert.ok(requestedPatients.length > 0 && requestedPatients.length <= 100);
+    const groups = requestedPatients.map(patientId => patientGroupToWireTuple({
+      ...patientBatchC.groups[0],
+      patientId,
+      numericSum: 2,
+      numericMax: 2,
+    }));
+    const compactBatch = {
+      wireVersion: 1,
+      project: scope.project,
+      generation: scope.dataset_generation,
+      authScope,
+      patientIds: requestedPatients,
+      groups,
+      overflow: false,
+      truncated: false,
+    };
+    accumulator.addPatientBatch(decodeRelatedQuantityPivotPatientBatch(compactBatch));
+    processedPatientGroups += groups.length;
+  }
+  assert.deepEqual(accumulator.nextPatientBatch(100), []);
+  const retained = accumulator.partialSnapshot();
+  assert.deepEqual({
+    patientObservationGroups: retained.patientObservationGroups,
+    retainedRawGroupCount: retained.retainedRawGroupCount,
+    retainedRawGroupBytesWithinCap: retained.retainedRawGroupBytes <= retained.maxRetainedRawGroupBytes,
+  }, {
+    patientObservationGroups: 25_001,
+    retainedRawGroupCount: 1,
+    retainedRawGroupBytesWithinCap: true,
+  });
+
+  const summary = accumulator.finalize();
+  assert.deepEqual({
+    complete: summary.complete,
+    patientObservationGroups: summary.fullRouteCounts.patientObservationGroups,
+    rawTypedTextCodeGroupCount: summary.fullRouteCounts.rawTextTypedCodeGroupCount,
+    sourceRows: summary.sourceRows,
+    matchedObservationRows: summary.matchedObservationRows,
+    numericCount: summary.groups[0].numericCount,
+    numericSum: summary.groups[0].numericSum,
+    numericMax: summary.groups[0].numericMax,
+    retainedRawGroupAccountingBytes: summary.fullRouteCounts.retainedRawGroupAccountingBytes,
+  }, {
+    complete: true,
+    patientObservationGroups: 25_001,
+    rawTypedTextCodeGroupCount: 1,
+    sourceRows: 25_001,
+    matchedObservationRows: 25_001,
+    numericCount: 25_001,
+    numericSum: 50_002,
+    numericMax: 2,
+    retainedRawGroupAccountingBytes: retained.retainedRawGroupBytes,
+  });
+});
+
+test('CASE-018 retained raw-group count and byte caps reject additions atomically', () => {
+  const withActivePatient = options => {
+    const accumulator = createRelatedQuantityPivotDiscoveryAccumulator(scope, {
+      specimenPageSize: 2,
+      maxSpecimenPatientRows: 10,
+      maxPatientGroups: 10,
+      ...options,
+    });
+    accumulator.addSpecimenPage({
+      ...page1,
+      specimens: [
+        { specimenId: 'Specimen/root-a', specimenKey: 'root-a' },
+        { specimenId: 'Specimen/root-b', specimenKey: 'root-b' },
+      ],
+      hasMore: false,
+      nextAfterSpecimenKey: null,
+    });
+    accumulator.addSpecimenPatientPairs(decodeRelatedQuantityPivotSpecimenPatientPairs({
+      wireVersion: 1,
+      project: scope.project,
+      generation: scope.dataset_generation,
+      authScope,
+      specimenIds: ['Specimen/root-a', 'Specimen/root-b'],
+      rows: [['Specimen/root-a', 'Patient/patient-a'], ['Specimen/root-b', 'Patient/patient-b']],
+      overflow: false,
+      truncated: false,
+    }));
+    assert.deepEqual(accumulator.nextPatientBatch(1), ['Patient/patient-a']);
+    return accumulator;
+  };
+  const compactBatch = (patientId, groupText) => decodeRelatedQuantityPivotPatientBatch({
+    wireVersion: 1,
+    project: scope.project,
+    generation: scope.dataset_generation,
+    authScope,
+    patientIds: [patientId],
+    groups: [patientGroupToWireTuple({ ...patientBatchC.groups[0], patientId, text: groupText })],
+    overflow: false,
+    truncated: false,
+  });
+
+  const countBounded = withActivePatient({ maxRetainedRawGroups: 1, maxRetainedRawGroupBytes: 1024 * 1024 });
+  countBounded.addPatientBatch(compactBatch('Patient/patient-a', 'FINAL'));
+  assert.deepEqual(countBounded.nextPatientBatch(1), ['Patient/patient-b']);
+  assert.throws(() => countBounded.addPatientBatch(compactBatch('Patient/patient-b', 'OTHER')),
+    /retained raw group count exceeds 1/i);
+  assert.deepEqual({
+    retainedRawGroupCount: countBounded.partialSnapshot().retainedRawGroupCount,
+    patientObservationGroups: countBounded.partialSnapshot().patientObservationGroups,
+    cursor: countBounded.partialSnapshot().patientBatchCursor,
+    activeBatchSize: countBounded.partialSnapshot().activePatientBatchSize,
+  }, { retainedRawGroupCount: 1, patientObservationGroups: 1, cursor: 1, activeBatchSize: 1 });
+
+  const byteBounded = withActivePatient({ maxRetainedRawGroups: 10, maxRetainedRawGroupBytes: 1 });
+  assert.throws(() => byteBounded.addPatientBatch(compactBatch('Patient/patient-a', 'FINAL')),
+    /retained raw group byte accounting exceeds 1/i);
+  assert.deepEqual({
+    retainedRawGroupCount: byteBounded.partialSnapshot().retainedRawGroupCount,
+    retainedRawGroupBytes: byteBounded.partialSnapshot().retainedRawGroupBytes,
+    patientObservationGroups: byteBounded.partialSnapshot().patientObservationGroups,
+    cursor: byteBounded.partialSnapshot().patientBatchCursor,
+    activeBatchSize: byteBounded.partialSnapshot().activePatientBatchSize,
+  }, { retainedRawGroupCount: 0, retainedRawGroupBytes: 0, patientObservationGroups: 0, cursor: 0, activeBatchSize: 1 });
+});
+
 test('CASE-018 rejects malformed pair and Patient-batch envelopes and rows', () => {
   const withFirstPage = () => {
     const accumulator = createRelatedQuantityPivotDiscoveryAccumulator(scope, {
@@ -733,17 +954,18 @@ test('CASE-018 incremental host rejects scope drift, duplicate work, truncation,
   assert.deepEqual(overflowBatch.nextPatientBatch(1), ['Patient/patient-a']);
   assert.throws(() => overflowBatch.addPatientBatch({ ...patientBatchA, overflow: true }), /overflow|truncat|complete/i);
 
-  const cumulativeGroupOverflow = createRelatedQuantityPivotDiscoveryAccumulator(scope, {
+  const independentlyBoundedGroups = createRelatedQuantityPivotDiscoveryAccumulator(scope, {
     specimenPageSize: 2,
     maxSpecimenPatientRows: 10,
     maxPatientGroups: 4,
   });
-  addAllSpecimenPages(cumulativeGroupOverflow);
-  assert.deepEqual(cumulativeGroupOverflow.nextPatientBatch(1), ['Patient/patient-a']);
-  cumulativeGroupOverflow.addPatientBatch(patientBatchA);
-  assert.deepEqual(cumulativeGroupOverflow.nextPatientBatch(1), ['Patient/patient-b']);
-  assert.throws(() => cumulativeGroupOverflow.addPatientBatch(patientBatchB), /global patient group count exceeds 4/i,
-    'individually bounded batches cannot exceed the cumulative fatal group limit');
+  addAllSpecimenPages(independentlyBoundedGroups);
+  assert.deepEqual(independentlyBoundedGroups.nextPatientBatch(1), ['Patient/patient-a']);
+  independentlyBoundedGroups.addPatientBatch(patientBatchA);
+  assert.deepEqual(independentlyBoundedGroups.nextPatientBatch(1), ['Patient/patient-b']);
+  independentlyBoundedGroups.addPatientBatch(patientBatchB);
+  assert.equal(independentlyBoundedGroups.partialSnapshot().patientObservationGroups, 5,
+    'the 4-group per-batch limit does not cap cumulative work across bounded batches');
 
   const unexpectedPatient = createRelatedQuantityPivotDiscoveryAccumulator(scope, {
     specimenPageSize: 2,

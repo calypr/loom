@@ -6,6 +6,8 @@ import {
   buildRelatedQuantityPivotPatientBatch,
   buildRelatedQuantityPivotSpecimenPage,
   buildRelatedQuantityPivotSpecimenPatientPairs,
+  decodeRelatedQuantityPivotPatientBatch,
+  decodeRelatedQuantityPivotSpecimenPatientPairs,
 } from './related-quantity-pivot-oracle.mjs';
 
 export const RELATED_QUANTITY_DISCOVERY_MARKER = '__LOOM_RQ_DISCOVERY_V1__:';
@@ -15,14 +17,20 @@ const MAX_TOTAL_BYTES = 512 * 1024 * 1024;
 const MAX_STDERR_BYTES = 1024 * 1024;
 const MAX_QUERY_COUNT = 200_000;
 const MAX_UNIQUE_PATIENTS = 1_000_000;
+const MAX_RETAINED_RAW_GROUPS = 25_000;
+const MAX_RETAINED_RAW_GROUP_BYTES = 67_108_864;
+const MAX_FAILURE_QUERY_RECORDS = 32;
 const DEFAULT_DEADLINE_MS = 30 * 60 * 1000;
 const QUERY_RUNTIME_SECONDS = 30;
 const QUERY_MEMORY_LIMIT_BYTES = 268_435_456;
+const DISCOVERY_PHASES = Object.freeze(['specimen-page', 'specimen-patient-pairs', 'patient-observation-groups']);
 const DEFAULT_BOUNDS = Object.freeze({
   specimenPageSize: 100,
   maxSpecimenPatientRows: 10_000,
   maxPatientGroups: 25_000,
   patientBatchSize: 100,
+  maxRetainedRawGroups: MAX_RETAINED_RAW_GROUPS,
+  maxRetainedRawGroupBytes: MAX_RETAINED_RAW_GROUP_BYTES,
 });
 
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -38,19 +46,24 @@ const scopeIdentityFor = scope => ({
 const jsonForScript = value => JSON.stringify(value).replaceAll('@', '\\u0040');
 
 const validateBounds = bounds => {
-  for (const name of ['specimenPageSize', 'maxSpecimenPatientRows', 'maxPatientGroups', 'patientBatchSize']) {
-    if (!Number.isSafeInteger(bounds[name]) || bounds[name] < 1) throw new TypeError(`${name} must be a positive safe integer`);
+  const validated = { ...DEFAULT_BOUNDS, ...bounds };
+  for (const name of ['specimenPageSize', 'maxSpecimenPatientRows', 'maxPatientGroups', 'patientBatchSize', 'maxRetainedRawGroups', 'maxRetainedRawGroupBytes']) {
+    if (!Number.isSafeInteger(validated[name]) || validated[name] < 1) throw new TypeError(`${name} must be a positive safe integer`);
   }
-  if (bounds.specimenPageSize > 1000 || bounds.patientBatchSize > 100) throw new RangeError('Discovery page and batch sizes exceed their validated maxima');
-  return bounds;
+  if (validated.specimenPageSize > 1000 || validated.patientBatchSize > 100) throw new RangeError('Discovery page and batch sizes exceed their validated maxima');
+  if (validated.maxRetainedRawGroups > MAX_RETAINED_RAW_GROUPS
+    || validated.maxRetainedRawGroupBytes > MAX_RETAINED_RAW_GROUP_BYTES) {
+    throw new RangeError('Raw Patient group retention exceeds its frozen limits');
+  }
+  return validated;
 };
 
 export function buildRelatedQuantityPivotDiscoveryProcess(scope, bounds, { deadlineMs = DEFAULT_DEADLINE_MS } = {}) {
-  validateBounds(bounds);
+  const validatedBounds = validateBounds(bounds);
   if (!Number.isSafeInteger(deadlineMs) || deadlineMs < 1000) throw new TypeError('Discovery overall deadline must be at least one second');
-  const pageTemplate = buildRelatedQuantityPivotSpecimenPage(scope, { afterSpecimenKey: '', pageSize: bounds.specimenPageSize });
-  const pairTemplate = buildRelatedQuantityPivotSpecimenPatientPairs(scope, ['Specimen/__template__'], { maxRows: bounds.maxSpecimenPatientRows });
-  const patientTemplate = buildRelatedQuantityPivotPatientBatch(scope, ['Patient/__template__'], { maxRows: bounds.maxPatientGroups });
+  const pageTemplate = buildRelatedQuantityPivotSpecimenPage(scope, { afterSpecimenKey: '', pageSize: validatedBounds.specimenPageSize });
+  const pairTemplate = buildRelatedQuantityPivotSpecimenPatientPairs(scope, ['Specimen/__template__'], { maxRows: validatedBounds.maxSpecimenPatientRows });
+  const patientTemplate = buildRelatedQuantityPivotPatientBatch(scope, ['Patient/__template__'], { maxRows: validatedBounds.maxPatientGroups });
   const pairBindVars = { ...pairTemplate.bindVars };
   delete pairBindVars.specimen_ids;
   const patientBindVars = { ...patientTemplate.bindVars };
@@ -64,7 +77,9 @@ export function buildRelatedQuantityPivotDiscoveryProcess(scope, bounds, { deadl
       specimenPatientPairs: hash(pairTemplate.query),
       patientBatch: hash(patientTemplate.query),
     },
-    bounds: { ...bounds },
+    bounds: { ...validatedBounds },
+    maxRetainedRawGroups: validatedBounds.maxRetainedRawGroups,
+    maxRetainedRawGroupBytes: validatedBounds.maxRetainedRawGroupBytes,
     maxRecordBytes: MAX_RECORD_BYTES,
     maxTotalBytes: MAX_TOTAL_BYTES,
     maxStderrBytes: MAX_STDERR_BYTES,
@@ -208,7 +223,7 @@ try {
         ...pairBindVars, specimen_ids: specimenIds,
       });
       pairPageCount += 1;
-      if (!Array.isArray(pairs.rows) || pairs.rows.length > manifest.bounds.maxSpecimenPatientRows
+      if (pairs.wireVersion !== 1 || !Array.isArray(pairs.rows) || pairs.rows.length > manifest.bounds.maxSpecimenPatientRows
         || pairs.overflow !== false || pairs.truncated !== false
         || JSON.stringify(pairs.specimenIds) !== JSON.stringify(specimenIds)) {
         const error = new Error('specimen-pairs-shape');
@@ -217,15 +232,15 @@ try {
         throw error;
       }
       for (const row of pairs.rows) {
-        if (!row || typeof row.specimenId !== 'string'
-          || (row.patientId !== null && (typeof row.patientId !== 'string' || row.patientId.trim() === ''))) {
+        if (!Array.isArray(row) || row.length !== 2 || typeof row[0] !== 'string' || row[0].trim() === ''
+          || (row[1] !== null && (typeof row[1] !== 'string' || row[1].trim() === ''))) {
           const error = new Error('specimen-pair-row-shape');
           error.discoveryCode = 'specimen-pair-row-shape';
           error.discoveryPhase = 'specimen-patient-pairs';
           throw error;
         }
-        if (row.patientId !== null) {
-          patientIds.add(row.patientId);
+        if (row[1] !== null) {
+          patientIds.add(row[1]);
           if (patientIds.size > manifest.maxUniquePatients) {
             const error = new Error('max-unique-patients');
             error.discoveryCode = 'max-unique-patients';
@@ -257,7 +272,7 @@ try {
       ...patientBindVars, patient_ids: patientBatch,
     });
     patientBatchCount += 1;
-    if (!Array.isArray(batch.groups) || batch.groups.length > manifest.bounds.maxPatientGroups
+    if (batch.wireVersion !== 1 || !Array.isArray(batch.groups) || batch.groups.length > manifest.bounds.maxPatientGroups
       || batch.overflow !== false || batch.truncated !== false
       || JSON.stringify(batch.patientIds) !== JSON.stringify(patientBatch)) {
       const error = new Error('patient-batch-shape');
@@ -348,6 +363,11 @@ export async function runRelatedQuantityPivotDiscoveryProcess({
     queryMemoryLimitBytes: QUERY_MEMORY_LIMIT_BYTES,
     maxRecordBytes: MAX_RECORD_BYTES,
     maxTotalBytes: MAX_TOTAL_BYTES,
+    phaseWireBytes: {},
+    phaseQueryMetrics: {},
+    receivedQueryCount: 0,
+    verifiedQueryCount: 0,
+    queryRecords: [],
     status: 'running',
   };
   const child = spawnImpl(invocation.command, invocation.args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -374,6 +394,17 @@ export async function runRelatedQuantityPivotDiscoveryProcess({
   const closeResult = new Promise(resolve => child.once('close', (code, closeSignal) => resolve({ code, signal: closeSignal })));
   let resolveIdentityReady;
   const identityReady = new Promise(resolve => { resolveIdentityReady = resolve; });
+  const captureFailureSnapshot = reason => {
+    identity.failureSnapshot ??= {
+      reason: String(reason).slice(0, 300),
+      completedQueryCount: identity.receivedQueryCount,
+      hostVerifiedQueryCount: identity.verifiedQueryCount,
+      phaseWireBytes: { ...identity.phaseWireBytes },
+      phaseQueryMetrics: Object.fromEntries(Object.entries(identity.phaseQueryMetrics)
+        .map(([phase, metrics]) => [phase, { ...metrics }])),
+      completedQueryRecords: identity.queryRecords.map(record => ({ ...record })),
+    };
+  };
   const terminateLocalTransport = async () => {
     const requestTermination = signalName => {
       try {
@@ -412,6 +443,7 @@ export async function runRelatedQuantityPivotDiscoveryProcess({
     if (failure) return;
     failure = error instanceof Error ? error : new Error(String(error));
     failure.discoveryIdentity = identity;
+    captureFailureSnapshot(failure.message);
     if (!stopPromise) {
       stopPromise = (async () => {
         if (!scriptPath) {
@@ -438,10 +470,13 @@ export async function runRelatedQuantityPivotDiscoveryProcess({
     }
   };
   const protocolFailure = message => setFailure(new Error(message));
-  const handleProtocolRecord = record => {
+  const handleProtocolRecord = (record, wireBytes) => {
     protocolLineCount += 1;
     identity.protocolLineCount = protocolLineCount;
     if (!record || typeof record !== 'object' || Array.isArray(record)) throw new Error('Protocol record must be an object');
+    if (DISCOVERY_PHASES.includes(record.phase)) {
+      identity.phaseWireBytes[record.phase] = (identity.phaseWireBytes[record.phase] ?? 0) + wireBytes;
+    }
     if (record.type === 'begin') {
       if (begun || record.manifest?.version !== 1
         || record.manifest.scopeHash !== built.manifest.scopeHash
@@ -454,7 +489,9 @@ export async function runRelatedQuantityPivotDiscoveryProcess({
         || record.manifest.maxTotalBytes !== MAX_TOTAL_BYTES
         || record.manifest.maxStderrBytes !== MAX_STDERR_BYTES
         || record.manifest.maxQueryCount !== MAX_QUERY_COUNT
-        || record.manifest.maxUniquePatients !== MAX_UNIQUE_PATIENTS) throw new Error('Discovery begin record identity does not match the source query manifest');
+        || record.manifest.maxUniquePatients !== MAX_UNIQUE_PATIENTS
+        || record.manifest.maxRetainedRawGroups !== built.manifest.maxRetainedRawGroups
+        || record.manifest.maxRetainedRawGroupBytes !== built.manifest.maxRetainedRawGroupBytes) throw new Error('Discovery begin record identity does not match the source query manifest');
       begun = true;
       return;
     }
@@ -473,8 +510,7 @@ export async function runRelatedQuantityPivotDiscoveryProcess({
       if (lastQueryFinishedAt !== null && record.startedAt < lastQueryFinishedAt) {
         throw new Error('Discovery query timestamps are out of order');
       }
-      identity.queryRecords ??= [];
-      identity.queryRecords.push({
+      const queryRecord = {
         index: record.index,
         kind: record.kind,
         phase: record.phase,
@@ -482,9 +518,25 @@ export async function runRelatedQuantityPivotDiscoveryProcess({
         startedAt: record.startedAt,
         finishedAt: record.finishedAt,
         protocolLineCount,
-      });
-      onRecord(record);
+        wireBytes,
+        hostVerification: 'pending',
+      };
+      identity.queryRecords.push(queryRecord);
+      if (identity.queryRecords.length > MAX_FAILURE_QUERY_RECORDS) identity.queryRecords.shift();
+      identity.receivedQueryCount += 1;
+      const phaseMetrics = identity.phaseQueryMetrics[record.phase] ??= { received: 0, hostVerified: 0 };
+      phaseMetrics.received += 1;
+      try {
+        onRecord(record);
+        queryRecord.hostVerification = 'verified';
+      } catch (error) {
+        queryRecord.hostVerification = 'failed';
+        identity.hostCallbackFailure = String(error?.message ?? error).slice(0, 300);
+        throw error;
+      }
       recordCount += 1;
+      identity.verifiedQueryCount += 1;
+      phaseMetrics.hostVerified += 1;
       lastQueryFinishedAt = record.finishedAt;
       identity.queryCount = recordCount;
       identity.phase = record.phase;
@@ -547,7 +599,7 @@ export async function runRelatedQuantityPivotDiscoveryProcess({
     }
     throw new Error('Unknown related quantity discovery protocol record type');
   };
-  const consumeLine = rawLine => {
+  const consumeLine = (rawLine, wireBytes = 0) => {
     const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
     if (line.startsWith(ARANGOSH_PROCESS_PATH_MARKER)) {
       const found = line.slice(ARANGOSH_PROCESS_PATH_MARKER.length);
@@ -566,7 +618,7 @@ export async function runRelatedQuantityPivotDiscoveryProcess({
     }
     if (!line.startsWith(RELATED_QUANTITY_DISCOVERY_MARKER)) return;
     const record = parseJsonRecord(line, RELATED_QUANTITY_DISCOVERY_MARKER);
-    handleProtocolRecord(record);
+    handleProtocolRecord(record, wireBytes);
   };
   const consumeChunk = chunk => {
     stdoutBytes += chunk.length;
@@ -582,7 +634,7 @@ export async function runRelatedQuantityPivotDiscoveryProcess({
       const line = Buffer.concat([...pendingLineChunks, segment], lineSize);
       pendingLineChunks = [];
       pendingLineBytes = 0;
-      consumeLine(line.toString('utf8'));
+      consumeLine(line.toString('utf8'), lineSize + 1);
       start = newline + 1;
     }
     if (start < bytes.length) {
@@ -630,7 +682,7 @@ export async function runRelatedQuantityPivotDiscoveryProcess({
       throw failure;
     }
     const closed = closedStatus;
-    if (pendingLineBytes > 0) consumeLine(Buffer.concat(pendingLineChunks, pendingLineBytes).toString('utf8'));
+    if (pendingLineBytes > 0) consumeLine(Buffer.concat(pendingLineChunks, pendingLineBytes).toString('utf8'), pendingLineBytes);
     if (closed.code !== 0 || closed.signal !== null) throw new Error('Related quantity Arangosh process did not exit successfully');
     if (!begun || remoteFailure || !done) throw new Error('Related quantity Arangosh process ended without a complete successful protocol');
     identity.status = 'complete';
@@ -646,6 +698,7 @@ export async function runRelatedQuantityPivotDiscoveryProcess({
   } catch (error) {
     clearTimeout(timer);
     signal?.removeEventListener('abort', onAbort);
+    captureFailureSnapshot(error?.message ?? error);
     if (!failure && closedError(error)) {
       identity.status = 'failed';
       identity.failure = error.message;
@@ -673,14 +726,16 @@ export async function discoverCompleteRelatedQuantityRouteInProcess({
   deadlineMs = DEFAULT_DEADLINE_MS,
   processOptions = {},
 }) {
-  const accumulator = createRelatedQuantityPivotDiscoveryAccumulator(scope, bounds);
+  const validatedBounds = validateBounds(bounds);
+  const accumulator = createRelatedQuantityPivotDiscoveryAccumulator(scope, validatedBounds);
   const queryEvidence = [];
   let pageCount = 0;
   let pairPageCount = 0;
   let patientBatchCount = 0;
-  const result = await runRelatedQuantityPivotDiscoveryProcess({
-    scope, bounds, container, database, signal, deadlineMs, ...processOptions,
-    onRecord(record) {
+  try {
+    const result = await runRelatedQuantityPivotDiscoveryProcess({
+      scope, bounds: validatedBounds, container, database, signal, deadlineMs, ...processOptions,
+      onRecord(record) {
       const { payload, kind, phase } = record;
       const evidence = {
         phase,
@@ -701,42 +756,62 @@ export async function discoverCompleteRelatedQuantityRouteInProcess({
         return;
       }
       if (kind === 'specimenPatientPairs') {
-        accumulator.addSpecimenPatientPairs(payload);
+        const decodedPayload = decodeRelatedQuantityPivotSpecimenPatientPairs(payload);
+        accumulator.addSpecimenPatientPairs(decodedPayload);
         pairPageCount += 1;
-        queryEvidence.push({ kind: 'specimen-patient-pairs', specimenCount: payload.specimenIds.length,
-          pairRows: payload.rows.length, overflow: payload.overflow, truncated: payload.truncated, query: evidence });
+        queryEvidence.push({ kind: 'specimen-patient-pairs', specimenCount: decodedPayload.specimenIds.length,
+          pairRows: decodedPayload.rows.length, overflow: decodedPayload.overflow, truncated: decodedPayload.truncated, query: evidence });
         return;
       }
       if (kind === 'patientBatch') {
-        const expectedIds = accumulator.nextPatientBatch(bounds.patientBatchSize);
-        if (expectedIds.length === 0 || JSON.stringify(payload.patientIds) !== JSON.stringify(expectedIds)) {
+        const decodedPayload = decodeRelatedQuantityPivotPatientBatch(payload);
+        const expectedIds = accumulator.nextPatientBatch(validatedBounds.patientBatchSize);
+        if (expectedIds.length === 0 || JSON.stringify(decodedPayload.patientIds) !== JSON.stringify(expectedIds)) {
           throw new Error('Arangosh patient batch sequence does not match the validated host multiplicity cursor');
         }
-        accumulator.addPatientBatch(payload);
+        accumulator.addPatientBatch(decodedPayload);
         patientBatchCount += 1;
         if (patientBatchCount > 100_000) throw new Error('Full-route Patient batching exceeded its bounded batch ceiling');
-        queryEvidence.push({ kind: 'patient-observation-groups', patientCount: payload.patientIds.length,
-          groupCount: payload.groups.length, overflow: payload.overflow, truncated: payload.truncated, query: evidence });
+        queryEvidence.push({ kind: 'patient-observation-groups', patientCount: decodedPayload.patientIds.length,
+          groupCount: decodedPayload.groups.length, overflow: decodedPayload.overflow, truncated: decodedPayload.truncated, query: evidence });
         return;
       }
       throw new Error(`Unknown streamed related quantity phase ${String(kind)}`);
-    },
-  });
-  const { done } = result;
-  if (done.pageCount !== pageCount || done.pairPageCount !== pairPageCount || done.patientBatchCount !== patientBatchCount) {
-    throw new Error('Remote discovery totals do not match the host-consumed query sequence');
+      },
+    });
+    const { done } = result;
+    if (done.pageCount !== pageCount || done.pairPageCount !== pairPageCount || done.patientBatchCount !== patientBatchCount) {
+      throw new Error('Remote discovery totals do not match the host-consumed query sequence');
+    }
+    const discovery = accumulator.finalize();
+    if (done.distinctPatientCount !== discovery.fullRouteCounts.patientsWithSpecimenRoots) {
+      throw new Error('Remote distinct Patient count does not match the host-validated route multiplicities');
+    }
+    return {
+      discovery,
+      queryEvidence,
+      bounds: { ...validatedBounds },
+      pageCount,
+      patientBatchCount,
+      pairPageCount,
+      processIdentity: result.identity,
+    };
+  } catch (error) {
+    const failure = error instanceof Error ? error : new Error(String(error));
+    const discoveryIdentity = failure.discoveryIdentity ?? {};
+    try {
+      failure.discoveryIdentity = {
+        ...discoveryIdentity,
+        partialSnapshot: accumulator.partialSnapshot(),
+        hostConsumedCounts: { pageCount, pairPageCount, patientBatchCount },
+      };
+    } catch (snapshotError) {
+      failure.discoveryIdentity = {
+        ...discoveryIdentity,
+        partialSnapshotError: String(snapshotError?.message ?? snapshotError).slice(0, 300),
+        hostConsumedCounts: { pageCount, pairPageCount, patientBatchCount },
+      };
+    }
+    throw failure;
   }
-  const discovery = accumulator.finalize();
-  if (done.distinctPatientCount !== discovery.fullRouteCounts.patientsWithSpecimenRoots) {
-    throw new Error('Remote distinct Patient count does not match the host-validated route multiplicities');
-  }
-  return {
-    discovery,
-    queryEvidence,
-    bounds: { ...bounds },
-    pageCount,
-    patientBatchCount,
-    pairPageCount,
-    processIdentity: result.identity,
-  };
 }
