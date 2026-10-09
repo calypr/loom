@@ -14,6 +14,38 @@ export function codedPivotFirstTableReady() {
     Boolean(document.querySelector('button[aria-label="Choose Observation rows"]:not(:disabled)'));
 }
 
+export function codedPivotFailureDomSnapshot({ mode }) {
+  const section = document.querySelector('section[aria-label="Coded values as columns"]');
+  const allSourceControls = [...(section?.querySelectorAll('input[name="coded-pivot-source"]') ?? [])].map(input => ({
+    type: input.type,
+    name: input.name,
+    checked: input.checked,
+    disabled: input.disabled,
+    labelText: input.closest('label')?.innerText ?? '',
+  }));
+  const maxSourceControls = 50;
+  const modeLabel = allSourceControls.find(control => {
+    const label = control.labelText.toLowerCase();
+    return label.includes('component') && label.includes(String(mode).toLowerCase());
+  });
+  const sourceControls = allSourceControls.slice(0, maxSourceControls);
+  if (modeLabel && !sourceControls.includes(modeLabel)) sourceControls[sourceControls.length === maxSourceControls ? maxSourceControls - 1 : sourceControls.length] = modeLabel;
+  const sectionHTML = section?.outerHTML ?? null;
+  const maxSectionCharacters = 48_000;
+  return {
+    capturedAt: new Date().toISOString(),
+    url: location.href,
+    mode,
+    bodyText: document.body.innerText.slice(0, 6_000),
+    codedPivotSectionPresent: Boolean(section),
+    codedPivotSectionHTML: sectionHTML?.slice(0, maxSectionCharacters) ?? null,
+    codedPivotSectionHTMLTruncated: sectionHTML !== null && sectionHTML.length > maxSectionCharacters,
+    sourceControlCount: allSourceControls.length,
+    sourceControlsTruncated: allSourceControls.length > maxSourceControls,
+    sourceControls,
+  };
+}
+
 const modes = Object.freeze({
   integer: Object.freeze([
     Object.freeze({ system: 'https://cda.readthedocs.io', code: 'days_to_collection', label: 'Days to collection', type: 'integer', value: '162' }),

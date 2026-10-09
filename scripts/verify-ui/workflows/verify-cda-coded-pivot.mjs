@@ -7,12 +7,13 @@ import { assertOwnedCdaTarget } from '../helpers/owned-cda-target.mjs';
 import { startVerificationIdentity } from '../helpers/cda-verification-identity.mjs';
 import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
 import { DEFAULT_ACTION_TO_RENDER_BUDGET_MS, recordPivotActionToRender } from '../helpers/quantity-pivot-budget.mjs';
-import { summarizeCodedPivotNativeRequests } from '../helpers/coded-pivot-native-evidence.mjs';
+import { codedPivotFirstFailureEvidenceFor, codedPivotSourceOptionsDiagnosticFor, summarizeCodedPivotNativeRequests } from '../helpers/coded-pivot-native-evidence.mjs';
 import { createdExplorerScope } from '../helpers/created-explorer-scope.mjs';
 import { scenarioCaseFor } from '../registry.mjs';
 import {
   CODED_PIVOT_OBSERVATION_ID,
   codedPivotExpectedHeaderValuesFor,
+  codedPivotFailureDomSnapshot,
   codedPivotFirstTableReady,
   codedPivotFixtureFor,
   codedPivotRemovalProposalReady,
@@ -59,6 +60,10 @@ const root = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
 const report = { requestedExplorerName, explorerId: null, tableName, observationId, project, mode, expected, clicks: 0, timingsMs: {}, timingCheckpoints: [], requests: [], nativeRequests: [], errors: [], failures: [] };
 
 let requestCapture;
+let sourceOptionsRequest;
+let sourceOptionsRequestBody;
+let sourceOptionsResponseBody;
+let sourceOptionsEndpointPath;
 let created = false;
 let selectedURL;
 const tracker = { activeAction: undefined, actions: [] };
@@ -167,6 +172,7 @@ try {
   assert.equal(creationRequest?.status, 201);
   assert.equal(creationRequest?.request?.name, requestedExplorerName);
   const createdScope = createdExplorerScope(project, createdExplorer);
+  sourceOptionsEndpointPath = `${createdScope.explorerRoot}/authoring/v2/frame-source-options`;
   explorerId = createdScope.explorerId;
   report.explorerId = explorerId;
   report.explorer = explorerId;
@@ -183,13 +189,14 @@ try {
   cda.captureRequests(createdScope.explorerRoot, { apiOrigin: uiOrigin });
   const builder = await api(`${createdScope.authoringBase}/builder`);
   report.generation = builder.catalog.generation;
+  report.snapshotToken = builder.catalog.snapshotToken;
   assert(report.generation, 'The isolated project must have a loaded dataset generation');
   rawObservation();
   recordCheck(0, 'correctness', report.oracle.project === project && report.oracle.generation === report.generation && report.oracle.id === observationId &&
     report.oracle.values.length === expected.length && report.oracle.values.every((entry, index) => entry.code === expected[index].code && entry.value === expected[index].value),
   { project, generation: report.generation, observationId, values: report.oracle.values, expected });
   const selection = await api(`${createdScope.explorerRoot}/selections`, {
-    snapshotToken: builder.catalog.snapshotToken,
+    snapshotToken: report.snapshotToken,
     idempotencyKey: explorerId,
     source: { kind: 'resources', resources: { refs: [{ project, generation: report.generation, resourceType: 'Observation', id: observationId }] } },
   });
@@ -218,15 +225,22 @@ try {
   await waitNative( () => document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false, {}, 5000);
   await action('Reopen row settings', page.locator('[data-testid="construction-rows-settings-trigger"]'));
   await waitNative( () => Boolean(document.querySelector('[data-testid="construction-action-pivot-rows"]:not(:disabled)')), {}, 5000);
+  const sourceBuilder = await api(`${createdScope.authoringBase}/builder`);
+  const sourceDocument = documentFor(sourceBuilder);
+  assert(sourceDocument, `The saved source table ${tableName} must exist before choosing a coded Pivot source`);
+  report.tableOutputId = sourceDocument.output.id;
+  report.sourceTableIdentity = { outputId: sourceDocument.output.id, draftVersion: sourceBuilder.draftVersion, draftDigest: sourceBuilder.draftDigest };
   report.choice = await cda.inspect( () => { const button = document.querySelector('[data-testid="construction-action-pivot-rows"]'); return { disabled: button?.disabled, text: button?.innerText }; });
   assert.equal(report.choice.disabled, false, report.choice.text);
   const sourceOptionsRequestStart = report.nativeRequests.length;
   await action('Choose coded values as columns', page.locator('[data-testid="construction-action-pivot-rows"]'));
   await waitNative( () => Boolean(document.querySelector('section[aria-label="Coded values as columns"]')), {}, 5000);
   await waitNative( () => !document.querySelector('section[aria-label="Coded values as columns"] [role="status"]'), {}, 5000);
-  const sourceOptionsRequest = await requestCapture.waitFor(entry => entry.path.endsWith('/frame-source-options') && entry.method === 'POST' &&
+  sourceOptionsRequest = await requestCapture.waitFor(entry => entry.path === sourceOptionsEndpointPath && entry.method === 'POST' &&
     Array.isArray(requestCapture.rawResponseBody(entry)?.sources), { fromIndex: sourceOptionsRequestStart, timeoutMs: 5000 });
-  const sourceOptions = requestCapture.rawResponseBody(sourceOptionsRequest).sources;
+  sourceOptionsRequestBody = requestCapture.rawRequestBody(sourceOptionsRequest);
+  sourceOptionsResponseBody = requestCapture.rawResponseBody(sourceOptionsRequest);
+  const sourceOptions = sourceOptionsResponseBody.sources;
   report.sources = await cda.inspect( () => [...document.querySelectorAll('input[name="coded-pivot-source"]')].map(input => ({ text: input.closest('label')?.innerText, checked: input.checked, disabled: input.disabled })));
   const matchingSource = report.sources.find(source => source.text?.includes('component') && source.text.toLowerCase().includes(mode));
   assert(matchingSource, `Direct component ${mode} source is missing`);
@@ -303,7 +317,7 @@ try {
   const prePivotBuilder = await api(`${createdScope.authoringBase}/builder`);
   const prePivotDocument = documentFor(prePivotBuilder);
   assert(prePivotDocument, `The saved source table ${tableName} must exist before coded Pivot Apply`);
-  report.tableOutputId = prePivotDocument.output.id;
+  assert.equal(prePivotDocument.output.id, report.tableOutputId, 'Coded Pivot must preserve the initial source table output binding.');
   report.prePivotSource = { document: prePivotDocument, draftVersion: prePivotBuilder.draftVersion, draftDigest: prePivotBuilder.draftDigest };
   const applyStarted = Date.now();
   await action('Apply coded pivot', page.locator('[data-testid="construction-apply-proposal"]'));
@@ -522,7 +536,25 @@ try {
   report.outcome = 'failed';
   report.failure = String(error.stack ?? error);
   report.failures.push(report.failure);
-if (page) await captureFailure(error, { phase: 'coded-pivot-lifecycle', action: tracker.activeAction, elapsedMs: tracker.activeAction ? Date.now() - tracker.activeAction.startedAt : undefined, state: { tableName, mode, timingsMs: report.timingsMs, requests: report.nativeRequests } });
+  const firstFailureEvidence = await codedPivotFirstFailureEvidenceFor({
+    mode,
+    action: tracker.activeAction,
+    captureDom: page ? () => cda.inspect(codedPivotFailureDomSnapshot, { mode }) : undefined,
+    captureSourceOptions: requestCapture && sourceOptionsRequest && sourceOptionsRequestBody && sourceOptionsResponseBody && sourceOptionsEndpointPath
+      ? domSnapshot => codedPivotSourceOptionsDiagnosticFor(sourceOptionsRequest, sourceOptionsRequestBody,
+        sourceOptionsResponseBody, {
+          origin: uiOrigin, project, generation: report.generation, explorerId, outputId: report.tableOutputId,
+          snapshotToken: report.snapshotToken, mode, domSnapshot,
+        })
+      : undefined,
+  });
+  report.firstFailureEvidence = firstFailureEvidence;
+  if (page) await captureFailure(error, {
+    phase: 'coded-pivot-lifecycle', action: tracker.activeAction,
+    elapsedMs: tracker.activeAction ? Date.now() - tracker.activeAction.startedAt : undefined,
+    firstFailureEvidence,
+    state: { tableName, mode, timingsMs: report.timingsMs, requests: report.nativeRequests },
+  });
   report.__nativeFailure = true;
 } finally {
   if (created) {

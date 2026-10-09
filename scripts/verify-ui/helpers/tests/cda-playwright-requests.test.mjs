@@ -120,6 +120,8 @@ test('owned requests correlate sanitized responses and reject sibling explorer p
   page.emit('request', sibling);
   assert.equal(report.nativeRequests.length, 1);
   assert.equal(report.nativeRequests[0].requestId, 'owned-request-1');
+  assert.equal(report.nativeRequests[0].ownerPageUrlAtRequest, undefined,
+    'the collector keeps its missing-Page-URL fallback when the Page exposes no URL method');
   assert.equal(report.nativeRequests[0].body.commands.length, 0);
 
   const response = {
@@ -349,6 +351,90 @@ test('native request flush retains the exact unresolved deadline diagnostic and 
   assert.deepEqual(details.unfinishedNativeRequests, [{ index: 0, requestId: 'unresolved-schema-fields', path }]);
   assert.deepEqual(details.nativeRequestDrainEvidence, report.nativeRequestDrainEvidence,
     'the final gate must retain the exact unresolved request IDs, paths, deadline, and reason');
+});
+
+test('request-only schema-fields evidence retains its raw URL and owning page context across navigation', async () => {
+  const page = new EventEmitter();
+  let pageURL = 'http://127.0.0.1:3000/projects/loom_dev_cda_fhir/explorers/cda-repeated-rows-1791520369741';
+  page.url = () => pageURL;
+  const report = {
+    runnerStatus: 'passed', requiredChecks: ['required interaction completed'], missingRequiredChecks: [],
+    assertions: [{ name: 'required interaction completed', status: 'passed' }], network: [], errors: [], nativeRequests: [],
+  };
+  const capture = captureCDARequests(page, {
+    apiOrigin: 'http://127.0.0.1:8188',
+    ownedPathPrefix: '/api/v1/projects/loom_dev_cda_fhir/explorers/cda-repeated-rows-1791520369741',
+    responsePaths: /schema-fields/,
+    report,
+  });
+  const rawURL = 'http://127.0.0.1:8188/api/v1/projects/loom_dev_cda_fhir/explorers/cda-repeated-rows-1791520369741/authoring/v2/schema-fields';
+  const request = {
+    url: () => rawURL,
+    method: () => 'POST', headers: () => ({ 'x-request-id': 'schema-fields-11435100-a859-487e-b450-5cb29cdee005' }),
+    postData: () => '{"cursor":"cursor-next"}',
+  };
+  page.emit('request', request);
+
+  pageURL = `${pageURL}/reload`;
+  page.emit('framenavigated', { url: () => pageURL });
+  await capture.flush({ timeoutMs: 20, waitForNativeRequestTerminals: true });
+
+  const [entry] = report.nativeRequests;
+  assert.equal(entry.requestId, 'schema-fields-11435100-a859-487e-b450-5cb29cdee005');
+  assert.equal(entry.rawURL, rawURL);
+  assert.equal(entry.ownerPageUrlAtRequest, 'http://127.0.0.1:3000/projects/loom_dev_cda_fhir/explorers/cda-repeated-rows-1791520369741');
+  assert.match(entry.ownerPageId, /^playwright-page-\d+$/);
+  assert.equal(page.url(), 'http://127.0.0.1:3000/projects/loom_dev_cda_fhir/explorers/cda-repeated-rows-1791520369741/reload');
+  assert.deepEqual(entry.nativeEventChronology.map(({ event }) => event), ['request']);
+  assert.deepEqual(sanitizeReportPayload(report).nativeRequests[0], entry,
+    'the serialized report must retain the diagnostic URL and Page context');
+  assert.deepEqual(report.nativeRequestDrainEvidence[0].unresolvedRequests, [{
+    index: 0,
+    requestId: 'schema-fields-11435100-a859-487e-b450-5cb29cdee005',
+    browserRequestId: 'playwright-1',
+    method: 'POST',
+    path: '/api/v1/projects/loom_dev_cda_fhir/explorers/cda-repeated-rows-1791520369741/authoring/v2/schema-fields',
+  }]);
+  const failure = gateFailure(report);
+  assert(failure);
+  const details = JSON.parse(failure.message.replace(/^CDA verification evidence is incomplete: /, ''));
+  assert.deepEqual(details.unfinishedNativeRequests, [{
+    index: 0,
+    requestId: 'schema-fields-11435100-a859-487e-b450-5cb29cdee005',
+    path: '/api/v1/projects/loom_dev_cda_fhir/explorers/cda-repeated-rows-1791520369741/authoring/v2/schema-fields',
+  }]);
+});
+
+test('native request URL diagnostics redact sensitive query values and retain ordinary parameters', async () => {
+  const page = new EventEmitter();
+  page.url = () => 'http://127.0.0.1:3000/projects/owned?access_token=page-private-secret&tab=rows';
+  const report = { nativeRequests: [], errors: [] };
+  const capture = captureCDARequests(page, {
+    apiOrigin: 'http://127.0.0.1:8188',
+    ownedPathPrefix: '/api/v1/projects/loom_dev_cda_fhir/explorers/owned',
+    report,
+  });
+  const rawURL = 'http://127.0.0.1:8188/api/v1/projects/loom_dev_cda_fhir/explorers/owned/authoring/v2/schema-fields?access_token=private-query-secret&page=2&filter=active&access_token=second-private-secret';
+  const request = {
+    url: () => rawURL,
+    method: () => 'GET', headers: () => ({ 'x-request-id': 'query-redaction-check' }), postData: () => null,
+    failure: () => ({ errorText: 'net::ERR_FAILED' }),
+  };
+  page.emit('request', request);
+  page.emit('requestfailed', request);
+  await capture.flush({ timeoutMs: 20, waitForNativeRequestTerminals: true });
+
+  const serialized = JSON.stringify(sanitizeReportPayload(report));
+  assert(!serialized.includes('private-query-secret'));
+  assert(!serialized.includes('second-private-secret'));
+  assert(!serialized.includes('page-private-secret'));
+  const retainedURL = new URL(report.nativeRequests[0].rawURL);
+  assert.deepEqual(retainedURL.searchParams.getAll('access_token'), ['[REDACTED]', '[REDACTED]']);
+  assert.equal(retainedURL.searchParams.get('page'), '2');
+  assert.equal(retainedURL.searchParams.get('filter'), 'active');
+  const retainedPageURL = new URL(report.nativeRequests[0].ownerPageUrlAtRequest);
+  assert.equal(retainedPageURL.searchParams.get('access_token'), '[REDACTED]');
+  assert.equal(retainedPageURL.searchParams.get('tab'), 'rows');
 });
 
 test('a request arriving during the final terminal drain remains gate-unfinished outside the drain batch', async () => {

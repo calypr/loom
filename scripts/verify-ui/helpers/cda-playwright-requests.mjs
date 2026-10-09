@@ -5,6 +5,8 @@ import { createPendingResponseReads } from './pending-response-reads.mjs';
 const maxBodyLength = 32768;
 const nativeRequestTerminalStates = new WeakMap();
 const nativeRequestTerminalEvents = new Set(['requestfinished', 'requestfailed']);
+const ownedPageIds = new WeakMap();
+let nextOwnedPageId = 1;
 const nativeRequestTerminalTimeoutReason = 'No Playwright requestfinished or requestfailed event was observed before the bounded native request drain deadline.';
 const parseBody = body => {
   const text = String(body ?? '');
@@ -19,7 +21,26 @@ const parseRawBody = body => {
   try { return JSON.parse(String(body ?? '')); }
   catch { return String(body ?? ''); }
 };
+function sanitizeOwnedRequestURL(rawURL) {
+  const url = new URL(rawURL);
+  const query = [...url.searchParams].map(([key, value]) => {
+    const sanitized = sanitizePayload({ [key]: value })[key];
+    return [sanitizeText(key), sanitizeText(typeof sanitized === 'string' ? sanitized : value)];
+  });
+  const serializedQuery = new URLSearchParams(query).toString();
+  return `${sanitizeText(url.origin)}${sanitizeText(url.pathname)}` +
+    `${serializedQuery ? `?${serializedQuery}` : ''}${sanitizeText(url.hash)}`;
+}
 const retiredResponseBodyReadError = /^response\.text: Protocol error \(Network\.getResponseBody\): No data found for resource with given identifier\nResponse body is not available for a response that was navigated away from\. Read response\.body\(\) before triggering any navigation\.$/;
+
+function ownedPageId(page) {
+  let id = ownedPageIds.get(page);
+  if (!id) {
+    id = `playwright-page-${nextOwnedPageId++}`;
+    ownedPageIds.set(page, id);
+  }
+  return id;
+}
 
 function nativeRequestTerminalState(request) {
   let state = nativeRequestTerminalStates.get(request);
@@ -216,8 +237,9 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
   };
 
   page.on('request', request => {
-    if (!owns(request.url())) return;
-    const url = new URL(request.url());
+    const rawURL = request.url();
+    if (!owns(rawURL)) return;
+    const url = new URL(rawURL);
     const headers = request.headers();
     let body;
     if (request.postData() !== null) body = parseBody(request.postData());
@@ -225,6 +247,9 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
     const entry = {
       requestId: headers['x-request-id'] ?? browserRequestId,
       browserRequestId,
+      ownerPageId: ownedPageId(page),
+      ownerPageUrlAtRequest: typeof page.url === 'function' ? sanitizeOwnedRequestURL(page.url()) : undefined,
+      rawURL: sanitizeOwnedRequestURL(rawURL),
       path: url.pathname,
       method: request.method(),
       origin: url.origin,

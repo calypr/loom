@@ -1,3 +1,138 @@
+const maxSourceOptionsDiagnosticBytes = 512 * 1024;
+const maxSourceOptionsDiagnosticEntries = 50;
+const nonempty = value => typeof value === 'string' && value.trim().length > 0;
+const normalizedSourceLabel = value => String(value ?? '').replace(/\s+/g, ' ').trim();
+
+export const codedPivotSourceOptionsDiagnosticFor = (entry, request, response, {
+  origin, project, generation, explorerId, outputId, snapshotToken, mode, domSnapshot,
+}) => {
+  if (![origin, project, generation, explorerId, outputId, snapshotToken].every(nonempty) || !['integer', 'string'].includes(mode)) {
+    throw new TypeError('Coded Pivot source-options evidence needs the exact project, generation, Explorer, output, snapshot, and mode.');
+  }
+  const endpointPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorerId)}/authoring/v2/frame-source-options`;
+  if (entry?.origin !== new URL(origin).origin || entry?.path !== endpointPath || entry?.method !== 'POST' ||
+      !Number.isInteger(entry?.status) || entry.status < 200 || entry.status >= 300 || !Number.isFinite(entry?.completedAt)) {
+    throw new Error('Coded Pivot source-options evidence must be a completed successful POST from the exact owned endpoint.');
+  }
+  const expectedRequestKeys = ['limit', 'outputId', 'resourceType', 'snapshotToken'];
+  if (!request || typeof request !== 'object' || Array.isArray(request) ||
+      JSON.stringify(Object.keys(request).sort()) !== JSON.stringify(expectedRequestKeys) ||
+      request.resourceType !== 'Observation' || request.snapshotToken !== snapshotToken || request.outputId !== outputId ||
+      request.limit !== 50 || JSON.stringify(entry.body) !== JSON.stringify(request)) {
+    throw new Error('Coded Pivot source-options request must bind the exact owned output and catalog snapshot.');
+  }
+  if (response?.snapshotToken !== snapshotToken || response?.outputId !== outputId ||
+      typeof response.complete !== 'boolean' || typeof response.truncated !== 'boolean' || !Array.isArray(response.sources)) {
+    throw new Error('Coded Pivot source-options response must echo the exact output and snapshot with its page envelope.');
+  }
+  if (domSnapshot && (domSnapshot.mode !== mode || !Array.isArray(domSnapshot.sourceControls))) {
+    throw new Error('Coded Pivot failure DOM must retain its mode and rendered source controls.');
+  }
+
+  const expectedValuePath = mode === 'integer' ? /valueInteger$/i : /valueString$/i;
+  const sourceControls = domSnapshot?.sourceControls ?? [];
+  const modeLabels = sourceControls.filter(control => control.name === 'coded-pivot-source' &&
+    normalizedSourceLabel(control.labelText).toLowerCase().includes('component') &&
+    normalizedSourceLabel(control.labelText).toLowerCase().includes(mode));
+  const sourceOptions = response.sources;
+  const candidateIndexes = sourceOptions.flatMap((option, index) =>
+    Array.isArray(option.route) && option.route.length === 0 && option.resourceType === 'Observation' &&
+      expectedValuePath.test(option.valuePath ?? '') &&
+      normalizedSourceLabel(`${option.title} ${option.description}`).toLowerCase().includes('component') &&
+      normalizedSourceLabel(`${option.title} ${option.description}`).toLowerCase().includes(mode) ? [index] : []);
+  const matchedIndexes = candidateIndexes.filter(index => modeLabels.some(control =>
+    normalizedSourceLabel(control.labelText) === normalizedSourceLabel(`${sourceOptions[index].title} ${sourceOptions[index].description}`)));
+  const priorityCandidateIndexes = [...new Set([...matchedIndexes, ...candidateIndexes])].slice(0, maxSourceOptionsDiagnosticEntries);
+  const candidateChoices = priorityCandidateIndexes.map(index => sourceOptions[index]);
+  const sourceBytes = Buffer.byteLength(JSON.stringify(response), 'utf8');
+  const diagnostic = {
+    target: {
+      project, generation, explorerId, outputId, snapshotToken, mode,
+      identitySource: 'created Explorer scope and BuilderV2 catalog generation/snapshot',
+      outputSource: 'saved table document output id before coded Pivot chooser',
+    },
+    endpoint: { origin: new URL(origin).origin, path: endpointPath, method: entry.method, status: entry.status,
+      browserRequestId: entry.browserRequestId },
+    request: { resourceType: request.resourceType, outputId: request.outputId, snapshotToken: request.snapshotToken, limit: request.limit },
+    envelope: {
+      snapshotToken: response.snapshotToken,
+      outputId: response.outputId,
+      complete: response.complete,
+      truncated: response.truncated,
+      nextCursor: response.nextCursor ?? null,
+      requestedLimit: request.limit,
+      sourceCount: sourceOptions.length,
+      sourceCountExceedsLimit: sourceOptions.length > request.limit,
+      sourceCountExceedsDiagnosticEntryCap: sourceOptions.length > maxSourceOptionsDiagnosticEntries,
+      responseBytes: sourceBytes,
+    },
+    domSnapshotCaptured: Boolean(domSnapshot),
+    frameOwnership: 'direct Observation frame: empty route, Observation resourceType, mode-specific FHIR valuePath',
+    domSourceControlCount: domSnapshot?.sourceControlCount ?? sourceControls.length,
+    domSourceControlsTruncated: domSnapshot?.sourceControlsTruncated ?? false,
+    domSourceLabels: modeLabels.map(control => normalizedSourceLabel(control.labelText)),
+    candidateChoiceCount: candidateIndexes.length,
+    matchedChoiceCount: matchedIndexes.length,
+    matchedChoiceIndexes: matchedIndexes.flatMap(index => priorityCandidateIndexes.indexOf(index) >= 0 ? [priorityCandidateIndexes.indexOf(index)] : []),
+    candidateChoices,
+    sourcePreview: [],
+    diagnosticTruncated: sourceOptions.length > priorityCandidateIndexes.length,
+    diagnosticEntryCap: maxSourceOptionsDiagnosticEntries,
+    diagnosticByteCap: maxSourceOptionsDiagnosticBytes,
+  };
+
+  const candidateSet = new Set(priorityCandidateIndexes);
+  const previewCandidates = sourceOptions.flatMap((option, index) => candidateSet.has(index) ? [] : [{ index, option }]);
+  const savedIndexes = new Set(priorityCandidateIndexes);
+  for (const { index, option } of previewCandidates) {
+    if (savedIndexes.size >= maxSourceOptionsDiagnosticEntries) break;
+    diagnostic.sourcePreview.push(option);
+    savedIndexes.add(index);
+    if (Buffer.byteLength(JSON.stringify(diagnostic), 'utf8') > maxSourceOptionsDiagnosticBytes) {
+      diagnostic.sourcePreview.pop();
+      savedIndexes.delete(index);
+      diagnostic.diagnosticTruncated = true;
+      break;
+    }
+  }
+  if (savedIndexes.size < sourceOptions.length) diagnostic.diagnosticTruncated = true;
+  diagnostic.diagnosticBytes = 0;
+  for (;;) {
+    const serializedBytes = Buffer.byteLength(JSON.stringify(diagnostic), 'utf8');
+    if (serializedBytes === diagnostic.diagnosticBytes) break;
+    diagnostic.diagnosticBytes = serializedBytes;
+  }
+  const diagnosticBytes = diagnostic.diagnosticBytes;
+  if (diagnosticBytes > maxSourceOptionsDiagnosticBytes) {
+    throw new RangeError(`Coded Pivot matched source-options evidence alone exceeds ${maxSourceOptionsDiagnosticBytes} bytes.`);
+  }
+  return diagnostic;
+};
+
+export async function codedPivotFirstFailureEvidenceFor({ mode, action, captureDom, captureSourceOptions }) {
+  const evidence = { capturedAt: new Date().toISOString(), action };
+  if (captureDom) {
+    try {
+      evidence.dom = await captureDom();
+    } catch (error) {
+      evidence.domCaptureError = String(error?.stack ?? error);
+    }
+  } else {
+    evidence.domCaptureStatus = 'unavailable';
+  }
+  if (captureSourceOptions) {
+    try {
+      evidence.sourceOptions = await captureSourceOptions(evidence.dom);
+    } catch (error) {
+      evidence.sourceOptionsCaptureError = String(error?.stack ?? error);
+    }
+  } else {
+    evidence.sourceOptionsCaptureStatus = 'unavailable';
+  }
+  if (evidence.dom && evidence.dom.mode !== mode) evidence.domModeMismatch = { expected: mode, actual: evidence.dom.mode };
+  return evidence;
+}
+
 export const summarizeCodedPivotNativeRequests = requests => {
   if (!Array.isArray(requests)) throw new TypeError('Coded Pivot request evidence must be an array.');
   const details = requests.map(request => {
