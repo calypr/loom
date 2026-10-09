@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { registry, scenarioCaseFor } from '../../registry.mjs';
+import { registry, scenarioCaseFor, unmappedLifecycleCoverage } from '../../registry.mjs';
 import {
   runNativeVerificationBracket,
   parseOfficialPlaywrightList,
@@ -447,6 +447,7 @@ async function invokeMainWithFakeBracket(t, {
   browserExit = 0,
   sourceChanged = false,
   domainReportOverride,
+  registryForValidation = registry,
 } = {}) {
   const parent = evidenceParent();
   t.after(() => rmSync(parent, { recursive: true, force: true }));
@@ -462,6 +463,7 @@ async function invokeMainWithFakeBracket(t, {
     '--grep', contract.playwrightGrep ?? 'native handoff projection',
   ], {
     env: fake.env,
+    registryForValidation,
     targetLoader: async ({ expectedIdentity }) => ({
       environment: fake.env,
       target: makeTarget(root, expectedIdentity),
@@ -686,34 +688,38 @@ test('malformed or negative timingCheckpoints remain unverified', () => {
       performanceCheckNames: [groupOnePerformanceCheckName],
       requiredCheckNames: [groupOnePerformanceCheckName],
     });
-    assert.equal(summary.count, 0);
-    assert.equal(summary.maximumDurationMs, null);
-    assert.deepEqual(summary.checkpoints, []);
+    assert.equal(summary.status, 'malformed');
+    assert.ok(summary.issues.length > 0);
+    assert.equal(summary.count, summary.checkpoints.length);
+    assert.equal(summary.maximumDurationMs, summary.count
+      ? Math.max(...summary.checkpoints.map(({ durationMs }) => durationMs)) : null);
   }
 });
 
 test('missing or malformed checkpoint lists remain unverified', () => {
   const checkName = groupAddFieldsPerformanceCheckName;
   const checks = scenarioCaseFor('standalone-reshape-group-add-fields', 'group-add-fields').requiredChecks;
-  const invalidEvidence = [
-    { maximumCheckpointDurationMs: 1356 },
-    { lifecycleCheckpointDurations: '20 lifecycle checkpoints', maximumCheckpointDurationMs: 1356 },
-    { lifecycleCheckpointDurations: [] },
-    { lifecycleCheckpointDurations: [{ name: 'valid', durationMs: 50 }, { name: 'invalid', durationMs: 'slow' }] },
-    { workflowCheckpoints: '31 workflow checkpoints' },
-    { workflowCheckpoints: [] },
-    { workflowCheckpoints: [{ name: 'valid', durationMs: 50 }, { name: 'negative', durationMs: -1 }] },
-    { workflowCheckpoints: [{ name: 'invalid', durationMs: 'slow' }] },
+  const evidenceCases = [
+    { evidence: { maximumCheckpointDurationMs: 1356 }, status: 'absent' },
+    { evidence: { lifecycleCheckpointDurations: '20 lifecycle checkpoints', maximumCheckpointDurationMs: 1356 }, status: 'malformed' },
+    { evidence: { lifecycleCheckpointDurations: [] }, status: 'malformed' },
+    { evidence: { lifecycleCheckpointDurations: [{ name: 'valid', durationMs: 50 }, { name: 'invalid', durationMs: 'slow' }] }, status: 'malformed' },
+    { evidence: { workflowCheckpoints: '31 workflow checkpoints' }, status: 'malformed' },
+    { evidence: { workflowCheckpoints: [] }, status: 'malformed' },
+    { evidence: { workflowCheckpoints: [{ name: 'valid', durationMs: 50 }, { name: 'negative', durationMs: -1 }] }, status: 'malformed' },
+    { evidence: { workflowCheckpoints: [{ name: 'invalid', durationMs: 'slow' }] }, status: 'malformed' },
   ];
 
-  for (const evidence of invalidEvidence) {
+  for (const { evidence, status } of evidenceCases) {
     const summary = summarizeRenderCheckpoints({ assertions: [{ name: checkName, evidence }] }, {
       performanceCheckNames: [checkName],
       requiredCheckNames: checks,
     });
-    assert.equal(summary.count, 0);
-    assert.equal(summary.maximumDurationMs, null);
-    assert.deepEqual(summary.checkpoints, []);
+    assert.equal(summary.status, status);
+    assert.equal(summary.issues.length > 0, status === 'malformed');
+    assert.equal(summary.count, summary.checkpoints.length);
+    assert.equal(summary.maximumDurationMs, summary.count
+      ? Math.max(...summary.checkpoints.map(({ durationMs }) => durationMs)) : null);
   }
 });
 
@@ -762,6 +768,8 @@ test('CDA report shape closes only when all registered lifecycle checks and the 
     summary.evidence.playwrightReport);
   assert.equal(summary.lifecycle.renderCheckpointCount, 2, JSON.stringify(summary.lifecycle.renderCheckpoints, null, 2));
   assert.equal(summary.lifecycle.maximumRenderCheckpointLatencyMs, 4456);
+  assert.equal(summary.lifecycle.renderCheckpointStatus, 'present');
+  assert.deepEqual(summary.lifecycle.renderCheckpointIssues, []);
   assert.equal(summary.lifecycle.renderCheckpoints.some(({ checkName }) => checkName ===
     scenarioCaseFor('root-quantity-pivot', 'full-population-lifecycle').requiredChecks[0]), false,
   'Elapsed time on the required raw-oracle assertion is setup evidence, not a render checkpoint.');
@@ -769,6 +777,9 @@ test('CDA report shape closes only when all registered lifecycle checks and the 
     'Top-level click action latency remains separate from nested render checkpoint latency.');
   assert.equal(summary.reviewPacket.maximumRenderCheckpointLatencyMs, 4456);
   assert.equal(summary.reviewPacket.renderCheckpointCount, 2);
+  assert.equal(summary.reviewPacket.renderCheckpointStatus, 'present');
+  assert.deepEqual(summary.reviewPacket.renderCheckpointIssues, []);
+  assert.deepEqual(summary.reviewPacket.renderCheckpoints, summary.lifecycle.renderCheckpoints);
   assert.equal(summary.reviewPacket.firstFailureReason, null);
   assert.equal(summary.reviewPacket.failedAction, null);
   assert.deepEqual(summary.reviewPacket.pendingOwnedRequests, []);
@@ -779,6 +790,59 @@ test('CDA report shape closes only when all registered lifecycle checks and the 
   }
   assert.equal(summary.runDirectory.startsWith(root + '/'), false);
   assert.equal(JSON.parse(readFileSync(summary.evidence.summary, 'utf8')).status, 'passed');
+});
+
+test('runner summary and review packet preserve normalized render evidence fields', async (t) => {
+  const scenarioID = 'root-quantity-pivot';
+  const caseName = 'full-population-lifecycle';
+  const contract = scenarioCaseFor(scenarioID, caseName);
+  const checkpoint = {
+    name: 'full-population-pivot-discovery-to-render',
+    durationMs: 4172,
+    budgetMs: 5000,
+    withinBudget: true,
+  };
+  const assertions = contract.requiredChecks.map((name) => ({
+    name,
+    status: 'passed',
+    ...(name === contract.performanceCheckName ? {
+      dimension: 'performance',
+      evidence: {
+        checkpoints: [checkpoint],
+        actionCount: 1,
+        maxActionMs: 284,
+      },
+    } : {}),
+  }));
+  const { summary, packet } = await invokeMainWithFakeBracket(t, {
+    domainReportOverride: {
+      schemaVersion: 2,
+      scenario: scenarioID,
+      caseName,
+      status: 'passed',
+      requiredChecks: contract.requiredChecks,
+      missingRequiredChecks: [],
+      dimensions: { usability: 'passed', correctness: 'passed', persistence: 'passed', performance: 'passed' },
+      assertions,
+    },
+  });
+  const expectedCheckpoint = {
+    checkName: contract.performanceCheckName,
+    ...checkpoint,
+    evidencePath: 'assertions[].evidence.checkpoints[].durationMs',
+  };
+
+  assert.equal(summary.status, 'passed');
+  assert.equal(summary.lifecycle.renderCheckpointStatus, 'present');
+  assert.deepEqual(summary.lifecycle.renderCheckpointIssues, []);
+  assert.deepEqual(summary.lifecycle.renderCheckpoints, [expectedCheckpoint]);
+  assert.equal(summary.reviewPacket.renderCheckpointStatus, 'present');
+  assert.deepEqual(summary.reviewPacket.renderCheckpointIssues, []);
+  assert.deepEqual(summary.reviewPacket.renderCheckpoints, [expectedCheckpoint]);
+  assert.deepEqual(packet.reviewPacket.renderCheckpoints, [expectedCheckpoint]);
+  const persisted = JSON.parse(readFileSync(summary.evidence.summary, 'utf8'));
+  assert.deepEqual(persisted.lifecycle.renderCheckpoints, [expectedCheckpoint]);
+  assert.equal(persisted.lifecycle.renderCheckpointStatus, 'present');
 });
 
 test('basic fixture report shape is accepted from its Playwright attachment', async (t) => {
@@ -2164,6 +2228,11 @@ test('main stdout handoff projects the passed bracket, identities, phase refs, a
   assert.equal(packet.scenario, summary.scenario);
   assert.equal(packet.case, summary.case);
   assert.deepEqual(packet.reviewPacket, summary.reviewPacket);
+  assert.equal(summary.registryValidation.status, 'valid');
+  assert.ok(summary.registryValidation.unmappedLifecycleCount > 0,
+    'explicit unmapped lifecycle rows remain visible without being counted as passes');
+  assert.deepEqual(summary.registryValidation.rows, unmappedLifecycleCoverage(registry).rows);
+  assert.deepEqual(packet.registryValidation, summary.registryValidation);
   assert.equal(packet.reviewPacket.requiredCheckCount, summary.lifecycle.requiredCheckCount);
   assert.equal(packet.reviewPacket.passedCheckCount, summary.lifecycle.passedCheckCount);
   assert.deepEqual(packet.reviewPacket.failedCheckNames, []);
@@ -2233,6 +2302,86 @@ test('main stdout handoff preserves failed check gaps and changed source paths',
   assert.equal(stdout.includes('Listing tests:'), false);
   assert.equal(stdout.includes('registered node tests passed'), false);
   assert.match(readFileSync(summary.commands.selectionList.stdoutPath, 'utf8'), /Listing tests:/);
+});
+
+test('registered runner rejects invalid coverage before target loading or browser work', async () => {
+  const fixtures = [
+    {
+      id: 'native-runner-invalid-status-fixture',
+      cases: {},
+      coverage: [{ feature: 'fixture invalid status', status: 'partial' }],
+      expectedDiagnostic: 'native-runner-invalid-status-fixture: invalid coverage status partial',
+    },
+    {
+      id: 'native-runner-missing-lifecycle-case-fixture',
+      cases: {},
+      coverage: [{
+        feature: 'fixture missing lifecycle case',
+        status: 'untested',
+        acceptance: {
+          intent: 'row-lifecycle',
+          kind: 'lifecycle',
+          case: 'not-registered',
+          checks: {},
+        },
+      }],
+      expectedDiagnostic: 'native-runner-missing-lifecycle-case-fixture: fixture missing lifecycle case: acceptance.case must name a registered native case for scenario native-runner-missing-lifecycle-case-fixture',
+    },
+  ];
+
+  for (const fixture of fixtures) {
+    let targetLoaded = false;
+    let bracketStarted = false;
+    const registryForValidation = [...registry, fixture];
+    await assert.rejects(main([
+        '--scenario', 'cda-current-draft-membership',
+        '--case', 'membership',
+        '--target', '.codex/owned-cda-target.json',
+      ], {
+        registryForValidation,
+        targetLoader: async () => { targetLoaded = true; throw new Error('coverage guard must run first'); },
+        runBracket: async () => { bracketStarted = true; throw new Error('coverage guard must run first'); },
+        write: () => {},
+      }), (error) => {
+        assert.match(error.message, /Registered verification coverage is invalid; refusing to start the native bracket/);
+        assert.ok(error.message.includes(fixture.expectedDiagnostic), error.message);
+        return true;
+      });
+    assert.equal(targetLoaded, false, 'invalid registry coverage must be rejected before target loading');
+    assert.equal(bracketStarted, false, 'invalid registry coverage must be rejected before prerequisites or browser work');
+  }
+});
+
+test('runner summary preserves explicit unmapped row-lifecycle gaps as unresolved coverage', async (t) => {
+  const fixture = {
+    id: 'native-bracket-unmapped-report-fixture',
+    cases: {},
+    coverage: [{
+      feature: 'fixture with an explicit unmapped row-lifecycle gap',
+      status: 'untested',
+      reason: 'The required domain witness is unavailable.',
+      acceptance: {
+        intent: 'row-lifecycle',
+        kind: 'unmapped',
+        unmappedReason: 'No registered native case covers this fixture path yet.',
+      },
+    }],
+  };
+  const registryForValidation = [...registry, fixture];
+  const { summary, packet } = await invokeMainWithFakeBracket(t, { registryForValidation });
+  const fixtureRow = summary.registryValidation.rows.find(({ scenario, feature }) =>
+    scenario === fixture.id && feature === fixture.coverage[0].feature);
+
+  assert.equal(summary.registryValidation.status, 'valid');
+  assert.ok(fixtureRow);
+  assert.equal(summary.registryValidation.unmappedLifecycleCount,
+    summary.registryValidation.rows.length);
+  assert.equal(fixtureRow.reason, fixture.coverage[0].acceptance.unmappedReason);
+  assert.deepEqual(packet.registryValidation, summary.registryValidation);
+  assert.deepEqual(JSON.parse(readFileSync(summary.evidence.summary, 'utf8')).registryValidation,
+    summary.registryValidation);
+  assert.equal(summary.status, 'passed',
+    'a passed selected case does not turn explicit unmapped cases into lifecycle passes');
 });
 
 test('normal selected-case CLI loads the explicit target against registered identity before the bracket', async () => {

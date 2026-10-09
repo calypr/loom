@@ -8,7 +8,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { registry, scenarioCaseFor } from './verify-ui/registry.mjs';
+import { coverageDrift, registry, scenarioCaseFor, unmappedLifecycleCoverage } from './verify-ui/registry.mjs';
 import { assertCapturedTargetMatches, parseCapturedBuildIdentity } from './verify-ui/helpers/owned-stack-health.mjs';
 import { sourceFingerprintChangedPaths } from './verify-ui/helpers/source-fingerprint.mjs';
 import {
@@ -611,6 +611,20 @@ function summarizeFailureContext(report) {
 
 export { summarizeRenderCheckpoints };
 
+function registryValidationSummary(entries = registry) {
+  const problems = coverageDrift(entries);
+  if (problems.length) {
+    throw new Error('Registered verification coverage is invalid; refusing to start the native bracket:\n'
+      + problems.map((problem) => '- ' + problem).join('\n'));
+  }
+  const unmapped = unmappedLifecycleCoverage(entries);
+  return {
+    status: 'valid',
+    unmappedLifecycleCount: unmapped.count,
+    rows: unmapped.rows,
+  };
+}
+
 function summarizeLifecycle(report, expectedScenarioID, expectedCaseName) {
   if (!report) return { status: 'unverified', reason: 'No domain verification report was attached or found.' };
   const identity = reportIdentity(report);
@@ -677,6 +691,8 @@ function summarizeLifecycle(report, expectedScenarioID, expectedCaseName) {
     dimensionEvidence: lifecycleEvidence.dimensionEvidence,
     actionCount: Array.isArray(report.actions) ? report.actions.length : null,
     maximumMeasuredActionLatencyMs: actionDurations.length ? Math.max(...actionDurations) : null,
+    renderCheckpointStatus: renderCheckpoints.status,
+    renderCheckpointIssues: renderCheckpoints.issues,
     renderCheckpointCount: renderCheckpoints.count,
     maximumRenderCheckpointLatencyMs: renderCheckpoints.maximumDurationMs,
     renderCheckpoints: renderCheckpoints.checkpoints,
@@ -862,7 +878,9 @@ export async function runNativeVerificationBracket({
   env = process.env,
   commandRunner = runProcess,
   signal,
+  registryValidation: providedRegistryValidation = null,
 } = {}) {
+  const registryValidation = providedRegistryValidation ?? registryValidationSummary(registry);
   assert(typeof scenarioID === 'string' && scenarioID.trim(), 'Provide --scenario.');
   assert(typeof caseName === 'string' && caseName.trim(), 'Provide --case.');
   const canonicalRoot = realpathSync(resolve(root));
@@ -898,6 +916,7 @@ export async function runNativeVerificationBracket({
       scope: 'environment-only',
       runtimeDatasetIdentity: 'not-checked',
     }),
+    registryValidation,
     runDirectory,
     commands: {},
     evidence: {
@@ -1310,6 +1329,9 @@ export async function runNativeVerificationBracket({
     maximumMeasuredActionLatencyMs: summary.lifecycle.maximumMeasuredActionLatencyMs ?? null,
     renderCheckpointCount: summary.lifecycle.renderCheckpointCount ?? null,
     maximumRenderCheckpointLatencyMs: summary.lifecycle.maximumRenderCheckpointLatencyMs ?? null,
+    renderCheckpointStatus: summary.lifecycle.renderCheckpointStatus ?? null,
+    renderCheckpointIssues: summary.lifecycle.renderCheckpointIssues ?? [],
+    renderCheckpoints: summary.lifecycle.renderCheckpoints ?? [],
     report: summary.evidence.domainReport,
     playwrightJson: summary.evidence.playwrightReport,
     summary: summary.evidence.summary,
@@ -1322,6 +1344,7 @@ export async function main(argv, {
   runBracket = runNativeVerificationBracket,
   write = console.log,
   env = process.env,
+  registryForValidation = registry,
   targetLoader = async (input) => {
     const { loadOwnedCdaTargetConfig } = await import('./verify-ui/helpers/owned-cda-target-config.mjs');
     return loadOwnedCdaTargetConfig(input);
@@ -1332,6 +1355,7 @@ export async function main(argv, {
     write(usage);
     return 0;
   }
+  const registryValidation = registryValidationSummary(registryForValidation);
   if (!options.checksOnly || options.targetPath) {
     const scenario = registry.find((candidate) => candidate.id === options.scenarioID);
     assert(scenario, 'Unknown registered scenario: ' + options.scenarioID);
@@ -1373,6 +1397,7 @@ export async function main(argv, {
   const handleInterrupt = () => interruptController.abort();
   process.on('SIGINT', handleInterrupt);
   options.signal = interruptController.signal;
+  options.registryValidation = registryValidation;
   let summary;
   try {
     summary = await runBracket(options);
@@ -1466,6 +1491,7 @@ export async function main(argv, {
     sourceIntegrity,
     apiBuildIdentity,
     targetValidation: summary.targetValidation,
+    registryValidation: summary.registryValidation,
     focusedCheckCoverage: summary.focusedCheckCoverage,
     focusedChecks,
     replayArgv,
