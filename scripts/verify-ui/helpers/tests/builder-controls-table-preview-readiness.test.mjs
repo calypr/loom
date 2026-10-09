@@ -4,11 +4,13 @@ import test from 'node:test';
 import { chromium } from '@playwright/test';
 import {
   adjudicateFirstTableConfiguredContextAbort,
+  builderDraftIdentityFromState,
   currentReadyPreviewOutputId,
   currentPreviewReady,
   patientOracle,
   startFirstTableProgressObserver,
   stopFirstTableProgressObserver,
+  waitForBuilderDraftIdentity,
   waitForCurrentPreviewRows,
 } from '../../workflows/builder-controls.mjs';
 
@@ -180,6 +182,108 @@ test('reads the current Preview output while the Add columns editor has no table
   }
 });
 
+test('reads the empty Builder draft identity from its scoped API response when the workspace DOM is absent', async () => {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  try {
+    const page = await browser.newPage();
+    const uiUrl = 'http://127.0.0.1:30008';
+    const project = 'loom_dev_verify_5f7a8b9c-012345';
+    const explorerId = 'empty-5f7a8b9c-012345';
+    const builderPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorerId)}/authoring/v2/builder`;
+    const builderState = {
+      apiVersion: 'loom.calypr.org/explorer-authoring/v2',
+      kind: 'ExplorerBuilderState',
+      lifecycleState: 'NEW',
+      draftVersion: 8,
+      draftDigest: 'sha256:empty-draft-8',
+      workspace: null,
+      catalog: { snapshotToken: 'snapshot-8', generation: 'devloop-v1', routePolicy: {}, nodes: [], edges: [], candidates: [] },
+    };
+    await page.route(`${uiUrl}/**`, async route => {
+      const url = new URL(route.request().url());
+      if (url.pathname === builderPath) {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(builderState) });
+      } else {
+        await route.fulfill({ status: 200, contentType: 'text/html', body: '<main><p>Build your first table</p></main>' });
+      }
+    });
+    await page.goto(`${uiUrl}/builder`);
+    assert.equal(await page.getByText('Build your first table', { exact: true }).count(), 1);
+    assert.equal(await page.getByTestId('construction-workspace').count(), 0,
+      'the empty Builder has no construction-workspace node to read');
+
+    const identityPromise = waitForBuilderDraftIdentity({ page, uiUrl, project, explorerId, timeoutMs: 1000 });
+    const body = await page.evaluate(path => fetch(path).then(response => response.json()), builderPath);
+    assert.deepEqual(await identityPromise, {
+      version: '8', digest: 'sha256:empty-draft-8', lifecycleState: 'NEW',
+    });
+    assert.deepEqual(body, builderState);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('accepts only a structurally consistent Builder draft identity', () => {
+  const state = {
+    apiVersion: 'loom.calypr.org/explorer-authoring/v2', kind: 'ExplorerBuilderState', lifecycleState: 'NEW', draftVersion: 8,
+    draftDigest: 'sha256:empty-draft-8', workspace: null,
+  };
+  assert.deepEqual(builderDraftIdentityFromState(state), {
+    version: '8', digest: 'sha256:empty-draft-8', lifecycleState: 'NEW',
+  });
+  assert.deepEqual(builderDraftIdentityFromState({ ...state, lifecycleState: 'READY', workspace: {
+    apiVersion: 'loom.calypr.org/explorer-authoring/v2',
+    kind: 'ExplorerBuilderWorkspace',
+    explorer: { title: 'Empty table workspace' },
+    documents: [],
+    tabs: [],
+  } }), {
+    version: '8', digest: 'sha256:empty-draft-8', lifecycleState: 'READY',
+  }, 'an empty table UI must use the API version and digest without assuming lifecycleState NEW');
+  for (const invalid of [
+    { ...state, apiVersion: 'loom.calypr.org/explorer-authoring/v1' },
+    { ...state, kind: 'OtherState' },
+    { ...state, lifecycleState: 'READY' },
+    { ...state, draftVersion: -1 },
+    { ...state, draftVersion: 1.5 },
+    { ...state, draftDigest: null },
+    { ...state, workspace: {} },
+    { ...state, lifecycleState: 'READY', workspace: { kind: 'OtherWorkspace' } },
+  ]) {
+    assert.equal(builderDraftIdentityFromState(invalid), null);
+  }
+});
+
+test('keeps Builder response-body parsing inside the original lifecycle deadline', async () => {
+  const uiUrl = 'http://127.0.0.1:30008';
+  const project = 'loom_dev_verify_5f7a8b9c-012345';
+  const explorerId = 'empty-5f7a8b9c-012345';
+  const path = `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorerId)}/authoring/v2/builder`;
+  const candidate = {
+    request: () => ({ method: () => 'GET' }),
+    url: () => `${uiUrl}${path}`,
+  };
+  const response = {
+    ok: () => true,
+    status: () => 200,
+    json: () => new Promise(resolve => setTimeout(() => resolve({
+      apiVersion: 'loom.calypr.org/explorer-authoring/v2',
+      kind: 'ExplorerBuilderState', lifecycleState: 'NEW', draftVersion: 8,
+      draftDigest: 'sha256:empty-draft-8', workspace: null,
+    }), 100)),
+  };
+  const page = {
+    waitForResponse: async (predicate, options) => {
+      assert.ok(options.timeout > 0);
+      assert.equal(predicate(candidate), true, 'the response listener must bind the exact Builder GET path');
+      return response;
+    },
+  };
+
+  await assert.rejects(waitForBuilderDraftIdentity({ page, uiUrl, project, explorerId, timeoutMs: 20 }),
+    /response body did not settle before the action-to-render deadline/);
+});
+
 test('waits for selected current-draft rows instead of same-count stale Patient values', async () => {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   try {
@@ -267,6 +371,16 @@ test('waits for selected current-draft rows instead of same-count stale Patient 
     assert.equal(await page.evaluate(currentPreviewReady, outputId), false,
       'a matching binding remains pending while the preview-loading status is visible');
     await page.locator('[role="status"]').evaluate(node => node.remove());
+    await page.locator('[data-testid="construction-preview"]').evaluate(node => {
+      node.dataset.currentDraftDigest = 'sha256:draft-old';
+    });
+    assert.equal(await page.evaluate(currentPreviewReady, outputId), false,
+      'Recompile readiness rejects a ready receipt for the selected output when its draft digest is stale');
+    await page.locator('[data-testid="construction-preview"]').evaluate(node => {
+      node.dataset.currentDraftDigest = 'sha256:draft-current-9';
+    });
+    assert.equal(await page.evaluate(currentPreviewReady, outputId), true,
+      'Recompile readiness accepts the selected output after its preview digest matches the workspace');
     assert.equal(await page.evaluate(currentPreviewReady, outputId), true,
       'the readiness predicate accepts only the selected output and current draft');
     await page.waitForTimeout(30);

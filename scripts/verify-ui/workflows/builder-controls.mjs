@@ -118,6 +118,44 @@ export const currentReadyPreviewOutputId = () => {
   return ready ? outputId : null;
 };
 
+export const builderDraftIdentityFromState = state => {
+  const apiVersion = 'loom.calypr.org/explorer-authoring/v2';
+  const validLifecycle = state?.lifecycleState === 'NEW' || state?.lifecycleState === 'READY';
+  const validWorkspace = state?.workspace === null || (state?.workspace?.kind === 'ExplorerBuilderWorkspace' &&
+    state.workspace.apiVersion === apiVersion);
+  if (state?.apiVersion !== apiVersion || state.kind !== 'ExplorerBuilderState' || !validLifecycle || !validWorkspace ||
+      (state.lifecycleState === 'NEW') !== (state.workspace === null) ||
+      !Number.isSafeInteger(state.draftVersion) || state.draftVersion < 0 || typeof state.draftDigest !== 'string') return null;
+  return { version: String(state.draftVersion), digest: state.draftDigest, lifecycleState: state.lifecycleState };
+};
+
+export const waitForBuilderDraftIdentity = async ({
+  page, uiUrl, project, explorerId, timeoutMs = 5000, deadlineAt = performance.now() + timeoutMs,
+}) => {
+  const remaining = () => {
+    const value = Math.ceil(deadlineAt - performance.now());
+    assert(value > 0, 'Builder state response exhausted its original action-to-render deadline');
+    return value;
+  };
+  const expectedPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorerId)}/authoring/v2/builder`;
+  const response = await page.waitForResponse(candidate => {
+    const url = new URL(candidate.url());
+    return candidate.request().method() === 'GET' && url.origin === new URL(uiUrl).origin && url.pathname === expectedPath;
+  }, { timeout: remaining() });
+  assert(response.ok(), `Builder state request failed with HTTP ${response.status()}`);
+  const bodyPromise = response.json();
+  let bodyTimer;
+  const body = await Promise.race([
+    bodyPromise,
+    new Promise((_, reject) => {
+      bodyTimer = setTimeout(() => reject(new Error('Builder state response body did not settle before the action-to-render deadline')), remaining());
+    }),
+  ]).finally(() => clearTimeout(bodyTimer));
+  const identity = builderDraftIdentityFromState(body);
+  assert(identity, 'Builder state must expose a valid lifecycle, workspace, draft version, and digest');
+  return identity;
+};
+
 export const startFirstTableProgressObserver = () => {
   const key = '__loomFirstTableProgressCancellationObserver';
   window[key]?.observer?.disconnect?.();
@@ -713,10 +751,16 @@ export const tablesWorkflow = async ({ page, report, action, check }, context) =
     const deadline = startedAt + 5000;
     const remaining = () => remainingMs(deadline, label);
     try {
+      const draftIdentity = waitForBuilderDraftIdentity({
+        page, uiUrl: context.target.uiUrl, project, explorerId, deadlineAt: deadline,
+      });
+      draftIdentity.catch(() => {});
       await page.reload({ waitUntil: 'domcontentloaded', timeout: remaining() });
       await waitForWorkspaceTable({ explorerId, count: 0, testId: null, empty: true, remaining });
       await page.getByText('Build your first table', { exact: true }).waitFor({ state: 'visible', timeout: remaining() });
+      const identity = await draftIdentity;
       recordTableTransition(label, startedAt);
+      return identity;
     } catch (error) {
       if (!tableRenderCheckpoints.some(checkpoint => checkpoint.name === label &&
           (!checkpoint.withinBudget || checkpoint.failure))) {
@@ -919,13 +963,12 @@ export const tablesWorkflow = async ({ page, report, action, check }, context) =
         undefined, { timeout: remaining() });
     },
   });
-  await reloadEmptyWorkspace({ label: 'reload empty copied Explorer workspace', explorerId: copyExplorer });
+  const workspaceBeforeFirstTable = await reloadEmptyWorkspace({
+    label: 'reload empty copied Explorer workspace', explorerId: copyExplorer,
+  });
   check('persistence', 'deleting the last table persists an empty workspace', await page.locator('[data-testid^="construction-table-"]').count() === 0,
     { explorer: copyExplorer, title: copyTitle });
-  const workspaceBeforeFirstTable = await page.getByTestId('construction-workspace').evaluate(workspace => ({
-    version: workspace.dataset.draftVersion,
-    digest: workspace.dataset.draftDigest,
-  }));
+  report.target.emptyWorkspaceDraftIdentity = { explorer: copyExplorer, ...workspaceBeforeFirstTable };
   const actionCountBeforeFirstTable = report.actions.length;
   await page.evaluate(startFirstTableProgressObserver);
   await createPatientTableWithUI({ page, action }, oracle.ids);
