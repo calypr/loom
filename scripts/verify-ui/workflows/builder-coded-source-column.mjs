@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { browserURL } from './builder-url.mjs';
 import { configureNativePage } from '../helpers/playwright-authoring-page.mjs';
-import { recordCheck } from '../helpers/report.mjs';
+import { recordCheck, registerValidatedObsoleteNetworkRead } from '../helpers/report.mjs';
 
 const unique = async locator => {
   const count = await locator.count();
@@ -67,6 +67,38 @@ const routeOwner = (url, endpoint) => {
   } catch {
     return undefined;
   }
+};
+
+export const frameSourceFailureCaptureRecord = (capture, reportRecord) => {
+  const owner = routeOwner(capture?.url, 'frame-source-options');
+  const body = capture?.body;
+  if (capture?.kind !== 'frame-source-options' || capture.method !== 'POST' || !owner ||
+      owner.project !== capture.project || owner.explorerId !== capture.explorerId ||
+      typeof body?.requestId !== 'string' || !body.requestId || typeof body.query !== 'string' ||
+      typeof body.outputId !== 'string' || !body.outputId ||
+      typeof body.snapshotToken !== 'string' || !body.snapshotToken ||
+      !Number.isFinite(capture.startedAtMs) || !Number.isFinite(capture.failedAtMs) ||
+      !Number.isFinite(capture.durationMs)) return undefined;
+  return {
+    playwrightRequestId: typeof reportRecord?.playwrightRequestId === 'string'
+      ? reportRecord.playwrightRequestId : null,
+    method: capture.method,
+    route: owner.route,
+    project: owner.project,
+    explorerId: owner.explorerId,
+    requestId: body.requestId,
+    query: body.query,
+    outputId: body.outputId,
+    snapshotToken: body.snapshotToken,
+    errorText: typeof capture.errorText === 'string' ? capture.errorText : null,
+    requestStartedMs: Number.isFinite(reportRecord?.requestTimeline?.requestStartedMs)
+      ? reportRecord.requestTimeline.requestStartedMs : null,
+    failedAtMs: Number.isFinite(reportRecord?.requestTimeline?.failedAtMs)
+      ? reportRecord.requestTimeline.failedAtMs : null,
+    localRequestStartedMs: capture.startedAtMs,
+    localFailedAtMs: capture.failedAtMs,
+    durationMs: capture.durationMs,
+  };
 };
 
 const sameJson = (left, right) => JSON.stringify(left) === JSON.stringify(right);
@@ -368,6 +400,11 @@ export const classifyCodedColumnDiagnostics = report => {
       if (!matches) return false;
       item.expectedObsolete = true;
       item.obsolescenceEvidence = proof;
+      if (!registerValidatedObsoleteNetworkRead(report, item, proof)) {
+        delete item.expectedObsolete;
+        delete item.obsolescenceEvidence;
+        return false;
+      }
       expectedObsoleteReads.push(item);
       return true;
     } catch {
@@ -732,6 +769,10 @@ export const builderCodedSourceColumnWorkflow = async (workflow, context) => {
   const blankSourceRequest = await capturedFailureFor(capture => capture.kind === 'frame-source-options' &&
     capture.body.query === '' && capture.errorText === 'net::ERR_ABORTED');
   const blankSourceFailure = reportFailureFor(blankSourceRequest);
+  report.target.frameSourceFailureCaptures = capturedRequestFailures
+    .filter(capture => capture.kind === 'frame-source-options')
+    .map(capture => frameSourceFailureCaptureRecord(capture, reportFailureFor(capture)))
+    .filter(Boolean);
   if (blankSourceRequest && blankSourceFailure && sourceOptionsResponse &&
       sourceOptionsRequestCapture && frameSourceResponse) {
     const sourceAction = actionRecord('search native Observation framing choices');

@@ -4,10 +4,12 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { generatedJ01ConceptNDJSON } from '../../../loom-dev.mjs';
+import { adjudicatePendingLifecycle, createReport, finishReport } from '../report.mjs';
 import {
   appendCapabilityCommandInvalidationProof,
   appendFrameSearchInvalidationProof,
   classifyCodedColumnDiagnostics,
+  frameSourceFailureCaptureRecord,
   previewHeaderMatches,
 } from '../../workflows/builder-coded-source-column.mjs';
 
@@ -105,6 +107,7 @@ const capabilityInvalidationReport = () => {
   };
   const assertion = { name: 'edited Height column and exact values survive Builder reload' };
   const report = {
+    scenario: 'builder-coded-source-column', case: 'coded-source-column',
     target: { fixtureOracle },
     network: [failure],
     actions: [action],
@@ -332,6 +335,7 @@ const frameSearchInvalidationReport = () => {
       action: { id: 'action-browse', label: 'browse coded source values' } },
   };
   const report = {
+    scenario: 'builder-coded-source-column', case: 'coded-source-column',
     network: [failure], actions: [action],
     assertions: [{
       name: 'native Coded values controls save the direct Observation Height frame', status: 'passed',
@@ -423,4 +427,211 @@ test('coded-source-column fixture keeps the six-row independent oracle without g
     'dev-pair-001', 'dev-pair-002', 'dev-pair-003',
   ]);
   assert.equal(generatedJ01ConceptNDJSON(fixtureDir), undefined);
+});
+
+const retainedCodedReport = () => {
+  const project = 'loom_dev_verify_mv0k3tqk-5211624';
+  const explorerId = 'verify-qk-5211624-coded-source';
+  const outputId = 'out_55eb6102c01a77480b5a05a5';
+  const capabilitiesURL = `http://127.0.0.1:30008/api/v1/projects/${project}/explorers/${explorerId}/authoring/v2/construction-capabilities`;
+  const commandsURL = `http://127.0.0.1:30008/api/v1/projects/${project}/explorers/${explorerId}/authoring/v2/commands`;
+  const snapshotToken = 'sha256:636914970357cfc8758a44fb2c064b6951f87d51fed53942e06d9366ae0f3cac';
+  const generatedRename = capabilityInvalidationReport();
+  const generatedRemove = removalInvalidationReport();
+  const report = createReport({
+    scenario: 'builder-coded-source-column', caseName: 'coded-source-column',
+    target: { fixtureOracle },
+  });
+  const renameRecord = generatedRename.network[0];
+  const removeRecord = generatedRemove.network[0];
+  const renameProof = generatedRename.expectedObsolete[0];
+  const removeProof = generatedRemove.expectedObsolete[0];
+  const renameAction = generatedRename.actions[0];
+  const removeAction = generatedRemove.actions[0];
+  const renameAssertion = generatedRename.assertions[0];
+  const removeAssertion = generatedRemove.assertions[0];
+  const reloadAssertion = generatedRemove.assertions[1];
+
+  Object.assign(renameRecord, {
+    url: capabilitiesURL, rawURL: capabilitiesURL, playwrightRequestId: 'request-148', sequence: 3,
+    requestTimeline: { requestStartedMs: 5006, failedAtMs: 5677, durationMs: 671, action: null },
+    binding: { route: capabilitiesURL, snapshotToken, draftVersion: 4,
+      draftDigest: 'sha256:2e75fb1a2b30c890e52fda598cf34727cdbb3e1d23ec59bb4ff777a6def5169d',
+      outputId, stageId: 'source_projection' },
+  });
+  Object.assign(removeRecord, {
+    url: capabilitiesURL, rawURL: capabilitiesURL, playwrightRequestId: 'request-271', sequence: 5,
+    requestTimeline: { requestStartedMs: 6960, failedAtMs: 7718, durationMs: 759, action: null },
+    binding: { route: capabilitiesURL, snapshotToken, draftVersion: 5,
+      draftDigest: 'sha256:8060c342d26f290eb89dedf3bcdccf68aeccd9a7ea294ead94064a26ca229407',
+      outputId, stageId: 'source_projection' },
+  });
+
+  Object.assign(renameAction, { id: 'action-18', label: 'save edited Height column label',
+    startedAtMs: 5552, endedAtMs: 5668, startedAtEpochMs: 1791525641828,
+    finishedAtEpochMs: 1791525641944 });
+  Object.assign(removeAction, { id: 'action-21', label: 'remove saved Height coded column',
+    startedAtMs: 7580, endedAtMs: 7710, startedAtEpochMs: 1791525643856,
+    finishedAtEpochMs: 1791525643986 });
+  renameProof.failedRequest = { playwrightRequestId: 'request-148', requestStartedAtMs: 5006,
+    failedAtMs: 5677, binding: renameRecord.binding };
+  removeProof.failedRequest = { playwrightRequestId: 'request-271', requestStartedAtMs: 6960,
+    failedAtMs: 7718, binding: removeRecord.binding };
+  renameProof.action = { ...renameAction };
+  removeProof.action = { ...removeAction };
+  renameProof.mutation.editedLabel = 'Fixture Height 211624';
+  removeProof.mutation.editedLabel = 'Fixture Height 211624';
+  renameAssertion.evidence.editedLabel = 'Fixture Height 211624';
+  renameAssertion.evidence.headers = ['OBSERVATION ID', 'FIXTURE HEIGHT 211624'];
+  renameProof.mutation.request = { url: commandsURL, project, explorerId, body: {
+    commandId: '590def5e-8183-440e-9dd3-b0f3d843d9e2', snapshotToken,
+    expectedDraftVersion: 4,
+    expectedDraftDigest: 'sha256:2e75fb1a2b30c890e52fda598cf34727cdbb3e1d23ec59bb4ff777a6def5169d',
+    commands: [{ type: 'UPDATE_COLUMN', outputId, column: 'col_fb0f5fa7b82a09ae92120682',
+      columnValue: { label: 'Fixture Height 211624' } }],
+  } };
+  renameProof.mutation.response = { status: 200, completedAtEpochMs: 1791525641944, body: {
+    commandId: '590def5e-8183-440e-9dd3-b0f3d843d9e2', draftVersion: 5,
+    draftDigest: 'sha256:8060c342d26f290eb89dedf3bcdccf68aeccd9a7ea294ead94064a26ca229407',
+  } };
+  removeProof.mutation.request = { url: commandsURL, project, explorerId, body: {
+    commandId: '443e401e-b83f-4ecf-9ae7-a8220283b2a5', snapshotToken,
+    expectedDraftVersion: 5,
+    expectedDraftDigest: 'sha256:8060c342d26f290eb89dedf3bcdccf68aeccd9a7ea294ead94064a26ca229407',
+    commands: [{ type: 'REMOVE_COLUMN', outputId, column: 'col_fb0f5fa7b82a09ae92120682' }],
+  } };
+  removeProof.mutation.response = { status: 200, completedAtEpochMs: 1791525643986, body: {
+    commandId: '443e401e-b83f-4ecf-9ae7-a8220283b2a5', draftVersion: 6,
+    draftDigest: 'sha256:15b5914227cb29bd120eca02cc67fc3924dd9c1cfcc6a29beafb2d6b48b4b870',
+  } };
+
+  const frameSearchAbort = {
+    kind: 'network', method: 'POST',
+    url: `http://127.0.0.1:30008/api/v1/projects/${project}/explorers/${explorerId}/authoring/v2/frame-source-options`,
+    resourceType: 'fetch', errorText: 'net::ERR_ABORTED', playwrightRequestId: 'request-126',
+    requestDetails: { requestId: 'frame-source-options-8612512d-9a0f-4439-a95f-7b7d42f39b31',
+      draftVersion: null, draftDigest: null, outputId, stageId: null },
+    requestTimeline: { requestStartedMs: 2077, failedAtMs: 2206, durationMs: 129,
+      action: { id: 'action-8', label: 'browse coded source values' }, mainFrameNavigations: [] },
+    triggerAction: 'browse coded source values',
+  };
+  report.network = [frameSearchAbort, renameRecord, removeRecord];
+  report.actions = [renameAction, removeAction];
+  report.assertions = [renameAssertion, removeAssertion, reloadAssertion];
+  report.expectedObsolete = [renameProof, removeProof];
+  return report;
+};
+
+test('retained request-126 diagnostics preserve exact frame-search request binding and timing without excusing the abort', () => {
+  const report = retainedCodedReport();
+  const failed = report.network[0];
+  const capture = {
+    kind: 'frame-source-options', method: 'POST', url: failed.url,
+    project: 'loom_dev_verify_mv0k3tqk-5211624', explorerId: 'verify-qk-5211624-coded-source',
+    body: {
+      requestId: failed.requestDetails.requestId,
+      query: '',
+      outputId: failed.requestDetails.outputId,
+      snapshotToken: 'sha256:retained-frame-search-snapshot',
+    },
+    errorText: 'net::ERR_ABORTED', startedAtMs: 100, failedAtMs: 229, durationMs: 129,
+  };
+  const evidence = frameSourceFailureCaptureRecord(capture, failed);
+  report.target.frameSourceFailureCaptures = [evidence];
+  assert.deepEqual(evidence, {
+    playwrightRequestId: 'request-126',
+    method: 'POST',
+    route: failed.url,
+    project: 'loom_dev_verify_mv0k3tqk-5211624',
+    explorerId: 'verify-qk-5211624-coded-source',
+    requestId: 'frame-source-options-8612512d-9a0f-4439-a95f-7b7d42f39b31',
+    query: '',
+    outputId: 'out_55eb6102c01a77480b5a05a5',
+    snapshotToken: 'sha256:retained-frame-search-snapshot',
+    errorText: 'net::ERR_ABORTED',
+    requestStartedMs: 2077,
+    failedAtMs: 2206,
+    localRequestStartedMs: 100,
+    localFailedAtMs: 229,
+    durationMs: 129,
+  });
+  const classified = classifyCodedColumnDiagnostics(report);
+  assert(classified.unexpected.includes(failed), 'Request 126 stays fatal without independently validated replacement proof.');
+  finishReport(report);
+  assert(report.errors.some(error => error.playwrightRequestId === 'request-126' && error.errorText === 'net::ERR_ABORTED'));
+});
+
+test('finishReport consumes only the exact validated request-148 and request-271 retained proofs', () => {
+  const report = retainedCodedReport();
+  const classified = classifyCodedColumnDiagnostics(report);
+  assert.deepEqual(classified.cancelledReads.map(record => record.playwrightRequestId), ['request-148', 'request-271']);
+  assert.deepEqual(classified.unexpected.map(record => record.playwrightRequestId), ['request-126']);
+
+  finishReport(report);
+  assert.deepEqual(report.errors.filter(error => error.errorText === 'net::ERR_ABORTED')
+    .map(error => error.playwrightRequestId), ['request-126']);
+  assert.equal(report.assertions.at(-1).name, 'no unexpected network, module, or browser errors');
+  assert.equal(report.assertions.at(-1).evidence.count, 1);
+  report.lifecycle = { status: 'pending-final-adjudication' };
+  adjudicatePendingLifecycle(report);
+  assert.equal(report.lifecycle.status, 'failed');
+  assert.deepEqual(report.lifecycle.failure.unexpectedNetwork.map(record => record.url), [report.network[0].url]);
+});
+
+test('finishReport rejects forged read lists, missing proofs, and mismatched request IDs', () => {
+  const forgedList = retainedCodedReport();
+  forgedList.expectedObsolete = [];
+  forgedList.expectedObsoleteReads = forgedList.network.slice(1);
+  forgedList.network.slice(1).forEach(record => {
+    record.canceled = true;
+    record.expectedObsolete = true;
+  });
+  finishReport(forgedList);
+  assert.deepEqual(forgedList.errors.filter(error => error.errorText === 'net::ERR_ABORTED')
+    .map(error => error.playwrightRequestId), ['request-126', 'request-148', 'request-271']);
+
+  const mismatchedIdentity = retainedCodedReport();
+  classifyCodedColumnDiagnostics(mismatchedIdentity);
+  mismatchedIdentity.expectedObsolete[0].failedRequest.playwrightRequestId = 'forged-request-id';
+  finishReport(mismatchedIdentity);
+  assert.deepEqual(mismatchedIdentity.errors.filter(error => error.errorText === 'net::ERR_ABORTED')
+    .map(error => error.playwrightRequestId), ['request-126', 'request-148']);
+
+  const missingProof = retainedCodedReport();
+  classifyCodedColumnDiagnostics(missingProof);
+  missingProof.expectedObsolete = missingProof.expectedObsolete.filter(proof =>
+    proof.failedRequest.playwrightRequestId !== 'request-271');
+  finishReport(missingProof);
+  assert.deepEqual(missingProof.errors.filter(error => error.errorText === 'net::ERR_ABORTED')
+    .map(error => error.playwrightRequestId), ['request-126', 'request-271']);
+});
+
+test('finishReport rejects proof or request-field mutations made after validation', () => {
+  const cases = [
+    ['changed command', report => {
+      report.expectedObsolete[0].mutation.request.body.commands[0].type = 'REMOVE_COLUMN';
+    }, 'request-148'],
+    ['changed command body', report => {
+      report.expectedObsolete[0].mutation.request.body.commands[0].outputId = 'other-output';
+    }, 'request-148'],
+    ['changed request scope', report => {
+      report.expectedObsolete[0].mutation.request.explorerId = 'other-explorer';
+    }, 'request-148'],
+    ['changed draft digest', report => {
+      report.expectedObsolete[0].mutation.request.body.expectedDraftDigest = 'sha256:forged-digest';
+    }, 'request-148'],
+    ['changed network binding', report => {
+      report.network.find(record => record.playwrightRequestId === 'request-271').binding.draftDigest = 'sha256:forged-binding';
+    }, 'request-271'],
+  ];
+  for (const [label, mutate, expectedFatalID] of cases) {
+    const report = retainedCodedReport();
+    classifyCodedColumnDiagnostics(report);
+    mutate(report);
+    finishReport(report);
+    const fatalIDs = report.errors.filter(error => error.errorText === 'net::ERR_ABORTED')
+      .map(error => error.playwrightRequestId);
+    assert(fatalIDs.includes('request-126'), `${label}: the unsupported frame-search abort must remain fatal`);
+    assert(fatalIDs.includes(expectedFatalID), `${label}: the mutated validated record must become fatal`);
+  }
 });

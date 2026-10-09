@@ -40,6 +40,76 @@ export const recordUntested = (report, dimension, name, reason) => {
   current.evidence.push({ name, status: 'untested', reason });
 };
 
+const validatedObsoleteNetworkReads = new WeakMap();
+
+const isCodedSourceColumnReport = (report) =>
+  report?.scenario === 'builder-coded-source-column' && report?.case === 'coded-source-column';
+
+const validationSnapshot = (report, record, proof) => {
+  const assertionNames = new Set([proof.assertion?.name, proof.assertion?.reloadName].filter(Boolean));
+  return JSON.stringify({
+    proof,
+    record,
+    fixtureOracle: report.target?.fixtureOracle,
+    actions: (report.actions ?? []).filter(action => action.id === proof.action?.id),
+    assertions: (report.assertions ?? []).filter(assertion => assertionNames.has(assertion.name)),
+  });
+};
+
+const exactValidatedObsoleteRead = (report, record) => {
+  const registered = validatedObsoleteNetworkReads.get(report)?.get(record);
+  const proof = registered?.proof;
+  if (!proof || !isCodedSourceColumnReport(report) || record.kind !== 'network' ||
+      record.errorText !== 'net::ERR_ABORTED' || record.status >= 400 || record.internalError ||
+      record.expectedObsolete !== true || record.obsolescenceEvidence !== proof ||
+      typeof record.playwrightRequestId !== 'string' || !record.playwrightRequestId ||
+      proof.failedRequest?.playwrightRequestId !== record.playwrightRequestId ||
+      (report.network ?? []).filter(candidate => candidate === record).length !== 1 ||
+      (report.network ?? []).filter(candidate => candidate.kind === 'network' &&
+        candidate.playwrightRequestId === record.playwrightRequestId).length !== 1 ||
+      (report.expectedObsolete ?? []).filter(candidate => candidate === proof).length !== 1 ||
+      (report.expectedObsolete ?? []).filter(candidate =>
+        candidate?.failedRequest?.playwrightRequestId === record.playwrightRequestId).length !== 1 ||
+      validationSnapshot(report, record, proof) !== registered.snapshot) return false;
+  return true;
+};
+
+export const registerValidatedObsoleteNetworkRead = (report, record, proof) => {
+  if (!isCodedSourceColumnReport(report) || record.kind !== 'network' ||
+      record.errorText !== 'net::ERR_ABORTED' || record.status >= 400 || record.internalError ||
+      record.expectedObsolete !== true || record.obsolescenceEvidence !== proof ||
+      typeof record.playwrightRequestId !== 'string' || !record.playwrightRequestId ||
+      proof?.failedRequest?.playwrightRequestId !== record.playwrightRequestId ||
+      (report.network ?? []).filter(candidate => candidate === record).length !== 1 ||
+      (report.network ?? []).filter(candidate => candidate.kind === 'network' &&
+        candidate.playwrightRequestId === record.playwrightRequestId).length !== 1 ||
+      (report.expectedObsolete ?? []).filter(candidate => candidate === proof).length !== 1 ||
+      (report.expectedObsolete ?? []).filter(candidate =>
+        candidate?.failedRequest?.playwrightRequestId === record.playwrightRequestId).length !== 1) return false;
+  let proofsByRecord = validatedObsoleteNetworkReads.get(report);
+  if (!proofsByRecord) {
+    proofsByRecord = new Map();
+    validatedObsoleteNetworkReads.set(report, proofsByRecord);
+  }
+  const prior = proofsByRecord.get(record);
+  if (prior && prior.proof !== proof) return false;
+  let snapshot;
+  try {
+    snapshot = validationSnapshot(report, record, proof);
+  } catch {
+    return false;
+  }
+  proofsByRecord.set(record, Object.freeze({ proof, snapshot }));
+  return true;
+};
+
+const classifyReportNetworkRecord = (report, record) => {
+  if (isCodedSourceColumnReport(report) && record.errorText === 'net::ERR_ABORTED') {
+    return exactValidatedObsoleteRead(report, record) ? 'cancelled' : 'unexpected-error';
+  }
+  return classifyNetworkRecord(record);
+};
+
 export const classifyNetworkRecord = (record) => {
   if (record.kind === 'exception' || record.kind === 'console-error' || record.internalError) return 'unexpected-error';
   if (record.kind === 'asset-failure') return 'incidental-asset';
@@ -59,12 +129,12 @@ export const isActionable = (snapshot) =>
   && Boolean(snapshot?.receivesPointer);
 
 export const finishReport = (report) => {
-  const unexpected = report.network.filter((record) => classifyNetworkRecord(record) === 'unexpected-error');
+  const unexpected = report.network.filter((record) => classifyReportNetworkRecord(report, record) === 'unexpected-error');
   if (unexpected.length) {
     report.errors.push(...unexpected.map((record) => ({ kind: 'unexpected-network', ...record })));
     recordCheck(report, 'correctness', 'no unexpected network, module, or browser errors', false, { count: unexpected.length });
-  } else if (report.network.some((record) => classifyNetworkRecord(record) === 'expected-injected')) {
-    report.errors.push(...report.network.filter((record) => classifyNetworkRecord(record) === 'expected-injected').map((record) => ({ kind: 'expected-injected', ...record })));
+  } else if (report.network.some((record) => classifyReportNetworkRecord(report, record) === 'expected-injected')) {
+    report.errors.push(...report.network.filter((record) => classifyReportNetworkRecord(report, record) === 'expected-injected').map((record) => ({ kind: 'expected-injected', ...record })));
   }
   const failed = report.assertions.some((assertion) => assertion.status === 'failed');
   const passed = report.assertions.some((assertion) => assertion.status === 'passed');
@@ -83,7 +153,7 @@ export const adjudicatePendingLifecycle = (report) => {
   report.lifecycle.finalReportStatus = report.status;
   if (report.lifecycle.status === 'failed') {
     const unexpectedNetwork = (report.network ?? [])
-      .filter((record) => classifyNetworkRecord(record) === 'unexpected-error')
+      .filter((record) => classifyReportNetworkRecord(report, record) === 'unexpected-error')
       .map(({ kind, message, status, method, url, errorText }) => ({
         kind,
         ...(message === undefined ? {} : { message }),
