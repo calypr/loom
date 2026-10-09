@@ -4181,12 +4181,31 @@ export const registry = Object.freeze([
               'scripts/verify-ui/registry.mjs',
             ],
           },
+          {
+            id: 'cohort-fields-action-to-render-checkpoints',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/cohort-fields-action-to-render.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/helpers/cda-action-to-render-budget.mjs',
+              'scripts/verify-ui/helpers/coverage-status.mjs',
+              'scripts/verify-ui/workflows/cohort-fields-workflow.mjs',
+              'scripts/verify-ui/registry.mjs',
+            ],
+          },
         ],
+        performanceCheckName: 'native cohort Apply and member-field Apply render exact scoped rows within five seconds',
+        lifecycleEvidence: {
+          performance: {
+            check: 'native cohort Apply and member-field Apply render exact scoped rows within five seconds',
+            checkpointBudgetMs: 5000,
+          },
+        },
         requiredChecks: [
           "raw CDA oracle and immutable selection match the exact two scoped Specimen IDs",
           "saved cohort and Apply controls are enabled in native Rows settings",
           "Cancel preserves the exact saved Builder workspace",
           "applied cohort renders the exact independent Specimen members",
+          'native cohort Apply and member-field Apply render exact scoped rows within five seconds',
           "ALL member field and cohort persist exactly after Builder reload",
           "member-field removal restores the exact saved cohort schema after reload",
           "CDA watched source and API build stayed unchanged",
@@ -4194,7 +4213,7 @@ export const registry = Object.freeze([
       },
     },
     coverage: [
-      { feature: 'CDA named-cohort member-field Apply, Cancel, reload, removal, and restoration lifecycle', status: 'implemented', reason: 'The dedicated wave3 serial native run passed all seven required checks and the exact lifecycle. Independent serial transition timings peaked at 1,645 ms, within the 5 s per-transition budget. The fixture aggregate performance dimension remains untested report metadata and is not a separate acceptance gate. Evidence: docs/verification/playwright/runtime/cohort-fields-epoch3.json.' },
+      { feature: 'CDA named-cohort member-field Apply, Cancel, reload, removal, and restoration lifecycle', status: 'implemented', reason: 'The historical wave3 serial native run passed its seven then-required checks and measured independent serial transitions up to 1,645 ms, but did not record action-to-settled-grid render checkpoints. The current contract adds a required five-second performance check; closure requires the exact registered rerun. Historical evidence: docs/verification/playwright/runtime/cohort-fields-epoch3.json.' },
     ],
   }),
   Object.freeze({

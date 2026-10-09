@@ -1,10 +1,34 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import { spawnSync } from 'node:child_process';
 import { isDeepStrictEqual } from 'node:util';
 import { test, expect } from '../helpers/cda-fixtures.mjs';
 import { createNativeCdaWorkflowTools, validatedArangoContainer } from '../helpers/native-cda-workflow-tools.mjs';
 import { assertCohortMemberFieldBinding } from '../helpers/cohort-identities.mjs';
+import { CDA_ACTION_TO_RENDER_BUDGET_MS, summarizeCdaActionToRenderTimings } from '../helpers/cda-action-to-render-budget.mjs';
+
+const cohortFieldsActionToRenderCheck = 'native cohort Apply and member-field Apply render exact scoped rows within five seconds';
+
+const scopedSpecimenIdentityPattern = /source_identity:\s*generation:\s*cda-fhir-v1\s*·\s*id:\s*([^·;]+?)\s*·\s*project:\s*loom_dev_cda_fhir\s*·\s*resource_type:\s*Specimen(?=\s*(?:$|[;·]))/g;
+
+export const assertVisibleCohortMemberIds = (visibleMemberCell, expectedMemberIds) => {
+  assert.equal(typeof visibleMemberCell, 'string', 'Visible cohort member cell must be text');
+  assert(Array.isArray(expectedMemberIds) && expectedMemberIds.length > 0,
+    'Expected cohort member IDs must be a non-empty raw-oracle list');
+  const identitySegments = [...visibleMemberCell.matchAll(scopedSpecimenIdentityPattern)];
+  const sourceIdentityCount = (visibleMemberCell.match(/\bsource_identity\s*:/g) ?? []).length;
+  assert.equal(identitySegments.length, sourceIdentityCount,
+    'Every visible source_identity segment must match the scoped CDA Specimen identity');
+  const visibleMemberIds = identitySegments.map((segment, index) => {
+    const id = segment[1].trim();
+    assert(id.length > 0, `Visible cohort source_identity segment ${index + 1} must contain a non-empty source ID`);
+    return id;
+  });
+  assert.deepEqual([...visibleMemberIds].sort(), [...expectedMemberIds].sort(),
+    'Visible cohort member source identities must exactly match the independent raw-oracle IDs');
+  return visibleMemberIds;
+};
 
 export async function cohortFieldsWorkflow({ page, cda, caseOptions = {} }) {
   const { click, fill, selectOption, navigate, clickControl, fillControl, selectControl,
@@ -46,6 +70,7 @@ const base = `${root}/${explorer}/authoring/v2`;
 const report = { authoredFilter, filterOneMember, editCohortPolicy, postCohortFilter, collectionRoundTrip, removeCohortAnchor, authoredExpand, memberField, explorer, cases: [], errors: [], requests: [], nativeRequests: [], started: new Date().toISOString() };
 report.ownedTarget = target;
 let builder, outputId;
+const actionToRenderTimings = [];
 
 let requestCapture;
 const inspect = callback => page.evaluate(callback);
@@ -95,6 +120,12 @@ const recordRender = (name, start) => {
   const durationMs = Date.now() - start;
   assert(durationMs <= 5000, `${name} took ${durationMs}ms`);
   report.cases.push({ name, durationMs });
+};
+const recordActionToRenderCheckpoint = (name, startedAt) => {
+  const durationMs = performance.now() - startedAt;
+  const checkpoint = { name, durationMs };
+  actionToRenderTimings.push(checkpoint);
+  report.cases.push(checkpoint);
 };
 const waitForSavedPreview = async (startedAt, action) => requestCapture.waitFor(
   entry => entry.path === base + '/preview' && entry.startedAt >= startedAt && entry.status === 200,
@@ -221,23 +252,38 @@ await nativeSelect(page, 'select[aria-label="What should each row represent?"]',
 await waitUI(`[...document.querySelectorAll('[aria-label="Row definition settings"] button')].some(b=>b.innerText==='Apply row definition'&&!b.disabled)`);
 recordRender('confirmed-cohort-preview',start);
 start=Date.now();
+const cohortApplyStartedAt = performance.now();
 await nativeClick(page, '[aria-label="Row definition settings"] button',{name:'Apply row definition'});
 await waitUI(`document.body.innerText.includes('Preview failed:')||(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='3'&&document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]').length===3&&!document.body.innerText.includes('Loading your table…'))`);
 const cohortApplyError=await inspect(() => document.body.innerText.split(String.fromCharCode(10)).find(line=>line.startsWith('Preview failed:')));
 assert.equal(cohortApplyError,undefined,'Saved cohort preview must execute the accepted receipt: '+cohortApplyError);
-recordRender('cohort-apply',start);
+await page.locator('[data-testid="preview-table-scroll"] [role="table"]').waitFor({ state: 'visible', timeout: 5000 });
+const memberCells=await page.locator('[data-testid="preview-table-scroll"] [role="cell"]').evaluateAll(cells => cells.map(cell=>cell.innerText.trim()));
+assert.equal(memberCells.length,3,'Saved cohort must render its three declared columns');
+const expectedMemberIds = expectedMembers.map(source => source.id);
+let visibleMemberIds;
+if (assertDefaultResourceTypeBinding) {
+  visibleMemberIds = assertVisibleCohortMemberIds(memberCells.at(-1), expectedMemberIds);
+} else {
+  assert(expectedMembers.every(source => memberCells.at(-1).includes(source.id)), 'Cohort members must include every retained source ID');
+  if (filterOneMember) assert(!memberCells.at(-1).includes(sources[1].id), 'Source filter must remove the excluded member before cohort materialization');
+  visibleMemberIds = expectedMemberIds.filter(id => memberCells.at(-1).includes(id));
+}
+report.cohortMemberCells=memberCells;
+cda.check('correctness', 'applied cohort renders the exact independent Specimen members',
+  assertDefaultResourceTypeBinding
+    ? visibleMemberIds.length === expectedMemberIds.length
+    : expectedMembers.every(source => memberCells.at(-1).includes(source.id))
+      && (!filterOneMember || !memberCells.at(-1).includes(sources[1].id)),
+  { cohortRevisionId: cohort.revisionId, expectedMemberIds, visibleMemberIds, visibleMemberCell: memberCells.at(-1) });
+if (assertDefaultResourceTypeBinding) {
+  recordActionToRenderCheckpoint('Apply named cohort through exact scoped Specimen member rows', cohortApplyStartedAt);
+} else {
+  recordRender('cohort-apply', start);
+}
 builder=await api(base+'/builder');
 assert.equal(doc(builder).rows.groups.source.explicit.revisionId,cohort.revisionId);
 if(authoredFilter) assert.deepEqual(doc(builder).construction.steps.find(step=>step.id==='qa-source-filter').operation.filter,report.sourceFilter);
-const memberCells=await page.locator('[data-testid="preview-table-scroll"] [role="cell"]').evaluateAll(cells => cells.map(cell=>cell.innerText.trim()));
-assert.equal(memberCells.length,3,'Saved cohort must render its three declared columns');
-assert(expectedMembers.every(source=>memberCells.at(-1).includes(source.id)),'Cohort members must include every retained source ID');
-if(filterOneMember) assert(!memberCells.at(-1).includes(sources[1].id),'Source filter must remove the excluded member before cohort materialization');
-report.cohortMemberCells=memberCells;
-cda.check('correctness', 'applied cohort renders the exact independent Specimen members',
-  expectedMembers.every(source => memberCells.at(-1).includes(source.id))
-    && (!filterOneMember || !memberCells.at(-1).includes(sources[1].id)),
-  { cohortRevisionId: cohort.revisionId, expectedMemberIds: expectedMembers.map(source => source.id), visibleMemberCell: memberCells.at(-1) });
 let beforeField=builder;
 await nativeClick(page, '[data-testid="construction-action-add-columns"]');
 await nativeClick(page, '[aria-label="Column types"] button',{includes:'Fields and related data'});
@@ -266,10 +312,42 @@ await nativeClick(page, '[data-testid="construction-choice-proposal-panel"] butt
 assert.deepEqual((await api(base+'/builder')).workspace,beforeField.workspace);
 await nativeClick(page, '[data-testid="feature-catalog-raw-fields"] > summary');
 await chooseField();
-start=Date.now();
+const memberFieldApplyStartedAt = performance.now();
+if (!assertDefaultResourceTypeBinding) start=Date.now();
 await nativeClick(page, '[data-testid="construction-choice-proposal-panel"] button',{name:'Apply columns'});
 await waitUI(`!document.querySelector('[data-testid="construction-choice-proposal-panel"]')&&!document.body.innerText.includes('Loading your table…')&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='4'`);
-recordRender('cohort-member-field-apply',start);
+if (assertDefaultResourceTypeBinding) {
+  await page.locator('[data-testid="preview-table-scroll"] [role="table"]').waitFor({ state: 'visible', timeout: 5000 });
+  const appliedFieldCells = await page.locator('[data-testid="preview-table-scroll"] [role="cell"]').evaluateAll(cells => cells.map(cell => cell.innerText.trim()));
+  assert.equal(appliedFieldCells.length, 4, 'Applied member field must be visible in the settled four-column grid');
+  const appliedFieldHeaders = await page.locator('[data-testid="preview-table-scroll"] [role="columnheader"]')
+    .evaluateAll(cells => cells.map(cell => cell.innerText.trim()));
+  const membersColumnIndex = appliedFieldHeaders.findIndex(header => header.toUpperCase() === 'MEMBERS');
+  assert(membersColumnIndex >= 0, 'Applied member-field grid must expose the cohort MEMBERS column');
+  assertVisibleCohortMemberIds(appliedFieldCells[membersColumnIndex], expectedMemberIds);
+  assert.equal(appliedFieldCells.at(-1), 'Specimen', 'Applied Resource Type grid must show the exact FHIR resource type');
+  recordActionToRenderCheckpoint(`Apply ${memberLabel} member field through exact scoped grid values`, memberFieldApplyStartedAt);
+  const timingSummary = summarizeCdaActionToRenderTimings(actionToRenderTimings, CDA_ACTION_TO_RENDER_BUDGET_MS);
+  const actionDurations = (cda.report.actions ?? []).map(action => action?.elapsedMs)
+    .filter(durationMs => Number.isFinite(durationMs) && durationMs >= 0);
+  cda.check('performance', cohortFieldsActionToRenderCheck,
+    timingSummary.checkpointCount === 2
+      && timingSummary.withinBudget
+      && actionDurations.length > 0
+      && Math.max(...actionDurations) <= CDA_ACTION_TO_RENDER_BUDGET_MS,
+    {
+      budgetMs: timingSummary.budgetMs,
+      checkpointCount: timingSummary.checkpointCount,
+      maximumDurationMs: timingSummary.maximumDurationMs,
+      withinBudget: timingSummary.withinBudget,
+      measuredTransitionCount: timingSummary.checkpointCount,
+      actionCount: actionDurations.length,
+      maxActionMs: actionDurations.length ? Math.max(...actionDurations) : null,
+      timingCheckpoints: timingSummary.checkpoints,
+    });
+} else {
+  recordRender('cohort-member-field-apply', start);
+}
 builder=await api(base+'/builder');
 const defaultMemberFieldBinding=assertDefaultResourceTypeBinding
   ? assertCohortMemberFieldBinding(doc(builder), {
