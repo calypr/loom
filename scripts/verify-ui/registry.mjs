@@ -818,6 +818,7 @@ export const registry = Object.freeze([
               'scripts/verify-ui/workflows/root-quantity-pivot-workflow.mjs',
               'scripts/verify-ui/helpers/cda-playwright.mjs',
               'scripts/verify-ui/helpers/cda-fixtures.mjs',
+              'scripts/verify-ui/helpers/native-abort-probe.mjs',
             ],
           },
           {
@@ -833,6 +834,7 @@ export const registry = Object.freeze([
               'scripts/verify-ui/helpers/fixtures.mjs',
               'scripts/verify-ui/helpers/native-request-ledger.mjs',
               'scripts/verify-ui/helpers/network-evidence.mjs',
+              'scripts/verify-ui/helpers/native-abort-probe.mjs',
               'scripts/verify-ui/workflows/root-quantity-pivot-workflow.mjs',
               'scripts/verify-ui/specs/root-quantity-pivot.spec.mjs',
               'scripts/verify-ui/registry.mjs',

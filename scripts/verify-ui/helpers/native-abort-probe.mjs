@@ -4,7 +4,7 @@ const bindingName = '__loomNativeAbortProbeBinding';
 export const nativeAbortDomOwnerRules = [
   {
     endpoint: 'construction-capabilities',
-    requestIdPrefix: 'cda-request-',
+    requestIdPrefixes: ['cda-request-', 'construction-capabilities-'],
     owner: 'construction-lifecycle-capabilities',
     selector: '[data-testid^="construction-table-"][aria-current="page"]',
     ownerAttributes: { selectedTableTestId: 'data-testid' },
@@ -78,7 +78,7 @@ export const nativeAbortDomOwnerRules = [
 ];
 
 const requestPrefixes = {
-  'construction-capabilities': ['cda-request-'],
+  'construction-capabilities': ['cda-request-', 'construction-capabilities-'],
   'semantic-inventory': ['feature-catalog-', 'frame-categories-', 'paired-column-inventory-'],
   'schema-fields': ['schema-fields-'],
   'configured-column-context': ['configured-column-context-'],
@@ -161,7 +161,7 @@ export const createNativeAbortProbeSource = ({ project, explorer, apiOrigin }) =
     try { return [...(globalThis.document?.querySelectorAll?.(selector) ?? [])]; } catch { return []; }
   };
   const findOwnerRule = (metadata) => ownerRules.find((rule) => rule.endpoint === metadata.endpoint &&
-    metadata.requestId.startsWith(rule.requestIdPrefix));
+    (rule.requestIdPrefixes ?? [rule.requestIdPrefix]).some((prefix) => metadata.requestId.startsWith(prefix)));
   const captureOwnerDom = (rule) => {
     if (!rule) return undefined;
     const matches = exactElements(rule.selector);

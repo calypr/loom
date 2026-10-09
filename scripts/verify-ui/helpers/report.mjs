@@ -234,18 +234,25 @@ const expectedSchemaFieldsOwnerRetirement = (report, record) => {
   const entry = matchingLedger[0];
   if (entry.requestId !== requestId || entry.browserRequestId !== record.playwrightRequestId ||
       entry.origin !== origin || entry.path !== path || entry.method !== 'POST' ||
-      entry.status !== null || entry.failure !== 'net::ERR_ABORTED' || entry.terminalEvent !== 'requestfailed' ||
+      ![null, 200].includes(entry.status) || entry.failure !== 'net::ERR_ABORTED' || entry.terminalEvent !== 'requestfailed' ||
       entry.state !== 'failed' || entry.complete !== true || entry.frameIdentityStatus !== 'exact' ||
       entry.frameIsMainFrame !== true || typeof entry.pageId !== 'string' || typeof entry.frameId !== 'string') return null;
   const chronology = entry.nativeEventChronology;
-  if (!Array.isArray(chronology) || chronology.length !== 2 ||
+  if (!Array.isArray(chronology) || ![2, 3].includes(chronology.length) ||
       chronology[0]?.event !== 'request' || chronology[0]?.browserRequestId !== entry.browserRequestId ||
       chronology[0]?.objectMatch !== true || !Number.isFinite(chronology[0]?.observedAt) ||
-      chronology[1]?.event !== 'requestfailed' || chronology[1]?.browserRequestId !== entry.browserRequestId ||
-      chronology[1]?.objectMatch !== true || chronology[1]?.failure !== 'net::ERR_ABORTED' ||
-      !Number.isFinite(chronology[1]?.observedAt) || chronology[1].observedAt < chronology[0].observedAt ||
+      chronology.at(-1)?.event !== 'requestfailed' || chronology.at(-1)?.browserRequestId !== entry.browserRequestId ||
+      chronology.at(-1)?.objectMatch !== true || chronology.at(-1)?.failure !== 'net::ERR_ABORTED' ||
+      !Number.isFinite(chronology.at(-1)?.observedAt) || chronology.at(-1).observedAt < chronology[0].observedAt ||
       entry.requestTimeline?.mainFrameNavigations?.length !== 0 ||
       record.requestTimeline?.mainFrameNavigations?.length !== 0) return null;
+  const responseEvent = chronology.length === 3 ? chronology[1] : null;
+  if (responseEvent
+      ? entry.status !== 200 || responseEvent.event !== 'response' ||
+        responseEvent.browserRequestId !== entry.browserRequestId || responseEvent.objectMatch !== true ||
+        responseEvent.status !== 200 || !Number.isFinite(responseEvent.observedAt) ||
+        responseEvent.observedAt < chronology[0].observedAt || chronology[2].observedAt < responseEvent.observedAt
+      : entry.status !== null) return null;
 
   const observations = [
     ...(report.nativeAbortSignalObservations ?? []),
@@ -258,7 +265,11 @@ const expectedSchemaFieldsOwnerRetirement = (report, record) => {
     requestCorrelationId: entry.requestId,
     requestIdentityMatchCount: 1,
   }, report.nativeAbortProbeEvents ?? []);
-  if (!projected || JSON.stringify(projected) !== JSON.stringify(recomputed) ||
+  const projectionMatchesRawProbe = projected?.exactRequestSignalCorrelation === true && projected.matchCount === 1 &&
+    projected.nativeEntryIdentityMatchCount === 1 && projected.requestId === requestId && projected.origin === origin &&
+    projected.controllerId === recomputed.controllerId && Object.entries(projected)
+    .every(([key, value]) => JSON.stringify(value) === JSON.stringify(recomputed[key]));
+  if (!projectionMatchesRawProbe ||
       recomputed.exactRequestSignalCorrelation !== true || recomputed.matchCount !== 1 ||
       recomputed.nativeEntryIdentityMatchCount !== 1 || recomputed.requestId !== requestId ||
       recomputed.origin !== origin || typeof recomputed.controllerId !== 'string' ||
@@ -271,13 +282,15 @@ const expectedSchemaFieldsOwnerRetirement = (report, record) => {
       recomputed.ownerDomAtAbort?.detachedAtAbort !== true || recomputed.ownerDomAtAbort?.connectedAtAbort !== false) return null;
 
   const close = recomputed.ownerRetirementAction;
-  const requestStartedAt = chronology[0].observedAt;
-  const failedAt = chronology[1].observedAt;
+  const requestStartedAt = recomputed.ownerDomAtFetch?.capturedAt;
+  const nativeRequestObservedAt = chronology[0].observedAt;
+  const failedAt = chronology.at(-1).observedAt;
   if (!close || close.type !== 'click' || close.isTrusted !== true ||
       !['native-event-isTrusted-true', 'trusted-interaction-list-membership'].includes(close.trustEvidence) ||
       close.closestButton?.testId !== 'construction-close-operation-editor' ||
       close.closestButton?.accessibleLabel !== 'Close operation editor' ||
-      !Number.isFinite(close.at) || requestStartedAt > close.at ||
+      !Number.isFinite(close.at) || !Number.isFinite(requestStartedAt) || requestStartedAt > close.at ||
+      nativeRequestObservedAt < requestStartedAt ||
       !Number.isFinite(recomputed.controllerAbortedAt) || recomputed.controllerAbortedAt < close.at ||
       recomputed.controllerAbortedAt > failedAt ||
       !Number.isFinite(recomputed.ownerDomAtAbort.detachedObservedAt) ||
@@ -288,21 +301,38 @@ const expectedSchemaFieldsOwnerRetirement = (report, record) => {
       !Number.isFinite(recomputed.fetchSettlementObservedAt) ||
       recomputed.fetchSettlementObservedAt < recomputed.controllerAbortedAt ||
       recomputed.fetchSettlementObservedAt > failedAt) return null;
+  if (responseEvent && (responseEvent.observedAt < recomputed.controllerAbortedAt ||
+      responseEvent.observedAt < recomputed.fetchSettledAt || responseEvent.observedAt < recomputed.fetchSettlementObservedAt)) return null;
 
   const actionId = record.requestTimeline?.action?.id;
-  const sourceActions = (report.actions ?? []).filter(action => action.id === actionId);
-  const closeActions = (report.actions ?? []).filter(action => Number.isFinite(action.startedAtEpochMs) &&
+  const actions = report.actions ?? [];
+  const closeActions = actions.filter(action => Number.isFinite(action.startedAtEpochMs) &&
     Number.isFinite(action.finishedAtEpochMs) && action.startedAtEpochMs <= close.at &&
     close.at <= action.finishedAtEpochMs);
-  if (sourceActions.length !== 1 || closeActions.length !== 1 || closeActions[0].status !== 'passed') return null;
-  const sourceAction = sourceActions[0];
-  if (!Number.isFinite(sourceAction.startedAtEpochMs) ||
-      sourceAction.startedAtEpochMs > requestStartedAt || sourceAction.finishedAtEpochMs < requestStartedAt) return null;
-  if (sourceAction.id === closeActions[0].id) {
-    if (sourceAction.status !== 'passed') return null;
-  } else if (sourceAction.status !== 'passed' || !Number.isFinite(sourceAction.finishedAtEpochMs) ||
-      sourceAction.finishedAtEpochMs > close.at) {
-    return null;
+  if (closeActions.length !== 1 || closeActions[0].status !== 'passed') return null;
+  const closeAction = closeActions[0];
+  const requestActions = actionId ? actions.filter(action => action.id === actionId) : [];
+  if (actionId && requestActions.length !== 1) return null;
+  const associatedAction = requestActions[0] ?? null;
+  if (associatedAction && associatedAction.id !== closeAction.id &&
+      (associatedAction.status !== 'passed' || !Number.isFinite(associatedAction.startedAtEpochMs) ||
+       !Number.isFinite(associatedAction.finishedAtEpochMs) ||
+       associatedAction.startedAtEpochMs > requestStartedAt ||
+       associatedAction.finishedAtEpochMs < requestStartedAt ||
+       associatedAction.finishedAtEpochMs > close.at)) return null;
+  if (associatedAction?.id === closeAction.id &&
+      (closeAction.startedAtEpochMs > requestStartedAt || closeAction.finishedAtEpochMs < requestStartedAt)) return null;
+
+  const otherActions = actions.filter(action => action.id !== closeAction.id && action.id !== associatedAction?.id);
+  const unresolvedAtFetch = otherActions.some(action => Number.isFinite(action.startedAtEpochMs) &&
+    action.startedAtEpochMs <= requestStartedAt &&
+    (!Number.isFinite(action.finishedAtEpochMs) || action.finishedAtEpochMs > requestStartedAt));
+  const interveningBeforeClose = otherActions.some(action => Number.isFinite(action.startedAtEpochMs) &&
+    action.startedAtEpochMs > requestStartedAt && action.startedAtEpochMs < close.at);
+  if (unresolvedAtFetch || interveningBeforeClose) return null;
+
+  if (actionId) {
+    if (associatedAction.status !== 'passed') return null;
   }
 
   return {
@@ -316,10 +346,18 @@ const expectedSchemaFieldsOwnerRetirement = (report, record) => {
     selector: '#feature-catalog-search',
     controllerId: recomputed.controllerId,
     controllerAbortedAt: recomputed.controllerAbortedAt,
+    fetchStartedAt: requestStartedAt,
+    nativeRequestObservedAt,
     closeAt: close.at,
     requestFailedAt: failedAt,
-    associatedAction: { id: sourceAction.id, status: sourceAction.status, finishedAtEpochMs: sourceAction.finishedAtEpochMs },
-    reason: 'the exact generated-field catalog owner was retired by trusted Close after its associated action completed',
+    ...(responseEvent ? { responseObservedAt: responseEvent.observedAt, responseStatus: responseEvent.status } : {}),
+    ...(associatedAction ? { associatedAction: {
+      id: associatedAction.id,
+      status: associatedAction.status,
+      finishedAtEpochMs: associatedAction.finishedAtEpochMs,
+    } } : {}),
+    closeActionId: closeAction.id,
+    reason: 'the exact generated-field catalog request was terminalized after trusted Close retired its observed owner with no unresolved action',
   };
 };
 
