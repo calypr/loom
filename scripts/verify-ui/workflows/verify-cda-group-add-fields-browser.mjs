@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { assertVisibleRowsMatchOracle } from '../helpers/cda-row-oracle.mjs';
 import { createdExplorerScope } from '../helpers/created-explorer-scope.mjs';
+import { installNativeAbortProbe } from '../helpers/native-abort-probe.mjs';
 
 export const groupAddFieldsRawFieldsSummarySelector = '[data-testid="feature-catalog-raw-fields"] > summary';
 export const groupAddFieldsPreviewHeaders = ['Specimen ID', 'Row count', 'Resource Type'];
@@ -133,7 +134,7 @@ export async function runGroupAddFieldsBrowserWorkflow({ page, cda }) {
     requests: [], nativeRequests: cda.report.nativeRequests, started: new Date().toISOString(),
   };
   let builder, outputId;
-  const { click, selectOption, fill, press, inspect: browserEval, wait: waitForBrowser, navigate } = cda;
+  const { click, selectOption, fill, press, inspect: browserEval, wait: waitForBrowser, navigate: navigatePage } = cda;
   const recordLifecycleCheck = (dimension, name, passed, checkEvidence = {}) =>
     cda.check(dimension, name, passed, checkEvidence);
 const sensitiveName = /authorization|cookie|password|passwd|token|secret|credential|session|api[_-]?key/i;
@@ -210,7 +211,7 @@ const open = async (expectedRows, expectedHeader) => {
   url.searchParams.set('project', project);
   url.searchParams.set('explorer', explorer);
   url.searchParams.set('mode', 'builder');
-  await navigate(url.toString());
+  await navigatePage(url.toString());
   await waitForBrowser(({ selector }) => Boolean(document.querySelector(selector)), { selector: `[data-testid="construction-table-${outputId}"]` });
   await click( `[data-testid="construction-table-${outputId}"]`);
   await waitForBrowser(() => (document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false));
@@ -332,6 +333,13 @@ FOR source IN (
   report.explorer = explorer;
   report.target = { ...report.target, explorer };
   if (cda.report.target) cda.report.target.explorer = explorer;
+  await installNativeAbortProbe({
+    page,
+    report: cda.report,
+    project,
+    explorer,
+    apiOrigin: new URL(uiOrigin).origin,
+  });
   report.explorerProvisioning = {
     requestedName: requestedExplorerName,
     createRequestId: creationRequest.requestId,
