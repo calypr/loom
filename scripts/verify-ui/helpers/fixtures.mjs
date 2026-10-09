@@ -2,6 +2,7 @@ import { test as base, expect } from '@playwright/test';
 import { performance } from 'node:perf_hooks';
 import {
   applyInjectedFaultPolicy,
+  captureInjectedFaultRequest,
   capabilityBinding,
   capabilityResponseMatches,
   isIncidentalFavicon,
@@ -509,8 +510,7 @@ export const test = base.extend({
           await route.fallback();
           return;
         }
-        attempt.matched = true;
-        attempt.playwrightRequestId = playwrightRequestId(request);
+        captureInjectedFaultRequest(attempt, request, playwrightRequestId(request));
         evidence.matched = true;
         evidence.playwrightRequestId = attempt.playwrightRequestId;
         evidence.url = safeURL(request.url());

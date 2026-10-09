@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyInjectedFaultPolicy,
+  captureInjectedFaultRequest,
   markExpectedOwnedPreviewAborts,
   matchesOwnedFaultRequest,
   matchExpectedHttpConsole,
@@ -112,6 +113,66 @@ test('an injected abort consumes only its matching failure and one matching cons
   assert.equal(result[4].injectedFault, undefined);
   assert.equal(result[5].injectedFault, undefined);
   assert.equal(result[6].injectedFault, undefined);
+});
+
+test('captured list and builder-load aborts retain exact request identity for strict fault classification', () => {
+  const cases = [
+    {
+      name: 'Explorer list',
+      path: '/api/v1/projects/owned/explorers',
+      rawURL: `${target.uiUrl}/api/v1/projects/owned/explorers?limit=50`,
+    },
+    {
+      name: 'Builder state',
+      path: '/api/v1/projects/owned/explorers/loom-dev-bootstrap/authoring/v2/builder',
+      rawURL: `${target.uiUrl}/api/v1/projects/owned/explorers/loom-dev-bootstrap/authoring/v2/builder?draft=1`,
+    },
+  ];
+
+  for (const [index, candidate] of cases.entries()) {
+    const playwrightRequestId = `request-${candidate.name.replaceAll(' ', '-')}`;
+    const fault = {
+      id: `injected-${index + 1}`,
+      ...ownedFaultTarget(target, { method: 'GET', path: candidate.path }),
+      matched: false,
+      action: 'abort',
+      responseStatus: null,
+    };
+    captureInjectedFaultRequest(fault, request({
+      url: () => candidate.rawURL,
+      method: () => 'GET',
+    }), playwrightRequestId);
+
+    const result = applyInjectedFaultPolicy([
+      {
+        kind: 'network', method: 'GET', url: target.uiUrl + candidate.path,
+        rawURL: candidate.rawURL, playwrightRequestId, errorText: 'net::ERR_FAILED',
+      },
+      {
+        kind: 'console-error', text: 'Failed to load resource: net::ERR_FAILED',
+        location: target.uiUrl + candidate.path, rawLocation: candidate.rawURL,
+      },
+      {
+        kind: 'network', method: 'GET', url: target.uiUrl + candidate.path,
+        rawURL: candidate.rawURL, playwrightRequestId: `${playwrightRequestId}-other`, errorText: 'net::ERR_FAILED',
+      },
+      {
+        kind: 'network', method: 'GET', url: target.uiUrl + candidate.path,
+        rawURL: `${candidate.rawURL}&other=1`, playwrightRequestId, errorText: 'net::ERR_FAILED',
+      },
+      {
+        kind: 'network', method: 'GET', url: target.uiUrl + candidate.path,
+        rawURL: candidate.rawURL, playwrightRequestId: `${playwrightRequestId}-aborted`, errorText: 'net::ERR_ABORTED',
+      },
+    ], [fault]);
+
+    assert.equal(fault.rawURL, candidate.rawURL, `${candidate.name} fault capture keeps the exact unsanitized URL`);
+    assert.equal(result[0].injectedFault, true, `${candidate.name} exact failed request is expected`);
+    assert.equal(result[1].injectedFault, true, `${candidate.name} exact matching console record is paired once`);
+    assert.equal(result[2].injectedFault, undefined, `${candidate.name} same-URL request with another identity stays fatal`);
+    assert.equal(result[3].injectedFault, undefined, `${candidate.name} same-identity request with another URL stays fatal`);
+    assert.equal(result[4].injectedFault, undefined, `${candidate.name} ERR_ABORTED is not treated as the injected ERR_FAILED`);
+  }
 });
 
 test('an injected 500 or aborted request is not reclassified as expected', () => {

@@ -222,6 +222,12 @@ export function matchesOwnedFaultRequest(request, faultTarget, matchesRequest) {
   }
 }
 
+export function captureInjectedFaultRequest(fault, request, playwrightRequestId) {
+  fault.matched = true;
+  fault.playwrightRequestId = playwrightRequestId;
+  fault.rawURL = request.url();
+}
+
 const exactInjectedRequest = (entry, fault) => Boolean(fault.matched && fault.playwrightRequestId &&
   entry.playwrightRequestId === fault.playwrightRequestId && entry.method === fault.method &&
   entry.rawURL === fault.rawURL);

@@ -22,6 +22,7 @@ test('first-table reload row oracle requires both exact independent fixture Pati
   const fixtureDir = fileURLToPath(new URL('../../../../testdata/devloop-fixture', import.meta.url));
   const oracle = patientOracle({ fixtureDir });
   assert.deepEqual(oracle.ids, ['dev-patient-001', 'dev-patient-002']);
+  assert.deepEqual(oracle.genderByID, { 'dev-patient-001': 'female', 'dev-patient-002': null });
   const reversedRows = [
     'dev-patient-002 Grace Builder',
     'dev-patient-001 Ada Example',
@@ -33,6 +34,33 @@ test('first-table reload row oracle requires both exact independent fixture Pati
     'dev-patient-001 Ada Example',
   ], oracle.ids), /exact independent fixture Patient identities/,
   'duplicate rows cannot substitute for the missing second fixture Patient');
+});
+
+test('tables workflow compares exact fixture Gender values and preserves null as the empty-cell marker', () => {
+  const fixtureDir = fileURLToPath(new URL('../../../../testdata/devloop-fixture', import.meta.url));
+  const oracle = patientOracle({ fixtureDir });
+  const headerRow = 'ROW\nPATIENT ID\nGENDER';
+  const rows = ['1\ndev-patient-002\n—', '2\ndev-patient-001\nfemale'];
+  assert.deepEqual(assertPatientRows(rows, oracle.ids, oracle.genderByID, headerRow), oracle.ids);
+  assert.throws(() => assertPatientRows([
+    '1\ndev-patient-002\n—', '2\ndev-patient-001\nmale',
+  ], oracle.ids, oracle.genderByID, headerRow), /exact independent fixture Patient Gender values/,
+  'a wrong value cannot pass by retaining the expected Patient IDs');
+  assert.throws(() => assertPatientRows([
+    '1\ndev-patient-002\nfemale', '2\ndev-patient-001\nfemale',
+  ], oracle.ids, oracle.genderByID, headerRow), /exact independent fixture Patient Gender values/,
+  'repeating one Patient Gender value cannot stand in for the source null');
+  assert.throws(() => assertPatientRows([
+    '1\ndev-patient-002\n—', '2\ndev-patient-001\nfemale', '3\ndev-patient-001\nfemale',
+  ], oracle.ids, oracle.genderByID, headerRow), /exact independent fixture Patient identities/,
+  'duplicate values cannot substitute for a complete exact Patient row set');
+  assert.throws(() => assertPatientRows([
+    '1\ndev-patient-002\nnull', '2\ndev-patient-001\nfemale',
+  ], oracle.ids, oracle.genderByID, headerRow), /exact independent fixture Patient Gender values/,
+  'the displayed empty-cell marker represents source null and literal text null is not equivalent');
+  assert.throws(() => assertPatientRows(rows, oracle.ids, oracle.genderByID, 'ROW\nPATIENT ID\nSTATUS'),
+    /must show the Gender column header/,
+    'correct-looking values under another column cannot satisfy the source-value oracle');
 });
 
 test('first-table reload timing is a required performance check with the five-second limit', () => {

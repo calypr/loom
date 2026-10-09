@@ -11,27 +11,45 @@ export const patientOracle = target => {
   const patients = bytes.toString('utf8').split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
   const ids = patients.map(patient => patient.id).sort();
   assert.deepEqual(ids, ['dev-patient-001', 'dev-patient-002'], 'Builder fixture oracle must contain exactly the two independent Patient identities');
-  return { path, sha256: createHash('sha256').update(bytes).digest('hex'), ids };
+  const genderByID = Object.fromEntries(patients.map(patient => [patient.id, patient.gender ?? null]));
+  return { path, sha256: createHash('sha256').update(bytes).digest('hex'), ids, genderByID };
 };
 
-export const assertPatientRows = (rows, expectedIDs) => {
+export const assertPatientRows = (rows, expectedIDs, expectedGenderByID, headerRow) => {
   const actualIDs = rows.map(row => {
     const matches = expectedIDs.filter(id => row.includes(id));
     return matches.length === 1 ? matches[0] : `INVALID:${row}`;
   }).sort();
   assert.deepEqual(actualIDs, [...expectedIDs].sort(), 'Preview must contain the exact independent fixture Patient identities');
+  if (expectedGenderByID) {
+    assert.deepEqual(Object.keys(expectedGenderByID).sort(), [...expectedIDs].sort(),
+      'Gender oracle must cover exactly the independent fixture Patient identities');
+    const headerCells = (headerRow ?? '').split(/\r?\n/).map(cell => cell.trim().toLowerCase());
+    assert.ok(headerCells.includes('gender'), 'Preview must show the Gender column header for its source-value oracle');
+    const actualGenderByID = rows.map(row => {
+      const cells = row.split(/\r?\n/).map(cell => cell.trim());
+      const matchingIDs = expectedIDs.filter(id => cells.includes(id));
+      assert.equal(matchingIDs.length, 1, `Preview row must identify one independent fixture Patient: ${row}`);
+      const genderCell = cells.at(-1);
+      assert.notEqual(genderCell, matchingIDs[0], `Preview row must include a Gender cell: ${row}`);
+      return [matchingIDs[0], genderCell === '—' ? null : genderCell];
+    }).sort(([left], [right]) => left.localeCompare(right));
+    const expectedGenderPairs = Object.entries(expectedGenderByID).sort(([left], [right]) => left.localeCompare(right));
+    assert.deepEqual(actualGenderByID, expectedGenderPairs,
+      'Preview must preserve the exact independent fixture Patient Gender values, including null');
+  }
   return actualIDs;
 };
 
 const previewRows = async page => page.getByTestId('preview-table-scroll').getByRole('row').allInnerTexts();
 
-const checkPreviewPatients = async (page, report, expectedIDs, check) => {
+const checkPreviewPatients = async (page, report, expectedIDs, check, expectedGenderByID) => {
   const table = page.getByTestId('preview-table-scroll').getByRole('table');
   await table.waitFor({ state: 'visible', timeout: 5000 });
   const rows = await previewRows(page);
-  const ids = assertPatientRows(rows.slice(1), expectedIDs);
+  const ids = assertPatientRows(rows.slice(1), expectedIDs, expectedGenderByID, rows[0]);
   check('correctness', 'Preview renders both independent fixture Patients', ids.length === expectedIDs.length,
-    { rows, patientIDs: ids, expectedPatientIDs: expectedIDs });
+    { rows, patientIDs: ids, expectedPatientIDs: expectedIDs, ...(expectedGenderByID ? { expectedGenderByID } : {}) });
   recordCheck(report, 'correctness', 'automatic Preview is visible after authoring', true);
   return rows;
 };
@@ -383,13 +401,20 @@ export const firstTableWorkflow = async ({ page, report, action, check }, contex
 
 export const tablesWorkflow = async ({ page, report, action, check }, context) => {
   const oracle = patientOracle(context.target);
-  report.target.fixtureOracle = { path: oracle.path, sha256: oracle.sha256, patientIDs: oracle.ids };
+  report.target.fixtureOracle = { path: oracle.path, sha256: oracle.sha256, patientIDs: oracle.ids, genderByID: oracle.genderByID };
   const created = await createBlankExplorerWithUI({ page, action, target: context.target, context, check }, 'controls');
   report.target.explorer = created.explorer;
   await createPatientTableWithUI({ page, action }, oracle.ids);
   await checkPreviewPatients(page, report, oracle.ids, check);
   await configurePatientGenderWithUI({ page, action });
-  await checkPreviewPatients(page, report, oracle.ids, check);
+  await checkPreviewPatients(page, report, oracle.ids, check, oracle.genderByID);
+  const closeEditor = page.getByRole('button', { name: 'Close operation editor', exact: true });
+  await action('return to the selected Patient table after applying Gender', closeEditor, () => closeEditor.click(), {
+    after: async () => {
+      await page.locator('[aria-label="Add columns editor"]').waitFor({ state: 'hidden' });
+      await page.getByRole('button', { name: /Add columns:/ }).waitFor({ state: 'visible' });
+    },
+  });
   const selectedTable = page.locator('[data-testid^="construction-table-"][aria-current="page"]');
   assert.equal(await selectedTable.count(), 1, 'Prepared Explorer must have exactly one selected table');
   const originalTableTestId = await selectedTable.getAttribute('data-testid');
@@ -407,6 +432,7 @@ export const tablesWorkflow = async ({ page, report, action, check }, context) =
   check('persistence', 'newly duplicated table is selected immediately',
     await selectedAfterDuplicate.getAttribute('data-testid') === 'construction-table-patients-copy',
     { selectedTableTestId: await selectedAfterDuplicate.getAttribute('data-testid') });
+  await checkPreviewPatients(page, report, oracle.ids, check, oracle.genderByID);
 
   const project = context.target.fixtureProject;
   const commandsPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(created.explorer)}/authoring/v2/commands`;
@@ -438,6 +464,7 @@ export const tablesWorkflow = async ({ page, report, action, check }, context) =
   let selectedAfterReload = await page.locator('[data-testid^="construction-table-"][aria-current="page"]').getAttribute('data-testid');
   check('persistence', 'newly duplicated table selection survives reload', selectedAfterReload === 'construction-table-patients-copy',
     { selectedTableTestId: selectedAfterReload });
+  await checkPreviewPatients(page, report, oracle.ids, check, oracle.genderByID);
 
   const originalTable = page.getByTestId(originalTableTestId);
   await action('select original table manually', originalTable, () => originalTable.click(), {
@@ -479,7 +506,7 @@ export const tablesWorkflow = async ({ page, report, action, check }, context) =
   selectedAfterReload = await page.locator('[data-testid^="construction-table-"][aria-current="page"]').getAttribute('data-testid');
   check('persistence', 'selected-table removal falls back to the remaining table after reload', selectedAfterReload === originalTableTestId,
     { expectedTableTestId: originalTableTestId, selectedTableTestId: selectedAfterReload });
-  await checkPreviewPatients(page, report, oracle.ids, check);
+  await checkPreviewPatients(page, report, oracle.ids, check, oracle.genderByID);
 
   const newExplorer = page.getByText('New explorer', { exact: true });
   await action('open Explorer copy creation', newExplorer, () => newExplorer.click(), {
@@ -502,7 +529,7 @@ export const tablesWorkflow = async ({ page, report, action, check }, context) =
   report.target.explorer = copyExplorer;
   check('correctness', 'copied Explorer is distinct from its source', Boolean(copyExplorer && copyExplorer !== created.explorer),
     { sourceExplorer: created.explorer, copiedExplorer: copyExplorer, title: copyTitle });
-  await checkPreviewPatients(page, report, oracle.ids, check);
+  await checkPreviewPatients(page, report, oracle.ids, check, oracle.genderByID);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForFunction(({ explorer, title }) => document.querySelector('select[aria-label="Explorer"]')?.value === explorer &&
     document.querySelector('select[aria-label="Explorer"]')?.selectedOptions[0]?.textContent?.trim() === title &&
@@ -510,7 +537,7 @@ export const tablesWorkflow = async ({ page, report, action, check }, context) =
     Boolean(document.querySelector('button[aria-label^="Select Gender"]')), { explorer: copyExplorer, title: copyTitle }, { timeout: 5000 });
   check('persistence', 'copied Explorer retains configured fields after reload', true,
     { sourceExplorer: created.explorer, copiedExplorer: copyExplorer, title: copyTitle });
-  await checkPreviewPatients(page, report, oracle.ids, check);
+  await checkPreviewPatients(page, report, oracle.ids, check, oracle.genderByID);
 
   page.once('dialog', async dialog => {
     report.target.emptyWorkspaceDeleteDialogType = dialog.type();
@@ -530,7 +557,7 @@ export const tablesWorkflow = async ({ page, report, action, check }, context) =
   await createPatientTableWithUI({ page, action }, oracle.ids);
   await checkPreviewPatients(page, report, oracle.ids, check);
   await configurePatientGenderWithUI({ page, action });
-  await checkPreviewPatients(page, report, oracle.ids, check);
+  await checkPreviewPatients(page, report, oracle.ids, check, oracle.genderByID);
   const sourceAfter = createHash('sha256').update(readFileSync(oracle.path)).digest('hex');
   check('correctness', 'independent Patient source stayed unchanged during Builder verification', sourceAfter === oracle.sha256,
     { before: oracle.sha256, after: sourceAfter, path: oracle.path });
