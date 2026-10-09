@@ -24,7 +24,17 @@ const retainedPostPivotCountTimings = JSON.parse(readFileSync(new URL('./fixture
 const wave152Failure = JSON.parse(readFileSync(new URL('./fixtures/wave152-root-quantity-pivot-failure.json', import.meta.url), 'utf8'));
 
 function wave152FailureForCase(caseName) {
-  return { ...structuredClone(wave152Failure), caseName };
+  const expectedIdentity = scenarioCaseFor('root-quantity-pivot', caseName).expectedIdentity;
+  const report = structuredClone(wave152Failure);
+  return {
+    ...report,
+    caseName,
+    target: { ...report.target, ...expectedIdentity },
+    nativeRequests: report.nativeRequests.map((request) => ({
+      ...request,
+      path: request.path.replace(`/projects/${report.target.project}/`, `/projects/${expectedIdentity.project}/`),
+    })),
+  };
 }
 const groupAddFieldsPerformanceCheckName = 'All native Group-add-fields lifecycle actions complete within five seconds';
 const groupAddFieldsLifecycleCheckpoints = [
@@ -1237,6 +1247,103 @@ test('native request drain evidence remains visible after an earlier assertion f
   }]);
 });
 
+test('drain evidence admits only exact-identity unregistered native requests', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const scenarioID = 'standalone-reshape-coded-pivot';
+  const caseName = 'coded-pivot-integer';
+  const contract = scenarioCaseFor(scenarioID, caseName);
+  assert.deepEqual(contract.expectedIdentity, { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' });
+  const project = contract.expectedIdentity.project;
+  const generation = contract.expectedIdentity.generation;
+  const explorer = 'coded-pivot-owned-explorer';
+  const uiUrl = 'http://127.0.0.1:30008';
+  const capabilitiesPath = `/api/v1/projects/${project}/explorers/${explorer}/authoring/v2/construction-capabilities`;
+  const requests = [
+    { requestId: 'exact-pending-capabilities', path: capabilitiesPath },
+    { requestId: 'finished-capabilities', path: capabilitiesPath, finished: true },
+    {
+      requestId: 'wrong-explorer-capabilities',
+      path: `/api/v1/projects/${project}/explorers/other-explorer/authoring/v2/construction-capabilities`,
+    },
+    {
+      requestId: 'wrong-project-capabilities',
+      path: `/api/v1/projects/other-project/explorers/${explorer}/authoring/v2/construction-capabilities`,
+    },
+    { requestId: 'wrong-origin-capabilities', path: capabilitiesPath, origin: 'http://127.0.0.1:8188' },
+  ].map(({ requestId, path, origin = uiUrl, finished }, index) => ({
+    requestId,
+    method: 'POST',
+    path,
+    origin,
+    status: 200,
+    completedAt: 1791518513000 + index,
+    nativeEventChronology: [
+      { event: 'request' },
+      { event: 'response' },
+      ...(finished ? [{ event: 'requestfinished' }] : []),
+    ],
+  }));
+  const drainReason = 'No Playwright requestfinished or requestfailed event was observed before the bounded native request drain deadline.';
+  const drain = {
+    status: 'timed-out',
+    reason: drainReason,
+    unresolvedRequests: requests.flatMap((request, index) => index === 1 ? [] : [{
+      index,
+      requestId: request.requestId,
+      path: request.path,
+    }]),
+  };
+  const runSummary = async (target, nativeRequests, nativeRequestDrainEvidence) => {
+    const fake = fakeRunner({
+      scenarioID,
+      caseName,
+      rootDir: root,
+      browserReport: 'cda',
+      domainReportOverride: {
+        status: 'failed',
+        errors: [],
+        target: { ...target, uiUrl },
+        failureEvidence: { reason: 'Error: Earlier assertion failed before native request drain.' },
+        nativeRequests,
+        nativeRequestDrainEvidence,
+      },
+    });
+    return runNativeVerificationBracket({
+      scenarioID,
+      caseName,
+      grep: 'drain evidence admits only exact-identity unregistered native requests$',
+      evidenceParent: parent,
+      root,
+      env: fake.env,
+      commandRunner: fake.commandRunner,
+    });
+  };
+
+  const summary = await runSummary({ project, generation, explorer }, requests, [drain]);
+  assert.equal(summary.status, 'failed', 'the fatal domain verification gate remains fatal');
+  assert.equal(summary.reviewPacket.firstFailureReason, 'Error: Earlier assertion failed before native request drain.');
+  assert.deepEqual(summary.reviewPacket.pendingOwnedRequests, [{
+    endpoint: 'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-capabilities',
+    requestID: 'exact-pending-capabilities',
+    status: 'pending',
+    reason: drainReason,
+  }]);
+
+  const wrongTargetRequest = {
+    ...requests[0],
+    requestId: 'wrong-registered-target-capabilities',
+    path: `/api/v1/projects/other-project/explorers/${explorer}/authoring/v2/construction-capabilities`,
+  };
+  const mismatchedTarget = await runSummary({ project: 'other-project', generation, explorer }, [wrongTargetRequest], [{
+    ...drain,
+    unresolvedRequests: [{ index: 0, requestId: wrongTargetRequest.requestId, path: wrongTargetRequest.path }],
+  }]);
+  assert.equal(mismatchedTarget.reviewPacket.firstFailureReason, 'Error: Earlier assertion failed before native request drain.');
+  assert.deepEqual(mismatchedTarget.reviewPacket.pendingOwnedRequests, [],
+    'an exact request-to-report match cannot override the case registry project/generation identity');
+});
+
 test('runner summary and review packet preserve normalized render evidence fields', async (t) => {
   const scenarioID = 'root-quantity-pivot';
   const caseName = 'full-population-lifecycle';
@@ -1852,9 +1959,9 @@ test('a pending owned request does not invent a failure on a passing report', as
     browserReport: 'cda',
     domainReportOverride: {
       assertions,
-      target: wave152Failure.target,
+      target: wave152FailureForCase(caseName).target,
       actions: [{ label: 'Select SUM', status: 'passed' }],
-      nativeRequests: wave152Failure.nativeRequests,
+      nativeRequests: wave152FailureForCase(caseName).nativeRequests,
     },
   });
   const summary = await runNativeVerificationBracket({
@@ -2002,7 +2109,7 @@ test('request ID reuse keeps only requests whose status is pending', async (t) =
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   const scenarioID = 'root-quantity-pivot';
   const caseName = 'full-population-lifecycle';
-  const original = wave152Failure.nativeRequests[0];
+  const original = wave152FailureForCase(caseName).nativeRequests[0];
   const fake = fakeRunner({
     scenarioID,
     caseName,

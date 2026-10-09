@@ -537,7 +537,7 @@ function endpointForNativeRequest(request, report, scenario, allowUnregistered =
       /^\{[^/{}]+\}$/.test(segment) || segment === pathSegments[index]);
     if (matches) return method + ' ' + template;
   }
-  if (!allowUnregistered || explorer !== null) return null;
+  if (!allowUnregistered) return null;
   const templateSegments = pathSegments.map((segment, index) =>
     index === projectIndex + 1 ? '{project}'
       : index === explorerIndex + 1 ? '{explorer}'
@@ -583,7 +583,9 @@ function unfinishedRequestEvidence(report) {
   return [...failureRequests, ...drainedRequests];
 }
 
-function summarizePendingOwnedRequests(report, scenario) {
+function summarizePendingOwnedRequests(report, scenario, expectedIdentity) {
+  if (expectedIdentity && (report?.target?.project !== expectedIdentity.project
+    || report?.target?.generation !== expectedIdentity.generation)) return [];
   const requests = [];
   const unfinishedByID = new Map(unfinishedRequestEvidence(report)
     .filter((request) => typeof request?.requestId === 'string')
@@ -1386,7 +1388,7 @@ export async function runNativeVerificationBracket({
     failureContext: summarizeFailureContext(domainReportData),
     failedAction,
     lastCompletedAction: summarizeLastCompletedAction(domainReportData),
-    pendingOwnedRequests: summarizePendingOwnedRequests(domainReportData, scenario),
+    pendingOwnedRequests: summarizePendingOwnedRequests(domainReportData, scenario, contract.expectedIdentity),
     requiredCheckCount: summary.lifecycle.requiredCheckCount ?? null,
     passedCheckCount: summary.lifecycle.passedCheckCount ?? null,
     failedCheckNames: summary.lifecycle.failedCheckNames ?? [],
