@@ -27,6 +27,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/projectid"
 	"github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -764,7 +765,7 @@ func compiledArtifactScope(output lower.CompiledRecipeOutput, bindings recipe.Ru
 		return "", nil, nil, fmt.Errorf("compiler source evidence is missing its exact identity")
 	}
 	identity := *output.ScopeEvidenceIdentity
-	if identity.OutputID != output.Name || identity.Project != bindings.Project || identity.DatasetGeneration != bindings.DatasetGeneration ||
+	if identity.OutputID != output.Name || projectid.Canonical(identity.Project) != projectid.Canonical(bindings.Project) || identity.DatasetGeneration != bindings.DatasetGeneration ||
 		(bindings.AuthScopeMode != "" && identity.AuthScopeMode != string(bindings.AuthScopeMode)) ||
 		!sameExecutionStrings(identity.AuthResourcePaths, bindings.AuthResourcePaths) {
 		return "", nil, nil, fmt.Errorf("compiler source evidence identity differs from the exact output scope")

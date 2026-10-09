@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -70,6 +71,77 @@ func TestCompiledArtifactScopeKeepsBoundedGroupRowsPreviewWhole(t *testing.T) {
 	previewMode, previewEvidence, previewIdentity, err := compiledArtifactScope(output, bindings, preview.PhysicalPlan)
 	if err != nil || previewMode != chartifact.ScopeModeWhole || previewEvidence != nil || previewIdentity != nil {
 		t.Fatalf("bounded GroupRows preview scope=(%q,%v,%v), err=%v; want whole-relation mode without capture evidence", previewMode, previewEvidence != nil, previewIdentity != nil, err)
+	}
+}
+
+func TestCompiledArtifactScopeAcceptsAuthorizedProjectAliasesAndRejectsScopeDrift(t *testing.T) {
+	engine, err := New(Config{
+		Registry: invalidRecipeRegistry{},
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindings := recipe.RuntimeBindings{
+		Project: "loom_dev_verify_example-project-1", SelectionProject: "loom_dev_verify_example/project-1",
+		DatasetGeneration: "generation-1", AuthScopeMode: authscope.ReadScopeUnrestricted,
+	}
+	bundles := []recipe.Bundle{
+		{
+			RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "ordinary legacy project", TranslationVersion: "test",
+			Outputs: []recipe.Output{{
+				Name: "patients", RootResourceType: "Patient", RowGrain: "patient",
+				Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
+			}},
+		},
+		{
+			RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "grouped canonical project", TranslationVersion: "test",
+			Outputs: []recipe.Output{{
+				Name: "groups", RootResourceType: "Patient", RowGrain: "groups",
+				GroupRows: &recipe.GroupRows{RevisionID: "grouprev_scope_alias", UnassignedMemberPolicy: "EXCLUDE"},
+			}},
+		},
+	}
+	for _, bundle := range bundles {
+		resolved, err := engine.CompileResolvedBundle(context.Background(), bundle, bindings)
+		if err != nil {
+			t.Fatalf("compile %q: %v", bundle.Name, err)
+		}
+		output := resolved.Compiled.Outputs[0]
+		if output.ScopeEvidence == nil || output.ScopeEvidenceIdentity == nil || !output.ScopeEvidence.Matches(output.Plan, *output.ScopeEvidenceIdentity) {
+			t.Fatalf("%s lacks exact compiler source evidence", bundle.Name)
+		}
+		if _, _, _, err := compiledArtifactScope(output, bindings, output.Plan); err != nil {
+			t.Fatalf("%s exact output scope rejected authorized legacy/canonical project aliases: %v", bundle.Name, err)
+		}
+		if bundle.Name == "ordinary legacy project" {
+			if output.ScopeEvidenceIdentity.Project != bindings.Project {
+				t.Fatalf("ordinary output identity project=%q, want exact legacy binding %q", output.ScopeEvidenceIdentity.Project, bindings.Project)
+			}
+		} else if output.ScopeEvidenceIdentity.Project != bindings.SelectionProject {
+			t.Fatalf("group output identity project=%q, want exact canonical selection binding %q", output.ScopeEvidenceIdentity.Project, bindings.SelectionProject)
+		}
+		for _, test := range []struct {
+			name     string
+			output   lower.CompiledRecipeOutput
+			bindings recipe.RuntimeBindings
+		}{
+			{name: "different project", output: output, bindings: func() recipe.RuntimeBindings { b := bindings; b.Project = "another-program/project-1"; return b }()},
+			{name: "different generation", output: output, bindings: func() recipe.RuntimeBindings { b := bindings; b.DatasetGeneration = "other-generation"; return b }()},
+			{name: "different authorization mode", output: output, bindings: func() recipe.RuntimeBindings {
+				b := bindings
+				b.AuthScopeMode = authscope.ReadScopeRestricted
+				return b
+			}()},
+			{name: "different authorization paths", output: output, bindings: func() recipe.RuntimeBindings { b := bindings; b.AuthResourcePaths = []string{"/other/path"}; return b }()},
+			{name: "different output", output: func() lower.CompiledRecipeOutput { o := output; o.Name = "other-output"; return o }(), bindings: bindings},
+		} {
+			if _, _, _, err := compiledArtifactScope(test.output, test.bindings, test.output.Plan); err == nil {
+				t.Errorf("%s: accepted %s scope drift", bundle.Name, test.name)
+			}
+		}
 	}
 }
 
