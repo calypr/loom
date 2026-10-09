@@ -1,7 +1,32 @@
 const maxSourceOptionsDiagnosticBytes = 512 * 1024;
+import { isDeepStrictEqual } from 'node:util';
+
 const maxSourceOptionsDiagnosticEntries = 50;
 const nonempty = value => typeof value === 'string' && value.trim().length > 0;
 const normalizedSourceLabel = value => String(value ?? '').replace(/\s+/g, ' ').trim();
+
+export const codedPivotPersistedSourceBindingsFor = step => {
+  const source = step?.operation?.codedPivot?.source;
+  return source && typeof source === 'object' && source.family && typeof source.family === 'object' ? source : null;
+};
+
+export const codedPivotPersistedSourceBindingsEqual = (leftStep, rightStep) => {
+  const left = codedPivotPersistedSourceBindingsFor(leftStep);
+  const right = codedPivotPersistedSourceBindingsFor(rightStep);
+  return Boolean(left && right && isDeepStrictEqual(left, right));
+};
+
+export const codedPivotPersistedSourceMatchesOption = (step, option) => {
+  const source = codedPivotPersistedSourceBindingsFor(step);
+  const family = source?.family;
+  if (!source || !family || !option || !Array.isArray(option.route)) return false;
+  const selectedFields = ['bindingId', 'resourceType', 'sourcePath', 'sourceCanonical', 'owningScope', 'keyPath', 'valuePath', 'logicalType'];
+  if (selectedFields.some(field => !nonempty(option[field]) || family[field] !== option[field])) return false;
+  return nonempty(source.candidateId) && nonempty(source.nodeId) &&
+    source.fieldPath === `${option.sourcePath}.${option.valuePath}` &&
+    Array.isArray(family.choiceArms) && family.choiceArms.length === 1 && family.choiceArms[0] === option.valuePath &&
+    JSON.stringify(source.route) === JSON.stringify(option.route);
+};
 
 export const codedPivotSourceOptionsDiagnosticFor = (entry, request, response, {
   origin, project, generation, explorerId, outputId, snapshotToken, mode, domSnapshot,

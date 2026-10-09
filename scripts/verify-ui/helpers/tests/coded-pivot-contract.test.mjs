@@ -22,6 +22,9 @@ import {
 } from '../coded-pivot-fixture.mjs';
 import {
   codedPivotFirstFailureEvidenceFor,
+  codedPivotPersistedSourceBindingsEqual,
+  codedPivotPersistedSourceBindingsFor,
+  codedPivotPersistedSourceMatchesOption,
   codedPivotSourceOptionsDiagnosticFor,
   summarizeCodedPivotNativeRequests,
 } from '../coded-pivot-native-evidence.mjs';
@@ -91,6 +94,71 @@ test('coded Pivot raw oracle rejects scope drift, duplicate codes, and wrong sca
     codedComponent('primary_disease_type', { valueString: 'Ductal and lobular neoplasms' }),
   ]), { ...options, mode: 'string' }), /string/);
   assert.throws(() => codedPivotFixtureFor('decimal'), /Unsupported coded Pivot fixture mode/);
+});
+
+test('saved coded Pivot retains the selected native frame as canonical source bindings', () => {
+  // Captured selected options and proposal source DTOs from the retained native
+  // integer/string runs; the signed choice is sent to the proposal endpoint,
+  // which returns the canonical candidate/node identity persisted by Apply.
+  const retainedBindings = [
+    {
+      selectedOption: {
+        bindingId: 'd7048a207d827b0bccfc316f91919b6034e5fa834e0e81d13c945f7e48023646',
+        resourceType: 'Observation', sourcePath: 'component[]', sourceCanonical: 'Observation.component[]',
+        owningScope: 'component[]', keyPath: 'component[].code.coding[]', valuePath: 'valueInteger', logicalType: 'integer', route: [],
+      },
+      source: {
+        candidateId: 'c_324e141020d913db3a403878', nodeId: 'n_f396c8ca728f4349fa8d2e3c',
+        fieldPath: 'component[].valueInteger', route: [],
+        family: {
+          bindingId: 'd7048a207d827b0bccfc316f91919b6034e5fa834e0e81d13c945f7e48023646',
+          resourceType: 'Observation', sourcePath: 'component[]', sourceCanonical: 'Observation.component[]',
+          owningScope: 'component[]', keyPath: 'component[].code.coding[]', valuePath: 'valueInteger',
+          choiceArms: ['valueInteger'], logicalType: 'integer', ruleVersion: '4', schemaVersion: 3,
+        },
+      },
+    },
+    {
+      selectedOption: {
+        bindingId: '900b911e87387e947c1e245abaaa1dc129c05c81ee0b0e9248a7be5df929fb09',
+        resourceType: 'Observation', sourcePath: 'component[]', sourceCanonical: 'Observation.component[]',
+        owningScope: 'component[]', keyPath: 'component[].code.coding[]', valuePath: 'valueString', logicalType: 'string', route: [],
+      },
+      source: {
+        candidateId: 'c_8a521937841fa94c13f8ca21', nodeId: 'n_f396c8ca728f4349fa8d2e3c',
+        fieldPath: 'component[].valueString', route: [],
+        family: {
+          bindingId: '900b911e87387e947c1e245abaaa1dc129c05c81ee0b0e9248a7be5df929fb09',
+          resourceType: 'Observation', sourcePath: 'component[]', sourceCanonical: 'Observation.component[]',
+          owningScope: 'component[]', keyPath: 'component[].code.coding[]', valuePath: 'valueString',
+          choiceArms: ['valueString'], logicalType: 'string', ruleVersion: '4', schemaVersion: 3,
+        },
+      },
+    },
+  ];
+
+  const stepFor = source => ({ operation: { kind: 'CODED_PIVOT', codedPivot: { source } } });
+  for (const { selectedOption, source } of retainedBindings) {
+    const proposalStep = stepFor(source);
+    const savedStep = stepFor(structuredClone(source));
+    assert.deepEqual(codedPivotPersistedSourceBindingsFor(savedStep), source);
+    assert.equal(codedPivotPersistedSourceMatchesOption(savedStep, selectedOption), true);
+    assert.equal(codedPivotPersistedSourceBindingsEqual(proposalStep, savedStep), true);
+
+    for (const field of ['candidateId', 'nodeId']) {
+      const changedSource = { ...source, [field]: `${source[field]}-other` };
+      assert.equal(codedPivotPersistedSourceBindingsEqual(proposalStep, stepFor(changedSource)), false,
+        `changed ${field} must not survive proposal-to-saved source binding comparison`);
+    }
+    const changedFamily = { ...source, family: { ...source.family, bindingId: 'unrelated-frame-binding' } };
+    assert.equal(codedPivotPersistedSourceMatchesOption(stepFor(changedFamily), selectedOption), false);
+    const changedScalar = { ...source, fieldPath: 'component[].valueQuantity.value', family: {
+      ...source.family, valuePath: 'valueQuantity.value', choiceArms: ['valueQuantity.value'],
+    } };
+    assert.equal(codedPivotPersistedSourceMatchesOption(stepFor(changedScalar), selectedOption), false);
+    const changedRoute = { ...source, route: [{ stepId: 'unrelated-step' }] };
+    assert.equal(codedPivotPersistedSourceMatchesOption(stepFor(changedRoute), selectedOption), false);
+  }
 });
 
 test('rendered coded values bind each exact Coding to its persisted output header and cell', () => {
@@ -464,7 +532,10 @@ test('integer and string native cases have separate registered four-dimension li
   assert.match(sourceText, /construction-cancel-proposal/);
   assert.match(sourceText, /frame-source-options/);
   assert.match(sourceText, /semantic-inventory/);
-  assert.match(sourceText, /sourceChoiceId, selectedSourceOption\.choiceId/);
+  assert.match(sourceText, /proposalUsesCodedPivot\(entry, \{ policy: 'NULL', sourceChoiceId: selectedSourceOption\.choiceId, categoryChoiceIds \}\)/);
+  assert.match(sourceText, /report\.proposedSourceBindings = proposedSourceBindings/);
+  assert.match(sourceText, /codedPivotPersistedSourceMatchesOption\(proposedCodedStep, selectedSourceOption\)/);
+  assert.match(sourceText, /codedPivotPersistedSourceMatchesOption\(codedStep, selectedSourceOption\)/);
   assert.match(sourceText, /recordPivotActionToRender\(/);
   assert.match(sourceText, /startedAt:\s*started/);
   assert.match(sourceText, /name:\s*`\$\{name\}-to-render`/);

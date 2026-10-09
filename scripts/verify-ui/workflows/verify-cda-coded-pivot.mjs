@@ -7,7 +7,14 @@ import { assertOwnedCdaTarget } from '../helpers/owned-cda-target.mjs';
 import { startVerificationIdentity } from '../helpers/cda-verification-identity.mjs';
 import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
 import { DEFAULT_ACTION_TO_RENDER_BUDGET_MS, recordPivotActionToRender } from '../helpers/quantity-pivot-budget.mjs';
-import { codedPivotFirstFailureEvidenceFor, codedPivotSourceOptionsDiagnosticFor, summarizeCodedPivotNativeRequests } from '../helpers/coded-pivot-native-evidence.mjs';
+import {
+  codedPivotFirstFailureEvidenceFor,
+  codedPivotPersistedSourceBindingsEqual,
+  codedPivotPersistedSourceBindingsFor,
+  codedPivotPersistedSourceMatchesOption,
+  codedPivotSourceOptionsDiagnosticFor,
+  summarizeCodedPivotNativeRequests,
+} from '../helpers/coded-pivot-native-evidence.mjs';
 import { createdExplorerScope } from '../helpers/created-explorer-scope.mjs';
 import { scenarioCaseFor } from '../registry.mjs';
 import {
@@ -108,7 +115,7 @@ const proposalUsesCodedPivot = (entry, { policy, sourceChoiceId, categoryChoiceI
 const codedPivotBindingsFor = step => ({
   stepId: step.id,
   inputs: step.inputs,
-  sourceChoiceId: step.operation.codedPivot.sourceChoiceId,
+  source: codedPivotPersistedSourceBindingsFor(step),
   categories: step.operation.codedPivot.categories.map(({ system, code, outputColumnId }) => ({ system, code, outputColumnId }))
     .sort((left, right) => `${left.system}|${left.code}`.localeCompare(`${right.system}|${right.code}`)),
   outputs: step.outputs.map(({ id, name, label, type }) => ({ id, name, label, type })).sort((left, right) => left.id.localeCompare(right.id)),
@@ -313,6 +320,10 @@ try {
   const proposalBody = requestCapture.rawResponseBody(proposal);
   const proposedCodedStep = proposalBody?.candidateConstruction?.steps?.find(step => step.operation?.kind === 'CODED_PIVOT');
   assert(proposedCodedStep, 'The exact coded Pivot proposal must return its normalized construction step');
+  const proposedSourceBindings = codedPivotPersistedSourceBindingsFor(proposedCodedStep);
+  report.proposedSourceBindings = proposedSourceBindings;
+  assert(codedPivotPersistedSourceMatchesOption(proposedCodedStep, selectedSourceOption),
+    'The normalized coded Pivot proposal must preserve the selected native frame family and route');
   report.proposalAssociation = codedPivotRenderedValuesFor(report.proposal.preview, proposedCodedStep, expected);
   timing('category-selection-to-proposal-render', proposalStarted);
   recordCheck(2, 'correctness', report.proposal.status === 'ready' && report.proposalAssociation.length === expected.length,
@@ -351,9 +362,13 @@ try {
   assert.deepEqual(durableCategories, expectedCategories, 'Saved coded Pivot must retain exact Coding.system/code categories');
   report.outputAssociation = codedPivotRenderedValuesFor(report.saved, codedStep, expected);
   report.initialStepBindings = codedPivotBindingsFor(codedStep);
-  assert.equal(codedStep.operation.codedPivot.sourceChoiceId, selectedSourceOption.choiceId, 'Saved coded Pivot must retain the exact native source choice');
+  assert(codedPivotPersistedSourceBindingsEqual(proposedCodedStep, codedStep),
+    'Saved coded Pivot must retain the exact canonical source binding returned by its accepted proposal');
+  assert(codedPivotPersistedSourceMatchesOption(codedStep, selectedSourceOption),
+    'Saved coded Pivot must retain the selected native frame family and route');
   assert.equal(codedStep.operation.codedPivot.missingCellPolicy, 'NULL', 'Initial coded Pivot must retain the default NULL missing-cell policy');
-  report.applied = { draftVersion: appliedBuilder.draftVersion, draftDigest: appliedBuilder.draftDigest, stepId: codedStep.id, sourceChoiceId: codedStep.operation.codedPivot.sourceChoiceId, selectedSource: matchingSource.text, categories: durableCategories, saved: report.saved };
+  report.applied = { draftVersion: appliedBuilder.draftVersion, draftDigest: appliedBuilder.draftDigest, stepId: codedStep.id,
+    source: report.initialStepBindings.source, selectedSource: matchingSource.text, categories: durableCategories, saved: report.saved };
   recordCheck(4, 'persistence', true, { tableOutputId: report.tableOutputId, draftVersion: appliedBuilder.draftVersion, draftDigest: appliedBuilder.draftDigest,
     stepId: codedStep.id, operation: codedStep.operation, categories: durableCategories, expectedCategories, visibleRows: report.saved.rows, headers: report.saved.headers });
   await action('Select coded pivot history', page.locator('[data-testid^="construction-history-step-"]'));
