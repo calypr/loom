@@ -1254,6 +1254,28 @@ export const registry = Object.freeze([
     cases: {
       "lifecycle": {
         playwrightTest: "scripts/verify-ui/specs/nullable-combine.spec.mjs",
+        focusedChecks: [
+          {
+            id: 'nullable-native-request-ledger-contract',
+            cwd: '.',
+            command: [
+              'node-test',
+              'scripts/verify-ui/helpers/tests/fixture-native-request-ledger.test.mjs',
+              'scripts/verify-ui/helpers/tests/builder-combine-nullable.test.mjs',
+              'scripts/verify-ui/helpers/tests/network-evidence.test.mjs',
+              'scripts/verify-ui/helpers/tests/positive-medication-lifecycle-finalization.test.mjs',
+            ],
+            sourceFiles: [
+              'scripts/verify-ui/helpers/fixtures.mjs',
+              'scripts/verify-ui/helpers/native-request-ledger.mjs',
+              'scripts/verify-ui/helpers/network-evidence.mjs',
+              'scripts/verify-ui/helpers/report.mjs',
+              'scripts/verify-ui/helpers/builder-combine-nullable-helpers.mjs',
+              'scripts/verify-ui/workflows/builder-combine-nullable.mjs',
+              'scripts/verify-ui/specs/nullable-combine.spec.mjs',
+            ],
+          },
+        ],
         requiredChecks: [
           "open Explorer creation action-to-render within budget",
           "create blank Explorer action-to-render within budget",
