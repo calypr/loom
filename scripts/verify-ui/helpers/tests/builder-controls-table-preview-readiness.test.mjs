@@ -3,15 +3,143 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { chromium } from '@playwright/test';
 import {
+  adjudicateFirstTableConfiguredContextAbort,
   currentReadyPreviewOutputId,
   currentPreviewReady,
   patientOracle,
+  startFirstTableProgressObserver,
+  stopFirstTableProgressObserver,
   waitForCurrentPreviewRows,
 } from '../../workflows/builder-controls.mjs';
 
 const rowMarkup = cells => `<div role="row">${cells.map(cell =>
   `<div role="cell" style="display: block">${cell}</div>`,
 ).join('')}</div>`;
+
+const firstTableAbortEvidence = () => {
+  const project = 'loom_dev_verify_a1b2c3d4-123456';
+  const explorer = 'copy-a1b2c3d4-123456';
+  const beforeDraft = { version: '2', digest: 'sha256:before-draft' };
+  const afterDraft = { version: '3', digest: 'sha256:after-draft' };
+  const action = {
+    label: 'create Patient table and render Preview', status: 'passed',
+    startedAtMs: 100, endedAtMs: 400, startedAtEpochMs: 1000, finishedAtEpochMs: 1300,
+  };
+  const entry = {
+    kind: 'network',
+    method: 'POST',
+    url: `http://127.0.0.1:30008/api/v1/projects/${project}/explorers/${explorer}/authoring/v2/configured-column-context`,
+    rawURL: `http://127.0.0.1:30008/api/v1/projects/${project}/explorers/${explorer}/authoring/v2/configured-column-context`,
+    errorText: 'net::ERR_ABORTED',
+    playwrightRequestId: 'request-755',
+    requestDetails: { draftVersion: 2, draftDigest: beforeDraft.digest, outputId: null, stageId: null },
+    requestTimeline: {
+      requestStartedMs: 90, failedAtMs: 150, action: null, mainFrameNavigations: [],
+    },
+    triggerAction: null,
+  };
+  return {
+    input: {
+      network: [entry],
+      uiOrigin: 'http://127.0.0.1:30008',
+      project,
+      explorer,
+      beforeDraft,
+      afterDraft,
+      action,
+      rows: ['ROW\nPATIENT ID', '1\ndev-patient-001', '2\ndev-patient-002'],
+      expectedIDs: ['dev-patient-001', 'dev-patient-002'],
+      progressSamples: [
+        { firstTableProgress: true, patientIDControlDisabled: true, atEpochMs: 1040 },
+        { firstTableProgress: false, patientIDControlDisabled: false, atEpochMs: 1100 },
+      ],
+    },
+    entry,
+  };
+};
+
+test('classifies only the exact stale configured-context owner aborted by a successful first-table render', () => {
+  const { input, entry } = firstTableAbortEvidence();
+  const evidence = adjudicateFirstTableConfiguredContextAbort(input);
+  assert.deepEqual(evidence, {
+    playwrightRequestId: 'request-755',
+    url: entry.url,
+    requestStartedMs: 90,
+    failedAtMs: 150,
+    actionStartedAtMs: 100,
+    actionEndedAtMs: 400,
+    beforeDraft: { version: 2, digest: 'sha256:before-draft' },
+    afterDraft: { version: 3, digest: 'sha256:after-draft' },
+    patientIDs: ['dev-patient-001', 'dev-patient-002'],
+  });
+  assert.equal(entry.canceled, true);
+  assert.match(entry.cancellationReason, /first-table progress disabled the configured-column context owner/);
+});
+
+test('leaves unowned or incompletely proven request failures fatal', () => {
+  const mutations = [
+    ['wrong project', args => { args.input.network[0].rawURL = args.input.network[0].rawURL.replace(args.input.project, 'other-project'); }],
+    ['wrong Explorer', args => { args.input.network[0].rawURL = args.input.network[0].rawURL.replace(args.input.explorer, 'other-explorer'); }],
+    ['wrong draft version', args => { args.input.network[0].requestDetails.draftVersion = 1; }],
+    ['wrong draft digest', args => { args.input.network[0].requestDetails.draftDigest = 'sha256:other-draft'; }],
+    ['request bound to an output', args => { args.input.network[0].requestDetails.outputId = 'out-other'; }],
+    ['request bound to an operation stage', args => { args.input.network[0].requestDetails.stageId = 'append'; }],
+    ['HTTP response also exists', args => { args.input.network[0].status = 500; }],
+    ['different network failure', args => { args.input.network[0].errorText = 'net::ERR_FAILED'; }],
+    ['request started after the action', args => { args.input.network[0].requestTimeline.requestStartedMs = 101; }],
+    ['request failed outside the action', args => { args.input.network[0].requestTimeline.failedAtMs = 401; }],
+    ['request had an active action owner', args => { args.input.network[0].requestTimeline.action = { id: 'action-previous', label: 'other action' }; }],
+    ['request crossed a main-frame navigation', args => { args.input.network[0].requestTimeline.mainFrameNavigations = [{ id: 'navigation-1' }]; }],
+    ['missing browser request identity', args => { args.input.network[0].playwrightRequestId = ''; }],
+    ['browser request identity is reused by another diagnostic', args => { args.input.network.push({ kind: 'console-error', playwrightRequestId: 'request-755' }); }],
+    ['first-table action failed', args => { args.input.action.status = 'failed'; }],
+    ['the draft version did not increase', args => { args.input.afterDraft = { version: '2', digest: 'sha256:other-draft' }; }],
+    ['rendered rows do not match the fixture', args => { args.input.rows[1] = '1\nstale-patient'; }],
+    ['query owner was not disabled at failure time', args => { args.input.progressSamples[0].patientIDControlDisabled = false; }],
+    ['progress observation did not span the failure', args => { args.input.progressSamples = [
+      { firstTableProgress: true, patientIDControlDisabled: true, atEpochMs: 1100 },
+    ]; }],
+    ['progress began after the failure', args => { args.input.progressSamples[0].atEpochMs = 1051; }],
+    ['progress ended before the failure', args => { args.input.progressSamples[1].atEpochMs = 1049; }],
+    ['two matching aborted requests are ambiguous', args => { args.input.network.push(structuredClone(args.input.network[0])); }],
+  ];
+  for (const [label, mutate] of mutations) {
+    const { input, entry } = firstTableAbortEvidence();
+    mutate({ input });
+    assert.equal(adjudicateFirstTableConfiguredContextAbort(input), null, label);
+    assert.equal(entry.canceled, undefined, label);
+  }
+});
+
+test('observes first-table progress and the disabled Patient ID control from the production DOM sampler', async () => {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(`
+      <div role="status">Build your first table</div>
+      <button aria-label="Select Patient ID">Patient ID</button>
+    `);
+    await page.evaluate(startFirstTableProgressObserver);
+    await page.evaluate(() => {
+      document.querySelector('[role="status"]').textContent = 'Creating Patients table…';
+      document.querySelector('button[aria-label^="Select Patient ID"]').disabled = true;
+    });
+    await page.waitForTimeout(20);
+    await page.evaluate(() => {
+      document.querySelector('[role="status"]').textContent = 'Loading the preview';
+      document.querySelector('button[aria-label^="Select Patient ID"]').disabled = false;
+    });
+    const samples = await page.evaluate(stopFirstTableProgressObserver);
+    assert.ok(samples.some(sample => sample.firstTableProgress && sample.patientIDControlDisabled === true),
+      'the observer must retain the exact interval where first-table progress disables the Patient ID control');
+    assert.ok(samples.some(sample => sample.firstTableProgress === false),
+      'the observer must retain the transition out of first-table progress');
+    assert.ok(samples.every(sample => Number.isFinite(sample.atEpochMs)),
+      'browser states must have epoch timestamps comparable with the native request timeline');
+  } finally {
+    await browser.close();
+  }
+});
 
 test('reads the current Preview output while the Add columns editor has no table tab', async () => {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });

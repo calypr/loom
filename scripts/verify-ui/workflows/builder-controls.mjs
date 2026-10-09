@@ -118,6 +118,49 @@ export const currentReadyPreviewOutputId = () => {
   return ready ? outputId : null;
 };
 
+export const startFirstTableProgressObserver = () => {
+  const key = '__loomFirstTableProgressCancellationObserver';
+  window[key]?.observer?.disconnect?.();
+  const events = [];
+  const sample = () => {
+    const statusText = [...document.querySelectorAll('[role="status"]')]
+      .map(node => node.innerText?.trim() || '')
+      .find(text => /^(Checking .* fields|Creating .* table|Adding the ID column|Loading the preview)/.test(text)) || null;
+    const patientIDControl = document.querySelector('button[aria-label^="Select Patient ID"]');
+    const state = {
+      firstTableProgress: Boolean(statusText && /^(Checking .* fields|Creating .* table|Adding the ID column)/.test(statusText)),
+      progressText: statusText,
+      patientIDControlDisabled: patientIDControl ? patientIDControl.disabled : null,
+    };
+    const previous = events.at(-1);
+    if (!previous || previous.firstTableProgress !== state.firstTableProgress ||
+        previous.progressText !== state.progressText ||
+        previous.patientIDControlDisabled !== state.patientIDControlDisabled) {
+      events.push({ ...state, atEpochMs: performance.timeOrigin + performance.now() });
+    }
+  };
+  const observer = new MutationObserver(sample);
+  observer.observe(document.body, {
+    subtree: true,
+    childList: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: ['disabled', 'aria-label'],
+  });
+  window[key] = { events, observer, sample };
+};
+
+export const stopFirstTableProgressObserver = () => {
+  const key = '__loomFirstTableProgressCancellationObserver';
+  const probe = window[key];
+  if (!probe) throw new Error('first-table progress observer was not installed');
+  probe.sample();
+  probe.observer.disconnect();
+  const events = [...probe.events];
+  delete window[key];
+  return events;
+};
+
 export const waitForCurrentPreviewRows = async ({
   page, report, outputId, expectedIDs, expectedGenderByID, check, timeoutMs = 5000,
 }) => {
@@ -145,6 +188,73 @@ export const waitForCurrentPreviewRows = async ({
   throw new Error(`Preview for output ${outputId} did not render the exact fixture rows within its action deadline${detail}`, {
     cause: lastMismatch,
   });
+};
+
+export const adjudicateFirstTableConfiguredContextAbort = ({
+  network, uiOrigin, project, explorer, beforeDraft, afterDraft, action, rows, expectedIDs, progressSamples,
+}) => {
+  if (!Array.isArray(network) || !action || action.label !== 'create Patient table and render Preview' ||
+      action.status !== 'passed' || !Number.isFinite(action.startedAtMs) || !Number.isFinite(action.endedAtMs) ||
+      !Number.isFinite(action.startedAtEpochMs) || !Number.isFinite(action.finishedAtEpochMs) ||
+      !beforeDraft?.version || !beforeDraft?.digest || !afterDraft?.version || !afterDraft?.digest ||
+      !Array.isArray(rows) || !Array.isArray(expectedIDs) || !expectedIDs.length || !Array.isArray(progressSamples)) return null;
+
+  try {
+    assertPatientRows(rows.slice(1), expectedIDs);
+  } catch {
+    return null;
+  }
+
+  const expectedURL = new URL(
+    `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorer)}/authoring/v2/configured-column-context`,
+    uiOrigin,
+  ).href;
+  const candidates = network.filter(entry => entry.kind === 'network' && entry.method === 'POST' &&
+    entry.status == null && entry.errorText === 'net::ERR_ABORTED' && entry.rawURL === expectedURL);
+  if (candidates.length !== 1) return null;
+
+  const [entry] = candidates;
+  const timeline = entry.requestTimeline;
+  const details = entry.requestDetails;
+  const requestID = entry.playwrightRequestId;
+  const requestStartedMs = timeline?.requestStartedMs;
+  const failedAtMs = timeline?.failedAtMs;
+  const navigations = timeline?.mainFrameNavigations;
+  const beforeVersion = Number(beforeDraft.version);
+  const afterVersion = Number(afterDraft.version);
+  const exactOwner = typeof requestID === 'string' && requestID.length > 0 &&
+    network.filter(candidate => candidate.playwrightRequestId === requestID).length === 1 &&
+    Number.isInteger(beforeVersion) && Number.isInteger(afterVersion) && afterVersion > beforeVersion &&
+    beforeDraft.digest !== afterDraft.digest &&
+    details?.draftVersion === beforeVersion && details?.draftDigest === beforeDraft.digest &&
+    details?.outputId === null && details?.stageId === null;
+  const exactWindow = Number.isFinite(requestStartedMs) && Number.isFinite(failedAtMs) &&
+    requestStartedMs <= action.startedAtMs && failedAtMs >= action.startedAtMs &&
+    failedAtMs <= action.endedAtMs && timeline.action === null && entry.triggerAction === null &&
+    Array.isArray(navigations) && navigations.length === 0;
+  const failedEpochMs = action.startedAtEpochMs + failedAtMs - action.startedAtMs;
+  const queryOwnerDisabledAtFailure = progressSamples.some((sample, index) => {
+    const next = progressSamples[index + 1];
+    const intervalEnd = next?.atEpochMs ?? action.finishedAtEpochMs;
+    return sample.firstTableProgress === true && sample.patientIDControlDisabled === true &&
+      Number.isFinite(sample.atEpochMs) && Number.isFinite(intervalEnd) &&
+      sample.atEpochMs <= failedEpochMs && intervalEnd >= failedEpochMs;
+  });
+  if (!exactOwner || !exactWindow || !queryOwnerDisabledAtFailure) return null;
+
+  entry.canceled = true;
+  entry.cancellationReason = 'first-table progress disabled the configured-column context owner for the previous draft';
+  return {
+    playwrightRequestId: requestID,
+    url: entry.url,
+    requestStartedMs,
+    failedAtMs,
+    actionStartedAtMs: action.startedAtMs,
+    actionEndedAtMs: action.endedAtMs,
+    beforeDraft: { version: beforeVersion, digest: beforeDraft.digest },
+    afterDraft: { version: afterVersion, digest: afterDraft.digest },
+    patientIDs: [...expectedIDs].sort(),
+  };
 };
 
 const installFirstTableObserver = async page => page.evaluate(() => {
@@ -812,8 +922,34 @@ export const tablesWorkflow = async ({ page, report, action, check }, context) =
   await reloadEmptyWorkspace({ label: 'reload empty copied Explorer workspace', explorerId: copyExplorer });
   check('persistence', 'deleting the last table persists an empty workspace', await page.locator('[data-testid^="construction-table-"]').count() === 0,
     { explorer: copyExplorer, title: copyTitle });
+  const workspaceBeforeFirstTable = await page.getByTestId('construction-workspace').evaluate(workspace => ({
+    version: workspace.dataset.draftVersion,
+    digest: workspace.dataset.draftDigest,
+  }));
+  const actionCountBeforeFirstTable = report.actions.length;
+  await page.evaluate(startFirstTableProgressObserver);
   await createPatientTableWithUI({ page, action }, oracle.ids);
-  await checkPreviewPatients(page, report, oracle.ids, check);
+  const firstTableProgressSamples = await page.evaluate(stopFirstTableProgressObserver);
+  const firstTableRows = await checkPreviewPatients(page, report, oracle.ids, check);
+  const workspaceAfterFirstTable = await page.getByTestId('construction-workspace').evaluate(workspace => ({
+    version: workspace.dataset.draftVersion,
+    digest: workspace.dataset.draftDigest,
+  }));
+  const firstTableAction = report.actions.slice(actionCountBeforeFirstTable)
+    .find(entry => entry.label === 'create Patient table and render Preview');
+  const expectedCancellation = adjudicateFirstTableConfiguredContextAbort({
+    network: report.network,
+    uiOrigin: context.target.uiUrl,
+    project,
+    explorer: copyExplorer,
+    beforeDraft: workspaceBeforeFirstTable,
+    afterDraft: workspaceAfterFirstTable,
+    action: firstTableAction,
+    rows: firstTableRows,
+    expectedIDs: oracle.ids,
+    progressSamples: firstTableProgressSamples,
+  });
+  if (expectedCancellation) report.target.firstTableConfiguredContextCancellation = expectedCancellation;
   await configurePatientGenderWithUI({ page, action });
   await checkPreviewPatients(page, report, oracle.ids, check, oracle.genderByID);
   const allTableTransitionsWithinBudget = tableRenderCheckpoints.length === 13 &&
