@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { caseNamesFor, registry, scenarioCaseFor } from '../../registry.mjs';
-import { planFocusedCheckGroups } from '../focused-check-groups.mjs';
+import { planFocusedCheckGroups, validateRegisteredFocusedCheckPlans } from '../focused-check-groups.mjs';
 
 const repoRoot = '/workspace/loom';
 
@@ -123,16 +123,36 @@ test('validates recorded implementation source paths without turning them into c
 });
 
 test('every registered focused-check group is valid before its commands are scheduled', () => {
-  let checkedCases = 0;
-  for (const scenario of registry) {
-    for (const caseName of caseNamesFor(scenario)) {
-      const contract = scenarioCaseFor(scenario, caseName);
-      if (contract.focusedChecks === undefined) continue;
-      checkedCases += 1;
-      assert.doesNotThrow(() => planFocusedCheckGroups(contract.focusedChecks, repoRoot));
-    }
-  }
-  assert.ok(checkedCases > 0, 'the registry declares focused checks for validation');
+  const result = validateRegisteredFocusedCheckPlans(registry, caseNamesFor, scenarioCaseFor, repoRoot);
+  assert.ok(result.checked > 0, 'the registry declares focused checks for validation');
+  assert.deepEqual(result.problems, []);
+});
+
+test('native preflight reports malformed focused plans with their registered case identity', () => {
+  const entries = [{
+    id: 'test-scenario',
+    cases: {
+      'broken-case': {
+        focusedChecks: [{
+          id: 'duplicate-input',
+          cwd: '.',
+          command: ['node-test', 'scripts/example.test.mjs'],
+          sourceFiles: ['scripts/example.test.mjs'],
+        }],
+      },
+    },
+  }];
+  const result = validateRegisteredFocusedCheckPlans(
+    entries,
+    (scenario) => Object.keys(scenario.cases),
+    (scenario, caseName) => scenario.cases[caseName],
+    repoRoot,
+  );
+
+  assert.equal(result.checked, 1);
+  assert.deepEqual(result.problems, [
+    'test-scenario/broken-case: Invalid focused check groups[0].sourceFiles[0]: duplicate file scripts/example.test.mjs',
+  ]);
 });
 
 test('every registered scenario has only string requiredTransitions', () => {

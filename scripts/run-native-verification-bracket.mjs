@@ -568,16 +568,27 @@ function summarizeFirstFailureReason(report, workflowFailure, selectedTest) {
     .filter((action) => ['failed', 'running', 'current'].includes(String(action?.status ?? '').toLowerCase()))
     .at(-1);
   const evidenceAction = report?.failureEvidence?.action;
+  const selectedFailure = selectedPlaywrightFailureReason(selectedTest);
+  const reportErrors = Array.isArray(report?.errors) ? report.errors : [];
+  const reportErrorReasons = reportErrors
+    .map((error) => diagnosticLine(typeof error === 'string' ? error : error?.message ?? error?.error ?? error?.reason))
+    .filter(Boolean);
+  if (reportErrors.length && reportErrorReasons.length === 0) reportErrorReasons.push('Domain report contains errors.');
+  const actionFailure = failedReportAction || summarizeFailedAction(report)
+    || diagnosticLine(evidenceAction?.error) || diagnosticLine(evidenceAction?.message);
+  if (report?.status === 'passed' && reportErrors.length === 0 && !actionFailure
+    && !diagnosticLine(workflowFailure) && !selectedFailure) return null;
   const candidates = [
-    report?.failureEvidence?.reason,
-    report?.failureEvidence?.error,
-    report?.failureEvidence?.message,
+    workflowFailure,
+    selectedFailure,
     evidenceAction?.error,
     evidenceAction?.message,
     failedReportAction?.error,
     failedReportAction?.message,
-    workflowFailure,
-    report ? null : selectedPlaywrightFailureReason(selectedTest),
+    ...reportErrorReasons,
+    report?.failureEvidence?.reason,
+    report?.failureEvidence?.error,
+    report?.failureEvidence?.message,
   ];
   for (const candidate of candidates) {
     const reason = diagnosticLine(candidate);

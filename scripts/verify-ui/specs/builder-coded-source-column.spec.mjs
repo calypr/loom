@@ -3,7 +3,7 @@ import { builderCodedSourceColumnWorkflow } from '../workflows/builder-coded-sou
 
 test.describe('Builder coded source column', () => {
   test.use({ scenarioID: 'builder-coded-source-column', caseName: 'coded-source-column',
-    fixtureDir: 'testdata/devloop-fixture' });
+    fixtureDir: 'testdata/builder-coded-source-column' });
 
   test('native coded source column survives edit, reload, removal, and reload', async ({ page, workflow, loomContext }) => {
     test.setTimeout(180_000);

@@ -371,6 +371,12 @@ export const registry = Object.freeze([
               'scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs',
             ],
           },
+          {
+            id: 'patient-one-summary-sibling-locator',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/builder-patient-one-summary-locator.test.mjs'],
+            sourceFiles: ['scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs'],
+          },
         ],
         requiredChecks: [
           "empty-key Group prepares one row for the two raw Patient records",
@@ -1708,7 +1714,6 @@ export const registry = Object.freeze([
               'scripts/verify-ui/helpers/coverage-status.mjs',
               'scripts/verify-ui/helpers/missing-component-group-oracle.mjs',
               'scripts/verify-ui/helpers/cda-action-to-render-budget.mjs',
-              'scripts/verify-ui/helpers/tests/missing-component-group-oracle.test.mjs',
               'scripts/verify-ui/specs/standalone-cda-rows.spec.mjs',
               'scripts/verify-ui/workflows/verify-cda-repeated-empty-browser.mjs',
             ],
@@ -1810,8 +1815,6 @@ export const registry = Object.freeze([
               'scripts/verify-ui/helpers/cda-row-oracle.mjs',
               'scripts/verify-ui/helpers/missing-component-group-oracle.mjs',
               'scripts/verify-ui/helpers/cda-action-to-render-budget.mjs',
-              'scripts/verify-ui/helpers/tests/missing-component-group-oracle.test.mjs',
-              'scripts/verify-ui/helpers/tests/cda-row-oracle.test.mjs',
               'scripts/verify-ui/specs/standalone-cda-rows.spec.mjs',
               'scripts/verify-ui/workflows/verify-cda-repeated-rows-browser.mjs',
               'scripts/verify-ui/workflows/verify-cda-repeated-empty-browser.mjs',
@@ -2712,7 +2715,6 @@ export const registry = Object.freeze([
               'scripts/verify-ui/helpers/quantity-pivot-budget.mjs',
               'scripts/verify-ui/helpers/coded-pivot-native-evidence.mjs',
               'scripts/verify-ui/helpers/coded-pivot-fixture.mjs',
-              'scripts/verify-ui/helpers/tests/coded-pivot-contract.test.mjs',
             ],
           },
         ],
@@ -2754,7 +2756,6 @@ export const registry = Object.freeze([
               'scripts/verify-ui/helpers/quantity-pivot-budget.mjs',
               'scripts/verify-ui/helpers/coded-pivot-native-evidence.mjs',
               'scripts/verify-ui/helpers/coded-pivot-fixture.mjs',
-              'scripts/verify-ui/helpers/tests/coded-pivot-contract.test.mjs',
             ],
           },
         ],
@@ -3764,7 +3765,6 @@ export const registry = Object.freeze([
             command: ['node-test', 'scripts/verify-ui/helpers/tests/related-one-all-lifecycle-contract.test.mjs'],
             sourceFiles: [
               'scripts/verify-ui/helpers/related-one-all-lifecycle-contract.mjs',
-              'scripts/verify-ui/helpers/tests/related-one-all-lifecycle-contract.test.mjs',
               'scripts/verify-ui/workflows/verify-cda-related-one-all-browser.mjs',
               'scripts/verify-ui/specs/standalone-cda-rows.spec.mjs',
               'scripts/verify-ui/registry.mjs',
@@ -3890,7 +3890,6 @@ export const registry = Object.freeze([
             command: ['node-test', 'scripts/verify-ui/helpers/tests/related-one-all-lifecycle-contract.test.mjs'],
             sourceFiles: [
               'scripts/verify-ui/helpers/related-one-all-lifecycle-contract.mjs',
-              'scripts/verify-ui/helpers/tests/related-one-all-lifecycle-contract.test.mjs',
               'scripts/verify-ui/workflows/verify-cda-related-one-all-browser.mjs',
               'scripts/verify-ui/specs/standalone-cda-rows.spec.mjs',
               'scripts/verify-ui/registry.mjs',
@@ -3953,7 +3952,6 @@ export const registry = Object.freeze([
             sourceFiles: [
               'scripts/verify-ui/registry.mjs',
               'scripts/verify-ui/specs/standalone-cda-fields.spec.mjs',
-              'scripts/verify-ui/helpers/tests/contributor-exists-binding-contract.test.mjs',
             ],
           },
         ],
@@ -4027,7 +4025,6 @@ export const registry = Object.freeze([
             command: ['node-test', 'scripts/verify-ui/helpers/tests/contributor-rules-contract.test.mjs'],
             sourceFiles: [
               'scripts/verify-ui/helpers/contributor-rule-oracle.mjs',
-              'scripts/verify-ui/helpers/tests/contributor-rules-contract.test.mjs',
               'scripts/verify-ui/workflows/contributor-rules-workflow.mjs',
               'scripts/verify-ui/specs/cda-contributor-equals.spec.mjs',
               'scripts/verify-ui/registry.mjs',

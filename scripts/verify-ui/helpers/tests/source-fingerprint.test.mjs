@@ -32,11 +32,13 @@ test('fingerprint includes verifier source and fixture inputs but excludes insta
     mkdirSync(join(root, 'testdata', 'devloop-fixture'), { recursive: true });
     mkdirSync(join(root, 'testdata', 'verify-combine'), { recursive: true });
     mkdirSync(join(root, 'testdata', 'verify-combine-nullable-duplicates'), { recursive: true });
+    mkdirSync(join(root, 'testdata', 'builder-coded-source-column'), { recursive: true });
     writeFileSync(join(root, 'scripts', 'verify.mjs'), 'original verifier');
     writeFileSync(join(root, 'scripts', 'node_modules', 'dependency.mjs'), 'original dependency');
     writeFileSync(join(root, 'testdata', 'devloop-fixture', 'Patient.ndjson'), '{"id":"one"}\n');
     writeFileSync(join(root, 'testdata', 'verify-combine', 'Patient.ndjson'), '{"id":"combine-one"}\n');
     writeFileSync(join(root, 'testdata', 'verify-combine-nullable-duplicates', 'Observation.ndjson'), '{"id":"nullable-one"}\n');
+    writeFileSync(join(root, 'testdata', 'builder-coded-source-column', 'Observation.ndjson'), '{"id":"coded-one"}\n');
     const before = sourceFingerprintWithManifest(root);
     writeFileSync(join(root, 'scripts', 'verify.mjs'), 'changed verifier');
     const changedVerifier = sourceFingerprintWithManifest(root);
@@ -58,8 +60,14 @@ test('fingerprint includes verifier source and fixture inputs but excludes insta
     assert.deepEqual(sourceFingerprintChangedPaths(changedCombineFixture.manifest, changedNullableFixture.manifest), [
       { path: 'testdata/verify-combine-nullable-duplicates/Observation.ndjson', change: 'modified' },
     ]);
+    writeFileSync(join(root, 'testdata', 'builder-coded-source-column', 'Observation.ndjson'), '{"id":"coded-two"}\n');
+    const changedCodedFixture = sourceFingerprintWithManifest(root);
+    assert.notEqual(changedCodedFixture.fingerprint.sha256, changedNullableFixture.fingerprint.sha256);
+    assert.deepEqual(sourceFingerprintChangedPaths(changedNullableFixture.manifest, changedCodedFixture.manifest), [
+      { path: 'testdata/builder-coded-source-column/Observation.ndjson', change: 'modified' },
+    ]);
     writeFileSync(join(root, 'scripts', 'node_modules', 'dependency.mjs'), 'changed dependency');
-    assert.deepEqual(sourceFingerprintWithManifest(root).fingerprint, changedNullableFixture.fingerprint);
+    assert.deepEqual(sourceFingerprintWithManifest(root).fingerprint, changedCodedFixture.fingerprint);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

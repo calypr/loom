@@ -792,6 +792,57 @@ test('CDA report shape closes only when all registered lifecycle checks and the 
   assert.equal(JSON.parse(readFileSync(summary.evidence.summary, 'utf8')).status, 'passed');
 });
 
+test('passed Medication report does not leak its fallback failure evidence into the review packet', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const scenarioID = 'cda-five-hop-related-expansion';
+  const caseName = 'medication-positive-fixture';
+  // Retained CASE-038 report: 28/28 actions passed, no report errors, and a
+  // fallback reason emitted by the workflow even though the browser passed.
+  const retainedMedicationPassedReport = {
+    scenario: scenarioID,
+    case: caseName,
+    status: 'passed',
+    errors: [],
+    browserLifecycle: { status: 'passed' },
+    actions: Array.from({ length: 28 }, () => ({ status: 'passed' })),
+    failureEvidence: {
+      reason: 'Playwright workflow failed outside the action helper',
+      action: {},
+    },
+  };
+  const fake = fakeRunner({
+    scenarioID,
+    caseName,
+    rootDir: root,
+    browserReport: 'cda',
+    domainReportOverride: retainedMedicationPassedReport,
+  });
+  const summary = await runNativeVerificationBracket({
+    scenarioID,
+    caseName,
+    grep: 'preserve and exclude exact positive Medication matches through native edit and reload$',
+    evidenceParent: parent,
+    root,
+    env: fake.env,
+    commandRunner: fake.commandRunner,
+  });
+
+  assert.ok(existsSync(summary.evidence.playwrightReport), JSON.stringify({
+    status: summary.status,
+    notes: summary.notes,
+    playwright: summary.commands.playwright,
+    commands: fake.commands,
+    evidence: summary.evidence,
+  }, null, 2));
+  const playwrightReport = JSON.parse(readFileSync(summary.evidence.playwrightReport, 'utf8'));
+  const selectedResult = playwrightReport.suites[0].suites[0].specs[0].tests[0].results[0];
+  assert.equal(summary.status, 'passed');
+  assert.equal(selectedResult.status, 'passed');
+  assert.deepEqual(playwrightReport.errors, []);
+  assert.equal(summary.reviewPacket.firstFailureReason, null);
+});
+
 test('runner summary and review packet preserve normalized render evidence fields', async (t) => {
   const scenarioID = 'root-quantity-pivot';
   const caseName = 'full-population-lifecycle';

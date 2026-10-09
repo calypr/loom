@@ -9,6 +9,9 @@ const proposalPanel = '[data-testid="construction-proposal-panel"]';
 const choiceProposalPanel = '[data-testid="construction-choice-proposal-panel"]';
 const renderedTableSelector = '[data-testid="preview-table-scroll"] [role="table"]';
 
+export const readNativeGroupSummary = page =>
+  page.getByRole('combobox', { name: 'Summary 1', exact: true }).inputValue();
+
 const requireCheck = (workflow, dimension, name, passed, evidence = {}) =>
   workflow.check(dimension, name, passed, evidence);
 
@@ -77,12 +80,11 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     const rows = [...(table?.querySelectorAll('tbody tr[data-testid="construction-proposal-preview-row"]') ?? [])]
       .map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText.trim()));
     return { headers, rows, groupKeys: [...(panel?.querySelectorAll('[data-testid="construction-reshape-group"] input[aria-label^="Group by"]') ?? [])]
-      .filter(input => input.checked).map(input => input.getAttribute('aria-label')),
-    summary: panel?.querySelector('select[aria-label="Summary 1"]')?.value };
+      .filter(input => input.checked).map(input => input.getAttribute('aria-label')) };
   }, proposalPanel);
   const countIndex = groupPreview.headers.findIndex(header => header.toLowerCase() === 'row count');
   assert.deepEqual(groupPreview.groupKeys, [], 'ONE disagreement requires one empty-key group across both Patients');
-  assert.equal(groupPreview.summary, 'COUNT_ROWS');
+  assert.equal(await readNativeGroupSummary(page), 'COUNT_ROWS');
   assert.equal(groupPreview.rows.length, 1);
   assert.equal(groupPreview.rows[0]?.[countIndex], String(fixtureIDs.length));
   requireCheck(workflow, 'correctness', 'empty-key Group prepares one row for the two raw Patient records', true,

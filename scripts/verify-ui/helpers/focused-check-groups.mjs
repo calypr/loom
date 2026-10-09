@@ -142,3 +142,21 @@ export function planFocusedCheckGroups(groups, repoRoot) {
     };
   });
 }
+
+export function validateRegisteredFocusedCheckPlans(entries, caseNamesFor, scenarioCaseFor, repoRoot) {
+  const problems = [];
+  let checked = 0;
+  for (const scenario of entries) {
+    for (const caseName of caseNamesFor(scenario)) {
+      const contract = scenarioCaseFor(scenario, caseName);
+      if (contract?.focusedChecks === undefined) continue;
+      checked += 1;
+      try {
+        planFocusedCheckGroups(contract.focusedChecks, repoRoot);
+      } catch (error) {
+        problems.push(`${scenario.id}/${caseName}: ${error.message}`);
+      }
+    }
+  }
+  return { checked, problems };
+}

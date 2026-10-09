@@ -3,12 +3,15 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { caseNamesFor, coverageDrift, registry, scenarioCaseFor } from '../../verify-ui/registry.mjs';
+import { validateRegisteredFocusedCheckPlans } from '../../verify-ui/helpers/focused-check-groups.mjs';
 import { createBrowserCallbackScopeChecker } from './browser-callback-scope.mjs';
 
 const scriptsRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const root = resolve(scriptsRoot, '..');
 const problems = [];
 problems.push(...coverageDrift());
+const focusedPlanValidation = validateRegisteredFocusedCheckPlans(registry, caseNamesFor, scenarioCaseFor, root);
+problems.push(...focusedPlanValidation.problems);
 let mappedCases = 0;
 for (const scenario of registry) {
   for (const caseName of caseNamesFor(scenario)) {
@@ -112,5 +115,6 @@ try {
 }
 
 console.log(`${mappedCases}/${registry.reduce((total, scenario) => total + caseNamesFor(scenario).length, 0)} registered cases have native spec mappings`);
+console.log(`${focusedPlanValidation.checked} registered cases have valid focused-check plans`);
 for (const problem of problems) console.error(problem);
 if (problems.length) process.exitCode = 1;
