@@ -686,6 +686,123 @@ export const registry = Object.freeze([
     coverage: [],
   }),
   Object.freeze({
+    id: 'basic-temporal-filter',
+    workflow: 'basic-temporal-filter-native-lifecycle',
+    hooks: [
+      'useGetExplorerBuilderStateV2Query',
+      'useCreateExplorerAuthoringMutation',
+      'useApplyExplorerBuilderCommandsV2Mutation',
+      'useGetExplorerAuthoringCapabilityV2Query',
+      'useReconcileExplorerBuilderV2Mutation',
+      'usePreviewExplorerAuthoringV2Mutation',
+    ],
+    endpoints: [
+      'POST /api/v1/projects/{project}/explorers',
+      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
+      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/capability',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-choice-proposals',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-proposals',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/reconcile',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/preview',
+    ],
+    requiredTransitions: [
+      'create a fresh Basic Patient or Observation source table and add its exact birthDate or effectiveDateTime field',
+      'author a native typed GT filter, verify exact proposal values and rows, then Cancel and preserve the unfiltered source',
+      'Apply the filter, reload, edit GT to GTE at the same exact boundary, and verify exact matching source identities',
+      'remove the saved filter and reload the exact original source rows and bindings',
+    ],
+    gateReasons: [
+      'separate literal Basic fixtures independently pin two Patient birthDate rows and three Observation effectiveDateTime rows',
+      'the registered DATE and DATE_TIME cases exercise their native date and datetime-local controls with exact typed boundaries and result identities',
+      'the synthetic fixtures establish Basic filter behavior only, not CDA population or runtime dataset identity',
+      'native action-to-settled-result checks retain the five-second budget',
+    ],
+    script: 'basic-temporal-filter.mjs',
+    cases: {
+      date: {
+        playwrightTest: 'scripts/verify-ui/specs/basic-temporal-filter.spec.mjs',
+        playwrightGrep: 'date filter keeps exact typed values and source rows through Cancel, Apply, edit, removal, and reload$',
+        focusedChecks: [
+          {
+            id: 'basic-temporal-filter-oracle',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/basic-temporal-filter-oracle.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/specs/basic-temporal-filter.spec.mjs',
+              'scripts/verify-ui/workflows/basic-temporal-filter.mjs',
+              'scripts/verify-ui/helpers/basic-temporal-filter-oracle.mjs',
+              'testdata/basic-temporal-filter/Patient.ndjson',
+              'testdata/basic-temporal-filter/Observation.ndjson',
+            ],
+          },
+        ],
+        requiredChecks: [
+          'fresh Patient temporal fixture matches the exact literal row oracle',
+          'native Patient root Preview renders every exact source ID',
+          'native birthDate column keeps exact source values and identities',
+          'native date filter exposes exact DATE comparison controls',
+          'Cancel leaves the exact unfiltered Patient source rows',
+          'Apply saves exact DATE values and matching Patient IDs',
+          'editing preserves the saved birthDate source and exposes typed date controls',
+          'edited DATE condition and exact rows survive reload',
+          'removing DATE filter restores exact source rows after reload',
+        ],
+      },
+      'date-time': {
+        playwrightTest: 'scripts/verify-ui/specs/basic-temporal-filter.spec.mjs',
+        playwrightGrep: 'date-time filter keeps exact typed values and source rows through Cancel, Apply, edit, removal, and reload$',
+        focusedChecks: [
+          {
+            id: 'basic-temporal-filter-oracle',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/basic-temporal-filter-oracle.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/specs/basic-temporal-filter.spec.mjs',
+              'scripts/verify-ui/workflows/basic-temporal-filter.mjs',
+              'scripts/verify-ui/helpers/basic-temporal-filter-oracle.mjs',
+              'testdata/basic-temporal-filter/Patient.ndjson',
+              'testdata/basic-temporal-filter/Observation.ndjson',
+            ],
+          },
+        ],
+        requiredChecks: [
+          'fresh Observation temporal fixture matches the exact literal row oracle',
+          'native Observation root Preview renders every exact source ID',
+          'native effectiveDateTime column keeps exact source values and identities',
+          'native datetime-local filter exposes exact DATE_TIME comparison controls',
+          'Cancel leaves the exact unfiltered Observation source rows',
+          'Apply saves exact DATE_TIME values and matching Observation IDs',
+          'editing preserves the saved effectiveDateTime source and exposes typed datetime-local controls',
+          'edited DATE_TIME condition and exact rows survive reload',
+          'removing DATE_TIME filter restores exact source rows after reload',
+        ],
+      },
+    },
+    coverage: [
+      {
+        feature: 'Basic Patient DATE filter Cancel, Apply, edit, removal, reload, and exact source restoration',
+        acceptance: {
+          intent: 'row-lifecycle', kind: 'lifecycle', case: 'date',
+          checks: { choice: 3, proposal: 3, cancel: 4, apply: 5, savedRows: 5, reload: 7, edit: 6, restoration: 8 },
+        },
+        status: 'untested',
+        reason: 'The independent literal Patient fixture and full native DATE filter lifecycle are registered; browser acceptance remains pending and does not establish CDA behavior or runtime dataset identity.',
+      },
+      {
+        feature: 'Basic Observation DATE_TIME filter Cancel, Apply, edit, removal, reload, and exact source restoration',
+        acceptance: {
+          intent: 'row-lifecycle', kind: 'lifecycle', case: 'date-time',
+          checks: { choice: 3, proposal: 3, cancel: 4, apply: 5, savedRows: 5, reload: 7, edit: 6, restoration: 8 },
+        },
+        status: 'untested',
+        reason: 'The independent literal Observation fixture and full native DATE_TIME filter lifecycle are registered; browser acceptance remains pending and does not establish CDA behavior or runtime dataset identity.',
+      },
+    ],
+  }),
+  Object.freeze({
     id: 'builder-population-member-removal',
     workflow: 'attached-population-member-removal-proposal',
     hooks: [
