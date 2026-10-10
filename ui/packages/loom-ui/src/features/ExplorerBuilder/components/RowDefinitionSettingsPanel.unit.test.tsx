@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RowDefinitionChoicesResponse, RowDefinitionProposal } from '../../../types';
 import type { SelectionRevision } from '../../../selection';
 import type { DraftTable } from '../authoring/model';
+import type { RootChangeSelection } from '../authoring/rootChangeSelection';
 import type { ConstructionHistoryStep } from '../constructionWorkspace/ConstructionWorkspace';
 import { RowDefinitionSettingsPanel } from './RowDefinitionSettingsPanel';
 
@@ -114,9 +115,20 @@ const sourceSelection: SelectionRevision = {
 const relatedRowProps = {
   currentRowMeaning: 'One row per source record',
   startingCollectionSummary: 'Starting collection: All authorized Patient records',
-  renderRootSettings: (onRootChange: (nodeId: string, occurrenceId: string) => void) => (
-    <section aria-label="Row occurrence settings">
-      <button type="button" onClick={() => onRootChange('patient', 'patient-root')}>Change row occurrence</button>
+  renderRootSettings: (onRootChange: (selection: RootChangeSelection) => void) => (
+    <section aria-label="Starting record type">
+      <h4>Starting record type</h4>
+      <label>
+        <span>Choose starting record type</span>
+        <select aria-label="Choose starting record type" value="base" onChange={(event) => {
+          if (event.currentTarget.value === 'patient-observation') {
+            onRootChange({ kind: 'authored-occurrence', nodeId: 'observation', occurrenceId: 'patient-observation' });
+          }
+        }}>
+          <option value="base">Patient (current)</option>
+          <option value="patient-observation">Observation via observations</option>
+        </select>
+      </label>
     </section>
   ),
   startingCollectionSettings: <section aria-label="Starting collection">Collection controls</section>,
@@ -124,7 +136,7 @@ const relatedRowProps = {
   reshapeRows: { group: { supported: true }, groupEntry: 'group' as const, groupAlternatives: [], pivot: { supported: true }, expand: { supported: true } },
   onChooseRelatedRows: vi.fn(),
   onChooseReshape: vi.fn(),
-  onChangeRootOccurrence: vi.fn(),
+  onChangeRootSelection: vi.fn(),
 };
 
 const selectionPage = {
@@ -149,12 +161,13 @@ const renderSettings = (overrides: {
   tablePivotAlternative?: boolean;
   codedGroupDefault?: boolean;
   sourceGroupAlternative?: boolean;
-  onChangeRootOccurrence?: (nodeId: string, occurrenceId: string) => void;
+  onChangeRootSelection?: (selection: RootChangeSelection) => void;
   tableValue?: DraftTable;
   constructionHistory?: ReadonlyArray<ConstructionHistoryStep>;
   onEditConstructionStep?: (stepId: string) => void;
   onRemoveConstructionStep?: (stepId: string) => void;
   sourceCollectionAction?: ReactNode;
+  currentRowMeaning?: string;
 } = {}) => {
   const listRowDefinitionChoices = vi.fn().mockResolvedValue(overrides.choicesValue ?? choices);
   const proposeRowDefinition = vi.fn().mockResolvedValue(overrides.proposalValue ?? proposal);
@@ -163,13 +176,14 @@ const renderSettings = (overrides: {
   const onApply = vi.fn().mockResolvedValue(true);
   const onChooseRelatedRows = vi.fn();
   const onChooseReshape = vi.fn();
-  const onChangeRootOccurrence = overrides.onChangeRootOccurrence ?? vi.fn();
+  const onChangeRootSelection = overrides.onChangeRootSelection ?? vi.fn();
   const onEditConstructionStep = overrides.onEditConstructionStep ?? vi.fn();
   const onRemoveConstructionStep = overrides.onRemoveConstructionStep ?? vi.fn();
   const view = render(
     <RowDefinitionSettingsPanel
       {...relatedRowProps}
-      onChangeRootOccurrence={onChangeRootOccurrence}
+      currentRowMeaning={overrides.currentRowMeaning ?? relatedRowProps.currentRowMeaning}
+      onChangeRootSelection={onChangeRootSelection}
       relatedRows={{ supported: overrides.relatedRowsSupported ?? false, reason: 'No executable route' }}
       reshapeRows={{ group: { supported: true }, groupEntry: overrides.codedGroupDefault ? 'coded-group' : 'group',
         groupAlternatives: overrides.sourceGroupAlternative ? [{ kind: 'source-group', label: 'By source field' }] : [],
@@ -195,7 +209,7 @@ const renderSettings = (overrides: {
       onRemoveConstructionStep={onRemoveConstructionStep}
     />,
   );
-  return { ...view, listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision, onApply, onChooseRelatedRows, onChooseReshape, onChangeRootOccurrence, onEditConstructionStep, onRemoveConstructionStep };
+  return { ...view, listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision, onApply, onChooseRelatedRows, onChooseReshape, onChangeRootSelection, onEditConstructionStep, onRemoveConstructionStep };
 };
 
 afterEach(cleanup);
@@ -256,7 +270,7 @@ describe('RowDefinitionSettingsPanel', () => {
 
     fireEvent.click(trigger);
     const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
-    expect(dialog.contains(screen.getByRole('region', { name: 'Row occurrence settings' }))).toBe(true);
+    expect(dialog.contains(screen.getByRole('region', { name: 'Starting record type' }))).toBe(true);
     expect(dialog.contains(screen.getByRole('region', { name: 'Starting collection' }))).toBe(true);
     expect(screen.getByText('All authorized Patient records')).toBeInTheDocument();
     expect(dialog.querySelectorAll('details')).toHaveLength(0);
@@ -392,15 +406,27 @@ describe('RowDefinitionSettingsPanel', () => {
   });
 
   it('closes row settings before changing the root occurrence', async () => {
-    const onChangeRootOccurrence = vi.fn();
-    const { onChangeRootOccurrence: onChangeRoot } = renderSettings({ onChangeRootOccurrence });
+    const onChangeRootSelection = vi.fn();
+    const { onChangeRootSelection: onChangeRoot } = renderSettings({
+      currentRowMeaning: 'One row per Patient record.',
+      onChangeRootSelection,
+    });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
 
-    fireEvent.click(screen.getByText('Starting record type'));
-    fireEvent.click(screen.getByRole('button', { name: 'Change row occurrence' }));
+    const summary = within(dialog).getByText('One row per Patient record.');
+    const startingType = within(dialog).getByRole('region', { name: 'Starting record type' });
+    const rowChanges = within(dialog).getByRole('region', { name: 'Choose a row change' });
+    const select = within(startingType).getByRole('combobox', { name: 'Choose starting record type' });
+    expect(summary.nextElementSibling).toBe(startingType);
+    expect(startingType.compareDocumentPosition(rowChanges) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(select instanceof HTMLSelectElement && select.value).toBe('base');
+    const patientOption = within(startingType).getByRole('option', { name: 'Patient (current)' });
+    expect(patientOption instanceof HTMLOptionElement && patientOption.value).toBe('base');
 
-    expect(onChangeRoot).toHaveBeenCalledWith('patient', 'patient-root');
+    fireEvent.change(select, { target: { value: 'patient-observation' } });
+
+    expect(onChangeRoot).toHaveBeenCalledWith({ kind: 'authored-occurrence', nodeId: 'observation', occurrenceId: 'patient-observation' });
     expect(dialog).not.toBeInTheDocument();
   });
 

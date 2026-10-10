@@ -72,6 +72,7 @@ import {
   workspaceFromState,
   type BuilderAuthoringState,
 } from './authoring/model';
+import type { RootChangeSelection } from './authoring/rootChangeSelection';
 import { builderAuthoringReducer } from './authoring/reducer';
 import {
   planInitialTable,
@@ -3821,6 +3822,8 @@ const BuilderWorkspaceContent = ({
             unresolved={pendingRowChange.assessment.unresolved}
             catalog={state.catalog}
             table={table}
+            candidateRootNodeId={pendingRowChange.nodeId}
+            snapshotIsCurrent={pendingRowChange.assessment.snapshotToken === state.catalog.snapshotToken}
             disabled={rowChangeStatus.isLoading}
             onChoose={resolveRowChange}
             onCancel={() => setPendingRowChange(undefined)}
@@ -3965,7 +3968,12 @@ const BuilderWorkspaceContent = ({
                         disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
                       />
                     ) : undefined}
-                    onChangeRootOccurrence={(nodeId, occurrenceId) => void changeTableRoot(nodeId, { rootOccurrenceId: occurrenceId })}
+                    onChangeRootSelection={(selection: RootChangeSelection) => void changeTableRoot(
+                      selection.nodeId,
+                      selection.kind === 'authored-occurrence'
+                        ? { rootOccurrenceId: selection.occurrenceId }
+                        : {},
+                    )}
                     onEditConstructionStep={editConstructionStep}
                     onRemoveConstructionStep={removeConstructionStep}
                     onApply={(proposalId) => applyCommands([{

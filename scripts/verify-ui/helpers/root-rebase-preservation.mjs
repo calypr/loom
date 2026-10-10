@@ -4,7 +4,7 @@ const rootOccurrenceId = 'base';
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 export function matchesRootRebaseAssessment(entry, expected) {
-  const request = entry?.body;
+  const request = entry?.request;
   const response = entry?.response;
   const proposal = response?.proposal;
   if (!isRecord(expected) || !expected.outputId || !expected.snapshotToken ||
@@ -62,10 +62,28 @@ function expectedPopulation(beforePopulation, path, choicesByOccurrence, edgesBy
     }
     prefix.push(step);
   }
+  let prefixEnd = prefix.length;
+  let existingStart = 0;
+  while (prefixEnd > 0 && existingStart < beforePopulation.route.length &&
+    populationStepsAreExactInverses(prefix[prefixEnd - 1], beforePopulation.route[existingStart], edgesById)) {
+    prefixEnd -= 1;
+    existingStart += 1;
+  }
   return {
     ...structuredClone(beforePopulation),
-    route: [...prefix, ...structuredClone(beforePopulation.route)],
+    route: [...prefix.slice(0, prefixEnd), ...structuredClone(beforePopulation.route.slice(existingStart))],
   };
+}
+
+function populationStepsAreExactInverses(prefixStep, existingStep, edgesById) {
+  const prefixEdge = edgesById.get(prefixStep?.catalogEdgeId);
+  const existingEdge = edgesById.get(existingStep?.catalogEdgeId);
+  const oppositeDirections = (prefixEdge?.storageDirection === 'INBOUND' && existingEdge?.storageDirection === 'OUTBOUND') ||
+    (prefixEdge?.storageDirection === 'OUTBOUND' && existingEdge?.storageDirection === 'INBOUND');
+  return Boolean(prefixEdge && existingEdge && prefixEdge.label && prefixEdge.label === existingEdge.label &&
+    prefixStep.relationship === prefixEdge.label && existingStep.relationship === existingEdge.label &&
+    prefixStep.storageDirection === prefixEdge.storageDirection && existingStep.storageDirection === existingEdge.storageDirection &&
+    prefixEdge.fromNodeId === existingEdge.toNodeId && prefixEdge.toNodeId === existingEdge.fromNodeId && oppositeDirections);
 }
 
 function validRebasedRoute(beforePath, afterRoute, selectedOccurrenceId, afterRoot, beforeRoot, choicesByOccurrence, edgesById) {
@@ -108,19 +126,22 @@ export function rootRebaseColumnChoiceIdentity(requests, {
   }
   const proposals = requests.slice(fromIndex).filter(entry =>
     entry?.path?.endsWith('/construction-choice-proposals') && entry.method === 'POST' &&
-    entry.body?.outputId === outputId && entry.body?.snapshotToken === snapshotToken &&
-    entry.body?.expectedDraftVersion === draftVersion && entry.body?.expectedDraftDigest === draftDigest);
+    entry.request?.outputId === outputId && entry.request?.snapshotToken === snapshotToken &&
+    entry.request?.expectedDraftVersion === draftVersion && entry.request?.expectedDraftDigest === draftDigest);
   if (proposals.length !== 1) {
     throw new Error(`Expected one current Observation column-choice proposal, found ${proposals.length}.`);
   }
   const [proposal] = proposals;
+  const request = proposal.request;
+  const response = proposal.response;
   if (proposal.status !== 200 || !Number.isFinite(proposal.completedAt) || proposal.failure ||
-    typeof proposal.body.commandId !== 'string' || !proposal.body.commandId ||
-    !Number.isInteger(proposal.body.expectedDraftVersion) ||
-    typeof proposal.body.expectedDraftDigest !== 'string' || !proposal.body.expectedDraftDigest) {
+    !isRecord(response) || response.outputId !== outputId || response.snapshotToken !== snapshotToken ||
+    response.draftVersion !== request.expectedDraftVersion ||
+    response.draftDigest !== request.expectedDraftDigest ||
+    typeof response.commandId !== 'string' || !response.commandId) {
     throw new Error('Observation column-choice proposal did not complete successfully with its current draft identity.');
   }
-  const choices = proposal.body.constructionChoices;
+  const choices = response.constructionChoices;
   if (!Array.isArray(choices) || choices.length !== 1 || !isRecord(choices[0]) ||
     typeof choices[0].choiceId !== 'string' || !choices[0].choiceId ||
     typeof choices[0].form !== 'string' || !choices[0].form) {
@@ -133,11 +154,11 @@ export function rootRebaseColumnChoiceIdentity(requests, {
       .map(key => [key, selected[key]]),
   );
   return {
-    commandId: proposal.body.commandId,
+    commandId: response.commandId,
     outputId,
     snapshotToken,
-    expectedDraftVersion: proposal.body.expectedDraftVersion,
-    expectedDraftDigest: proposal.body.expectedDraftDigest,
+    expectedDraftVersion: request.expectedDraftVersion,
+    expectedDraftDigest: request.expectedDraftDigest,
     command: {
       type: 'APPLY_CONSTRUCTION_CHOICE',
       outputId,
@@ -149,10 +170,10 @@ export function rootRebaseColumnChoiceIdentity(requests, {
 
 function matchesRootRebaseColumnApply(entry, expected) {
   return entry?.path?.endsWith('/commands') === true && entry.method === 'POST' &&
-    entry.body?.commandId === expected.commandId && entry.body?.snapshotToken === expected.snapshotToken &&
-    entry.body?.expectedDraftVersion === expected.expectedDraftVersion &&
-    entry.body?.expectedDraftDigest === expected.expectedDraftDigest &&
-    isDeepStrictEqual(entry.body?.commands, [expected.command]);
+    entry.request?.commandId === expected.commandId && entry.request?.snapshotToken === expected.snapshotToken &&
+    entry.request?.expectedDraftVersion === expected.expectedDraftVersion &&
+    entry.request?.expectedDraftDigest === expected.expectedDraftDigest &&
+    isDeepStrictEqual(entry.request?.commands, [expected.command]);
 }
 
 function assertCompletedRootRebaseRequest(entry, label, errors) {
@@ -194,7 +215,7 @@ export async function waitForRootRebaseColumnApply({
   }
   const remaining = () => {
     const value = deadlineAt - now();
-    if (value <= 0) throw new Error('Timed out waiting for Observation column Apply and field discovery within the 5s action deadline.');
+    if (value <= 0) throw new Error('Timed out waiting for Observation column Apply and paired source rows within the 5s action deadline.');
     return value;
   };
   const command = await waitForRequest(
@@ -205,33 +226,11 @@ export async function waitForRootRebaseColumnApply({
 
   const matchingSchemaRequests = () => requests.slice(schemaFromIndex).filter(entry =>
     entry?.path?.endsWith('/schema-fields') && entry.method === 'POST' &&
-    entry.body?.snapshotToken === schemaIdentity.snapshotToken &&
-    entry.body?.nodeId === schemaIdentity.nodeId);
-  for (const request of matchingSchemaRequests()) {
-    if (Number.isFinite(request.completedAt)) {
-      assertCompletedRootRebaseRequest(request, 'Observation schema-fields request', errors);
-    }
-  }
-
+    entry.request?.snapshotToken === schemaIdentity.snapshotToken &&
+    entry.request?.nodeId === schemaIdentity.nodeId);
   await closeCatalog(remaining());
-  const schemaRequestsAtClose = matchingSchemaRequests();
-  const pendingAtClose = schemaRequestsAtClose.filter(entry => !Number.isFinite(entry.completedAt));
-  await Promise.all(pendingAtClose.map(async request => {
-    const completed = await waitForRequest(
-      entry => entry.browserRequestId === request.browserRequestId && Number.isFinite(entry.completedAt),
-      { fromIndex: schemaFromIndex, timeoutMs: remaining() },
-    );
-    assertCompletedRootRebaseRequest(completed, 'Observation schema-fields request', errors);
-  }));
-  for (const request of schemaRequestsAtClose) {
-    assertCompletedRootRebaseRequest(request, 'Observation schema-fields request', errors);
-  }
-
   await waitForPairedRows(remaining());
-  for (const request of matchingSchemaRequests()) {
-    assertCompletedRootRebaseRequest(request, 'Observation schema-fields request', errors);
-  }
-  return { command, schemaRequests: schemaRequestsAtClose };
+  return { command, schemaRequests: matchingSchemaRequests() };
 }
 
 export function rootRebasePreservesFilterWhenAddingColumn(beforeDocument, afterDocument) {

@@ -4,6 +4,10 @@ import type {
   RowChangeUnresolvedReference,
 } from '../../../types';
 import { derivedOccurrences, type DraftTable } from '../authoring/model';
+import {
+  isCatalogRootRouteSelectionToken,
+  resolveCatalogRootRouteSelection,
+} from '../authoring/rootChangeSelection';
 import { relationshipLabel } from '../constructionWorkspace/routeDisplay';
 
 const alternativeLabel = (
@@ -11,10 +15,12 @@ const alternativeLabel = (
   reference: RowChangeUnresolvedReference,
   catalog: ExplorerBuilderCatalog,
   table: DraftTable,
-): string => {
+  candidateRootNodeId: string,
+  snapshotIsCurrent: boolean,
+): { readonly label: string; readonly available: boolean } => {
   if (reference.code === 'AMBIGUOUS_ROUTE_REBASE_EDGE') {
     const edge = catalog.edges.find((candidate) => candidate.edgeId === alternative);
-    if (!edge) return alternative;
+    if (!edge) return { label: 'Unavailable relationship option', available: false };
     const from = catalog.nodes.find((node) => node.nodeId === edge.fromNodeId)?.resourceType;
     const to = catalog.nodes.find((node) => node.nodeId === edge.toNodeId)?.resourceType;
     const relationship = relationshipLabel({
@@ -22,19 +28,43 @@ const alternativeLabel = (
       toResourceType: to ?? '',
       relationship: edge.label,
     });
-    return `${relationship}${from && to ? ` between ${from} and ${to}` : ''}`;
+    return {
+      label: `${relationship}${from && to ? ` between ${from} and ${to}` : ''}`,
+      available: Boolean(from && to),
+    };
   }
-  const occurrence = derivedOccurrences(table, catalog).find(
-    (candidate) => candidate.id === alternative,
-  );
-  if (!occurrence) return alternative;
-  return `${occurrence.resourceType}${occurrence.relationship ? ` through ${occurrence.relationship}` : ''}`;
+  if (reference.code === 'AMBIGUOUS_ROW_ROOT_OCCURRENCE') {
+    if (isCatalogRootRouteSelectionToken(alternative)) {
+      const selection = resolveCatalogRootRouteSelection(
+        alternative,
+        catalog,
+        table,
+        candidateRootNodeId,
+        snapshotIsCurrent,
+      );
+      if (!selection) return { label: 'Unavailable relationship option', available: false };
+      return {
+        label: `Use ${selection.pathLabel} from ${selection.anchorLabel}`,
+        available: true,
+      };
+    }
+  }
+  const occurrence = derivedOccurrences(table, catalog).find((candidate) => candidate.id === alternative);
+  if (occurrence) {
+    return {
+      label: `${occurrence.resourceType}${occurrence.relationship ? ` through ${occurrence.relationship}` : ''}`,
+      available: true,
+    };
+  }
+  return { label: 'Unavailable relationship option', available: false };
 };
 
 export const RowChangeRepairPanel = ({
   unresolved,
   catalog,
   table,
+  candidateRootNodeId,
+  snapshotIsCurrent,
   disabled,
   onChoose,
   onCancel,
@@ -42,6 +72,8 @@ export const RowChangeRepairPanel = ({
   readonly unresolved: ReadonlyArray<RowChangeUnresolvedReference>;
   readonly catalog: ExplorerBuilderCatalog;
   readonly table: DraftTable;
+  readonly candidateRootNodeId: string;
+  readonly snapshotIsCurrent: boolean;
   readonly disabled: boolean;
   readonly onChoose: (
     reference: RowChangeUnresolvedReference,
@@ -76,20 +108,36 @@ export const RowChangeRepairPanel = ({
                 reference,
                 catalog,
                 table,
+                candidateRootNodeId,
+                snapshotIsCurrent,
               );
               return (
                 <button
                   key={alternative}
                   type="button"
                   className="rounded-md border border-amber-400 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100 disabled:opacity-50"
-                  disabled={disabled}
+                  disabled={disabled || !label.available}
                   onClick={() => onChoose(reference, alternative)}
                 >
-                  Match through {label}
+                  {label.label}
                 </button>
               );
             })}
           </div>
+          {reference.code === 'AMBIGUOUS_ROW_ROOT_OCCURRENCE' &&
+          (!snapshotIsCurrent || (reference.alternatives ?? []).some((alternative) =>
+            isCatalogRootRouteSelectionToken(alternative) &&
+            !resolveCatalogRootRouteSelection(
+              alternative,
+              catalog,
+              table,
+              candidateRootNodeId,
+              snapshotIsCurrent,
+            ))) ? (
+            <p className="mt-2 text-xs text-amber-900" role="alert">
+              A relationship choice is no longer available. Keep the current rows and choose the starting record type again.
+            </p>
+          ) : null}
         </div>
       ))}
     </div>

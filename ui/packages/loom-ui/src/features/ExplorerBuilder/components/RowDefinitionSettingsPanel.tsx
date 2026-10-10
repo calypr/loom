@@ -8,6 +8,7 @@ import type {
   RowDefinitionSelection,
 } from '../../../types';
 import type { DraftTable } from '../authoring/model';
+import type { RootChangeSelection } from '../authoring/rootChangeSelection';
 import type { SelectionRevision } from '../../../selection';
 import type { ConstructionHistoryStep } from '../constructionWorkspace/ConstructionWorkspace';
 import { ExplicitGroupAuthoring } from './ExplicitGroupAuthoring';
@@ -189,7 +190,7 @@ export const RowDefinitionSettingsPanel = ({
   onChooseRelatedRows,
   onChooseReshape,
   sourceCollectionAction,
-  onChangeRootOccurrence,
+  onChangeRootSelection,
   onEditConstructionStep,
   onRemoveConstructionStep,
 }: {
@@ -203,7 +204,7 @@ export const RowDefinitionSettingsPanel = ({
   readonly table: DraftTable;
   readonly currentRowMeaning: string;
   readonly startingCollectionSummary: string;
-  readonly renderRootSettings: (onRootChange: (nodeId: string, occurrenceId: string) => void) => ReactNode;
+  readonly renderRootSettings: (onRootChange: (selection: RootChangeSelection) => void) => ReactNode;
   readonly startingCollectionSettings: ReactNode;
   readonly selection?: SelectionRevision;
   readonly constructionHistory?: ReadonlyArray<ConstructionHistoryStep>;
@@ -223,7 +224,7 @@ export const RowDefinitionSettingsPanel = ({
   readonly onChooseRelatedRows: () => void;
   readonly onChooseReshape: (kind: 'group' | 'source-group' | 'coded-group' | 'expand' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot') => void;
   readonly sourceCollectionAction?: ReactNode;
-  readonly onChangeRootOccurrence: (nodeId: string, occurrenceId: string) => void;
+  readonly onChangeRootSelection: (selection: RootChangeSelection) => void;
   readonly onEditConstructionStep?: (stepId: string) => void;
   readonly onRemoveConstructionStep?: (stepId: string) => void;
 }) => {
@@ -442,7 +443,11 @@ export const RowDefinitionSettingsPanel = ({
               <div>
                 <h3 className="text-xl font-semibold text-slate-900">Change the table shape</h3>
                 <p className="mt-2 text-sm text-slate-700">{currentRowMeaning}</p>
-                <p className="mt-1 text-sm text-slate-600">Decide what one row should describe. These actions change how records become rows and which fields you can add. Preview the result before applying it.</p>
+                {renderRootSettings((selection) => {
+                  cancel();
+                  onChangeRootSelection(selection);
+                })}
+                <p className="mt-3 text-sm text-slate-600">Choose a different starting record type or decide what one row should describe. Preview row changes before applying them.</p>
               </div>
               <button type="button" className="shrink-0 whitespace-nowrap rounded-md border border-slate-300 px-3 py-1.5 text-sm" onClick={cancel}>Back to table</button>
             </div>
@@ -674,13 +679,6 @@ export const RowDefinitionSettingsPanel = ({
                   ) : null}
                 </section>
               </div>
-              <section aria-label="Starting record type" className="min-w-0 border-t border-slate-200 pt-3">
-                <h4 className="text-sm font-semibold text-slate-900">Starting record type</h4>
-                <div className="mt-2">{renderRootSettings((nodeId, occurrenceId) => {
-                  cancel();
-                  onChangeRootOccurrence(nodeId, occurrenceId);
-                })}</div>
-              </section>
               <section aria-label="Starting collection settings" className="min-w-0 border-t border-slate-200 pt-3">
                 <h4 className="text-sm font-semibold text-slate-900">Starting collection</h4>
                 <p className="mt-1 text-xs text-slate-600">{startingCollectionDescription}</p>

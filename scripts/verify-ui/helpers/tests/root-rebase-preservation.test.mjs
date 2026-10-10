@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict';
-import { EventEmitter } from 'node:events';
 import test from 'node:test';
-import { captureCDARequests } from '../cda-playwright-requests.mjs';
 import {
   matchesRootRebaseAssessment,
   rootRebaseColumnChoiceIdentity,
@@ -101,304 +99,69 @@ const retainedAfter = {
 
 const clone = value => structuredClone(value);
 
-function rootRebaseColumnChoiceRequest() {
-  return {
-    path: '/api/v1/projects/project/explorers/owned/authoring/v2/construction-choice-proposals',
+test('root assessment matcher binds the requested transition and current draft', () => {
+  const expected = {
+    outputId: 'out-owned',
+    snapshotToken: `sha256:${'a'.repeat(64)}`,
+    draftVersion: 4,
+    draftDigest: `sha256:${'b'.repeat(64)}`,
+    currentRootResourceType: 'Patient',
+    candidateRootResourceType: 'Observation',
+    rootOccurrenceId: 'occ-selected',
+  };
+  const request = {
+    outputId: expected.outputId,
+    snapshotToken: expected.snapshotToken,
+    draftVersion: expected.draftVersion,
+    draftDigest: expected.draftDigest,
+    rootNodeId: 'node-observation',
+    rootOccurrenceId: expected.rootOccurrenceId,
+  };
+  const response = {
+    snapshotToken: expected.snapshotToken,
+    draftVersion: expected.draftVersion,
+    draftDigest: expected.draftDigest,
+    currentRootResourceType: expected.currentRootResourceType,
+    candidateRootResourceType: expected.candidateRootResourceType,
+    status: 'READY',
+    proposal: {
+      outputId: expected.outputId,
+      rootNodeId: request.rootNodeId,
+      rootOccurrenceId: expected.rootOccurrenceId,
+    },
+  };
+  const entry = {
+    path: '/api/v1/projects/project/explorers/owned/authoring/v2/row-change',
     method: 'POST',
     status: 200,
-    completedAt: 10,
-    body: {
-      commandId: 'choice-command',
-      snapshotToken: 'snapshot-current',
-      expectedDraftVersion: 8,
-      expectedDraftDigest: 'sha256:draft-current',
-      outputId: 'output-current',
-      constructionChoices: [{ choiceId: 'choice-current', form: 'VALUE', title: 'Observation ID' }],
-    },
-  };
-}
-
-function rootRebaseColumnApplyEntry(expected, browserRequestId = 'apply-current') {
-  return {
-    path: '/api/v1/projects/project/explorers/owned/authoring/v2/commands',
-    method: 'POST',
-    browserRequestId,
-    requestId: browserRequestId,
-    status: 200,
-    completedAt: 20,
-    body: {
-      commandId: expected.commandId,
-      snapshotToken: expected.snapshotToken,
-      expectedDraftVersion: expected.expectedDraftVersion,
-      expectedDraftDigest: expected.expectedDraftDigest,
-      commands: [expected.command],
-    },
-  };
-}
-
-function rootRebaseSchemaRequest(browserRequestId, status) {
-  return {
-    path: '/api/v1/projects/project/explorers/owned/authoring/v2/schema-fields',
-    method: 'POST',
-    browserRequestId,
-    requestId: browserRequestId,
-    body: { snapshotToken: 'snapshot-current', nodeId: 'observation-node' },
-    ...status,
-  };
-}
-
-function requestWaiter(requests) {
-  const waiters = new Set();
-  const find = waiter => requests.slice(waiter.fromIndex).find(entry =>
-    Number.isFinite(entry.completedAt) && waiter.predicate(entry));
-  return {
-    waitForRequest(predicate, { fromIndex, timeoutMs }) {
-      const waiter = { predicate, fromIndex };
-      const match = find(waiter);
-      if (match) return Promise.resolve(match);
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-          waiters.delete(waiter);
-          reject(new Error(`Timed out after ${timeoutMs}ms waiting for a native request.`));
-        }, timeoutMs);
-        waiters.add({ ...waiter, resolve, reject, timer });
-      });
-    },
-    notify() {
-      for (const waiter of [...waiters]) {
-        const match = find(waiter);
-        if (!match) continue;
-        clearTimeout(waiter.timer);
-        waiters.delete(waiter);
-        waiter.resolve(match);
-      }
-    },
-    get pendingCount() { return waiters.size; },
-  };
-}
-
-test('row assessment waits for the fresh matching root transition and current draft', async () => {
-  const page = new EventEmitter();
-  const report = { nativeRequests: [], errors: [] };
-  const tracker = captureCDARequests(page, {
-    apiOrigin: 'http://127.0.0.1:8188',
-    ownedPathPrefix: '/api/v1/projects/project/explorers/owned/authoring/v2',
-    report,
-    responsePaths: /row-change/,
-  });
-  const snapshotToken = `sha256:${'a'.repeat(64)}`;
-  const draftDigest = `sha256:${'b'.repeat(64)}`;
-  const outputId = 'out-owned';
-  const rootOccurrenceId = 'occ-selected';
-  const body = (draftVersion, rootNodeId) => ({
-    snapshotToken, draftVersion, draftDigest, outputId, rootNodeId, rootOccurrenceId,
-  });
-  const identity = (currentRootResourceType, candidateRootResourceType, draftVersion) => ({
-    outputId, snapshotToken, draftVersion, draftDigest,
-    currentRootResourceType, candidateRootResourceType, rootOccurrenceId,
-  });
-  const assessment = (requestBody, currentRootResourceType, candidateRootResourceType, status = 'READY') => ({
-    snapshotToken, draftVersion: requestBody.draftVersion, draftDigest,
-    currentRootResourceType, candidateRootResourceType,
-    preservedFeatureKeys: ['patient-id'], diagnostics: [],
-    ...(status === 'READY' ? {
-      status,
-      proposal: {
-        outputId, rootNodeId: requestBody.rootNodeId, rootOccurrenceId,
-        sourceDocumentDigest: `sha256:${'c'.repeat(64)}`, routeRebase: [{ occurrenceId: 'base', edgeId: 'edge' }],
-        preservedFeatureKeys: ['patient-id'],
-      },
-      unresolved: [],
-    } : { status, unresolved: [{ kind: 'route', id: 'occ-selected', code: 'NEEDS_CHOICE', message: 'Choose the relationship.' }] }),
-  });
-  const emit = async (id, requestBody, responseBody) => {
-    const request = {
-      url: () => 'http://127.0.0.1:8188/api/v1/projects/project/explorers/owned/authoring/v2/row-change',
-      method: () => 'POST', headers: () => ({ 'x-request-id': id }),
-      postData: () => JSON.stringify(requestBody),
-    };
-    const fromIndex = report.nativeRequests.length;
-    const captured = tracker.waitFor(entry => entry.requestId === id && entry.status === 200,
-      { fromIndex, timeoutMs: 1000 });
-    page.emit('request', request);
-    page.emit('response', {
-      request: () => request, status: () => 200, headers: () => ({ 'x-request-id': `${id}-response` }),
-      text: async () => JSON.stringify(responseBody),
-    });
-    return captured;
+    request,
+    response,
   };
 
-  const forward = identity('Patient', 'Observation', 4);
-  const oldForwardBody = body(4, 'node-observation');
-  const oldForward = await emit('old-forward', oldForwardBody,
-    assessment(oldForwardBody, 'Patient', 'Observation'));
-  const freshForwardFrom = report.nativeRequests.length;
-  const freshForwardWait = tracker.waitFor(entry => matchesRootRebaseAssessment(entry, forward),
-    { fromIndex: freshForwardFrom, timeoutMs: 1000 });
-  const freshForwardBody = body(4, 'node-observation');
-  const freshForwardCapture = emit('fresh-forward', freshForwardBody,
-    assessment(freshForwardBody, 'Patient', 'Observation'));
-  const freshForward = await freshForwardWait;
-  await freshForwardCapture;
-  assert.notEqual(oldForward, freshForward);
-  assert.equal(matchesRootRebaseAssessment(oldForward, forward), true,
-    'Cancel followed by a fresh proposal can reuse the same draft identity, so freshness comes from the request start index');
-
-  const restoration = identity('Observation', 'Patient', 6);
-  const restorationFrom = report.nativeRequests.length;
-  const restorationWait = tracker.waitFor(entry => matchesRootRebaseAssessment(entry, restoration),
-    { fromIndex: restorationFrom, timeoutMs: 1000 });
-  const restorationBody = body(6, 'node-patient');
-  const restorationResponse = assessment(restorationBody, 'Observation', 'Patient');
-  const restorationEntryPromise = emit('restore-patient', restorationBody, restorationResponse);
-  const restorationEntry = await restorationWait;
-  await restorationEntryPromise;
-  assert.equal(matchesRootRebaseAssessment(oldForward, restoration), false,
-    'A prior Patient-to-Observation response cannot satisfy an Observation-to-Patient restoration');
-  assert.equal(matchesRootRebaseAssessment(restorationEntry, restoration), true);
-
+  assert.equal(matchesRootRebaseAssessment(entry, expected), true);
+  assert.equal(matchesRootRebaseAssessment({ ...entry, request: undefined, body: request }, expected), false,
+    'legacy body-only request entries must not match');
   for (const mutate of [
-    entry => { entry.body.outputId = 'out-other'; },
-    entry => { entry.body.draftVersion += 1; },
-    entry => { entry.body.draftDigest = 'sha256:other'; },
-    entry => { entry.body.rootNodeId = 'node-observation'; },
-    entry => { entry.response.currentRootResourceType = 'Patient'; },
-    entry => { entry.response.candidateRootResourceType = 'Observation'; },
+    candidate => { candidate.request.outputId = 'out-other'; },
+    candidate => { candidate.request.draftVersion += 1; },
+    candidate => { candidate.request.draftDigest = 'sha256:other'; },
+    candidate => { candidate.request.rootOccurrenceId = 'occ-other'; },
+    candidate => { candidate.response.currentRootResourceType = 'Observation'; },
+    candidate => { candidate.response.candidateRootResourceType = 'Patient'; },
+    candidate => { candidate.response.proposal.rootNodeId = 'node-other'; },
   ]) {
-    const mismatch = structuredClone(restorationEntry);
+    const mismatch = structuredClone(entry);
     mutate(mismatch);
-    assert.equal(matchesRootRebaseAssessment(mismatch, restoration), false);
+    assert.equal(matchesRootRebaseAssessment(mismatch, expected), false);
   }
 
-  const blockedBody = body(6, 'node-patient');
-  assert.equal(matchesRootRebaseAssessment({
-    path: '/api/v1/projects/project/explorers/owned/authoring/v2/row-change', method: 'POST', status: 200,
-    body: blockedBody, response: assessment(blockedBody, 'Observation', 'Patient', 'BLOCKED'),
-  }, restoration), true, 'A current BLOCKED assessment without a proposal must reach the repair choice');
-  await tracker.flush();
-});
-
-test('column Apply rejects stale commands, closes the catalog, then drains only active schema requests before exact paired rows', async () => {
-  const choiceRequest = rootRebaseColumnChoiceRequest();
-  const expected = rootRebaseColumnChoiceIdentity([choiceRequest], {
-    outputId: 'output-current', snapshotToken: 'snapshot-current',
-    draftVersion: 8, draftDigest: 'sha256:draft-current',
-  });
-  const staleCommand = rootRebaseColumnApplyEntry(expected, 'apply-stale');
-  staleCommand.completedAt = 15;
-  const currentCommand = rootRebaseColumnApplyEntry(expected);
-  const firstSchemaRequest = rootRebaseSchemaRequest('schema-first');
-  const requests = [staleCommand, currentCommand, firstSchemaRequest];
-  const waiter = requestWaiter(requests);
-  let catalogOpen = true;
-  let continuationStarts = 0;
-  let pairedRowsWaited = false;
-  const resultPromise = waitForRootRebaseColumnApply({
-    requests,
-    errors: [],
-    fromIndex: 1,
-    schemaFromIndex: 0,
-    expected,
-    schemaIdentity: { snapshotToken: 'snapshot-current', nodeId: 'observation-node' },
-    deadlineAt: Date.now() + 5000,
-    waitForRequest: waiter.waitForRequest,
-    closeCatalog: async timeoutMs => {
-      assert(timeoutMs > 0);
-      catalogOpen = false;
-    },
-    waitForPairedRows: async timeoutMs => {
-      assert(timeoutMs > 0);
-      pairedRowsWaited = true;
-    },
-  });
-
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(catalogOpen, false, 'the native catalog close happens before the active request drains');
-  assert.equal(waiter.pendingCount, 1, 'the request active when the catalog closes must be awaited');
-  Object.assign(firstSchemaRequest, { status: 200, completedAt: 30 });
-  waiter.notify();
-  if (catalogOpen) {
-    requests.push(rootRebaseSchemaRequest('schema-continuation'));
-    continuationStarts += 1;
-  }
-  assert.equal(continuationStarts, 0, 'closing the catalog stops its paginated continuation before the drain');
-  assert.deepEqual(requests.map(request => request.browserRequestId), ['apply-stale', 'apply-current', 'schema-first']);
-
-  const result = await resultPromise;
-  assert.equal(result.command.browserRequestId, 'apply-current', 'the prior matching command is outside the Apply request window');
-  assert.deepEqual(result.schemaRequests.map(request => request.browserRequestId), ['schema-first']);
-  assert.equal(pairedRowsWaited, true, 'exact paired source rows are part of the same Apply deadline');
-});
-
-test('column Apply fails on an unexpected schema response or network failure', async () => {
-  const expected = rootRebaseColumnChoiceIdentity([rootRebaseColumnChoiceRequest()], {
-    outputId: 'output-current', snapshotToken: 'snapshot-current',
-    draftVersion: 8, draftDigest: 'sha256:draft-current',
-  });
-  const command = rootRebaseColumnApplyEntry(expected);
-  const failedSchema = rootRebaseSchemaRequest('schema-error', { status: 503, completedAt: 25 });
-  const errors = [{ kind: 'http', browserRequestId: 'schema-error', status: 503 }];
-  await assert.rejects(waitForRootRebaseColumnApply({
-    requests: [command, failedSchema], errors,
-    fromIndex: 0, schemaFromIndex: 0, expected,
-    schemaIdentity: { snapshotToken: 'snapshot-current', nodeId: 'observation-node' },
-    deadlineAt: Date.now() + 5000,
-    waitForRequest: async (predicate, { fromIndex }) => {
-      const match = [command, failedSchema].slice(fromIndex).find(entry => Number.isFinite(entry.completedAt) && predicate(entry));
-      assert(match, 'the exact current Apply or schema request should be available');
-      return match;
-    },
-    closeCatalog: async () => assert.fail('failed schema requests must not reach the native catalog close'),
-    waitForPairedRows: async () => assert.fail('failed schema requests must not reach the paired-row gate'),
-  }), /Observation schema-fields request did not complete successfully/);
-
-  const cancelledSchema = rootRebaseSchemaRequest('schema-cancelled', {
-    failure: 'net::ERR_ABORTED', completedAt: 26,
-  });
-  await assert.rejects(waitForRootRebaseColumnApply({
-    requests: [command, cancelledSchema],
-    errors: [{ kind: 'network', browserRequestId: 'schema-cancelled', error: 'net::ERR_ABORTED' }],
-    fromIndex: 0, schemaFromIndex: 0, expected,
-    schemaIdentity: { snapshotToken: 'snapshot-current', nodeId: 'observation-node' },
-    deadlineAt: Date.now() + 5000,
-    waitForRequest: async (predicate, { fromIndex }) => {
-      const match = [command, cancelledSchema].slice(fromIndex)
-        .find(entry => Number.isFinite(entry.completedAt) && predicate(entry));
-      assert(match, 'the exact current Apply or schema request should be available');
-      return match;
-    },
-    closeCatalog: async () => assert.fail('failed network requests must not reach the native catalog close'),
-    waitForPairedRows: async () => assert.fail('cancelled schema requests must not reach the paired-row gate'),
-  }), /Observation schema-fields request did not complete successfully/);
-});
-
-test('column Apply expires the shared deadline while waiting for schema completion', async () => {
-  const expected = rootRebaseColumnChoiceIdentity([rootRebaseColumnChoiceRequest()], {
-    outputId: 'output-current', snapshotToken: 'snapshot-current',
-    draftVersion: 8, draftDigest: 'sha256:draft-current',
-  });
-  const command = rootRebaseColumnApplyEntry(expected);
-  const pendingSchema = rootRebaseSchemaRequest('schema-pending');
-  let now = 100;
-  let schemaWaitBudget;
-  await assert.rejects(waitForRootRebaseColumnApply({
-    requests: [command, pendingSchema], errors: [],
-    fromIndex: 0, schemaFromIndex: 0, expected,
-    schemaIdentity: { snapshotToken: 'snapshot-current', nodeId: 'observation-node' },
-    deadlineAt: 110,
-    now: () => now,
-    waitForRequest: async (predicate, { fromIndex, timeoutMs }) => {
-      const match = [command, pendingSchema].slice(fromIndex).find(entry => Number.isFinite(entry.completedAt) && predicate(entry));
-      if (match) return match;
-      schemaWaitBudget = timeoutMs;
-      now = 110;
-      Object.assign(pendingSchema, { status: 200, completedAt: now });
-      return pendingSchema;
-    },
-    closeCatalog: async timeoutMs => assert.equal(timeoutMs, 10, 'native close receives only the remaining Apply budget'),
-    waitForPairedRows: async () => assert.fail('an expired deadline must stop before preview polling'),
-  }), /5s action deadline/);
-  assert.equal(schemaWaitBudget, 10, 'schema completion receives only the remaining Apply budget');
+  const blocked = structuredClone(entry);
+  blocked.response.status = 'BLOCKED';
+  delete blocked.response.proposal;
+  blocked.response.unresolved = [{ kind: 'route', id: expected.rootOccurrenceId, code: 'NEEDS_CHOICE' }];
+  assert.equal(matchesRootRebaseAssessment(blocked, expected), true,
+    'a current BLOCKED assessment without a proposal must reach the repair choice');
+  assert.equal(matchesRootRebaseAssessment({ ...entry, status: 503 }, expected), false);
 });
 
 test('retained Il425N Patient ID binding survives the exact Patient-to-Observation occurrence remap', () => {
@@ -486,6 +249,112 @@ test('retained no-population document stays valid while populated documents prep
   assert.equal(rootRebasePreservesAuthoredDocument(before, changedMembershipRoute, options), false);
 });
 
+test('restoring a population root cancels only the exact inverse route seam', () => {
+  const forwardEdgeId = 'patient-observation-route';
+  const forwardEdge = {
+    edgeId: forwardEdgeId,
+    fromNodeId: 'patient-node',
+    toNodeId: 'observation-node',
+    label: 'subject_Patient',
+    storageDirection: 'INBOUND',
+    populated: true,
+  };
+  const reverseEdge = catalogEdges[0];
+  const edges = [...catalogEdges, forwardEdge];
+  const before = clone(retainedAfter);
+  before.columns.push({
+    columnId: 'source_Il425N_observation_id',
+    column: 'col_Il425N_observation_id',
+    label: 'Observation ID',
+    logicalType: 'string',
+    occurrenceId: 'base',
+    source: { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } },
+  });
+  before.construction.steps[0].outputs.push({
+    id: 'source_Il425N_observation_id',
+    name: 'col_Il425N_observation_id',
+    label: 'Observation ID',
+    type: 'string',
+  });
+  before.population = {
+    selectionRevisionId: 'selection-revision-Il425N',
+    route: [{
+      resourceType: 'Patient',
+      relationship: 'subject_Patient',
+      catalogEdgeId: reverseEdge.edgeId,
+      storageDirection: reverseEdge.storageDirection,
+    }],
+  };
+
+  const after = {
+    ...clone(before),
+    rootResourceType: 'Patient',
+    route: {
+      occurrenceId: 'base',
+      resourceType: 'Patient',
+      children: [{
+        occurrenceId: selectedOccurrenceId,
+        resourceType: 'Observation',
+        catalogEdgeId: forwardEdgeId,
+        relationship: 'subject_Patient',
+        matchMode: 'OPTIONAL',
+      }],
+    },
+    columns: [
+      { ...clone(before.columns[0]), occurrenceId: 'base' },
+      { ...clone(before.columns[1]), occurrenceId: selectedOccurrenceId },
+    ],
+    population: { selectionRevisionId: 'selection-revision-Il425N', route: [] },
+  };
+  const callOptions = {
+    selectedOccurrenceId,
+    routeRebase: [{ occurrenceId: 'base', edgeId: forwardEdgeId }],
+    catalogEdges: edges,
+  };
+  assert.equal(rootRebasePreservesAuthoredDocument(before, after, callOptions), true,
+    'the Patient → Observation prefix and Observation → Patient population route cancel at their exact inverse seam');
+
+  const uncollapsed = clone(after);
+  uncollapsed.population.route = [
+    {
+      resourceType: 'Observation',
+      relationship: 'subject_Patient',
+      catalogEdgeId: forwardEdgeId,
+      storageDirection: 'INBOUND',
+    },
+    ...clone(before.population.route),
+  ];
+  assert.equal(rootRebasePreservesAuthoredDocument(before, uncollapsed, callOptions), false,
+    'a saved document that retains both inverse steps does not match the restored selected population');
+
+  const distinctPatientEdge = {
+    ...forwardEdge,
+    edgeId: 'other-patient-observation-route',
+    fromNodeId: 'other-patient-node',
+  };
+  const distinctNodeAfter = clone(after);
+  distinctNodeAfter.route.children[0].catalogEdgeId = distinctPatientEdge.edgeId;
+  distinctNodeAfter.population.route = [
+    {
+      resourceType: 'Observation',
+      relationship: 'subject_Patient',
+      catalogEdgeId: distinctPatientEdge.edgeId,
+      storageDirection: 'INBOUND',
+    },
+    ...clone(before.population.route),
+  ];
+  const distinctNodeOptions = {
+    ...callOptions,
+    routeRebase: [{ occurrenceId: 'base', edgeId: distinctPatientEdge.edgeId }],
+    catalogEdges: [...edges, distinctPatientEdge],
+  };
+  assert.equal(rootRebasePreservesAuthoredDocument(before, distinctNodeAfter, distinctNodeOptions), true,
+    'matching resource types do not cancel steps whose catalog endpoints are distinct');
+  distinctNodeAfter.population.route = [];
+  assert.equal(rootRebasePreservesAuthoredDocument(before, distinctNodeAfter, distinctNodeOptions), false,
+    'a different Patient node cannot be collapsed as the selected population anchor');
+});
+
 test('preservation predicate rejects a wrong occurrence target or any authored column, filter, row, or output change', () => {
   const reject = (mutate, callOptions = options) => {
     const after = clone(retainedAfter);
@@ -550,4 +419,163 @@ test('adding one output extends FILTER outputs while retaining the exact authore
   const extraStep = clone(after);
   extraStep.construction.steps.push(clone(extraStep.construction.steps[0]));
   assert.equal(rootRebasePreservesFilterWhenAddingColumn(before, extraStep), false);
+});
+
+test('column-choice identity reads request identity and response choice from the observer entry', () => {
+  const proposalRequest = {
+    commandId: 'command-observation-column',
+    outputId: 'output-current',
+    snapshotToken: 'snapshot-current',
+    expectedDraftVersion: 5,
+    expectedDraftDigest: 'sha256:draft-current',
+    constructionChoices: [{ choiceId: 'request-choice', form: 'VALUE' }],
+    limit: 50,
+  };
+  const proposalResponse = {
+    commandId: 'command-observation-column',
+    outputId: 'output-current',
+    snapshotToken: 'snapshot-current',
+    draftVersion: 5,
+    draftDigest: 'sha256:draft-current',
+    constructionChoices: [{ choiceId: 'choice-current', form: 'VALUE', title: 'Observation ID' }],
+    preview: { headers: ['Patient ID'], rows: [['patient-current']] },
+  };
+  const proposal = {
+    path: '/api/v1/projects/project/explorers/owned/authoring/v2/construction-choice-proposals',
+    method: 'POST',
+    request: proposalRequest,
+    response: proposalResponse,
+    status: 200,
+    completedAt: 20,
+  };
+  const expected = rootRebaseColumnChoiceIdentity([proposal], {
+    outputId: 'output-current',
+    snapshotToken: 'snapshot-current',
+    draftVersion: 5,
+    draftDigest: 'sha256:draft-current',
+  });
+
+  assert.deepEqual(expected, {
+    commandId: 'command-observation-column',
+    outputId: 'output-current',
+    snapshotToken: 'snapshot-current',
+    expectedDraftVersion: 5,
+    expectedDraftDigest: 'sha256:draft-current',
+    command: {
+      type: 'APPLY_CONSTRUCTION_CHOICE',
+      outputId: 'output-current',
+      constructionChoice: { choiceId: 'choice-current', form: 'VALUE' },
+      title: 'Observation ID',
+    },
+  });
+  const identity = {
+    outputId: 'output-current',
+    snapshotToken: 'snapshot-current',
+    draftVersion: 5,
+    draftDigest: 'sha256:draft-current',
+  };
+  assert.throws(() => rootRebaseColumnChoiceIdentity([{
+    ...proposal,
+    request: undefined,
+    body: proposalRequest,
+  }], identity), /Expected one current Observation column-choice proposal/,
+  'legacy body-only request entries must not match');
+  for (const mutate of [
+    response => { response.outputId = 'output-other'; },
+    response => { response.snapshotToken = 'snapshot-other'; },
+    response => { response.draftVersion += 1; },
+    response => { response.draftDigest = 'sha256:other'; },
+  ]) {
+    const mismatch = structuredClone(proposal);
+    mutate(mismatch.response);
+    assert.throws(() => rootRebaseColumnChoiceIdentity([mismatch], identity),
+      /did not complete successfully with its current draft identity/);
+  }
+});
+
+test('successful Observation column Apply proceeds when closing the catalog cancels an optional schema page', async () => {
+  const expected = {
+    commandId: 'command-observation-column',
+    outputId: 'output-current',
+    snapshotToken: 'snapshot-current',
+    expectedDraftVersion: 9,
+    expectedDraftDigest: 'sha256:draft-current',
+    command: {
+      type: 'APPLY_CONSTRUCTION_CHOICE',
+      outputId: 'output-current',
+      constructionChoice: { choiceId: 'choice-current', form: 'VALUE' },
+      title: 'Observation ID',
+    },
+  };
+  const applied = {
+    path: '/api/v1/projects/project/explorers/owned/authoring/v2/commands',
+    method: 'POST',
+    requestId: 'apply-observation-column',
+    browserRequestId: 'playwright-apply-observation-column',
+    status: 200,
+    completedAt: 20,
+    request: {
+      commandId: expected.commandId,
+      snapshotToken: expected.snapshotToken,
+      expectedDraftVersion: expected.expectedDraftVersion,
+      expectedDraftDigest: expected.expectedDraftDigest,
+      commands: [expected.command],
+    },
+    response: { commandId: expected.commandId, draftVersion: expected.expectedDraftVersion + 1 },
+  };
+  const legacyApply = {
+    ...applied,
+    request: undefined,
+    body: applied.request,
+    browserRequestId: 'legacy-body-only-apply',
+  };
+  const optionalSchemaPage = {
+    path: '/api/v1/projects/project/explorers/owned/authoring/v2/schema-fields',
+    method: 'POST',
+    requestId: 'schema-fields-optional-page',
+    browserRequestId: 'playwright-schema-fields-optional-page',
+    startedAt: 15,
+    request: { snapshotToken: 'snapshot-current', nodeId: 'observation-node', cursor: 'next-page' },
+  };
+  const requests = [legacyApply, applied, optionalSchemaPage];
+  const errors = [];
+  const waits = [];
+  let catalogClosed = false;
+  let pairedRowsObserved = false;
+
+  const result = await waitForRootRebaseColumnApply({
+    requests,
+    errors,
+    fromIndex: 0,
+    schemaFromIndex: 0,
+    expected,
+    schemaIdentity: { snapshotToken: 'snapshot-current', nodeId: 'observation-node' },
+    deadlineAt: 100,
+    now: () => 30,
+    waitForRequest: async (predicate, options) => {
+      waits.push(options);
+      const match = requests.slice(options.fromIndex).find(predicate);
+      assert(match, 'only the exact chosen-column Apply mutation should be awaited');
+      return match;
+    },
+    closeCatalog: async timeoutMs => {
+      assert.equal(timeoutMs, 70, 'catalog close receives the remaining shared Apply budget');
+      catalogClosed = true;
+      optionalSchemaPage.failure = 'net::ERR_ABORTED';
+      optionalSchemaPage.completedAt = 31;
+    },
+    waitForPairedRows: async timeoutMs => {
+      assert(timeoutMs > 0);
+      pairedRowsObserved = true;
+    },
+  });
+
+  assert.equal(waits.length, 1, 'optional schema pages are diagnostic and are not drained');
+  assert.equal(result.command, applied, 'the selected mutation remains the successful 200 response');
+  assert.equal(result.command.request.commands[0].type, 'APPLY_CONSTRUCTION_CHOICE');
+  assert.equal(catalogClosed, true);
+  assert.equal(pairedRowsObserved, true, 'paired Observation and Patient values remain required');
+  assert.deepEqual(result.schemaRequests, [optionalSchemaPage], 'the canceled page remains available as diagnostic evidence');
+  assert.equal(result.schemaRequests[0].failure, 'net::ERR_ABORTED');
+  assert.deepEqual(errors, [], 'the observer owns fatal transport and runtime failures');
 });
