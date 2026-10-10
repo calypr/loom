@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "sourceRoot": ".",
+  "datasetDir": "testdata/scope-001-restricted-auth",
+  "composeProject": "loom-dev-scope001-auth",
+  "project": "loom_dev_scope001-auth",
+  "generation": "scope001-auth-v1",
+  "apiOrigin": "http://127.0.0.1:8198",
+  "uiOrigin": "http://127.0.0.1:30088",
+  "apiContainer": "loom-dev-scope001-auth-loom-api-1",
+  "arangoContainer": "loom-dev-scope001-auth-arangodb-1",
+  "arangoDatabase": "loom_dev",
+  "clickhouseContainer": "loom-dev-scope001-auth-clickhouse-1",
+  "noAuth": false
+}

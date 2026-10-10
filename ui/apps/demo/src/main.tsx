@@ -3,9 +3,11 @@ import { createRoot } from 'react-dom/client';
 import '@mantine/core/styles.css';
 import '@calypr/loom-ui/styles.css';
 import './styles.css';
+import { updateDemoNavigationURL, viewerProjectID } from './demo-route.mjs';
 
 const params = new URLSearchParams(window.location.search);
 const project = params.get('project') ?? import.meta.env.VITE_LOOM_PROJECT ?? 'NCPI_ACCEPTANCE';
+const organization = params.get('organization')?.trim() || undefined;
 const explorerId = params.get('explorer') ?? import.meta.env.VITE_LOOM_EXPLORER ?? 'default';
 const selectionRevisionId = params.get('selection') ?? undefined;
 const mode = params.get('mode') ?? import.meta.env.VITE_LOOM_MODE ?? 'builder';
@@ -38,31 +40,26 @@ const App = () => {
   const [featureFocus, setFeatureFocus] = React.useState(initialFeatureFocus);
   const setCurrentMode = React.useCallback((nextMode: 'builder' | 'viewer') => {
     setMode(nextMode);
-    const nextURL = new URL(window.location.href);
-    nextURL.searchParams.set('project', project);
-    nextURL.searchParams.set('explorer', selectedExplorerId);
-    nextURL.searchParams.set('mode', nextMode);
+    const nextURL = updateDemoNavigationURL(new URL(window.location.href), {
+      kind: 'mode', project, organization, explorerId: selectedExplorerId, mode: nextMode,
+    });
     window.history.replaceState({}, '', nextURL);
-  }, [selectedExplorerId]);
+  }, [organization, project, selectedExplorerId]);
   const onExplorerChange = React.useCallback((nextExplorerId: string) => {
     setSelectedExplorerId(nextExplorerId);
-    const nextURL = new URL(window.location.href);
-    nextURL.searchParams.set('project', project);
-    nextURL.searchParams.set('explorer', nextExplorerId);
+    const nextURL = updateDemoNavigationURL(new URL(window.location.href), {
+      kind: 'explorer', project, organization, explorerId: nextExplorerId,
+    });
     window.history.replaceState({}, '', nextURL);
-  }, []);
+  }, [organization, project]);
   const repairFeature = React.useCallback((focus: { outputId: string; column: string; label: string }) => {
     setFeatureFocus(focus);
     setMode('builder');
-    const nextURL = new URL(window.location.href);
-    nextURL.searchParams.set('project', project);
-    nextURL.searchParams.set('explorer', selectedExplorerId);
-    nextURL.searchParams.set('mode', 'builder');
-    nextURL.searchParams.set('focusOutput', focus.outputId);
-    nextURL.searchParams.set('focusColumn', focus.column);
-    nextURL.searchParams.set('focusLabel', focus.label);
+    const nextURL = updateDemoNavigationURL(new URL(window.location.href), {
+      kind: 'repair', project, organization, explorerId: selectedExplorerId, focus,
+    });
     window.history.replaceState({}, '', nextURL);
-  }, [selectedExplorerId]);
+  }, [organization, project, selectedExplorerId]);
   return (
     <div className="demo-shell">
       <header className="demo-header">
@@ -76,8 +73,8 @@ const App = () => {
       <div className="demo-content">
         <React.Suspense fallback={<div className="p-6 text-sm text-slate-500">Loading Explorer…</div>}>
           {currentMode === 'builder'
-            ? <LoomExplorerBuilder project={project} explorerId={selectedExplorerId} selectionRevisionId={selectionRevisionId} onExplorerChange={onExplorerChange} featureFocus={featureFocus} />
-            : <LoomExplorerViewer project={project} explorerId={selectedExplorerId} onRepairFeature={repairFeature} />}
+            ? <LoomExplorerBuilder organization={organization} project={project} explorerId={selectedExplorerId} selectionRevisionId={selectionRevisionId} onExplorerChange={onExplorerChange} featureFocus={featureFocus} />
+            : <LoomExplorerViewer project={viewerProjectID(organization, project)} explorerId={selectedExplorerId} onRepairFeature={repairFeature} />}
         </React.Suspense>
       </div>
     </div>

@@ -1,0 +1,26 @@
+services:
+  loom-api:
+    image: loom-dev-scope001-auth-api:${LOOM_SCOPE001_API_IMAGE_TAG:?set the API toolchain image fingerprint}
+    environment:
+      LOOM_AUTH_CALYPR_TRUSTED_ISSUER: "${LOOM_AUTH_CALYPR_TRUSTED_ISSUER:?set the local Scope-001 Fence issuer}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - type: bind
+        source: ${LOOM_DEV_SOURCE_ROOT:-.}/scripts/verify-ui/targets/scope-001-restricted-auth.air.toml
+        target: /workspace/.air.dev.toml
+        read_only: true
+      - type: bind
+        source: ${LOOM_DEV_SOURCE_ROOT:-.}/scripts/verify-ui/targets/scope-001-restricted-auth.server.yaml
+        target: /workspace/scope-001-restricted-auth.server.yaml
+        read_only: true
+  loom-ui:
+    image: loom-dev-scope001-auth-ui:${LOOM_SCOPE001_UI_IMAGE_TAG:?set the UI dependency image fingerprint}
+
+volumes:
+  loom_dev_go_module_cache:
+    external: true
+    name: loom-dev-6d7df93d6a37_loom_dev_go_module_cache
+  loom_dev_go_build_cache:
+    external: true
+    name: loom-dev-6d7df93d6a37_loom_dev_go_build_cache

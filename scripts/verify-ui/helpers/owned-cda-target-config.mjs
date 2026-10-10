@@ -16,6 +16,7 @@ const configFields = [
   'clickhouseContainer',
   'noAuth',
 ];
+const optionalConfigFields = ['arangoDatabase'];
 const localHosts = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 function requireString(value, field) {
@@ -50,7 +51,8 @@ function parseLocalOrigin(value, field) {
 
 function validateConfigShape(config) {
   assert(config && typeof config === 'object' && !Array.isArray(config), 'Owned CDA target config must be a JSON object.');
-  const unknown = Object.keys(config).filter((field) => !configFields.includes(field));
+  const allowedFields = [...configFields, ...optionalConfigFields];
+  const unknown = Object.keys(config).filter((field) => !allowedFields.includes(field));
   const missing = configFields.filter((field) => !Object.hasOwn(config, field));
   assert.equal(unknown.length, 0, `Unsupported target config fields: ${unknown.join(', ')}.`);
   assert.equal(missing.length, 0, `Missing target config fields: ${missing.join(', ')}.`);
@@ -117,6 +119,9 @@ export async function loadOwnedCdaTargetConfig({
   const composeProject = requireName(config.composeProject, 'composeProject', /^[A-Za-z0-9_.-]+$/);
   const apiContainer = requireName(config.apiContainer, 'apiContainer', /^[A-Za-z0-9_.-]+$/);
   const arangoContainer = requireName(config.arangoContainer, 'arangoContainer', /^[A-Za-z0-9_.-]+$/);
+  const arangoDatabase = Object.hasOwn(config, 'arangoDatabase')
+    ? requireString(config.arangoDatabase, 'arangoDatabase')
+    : undefined;
   const clickhouseContainer = requireName(config.clickhouseContainer, 'clickhouseContainer', /^[A-Za-z0-9_.-]+$/);
   assert.equal(new Set([apiContainer, arangoContainer, clickhouseContainer]).size, 3,
     'API, ArangoDB, and ClickHouse container names must be distinct.');
@@ -138,6 +143,7 @@ export async function loadOwnedCdaTargetConfig({
     uiPort: ui.port,
     apiContainer,
     arangoContainer,
+    ...(arangoDatabase === undefined ? {} : { arangoDatabase }),
     clickhouseContainer,
     noAuth: config.noAuth,
   });
@@ -161,6 +167,9 @@ export async function loadOwnedCdaTargetConfig({
     LOOM_DEV_GENERATION: target.generation,
     LOOM_DEV_API_URL: target.apiOrigin,
     LOOM_DEV_UI_URL: target.uiOrigin,
+    LOOM_DEV_API_PORT: target.apiPort,
+    LOOM_DEV_UI_PORT: target.uiPort,
+    ...(arangoDatabase === undefined ? {} : { LOOM_ARANGO_DATABASE: arangoDatabase }),
   });
   validateEnvironmentOverrides(env, environment);
 
