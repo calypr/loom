@@ -1,16 +1,47 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { correlateRequestFailure } from '../network-timing.mjs';
 import test from 'node:test';
-import { captureCDARequests } from '../cda-playwright-requests.mjs';
+import { fileURLToPath } from 'node:url';
 import {
   captureCdaActionEpoch,
+  createFreshBasicQuantityFixture,
   classifyExpectedCdaCancellation,
   environmentSnapshot,
+  shouldCreateFreshBasicQuantityProject,
+  assertCdaExplicitUIRoute,
   finalizeCdaExplorerMetadata,
   gateFailure,
 } from '../cda-fixtures.mjs';
+import { canonicalProjectID } from '../../../loom-dev.mjs';
+import { captureCDARequests } from '../cda-playwright-requests.mjs';
+import { createdExplorerScope } from '../created-explorer-scope.mjs';
+
+test('fresh generated project binds the Explorer response through canonical project identity', () => {
+  const requestedProject = 'loom_dev_verify_mv2y5q93-30de6f32';
+  const returnedProject = 'loom_dev_verify_mv2y5q93/30de6f32';
+  assert.equal(canonicalProjectID(requestedProject), returnedProject);
+  assert.notEqual(returnedProject, 'loom_dev_cda_fhir', 'The generated project remains distinct from the shared project');
+
+  const scope = createdExplorerScope(requestedProject, {
+    project: returnedProject,
+    explorerId: 'related-one-all-quantity',
+  });
+  assert.deepEqual(scope, {
+    project: returnedProject,
+    explorerId: 'related-one-all-quantity',
+    explorerRoot: '/api/v1/projects/loom_dev_verify_mv2y5q93%2F30de6f32/explorers/related-one-all-quantity',
+    authoringBase: '/api/v1/projects/loom_dev_verify_mv2y5q93%2F30de6f32/explorers/related-one-all-quantity/authoring/v2',
+    browserExplorerRoot: '/api/v1/projects/loom_dev_verify_mv2y5q93%252F30de6f32/explorers/related-one-all-quantity',
+    browserAuthoringBase: '/api/v1/projects/loom_dev_verify_mv2y5q93%252F30de6f32/explorers/related-one-all-quantity/authoring/v2',
+  });
+
+  assert.throws(() => createdExplorerScope(requestedProject, {
+    project: 'loom_dev_verify_mv2y5q94/30de6f32',
+    explorerId: 'related-one-all-quantity',
+  }), /match the requested project/);
+});
 
 const greenCdaReport = (nativeRequests = []) => ({
   runnerStatus: 'passed',
@@ -76,6 +107,47 @@ test('CDA environment snapshot retains the explicit oracle database without forw
       else process.env[key] = value;
     }
   }
+});
+
+test('only the exact Basic Quantity lifecycle gets a fresh literal-fixture project', async () => {
+  const scenarioID = 'basic-related-quantity-one-all';
+  const caseName = 'basic-height-quantity-one-all-lifecycle';
+  assert.equal(shouldCreateFreshBasicQuantityProject({ scenarioID, caseName }), true);
+  assert.equal(shouldCreateFreshBasicQuantityProject({ scenarioID, caseName: 'other-case' }), false);
+  assert.equal(shouldCreateFreshBasicQuantityProject({ scenarioID: 'cda-related-one-all', caseName }), false);
+
+  const sourceRoot = realpathSync(fileURLToPath(new URL('../../../../', import.meta.url)));
+  const fixtureDir = realpathSync(fileURLToPath(new URL('../../../../testdata/devloop-fixture', import.meta.url)));
+  const session = {
+    sourceRoot,
+    fixtureDir,
+    fixtureProject: 'loom_dev_shared',
+    fixtureGeneration: 'fixture-v1',
+  };
+  const target = {
+    ...session,
+    fixtureProject: 'loom_dev_verify_test-run',
+  };
+  const fresh = await createFreshBasicQuantityFixture(session, 'test-run', {
+    createFixture: async (receivedSession, runID) => {
+      assert.equal(receivedSession, session);
+      assert.equal(runID, 'test-run');
+      return { target, seed: { fresh: true, reused: false } };
+    },
+  });
+  assert.equal(fresh.target, target);
+
+  let seeded = false;
+  await assert.rejects(() => createFreshBasicQuantityFixture(
+    { ...session, fixtureDir: sourceRoot },
+    'wrong-fixture',
+    { createFixture: async () => { seeded = true; throw new Error('must not seed'); } },
+  ), /literal devloop fixture/);
+  assert.equal(seeded, false, 'A wrong fixture directory must be rejected before any generation seed');
+
+  await assert.rejects(() => createFreshBasicQuantityFixture(session, 'reused-run', {
+    createFixture: async () => ({ target, seed: { fresh: false, reused: true } }),
+  }), /must report a fresh generation/);
 });
 
 test('green CDA evidence rejects the retained WoYfih request with no terminal outcome', () => {

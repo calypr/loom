@@ -1,4 +1,9 @@
-import { expect, test } from '../helpers/cda-fixtures.mjs';
+import {
+  expect,
+  shouldCreateFreshBasicQuantityProject,
+  test,
+} from '../helpers/cda-fixtures.mjs';
+import { hasSameQuantityValueMultiset } from '../helpers/basic-related-quantity-one-all-oracle.mjs';
 import { nestedRepeatedWorkflow } from '../workflows/verify-cda-nested-repeated-browser.mjs';
 import { relatedOneAllWorkflow } from '../workflows/verify-cda-related-one-all-browser.mjs';
 import { repeatedEmptyWorkflow } from '../workflows/verify-cda-repeated-empty-browser.mjs';
@@ -19,12 +24,17 @@ const expectLifecycleChecks = (assertions, names) => {
 
 const relatedMode = process.env.LOOM_RELATED_ONE_ALL_MODE ?? 'cda';
 const relatedField = process.env.LOOM_RELATED_ONE_ALL_FIELD ?? 'id';
-const relatedCaseName = relatedMode === 'cda' && relatedField === 'specimen-reference'
-  ? 'cda-specimen-reference-raw-oracle-one-all-lifecycle'
-  : `${relatedMode}-${relatedField}-raw-oracle-one-all-lifecycle`;
-const relatedScenarioID = relatedMode === 'cda' && relatedField === 'specimen-reference'
-  ? 'cda-related-one-all-specimen-reference'
-  : 'cda-related-one-all';
+const basicQuantityMode = relatedMode === 'basic' && relatedField === 'quantity';
+const relatedCaseName = basicQuantityMode
+  ? 'basic-height-quantity-one-all-lifecycle'
+  : relatedMode === 'cda' && relatedField === 'specimen-reference'
+    ? 'cda-specimen-reference-raw-oracle-one-all-lifecycle'
+    : `${relatedMode}-${relatedField}-raw-oracle-one-all-lifecycle`;
+const relatedScenarioID = basicQuantityMode
+  ? 'basic-related-quantity-one-all'
+  : relatedMode === 'cda' && relatedField === 'specimen-reference'
+    ? 'cda-related-one-all-specimen-reference'
+    : 'cda-related-one-all';
 const basicRelatedTarget = relatedMode === 'basic' ? {
   ...(process.env.LOOM_DEV_PROJECT ? { cdaProject: process.env.LOOM_DEV_PROJECT } : {}),
   ...(process.env.LOOM_API_ORIGIN ? { cdaApiOrigin: process.env.LOOM_API_ORIGIN } : {}),
@@ -66,6 +76,10 @@ test.describe('CDA related source ONE and ALL values', () => {
     ...basicRelatedTarget,
     cdaScenarioID: relatedScenarioID,
     cdaCaseName: relatedCaseName,
+    cdaCreateFreshBasicQuantityProject: shouldCreateFreshBasicQuantityProject({
+      scenarioID: relatedScenarioID,
+      caseName: relatedCaseName,
+    }),
   });
 
   test(`preserves ${relatedMode} ${relatedField} behavior against raw related records`, async ({ page, cda }) => {
@@ -73,7 +87,93 @@ test.describe('CDA related source ONE and ALL values', () => {
     const skipReason = fixtureUnavailableSkipReason(result);
     if (skipReason) test.skip(true, skipReason);
     expect(result.cases.length).toBeGreaterThan(0);
-    expect(result.status).toBe('passed');
+    if (relatedScenarioID !== 'basic-related-quantity-one-all') expect(result.status).toBe('passed');
+    if (relatedScenarioID === 'basic-related-quantity-one-all') {
+      expect(result.project).toBe(cda.project);
+      expect(result.generation).toBe(cda.generation);
+      expect(result.project).not.toBe(process.env.LOOM_DEV_PROJECT);
+      expect(result.project).toMatch(/^loom_dev_verify_/);
+      expect(result.quantitySourceContract).toMatchObject({
+        path: 'Observation.valueQuantity.value',
+        logicalType: 'decimal',
+        cardinality: 'optional_one',
+        operation: 'RELATED_SOURCE',
+        codeFamily: { system: 'https://example.test/codes', code: 'height', display: 'Height' },
+        onePolicyExpectedError: 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES',
+        allValuesPreserveNumericType: true,
+      });
+      expect(result.oracle.literalFixtureCrossCheck).toMatchObject({
+        fixture: 'testdata/devloop-fixture/Patient.ndjson + Observation.ndjson',
+        patientId: 'dev-patient-001',
+        codeFamily: { system: 'https://example.test/codes', code: 'height', display: 'Height' },
+      });
+      expect(result.oracle.literalFixtureCrossCheck.observationValues).toEqual([
+        { observationID: 'dev-observation-001', code: { system: 'https://example.test/codes', code: 'height', display: 'Height' },
+          value: 172.5, quantity: { value: 172.5, unit: 'cm' } },
+        { observationID: 'dev-observation-003', code: { system: 'https://example.test/codes', code: 'height', display: 'Height' },
+          value: 180, quantity: { value: 180, unit: 'cm' } },
+      ]);
+      expect(result.oracle).toMatchObject({
+        exactMembershipScope: { rootResourceType: 'Patient', patientId: 'dev-patient-001', observationCount: 2 },
+        finalScopedRereadMatched: true,
+      });
+      expect(result.oneRejection).toMatchObject({
+        status: 422,
+        errorCode: 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES',
+        distinctQuantityValues: [172.5, 180],
+        manyObservationIds: ['dev-observation-001', 'dev-observation-003'],
+      });
+      expect(result.oneChooserAfterRejection).toMatchObject({
+        open: true, policy: 'ONE', routeChecked: true, formChecked: true, addEnabled: true, savedGroupUnchanged: true,
+      });
+      expect(result.quantityAllOutputEvidence).toMatchObject({
+        expectedValues: [172.5, 180], identitiesMatch: true, logicalType: 'decimal',
+      });
+      expect(hasSameQuantityValueMultiset(result.quantityAllOutputEvidence.previewValues, [172.5, 180])).toBe(true);
+      expect(result.quantityAllCancelEvidence).toEqual({
+        workspaceUnchanged: true, constructionUnchanged: true, populationUnchanged: true, renderedRowsMatch: true,
+      });
+      expect(result.quantityAllSavedEvidence).toMatchObject({
+        logicalType: 'decimal', expectedValues: [172.5, 180], sourceMatches: true,
+      });
+      expect(hasSameQuantityValueMultiset(result.quantityAllSavedEvidence.previewValues, [172.5, 180])).toBe(true);
+      expect(hasSameQuantityValueMultiset(result.quantityAllSavedEvidence.reloadValues, [172.5, 180])).toBe(true);
+      expect(result.relatedOutputEditEvidence).toMatchObject({
+        labelChanged: true, candidateSourceMatches: true, policy: 'ALL',
+        expectedValues: [172.5, 180],
+      });
+      expect(hasSameQuantityValueMultiset(result.relatedOutputEditEvidence.reloadValues, [172.5, 180])).toBe(true);
+      expect(result.relatedSourceRestoration).toMatchObject({
+        constructionMatchesBaseline: true, populationMatchesBaseline: true, columnsMatchBaseline: true,
+        previewRowsMatchBaseline: true, relatedOutputAbsent: true, patientIds: ['dev-patient-001'],
+      });
+      const timedSteps = [
+        'related-observation-one-disagreement',
+        'same-chooser-all-repair-preview',
+        'cancel-related-all-proposal-preserves-group',
+        'reopened-all-preview-before-apply',
+        'apply-related-all-to-native-table-render',
+        'native-preview-matches-exact-related-field-oracle',
+        'reload-related-all-available-cardinality-values',
+        'edit-related-field-output-label',
+        'reload-edited-related-field-output-label',
+        'remove-related-source-step-preview',
+        'apply-remove-related-step-restores-native-group-table',
+        'reload-restored-available-witness-group-table',
+      ];
+      const durationByName = new Map(result.cases.map(({ name, durationMs }) => [name, durationMs]));
+      for (const name of timedSteps) {
+        const durationMs = durationByName.get(name);
+        expect(Number.isFinite(durationMs), `${name} must report its action-to-render duration`).toBe(true);
+        expect(durationMs, `${name} must settle within five seconds`).toBeLessThanOrEqual(5000);
+      }
+      expectLifecycleChecks(cda.report.assertions, [
+        'Basic Quantity ONE rejects the two exact same-code decimal values and ALL renders the full numeric array',
+        'Cancel preserves the Group and Apply/edit retain the exact Quantity source binding',
+        'Reload preserves the exact decimal array and removal restores the original Patient Group rows',
+        'Basic Quantity ONE-to-ALL lifecycle action-to-render checkpoints finish within five seconds',
+      ]);
+    }
   });
 });
 

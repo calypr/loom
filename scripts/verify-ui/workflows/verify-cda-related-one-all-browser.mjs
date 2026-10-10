@@ -16,10 +16,13 @@ import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp
 import { expectedRelatedSourceOneValidation, relatedSourceProposalCandidate, selectedRelatedSourceProposal as matchSelectedRelatedSourceProposal } from '../helpers/related-source-capture.mjs';
 import { createNativeAbortProbeSource, nativeAbortProbeEvidenceForRequest, nativeAbortDomOwnerRules } from '../helpers/native-abort-probe.mjs';
 import { fixtureUnavailableOutcome } from '../helpers/cda-fixture-outcomes.mjs';
+import { hasSameQuantityValueMultiset, readBasicRelatedQuantityOneAllOracle } from '../helpers/basic-related-quantity-one-all-oracle.mjs';
 import {
   statusOneAllLifecycleChecks,
   zeroObservationLifecycleChecks,
 } from '../helpers/related-one-all-lifecycle-contract.mjs';
+
+const ACTION_TIMEOUT_MS = 5_000;
 
 // Adapted from verify-cda-group-related-values-browser.mjs and
 // verify-cda-coded-field-lifecycle-browser.mjs. The raw CDA oracle is kept
@@ -31,11 +34,12 @@ export async function relatedOneAllWorkflow({
 const mode = requestedMode ?? process.env.LOOM_RELATED_ONE_ALL_MODE ?? 'cda';
 assert(['basic', 'cda'].includes(mode), 'LOOM_RELATED_ONE_ALL_MODE must be basic or cda');
 const basicMode = mode === 'basic';
-const project = basicMode ? process.env.LOOM_DEV_PROJECT : cda.project;
-const generation = basicMode ? process.env.LOOM_DEV_GENERATION : cda.generation ?? process.env.LOOM_CDA_GENERATION;
+const project = cda.project ?? (basicMode ? process.env.LOOM_DEV_PROJECT : undefined);
+let browserProject = project;
+const generation = cda.generation ?? (basicMode ? process.env.LOOM_DEV_GENERATION : process.env.LOOM_CDA_GENERATION);
 const fieldMode = requestedFieldMode ?? process.env.LOOM_RELATED_ONE_ALL_FIELD ?? 'id';
-assert(['id', 'status', 'specimen-reference'].includes(fieldMode),
-  'LOOM_RELATED_ONE_ALL_FIELD must be id, status, or specimen-reference');
+assert(['id', 'status', 'specimen-reference', 'quantity'].includes(fieldMode),
+  'LOOM_RELATED_ONE_ALL_FIELD must be id, status, specimen-reference, or quantity');
 const witnessMode = requestedWitnessMode ?? process.env.LOOM_RELATED_ONE_ALL_WITNESS ?? 'default';
 assert(['default', 'zero'].includes(witnessMode), 'LOOM_RELATED_ONE_ALL_WITNESS must be default or zero');
 const zeroObservationMode = witnessMode === 'zero';
@@ -47,11 +51,14 @@ assert(!savedEmptyPolicyEdit || zeroObservationMode,
   'The saved RelatedExpand empty-policy edit requires the exact zero Observation witness workflow');
 const statusFieldMode = fieldMode === 'status';
 const referenceFieldMode = fieldMode === 'specimen-reference';
-assert(!basicMode || statusFieldMode, 'The basic fixture mode is only defined for Observation.status');
-const relatedFieldPath = statusFieldMode ? 'status' : referenceFieldMode ? 'specimen.reference' : 'id';
-const relatedOutputLabel = statusFieldMode ? 'Observation status' : referenceFieldMode ? 'Observation specimen reference' : 'Observation ID';
-const relatedChoiceLabel = statusFieldMode ? 'Status' : referenceFieldMode ? 'Specimen Reference' : relatedOutputLabel;
-const logicalTypeExpected = 'string';
+const quantityFieldMode = fieldMode === 'quantity';
+assert(!basicMode || statusFieldMode || quantityFieldMode, 'The basic fixture mode is only defined for Observation.status or Observation.valueQuantity.value');
+assert(!quantityFieldMode || basicMode,
+  'Observation.valueQuantity.value ONE/ALL coverage is currently defined only for the Basic Patient fixture');
+const relatedFieldPath = quantityFieldMode ? 'valueQuantity.value' : statusFieldMode ? 'status' : referenceFieldMode ? 'specimen.reference' : 'id';
+const relatedOutputLabel = quantityFieldMode ? 'Observation valueQuantity.value' : statusFieldMode ? 'Observation status' : referenceFieldMode ? 'Observation specimen reference' : 'Observation ID';
+const relatedChoiceLabel = quantityFieldMode ? 'Value Quantity Value' : statusFieldMode ? 'Status' : referenceFieldMode ? 'Specimen Reference' : relatedOutputLabel;
+const logicalTypeExpected = quantityFieldMode ? 'decimal' : 'string';
 const cardinalityExpected = 'optional_one';
 const referenceWitness = {
   specimenKey: 'Specimen/g_00003b7dca775d32e82a19f3c3c1227d234ca8d3486df068194137e93b1f796b',
@@ -99,6 +106,8 @@ const report = {
       : 'Bounded exact project/generation Patient root with an independently reread empty incoming typed Observation.subject_Patient edge set; native ONE/ALL is checked through the current PRESERVE_PARENT expansion and full saved lifecycle.'
     : referenceFieldMode
     ? 'Pinned current-generation Specimen→Patient→Observation witness with 29 distinct nonnull Observation.specimen.reference values and two null/missing references; native grouped-row ONE rejection and same-chooser ALL repair preserve one protocol value per terminal Observation identity.'
+    : quantityFieldMode
+      ? 'Basic Patient-root numeric Related Source using the exact Observation.valueQuantity.value scalar from the same-code Height family; ONE must reject distinct decimal values, then the same chooser repairs to ALL.'
     : statusFieldMode
       ? basicMode
         ? 'Basic Patient-root fixture with exact Patient→Observation edges, a direct optional_one Observation.status scalar source, and ONE/ALL preview lifecycle.'
@@ -117,6 +126,10 @@ const report = {
   ...(statusFieldMode ? { statusSourceContract: { path: 'Observation.status', logicalType: 'string', cardinality: 'optional_one',
     catalogProjectionMode: 'VALUE', relatedSourceForm: 'ALL',
     note: 'FHIR code primitive is represented as string per Observation; the related source retains all matching records.' } } : {}),
+  ...(quantityFieldMode ? { quantitySourceContract: { path: 'Observation.valueQuantity.value', logicalType: 'decimal', cardinality: 'optional_one',
+    operation: 'RELATED_SOURCE', codeFamily: { system: 'https://example.test/codes', code: 'height', display: 'Height' },
+    onePolicyExpectedError: 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES', allValuesPreserveNumericType: true,
+    note: 'This checks scalar numeric Related Source ONE/ALL behavior; it is not coded Pivot or coded Group coverage.' } } : {}),
   ...(referenceFieldMode ? { referenceSourceContract: { path: 'Observation.specimen.reference', logicalType: 'string', cardinality: 'optional_one',
     nullable: true, route: ['Specimen', 'Patient', 'Observation'], form: 'ALL', terminalIdentity: '_id',
     duplicateValuePolicy: 'Preserve one value per distinct terminal Observation identity; do not collapse by field value.',
@@ -267,6 +280,36 @@ const assertStatusCandidate = (state) => {
   }));
   return candidates;
 };
+const assertQuantityCandidate = (state) => {
+  const resourceTypeByNode = new Map((state.catalog.nodes ?? []).map((node) => [node.nodeId, node.resourceType]));
+  const candidates = state.catalog.candidates.filter((candidate) =>
+    resourceTypeByNode.get(candidate.nodeId) === 'Observation' && candidate.fieldPath === 'valueQuantity.value');
+  assert(candidates.length > 0, 'The current authorized catalog has no Observation.valueQuantity.value candidate on an Observation node');
+  for (const candidate of candidates) {
+    assert.equal(candidate.logicalType, 'decimal', 'Observation.valueQuantity.value must retain its compiler-proved decimal logical type');
+    assert.equal(candidate.cardinality, 'optional_one', 'Observation.valueQuantity.value must retain its scalar source cardinality');
+    assert.deepEqual(candidate.repeatedBoundaries ?? [], [], 'Observation.valueQuantity.value must have no repeated boundary');
+    assert(candidate.projectionModes.includes('VALUE'), 'The current catalog must expose scalar VALUE projection for Observation.valueQuantity.value');
+    const choice = candidate.constructionChoice;
+    assert(choice, 'Observation.valueQuantity.value must carry its nested compiler-proved field choice');
+    assert.equal(choice.source?.kind, 'FIELD');
+    assert.equal(choice.source?.nodeId, candidate.nodeId);
+    assert.equal(choice.source?.resourceType, 'Observation');
+    assert.equal(choice.source?.path, 'valueQuantity.value');
+    assert.equal(choice.source?.cardinality, 'optional_one');
+    assert(choice.options?.some((option) => option.form === 'VALUE' && option.shape === 'SCALAR' && option.support === 'SUPPORTED'),
+      'The nested field choice must expose a supported scalar decimal VALUE form');
+  }
+  report.relatedFieldCandidates = candidates.map((candidate) => ({
+    candidateId: candidate.candidateId, nodeId: candidate.nodeId, resourceType: resourceTypeByNode.get(candidate.nodeId),
+    path: candidate.fieldPath, logicalType: candidate.logicalType, cardinality: candidate.cardinality,
+    projectionModes: candidate.projectionModes, constructionChoice: {
+      source: candidate.constructionChoice?.source,
+      scalarOptions: candidate.constructionChoice?.options?.filter((option) => option.form === 'VALUE' && option.shape === 'SCALAR'),
+    }, repeatedBoundaries: candidate.repeatedBoundaries ?? [],
+  }));
+  return candidates;
+};
 const assertReferenceCandidate = (state) => {
   const resourceTypeByNode = new Map((state.catalog.nodes ?? []).map((node) => [node.nodeId, node.resourceType]));
   const candidates = state.catalog.candidates.filter((candidate) =>
@@ -325,7 +368,7 @@ const assertRelatedIdCandidate = (state) => {
   }));
   return candidates;
 };
-const relatedValuesFor = (witness) => statusFieldMode ? witness.observationStatuses : referenceFieldMode ? witness.observationReferences : witness.observationIds;
+const relatedValuesFor = (witness) => quantityFieldMode ? witness.quantityValues : statusFieldMode ? witness.observationStatuses : referenceFieldMode ? witness.observationReferences : witness.observationIds;
 const relatedDisplayValuesFor = (witness) => {
   const values = relatedValuesFor(witness).filter((value) => value !== null && value !== undefined);
   return zeroObservationMode && values.length === 0 ? '—' : values.join('; ');
@@ -665,21 +708,95 @@ const record = (name, started, details = {}) => {
   assert(durationMs <= 5000, `${name} took ${durationMs} ms`);
   report.cases.push({ name, durationMs, ...details });
 };
+let activeQuantityValuesByPatient = new Map();
+const parseQuantityDisplayCell = display => {
+  if (typeof display !== 'string' || display.trim() === '') return null;
+  const tokens = display.split(';').map(token => token.trim());
+  if (tokens.some(token => !/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(token))) return null;
+  const values = tokens.map(Number);
+  return values.every(Number.isFinite) ? values : null;
+};
+const quantityDisplayMatches = (display, expectedValues) => {
+  const values = parseQuantityDisplayCell(display);
+  return values !== null && hasSameQuantityValueMultiset(values, expectedValues);
+};
+const assertQuantityOutputRowsMatch = (actualRows, expectedRows, name) => {
+  assert.equal(actualRows.length, expectedRows.length, `${name} must retain every Quantity output row`);
+  const pending = expectedRows.map(row => {
+    const expectedValues = activeQuantityValuesByPatient.get(row[0]);
+    assert(Array.isArray(expectedValues), `${name} has no raw Quantity oracle for Patient ${row[0]}`);
+    return { row, expectedValues };
+  });
+  for (const actual of actualRows) {
+    const index = pending.findIndex(({ row, expectedValues }) => actual.length === row.length &&
+      row.slice(0, -1).every((cell, cellIndex) => actual[cellIndex] === cell) &&
+      quantityDisplayMatches(actual.at(-1), expectedValues));
+    assert.notEqual(index, -1, `${name} contains an unexpected Quantity row or numeric multiset: ${JSON.stringify(actual)}`);
+    pending.splice(index, 1);
+  }
+  assert.equal(pending.length, 0, `${name} omitted a Quantity row from the independent raw oracle`);
+};
 const rendered = async (expectedRows) => {
   const columnCount = expectedRows[0]?.length ?? 2;
-  await waitForObservable(nativePage, ({ columnCount }) => {
+  const quantityExpectedRows = quantityFieldMode && columnCount === 3
+    ? expectedRows.map(row => {
+      const values = activeQuantityValuesByPatient.get(row[0]);
+      assert(Array.isArray(values), `No raw Quantity oracle is available for Patient ${row[0]}`);
+      return { prefix: row.slice(0, -1), values };
+    })
+    : null;
+  const exactExpectedRows = !quantityExpectedRows && (referenceFieldMode || quantityFieldMode) && expectedRows.length <= 25
+    ? expectedRows.map(row => JSON.stringify(row)).sort()
+    : null;
+  await waitForObservable(nativePage, ({ columnCount, exactExpectedRows, quantityExpectedRows }) => {
     const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
-    return table?.getAttribute('aria-colcount')===String(columnCount)&&!document.body.innerText.includes('Loading your table…')&&!document.body.innerText.includes('Preview failed:');
-  }, { columnCount }, 5000);
+    const settled = table?.getAttribute('aria-colcount')===String(columnCount)&&!document.body.innerText.includes('Loading your table…')&&!document.body.innerText.includes('Preview failed:');
+    if (!settled) return false;
+    const rows = [...table.querySelectorAll('[role="row"]')].slice(1)
+      .map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())).filter(row=>row.length);
+    if (quantityExpectedRows !== null) {
+      if (rows.length !== quantityExpectedRows.length) return false;
+      const parse = display => {
+        if (typeof display !== 'string' || display.trim() === '') return null;
+        const tokens = display.split(';').map(token => token.trim());
+        if (tokens.some(token => !/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(token))) return null;
+        const values = tokens.map(Number);
+        return values.every(Number.isFinite) ? values.sort((left, right) => left - right) : null;
+      };
+      const pending = [...quantityExpectedRows];
+      for (const row of rows) {
+        const actualValues = parse(row.at(-1));
+        const index = pending.findIndex(expected => row.length === expected.prefix.length + 1 &&
+          expected.prefix.every((cell, cellIndex) => row[cellIndex] === cell) && actualValues !== null &&
+          actualValues.length === expected.values.length &&
+          actualValues.every((value, valueIndex) => value === [...expected.values].sort((left, right) => left - right)[valueIndex]));
+        if (index < 0) return false;
+        pending.splice(index, 1);
+      }
+      return pending.length === 0;
+    }
+    if (exactExpectedRows === null) return true;
+    const exactRows = rows.map(row => JSON.stringify(row)).sort();
+    return JSON.stringify(exactRows) === JSON.stringify(exactExpectedRows);
+  }, { columnCount, exactExpectedRows, quantityExpectedRows }, 5000);
   const rows = await inspectPage(nativePage, () => [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')]
     .slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())).filter(row=>row.length));
   assert(rows.length > 0 || expectedRows.length === 0);
-  for (const row of rows) assert(expectedRows.some((expected) => row.every((cell, index) => cell === expected[index])), `Visible row is not in the independent CDA witness: ${JSON.stringify(row)}`);
+  if (quantityExpectedRows !== null) {
+    assertQuantityOutputRowsMatch(rows, expectedRows, 'Visible saved Quantity table');
+  } else {
+    for (const row of rows) assert(expectedRows.some((expected) => row.every((cell, index) => cell === expected[index])), `Visible row is not in the independent CDA witness: ${JSON.stringify(row)}`);
+    if (exactExpectedRows !== null) {
+      const ordered = values => values.map(row => JSON.stringify(row)).sort();
+      assert.deepEqual(ordered(rows), exactExpectedRows, 'Every settled grouped table row must match the exact independent CDA oracle');
+    }
+  }
+  return rows;
 };
 const openTable = async (expectedRows, name) => {
   const started = Date.now();
   const fromIndex = report.nativeRequests.length;
-  await gotoPage(nativePage, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+  await gotoPage(nativePage, `${uiOrigin}/?project=${encodeURIComponent(browserProject)}&explorer=${explorer}&mode=builder`);
   await waitForVisible(nativePage, `[data-testid="construction-table-${outputId}"]`, 5000);
   await clickNative(nativePage, `[data-testid="construction-table-${outputId}"]`);
   await rendered(expectedRows);
@@ -706,7 +823,11 @@ const proposal = async (name, started, expectedRows, fromIndex, matchesRequest =
   });
   assert.equal(value.status, 'ready', `${name}: ${value.text}`);
   assert.equal(value.rows.length, Math.min(25, expectedRows.length));
-  for (const row of value.rows) assert(expectedRows.some((expected) => JSON.stringify(expected) === JSON.stringify(row)), `${name} differs from the raw CDA witness: ${JSON.stringify(row)}`);
+  if (quantityFieldMode && expectedRows[0]?.length === 3) {
+    assertQuantityOutputRowsMatch(value.rows, expectedRows, name);
+  } else {
+    for (const row of value.rows) assert(expectedRows.some((expected) => JSON.stringify(expected) === JSON.stringify(row)), `${name} differs from the raw CDA witness: ${JSON.stringify(row)}`);
+  }
   record(name, started, { proposalId: response.proposalId, rows: value.rows });
   return value;
 };
@@ -979,7 +1100,7 @@ const cancelColumnProposal = async () => {
 const readPreviewTable = async (expectedRows, expectedColumns, name) => {
   const started = Date.now();
   const nativeFrom = report.nativeRequests.length;
-  await gotoPage(nativePage, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+  await gotoPage(nativePage, `${uiOrigin}/?project=${encodeURIComponent(browserProject)}&explorer=${explorer}&mode=builder`);
   await waitForVisible(nativePage, `[data-testid="construction-table-${outputId}"]`, 5000);
   await clickNative(nativePage, `[data-testid="construction-table-${outputId}"]`);
   await waitForObservable(nativePage, ({ expectedColumns }) => {
@@ -1121,7 +1242,146 @@ RETURN {
         patientId: witness.patient.id, patientKey: witness.patient._id,
         distinctIncomingObservationCount: 0 },
     });
-  } else if (basicMode) {
+  } else if (basicMode && quantityFieldMode) {
+    const patientCandidateLimit = 2000;
+    const expectedCode = { system: 'https://example.test/codes', code: 'height', display: 'Height' };
+    const basicQuantityWitnessQuery = [
+      'FOR p IN (',
+      '  FOR scopedPatient IN Patient',
+      '    FILTER scopedPatient.project == ' + JSON.stringify(project) + ' AND scopedPatient.dataset_generation == ' + JSON.stringify(generation),
+      '      AND scopedPatient.resourceType == "Patient" AND scopedPatient.payload.resourceType == "Patient"',
+      '    SORT scopedPatient.id',
+      '    LIMIT ' + patientCandidateLimit,
+      '    RETURN { id: scopedPatient.id, _id: scopedPatient._id }',
+      ')',
+      '  LET observations = (',
+      '    FOR e IN fhir_edge',
+      '      FILTER e._to == p._id AND e.from_type == "Observation" AND e.to_type == "Patient"',
+      '        AND STARTS_WITH(e._from, "Observation/") AND e.label == "subject_Patient"',
+      '        AND e.project == ' + JSON.stringify(project) + ' AND e.dataset_generation == ' + JSON.stringify(generation),
+      '      COLLECT observationKey = e._from',
+      '      LET o = DOCUMENT(observationKey)',
+      '      FILTER o != null AND o.project == ' + JSON.stringify(project) + ' AND o.dataset_generation == ' + JSON.stringify(generation),
+      '        AND o.resourceType == "Observation" AND o.payload.resourceType == "Observation"',
+      '        AND o.payload.subject.reference == CONCAT("Patient/", p.id)',
+      '      SORT o.id',
+      '      RETURN { id: o.id, _id: o._id, code: o.payload.code.coding, value: o.payload.valueQuantity.value, quantity: o.payload.valueQuantity }',
+      '  )',
+      '  LET heightObservations = (',
+      '    FOR observation IN observations',
+      '      FILTER IS_NUMBER(observation.value) AND IS_ARRAY(observation.code) AND LENGTH(observation.code) == 1',
+      '        AND FIRST(observation.code).system == ' + JSON.stringify(expectedCode.system),
+      '        AND FIRST(observation.code).code == ' + JSON.stringify(expectedCode.code),
+      '        AND FIRST(observation.code).display == ' + JSON.stringify(expectedCode.display),
+      '      RETURN observation',
+      '  )',
+      '  LET distinctValues = (',
+      '    FOR observation IN heightObservations',
+      '      COLLECT value = observation.value',
+      '      SORT value',
+      '      RETURN value',
+      '  )',
+      '  FILTER LENGTH(observations) == 2 AND LENGTH(heightObservations) == 2 AND LENGTH(distinctValues) == 2',
+      '  SORT p.id',
+      '  LIMIT 1',
+      '  RETURN { patient: { id: p.id, _id: p._id, reference: CONCAT("Patient/", p.id) }, observations }',
+    ].join('\n');
+    const [basicSeed] = rawQuery(basicQuantityWitnessQuery);
+    report.oracle = {
+      kind: 'bounded Patient→Observation edge witness for exact scalar Quantity values, followed by an exact selected-Patient reread',
+      searchBounds: { patientCandidates: { project, generation, sortedBy: 'id', limit: patientCandidateLimit },
+        selectedObservationCount: 2, codeFamily: expectedCode,
+        missingWitnessMeaning: 'No witness in this bounded scan is unavailability, not global absence.' },
+      requiredRelatedField: { resourceType: 'Observation', path: 'valueQuantity.value', logicalType: 'decimal', cardinality: 'optional_one' },
+      witnessQuery: basicQuantityWitnessQuery,
+    };
+    if (!basicSeed) {
+      report.oracle.fixtureAvailability = { requiredSameCodeTwoDistinctQuantityValuesAvailable: false, patientCandidateLimit };
+      throw fixtureUnavailableError('No scoped Patient with exactly two linked same-code Observations carrying distinct scalar Quantity values was found among the first ' + patientCandidateLimit + ' current-generation Patients.');
+    }
+    const patientKey = basicSeed.patient._id;
+    const exactBasicQuantityMembershipQuery = [
+      'FOR p IN Patient',
+      '  FILTER p._id == ' + JSON.stringify(patientKey) + ' AND p.project == ' + JSON.stringify(project),
+      '    AND p.dataset_generation == ' + JSON.stringify(generation) + ' AND p.resourceType == "Patient" AND p.payload.resourceType == "Patient"',
+      '  LET observations = (',
+      '    FOR e IN fhir_edge',
+      '      FILTER e._to == p._id AND e.from_type == "Observation" AND e.to_type == "Patient"',
+      '        AND STARTS_WITH(e._from, "Observation/") AND e.label == "subject_Patient"',
+      '        AND e.project == ' + JSON.stringify(project) + ' AND e.dataset_generation == ' + JSON.stringify(generation),
+      '      COLLECT observationKey = e._from',
+      '      LET o = DOCUMENT(observationKey)',
+      '      FILTER o != null AND o.project == ' + JSON.stringify(project) + ' AND o.dataset_generation == ' + JSON.stringify(generation),
+      '        AND o.resourceType == "Observation" AND o.payload.resourceType == "Observation"',
+      '        AND o.payload.subject.reference == CONCAT("Patient/", p.id)',
+      '      SORT o.id',
+      '      RETURN { id: o.id, _id: o._id, code: o.payload.code.coding, value: o.payload.valueQuantity.value, quantity: o.payload.valueQuantity }',
+      '  )',
+      '  RETURN { patient: { id: p.id, _id: p._id, reference: CONCAT("Patient/", p.id) }, observations }',
+    ].join('\n');
+    const [exactBasic] = rawQuery(exactBasicQuantityMembershipQuery);
+    assert(exactBasic, 'The selected Basic Patient is no longer visible in the requested project/generation');
+    assert.equal(exactBasic.patient.id, basicSeed.patient.id);
+    assert.equal(exactBasic.patient._id, patientKey);
+    assert.equal(exactBasic.observations.length, 2, 'The exact Basic witness must retain both linked Observation identities');
+    assert.deepEqual(exactBasic.observations.map(({ id, _id }) => ({ id, _id })),
+      basicSeed.observations.map(({ id, _id }) => ({ id, _id })),
+      'The bounded finder and exact Patient→Observation reread disagree on source identities');
+    assert(exactBasic.observations.every((observation) => typeof observation.value === 'number' && Number.isFinite(observation.value)),
+      'Every exact Quantity scalar must remain a finite JSON number');
+    assert.deepEqual(exactBasic.observations.map(({ id, value, quantity }) => ({ observationID: id, value, quantity })),
+      basicSeed.observations.map(({ id, value, quantity }) => ({ observationID: id, value, quantity })),
+      'The exact Patient reread changed the raw decimal Quantity values or units');
+    const quantityOracle = await readBasicRelatedQuantityOneAllOracle(
+      fileURLToPath(new URL('../../../testdata/devloop-fixture', import.meta.url)));
+    assert.equal(exactBasic.patient.id, quantityOracle.patientID,
+      'The selected raw Patient differs from the literal Basic fixture oracle');
+    const exactFixtureValues = exactBasic.observations.map(({ id, code, value, quantity }) =>
+      ({ observationID: id, code: code[0], value, quantity }));
+    const expectedFixtureValues = quantityOracle.all.map(({ observationID, value, quantity }) => ({
+      observationID, code: quantityOracle.codeFamily, value, quantity,
+    }));
+    assert.deepEqual(exactFixtureValues, expectedFixtureValues,
+      'The scoped Arango witness differs from the exact Patient-linked fixture Quantity values');
+    assert.deepEqual(exactBasic.observations.map(({ code }) => code), [[expectedCode], [expectedCode]],
+      'Every Observation on the selected Patient route must belong to the exact single-coding Height family');
+    assert.deepEqual(exactBasic.observations.map(({ value }) => value), [172.5, 180],
+      'The complete selected Patient route must independently predict exactly two distinct decimal values');
+
+    const quantityWitness = {
+      category: 'same-code-family-distinct-decimals', patient: exactBasic.patient,
+      members: [{ id: exactBasic.patient.id, _id: exactBasic.patient._id, patientReference: exactBasic.patient.reference }],
+      observationIds: exactBasic.observations.map(({ id }) => id),
+      observationKeys: exactBasic.observations.map(({ _id }) => _id),
+      observationCount: exactBasic.observations.length,
+      quantityValues: exactBasic.observations.map(({ value }) => value),
+      observationQuantities: exactBasic.observations.map(({ quantity }) => quantity),
+      codeFamily: quantityOracle.codeFamily,
+      distinctQuantityValues: [...new Set(exactBasic.observations.map(({ value }) => value))],
+      expectedContributorRows: 1,
+    };
+    witnesses = [quantityWitness];
+    activeQuantityValuesByPatient = new Map([[quantityWitness.patient.id, quantityWitness.quantityValues]]);
+    selectedMembers = quantityWitness.members;
+    manyWitness = quantityWitness;
+    report.oracle.exactMembershipQuery = exactBasicQuantityMembershipQuery;
+    report.oracle.exactMembershipScope = { project, generation, rootResourceType: 'Patient',
+      patientKey, patientId: exactBasic.patient.id, observationKeys: quantityWitness.observationKeys,
+      observationCount: 2, codeFamily: quantityOracle.codeFamily,
+      completeRouteMembership: true, allRowsMatchCodeFamily: true };
+    report.oracle.exactScope = report.oracle.exactMembershipScope;
+    report.oracle.witness = quantityWitness;
+    report.oracle.witnesses = [quantityWitness];
+    report.oracle.fixtureAvailability = { requiredSameCodeTwoDistinctQuantityValuesAvailable: true, patientCandidateLimit };
+    report.oracle.literalFixtureCrossCheck = {
+      fixture: 'testdata/devloop-fixture/Patient.ndjson + Observation.ndjson',
+      files: quantityOracle.files,
+      patientId: exactBasic.patient.id,
+      codeFamily: quantityOracle.codeFamily,
+      observationValues: exactFixtureValues,
+    };
+    report.oracle.finalScopedRereadMatched = false;
+  } else if (basicMode && statusFieldMode) {
     const patientCandidateLimit = 2000;
     const basicWitnessQuery = `
 FOR p IN (
@@ -1541,19 +1801,22 @@ FOR s IN Specimen
   }
 
   const rootTitle = `${rootResourceType} ID`;
-  const tableTitle = zeroObservationMode ? 'Zero Observation related ID ONE to ALL QA' : referenceFieldMode ? 'Related Observation specimen reference QA' : statusFieldMode ? 'Related Observation status code QA' : 'Related ID ONE to ALL QA';
+  const tableTitle = zeroObservationMode ? 'Zero Observation related ID ONE to ALL QA' : quantityFieldMode ? 'Related Observation Quantity ONE to ALL QA' : referenceFieldMode ? 'Related Observation specimen reference QA' : statusFieldMode ? 'Related Observation status code QA' : 'Related ID ONE to ALL QA';
   const createdExplorer = await api(explorerCollection, { name: requestedExplorerName, title: tableTitle });
   const createdScope = createdExplorerScope(project, createdExplorer);
+  if (quantityFieldMode) browserProject = createdScope.project;
   explorer = createdScope.explorerId;
   base = createdScope.authoringBase;
   ownedApiPath = `${base}/`;
+  browserAuthoringBase = createdScope.browserAuthoringBase;
   report.explorer = explorer;
   report.explorerRoot = createdScope.explorerRoot;
-  officialRequestCapture = cda.captureRequests(createdScope.explorerRoot);
+  officialRequestCapture = cda.captureRequests(createdScope.browserExplorerRoot);
   assert.notEqual(explorer, protectedExplorer, 'The server-assigned Explorer must be a fresh QA Explorer');
   builder = await api(`${base}/builder`);
   assert.equal(builder.catalog.generation, generation);
-  if (statusFieldMode) assertStatusCandidate(builder);
+  if (quantityFieldMode) assertQuantityCandidate(builder);
+  else if (statusFieldMode) assertStatusCandidate(builder);
   else if (referenceFieldMode) assertReferenceCandidate(builder);
   else assertRelatedIdCandidate(builder);
   const rootNode = builder.catalog.nodes.find((node) => node.resourceType === rootResourceType && node.rowRootEligible);
@@ -1707,7 +1970,7 @@ FOR s IN Specimen
     record('cancel-zero-observation-one-preserves-group', cancelOneStarted, report.zeroObservationOneCancel);
     await openRelatedFieldChooser();
     await selectRelatedPolicy('ALL');
-  } else if (basicMode) {
+  } else if (basicMode && statusFieldMode) {
     await selectRelatedPolicy('ONE');
     const oneStarted = Date.now();
     const oneFromIndex = report.nativeRequests.length;
@@ -1750,6 +2013,12 @@ FOR s IN Specimen
     assert(manyWitness.observationIds.length > 1, 'The raw many witness must independently predict the ONE conflict');
     if (statusFieldMode) assert(manyWitness.distinctStatusValues.length > 1,
       'The status witness must independently prove distinct ONE values');
+    if (quantityFieldMode) {
+      assert.deepEqual(manyWitness.distinctQuantityValues, [172.5, 180],
+        'The raw same-code fixture must independently prove two exact decimal values');
+      assert(manyWitness.quantityValues.every((value) => typeof value === 'number' && Number.isFinite(value)),
+        'The raw Quantity witness must preserve numeric JSON values');
+    }
     if (referenceFieldMode) {
       assert(manyWitness.distinctObservationReferenceValues.length > 1,
         'The raw nullable-reference witness must independently prove more than one distinct present ONE value');
@@ -1761,6 +2030,7 @@ FOR s IN Specimen
     report.oneRejection = { status: oneFailure.status, errorCode: oneError,
       manyObservationIds: manyWitness.observationIds,
       ...(statusFieldMode ? { distinctStatusValues: manyWitness.distinctStatusValues } : {}),
+      ...(quantityFieldMode ? { distinctQuantityValues: manyWitness.distinctQuantityValues } : {}),
       ...(referenceFieldMode ? { distinctObservationReferenceValues: manyWitness.distinctObservationReferenceValues,
         nullObservationReferenceCount: manyWitness.nullObservationReferenceCount } : {}),
       proposalId: protocolResponse(oneFailure)?.proposalId };
@@ -1827,7 +2097,16 @@ FOR s IN Specimen
       assert.equal(new Set(proposed.values).size, 30,
         'ALL must preserve the two null values from distinct Observation identities instead of deduplicating by field value');
     }
-    assert.deepEqual(proposed.values, relatedValuesFor(witness), `${witness.category} ALL output differs from the independent raw oracle`);
+    if (quantityFieldMode) assert(hasSameQuantityValueMultiset(proposed.values, relatedValuesFor(witness)), `${witness.category} ALL numeric multiset differs from the independent raw oracle`);
+    else assert.deepEqual(proposed.values, relatedValuesFor(witness), `${witness.category} ALL output differs from the independent raw oracle`);
+  }
+  if (quantityFieldMode) {
+    const proposed = proposedValues.find(({ patientReference }) => patientReference === manyWitness.patient.id);
+    assert(Array.isArray(proposed?.values), 'ALL Quantity output must be an array');
+    assert(proposed.values.every((value) => typeof value === 'number' && Number.isFinite(value)),
+      'ALL Quantity values must remain finite JSON numbers');
+    report.quantityAllOutputEvidence = { expectedValues: relatedValuesFor(manyWitness), previewValues: proposed.values,
+      identitiesMatch: hasSameQuantityValueMultiset(proposed.values, relatedValuesFor(manyWitness)), logicalType: logicalTypeExpected };
   }
   if (statusFieldMode && !basicMode) {
     const proposed = proposedValues.find(({ patientReference }) => patientReference === manyWitness.patient.id);
@@ -1850,6 +2129,7 @@ FOR s IN Specimen
   const allCancelEvidence = { workspaceUnchanged: true, constructionUnchanged: true,
     populationUnchanged: true, renderedRowsMatch: true };
   if (zeroObservationMode) report.zeroObservationAllCancel = allCancelEvidence;
+  if (quantityFieldMode) report.quantityAllCancelEvidence = allCancelEvidence;
   if (statusFieldMode && !basicMode) report.relatedAllCancelEvidence = allCancelEvidence;
   record('cancel-related-all-proposal-preserves-group', cancelAllStarted, allCancelEvidence);
 
@@ -1911,8 +2191,10 @@ FOR s IN Specimen
   assert(proposalOutput, 'The accepted ALL proposal preview must contain the exact saved related output');
   assert.equal(relatedColumn.label, proposalOutput.label,
     'Applying the related source must retain the output label shown by its accepted proposal preview');
-  if (statusFieldMode) assert.equal(relatedColumn.label, relatedOutputLabel,
-    'Observation.status is titled Status in the chooser, while the generated related output defaults to Observation status');
+  if (statusFieldMode || quantityFieldMode) assert.equal(relatedColumn.label, relatedOutputLabel,
+    quantityFieldMode
+      ? 'The Quantity source must retain its accessible Observation value output label'
+      : 'Observation.status is titled Status in the chooser, while the generated related output defaults to Observation status');
   assert.equal(relatedColumn.logicalType, logicalTypeExpected,
     `The persisted related column must match the compiler-proved Observation.${relatedFieldPath} logical type`);
   const savedGroup = addedDocument.construction.steps.find((step) => step.id === groupStepBefore.id);
@@ -2053,7 +2335,7 @@ FOR s IN Specimen
   const reloadedWitnessRow = reloadedPreview.rows.find((candidate) => candidate[groupKeyName] === witnesses[0].patient.id);
   const savedOutputValues = savedWitnessRow?.[relatedColumn.column];
   const reloadedOutputValues = reloadedWitnessRow?.[relatedColumn.column];
-  const expectedSavedRoute = zeroObservationMode ? expectedPatientObservationRoute : expectedReferenceRoute;
+  const expectedSavedRoute = basicMode || zeroObservationMode ? expectedPatientObservationRoute : expectedReferenceRoute;
   const savedRouteShape = related.route.map(({ fromResourceType, toResourceType, relationship, storageDirection }) =>
     ({ fromResourceType, toResourceType, relationship, storageDirection }));
   const savedSourceMatches = savedRelatedStep.operation.relatedSource.source?.candidateId === report.relatedFieldCandidate.candidateId &&
@@ -2063,6 +2345,14 @@ FOR s IN Specimen
     JSON.stringify(savedRouteShape) === JSON.stringify(expectedSavedRoute) &&
     savedRelatedStep.operation.relatedSource.form === 'ALL' &&
     (savedRelatedStep.operation.relatedSource.rowValuePolicy ?? 'ALL') === 'ALL';
+  if (quantityFieldMode) {
+    assert(hasSameQuantityValueMultiset(savedOutputValues, relatedValuesFor(manyWitness)), 'Saved Quantity output must preserve the exact raw numeric multiset');
+    assert(hasSameQuantityValueMultiset(reloadedOutputValues, relatedValuesFor(manyWitness)), 'Reloaded Quantity output must preserve the exact raw numeric multiset');
+    assert(savedOutputValues.every((value) => typeof value === 'number' && Number.isFinite(value)));
+    assert(reloadedOutputValues.every((value) => typeof value === 'number' && Number.isFinite(value)));
+    report.quantityAllSavedEvidence = { logicalType: relatedColumn.logicalType, expectedValues: relatedValuesFor(manyWitness),
+      previewValues: savedOutputValues, reloadValues: reloadedOutputValues, sourceMatches: savedSourceMatches };
+  }
   if (zeroObservationMode) {
     report.zeroObservationSavedAll = {
       candidateSourceMatches: savedSourceMatches,
@@ -2091,7 +2381,7 @@ FOR s IN Specimen
 
   let activeRelatedColumnLabel = relatedColumn.label;
   {
-    const renamedLabel = `Verified ${relatedOutputLabel}`;
+    const renamedLabel = quantityFieldMode ? 'Verified Observation value' : `Verified ${relatedOutputLabel}`;
     const editStarted = Date.now();
     const editFrom = report.nativeRequests.length;
     await clickNative(nativePage, 'button', { name: 'Columns' });
@@ -2146,9 +2436,13 @@ FOR s IN Specimen
       `Current saved table header did not render the edited output label: ${JSON.stringify(editedCurrentTable.headers)}`);
     assert.equal(editedCurrentTable.rows.length, addedRows.length,
       'Current saved table must render the exact expected number of rows after the label edit');
-    const orderedRows = rows => rows.map(row => JSON.stringify(row)).sort();
-    assert.deepEqual(orderedRows(editedCurrentTable.rows), orderedRows(addedRows),
-      'Current saved table rows and cell values must exactly match the raw CDA oracle after the label edit');
+    if (quantityFieldMode) assertQuantityOutputRowsMatch(editedCurrentTable.rows, addedRows,
+      'Current saved table after the Quantity output label edit');
+    else {
+      const orderedRows = rows => rows.map(row => JSON.stringify(row)).sort();
+      assert.deepEqual(orderedRows(editedCurrentTable.rows), orderedRows(addedRows),
+        'Current saved table rows and cell values must exactly match the raw CDA oracle after the label edit');
+    }
     record('edit-related-field-output-label', editStarted, { priorLabel: relatedColumn.label, newLabel: renamedLabel, path: relatedFieldPath, rowCount: editedCurrentTable.rows.length });
     const editedPreview = await openTable(addedRows, 'reload-edited-related-field-output-label');
     const editedHeaders = await inspectPage(nativePage, () => [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')]
@@ -2569,6 +2863,16 @@ FOR s IN Specimen
       'The independent raw Observation reference membership changed during the native Explorer lifecycle');
     report.referenceOracleAssertions.finalRawRereadMatched = true;
   }
+  if (quantityFieldMode) {
+    const [finalQuantityMember] = rawQuery(report.oracle.exactMembershipQuery);
+    assert(finalQuantityMember, 'The exact Basic Patient disappeared during the native numeric Related Source lifecycle');
+    assert.equal(finalQuantityMember.patient._id, report.oracle.exactMembershipScope.patientKey);
+    assert.deepEqual(finalQuantityMember.observations.map(({ id, _id, value, quantity }) => ({ id, _id, value, quantity })),
+      manyWitness.observationIds.map((id, index) => ({ id, _id: manyWitness.observationKeys[index],
+        value: manyWitness.quantityValues[index], quantity: manyWitness.observationQuantities[index] })),
+      'The final raw reread must preserve exact Observation identities and decimal Quantity values');
+    report.oracle.finalScopedRereadMatched = true;
+  }
   if (statusFieldMode && !basicMode) {
     const finalStatusMembers = rawQuery(report.oracle.exactMembershipQuery);
     assert.deepEqual(finalStatusMembers.map(({ _id }) => _id).sort(), report.oracle.selectedSpecimenKeys,
@@ -2608,9 +2912,11 @@ FOR s IN Specimen
     });
   }
   const unexpectedHttp = report.nativeRequests.filter((entry) => entry.status >= 400 && !expectedHttpFailures.includes(entry));
-  const expectedOneFailureCount = basicMode || zeroObservationMode ? 0 : 1;
-  assert.equal(expectedHttpFailures.length, expectedOneFailureCount, basicMode
-    ? 'The exact single-Observation basic witness must permit ONE'
+  const expectedOneFailureCount = (basicMode && !quantityFieldMode) || zeroObservationMode ? 0 : 1;
+  assert.equal(expectedHttpFailures.length, expectedOneFailureCount, basicMode && !quantityFieldMode
+    ? 'The exact single-Observation basic status witness must permit ONE'
+    : quantityFieldMode
+      ? 'The exact two-value Quantity witness must reject ONE once before same-chooser ALL repair'
     : zeroObservationMode
       ? 'The exact zero-Observation root must permit ONE with the nullable result defined by the source contract'
       : 'Exactly one raw-oracle-predicted ONE disagreement is expected');
@@ -2630,7 +2936,7 @@ FOR s IN Specimen
   assert.deepEqual(cda.diagnostics.console, [], 'Playwright observed an unexpected application console error');
   assert(report.protectedExplorerUntouched, `A request unexpectedly targeted protected Explorer ${protectedExplorer}`);
   report.relatedFieldLifecycle = 'passed';
-  if (!basicMode && !zeroObservationMode) report.repairStatus = 'passed';
+  if ((quantityFieldMode || !basicMode) && !zeroObservationMode) report.repairStatus = 'passed';
   if ((report.oracle.missingWitnessCategories ?? []).length > 0) {
     report.optionalFixtureGaps = report.oracle.missingWitnessCategories;
   }
@@ -2831,6 +3137,64 @@ FOR s IN Specimen
         for (const check of statusOneAllLifecycleChecks(report)) {
           cda.check(check.dimension, check.name, check.passed, check.evidence);
         }
+      }
+      if (quantityFieldMode) {
+        const timingNames = [
+          'related-observation-one-disagreement',
+          'same-chooser-all-repair-preview',
+          'cancel-related-all-proposal-preserves-group',
+          'reopened-all-preview-before-apply',
+          'apply-related-all-to-native-table-render',
+          'native-preview-matches-exact-related-field-oracle',
+          'reload-related-all-available-cardinality-values',
+          'edit-related-field-output-label',
+          'reload-edited-related-field-output-label',
+          'remove-related-source-step-preview',
+          'apply-remove-related-step-restores-native-group-table',
+          'reload-restored-available-witness-group-table',
+        ];
+        const durationByName = new Map(report.cases.map(({ name, durationMs }) => [name, durationMs]));
+        const timings = timingNames.map((name) => ({ name, durationMs: durationByName.get(name), limitMs: ACTION_TIMEOUT_MS }));
+        const allWithinBudget = timings.length === timingNames.length &&
+          timings.every(({ durationMs }) => Number.isFinite(durationMs) && durationMs <= ACTION_TIMEOUT_MS);
+        cda.check('correctness',
+          'Basic Quantity ONE rejects the two exact same-code decimal values and ALL renders the full numeric array',
+          report.oneRejection?.status === 422 && report.oneRejection?.errorCode === 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES' &&
+            JSON.stringify(report.oneRejection?.distinctQuantityValues) === JSON.stringify([172.5, 180]) &&
+            report.quantityAllOutputEvidence?.logicalType === 'decimal' &&
+            hasSameQuantityValueMultiset(report.quantityAllOutputEvidence?.previewValues, [172.5, 180]) &&
+            report.quantityAllOutputEvidence?.identitiesMatch === true,
+          { sourceContract: report.quantitySourceContract, oneRejection: report.oneRejection,
+            allOutput: report.quantityAllOutputEvidence });
+        cda.check('correctness',
+          'Cancel preserves the Group and Apply/edit retain the exact Quantity source binding',
+          report.quantityAllCancelEvidence?.workspaceUnchanged === true &&
+            report.quantityAllCancelEvidence?.constructionUnchanged === true &&
+            report.quantityAllCancelEvidence?.populationUnchanged === true &&
+            report.quantityAllCancelEvidence?.renderedRowsMatch === true &&
+            report.quantityAllSavedEvidence?.sourceMatches === true &&
+            report.relatedOutputEditEvidence?.candidateSourceMatches === true &&
+            report.relatedOutputEditEvidence?.policy === 'ALL',
+          { cancel: report.quantityAllCancelEvidence, saved: report.quantityAllSavedEvidence,
+            edit: report.relatedOutputEditEvidence });
+        cda.check('persistence',
+          'Reload preserves the exact decimal array and removal restores the original Patient Group rows',
+          report.quantityAllSavedEvidence?.logicalType === 'decimal' &&
+            hasSameQuantityValueMultiset(report.quantityAllSavedEvidence?.previewValues, [172.5, 180]) &&
+            hasSameQuantityValueMultiset(report.quantityAllSavedEvidence?.reloadValues, [172.5, 180]) &&
+            report.relatedOutputEditEvidence?.labelChanged === true &&
+            hasSameQuantityValueMultiset(report.relatedOutputEditEvidence?.reloadValues, [172.5, 180]) &&
+            report.relatedSourceRestoration?.constructionMatchesBaseline === true &&
+            report.relatedSourceRestoration?.populationMatchesBaseline === true &&
+            report.relatedSourceRestoration?.columnsMatchBaseline === true &&
+            report.relatedSourceRestoration?.previewRowsMatchBaseline === true &&
+            report.relatedSourceRestoration?.relatedOutputAbsent === true &&
+            report.oracle?.finalScopedRereadMatched === true,
+          { saved: report.quantityAllSavedEvidence, edit: report.relatedOutputEditEvidence,
+            restoration: report.relatedSourceRestoration, finalRawRereadMatched: report.oracle?.finalScopedRereadMatched });
+        cda.check('performance',
+          'Basic Quantity ONE-to-ALL lifecycle action-to-render checkpoints finish within five seconds',
+          allWithinBudget, { timings, expectedTimingCount: timingNames.length, limitMs: ACTION_TIMEOUT_MS });
       }
     }
   }

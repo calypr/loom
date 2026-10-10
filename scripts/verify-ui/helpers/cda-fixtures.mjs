@@ -1,5 +1,6 @@
 import { test as base, expect } from '@playwright/test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
@@ -8,7 +9,7 @@ import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startVerificationIdentity } from './cda-verification-identity.mjs';
 import { assertOwnedCdaTarget } from './owned-cda-target.mjs';
-import { assertOwnedDevSession, createDevSession } from '../../loom-dev.mjs';
+import { assertOwnedDevSession, canonicalProjectID, createDevSession, createFreshVerificationFixture } from '../../loom-dev.mjs';
 import {
   createCdaInspector,
   captureRequests,
@@ -269,7 +270,8 @@ export const assertCdaExplicitUIRoute = (rawURL, target) => {
 
   const projects = url.searchParams.getAll('project');
   assert.equal(projects.length, 1, 'CDA explicit UI route must contain one project query value');
-  assert.equal(projects[0], target.fixtureProject, 'CDA explicit UI route must select the owned fixture project');
+  assert.equal(canonicalProjectID(projects[0]), canonicalProjectID(target.fixtureProject),
+    'CDA explicit UI route must select the owned fixture project');
   const explorers = url.searchParams.getAll('explorer');
   assert.equal(explorers.length, 1, 'CDA explicit UI route must contain one Explorer query value');
   assert.match(explorers[0], /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/, 'CDA explicit UI route must select a valid Explorer identity');
@@ -280,6 +282,39 @@ export const assertCdaExplicitUIRoute = (rawURL, target) => {
 };
 
 const DEFAULT_CDA_UI_ROUTING = 'explicit-query';
+const BASIC_QUANTITY_SCENARIO = 'basic-related-quantity-one-all';
+const BASIC_QUANTITY_CASE = 'basic-height-quantity-one-all-lifecycle';
+
+export const shouldCreateFreshBasicQuantityProject = ({ scenarioID, caseName } = {}) =>
+  scenarioID === BASIC_QUANTITY_SCENARIO && caseName === BASIC_QUANTITY_CASE;
+
+export async function createFreshBasicQuantityFixture(session, runID, {
+  createFixture = createFreshVerificationFixture,
+} = {}) {
+  assert(session?.sourceRoot && session?.fixtureDir && session?.fixtureProject && session?.fixtureGeneration,
+    'A configured Basic development session is required before creating its isolated Quantity project');
+  assert.equal(realpathSync(resolve(session.sourceRoot)), realpathSync(sourceRoot),
+    'The fresh Basic Quantity project must use this verifier source checkout');
+  const expectedFixtureDir = realpathSync(resolve(sourceRoot, 'testdata/devloop-fixture'));
+  assert.equal(realpathSync(resolve(session.fixtureDir)), expectedFixtureDir,
+    'Fresh Basic Quantity projects must be seeded from the literal devloop fixture');
+
+  const fresh = await createFixture(session, runID);
+  assert(fresh?.target && fresh?.seed, 'Fresh Basic Quantity fixture creation must return its target and seed receipt');
+  assert.equal(fresh.seed.fresh, true, 'Fresh Basic Quantity fixture must report a fresh generation');
+  assert.equal(fresh.seed.reused, false, 'Fresh Basic Quantity fixture must not reuse an existing generation');
+  assert.equal(realpathSync(resolve(fresh.target.sourceRoot)), realpathSync(sourceRoot),
+    'Fresh Basic Quantity project source must remain bound to this verifier checkout');
+  assert.equal(realpathSync(resolve(fresh.target.fixtureDir)), expectedFixtureDir,
+    'Fresh Basic Quantity project must retain the literal devloop fixture directory');
+  assert.equal(fresh.target.fixtureGeneration, session.fixtureGeneration,
+    'Fresh Basic Quantity project must retain the owned stack generation');
+  assert.notEqual(canonicalProjectID(fresh.target.fixtureProject), canonicalProjectID(session.fixtureProject),
+    'Fresh Basic Quantity project must not reuse the configured shared project');
+  assert.match(fresh.target.fixtureProject, /^loom_dev_verify_[a-z0-9][a-z0-9-]{0,24}$/,
+    'Fresh Basic Quantity project must use the isolated verification namespace');
+  return fresh;
+}
 
 export const createCdaNavigator = ({ target, uiRouting = DEFAULT_CDA_UI_ROUTING, navigateTo }) => {
   if (!['defaults', 'explicit-query'].includes(uiRouting)) throw new Error(`unsupported CDA UI routing mode: ${uiRouting}`);
@@ -310,6 +345,7 @@ export const test = base.extend({
   cdaUiRouting: [DEFAULT_CDA_UI_ROUTING, { option: true }],
   cdaRequireClickhouse: [false, { option: true }],
   cdaRequireSourceFixture: [false, { option: true }],
+  cdaCreateFreshBasicQuantityProject: [false, { option: true }],
 
   cda: async ({
     page,
@@ -331,9 +367,10 @@ export const test = base.extend({
     cdaUiRouting,
     cdaRequireClickhouse,
     cdaRequireSourceFixture,
+    cdaCreateFreshBasicQuantityProject,
   }, use, testInfo) => {
     const setupStarted = performance.now();
-    const env = environmentSnapshot({
+    let env = environmentSnapshot({
       project: cdaProject,
       apiOrigin: cdaApiOrigin,
       uiOrigin: cdaUiOrigin,
@@ -391,6 +428,20 @@ export const test = base.extend({
       ], { encoding: 'utf8', timeout: 10_000 }).trim();
       assert.equal(apiContainerLabels, `${devTarget.composeProject}|loom-api`,
         'Named API container does not belong to the validated isolated stack');
+    }
+
+    if (cdaCreateFreshBasicQuantityProject) {
+      assert(shouldCreateFreshBasicQuantityProject({ scenarioID: cdaScenarioID, caseName: cdaCaseName }),
+        'Only the registered Basic Quantity ONE/ALL lifecycle may create a fresh Basic project');
+      const runID = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+      const fresh = await createFreshBasicQuantityFixture(devTarget, runID);
+      devTarget = fresh.target;
+      env = Object.freeze({
+        ...env,
+        LOOM_CDA_PROJECT: devTarget.fixtureProject,
+        LOOM_CDA_GENERATION: devTarget.fixtureGeneration,
+        LOOM_DEV_PROJECT: devTarget.fixtureProject,
+      });
     }
 
     const owned = await assertOwnedCdaTarget({
