@@ -106,9 +106,6 @@ func NewScopeResolver(cfg ScopeResolverConfig) *ScopeResolver {
 	if cfg.CacheTTL <= 0 {
 		cfg.CacheTTL = 30 * time.Second
 	}
-	if cfg.ResourceAccess == nil {
-		cfg.ResourceAccess = NewFenceUserAccessClient(nil)
-	}
 	return &ScopeResolver{
 		resourceAccess: cfg.ResourceAccess,
 		listExisting:   cfg.ListExistingAuthResourcePaths,
@@ -281,7 +278,10 @@ func (r *ScopeResolver) resolveCallerPaths(ctx context.Context, principal *Princ
 		}
 		return nil, false, nil
 	}
-	if auth := strings.TrimSpace(principal.AuthorizationHeader); auth != "" && r.resourceAccess != nil {
+	if auth := strings.TrimSpace(principal.AuthorizationHeader); auth != "" {
+		if r.resourceAccess == nil {
+			return nil, true, fmt.Errorf("%w: Fence resource access client is not configured", ErrAuthorizationBackendUnavailable)
+		}
 		resources, err := r.resourceAccess.GetAllowedResources(ctx, auth, string(method), service)
 		if err != nil {
 			return nil, true, err

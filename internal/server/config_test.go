@@ -154,7 +154,7 @@ func TestArtifactConfigurationHasBoundedDefaultsAndEnvironmentOverride(t *testin
 
 func TestLoadConfigStrictlyDecodesAndAppliesAuthSettings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte("server:\n  listen: :18080\n  dataframer:\n    recipe: /etc/loom/dataframer.json\nauth:\n  mode: calypr\n  calypr:\n    request_timeout: 7s\n    cache_ttl: 45s\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("server:\n  listen: :18080\n  dataframer:\n    recipe: /etc/loom/dataframer.json\nauth:\n  mode: calypr\n  calypr:\n    trusted_issuer: https://fence.example.test\n    request_timeout: 7s\n    cache_ttl: 45s\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := LoadConfig(path)
@@ -164,7 +164,7 @@ func TestLoadConfigStrictlyDecodesAndAppliesAuthSettings(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
-	if cfg.Server.Listen != ":18080" || cfg.Server.Dataframer.Recipe != "/etc/loom/dataframer.json" || cfg.Auth.Calypr.RequestTimeout != 7*time.Second || cfg.Auth.Calypr.CacheTTL != 45*time.Second {
+	if cfg.Server.Listen != ":18080" || cfg.Server.Dataframer.Recipe != "/etc/loom/dataframer.json" || cfg.Auth.Calypr.TrustedIssuer != "https://fence.example.test" || cfg.Auth.Calypr.RequestTimeout != 7*time.Second || cfg.Auth.Calypr.CacheTTL != 45*time.Second {
 		t.Fatalf("config = %#v", cfg)
 	}
 }
@@ -260,5 +260,73 @@ func TestPopulationMappingCursorSecretFromEnvironment(t *testing.T) {
 	}
 	if cfg.Server.PopulationMappingCursorSecret != "configured-population-cursor-secret" {
 		t.Fatalf("population mapping cursor secret = %q", cfg.Server.PopulationMappingCursorSecret)
+	}
+}
+
+func TestCalyprAuthRequiresValidTrustedIssuer(t *testing.T) {
+	t.Setenv("LOOM_AUTH_CALYPR_TRUSTED_ISSUER", "")
+
+	cfg := DefaultConfig()
+	cfg.Auth.Mode = "calypr"
+	cfg.Server.ClickHouse.Enabled = false
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "auth.calypr.trusted_issuer is required") {
+		t.Fatalf("missing trusted issuer error = %v", err)
+	}
+
+	cfg.Auth.Calypr.TrustedIssuer = "not-a-url"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "auth.calypr.trusted_issuer") {
+		t.Fatalf("invalid trusted issuer error = %v", err)
+	}
+
+	cfg.Auth.Calypr.TrustedIssuer = "https://fence.example.test"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("valid trusted issuer: %v", err)
+	}
+}
+
+func TestCalyprTrustedIssuerEnvironmentFallback(t *testing.T) {
+	t.Setenv("LOOM_AUTH_CALYPR_TRUSTED_ISSUER", " https://env-fence.example.test/ ")
+
+	cfg, err := LoadConfig("")
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.Auth.Calypr.TrustedIssuer != "https://env-fence.example.test/" {
+		t.Fatalf("trusted issuer from environment = %q", cfg.Auth.Calypr.TrustedIssuer)
+	}
+
+	cfg.Auth.Mode = "calypr"
+	cfg.Server.ClickHouse.Enabled = false
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("environment issuer did not validate: %v", err)
+	}
+
+	cfg.Auth.Calypr.TrustedIssuer = "https://config-fence.example.test"
+	resolved, err := applyEnvironment(cfg)
+	if err != nil {
+		t.Fatalf("applyEnvironment() error = %v", err)
+	}
+	if resolved.Auth.Calypr.TrustedIssuer != cfg.Auth.Calypr.TrustedIssuer {
+		t.Fatalf("configured trusted issuer was overridden: got %q, want %q", resolved.Auth.Calypr.TrustedIssuer, cfg.Auth.Calypr.TrustedIssuer)
+	}
+}
+
+func TestCalyprAuthNoAuthBypassDoesNotRequireTrustedIssuer(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		set  func(*Config)
+	}{
+		{name: "server bypass", set: func(cfg *Config) { cfg.Server.AllowUnauthenticated = true }},
+		{name: "auth bypass", set: func(cfg *Config) { cfg.Auth.AllowUnauthenticated = true }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.Auth.Mode = "calypr"
+			cfg.Server.ClickHouse.Enabled = false
+			test.set(&cfg)
+			if err := cfg.Validate(); err != nil {
+				t.Fatalf("no-auth Calypr config unexpectedly failed validation: %v", err)
+			}
+		})
 	}
 }

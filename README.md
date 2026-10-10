@@ -296,7 +296,17 @@ server:
 
 auth:
   mode: calypr
+  calypr:
+    trusted_issuer: https://fence.example
 ```
+
+Replace `https://fence.example` with the deployment's fixed Fence issuer.
+When `auth.mode` is `calypr`, `auth.calypr.trusted_issuer` is required; the
+`LOOM_AUTH_CALYPR_TRUSTED_ISSUER` environment variable can supply it when the
+YAML value is omitted. Loom requires the bearer token's `iss` claim to match
+this configured issuer exactly, then asks that issuer's `/user` endpoint to
+validate the token and return grants. Loom does not verify the token signature
+itself or use an untrusted token claim to choose the authorization server.
 
 Basic mode reads `LOOM_AUTH_BASIC_USERNAME` and `LOOM_AUTH_BASIC_PASSWORD` if
 they are not supplied in the config file.

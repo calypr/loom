@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataset"
 
 	"go.yaml.in/yaml/v3"
@@ -73,6 +74,7 @@ type BasicAuthConfig struct {
 }
 
 type CalyprAuthConfig struct {
+	TrustedIssuer  string        `yaml:"trusted_issuer"`
 	RequestTimeout time.Duration `yaml:"request_timeout"`
 	CacheTTL       time.Duration `yaml:"cache_ttl"`
 }
@@ -212,6 +214,9 @@ func LoadConfig(path string) (Config, error) {
 }
 
 func applyEnvironment(cfg Config) (Config, error) {
+	if strings.TrimSpace(cfg.Auth.Calypr.TrustedIssuer) == "" {
+		cfg.Auth.Calypr.TrustedIssuer = strings.TrimSpace(os.Getenv("LOOM_AUTH_CALYPR_TRUSTED_ISSUER"))
+	}
 	if cfg.Auth.Basic.Username == "" {
 		cfg.Auth.Basic.Username = os.Getenv("LOOM_AUTH_BASIC_USERNAME")
 	}
@@ -318,6 +323,12 @@ func (c Config) Validate() error {
 		}
 	}
 	if cfg.Auth.Mode == "calypr" {
+		if strings.TrimSpace(cfg.Auth.Calypr.TrustedIssuer) == "" {
+			return fmt.Errorf("auth.calypr.trusted_issuer is required")
+		}
+		if err := authscope.ValidateTrustedFenceIssuer(cfg.Auth.Calypr.TrustedIssuer); err != nil {
+			return fmt.Errorf("auth.calypr.trusted_issuer: %w", err)
+		}
 		if cfg.Auth.Calypr.RequestTimeout <= 0 {
 			return fmt.Errorf("auth.calypr.request_timeout must be positive")
 		}

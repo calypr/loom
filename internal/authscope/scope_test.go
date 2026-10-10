@@ -51,6 +51,18 @@ func TestScopeResolverResolveReadScopeIntersectsDBPaths(t *testing.T) {
 	}
 }
 
+func TestScopeResolverRejectsBearerAuthorizationWithoutResourceAccessClient(t *testing.T) {
+	resolver := NewScopeResolver(ScopeResolverConfig{})
+	principal := &Principal{AuthorizationHeader: "Bearer header.payload.signature"}
+
+	if _, err := resolver.ResolveReadScope(context.Background(), principal, "P1", nil); !errors.Is(err, ErrAuthorizationBackendUnavailable) {
+		t.Fatalf("ResolveReadScope() error = %v, want ErrAuthorizationBackendUnavailable", err)
+	}
+	if err := resolver.AuthorizeWrite(context.Background(), principal, "P1", "example-project"); !errors.Is(err, ErrAuthorizationBackendUnavailable) {
+		t.Fatalf("AuthorizeWrite() error = %v, want ErrAuthorizationBackendUnavailable", err)
+	}
+}
+
 func TestScopeResolverRejectsRequestedPathOutsideIntersection(t *testing.T) {
 	resolver := NewScopeResolver(ScopeResolverConfig{
 		ResourceAccess: fakeResourceAccessClient{
