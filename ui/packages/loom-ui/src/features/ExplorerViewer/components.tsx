@@ -224,19 +224,40 @@ export const ChartPanel = ({ binding, output, result }: { readonly binding: Expl
   const chartType = binding.type?.trim().toLowerCase() ?? '';
   const supported = ['bar', 'horizontalstacked', 'pie', 'fullpie', 'donut'].includes(chartType);
   if (!supported) return <Paper withBorder radius="md" p="md"><Text c="orange" size="sm">Unsupported chart type <code>{binding.type || 'unknown'}</code>.</Text></Paper>;
-  const values = chartValues(result?.facets.find((facet) => facet.name === chartFacetName(output.outputId, binding.column)), binding.column);
+  const facet = result?.facets.find((candidate) => candidate.name === chartFacetName(output.outputId, binding.column));
+  const values = chartValues(facet, binding.column);
+  const title = binding.title ?? binding.label ?? binding.column;
   const pie = chartType === 'pie' || chartType === 'fullpie' || chartType === 'donut';
   const option: EChartsOption = pie
     ? { tooltip: { trigger: 'item' }, legend: { type: 'scroll', bottom: 0 }, series: [{ type: 'pie', radius: chartType === 'donut' ? ['42%', '70%'] : ['0%', '70%'], data: values }] }
     : { tooltip: { trigger: 'axis' }, grid: { left: 48, right: 18, top: 18, bottom: 52 }, xAxis: chartType === 'horizontalstacked' ? { type: 'value' } : { type: 'category', data: values.map((entry) => entry.name), axisLabel: { rotate: 25 } }, yAxis: chartType === 'horizontalstacked' ? { type: 'category', data: values.map((entry) => entry.name) } : { type: 'value' }, series: [{ name: binding.title ?? binding.column, type: 'bar', data: values.map((entry) => entry.value) }] };
   return (
     <Paper component="article" withBorder radius="md" p="md" className="min-w-0">
-      <Text fw={700} size="sm">{binding.title ?? binding.label ?? binding.column}</Text>
+      <Text fw={700} size="sm">{title}</Text>
       {values.length === 0 ? <Text c="dimmed" size="xs" mt="xs">No facet values are available for this chart.</Text> : (
-        <React.Suspense fallback={<Text c="dimmed" size="xs" mt="xs">Loading chart…</Text>}>
-          <LazyReactECharts option={option} notMerge lazyUpdate style={{ height: 250, width: '100%' }} />
-        </React.Suspense>
+        <>
+          <React.Suspense fallback={<Text c="dimmed" size="xs" mt="xs">Loading chart…</Text>}>
+            <LazyReactECharts option={option} notMerge lazyUpdate style={{ height: 250, width: '100%' }} />
+          </React.Suspense>
+          <Table aria-label={`${title} chart values`} withTableBorder>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Category</Table.Th>
+                <Table.Th>Count</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {values.map((entry) => (
+                <Table.Tr key={entry.name}>
+                  <Table.Td>{entry.name}</Table.Td>
+                  <Table.Td>{entry.value}</Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </>
       )}
+      {facet?.missingCount === undefined ? null : <Text size="xs">Missing values: {facet.missingCount}</Text>}
     </Paper>
   );
 };
