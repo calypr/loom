@@ -97,7 +97,7 @@ func (r *physicalPlanRenderer) renderSlice(expression ir.PhysicalExpression) (st
 		if comparison.LeftExpression != nil && comparison.LeftExpression.Extract != nil {
 			left := *comparison.LeftExpression
 			extract := *left.Extract
-			extract.Source = ir.PhysicalValue{Variable: item, Path: []string{"payload"}}
+			rebindPhysicalExtractSource(&extract, ir.PhysicalValue{Variable: item, Path: []string{"payload"}})
 			left.Extract = &extract
 			comparison.LeftExpression = &left
 		} else {
@@ -133,7 +133,7 @@ func (r *physicalPlanRenderer) renderSlice(expression ir.PhysicalExpression) (st
 		projectionExpression := projection.Expression
 		if projectionExpression.Kind == ir.PhysicalExtractExpression && projectionExpression.Extract != nil {
 			extract := *projectionExpression.Extract
-			extract.Source = ir.PhysicalValue{Variable: item, Path: []string{"payload"}}
+			rebindPhysicalExtractSource(&extract, ir.PhysicalValue{Variable: item, Path: []string{"payload"}})
 			projectionExpression.Extract = &extract
 		}
 		previousPreparedItem := r.preparedItem
@@ -174,6 +174,9 @@ func (r *physicalPlanRenderer) renderPivot(expression ir.PhysicalExpression) (st
 	pivot := expression.Pivot
 	if pivot == nil {
 		return "", fmt.Errorf("PIVOT expression is missing payload")
+	}
+	if pivot.Correlation != nil {
+		return r.renderCorrelatedPivot(*pivot.Correlation, pivot.ColumnsBindKey, pivot.StringifyValue, pivot.FlattenSingleColumn, pivot.ProjectionMode)
 	}
 	if _, collection := r.collectionKeys[pivot.ColumnsBindKey]; collection {
 		return "", fmt.Errorf("pivot columns bind %q cannot be a collection bind", pivot.ColumnsBindKey)
@@ -275,6 +278,101 @@ func (r *physicalPlanRenderer) renderPivot(expression ir.PhysicalExpression) (st
 )`, pairs, value), nil
 }
 
+func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorrelation, columnsBindKey string, stringify, flattenSingle bool, projectionMode string) (string, error) {
+	if len(correlation.ExtensionURLSelectors) > 0 {
+		return r.renderExtensionCorrelatedPivot(correlation, columnsBindKey, stringify, flattenSingle, projectionMode)
+	}
+	if columnsBindKey == "" {
+		return "", fmt.Errorf("correlated pivot columns bind is required")
+	}
+	if _, collection := r.collectionKeys[columnsBindKey]; collection {
+		return "", fmt.Errorf("pivot columns bind %q cannot be a collection bind", columnsBindKey)
+	}
+	columns, ok := r.bindVars[columnsBindKey].([]string)
+	if !ok || len(columns) == 0 {
+		return "", fmt.Errorf("pivot columns bind %q is not a non-empty []string", columnsBindKey)
+	}
+	owners, err := r.renderCorrelationOwners(correlation.Source, correlation.OwnerSelector)
+	if err != nil {
+		return "", err
+	}
+	owner := r.newInternalVariable("correlation_pivot_owner")
+	coding := r.newInternalVariable("correlation_pivot_coding")
+	codings, err := r.renderSelectorArrayFromSource(owner, correlation.KeySelector, false, false)
+	if err != nil {
+		return "", err
+	}
+	system, err := r.renderCorrelationScalar(coding, correlation.SystemSelector)
+	if err != nil {
+		return "", err
+	}
+	code, err := r.renderCorrelationScalar(coding, correlation.CodeSelector)
+	if err != nil {
+		return "", err
+	}
+	values, err := r.renderCorrelationValues(owner, correlation.ValueSelector, correlation.ValueFallbacks)
+	if err != nil {
+		return "", err
+	}
+	unsupportedValues, err := r.renderCorrelationUnsupportedChoiceValues(owner, correlation)
+	if err != nil {
+		return "", err
+	}
+	value, err := renderCorrelatedReduction(projectionMode, stringify, correlation.ValuePrimitive)
+	if err != nil {
+		return "", err
+	}
+	// Reduce repeated Coding aliases within each owner before the outer
+	// reduction. Distinct owners remain separate, so ALL retains multiplicity
+	// across components while duplicate Coding entries cannot duplicate a
+	// component's value.
+	pairs := fmt.Sprintf(`FOR %s IN %s
+  LET __correlation_owner_pairs = (
+    FOR %s IN FLATTEN(%s)
+      LET __correlation_system = %s
+      LET __correlation_code = %s
+      FILTER __correlation_system != null AND __correlation_system != ""
+      FILTER __correlation_code != null AND __correlation_code != ""
+      FILTER __correlation_system == @%s
+      FILTER POSITION(@%s, __correlation_code)
+      LET __correlation_values = %s
+      LET __correlation_flat_values = FLATTEN(__correlation_values)
+      LET __correlation_unsupported_values = %s
+      FILTER LENGTH(__correlation_flat_values) > 0 OR LENGTH(__correlation_unsupported_values) > 0
+      RETURN { key: __correlation_code, values: __correlation_values, unsupported: __correlation_unsupported_values }
+  )
+  FOR __correlation_owner_pair IN (
+    FOR __correlation_candidate IN __correlation_owner_pairs
+      COLLECT __correlation_owner_key = __correlation_candidate.key INTO __correlation_owner_group
+        LET __correlation_owner_values = UNIQUE(FLATTEN(__correlation_owner_group[*].__correlation_candidate.values))
+        LET __correlation_owner_unsupported = UNIQUE(FLATTEN(__correlation_owner_group[*].__correlation_candidate.unsupported))
+        RETURN { key: __correlation_owner_key, values: __correlation_owner_values, unsupported: __correlation_owner_unsupported }
+  )
+    RETURN __correlation_owner_pair`, owner, owners, coding, codings, system, code, correlation.SystemBindKey, columnsBindKey, values, unsupportedValues)
+	if flattenSingle {
+		return fmt.Sprintf(`FIRST(
+	  FOR __correlation_pair IN (
+	    %s
+	  )
+	  COLLECT __correlation_key = __correlation_pair.key INTO __correlation_group
+	    LET __correlation_flat_values = FLATTEN(__correlation_group[*].__correlation_pair.values)
+	    LET __correlation_unsupported_values = FLATTEN(__correlation_group[*].__correlation_pair.unsupported)
+	    FILTER LENGTH(__correlation_flat_values) > 0 OR LENGTH(__correlation_unsupported_values) > 0
+	    RETURN %s
+)`, pairs, value), nil
+	}
+	return fmt.Sprintf(`MERGE(
+  FOR __correlation_pair IN (
+    %s
+	  )
+	  COLLECT __correlation_key = __correlation_pair.key INTO __correlation_group
+	    LET __correlation_flat_values = FLATTEN(__correlation_group[*].__correlation_pair.values)
+	    LET __correlation_unsupported_values = FLATTEN(__correlation_group[*].__correlation_pair.unsupported)
+	    FILTER LENGTH(__correlation_flat_values) > 0 OR LENGTH(__correlation_unsupported_values) > 0
+	    RETURN { [__correlation_key]: %s }
+)`, pairs, value), nil
+}
+
 // renderPivotSelector evaluates a selector against either the resource
 // document or a correlated repeated item. Keeping the item scope explicit
 // prevents keys and values from different repeated elements being paired.
@@ -298,45 +396,20 @@ func (r *physicalPlanRenderer) renderAggregate(expression ir.PhysicalExpression)
 	if aggregate == nil {
 		return "", fmt.Errorf("AGGREGATE expression is missing payload")
 	}
-	source, err := r.renderValue(aggregate.Source)
+	items, perItem, err := r.renderAggregateItems(aggregate)
 	if err != nil {
 		return "", err
 	}
-	items := source
-	if preparedVariable := aggregatePreparedVariable(aggregate); preparedVariable != "" {
-		items = preparedVariable
-	}
-	if aggregate.Source.Variable == "" || r.setVariables[aggregate.Source.Variable] == "" {
-		items = "[" + source + "]"
-	}
-	perItem := aggregate.Predicate != nil
-	if perItem {
-		if aggregate.Predicate.Kind != ir.PhysicalComparisonPredicate || aggregate.Predicate.Comparison == nil {
-			return "", fmt.Errorf("aggregate predicate must be a comparison")
-		}
-		item := r.newInternalVariable("aggregate_item")
-		comparison := *aggregate.Predicate.Comparison
-		if comparison.LeftExpression == nil || comparison.LeftExpression.Extract == nil {
-			return "", fmt.Errorf("aggregate predicate must extract a selector")
-		}
-		left := *comparison.LeftExpression
-		extract := *left.Extract
-		if extract.Prepared == nil {
-			extract.Source = ir.PhysicalValue{Variable: item, Path: []string{"payload"}}
-		}
-		left.Extract = &extract
-		comparison.LeftExpression = &left
-		previousPreparedItem := r.preparedItem
-		r.preparedItem = item
-		predicate, err := r.renderPredicate(comparison)
-		r.preparedItem = previousPreparedItem
-		if err != nil {
-			return "", err
-		}
-		items = "(FOR " + item + " IN " + items + " FILTER " + predicate + " RETURN " + item + ")"
-	}
 	switch aggregate.Operation {
 	case ir.PhysicalCountAggregate:
+		if aggregate.Value != nil {
+			values, err := r.renderAggregateValue(*aggregate.Value, items, perItem)
+			if err != nil {
+				return "", err
+			}
+			item := r.newInternalVariable("aggregate_count_value")
+			return "LENGTH(FOR " + item + " IN FLATTEN(" + values + ") FILTER " + item + " != null RETURN 1)", nil
+		}
 		return "LENGTH(" + items + ")", nil
 	case ir.PhysicalExistsAggregate:
 		if aggregate.Value == nil {
@@ -347,9 +420,29 @@ func (r *physicalPlanRenderer) renderAggregate(expression ir.PhysicalExpression)
 			return "", err
 		}
 		return "LENGTH(FOR __value IN FLATTEN(" + values + ") FILTER __value != null LIMIT 1 RETURN 1) > 0", nil
-	case ir.PhysicalCountDistinctAggregate, ir.PhysicalDistinctValuesAggregate, ir.PhysicalMinAggregate, ir.PhysicalMaxAggregate, ir.PhysicalFirstAggregate:
+	case ir.PhysicalSumAggregate, ir.PhysicalMeanAggregate:
+		if aggregate.Value == nil {
+			return "", fmt.Errorf("aggregate operation %q requires a numeric value expression", aggregate.Operation)
+		}
+		values, err := r.renderAggregateValue(*aggregate.Value, items, perItem)
+		if err != nil {
+			return "", err
+		}
+		outer := r.newInternalVariable("aggregate_numeric_values")
+		value := r.newInternalVariable("aggregate_numeric_value")
+		numeric := r.newInternalVariable("aggregate_numeric_values")
+		numericValues := "(FOR " + value + " IN " + outer + " FILTER " + value + " != null FILTER ASSERT(IS_NUMBER(" + value + "), \"NUMERIC_AGGREGATE_NON_NUMERIC\") RETURN " + value + ")"
+		reduction := "SUM(" + numeric + ")"
+		if aggregate.Operation == ir.PhysicalMeanAggregate {
+			reduction = reduction + " / LENGTH(" + numeric + ")"
+		}
+		return "FIRST(FOR " + outer + " IN [FLATTEN(" + values + ")] LET " + numeric + " = " + numericValues + " RETURN LENGTH(" + numeric + ") == 0 ? null : " + reduction + ")", nil
+	case ir.PhysicalCountDistinctAggregate, ir.PhysicalDistinctValuesAggregate, ir.PhysicalMinAggregate, ir.PhysicalMaxAggregate, ir.PhysicalFirstAggregate, ir.PhysicalRequireOneAggregate, ir.PhysicalCollectAggregate, ir.PhysicalFirstOrderedAggregate:
 		if aggregate.Value == nil {
 			return "", fmt.Errorf("aggregate operation %q requires a value expression", aggregate.Operation)
+		}
+		if aggregate.Operation == ir.PhysicalFirstOrderedAggregate {
+			return r.renderFirstOrderedAggregate(aggregate, items)
 		}
 		values, err := r.renderAggregateValue(*aggregate.Value, items, perItem)
 		if err != nil {
@@ -367,6 +460,11 @@ func (r *physicalPlanRenderer) renderAggregate(expression ir.PhysicalExpression)
 			return "MAX(" + flattened + ")", nil
 		case ir.PhysicalFirstAggregate:
 			return "FIRST(" + flattened + ")", nil
+		case ir.PhysicalRequireOneAggregate:
+			nonNull := "(FOR __value IN " + flattened + " FILTER __value != null RETURN __value)"
+			return "ASSERT(LENGTH(" + nonNull + ") <= 1, \"RELATIONSHIP_CARDINALITY_VIOLATION\") ? FIRST(" + nonNull + ") : null", nil
+		case ir.PhysicalCollectAggregate:
+			return flattened, nil
 		}
 	case ir.PhysicalContainsAllAggregate:
 		if aggregate.Value == nil {
@@ -386,8 +484,162 @@ func (r *physicalPlanRenderer) renderAggregate(expression ir.PhysicalExpression)
 	return "", fmt.Errorf("unsupported aggregate operation %q", aggregate.Operation)
 }
 
+// renderAggregateItems is the single predicate/source lowering used by both
+// normal aggregate values and targeted cell traces.
+func (r *physicalPlanRenderer) renderAggregateItems(aggregate *ir.PhysicalAggregate) (string, bool, error) {
+	source, err := r.renderValue(aggregate.Source)
+	if err != nil {
+		return "", false, err
+	}
+	items := source
+	if preparedVariable := aggregatePreparedVariable(aggregate); preparedVariable != "" {
+		items = preparedVariable
+	}
+	if aggregate.Source.Variable == "" || r.setVariables[aggregate.Source.Variable] == "" {
+		items = "[" + source + "]"
+	}
+	perItem := aggregate.Predicate != nil
+	if perItem {
+		if aggregate.Predicate.Kind != ir.PhysicalComparisonPredicate || aggregate.Predicate.Comparison == nil {
+			return "", false, fmt.Errorf("aggregate predicate must be a comparison")
+		}
+		item := r.newInternalVariable("aggregate_item")
+		comparison := *aggregate.Predicate.Comparison
+		if comparison.LeftExpression == nil || comparison.LeftExpression.Extract == nil {
+			return "", false, fmt.Errorf("aggregate predicate must extract a selector")
+		}
+		left := *comparison.LeftExpression
+		extract := *left.Extract
+		if extract.Prepared == nil {
+			rebindPhysicalExtractSource(&extract, ir.PhysicalValue{Variable: item, Path: []string{"payload"}})
+		}
+		left.Extract = &extract
+		comparison.LeftExpression = &left
+		previousPreparedItem := r.preparedItem
+		r.preparedItem = item
+		predicate, err := r.renderPredicate(comparison)
+		r.preparedItem = previousPreparedItem
+		if err != nil {
+			return "", false, err
+		}
+		items = "(FOR " + item + " IN " + items + " FILTER " + predicate + " RETURN " + item + ")"
+	}
+	if aggregate.ContributorWindow != nil {
+		items, err = r.renderContributorWindowItems(aggregate, items)
+		if err != nil {
+			return "", false, err
+		}
+		perItem = true
+	}
+	return items, perItem, nil
+}
+
+func (r *physicalPlanRenderer) renderContributorWindowItems(aggregate *ir.PhysicalAggregate, items string) (string, error) {
+	window := aggregate.ContributorWindow
+	if window == nil {
+		return items, nil
+	}
+	item := r.newInternalVariable("contributor_window_item")
+	timestamp, err := r.renderAggregateItemValue(window.Timestamp, item)
+	if err != nil {
+		return "", fmt.Errorf("contributor window timestamp: %w", err)
+	}
+	anchor, err := r.renderExpression(window.Anchor)
+	if err != nil {
+		return "", fmt.Errorf("contributor window anchor: %w", err)
+	}
+	patternKey := r.newInternalBindKey("contributor_window_instant_pattern")
+	lowerKey := r.newInternalBindKey("contributor_window_lower_offset_seconds")
+	upperKey := r.newInternalBindKey("contributor_window_upper_offset_seconds")
+	r.bindVars[patternKey] = `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$`
+	r.bindVars[lowerKey] = window.LowerOffset
+	r.bindVars[upperKey] = window.UpperOffset
+	lowerOperator, upperOperator := ">", "<"
+	if window.LowerInclusive {
+		lowerOperator = ">="
+	}
+	if window.UpperInclusive {
+		upperOperator = "<="
+	}
+	anchorVariable := r.newInternalVariable("contributor_window_anchor")
+	scopeVariable := r.newInternalVariable("contributor_window_scope")
+	eligibleVariable := r.newInternalVariable("contributor_window_eligible")
+	timestampVariable := r.newInternalVariable("contributor_window_timestamp")
+	candidates := "(FOR " + item + " IN " + items +
+		" LET " + timestampVariable + " = FIRST(FLATTEN([" + timestamp + "]))" +
+		" FILTER " + timestampVariable + " != null" +
+		" FILTER ASSERT(REGEX_TEST(TO_STRING(" + timestampVariable + "), @" + patternKey + "), \"TEMPORAL_PRECISION_UNSUPPORTED\")" +
+		" FILTER DATE_TIMESTAMP(" + timestampVariable + ") " + lowerOperator + " DATE_TIMESTAMP(DATE_ADD(" + anchorVariable + ", @" + lowerKey + ", \"second\"))" +
+		" FILTER DATE_TIMESTAMP(" + timestampVariable + ") " + upperOperator + " DATE_TIMESTAMP(DATE_ADD(" + anchorVariable + ", @" + upperKey + ", \"second\"))" +
+		" RETURN " + item + ")"
+	return "FIRST(FOR " + scopeVariable + " IN [1]" +
+		" LET " + anchorVariable + " = " + anchor +
+		" FILTER ASSERT(" + anchorVariable + " != null AND REGEX_TEST(TO_STRING(" + anchorVariable + "), @" + patternKey + "), \"TEMPORAL_ANCHOR_INVALID\")" +
+		" LET " + eligibleVariable + " = " + candidates +
+		" RETURN " + eligibleVariable + ")", nil
+}
+
+func (r *physicalPlanRenderer) renderFirstOrderedAggregate(aggregate *ir.PhysicalAggregate, items string) (string, error) {
+	selection, err := r.renderFirstOrderedSelection(aggregate, items)
+	if err != nil {
+		return "", err
+	}
+	selected := r.newInternalVariable("temporal_selected_result")
+	return "FIRST(FOR " + selected + " IN [" + selection + "] RETURN " + selected + " == null ? null : " + selected + ".value)", nil
+}
+
+func (r *physicalPlanRenderer) renderFirstOrderedSelection(aggregate *ir.PhysicalAggregate, items string) (string, error) {
+	if aggregate.Ordering == nil || aggregate.Value == nil {
+		return "", fmt.Errorf("FIRST_ORDERED requires value and temporal ordering")
+	}
+	item := r.newInternalVariable("temporal_item")
+	value, err := r.renderAggregateItemValue(*aggregate.Value, item)
+	if err != nil {
+		return "", err
+	}
+	value = "FIRST(FLATTEN([" + value + "]))"
+	timestamp, err := r.renderAggregateItemValue(aggregate.Ordering.Timestamp, item)
+	if err != nil {
+		return "", err
+	}
+	timestamp = "FIRST(FLATTEN([" + timestamp + "]))"
+	patternKey := r.newInternalBindKey("temporal_instant_pattern")
+	r.bindVars[patternKey] = `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$`
+	direction := strings.ToUpper(aggregate.Ordering.Direction)
+	candidatesVariable := r.newInternalVariable("temporal_candidates")
+	selectedVariable := r.newInternalVariable("temporal_selected")
+	candidates := "(FOR " + item + " IN " + items +
+		" LET __loom_temporal_value = " + value +
+		" LET __loom_temporal_timestamp = " + timestamp +
+		" FILTER __loom_temporal_value != null" +
+		" FILTER __loom_temporal_timestamp != null" +
+		" FILTER ASSERT(REGEX_TEST(TO_STRING(__loom_temporal_timestamp), @" + patternKey + "), \"TEMPORAL_PRECISION_UNSUPPORTED\")" +
+		" SORT DATE_TIMESTAMP(__loom_temporal_timestamp) " + direction +
+		", TO_STRING(" + item + ".resourceType) ASC, TO_STRING(" + item + ".id) ASC, " + item + "._key ASC" +
+		" RETURN { resourceType: " + item + ".resourceType, resourceId: " + item + ".id, value: __loom_temporal_value, timestamp: __loom_temporal_timestamp })"
+	result := selectedVariable
+	if aggregate.Ordering.TiePolicy == "REQUIRE_UNIQUE" {
+		tie := r.newInternalVariable("temporal_tie")
+		ties := "LENGTH(FOR " + tie + " IN " + candidatesVariable + " FILTER DATE_TIMESTAMP(" + tie + ".timestamp) == DATE_TIMESTAMP(" + selectedVariable + ".timestamp) LIMIT 2 RETURN 1)"
+		result = selectedVariable + " == null ? null : (ASSERT(" + ties + " <= 1, \"TEMPORAL_TIE_AMBIGUOUS\") ? " + selectedVariable + " : null)"
+	}
+	return "FIRST(FOR __loom_temporal_scope IN [1]" +
+		" LET " + candidatesVariable + " = " + candidates +
+		" LET " + selectedVariable + " = FIRST(" + candidatesVariable + ")" +
+		" RETURN " + result + ")", nil
+}
+
 func aggregatePreparedVariable(aggregate *ir.PhysicalAggregate) string {
 	if aggregate == nil {
+		return ""
+	}
+	if aggregate.ContributorWindow != nil {
+		return ""
+	}
+	// Prepared child sets contain raw selector columns. Unit normalization
+	// needs the original value and its sibling system/code selectors for each
+	// contributing item, so it must stay at item grain until the reducer.
+	if aggregate.Value != nil && aggregate.Value.Extract != nil && aggregate.Value.Extract.UnitNormalization != nil {
 		return ""
 	}
 	if aggregate.Value != nil && aggregate.Value.Extract != nil && aggregate.Value.Extract.Prepared != nil {
@@ -410,10 +662,18 @@ func (r *physicalPlanRenderer) renderAggregateValue(expression ir.PhysicalExpres
 		return "", fmt.Errorf("aggregate predicates require an extract value expression")
 	}
 	item := r.newInternalVariable("aggregate_value_item")
+	value, err := r.renderAggregateItemValue(expression, item)
+	if err != nil {
+		return "", err
+	}
+	return "(FOR " + item + " IN " + items + " RETURN " + value + ")", nil
+}
+
+func (r *physicalPlanRenderer) renderAggregateItemValue(expression ir.PhysicalExpression, item string) (string, error) {
 	clone := expression
 	extract := *expression.Extract
 	if extract.Prepared == nil {
-		extract.Source = ir.PhysicalValue{Variable: item, Path: []string{"payload"}}
+		rebindPhysicalExtractSource(&extract, ir.PhysicalValue{Variable: item, Path: []string{"payload"}})
 	}
 	clone.Extract = &extract
 	previousPreparedItem := r.preparedItem
@@ -423,5 +683,114 @@ func (r *physicalPlanRenderer) renderAggregateValue(expression ir.PhysicalExpres
 	if err != nil {
 		return "", err
 	}
-	return "(FOR " + item + " IN " + items + " RETURN " + value + ")", nil
+	return value, nil
+}
+
+// renderExtensionCorrelatedPivot keeps each nested extension URL check in the
+// loop that owns the next extension object. A leaf URL can therefore never
+// match a value beneath a different ancestor URL.
+func (r *physicalPlanRenderer) renderExtensionCorrelatedPivot(correlation ir.PhysicalCorrelation, columnsBindKey string, stringify, flattenSingle bool, projectionMode string) (string, error) {
+	if columnsBindKey == "" {
+		return "", fmt.Errorf("extension pivot columns bind is required")
+	}
+	if _, collection := r.collectionKeys[columnsBindKey]; collection {
+		return "", fmt.Errorf("pivot columns bind %q cannot be a collection bind", columnsBindKey)
+	}
+	columns, ok := r.bindVars[columnsBindKey].([]string)
+	if !ok || len(columns) == 0 {
+		return "", fmt.Errorf("pivot columns bind %q is not a non-empty []string", columnsBindKey)
+	}
+	owners, err := r.renderCorrelationOwners(correlation.Source, correlation.OwnerSelector)
+	if err != nil {
+		return "", err
+	}
+	if len(correlation.ExtensionURLSelectors) != len(correlation.ExtensionURLBindKeys) {
+		return "", fmt.Errorf("extension URL selectors and bind keys must have equal length")
+	}
+	extensionSelector, err := spec.ParseSelector("extension[]")
+	if err != nil {
+		return "", err
+	}
+	current := "__extension_base"
+	lines := []string{"FOR " + current + " IN " + owners}
+	for index, urlSelector := range correlation.ExtensionURLSelectors {
+		extension := fmt.Sprintf("__correlation_extension_%d", index)
+		extensions, selectorErr := r.renderSelectorArrayFromSource(current, extensionSelector, false, false)
+		if selectorErr != nil {
+			return "", fmt.Errorf("extension owner selector %d: %w", index, selectorErr)
+		}
+		lines = append(lines, "  FOR "+extension+" IN FLATTEN("+extensions+")")
+		url, scalarErr := r.renderCorrelationScalar(extension, urlSelector)
+		if scalarErr != nil {
+			return "", fmt.Errorf("extension URL selector %d: %w", index, scalarErr)
+		}
+		lines = append(lines, fmt.Sprintf("    FILTER %s != null AND %s == @%s", url, url, correlation.ExtensionURLBindKeys[index]))
+		current = extension
+	}
+	values, err := r.renderCorrelationValues(current, correlation.ValueSelector, correlation.ValueFallbacks)
+	if err != nil {
+		return "", err
+	}
+	unsupportedValues, err := r.renderCorrelationUnsupportedChoiceValues(current, correlation)
+	if err != nil {
+		return "", err
+	}
+	lines = append(lines,
+		"    LET __correlation_values = "+values,
+		"    LET __correlation_flat_values = FLATTEN(__correlation_values)",
+		"    LET __correlation_unsupported_values = "+unsupportedValues,
+		"    FILTER LENGTH(__correlation_flat_values) > 0 OR LENGTH(__correlation_unsupported_values) > 0",
+		"    RETURN { values: __correlation_values, unsupported: __correlation_unsupported_values }")
+	pairs := strings.Join(lines, "\n")
+	value, err := renderCorrelatedReduction(projectionMode, stringify, correlation.ValuePrimitive)
+	if err != nil {
+		return "", err
+	}
+	// Aggregate every matched terminal extension before applying the declared
+	// reduction. Emitting one object per owner would make MERGE overwrite
+	// repeated matches and would silently turn VALUE multiplicity into FIRST.
+	aggregation := fmt.Sprintf("FOR __extension_result IN [1]\n  LET __extension_pairs = (\n    %s\n  )\n  LET __correlation_flat_values = FLATTEN(__extension_pairs[*].values)\n  LET __correlation_unsupported_values = FLATTEN(__extension_pairs[*].unsupported)\n  FILTER LENGTH(__correlation_flat_values) > 0 OR LENGTH(__correlation_unsupported_values) > 0\n  RETURN ", pairs)
+	if flattenSingle {
+		return "FIRST(\n  " + aggregation + value + "\n)", nil
+	}
+	return "MERGE(\n  " + aggregation + "{ [FIRST(@" + columnsBindKey + ")]: " + value + " }\n)", nil
+}
+
+// renderCorrelatedReduction is shared by Coding and Extension correlations so
+// every projection mode has one explicit multiplicity and invalid-choice
+// contract. ALL/DISTINCT preserve arrays; VALUE reports multiplicity; FIRST is
+// deterministic but intentionally lossy.
+func renderCorrelatedReduction(projectionMode string, stringify bool, primitive string) (string, error) {
+	mode := strings.ToUpper(strings.TrimSpace(projectionMode))
+	if mode == "" {
+		mode = "FIRST"
+	}
+	valuePrimitive := strings.ToLower(strings.TrimSpace(primitive))
+	stringConversion := stringify && valuePrimitive != "" && valuePrimitive != "string"
+	value := "__correlation_flat_values"
+	switch mode {
+	case "ALL":
+		if stringConversion {
+			value = "(FOR __correlation_value IN __correlation_flat_values RETURN TO_STRING(__correlation_value))"
+		}
+	case "DISTINCT":
+		if stringConversion {
+			value = "(FOR __correlation_value IN __correlation_flat_values RETURN TO_STRING(__correlation_value))"
+		}
+		value = "SORTED_UNIQUE(" + value + ")"
+	case "VALUE":
+		first := "FIRST(__correlation_flat_values)"
+		if stringConversion {
+			first = "TO_STRING(" + first + ")"
+		}
+		value = `LENGTH(__correlation_flat_values) == 1 ? ` + first + ` : { status: "INVALID_MULTIPLE_VALUES", raw: __correlation_flat_values }`
+	case "FIRST":
+		value = "FIRST(SORTED(__correlation_flat_values))"
+		if stringConversion {
+			value = "TO_STRING(" + value + ")"
+		}
+	default:
+		return "", fmt.Errorf("correlated pivot projection mode %q is unsupported", projectionMode)
+	}
+	return `LENGTH(__correlation_unsupported_values) > 0 ? { status: "INVALID_CHOICE_ARM", raw: __correlation_unsupported_values } : ` + value, nil
 }

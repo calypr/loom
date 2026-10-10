@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -60,6 +61,13 @@ func LoadDir(dir string) ([]Fixture, error) {
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&fixture); err != nil {
 			return nil, fmt.Errorf("decode %s: %w", path, err)
+		}
+		var trailing any
+		if err := decoder.Decode(&trailing); err != io.EOF {
+			if err == nil {
+				return nil, fmt.Errorf("decode %s: multiple JSON values", path)
+			}
+			return nil, fmt.Errorf("decode %s: invalid trailing JSON: %w", path, err)
 		}
 		fixture.SourceFile = path
 		if err := fixture.Validate(); err != nil {

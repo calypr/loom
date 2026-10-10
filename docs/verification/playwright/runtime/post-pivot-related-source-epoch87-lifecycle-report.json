@@ -1,0 +1,350 @@
+{
+  "epoch": 87,
+  "scenario": "standalone-reshape-related-source-after-pivot",
+  "case": "related-source-after-pivot",
+  "title": "standalone CDA reshape workflows related-source-after-pivot related-source-after-pivot",
+  "status": "passed",
+  "runnerStatus": "passed",
+  "coverageStatus": "passed",
+  "classification": "The full native real-CDA Post-Pivot RELATED_SOURCE ALL lifecycle passed on the two-root Observation/Patient.id witness. All 25 required named checks, 86 assertions, 60 native actions, and 26 lifecycle transitions passed through Cancel/Apply/edit/removal and reload. The raw domain aggregate marked persistence and performance untested; the assessed dimension statuses derive from the named persisted/reload lifecycle checks and the named five-second action-budget check, with those raw statuses preserved below.",
+  "browserProcess": {
+    "session": 91990,
+    "exitCode": 0,
+    "processDurationMs": null
+  },
+  "requiredChecks": {
+    "passed": 25,
+    "failed": 0,
+    "unrun": 0,
+    "total": 25,
+    "passedNames": [
+      "CDA raw oracle selects two same-status Observation roots with distinct Patient references",
+      "Exact scoped subject_Patient edges resolve the two roots to distinct Patient documents",
+      "Fresh Explorer binds the exact two-root Observation population to its direct source table",
+      "Native Pivot preview matches the two exact source categories and coalesces one row",
+      "Pivot Cancel preserves exact source workspace and rows after reload",
+      "Confirmed Pivot proposal retains exact typed category and value bindings",
+      "Applied Pivot persists typed categories and one independently verified coalesced row after reload",
+      "Pivot compiler stage exposes the exact row identity and RELATED_SOURCE capability",
+      "Post-Pivot Patient.id ALL proposal retains both source contributors",
+      "Native chooser and candidate bind Patient.id ALL through exact Observation.subject → Patient",
+      "Post-Pivot ALL returns both independently resolved Patient IDs on one Pivot row",
+      "Related-source Cancel preserves the exact saved Pivot and its raw values after reload",
+      "Confirmed post-Pivot Patient.id ALL preview",
+      "Applied post-Pivot RELATED_SOURCE retains exact ALL binding and contributors after reload",
+      "Edited related-source label keeps exact contributor values",
+      "Editing the saved related source and Cancel preserves its exact construction and ALL values",
+      "Apply related-source edit preserves the post-Pivot binding",
+      "Applied related-source edit changes only the label and survives reload with exact Patient values",
+      "Related-source removal preview restores exact Pivot values",
+      "Related-source removal Cancel preserves the edited binding and exact ALL values after reload",
+      "Confirmed related-source removal restores the exact Pivot row",
+      "Applying related-source removal restores the exact pre-source Pivot workspace and values",
+      "No unexpected native network, module, or browser errors occurred",
+      "All native lifecycle actions complete within five seconds",
+      "CDA watched source and API build stayed unchanged"
+    ]
+  },
+  "assertions": {
+    "passed": 86,
+    "failed": 0,
+    "total": 86
+  },
+  "rawReportedDimensions": {
+    "usability": "passed",
+    "correctness": "passed",
+    "persistence": "untested",
+    "performance": "untested"
+  },
+  "dimensions": {
+    "usability": "passed",
+    "correctness": "passed",
+    "persistence": "passed",
+    "performance": "passed"
+  },
+  "dimensionAssessmentBasis": {
+    "usability": {
+      "status": "passed",
+      "evidence": "All 60/60 native actions passed; all 26 lifecycle transitions completed."
+    },
+    "correctness": {
+      "status": "passed",
+      "evidence": "All 25 registered required checks and 86 assertions passed."
+    },
+    "persistence": {
+      "status": "passed",
+      "evidenceNames": [
+        "Pivot Cancel preserves exact source workspace and rows after reload",
+        "Applied Pivot persists typed categories and one independently verified coalesced row after reload",
+        "Related-source Cancel preserves the exact saved Pivot and its raw values after reload",
+        "Applied post-Pivot RELATED_SOURCE retains exact ALL binding and contributors after reload",
+        "Applied related-source edit changes only the label and survives reload with exact Patient values",
+        "Related-source removal Cancel preserves the edited binding and exact ALL values after reload"
+      ],
+      "note": "Named Cancel/Apply/edit/removal checks assert exact saved workspace or values after reload."
+    },
+    "performance": {
+      "status": "passed",
+      "evidenceName": "All native lifecycle actions complete within five seconds",
+      "maxTransitionElapsedMs": 1468,
+      "maxNativeActionMs": 239,
+      "budgetMs": 5000
+    }
+  },
+  "nativeActions": {
+    "passed": 60,
+    "failed": 0,
+    "total": 60,
+    "maxElapsedMs": 239,
+    "budgetMs": 5000
+  },
+  "transitions": {
+    "completed": 26,
+    "total": 26,
+    "maxElapsedMs": 1468,
+    "items": [
+      {
+        "name": "Initial exact Observation source rows survive reload",
+        "elapsedMs": 1468
+      },
+      {
+        "name": "Native Pivot preview matches the two exact source categories and coalesces one row",
+        "elapsedMs": 1099
+      },
+      {
+        "name": "Canceling Pivot preserves exact root workspace and rows",
+        "elapsedMs": 835
+      },
+      {
+        "name": "Canceling Pivot preserves exact root workspace and rows reload",
+        "elapsedMs": 1340
+      },
+      {
+        "name": "Confirmed Pivot proposal retains exact typed category and value bindings",
+        "elapsedMs": 1107
+      },
+      {
+        "name": "Apply Pivot and render exact coalesced row",
+        "elapsedMs": 921
+      },
+      {
+        "name": "Apply Pivot and render exact coalesced row reload",
+        "elapsedMs": 1369
+      },
+      {
+        "name": "Post-Pivot Patient.id ALL proposal retains both source contributors",
+        "elapsedMs": 1132
+      },
+      {
+        "name": "Canceling related-source proposal preserves Pivot after reload",
+        "elapsedMs": 759
+      },
+      {
+        "name": "Canceling related-source proposal preserves Pivot after reload reload",
+        "elapsedMs": 1335
+      },
+      {
+        "name": "Confirmed post-Pivot Patient.id ALL preview",
+        "elapsedMs": 1202
+      },
+      {
+        "name": "Apply post-Pivot Patient.id ALL and reload exact values",
+        "elapsedMs": 880
+      },
+      {
+        "name": "Apply post-Pivot Patient.id ALL and reload exact values reload",
+        "elapsedMs": 1359
+      },
+      {
+        "name": "Edited related-source label keeps exact contributor values",
+        "elapsedMs": 780
+      },
+      {
+        "name": "Cancel related-source edit and reload unchanged ALL binding",
+        "elapsedMs": 711
+      },
+      {
+        "name": "Cancel related-source edit and reload unchanged ALL binding reload",
+        "elapsedMs": 1344
+      },
+      {
+        "name": "Apply related-source edit preserves the post-Pivot binding",
+        "elapsedMs": 771
+      },
+      {
+        "name": "Apply edited related-source label and reload exact contributor values",
+        "elapsedMs": 904
+      },
+      {
+        "name": "Apply edited related-source label and reload exact contributor values reload",
+        "elapsedMs": 1351
+      },
+      {
+        "name": "Related-source removal preview restores exact Pivot values",
+        "elapsedMs": 709
+      },
+      {
+        "name": "Cancel related-source removal preserves edited binding after reload",
+        "elapsedMs": 812
+      },
+      {
+        "name": "Cancel related-source removal preserves edited binding after reload reload",
+        "elapsedMs": 1352
+      },
+      {
+        "name": "Confirmed related-source removal restores the exact Pivot row",
+        "elapsedMs": 713
+      },
+      {
+        "name": "Apply related-source removal and restore exact Pivot output",
+        "elapsedMs": 943
+      },
+      {
+        "name": "Apply related-source removal and restore exact Pivot output reload",
+        "elapsedMs": 1362
+      },
+      {
+        "name": "Final reload restores exact Pivot categories and rows",
+        "elapsedMs": 1367
+      }
+    ]
+  },
+  "network": {
+    "recordedRequests": 150,
+    "statusCounts": {
+      "200": 150
+    },
+    "unexpectedNetworkErrors": 0,
+    "domainErrors": 0,
+    "incidentalErrors": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ]
+  },
+  "rawWitness": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "scanLimitPerResource": 2000,
+    "selectedObservationRoots": 2,
+    "status": "final",
+    "distinctPatientReferences": 2,
+    "exactScopedSubjectPatientEdgesResolved": 2,
+    "outputBinding": "Patient.id ALL_MATCHES to direct Observation.subject → Patient route",
+    "witnessNote": "Two same-status final Observation roots, each resolving to a distinct Patient; no DiagnosticReport or published-source variant is covered."
+  },
+  "lifecycleCompletion": "Native Pivot preview/Cancel/Apply/reload, RELATED_SOURCE proposal and ALL values, related-source Cancel and Apply, label edit with Cancel/Apply, removal with Cancel/Apply, and final exact Pivot restoration after reload all passed.",
+  "harnessCorrection": "The workflow matches the submitted contributor rule at relatedSource.contributorRule.policy and preserves strict wire, DOM, saved-state, and reload assertions.",
+  "timing": {
+    "browserLifecycleDurationMs": 45124,
+    "playwrightTestResultDurationMs": 46966,
+    "playwrightReporterDurationMs": 48545.513,
+    "runnerProcessDurationMs": null,
+    "maxLifecycleTransitionMs": 1468,
+    "maxNativeActionMs": 239,
+    "nativeActionBudgetMs": 5000
+  },
+  "target": {
+    "kind": "owned-cda",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorer": "qa-post-pivot-3bdbb21b-a354-476a-b9d2-8a51c8e23eca",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "sourceFingerprint": {
+      "sha256": "b7f5d51f4d0884917ae345273cabe379ad97204eb5457d710b5542733b2d115f",
+      "files": 1522
+    },
+    "apiBuildIdentity": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51"
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "b7f5d51f4d0884917ae345273cabe379ad97204eb5457d710b5542733b2d115f",
+        "files": 1522
+      },
+      "after": {
+        "sha256": "b7f5d51f4d0884917ae345273cabe379ad97204eb5457d710b5542733b2d115f",
+        "files": 1522
+      },
+      "unchanged": true,
+      "changedPaths": []
+    },
+    "docsBeforeAfter": {
+      "before": {
+        "sha256": "4d054b2b5e8bed70e84a0105afd1e6aae0c0a10e361caf3b76afddf49588df1d",
+        "files": 201
+      },
+      "after": {
+        "sha256": "4d054b2b5e8bed70e84a0105afd1e6aae0c0a10e361caf3b76afddf49588df1d",
+        "files": 201
+      },
+      "unchanged": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "precheck": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave87/api-identity-before.json",
+        "sha256": "2e1f2512f5f4393046550947d396e28e408375cdba7f82daad6660d5a8e815b8"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave87/api-identity-after.json",
+        "sha256": "024c37e50c25f7ee4c9bf06834f96aa554cc34684fa301a2a3a12b41a2bbd20f"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave87/api-build-precheck-confirmed.json",
+        "sha256": "a4908188d92c96840a6d46f168963d4348e4cd94b2b738f32d0f9343dc6fea54"
+      }
+    },
+    "apiBuildIdentityUnchanged": true,
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave87/health-before.json",
+        "sha256": "b48ca81b2a435bb9a342b750128fe4c06ecaec33794f1c4de11fd9c036b917db"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave87/health-after.json",
+        "sha256": "2377adb518c8b6372570ea0321de6d6a2ef3cbd7502817e4fb38bde0888d483f"
+      }
+    }
+  },
+  "nextCheck": "Keep this pass scoped to the owned two-Observation/Patient.id ALL witness. DiagnosticReport-backed and published-source variants remain unverified.",
+  "finishedAt": "2026-10-06T12:16:16.745Z",
+  "originalCaptureCommand": "set -euo pipefail\nsource '/private/tmp/loom-native-parallel-wave87/browser-environment.sh'\nexport LOOM_ARANGO_CONTAINER=\"$LOOM_CDA_ARANGO_CONTAINER\"\nexport LOOM_ARANGO_DATABASE='loom_dev'\nunset LOOM_CDA_EXPLORER_ID LOOM_CDA_EXPLORER LOOM_QA_EXPLORER\nmkdir -p '/private/tmp/loom-native-parallel-wave87/standalone-reshape-related-source-after-pivot/attempt1'\nPLAYWRIGHT_JSON_OUTPUT_FILE='/private/tmp/loom-native-parallel-wave87/standalone-reshape-related-source-after-pivot/attempt1/results.json' npm --prefix scripts run test:browser -- 'verify-ui/specs/standalone-reshape.spec.mjs' --grep 'standalone CDA reshape workflows related-source-after-pivot related-source-after-pivot$' --output '/private/tmp/loom-native-parallel-wave87/standalone-reshape-related-source-after-pivot/attempt1/artifacts' 2>&1 | tee '/private/tmp/loom-native-parallel-wave87/standalone-reshape-related-source-after-pivot/attempt1/runner.log'",
+  "runnableCommand": "set -euo pipefail; cd '/private/tmp/loom-construction-implementation'; REPORT_DIR=\"$(mktemp -d '/private/tmp/loom-native-parallel-wave87-replay.XXXXXX')\"; source '/private/tmp/loom-native-parallel-wave87/browser-environment.sh'; export LOOM_ARANGO_CONTAINER=\"$LOOM_CDA_ARANGO_CONTAINER\" LOOM_ARANGO_DATABASE='loom_dev'; unset LOOM_CDA_EXPLORER_ID LOOM_CDA_EXPLORER LOOM_QA_EXPLORER; mkdir -p \"$REPORT_DIR/artifacts\"; PLAYWRIGHT_JSON_OUTPUT_FILE=\"$REPORT_DIR/results.json\" npm --prefix scripts run test:browser -- 'verify-ui/specs/standalone-reshape.spec.mjs' --grep 'standalone CDA reshape workflows related-source-after-pivot related-source-after-pivot$' --output \"$REPORT_DIR/artifacts\" 2>&1 | tee \"$REPORT_DIR/runner.log\"",
+  "rawReportPath": "/private/tmp/loom-native-parallel-wave87/standalone-reshape-related-source-after-pivot/attempt1/artifacts/standalone-reshape-standal-689d5--related-source-after-pivot/attachments/cda-domain-report-json-08c1f1d1e62e6a49ec9c7ebd1fe2250303d36649.json",
+  "rawReportSha256": "e3a27955d949b254de4e3152d434cd21c7504af4b69383f67c358641b057c507",
+  "workflowReportPath": "/private/tmp/loom-native-parallel-wave87/standalone-reshape-related-source-after-pivot/attempt1/artifacts/standalone-reshape-standal-689d5--related-source-after-pivot/cda-report.json",
+  "workflowReportSha256": "e3a27955d949b254de4e3152d434cd21c7504af4b69383f67c358641b057c507",
+  "playwrightResultsPath": "/private/tmp/loom-native-parallel-wave87/standalone-reshape-related-source-after-pivot/attempt1/results.json",
+  "playwrightResultsSha256": "7b4e76784140a21258b879cfbec00836392a397a425715d22f12379c5c576fd6",
+  "runnerLogPath": "/private/tmp/loom-native-parallel-wave87/standalone-reshape-related-source-after-pivot/attempt1/runner.log",
+  "runnerLogSha256": "235b45b44afaccdc9088c14519e09006ea516687977b98690f477fbfed133597",
+  "coordinatorClosurePath": "/private/tmp/loom-native-parallel-wave87/closure.json",
+  "coordinatorClosureSha256": "ba3a7ee6e618fbf443995aa4926d0ba6aaea2c0ba8ace9381097888a3489086b",
+  "durableCoordinatorClosurePath": "docs/verification/playwright/runtime/post-pivot-related-source-epoch87-closure.json",
+  "durableClosurePath": "docs/verification/playwright/runtime/post-pivot-related-source-epoch87-lifecycle-closure.json",
+  "durableCoordinatorClosureSha256": "ba3a7ee6e618fbf443995aa4926d0ba6aaea2c0ba8ace9381097888a3489086b"
+}

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
@@ -33,6 +34,32 @@ func verifyQueryableOutputs(bundle recipe.Bundle, execution Execution) error {
 		state := states[output.Name]
 		if state != "PUBLISHED" && state != "READY" && state != "ACTIVE" {
 			return fmt.Errorf("output %q is not queryable (state %q)", output.Name, state)
+		}
+	}
+	return nil
+}
+
+func verifyActivationQuality(receipt *explorer.CompilationReceipt, execution Execution) error {
+	if receipt == nil {
+		return fmt.Errorf("compilation receipt is required")
+	}
+	if len(execution.QualityReports) == 0 {
+		return fmt.Errorf("publication produced no quality evidence")
+	}
+	outputs := make([]publication.BundleOutputRecord, 0, len(execution.Outputs))
+	for _, output := range execution.Outputs {
+		outputs = append(outputs, publication.BundleOutputRecord{Name: output.Name})
+	}
+	identity := publication.BundleIdentity{
+		ReceiptID: receipt.ID, Project: execution.Project,
+		DatasetGeneration: execution.SourceGeneration, ScopeDigest: execution.ScopeDigest,
+	}
+	if err := publication.ValidateQualityReports(identity, outputs, execution.QualityReports); err != nil {
+		return err
+	}
+	for _, report := range execution.QualityReports {
+		if report.PolicyVersion != publication.DefaultQualityPolicyVersion {
+			return fmt.Errorf("output %q uses unsupported quality policy %q", report.Output, report.PolicyVersion)
 		}
 	}
 	return nil
@@ -102,8 +129,8 @@ func (s *Service) validateReceiptRoute(receipt *explorer.CompilationReceipt, pro
 	if strings.TrimSpace(receipt.ID) == "" || strings.TrimSpace(receipt.RecipeDigest) == "" || len(receipt.Bundle.Outputs) == 0 {
 		return conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt is from an unsupported or incomplete compiler contract", nil, nil)
 	}
-	native := s.config.CompileReceipt != nil || s.config.PreviewReceipt != nil || s.config.MaterializeReceipt != nil
-	if native && (receipt.ReceiptFormatVersion != explorer.CurrentReceiptFormatVersion || receipt.CompilerContractVersion != explorer.CurrentCompilerContractVersion) {
+	native := s.config.CompileReceipt != nil || s.config.PreviewReceipt != nil || s.config.PopulationMapping != nil || s.config.MaterializeReceipt != nil
+	if native && !explorer.ReceiptContractSupportedForExecution(*receipt) {
 		return conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt is from an unsupported compiler contract", nil, nil)
 	}
 	if native {
@@ -208,7 +235,7 @@ func applyAuthorizedScope(bindings *recipe.RuntimeBindings, authorized Authorize
 
 func workspaceValidationCode(err error) string {
 	message := err.Error()
-	for _, code := range []string{"DUPLICATE_OUTPUT_ID", "DUPLICATE_TAB_ID", "INVALID_TAB_OUTPUT_MAPPING", "INVALID_TAB_ORDER", "ROW_ROOT_NOT_ELIGIBLE", "UNSUPPORTED_FILTER", "UNSUPPORTED_CHART", "NO_VISIBLE_COLUMNS"} {
+	for _, code := range []string{"DUPLICATE_OUTPUT_ID", "DUPLICATE_TAB_ID", "INVALID_TAB_OUTPUT_MAPPING", "INVALID_TAB_ORDER", "ROW_ROOT_NOT_ELIGIBLE", "UNSUPPORTED_FILTER", "UNSUPPORTED_CHART", "NO_VISIBLE_COLUMNS", "UNACKNOWLEDGED_RELATED_FIRST"} {
 		if strings.Contains(message, code) {
 			return code
 		}

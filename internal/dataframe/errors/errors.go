@@ -12,61 +12,84 @@ import (
 type ErrorCode string
 
 const (
-	CodeProjectRequired             ErrorCode = "PROJECT_REQUIRED"
-	CodeRootResourceTypeRequired    ErrorCode = "ROOT_RESOURCE_TYPE_REQUIRED"
-	CodeUnauthorizedProject         ErrorCode = "UNAUTHORIZED_PROJECT"
-	CodeUnknownField                ErrorCode = "UNKNOWN_FIELD"
-	CodeFieldNotPopulated           ErrorCode = "FIELD_NOT_POPULATED"
-	CodeInvalidTraversal            ErrorCode = "INVALID_TRAVERSAL"
-	CodeUnsafeTraversalRoute        ErrorCode = "UNSAFE_TRAVERSAL_ROUTE"
-	CodeInvalidFilter               ErrorCode = "INVALID_FILTER"
-	CodeUnboundedPivot              ErrorCode = "UNBOUNDED_PIVOT"
-	CodeInvalidPivotColumn          ErrorCode = "INVALID_PIVOT_COLUMN"
-	CodeInvalidSlice                ErrorCode = "INVALID_SLICE"
-	CodePlanTooExpensive            ErrorCode = "PLAN_TOO_EXPENSIVE"
-	CodeInvalidCursor               ErrorCode = "INVALID_CURSOR"
-	CodeStaleCursor                 ErrorCode = "STALE_CURSOR"
-	CodeDatasetGenerationChanged    ErrorCode = "DATASET_GENERATION_CHANGED"
-	CodeUnsupportedExportFormat     ErrorCode = "UNSUPPORTED_EXPORT_FORMAT"
-	CodeClientCanceled              ErrorCode = "CLIENT_CANCELED"
-	CodeBackendUnavailable          ErrorCode = "BACKEND_UNAVAILABLE"
-	CodeDatasetNotFound             ErrorCode = "DATASET_NOT_FOUND"
-	CodeSchemaConflict              ErrorCode = "SCHEMA_CONFLICT"
-	CodeInternalError               ErrorCode = "INTERNAL_ERROR"
-	CodeInvalidResourceType         ErrorCode = "INVALID_RESOURCE_TYPE"
-	CodeInvalidLimit                ErrorCode = "INVALID_LIMIT"
-	CodeNoActiveGeneration          ErrorCode = "NO_ACTIVE_GENERATION"
-	CodeResourceDecodeFailed        ErrorCode = "RESOURCE_DECODE_FAILED"
-	CodeReferenceNotResolved        ErrorCode = "REFERENCE_NOT_RESOLVED"
-	CodeQueryDepthExceeded          ErrorCode = "QUERY_DEPTH_EXCEEDED"
-	CodeInvalidRequest              ErrorCode = "INVALID_REQUEST"
-	CodeInvalidData                 ErrorCode = "INVALID_DATA"
-	CodeUnauthenticated             ErrorCode = "UNAUTHENTICATED"
-	CodeForbidden                   ErrorCode = "FORBIDDEN"
-	CodeRecipeNotFound              ErrorCode = "RECIPE_NOT_FOUND"
-	CodeRecipeResolutionFailed      ErrorCode = "RECIPE_RESOLUTION_FAILED"
-	CodeRecipeExecutionNotFound     ErrorCode = "RECIPE_EXECUTION_NOT_FOUND"
-	CodeExportLimitExceeded         ErrorCode = "EXPORT_LIMIT_EXCEEDED"
-	CodeIngestPreflightFailed       ErrorCode = "INGEST_PREFLIGHT_FAILED"
-	CodeGenerationLoadIncomplete    ErrorCode = "GENERATION_LOAD_INCOMPLETE"
-	CodeGenerationActivationUnknown ErrorCode = "GENERATION_ACTIVATION_UNKNOWN"
-	CodeInvalidGenerationFile       ErrorCode = "INVALID_GENERATION_FILE"
-	CodeDuplicateGenerationFile     ErrorCode = "DUPLICATE_GENERATION_FILE"
-	CodePublicationInProgress       ErrorCode = "PUBLICATION_IN_PROGRESS"
-	CodePublicationConflict         ErrorCode = "PUBLICATION_CONFLICT"
-	CodePublicationLeaseLost        ErrorCode = "PUBLICATION_LEASE_LOST"
-	CodePublicationFailed           ErrorCode = "PUBLICATION_FAILED"
-	CodeOutputEncodingFailed        ErrorCode = "OUTPUT_ENCODING_FAILED"
-	CodeDynamicSchemaDrift          ErrorCode = "DYNAMIC_SCHEMA_DRIFT"
-	CodeRecipeContractViolation     ErrorCode = "RECIPE_CONTRACT_VIOLATION"
-	CodeInvalidSelector             ErrorCode = "INVALID_SELECTOR"
-	CodeReceiptStoreUnavailable     ErrorCode = "RECEIPT_STORE_UNAVAILABLE"
-	CodePreviewTimeout              ErrorCode = "PREVIEW_TIMEOUT"
-	CodePreviewResponseTooLarge     ErrorCode = "PREVIEW_RESPONSE_TOO_LARGE"
-	CodeQueryMemoryLimitExceeded    ErrorCode = "QUERY_MEMORY_LIMIT_EXCEEDED"
-	CodeQueryResourceLimitExceeded  ErrorCode = "QUERY_RESOURCE_LIMIT_EXCEEDED"
-	CodeQueryBackendOutOfMemory     ErrorCode = "QUERY_BACKEND_OUT_OF_MEMORY"
+	CodeProjectRequired                  ErrorCode = "PROJECT_REQUIRED"
+	CodeRootResourceTypeRequired         ErrorCode = "ROOT_RESOURCE_TYPE_REQUIRED"
+	CodeUnauthorizedProject              ErrorCode = "UNAUTHORIZED_PROJECT"
+	CodeUnknownField                     ErrorCode = "UNKNOWN_FIELD"
+	CodeFieldNotPopulated                ErrorCode = "FIELD_NOT_POPULATED"
+	CodeInvalidTraversal                 ErrorCode = "INVALID_TRAVERSAL"
+	CodeUnsafeTraversalRoute             ErrorCode = "UNSAFE_TRAVERSAL_ROUTE"
+	CodeInvalidFilter                    ErrorCode = "INVALID_FILTER"
+	CodeUnboundedPivot                   ErrorCode = "UNBOUNDED_PIVOT"
+	CodeInvalidPivotColumn               ErrorCode = "INVALID_PIVOT_COLUMN"
+	CodeTablePivotCellCardinality        ErrorCode = "TABLE_PIVOT_CELL_CARDINALITY"
+	CodeTablePivotUnlistedCategory       ErrorCode = "TABLE_PIVOT_UNLISTED_CATEGORY"
+	CodeInvalidSlice                     ErrorCode = "INVALID_SLICE"
+	CodePlanTooExpensive                 ErrorCode = "PLAN_TOO_EXPENSIVE"
+	CodeInvalidCursor                    ErrorCode = "INVALID_CURSOR"
+	CodeStaleCursor                      ErrorCode = "STALE_CURSOR"
+	CodeDatasetGenerationChanged         ErrorCode = "DATASET_GENERATION_CHANGED"
+	CodeUnsupportedExportFormat          ErrorCode = "UNSUPPORTED_EXPORT_FORMAT"
+	CodeClientCanceled                   ErrorCode = "CLIENT_CANCELED"
+	CodeBackendUnavailable               ErrorCode = "BACKEND_UNAVAILABLE"
+	CodeDatasetNotFound                  ErrorCode = "DATASET_NOT_FOUND"
+	CodeSchemaConflict                   ErrorCode = "SCHEMA_CONFLICT"
+	CodeInternalError                    ErrorCode = "INTERNAL_ERROR"
+	CodeInvalidResourceType              ErrorCode = "INVALID_RESOURCE_TYPE"
+	CodeInvalidLimit                     ErrorCode = "INVALID_LIMIT"
+	CodeNoActiveGeneration               ErrorCode = "NO_ACTIVE_GENERATION"
+	CodeResourceDecodeFailed             ErrorCode = "RESOURCE_DECODE_FAILED"
+	CodeReferenceNotResolved             ErrorCode = "REFERENCE_NOT_RESOLVED"
+	CodeQueryDepthExceeded               ErrorCode = "QUERY_DEPTH_EXCEEDED"
+	CodeInvalidRequest                   ErrorCode = "INVALID_REQUEST"
+	CodeInvalidData                      ErrorCode = "INVALID_DATA"
+	CodeUnauthenticated                  ErrorCode = "UNAUTHENTICATED"
+	CodeForbidden                        ErrorCode = "FORBIDDEN"
+	CodeRecipeNotFound                   ErrorCode = "RECIPE_NOT_FOUND"
+	CodeRecipeResolutionFailed           ErrorCode = "RECIPE_RESOLUTION_FAILED"
+	CodeRecipeExecutionNotFound          ErrorCode = "RECIPE_EXECUTION_NOT_FOUND"
+	CodeExportLimitExceeded              ErrorCode = "EXPORT_LIMIT_EXCEEDED"
+	CodeIngestPreflightFailed            ErrorCode = "INGEST_PREFLIGHT_FAILED"
+	CodeGenerationLoadIncomplete         ErrorCode = "GENERATION_LOAD_INCOMPLETE"
+	CodeGenerationActivationUnknown      ErrorCode = "GENERATION_ACTIVATION_UNKNOWN"
+	CodeInvalidGenerationFile            ErrorCode = "INVALID_GENERATION_FILE"
+	CodeDuplicateGenerationFile          ErrorCode = "DUPLICATE_GENERATION_FILE"
+	CodePublicationInProgress            ErrorCode = "PUBLICATION_IN_PROGRESS"
+	CodePublicationConflict              ErrorCode = "PUBLICATION_CONFLICT"
+	CodePublicationLeaseLost             ErrorCode = "PUBLICATION_LEASE_LOST"
+	CodePublicationFailed                ErrorCode = "PUBLICATION_FAILED"
+	CodeOutputEncodingFailed             ErrorCode = "OUTPUT_ENCODING_FAILED"
+	CodeDynamicSchemaDrift               ErrorCode = "DYNAMIC_SCHEMA_DRIFT"
+	CodeRecipeContractViolation          ErrorCode = "RECIPE_CONTRACT_VIOLATION"
+	CodeInvalidSelector                  ErrorCode = "INVALID_SELECTOR"
+	CodeReceiptStoreUnavailable          ErrorCode = "RECEIPT_STORE_UNAVAILABLE"
+	CodePreviewTimeout                   ErrorCode = "PREVIEW_TIMEOUT"
+	CodePreviewResponseTooLarge          ErrorCode = "PREVIEW_RESPONSE_TOO_LARGE"
+	CodeQueryMemoryLimitExceeded         ErrorCode = "QUERY_MEMORY_LIMIT_EXCEEDED"
+	CodeQueryResourceLimitExceeded       ErrorCode = "QUERY_RESOURCE_LIMIT_EXCEEDED"
+	CodeQueryBackendOutOfMemory          ErrorCode = "QUERY_BACKEND_OUT_OF_MEMORY"
+	CodeRelationshipCardinalityViolation ErrorCode = "RELATIONSHIP_CARDINALITY_VIOLATION"
+	CodeTemporalAnchorInvalid            ErrorCode = "TEMPORAL_ANCHOR_INVALID"
+	CodeTemporalPrecisionUnsupported     ErrorCode = "TEMPORAL_PRECISION_UNSUPPORTED"
+	CodeTemporalTieAmbiguous             ErrorCode = "TEMPORAL_TIE_AMBIGUOUS"
+	CodeUnitIdentityUnknown              ErrorCode = "UNIT_IDENTITY_UNKNOWN"
+	CodeUnitDimensionIncompatible        ErrorCode = "UNIT_DIMENSION_INCOMPATIBLE"
+	CodeConstructionExpansionEmpty       ErrorCode = "CONSTRUCTION_EXPANSION_EMPTY"
+	CodeExplicitGroupUnassignedMember    ErrorCode = "EXPLICIT_GROUP_UNASSIGNED_MEMBER"
 )
+
+const CodeConstructionRowValueMultipleValues ErrorCode = "CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES"
+
+// IsFeatureResolutionCode identifies data-dependent feature policies that a
+// Builder user can resolve without an operator or a retry.
+func IsFeatureResolutionCode(code string) bool {
+	switch ErrorCode(code) {
+	case CodeRelationshipCardinalityViolation, CodeTemporalAnchorInvalid, CodeTemporalPrecisionUnsupported, CodeTemporalTieAmbiguous, CodeUnitIdentityUnknown, CodeUnitDimensionIncompatible, CodeConstructionExpansionEmpty, CodeExplicitGroupUnassignedMember, CodeConstructionRowValueMultipleValues, CodeTablePivotCellCardinality, CodeTablePivotUnlistedCategory:
+		return true
+	default:
+		return false
+	}
+}
 
 // UserError is the semantic error contract shared by GraphQL, preview, and
 // export adapters. Details are intentionally a safe, copied view.
@@ -365,6 +388,28 @@ func defaultMessage(code ErrorCode) string {
 		return "the dataframe query exceeded a configured database resource limit"
 	case CodeQueryBackendOutOfMemory:
 		return "the dataframe database ran out of memory while executing the query"
+	case CodeRelationshipCardinalityViolation:
+		return "more than one value matched a feature that requires zero or one"
+	case CodeTemporalAnchorInvalid:
+		return "the row date required by a date-aware feature is missing or is not a complete instant"
+	case CodeTemporalPrecisionUnsupported:
+		return "a record date required by a date-aware feature is missing or is not a complete instant"
+	case CodeTemporalTieAmbiguous:
+		return "multiple values share the selected date; choose how equal dates should be resolved"
+	case CodeUnitIdentityUnknown:
+		return "a measurement has no approved source unit identity"
+	case CodeUnitDimensionIncompatible:
+		return "a measurement unit is dimensionally incompatible with the feature target"
+	case CodeConstructionExpansionEmpty:
+		return "At least one row has an empty list or no matching related records. Choose 'Drop the original row' or 'Keep the row with a missing item' for lists, or 'Leave that current row out' or 'Keep that current row once, with no related record ID' for related records."
+	case CodeExplicitGroupUnassignedMember:
+		return "Some records do not belong to a group. Choose 'Leave out records without a group' or 'Put records without a group in their own group', or assign them to a group."
+	case CodeConstructionRowValueMultipleValues:
+		return "Some grouped records have different values for this column. Keep all distinct values or choose more specific grouping fields."
+	case CodeTablePivotCellCardinality:
+		return "More than one record matched a Pivot cell; choose how to handle duplicates or filter the input rows."
+	case CodeTablePivotUnlistedCategory:
+		return "Pivot found an unlisted category; select all discovered categories or filter rows before Pivot."
 	default:
 		return "internal server error"
 	}

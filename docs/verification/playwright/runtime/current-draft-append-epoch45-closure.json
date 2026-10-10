@@ -1,0 +1,116 @@
+{
+  "epoch": 45,
+  "status": "CLOSED_GREEN",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "beforeSha256": "04f23d10f722a9c6f32a55dd971c11513ecd0c01bbbeb1133b7c5446b9a5b376",
+      "afterSha256": "04f23d10f722a9c6f32a55dd971c11513ecd0c01bbbeb1133b7c5446b9a5b376",
+      "files": 1495,
+      "changedPaths": []
+    },
+    "docs": {
+      "beforeSha256": "475b7076c2616f274706ee0f39c131e652f3ebfe9d0e85881d7be47de6f9c725",
+      "afterSha256": "475b7076c2616f274706ee0f39c131e652f3ebfe9d0e85881d7be47de6f9c725",
+      "files": 121,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8",
+      "after": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "beforeStatus": "PASS",
+      "afterStatus": "PASS",
+      "targetUnchanged": true,
+      "composeProject": "loom-dev-6d7df93d6a37",
+      "sourceRoot": "/private/tmp/loom-construction-implementation",
+      "project": "loom_dev_cda_fhir",
+      "generation": "cda-fhir-v1"
+    },
+    "health": {
+      "beforeStatus": "PASS",
+      "beforeSamples": 3,
+      "afterStatus": "PASS",
+      "afterSamples": 3,
+      "allApiUiHealthy": true
+    },
+    "captureHandles": {
+      "beforeCapture": {
+        "session": 44520,
+        "exitCode": 0
+      },
+      "beforeHealth": {
+        "session": 65664,
+        "exitCode": 0
+      },
+      "afterCapture": {
+        "session": 82281,
+        "exitCode": 0
+      },
+      "afterHealth": {
+        "session": 77359,
+        "exitCode": 0
+      }
+    }
+  },
+  "case": {
+    "owner": "audit_next_transition",
+    "title": "three-source current-draft APPEND supports cancel, apply, edit, removal, and reload",
+    "session": 52367,
+    "terminal": true,
+    "exitCode": 0,
+    "result": "PASSED",
+    "processDurationMs": 24201.294,
+    "caseDurationMs": 18491,
+    "fixtureProject": "loom_dev_verify_muvybreg-c245a49",
+    "requiredChecks": {
+      "passed": 18,
+      "total": 18,
+      "missing": 0
+    },
+    "assertions": {
+      "passed": 111,
+      "total": 111
+    },
+    "actions": {
+      "passed": 35,
+      "total": 35
+    },
+    "maxActionMs": 640.0,
+    "errors": 0,
+    "networkFailures": 0,
+    "assetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ],
+    "browserLifecycle": {
+      "kind": "official-playwright-page",
+      "status": "passed",
+      "durationMs": 18140,
+      "diagnosticLimit": 100,
+      "droppedDiagnostics": 0
+    },
+    "sourceAndApiIdentityUnchangedInBrowser": true,
+    "report": "/private/tmp/loom-native-parallel-wave45/append/artifacts/verify-ui/builder-combine-draft-append-muvybreg-c245a49.json"
+  },
+  "serialRepeatRequired": false,
+  "artifacts": {
+    "sourceBefore": "/private/tmp/loom-native-parallel-wave45/source-before.json",
+    "sourceAfter": "/private/tmp/loom-native-parallel-wave45/source-after.json",
+    "docsBefore": "/private/tmp/loom-native-parallel-wave45/docs-before.json",
+    "docsAfter": "/private/tmp/loom-native-parallel-wave45/docs-after.json",
+    "apiBefore": "/private/tmp/loom-native-parallel-wave45/api-identity-before.json",
+    "apiAfter": "/private/tmp/loom-native-parallel-wave45/api-identity-after.json",
+    "mountsBefore": "/private/tmp/loom-native-parallel-wave45/owned-mounts-before.json",
+    "mountsAfter": "/private/tmp/loom-native-parallel-wave45/owned-mounts-after.json",
+    "healthBefore": "/private/tmp/loom-native-parallel-wave45/health-before.json",
+    "healthAfter": "/private/tmp/loom-native-parallel-wave45/health-after.json",
+    "playwrightResults": "/private/tmp/loom-native-parallel-wave45/append/results.json",
+    "runPlan": "/private/tmp/loom-native-parallel-wave45/run-plan.json"
+  }
+}

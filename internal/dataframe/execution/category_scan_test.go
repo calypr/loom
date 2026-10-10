@@ -1,0 +1,333 @@
+package execution
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"reflect"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/expression"
+	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/semantic"
+)
+
+func compiledCategoryScan(max int) compiler.CompiledCategoryScanQuery {
+	return compiler.CompiledCategoryScanQuery{
+		Query: "scan", BindVars: map[string]any{"column": "category"}, PresentColumn: "present", ValueColumn: "value",
+		Proof: compiler.CategoryScanProof{Version: 1, Output: "output", Column: "category", MaxValues: max, Fingerprint: "proof"},
+	}
+}
+
+func TestScanCategoriesCompiledReportsCompleteAtBoundAndOverflowAtBoundPlusOne(t *testing.T) {
+	for _, test := range []struct {
+		rows, wantValues   int
+		complete, overflow bool
+	}{
+		{256, 256, true, false},
+		{257, 256, false, true},
+	} {
+		t.Run(fmt.Sprintf("rows_%d", test.rows), func(t *testing.T) {
+			engine := &Engine{queryRows: func(_ context.Context, query string, _ int, binds map[string]any, visit func(map[string]any) error) error {
+				if query != "scan" || binds["column"] != "category" {
+					t.Fatalf("wrong invocation: %q %#v", query, binds)
+				}
+				for index := 0; index < test.rows; index++ {
+					if err := visit(map[string]any{"present": true, "value": index}); err != nil {
+						return err
+					}
+				}
+				return nil
+			}}
+			result, err := engine.ScanCategoriesCompiled(context.Background(), compiledCategoryScan(256))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Values) != test.wantValues || result.Complete != test.complete || result.Overflow != test.overflow || result.Proof.Fingerprint != "proof" {
+				t.Fatalf("result = %#v", result)
+			}
+		})
+	}
+}
+
+func TestScanCategoriesCompiledUsesExactOverflowWitnessBeforeFullScan(t *testing.T) {
+	for _, test := range []struct {
+		name, witnessRows         string
+		wantFullScan, wantMissing bool
+	}{
+		{name: "proven_overflow", witnessRows: "three", wantFullScan: false},
+		{name: "inconclusive", witnessRows: "two", wantFullScan: true},
+		{name: "missing_category", witnessRows: "missing", wantMissing: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			compiled := compiledCategoryScan(2)
+			compiled.OverflowWitness = &compiler.CategoryOverflowWitness{Query: "witness", BindVars: map[string]any{"scope": "same"}}
+			fullScan := false
+			engine := &Engine{queryRows: func(_ context.Context, query string, _ int, binds map[string]any, visit func(map[string]any) error) error {
+				if query == "witness" {
+					if binds["scope"] != "same" {
+						t.Fatalf("witness binds = %#v", binds)
+					}
+					if test.witnessRows == "missing" {
+						return visit(map[string]any{"present": false, "value": nil})
+					}
+					count := 2
+					if test.witnessRows == "three" {
+						count = 3
+					}
+					for index := 0; index < count; index++ {
+						if err := visit(map[string]any{"present": true, "value": index}); err != nil {
+							return err
+						}
+					}
+					return nil
+				}
+				if query != "scan" {
+					t.Fatalf("unexpected query %q", query)
+				}
+				fullScan = true
+				return visit(map[string]any{"present": true, "value": "complete"})
+			}}
+			result, err := engine.ScanCategoriesCompiled(context.Background(), compiled)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fullScan != test.wantFullScan || result.ConclusiveMissing != test.wantMissing ||
+				result.Overflow != (test.witnessRows == "three") || result.Complete != test.wantFullScan {
+				t.Fatalf("full scan = %v, result = %#v", fullScan, result)
+			}
+		})
+	}
+}
+
+func TestScanCategoriesCompiledPreservesOrderedMissingNullAndFalseyValues(t *testing.T) {
+	rows := []map[string]any{
+		{"present": false, "value": nil},
+		{"present": true, "value": nil},
+		{"present": true, "value": false},
+		{"present": true, "value": float64(0)},
+		{"present": true, "value": ""},
+	}
+	engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		for _, row := range rows {
+			if err := visit(row); err != nil {
+				return err
+			}
+		}
+		return nil
+	}}
+	result, err := engine.ScanCategoriesCompiled(context.Background(), compiledCategoryScan(256))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []CategoryValue{{false, nil}, {true, nil}, {true, false}, {true, float64(0)}, {true, ""}}
+	if !reflect.DeepEqual(result.Values, want) || !result.Complete {
+		t.Fatalf("values = %#v", result.Values)
+	}
+}
+
+func TestScanCategoriesCompiledContinuesAfterMissingWitnessWhenPresenceIsTracked(t *testing.T) {
+	compiled := compiledCategoryScan(4)
+	compiled.Proof.PresenceTracked = true
+	compiled.OverflowWitness = &compiler.CategoryOverflowWitness{Query: "witness"}
+	mainScanned := false
+	engine := &Engine{queryRows: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		switch query {
+		case "witness":
+			return visit(map[string]any{"present": false, "value": nil})
+		case "scan":
+			mainScanned = true
+			if err := visit(map[string]any{"present": false, "value": nil}); err != nil {
+				return err
+			}
+			return visit(map[string]any{"present": true, "value": "d"})
+		default:
+			t.Fatalf("unexpected query %q", query)
+			return nil
+		}
+	}}
+	result, err := engine.ScanCategoriesCompiled(context.Background(), compiled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mainScanned || !result.Complete || result.ConclusiveMissing || len(result.Values) != 2 || result.Values[0].Present || result.Values[0].Value != nil || !result.Values[1].Present || result.Values[1].Value != "d" {
+		t.Fatalf("tracked missing witness did not complete the exact category scan: main=%v result=%#v", mainScanned, result)
+	}
+}
+
+func TestScanCategoriesCompiledHonorsContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	engine := &Engine{queryRows: func(ctx context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		cancel()
+		return visit(map[string]any{"present": true, "value": "unreachable"})
+	}}
+	_, err := engine.ScanCategoriesCompiled(ctx, compiledCategoryScan(256))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestScanCategoriesCompiledUsesBoundedPreviewExecutor(t *testing.T) {
+	called := false
+	engine := &Engine{
+		queryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+			t.Fatal("category discovery used the unbounded execution query path")
+			return nil
+		},
+		previewQueryRows: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			called = true
+			if query != "scan" {
+				t.Fatalf("query = %q", query)
+			}
+			return visit(map[string]any{"present": true, "value": "category"})
+		},
+	}
+	result, err := engine.ScanCategoriesCompiled(context.Background(), compiledCategoryScan(256))
+	if err != nil || !called || !result.Complete || len(result.Values) != 1 {
+		t.Fatalf("bounded scan called=%t result=%#v error=%v", called, result, err)
+	}
+}
+
+func TestScanCategoriesCompiledPrewarmsPreviewIndexWithoutBlockingAndDedupes(t *testing.T) {
+	prepareStarted := make(chan struct{})
+	prepareRelease := make(chan struct{})
+	prepareFinished := make(chan struct{})
+	var prepareCalls atomic.Int32
+	var queryCalls atomic.Int32
+	engine := &Engine{
+		queryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+			t.Fatal("category discovery used the unbounded executor")
+			return nil
+		},
+		preparePreviewIndex: func(ctx context.Context, spec compiler.PreviewCoveringIndexSpec) error {
+			if spec.Collection != "Patient" || spec.Name != "loom_pivot_preview_test" || !reflect.DeepEqual(spec.Fields, []string{"project", "payload.gender"}) {
+				t.Errorf("prewarm spec = %+v", spec)
+			}
+			prepareCalls.Add(1)
+			close(prepareStarted)
+			select {
+			case <-prepareRelease:
+				close(prepareFinished)
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		},
+		previewQueryRows: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			if query != "scan" {
+				t.Fatalf("query = %q", query)
+			}
+			if queryCalls.Add(1) == 1 {
+				select {
+				case <-prepareStarted:
+				case <-time.After(time.Second):
+					t.Fatal("covering-index prewarm did not start before category query")
+				}
+			}
+			return visit(map[string]any{"present": true, "value": "category"})
+		},
+	}
+	compiled := compiledCategoryScan(256)
+	compiled.PreviewCoveringIndex = &compiler.PreviewCoveringIndexSpec{
+		Collection: "Patient", Name: "loom_pivot_preview_test", Fields: []string{"project", "payload.gender"},
+	}
+	first, err := engine.ScanCategoriesCompiled(context.Background(), compiled)
+	if err != nil || !first.Complete || len(first.Values) != 1 {
+		t.Fatalf("first scan result=%#v error=%v", first, err)
+	}
+	second, err := engine.ScanCategoriesCompiled(context.Background(), compiled)
+	if err != nil || !second.Complete || len(second.Values) != 1 {
+		t.Fatalf("second scan result=%#v error=%v", second, err)
+	}
+	if got := prepareCalls.Load(); got != 1 {
+		t.Fatalf("prewarm calls while first is in flight = %d, want one", got)
+	}
+	close(prepareRelease)
+	select {
+	case <-prepareFinished:
+	case <-time.After(time.Second):
+		t.Fatal("prewarm did not finish after release")
+	}
+}
+
+func TestScanCategoriesReturnsTypedCompilerRefusalForUnsupportedColumn(t *testing.T) {
+	resolved := Resolved{Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{
+		Name: "output",
+		OutputSchema: []lower.CompiledOutputColumn{{
+			Name: "structured", Kind: string(expression.KindObject), Cardinality: string(expression.OptionalOne),
+		}},
+	}}}}
+	_, err := (&Engine{}).ScanCategories(context.Background(), resolved, CategoryScanRequest{Output: "output", Column: "structured", MaxValues: 256})
+	code, ok := compiler.CategoryScanRefusalCodeOf(err)
+	if !ok || code != compiler.CategoryScanColumnUnsupported {
+		t.Fatalf("refusal = %q/%t, error = %v", code, ok, err)
+	}
+}
+
+func TestScanCategoriesExecutesExactConstructionStagePrefix(t *testing.T) {
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "construction-stage-category-scan",
+		TranslationVersion:  "test",
+		Outputs:             []recipe.Output{executionConstructionTraceOutput()},
+	}
+	bindings := recipe.RuntimeBindings{Project: "category-scan-project", DatasetGeneration: "generation-1"}
+	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolvedPlan, err := semantic.ResolveRecipePlan(plan, bindings.Project, bindings.DatasetGeneration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := lower.CompileResolvedRecipePlan(resolvedPlan, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var query string
+	engine := &Engine{queryRows: func(_ context.Context, queryText string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		query = queryText
+		return visit(map[string]any{"present": true, "value": "final"})
+	}}
+	result, err := engine.ScanCategories(context.Background(), Resolved{Compiled: compiled}, CategoryScanRequest{
+		Output: "construction_trace", StageID: "derive_total", ColumnID: "status_id", ValueColumnID: "total_id", MaxValues: 256,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(query, "LET __loom_construction_stage_") != 1 || strings.Contains(query, "__loom_construction_stage_2") {
+		t.Fatalf("execution scan did not use the requested stage prefix:\n%s", query)
+	}
+	if !result.Complete || len(result.Values) != 1 || result.Values[0] != (CategoryValue{Present: true, Value: "final"}) ||
+		result.Proof.Version != 2 || result.Proof.StageID != "derive_total" || result.Proof.ColumnID != "status_id" || result.Proof.ValueColumnID != "total_id" {
+		t.Fatalf("stage category scan result = %#v", result)
+	}
+}
+
+func TestScanCategoriesPreparesCategoryIndexBeforeQuery(t *testing.T) {
+	prepared := false
+	engine := &Engine{
+		preparePreviewIndex: func(ctx context.Context, spec compiler.PreviewCoveringIndexSpec) error {
+			prepared = true
+			return nil
+		},
+		queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			if !prepared {
+				t.Fatal("category query ran before its index was prepared")
+			}
+			return visit(map[string]any{"present": true, "value": "final"})
+		},
+	}
+	compiled := compiledCategoryScan(256)
+	compiled.CategoryIndex = &compiler.PreviewCoveringIndexSpec{Collection: "Observation", Name: "category_test", Fields: []string{"project", "dataset_generation", "payload.status"}}
+	result, err := engine.ScanCategoriesCompiled(context.Background(), compiled)
+	if err != nil || !result.Complete || len(result.Values) != 1 {
+		t.Fatalf("category result=%#v error=%v", result, err)
+	}
+}

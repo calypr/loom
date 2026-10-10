@@ -1,0 +1,169 @@
+{
+  "epoch": 88,
+  "status": "CLOSED_FAILED_HARNESS",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "63afa38a02a0f5940de580384752971dad29dbfb266d02010549e5a8f57726f1",
+        "files": 1526
+      },
+      "after": {
+        "sha256": "63afa38a02a0f5940de580384752971dad29dbfb266d02010549e5a8f57726f1",
+        "files": 1526
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave88/source-before.json",
+        "sha256": "5146081b9d0725f24fd130de6dc17649a809b2884e9a341406bdd47c0fe3caf6"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave88/source-after.json",
+        "sha256": "db1f01f20f4f2d58d818a73a50c23bc613d97a1e30bb5c07d8ec1d1eaf3d3d98"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "86822340185f65f475f5d9a7cb6492a02df60e76cc47555130832c9896275bb8",
+        "files": 207
+      },
+      "after": {
+        "sha256": "86822340185f65f475f5d9a7cb6492a02df60e76cc47555130832c9896275bb8",
+        "files": 207
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave88/docs-before.json",
+        "sha256": "752c7b608bb5e1bfc1817b4a69517ea00a0aea1f485ca462f30207f34884d047"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave88/docs-after.json",
+        "sha256": "15cc97fb9b984785c8ab749008a04cc14fcb10059d0a66a901d7fb4dd05d0a66"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "precheck": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave88/api-identity-before.json",
+        "sha256": "55dc78800a1bf7e0563077a76cff8a5987bce228dca4e791bdbe8581fc4842e0"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave88/api-identity-after.json",
+        "sha256": "61cab5a5e26a32571d6aeb96474ee2ab5357664020a558973dab26996648569f"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave88/api-build-precheck-confirmed.json",
+        "sha256": "414d08ee4ad6ce6f334a471de0e52831a2283d75f47ba7e00b26f05aa3129e86"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave88/owned-mounts-before.json",
+        "sha256": "c6eab67440719cce09fe35aec0d5152ed2937b750f5ea30c27c6b169ed4eff32"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave88/owned-mounts-after.json",
+        "sha256": "d47afaee68ec3f63ed16066b069bb0b3c967974c2269ce97f259c5c2709d3f75"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave88/health-before.json",
+        "sha256": "261f1a36a015f06613bd9f7ecdabb1dacda806fc06017293672aa47c61c02b43"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave88/health-after.json",
+        "sha256": "9d7fa9a39cb6efb7491b081351f7d215a31af285bbcc0eec07495427cd5fc09d"
+      }
+    }
+  },
+  "case": {
+    "scenarioId": "cda-workspace-combine",
+    "caseName": "group-pivot-join",
+    "title": "CDA current-draft Group→Pivot→Join exact Observation Groups feed a native Pivot and editable current-draft Join",
+    "status": "failed_harness",
+    "failureAttribution": "The primary stop is a harness next-screen mismatch; a separate selection GET abort is source-attributed after capture to stale LEFT query retirement, but the test did not record a request-specific expected-cancel proof.",
+    "requiredChecks": {
+      "total": 30,
+      "passed": 8,
+      "missingOrFailed": 1,
+      "missingOrUnrun": 21,
+      "evidence": [
+        {
+          "name": "Bounded scoped raw Observation witness has exact A,A,B shared and left-only identities",
+          "status": "passed"
+        },
+        {
+          "name": "left Group immutable selection and direct population bind exact scoped FHIR IDs",
+          "status": "passed"
+        },
+        {
+          "name": "left Group native GROUP proposal matches raw group counts",
+          "status": "passed"
+        },
+        {
+          "name": "left Group proposal carries exact direct Group keys and COUNT_ROWS",
+          "status": "passed"
+        },
+        {
+          "name": "left Group saved Group survives reload",
+          "status": "passed"
+        },
+        {
+          "name": "Left native Group produces the exact shared count 3 and left-only count 1",
+          "status": "passed"
+        },
+        {
+          "name": "right Group Pivot immutable selection and direct population bind exact scoped FHIR IDs",
+          "status": "passed"
+        },
+        {
+          "name": "all native lifecycle actions complete within five seconds",
+          "status": "failed"
+        },
+        {
+          "name": "CDA watched source and API build stayed unchanged",
+          "status": "passed"
+        }
+      ]
+    }
+  },
+  "coordinatorClosure": {
+    "status": "CLOSED_INTEGRITY_PASS_BROWSER_FAIL",
+    "sha256": "3897e4457a031d051c71004c49e6165daa207ee3cf8a97a9e262b1a69a5d1073",
+    "rawCaptureFailureAttribution": "UNCLASSIFIED_BROWSER_FAILURE",
+    "rootAcceptance": {
+      "baselineAccepted": true,
+      "browserReleased": true,
+      "closureAccepted": false
+    }
+  }
+}

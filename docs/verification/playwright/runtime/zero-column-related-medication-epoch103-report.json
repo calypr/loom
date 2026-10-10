@@ -1,0 +1,373 @@
+{
+  "schemaVersion": 1,
+  "epoch": 103,
+  "scenario": "cda-five-hop-related-expansion",
+  "case": "medication-preserve-parent",
+  "title": "Make a row for each Medication from a zero-column Specimen through five relationship hops",
+  "status": "failed_harness",
+  "classification": "HARNESS_COLLAPSED_ROUTE_DISCLOSURE_ASSUMPTION",
+  "classificationReason": "The test waited for the exact route radio without opening the collapsed “Other relationship paths (28)” disclosure. The visible picker reports 29 paths before the search limit; route completeness is still unverified because the response body was truncated.",
+  "runnerStatus": "failed",
+  "coverageStatus": "failed_harness",
+  "startedAt": "2026-10-06T16:51:53.750Z",
+  "finishedAt": "2026-10-06T16:52:07.326Z",
+  "durableClosurePath": "docs/verification/playwright/runtime/zero-column-related-medication-epoch103-closure.json",
+  "target": {
+    "kind": "owned-cda",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "sourceFingerprint": {
+      "sha256": "393c83bc9aee052e504930dc3e51f780845633ffd6dd63ba99d1b1385c035c62",
+      "files": 1533
+    },
+    "apiBuildIdentity": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008",
+    "explorerId": "related-medication-c20d324f-eed3-4a24-8d53-4336faf2f608"
+  },
+  "requiredChecks": {
+    "total": 11,
+    "passed": 3,
+    "failed": 0,
+    "unrun": 8
+  },
+  "assertions": [
+    {
+      "dimension": "correctness",
+      "name": "bounded independent raw CDA oracle proves the exact five-hop Medication route and records match availability",
+      "status": "passed"
+    },
+    {
+      "dimension": "persistence",
+      "name": "fresh Specimen table has zero public columns and exact scoped selected membership",
+      "status": "passed"
+    },
+    {
+      "dimension": "usability",
+      "name": "▤ Zero-column Specimen completed",
+      "status": "passed"
+    },
+    {
+      "dimension": "usability",
+      "name": "Configure rows completed",
+      "status": "passed"
+    },
+    {
+      "dimension": "usability",
+      "name": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations → 2 rows, each describing Patient A and one Observation completed",
+      "status": "passed"
+    },
+    {
+      "dimension": "usability",
+      "name": "Select Medication completed",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "CDA watched source and API build stayed unchanged",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "incidental asset failures are explicitly recorded",
+      "status": "passed"
+    }
+  ],
+  "actions": [
+    {
+      "label": "▤ Zero-column Specimen",
+      "status": "passed",
+      "elapsedMs": 95
+    },
+    {
+      "label": "Configure rows",
+      "status": "passed",
+      "elapsedMs": 54
+    },
+    {
+      "label": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations → 2 rows, each describing Patient A and one Observation",
+      "status": "passed",
+      "elapsedMs": 90
+    },
+    {
+      "label": "Select Medication",
+      "status": "passed",
+      "elapsedMs": 36
+    }
+  ],
+  "featureLifecycleCompleted": 0,
+  "dimensions": {
+    "usability": {
+      "status": "partial",
+      "evidence": [
+        "Initial native setup and four actions completed; route selection did not complete."
+      ]
+    },
+    "correctness": {
+      "status": "partial",
+      "evidence": [
+        "Bounded raw oracle passed; the native exact route was not selected and its search payload was truncated."
+      ]
+    },
+    "persistence": {
+      "status": "partial",
+      "evidence": [
+        "Initial table and exact scoped selection were saved; no RelatedExpand operation was applied."
+      ]
+    },
+    "performance": {
+      "status": "untested",
+      "evidence": []
+    }
+  },
+  "failure": {
+    "location": "scripts/verify-ui/workflows/verify-cda-zero-column-related-medication.mjs:318",
+    "message": "page.waitForFunction: Timeout 5000ms exceeded.",
+    "stack": "page.waitForFunction: Timeout 5000ms exceeded.\n    at waitForBrowser ($CHECKOUT/verify-ui/helpers/cda-playwright.mjs:172:14)\n    at Object.wait ($CHECKOUT/verify-ui/helpers/cda-fixtures.mjs:1017:42)\n    at wait ($CHECKOUT/verify-ui/workflows/verify-cda-zero-column-related-medication.mjs:125:73)\n    at zeroColumnRelatedMedicationWorkflow ($CHECKOUT/verify-ui/workflows/verify-cda-zero-column-related-medication.mjs:318:11)\n    at $CHECKOUT/verify-ui/specs/standalone-cda-other.spec.mjs:192:5",
+    "selector": "[data-testid=\"construction-related-expand-editor\"] input[type=\"radio\"][aria-label=<five-hop route>]",
+    "waitTimeoutMs": 5000,
+    "sourceDom": {
+      "workflow": "scripts/verify-ui/workflows/verify-cda-zero-column-related-medication.mjs:314-321 selects Medication and immediately waits for the exact route radio; it does not open the Other relationship paths disclosure before waiting.",
+      "retainedDom": "The timeout snapshot shows “Showing 29 paths found before the search limit; additional paths may exist.” The expected five-hop radio is not in the initial rendered route group; a collapsed “Other relationship paths (28)” disclosure is present.",
+      "classification": "The first stop is a harness disclosure assumption. It does not establish a missing product route or a product regression.",
+      "routeSearchCompleteness": "unverified: the related-expand-choices response returned 200 for limit 50, but only truncated metadata was retained; the captured response payload does not show whether the exact route is inside the collapsed 28 or beyond the bounded result.",
+      "responseBodyRetained": false,
+      "responseMetadata": {
+        "truncated": true,
+        "length": 114324
+      }
+    },
+    "nativeActionCount": 4,
+    "nativeActionMaxMs": 95,
+    "requiredChecksPassed": 3,
+    "requiredChecksUnrun": 8,
+    "productFailureEstablished": false,
+    "bodyTextRetainedChars": 12000
+  },
+  "rawOracle": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "scannedSpecimenCount": 1000,
+    "selectedRoots": [
+      {
+        "id": "00001c68-2c20-5003-a144-b2442469d8de",
+        "_id": "Specimen/g_af8d27ece3cef704ce1e40a8289c835969a1868685394a4260da3941864236f8",
+        "medicationIDs": []
+      },
+      {
+        "id": "0000ae4e-5498-51e8-a091-32b0552093ac",
+        "_id": "Specimen/g_98e422afa3a377b97d6cf4c70963714be734cc4ad84c6b1cdaed8b853aecbf79",
+        "medicationIDs": []
+      }
+    ],
+    "positiveWitnessWithinBound": false,
+    "unmatchedRootCountWithinBound": 1000,
+    "expectedMedicationIDs": [],
+    "expectedVisibleMedicationValues": [
+      null,
+      null
+    ],
+    "expectedPreserveRowCount": 2,
+    "expectedExcludeRowCount": 0,
+    "route": [
+      {
+        "fromResourceType": "Specimen",
+        "toResourceType": "Observation",
+        "relationship": "focus_Specimen",
+        "storageDirection": "INBOUND"
+      },
+      {
+        "fromResourceType": "Observation",
+        "toResourceType": "Condition",
+        "relationship": "stage_assessment_Observation",
+        "storageDirection": "INBOUND"
+      },
+      {
+        "fromResourceType": "Condition",
+        "toResourceType": "Patient",
+        "relationship": "subject_Patient",
+        "storageDirection": "OUTBOUND"
+      },
+      {
+        "fromResourceType": "Patient",
+        "toResourceType": "MedicationAdministration",
+        "relationship": "subject_Patient",
+        "storageDirection": "INBOUND"
+      },
+      {
+        "fromResourceType": "MedicationAdministration",
+        "toResourceType": "Medication",
+        "relationship": "medication_reference_Medication",
+        "storageDirection": "OUTBOUND"
+      }
+    ],
+    "bound": {
+      "rootLimit": 1000,
+      "distinctMedicationLimitPerRoot": 26
+    }
+  },
+  "routeSearch": {
+    "request": {
+      "method": "POST",
+      "pathSuffix": "/authoring/v2/related-expand-choices",
+      "targetResourceType": "Medication",
+      "limit": 50
+    },
+    "httpStatus": 200,
+    "bodyCapture": {
+      "truncated": true,
+      "length": 114324,
+      "completeBodyRetained": false
+    },
+    "observedStatus": "Showing 29 paths found before the search limit; additional paths may exist.",
+    "collapsedDisclosure": "Other relationship paths (28)",
+    "exactFiveHopRouteVisibleInInitialGroup": false,
+    "routeAvailabilityConclusion": "Unresolved; do not infer route absence from the truncated response or initial collapsed group."
+  },
+  "apiRequests": [
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/loom_dev_cda_fhir/explorers",
+      "status": 201,
+      "durationMs": 12
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/related-medication-c20d324f-eed3-4a24-8d53-4336faf2f608/authoring/v2/builder",
+      "status": 200,
+      "durationMs": 562
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/related-medication-c20d324f-eed3-4a24-8d53-4336faf2f608/authoring/v2/commands",
+      "status": 200,
+      "durationMs": 47
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/related-medication-c20d324f-eed3-4a24-8d53-4336faf2f608/authoring/v2/builder",
+      "status": 200,
+      "durationMs": 527
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/related-medication-c20d324f-eed3-4a24-8d53-4336faf2f608/selections",
+      "status": 201,
+      "durationMs": 37
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/related-medication-c20d324f-eed3-4a24-8d53-4336faf2f608/selections/selection_a08d9d48afebfd747f7c89778a65441b59170a9c47e2187db5f2a126b3141478?limit=100",
+      "status": 200,
+      "durationMs": 506
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/related-medication-c20d324f-eed3-4a24-8d53-4336faf2f608/authoring/v2/population-routes",
+      "status": 200,
+      "durationMs": 747
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/related-medication-c20d324f-eed3-4a24-8d53-4336faf2f608/authoring/v2/commands",
+      "status": 200,
+      "durationMs": 54
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/related-medication-c20d324f-eed3-4a24-8d53-4336faf2f608/authoring/v2/builder",
+      "status": 200,
+      "durationMs": 555
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/related-medication-c20d324f-eed3-4a24-8d53-4336faf2f608/authoring/v2/builder",
+      "status": 200,
+      "durationMs": 525
+    }
+  ],
+  "nativeRequestCount": 8,
+  "networkErrors": 0,
+  "incidentalAssetFailures": [
+    {
+      "kind": "asset-failure",
+      "url": "http://127.0.0.1:30008/favicon.ico",
+      "status": 404
+    }
+  ],
+  "timing": {
+    "totalRunMs": 13576,
+    "nativeActionMaxMs": 95,
+    "routeSelectorWaitMs": 5000,
+    "routeSearchCheckpointMs": 192
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "393c83bc9aee052e504930dc3e51f780845633ffd6dd63ba99d1b1385c035c62",
+        "files": 1533
+      },
+      "after": {
+        "sha256": "393c83bc9aee052e504930dc3e51f780845633ffd6dd63ba99d1b1385c035c62",
+        "files": 1533
+      },
+      "unchanged": true,
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+      "after": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+      "unchanged": true
+    },
+    "apiBuildIdentityUnchanged": true,
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  },
+  "rawEvidence": {
+    "integrityClosure": {
+      "path": "/private/tmp/loom-native-related-expansion-wave103/integrity-closure.json",
+      "sha256": "90c49bbb54da65bf5ae2395d5284b4ceaddf7eed6c3e52edd0fd13ca02b65c59"
+    },
+    "domainReport": {
+      "path": "/private/tmp/loom-native-related-expansion-wave103/attempt1/artifacts/standalone-cda-other-CDA-z-888f6-ough-five-relationship-hops/cda-report.json",
+      "sha256": "612e336e38e5301dc3c7be38b5dbe0c155f0d5a5fbe5b9fe400141fee4f5a922"
+    },
+    "domainAttachment": {
+      "path": "/private/tmp/loom-native-related-expansion-wave103/attempt1/artifacts/standalone-cda-other-CDA-z-888f6-ough-five-relationship-hops/attachments/cda-domain-report-json-67dcfbd3bcd23f61a63d49201fc7ed6de907b138.json",
+      "sha256": "612e336e38e5301dc3c7be38b5dbe0c155f0d5a5fbe5b9fe400141fee4f5a922"
+    },
+    "errorContext": {
+      "path": "/private/tmp/loom-native-related-expansion-wave103/attempt1/artifacts/standalone-cda-other-CDA-z-888f6-ough-five-relationship-hops/error-context.md",
+      "sha256": "4c978ef66fe28cb6e9f1d98667d352b02976aab9796f180b705caa956e0bc9fb"
+    },
+    "results": {
+      "path": "/private/tmp/loom-native-related-expansion-wave103/attempt1/results.json",
+      "sha256": "241364eecc28913c92e42c5393c84f5cf733464390310d1ea5f6360a091306da"
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-related-expansion-wave103/attempt1/runner.log",
+      "sha256": "d2a6d12f56ba4cb9c55395c139b48ee2d3213e768929819eb2ad6ca6e228e94e"
+    },
+    "sourceDom": "Retained Playwright error-context snapshot at errorContext path above."
+  }
+}

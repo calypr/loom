@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -16,6 +17,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"time"
 
 	authoringv2 "github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/getkin/kin-openapi/openapi3"
@@ -39,6 +41,192 @@ func (e APIVersion) Valid() bool {
 	}
 }
 
+// Defines values for AggregateOperationCapabilityOperation.
+const (
+	AggregateOperationCapabilityOperationCOLLECT        AggregateOperationCapabilityOperation = "COLLECT"
+	AggregateOperationCapabilityOperationCONTAINSALL    AggregateOperationCapabilityOperation = "CONTAINS_ALL"
+	AggregateOperationCapabilityOperationCOUNT          AggregateOperationCapabilityOperation = "COUNT"
+	AggregateOperationCapabilityOperationCOUNTDISTINCT  AggregateOperationCapabilityOperation = "COUNT_DISTINCT"
+	AggregateOperationCapabilityOperationDISTINCTVALUES AggregateOperationCapabilityOperation = "DISTINCT_VALUES"
+	AggregateOperationCapabilityOperationEXISTS         AggregateOperationCapabilityOperation = "EXISTS"
+	AggregateOperationCapabilityOperationFIRSTORDERED   AggregateOperationCapabilityOperation = "FIRST_ORDERED"
+	AggregateOperationCapabilityOperationMAX            AggregateOperationCapabilityOperation = "MAX"
+	AggregateOperationCapabilityOperationMEAN           AggregateOperationCapabilityOperation = "MEAN"
+	AggregateOperationCapabilityOperationMIN            AggregateOperationCapabilityOperation = "MIN"
+	AggregateOperationCapabilityOperationREQUIREONE     AggregateOperationCapabilityOperation = "REQUIRE_ONE"
+	AggregateOperationCapabilityOperationSUM            AggregateOperationCapabilityOperation = "SUM"
+)
+
+// Valid indicates whether the value is a known member of the AggregateOperationCapabilityOperation enum.
+func (e AggregateOperationCapabilityOperation) Valid() bool {
+	switch e {
+	case AggregateOperationCapabilityOperationCOLLECT:
+		return true
+	case AggregateOperationCapabilityOperationCONTAINSALL:
+		return true
+	case AggregateOperationCapabilityOperationCOUNT:
+		return true
+	case AggregateOperationCapabilityOperationCOUNTDISTINCT:
+		return true
+	case AggregateOperationCapabilityOperationDISTINCTVALUES:
+		return true
+	case AggregateOperationCapabilityOperationEXISTS:
+		return true
+	case AggregateOperationCapabilityOperationFIRSTORDERED:
+		return true
+	case AggregateOperationCapabilityOperationMAX:
+		return true
+	case AggregateOperationCapabilityOperationMEAN:
+		return true
+	case AggregateOperationCapabilityOperationMIN:
+		return true
+	case AggregateOperationCapabilityOperationREQUIREONE:
+		return true
+	case AggregateOperationCapabilityOperationSUM:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AggregateOperationCapabilityResultCardinality.
+const (
+	AggregateOperationCapabilityResultCardinalityMANY        AggregateOperationCapabilityResultCardinality = "MANY"
+	AggregateOperationCapabilityResultCardinalityONE         AggregateOperationCapabilityResultCardinality = "ONE"
+	AggregateOperationCapabilityResultCardinalityOPTIONALONE AggregateOperationCapabilityResultCardinality = "OPTIONAL_ONE"
+)
+
+// Valid indicates whether the value is a known member of the AggregateOperationCapabilityResultCardinality enum.
+func (e AggregateOperationCapabilityResultCardinality) Valid() bool {
+	switch e {
+	case AggregateOperationCapabilityResultCardinalityMANY:
+		return true
+	case AggregateOperationCapabilityResultCardinalityONE:
+		return true
+	case AggregateOperationCapabilityResultCardinalityOPTIONALONE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AggregateOperationCapabilityRowContext.
+const (
+	AggregateOperationCapabilityRowContextEXPANDED AggregateOperationCapabilityRowContext = "EXPANDED"
+	AggregateOperationCapabilityRowContextGROUPS   AggregateOperationCapabilityRowContext = "GROUPS"
+	AggregateOperationCapabilityRowContextRECORDS  AggregateOperationCapabilityRowContext = "RECORDS"
+)
+
+// Valid indicates whether the value is a known member of the AggregateOperationCapabilityRowContext enum.
+func (e AggregateOperationCapabilityRowContext) Valid() bool {
+	switch e {
+	case AggregateOperationCapabilityRowContextEXPANDED:
+		return true
+	case AggregateOperationCapabilityRowContextGROUPS:
+		return true
+	case AggregateOperationCapabilityRowContextRECORDS:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AggregateSourceOperation.
+const (
+	AggregateSourceOperationCOLLECT        AggregateSourceOperation = "COLLECT"
+	AggregateSourceOperationCONTAINSALL    AggregateSourceOperation = "CONTAINS_ALL"
+	AggregateSourceOperationCOUNT          AggregateSourceOperation = "COUNT"
+	AggregateSourceOperationCOUNTDISTINCT  AggregateSourceOperation = "COUNT_DISTINCT"
+	AggregateSourceOperationDISTINCTVALUES AggregateSourceOperation = "DISTINCT_VALUES"
+	AggregateSourceOperationEXISTS         AggregateSourceOperation = "EXISTS"
+	AggregateSourceOperationFIRSTORDERED   AggregateSourceOperation = "FIRST_ORDERED"
+	AggregateSourceOperationMAX            AggregateSourceOperation = "MAX"
+	AggregateSourceOperationMEAN           AggregateSourceOperation = "MEAN"
+	AggregateSourceOperationMIN            AggregateSourceOperation = "MIN"
+	AggregateSourceOperationREQUIREONE     AggregateSourceOperation = "REQUIRE_ONE"
+	AggregateSourceOperationSUM            AggregateSourceOperation = "SUM"
+)
+
+// Valid indicates whether the value is a known member of the AggregateSourceOperation enum.
+func (e AggregateSourceOperation) Valid() bool {
+	switch e {
+	case AggregateSourceOperationCOLLECT:
+		return true
+	case AggregateSourceOperationCONTAINSALL:
+		return true
+	case AggregateSourceOperationCOUNT:
+		return true
+	case AggregateSourceOperationCOUNTDISTINCT:
+		return true
+	case AggregateSourceOperationDISTINCTVALUES:
+		return true
+	case AggregateSourceOperationEXISTS:
+		return true
+	case AggregateSourceOperationFIRSTORDERED:
+		return true
+	case AggregateSourceOperationMAX:
+		return true
+	case AggregateSourceOperationMEAN:
+		return true
+	case AggregateSourceOperationMIN:
+		return true
+	case AggregateSourceOperationREQUIREONE:
+		return true
+	case AggregateSourceOperationSUM:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ArtifactFormat.
+const (
+	CSV   ArtifactFormat = "CSV"
+	JSONL ArtifactFormat = "JSONL"
+)
+
+// Valid indicates whether the value is a known member of the ArtifactFormat enum.
+func (e ArtifactFormat) Valid() bool {
+	switch e {
+	case CSV:
+		return true
+	case JSONL:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ArtifactMediaType.
+const (
+	Applicationzip ArtifactMediaType = "application/zip"
+)
+
+// Valid indicates whether the value is a known member of the ArtifactMediaType enum.
+func (e ArtifactMediaType) Valid() bool {
+	switch e {
+	case Applicationzip:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ArtifactState.
+const (
+	ArtifactStateCOMPLETE ArtifactState = "COMPLETE"
+)
+
+// Valid indicates whether the value is a known member of the ArtifactState enum.
+func (e ArtifactState) Valid() bool {
+	switch e {
+	case ArtifactStateCOMPLETE:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AuthoringCapabilityKind.
 const (
 	ExplorerAuthoringCapabilities AuthoringCapabilityKind = "ExplorerAuthoringCapabilities"
@@ -56,28 +244,64 @@ func (e AuthoringCapabilityKind) Valid() bool {
 
 // Defines values for AuthoringCapabilityOperations.
 const (
-	Builder     AuthoringCapabilityOperations = "builder"
-	Commands    AuthoringCapabilityOperations = "commands"
-	Preview     AuthoringCapabilityOperations = "preview"
-	Publish     AuthoringCapabilityOperations = "publish"
-	Reconcile   AuthoringCapabilityOperations = "reconcile"
-	Suggestions AuthoringCapabilityOperations = "suggestions"
+	AuthoringCapabilityOperationsBuilder                 AuthoringCapabilityOperations = "builder"
+	AuthoringCapabilityOperationsCommands                AuthoringCapabilityOperations = "commands"
+	AuthoringCapabilityOperationsConfiguredColumnContext AuthoringCapabilityOperations = "configuredColumnContext"
+	AuthoringCapabilityOperationsInterpretationCreate    AuthoringCapabilityOperations = "interpretationCreate"
+	AuthoringCapabilityOperationsInterpretationPreview   AuthoringCapabilityOperations = "interpretationPreview"
+	AuthoringCapabilityOperationsPreview                 AuthoringCapabilityOperations = "preview"
+	AuthoringCapabilityOperationsPublish                 AuthoringCapabilityOperations = "publish"
+	AuthoringCapabilityOperationsReconcile               AuthoringCapabilityOperations = "reconcile"
+	AuthoringCapabilityOperationsRowChange               AuthoringCapabilityOperations = "rowChange"
+	AuthoringCapabilityOperationsSuggestions             AuthoringCapabilityOperations = "suggestions"
 )
 
 // Valid indicates whether the value is a known member of the AuthoringCapabilityOperations enum.
 func (e AuthoringCapabilityOperations) Valid() bool {
 	switch e {
-	case Builder:
+	case AuthoringCapabilityOperationsBuilder:
 		return true
-	case Commands:
+	case AuthoringCapabilityOperationsCommands:
 		return true
-	case Preview:
+	case AuthoringCapabilityOperationsConfiguredColumnContext:
 		return true
-	case Publish:
+	case AuthoringCapabilityOperationsInterpretationCreate:
 		return true
-	case Reconcile:
+	case AuthoringCapabilityOperationsInterpretationPreview:
 		return true
-	case Suggestions:
+	case AuthoringCapabilityOperationsPreview:
+		return true
+	case AuthoringCapabilityOperationsPublish:
+		return true
+	case AuthoringCapabilityOperationsReconcile:
+		return true
+	case AuthoringCapabilityOperationsRowChange:
+		return true
+	case AuthoringCapabilityOperationsSuggestions:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AuthoringCommandForm.
+const (
+	AuthoringCommandFormALL      AuthoringCommandForm = "ALL"
+	AuthoringCommandFormDISTINCT AuthoringCommandForm = "DISTINCT"
+	AuthoringCommandFormFIRST    AuthoringCommandForm = "FIRST"
+	AuthoringCommandFormVALUE    AuthoringCommandForm = "VALUE"
+)
+
+// Valid indicates whether the value is a known member of the AuthoringCommandForm enum.
+func (e AuthoringCommandForm) Valid() bool {
+	switch e {
+	case AuthoringCommandFormALL:
+		return true
+	case AuthoringCommandFormDISTINCT:
+		return true
+	case AuthoringCommandFormFIRST:
+		return true
+	case AuthoringCommandFormVALUE:
 		return true
 	default:
 		return false
@@ -86,19 +310,55 @@ func (e AuthoringCapabilityOperations) Valid() bool {
 
 // Defines values for AuthoringCommandInitialPresentation.
 const (
-	CHART  AuthoringCommandInitialPresentation = "CHART"
-	FILTER AuthoringCommandInitialPresentation = "FILTER"
-	TABLE  AuthoringCommandInitialPresentation = "TABLE"
+	AuthoringCommandInitialPresentationCHART  AuthoringCommandInitialPresentation = "CHART"
+	AuthoringCommandInitialPresentationFILTER AuthoringCommandInitialPresentation = "FILTER"
+	AuthoringCommandInitialPresentationTABLE  AuthoringCommandInitialPresentation = "TABLE"
 )
 
 // Valid indicates whether the value is a known member of the AuthoringCommandInitialPresentation enum.
 func (e AuthoringCommandInitialPresentation) Valid() bool {
 	switch e {
-	case CHART:
+	case AuthoringCommandInitialPresentationCHART:
 		return true
-	case FILTER:
+	case AuthoringCommandInitialPresentationFILTER:
 		return true
-	case TABLE:
+	case AuthoringCommandInitialPresentationTABLE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AuthoringCommandMatchMode.
+const (
+	AuthoringCommandMatchModeOPTIONAL AuthoringCommandMatchMode = "OPTIONAL"
+	AuthoringCommandMatchModeREQUIRED AuthoringCommandMatchMode = "REQUIRED"
+)
+
+// Valid indicates whether the value is a known member of the AuthoringCommandMatchMode enum.
+func (e AuthoringCommandMatchMode) Valid() bool {
+	switch e {
+	case AuthoringCommandMatchModeOPTIONAL:
+		return true
+	case AuthoringCommandMatchModeREQUIRED:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AuthoringCommandRowValuePolicy.
+const (
+	AuthoringCommandRowValuePolicyALL AuthoringCommandRowValuePolicy = "ALL"
+	AuthoringCommandRowValuePolicyONE AuthoringCommandRowValuePolicy = "ONE"
+)
+
+// Valid indicates whether the value is a known member of the AuthoringCommandRowValuePolicy enum.
+func (e AuthoringCommandRowValuePolicy) Valid() bool {
+	switch e {
+	case AuthoringCommandRowValuePolicyALL:
+		return true
+	case AuthoringCommandRowValuePolicyONE:
 		return true
 	default:
 		return false
@@ -107,18 +367,39 @@ func (e AuthoringCommandInitialPresentation) Valid() bool {
 
 // Defines values for AuthoringCommandType.
 const (
-	ADDCOLUMN       AuthoringCommandType = "ADD_COLUMN"
-	ADDROUTE        AuthoringCommandType = "ADD_ROUTE"
-	CREATETABLE     AuthoringCommandType = "CREATE_TABLE"
-	DELETETABLE     AuthoringCommandType = "DELETE_TABLE"
-	DUPLICATETABLE  AuthoringCommandType = "DUPLICATE_TABLE"
-	REMOVECOLUMN    AuthoringCommandType = "REMOVE_COLUMN"
-	REMOVEROUTE     AuthoringCommandType = "REMOVE_ROUTE"
-	RENAMETABLE     AuthoringCommandType = "RENAME_TABLE"
-	REORDERTABLES   AuthoringCommandType = "REORDER_TABLES"
-	SETTABLEROOT    AuthoringCommandType = "SET_TABLE_ROOT"
-	UPDATECOLUMN    AuthoringCommandType = "UPDATE_COLUMN"
-	UPDATEROUTEEDGE AuthoringCommandType = "UPDATE_ROUTE_EDGE"
+	ADDCOLUMN                     AuthoringCommandType = "ADD_COLUMN"
+	ADDCOLUMNSOURCE               AuthoringCommandType = "ADD_COLUMN_SOURCE"
+	ADDROUTE                      AuthoringCommandType = "ADD_ROUTE"
+	ADDSEMANTICSELECTIONS         AuthoringCommandType = "ADD_SEMANTIC_SELECTIONS"
+	APPLYCONSTRUCTIONCHOICE       AuthoringCommandType = "APPLY_CONSTRUCTION_CHOICE"
+	APPLYCONSTRUCTIONPROPOSAL     AuthoringCommandType = "APPLY_CONSTRUCTION_PROPOSAL"
+	APPLYINTERPRETATIONCANDIDATE  AuthoringCommandType = "APPLY_INTERPRETATION_CANDIDATE"
+	APPLYPOPULATIONMEMBERPROPOSAL AuthoringCommandType = "APPLY_POPULATION_MEMBER_PROPOSAL"
+	APPLYROWDEFINITIONPROPOSAL    AuthoringCommandType = "APPLY_ROW_DEFINITION_PROPOSAL"
+	APPLYTABLEROOTREBASE          AuthoringCommandType = "APPLY_TABLE_ROOT_REBASE"
+	CLEARCOLUMNCONTRIBUTOR        AuthoringCommandType = "CLEAR_COLUMN_CONTRIBUTOR"
+	CLEARTABLEPOPULATION          AuthoringCommandType = "CLEAR_TABLE_POPULATION"
+	CREATETABLE                   AuthoringCommandType = "CREATE_TABLE"
+	DELETETABLE                   AuthoringCommandType = "DELETE_TABLE"
+	DUPLICATETABLE                AuthoringCommandType = "DUPLICATE_TABLE"
+	REMOVECOLUMN                  AuthoringCommandType = "REMOVE_COLUMN"
+	REMOVEFRAMESOURCE             AuthoringCommandType = "REMOVE_FRAME_SOURCE"
+	REMOVEROUTE                   AuthoringCommandType = "REMOVE_ROUTE"
+	RENAMETABLE                   AuthoringCommandType = "RENAME_TABLE"
+	REORDERTABLES                 AuthoringCommandType = "REORDER_TABLES"
+	REPLACEFRAMESOURCE            AuthoringCommandType = "REPLACE_FRAME_SOURCE"
+	RESTOREDRAFTREVISION          AuthoringCommandType = "RESTORE_DRAFT_REVISION"
+	SETCOLUMNCONTRIBUTOR          AuthoringCommandType = "SET_COLUMN_CONTRIBUTOR"
+	SETFRAMESOURCE                AuthoringCommandType = "SET_FRAME_SOURCE"
+	SETROUTEMATCHMODE             AuthoringCommandType = "SET_ROUTE_MATCH_MODE"
+	SETTABLEPOPULATION            AuthoringCommandType = "SET_TABLE_POPULATION"
+	SETTABLEROOT                  AuthoringCommandType = "SET_TABLE_ROOT"
+	UPDATECOLUMN                  AuthoringCommandType = "UPDATE_COLUMN"
+	UPDATECOLUMNROWVALUEPOLICY    AuthoringCommandType = "UPDATE_COLUMN_ROW_VALUE_POLICY"
+	UPDATECOLUMNSOURCE            AuthoringCommandType = "UPDATE_COLUMN_SOURCE"
+	UPDATECOLUMNTRANSFORMATION    AuthoringCommandType = "UPDATE_COLUMN_TRANSFORMATION"
+	UPDATECONSTRUCTIONOUTPUT      AuthoringCommandType = "UPDATE_CONSTRUCTION_OUTPUT"
+	UPDATEROUTEEDGE               AuthoringCommandType = "UPDATE_ROUTE_EDGE"
 )
 
 // Valid indicates whether the value is a known member of the AuthoringCommandType enum.
@@ -126,7 +407,27 @@ func (e AuthoringCommandType) Valid() bool {
 	switch e {
 	case ADDCOLUMN:
 		return true
+	case ADDCOLUMNSOURCE:
+		return true
 	case ADDROUTE:
+		return true
+	case ADDSEMANTICSELECTIONS:
+		return true
+	case APPLYCONSTRUCTIONCHOICE:
+		return true
+	case APPLYCONSTRUCTIONPROPOSAL:
+		return true
+	case APPLYINTERPRETATIONCANDIDATE:
+		return true
+	case APPLYPOPULATIONMEMBERPROPOSAL:
+		return true
+	case APPLYROWDEFINITIONPROPOSAL:
+		return true
+	case APPLYTABLEROOTREBASE:
+		return true
+	case CLEARCOLUMNCONTRIBUTOR:
+		return true
+	case CLEARTABLEPOPULATION:
 		return true
 	case CREATETABLE:
 		return true
@@ -136,15 +437,37 @@ func (e AuthoringCommandType) Valid() bool {
 		return true
 	case REMOVECOLUMN:
 		return true
+	case REMOVEFRAMESOURCE:
+		return true
 	case REMOVEROUTE:
 		return true
 	case RENAMETABLE:
 		return true
 	case REORDERTABLES:
 		return true
+	case REPLACEFRAMESOURCE:
+		return true
+	case RESTOREDRAFTREVISION:
+		return true
+	case SETCOLUMNCONTRIBUTOR:
+		return true
+	case SETFRAMESOURCE:
+		return true
+	case SETROUTEMATCHMODE:
+		return true
+	case SETTABLEPOPULATION:
+		return true
 	case SETTABLEROOT:
 		return true
 	case UPDATECOLUMN:
+		return true
+	case UPDATECOLUMNROWVALUEPOLICY:
+		return true
+	case UPDATECOLUMNSOURCE:
+		return true
+	case UPDATECOLUMNTRANSFORMATION:
+		return true
+	case UPDATECONSTRUCTIONOUTPUT:
 		return true
 	case UPDATEROUTEEDGE:
 		return true
@@ -170,16 +493,16 @@ func (e BuilderStateKind) Valid() bool {
 
 // Defines values for BuilderStateLifecycleState.
 const (
-	NEW   BuilderStateLifecycleState = "NEW"
-	READY BuilderStateLifecycleState = "READY"
+	BuilderStateLifecycleStateNEW   BuilderStateLifecycleState = "NEW"
+	BuilderStateLifecycleStateREADY BuilderStateLifecycleState = "READY"
 )
 
 // Valid indicates whether the value is a known member of the BuilderStateLifecycleState enum.
 func (e BuilderStateLifecycleState) Valid() bool {
 	switch e {
-	case NEW:
+	case BuilderStateLifecycleStateNEW:
 		return true
-	case READY:
+	case BuilderStateLifecycleStateREADY:
 		return true
 	default:
 		return false
@@ -201,20 +524,74 @@ func (e CandidateSearchResponseKind) Valid() bool {
 	}
 }
 
+// Defines values for CatalogEdgeStorageDirection.
+const (
+	CatalogEdgeStorageDirectionINBOUND  CatalogEdgeStorageDirection = "INBOUND"
+	CatalogEdgeStorageDirectionOUTBOUND CatalogEdgeStorageDirection = "OUTBOUND"
+)
+
+// Valid indicates whether the value is a known member of the CatalogEdgeStorageDirection enum.
+func (e CatalogEdgeStorageDirection) Valid() bool {
+	switch e {
+	case CatalogEdgeStorageDirectionINBOUND:
+		return true
+	case CatalogEdgeStorageDirectionOUTBOUND:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CellTraceTraceStatus.
+const (
+	CellTraceTraceStatusAMBIGUOUS        CellTraceTraceStatus = "AMBIGUOUS"
+	CellTraceTraceStatusINCOMPATIBLEUNIT CellTraceTraceStatus = "INCOMPATIBLE_UNIT"
+	CellTraceTraceStatusINCOMPLETE       CellTraceTraceStatus = "INCOMPLETE"
+	CellTraceTraceStatusINVALIDTYPE      CellTraceTraceStatus = "INVALID_TYPE"
+	CellTraceTraceStatusNOMATCH          CellTraceTraceStatus = "NO_MATCH"
+	CellTraceTraceStatusRECORDEDNULL     CellTraceTraceStatus = "RECORDED_NULL"
+	CellTraceTraceStatusVALUE            CellTraceTraceStatus = "VALUE"
+)
+
+// Valid indicates whether the value is a known member of the CellTraceTraceStatus enum.
+func (e CellTraceTraceStatus) Valid() bool {
+	switch e {
+	case CellTraceTraceStatusAMBIGUOUS:
+		return true
+	case CellTraceTraceStatusINCOMPATIBLEUNIT:
+		return true
+	case CellTraceTraceStatusINCOMPLETE:
+		return true
+	case CellTraceTraceStatusINVALIDTYPE:
+		return true
+	case CellTraceTraceStatusNOMATCH:
+		return true
+	case CellTraceTraceStatusRECORDEDNULL:
+		return true
+	case CellTraceTraceStatusVALUE:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ColumnSourceKind.
 const (
-	CodingBySystem             ColumnSourceKind = "codingBySystem"
-	ExtensionByUrl             ColumnSourceKind = "extensionByUrl"
-	Field                      ColumnSourceKind = "field"
-	IdentifierBySystem         ColumnSourceKind = "identifierBySystem"
-	ObservationComponentByCode ColumnSourceKind = "observationComponentByCode"
-	ProjectId                  ColumnSourceKind = "projectId"
+	Aggregate          ColumnSourceKind = "aggregate"
+	CodedValue         ColumnSourceKind = "codedValue"
+	ExtensionByUrl     ColumnSourceKind = "extensionByUrl"
+	Field              ColumnSourceKind = "field"
+	IdentifierBySystem ColumnSourceKind = "identifierBySystem"
+	OwnerRecords       ColumnSourceKind = "ownerRecords"
+	ProjectId          ColumnSourceKind = "projectId"
 )
 
 // Valid indicates whether the value is a known member of the ColumnSourceKind enum.
 func (e ColumnSourceKind) Valid() bool {
 	switch e {
-	case CodingBySystem:
+	case Aggregate:
+		return true
+	case CodedValue:
 		return true
 	case ExtensionByUrl:
 		return true
@@ -222,7 +599,7 @@ func (e ColumnSourceKind) Valid() bool {
 		return true
 	case IdentifierBySystem:
 		return true
-	case ObservationComponentByCode:
+	case OwnerRecords:
 		return true
 	case ProjectId:
 		return true
@@ -231,24 +608,36 @@ func (e ColumnSourceKind) Valid() bool {
 	}
 }
 
-// Defines values for ColumnSourceProjectionMode.
+// Defines values for ColumnSourceRouteStepMatchMode.
 const (
-	ColumnSourceProjectionModeALL      ColumnSourceProjectionMode = "ALL"
-	ColumnSourceProjectionModeDISTINCT ColumnSourceProjectionMode = "DISTINCT"
-	ColumnSourceProjectionModeFIRST    ColumnSourceProjectionMode = "FIRST"
-	ColumnSourceProjectionModeVALUE    ColumnSourceProjectionMode = "VALUE"
+	ColumnSourceRouteStepMatchModeOPTIONAL ColumnSourceRouteStepMatchMode = "OPTIONAL"
+	ColumnSourceRouteStepMatchModeREQUIRED ColumnSourceRouteStepMatchMode = "REQUIRED"
 )
 
-// Valid indicates whether the value is a known member of the ColumnSourceProjectionMode enum.
-func (e ColumnSourceProjectionMode) Valid() bool {
+// Valid indicates whether the value is a known member of the ColumnSourceRouteStepMatchMode enum.
+func (e ColumnSourceRouteStepMatchMode) Valid() bool {
 	switch e {
-	case ColumnSourceProjectionModeALL:
+	case ColumnSourceRouteStepMatchModeOPTIONAL:
 		return true
-	case ColumnSourceProjectionModeDISTINCT:
+	case ColumnSourceRouteStepMatchModeREQUIRED:
 		return true
-	case ColumnSourceProjectionModeFIRST:
+	default:
+		return false
+	}
+}
+
+// Defines values for ColumnSourceRouteStepStorageDirection.
+const (
+	ColumnSourceRouteStepStorageDirectionINBOUND  ColumnSourceRouteStepStorageDirection = "INBOUND"
+	ColumnSourceRouteStepStorageDirectionOUTBOUND ColumnSourceRouteStepStorageDirection = "OUTBOUND"
+)
+
+// Valid indicates whether the value is a known member of the ColumnSourceRouteStepStorageDirection enum.
+func (e ColumnSourceRouteStepStorageDirection) Valid() bool {
+	switch e {
+	case ColumnSourceRouteStepStorageDirectionINBOUND:
 		return true
-	case ColumnSourceProjectionModeVALUE:
+	case ColumnSourceRouteStepStorageDirectionOUTBOUND:
 		return true
 	default:
 		return false
@@ -257,10 +646,12 @@ func (e ColumnSourceProjectionMode) Valid() bool {
 
 // Defines values for CommandResultType.
 const (
-	COLUMNADDED  CommandResultType = "COLUMN_ADDED"
-	ROUTEADDED   CommandResultType = "ROUTE_ADDED"
-	TABLECHANGED CommandResultType = "TABLE_CHANGED"
-	TABLECREATED CommandResultType = "TABLE_CREATED"
+	COLUMNADDED             CommandResultType = "COLUMN_ADDED"
+	DRAFTRESTORED           CommandResultType = "DRAFT_RESTORED"
+	ROUTEADDED              CommandResultType = "ROUTE_ADDED"
+	SEMANTICSELECTIONSADDED CommandResultType = "SEMANTIC_SELECTIONS_ADDED"
+	TABLECHANGED            CommandResultType = "TABLE_CHANGED"
+	TABLECREATED            CommandResultType = "TABLE_CREATED"
 )
 
 // Valid indicates whether the value is a known member of the CommandResultType enum.
@@ -268,7 +659,11 @@ func (e CommandResultType) Valid() bool {
 	switch e {
 	case COLUMNADDED:
 		return true
+	case DRAFTRESTORED:
+		return true
 	case ROUTEADDED:
+		return true
+	case SEMANTICSELECTIONSADDED:
 		return true
 	case TABLECHANGED:
 		return true
@@ -294,6 +689,1296 @@ func (e CompileResponseKind) Valid() bool {
 	}
 }
 
+// Defines values for ConfiguredColumnReadyResolutionState.
+const (
+	ConfiguredColumnReadyResolutionStateREADY ConfiguredColumnReadyResolutionState = "READY"
+)
+
+// Valid indicates whether the value is a known member of the ConfiguredColumnReadyResolutionState enum.
+func (e ConfiguredColumnReadyResolutionState) Valid() bool {
+	switch e {
+	case ConfiguredColumnReadyResolutionStateREADY:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConfiguredColumnUnavailableResolutionState.
+const (
+	ConfiguredColumnUnavailableResolutionStateAMBIGUOUS   ConfiguredColumnUnavailableResolutionState = "AMBIGUOUS"
+	ConfiguredColumnUnavailableResolutionStateMISSING     ConfiguredColumnUnavailableResolutionState = "MISSING"
+	ConfiguredColumnUnavailableResolutionStateUNSUPPORTED ConfiguredColumnUnavailableResolutionState = "UNSUPPORTED"
+)
+
+// Valid indicates whether the value is a known member of the ConfiguredColumnUnavailableResolutionState enum.
+func (e ConfiguredColumnUnavailableResolutionState) Valid() bool {
+	switch e {
+	case ConfiguredColumnUnavailableResolutionStateAMBIGUOUS:
+		return true
+	case ConfiguredColumnUnavailableResolutionStateMISSING:
+		return true
+	case ConfiguredColumnUnavailableResolutionStateUNSUPPORTED:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionCategoryDiscoveryResponseOutcome.
+const (
+	ConstructionCategoryDiscoveryResponseOutcomeCOMPLETE           ConstructionCategoryDiscoveryResponseOutcome = "COMPLETE"
+	ConstructionCategoryDiscoveryResponseOutcomeLIMITEXCEEDED      ConstructionCategoryDiscoveryResponseOutcome = "LIMIT_EXCEEDED"
+	ConstructionCategoryDiscoveryResponseOutcomeMISSINGUNSUPPORTED ConstructionCategoryDiscoveryResponseOutcome = "MISSING_UNSUPPORTED"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionCategoryDiscoveryResponseOutcome enum.
+func (e ConstructionCategoryDiscoveryResponseOutcome) Valid() bool {
+	switch e {
+	case ConstructionCategoryDiscoveryResponseOutcomeCOMPLETE:
+		return true
+	case ConstructionCategoryDiscoveryResponseOutcomeLIMITEXCEEDED:
+		return true
+	case ConstructionCategoryDiscoveryResponseOutcomeMISSINGUNSUPPORTED:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionChoiceOptionContributorPredicateOperators.
+const (
+	ConstructionChoiceOptionContributorPredicateOperatorsEQUALS ConstructionChoiceOptionContributorPredicateOperators = "EQUALS"
+	ConstructionChoiceOptionContributorPredicateOperatorsEXISTS ConstructionChoiceOptionContributorPredicateOperators = "EXISTS"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionChoiceOptionContributorPredicateOperators enum.
+func (e ConstructionChoiceOptionContributorPredicateOperators) Valid() bool {
+	switch e {
+	case ConstructionChoiceOptionContributorPredicateOperatorsEQUALS:
+		return true
+	case ConstructionChoiceOptionContributorPredicateOperatorsEXISTS:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionChoiceOptionDecision.
+const (
+	ConstructionChoiceOptionDecisionDEFAULT          ConstructionChoiceOptionDecision = "DEFAULT"
+	ConstructionChoiceOptionDecisionREQUIRESDECISION ConstructionChoiceOptionDecision = "REQUIRES_DECISION"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionChoiceOptionDecision enum.
+func (e ConstructionChoiceOptionDecision) Valid() bool {
+	switch e {
+	case ConstructionChoiceOptionDecisionDEFAULT:
+		return true
+	case ConstructionChoiceOptionDecisionREQUIRESDECISION:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionChoiceOptionForm.
+const (
+	ConstructionChoiceOptionFormALL          ConstructionChoiceOptionForm = "ALL"
+	ConstructionChoiceOptionFormCOUNT        ConstructionChoiceOptionForm = "COUNT"
+	ConstructionChoiceOptionFormDISTINCT     ConstructionChoiceOptionForm = "DISTINCT"
+	ConstructionChoiceOptionFormFIRST        ConstructionChoiceOptionForm = "FIRST"
+	ConstructionChoiceOptionFormOWNERRECORDS ConstructionChoiceOptionForm = "OWNER_RECORDS"
+	ConstructionChoiceOptionFormPRESENCE     ConstructionChoiceOptionForm = "PRESENCE"
+	ConstructionChoiceOptionFormVALUE        ConstructionChoiceOptionForm = "VALUE"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionChoiceOptionForm enum.
+func (e ConstructionChoiceOptionForm) Valid() bool {
+	switch e {
+	case ConstructionChoiceOptionFormALL:
+		return true
+	case ConstructionChoiceOptionFormCOUNT:
+		return true
+	case ConstructionChoiceOptionFormDISTINCT:
+		return true
+	case ConstructionChoiceOptionFormFIRST:
+		return true
+	case ConstructionChoiceOptionFormOWNERRECORDS:
+		return true
+	case ConstructionChoiceOptionFormPRESENCE:
+		return true
+	case ConstructionChoiceOptionFormVALUE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionChoiceOptionPreservation.
+const (
+	PRESERVING ConstructionChoiceOptionPreservation = "PRESERVING"
+	REDUCING   ConstructionChoiceOptionPreservation = "REDUCING"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionChoiceOptionPreservation enum.
+func (e ConstructionChoiceOptionPreservation) Valid() bool {
+	switch e {
+	case PRESERVING:
+		return true
+	case REDUCING:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionChoiceOptionRowEffect.
+const (
+	PRESERVESROWGRAIN ConstructionChoiceOptionRowEffect = "PRESERVES_ROW_GRAIN"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionChoiceOptionRowEffect enum.
+func (e ConstructionChoiceOptionRowEffect) Valid() bool {
+	switch e {
+	case PRESERVESROWGRAIN:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionChoiceOptionShape.
+const (
+	ConstructionChoiceOptionShapeLIST   ConstructionChoiceOptionShape = "LIST"
+	ConstructionChoiceOptionShapeSCALAR ConstructionChoiceOptionShape = "SCALAR"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionChoiceOptionShape enum.
+func (e ConstructionChoiceOptionShape) Valid() bool {
+	switch e {
+	case ConstructionChoiceOptionShapeLIST:
+		return true
+	case ConstructionChoiceOptionShapeSCALAR:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionChoiceOptionSupport.
+const (
+	SUPPORTED ConstructionChoiceOptionSupport = "SUPPORTED"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionChoiceOptionSupport enum.
+func (e ConstructionChoiceOptionSupport) Valid() bool {
+	switch e {
+	case SUPPORTED:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionChoiceProposalResponsePreviewStatus.
+const (
+	ConstructionChoiceProposalResponsePreviewStatusREADY ConstructionChoiceProposalResponsePreviewStatus = "READY"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionChoiceProposalResponsePreviewStatus enum.
+func (e ConstructionChoiceProposalResponsePreviewStatus) Valid() bool {
+	switch e {
+	case ConstructionChoiceProposalResponsePreviewStatusREADY:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionChoiceProposalSelectionForm.
+const (
+	ConstructionChoiceProposalSelectionFormALL          ConstructionChoiceProposalSelectionForm = "ALL"
+	ConstructionChoiceProposalSelectionFormDISTINCT     ConstructionChoiceProposalSelectionForm = "DISTINCT"
+	ConstructionChoiceProposalSelectionFormFIRST        ConstructionChoiceProposalSelectionForm = "FIRST"
+	ConstructionChoiceProposalSelectionFormOWNERRECORDS ConstructionChoiceProposalSelectionForm = "OWNER_RECORDS"
+	ConstructionChoiceProposalSelectionFormVALUE        ConstructionChoiceProposalSelectionForm = "VALUE"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionChoiceProposalSelectionForm enum.
+func (e ConstructionChoiceProposalSelectionForm) Valid() bool {
+	switch e {
+	case ConstructionChoiceProposalSelectionFormALL:
+		return true
+	case ConstructionChoiceProposalSelectionFormDISTINCT:
+		return true
+	case ConstructionChoiceProposalSelectionFormFIRST:
+		return true
+	case ConstructionChoiceProposalSelectionFormOWNERRECORDS:
+		return true
+	case ConstructionChoiceProposalSelectionFormVALUE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionChoiceProposalSelectionRowValuePolicy.
+const (
+	ConstructionChoiceProposalSelectionRowValuePolicyALL ConstructionChoiceProposalSelectionRowValuePolicy = "ALL"
+	ConstructionChoiceProposalSelectionRowValuePolicyONE ConstructionChoiceProposalSelectionRowValuePolicy = "ONE"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionChoiceProposalSelectionRowValuePolicy enum.
+func (e ConstructionChoiceProposalSelectionRowValuePolicy) Valid() bool {
+	switch e {
+	case ConstructionChoiceProposalSelectionRowValuePolicyALL:
+		return true
+	case ConstructionChoiceProposalSelectionRowValuePolicyONE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionChoiceSelectionForm.
+const (
+	ConstructionChoiceSelectionFormALL          ConstructionChoiceSelectionForm = "ALL"
+	ConstructionChoiceSelectionFormCOUNT        ConstructionChoiceSelectionForm = "COUNT"
+	ConstructionChoiceSelectionFormDISTINCT     ConstructionChoiceSelectionForm = "DISTINCT"
+	ConstructionChoiceSelectionFormFIRST        ConstructionChoiceSelectionForm = "FIRST"
+	ConstructionChoiceSelectionFormOWNERRECORDS ConstructionChoiceSelectionForm = "OWNER_RECORDS"
+	ConstructionChoiceSelectionFormPRESENCE     ConstructionChoiceSelectionForm = "PRESENCE"
+	ConstructionChoiceSelectionFormVALUE        ConstructionChoiceSelectionForm = "VALUE"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionChoiceSelectionForm enum.
+func (e ConstructionChoiceSelectionForm) Valid() bool {
+	switch e {
+	case ConstructionChoiceSelectionFormALL:
+		return true
+	case ConstructionChoiceSelectionFormCOUNT:
+		return true
+	case ConstructionChoiceSelectionFormDISTINCT:
+		return true
+	case ConstructionChoiceSelectionFormFIRST:
+		return true
+	case ConstructionChoiceSelectionFormOWNERRECORDS:
+		return true
+	case ConstructionChoiceSelectionFormPRESENCE:
+		return true
+	case ConstructionChoiceSelectionFormVALUE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionChoiceSelectionRowValuePolicy.
+const (
+	ConstructionChoiceSelectionRowValuePolicyALL ConstructionChoiceSelectionRowValuePolicy = "ALL"
+	ConstructionChoiceSelectionRowValuePolicyONE ConstructionChoiceSelectionRowValuePolicy = "ONE"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionChoiceSelectionRowValuePolicy enum.
+func (e ConstructionChoiceSelectionRowValuePolicy) Valid() bool {
+	switch e {
+	case ConstructionChoiceSelectionRowValuePolicyALL:
+		return true
+	case ConstructionChoiceSelectionRowValuePolicyONE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionCodedGroupMissingKeyPolicy.
+const (
+	ConstructionCodedGroupMissingKeyPolicyERROR   ConstructionCodedGroupMissingKeyPolicy = "ERROR"
+	ConstructionCodedGroupMissingKeyPolicyEXCLUDE ConstructionCodedGroupMissingKeyPolicy = "EXCLUDE"
+	ConstructionCodedGroupMissingKeyPolicyGROUP   ConstructionCodedGroupMissingKeyPolicy = "GROUP"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionCodedGroupMissingKeyPolicy enum.
+func (e ConstructionCodedGroupMissingKeyPolicy) Valid() bool {
+	switch e {
+	case ConstructionCodedGroupMissingKeyPolicyERROR:
+		return true
+	case ConstructionCodedGroupMissingKeyPolicyEXCLUDE:
+		return true
+	case ConstructionCodedGroupMissingKeyPolicyGROUP:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionCodedGroupSourceCardinality.
+const (
+	ConstructionCodedGroupSourceCardinalityMANY ConstructionCodedGroupSourceCardinality = "MANY"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionCodedGroupSourceCardinality enum.
+func (e ConstructionCodedGroupSourceCardinality) Valid() bool {
+	switch e {
+	case ConstructionCodedGroupSourceCardinalityMANY:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionCodedGroupSourceFhirType.
+const (
+	Coding ConstructionCodedGroupSourceFhirType = "Coding"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionCodedGroupSourceFhirType enum.
+func (e ConstructionCodedGroupSourceFhirType) Valid() bool {
+	switch e {
+	case Coding:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionCodedGroupSourceShape.
+const (
+	ConstructionCodedGroupSourceShapeARRAY ConstructionCodedGroupSourceShape = "ARRAY"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionCodedGroupSourceShape enum.
+func (e ConstructionCodedGroupSourceShape) Valid() bool {
+	switch e {
+	case ConstructionCodedGroupSourceShapeARRAY:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionCodedPivotDuplicatePolicy.
+const (
+	ConstructionCodedPivotDuplicatePolicyERROR ConstructionCodedPivotDuplicatePolicy = "ERROR"
+	ConstructionCodedPivotDuplicatePolicyMAX   ConstructionCodedPivotDuplicatePolicy = "MAX"
+	ConstructionCodedPivotDuplicatePolicyMIN   ConstructionCodedPivotDuplicatePolicy = "MIN"
+	ConstructionCodedPivotDuplicatePolicySUM   ConstructionCodedPivotDuplicatePolicy = "SUM"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionCodedPivotDuplicatePolicy enum.
+func (e ConstructionCodedPivotDuplicatePolicy) Valid() bool {
+	switch e {
+	case ConstructionCodedPivotDuplicatePolicyERROR:
+		return true
+	case ConstructionCodedPivotDuplicatePolicyMAX:
+		return true
+	case ConstructionCodedPivotDuplicatePolicyMIN:
+		return true
+	case ConstructionCodedPivotDuplicatePolicySUM:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionCodedPivotMissingCellPolicy.
+const (
+	ConstructionCodedPivotMissingCellPolicyERROR       ConstructionCodedPivotMissingCellPolicy = "ERROR"
+	ConstructionCodedPivotMissingCellPolicyLessThannil ConstructionCodedPivotMissingCellPolicy = "<nil>"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionCodedPivotMissingCellPolicy enum.
+func (e ConstructionCodedPivotMissingCellPolicy) Valid() bool {
+	switch e {
+	case ConstructionCodedPivotMissingCellPolicyERROR:
+		return true
+	case ConstructionCodedPivotMissingCellPolicyLessThannil:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionCombineJoinType.
+const (
+	INNER ConstructionCombineJoinType = "INNER"
+	LEFT  ConstructionCombineJoinType = "LEFT"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionCombineJoinType enum.
+func (e ConstructionCombineJoinType) Valid() bool {
+	switch e {
+	case INNER:
+		return true
+	case LEFT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionCombineKind.
+const (
+	APPEND     ConstructionCombineKind = "APPEND"
+	KEYJOIN    ConstructionCombineKind = "KEY_JOIN"
+	MEMBERSHIP ConstructionCombineKind = "MEMBERSHIP"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionCombineKind enum.
+func (e ConstructionCombineKind) Valid() bool {
+	switch e {
+	case APPEND:
+		return true
+	case KEYJOIN:
+		return true
+	case MEMBERSHIP:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionCombineMembershipMode.
+const (
+	ConstructionCombineMembershipModeEXCLUDE ConstructionCombineMembershipMode = "EXCLUDE"
+	ConstructionCombineMembershipModeINCLUDE ConstructionCombineMembershipMode = "INCLUDE"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionCombineMembershipMode enum.
+func (e ConstructionCombineMembershipMode) Valid() bool {
+	switch e {
+	case ConstructionCombineMembershipModeEXCLUDE:
+		return true
+	case ConstructionCombineMembershipModeINCLUDE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionCombineRightMatchPolicy.
+const (
+	PRESERVEALL ConstructionCombineRightMatchPolicy = "PRESERVE_ALL"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionCombineRightMatchPolicy enum.
+func (e ConstructionCombineRightMatchPolicy) Valid() bool {
+	switch e {
+	case PRESERVEALL:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionDeriveDivisionByZeroPolicy.
+const (
+	ConstructionDeriveDivisionByZeroPolicyERROR       ConstructionDeriveDivisionByZeroPolicy = "ERROR"
+	ConstructionDeriveDivisionByZeroPolicyLessThannil ConstructionDeriveDivisionByZeroPolicy = "<nil>"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionDeriveDivisionByZeroPolicy enum.
+func (e ConstructionDeriveDivisionByZeroPolicy) Valid() bool {
+	switch e {
+	case ConstructionDeriveDivisionByZeroPolicyERROR:
+		return true
+	case ConstructionDeriveDivisionByZeroPolicyLessThannil:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionDeriveMissingInputPolicy.
+const (
+	ConstructionDeriveMissingInputPolicyERROR         ConstructionDeriveMissingInputPolicy = "ERROR"
+	ConstructionDeriveMissingInputPolicyPROPAGATENULL ConstructionDeriveMissingInputPolicy = "PROPAGATE_NULL"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionDeriveMissingInputPolicy enum.
+func (e ConstructionDeriveMissingInputPolicy) Valid() bool {
+	switch e {
+	case ConstructionDeriveMissingInputPolicyERROR:
+		return true
+	case ConstructionDeriveMissingInputPolicyPROPAGATENULL:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionDeriveOperation.
+const (
+	ConstructionDeriveOperationADD      ConstructionDeriveOperation = "ADD"
+	ConstructionDeriveOperationDIVIDE   ConstructionDeriveOperation = "DIVIDE"
+	ConstructionDeriveOperationMULTIPLY ConstructionDeriveOperation = "MULTIPLY"
+	ConstructionDeriveOperationSUBTRACT ConstructionDeriveOperation = "SUBTRACT"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionDeriveOperation enum.
+func (e ConstructionDeriveOperation) Valid() bool {
+	switch e {
+	case ConstructionDeriveOperationADD:
+		return true
+	case ConstructionDeriveOperationDIVIDE:
+		return true
+	case ConstructionDeriveOperationMULTIPLY:
+		return true
+	case ConstructionDeriveOperationSUBTRACT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionExpandEmptyPolicy.
+const (
+	ConstructionExpandEmptyPolicyERROR          ConstructionExpandEmptyPolicy = "ERROR"
+	ConstructionExpandEmptyPolicyEXCLUDE        ConstructionExpandEmptyPolicy = "EXCLUDE"
+	ConstructionExpandEmptyPolicyPRESERVEPARENT ConstructionExpandEmptyPolicy = "PRESERVE_PARENT"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionExpandEmptyPolicy enum.
+func (e ConstructionExpandEmptyPolicy) Valid() bool {
+	switch e {
+	case ConstructionExpandEmptyPolicyERROR:
+		return true
+	case ConstructionExpandEmptyPolicyEXCLUDE:
+		return true
+	case ConstructionExpandEmptyPolicyPRESERVEPARENT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionFilterOperator.
+const (
+	ConstructionFilterOperatorCONTAINSTEXT ConstructionFilterOperator = "CONTAINS_TEXT"
+	ConstructionFilterOperatorEQUALS       ConstructionFilterOperator = "EQUALS"
+	ConstructionFilterOperatorEXISTS       ConstructionFilterOperator = "EXISTS"
+	ConstructionFilterOperatorGT           ConstructionFilterOperator = "GT"
+	ConstructionFilterOperatorGTE          ConstructionFilterOperator = "GTE"
+	ConstructionFilterOperatorIN           ConstructionFilterOperator = "IN"
+	ConstructionFilterOperatorLT           ConstructionFilterOperator = "LT"
+	ConstructionFilterOperatorLTE          ConstructionFilterOperator = "LTE"
+	ConstructionFilterOperatorMISSING      ConstructionFilterOperator = "MISSING"
+	ConstructionFilterOperatorNOTEQUALS    ConstructionFilterOperator = "NOT_EQUALS"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionFilterOperator enum.
+func (e ConstructionFilterOperator) Valid() bool {
+	switch e {
+	case ConstructionFilterOperatorCONTAINSTEXT:
+		return true
+	case ConstructionFilterOperatorEQUALS:
+		return true
+	case ConstructionFilterOperatorEXISTS:
+		return true
+	case ConstructionFilterOperatorGT:
+		return true
+	case ConstructionFilterOperatorGTE:
+		return true
+	case ConstructionFilterOperatorIN:
+		return true
+	case ConstructionFilterOperatorLT:
+		return true
+	case ConstructionFilterOperatorLTE:
+		return true
+	case ConstructionFilterOperatorMISSING:
+		return true
+	case ConstructionFilterOperatorNOTEQUALS:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionFilterValueKind.
+const (
+	ConstructionFilterValueKindBOOLEAN  ConstructionFilterValueKind = "BOOLEAN"
+	ConstructionFilterValueKindCODE     ConstructionFilterValueKind = "CODE"
+	ConstructionFilterValueKindDATE     ConstructionFilterValueKind = "DATE"
+	ConstructionFilterValueKindDATETIME ConstructionFilterValueKind = "DATE_TIME"
+	ConstructionFilterValueKindDECIMAL  ConstructionFilterValueKind = "DECIMAL"
+	ConstructionFilterValueKindINTEGER  ConstructionFilterValueKind = "INTEGER"
+	ConstructionFilterValueKindSTRING   ConstructionFilterValueKind = "STRING"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionFilterValueKind enum.
+func (e ConstructionFilterValueKind) Valid() bool {
+	switch e {
+	case ConstructionFilterValueKindBOOLEAN:
+		return true
+	case ConstructionFilterValueKindCODE:
+		return true
+	case ConstructionFilterValueKindDATE:
+		return true
+	case ConstructionFilterValueKindDATETIME:
+		return true
+	case ConstructionFilterValueKindDECIMAL:
+		return true
+	case ConstructionFilterValueKindINTEGER:
+		return true
+	case ConstructionFilterValueKindSTRING:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionGroupMissingKeyPolicy.
+const (
+	ConstructionGroupMissingKeyPolicyERROR   ConstructionGroupMissingKeyPolicy = "ERROR"
+	ConstructionGroupMissingKeyPolicyEXCLUDE ConstructionGroupMissingKeyPolicy = "EXCLUDE"
+	ConstructionGroupMissingKeyPolicyGROUP   ConstructionGroupMissingKeyPolicy = "GROUP"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionGroupMissingKeyPolicy enum.
+func (e ConstructionGroupMissingKeyPolicy) Valid() bool {
+	switch e {
+	case ConstructionGroupMissingKeyPolicyERROR:
+		return true
+	case ConstructionGroupMissingKeyPolicyEXCLUDE:
+		return true
+	case ConstructionGroupMissingKeyPolicyGROUP:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionGroupAggregateOperation.
+const (
+	ConstructionGroupAggregateOperationCOUNTDISTINCT ConstructionGroupAggregateOperation = "COUNT_DISTINCT"
+	ConstructionGroupAggregateOperationCOUNTNONNULL  ConstructionGroupAggregateOperation = "COUNT_NON_NULL"
+	ConstructionGroupAggregateOperationCOUNTROWS     ConstructionGroupAggregateOperation = "COUNT_ROWS"
+	ConstructionGroupAggregateOperationMEAN          ConstructionGroupAggregateOperation = "MEAN"
+	ConstructionGroupAggregateOperationSUM           ConstructionGroupAggregateOperation = "SUM"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionGroupAggregateOperation enum.
+func (e ConstructionGroupAggregateOperation) Valid() bool {
+	switch e {
+	case ConstructionGroupAggregateOperationCOUNTDISTINCT:
+		return true
+	case ConstructionGroupAggregateOperationCOUNTNONNULL:
+		return true
+	case ConstructionGroupAggregateOperationCOUNTROWS:
+		return true
+	case ConstructionGroupAggregateOperationMEAN:
+		return true
+	case ConstructionGroupAggregateOperationSUM:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionInputRefKind.
+const (
+	ConstructionInputRefKindSOURCEPROJECTION ConstructionInputRefKind = "SOURCE_PROJECTION"
+	ConstructionInputRefKindSTEPOUTPUT       ConstructionInputRefKind = "STEP_OUTPUT"
+	ConstructionInputRefKindTABLEREVISION    ConstructionInputRefKind = "TABLE_REVISION"
+	ConstructionInputRefKindWORKSPACEOUTPUT  ConstructionInputRefKind = "WORKSPACE_OUTPUT"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionInputRefKind enum.
+func (e ConstructionInputRefKind) Valid() bool {
+	switch e {
+	case ConstructionInputRefKindSOURCEPROJECTION:
+		return true
+	case ConstructionInputRefKindSTEPOUTPUT:
+		return true
+	case ConstructionInputRefKindTABLEREVISION:
+		return true
+	case ConstructionInputRefKindWORKSPACEOUTPUT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionInputRevisionKind.
+const (
+	ConstructionInputRevisionKindTABLEREVISION ConstructionInputRevisionKind = "TABLE_REVISION"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionInputRevisionKind enum.
+func (e ConstructionInputRevisionKind) Valid() bool {
+	switch e {
+	case ConstructionInputRevisionKindTABLEREVISION:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionLiteralKind.
+const (
+	ConstructionLiteralKindDECIMAL ConstructionLiteralKind = "DECIMAL"
+	ConstructionLiteralKindINTEGER ConstructionLiteralKind = "INTEGER"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionLiteralKind enum.
+func (e ConstructionLiteralKind) Valid() bool {
+	switch e {
+	case ConstructionLiteralKindDECIMAL:
+		return true
+	case ConstructionLiteralKindINTEGER:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionOperandKind.
+const (
+	ConstructionOperandKindCOLUMN  ConstructionOperandKind = "COLUMN"
+	ConstructionOperandKindLITERAL ConstructionOperandKind = "LITERAL"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionOperandKind enum.
+func (e ConstructionOperandKind) Valid() bool {
+	switch e {
+	case ConstructionOperandKindCOLUMN:
+		return true
+	case ConstructionOperandKindLITERAL:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionOperationKind.
+const (
+	ConstructionOperationKindCODEDGROUP         ConstructionOperationKind = "CODED_GROUP"
+	ConstructionOperationKindCODEDPIVOT         ConstructionOperationKind = "CODED_PIVOT"
+	ConstructionOperationKindCOMBINE            ConstructionOperationKind = "COMBINE"
+	ConstructionOperationKindDERIVE             ConstructionOperationKind = "DERIVE"
+	ConstructionOperationKindEXPAND             ConstructionOperationKind = "EXPAND"
+	ConstructionOperationKindFILTER             ConstructionOperationKind = "FILTER"
+	ConstructionOperationKindGROUP              ConstructionOperationKind = "GROUP"
+	ConstructionOperationKindPIVOT              ConstructionOperationKind = "PIVOT"
+	ConstructionOperationKindRELATEDELIGIBILITY ConstructionOperationKind = "RELATED_ELIGIBILITY"
+	ConstructionOperationKindRELATEDEXPAND      ConstructionOperationKind = "RELATED_EXPAND"
+	ConstructionOperationKindRELATEDFIELD       ConstructionOperationKind = "RELATED_FIELD"
+	ConstructionOperationKindRELATEDSOURCE      ConstructionOperationKind = "RELATED_SOURCE"
+	ConstructionOperationKindUNPIVOT            ConstructionOperationKind = "UNPIVOT"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionOperationKind enum.
+func (e ConstructionOperationKind) Valid() bool {
+	switch e {
+	case ConstructionOperationKindCODEDGROUP:
+		return true
+	case ConstructionOperationKindCODEDPIVOT:
+		return true
+	case ConstructionOperationKindCOMBINE:
+		return true
+	case ConstructionOperationKindDERIVE:
+		return true
+	case ConstructionOperationKindEXPAND:
+		return true
+	case ConstructionOperationKindFILTER:
+		return true
+	case ConstructionOperationKindGROUP:
+		return true
+	case ConstructionOperationKindPIVOT:
+		return true
+	case ConstructionOperationKindRELATEDELIGIBILITY:
+		return true
+	case ConstructionOperationKindRELATEDEXPAND:
+		return true
+	case ConstructionOperationKindRELATEDFIELD:
+		return true
+	case ConstructionOperationKindRELATEDSOURCE:
+		return true
+	case ConstructionOperationKindUNPIVOT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionOperationCapabilityKind.
+const (
+	ConstructionOperationCapabilityKindCODEDGROUP         ConstructionOperationCapabilityKind = "CODED_GROUP"
+	ConstructionOperationCapabilityKindCODEDPIVOT         ConstructionOperationCapabilityKind = "CODED_PIVOT"
+	ConstructionOperationCapabilityKindDERIVE             ConstructionOperationCapabilityKind = "DERIVE"
+	ConstructionOperationCapabilityKindEXPAND             ConstructionOperationCapabilityKind = "EXPAND"
+	ConstructionOperationCapabilityKindFILTER             ConstructionOperationCapabilityKind = "FILTER"
+	ConstructionOperationCapabilityKindGROUP              ConstructionOperationCapabilityKind = "GROUP"
+	ConstructionOperationCapabilityKindPIVOT              ConstructionOperationCapabilityKind = "PIVOT"
+	ConstructionOperationCapabilityKindRELATEDELIGIBILITY ConstructionOperationCapabilityKind = "RELATED_ELIGIBILITY"
+	ConstructionOperationCapabilityKindRELATEDEXPAND      ConstructionOperationCapabilityKind = "RELATED_EXPAND"
+	ConstructionOperationCapabilityKindRELATEDFIELD       ConstructionOperationCapabilityKind = "RELATED_FIELD"
+	ConstructionOperationCapabilityKindRELATEDSOURCE      ConstructionOperationCapabilityKind = "RELATED_SOURCE"
+	ConstructionOperationCapabilityKindROWVALUES          ConstructionOperationCapabilityKind = "ROW_VALUES"
+	ConstructionOperationCapabilityKindUNPIVOT            ConstructionOperationCapabilityKind = "UNPIVOT"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionOperationCapabilityKind enum.
+func (e ConstructionOperationCapabilityKind) Valid() bool {
+	switch e {
+	case ConstructionOperationCapabilityKindCODEDGROUP:
+		return true
+	case ConstructionOperationCapabilityKindCODEDPIVOT:
+		return true
+	case ConstructionOperationCapabilityKindDERIVE:
+		return true
+	case ConstructionOperationCapabilityKindEXPAND:
+		return true
+	case ConstructionOperationCapabilityKindFILTER:
+		return true
+	case ConstructionOperationCapabilityKindGROUP:
+		return true
+	case ConstructionOperationCapabilityKindPIVOT:
+		return true
+	case ConstructionOperationCapabilityKindRELATEDELIGIBILITY:
+		return true
+	case ConstructionOperationCapabilityKindRELATEDEXPAND:
+		return true
+	case ConstructionOperationCapabilityKindRELATEDFIELD:
+		return true
+	case ConstructionOperationCapabilityKindRELATEDSOURCE:
+		return true
+	case ConstructionOperationCapabilityKindROWVALUES:
+		return true
+	case ConstructionOperationCapabilityKindUNPIVOT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionPivotDuplicatePolicy.
+const (
+	ConstructionPivotDuplicatePolicyERROR ConstructionPivotDuplicatePolicy = "ERROR"
+	ConstructionPivotDuplicatePolicyMAX   ConstructionPivotDuplicatePolicy = "MAX"
+	ConstructionPivotDuplicatePolicyMIN   ConstructionPivotDuplicatePolicy = "MIN"
+	ConstructionPivotDuplicatePolicySUM   ConstructionPivotDuplicatePolicy = "SUM"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionPivotDuplicatePolicy enum.
+func (e ConstructionPivotDuplicatePolicy) Valid() bool {
+	switch e {
+	case ConstructionPivotDuplicatePolicyERROR:
+		return true
+	case ConstructionPivotDuplicatePolicyMAX:
+		return true
+	case ConstructionPivotDuplicatePolicyMIN:
+		return true
+	case ConstructionPivotDuplicatePolicySUM:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionPivotMissingCellPolicy.
+const (
+	ConstructionPivotMissingCellPolicyERROR       ConstructionPivotMissingCellPolicy = "ERROR"
+	ConstructionPivotMissingCellPolicyLessThannil ConstructionPivotMissingCellPolicy = "<nil>"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionPivotMissingCellPolicy enum.
+func (e ConstructionPivotMissingCellPolicy) Valid() bool {
+	switch e {
+	case ConstructionPivotMissingCellPolicyERROR:
+		return true
+	case ConstructionPivotMissingCellPolicyLessThannil:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionPivotUnlistedCategoryPolicy.
+const (
+	ConstructionPivotUnlistedCategoryPolicyERROR               ConstructionPivotUnlistedCategoryPolicy = "ERROR"
+	ConstructionPivotUnlistedCategoryPolicyEXCLUDEWITHEVIDENCE ConstructionPivotUnlistedCategoryPolicy = "EXCLUDE_WITH_EVIDENCE"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionPivotUnlistedCategoryPolicy enum.
+func (e ConstructionPivotUnlistedCategoryPolicy) Valid() bool {
+	switch e {
+	case ConstructionPivotUnlistedCategoryPolicyERROR:
+		return true
+	case ConstructionPivotUnlistedCategoryPolicyEXCLUDEWITHEVIDENCE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionProposalResponsePreviewStatus.
+const (
+	ConstructionProposalResponsePreviewStatusNEEDSREPAIR ConstructionProposalResponsePreviewStatus = "NEEDS_REPAIR"
+	ConstructionProposalResponsePreviewStatusREADY       ConstructionProposalResponsePreviewStatus = "READY"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionProposalResponsePreviewStatus enum.
+func (e ConstructionProposalResponsePreviewStatus) Valid() bool {
+	switch e {
+	case ConstructionProposalResponsePreviewStatusNEEDSREPAIR:
+		return true
+	case ConstructionProposalResponsePreviewStatusREADY:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionRelatedEligibilityMatchKind.
+const (
+	ConstructionRelatedEligibilityMatchKindABSENT       ConstructionRelatedEligibilityMatchKind = "ABSENT"
+	ConstructionRelatedEligibilityMatchKindCOUNTATLEAST ConstructionRelatedEligibilityMatchKind = "COUNT_AT_LEAST"
+	ConstructionRelatedEligibilityMatchKindEXISTS       ConstructionRelatedEligibilityMatchKind = "EXISTS"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionRelatedEligibilityMatchKind enum.
+func (e ConstructionRelatedEligibilityMatchKind) Valid() bool {
+	switch e {
+	case ConstructionRelatedEligibilityMatchKindABSENT:
+		return true
+	case ConstructionRelatedEligibilityMatchKindCOUNTATLEAST:
+		return true
+	case ConstructionRelatedEligibilityMatchKindEXISTS:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionRelatedExpandEmptyPolicy.
+const (
+	ConstructionRelatedExpandEmptyPolicyERROR          ConstructionRelatedExpandEmptyPolicy = "ERROR"
+	ConstructionRelatedExpandEmptyPolicyEXCLUDE        ConstructionRelatedExpandEmptyPolicy = "EXCLUDE"
+	ConstructionRelatedExpandEmptyPolicyPRESERVEPARENT ConstructionRelatedExpandEmptyPolicy = "PRESERVE_PARENT"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionRelatedExpandEmptyPolicy enum.
+func (e ConstructionRelatedExpandEmptyPolicy) Valid() bool {
+	switch e {
+	case ConstructionRelatedExpandEmptyPolicyERROR:
+		return true
+	case ConstructionRelatedExpandEmptyPolicyEXCLUDE:
+		return true
+	case ConstructionRelatedExpandEmptyPolicyPRESERVEPARENT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionRelatedExpandAnchorKind.
+const (
+	ConstructionRelatedExpandAnchorKindActiveRelatedRecord ConstructionRelatedExpandAnchorKind = "activeRelatedRecord"
+	ConstructionRelatedExpandAnchorKindRoot                ConstructionRelatedExpandAnchorKind = "root"
+	ConstructionRelatedExpandAnchorKindRootContributors    ConstructionRelatedExpandAnchorKind = "rootContributors"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionRelatedExpandAnchorKind enum.
+func (e ConstructionRelatedExpandAnchorKind) Valid() bool {
+	switch e {
+	case ConstructionRelatedExpandAnchorKindActiveRelatedRecord:
+		return true
+	case ConstructionRelatedExpandAnchorKindRoot:
+		return true
+	case ConstructionRelatedExpandAnchorKindRootContributors:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionRelatedExpandStageDescriptorAnchorKind.
+const (
+	ConstructionRelatedExpandStageDescriptorAnchorKindActiveRelatedRecord ConstructionRelatedExpandStageDescriptorAnchorKind = "activeRelatedRecord"
+	ConstructionRelatedExpandStageDescriptorAnchorKindRoot                ConstructionRelatedExpandStageDescriptorAnchorKind = "root"
+	ConstructionRelatedExpandStageDescriptorAnchorKindRootContributors    ConstructionRelatedExpandStageDescriptorAnchorKind = "rootContributors"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionRelatedExpandStageDescriptorAnchorKind enum.
+func (e ConstructionRelatedExpandStageDescriptorAnchorKind) Valid() bool {
+	switch e {
+	case ConstructionRelatedExpandStageDescriptorAnchorKindActiveRelatedRecord:
+		return true
+	case ConstructionRelatedExpandStageDescriptorAnchorKindRoot:
+		return true
+	case ConstructionRelatedExpandStageDescriptorAnchorKindRootContributors:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionRelatedSourceForm.
+const (
+	ConstructionRelatedSourceFormALL      ConstructionRelatedSourceForm = "ALL"
+	ConstructionRelatedSourceFormCOUNT    ConstructionRelatedSourceForm = "COUNT"
+	ConstructionRelatedSourceFormPRESENCE ConstructionRelatedSourceForm = "PRESENCE"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionRelatedSourceForm enum.
+func (e ConstructionRelatedSourceForm) Valid() bool {
+	switch e {
+	case ConstructionRelatedSourceFormALL:
+		return true
+	case ConstructionRelatedSourceFormCOUNT:
+		return true
+	case ConstructionRelatedSourceFormPRESENCE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionRouteStepMatchMode.
+const (
+	ConstructionRouteStepMatchModeOPTIONAL ConstructionRouteStepMatchMode = "OPTIONAL"
+	ConstructionRouteStepMatchModeREQUIRED ConstructionRouteStepMatchMode = "REQUIRED"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionRouteStepMatchMode enum.
+func (e ConstructionRouteStepMatchMode) Valid() bool {
+	switch e {
+	case ConstructionRouteStepMatchModeOPTIONAL:
+		return true
+	case ConstructionRouteStepMatchModeREQUIRED:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionRouteStepStorageDirection.
+const (
+	ConstructionRouteStepStorageDirectionINBOUND  ConstructionRouteStepStorageDirection = "INBOUND"
+	ConstructionRouteStepStorageDirectionOUTBOUND ConstructionRouteStepStorageDirection = "OUTBOUND"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionRouteStepStorageDirection enum.
+func (e ConstructionRouteStepStorageDirection) Valid() bool {
+	switch e {
+	case ConstructionRouteStepStorageDirectionINBOUND:
+		return true
+	case ConstructionRouteStepStorageDirectionOUTBOUND:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionRowValuePolicy.
+const (
+	ConstructionRowValuePolicyALL ConstructionRowValuePolicy = "ALL"
+	ConstructionRowValuePolicyONE ConstructionRowValuePolicy = "ONE"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionRowValuePolicy enum.
+func (e ConstructionRowValuePolicy) Valid() bool {
+	switch e {
+	case ConstructionRowValuePolicyALL:
+		return true
+	case ConstructionRowValuePolicyONE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionStageColumnDescriptorCardinality.
+const (
+	ConstructionStageColumnDescriptorCardinalityMANY        ConstructionStageColumnDescriptorCardinality = "many"
+	ConstructionStageColumnDescriptorCardinalityOPTIONALONE ConstructionStageColumnDescriptorCardinality = "optional_one"
+	ConstructionStageColumnDescriptorCardinalityREQUIREDONE ConstructionStageColumnDescriptorCardinality = "required_one"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionStageColumnDescriptorCardinality enum.
+func (e ConstructionStageColumnDescriptorCardinality) Valid() bool {
+	switch e {
+	case ConstructionStageColumnDescriptorCardinalityMANY:
+		return true
+	case ConstructionStageColumnDescriptorCardinalityOPTIONALONE:
+		return true
+	case ConstructionStageColumnDescriptorCardinalityREQUIREDONE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionTableScalarKind.
+const (
+	ConstructionTableScalarKindBOOLEAN     ConstructionTableScalarKind = "BOOLEAN"
+	ConstructionTableScalarKindDECIMAL     ConstructionTableScalarKind = "DECIMAL"
+	ConstructionTableScalarKindINTEGER     ConstructionTableScalarKind = "INTEGER"
+	ConstructionTableScalarKindLessThannil ConstructionTableScalarKind = "<nil>"
+	ConstructionTableScalarKindMISSING     ConstructionTableScalarKind = "MISSING"
+	ConstructionTableScalarKindSTRING      ConstructionTableScalarKind = "STRING"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionTableScalarKind enum.
+func (e ConstructionTableScalarKind) Valid() bool {
+	switch e {
+	case ConstructionTableScalarKindBOOLEAN:
+		return true
+	case ConstructionTableScalarKindDECIMAL:
+		return true
+	case ConstructionTableScalarKindINTEGER:
+		return true
+	case ConstructionTableScalarKindLessThannil:
+		return true
+	case ConstructionTableScalarKindMISSING:
+		return true
+	case ConstructionTableScalarKindSTRING:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionUnpivotNullRowPolicy.
+const (
+	DROP     ConstructionUnpivotNullRowPolicy = "DROP"
+	PRESERVE ConstructionUnpivotNullRowPolicy = "PRESERVE"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionUnpivotNullRowPolicy enum.
+func (e ConstructionUnpivotNullRowPolicy) Valid() bool {
+	switch e {
+	case DROP:
+		return true
+	case PRESERVE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionWorkspaceInputColumnCardinality.
+const (
+	ConstructionWorkspaceInputColumnCardinalityMany        ConstructionWorkspaceInputColumnCardinality = "many"
+	ConstructionWorkspaceInputColumnCardinalityOptionalOne ConstructionWorkspaceInputColumnCardinality = "optional_one"
+	ConstructionWorkspaceInputColumnCardinalityRequiredOne ConstructionWorkspaceInputColumnCardinality = "required_one"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionWorkspaceInputColumnCardinality enum.
+func (e ConstructionWorkspaceInputColumnCardinality) Valid() bool {
+	switch e {
+	case ConstructionWorkspaceInputColumnCardinalityMany:
+		return true
+	case ConstructionWorkspaceInputColumnCardinalityOptionalOne:
+		return true
+	case ConstructionWorkspaceInputColumnCardinalityRequiredOne:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ContractColumnStructuralSuitability.
+const (
+	ContractColumnStructuralSuitabilityArray          ContractColumnStructuralSuitability = "array"
+	ContractColumnStructuralSuitabilityRequiresReview ContractColumnStructuralSuitability = "requires-review"
+	ContractColumnStructuralSuitabilityScalar         ContractColumnStructuralSuitability = "scalar"
+)
+
+// Valid indicates whether the value is a known member of the ContractColumnStructuralSuitability enum.
+func (e ContractColumnStructuralSuitability) Valid() bool {
+	switch e {
+	case ContractColumnStructuralSuitabilityArray:
+		return true
+	case ContractColumnStructuralSuitabilityRequiresReview:
+		return true
+	case ContractColumnStructuralSuitabilityScalar:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ContributorCodeValueKind.
+const (
+	ContributorCodeValueKindCODE ContributorCodeValueKind = "CODE"
+)
+
+// Valid indicates whether the value is a known member of the ContributorCodeValueKind enum.
+func (e ContributorCodeValueKind) Valid() bool {
+	switch e {
+	case ContributorCodeValueKindCODE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ContributorPredicateOperator.
+const (
+	ContributorPredicateOperatorEQUALS ContributorPredicateOperator = "EQUALS"
+	ContributorPredicateOperatorEXISTS ContributorPredicateOperator = "EXISTS"
+)
+
+// Valid indicates whether the value is a known member of the ContributorPredicateOperator enum.
+func (e ContributorPredicateOperator) Valid() bool {
+	switch e {
+	case ContributorPredicateOperatorEQUALS:
+		return true
+	case ContributorPredicateOperatorEXISTS:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ContributorPredicateQuantifier.
+const (
+	ANY ContributorPredicateQuantifier = "ANY"
+)
+
+// Valid indicates whether the value is a known member of the ContributorPredicateQuantifier enum.
+func (e ContributorPredicateQuantifier) Valid() bool {
+	switch e {
+	case ANY:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ContributorStringValueKind.
+const (
+	ContributorStringValueKindSTRING ContributorStringValueKind = "STRING"
+)
+
+// Valid indicates whether the value is a known member of the ContributorStringValueKind enum.
+func (e ContributorStringValueKind) Valid() bool {
+	switch e {
+	case ContributorStringValueKindSTRING:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ContributorWindowSourcePrecision.
+const (
+	INSTANT ContributorWindowSourcePrecision = "INSTANT"
+)
+
+// Valid indicates whether the value is a known member of the ContributorWindowSourcePrecision enum.
+func (e ContributorWindowSourcePrecision) Valid() bool {
+	switch e {
+	case INSTANT:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DocumentKind.
 const (
 	ExplorerBuilderDocument DocumentKind = "ExplorerBuilderDocument"
@@ -303,6 +1988,411 @@ const (
 func (e DocumentKind) Valid() bool {
 	switch e {
 	case ExplorerBuilderDocument:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ExactCategoryRecodeTransformationExactCategoryRecodeUnknownPolicy.
+const (
+	ExactCategoryRecodeTransformationExactCategoryRecodeUnknownPolicyERROR        ExactCategoryRecodeTransformationExactCategoryRecodeUnknownPolicy = "ERROR"
+	ExactCategoryRecodeTransformationExactCategoryRecodeUnknownPolicyKEEPORIGINAL ExactCategoryRecodeTransformationExactCategoryRecodeUnknownPolicy = "KEEP_ORIGINAL"
+)
+
+// Valid indicates whether the value is a known member of the ExactCategoryRecodeTransformationExactCategoryRecodeUnknownPolicy enum.
+func (e ExactCategoryRecodeTransformationExactCategoryRecodeUnknownPolicy) Valid() bool {
+	switch e {
+	case ExactCategoryRecodeTransformationExactCategoryRecodeUnknownPolicyERROR:
+		return true
+	case ExactCategoryRecodeTransformationExactCategoryRecodeUnknownPolicyKEEPORIGINAL:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ExactCategoryRecodeTransformationKind.
+const (
+	EXACTCATEGORYRECODE ExactCategoryRecodeTransformationKind = "EXACT_CATEGORY_RECODE"
+)
+
+// Valid indicates whether the value is a known member of the ExactCategoryRecodeTransformationKind enum.
+func (e ExactCategoryRecodeTransformationKind) Valid() bool {
+	switch e {
+	case EXACTCATEGORYRECODE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ExplicitGroupRevisionChoiceUnassignedMemberPolicies.
+const (
+	ExplicitGroupRevisionChoiceUnassignedMemberPoliciesERROR             ExplicitGroupRevisionChoiceUnassignedMemberPolicies = "ERROR"
+	ExplicitGroupRevisionChoiceUnassignedMemberPoliciesEXCLUDE           ExplicitGroupRevisionChoiceUnassignedMemberPolicies = "EXCLUDE"
+	ExplicitGroupRevisionChoiceUnassignedMemberPoliciesGROUPASUNASSIGNED ExplicitGroupRevisionChoiceUnassignedMemberPolicies = "GROUP_AS_UNASSIGNED"
+)
+
+// Valid indicates whether the value is a known member of the ExplicitGroupRevisionChoiceUnassignedMemberPolicies enum.
+func (e ExplicitGroupRevisionChoiceUnassignedMemberPolicies) Valid() bool {
+	switch e {
+	case ExplicitGroupRevisionChoiceUnassignedMemberPoliciesERROR:
+		return true
+	case ExplicitGroupRevisionChoiceUnassignedMemberPoliciesEXCLUDE:
+		return true
+	case ExplicitGroupRevisionChoiceUnassignedMemberPoliciesGROUPASUNASSIGNED:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FieldChoiceSourceKind.
+const (
+	FieldChoiceSourceKindFIELD FieldChoiceSourceKind = "FIELD"
+)
+
+// Valid indicates whether the value is a known member of the FieldChoiceSourceKind enum.
+func (e FieldChoiceSourceKind) Valid() bool {
+	switch e {
+	case FieldChoiceSourceKindFIELD:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FieldConstructionChoiceSearchSourceKind.
+const (
+	FieldConstructionChoiceSearchSourceKindFIELD FieldConstructionChoiceSearchSourceKind = "FIELD"
+)
+
+// Valid indicates whether the value is a known member of the FieldConstructionChoiceSearchSourceKind enum.
+func (e FieldConstructionChoiceSearchSourceKind) Valid() bool {
+	switch e {
+	case FieldConstructionChoiceSearchSourceKindFIELD:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FieldSourceProjectionMode.
+const (
+	FieldSourceProjectionModeALL      FieldSourceProjectionMode = "ALL"
+	FieldSourceProjectionModeDISTINCT FieldSourceProjectionMode = "DISTINCT"
+	FieldSourceProjectionModeFIRST    FieldSourceProjectionMode = "FIRST"
+	FieldSourceProjectionModeINDEXED  FieldSourceProjectionMode = "INDEXED"
+	FieldSourceProjectionModeVALUE    FieldSourceProjectionMode = "VALUE"
+)
+
+// Valid indicates whether the value is a known member of the FieldSourceProjectionMode enum.
+func (e FieldSourceProjectionMode) Valid() bool {
+	switch e {
+	case FieldSourceProjectionModeALL:
+		return true
+	case FieldSourceProjectionModeDISTINCT:
+		return true
+	case FieldSourceProjectionModeFIRST:
+		return true
+	case FieldSourceProjectionModeINDEXED:
+		return true
+	case FieldSourceProjectionModeVALUE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FrameDefinitionForm.
+const (
+	FrameDefinitionFormALL      FrameDefinitionForm = "ALL"
+	FrameDefinitionFormDISTINCT FrameDefinitionForm = "DISTINCT"
+	FrameDefinitionFormFIRST    FrameDefinitionForm = "FIRST"
+	FrameDefinitionFormVALUE    FrameDefinitionForm = "VALUE"
+)
+
+// Valid indicates whether the value is a known member of the FrameDefinitionForm enum.
+func (e FrameDefinitionForm) Valid() bool {
+	switch e {
+	case FrameDefinitionFormALL:
+		return true
+	case FrameDefinitionFormDISTINCT:
+		return true
+	case FrameDefinitionFormFIRST:
+		return true
+	case FrameDefinitionFormVALUE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FrameDefinitionManyPolicy.
+const (
+	FrameDefinitionManyPolicyALL                   FrameDefinitionManyPolicy = "ALL"
+	FrameDefinitionManyPolicyDISTINCT              FrameDefinitionManyPolicy = "DISTINCT"
+	FrameDefinitionManyPolicyFIRST                 FrameDefinitionManyPolicy = "FIRST"
+	FrameDefinitionManyPolicyINVALIDMULTIPLEVALUES FrameDefinitionManyPolicy = "INVALID_MULTIPLE_VALUES"
+)
+
+// Valid indicates whether the value is a known member of the FrameDefinitionManyPolicy enum.
+func (e FrameDefinitionManyPolicy) Valid() bool {
+	switch e {
+	case FrameDefinitionManyPolicyALL:
+		return true
+	case FrameDefinitionManyPolicyDISTINCT:
+		return true
+	case FrameDefinitionManyPolicyFIRST:
+		return true
+	case FrameDefinitionManyPolicyINVALIDMULTIPLEVALUES:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FrameDefinitionZeroPolicy.
+const (
+	FrameDefinitionZeroPolicyEMPTYLIST   FrameDefinitionZeroPolicy = "EMPTY_LIST"
+	FrameDefinitionZeroPolicyLessThannil FrameDefinitionZeroPolicy = "<nil>"
+)
+
+// Valid indicates whether the value is a known member of the FrameDefinitionZeroPolicy enum.
+func (e FrameDefinitionZeroPolicy) Valid() bool {
+	switch e {
+	case FrameDefinitionZeroPolicyEMPTYLIST:
+		return true
+	case FrameDefinitionZeroPolicyLessThannil:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FrameSourceFormDecision.
+const (
+	FrameSourceFormDecisionDEFAULT          FrameSourceFormDecision = "DEFAULT"
+	FrameSourceFormDecisionREQUIRESDECISION FrameSourceFormDecision = "REQUIRES_DECISION"
+)
+
+// Valid indicates whether the value is a known member of the FrameSourceFormDecision enum.
+func (e FrameSourceFormDecision) Valid() bool {
+	switch e {
+	case FrameSourceFormDecisionDEFAULT:
+		return true
+	case FrameSourceFormDecisionREQUIRESDECISION:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FrameSourceFormForm.
+const (
+	FrameSourceFormFormALL      FrameSourceFormForm = "ALL"
+	FrameSourceFormFormDISTINCT FrameSourceFormForm = "DISTINCT"
+	FrameSourceFormFormFIRST    FrameSourceFormForm = "FIRST"
+	FrameSourceFormFormVALUE    FrameSourceFormForm = "VALUE"
+)
+
+// Valid indicates whether the value is a known member of the FrameSourceFormForm enum.
+func (e FrameSourceFormForm) Valid() bool {
+	switch e {
+	case FrameSourceFormFormALL:
+		return true
+	case FrameSourceFormFormDISTINCT:
+		return true
+	case FrameSourceFormFormFIRST:
+		return true
+	case FrameSourceFormFormVALUE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FrameSourceFormManyPolicy.
+const (
+	FrameSourceFormManyPolicyALL                   FrameSourceFormManyPolicy = "ALL"
+	FrameSourceFormManyPolicyDISTINCT              FrameSourceFormManyPolicy = "DISTINCT"
+	FrameSourceFormManyPolicyFIRST                 FrameSourceFormManyPolicy = "FIRST"
+	FrameSourceFormManyPolicyINVALIDMULTIPLEVALUES FrameSourceFormManyPolicy = "INVALID_MULTIPLE_VALUES"
+)
+
+// Valid indicates whether the value is a known member of the FrameSourceFormManyPolicy enum.
+func (e FrameSourceFormManyPolicy) Valid() bool {
+	switch e {
+	case FrameSourceFormManyPolicyALL:
+		return true
+	case FrameSourceFormManyPolicyDISTINCT:
+		return true
+	case FrameSourceFormManyPolicyFIRST:
+		return true
+	case FrameSourceFormManyPolicyINVALIDMULTIPLEVALUES:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FrameSourceFormZeroPolicy.
+const (
+	FrameSourceFormZeroPolicyEMPTYLIST   FrameSourceFormZeroPolicy = "EMPTY_LIST"
+	FrameSourceFormZeroPolicyLessThannil FrameSourceFormZeroPolicy = "<nil>"
+)
+
+// Valid indicates whether the value is a known member of the FrameSourceFormZeroPolicy enum.
+func (e FrameSourceFormZeroPolicy) Valid() bool {
+	switch e {
+	case FrameSourceFormZeroPolicyEMPTYLIST:
+		return true
+	case FrameSourceFormZeroPolicyLessThannil:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FrameSourceOptionDefaultForm.
+const (
+	FrameSourceOptionDefaultFormALL      FrameSourceOptionDefaultForm = "ALL"
+	FrameSourceOptionDefaultFormDISTINCT FrameSourceOptionDefaultForm = "DISTINCT"
+	FrameSourceOptionDefaultFormFIRST    FrameSourceOptionDefaultForm = "FIRST"
+	FrameSourceOptionDefaultFormVALUE    FrameSourceOptionDefaultForm = "VALUE"
+)
+
+// Valid indicates whether the value is a known member of the FrameSourceOptionDefaultForm enum.
+func (e FrameSourceOptionDefaultForm) Valid() bool {
+	switch e {
+	case FrameSourceOptionDefaultFormALL:
+		return true
+	case FrameSourceOptionDefaultFormDISTINCT:
+		return true
+	case FrameSourceOptionDefaultFormFIRST:
+		return true
+	case FrameSourceOptionDefaultFormVALUE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for InterpretationPreviewResponseCompleteness.
+const (
+	InterpretationPreviewResponseCompletenessCOMPLETE   InterpretationPreviewResponseCompleteness = "COMPLETE"
+	InterpretationPreviewResponseCompletenessINCOMPLETE InterpretationPreviewResponseCompleteness = "INCOMPLETE"
+)
+
+// Valid indicates whether the value is a known member of the InterpretationPreviewResponseCompleteness enum.
+func (e InterpretationPreviewResponseCompleteness) Valid() bool {
+	switch e {
+	case InterpretationPreviewResponseCompletenessCOMPLETE:
+		return true
+	case InterpretationPreviewResponseCompletenessINCOMPLETE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for InterpretationPreviewSampleState.
+const (
+	CHANGED    InterpretationPreviewSampleState = "CHANGED"
+	RESOLVED   InterpretationPreviewSampleState = "RESOLVED"
+	UNCHANGED  InterpretationPreviewSampleState = "UNCHANGED"
+	UNRESOLVED InterpretationPreviewSampleState = "UNRESOLVED"
+)
+
+// Valid indicates whether the value is a known member of the InterpretationPreviewSampleState enum.
+func (e InterpretationPreviewSampleState) Valid() bool {
+	switch e {
+	case CHANGED:
+		return true
+	case RESOLVED:
+		return true
+	case UNCHANGED:
+		return true
+	case UNRESOLVED:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LookupSourceProjectionMode.
+const (
+	LookupSourceProjectionModeALL      LookupSourceProjectionMode = "ALL"
+	LookupSourceProjectionModeDISTINCT LookupSourceProjectionMode = "DISTINCT"
+	LookupSourceProjectionModeFIRST    LookupSourceProjectionMode = "FIRST"
+	LookupSourceProjectionModeINDEXED  LookupSourceProjectionMode = "INDEXED"
+	LookupSourceProjectionModeVALUE    LookupSourceProjectionMode = "VALUE"
+)
+
+// Valid indicates whether the value is a known member of the LookupSourceProjectionMode enum.
+func (e LookupSourceProjectionMode) Valid() bool {
+	switch e {
+	case LookupSourceProjectionModeALL:
+		return true
+	case LookupSourceProjectionModeDISTINCT:
+		return true
+	case LookupSourceProjectionModeFIRST:
+		return true
+	case LookupSourceProjectionModeINDEXED:
+		return true
+	case LookupSourceProjectionModeVALUE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PopulationMappingResponseStatus.
+const (
+	PopulationMappingResponseStatusCOMPLETE   PopulationMappingResponseStatus = "COMPLETE"
+	PopulationMappingResponseStatusINCOMPLETE PopulationMappingResponseStatus = "INCOMPLETE"
+)
+
+// Valid indicates whether the value is a known member of the PopulationMappingResponseStatus enum.
+func (e PopulationMappingResponseStatus) Valid() bool {
+	switch e {
+	case PopulationMappingResponseStatusCOMPLETE:
+		return true
+	case PopulationMappingResponseStatusINCOMPLETE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PopulationMemberRemovalProposalResponsePreviewStatus.
+const (
+	PopulationMemberRemovalProposalResponsePreviewStatusREADY PopulationMemberRemovalProposalResponsePreviewStatus = "READY"
+)
+
+// Valid indicates whether the value is a known member of the PopulationMemberRemovalProposalResponsePreviewStatus enum.
+func (e PopulationMemberRemovalProposalResponsePreviewStatus) Valid() bool {
+	switch e {
+	case PopulationMemberRemovalProposalResponsePreviewStatusREADY:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PopulationRouteStepStorageDirection.
+const (
+	PopulationRouteStepStorageDirectionINBOUND  PopulationRouteStepStorageDirection = "INBOUND"
+	PopulationRouteStepStorageDirectionOUTBOUND PopulationRouteStepStorageDirection = "OUTBOUND"
+)
+
+// Valid indicates whether the value is a known member of the PopulationRouteStepStorageDirection enum.
+func (e PopulationRouteStepStorageDirection) Valid() bool {
+	switch e {
+	case PopulationRouteStepStorageDirectionINBOUND:
+		return true
+	case PopulationRouteStepStorageDirectionOUTBOUND:
 		return true
 	default:
 		return false
@@ -324,6 +2414,27 @@ func (e PreviewResponseKind) Valid() bool {
 	}
 }
 
+// Defines values for PreviewRowSourceKind.
+const (
+	PreviewRowSourceKindCOMPOSITE   PreviewRowSourceKind = "COMPOSITE"
+	PreviewRowSourceKindSINGLE      PreviewRowSourceKind = "SINGLE"
+	PreviewRowSourceKindUNAVAILABLE PreviewRowSourceKind = "UNAVAILABLE"
+)
+
+// Valid indicates whether the value is a known member of the PreviewRowSourceKind enum.
+func (e PreviewRowSourceKind) Valid() bool {
+	switch e {
+	case PreviewRowSourceKindCOMPOSITE:
+		return true
+	case PreviewRowSourceKindSINGLE:
+		return true
+	case PreviewRowSourceKindUNAVAILABLE:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ProjectionMode.
 const (
 	ProjectionModeALL           ProjectionMode = "ALL"
@@ -331,6 +2442,7 @@ const (
 	ProjectionModeDISTINCT      ProjectionMode = "DISTINCT"
 	ProjectionModeDISTINCTARRAY ProjectionMode = "DISTINCT_ARRAY"
 	ProjectionModeFIRST         ProjectionMode = "FIRST"
+	ProjectionModeINDEXED       ProjectionMode = "INDEXED"
 	ProjectionModeSCALAR        ProjectionMode = "SCALAR"
 	ProjectionModeVALUE         ProjectionMode = "VALUE"
 )
@@ -347,6 +2459,8 @@ func (e ProjectionMode) Valid() bool {
 	case ProjectionModeDISTINCTARRAY:
 		return true
 	case ProjectionModeFIRST:
+		return true
+	case ProjectionModeINDEXED:
 		return true
 	case ProjectionModeSCALAR:
 		return true
@@ -372,6 +2486,807 @@ func (e PublishResponseKind) Valid() bool {
 	}
 }
 
+// Defines values for ReceiptOutputRowMultiplication.
+const (
+	Expand ReceiptOutputRowMultiplication = "expand"
+	None   ReceiptOutputRowMultiplication = "none"
+)
+
+// Valid indicates whether the value is a known member of the ReceiptOutputRowMultiplication enum.
+func (e ReceiptOutputRowMultiplication) Valid() bool {
+	switch e {
+	case Expand:
+		return true
+	case None:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ReceiptOutputStructuralSuitability.
+const (
+	ReceiptOutputStructuralSuitabilityArray          ReceiptOutputStructuralSuitability = "array"
+	ReceiptOutputStructuralSuitabilityRequiresReview ReceiptOutputStructuralSuitability = "requires-review"
+	ReceiptOutputStructuralSuitabilityScalar         ReceiptOutputStructuralSuitability = "scalar"
+)
+
+// Valid indicates whether the value is a known member of the ReceiptOutputStructuralSuitability enum.
+func (e ReceiptOutputStructuralSuitability) Valid() bool {
+	switch e {
+	case ReceiptOutputStructuralSuitabilityArray:
+		return true
+	case ReceiptOutputStructuralSuitabilityRequiresReview:
+		return true
+	case ReceiptOutputStructuralSuitabilityScalar:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RelatedExpandContributorChoiceOperators.
+const (
+	RelatedExpandContributorChoiceOperatorsEQUALS RelatedExpandContributorChoiceOperators = "EQUALS"
+	RelatedExpandContributorChoiceOperatorsEXISTS RelatedExpandContributorChoiceOperators = "EXISTS"
+)
+
+// Valid indicates whether the value is a known member of the RelatedExpandContributorChoiceOperators enum.
+func (e RelatedExpandContributorChoiceOperators) Valid() bool {
+	switch e {
+	case RelatedExpandContributorChoiceOperatorsEQUALS:
+		return true
+	case RelatedExpandContributorChoiceOperatorsEXISTS:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RelatedExpandContributorChoiceSuggestionsSource.
+const (
+	RelatedExpandContributorChoiceSuggestionsSourceCatalog RelatedExpandContributorChoiceSuggestionsSource = "catalog"
+)
+
+// Valid indicates whether the value is a known member of the RelatedExpandContributorChoiceSuggestionsSource enum.
+func (e RelatedExpandContributorChoiceSuggestionsSource) Valid() bool {
+	switch e {
+	case RelatedExpandContributorChoiceSuggestionsSourceCatalog:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RelatedExpandContributorSourceKind.
+const (
+	RelatedExpandContributorSourceKindFIELD RelatedExpandContributorSourceKind = "FIELD"
+)
+
+// Valid indicates whether the value is a known member of the RelatedExpandContributorSourceKind enum.
+func (e RelatedExpandContributorSourceKind) Valid() bool {
+	switch e {
+	case RelatedExpandContributorSourceKindFIELD:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RelatedExpandRouteChoiceKind.
+const (
+	RelatedExpandRouteChoiceKindActiveRelatedRecord RelatedExpandRouteChoiceKind = "activeRelatedRecord"
+	RelatedExpandRouteChoiceKindRoot                RelatedExpandRouteChoiceKind = "root"
+	RelatedExpandRouteChoiceKindRootContributors    RelatedExpandRouteChoiceKind = "rootContributors"
+)
+
+// Valid indicates whether the value is a known member of the RelatedExpandRouteChoiceKind enum.
+func (e RelatedExpandRouteChoiceKind) Valid() bool {
+	switch e {
+	case RelatedExpandRouteChoiceKindActiveRelatedRecord:
+		return true
+	case RelatedExpandRouteChoiceKindRoot:
+		return true
+	case RelatedExpandRouteChoiceKindRootContributors:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RelatedSelectionKind.
+const (
+	FirstByResourceKey RelatedSelectionKind = "first-by-resource-key"
+)
+
+// Valid indicates whether the value is a known member of the RelatedSelectionKind enum.
+func (e RelatedSelectionKind) Valid() bool {
+	switch e {
+	case FirstByResourceKey:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RelatedSourceContributorRulePolicy.
+const (
+	ALLMATCHES RelatedSourceContributorRulePolicy = "ALL_MATCHES"
+)
+
+// Valid indicates whether the value is a known member of the RelatedSourceContributorRulePolicy enum.
+func (e RelatedSourceContributorRulePolicy) Valid() bool {
+	switch e {
+	case ALLMATCHES:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RelatedSourceFieldCardinality.
+const (
+	RelatedSourceFieldCardinalityOptionalOne RelatedSourceFieldCardinality = "optional_one"
+	RelatedSourceFieldCardinalityRequiredOne RelatedSourceFieldCardinality = "required_one"
+)
+
+// Valid indicates whether the value is a known member of the RelatedSourceFieldCardinality enum.
+func (e RelatedSourceFieldCardinality) Valid() bool {
+	switch e {
+	case RelatedSourceFieldCardinalityOptionalOne:
+		return true
+	case RelatedSourceFieldCardinalityRequiredOne:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RelatedSourceFieldKind.
+const (
+	RelatedSourceFieldKindFIELD RelatedSourceFieldKind = "FIELD"
+)
+
+// Valid indicates whether the value is a known member of the RelatedSourceFieldKind enum.
+func (e RelatedSourceFieldKind) Valid() bool {
+	switch e {
+	case RelatedSourceFieldKindFIELD:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RemoveColumnTransformationKind.
+const (
+	RemoveColumnTransformationKindREMOVE RemoveColumnTransformationKind = "REMOVE"
+)
+
+// Valid indicates whether the value is a known member of the RemoveColumnTransformationKind enum.
+func (e RemoveColumnTransformationKind) Valid() bool {
+	switch e {
+	case RemoveColumnTransformationKindREMOVE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RouteNodeMatchMode.
+const (
+	RouteNodeMatchModeOPTIONAL RouteNodeMatchMode = "OPTIONAL"
+	RouteNodeMatchModeREQUIRED RouteNodeMatchMode = "REQUIRED"
+)
+
+// Valid indicates whether the value is a known member of the RouteNodeMatchMode enum.
+func (e RouteNodeMatchMode) Valid() bool {
+	switch e {
+	case RouteNodeMatchModeOPTIONAL:
+		return true
+	case RouteNodeMatchModeREQUIRED:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowChangeAssessmentResponseStatus.
+const (
+	RowChangeAssessmentResponseStatusBLOCKED  RowChangeAssessmentResponseStatus = "BLOCKED"
+	RowChangeAssessmentResponseStatusNOCHANGE RowChangeAssessmentResponseStatus = "NO_CHANGE"
+	RowChangeAssessmentResponseStatusREADY    RowChangeAssessmentResponseStatus = "READY"
+)
+
+// Valid indicates whether the value is a known member of the RowChangeAssessmentResponseStatus enum.
+func (e RowChangeAssessmentResponseStatus) Valid() bool {
+	switch e {
+	case RowChangeAssessmentResponseStatusBLOCKED:
+		return true
+	case RowChangeAssessmentResponseStatusNOCHANGE:
+		return true
+	case RowChangeAssessmentResponseStatusREADY:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowChangeUnresolvedReferenceKind.
+const (
+	RowChangeUnresolvedReferenceKindColumn RowChangeUnresolvedReferenceKind = "column"
+	RowChangeUnresolvedReferenceKindRoute  RowChangeUnresolvedReferenceKind = "route"
+)
+
+// Valid indicates whether the value is a known member of the RowChangeUnresolvedReferenceKind enum.
+func (e RowChangeUnresolvedReferenceKind) Valid() bool {
+	switch e {
+	case RowChangeUnresolvedReferenceKindColumn:
+		return true
+	case RowChangeUnresolvedReferenceKindRoute:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionChoiceKind.
+const (
+	RowDefinitionChoiceKindEXPANDED   RowDefinitionChoiceKind = "EXPANDED"
+	RowDefinitionChoiceKindFIELDGROUP RowDefinitionChoiceKind = "FIELD_GROUP"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionChoiceKind enum.
+func (e RowDefinitionChoiceKind) Valid() bool {
+	switch e {
+	case RowDefinitionChoiceKindEXPANDED:
+		return true
+	case RowDefinitionChoiceKindFIELDGROUP:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionChoiceValueType.
+const (
+	RowDefinitionChoiceValueTypeARRAY   RowDefinitionChoiceValueType = "ARRAY"
+	RowDefinitionChoiceValueTypeBOOLEAN RowDefinitionChoiceValueType = "BOOLEAN"
+	RowDefinitionChoiceValueTypeNUMBER  RowDefinitionChoiceValueType = "NUMBER"
+	RowDefinitionChoiceValueTypeOBJECT  RowDefinitionChoiceValueType = "OBJECT"
+	RowDefinitionChoiceValueTypeSTRING  RowDefinitionChoiceValueType = "STRING"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionChoiceValueType enum.
+func (e RowDefinitionChoiceValueType) Valid() bool {
+	switch e {
+	case RowDefinitionChoiceValueTypeARRAY:
+		return true
+	case RowDefinitionChoiceValueTypeBOOLEAN:
+		return true
+	case RowDefinitionChoiceValueTypeNUMBER:
+		return true
+	case RowDefinitionChoiceValueTypeOBJECT:
+		return true
+	case RowDefinitionChoiceValueTypeSTRING:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionChoicePolicyName.
+const (
+	EmptyCollectionPolicy RowDefinitionChoicePolicyName = "emptyCollectionPolicy"
+	MissingKeyPolicy      RowDefinitionChoicePolicyName = "missingKeyPolicy"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionChoicePolicyName enum.
+func (e RowDefinitionChoicePolicyName) Valid() bool {
+	switch e {
+	case EmptyCollectionPolicy:
+		return true
+	case MissingKeyPolicy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionComparisonAvailableStatus.
+const (
+	RowDefinitionComparisonAvailableStatusAVAILABLE RowDefinitionComparisonAvailableStatus = "AVAILABLE"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionComparisonAvailableStatus enum.
+func (e RowDefinitionComparisonAvailableStatus) Valid() bool {
+	switch e {
+	case RowDefinitionComparisonAvailableStatusAVAILABLE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionComparisonUnavailableStatus.
+const (
+	RowDefinitionComparisonUnavailableStatusUNAVAILABLE RowDefinitionComparisonUnavailableStatus = "UNAVAILABLE"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionComparisonUnavailableStatus enum.
+func (e RowDefinitionComparisonUnavailableStatus) Valid() bool {
+	switch e {
+	case RowDefinitionComparisonUnavailableStatusUNAVAILABLE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicy.
+const (
+	RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicyERROR          RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicy = "ERROR"
+	RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicyEXCLUDE        RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicy = "EXCLUDE"
+	RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicyPRESERVEPARENT RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicy = "PRESERVE_PARENT"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicy enum.
+func (e RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicy) Valid() bool {
+	switch e {
+	case RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicyERROR:
+		return true
+	case RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicyEXCLUDE:
+		return true
+	case RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicyPRESERVEPARENT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionExpandedSelectionKind.
+const (
+	RowDefinitionExpandedSelectionKindEXPANDED RowDefinitionExpandedSelectionKind = "EXPANDED"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionExpandedSelectionKind enum.
+func (e RowDefinitionExpandedSelectionKind) Valid() bool {
+	switch e {
+	case RowDefinitionExpandedSelectionKindEXPANDED:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicy.
+const (
+	RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicyERROR             RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicy = "ERROR"
+	RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicyEXCLUDE           RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicy = "EXCLUDE"
+	RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicyGROUPASUNASSIGNED RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicy = "GROUP_AS_UNASSIGNED"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicy enum.
+func (e RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicy) Valid() bool {
+	switch e {
+	case RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicyERROR:
+		return true
+	case RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicyEXCLUDE:
+		return true
+	case RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicyGROUPASUNASSIGNED:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionExplicitGroupSelectionKind.
+const (
+	RowDefinitionExplicitGroupSelectionKindEXPLICITGROUP RowDefinitionExplicitGroupSelectionKind = "EXPLICIT_GROUP"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionExplicitGroupSelectionKind enum.
+func (e RowDefinitionExplicitGroupSelectionKind) Valid() bool {
+	switch e {
+	case RowDefinitionExplicitGroupSelectionKindEXPLICITGROUP:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicy.
+const (
+	RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicyERROR          RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicy = "ERROR"
+	RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicyEXCLUDE        RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicy = "EXCLUDE"
+	RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicyGROUPASMISSING RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicy = "GROUP_AS_MISSING"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicy enum.
+func (e RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicy) Valid() bool {
+	switch e {
+	case RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicyERROR:
+		return true
+	case RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicyEXCLUDE:
+		return true
+	case RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicyGROUPASMISSING:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionFieldGroupSelectionKind.
+const (
+	RowDefinitionFieldGroupSelectionKindFIELDGROUP RowDefinitionFieldGroupSelectionKind = "FIELD_GROUP"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionFieldGroupSelectionKind enum.
+func (e RowDefinitionFieldGroupSelectionKind) Valid() bool {
+	switch e {
+	case RowDefinitionFieldGroupSelectionKindFIELDGROUP:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionProposalMode.
+const (
+	RowDefinitionProposalModeEXPANDED      RowDefinitionProposalMode = "EXPANDED"
+	RowDefinitionProposalModeEXPLICITGROUP RowDefinitionProposalMode = "EXPLICIT_GROUP"
+	RowDefinitionProposalModeFIELDGROUP    RowDefinitionProposalMode = "FIELD_GROUP"
+	RowDefinitionProposalModeRECORDS       RowDefinitionProposalMode = "RECORDS"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionProposalMode enum.
+func (e RowDefinitionProposalMode) Valid() bool {
+	switch e {
+	case RowDefinitionProposalModeEXPANDED:
+		return true
+	case RowDefinitionProposalModeEXPLICITGROUP:
+		return true
+	case RowDefinitionProposalModeFIELDGROUP:
+		return true
+	case RowDefinitionProposalModeRECORDS:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionRecordsSelectionKind.
+const (
+	RowDefinitionRecordsSelectionKindRECORDS RowDefinitionRecordsSelectionKind = "RECORDS"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionRecordsSelectionKind enum.
+func (e RowDefinitionRecordsSelectionKind) Valid() bool {
+	switch e {
+	case RowDefinitionRecordsSelectionKindRECORDS:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowLineageCapabilityStatus.
+const (
+	RowLineageCapabilityStatusAVAILABLE   RowLineageCapabilityStatus = "AVAILABLE"
+	RowLineageCapabilityStatusUNAVAILABLE RowLineageCapabilityStatus = "UNAVAILABLE"
+)
+
+// Valid indicates whether the value is a known member of the RowLineageCapabilityStatus enum.
+func (e RowLineageCapabilityStatus) Valid() bool {
+	switch e {
+	case RowLineageCapabilityStatusAVAILABLE:
+		return true
+	case RowLineageCapabilityStatusUNAVAILABLE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowLineageResponseStatus.
+const (
+	RowLineageResponseStatusCOMPLETE    RowLineageResponseStatus = "COMPLETE"
+	RowLineageResponseStatusINCOMPLETE  RowLineageResponseStatus = "INCOMPLETE"
+	RowLineageResponseStatusUNAVAILABLE RowLineageResponseStatus = "UNAVAILABLE"
+)
+
+// Valid indicates whether the value is a known member of the RowLineageResponseStatus enum.
+func (e RowLineageResponseStatus) Valid() bool {
+	switch e {
+	case RowLineageResponseStatusCOMPLETE:
+		return true
+	case RowLineageResponseStatusINCOMPLETE:
+		return true
+	case RowLineageResponseStatusUNAVAILABLE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SchemaFieldOptionCardinality.
+const (
+	SchemaFieldOptionCardinalityMany        SchemaFieldOptionCardinality = "many"
+	SchemaFieldOptionCardinalityOptionalOne SchemaFieldOptionCardinality = "optional_one"
+)
+
+// Valid indicates whether the value is a known member of the SchemaFieldOptionCardinality enum.
+func (e SchemaFieldOptionCardinality) Valid() bool {
+	switch e {
+	case SchemaFieldOptionCardinalityMany:
+		return true
+	case SchemaFieldOptionCardinalityOptionalOne:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SchemaFieldSearchResponseKind.
+const (
+	ExplorerBuilderGeneratedSchemaFields SchemaFieldSearchResponseKind = "ExplorerBuilderGeneratedSchemaFields"
+)
+
+// Valid indicates whether the value is a known member of the SchemaFieldSearchResponseKind enum.
+func (e SchemaFieldSearchResponseKind) Valid() bool {
+	switch e {
+	case ExplorerBuilderGeneratedSchemaFields:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SelectionRequestSourceKind.
+const (
+	SelectionRequestSourceKindPublishedOutput   SelectionRequestSourceKind = "publishedOutput"
+	SelectionRequestSourceKindResources         SelectionRequestSourceKind = "resources"
+	SelectionRequestSourceKindSelectionRevision SelectionRequestSourceKind = "selectionRevision"
+)
+
+// Valid indicates whether the value is a known member of the SelectionRequestSourceKind enum.
+func (e SelectionRequestSourceKind) Valid() bool {
+	switch e {
+	case SelectionRequestSourceKindPublishedOutput:
+		return true
+	case SelectionRequestSourceKindResources:
+		return true
+	case SelectionRequestSourceKindSelectionRevision:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SelectionRuleKind.
+const (
+	ALLMATCHING SelectionRuleKind = "ALL_MATCHING"
+	EXPLICIT    SelectionRuleKind = "EXPLICIT"
+)
+
+// Valid indicates whether the value is a known member of the SelectionRuleKind enum.
+func (e SelectionRuleKind) Valid() bool {
+	switch e {
+	case ALLMATCHING:
+		return true
+	case EXPLICIT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SelectionSourceKind.
+const (
+	EXPLICITREFS      SelectionSourceKind = "EXPLICIT_REFS"
+	PUBLISHEDOUTPUT   SelectionSourceKind = "PUBLISHED_OUTPUT"
+	SELECTIONREVISION SelectionSourceKind = "SELECTION_REVISION"
+)
+
+// Valid indicates whether the value is a known member of the SelectionSourceKind enum.
+func (e SelectionSourceKind) Valid() bool {
+	switch e {
+	case EXPLICITREFS:
+		return true
+	case PUBLISHEDOUTPUT:
+		return true
+	case SELECTIONREVISION:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SemanticBindingChoiceSourceKind.
+const (
+	SemanticBindingChoiceSourceKindSEMANTIC SemanticBindingChoiceSourceKind = "SEMANTIC"
+)
+
+// Valid indicates whether the value is a known member of the SemanticBindingChoiceSourceKind enum.
+func (e SemanticBindingChoiceSourceKind) Valid() bool {
+	switch e {
+	case SemanticBindingChoiceSourceKindSEMANTIC:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SemanticConstructionChoiceSearchSourceKind.
+const (
+	SemanticConstructionChoiceSearchSourceKindSEMANTIC SemanticConstructionChoiceSearchSourceKind = "SEMANTIC"
+)
+
+// Valid indicates whether the value is a known member of the SemanticConstructionChoiceSearchSourceKind enum.
+func (e SemanticConstructionChoiceSearchSourceKind) Valid() bool {
+	switch e {
+	case SemanticConstructionChoiceSearchSourceKindSEMANTIC:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SemanticInventoryBrowseResponseSourceAvailability.
+const (
+	SemanticInventoryBrowseResponseSourceAvailabilityUnknown  SemanticInventoryBrowseResponseSourceAvailability = "unknown"
+	SemanticInventoryBrowseResponseSourceAvailabilityUnproven SemanticInventoryBrowseResponseSourceAvailability = "unproven"
+	SemanticInventoryBrowseResponseSourceAvailabilityVerified SemanticInventoryBrowseResponseSourceAvailability = "verified"
+)
+
+// Valid indicates whether the value is a known member of the SemanticInventoryBrowseResponseSourceAvailability enum.
+func (e SemanticInventoryBrowseResponseSourceAvailability) Valid() bool {
+	switch e {
+	case SemanticInventoryBrowseResponseSourceAvailabilityUnknown:
+		return true
+	case SemanticInventoryBrowseResponseSourceAvailabilityUnproven:
+		return true
+	case SemanticInventoryBrowseResponseSourceAvailabilityVerified:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SemanticInventoryBrowseResponseState.
+const (
+	SemanticInventoryBrowseResponseStateComplete    SemanticInventoryBrowseResponseState = "complete"
+	SemanticInventoryBrowseResponseStateFailed      SemanticInventoryBrowseResponseState = "failed"
+	SemanticInventoryBrowseResponseStateInvalidated SemanticInventoryBrowseResponseState = "invalidated"
+	SemanticInventoryBrowseResponseStateNotStarted  SemanticInventoryBrowseResponseState = "not_started"
+	SemanticInventoryBrowseResponseStateRunning     SemanticInventoryBrowseResponseState = "running"
+	SemanticInventoryBrowseResponseStateUnknown     SemanticInventoryBrowseResponseState = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the SemanticInventoryBrowseResponseState enum.
+func (e SemanticInventoryBrowseResponseState) Valid() bool {
+	switch e {
+	case SemanticInventoryBrowseResponseStateComplete:
+		return true
+	case SemanticInventoryBrowseResponseStateFailed:
+		return true
+	case SemanticInventoryBrowseResponseStateInvalidated:
+		return true
+	case SemanticInventoryBrowseResponseStateNotStarted:
+		return true
+	case SemanticInventoryBrowseResponseStateRunning:
+		return true
+	case SemanticInventoryBrowseResponseStateUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SemanticInventoryItemCompleteness.
+const (
+	SemanticInventoryItemCompletenessComplete   SemanticInventoryItemCompleteness = "complete"
+	SemanticInventoryItemCompletenessIncomplete SemanticInventoryItemCompleteness = "incomplete"
+	SemanticInventoryItemCompletenessPartial    SemanticInventoryItemCompleteness = "partial"
+)
+
+// Valid indicates whether the value is a known member of the SemanticInventoryItemCompleteness enum.
+func (e SemanticInventoryItemCompleteness) Valid() bool {
+	switch e {
+	case SemanticInventoryItemCompletenessComplete:
+		return true
+	case SemanticInventoryItemCompletenessIncomplete:
+		return true
+	case SemanticInventoryItemCompletenessPartial:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SemanticSelectionIntentProjectionMode.
+const (
+	SemanticSelectionIntentProjectionModeALL      SemanticSelectionIntentProjectionMode = "ALL"
+	SemanticSelectionIntentProjectionModeDISTINCT SemanticSelectionIntentProjectionMode = "DISTINCT"
+	SemanticSelectionIntentProjectionModeFIRST    SemanticSelectionIntentProjectionMode = "FIRST"
+	SemanticSelectionIntentProjectionModeINDEXED  SemanticSelectionIntentProjectionMode = "INDEXED"
+	SemanticSelectionIntentProjectionModeVALUE    SemanticSelectionIntentProjectionMode = "VALUE"
+)
+
+// Valid indicates whether the value is a known member of the SemanticSelectionIntentProjectionMode enum.
+func (e SemanticSelectionIntentProjectionMode) Valid() bool {
+	switch e {
+	case SemanticSelectionIntentProjectionModeALL:
+		return true
+	case SemanticSelectionIntentProjectionModeDISTINCT:
+		return true
+	case SemanticSelectionIntentProjectionModeFIRST:
+		return true
+	case SemanticSelectionIntentProjectionModeINDEXED:
+		return true
+	case SemanticSelectionIntentProjectionModeVALUE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SemanticSelectionReadinessStatus.
+const (
+	SemanticSelectionReadinessStatusNEEDSMAPPING     SemanticSelectionReadinessStatus = "NEEDS_MAPPING"
+	SemanticSelectionReadinessStatusREADY            SemanticSelectionReadinessStatus = "READY"
+	SemanticSelectionReadinessStatusREADYWITHWARNING SemanticSelectionReadinessStatus = "READY_WITH_WARNING"
+	SemanticSelectionReadinessStatusUNSUPPORTED      SemanticSelectionReadinessStatus = "UNSUPPORTED"
+)
+
+// Valid indicates whether the value is a known member of the SemanticSelectionReadinessStatus enum.
+func (e SemanticSelectionReadinessStatus) Valid() bool {
+	switch e {
+	case SemanticSelectionReadinessStatusNEEDSMAPPING:
+		return true
+	case SemanticSelectionReadinessStatusREADY:
+		return true
+	case SemanticSelectionReadinessStatusREADYWITHWARNING:
+		return true
+	case SemanticSelectionReadinessStatusUNSUPPORTED:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SemanticSelectionResultStatus.
+const (
+	ADDED          SemanticSelectionResultStatus = "ADDED"
+	ALREADYPRESENT SemanticSelectionResultStatus = "ALREADY_PRESENT"
+)
+
+// Valid indicates whether the value is a known member of the SemanticSelectionResultStatus enum.
+func (e SemanticSelectionResultStatus) Valid() bool {
+	switch e {
+	case ADDED:
+		return true
+	case ALREADYPRESENT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SetColumnTransformationKind.
+const (
+	SET SetColumnTransformationKind = "SET"
+)
+
+// Valid indicates whether the value is a known member of the SetColumnTransformationKind enum.
+func (e SetColumnTransformationKind) Valid() bool {
+	switch e {
+	case SET:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TablePresentationCellRenderer.
 const (
 	TablePresentationCellRendererFileActions TablePresentationCellRenderer = "fileActions"
@@ -381,6 +3296,762 @@ const (
 func (e TablePresentationCellRenderer) Valid() bool {
 	switch e {
 	case TablePresentationCellRendererFileActions:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeBinaryOperatorChoiceChoiceKind.
+const (
+	TableShapeBinaryOperatorChoiceChoiceKindBinaryOperator TableShapeBinaryOperatorChoiceChoiceKind = "binaryOperator"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeBinaryOperatorChoiceChoiceKind enum.
+func (e TableShapeBinaryOperatorChoiceChoiceKind) Valid() bool {
+	switch e {
+	case TableShapeBinaryOperatorChoiceChoiceKindBinaryOperator:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeBinaryOperatorReferenceKind.
+const (
+	TableShapeBinaryOperatorReferenceKindBinaryOperator TableShapeBinaryOperatorReferenceKind = "binaryOperator"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeBinaryOperatorReferenceKind enum.
+func (e TableShapeBinaryOperatorReferenceKind) Valid() bool {
+	switch e {
+	case TableShapeBinaryOperatorReferenceKindBinaryOperator:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeCategoryDiscoveryResponseKind.
+const (
+	TableShapeCategoryDiscoveryResponseKindComplete TableShapeCategoryDiscoveryResponseKind = "complete"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeCategoryDiscoveryResponseKind enum.
+func (e TableShapeCategoryDiscoveryResponseKind) Valid() bool {
+	switch e {
+	case TableShapeCategoryDiscoveryResponseKindComplete:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeCellTraceState.
+const (
+	TableShapeCellTraceStateAVAILABLE     TableShapeCellTraceState = "AVAILABLE"
+	TableShapeCellTraceStateFAILED        TableShapeCellTraceState = "FAILED"
+	TableShapeCellTraceStateNOTAPPLICABLE TableShapeCellTraceState = "NOT_APPLICABLE"
+	TableShapeCellTraceStateNOTREQUESTED  TableShapeCellTraceState = "NOT_REQUESTED"
+	TableShapeCellTraceStateUNAVAILABLE   TableShapeCellTraceState = "UNAVAILABLE"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeCellTraceState enum.
+func (e TableShapeCellTraceState) Valid() bool {
+	switch e {
+	case TableShapeCellTraceStateAVAILABLE:
+		return true
+	case TableShapeCellTraceStateFAILED:
+		return true
+	case TableShapeCellTraceStateNOTAPPLICABLE:
+		return true
+	case TableShapeCellTraceStateNOTREQUESTED:
+		return true
+	case TableShapeCellTraceStateUNAVAILABLE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeChoiceAvailabilityKind.
+const (
+	TableShapeChoiceAvailabilityKindSupported   TableShapeChoiceAvailabilityKind = "supported"
+	TableShapeChoiceAvailabilityKindUnsupported TableShapeChoiceAvailabilityKind = "unsupported"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeChoiceAvailabilityKind enum.
+func (e TableShapeChoiceAvailabilityKind) Valid() bool {
+	switch e {
+	case TableShapeChoiceAvailabilityKindSupported:
+		return true
+	case TableShapeChoiceAvailabilityKindUnsupported:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeColumnReferenceKind.
+const (
+	TableShapeColumnReferenceKindColumn TableShapeColumnReferenceKind = "column"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeColumnReferenceKind enum.
+func (e TableShapeColumnReferenceKind) Valid() bool {
+	switch e {
+	case TableShapeColumnReferenceKindColumn:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeComparisonAvailableStatus.
+const (
+	TableShapeComparisonAvailableStatusAVAILABLE TableShapeComparisonAvailableStatus = "AVAILABLE"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeComparisonAvailableStatus enum.
+func (e TableShapeComparisonAvailableStatus) Valid() bool {
+	switch e {
+	case TableShapeComparisonAvailableStatusAVAILABLE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeComparisonUnavailableStatus.
+const (
+	TableShapeComparisonUnavailableStatusUNAVAILABLE TableShapeComparisonUnavailableStatus = "UNAVAILABLE"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeComparisonUnavailableStatus enum.
+func (e TableShapeComparisonUnavailableStatus) Valid() bool {
+	switch e {
+	case TableShapeComparisonUnavailableStatusUNAVAILABLE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeDeclaredInformationLossStatus.
+const (
+	TableShapeDeclaredInformationLossStatusCOMPLETE    TableShapeDeclaredInformationLossStatus = "COMPLETE"
+	TableShapeDeclaredInformationLossStatusUNAVAILABLE TableShapeDeclaredInformationLossStatus = "UNAVAILABLE"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeDeclaredInformationLossStatus enum.
+func (e TableShapeDeclaredInformationLossStatus) Valid() bool {
+	switch e {
+	case TableShapeDeclaredInformationLossStatusCOMPLETE:
+		return true
+	case TableShapeDeclaredInformationLossStatusUNAVAILABLE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeDerivedOperandIntentKind.
+const (
+	TableShapeDerivedOperandIntentKindBase        TableShapeDerivedOperandIntentKind = "base"
+	TableShapeDerivedOperandIntentKindDerived     TableShapeDerivedOperandIntentKind = "derived"
+	TableShapeDerivedOperandIntentKindLiteral     TableShapeDerivedOperandIntentKind = "literal"
+	TableShapeDerivedOperandIntentKindPivotOutput TableShapeDerivedOperandIntentKind = "pivotOutput"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeDerivedOperandIntentKind enum.
+func (e TableShapeDerivedOperandIntentKind) Valid() bool {
+	switch e {
+	case TableShapeDerivedOperandIntentKindBase:
+		return true
+	case TableShapeDerivedOperandIntentKindDerived:
+		return true
+	case TableShapeDerivedOperandIntentKindLiteral:
+		return true
+	case TableShapeDerivedOperandIntentKindPivotOutput:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeDerivedOperandIntentRepresentation.
+const (
+	Decimal TableShapeDerivedOperandIntentRepresentation = "decimal"
+	Integer TableShapeDerivedOperandIntentRepresentation = "integer"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeDerivedOperandIntentRepresentation enum.
+func (e TableShapeDerivedOperandIntentRepresentation) Valid() bool {
+	switch e {
+	case Decimal:
+		return true
+	case Integer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeDerivedOperandReferenceKind.
+const (
+	TableShapeDerivedOperandReferenceKindCategory TableShapeDerivedOperandReferenceKind = "category"
+	TableShapeDerivedOperandReferenceKindGroup    TableShapeDerivedOperandReferenceKind = "group"
+	TableShapeDerivedOperandReferenceKindOperand  TableShapeDerivedOperandReferenceKind = "operand"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeDerivedOperandReferenceKind enum.
+func (e TableShapeDerivedOperandReferenceKind) Valid() bool {
+	switch e {
+	case TableShapeDerivedOperandReferenceKindCategory:
+		return true
+	case TableShapeDerivedOperandReferenceKindGroup:
+		return true
+	case TableShapeDerivedOperandReferenceKindOperand:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeDivisionByZeroPolicyReferenceKind.
+const (
+	TableShapeDivisionByZeroPolicyReferenceKindDivisionByZeroPolicy TableShapeDivisionByZeroPolicyReferenceKind = "divisionByZeroPolicy"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeDivisionByZeroPolicyReferenceKind enum.
+func (e TableShapeDivisionByZeroPolicyReferenceKind) Valid() bool {
+	switch e {
+	case TableShapeDivisionByZeroPolicyReferenceKindDivisionByZeroPolicy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeDuplicatePolicyReferenceKind.
+const (
+	TableShapeDuplicatePolicyReferenceKindDuplicatePolicy TableShapeDuplicatePolicyReferenceKind = "duplicatePolicy"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeDuplicatePolicyReferenceKind enum.
+func (e TableShapeDuplicatePolicyReferenceKind) Valid() bool {
+	switch e {
+	case TableShapeDuplicatePolicyReferenceKindDuplicatePolicy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeEditorChoiceChoiceKind.
+const (
+	TableShapeEditorChoiceChoiceKindBinaryOperator         TableShapeEditorChoiceChoiceKind = "binaryOperator"
+	TableShapeEditorChoiceChoiceKindColumn                 TableShapeEditorChoiceChoiceKind = "column"
+	TableShapeEditorChoiceChoiceKindDivisionByZeroPolicy   TableShapeEditorChoiceChoiceKind = "divisionByZeroPolicy"
+	TableShapeEditorChoiceChoiceKindDuplicatePolicy        TableShapeEditorChoiceChoiceKind = "duplicatePolicy"
+	TableShapeEditorChoiceChoiceKindMissingCellPolicy      TableShapeEditorChoiceChoiceKind = "missingCellPolicy"
+	TableShapeEditorChoiceChoiceKindMissingInputPolicy     TableShapeEditorChoiceChoiceKind = "missingInputPolicy"
+	TableShapeEditorChoiceChoiceKindOperand                TableShapeEditorChoiceChoiceKind = "operand"
+	TableShapeEditorChoiceChoiceKindUnlistedCategoryPolicy TableShapeEditorChoiceChoiceKind = "unlistedCategoryPolicy"
+	TableShapeEditorChoiceChoiceKindUnpivotNullRowPolicy   TableShapeEditorChoiceChoiceKind = "unpivotNullRowPolicy"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeEditorChoiceChoiceKind enum.
+func (e TableShapeEditorChoiceChoiceKind) Valid() bool {
+	switch e {
+	case TableShapeEditorChoiceChoiceKindBinaryOperator:
+		return true
+	case TableShapeEditorChoiceChoiceKindColumn:
+		return true
+	case TableShapeEditorChoiceChoiceKindDivisionByZeroPolicy:
+		return true
+	case TableShapeEditorChoiceChoiceKindDuplicatePolicy:
+		return true
+	case TableShapeEditorChoiceChoiceKindMissingCellPolicy:
+		return true
+	case TableShapeEditorChoiceChoiceKindMissingInputPolicy:
+		return true
+	case TableShapeEditorChoiceChoiceKindOperand:
+		return true
+	case TableShapeEditorChoiceChoiceKindUnlistedCategoryPolicy:
+		return true
+	case TableShapeEditorChoiceChoiceKindUnpivotNullRowPolicy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeExclusionEvidenceStatus.
+const (
+	TableShapeExclusionEvidenceStatusCOMPLETE    TableShapeExclusionEvidenceStatus = "COMPLETE"
+	TableShapeExclusionEvidenceStatusINCOMPLETE  TableShapeExclusionEvidenceStatus = "INCOMPLETE"
+	TableShapeExclusionEvidenceStatusUNAVAILABLE TableShapeExclusionEvidenceStatus = "UNAVAILABLE"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeExclusionEvidenceStatus enum.
+func (e TableShapeExclusionEvidenceStatus) Valid() bool {
+	switch e {
+	case TableShapeExclusionEvidenceStatusCOMPLETE:
+		return true
+	case TableShapeExclusionEvidenceStatusINCOMPLETE:
+		return true
+	case TableShapeExclusionEvidenceStatusUNAVAILABLE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeLogicalType.
+const (
+	TableShapeLogicalTypeBOOLEAN  TableShapeLogicalType = "BOOLEAN"
+	TableShapeLogicalTypeDATE     TableShapeLogicalType = "DATE"
+	TableShapeLogicalTypeDATETIME TableShapeLogicalType = "DATETIME"
+	TableShapeLogicalTypeDECIMAL  TableShapeLogicalType = "DECIMAL"
+	TableShapeLogicalTypeINTEGER  TableShapeLogicalType = "INTEGER"
+	TableShapeLogicalTypeOBJECT   TableShapeLogicalType = "OBJECT"
+	TableShapeLogicalTypeSTRING   TableShapeLogicalType = "STRING"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeLogicalType enum.
+func (e TableShapeLogicalType) Valid() bool {
+	switch e {
+	case TableShapeLogicalTypeBOOLEAN:
+		return true
+	case TableShapeLogicalTypeDATE:
+		return true
+	case TableShapeLogicalTypeDATETIME:
+		return true
+	case TableShapeLogicalTypeDECIMAL:
+		return true
+	case TableShapeLogicalTypeINTEGER:
+		return true
+	case TableShapeLogicalTypeOBJECT:
+		return true
+	case TableShapeLogicalTypeSTRING:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeMissingCellPolicyReferenceKind.
+const (
+	TableShapeMissingCellPolicyReferenceKindMissingCellPolicy TableShapeMissingCellPolicyReferenceKind = "missingCellPolicy"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeMissingCellPolicyReferenceKind enum.
+func (e TableShapeMissingCellPolicyReferenceKind) Valid() bool {
+	switch e {
+	case TableShapeMissingCellPolicyReferenceKindMissingCellPolicy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeMissingInputPolicyReferenceKind.
+const (
+	TableShapeMissingInputPolicyReferenceKindMissingInputPolicy TableShapeMissingInputPolicyReferenceKind = "missingInputPolicy"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeMissingInputPolicyReferenceKind enum.
+func (e TableShapeMissingInputPolicyReferenceKind) Valid() bool {
+	switch e {
+	case TableShapeMissingInputPolicyReferenceKindMissingInputPolicy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeOperandSelectionKind.
+const (
+	TableShapeOperandSelectionKindCATALOGCHOICE    TableShapeOperandSelectionKind = "CATALOG_CHOICE"
+	TableShapeOperandSelectionKindLITERAL          TableShapeOperandSelectionKind = "LITERAL"
+	TableShapeOperandSelectionKindRESOLUTIONOUTPUT TableShapeOperandSelectionKind = "RESOLUTION_OUTPUT"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeOperandSelectionKind enum.
+func (e TableShapeOperandSelectionKind) Valid() bool {
+	switch e {
+	case TableShapeOperandSelectionKindCATALOGCHOICE:
+		return true
+	case TableShapeOperandSelectionKindLITERAL:
+		return true
+	case TableShapeOperandSelectionKindRESOLUTIONOUTPUT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeOutputDescriptorSupportKind.
+const (
+	TableShapeOutputDescriptorSupportKindSupported   TableShapeOutputDescriptorSupportKind = "supported"
+	TableShapeOutputDescriptorSupportKindUnsupported TableShapeOutputDescriptorSupportKind = "unsupported"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeOutputDescriptorSupportKind enum.
+func (e TableShapeOutputDescriptorSupportKind) Valid() bool {
+	switch e {
+	case TableShapeOutputDescriptorSupportKindSupported:
+		return true
+	case TableShapeOutputDescriptorSupportKindUnsupported:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeOutputSuggestionChoiceKind.
+const (
+	DerivedOutput      TableShapeOutputSuggestionChoiceKind = "derivedOutput"
+	UnpivotKeyOutput   TableShapeOutputSuggestionChoiceKind = "unpivotKeyOutput"
+	UnpivotValueOutput TableShapeOutputSuggestionChoiceKind = "unpivotValueOutput"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeOutputSuggestionChoiceKind enum.
+func (e TableShapeOutputSuggestionChoiceKind) Valid() bool {
+	switch e {
+	case DerivedOutput:
+		return true
+	case UnpivotKeyOutput:
+		return true
+	case UnpivotValueOutput:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapePivotCategoryChoiceChoiceKind.
+const (
+	TableShapePivotCategoryChoiceChoiceKindPivotCategory TableShapePivotCategoryChoiceChoiceKind = "pivotCategory"
+)
+
+// Valid indicates whether the value is a known member of the TableShapePivotCategoryChoiceChoiceKind enum.
+func (e TableShapePivotCategoryChoiceChoiceKind) Valid() bool {
+	switch e {
+	case TableShapePivotCategoryChoiceChoiceKindPivotCategory:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapePivotCategoryDiscoveryKind.
+const (
+	TableShapePivotCategoryDiscoveryKindComplete     TableShapePivotCategoryDiscoveryKind = "complete"
+	TableShapePivotCategoryDiscoveryKindNotRequested TableShapePivotCategoryDiscoveryKind = "not-requested"
+)
+
+// Valid indicates whether the value is a known member of the TableShapePivotCategoryDiscoveryKind enum.
+func (e TableShapePivotCategoryDiscoveryKind) Valid() bool {
+	switch e {
+	case TableShapePivotCategoryDiscoveryKindComplete:
+		return true
+	case TableShapePivotCategoryDiscoveryKindNotRequested:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapePivotCategoryReferenceKind.
+const (
+	TableShapePivotCategoryReferenceKindPivotCategory TableShapePivotCategoryReferenceKind = "pivotCategory"
+)
+
+// Valid indicates whether the value is a known member of the TableShapePivotCategoryReferenceKind enum.
+func (e TableShapePivotCategoryReferenceKind) Valid() bool {
+	switch e {
+	case TableShapePivotCategoryReferenceKindPivotCategory:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeProposalMode.
+const (
+	TableShapeProposalModeADD     TableShapeProposalMode = "ADD"
+	TableShapeProposalModeREMOVE  TableShapeProposalMode = "REMOVE"
+	TableShapeProposalModeREPLACE TableShapeProposalMode = "REPLACE"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeProposalMode enum.
+func (e TableShapeProposalMode) Valid() bool {
+	switch e {
+	case TableShapeProposalModeADD:
+		return true
+	case TableShapeProposalModeREMOVE:
+		return true
+	case TableShapeProposalModeREPLACE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeProposalIntentKind.
+const (
+	TableShapeProposalIntentKindGROUPEDPIVOT TableShapeProposalIntentKind = "GROUPED_PIVOT"
+	TableShapeProposalIntentKindNONE         TableShapeProposalIntentKind = "NONE"
+	TableShapeProposalIntentKindUNPIVOT      TableShapeProposalIntentKind = "UNPIVOT"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeProposalIntentKind enum.
+func (e TableShapeProposalIntentKind) Valid() bool {
+	switch e {
+	case TableShapeProposalIntentKindGROUPEDPIVOT:
+		return true
+	case TableShapeProposalIntentKindNONE:
+		return true
+	case TableShapeProposalIntentKindUNPIVOT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeProposalRequestMode.
+const (
+	TableShapeProposalRequestModeADD     TableShapeProposalRequestMode = "ADD"
+	TableShapeProposalRequestModeREMOVE  TableShapeProposalRequestMode = "REMOVE"
+	TableShapeProposalRequestModeREPLACE TableShapeProposalRequestMode = "REPLACE"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeProposalRequestMode enum.
+func (e TableShapeProposalRequestMode) Valid() bool {
+	switch e {
+	case TableShapeProposalRequestModeADD:
+		return true
+	case TableShapeProposalRequestModeREMOVE:
+		return true
+	case TableShapeProposalRequestModeREPLACE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeReshapeModeChoiceChoiceKind.
+const (
+	TableShapeReshapeModeChoiceChoiceKindReshapeMode TableShapeReshapeModeChoiceChoiceKind = "reshapeMode"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeReshapeModeChoiceChoiceKind enum.
+func (e TableShapeReshapeModeChoiceChoiceKind) Valid() bool {
+	switch e {
+	case TableShapeReshapeModeChoiceChoiceKindReshapeMode:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeReshapeModeChoiceMode.
+const (
+	TableShapeReshapeModeChoiceModeGROUPEDPIVOT TableShapeReshapeModeChoiceMode = "GROUPED_PIVOT"
+	TableShapeReshapeModeChoiceModeNONE         TableShapeReshapeModeChoiceMode = "NONE"
+	TableShapeReshapeModeChoiceModeUNPIVOT      TableShapeReshapeModeChoiceMode = "UNPIVOT"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeReshapeModeChoiceMode enum.
+func (e TableShapeReshapeModeChoiceMode) Valid() bool {
+	switch e {
+	case TableShapeReshapeModeChoiceModeGROUPEDPIVOT:
+		return true
+	case TableShapeReshapeModeChoiceModeNONE:
+		return true
+	case TableShapeReshapeModeChoiceModeUNPIVOT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeReshapeModeReferenceKind.
+const (
+	TableShapeReshapeModeReferenceKindReshapeMode TableShapeReshapeModeReferenceKind = "reshapeMode"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeReshapeModeReferenceKind enum.
+func (e TableShapeReshapeModeReferenceKind) Valid() bool {
+	switch e {
+	case TableShapeReshapeModeReferenceKindReshapeMode:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeResolutionRequestKind.
+const (
+	TableShapeResolutionRequestKindDERIVED TableShapeResolutionRequestKind = "DERIVED"
+	TableShapeResolutionRequestKindPIVOT   TableShapeResolutionRequestKind = "PIVOT"
+	TableShapeResolutionRequestKindUNPIVOT TableShapeResolutionRequestKind = "UNPIVOT"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeResolutionRequestKind enum.
+func (e TableShapeResolutionRequestKind) Valid() bool {
+	switch e {
+	case TableShapeResolutionRequestKindDERIVED:
+		return true
+	case TableShapeResolutionRequestKindPIVOT:
+		return true
+	case TableShapeResolutionRequestKindUNPIVOT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeResolutionResponseKind.
+const (
+	TableShapeResolutionResponseKindDERIVED TableShapeResolutionResponseKind = "DERIVED"
+	TableShapeResolutionResponseKindPIVOT   TableShapeResolutionResponseKind = "PIVOT"
+	TableShapeResolutionResponseKindUNPIVOT TableShapeResolutionResponseKind = "UNPIVOT"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeResolutionResponseKind enum.
+func (e TableShapeResolutionResponseKind) Valid() bool {
+	switch e {
+	case TableShapeResolutionResponseKindDERIVED:
+		return true
+	case TableShapeResolutionResponseKindPIVOT:
+		return true
+	case TableShapeResolutionResponseKindUNPIVOT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeResolvedOutputDescriptorKind.
+const (
+	TableShapeResolvedOutputDescriptorKindCategory     TableShapeResolvedOutputDescriptorKind = "category"
+	TableShapeResolvedOutputDescriptorKindDerived      TableShapeResolvedOutputDescriptorKind = "derived"
+	TableShapeResolvedOutputDescriptorKindGroup        TableShapeResolvedOutputDescriptorKind = "group"
+	TableShapeResolvedOutputDescriptorKindUnpivotKey   TableShapeResolvedOutputDescriptorKind = "unpivotKey"
+	TableShapeResolvedOutputDescriptorKindUnpivotValue TableShapeResolvedOutputDescriptorKind = "unpivotValue"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeResolvedOutputDescriptorKind enum.
+func (e TableShapeResolvedOutputDescriptorKind) Valid() bool {
+	switch e {
+	case TableShapeResolvedOutputDescriptorKindCategory:
+		return true
+	case TableShapeResolvedOutputDescriptorKindDerived:
+		return true
+	case TableShapeResolvedOutputDescriptorKindGroup:
+		return true
+	case TableShapeResolvedOutputDescriptorKindUnpivotKey:
+		return true
+	case TableShapeResolvedOutputDescriptorKindUnpivotValue:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeScalarKind.
+const (
+	TableShapeScalarKindBOOLEAN     TableShapeScalarKind = "BOOLEAN"
+	TableShapeScalarKindDECIMAL     TableShapeScalarKind = "DECIMAL"
+	TableShapeScalarKindINTEGER     TableShapeScalarKind = "INTEGER"
+	TableShapeScalarKindLessThannil TableShapeScalarKind = "<nil>"
+	TableShapeScalarKindMISSING     TableShapeScalarKind = "MISSING"
+	TableShapeScalarKindSTRING      TableShapeScalarKind = "STRING"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeScalarKind enum.
+func (e TableShapeScalarKind) Valid() bool {
+	switch e {
+	case TableShapeScalarKindBOOLEAN:
+		return true
+	case TableShapeScalarKindDECIMAL:
+		return true
+	case TableShapeScalarKindINTEGER:
+		return true
+	case TableShapeScalarKindLessThannil:
+		return true
+	case TableShapeScalarKindMISSING:
+		return true
+	case TableShapeScalarKindSTRING:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeUnlistedCategoryPolicyReferenceKind.
+const (
+	TableShapeUnlistedCategoryPolicyReferenceKindUnlistedCategoryPolicy TableShapeUnlistedCategoryPolicyReferenceKind = "unlistedCategoryPolicy"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeUnlistedCategoryPolicyReferenceKind enum.
+func (e TableShapeUnlistedCategoryPolicyReferenceKind) Valid() bool {
+	switch e {
+	case TableShapeUnlistedCategoryPolicyReferenceKindUnlistedCategoryPolicy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeUnpivotNullRowPolicyReferenceKind.
+const (
+	TableShapeUnpivotNullRowPolicyReferenceKindUnpivotNullRowPolicy TableShapeUnpivotNullRowPolicyReferenceKind = "unpivotNullRowPolicy"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeUnpivotNullRowPolicyReferenceKind enum.
+func (e TableShapeUnpivotNullRowPolicyReferenceKind) Valid() bool {
+	switch e {
+	case TableShapeUnpivotNullRowPolicyReferenceKindUnpivotNullRowPolicy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TemporalOrderingSourceDirection.
+const (
+	ASC  TemporalOrderingSourceDirection = "ASC"
+	DESC TemporalOrderingSourceDirection = "DESC"
+)
+
+// Valid indicates whether the value is a known member of the TemporalOrderingSourceDirection enum.
+func (e TemporalOrderingSourceDirection) Valid() bool {
+	switch e {
+	case ASC:
+		return true
+	case DESC:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TemporalOrderingSourceTiePolicy.
+const (
+	REQUIREUNIQUE TemporalOrderingSourceTiePolicy = "REQUIRE_UNIQUE"
+	RESOURCEKEY   TemporalOrderingSourceTiePolicy = "RESOURCE_KEY"
+)
+
+// Valid indicates whether the value is a known member of the TemporalOrderingSourceTiePolicy enum.
+func (e TemporalOrderingSourceTiePolicy) Valid() bool {
+	switch e {
+	case REQUIREUNIQUE:
+		return true
+	case RESOURCEKEY:
 		return true
 	default:
 		return false
@@ -404,23 +4075,118 @@ type ActionColumn struct {
 	ExportHeader *string `json:"exportHeader,omitempty"`
 }
 
+// AggregateOperationCapability defines model for AggregateOperationCapability.
+type AggregateOperationCapability struct {
+	ContributorSemantics  *string                                        `json:"contributorSemantics,omitempty"`
+	MissingValueSemantics *string                                        `json:"missingValueSemantics,omitempty"`
+	Operation             AggregateOperationCapabilityOperation          `json:"operation"`
+	Reason                *string                                        `json:"reason,omitempty"`
+	ReasonCode            *string                                        `json:"reasonCode,omitempty"`
+	RequiresConfiguration *[]string                                      `json:"requiresConfiguration,omitempty"`
+	ResultCardinality     *AggregateOperationCapabilityResultCardinality `json:"resultCardinality,omitempty"`
+	ResultLogicalType     *string                                        `json:"resultLogicalType,omitempty"`
+	RowContext            AggregateOperationCapabilityRowContext         `json:"rowContext"`
+	Supported             bool                                           `json:"supported"`
+}
+
+// AggregateOperationCapabilityOperation defines model for AggregateOperationCapability.Operation.
+type AggregateOperationCapabilityOperation string
+
+// AggregateOperationCapabilityResultCardinality defines model for AggregateOperationCapability.ResultCardinality.
+type AggregateOperationCapabilityResultCardinality string
+
+// AggregateOperationCapabilityRowContext defines model for AggregateOperationCapability.RowContext.
+type AggregateOperationCapabilityRowContext string
+
+// AggregateSource defines model for AggregateSource.
+type AggregateSource struct {
+	ContributorWindow *ContributorWindowSource `json:"contributorWindow,omitempty"`
+	Operation         AggregateSourceOperation `json:"operation"`
+	Ordering          *TemporalOrderingSource  `json:"ordering,omitempty"`
+	Path              *string                  `json:"path,omitempty"`
+	RequiredValues    *[]string                `json:"requiredValues,omitempty"`
+	UnitNormalization *UnitNormalizationPolicy `json:"unitNormalization,omitempty"`
+}
+
+// AggregateSourceOperation defines model for AggregateSource.Operation.
+type AggregateSourceOperation string
+
+// AggregateTransformationCapabilities defines model for AggregateTransformationCapabilities.
+type AggregateTransformationCapabilities struct {
+	TemporalReduction TemporalReductionCapabilities `json:"temporalReduction"`
+	UnitNormalization UnitNormalizationCapabilities `json:"unitNormalization"`
+}
+
 // ApplyCommandsRequest defines model for ApplyCommandsRequest.
 type ApplyCommandsRequest struct {
 	CommandId            string             `json:"commandId"`
 	Commands             []AuthoringCommand `json:"commands"`
 	ExpectedDraftDigest  *string            `json:"expectedDraftDigest,omitempty"`
 	ExpectedDraftVersion int64              `json:"expectedDraftVersion"`
+	SemanticsVersion     int                `json:"semanticsVersion"`
 	SnapshotToken        string             `json:"snapshotToken"`
 }
 
 // ApplyCommandsResponse defines model for ApplyCommandsResponse.
 type ApplyCommandsResponse struct {
-	CommandId    string          `json:"commandId"`
-	Diagnostics  []Diagnostic    `json:"diagnostics"`
-	DraftDigest  string          `json:"draftDigest"`
-	DraftVersion int64           `json:"draftVersion"`
-	Results      []CommandResult `json:"results"`
-	Workspace    Workspace       `json:"workspace"`
+	CommandId               string          `json:"commandId"`
+	Diagnostics             []Diagnostic    `json:"diagnostics"`
+	DraftDigest             string          `json:"draftDigest"`
+	DraftVersion            int64           `json:"draftVersion"`
+	PreviousDraftRevisionId *string         `json:"previousDraftRevisionId,omitempty"`
+	Results                 []CommandResult `json:"results"`
+	Workspace               Workspace       `json:"workspace"`
+}
+
+// Artifact defines model for Artifact.
+type Artifact struct {
+	ArchiveSha256     string            `json:"archiveSha256"`
+	Bytes             int64             `json:"bytes"`
+	CompletedAt       time.Time         `json:"completedAt"`
+	CreatedAt         time.Time         `json:"createdAt"`
+	DatasetGeneration string            `json:"datasetGeneration"`
+	ExecutionId       string            `json:"executionId"`
+	ExpiresAt         time.Time         `json:"expiresAt"`
+	ExplorerId        string            `json:"explorerId"`
+	Features          int               `json:"features"`
+	Filename          string            `json:"filename"`
+	Format            ArtifactFormat    `json:"format"`
+	Id                string            `json:"id"`
+	MediaType         ArtifactMediaType `json:"mediaType"`
+	OutputId          string            `json:"outputId"`
+	Project           string            `json:"project"`
+	ReceiptId         string            `json:"receiptId"`
+	RevisionId        string            `json:"revisionId"`
+	Rows              int64             `json:"rows"`
+	SchemaDigest      string            `json:"schemaDigest"`
+	State             ArtifactState     `json:"state"`
+}
+
+// ArtifactFormat defines model for Artifact.Format.
+type ArtifactFormat string
+
+// ArtifactMediaType defines model for Artifact.MediaType.
+type ArtifactMediaType string
+
+// ArtifactState defines model for Artifact.State.
+type ArtifactState string
+
+// ArtifactPrepareRequest defines model for ArtifactPrepareRequest.
+type ArtifactPrepareRequest struct {
+	IdempotencyKey string `json:"idempotencyKey"`
+	OutputId       string `json:"outputId"`
+	RevisionId     string `json:"revisionId"`
+}
+
+// AssessRowChangeRequest defines model for AssessRowChangeRequest.
+type AssessRowChangeRequest struct {
+	DraftDigest      string               `json:"draftDigest"`
+	DraftVersion     int64                `json:"draftVersion"`
+	OutputId         string               `json:"outputId"`
+	RootNodeId       string               `json:"rootNodeId"`
+	RootOccurrenceId *string              `json:"rootOccurrenceId,omitempty"`
+	RouteRebase      *[]RouteRebaseChoice `json:"routeRebase,omitempty"`
+	SnapshotToken    string               `json:"snapshotToken"`
 }
 
 // AuthoringCapability defines model for AuthoringCapability.
@@ -440,24 +4206,51 @@ type AuthoringCapabilityOperations string
 
 // AuthoringCommand defines model for AuthoringCommand.
 type AuthoringCommand struct {
-	CandidateId         *string                              `json:"candidateId,omitempty"`
-	Column              *string                              `json:"column,omitempty"`
-	ColumnValue         *Column                              `json:"columnValue,omitempty"`
-	EdgeId              *string                              `json:"edgeId,omitempty"`
-	InitialPresentation *AuthoringCommandInitialPresentation `json:"initialPresentation,omitempty"`
-	OccurrenceId        *string                              `json:"occurrenceId,omitempty"`
-	OutputId            *string                              `json:"outputId,omitempty"`
-	OutputIds           *[]string                            `json:"outputIds,omitempty"`
-	ParentOccurrenceId  *string                              `json:"parentOccurrenceId,omitempty"`
-	ProjectionMode      *ProjectionMode                      `json:"projectionMode,omitempty"`
-	RootNodeId          *string                              `json:"rootNodeId,omitempty"`
-	SourceOutputId      *string                              `json:"sourceOutputId,omitempty"`
-	Title               *string                              `json:"title,omitempty"`
-	Type                AuthoringCommandType                 `json:"type"`
+	CandidateId             *string                              `json:"candidateId,omitempty"`
+	Column                  *string                              `json:"column,omitempty"`
+	ColumnValue             *Column                              `json:"columnValue,omitempty"`
+	ConstructionChoice      *ConstructionChoiceSelection         `json:"constructionChoice,omitempty"`
+	ConstructionOutput      *ConstructionOutputPresentation      `json:"constructionOutput,omitempty"`
+	ContextToken            *string                              `json:"contextToken,omitempty"`
+	Contributor             *ContributorPredicate                `json:"contributor,omitempty"`
+	DraftRevisionId         *string                              `json:"draftRevisionId,omitempty"`
+	EdgeId                  *string                              `json:"edgeId,omitempty"`
+	Form                    *AuthoringCommandForm                `json:"form,omitempty"`
+	FrameChoiceId           *string                              `json:"frameChoiceId,omitempty"`
+	FrameId                 *string                              `json:"frameId,omitempty"`
+	InitialPresentation     *AuthoringCommandInitialPresentation `json:"initialPresentation,omitempty"`
+	InterpretationCandidate *InterpretationCandidatePayload      `json:"interpretationCandidate,omitempty"`
+	MatchMode               *AuthoringCommandMatchMode           `json:"matchMode,omitempty"`
+	OccurrenceId            *string                              `json:"occurrenceId,omitempty"`
+	OutputId                *string                              `json:"outputId,omitempty"`
+	OutputIds               *[]string                            `json:"outputIds,omitempty"`
+	ParentOccurrenceId      *string                              `json:"parentOccurrenceId,omitempty"`
+	ProjectionMode          *ProjectionMode                      `json:"projectionMode,omitempty"`
+	ProposalId              *string                              `json:"proposalId,omitempty"`
+	RootNodeId              *string                              `json:"rootNodeId,omitempty"`
+	RouteChoiceId           *string                              `json:"routeChoiceId,omitempty"`
+	RowChange               *RowChangeProposal                   `json:"rowChange,omitempty"`
+	RowValuePolicy          *AuthoringCommandRowValuePolicy      `json:"rowValuePolicy,omitempty"`
+	SelectionRevisionId     *string                              `json:"selectionRevisionId,omitempty"`
+	SemanticSelections      *[]SemanticSelectionIntent           `json:"semanticSelections,omitempty"`
+	Source                  *ColumnSource                        `json:"source,omitempty"`
+	SourceOutputId          *string                              `json:"sourceOutputId,omitempty"`
+	Title                   *string                              `json:"title,omitempty"`
+	TransformationChange    *ColumnTransformationChange          `json:"transformationChange,omitempty"`
+	Type                    AuthoringCommandType                 `json:"type"`
 }
+
+// AuthoringCommandForm defines model for AuthoringCommand.Form.
+type AuthoringCommandForm string
 
 // AuthoringCommandInitialPresentation defines model for AuthoringCommand.InitialPresentation.
 type AuthoringCommandInitialPresentation string
+
+// AuthoringCommandMatchMode defines model for AuthoringCommand.MatchMode.
+type AuthoringCommandMatchMode string
+
+// AuthoringCommandRowValuePolicy defines model for AuthoringCommand.RowValuePolicy.
+type AuthoringCommandRowValuePolicy string
 
 // AuthoringCommandType defines model for AuthoringCommand.Type.
 type AuthoringCommandType string
@@ -474,13 +4267,14 @@ type AuthoringFeatures struct {
 
 // BuilderState defines model for BuilderState.
 type BuilderState struct {
-	ApiVersion     APIVersion                 `json:"apiVersion"`
-	Catalog        Catalog                    `json:"catalog"`
-	DraftDigest    string                     `json:"draftDigest"`
-	DraftVersion   int64                      `json:"draftVersion"`
-	Kind           BuilderStateKind           `json:"kind"`
-	LifecycleState BuilderStateLifecycleState `json:"lifecycleState"`
-	Workspace      *Workspace                 `json:"workspace"`
+	ApiVersion              APIVersion                 `json:"apiVersion"`
+	Catalog                 Catalog                    `json:"catalog"`
+	DraftDigest             string                     `json:"draftDigest"`
+	DraftVersion            int64                      `json:"draftVersion"`
+	Kind                    BuilderStateKind           `json:"kind"`
+	LifecycleState          BuilderStateLifecycleState `json:"lifecycleState"`
+	PreviousDraftRevisionId *string                    `json:"previousDraftRevisionId,omitempty"`
+	Workspace               *Workspace                 `json:"workspace"`
 }
 
 // BuilderStateKind defines model for BuilderState.Kind.
@@ -524,26 +4318,37 @@ type Catalog struct {
 
 // CatalogCandidate defines model for CatalogCandidate.
 type CatalogCandidate struct {
-	CandidateId           string           `json:"candidateId"`
-	Chartable             bool             `json:"chartable"`
-	DefaultProjectionMode ProjectionMode   `json:"defaultProjectionMode"`
-	FieldPath             string           `json:"fieldPath"`
-	Filterable            bool             `json:"filterable"`
-	Label                 string           `json:"label"`
-	LogicalType           string           `json:"logicalType"`
-	NodeId                string           `json:"nodeId"`
-	ProjectionModes       []ProjectionMode `json:"projectionModes"`
-	Repeated              bool             `json:"repeated"`
+	AggregateOperations   []AggregateOperationCapability        `json:"aggregateOperations"`
+	CandidateId           string                                `json:"candidateId"`
+	Cardinality           string                                `json:"cardinality"`
+	Chartable             bool                                  `json:"chartable"`
+	ConceptCandidates     *[]ConceptCandidate                   `json:"conceptCandidates,omitempty"`
+	ConstructionChoice    *ConstructionChoice                   `json:"constructionChoice,omitempty"`
+	DefaultProjectionMode ProjectionMode                        `json:"defaultProjectionMode"`
+	FieldPath             string                                `json:"fieldPath"`
+	Filterable            bool                                  `json:"filterable"`
+	Label                 string                                `json:"label"`
+	LogicalType           string                                `json:"logicalType"`
+	NodeId                string                                `json:"nodeId"`
+	ProjectionModes       []ProjectionMode                      `json:"projectionModes"`
+	Repeated              bool                                  `json:"repeated"`
+	RepeatedBoundaries    *[]RepeatedBoundary                   `json:"repeatedBoundaries,omitempty"`
+	Transformations       AggregateTransformationCapabilities   `json:"transformations"`
+	ValueTransformations  ColumnValueTransformationCapabilities `json:"valueTransformations"`
 }
 
 // CatalogEdge defines model for CatalogEdge.
 type CatalogEdge struct {
-	EdgeId     string `json:"edgeId"`
-	FromNodeId string `json:"fromNodeId"`
-	Label      string `json:"label"`
-	Populated  bool   `json:"populated"`
-	ToNodeId   string `json:"toNodeId"`
+	EdgeId           string                       `json:"edgeId"`
+	FromNodeId       string                       `json:"fromNodeId"`
+	Label            string                       `json:"label"`
+	Populated        bool                         `json:"populated"`
+	StorageDirection *CatalogEdgeStorageDirection `json:"storageDirection,omitempty"`
+	ToNodeId         string                       `json:"toNodeId"`
 }
+
+// CatalogEdgeStorageDirection defines model for CatalogEdge.StorageDirection.
+type CatalogEdgeStorageDirection string
 
 // CatalogNode defines model for CatalogNode.
 type CatalogNode struct {
@@ -555,6 +4360,71 @@ type CatalogNode struct {
 	RowRootEligible bool    `json:"rowRootEligible"`
 }
 
+// CellTraceBinding defines model for CellTraceBinding.
+type CellTraceBinding struct {
+	ExplorerId  string `json:"explorerId"`
+	Generation  string `json:"generation"`
+	OutputId    string `json:"outputId"`
+	Project     string `json:"project"`
+	ReceiptId   string `json:"receiptId"`
+	ScopeDigest string `json:"scopeDigest"`
+}
+
+// CellTraceContribution defines model for CellTraceContribution.
+type CellTraceContribution struct {
+	ResourceId   *string     `json:"resourceId,omitempty"`
+	ResourceType *string     `json:"resourceType,omitempty"`
+	Value        interface{} `json:"value"`
+}
+
+// CellTraceFeature defines model for CellTraceFeature.
+type CellTraceFeature struct {
+	AuthoredColumn     string   `json:"authoredColumn"`
+	Column             string   `json:"column"`
+	Label              string   `json:"label"`
+	LogicalType        string   `json:"logicalType"`
+	LossReasons        []string `json:"lossReasons"`
+	Lossless           bool     `json:"lossless"`
+	OccurrenceId       string   `json:"occurrenceId"`
+	OutputId           string   `json:"outputId"`
+	ProjectionMode     string   `json:"projectionMode"`
+	SourcePath         *string  `json:"sourcePath,omitempty"`
+	SourceResourceType *string  `json:"sourceResourceType,omitempty"`
+}
+
+// CellTraceRequest defines model for CellTraceRequest.
+type CellTraceRequest struct {
+	Column    string `json:"column"`
+	Limit     *int   `json:"limit,omitempty"`
+	Offset    *int   `json:"offset,omitempty"`
+	OutputId  string `json:"outputId"`
+	ReceiptId string `json:"receiptId"`
+	RowId     string `json:"rowId"`
+}
+
+// CellTraceResponse defines model for CellTraceResponse.
+type CellTraceResponse struct {
+	Binding CellTraceBinding `json:"binding"`
+	Feature CellTraceFeature `json:"feature"`
+	Trace   CellTraceTrace   `json:"trace"`
+}
+
+// CellTraceTrace defines model for CellTraceTrace.
+type CellTraceTrace struct {
+	Column        string                  `json:"column"`
+	Complete      bool                    `json:"complete"`
+	Contributions []CellTraceContribution `json:"contributions"`
+	HasMore       bool                    `json:"hasMore"`
+	NextOffset    int                     `json:"nextOffset"`
+	OmissionCode  *string                 `json:"omissionCode,omitempty"`
+	RowId         string                  `json:"rowId"`
+	Status        CellTraceTraceStatus    `json:"status"`
+	Value         interface{}             `json:"value"`
+}
+
+// CellTraceTraceStatus defines model for CellTraceTrace.Status.
+type CellTraceTraceStatus string
+
 // ChartPresentation defines model for ChartPresentation.
 type ChartPresentation struct {
 	Order *int    `json:"order,omitempty"`
@@ -564,37 +4434,91 @@ type ChartPresentation struct {
 
 // Column defines model for Column.
 type Column struct {
-	Chart        *ChartPresentation  `json:"chart,omitempty"`
-	Column       string              `json:"column"`
-	Filter       *FilterPresentation `json:"filter,omitempty"`
-	Label        string              `json:"label"`
-	LogicalType  *string             `json:"logicalType,omitempty"`
-	OccurrenceId string              `json:"occurrenceId"`
-	Source       ColumnSource        `json:"source"`
-	Table        *TablePresentation  `json:"table,omitempty"`
+	Chart               *ChartPresentation         `json:"chart,omitempty"`
+	Column              string                     `json:"column"`
+	ColumnId            *string                    `json:"columnId,omitempty"`
+	Contributor         *ContributorPredicate      `json:"contributor,omitempty"`
+	Filter              *FilterPresentation        `json:"filter,omitempty"`
+	FrameId             *string                    `json:"frameId,omitempty"`
+	Label               string                     `json:"label"`
+	LogicalType         *string                    `json:"logicalType,omitempty"`
+	OccurrenceId        string                     `json:"occurrenceId"`
+	Source              ColumnSource               `json:"source"`
+	Table               *TablePresentation         `json:"table,omitempty"`
+	ValueTransformation *ColumnValueTransformation `json:"valueTransformation,omitempty"`
 }
 
 // ColumnSource defines model for ColumnSource.
 type ColumnSource struct {
-	FieldPath      *string                     `json:"fieldPath,omitempty"`
-	Kind           ColumnSourceKind            `json:"kind"`
-	Match          *string                     `json:"match,omitempty"`
-	ProjectionMode *ColumnSourceProjectionMode `json:"projectionMode,omitempty"`
+	Aggregate *AggregateSource `json:"aggregate,omitempty"`
+	Field     *FieldSource     `json:"field,omitempty"`
+	Kind      ColumnSourceKind `json:"kind"`
+
+	// Lookup Typed Identifier, Extension, and coded-value bindings remain distinct. Correlated binding/key is writable only for codedValue. Legacy Identifier and Extension match/path payloads remain readable at the persisted-draft boundary.
+	Lookup       *LookupSource       `json:"lookup,omitempty"`
+	OwnerRecords *OwnerRecordsSource `json:"ownerRecords,omitempty"`
 }
 
 // ColumnSourceKind defines model for ColumnSource.Kind.
 type ColumnSourceKind string
 
-// ColumnSourceProjectionMode defines model for ColumnSource.ProjectionMode.
-type ColumnSourceProjectionMode string
+// ColumnSourceRequest defines model for ColumnSourceRequest.
+type ColumnSourceRequest struct {
+	Column        string `json:"column"`
+	OutputId      string `json:"outputId"`
+	SnapshotToken string `json:"snapshotToken"`
+}
+
+// ColumnSourceResponse defines model for ColumnSourceResponse.
+type ColumnSourceResponse struct {
+	Column        string                   `json:"column"`
+	Facts         []ConstructionChoiceFact `json:"facts"`
+	OutputId      string                   `json:"outputId"`
+	Route         []ColumnSourceRouteStep  `json:"route"`
+	SnapshotToken string                   `json:"snapshotToken"`
+	Summary       string                   `json:"summary"`
+}
+
+// ColumnSourceRouteStep defines model for ColumnSourceRouteStep.
+type ColumnSourceRouteStep struct {
+	CatalogEdgeId    *string                                `json:"catalogEdgeId,omitempty"`
+	MatchMode        *ColumnSourceRouteStepMatchMode        `json:"matchMode,omitempty"`
+	OccurrenceId     string                                 `json:"occurrenceId"`
+	Relationship     *string                                `json:"relationship,omitempty"`
+	ResourceType     string                                 `json:"resourceType"`
+	StorageDirection *ColumnSourceRouteStepStorageDirection `json:"storageDirection,omitempty"`
+}
+
+// ColumnSourceRouteStepMatchMode defines model for ColumnSourceRouteStep.MatchMode.
+type ColumnSourceRouteStepMatchMode string
+
+// ColumnSourceRouteStepStorageDirection defines model for ColumnSourceRouteStep.StorageDirection.
+type ColumnSourceRouteStepStorageDirection string
+
+// ColumnTransformationChange defines model for ColumnTransformationChange.
+type ColumnTransformationChange struct {
+	union json.RawMessage
+}
+
+// ColumnValueTransformation defines model for ColumnValueTransformation.
+type ColumnValueTransformation struct {
+	union json.RawMessage
+}
+
+// ColumnValueTransformationCapabilities defines model for ColumnValueTransformationCapabilities.
+type ColumnValueTransformationCapabilities struct {
+	CodedValueRecoding  ValueTransformationCapability `json:"codedValueRecoding"`
+	ExactCategoryRecode ValueTransformationCapability `json:"exactCategoryRecode"`
+}
 
 // CommandResult defines model for CommandResult.
 type CommandResult struct {
-	Column       *string           `json:"column,omitempty"`
-	OccurrenceId *string           `json:"occurrenceId,omitempty"`
-	OutputId     *string           `json:"outputId,omitempty"`
-	TabId        *string           `json:"tabId,omitempty"`
-	Type         CommandResultType `json:"type"`
+	Column             *string                    `json:"column,omitempty"`
+	OccurrenceId       *string                    `json:"occurrenceId,omitempty"`
+	OutputId           *string                    `json:"outputId,omitempty"`
+	SemanticSelections *[]SemanticSelectionResult `json:"semanticSelections,omitempty"`
+	TabId              *string                    `json:"tabId,omitempty"`
+	Type               CommandResultType          `json:"type"`
 }
 
 // CommandResultType defines model for CommandResult.Type.
@@ -602,28 +4526,1099 @@ type CommandResultType string
 
 // CompileResponse defines model for CompileResponse.
 type CompileResponse struct {
-	ApiVersion      APIVersion          `json:"apiVersion"`
-	Builder         Workspace           `json:"builder"`
-	CompilerVersion string              `json:"compilerVersion"`
-	Diagnostics     []Diagnostic        `json:"diagnostics"`
-	Generation      string              `json:"generation"`
-	IntentDigest    string              `json:"intentDigest"`
-	Kind            CompileResponseKind `json:"kind"`
-	Outputs         []ReceiptOutput     `json:"outputs"`
-	ReceiptId       string              `json:"receiptId"`
-	SnapshotToken   string              `json:"snapshotToken"`
+	ApiVersion               APIVersion          `json:"apiVersion"`
+	AuthorizationScopeDigest *string             `json:"authorizationScopeDigest,omitempty"`
+	Builder                  Workspace           `json:"builder"`
+	CapabilitySchemaDigest   *string             `json:"capabilitySchemaDigest,omitempty"`
+	CompilerVersion          string              `json:"compilerVersion"`
+	Diagnostics              []Diagnostic        `json:"diagnostics"`
+	Generation               string              `json:"generation"`
+	IntentDigest             string              `json:"intentDigest"`
+	Kind                     CompileResponseKind `json:"kind"`
+	OutputContractDigest     *string             `json:"outputContractDigest,omitempty"`
+	Outputs                  []ReceiptOutput     `json:"outputs"`
+	ReceiptId                string              `json:"receiptId"`
+	RecipeDigest             *string             `json:"recipeDigest,omitempty"`
+	ResolvedRecipeDigest     *string             `json:"resolvedRecipeDigest,omitempty"`
+	ResolvedSchemaDigest     *string             `json:"resolvedSchemaDigest,omitempty"`
+	ShapeDigest              *string             `json:"shapeDigest,omitempty"`
+	SnapshotToken            string              `json:"snapshotToken"`
 }
 
 // CompileResponseKind defines model for CompileResponse.Kind.
 type CompileResponseKind string
 
+// ConceptCandidate defines model for ConceptCandidate.
+type ConceptCandidate struct {
+	ChoiceArm              *string   `json:"choiceArm,omitempty"`
+	Code                   *string   `json:"code,omitempty"`
+	Completeness           string    `json:"completeness"`
+	Display                *string   `json:"display,omitempty"`
+	Examples               *[]string `json:"examples,omitempty"`
+	ExamplesTruncated      *bool     `json:"examplesTruncated,omitempty"`
+	ExtensionUrlPath       *[]string `json:"extensionUrlPath,omitempty"`
+	KeySelector            *string   `json:"keySelector,omitempty"`
+	LogicalType            *string   `json:"logicalType,omitempty"`
+	ObservedUnits          *[]string `json:"observedUnits,omitempty"`
+	ObservedUnitsTruncated *bool     `json:"observedUnitsTruncated,omitempty"`
+	OwningScope            *string   `json:"owningScope,omitempty"`
+	Population             int64     `json:"population"`
+	RuleHint               *string   `json:"ruleHint,omitempty"`
+	RuleVersion            *string   `json:"ruleVersion,omitempty"`
+	SourceCanonical        *string   `json:"sourceCanonical,omitempty"`
+	SourcePath             *string   `json:"sourcePath,omitempty"`
+	SourceProfile          *string   `json:"sourceProfile,omitempty"`
+	SourceResourceType     string    `json:"sourceResourceType"`
+	Status                 string    `json:"status"`
+	System                 *string   `json:"system,omitempty"`
+	ValueSelector          *string   `json:"valueSelector,omitempty"`
+}
+
+// ConfiguredColumnContext defines model for ConfiguredColumnContext.
+type ConfiguredColumnContext struct {
+	Column       string                     `json:"column"`
+	OccurrenceId string                     `json:"occurrenceId"`
+	OutputId     string                     `json:"outputId"`
+	Resolution   ConfiguredColumnResolution `json:"resolution"`
+}
+
+// ConfiguredColumnContextRequest defines model for ConfiguredColumnContextRequest.
+type ConfiguredColumnContextRequest struct {
+	ExpectedDraftDigest  string `json:"expectedDraftDigest"`
+	ExpectedDraftVersion int64  `json:"expectedDraftVersion"`
+	SnapshotToken        string `json:"snapshotToken"`
+}
+
+// ConfiguredColumnContextResponse defines model for ConfiguredColumnContextResponse.
+type ConfiguredColumnContextResponse struct {
+	Columns         []ConfiguredColumnContext       `json:"columns"`
+	DraftDigest     string                          `json:"draftDigest"`
+	DraftVersion    int64                           `json:"draftVersion"`
+	Libraries       []InterpretationLibrarySummary  `json:"libraries"`
+	PinnedRevisions []InterpretationRevisionSummary `json:"pinnedRevisions"`
+	SnapshotToken   string                          `json:"snapshotToken"`
+}
+
+// ConfiguredColumnReadyResolution defines model for ConfiguredColumnReadyResolution.
+type ConfiguredColumnReadyResolution struct {
+	ApplicableRevisionIds  []string                             `json:"applicableRevisionIds"`
+	CapabilityCandidateIds []string                             `json:"capabilityCandidateIds"`
+	State                  ConfiguredColumnReadyResolutionState `json:"state"`
+}
+
+// ConfiguredColumnReadyResolutionState defines model for ConfiguredColumnReadyResolution.State.
+type ConfiguredColumnReadyResolutionState string
+
+// ConfiguredColumnResolution defines model for ConfiguredColumnResolution.
+type ConfiguredColumnResolution struct {
+	union json.RawMessage
+}
+
+// ConfiguredColumnUnavailableResolution defines model for ConfiguredColumnUnavailableResolution.
+type ConfiguredColumnUnavailableResolution struct {
+	Reason string                                     `json:"reason"`
+	State  ConfiguredColumnUnavailableResolutionState `json:"state"`
+}
+
+// ConfiguredColumnUnavailableResolutionState defines model for ConfiguredColumnUnavailableResolution.State.
+type ConfiguredColumnUnavailableResolutionState string
+
+// Construction defines model for Construction.
+type Construction struct {
+	SourceProjections *[]ConstructionSourceProjection `json:"sourceProjections,omitempty"`
+	Steps             []ConstructionStep              `json:"steps"`
+	Version           int                             `json:"version"`
+}
+
+// ConstructionActiveRelatedRecordDescriptor defines model for ConstructionActiveRelatedRecordDescriptor.
+type ConstructionActiveRelatedRecordDescriptor struct {
+	TargetNodeId           string `json:"targetNodeId"`
+	TargetResourceType     string `json:"targetResourceType"`
+	TerminalIdentityColumn string `json:"terminalIdentityColumn"`
+}
+
+// ConstructionCapabilitiesRequest defines model for ConstructionCapabilitiesRequest.
+type ConstructionCapabilitiesRequest struct {
+	ExpectedDraftDigest  string `json:"expectedDraftDigest"`
+	ExpectedDraftVersion int    `json:"expectedDraftVersion"`
+	OutputId             string `json:"outputId"`
+	SnapshotToken        string `json:"snapshotToken"`
+	StageId              string `json:"stageId"`
+}
+
+// ConstructionCapabilitiesResponse defines model for ConstructionCapabilitiesResponse.
+type ConstructionCapabilitiesResponse struct {
+	BaseConstruction Construction                  `json:"baseConstruction"`
+	DraftDigest      string                        `json:"draftDigest"`
+	DraftVersion     int                           `json:"draftVersion"`
+	OutputId         string                        `json:"outputId"`
+	PivotSourceInput *ConstructionSourceInput      `json:"pivotSourceInput,omitempty"`
+	SelectedStage    ConstructionStageDescriptor   `json:"selectedStage"`
+	SnapshotToken    string                        `json:"snapshotToken"`
+	SourceInput      ConstructionSourceInput       `json:"sourceInput"`
+	StageId          string                        `json:"stageId"`
+	Stages           []ConstructionStageDescriptor `json:"stages"`
+	WorkspaceInputs  []ConstructionWorkspaceInput  `json:"workspaceInputs"`
+}
+
+// ConstructionCategoryDiscoveryRequest defines model for ConstructionCategoryDiscoveryRequest.
+type ConstructionCategoryDiscoveryRequest struct {
+	CandidateConstruction *Construction                       `json:"candidateConstruction,omitempty"`
+	CategoryColumnId      string                              `json:"categoryColumnId"`
+	ExpectedDraftDigest   string                              `json:"expectedDraftDigest"`
+	ExpectedDraftVersion  int                                 `json:"expectedDraftVersion"`
+	GroupKeyIds           *[]string                           `json:"groupKeyIds,omitempty"`
+	OutputId              string                              `json:"outputId"`
+	PivotSources          *[]ConstructionPivotSourceSelection `json:"pivotSources,omitempty"`
+	PivotStepId           *string                             `json:"pivotStepId,omitempty"`
+	SnapshotToken         string                              `json:"snapshotToken"`
+	StageId               string                              `json:"stageId"`
+	ValueColumnId         string                              `json:"valueColumnId"`
+}
+
+// ConstructionCategoryDiscoveryResponse defines model for ConstructionCategoryDiscoveryResponse.
+type ConstructionCategoryDiscoveryResponse struct {
+	// Categories Empty for LIMIT_EXCEEDED and MISSING_UNSUPPORTED; partial or unsupported category values are never returned.
+	Categories       []ConstructionDiscoveredCategory `json:"categories"`
+	CategoryColumnId string                           `json:"categoryColumnId"`
+
+	// Complete True only when the full category set was returned.
+	Complete     bool   `json:"complete"`
+	DraftDigest  string `json:"draftDigest"`
+	DraftVersion int    `json:"draftVersion"`
+
+	// Limit Present only for LIMIT_EXCEEDED; maximum supported number of categories.
+	Limit *int `json:"limit,omitempty"`
+
+	// Message Present for LIMIT_EXCEEDED or MISSING_UNSUPPORTED; user-facing recovery guidance.
+	Message *string `json:"message,omitempty"`
+
+	// Outcome COMPLETE includes a complete compiler proof; LIMIT_EXCEEDED is a compiler-proven overflow and carries no partial category set; MISSING_UNSUPPORTED means the selected stage contains MISSING values that a construction Pivot cannot preserve separately from NULL.
+	Outcome  ConstructionCategoryDiscoveryResponseOutcome `json:"outcome"`
+	OutputId string                                       `json:"outputId"`
+
+	// ProofFingerprint Present only for COMPLETE.
+	ProofFingerprint *string `json:"proofFingerprint,omitempty"`
+	SnapshotToken    string  `json:"snapshotToken"`
+	StageId          string  `json:"stageId"`
+	ValueColumnId    string  `json:"valueColumnId"`
+}
+
+// ConstructionCategoryDiscoveryResponseOutcome COMPLETE includes a complete compiler proof; LIMIT_EXCEEDED is a compiler-proven overflow and carries no partial category set; MISSING_UNSUPPORTED means the selected stage contains MISSING values that a construction Pivot cannot preserve separately from NULL.
+type ConstructionCategoryDiscoveryResponseOutcome string
+
+// ConstructionChoice defines model for ConstructionChoice.
+type ConstructionChoice struct {
+	ChoiceId     string                         `json:"choiceId"`
+	Options      []ConstructionChoiceOption     `json:"options"`
+	Presentation ConstructionChoicePresentation `json:"presentation"`
+	Route        []ConstructionRouteStep        `json:"route"`
+	Source       ConstructionChoice_Source      `json:"source"`
+}
+
+// ConstructionChoice_Source defines model for ConstructionChoice.Source.
+type ConstructionChoice_Source struct {
+	union json.RawMessage
+}
+
+// ConstructionChoiceFact defines model for ConstructionChoiceFact.
+type ConstructionChoiceFact struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+}
+
+// ConstructionChoiceOption defines model for ConstructionChoiceOption.
+type ConstructionChoiceOption struct {
+	ContributorPredicateOperators *[]ConstructionChoiceOptionContributorPredicateOperators `json:"contributorPredicateOperators,omitempty"`
+	Decision                      ConstructionChoiceOptionDecision                         `json:"decision"`
+	Form                          ConstructionChoiceOptionForm                             `json:"form"`
+	Preservation                  ConstructionChoiceOptionPreservation                     `json:"preservation"`
+	Reason                        string                                                   `json:"reason"`
+	RowEffect                     ConstructionChoiceOptionRowEffect                        `json:"rowEffect"`
+	Shape                         ConstructionChoiceOptionShape                            `json:"shape"`
+	Support                       ConstructionChoiceOptionSupport                          `json:"support"`
+}
+
+// ConstructionChoiceOptionContributorPredicateOperators defines model for ConstructionChoiceOption.ContributorPredicateOperators.
+type ConstructionChoiceOptionContributorPredicateOperators string
+
+// ConstructionChoiceOptionDecision defines model for ConstructionChoiceOption.Decision.
+type ConstructionChoiceOptionDecision string
+
+// ConstructionChoiceOptionForm defines model for ConstructionChoiceOption.Form.
+type ConstructionChoiceOptionForm string
+
+// ConstructionChoiceOptionPreservation defines model for ConstructionChoiceOption.Preservation.
+type ConstructionChoiceOptionPreservation string
+
+// ConstructionChoiceOptionRowEffect defines model for ConstructionChoiceOption.RowEffect.
+type ConstructionChoiceOptionRowEffect string
+
+// ConstructionChoiceOptionShape defines model for ConstructionChoiceOption.Shape.
+type ConstructionChoiceOptionShape string
+
+// ConstructionChoiceOptionSupport defines model for ConstructionChoiceOption.Support.
+type ConstructionChoiceOptionSupport string
+
+// ConstructionChoicePresentation defines model for ConstructionChoicePresentation.
+type ConstructionChoicePresentation struct {
+	Facts   []ConstructionChoiceFact `json:"facts"`
+	Summary string                   `json:"summary"`
+}
+
+// ConstructionChoiceProposalRequest defines model for ConstructionChoiceProposalRequest.
+type ConstructionChoiceProposalRequest struct {
+	CommandId            string                                `json:"commandId"`
+	ConstructionChoices  []ConstructionChoiceProposalSelection `json:"constructionChoices"`
+	ExpectedDraftDigest  string                                `json:"expectedDraftDigest"`
+	ExpectedDraftVersion int                                   `json:"expectedDraftVersion"`
+	Limit                *int                                  `json:"limit,omitempty"`
+	OutputId             string                                `json:"outputId"`
+	SnapshotToken        string                                `json:"snapshotToken"`
+}
+
+// ConstructionChoiceProposalResponse defines model for ConstructionChoiceProposalResponse.
+type ConstructionChoiceProposalResponse struct {
+	CandidateColumnIds       []string                                        `json:"candidateColumnIds"`
+	CandidateWorkspaceDigest string                                          `json:"candidateWorkspaceDigest"`
+	CommandId                string                                          `json:"commandId"`
+	ConstructionChoices      []ConstructionChoiceProposalSelection           `json:"constructionChoices"`
+	DraftDigest              string                                          `json:"draftDigest"`
+	DraftVersion             int                                             `json:"draftVersion"`
+	OutputId                 string                                          `json:"outputId"`
+	Preview                  PreviewResponse                                 `json:"preview"`
+	PreviewDurationMs        int64                                           `json:"previewDurationMs"`
+	PreviewStatus            ConstructionChoiceProposalResponsePreviewStatus `json:"previewStatus"`
+	SnapshotToken            string                                          `json:"snapshotToken"`
+}
+
+// ConstructionChoiceProposalResponsePreviewStatus defines model for ConstructionChoiceProposalResponse.PreviewStatus.
+type ConstructionChoiceProposalResponsePreviewStatus string
+
+// ConstructionChoiceProposalSelection defines model for ConstructionChoiceProposalSelection.
+type ConstructionChoiceProposalSelection struct {
+	ChoiceId       string                                             `json:"choiceId"`
+	Form           ConstructionChoiceProposalSelectionForm            `json:"form"`
+	FrameId        *string                                            `json:"frameId,omitempty"`
+	RowValuePolicy *ConstructionChoiceProposalSelectionRowValuePolicy `json:"rowValuePolicy,omitempty"`
+	Title          *string                                            `json:"title,omitempty"`
+}
+
+// ConstructionChoiceProposalSelectionForm defines model for ConstructionChoiceProposalSelection.Form.
+type ConstructionChoiceProposalSelectionForm string
+
+// ConstructionChoiceProposalSelectionRowValuePolicy defines model for ConstructionChoiceProposalSelection.RowValuePolicy.
+type ConstructionChoiceProposalSelectionRowValuePolicy string
+
+// ConstructionChoiceSearchRequest defines model for ConstructionChoiceSearchRequest.
+type ConstructionChoiceSearchRequest struct {
+	Cursor *string `json:"cursor,omitempty"`
+	Limit  *int    `json:"limit,omitempty"`
+
+	// OccurrenceId When present, resolve this saved output occurrence's route on the server and return only its exact route-bound choice.
+	OccurrenceId  *string                                `json:"occurrenceId,omitempty"`
+	OutputId      string                                 `json:"outputId"`
+	SnapshotToken string                                 `json:"snapshotToken"`
+	Source        ConstructionChoiceSearchRequest_Source `json:"source"`
+}
+
+// ConstructionChoiceSearchRequest_Source defines model for ConstructionChoiceSearchRequest.Source.
+type ConstructionChoiceSearchRequest_Source struct {
+	union json.RawMessage
+}
+
+// ConstructionChoiceSearchResponse defines model for ConstructionChoiceSearchResponse.
+type ConstructionChoiceSearchResponse struct {
+	Choices       []ConstructionChoice `json:"choices"`
+	Complete      bool                 `json:"complete"`
+	NextCursor    *string              `json:"nextCursor,omitempty"`
+	OutputId      string               `json:"outputId"`
+	SnapshotToken string               `json:"snapshotToken"`
+	Truncated     bool                 `json:"truncated"`
+}
+
+// ConstructionChoiceSelection defines model for ConstructionChoiceSelection.
+type ConstructionChoiceSelection struct {
+	ChoiceId       string                                     `json:"choiceId"`
+	Form           ConstructionChoiceSelectionForm            `json:"form"`
+	FrameId        *string                                    `json:"frameId,omitempty"`
+	RowValuePolicy *ConstructionChoiceSelectionRowValuePolicy `json:"rowValuePolicy,omitempty"`
+}
+
+// ConstructionChoiceSelectionForm defines model for ConstructionChoiceSelection.Form.
+type ConstructionChoiceSelectionForm string
+
+// ConstructionChoiceSelectionRowValuePolicy defines model for ConstructionChoiceSelection.RowValuePolicy.
+type ConstructionChoiceSelectionRowValuePolicy string
+
+// ConstructionCodeValue defines model for ConstructionCodeValue.
+type ConstructionCodeValue struct {
+	Code    string  `json:"code"`
+	Display *string `json:"display,omitempty"`
+	System  *string `json:"system,omitempty"`
+}
+
+// ConstructionCodedGroup defines model for ConstructionCodedGroup.
+type ConstructionCodedGroup struct {
+	// ChoiceId Optional when reading a saved construction; a changed step proposal must include a current choice.
+	ChoiceId                          *string                                `json:"choiceId,omitempty"`
+	CodeOutputColumnId                string                                 `json:"codeOutputColumnId"`
+	ConstructionId                    string                                 `json:"constructionId"`
+	DistinctSourceCountOutputColumnId string                                 `json:"distinctSourceCountOutputColumnId"`
+	MissingKeyPolicy                  ConstructionCodedGroupMissingKeyPolicy `json:"missingKeyPolicy"`
+	Source                            struct {
+		Cardinality  ConstructionCodedGroupSourceCardinality `json:"cardinality"`
+		CodingPath   string                                  `json:"codingPath"`
+		FhirType     ConstructionCodedGroupSourceFhirType    `json:"fhirType"`
+		OccurrenceId string                                  `json:"occurrenceId"`
+		ResourceType string                                  `json:"resourceType"`
+		Route        []ConstructionRouteStep                 `json:"route"`
+		Shape        ConstructionCodedGroupSourceShape       `json:"shape"`
+	} `json:"source"`
+	SystemOutputColumnId  string `json:"systemOutputColumnId"`
+	VersionOutputColumnId string `json:"versionOutputColumnId"`
+}
+
+// ConstructionCodedGroupMissingKeyPolicy defines model for ConstructionCodedGroup.MissingKeyPolicy.
+type ConstructionCodedGroupMissingKeyPolicy string
+
+// ConstructionCodedGroupSourceCardinality defines model for ConstructionCodedGroup.Source.Cardinality.
+type ConstructionCodedGroupSourceCardinality string
+
+// ConstructionCodedGroupSourceFhirType defines model for ConstructionCodedGroup.Source.FhirType.
+type ConstructionCodedGroupSourceFhirType string
+
+// ConstructionCodedGroupSourceShape defines model for ConstructionCodedGroup.Source.Shape.
+type ConstructionCodedGroupSourceShape string
+
+// ConstructionCodedGroupChoice defines model for ConstructionCodedGroupChoice.
+type ConstructionCodedGroupChoice struct {
+	ChoiceId     string `json:"choiceId"`
+	CodingPath   string `json:"codingPath"`
+	Label        string `json:"label"`
+	OccurrenceId string `json:"occurrenceId"`
+	ResourceType string `json:"resourceType"`
+}
+
+// ConstructionCodedPivot defines model for ConstructionCodedPivot.
+type ConstructionCodedPivot struct {
+	Categories        []ConstructionCodedPivotCategory        `json:"categories"`
+	ConstructionId    string                                  `json:"constructionId"`
+	DuplicatePolicy   ConstructionCodedPivotDuplicatePolicy   `json:"duplicatePolicy"`
+	MissingCellPolicy ConstructionCodedPivotMissingCellPolicy `json:"missingCellPolicy"`
+	Source            *ConstructionCodedPivotSource           `json:"source,omitempty"`
+
+	// SourceChoiceId Signed source choice on a proposal; omitted after the source is resolved.
+	SourceChoiceId *string `json:"sourceChoiceId,omitempty"`
+}
+
+// ConstructionCodedPivotDuplicatePolicy defines model for ConstructionCodedPivot.DuplicatePolicy.
+type ConstructionCodedPivotDuplicatePolicy string
+
+// ConstructionCodedPivotMissingCellPolicy defines model for ConstructionCodedPivot.MissingCellPolicy.
+type ConstructionCodedPivotMissingCellPolicy string
+
+// ConstructionCodedPivotCategory defines model for ConstructionCodedPivotCategory.
+type ConstructionCodedPivotCategory struct {
+	// ChoiceId Signed category choice on a proposal; omitted after the category is resolved.
+	ChoiceId       *string `json:"choiceId,omitempty"`
+	Code           *string `json:"code,omitempty"`
+	OutputColumnId string  `json:"outputColumnId"`
+	System         *string `json:"system,omitempty"`
+}
+
+// ConstructionCodedPivotSource defines model for ConstructionCodedPivotSource.
+type ConstructionCodedPivotSource struct {
+	CandidateId string                  `json:"candidateId"`
+	Family      SemanticFrameFamily     `json:"family"`
+	FieldPath   string                  `json:"fieldPath"`
+	NodeId      string                  `json:"nodeId"`
+	Route       []ConstructionRouteStep `json:"route"`
+}
+
+// ConstructionCombine defines model for ConstructionCombine.
+type ConstructionCombine struct {
+	JoinType         *ConstructionCombineJoinType         `json:"joinType,omitempty"`
+	Keys             *[]ConstructionCombineKey            `json:"keys,omitempty"`
+	Kind             ConstructionCombineKind              `json:"kind"`
+	MembershipMode   *ConstructionCombineMembershipMode   `json:"membershipMode,omitempty"`
+	Projections      []ConstructionCombineProjection      `json:"projections"`
+	RightMatchPolicy *ConstructionCombineRightMatchPolicy `json:"rightMatchPolicy,omitempty"`
+}
+
+// ConstructionCombineJoinType defines model for ConstructionCombine.JoinType.
+type ConstructionCombineJoinType string
+
+// ConstructionCombineKind defines model for ConstructionCombine.Kind.
+type ConstructionCombineKind string
+
+// ConstructionCombineMembershipMode defines model for ConstructionCombine.MembershipMode.
+type ConstructionCombineMembershipMode string
+
+// ConstructionCombineRightMatchPolicy defines model for ConstructionCombine.RightMatchPolicy.
+type ConstructionCombineRightMatchPolicy string
+
+// ConstructionCombineKey defines model for ConstructionCombineKey.
+type ConstructionCombineKey struct {
+	LeftColumnId  string `json:"leftColumnId"`
+	RightColumnId string `json:"rightColumnId"`
+}
+
+// ConstructionCombineProjection defines model for ConstructionCombineProjection.
+type ConstructionCombineProjection struct {
+	InputColumnId  string `json:"inputColumnId"`
+	InputIndex     int    `json:"inputIndex"`
+	OutputColumnId string `json:"outputColumnId"`
+}
+
+// ConstructionDependencyImpact defines model for ConstructionDependencyImpact.
+type ConstructionDependencyImpact struct {
+	AffectedStepIds []string                       `json:"affectedStepIds"`
+	ChangedStepId   *string                        `json:"changedStepId,omitempty"`
+	MissingInputs   *[]ConstructionDependencyIssue `json:"missingInputs,omitempty"`
+	RemovedStepIds  *[]string                      `json:"removedStepIds,omitempty"`
+}
+
+// ConstructionDependencyIssue defines model for ConstructionDependencyIssue.
+type ConstructionDependencyIssue struct {
+	ColumnId string `json:"columnId"`
+	StepId   string `json:"stepId"`
+}
+
+// ConstructionDerive defines model for ConstructionDerive.
+type ConstructionDerive struct {
+	ConstructionId       string                                  `json:"constructionId"`
+	DivisionByZeroPolicy *ConstructionDeriveDivisionByZeroPolicy `json:"divisionByZeroPolicy,omitempty"`
+	Left                 ConstructionOperand                     `json:"left"`
+	MissingInputPolicy   ConstructionDeriveMissingInputPolicy    `json:"missingInputPolicy"`
+	Operation            ConstructionDeriveOperation             `json:"operation"`
+	OutputColumnId       string                                  `json:"outputColumnId"`
+	Right                ConstructionOperand                     `json:"right"`
+}
+
+// ConstructionDeriveDivisionByZeroPolicy defines model for ConstructionDerive.DivisionByZeroPolicy.
+type ConstructionDeriveDivisionByZeroPolicy string
+
+// ConstructionDeriveMissingInputPolicy defines model for ConstructionDerive.MissingInputPolicy.
+type ConstructionDeriveMissingInputPolicy string
+
+// ConstructionDeriveOperation defines model for ConstructionDerive.Operation.
+type ConstructionDeriveOperation string
+
+// ConstructionDiscoveredCategory defines model for ConstructionDiscoveredCategory.
+type ConstructionDiscoveredCategory struct {
+	Key   ConstructionTableScalar `json:"key"`
+	Label string                  `json:"label"`
+}
+
+// ConstructionExpand defines model for ConstructionExpand.
+type ConstructionExpand struct {
+	ConstructionId  string                         `json:"constructionId"`
+	EmptyPolicy     *ConstructionExpandEmptyPolicy `json:"emptyPolicy,omitempty"`
+	InputColumnId   string                         `json:"inputColumnId"`
+	OrdinalColumnId *string                        `json:"ordinalColumnId,omitempty"`
+	OutputColumnId  string                         `json:"outputColumnId"`
+}
+
+// ConstructionExpandEmptyPolicy defines model for ConstructionExpand.EmptyPolicy.
+type ConstructionExpandEmptyPolicy string
+
+// ConstructionFilter defines model for ConstructionFilter.
+type ConstructionFilter struct {
+	ColumnId string                     `json:"columnId"`
+	Operator ConstructionFilterOperator `json:"operator"`
+	Values   *[]ConstructionFilterValue `json:"values,omitempty"`
+}
+
+// ConstructionFilterOperator defines model for ConstructionFilter.Operator.
+type ConstructionFilterOperator string
+
+// ConstructionFilterValue defines model for ConstructionFilterValue.
+type ConstructionFilterValue struct {
+	Boolean  *bool                       `json:"boolean,omitempty"`
+	Code     *ConstructionCodeValue      `json:"code,omitempty"`
+	Date     *openapi_types.Date         `json:"date,omitempty"`
+	DateTime *time.Time                  `json:"dateTime,omitempty"`
+	Decimal  *float32                    `json:"decimal,omitempty"`
+	Integer  *int64                      `json:"integer,omitempty"`
+	Kind     ConstructionFilterValueKind `json:"kind"`
+	String   *string                     `json:"string,omitempty"`
+}
+
+// ConstructionFilterValueKind defines model for ConstructionFilterValue.Kind.
+type ConstructionFilterValueKind string
+
+// ConstructionGroup defines model for ConstructionGroup.
+type ConstructionGroup struct {
+	Aggregates     *[]ConstructionGroupAggregate `json:"aggregates,omitempty"`
+	ConstructionId string                        `json:"constructionId"`
+	Keys           *[]ConstructionGroupKey       `json:"keys,omitempty"`
+
+	// MissingKeyPolicy Missing or null group keys are grouped together by default.
+	MissingKeyPolicy *ConstructionGroupMissingKeyPolicy `json:"missingKeyPolicy,omitempty"`
+}
+
+// ConstructionGroupMissingKeyPolicy Missing or null group keys are grouped together by default.
+type ConstructionGroupMissingKeyPolicy string
+
+// ConstructionGroupAggregate defines model for ConstructionGroupAggregate.
+type ConstructionGroupAggregate struct {
+	// InputColumnId Omit for COUNT_ROWS. Required for all other operations.
+	InputColumnId  *string                             `json:"inputColumnId,omitempty"`
+	Operation      ConstructionGroupAggregateOperation `json:"operation"`
+	OutputColumnId string                              `json:"outputColumnId"`
+}
+
+// ConstructionGroupAggregateOperation defines model for ConstructionGroupAggregate.Operation.
+type ConstructionGroupAggregateOperation string
+
+// ConstructionGroupKey defines model for ConstructionGroupKey.
+type ConstructionGroupKey struct {
+	InputColumnId  string `json:"inputColumnId"`
+	OutputColumnId string `json:"outputColumnId"`
+}
+
+// ConstructionGroupSource defines model for ConstructionGroupSource.
+type ConstructionGroupSource struct {
+	ColumnId    string `json:"columnId"`
+	RowChoiceId string `json:"rowChoiceId"`
+}
+
+// ConstructionInputColumn defines model for ConstructionInputColumn.
+type ConstructionInputColumn struct {
+	ClickhouseType string  `json:"clickhouseType"`
+	Id             string  `json:"id"`
+	Label          string  `json:"label"`
+	Name           string  `json:"name"`
+	Nullable       bool    `json:"nullable"`
+	Repeated       bool    `json:"repeated"`
+	SemanticPath   *string `json:"semanticPath,omitempty"`
+	Type           string  `json:"type"`
+}
+
+// ConstructionInputRef defines model for ConstructionInputRef.
+type ConstructionInputRef struct {
+	Kind       ConstructionInputRefKind `json:"kind"`
+	OutputId   *string                  `json:"outputId,omitempty"`
+	RevisionId *string                  `json:"revisionId,omitempty"`
+	StepId     *string                  `json:"stepId,omitempty"`
+	TableId    *string                  `json:"tableId,omitempty"`
+}
+
+// ConstructionInputRefKind defines model for ConstructionInputRef.Kind.
+type ConstructionInputRefKind string
+
+// ConstructionInputRevision defines model for ConstructionInputRevision.
+type ConstructionInputRevision struct {
+	Columns     []ConstructionInputColumn     `json:"columns"`
+	CreatedAt   time.Time                     `json:"createdAt"`
+	IsCurrent   bool                          `json:"isCurrent"`
+	Kind        ConstructionInputRevisionKind `json:"kind"`
+	OutputId    string                        `json:"outputId"`
+	OutputTitle string                        `json:"outputTitle"`
+	RevisionId  string                        `json:"revisionId"`
+	RowMeaning  string                        `json:"rowMeaning"`
+	TableId     string                        `json:"tableId"`
+	TableTitle  string                        `json:"tableTitle"`
+}
+
+// ConstructionInputRevisionKind defines model for ConstructionInputRevision.Kind.
+type ConstructionInputRevisionKind string
+
+// ConstructionInputsRequest defines model for ConstructionInputsRequest.
+type ConstructionInputsRequest struct {
+	Cursor               *string `json:"cursor,omitempty"`
+	ExpectedDraftDigest  string  `json:"expectedDraftDigest"`
+	ExpectedDraftVersion int     `json:"expectedDraftVersion"`
+	Limit                *int    `json:"limit,omitempty"`
+	Query                *string `json:"query,omitempty"`
+	SnapshotToken        string  `json:"snapshotToken"`
+}
+
+// ConstructionInputsResponse defines model for ConstructionInputsResponse.
+type ConstructionInputsResponse struct {
+	DatasetGeneration string                      `json:"datasetGeneration"`
+	DraftDigest       string                      `json:"draftDigest"`
+	DraftVersion      int                         `json:"draftVersion"`
+	Entries           []ConstructionInputRevision `json:"entries"`
+	NextCursor        *string                     `json:"nextCursor,omitempty"`
+	SnapshotToken     string                      `json:"snapshotToken"`
+}
+
+// ConstructionLiteral defines model for ConstructionLiteral.
+type ConstructionLiteral struct {
+	Decimal *float32                `json:"decimal,omitempty"`
+	Integer *int64                  `json:"integer,omitempty"`
+	Kind    ConstructionLiteralKind `json:"kind"`
+}
+
+// ConstructionLiteralKind defines model for ConstructionLiteral.Kind.
+type ConstructionLiteralKind string
+
+// ConstructionOperand defines model for ConstructionOperand.
+type ConstructionOperand struct {
+	ColumnId *string                 `json:"columnId,omitempty"`
+	Kind     ConstructionOperandKind `json:"kind"`
+	Literal  *ConstructionLiteral    `json:"literal,omitempty"`
+}
+
+// ConstructionOperandKind defines model for ConstructionOperand.Kind.
+type ConstructionOperandKind string
+
+// ConstructionOperation defines model for ConstructionOperation.
+type ConstructionOperation struct {
+	CodedGroup         *ConstructionCodedGroup         `json:"codedGroup,omitempty"`
+	CodedPivot         *ConstructionCodedPivot         `json:"codedPivot,omitempty"`
+	Combine            *ConstructionCombine            `json:"combine,omitempty"`
+	Derive             *ConstructionDerive             `json:"derive,omitempty"`
+	Expand             *ConstructionExpand             `json:"expand,omitempty"`
+	Filter             *ConstructionFilter             `json:"filter,omitempty"`
+	Group              *ConstructionGroup              `json:"group,omitempty"`
+	Kind               ConstructionOperationKind       `json:"kind"`
+	Pivot              *ConstructionPivot              `json:"pivot,omitempty"`
+	RelatedEligibility *ConstructionRelatedEligibility `json:"relatedEligibility,omitempty"`
+	RelatedExpand      *ConstructionRelatedExpand      `json:"relatedExpand,omitempty"`
+	RelatedField       *ConstructionRelatedField       `json:"relatedField,omitempty"`
+	RelatedSource      *ConstructionRelatedSource      `json:"relatedSource,omitempty"`
+	Unpivot            *ConstructionUnpivot            `json:"unpivot,omitempty"`
+}
+
+// ConstructionOperationKind defines model for ConstructionOperation.Kind.
+type ConstructionOperationKind string
+
+// ConstructionOperationCapability defines model for ConstructionOperationCapability.
+type ConstructionOperationCapability struct {
+	Kind       ConstructionOperationCapabilityKind `json:"kind"`
+	Reason     *string                             `json:"reason,omitempty"`
+	ReasonCode *string                             `json:"reasonCode,omitempty"`
+	Supported  bool                                `json:"supported"`
+}
+
+// ConstructionOperationCapabilityKind defines model for ConstructionOperationCapability.Kind.
+type ConstructionOperationCapabilityKind string
+
+// ConstructionOutputPresentation defines model for ConstructionOutputPresentation.
+type ConstructionOutputPresentation struct {
+	ColumnId string             `json:"columnId"`
+	Label    string             `json:"label"`
+	StepId   string             `json:"stepId"`
+	Table    *TablePresentation `json:"table,omitempty"`
+}
+
+// ConstructionPivot defines model for ConstructionPivot.
+type ConstructionPivot struct {
+	Categories             []ConstructionPivotCategory             `json:"categories"`
+	CategoryColumnId       string                                  `json:"categoryColumnId"`
+	ConstructionId         string                                  `json:"constructionId"`
+	DuplicatePolicy        ConstructionPivotDuplicatePolicy        `json:"duplicatePolicy"`
+	GroupKeyIds            []string                                `json:"groupKeyIds"`
+	MissingCellPolicy      ConstructionPivotMissingCellPolicy      `json:"missingCellPolicy"`
+	UnlistedCategoryPolicy ConstructionPivotUnlistedCategoryPolicy `json:"unlistedCategoryPolicy"`
+	ValueColumnId          string                                  `json:"valueColumnId"`
+}
+
+// ConstructionPivotDuplicatePolicy defines model for ConstructionPivot.DuplicatePolicy.
+type ConstructionPivotDuplicatePolicy string
+
+// ConstructionPivotMissingCellPolicy defines model for ConstructionPivot.MissingCellPolicy.
+type ConstructionPivotMissingCellPolicy string
+
+// ConstructionPivotUnlistedCategoryPolicy defines model for ConstructionPivot.UnlistedCategoryPolicy.
+type ConstructionPivotUnlistedCategoryPolicy string
+
+// ConstructionPivotCategory defines model for ConstructionPivotCategory.
+type ConstructionPivotCategory struct {
+	Key            ConstructionTableScalar `json:"key"`
+	OutputColumnId string                  `json:"outputColumnId"`
+}
+
+// ConstructionPivotSourceSelection defines model for ConstructionPivotSourceSelection.
+type ConstructionPivotSourceSelection struct {
+	ChoiceId string `json:"choiceId"`
+	ColumnId string `json:"columnId"`
+}
+
+// ConstructionProposalRequest defines model for ConstructionProposalRequest.
+type ConstructionProposalRequest struct {
+	CandidateConstruction Construction                        `json:"candidateConstruction"`
+	ChangedStepId         *string                             `json:"changedStepId,omitempty"`
+	ExpectedDraftDigest   string                              `json:"expectedDraftDigest"`
+	ExpectedDraftVersion  int                                 `json:"expectedDraftVersion"`
+	GroupSource           *ConstructionGroupSource            `json:"groupSource,omitempty"`
+	GroupSources          *[]ConstructionGroupSource          `json:"groupSources,omitempty"`
+	Limit                 *int                                `json:"limit,omitempty"`
+	OutputId              string                              `json:"outputId"`
+	PivotSources          *[]ConstructionPivotSourceSelection `json:"pivotSources,omitempty"`
+	RemoveStepIds         *[]string                           `json:"removeStepIds,omitempty"`
+	SnapshotToken         string                              `json:"snapshotToken"`
+}
+
+// ConstructionProposalResponse defines model for ConstructionProposalResponse.
+type ConstructionProposalResponse struct {
+	BaseDocumentDigest       string                                    `json:"baseDocumentDigest"`
+	BaseReceiptId            *string                                   `json:"baseReceiptId,omitempty"`
+	CandidateConstruction    Construction                              `json:"candidateConstruction"`
+	CandidateWorkspaceDigest string                                    `json:"candidateWorkspaceDigest"`
+	ChangedStepId            string                                    `json:"changedStepId"`
+	DependencyImpact         ConstructionDependencyImpact              `json:"dependencyImpact"`
+	DraftDigest              string                                    `json:"draftDigest"`
+	DraftVersion             int                                       `json:"draftVersion"`
+	OutputId                 string                                    `json:"outputId"`
+	Preview                  *PreviewResponse                          `json:"preview,omitempty"`
+	PreviewDurationMs        int64                                     `json:"previewDurationMs"`
+	PreviewStatus            ConstructionProposalResponsePreviewStatus `json:"previewStatus"`
+	ProposalId               *string                                   `json:"proposalId,omitempty"`
+	SnapshotToken            string                                    `json:"snapshotToken"`
+	Stages                   []ConstructionStageDescriptor             `json:"stages"`
+}
+
+// ConstructionProposalResponsePreviewStatus defines model for ConstructionProposalResponse.PreviewStatus.
+type ConstructionProposalResponsePreviewStatus string
+
+// ConstructionRelatedEligibility defines model for ConstructionRelatedEligibility.
+type ConstructionRelatedEligibility struct {
+	AnchorColumnId      string                              `json:"anchorColumnId"`
+	ChoiceId            string                              `json:"choiceId"`
+	ContributorChoiceId *string                             `json:"contributorChoiceId,omitempty"`
+	ContributorRule     RelatedSourceContributorRule        `json:"contributorRule"`
+	ContributorSource   *RelatedSourceField                 `json:"contributorSource,omitempty"`
+	Match               ConstructionRelatedEligibilityMatch `json:"match"`
+	Route               []ConstructionRouteStep             `json:"route"`
+	TargetNodeId        string                              `json:"targetNodeId"`
+	TargetResourceType  string                              `json:"targetResourceType"`
+}
+
+// ConstructionRelatedEligibilityMatch defines model for ConstructionRelatedEligibilityMatch.
+type ConstructionRelatedEligibilityMatch struct {
+	Kind      ConstructionRelatedEligibilityMatchKind `json:"kind"`
+	Threshold *int                                    `json:"threshold,omitempty"`
+}
+
+// ConstructionRelatedEligibilityMatchKind defines model for ConstructionRelatedEligibilityMatch.Kind.
+type ConstructionRelatedEligibilityMatchKind string
+
+// ConstructionRelatedExpand defines model for ConstructionRelatedExpand.
+type ConstructionRelatedExpand struct {
+	AnchorColumnId        string                               `json:"anchorColumnId"`
+	ChoiceId              string                               `json:"choiceId"`
+	ContributorChoiceId   *string                              `json:"contributorChoiceId,omitempty"`
+	ContributorRule       RelatedSourceContributorRule         `json:"contributorRule"`
+	ContributorSource     *RelatedExpandContributorSource      `json:"contributorSource,omitempty"`
+	EmptyPolicy           ConstructionRelatedExpandEmptyPolicy `json:"emptyPolicy"`
+	RelatedRecordColumnId string                               `json:"relatedRecordColumnId"`
+	Route                 []ConstructionRouteStep              `json:"route"`
+	TargetNodeId          string                               `json:"targetNodeId"`
+	TargetResourceType    string                               `json:"targetResourceType"`
+}
+
+// ConstructionRelatedExpandEmptyPolicy defines model for ConstructionRelatedExpand.EmptyPolicy.
+type ConstructionRelatedExpandEmptyPolicy string
+
+// ConstructionRelatedExpandAnchor defines model for ConstructionRelatedExpandAnchor.
+type ConstructionRelatedExpandAnchor struct {
+	AnchorColumnId string                              `json:"anchorColumnId"`
+	Kind           ConstructionRelatedExpandAnchorKind `json:"kind"`
+	Label          string                              `json:"label"`
+	NodeId         *string                             `json:"nodeId,omitempty"`
+	ResourceType   string                              `json:"resourceType"`
+}
+
+// ConstructionRelatedExpandAnchorKind defines model for ConstructionRelatedExpandAnchor.Kind.
+type ConstructionRelatedExpandAnchorKind string
+
+// ConstructionRelatedExpandStageDescriptor defines model for ConstructionRelatedExpandStageDescriptor.
+type ConstructionRelatedExpandStageDescriptor struct {
+	AnchorColumn           string                                             `json:"anchorColumn"`
+	AnchorColumnId         string                                             `json:"anchorColumnId"`
+	AnchorKind             ConstructionRelatedExpandStageDescriptorAnchorKind `json:"anchorKind"`
+	AnchorNodeId           *string                                            `json:"anchorNodeId,omitempty"`
+	AnchorResourceType     string                                             `json:"anchorResourceType"`
+	ParentIdentityColumn   string                                             `json:"parentIdentityColumn"`
+	ParentIdentityColumnId string                                             `json:"parentIdentityColumnId"`
+	RelatedRecordColumnId  string                                             `json:"relatedRecordColumnId"`
+	Route                  []ConstructionRouteStep                            `json:"route"`
+	TargetNodeId           string                                             `json:"targetNodeId"`
+	TargetResourceType     string                                             `json:"targetResourceType"`
+	TerminalIdentityColumn string                                             `json:"terminalIdentityColumn"`
+}
+
+// ConstructionRelatedExpandStageDescriptorAnchorKind defines model for ConstructionRelatedExpandStageDescriptor.AnchorKind.
+type ConstructionRelatedExpandStageDescriptorAnchorKind string
+
+// ConstructionRelatedField defines model for ConstructionRelatedField.
+type ConstructionRelatedField struct {
+	ChoiceId       string             `json:"choiceId"`
+	OutputColumnId string             `json:"outputColumnId"`
+	Source         RelatedSourceField `json:"source"`
+}
+
+// ConstructionRelatedSource defines model for ConstructionRelatedSource.
+type ConstructionRelatedSource struct {
+	AnchorColumnId     string                        `json:"anchorColumnId"`
+	ChoiceId           string                        `json:"choiceId"`
+	ContributorRule    RelatedSourceContributorRule  `json:"contributorRule"`
+	Form               ConstructionRelatedSourceForm `json:"form"`
+	OutputColumnId     string                        `json:"outputColumnId"`
+	Route              []ConstructionRouteStep       `json:"route"`
+	Source             RelatedSourceField            `json:"source"`
+	SourceOccurrenceId string                        `json:"sourceOccurrenceId"`
+}
+
+// ConstructionRelatedSourceForm defines model for ConstructionRelatedSource.Form.
+type ConstructionRelatedSourceForm string
+
+// ConstructionRouteStep defines model for ConstructionRouteStep.
+type ConstructionRouteStep struct {
+	EdgeId           string                                `json:"edgeId"`
+	FromNodeId       string                                `json:"fromNodeId"`
+	FromResourceType string                                `json:"fromResourceType"`
+	MatchMode        ConstructionRouteStepMatchMode        `json:"matchMode"`
+	Relationship     string                                `json:"relationship"`
+	StorageDirection ConstructionRouteStepStorageDirection `json:"storageDirection"`
+	ToNodeId         string                                `json:"toNodeId"`
+	ToResourceType   string                                `json:"toResourceType"`
+}
+
+// ConstructionRouteStepMatchMode defines model for ConstructionRouteStep.MatchMode.
+type ConstructionRouteStepMatchMode string
+
+// ConstructionRouteStepStorageDirection defines model for ConstructionRouteStep.StorageDirection.
+type ConstructionRouteStepStorageDirection string
+
+// ConstructionRowValue defines model for ConstructionRowValue.
+type ConstructionRowValue struct {
+	InputColumnId  string                     `json:"inputColumnId"`
+	OutputColumnId string                     `json:"outputColumnId"`
+	Policy         ConstructionRowValuePolicy `json:"policy"`
+}
+
+// ConstructionRowValuePolicy defines model for ConstructionRowValue.Policy.
+type ConstructionRowValuePolicy string
+
+// ConstructionSourceInput defines model for ConstructionSourceInput.
+type ConstructionSourceInput struct {
+	Choices    []ConstructionSourceInputChoice `json:"choices"`
+	Reason     *string                         `json:"reason,omitempty"`
+	ReasonCode *string                         `json:"reasonCode,omitempty"`
+	StageId    string                          `json:"stageId"`
+	Supported  bool                            `json:"supported"`
+}
+
+// ConstructionSourceInputChoice defines model for ConstructionSourceInputChoice.
+type ConstructionSourceInputChoice struct {
+	ChoiceId     string  `json:"choiceId"`
+	ColumnId     *string `json:"columnId,omitempty"`
+	FhirType     string  `json:"fhirType"`
+	FieldPath    string  `json:"fieldPath"`
+	IsIdentifier bool    `json:"isIdentifier"`
+	IsPopulated  bool    `json:"isPopulated"`
+	IsReference  bool    `json:"isReference"`
+	Label        string  `json:"label"`
+	LogicalType  string  `json:"logicalType"`
+	OccurrenceId string  `json:"occurrenceId"`
+	ValueType    string  `json:"valueType"`
+}
+
+// ConstructionSourceProjection defines model for ConstructionSourceProjection.
+type ConstructionSourceProjection struct {
+	ColumnId     string  `json:"columnId"`
+	FhirType     string  `json:"fhirType"`
+	FieldPath    string  `json:"fieldPath"`
+	Label        string  `json:"label"`
+	LogicalType  string  `json:"logicalType"`
+	OccurrenceId string  `json:"occurrenceId"`
+	OwnerStepId  *string `json:"ownerStepId,omitempty"`
+}
+
+// ConstructionStageColumn defines model for ConstructionStageColumn.
+type ConstructionStageColumn struct {
+	Id       string             `json:"id"`
+	Label    string             `json:"label"`
+	Name     string             `json:"name"`
+	Nullable *bool              `json:"nullable,omitempty"`
+	Table    *TablePresentation `json:"table,omitempty"`
+	Type     *string            `json:"type,omitempty"`
+}
+
+// ConstructionStageColumnDescriptor defines model for ConstructionStageColumnDescriptor.
+type ConstructionStageColumnDescriptor struct {
+	Cardinality *ConstructionStageColumnDescriptorCardinality `json:"cardinality,omitempty"`
+	Id          string                                        `json:"id"`
+	Label       string                                        `json:"label"`
+	Name        string                                        `json:"name"`
+	Type        *string                                       `json:"type,omitempty"`
+}
+
+// ConstructionStageColumnDescriptorCardinality defines model for ConstructionStageColumnDescriptor.Cardinality.
+type ConstructionStageColumnDescriptorCardinality string
+
+// ConstructionStageDescriptor defines model for ConstructionStageDescriptor.
+type ConstructionStageDescriptor struct {
+	ActiveRelatedRecord *ConstructionActiveRelatedRecordDescriptor `json:"activeRelatedRecord,omitempty"`
+	Capabilities        []ConstructionOperationCapability          `json:"capabilities"`
+	CodedGroupChoices   *[]ConstructionCodedGroupChoice            `json:"codedGroupChoices,omitempty"`
+	Columns             []ConstructionStageColumnDescriptor        `json:"columns"`
+	Id                  string                                     `json:"id"`
+	InputStageId        string                                     `json:"inputStageId"`
+
+	// Operation Empty for the implicit source projection stage.
+	Operation            *string                                   `json:"operation,omitempty"`
+	RelatedExpand        *ConstructionRelatedExpandStageDescriptor `json:"relatedExpand,omitempty"`
+	RelatedExpandAnchors *[]ConstructionRelatedExpandAnchor        `json:"relatedExpandAnchors,omitempty"`
+	RowIdentityColumn    *string                                   `json:"rowIdentityColumn,omitempty"`
+}
+
+// ConstructionStep defines model for ConstructionStep.
+type ConstructionStep struct {
+	Id          string                    `json:"id"`
+	Inputs      []ConstructionInputRef    `json:"inputs"`
+	Operation   ConstructionOperation     `json:"operation"`
+	Outputs     []ConstructionStageColumn `json:"outputs"`
+	OwnerStepId *string                   `json:"ownerStepId,omitempty"`
+	RowValues   *[]ConstructionRowValue   `json:"rowValues,omitempty"`
+}
+
+// ConstructionTableScalar defines model for ConstructionTableScalar.
+type ConstructionTableScalar struct {
+	Boolean *bool                       `json:"boolean,omitempty"`
+	Decimal *float32                    `json:"decimal,omitempty"`
+	Integer *int64                      `json:"integer,omitempty"`
+	Kind    ConstructionTableScalarKind `json:"kind"`
+	String  *string                     `json:"string,omitempty"`
+}
+
+// ConstructionTableScalarKind defines model for ConstructionTableScalar.Kind.
+type ConstructionTableScalarKind string
+
+// ConstructionUnpivot defines model for ConstructionUnpivot.
+type ConstructionUnpivot struct {
+	ConstructionId      string                           `json:"constructionId"`
+	Inputs              []ConstructionUnpivotInput       `json:"inputs"`
+	KeyOutputColumnId   string                           `json:"keyOutputColumnId"`
+	NullRowPolicy       ConstructionUnpivotNullRowPolicy `json:"nullRowPolicy"`
+	ValueOutputColumnId string                           `json:"valueOutputColumnId"`
+}
+
+// ConstructionUnpivotNullRowPolicy defines model for ConstructionUnpivot.NullRowPolicy.
+type ConstructionUnpivotNullRowPolicy string
+
+// ConstructionUnpivotInput defines model for ConstructionUnpivotInput.
+type ConstructionUnpivotInput struct {
+	ColumnId string                  `json:"columnId"`
+	Key      ConstructionTableScalar `json:"key"`
+}
+
+// ConstructionWorkspaceInput defines model for ConstructionWorkspaceInput.
+type ConstructionWorkspaceInput struct {
+	Columns  []ConstructionWorkspaceInputColumn `json:"columns"`
+	OutputId string                             `json:"outputId"`
+	Title    string                             `json:"title"`
+}
+
+// ConstructionWorkspaceInputColumn defines model for ConstructionWorkspaceInputColumn.
+type ConstructionWorkspaceInputColumn struct {
+	AppendCompatibilityKey *string                                     `json:"appendCompatibilityKey,omitempty"`
+	Cardinality            ConstructionWorkspaceInputColumnCardinality `json:"cardinality"`
+	Id                     string                                      `json:"id"`
+	JoinCompatibilityKey   *string                                     `json:"joinCompatibilityKey,omitempty"`
+	Label                  string                                      `json:"label"`
+	LogicalType            string                                      `json:"logicalType"`
+	Name                   string                                      `json:"name"`
+	Nullable               bool                                        `json:"nullable"`
+}
+
+// ConstructionWorkspaceInputColumnCardinality defines model for ConstructionWorkspaceInputColumn.Cardinality.
+type ConstructionWorkspaceInputColumnCardinality string
+
 // ContractColumn defines model for ContractColumn.
 type ContractColumn struct {
-	Chartable   bool   `json:"chartable"`
-	Column      string `json:"column"`
-	Filterable  bool   `json:"filterable"`
-	Label       string `json:"label"`
-	LogicalType string `json:"logicalType"`
+	AuthoredColumns       *[]string                            `json:"authoredColumns,omitempty"`
+	Chartable             bool                                 `json:"chartable"`
+	ChoiceArm             *string                              `json:"choiceArm,omitempty"`
+	Column                string                               `json:"column"`
+	Coordinates           *[]RepeatedCoordinate                `json:"coordinates,omitempty"`
+	Filterable            bool                                 `json:"filterable"`
+	Label                 string                               `json:"label"`
+	LogicalType           string                               `json:"logicalType"`
+	LossReasons           *[]string                            `json:"lossReasons,omitempty"`
+	Lossless              *bool                                `json:"lossless,omitempty"`
+	MlReady               *bool                                `json:"mlReady,omitempty"`
+	Nullable              *bool                                `json:"nullable,omitempty"`
+	ResultUnit            *UnitIdentity                        `json:"resultUnit,omitempty"`
+	Shape                 *string                              `json:"shape,omitempty"`
+	SourcePath            *string                              `json:"sourcePath,omitempty"`
+	SourceResourceType    *string                              `json:"sourceResourceType,omitempty"`
+	StructuralSuitability *ContractColumnStructuralSuitability `json:"structuralSuitability,omitempty"`
+	UnitNormalization     *UnitNormalizationContract           `json:"unitNormalization,omitempty"`
+}
+
+// ContractColumnStructuralSuitability defines model for ContractColumn.StructuralSuitability.
+type ContractColumnStructuralSuitability string
+
+// ContributorCodeValue defines model for ContributorCodeValue.
+type ContributorCodeValue struct {
+	Code struct {
+		Code string `json:"code"`
+	} `json:"code"`
+	Kind ContributorCodeValueKind `json:"kind"`
+}
+
+// ContributorCodeValueKind defines model for ContributorCodeValue.Kind.
+type ContributorCodeValueKind string
+
+// ContributorPredicate defines model for ContributorPredicate.
+type ContributorPredicate struct {
+	CandidateId string                          `json:"candidateId"`
+	Operator    ContributorPredicateOperator    `json:"operator"`
+	Quantifier  *ContributorPredicateQuantifier `json:"quantifier,omitempty"`
+	Value       *ContributorValue               `json:"value,omitempty"`
+}
+
+// ContributorPredicateOperator defines model for ContributorPredicate.Operator.
+type ContributorPredicateOperator string
+
+// ContributorPredicateQuantifier defines model for ContributorPredicate.Quantifier.
+type ContributorPredicateQuantifier string
+
+// ContributorStringValue defines model for ContributorStringValue.
+type ContributorStringValue struct {
+	Kind   ContributorStringValueKind `json:"kind"`
+	String string                     `json:"string"`
+}
+
+// ContributorStringValueKind defines model for ContributorStringValue.Kind.
+type ContributorStringValueKind string
+
+// ContributorValue defines model for ContributorValue.
+type ContributorValue struct {
+	union json.RawMessage
+}
+
+// ContributorWindowSource defines model for ContributorWindowSource.
+type ContributorWindowSource struct {
+	AnchorPath         string                           `json:"anchorPath"`
+	LowerInclusive     bool                             `json:"lowerInclusive"`
+	LowerOffsetSeconds int64                            `json:"lowerOffsetSeconds"`
+	Precision          ContributorWindowSourcePrecision `json:"precision"`
+	TimestampPath      string                           `json:"timestampPath"`
+	UpperInclusive     bool                             `json:"upperInclusive"`
+	UpperOffsetSeconds int64                            `json:"upperOffsetSeconds"`
+}
+
+// ContributorWindowSourcePrecision defines model for ContributorWindowSource.Precision.
+type ContributorWindowSourcePrecision string
+
+// CorrelatedBinding defines model for CorrelatedBinding.
+type CorrelatedBinding struct {
+	ChoiceArms    *[]string `json:"choiceArms,omitempty"`
+	CodePath      string    `json:"codePath"`
+	KeyPath       string    `json:"keyPath"`
+	LogicalType   string    `json:"logicalType"`
+	OwnerPath     *string   `json:"ownerPath,omitempty"`
+	SystemPath    string    `json:"systemPath"`
+	UnitPath      *string   `json:"unitPath,omitempty"`
+	ValueFallback *[]string `json:"valueFallback,omitempty"`
+	ValuePath     string    `json:"valuePath"`
 }
 
 // Diagnostic defines model for Diagnostic.
@@ -639,13 +5634,17 @@ type Diagnostic struct {
 
 // Document defines model for Document.
 type Document struct {
-	Actions          *[]Action      `json:"actions,omitempty"`
-	Columns          []Column       `json:"columns"`
-	FixedFilters     *[]FixedFilter `json:"fixedFilters,omitempty"`
-	Kind             DocumentKind   `json:"kind"`
-	Output           Output         `json:"output"`
-	RootResourceType string         `json:"rootResourceType"`
-	Route            RouteNode      `json:"route"`
+	Actions          *[]Action          `json:"actions,omitempty"`
+	Columns          []Column           `json:"columns"`
+	Construction     *Construction      `json:"construction,omitempty"`
+	FixedFilters     *[]FixedFilter     `json:"fixedFilters,omitempty"`
+	Frames           *[]FrameDefinition `json:"frames,omitempty"`
+	Kind             DocumentKind       `json:"kind"`
+	Output           Output             `json:"output"`
+	Population       *Population        `json:"population,omitempty"`
+	RootResourceType string             `json:"rootResourceType"`
+	Route            RouteNode          `json:"route"`
+	Rows             RowDefinition      `json:"rows"`
 }
 
 // DocumentKind defines model for Document.Kind.
@@ -666,11 +5665,124 @@ type ErrorResponse struct {
 	Error       ErrorBody     `json:"error"`
 }
 
+// ExactCategoryMapping defines model for ExactCategoryMapping.
+type ExactCategoryMapping struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+// ExactCategoryRecodeTransformation defines model for ExactCategoryRecodeTransformation.
+type ExactCategoryRecodeTransformation struct {
+	ExactCategoryRecode struct {
+		Mappings      []ExactCategoryMapping                                            `json:"mappings"`
+		UnknownPolicy ExactCategoryRecodeTransformationExactCategoryRecodeUnknownPolicy `json:"unknownPolicy"`
+	} `json:"exactCategoryRecode"`
+	Kind ExactCategoryRecodeTransformationKind `json:"kind"`
+}
+
+// ExactCategoryRecodeTransformationExactCategoryRecodeUnknownPolicy defines model for ExactCategoryRecodeTransformation.ExactCategoryRecode.UnknownPolicy.
+type ExactCategoryRecodeTransformationExactCategoryRecodeUnknownPolicy string
+
+// ExactCategoryRecodeTransformationKind defines model for ExactCategoryRecodeTransformation.Kind.
+type ExactCategoryRecodeTransformationKind string
+
+// ExplicitGroupCreateRequest defines model for ExplicitGroupCreateRequest.
+type ExplicitGroupCreateRequest struct {
+	Groups         []ExplicitGroupInput `json:"groups"`
+	IdempotencyKey string               `json:"idempotencyKey"`
+	SnapshotToken  string               `json:"snapshotToken"`
+}
+
+// ExplicitGroupInput defines model for ExplicitGroupInput.
+type ExplicitGroupInput struct {
+	Id    string `json:"id"`
+	Label string `json:"label"`
+
+	// MemberIds Opaque member keys returned by the exact source selection.
+	MemberIds []string `json:"memberIds"`
+	Ordinal   int64    `json:"ordinal"`
+}
+
+// ExplicitGroupRevisionChoice defines model for ExplicitGroupRevisionChoice.
+type ExplicitGroupRevisionChoice struct {
+	CreatedAt                 time.Time                                             `json:"createdAt"`
+	GroupCount                int                                                   `json:"groupCount"`
+	MemberCount               int                                                   `json:"memberCount"`
+	RevisionId                string                                                `json:"revisionId"`
+	SourceSelectionRevisionId *string                                               `json:"sourceSelectionRevisionId,omitempty"`
+	UnassignedMemberPolicies  []ExplicitGroupRevisionChoiceUnassignedMemberPolicies `json:"unassignedMemberPolicies"`
+}
+
+// ExplicitGroupRevisionChoiceUnassignedMemberPolicies defines model for ExplicitGroupRevisionChoice.UnassignedMemberPolicies.
+type ExplicitGroupRevisionChoiceUnassignedMemberPolicies string
+
+// ExplicitGroupRevisionSummary defines model for ExplicitGroupRevisionSummary.
+type ExplicitGroupRevisionSummary struct {
+	CreatedAt                 time.Time              `json:"createdAt"`
+	GroupCount                int64                  `json:"groupCount"`
+	Groups                    []ExplicitGroupSummary `json:"groups"`
+	MemberCount               int64                  `json:"memberCount"`
+	RevisionId                string                 `json:"revisionId"`
+	SourceSelectionRevisionId string                 `json:"sourceSelectionRevisionId"`
+}
+
+// ExplicitGroupSummary defines model for ExplicitGroupSummary.
+type ExplicitGroupSummary struct {
+	Id          string `json:"id"`
+	Label       string `json:"label"`
+	MemberCount int64  `json:"memberCount"`
+	Ordinal     int64  `json:"ordinal"`
+}
+
 // ExplorerMetadata defines model for ExplorerMetadata.
 type ExplorerMetadata struct {
 	Description *string `json:"description,omitempty"`
 	Title       string  `json:"title"`
 }
+
+// ExtensionBinding defines model for ExtensionBinding.
+type ExtensionBinding struct {
+	ChoiceArms    *[]string `json:"choiceArms,omitempty"`
+	LogicalType   string    `json:"logicalType"`
+	OwnerPath     string    `json:"ownerPath"`
+	UnitPath      *string   `json:"unitPath,omitempty"`
+	UrlPath       []string  `json:"urlPath"`
+	ValueFallback *[]string `json:"valueFallback,omitempty"`
+	ValuePath     string    `json:"valuePath"`
+}
+
+// FieldChoiceSource defines model for FieldChoiceSource.
+type FieldChoiceSource struct {
+	CandidateId        string                `json:"candidateId"`
+	Cardinality        string                `json:"cardinality"`
+	Kind               FieldChoiceSourceKind `json:"kind"`
+	NodeId             string                `json:"nodeId"`
+	Path               string                `json:"path"`
+	RepeatedBoundaries *[]RepeatedBoundary   `json:"repeatedBoundaries,omitempty"`
+	ResourceType       string                `json:"resourceType"`
+}
+
+// FieldChoiceSourceKind defines model for FieldChoiceSource.Kind.
+type FieldChoiceSourceKind string
+
+// FieldConstructionChoiceSearchSource defines model for FieldConstructionChoiceSearchSource.
+type FieldConstructionChoiceSearchSource struct {
+	CandidateId string                                  `json:"candidateId"`
+	Kind        FieldConstructionChoiceSearchSourceKind `json:"kind"`
+}
+
+// FieldConstructionChoiceSearchSourceKind defines model for FieldConstructionChoiceSearchSource.Kind.
+type FieldConstructionChoiceSearchSourceKind string
+
+// FieldSource defines model for FieldSource.
+type FieldSource struct {
+	Path             string                     `json:"path"`
+	ProjectionMode   *FieldSourceProjectionMode `json:"projectionMode,omitempty"`
+	RelatedSelection *RelatedSelection          `json:"relatedSelection,omitempty"`
+}
+
+// FieldSourceProjectionMode defines model for FieldSource.ProjectionMode.
+type FieldSourceProjectionMode string
 
 // FileActions defines model for FileActions.
 type FileActions struct {
@@ -688,6 +5800,281 @@ type FilterPresentation struct {
 type FixedFilter struct {
 	Column string   `json:"column"`
 	Values []string `json:"values"`
+}
+
+// FrameDefinition defines model for FrameDefinition.
+type FrameDefinition struct {
+	Description string                    `json:"description"`
+	Form        FrameDefinitionForm       `json:"form"`
+	Id          string                    `json:"id"`
+	ManyPolicy  FrameDefinitionManyPolicy `json:"manyPolicy"`
+	Route       []ConstructionRouteStep   `json:"route"`
+	Source      SemanticFrameFamily       `json:"source"`
+	Title       string                    `json:"title"`
+	ZeroPolicy  FrameDefinitionZeroPolicy `json:"zeroPolicy"`
+}
+
+// FrameDefinitionForm defines model for FrameDefinition.Form.
+type FrameDefinitionForm string
+
+// FrameDefinitionManyPolicy defines model for FrameDefinition.ManyPolicy.
+type FrameDefinitionManyPolicy string
+
+// FrameDefinitionZeroPolicy defines model for FrameDefinition.ZeroPolicy.
+type FrameDefinitionZeroPolicy string
+
+// FrameSourceForm defines model for FrameSourceForm.
+type FrameSourceForm struct {
+	Decision   FrameSourceFormDecision   `json:"decision"`
+	Form       FrameSourceFormForm       `json:"form"`
+	ManyPolicy FrameSourceFormManyPolicy `json:"manyPolicy"`
+	ZeroPolicy FrameSourceFormZeroPolicy `json:"zeroPolicy"`
+}
+
+// FrameSourceFormDecision defines model for FrameSourceForm.Decision.
+type FrameSourceFormDecision string
+
+// FrameSourceFormForm defines model for FrameSourceForm.Form.
+type FrameSourceFormForm string
+
+// FrameSourceFormManyPolicy defines model for FrameSourceForm.ManyPolicy.
+type FrameSourceFormManyPolicy string
+
+// FrameSourceFormZeroPolicy defines model for FrameSourceForm.ZeroPolicy.
+type FrameSourceFormZeroPolicy string
+
+// FrameSourceOption defines model for FrameSourceOption.
+type FrameSourceOption struct {
+	BindingId           string                       `json:"bindingId"`
+	ChoiceId            string                       `json:"choiceId"`
+	DefaultForm         FrameSourceOptionDefaultForm `json:"defaultForm"`
+	Description         string                       `json:"description"`
+	ExampleConcept      string                       `json:"exampleConcept"`
+	Forms               []FrameSourceForm            `json:"forms"`
+	KeyPath             string                       `json:"keyPath"`
+	LogicalType         string                       `json:"logicalType"`
+	ObservedOccurrences int64                        `json:"observedOccurrences"`
+	OwningScope         string                       `json:"owningScope"`
+	ResourceType        string                       `json:"resourceType"`
+	Route               []ConstructionRouteStep      `json:"route"`
+	SourceCanonical     *string                      `json:"sourceCanonical,omitempty"`
+	SourcePath          string                       `json:"sourcePath"`
+	SourceProfile       *string                      `json:"sourceProfile,omitempty"`
+	Title               string                       `json:"title"`
+	ValuePath           string                       `json:"valuePath"`
+}
+
+// FrameSourceOptionDefaultForm defines model for FrameSourceOption.DefaultForm.
+type FrameSourceOptionDefaultForm string
+
+// FrameSourceOptionsRequest defines model for FrameSourceOptionsRequest.
+type FrameSourceOptionsRequest struct {
+	Cursor        *string `json:"cursor,omitempty"`
+	Limit         *int    `json:"limit,omitempty"`
+	OutputId      string  `json:"outputId"`
+	Query         *string `json:"query,omitempty"`
+	ResourceType  *string `json:"resourceType,omitempty"`
+	SnapshotToken string  `json:"snapshotToken"`
+}
+
+// FrameSourceOptionsResponse defines model for FrameSourceOptionsResponse.
+type FrameSourceOptionsResponse struct {
+	Complete      bool                `json:"complete"`
+	NextCursor    *string             `json:"nextCursor,omitempty"`
+	OutputId      string              `json:"outputId"`
+	SnapshotToken string              `json:"snapshotToken"`
+	Sources       []FrameSourceOption `json:"sources"`
+	Truncated     bool                `json:"truncated"`
+}
+
+// GenerationActivationResponse defines model for GenerationActivationResponse.
+type GenerationActivationResponse struct {
+	Activated            bool   `json:"activated"`
+	DataframeExecutionId string `json:"dataframeExecutionId"`
+	Generation           string `json:"generation"`
+	Project              string `json:"project"`
+}
+
+// GenerationStatusResponse defines model for GenerationStatusResponse.
+type GenerationStatusResponse struct {
+	Generation string `json:"generation"`
+	Project    string `json:"project"`
+	Reusable   bool   `json:"reusable"`
+	State      string `json:"state"`
+}
+
+// IdentifierBinding defines model for IdentifierBinding.
+type IdentifierBinding struct {
+	LogicalType string `json:"logicalType"`
+	OwnerPath   string `json:"ownerPath"`
+	SystemPath  string `json:"systemPath"`
+	SystemURI   string `json:"systemURI"`
+	ValuePath   string `json:"valuePath"`
+}
+
+// InterpretationApplicability defines model for InterpretationApplicability.
+type InterpretationApplicability struct {
+	Cardinalities   *[]string `json:"cardinalities,omitempty"`
+	LogicalTypes    *[]string `json:"logicalTypes,omitempty"`
+	ResourceTypes   *[]string `json:"resourceTypes,omitempty"`
+	SchemaDigests   *[]string `json:"schemaDigests,omitempty"`
+	SourceCanonical *[]string `json:"sourceCanonical,omitempty"`
+	SourceProfiles  *[]string `json:"sourceProfiles,omitempty"`
+}
+
+// InterpretationCandidatePayload defines model for InterpretationCandidatePayload.
+type InterpretationCandidatePayload struct {
+	CandidateReceiptId string `json:"candidateReceiptId"`
+	RevisionId         string `json:"revisionId"`
+}
+
+// InterpretationFeatureDefinition defines model for InterpretationFeatureDefinition.
+type InterpretationFeatureDefinition struct {
+	Contributor *ContributorPredicate `json:"contributor,omitempty"`
+	Source      ColumnSource          `json:"source"`
+}
+
+// InterpretationLibrary defines model for InterpretationLibrary.
+type InterpretationLibrary struct {
+	CreatedAt      time.Time `json:"createdAt"`
+	HeadDigest     *string   `json:"headDigest,omitempty"`
+	HeadRevisionId *string   `json:"headRevisionId,omitempty"`
+	Id             string    `json:"id"`
+	Project        string    `json:"project"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+}
+
+// InterpretationLibraryListResponse defines model for InterpretationLibraryListResponse.
+type InterpretationLibraryListResponse struct {
+	Libraries []InterpretationLibraryView `json:"libraries"`
+	Project   string                      `json:"project"`
+}
+
+// InterpretationLibrarySummary defines model for InterpretationLibrarySummary.
+type InterpretationLibrarySummary struct {
+	Head           *InterpretationRevisionSummary `json:"head,omitempty"`
+	HeadDigest     *string                        `json:"headDigest,omitempty"`
+	HeadRevisionId *string                        `json:"headRevisionId,omitempty"`
+	Id             string                         `json:"id"`
+	UpdatedAt      time.Time                      `json:"updatedAt"`
+}
+
+// InterpretationLibraryView defines model for InterpretationLibraryView.
+type InterpretationLibraryView struct {
+	Head    *InterpretationRevision `json:"head,omitempty"`
+	Library InterpretationLibrary   `json:"library"`
+}
+
+// InterpretationPreviewCounts defines model for InterpretationPreviewCounts.
+type InterpretationPreviewCounts struct {
+	Changed    int `json:"changed"`
+	Compared   int `json:"compared"`
+	Resolved   int `json:"resolved"`
+	Unresolved int `json:"unresolved"`
+}
+
+// InterpretationPreviewRequest defines model for InterpretationPreviewRequest.
+type InterpretationPreviewRequest struct {
+	Column               string `json:"column"`
+	ExpectedDraftDigest  string `json:"expectedDraftDigest"`
+	ExpectedDraftVersion int64  `json:"expectedDraftVersion"`
+	Limit                *int   `json:"limit,omitempty"`
+	OutputId             string `json:"outputId"`
+	RevisionId           string `json:"revisionId"`
+	SnapshotToken        string `json:"snapshotToken"`
+}
+
+// InterpretationPreviewResponse defines model for InterpretationPreviewResponse.
+type InterpretationPreviewResponse struct {
+	BaseReceiptId      string                                    `json:"baseReceiptId"`
+	CandidateReceiptId string                                    `json:"candidateReceiptId"`
+	Column             string                                    `json:"column"`
+	Completeness       InterpretationPreviewResponseCompleteness `json:"completeness"`
+	Counts             InterpretationPreviewCounts               `json:"counts"`
+	OutputId           string                                    `json:"outputId"`
+	RevisionId         string                                    `json:"revisionId"`
+	Samples            []InterpretationPreviewSample             `json:"samples"`
+}
+
+// InterpretationPreviewResponseCompleteness defines model for InterpretationPreviewResponse.Completeness.
+type InterpretationPreviewResponseCompleteness string
+
+// InterpretationPreviewSample defines model for InterpretationPreviewSample.
+type InterpretationPreviewSample struct {
+	After  map[string]interface{}           `json:"after"`
+	Before map[string]interface{}           `json:"before"`
+	RowId  string                           `json:"rowId"`
+	State  InterpretationPreviewSampleState `json:"state"`
+}
+
+// InterpretationPreviewSampleState defines model for InterpretationPreviewSample.State.
+type InterpretationPreviewSampleState string
+
+// InterpretationRevision defines model for InterpretationRevision.
+type InterpretationRevision struct {
+	Applicability    InterpretationApplicability `json:"applicability"`
+	Author           string                      `json:"author"`
+	ContentDigest    string                      `json:"contentDigest"`
+	CreatedAt        time.Time                   `json:"createdAt"`
+	Explanation      string                      `json:"explanation"`
+	Id               string                      `json:"id"`
+	LibraryId        string                      `json:"libraryId"`
+	ParentDigest     *string                     `json:"parentDigest,omitempty"`
+	ParentRevisionId *string                     `json:"parentRevisionId,omitempty"`
+	Project          string                      `json:"project"`
+	Rules            []InterpretationRule        `json:"rules"`
+}
+
+// InterpretationRevisionCreateRequest defines model for InterpretationRevisionCreateRequest.
+type InterpretationRevisionCreateRequest struct {
+	Applicability    InterpretationApplicability `json:"applicability"`
+	Explanation      string                      `json:"explanation"`
+	LibraryId        string                      `json:"libraryId"`
+	ParentRevisionId *string                     `json:"parentRevisionId,omitempty"`
+	Rules            []InterpretationRule        `json:"rules"`
+}
+
+// InterpretationRevisionFromColumnRequest defines model for InterpretationRevisionFromColumnRequest.
+type InterpretationRevisionFromColumnRequest struct {
+	Column               string  `json:"column"`
+	ExpectedDraftDigest  string  `json:"expectedDraftDigest"`
+	ExpectedDraftVersion int64   `json:"expectedDraftVersion"`
+	Explanation          string  `json:"explanation"`
+	LibraryId            string  `json:"libraryId"`
+	OutputId             string  `json:"outputId"`
+	ParentRevisionId     *string `json:"parentRevisionId,omitempty"`
+	SnapshotToken        string  `json:"snapshotToken"`
+}
+
+// InterpretationRevisionSummary defines model for InterpretationRevisionSummary.
+type InterpretationRevisionSummary struct {
+	Author        string    `json:"author"`
+	ContentDigest string    `json:"contentDigest"`
+	CreatedAt     time.Time `json:"createdAt"`
+	Explanation   string    `json:"explanation"`
+	Id            string    `json:"id"`
+	LibraryId     string    `json:"libraryId"`
+}
+
+// InterpretationRule defines model for InterpretationRule.
+type InterpretationRule struct {
+	Definition InterpretationFeatureDefinition `json:"definition"`
+	Id         string                          `json:"id"`
+	Match      InterpretationStructuralMatch   `json:"match"`
+	Priority   *int32                          `json:"priority,omitempty"`
+}
+
+// InterpretationStructuralMatch defines model for InterpretationStructuralMatch.
+type InterpretationStructuralMatch struct {
+	Cardinality      *string   `json:"cardinality,omitempty"`
+	Code             *string   `json:"code,omitempty"`
+	ExtensionUrlPath *[]string `json:"extensionUrlPath,omitempty"`
+	LogicalType      *string   `json:"logicalType,omitempty"`
+	OwningScope      *string   `json:"owningScope,omitempty"`
+	ResourceType     *string   `json:"resourceType,omitempty"`
+	SourceCanonical  *string   `json:"sourceCanonical,omitempty"`
+	SourceProfile    *string   `json:"sourceProfile,omitempty"`
+	System           *string   `json:"system,omitempty"`
 }
 
 // LegacyErrorBody defines model for LegacyErrorBody.
@@ -712,11 +6099,148 @@ type LegacyErrorResponse_Error struct {
 	union json.RawMessage
 }
 
+// LookupSource Typed Identifier, Extension, and coded-value bindings remain distinct. Correlated binding/key is writable only for codedValue. Legacy Identifier and Extension match/path payloads remain readable at the persisted-draft boundary.
+type LookupSource struct {
+	Binding        *CorrelatedBinding          `json:"binding,omitempty"`
+	Extension      *ExtensionBinding           `json:"extension,omitempty"`
+	Identifier     *IdentifierBinding          `json:"identifier,omitempty"`
+	Key            *TerminologyKey             `json:"key,omitempty"`
+	Match          *string                     `json:"match,omitempty"`
+	Path           *string                     `json:"path,omitempty"`
+	ProjectionMode *LookupSourceProjectionMode `json:"projectionMode,omitempty"`
+}
+
+// LookupSourceProjectionMode defines model for LookupSource.ProjectionMode.
+type LookupSourceProjectionMode string
+
 // Output defines model for Output.
 type Output struct {
 	Id       string  `json:"id"`
 	RowLabel *string `json:"rowLabel,omitempty"`
 	Title    string  `json:"title"`
+}
+
+// OwnerRecordsSource defines model for OwnerRecordsSource.
+type OwnerRecordsSource struct {
+	Binding CorrelatedBinding `json:"binding"`
+	Key     TerminologyKey    `json:"key"`
+}
+
+// Population defines model for Population.
+type Population struct {
+	Route               []PopulationRouteStep `json:"route"`
+	SelectionRevisionId string                `json:"selectionRevisionId"`
+}
+
+// PopulationMappingBinding defines model for PopulationMappingBinding.
+type PopulationMappingBinding struct {
+	ExplorerId          string `json:"explorerId"`
+	Generation          string `json:"generation"`
+	MembershipDigest    string `json:"membershipDigest"`
+	OutputId            string `json:"outputId"`
+	Project             string `json:"project"`
+	ReceiptId           string `json:"receiptId"`
+	ResourceType        string `json:"resourceType"`
+	ScopeDigest         string `json:"scopeDigest"`
+	SelectionRevisionId string `json:"selectionRevisionId"`
+}
+
+// PopulationMappingCounts defines model for PopulationMappingCounts.
+type PopulationMappingCounts struct {
+	EmittedRows int64 `json:"emittedRows"`
+	Mapped      int64 `json:"mapped"`
+	Selected    int64 `json:"selected"`
+	Unmapped    int64 `json:"unmapped"`
+}
+
+// PopulationMappingRequest defines model for PopulationMappingRequest.
+type PopulationMappingRequest struct {
+	Cursor    *string `json:"cursor,omitempty"`
+	Limit     *int    `json:"limit,omitempty"`
+	OutputId  string  `json:"outputId"`
+	ReceiptId string  `json:"receiptId"`
+}
+
+// PopulationMappingResponse defines model for PopulationMappingResponse.
+type PopulationMappingResponse struct {
+	Binding     PopulationMappingBinding        `json:"binding"`
+	Counts      *PopulationMappingCounts        `json:"counts,omitempty"`
+	Diagnostics []Diagnostic                    `json:"diagnostics"`
+	NextCursor  *string                         `json:"nextCursor,omitempty"`
+	Status      PopulationMappingResponseStatus `json:"status"`
+	Unmapped    []SelectionResourceRef          `json:"unmapped"`
+}
+
+// PopulationMappingResponseStatus defines model for PopulationMappingResponse.Status.
+type PopulationMappingResponseStatus string
+
+// PopulationMemberRemovalProposalRequest defines model for PopulationMemberRemovalProposalRequest.
+type PopulationMemberRemovalProposalRequest struct {
+	BaseSelectionRevisionId string               `json:"baseSelectionRevisionId"`
+	ExpectedDraftDigest     string               `json:"expectedDraftDigest"`
+	ExpectedDraftVersion    int64                `json:"expectedDraftVersion"`
+	Limit                   *int                 `json:"limit,omitempty"`
+	OutputId                string               `json:"outputId"`
+	RemovedMember           SelectionResourceRef `json:"removedMember"`
+	SnapshotToken           string               `json:"snapshotToken"`
+}
+
+// PopulationMemberRemovalProposalResponse defines model for PopulationMemberRemovalProposalResponse.
+type PopulationMemberRemovalProposalResponse struct {
+	BaseDocumentDigest       string                                               `json:"baseDocumentDigest"`
+	BaseSelection            SelectionRevision                                    `json:"baseSelection"`
+	CandidateSelection       SelectionRevision                                    `json:"candidateSelection"`
+	CandidateWorkspaceDigest string                                               `json:"candidateWorkspaceDigest"`
+	DraftDigest              string                                               `json:"draftDigest"`
+	DraftVersion             int64                                                `json:"draftVersion"`
+	OutputId                 string                                               `json:"outputId"`
+	Preview                  PreviewResponse                                      `json:"preview"`
+	PreviewDurationMs        int64                                                `json:"previewDurationMs"`
+	PreviewStatus            PopulationMemberRemovalProposalResponsePreviewStatus `json:"previewStatus"`
+	ProposalId               string                                               `json:"proposalId"`
+	RemovedMember            SelectionResourceRef                                 `json:"removedMember"`
+	SnapshotToken            string                                               `json:"snapshotToken"`
+}
+
+// PopulationMemberRemovalProposalResponsePreviewStatus defines model for PopulationMemberRemovalProposalResponse.PreviewStatus.
+type PopulationMemberRemovalProposalResponsePreviewStatus string
+
+// PopulationRouteChoice defines model for PopulationRouteChoice.
+type PopulationRouteChoice struct {
+	Presentation  ConstructionChoicePresentation `json:"presentation"`
+	Route         []ConstructionRouteStep        `json:"route"`
+	RouteChoiceId string                         `json:"routeChoiceId"`
+}
+
+// PopulationRouteStep defines model for PopulationRouteStep.
+type PopulationRouteStep struct {
+	CatalogEdgeId    *string                              `json:"catalogEdgeId,omitempty"`
+	Relationship     string                               `json:"relationship"`
+	ResourceType     string                               `json:"resourceType"`
+	StorageDirection *PopulationRouteStepStorageDirection `json:"storageDirection,omitempty"`
+}
+
+// PopulationRouteStepStorageDirection defines model for PopulationRouteStep.StorageDirection.
+type PopulationRouteStepStorageDirection string
+
+// PopulationRoutesRequest defines model for PopulationRoutesRequest.
+type PopulationRoutesRequest struct {
+	Cursor              *string `json:"cursor,omitempty"`
+	Limit               *int    `json:"limit,omitempty"`
+	OutputId            string  `json:"outputId"`
+	SelectionRevisionId string  `json:"selectionRevisionId"`
+	SnapshotToken       string  `json:"snapshotToken"`
+}
+
+// PopulationRoutesResponse defines model for PopulationRoutesResponse.
+type PopulationRoutesResponse struct {
+	Choices             []PopulationRouteChoice `json:"choices"`
+	Complete            bool                    `json:"complete"`
+	NextCursor          *string                 `json:"nextCursor,omitempty"`
+	OutputId            string                  `json:"outputId"`
+	SelectionRevisionId string                  `json:"selectionRevisionId"`
+	SnapshotToken       string                  `json:"snapshotToken"`
+	Truncated           bool                    `json:"truncated"`
 }
 
 // PreviewRequest defines model for PreviewRequest.
@@ -728,18 +6252,38 @@ type PreviewRequest struct {
 
 // PreviewResponse defines model for PreviewResponse.
 type PreviewResponse struct {
-	ApiVersion  APIVersion               `json:"apiVersion"`
-	Columns     []ContractColumn         `json:"columns"`
-	Diagnostics []Diagnostic             `json:"diagnostics"`
-	Kind        PreviewResponseKind      `json:"kind"`
-	OutputId    string                   `json:"outputId"`
-	ReceiptId   string                   `json:"receiptId"`
-	RowCount    int                      `json:"rowCount"`
-	Rows        []map[string]interface{} `json:"rows"`
+	ApiVersion  APIVersion          `json:"apiVersion"`
+	Columns     []ContractColumn    `json:"columns"`
+	Diagnostics []Diagnostic        `json:"diagnostics"`
+	Kind        PreviewResponseKind `json:"kind"`
+	OutputId    string              `json:"outputId"`
+
+	// PartialValidation True when this preview checks only a deterministic sample of complete construction groups; full validation runs during publication.
+	PartialValidation    *bool                `json:"partialValidation,omitempty"`
+	ReceiptId            string               `json:"receiptId"`
+	RowCount             int                  `json:"rowCount"`
+	RowLineageCapability RowLineageCapability `json:"rowLineageCapability"`
+
+	// RowSources Per-row source identity metadata, aligned one-to-one with rows. SINGLE is emitted only when the compiler carries one exact root FHIR resource identity; grouped results are COMPOSITE and unsupported sources are UNAVAILABLE.
+	RowSources []PreviewRowSource       `json:"rowSources"`
+	Rows       []map[string]interface{} `json:"rows"`
+
+	// Sampled True when the preview did not prove that it exhausted the full output.
+	Sampled bool `json:"sampled"`
 }
 
 // PreviewResponseKind defines model for PreviewResponse.Kind.
 type PreviewResponseKind string
+
+// PreviewRowSource SINGLE requires non-empty resourceType and id. COMPOSITE and UNAVAILABLE omit both fields.
+type PreviewRowSource struct {
+	Id           *string              `json:"id,omitempty"`
+	Kind         PreviewRowSourceKind `json:"kind"`
+	ResourceType *string              `json:"resourceType,omitempty"`
+}
+
+// PreviewRowSourceKind defines model for PreviewRowSource.Kind.
+type PreviewRowSourceKind string
 
 // ProjectionMode defines model for ProjectionMode.
 type ProjectionMode string
@@ -775,10 +6319,55 @@ type RawJSON map[string]interface{}
 
 // ReceiptOutput defines model for ReceiptOutput.
 type ReceiptOutput struct {
-	Columns  []ContractColumn `json:"columns"`
-	OutputId string           `json:"outputId"`
-	RowGrain string           `json:"rowGrain"`
-	Title    string           `json:"title"`
+	Columns               []ContractColumn                    `json:"columns"`
+	LossReasons           *[]string                           `json:"lossReasons,omitempty"`
+	Lossless              *bool                               `json:"lossless,omitempty"`
+	MlReady               *bool                               `json:"mlReady,omitempty"`
+	OutputId              string                              `json:"outputId"`
+	RootResourceType      *string                             `json:"rootResourceType,omitempty"`
+	RowGrain              string                              `json:"rowGrain"`
+	RowMultiplication     *ReceiptOutputRowMultiplication     `json:"rowMultiplication,omitempty"`
+	StructuralSuitability *ReceiptOutputStructuralSuitability `json:"structuralSuitability,omitempty"`
+	Title                 string                              `json:"title"`
+}
+
+// ReceiptOutputRowMultiplication defines model for ReceiptOutput.RowMultiplication.
+type ReceiptOutputRowMultiplication string
+
+// ReceiptOutputStructuralSuitability defines model for ReceiptOutput.StructuralSuitability.
+type ReceiptOutputStructuralSuitability string
+
+// RecipeExecutionColumn defines model for RecipeExecutionColumn.
+type RecipeExecutionColumn struct {
+	Aggregatable   bool   `json:"aggregatable"`
+	ClickhouseType string `json:"clickhouseType"`
+	Filterable     bool   `json:"filterable"`
+	LogicalType    string `json:"logicalType"`
+	Name           string `json:"name"`
+	Nullable       bool   `json:"nullable"`
+	Repeated       bool   `json:"repeated"`
+	SemanticPath   string `json:"semanticPath"`
+	Sortable       bool   `json:"sortable"`
+}
+
+// RecipeExecutionOutput defines model for RecipeExecutionOutput.
+type RecipeExecutionOutput struct {
+	Columns  []RecipeExecutionColumn `json:"columns"`
+	Name     string                  `json:"name"`
+	RowCount int64                   `json:"rowCount"`
+	State    string                  `json:"state"`
+}
+
+// RecipeExecutionResponse defines model for RecipeExecutionResponse.
+type RecipeExecutionResponse struct {
+	DatasetGeneration    string                  `json:"datasetGeneration"`
+	Id                   string                  `json:"id"`
+	Outputs              []RecipeExecutionOutput `json:"outputs"`
+	ProjectId            string                  `json:"projectId"`
+	RecipeDigest         string                  `json:"recipeDigest"`
+	ResolvedSchemaDigest string                  `json:"resolvedSchemaDigest"`
+	SchemaDigest         string                  `json:"schemaDigest"`
+	State                string                  `json:"state"`
 }
 
 // ReconcileRequest defines model for ReconcileRequest.
@@ -788,13 +6377,208 @@ type ReconcileRequest struct {
 	SnapshotToken string `json:"snapshotToken"`
 }
 
+// RelatedExpandChoiceSearchRequest defines model for RelatedExpandChoiceSearchRequest.
+type RelatedExpandChoiceSearchRequest struct {
+	AnchorColumnId       string  `json:"anchorColumnId"`
+	Cursor               *string `json:"cursor,omitempty"`
+	ExpectedDraftDigest  string  `json:"expectedDraftDigest"`
+	ExpectedDraftVersion int     `json:"expectedDraftVersion"`
+	Limit                *int    `json:"limit,omitempty"`
+	OutputId             string  `json:"outputId"`
+	SnapshotToken        string  `json:"snapshotToken"`
+	StageId              string  `json:"stageId"`
+	TargetResourceType   string  `json:"targetResourceType"`
+}
+
+// RelatedExpandChoiceSearchResponse defines model for RelatedExpandChoiceSearchResponse.
+type RelatedExpandChoiceSearchResponse struct {
+	Choices       []RelatedExpandRouteChoice `json:"choices"`
+	Complete      bool                       `json:"complete"`
+	DraftDigest   string                     `json:"draftDigest"`
+	DraftVersion  int                        `json:"draftVersion"`
+	NextCursor    *string                    `json:"nextCursor,omitempty"`
+	OutputId      string                     `json:"outputId"`
+	SnapshotToken string                     `json:"snapshotToken"`
+	StageId       string                     `json:"stageId"`
+	Truncated     bool                       `json:"truncated"`
+}
+
+// RelatedExpandContributorChoice defines model for RelatedExpandContributorChoice.
+type RelatedExpandContributorChoice struct {
+	ChoiceId             string                                          `json:"choiceId"`
+	Label                string                                          `json:"label"`
+	Operators            []RelatedExpandContributorChoiceOperators       `json:"operators"`
+	Source               RelatedExpandContributorSource                  `json:"source"`
+	SuggestedValues      []string                                        `json:"suggestedValues"`
+	SuggestionsComplete  bool                                            `json:"suggestionsComplete"`
+	SuggestionsSource    RelatedExpandContributorChoiceSuggestionsSource `json:"suggestionsSource"`
+	SuggestionsTruncated bool                                            `json:"suggestionsTruncated"`
+}
+
+// RelatedExpandContributorChoiceOperators defines model for RelatedExpandContributorChoice.Operators.
+type RelatedExpandContributorChoiceOperators string
+
+// RelatedExpandContributorChoiceSuggestionsSource defines model for RelatedExpandContributorChoice.SuggestionsSource.
+type RelatedExpandContributorChoiceSuggestionsSource string
+
+// RelatedExpandContributorChoiceSearchRequest defines model for RelatedExpandContributorChoiceSearchRequest.
+type RelatedExpandContributorChoiceSearchRequest struct {
+	Cursor               *string `json:"cursor,omitempty"`
+	ExpectedDraftDigest  string  `json:"expectedDraftDigest"`
+	ExpectedDraftVersion int     `json:"expectedDraftVersion"`
+	Limit                *int    `json:"limit,omitempty"`
+	OutputId             string  `json:"outputId"`
+	Query                *string `json:"query,omitempty"`
+	RouteChoiceId        string  `json:"routeChoiceId"`
+	SnapshotToken        string  `json:"snapshotToken"`
+	StageId              string  `json:"stageId"`
+}
+
+// RelatedExpandContributorChoiceSearchResponse defines model for RelatedExpandContributorChoiceSearchResponse.
+type RelatedExpandContributorChoiceSearchResponse struct {
+	Choices       []RelatedExpandContributorChoice `json:"choices"`
+	Complete      bool                             `json:"complete"`
+	DraftDigest   string                           `json:"draftDigest"`
+	DraftVersion  int                              `json:"draftVersion"`
+	NextCursor    *string                          `json:"nextCursor,omitempty"`
+	OutputId      string                           `json:"outputId"`
+	RouteChoiceId string                           `json:"routeChoiceId"`
+	SnapshotToken string                           `json:"snapshotToken"`
+	StageId       string                           `json:"stageId"`
+	Truncated     bool                             `json:"truncated"`
+}
+
+// RelatedExpandContributorSource defines model for RelatedExpandContributorSource.
+type RelatedExpandContributorSource struct {
+	CandidateId        string                             `json:"candidateId"`
+	Cardinality        string                             `json:"cardinality"`
+	Kind               RelatedExpandContributorSourceKind `json:"kind"`
+	LogicalType        string                             `json:"logicalType"`
+	NodeId             string                             `json:"nodeId"`
+	Path               string                             `json:"path"`
+	RepeatedBoundaries *[]RepeatedBoundary                `json:"repeatedBoundaries,omitempty"`
+	ResourceType       string                             `json:"resourceType"`
+}
+
+// RelatedExpandContributorSourceKind defines model for RelatedExpandContributorSource.Kind.
+type RelatedExpandContributorSourceKind string
+
+// RelatedExpandRouteChoice defines model for RelatedExpandRouteChoice.
+type RelatedExpandRouteChoice struct {
+	AnchorColumnId     string                       `json:"anchorColumnId"`
+	ChoiceId           string                       `json:"choiceId"`
+	Kind               RelatedExpandRouteChoiceKind `json:"kind"`
+	Label              string                       `json:"label"`
+	NodeId             string                       `json:"nodeId"`
+	ResourceType       string                       `json:"resourceType"`
+	Route              []ConstructionRouteStep      `json:"route"`
+	TargetNodeId       string                       `json:"targetNodeId"`
+	TargetResourceType string                       `json:"targetResourceType"`
+}
+
+// RelatedExpandRouteChoiceKind defines model for RelatedExpandRouteChoice.Kind.
+type RelatedExpandRouteChoiceKind string
+
+// RelatedFieldChoice defines model for RelatedFieldChoice.
+type RelatedFieldChoice struct {
+	ChoiceId string             `json:"choiceId"`
+	Label    string             `json:"label"`
+	Source   RelatedSourceField `json:"source"`
+}
+
+// RelatedFieldChoiceSearchRequest defines model for RelatedFieldChoiceSearchRequest.
+type RelatedFieldChoiceSearchRequest struct {
+	Cursor               *string `json:"cursor,omitempty"`
+	ExpectedDraftDigest  string  `json:"expectedDraftDigest"`
+	ExpectedDraftVersion int     `json:"expectedDraftVersion"`
+	Limit                *int    `json:"limit,omitempty"`
+	OutputId             string  `json:"outputId"`
+	Query                *string `json:"query,omitempty"`
+	SnapshotToken        string  `json:"snapshotToken"`
+	StageId              string  `json:"stageId"`
+}
+
+// RelatedFieldChoiceSearchResponse defines model for RelatedFieldChoiceSearchResponse.
+type RelatedFieldChoiceSearchResponse struct {
+	Choices       []RelatedFieldChoice `json:"choices"`
+	Complete      bool                 `json:"complete"`
+	DraftDigest   string               `json:"draftDigest"`
+	DraftVersion  int                  `json:"draftVersion"`
+	NextCursor    *string              `json:"nextCursor,omitempty"`
+	OutputId      string               `json:"outputId"`
+	SnapshotToken string               `json:"snapshotToken"`
+	StageId       string               `json:"stageId"`
+	Truncated     bool                 `json:"truncated"`
+}
+
+// RelatedSelection defines model for RelatedSelection.
+type RelatedSelection struct {
+	Acknowledged bool                 `json:"acknowledged"`
+	Kind         RelatedSelectionKind `json:"kind"`
+}
+
+// RelatedSelectionKind defines model for RelatedSelection.Kind.
+type RelatedSelectionKind string
+
+// RelatedSourceContributorRule defines model for RelatedSourceContributorRule.
+type RelatedSourceContributorRule struct {
+	Policy    RelatedSourceContributorRulePolicy `json:"policy"`
+	Predicate *ContributorPredicate              `json:"predicate,omitempty"`
+}
+
+// RelatedSourceContributorRulePolicy defines model for RelatedSourceContributorRule.Policy.
+type RelatedSourceContributorRulePolicy string
+
+// RelatedSourceField defines model for RelatedSourceField.
+type RelatedSourceField struct {
+	CandidateId  string                        `json:"candidateId"`
+	Cardinality  RelatedSourceFieldCardinality `json:"cardinality"`
+	Kind         RelatedSourceFieldKind        `json:"kind"`
+	LogicalType  string                        `json:"logicalType"`
+	NodeId       string                        `json:"nodeId"`
+	Path         string                        `json:"path"`
+	ResourceType string                        `json:"resourceType"`
+}
+
+// RelatedSourceFieldCardinality defines model for RelatedSourceField.Cardinality.
+type RelatedSourceFieldCardinality string
+
+// RelatedSourceFieldKind defines model for RelatedSourceField.Kind.
+type RelatedSourceFieldKind string
+
+// RemoveColumnTransformation defines model for RemoveColumnTransformation.
+type RemoveColumnTransformation struct {
+	Kind RemoveColumnTransformationKind `json:"kind"`
+}
+
+// RemoveColumnTransformationKind defines model for RemoveColumnTransformation.Kind.
+type RemoveColumnTransformationKind string
+
+// RepeatedBoundary defines model for RepeatedBoundary.
+type RepeatedBoundary struct {
+	MaxItems int    `json:"maxItems"`
+	Path     string `json:"path"`
+}
+
+// RepeatedCoordinate defines model for RepeatedCoordinate.
+type RepeatedCoordinate struct {
+	BoundaryPath string `json:"boundaryPath"`
+	Index        int    `json:"index"`
+	Width        int    `json:"width"`
+}
+
 // RouteNode defines model for RouteNode.
 type RouteNode struct {
-	Children     *[]RouteNode `json:"children,omitempty"`
-	OccurrenceId string       `json:"occurrenceId"`
-	Relationship *string      `json:"relationship,omitempty"`
-	ResourceType string       `json:"resourceType"`
+	CatalogEdgeId *string             `json:"catalogEdgeId,omitempty"`
+	Children      *[]RouteNode        `json:"children,omitempty"`
+	MatchMode     *RouteNodeMatchMode `json:"matchMode,omitempty"`
+	OccurrenceId  string              `json:"occurrenceId"`
+	Relationship  *string             `json:"relationship,omitempty"`
+	ResourceType  string              `json:"resourceType"`
 }
+
+// RouteNodeMatchMode defines model for RouteNode.MatchMode.
+type RouteNodeMatchMode string
 
 // RoutePolicy defines model for RoutePolicy.
 type RoutePolicy struct {
@@ -803,10 +6587,586 @@ type RoutePolicy struct {
 	MaxSteps           *int `json:"maxSteps,omitempty"`
 }
 
+// RouteRebaseChoice defines model for RouteRebaseChoice.
+type RouteRebaseChoice struct {
+	EdgeId       string `json:"edgeId"`
+	OccurrenceId string `json:"occurrenceId"`
+}
+
+// RowChangeAssessmentResponse defines model for RowChangeAssessmentResponse.
+type RowChangeAssessmentResponse struct {
+	// CandidateReceiptId Present only when status is READY. Preview this candidate receipt before applying the row-root rebase.
+	CandidateReceiptId        *string                           `json:"candidateReceiptId,omitempty"`
+	CandidateRootResourceType string                            `json:"candidateRootResourceType"`
+	CurrentRootResourceType   string                            `json:"currentRootResourceType"`
+	Diagnostics               []Diagnostic                      `json:"diagnostics"`
+	DraftDigest               string                            `json:"draftDigest"`
+	DraftVersion              int64                             `json:"draftVersion"`
+	PreservedFeatureKeys      []string                          `json:"preservedFeatureKeys"`
+	Proposal                  *RowChangeProposal                `json:"proposal,omitempty"`
+	SnapshotToken             string                            `json:"snapshotToken"`
+	Status                    RowChangeAssessmentResponseStatus `json:"status"`
+	Unresolved                []RowChangeUnresolvedReference    `json:"unresolved"`
+}
+
+// RowChangeAssessmentResponseStatus defines model for RowChangeAssessmentResponse.Status.
+type RowChangeAssessmentResponseStatus string
+
+// RowChangeProposal defines model for RowChangeProposal.
+type RowChangeProposal struct {
+	OutputId             string              `json:"outputId"`
+	PreservedFeatureKeys []string            `json:"preservedFeatureKeys"`
+	RootNodeId           string              `json:"rootNodeId"`
+	RootOccurrenceId     string              `json:"rootOccurrenceId"`
+	RouteRebase          []RouteRebaseChoice `json:"routeRebase"`
+	SourceDocumentDigest string              `json:"sourceDocumentDigest"`
+}
+
+// RowChangeUnresolvedReference defines model for RowChangeUnresolvedReference.
+type RowChangeUnresolvedReference struct {
+	Alternatives *[]string                        `json:"alternatives,omitempty"`
+	Code         string                           `json:"code"`
+	Id           string                           `json:"id"`
+	Kind         RowChangeUnresolvedReferenceKind `json:"kind"`
+	Message      string                           `json:"message"`
+}
+
+// RowChangeUnresolvedReferenceKind defines model for RowChangeUnresolvedReference.Kind.
+type RowChangeUnresolvedReferenceKind string
+
+// RowDefinition defines model for RowDefinition.
+type RowDefinition = authoringv2.RowDefinition
+
+// RowDefinitionChoice defines model for RowDefinitionChoice.
+type RowDefinitionChoice struct {
+	ChoiceId          string                       `json:"choiceId"`
+	Description       string                       `json:"description"`
+	FieldPath         string                       `json:"fieldPath"`
+	Kind              RowDefinitionChoiceKind      `json:"kind"`
+	Label             string                       `json:"label"`
+	OccurrenceId      *string                      `json:"occurrenceId,omitempty"`
+	OccurrenceSummary string                       `json:"occurrenceSummary"`
+	Policies          []RowDefinitionChoicePolicy  `json:"policies"`
+	RouteSummary      string                       `json:"routeSummary"`
+	ValueType         RowDefinitionChoiceValueType `json:"valueType"`
+}
+
+// RowDefinitionChoiceKind defines model for RowDefinitionChoice.Kind.
+type RowDefinitionChoiceKind string
+
+// RowDefinitionChoiceValueType defines model for RowDefinitionChoice.ValueType.
+type RowDefinitionChoiceValueType string
+
+// RowDefinitionChoicePolicy defines model for RowDefinitionChoicePolicy.
+type RowDefinitionChoicePolicy struct {
+	Name    RowDefinitionChoicePolicyName `json:"name"`
+	Options []string                      `json:"options"`
+}
+
+// RowDefinitionChoicePolicyName defines model for RowDefinitionChoicePolicy.Name.
+type RowDefinitionChoicePolicyName string
+
+// RowDefinitionChoicesResponse defines model for RowDefinitionChoicesResponse.
+type RowDefinitionChoicesResponse struct {
+	Choices        []RowDefinitionChoice         `json:"choices"`
+	ExplicitGroups []ExplicitGroupRevisionChoice `json:"explicitGroups"`
+	OutputId       string                        `json:"outputId"`
+	SnapshotToken  string                        `json:"snapshotToken"`
+}
+
+// RowDefinitionComparison defines model for RowDefinitionComparison.
+type RowDefinitionComparison struct {
+	union json.RawMessage
+}
+
+// RowDefinitionComparisonAvailable defines model for RowDefinitionComparisonAvailable.
+type RowDefinitionComparisonAvailable struct {
+	AffectedColumns []string                               `json:"affectedColumns"`
+	Base            RowDefinitionPreviewSummary            `json:"base"`
+	Candidate       RowDefinitionPreviewSummary            `json:"candidate"`
+	Examples        []RowDefinitionComparisonExample       `json:"examples"`
+	Notices         []string                               `json:"notices"`
+	Status          RowDefinitionComparisonAvailableStatus `json:"status"`
+}
+
+// RowDefinitionComparisonAvailableStatus defines model for RowDefinitionComparisonAvailable.Status.
+type RowDefinitionComparisonAvailableStatus string
+
+// RowDefinitionComparisonExample defines model for RowDefinitionComparisonExample.
+type RowDefinitionComparisonExample struct {
+	BasePresent      bool   `json:"basePresent"`
+	CandidatePresent bool   `json:"candidatePresent"`
+	RowIdentity      string `json:"rowIdentity"`
+}
+
+// RowDefinitionComparisonUnavailable defines model for RowDefinitionComparisonUnavailable.
+type RowDefinitionComparisonUnavailable struct {
+	AffectedColumns []string                                 `json:"affectedColumns"`
+	Base            *RowDefinitionPreviewSummary             `json:"base,omitempty"`
+	Candidate       *RowDefinitionPreviewSummary             `json:"candidate,omitempty"`
+	Examples        []RowDefinitionComparisonExample         `json:"examples"`
+	Notices         []string                                 `json:"notices"`
+	Reason          string                                   `json:"reason"`
+	ReasonCode      string                                   `json:"reasonCode"`
+	Status          RowDefinitionComparisonUnavailableStatus `json:"status"`
+}
+
+// RowDefinitionComparisonUnavailableStatus defines model for RowDefinitionComparisonUnavailable.Status.
+type RowDefinitionComparisonUnavailableStatus string
+
+// RowDefinitionExpandedSelection defines model for RowDefinitionExpandedSelection.
+type RowDefinitionExpandedSelection struct {
+	Expanded struct {
+		EmptyCollectionPolicy RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicy `json:"emptyCollectionPolicy"`
+		RowChoiceId           string                                                      `json:"rowChoiceId"`
+	} `json:"expanded"`
+	Kind RowDefinitionExpandedSelectionKind `json:"kind"`
+}
+
+// RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicy defines model for RowDefinitionExpandedSelection.Expanded.EmptyCollectionPolicy.
+type RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicy string
+
+// RowDefinitionExpandedSelectionKind defines model for RowDefinitionExpandedSelection.Kind.
+type RowDefinitionExpandedSelectionKind string
+
+// RowDefinitionExplicitGroupSelection defines model for RowDefinitionExplicitGroupSelection.
+type RowDefinitionExplicitGroupSelection struct {
+	ExplicitGroup struct {
+		RevisionId             string                                                                 `json:"revisionId"`
+		UnassignedMemberPolicy RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicy `json:"unassignedMemberPolicy"`
+	} `json:"explicitGroup"`
+	Kind RowDefinitionExplicitGroupSelectionKind `json:"kind"`
+}
+
+// RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicy defines model for RowDefinitionExplicitGroupSelection.ExplicitGroup.UnassignedMemberPolicy.
+type RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicy string
+
+// RowDefinitionExplicitGroupSelectionKind defines model for RowDefinitionExplicitGroupSelection.Kind.
+type RowDefinitionExplicitGroupSelectionKind string
+
+// RowDefinitionFieldGroupSelection defines model for RowDefinitionFieldGroupSelection.
+type RowDefinitionFieldGroupSelection struct {
+	FieldGroup struct {
+		MissingKeyPolicy RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicy `json:"missingKeyPolicy"`
+		RowChoiceId      string                                                     `json:"rowChoiceId"`
+	} `json:"fieldGroup"`
+	Kind RowDefinitionFieldGroupSelectionKind `json:"kind"`
+}
+
+// RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicy defines model for RowDefinitionFieldGroupSelection.FieldGroup.MissingKeyPolicy.
+type RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicy string
+
+// RowDefinitionFieldGroupSelectionKind defines model for RowDefinitionFieldGroupSelection.Kind.
+type RowDefinitionFieldGroupSelectionKind string
+
+// RowDefinitionPreviewSummary defines model for RowDefinitionPreviewSummary.
+type RowDefinitionPreviewSummary struct {
+	RowCount int  `json:"rowCount"`
+	Sampled  bool `json:"sampled"`
+}
+
+// RowDefinitionProposal defines model for RowDefinitionProposal.
+type RowDefinitionProposal struct {
+	BaseDocumentDigest       string                    `json:"baseDocumentDigest"`
+	BaseReceiptId            string                    `json:"baseReceiptId"`
+	CandidateWorkspaceDigest string                    `json:"candidateWorkspaceDigest"`
+	Comparison               RowDefinitionComparison   `json:"comparison"`
+	DraftDigest              string                    `json:"draftDigest"`
+	DraftVersion             int                       `json:"draftVersion"`
+	Mode                     RowDefinitionProposalMode `json:"mode"`
+	OutputId                 string                    `json:"outputId"`
+
+	// ProposalId Present only when a candidate receipt can be applied through the existing proposal command.
+	ProposalId    *string `json:"proposalId,omitempty"`
+	SnapshotToken string  `json:"snapshotToken"`
+}
+
+// RowDefinitionProposalMode defines model for RowDefinitionProposal.Mode.
+type RowDefinitionProposalMode string
+
+// RowDefinitionProposalRequest defines model for RowDefinitionProposalRequest.
+type RowDefinitionProposalRequest struct {
+	ExpectedDraftDigest  string                                 `json:"expectedDraftDigest"`
+	ExpectedDraftVersion int                                    `json:"expectedDraftVersion"`
+	Limit                *int                                   `json:"limit,omitempty"`
+	OutputId             string                                 `json:"outputId"`
+	Selection            RowDefinitionProposalRequest_Selection `json:"selection"`
+	SnapshotToken        string                                 `json:"snapshotToken"`
+}
+
+// RowDefinitionProposalRequest_Selection defines model for RowDefinitionProposalRequest.Selection.
+type RowDefinitionProposalRequest_Selection struct {
+	union json.RawMessage
+}
+
+// RowDefinitionRecordsSelection defines model for RowDefinitionRecordsSelection.
+type RowDefinitionRecordsSelection struct {
+	Kind RowDefinitionRecordsSelectionKind `json:"kind"`
+}
+
+// RowDefinitionRecordsSelectionKind defines model for RowDefinitionRecordsSelection.Kind.
+type RowDefinitionRecordsSelectionKind string
+
+// RowLineageCapability defines model for RowLineageCapability.
+type RowLineageCapability struct {
+	Operation  *string                    `json:"operation,omitempty"`
+	ReasonCode *string                    `json:"reasonCode,omitempty"`
+	Status     RowLineageCapabilityStatus `json:"status"`
+}
+
+// RowLineageCapabilityStatus defines model for RowLineageCapability.Status.
+type RowLineageCapabilityStatus string
+
+// RowLineageContributor defines model for RowLineageContributor.
+type RowLineageContributor struct {
+	OccurrenceKey string `json:"occurrenceKey"`
+	ResourceId    string `json:"resourceId"`
+	ResourceType  string `json:"resourceType"`
+}
+
+// RowLineageRequest defines model for RowLineageRequest.
+type RowLineageRequest struct {
+	Limit     *int   `json:"limit,omitempty"`
+	Offset    *int   `json:"offset,omitempty"`
+	OutputId  string `json:"outputId"`
+	ReceiptId string `json:"receiptId"`
+	RowId     string `json:"rowId"`
+}
+
+// RowLineageResponse defines model for RowLineageResponse.
+type RowLineageResponse struct {
+	Contributors *[]RowLineageContributor `json:"contributors,omitempty"`
+	HasMore      *bool                    `json:"hasMore,omitempty"`
+	NextOffset   *int                     `json:"nextOffset,omitempty"`
+	Operation    *string                  `json:"operation,omitempty"`
+	OutputId     string                   `json:"outputId"`
+	ReasonCode   *string                  `json:"reasonCode,omitempty"`
+	ReceiptId    string                   `json:"receiptId"`
+	RowId        string                   `json:"rowId"`
+	Status       RowLineageResponseStatus `json:"status"`
+}
+
+// RowLineageResponseStatus defines model for RowLineageResponse.Status.
+type RowLineageResponseStatus string
+
+// SchemaFieldOption defines model for SchemaFieldOption.
+type SchemaFieldOption struct {
+	Cardinality        SchemaFieldOptionCardinality `json:"cardinality"`
+	ConstructionChoice *ConstructionChoice          `json:"constructionChoice,omitempty"`
+	NodeId             string                       `json:"nodeId"`
+	Origin             string                       `json:"origin"`
+	Path               string                       `json:"path"`
+	PrimitiveType      string                       `json:"primitiveType"`
+	RepeatedPaths      *[]string                    `json:"repeatedPaths,omitempty"`
+	ResourceType       string                       `json:"resourceType"`
+}
+
+// SchemaFieldOptionCardinality defines model for SchemaFieldOption.Cardinality.
+type SchemaFieldOptionCardinality string
+
+// SchemaFieldSearchRequest defines model for SchemaFieldSearchRequest.
+type SchemaFieldSearchRequest struct {
+	Cursor        *string `json:"cursor,omitempty"`
+	Limit         *int    `json:"limit,omitempty"`
+	NodeId        string  `json:"nodeId"`
+	Query         *string `json:"query,omitempty"`
+	SnapshotToken string  `json:"snapshotToken"`
+}
+
+// SchemaFieldSearchResponse defines model for SchemaFieldSearchResponse.
+type SchemaFieldSearchResponse struct {
+	ApiVersion    APIVersion                    `json:"apiVersion"`
+	Complete      bool                          `json:"complete"`
+	Fields        []SchemaFieldOption           `json:"fields"`
+	Kind          SchemaFieldSearchResponseKind `json:"kind"`
+	NextCursor    *string                       `json:"nextCursor,omitempty"`
+	NodeId        string                        `json:"nodeId"`
+	Query         string                        `json:"query"`
+	ResourceType  string                        `json:"resourceType"`
+	SchemaDigest  string                        `json:"schemaDigest"`
+	SnapshotToken string                        `json:"snapshotToken"`
+	Truncated     bool                          `json:"truncated"`
+}
+
+// SchemaFieldSearchResponseKind defines model for SchemaFieldSearchResponse.Kind.
+type SchemaFieldSearchResponseKind string
+
+// SelectionBaseRevision defines model for SelectionBaseRevision.
+type SelectionBaseRevision struct {
+	SelectionRevisionId string `json:"selectionRevisionId"`
+}
+
+// SelectionCreateRequest defines model for SelectionCreateRequest.
+type SelectionCreateRequest struct {
+	Exclusions     *[]SelectionResourceRef `json:"exclusions,omitempty"`
+	IdempotencyKey string                  `json:"idempotencyKey"`
+	SnapshotToken  string                  `json:"snapshotToken"`
+
+	// Source Exactly one payload matching kind is required. Published identities are resolved by the server.
+	Source SelectionRequestSource `json:"source"`
+}
+
+// SelectionExplicitResources defines model for SelectionExplicitResources.
+type SelectionExplicitResources struct {
+	Refs []SelectionResourceRef `json:"refs"`
+
+	// ResourceType Required for empty refs; otherwise must match every reference.
+	ResourceType *string `json:"resourceType,omitempty"`
+}
+
+// SelectionFilter defines model for SelectionFilter.
+type SelectionFilter struct {
+	Column string      `json:"column"`
+	Op     string      `json:"op"`
+	Value  interface{} `json:"value,omitempty"`
+}
+
+// SelectionMember defines model for SelectionMember.
+type SelectionMember struct {
+	MemberKey *string              `json:"memberKey,omitempty"`
+	Ordinal   *int64               `json:"ordinal,omitempty"`
+	Ref       SelectionResourceRef `json:"ref"`
+}
+
+// SelectionPage defines model for SelectionPage.
+type SelectionPage struct {
+	Members    []SelectionMember `json:"members"`
+	NextCursor *string           `json:"nextCursor,omitempty"`
+	Revision   SelectionRevision `json:"revision"`
+}
+
+// SelectionPublishedOutput defines model for SelectionPublishedOutput.
+type SelectionPublishedOutput struct {
+	Filters    *[]SelectionFilter `json:"filters,omitempty"`
+	OutputId   string             `json:"outputId"`
+	RevisionId string             `json:"revisionId"`
+}
+
+// SelectionRequestSource Exactly one payload matching kind is required. Published identities are resolved by the server.
+type SelectionRequestSource struct {
+	Kind              SelectionRequestSourceKind  `json:"kind"`
+	PublishedOutput   *SelectionPublishedOutput   `json:"publishedOutput,omitempty"`
+	Resources         *SelectionExplicitResources `json:"resources,omitempty"`
+	SelectionRevision *SelectionBaseRevision      `json:"selectionRevision,omitempty"`
+}
+
+// SelectionRequestSourceKind defines model for SelectionRequestSource.Kind.
+type SelectionRequestSourceKind string
+
+// SelectionResourceRef defines model for SelectionResourceRef.
+type SelectionResourceRef struct {
+	Generation   string `json:"generation"`
+	Id           string `json:"id"`
+	Project      string `json:"project"`
+	ResourceType string `json:"resourceType"`
+}
+
+// SelectionRevision defines model for SelectionRevision.
+type SelectionRevision struct {
+	Complete         bool                    `json:"complete"`
+	CompletedAt      *time.Time              `json:"completedAt,omitempty"`
+	CreatedAt        time.Time               `json:"createdAt"`
+	Exclusions       *[]SelectionResourceRef `json:"exclusions,omitempty"`
+	Generation       string                  `json:"generation"`
+	Id               string                  `json:"id"`
+	IdempotencyKey   *string                 `json:"idempotencyKey,omitempty"`
+	MemberBytes      int64                   `json:"memberBytes"`
+	MemberCount      int64                   `json:"memberCount"`
+	MembershipDigest string                  `json:"membershipDigest"`
+	Project          string                  `json:"project"`
+	ResourceType     string                  `json:"resourceType"`
+	Rule             SelectionRule           `json:"rule"`
+	RuleDigest       string                  `json:"ruleDigest"`
+	ScopeDigest      string                  `json:"scopeDigest"`
+	Source           SelectionSource         `json:"source"`
+}
+
+// SelectionRule defines model for SelectionRule.
+type SelectionRule struct {
+	Filters *[]SelectionFilter `json:"filters,omitempty"`
+	Kind    SelectionRuleKind  `json:"kind"`
+}
+
+// SelectionRuleKind defines model for SelectionRule.Kind.
+type SelectionRuleKind string
+
+// SelectionSource defines model for SelectionSource.
+type SelectionSource struct {
+	ExecutionId      *string             `json:"executionId,omitempty"`
+	Generation       *string             `json:"generation,omitempty"`
+	Kind             SelectionSourceKind `json:"kind"`
+	MembershipDigest *string             `json:"membershipDigest,omitempty"`
+	OutputId         *string             `json:"outputId,omitempty"`
+	ReceiptId        *string             `json:"receiptId,omitempty"`
+	ResourceType     *string             `json:"resourceType,omitempty"`
+	RevisionId       *string             `json:"revisionId,omitempty"`
+	SchemaDigest     *string             `json:"schemaDigest,omitempty"`
+	SourceIdColumn   *string             `json:"sourceIdColumn,omitempty"`
+}
+
+// SelectionSourceKind defines model for SelectionSource.Kind.
+type SelectionSourceKind string
+
+// SemanticBindingChoiceSource defines model for SemanticBindingChoiceSource.
+type SemanticBindingChoiceSource struct {
+	BindingId          string                          `json:"bindingId"`
+	CandidateId        string                          `json:"candidateId"`
+	Cardinality        string                          `json:"cardinality"`
+	ChoiceArm          *string                         `json:"choiceArm,omitempty"`
+	Code               *string                         `json:"code,omitempty"`
+	ConceptId          string                          `json:"conceptId"`
+	ExtensionUrlPath   *[]string                       `json:"extensionUrlPath,omitempty"`
+	FieldPath          string                          `json:"fieldPath"`
+	KeySelector        *string                         `json:"keySelector,omitempty"`
+	Kind               SemanticBindingChoiceSourceKind `json:"kind"`
+	LogicalType        string                          `json:"logicalType"`
+	NodeId             string                          `json:"nodeId"`
+	OwningScope        *string                         `json:"owningScope,omitempty"`
+	RepeatedBoundaries *[]RepeatedBoundary             `json:"repeatedBoundaries,omitempty"`
+	ResourceType       string                          `json:"resourceType"`
+	RuleHint           *string                         `json:"ruleHint,omitempty"`
+	RuleVersion        string                          `json:"ruleVersion"`
+	SchemaVersion      int                             `json:"schemaVersion"`
+	SourceCanonical    *string                         `json:"sourceCanonical,omitempty"`
+	SourcePath         string                          `json:"sourcePath"`
+	SourceProfile      *string                         `json:"sourceProfile,omitempty"`
+	System             *string                         `json:"system,omitempty"`
+	ValueSelector      string                          `json:"valueSelector"`
+	Version            *string                         `json:"version,omitempty"`
+}
+
+// SemanticBindingChoiceSourceKind defines model for SemanticBindingChoiceSource.Kind.
+type SemanticBindingChoiceSourceKind string
+
+// SemanticConstructionChoiceSearchSource defines model for SemanticConstructionChoiceSearchSource.
+type SemanticConstructionChoiceSearchSource struct {
+	BindingId    string                                     `json:"bindingId"`
+	BuildId      string                                     `json:"buildId"`
+	ConceptId    string                                     `json:"conceptId"`
+	ContextToken string                                     `json:"contextToken"`
+	Kind         SemanticConstructionChoiceSearchSourceKind `json:"kind"`
+}
+
+// SemanticConstructionChoiceSearchSourceKind defines model for SemanticConstructionChoiceSearchSource.Kind.
+type SemanticConstructionChoiceSearchSourceKind string
+
+// SemanticFrameFamily defines model for SemanticFrameFamily.
+type SemanticFrameFamily struct {
+	BindingId       string    `json:"bindingId"`
+	ChoiceArms      *[]string `json:"choiceArms,omitempty"`
+	KeyPath         string    `json:"keyPath"`
+	LogicalType     string    `json:"logicalType"`
+	OwningScope     string    `json:"owningScope"`
+	ResourceType    string    `json:"resourceType"`
+	RuleVersion     string    `json:"ruleVersion"`
+	SchemaVersion   int       `json:"schemaVersion"`
+	SourceCanonical *string   `json:"sourceCanonical,omitempty"`
+	SourcePath      string    `json:"sourcePath"`
+	SourceProfile   *string   `json:"sourceProfile,omitempty"`
+	ValuePath       string    `json:"valuePath"`
+}
+
+// SemanticInventoryBrowseRequest defines model for SemanticInventoryBrowseRequest.
+type SemanticInventoryBrowseRequest struct {
+	Cursor  *string `json:"cursor,omitempty"`
+	FrameId *string `json:"frameId,omitempty"`
+	Limit   *int    `json:"limit,omitempty"`
+
+	// OutputId Required when frameId scopes the browse to one saved output.
+	OutputId      *string `json:"outputId,omitempty"`
+	Query         *string `json:"query,omitempty"`
+	ResourceType  *string `json:"resourceType,omitempty"`
+	RowRoot       string  `json:"rowRoot"`
+	SnapshotToken string  `json:"snapshotToken"`
+
+	// SourceChoiceId Signed coded-source choice for browsing category values before creating a frame; exclusive with frameId.
+	SourceChoiceId *string `json:"sourceChoiceId,omitempty"`
+}
+
+// SemanticInventoryBrowseResponse defines model for SemanticInventoryBrowseResponse.
+type SemanticInventoryBrowseResponse struct {
+	BuildId            string                                            `json:"buildId"`
+	ContextToken       string                                            `json:"contextToken"`
+	Entries            []SemanticInventoryItem                           `json:"entries"`
+	FrameId            *string                                           `json:"frameId,omitempty"`
+	FrameSource        *FrameDefinition                                  `json:"frameSource,omitempty"`
+	NextCursor         *string                                           `json:"nextCursor,omitempty"`
+	SourceAvailability SemanticInventoryBrowseResponseSourceAvailability `json:"sourceAvailability"`
+	State              SemanticInventoryBrowseResponseState              `json:"state"`
+}
+
+// SemanticInventoryBrowseResponseSourceAvailability defines model for SemanticInventoryBrowseResponse.SourceAvailability.
+type SemanticInventoryBrowseResponseSourceAvailability string
+
+// SemanticInventoryBrowseResponseState defines model for SemanticInventoryBrowseResponse.State.
+type SemanticInventoryBrowseResponseState string
+
+// SemanticInventoryItem occurrences counts observed source occurrences/events, not distinct source records or current constructed rows. Examples and units are bounded evidence; truncation flags indicate omitted values.
+type SemanticInventoryItem struct {
+	BindingId              string                             `json:"bindingId"`
+	Code                   string                             `json:"code"`
+	CodingVersion          string                             `json:"codingVersion"`
+	Completeness           *SemanticInventoryItemCompleteness `json:"completeness,omitempty"`
+	ConceptId              string                             `json:"conceptId"`
+	ConstructionChoice     *ConstructionChoice                `json:"constructionChoice,omitempty"`
+	Display                string                             `json:"display"`
+	Examples               *[]string                          `json:"examples,omitempty"`
+	ExamplesTruncated      bool                               `json:"examplesTruncated"`
+	ObservedUnits          *[]string                          `json:"observedUnits,omitempty"`
+	ObservedUnitsTruncated bool                               `json:"observedUnitsTruncated"`
+
+	// Occurrences Observed source occurrences/events; one source record may contribute more than once.
+	Occurrences   int64                      `json:"occurrences"`
+	OwningScope   string                     `json:"owningScope"`
+	Readiness     SemanticSelectionReadiness `json:"readiness"`
+	ResourceType  string                     `json:"resourceType"`
+	SourcePath    string                     `json:"sourcePath"`
+	System        string                     `json:"system"`
+	ValueSelector string                     `json:"valueSelector"`
+	ValueType     string                     `json:"valueType"`
+}
+
+// SemanticInventoryItemCompleteness defines model for SemanticInventoryItem.Completeness.
+type SemanticInventoryItemCompleteness string
+
+// SemanticSelectionIntent defines model for SemanticSelectionIntent.
+type SemanticSelectionIntent struct {
+	BindingId      string                                `json:"bindingId"`
+	ConceptId      string                                `json:"conceptId"`
+	ProjectionMode SemanticSelectionIntentProjectionMode `json:"projectionMode"`
+	RouteEdgeIds   []string                              `json:"routeEdgeIds"`
+	Title          *string                               `json:"title,omitempty"`
+}
+
+// SemanticSelectionIntentProjectionMode defines model for SemanticSelectionIntent.ProjectionMode.
+type SemanticSelectionIntentProjectionMode string
+
+// SemanticSelectionReadiness defines model for SemanticSelectionReadiness.
+type SemanticSelectionReadiness struct {
+	Code    string                           `json:"code"`
+	Message string                           `json:"message"`
+	Status  SemanticSelectionReadinessStatus `json:"status"`
+}
+
+// SemanticSelectionReadinessStatus defines model for SemanticSelectionReadiness.Status.
+type SemanticSelectionReadinessStatus string
+
+// SemanticSelectionResult defines model for SemanticSelectionResult.
+type SemanticSelectionResult struct {
+	BindingId string                        `json:"bindingId"`
+	ColumnId  string                        `json:"columnId"`
+	ConceptId string                        `json:"conceptId"`
+	Status    SemanticSelectionResultStatus `json:"status"`
+}
+
+// SemanticSelectionResultStatus defines model for SemanticSelectionResult.Status.
+type SemanticSelectionResultStatus string
+
 // ServiceErrorBody defines model for ServiceErrorBody.
 type ServiceErrorBody struct {
 	Code      string                  `json:"code"`
 	Details   *map[string]interface{} `json:"details,omitempty"`
+	FieldPath *[]string               `json:"fieldPath,omitempty"`
 	Message   string                  `json:"message"`
 	RequestId *string                 `json:"requestId,omitempty"`
 	Retryable *bool                   `json:"retryable,omitempty"`
@@ -816,6 +7176,15 @@ type ServiceErrorBody struct {
 type ServiceErrorResponse struct {
 	Error ServiceErrorBody `json:"error"`
 }
+
+// SetColumnTransformation defines model for SetColumnTransformation.
+type SetColumnTransformation struct {
+	Kind           SetColumnTransformationKind `json:"kind"`
+	Transformation ColumnValueTransformation   `json:"transformation"`
+}
+
+// SetColumnTransformationKind defines model for SetColumnTransformation.Kind.
+type SetColumnTransformationKind string
 
 // SharedFilterBinding defines model for SharedFilterBinding.
 type SharedFilterBinding struct {
@@ -842,6 +7211,746 @@ type TablePresentation struct {
 
 // TablePresentationCellRenderer defines model for TablePresentation.CellRenderer.
 type TablePresentationCellRenderer string
+
+// TableShapeBinaryOperatorChoice defines model for TableShapeBinaryOperatorChoice.
+type TableShapeBinaryOperatorChoice struct {
+	Availability                 TableShapeChoiceAvailability             `json:"availability"`
+	ChoiceId                     string                                   `json:"choiceId"`
+	ChoiceKind                   TableShapeBinaryOperatorChoiceChoiceKind `json:"choiceKind"`
+	Label                        string                                   `json:"label"`
+	RequiresDivisionByZeroPolicy bool                                     `json:"requiresDivisionByZeroPolicy"`
+}
+
+// TableShapeBinaryOperatorChoiceChoiceKind defines model for TableShapeBinaryOperatorChoice.ChoiceKind.
+type TableShapeBinaryOperatorChoiceChoiceKind string
+
+// TableShapeBinaryOperatorReference defines model for TableShapeBinaryOperatorReference.
+type TableShapeBinaryOperatorReference struct {
+	ChoiceId string                                `json:"choiceId"`
+	Kind     TableShapeBinaryOperatorReferenceKind `json:"kind"`
+}
+
+// TableShapeBinaryOperatorReferenceKind defines model for TableShapeBinaryOperatorReference.Kind.
+type TableShapeBinaryOperatorReferenceKind string
+
+// TableShapeCapabilitiesRequest defines model for TableShapeCapabilitiesRequest.
+type TableShapeCapabilitiesRequest struct {
+	ExpectedDraftDigest  string `json:"expectedDraftDigest"`
+	ExpectedDraftVersion int    `json:"expectedDraftVersion"`
+	OutputId             string `json:"outputId"`
+	SnapshotToken        string `json:"snapshotToken"`
+}
+
+// TableShapeCapabilitiesResponse defines model for TableShapeCapabilitiesResponse.
+type TableShapeCapabilitiesResponse struct {
+	BinaryOperators                []TableShapeBinaryOperatorChoice  `json:"binaryOperators"`
+	CatalogId                      string                            `json:"catalogId"`
+	CategoryColumns                []TableShapeEditorChoice          `json:"categoryColumns"`
+	DerivedAvailability            TableShapeChoiceAvailability      `json:"derivedAvailability"`
+	DerivedOutputSuggestions       []TableShapeOutputSuggestion      `json:"derivedOutputSuggestions"`
+	DivisionByZeroPolicies         []TableShapeEditorChoice          `json:"divisionByZeroPolicies"`
+	DuplicatePolicies              []TableShapeEditorChoice          `json:"duplicatePolicies"`
+	GroupColumns                   []TableShapeEditorChoice          `json:"groupColumns"`
+	MissingCellPolicies            []TableShapeEditorChoice          `json:"missingCellPolicies"`
+	MissingInputPolicies           []TableShapeEditorChoice          `json:"missingInputPolicies"`
+	Operands                       []TableShapeEditorChoice          `json:"operands"`
+	OutputId                       string                            `json:"outputId"`
+	PivotCategoryDiscovery         TableShapePivotCategoryDiscovery  `json:"pivotCategoryDiscovery"`
+	ReshapeModes                   []TableShapeReshapeModeChoice     `json:"reshapeModes"`
+	SavedProposalAvailability      TableShapeChoiceAvailability      `json:"savedProposalAvailability"`
+	SavedProposalIntent            TableShapeProposalIntent          `json:"savedProposalIntent"`
+	UnlistedCategoryPolicies       []TableShapeEditorChoice          `json:"unlistedCategoryPolicies"`
+	UnpivotColumns                 []TableShapeEditorChoice          `json:"unpivotColumns"`
+	UnpivotKeyOutput               TableShapeOutputDescriptorSupport `json:"unpivotKeyOutput"`
+	UnpivotNullRowPolicies         []TableShapeEditorChoice          `json:"unpivotNullRowPolicies"`
+	UnpivotValueOutput             TableShapeOutputDescriptorSupport `json:"unpivotValueOutput"`
+	UnpivotWithDerivedAvailability TableShapeChoiceAvailability      `json:"unpivotWithDerivedAvailability"`
+	ValueColumns                   []TableShapeEditorChoice          `json:"valueColumns"`
+}
+
+// TableShapeCategoryDiscoveryRequest defines model for TableShapeCategoryDiscoveryRequest.
+type TableShapeCategoryDiscoveryRequest struct {
+	CatalogId              string `json:"catalogId"`
+	CategoryColumnChoiceId string `json:"categoryColumnChoiceId"`
+	ExpectedDraftDigest    string `json:"expectedDraftDigest"`
+	ExpectedDraftVersion   int    `json:"expectedDraftVersion"`
+	OutputId               string `json:"outputId"`
+	SnapshotToken          string `json:"snapshotToken"`
+	ValueColumnChoiceId    string `json:"valueColumnChoiceId"`
+}
+
+// TableShapeCategoryDiscoveryResponse defines model for TableShapeCategoryDiscoveryResponse.
+type TableShapeCategoryDiscoveryResponse struct {
+	CatalogId         string                                  `json:"catalogId"`
+	Categories        []TableShapePivotCategoryChoice         `json:"categories"`
+	DiscoveryIdentity string                                  `json:"discoveryIdentity"`
+	Kind              TableShapeCategoryDiscoveryResponseKind `json:"kind"`
+	Pair              TableShapePivotCategoryPair             `json:"pair"`
+}
+
+// TableShapeCategoryDiscoveryResponseKind defines model for TableShapeCategoryDiscoveryResponse.Kind.
+type TableShapeCategoryDiscoveryResponseKind string
+
+// TableShapeCategoryValue defines model for TableShapeCategoryValue.
+type TableShapeCategoryValue struct {
+	Present bool        `json:"present"`
+	Value   interface{} `json:"value"`
+}
+
+// TableShapeCellContributor defines model for TableShapeCellContributor.
+type TableShapeCellContributor struct {
+	ResourceId   string      `json:"resourceId"`
+	ResourceType string      `json:"resourceType"`
+	Value        interface{} `json:"value"`
+}
+
+// TableShapeCellTrace defines model for TableShapeCellTrace.
+type TableShapeCellTrace struct {
+	CellStatus   *string                     `json:"cellStatus,omitempty"`
+	Complete     bool                        `json:"complete"`
+	Contributors []TableShapeCellContributor `json:"contributors"`
+	FailureCode  *string                     `json:"failureCode,omitempty"`
+	OmissionCode *string                     `json:"omissionCode,omitempty"`
+	Sampled      bool                        `json:"sampled"`
+	State        TableShapeCellTraceState    `json:"state"`
+}
+
+// TableShapeCellTraceState defines model for TableShapeCellTrace.State.
+type TableShapeCellTraceState string
+
+// TableShapeCellValue defines model for TableShapeCellValue.
+type TableShapeCellValue struct {
+	Present bool        `json:"present"`
+	Value   interface{} `json:"value"`
+}
+
+// TableShapeChangedCell defines model for TableShapeChangedCell.
+type TableShapeChangedCell struct {
+	After  TableShapeCellValue `json:"after"`
+	Before TableShapeCellValue `json:"before"`
+	Column string              `json:"column"`
+	Trace  TableShapeCellTrace `json:"trace"`
+}
+
+// TableShapeChangedRow defines model for TableShapeChangedRow.
+type TableShapeChangedRow struct {
+	BasePresent      bool                    `json:"basePresent"`
+	CandidatePresent bool                    `json:"candidatePresent"`
+	ChangedCells     []TableShapeChangedCell `json:"changedCells"`
+	ChangedColumns   []string                `json:"changedColumns"`
+	RowIdentity      string                  `json:"rowIdentity"`
+}
+
+// TableShapeChoiceAvailability defines model for TableShapeChoiceAvailability.
+type TableShapeChoiceAvailability struct {
+	Kind   TableShapeChoiceAvailabilityKind `json:"kind"`
+	Reason *string                          `json:"reason,omitempty"`
+}
+
+// TableShapeChoiceAvailabilityKind defines model for TableShapeChoiceAvailability.Kind.
+type TableShapeChoiceAvailabilityKind string
+
+// TableShapeColumnReference defines model for TableShapeColumnReference.
+type TableShapeColumnReference struct {
+	ChoiceId string                        `json:"choiceId"`
+	Kind     TableShapeColumnReferenceKind `json:"kind"`
+}
+
+// TableShapeColumnReferenceKind defines model for TableShapeColumnReference.Kind.
+type TableShapeColumnReferenceKind string
+
+// TableShapeComparison defines model for TableShapeComparison.
+type TableShapeComparison struct {
+	union json.RawMessage
+}
+
+// TableShapeComparisonAvailable defines model for TableShapeComparisonAvailable.
+type TableShapeComparisonAvailable struct {
+	Base                    TableShapePreviewSummary            `json:"base"`
+	Candidate               TableShapePreviewSummary            `json:"candidate"`
+	ChangedColumns          []string                            `json:"changedColumns"`
+	ChangedRowCount         int                                 `json:"changedRowCount"`
+	ChangedRows             []TableShapeChangedRow              `json:"changedRows"`
+	ChangedRowsSampled      bool                                `json:"changedRowsSampled"`
+	Contributors            []TableShapeContributor             `json:"contributors"`
+	ContributorsSampled     bool                                `json:"contributorsSampled"`
+	DeclaredInformationLoss TableShapeDeclaredInformationLoss   `json:"declaredInformationLoss"`
+	EvidenceLimitations     []TableShapeEvidenceLimitation      `json:"evidenceLimitations"`
+	Exclusions              TableShapeExclusionEvidence         `json:"exclusions"`
+	Notices                 []string                            `json:"notices"`
+	Status                  TableShapeComparisonAvailableStatus `json:"status"`
+}
+
+// TableShapeComparisonAvailableStatus defines model for TableShapeComparisonAvailable.Status.
+type TableShapeComparisonAvailableStatus string
+
+// TableShapeComparisonUnavailable defines model for TableShapeComparisonUnavailable.
+type TableShapeComparisonUnavailable struct {
+	Base                    *TableShapePreviewSummary             `json:"base,omitempty"`
+	Candidate               *TableShapePreviewSummary             `json:"candidate,omitempty"`
+	ChangedColumns          []string                              `json:"changedColumns"`
+	ChangedRowCount         int                                   `json:"changedRowCount"`
+	ChangedRows             []TableShapeChangedRow                `json:"changedRows"`
+	ChangedRowsSampled      bool                                  `json:"changedRowsSampled"`
+	Contributors            []TableShapeContributor               `json:"contributors"`
+	ContributorsSampled     bool                                  `json:"contributorsSampled"`
+	DeclaredInformationLoss TableShapeDeclaredInformationLoss     `json:"declaredInformationLoss"`
+	EvidenceLimitations     []TableShapeEvidenceLimitation        `json:"evidenceLimitations"`
+	Exclusions              TableShapeExclusionEvidence           `json:"exclusions"`
+	Notices                 []string                              `json:"notices"`
+	Reason                  string                                `json:"reason"`
+	ReasonCode              string                                `json:"reasonCode"`
+	Status                  TableShapeComparisonUnavailableStatus `json:"status"`
+}
+
+// TableShapeComparisonUnavailableStatus defines model for TableShapeComparisonUnavailable.Status.
+type TableShapeComparisonUnavailableStatus string
+
+// TableShapeContributor defines model for TableShapeContributor.
+type TableShapeContributor struct {
+	ResourceId   string `json:"resourceId"`
+	ResourceType string `json:"resourceType"`
+}
+
+// TableShapeDeclaredInformationLoss defines model for TableShapeDeclaredInformationLoss.
+type TableShapeDeclaredInformationLoss struct {
+	FailureCode *string                                 `json:"failureCode,omitempty"`
+	Items       []TableShapeInformationLoss             `json:"items"`
+	Status      TableShapeDeclaredInformationLossStatus `json:"status"`
+}
+
+// TableShapeDeclaredInformationLossStatus defines model for TableShapeDeclaredInformationLoss.Status.
+type TableShapeDeclaredInformationLossStatus string
+
+// TableShapeDerivedColumnProposal defines model for TableShapeDerivedColumnProposal.
+type TableShapeDerivedColumnProposal struct {
+	DivisionByZeroPolicy *TableShapeDivisionByZeroPolicyReference `json:"divisionByZeroPolicy,omitempty"`
+	LeftOperand          TableShapeDerivedOperandIntent           `json:"leftOperand"`
+	LocalId              string                                   `json:"localId"`
+	MissingInputPolicy   TableShapeMissingInputPolicyReference    `json:"missingInputPolicy"`
+	Operator             TableShapeBinaryOperatorReference        `json:"operator"`
+	Output               TableShapeOutputName                     `json:"output"`
+	RightOperand         TableShapeDerivedOperandIntent           `json:"rightOperand"`
+}
+
+// TableShapeDerivedOperandIntent defines model for TableShapeDerivedOperandIntent.
+type TableShapeDerivedOperandIntent struct {
+	Kind           TableShapeDerivedOperandIntentKind            `json:"kind"`
+	LocalId        *string                                       `json:"localId,omitempty"`
+	Reference      *TableShapeDerivedOperandReference            `json:"reference,omitempty"`
+	Representation *TableShapeDerivedOperandIntentRepresentation `json:"representation,omitempty"`
+	Text           *string                                       `json:"text,omitempty"`
+}
+
+// TableShapeDerivedOperandIntentKind defines model for TableShapeDerivedOperandIntent.Kind.
+type TableShapeDerivedOperandIntentKind string
+
+// TableShapeDerivedOperandIntentRepresentation defines model for TableShapeDerivedOperandIntent.Representation.
+type TableShapeDerivedOperandIntentRepresentation string
+
+// TableShapeDerivedOperandReference defines model for TableShapeDerivedOperandReference.
+type TableShapeDerivedOperandReference struct {
+	Category *TableShapePivotCategoryReference     `json:"category,omitempty"`
+	ChoiceId *string                               `json:"choiceId,omitempty"`
+	Column   *TableShapeColumnReference            `json:"column,omitempty"`
+	Kind     TableShapeDerivedOperandReferenceKind `json:"kind"`
+}
+
+// TableShapeDerivedOperandReferenceKind defines model for TableShapeDerivedOperandReference.Kind.
+type TableShapeDerivedOperandReferenceKind string
+
+// TableShapeDerivedSelection defines model for TableShapeDerivedSelection.
+type TableShapeDerivedSelection struct {
+	DivisionByZeroPolicyChoiceId *string                    `json:"divisionByZeroPolicyChoiceId,omitempty"`
+	Left                         TableShapeOperandSelection `json:"left"`
+	MissingPolicyChoiceId        string                     `json:"missingPolicyChoiceId"`
+	OperatorChoiceId             string                     `json:"operatorChoiceId"`
+	OutputColumn                 string                     `json:"outputColumn"`
+	OutputLabel                  string                     `json:"outputLabel"`
+	PivotResolutionId            *string                    `json:"pivotResolutionId,omitempty"`
+	Right                        TableShapeOperandSelection `json:"right"`
+}
+
+// TableShapeDivisionByZeroPolicyReference defines model for TableShapeDivisionByZeroPolicyReference.
+type TableShapeDivisionByZeroPolicyReference struct {
+	ChoiceId string                                      `json:"choiceId"`
+	Kind     TableShapeDivisionByZeroPolicyReferenceKind `json:"kind"`
+}
+
+// TableShapeDivisionByZeroPolicyReferenceKind defines model for TableShapeDivisionByZeroPolicyReference.Kind.
+type TableShapeDivisionByZeroPolicyReferenceKind string
+
+// TableShapeDuplicatePolicyReference defines model for TableShapeDuplicatePolicyReference.
+type TableShapeDuplicatePolicyReference struct {
+	ChoiceId string                                 `json:"choiceId"`
+	Kind     TableShapeDuplicatePolicyReferenceKind `json:"kind"`
+}
+
+// TableShapeDuplicatePolicyReferenceKind defines model for TableShapeDuplicatePolicyReference.Kind.
+type TableShapeDuplicatePolicyReferenceKind string
+
+// TableShapeEditorChoice defines model for TableShapeEditorChoice.
+type TableShapeEditorChoice struct {
+	Availability TableShapeChoiceAvailability     `json:"availability"`
+	ChoiceId     string                           `json:"choiceId"`
+	ChoiceKind   TableShapeEditorChoiceChoiceKind `json:"choiceKind"`
+	Label        string                           `json:"label"`
+}
+
+// TableShapeEditorChoiceChoiceKind defines model for TableShapeEditorChoice.ChoiceKind.
+type TableShapeEditorChoiceChoiceKind string
+
+// TableShapeEvidenceLimitation defines model for TableShapeEvidenceLimitation.
+type TableShapeEvidenceLimitation struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// TableShapeExcludedRecord defines model for TableShapeExcludedRecord.
+type TableShapeExcludedRecord struct {
+	Category       TableShapeCategoryValue   `json:"category"`
+	CategoryType   string                    `json:"categoryType"`
+	OmissionCode   *string                   `json:"omissionCode,omitempty"`
+	OutputRowId    string                    `json:"outputRowId"`
+	Reason         string                    `json:"reason"`
+	SourceIdentity *TableShapeSourceIdentity `json:"sourceIdentity,omitempty"`
+}
+
+// TableShapeExclusionEvidence defines model for TableShapeExclusionEvidence.
+type TableShapeExclusionEvidence struct {
+	Complete    bool                              `json:"complete"`
+	FailureCode *string                           `json:"failureCode,omitempty"`
+	Records     []TableShapeExcludedRecord        `json:"records"`
+	Sampled     bool                              `json:"sampled"`
+	Status      TableShapeExclusionEvidenceStatus `json:"status"`
+}
+
+// TableShapeExclusionEvidenceStatus defines model for TableShapeExclusionEvidence.Status.
+type TableShapeExclusionEvidenceStatus string
+
+// TableShapeInformationLoss defines model for TableShapeInformationLoss.
+type TableShapeInformationLoss struct {
+	AffectedColumns []string `json:"affectedColumns"`
+	Code            string   `json:"code"`
+	Detail          string   `json:"detail"`
+	Label           string   `json:"label"`
+}
+
+// TableShapeLogicalType defines model for TableShapeLogicalType.
+type TableShapeLogicalType string
+
+// TableShapeMissingCellPolicyReference defines model for TableShapeMissingCellPolicyReference.
+type TableShapeMissingCellPolicyReference struct {
+	ChoiceId string                                   `json:"choiceId"`
+	Kind     TableShapeMissingCellPolicyReferenceKind `json:"kind"`
+}
+
+// TableShapeMissingCellPolicyReferenceKind defines model for TableShapeMissingCellPolicyReference.Kind.
+type TableShapeMissingCellPolicyReferenceKind string
+
+// TableShapeMissingInputPolicyReference defines model for TableShapeMissingInputPolicyReference.
+type TableShapeMissingInputPolicyReference struct {
+	ChoiceId string                                    `json:"choiceId"`
+	Kind     TableShapeMissingInputPolicyReferenceKind `json:"kind"`
+}
+
+// TableShapeMissingInputPolicyReferenceKind defines model for TableShapeMissingInputPolicyReference.Kind.
+type TableShapeMissingInputPolicyReferenceKind string
+
+// TableShapeOperandSelection defines model for TableShapeOperandSelection.
+type TableShapeOperandSelection struct {
+	ChoiceId     *string                        `json:"choiceId,omitempty"`
+	Kind         TableShapeOperandSelectionKind `json:"kind"`
+	Literal      *TableShapeScalar              `json:"literal,omitempty"`
+	ResolutionId *string                        `json:"resolutionId,omitempty"`
+}
+
+// TableShapeOperandSelectionKind defines model for TableShapeOperandSelection.Kind.
+type TableShapeOperandSelectionKind string
+
+// TableShapeOutputDescriptorSupport defines model for TableShapeOutputDescriptorSupport.
+type TableShapeOutputDescriptorSupport struct {
+	Kind            TableShapeOutputDescriptorSupportKind `json:"kind"`
+	Reason          *string                               `json:"reason,omitempty"`
+	ResultTypeLabel *string                               `json:"resultTypeLabel,omitempty"`
+	Suggestions     *[]TableShapeOutputSuggestion         `json:"suggestions,omitempty"`
+}
+
+// TableShapeOutputDescriptorSupportKind defines model for TableShapeOutputDescriptorSupport.Kind.
+type TableShapeOutputDescriptorSupportKind string
+
+// TableShapeOutputName defines model for TableShapeOutputName.
+type TableShapeOutputName struct {
+	Column string `json:"column"`
+	Label  string `json:"label"`
+}
+
+// TableShapeOutputSuggestion defines model for TableShapeOutputSuggestion.
+type TableShapeOutputSuggestion struct {
+	Availability    TableShapeChoiceAvailability         `json:"availability"`
+	ChoiceId        string                               `json:"choiceId"`
+	ChoiceKind      TableShapeOutputSuggestionChoiceKind `json:"choiceKind"`
+	Label           string                               `json:"label"`
+	ResultTypeLabel string                               `json:"resultTypeLabel"`
+	SuggestedOutput TableShapeOutputName                 `json:"suggestedOutput"`
+}
+
+// TableShapeOutputSuggestionChoiceKind defines model for TableShapeOutputSuggestion.ChoiceKind.
+type TableShapeOutputSuggestionChoiceKind string
+
+// TableShapePivotCategoryChoice defines model for TableShapePivotCategoryChoice.
+type TableShapePivotCategoryChoice struct {
+	Availability    TableShapeChoiceAvailability            `json:"availability"`
+	ChoiceId        string                                  `json:"choiceId"`
+	ChoiceKind      TableShapePivotCategoryChoiceChoiceKind `json:"choiceKind"`
+	Label           string                                  `json:"label"`
+	SuggestedOutput TableShapeOutputName                    `json:"suggestedOutput"`
+	Value           TableShapeScalar                        `json:"value"`
+}
+
+// TableShapePivotCategoryChoiceChoiceKind defines model for TableShapePivotCategoryChoice.ChoiceKind.
+type TableShapePivotCategoryChoiceChoiceKind string
+
+// TableShapePivotCategoryDiscovery defines model for TableShapePivotCategoryDiscovery.
+type TableShapePivotCategoryDiscovery struct {
+	Categories        *[]TableShapePivotCategoryChoice     `json:"categories,omitempty"`
+	DiscoveryIdentity *string                              `json:"discoveryIdentity,omitempty"`
+	Kind              TableShapePivotCategoryDiscoveryKind `json:"kind"`
+	Pair              *TableShapePivotCategoryPair         `json:"pair,omitempty"`
+}
+
+// TableShapePivotCategoryDiscoveryKind defines model for TableShapePivotCategoryDiscovery.Kind.
+type TableShapePivotCategoryDiscoveryKind string
+
+// TableShapePivotCategoryPair defines model for TableShapePivotCategoryPair.
+type TableShapePivotCategoryPair struct {
+	CategoryColumn TableShapeColumnReference `json:"categoryColumn"`
+	ValueColumn    TableShapeColumnReference `json:"valueColumn"`
+}
+
+// TableShapePivotCategoryReference defines model for TableShapePivotCategoryReference.
+type TableShapePivotCategoryReference struct {
+	ChoiceId string                               `json:"choiceId"`
+	Kind     TableShapePivotCategoryReferenceKind `json:"kind"`
+}
+
+// TableShapePivotCategoryReferenceKind defines model for TableShapePivotCategoryReference.Kind.
+type TableShapePivotCategoryReferenceKind string
+
+// TableShapePivotCategorySelection defines model for TableShapePivotCategorySelection.
+type TableShapePivotCategorySelection struct {
+	ChoiceId     string `json:"choiceId"`
+	OutputColumn string `json:"outputColumn"`
+	OutputLabel  string `json:"outputLabel"`
+}
+
+// TableShapePivotProposal defines model for TableShapePivotProposal.
+type TableShapePivotProposal struct {
+	CategoryColumn            TableShapeColumnReference                 `json:"categoryColumn"`
+	CategoryDiscoveryIdentity string                                    `json:"categoryDiscoveryIdentity"`
+	DuplicatePolicy           TableShapeDuplicatePolicyReference        `json:"duplicatePolicy"`
+	GroupColumns              []TableShapeColumnReference               `json:"groupColumns"`
+	IncludedCategories        []TableShapeSavedPivotCategorySelection   `json:"includedCategories"`
+	MissingCellPolicy         TableShapeMissingCellPolicyReference      `json:"missingCellPolicy"`
+	UnlistedCategoryPolicy    TableShapeUnlistedCategoryPolicyReference `json:"unlistedCategoryPolicy"`
+	ValueColumn               TableShapeColumnReference                 `json:"valueColumn"`
+}
+
+// TableShapePivotSelection defines model for TableShapePivotSelection.
+type TableShapePivotSelection struct {
+	Categories              []TableShapePivotCategorySelection `json:"categories"`
+	CategoryColumnChoiceId  string                             `json:"categoryColumnChoiceId"`
+	CategoryDiscoveryId     string                             `json:"categoryDiscoveryId"`
+	DuplicatePolicyChoiceId string                             `json:"duplicatePolicyChoiceId"`
+	GroupColumnChoiceIds    []string                           `json:"groupColumnChoiceIds"`
+	MissingPolicyChoiceId   string                             `json:"missingPolicyChoiceId"`
+	UnlistedPolicyChoiceId  string                             `json:"unlistedPolicyChoiceId"`
+	ValueColumnChoiceId     string                             `json:"valueColumnChoiceId"`
+}
+
+// TableShapePreviewSummary defines model for TableShapePreviewSummary.
+type TableShapePreviewSummary struct {
+	RowCount int  `json:"rowCount"`
+	Sampled  bool `json:"sampled"`
+}
+
+// TableShapeProposal defines model for TableShapeProposal.
+type TableShapeProposal struct {
+	BaseDocumentDigest       string                 `json:"baseDocumentDigest"`
+	BaseReceiptId            string                 `json:"baseReceiptId"`
+	CandidateWorkspaceDigest string                 `json:"candidateWorkspaceDigest"`
+	Comparison               TableShapeComparison   `json:"comparison"`
+	DraftDigest              string                 `json:"draftDigest"`
+	DraftVersion             int                    `json:"draftVersion"`
+	Mode                     TableShapeProposalMode `json:"mode"`
+	OutputId                 string                 `json:"outputId"`
+	ProposalId               string                 `json:"proposalId"`
+	SnapshotToken            string                 `json:"snapshotToken"`
+}
+
+// TableShapeProposalMode defines model for TableShapeProposal.Mode.
+type TableShapeProposalMode string
+
+// TableShapeProposalIntent defines model for TableShapeProposalIntent.
+type TableShapeProposalIntent struct {
+	DerivedColumns []TableShapeDerivedColumnProposal `json:"derivedColumns"`
+	Kind           TableShapeProposalIntentKind      `json:"kind"`
+	Pivot          *TableShapePivotProposal          `json:"pivot,omitempty"`
+	ReshapeMode    TableShapeReshapeModeReference    `json:"reshapeMode"`
+	Unpivot        *TableShapeUnpivotProposal        `json:"unpivot,omitempty"`
+}
+
+// TableShapeProposalIntentKind defines model for TableShapeProposalIntent.Kind.
+type TableShapeProposalIntentKind string
+
+// TableShapeProposalRequest defines model for TableShapeProposalRequest.
+type TableShapeProposalRequest struct {
+	CatalogId            string                        `json:"catalogId"`
+	DerivedResolutionIds *[]string                     `json:"derivedResolutionIds,omitempty"`
+	ExpectedDraftDigest  string                        `json:"expectedDraftDigest"`
+	ExpectedDraftVersion int                           `json:"expectedDraftVersion"`
+	Limit                *int                          `json:"limit,omitempty"`
+	Mode                 TableShapeProposalRequestMode `json:"mode"`
+	OutputId             string                        `json:"outputId"`
+	ReshapeResolutionId  *string                       `json:"reshapeResolutionId,omitempty"`
+	SnapshotToken        string                        `json:"snapshotToken"`
+}
+
+// TableShapeProposalRequestMode defines model for TableShapeProposalRequest.Mode.
+type TableShapeProposalRequestMode string
+
+// TableShapeReshapeModeChoice defines model for TableShapeReshapeModeChoice.
+type TableShapeReshapeModeChoice struct {
+	Availability TableShapeChoiceAvailability          `json:"availability"`
+	ChoiceId     string                                `json:"choiceId"`
+	ChoiceKind   TableShapeReshapeModeChoiceChoiceKind `json:"choiceKind"`
+	Label        string                                `json:"label"`
+	Mode         TableShapeReshapeModeChoiceMode       `json:"mode"`
+}
+
+// TableShapeReshapeModeChoiceChoiceKind defines model for TableShapeReshapeModeChoice.ChoiceKind.
+type TableShapeReshapeModeChoiceChoiceKind string
+
+// TableShapeReshapeModeChoiceMode defines model for TableShapeReshapeModeChoice.Mode.
+type TableShapeReshapeModeChoiceMode string
+
+// TableShapeReshapeModeReference defines model for TableShapeReshapeModeReference.
+type TableShapeReshapeModeReference struct {
+	ChoiceId string                             `json:"choiceId"`
+	Kind     TableShapeReshapeModeReferenceKind `json:"kind"`
+}
+
+// TableShapeReshapeModeReferenceKind defines model for TableShapeReshapeModeReference.Kind.
+type TableShapeReshapeModeReferenceKind string
+
+// TableShapeResolutionRequest defines model for TableShapeResolutionRequest.
+type TableShapeResolutionRequest struct {
+	CatalogId            string                          `json:"catalogId"`
+	Derived              *TableShapeDerivedSelection     `json:"derived,omitempty"`
+	ExpectedDraftDigest  string                          `json:"expectedDraftDigest"`
+	ExpectedDraftVersion int                             `json:"expectedDraftVersion"`
+	Kind                 TableShapeResolutionRequestKind `json:"kind"`
+	OutputId             string                          `json:"outputId"`
+	Pivot                *TableShapePivotSelection       `json:"pivot,omitempty"`
+	SnapshotToken        string                          `json:"snapshotToken"`
+	Unpivot              *TableShapeUnpivotSelection     `json:"unpivot,omitempty"`
+}
+
+// TableShapeResolutionRequestKind defines model for TableShapeResolutionRequest.Kind.
+type TableShapeResolutionRequestKind string
+
+// TableShapeResolutionResponse defines model for TableShapeResolutionResponse.
+type TableShapeResolutionResponse struct {
+	CatalogId           string                               `json:"catalogId"`
+	Categories          *[]TableShapeResolvedCategory        `json:"categories,omitempty"`
+	CategoryDiscoveryId *string                              `json:"categoryDiscoveryId,omitempty"`
+	KeyResult           *TableShapeTypeFact                  `json:"keyResult,omitempty"`
+	Kind                TableShapeResolutionResponseKind     `json:"kind"`
+	OutputDescriptors   []TableShapeResolvedOutputDescriptor `json:"outputDescriptors"`
+	PostPivotOperands   []TableShapeEditorChoice             `json:"postPivotOperands"`
+	ResolutionId        string                               `json:"resolutionId"`
+	Result              *TableShapeTypeFact                  `json:"result,omitempty"`
+	ValueResult         *TableShapeTypeFact                  `json:"valueResult,omitempty"`
+}
+
+// TableShapeResolutionResponseKind defines model for TableShapeResolutionResponse.Kind.
+type TableShapeResolutionResponseKind string
+
+// TableShapeResolvedCategory defines model for TableShapeResolvedCategory.
+type TableShapeResolvedCategory struct {
+	Id           string             `json:"id"`
+	OutputColumn string             `json:"outputColumn"`
+	OutputLabel  string             `json:"outputLabel"`
+	Type         TableShapeTypeFact `json:"type"`
+	Value        TableShapeScalar   `json:"value"`
+}
+
+// TableShapeResolvedOutputDescriptor defines model for TableShapeResolvedOutputDescriptor.
+type TableShapeResolvedOutputDescriptor struct {
+	Category        *TableShapePivotCategoryReference      `json:"category,omitempty"`
+	GroupColumn     *TableShapeColumnReference             `json:"groupColumn,omitempty"`
+	Kind            TableShapeResolvedOutputDescriptorKind `json:"kind"`
+	OperandChoiceId *string                                `json:"operandChoiceId,omitempty"`
+	OutputColumn    string                                 `json:"outputColumn"`
+	OutputLabel     string                                 `json:"outputLabel"`
+	Type            TableShapeTypeFact                     `json:"type"`
+}
+
+// TableShapeResolvedOutputDescriptorKind defines model for TableShapeResolvedOutputDescriptor.Kind.
+type TableShapeResolvedOutputDescriptorKind string
+
+// TableShapeSavedPivotCategorySelection defines model for TableShapeSavedPivotCategorySelection.
+type TableShapeSavedPivotCategorySelection struct {
+	Category TableShapePivotCategoryReference `json:"category"`
+	Output   TableShapeOutputName             `json:"output"`
+}
+
+// TableShapeScalar defines model for TableShapeScalar.
+type TableShapeScalar struct {
+	Boolean *bool                `json:"boolean,omitempty"`
+	Decimal *float64             `json:"decimal,omitempty"`
+	Integer *int64               `json:"integer,omitempty"`
+	Kind    TableShapeScalarKind `json:"kind"`
+	String  *string              `json:"string,omitempty"`
+}
+
+// TableShapeScalarKind defines model for TableShapeScalar.Kind.
+type TableShapeScalarKind string
+
+// TableShapeSourceIdentity defines model for TableShapeSourceIdentity.
+type TableShapeSourceIdentity struct {
+	ResourceId   string `json:"resourceId"`
+	ResourceType string `json:"resourceType"`
+}
+
+// TableShapeTypeFact defines model for TableShapeTypeFact.
+type TableShapeTypeFact struct {
+	LogicalType  TableShapeLogicalType `json:"logicalType"`
+	Nullable     bool                  `json:"nullable"`
+	UnitIdentity *string               `json:"unitIdentity,omitempty"`
+}
+
+// TableShapeUnlistedCategoryPolicyReference defines model for TableShapeUnlistedCategoryPolicyReference.
+type TableShapeUnlistedCategoryPolicyReference struct {
+	ChoiceId string                                        `json:"choiceId"`
+	Kind     TableShapeUnlistedCategoryPolicyReferenceKind `json:"kind"`
+}
+
+// TableShapeUnlistedCategoryPolicyReferenceKind defines model for TableShapeUnlistedCategoryPolicyReference.Kind.
+type TableShapeUnlistedCategoryPolicyReferenceKind string
+
+// TableShapeUnpivotNullRowPolicyReference defines model for TableShapeUnpivotNullRowPolicyReference.
+type TableShapeUnpivotNullRowPolicyReference struct {
+	ChoiceId string                                      `json:"choiceId"`
+	Kind     TableShapeUnpivotNullRowPolicyReferenceKind `json:"kind"`
+}
+
+// TableShapeUnpivotNullRowPolicyReferenceKind defines model for TableShapeUnpivotNullRowPolicyReference.Kind.
+type TableShapeUnpivotNullRowPolicyReferenceKind string
+
+// TableShapeUnpivotProposal defines model for TableShapeUnpivotProposal.
+type TableShapeUnpivotProposal struct {
+	InputColumns  []TableShapeColumnReference             `json:"inputColumns"`
+	KeyOutput     TableShapeOutputName                    `json:"keyOutput"`
+	NullRowPolicy TableShapeUnpivotNullRowPolicyReference `json:"nullRowPolicy"`
+	ValueOutput   TableShapeOutputName                    `json:"valueOutput"`
+}
+
+// TableShapeUnpivotSelection defines model for TableShapeUnpivotSelection.
+type TableShapeUnpivotSelection struct {
+	InputColumnChoiceIds []string `json:"inputColumnChoiceIds"`
+	KeyOutputColumn      string   `json:"keyOutputColumn"`
+	KeyOutputLabel       string   `json:"keyOutputLabel"`
+	NullPolicyChoiceId   string   `json:"nullPolicyChoiceId"`
+	ValueOutputColumn    string   `json:"valueOutputColumn"`
+	ValueOutputLabel     string   `json:"valueOutputLabel"`
+}
+
+// TemporalFieldChoice defines model for TemporalFieldChoice.
+type TemporalFieldChoice struct {
+	CandidateId  string `json:"candidateId"`
+	FieldPath    string `json:"fieldPath"`
+	Label        string `json:"label"`
+	NodeId       string `json:"nodeId"`
+	ResourceType string `json:"resourceType"`
+}
+
+// TemporalOrderingSource defines model for TemporalOrderingSource.
+type TemporalOrderingSource struct {
+	Direction     TemporalOrderingSourceDirection `json:"direction"`
+	TiePolicy     TemporalOrderingSourceTiePolicy `json:"tiePolicy"`
+	TimestampPath string                          `json:"timestampPath"`
+}
+
+// TemporalOrderingSourceDirection defines model for TemporalOrderingSource.Direction.
+type TemporalOrderingSourceDirection string
+
+// TemporalOrderingSourceTiePolicy defines model for TemporalOrderingSource.TiePolicy.
+type TemporalOrderingSourceTiePolicy string
+
+// TemporalReductionCapabilities defines model for TemporalReductionCapabilities.
+type TemporalReductionCapabilities struct {
+	AnchorFields    []TemporalFieldChoice `json:"anchorFields"`
+	Available       bool                  `json:"available"`
+	Reason          *string               `json:"reason,omitempty"`
+	ReasonCode      *string               `json:"reasonCode,omitempty"`
+	TimestampFields []TemporalFieldChoice `json:"timestampFields"`
+}
+
+// TerminologyKey defines model for TerminologyKey.
+type TerminologyKey struct {
+	Code   string `json:"code"`
+	System string `json:"system"`
+}
+
+// UnitIdentity defines model for UnitIdentity.
+type UnitIdentity struct {
+	Code   string `json:"code"`
+	System string `json:"system"`
+}
+
+// UnitNormalizationCapabilities defines model for UnitNormalizationCapabilities.
+type UnitNormalizationCapabilities struct {
+	Available  bool                                `json:"available"`
+	Presets    []UnitNormalizationPresetCapability `json:"presets"`
+	Reason     *string                             `json:"reason,omitempty"`
+	ReasonCode *string                             `json:"reasonCode,omitempty"`
+}
+
+// UnitNormalizationContract defines model for UnitNormalizationContract.
+type UnitNormalizationContract struct {
+	Rules  []UnitRuleReference `json:"rules"`
+	Target UnitIdentity        `json:"target"`
+}
+
+// UnitNormalizationPolicy defines model for UnitNormalizationPolicy.
+type UnitNormalizationPolicy struct {
+	PolicyId string `json:"policyId"`
+	Version  string `json:"version"`
+}
+
+// UnitNormalizationPresetCapability defines model for UnitNormalizationPresetCapability.
+type UnitNormalizationPresetCapability struct {
+	Available  bool         `json:"available"`
+	PolicyId   string       `json:"policyId"`
+	Reason     *string      `json:"reason,omitempty"`
+	ReasonCode *string      `json:"reasonCode,omitempty"`
+	Target     UnitIdentity `json:"target"`
+	Version    string       `json:"version"`
+}
+
+// UnitRuleReference defines model for UnitRuleReference.
+type UnitRuleReference struct {
+	Id      string `json:"id"`
+	Version string `json:"version"`
+}
+
+// ValueTransformationCapability defines model for ValueTransformationCapability.
+type ValueTransformationCapability struct {
+	Available  bool    `json:"available"`
+	Reason     *string `json:"reason,omitempty"`
+	ReasonCode *string `json:"reasonCode,omitempty"`
+}
 
 // Workspace defines model for Workspace.
 type Workspace = authoringv2.Workspace
@@ -981,6 +8090,12 @@ type ApplyExplorerBuilderCommandsParams struct {
 	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
 }
 
+// CreateInterpretationRevisionFromColumnParams defines parameters for CreateInterpretationRevisionFromColumn.
+type CreateInterpretationRevisionFromColumnParams struct {
+	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
+	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
+}
+
 // PublishExplorerParams defines parameters for PublishExplorer.
 type PublishExplorerParams struct {
 	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
@@ -993,10 +8108,40 @@ type ReconcileExplorerBuilderParams struct {
 	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
 }
 
+// ListExplorerRowDefinitionChoicesParams defines parameters for ListExplorerRowDefinitionChoices.
+type ListExplorerRowDefinitionChoicesParams struct {
+	OutputId      string `form:"outputId" json:"outputId"`
+	SnapshotToken string `form:"snapshotToken" json:"snapshotToken"`
+}
+
+// CreateExplorerSelectionParams defines parameters for CreateExplorerSelection.
+type CreateExplorerSelectionParams struct {
+	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
+	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
+}
+
+// GetExplorerSelectionParams defines parameters for GetExplorerSelection.
+type GetExplorerSelectionParams struct {
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// CreateExplorerExplicitGroupRevisionParams defines parameters for CreateExplorerExplicitGroupRevision.
+type CreateExplorerExplicitGroupRevisionParams struct {
+	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
+	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
+}
+
 // PublishRepositoryExplorerConfigParams defines parameters for PublishRepositoryExplorerConfig.
 type PublishRepositoryExplorerConfigParams struct {
 	AuthResourcePath  *string `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
 	XLoomSourceCommit string  `json:"X-Loom-Source-Commit"`
+}
+
+// CreateInterpretationRevisionParams defines parameters for CreateInterpretationRevision.
+type CreateInterpretationRevisionParams struct {
+	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
+	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
 }
 
 // CreateDatasetGenerationMultipartRequestBody defines body for CreateDatasetGeneration for multipart/form-data ContentType.
@@ -1005,8 +8150,56 @@ type CreateDatasetGenerationMultipartRequestBody CreateDatasetGenerationMultipar
 // CreateExplorerJSONRequestBody defines body for CreateExplorer for application/json ContentType.
 type CreateExplorerJSONRequestBody = RawJSON
 
+// PrepareExplorerArtifactJSONRequestBody defines body for PrepareExplorerArtifact for application/json ContentType.
+type PrepareExplorerArtifactJSONRequestBody = ArtifactPrepareRequest
+
+// TraceExplorerCellJSONRequestBody defines body for TraceExplorerCell for application/json ContentType.
+type TraceExplorerCellJSONRequestBody = CellTraceRequest
+
+// GetExplorerColumnSourceJSONRequestBody defines body for GetExplorerColumnSource for application/json ContentType.
+type GetExplorerColumnSourceJSONRequestBody = ColumnSourceRequest
+
 // ApplyExplorerBuilderCommandsJSONRequestBody defines body for ApplyExplorerBuilderCommands for application/json ContentType.
 type ApplyExplorerBuilderCommandsJSONRequestBody = ApplyCommandsRequest
+
+// ResolveConfiguredColumnContextJSONRequestBody defines body for ResolveConfiguredColumnContext for application/json ContentType.
+type ResolveConfiguredColumnContextJSONRequestBody = ConfiguredColumnContextRequest
+
+// GetExplorerConstructionCapabilitiesJSONRequestBody defines body for GetExplorerConstructionCapabilities for application/json ContentType.
+type GetExplorerConstructionCapabilitiesJSONRequestBody = ConstructionCapabilitiesRequest
+
+// DiscoverExplorerConstructionCategoriesJSONRequestBody defines body for DiscoverExplorerConstructionCategories for application/json ContentType.
+type DiscoverExplorerConstructionCategoriesJSONRequestBody = ConstructionCategoryDiscoveryRequest
+
+// ProposeExplorerConstructionChoiceJSONRequestBody defines body for ProposeExplorerConstructionChoice for application/json ContentType.
+type ProposeExplorerConstructionChoiceJSONRequestBody = ConstructionChoiceProposalRequest
+
+// SearchExplorerConstructionChoicesJSONRequestBody defines body for SearchExplorerConstructionChoices for application/json ContentType.
+type SearchExplorerConstructionChoicesJSONRequestBody = ConstructionChoiceSearchRequest
+
+// GetExplorerConstructionInputsJSONRequestBody defines body for GetExplorerConstructionInputs for application/json ContentType.
+type GetExplorerConstructionInputsJSONRequestBody = ConstructionInputsRequest
+
+// ProposeExplorerConstructionJSONRequestBody defines body for ProposeExplorerConstruction for application/json ContentType.
+type ProposeExplorerConstructionJSONRequestBody = ConstructionProposalRequest
+
+// BrowseExplorerFrameSourceOptionsJSONRequestBody defines body for BrowseExplorerFrameSourceOptions for application/json ContentType.
+type BrowseExplorerFrameSourceOptionsJSONRequestBody = FrameSourceOptionsRequest
+
+// PreviewInterpretationCandidateJSONRequestBody defines body for PreviewInterpretationCandidate for application/json ContentType.
+type PreviewInterpretationCandidateJSONRequestBody = InterpretationPreviewRequest
+
+// CreateInterpretationRevisionFromColumnJSONRequestBody defines body for CreateInterpretationRevisionFromColumn for application/json ContentType.
+type CreateInterpretationRevisionFromColumnJSONRequestBody = InterpretationRevisionFromColumnRequest
+
+// CheckExplorerPopulationMappingJSONRequestBody defines body for CheckExplorerPopulationMapping for application/json ContentType.
+type CheckExplorerPopulationMappingJSONRequestBody = PopulationMappingRequest
+
+// ProposeExplorerPopulationMemberRemovalJSONRequestBody defines body for ProposeExplorerPopulationMemberRemoval for application/json ContentType.
+type ProposeExplorerPopulationMemberRemovalJSONRequestBody = PopulationMemberRemovalProposalRequest
+
+// SearchExplorerPopulationRoutesJSONRequestBody defines body for SearchExplorerPopulationRoutes for application/json ContentType.
+type SearchExplorerPopulationRoutesJSONRequestBody = PopulationRoutesRequest
 
 // PreviewExplorerJSONRequestBody defines body for PreviewExplorer for application/json ContentType.
 type PreviewExplorerJSONRequestBody = PreviewRequest
@@ -1017,11 +8210,56 @@ type PublishExplorerJSONRequestBody = PublishRequest
 // ReconcileExplorerBuilderJSONRequestBody defines body for ReconcileExplorerBuilder for application/json ContentType.
 type ReconcileExplorerBuilderJSONRequestBody = ReconcileRequest
 
+// SearchExplorerRelatedExpandChoicesJSONRequestBody defines body for SearchExplorerRelatedExpandChoices for application/json ContentType.
+type SearchExplorerRelatedExpandChoicesJSONRequestBody = RelatedExpandChoiceSearchRequest
+
+// SearchExplorerRelatedExpandContributorsJSONRequestBody defines body for SearchExplorerRelatedExpandContributors for application/json ContentType.
+type SearchExplorerRelatedExpandContributorsJSONRequestBody = RelatedExpandContributorChoiceSearchRequest
+
+// SearchExplorerRelatedFieldChoicesJSONRequestBody defines body for SearchExplorerRelatedFieldChoices for application/json ContentType.
+type SearchExplorerRelatedFieldChoicesJSONRequestBody = RelatedFieldChoiceSearchRequest
+
+// AssessExplorerRowChangeJSONRequestBody defines body for AssessExplorerRowChange for application/json ContentType.
+type AssessExplorerRowChangeJSONRequestBody = AssessRowChangeRequest
+
+// ProposeExplorerRowDefinitionJSONRequestBody defines body for ProposeExplorerRowDefinition for application/json ContentType.
+type ProposeExplorerRowDefinitionJSONRequestBody = RowDefinitionProposalRequest
+
+// TraceExplorerRowLineageJSONRequestBody defines body for TraceExplorerRowLineage for application/json ContentType.
+type TraceExplorerRowLineageJSONRequestBody = RowLineageRequest
+
+// SearchExplorerSchemaFieldsJSONRequestBody defines body for SearchExplorerSchemaFields for application/json ContentType.
+type SearchExplorerSchemaFieldsJSONRequestBody = SchemaFieldSearchRequest
+
+// BrowseExplorerSemanticInventoryJSONRequestBody defines body for BrowseExplorerSemanticInventory for application/json ContentType.
+type BrowseExplorerSemanticInventoryJSONRequestBody = SemanticInventoryBrowseRequest
+
 // SearchExplorerCandidatesJSONRequestBody defines body for SearchExplorerCandidates for application/json ContentType.
 type SearchExplorerCandidatesJSONRequestBody = CandidateSearchRequest
 
+// GetExplorerTableShapeCapabilitiesJSONRequestBody defines body for GetExplorerTableShapeCapabilities for application/json ContentType.
+type GetExplorerTableShapeCapabilitiesJSONRequestBody = TableShapeCapabilitiesRequest
+
+// DiscoverExplorerTableShapeCategoriesJSONRequestBody defines body for DiscoverExplorerTableShapeCategories for application/json ContentType.
+type DiscoverExplorerTableShapeCategoriesJSONRequestBody = TableShapeCategoryDiscoveryRequest
+
+// ProposeExplorerTableShapeJSONRequestBody defines body for ProposeExplorerTableShape for application/json ContentType.
+type ProposeExplorerTableShapeJSONRequestBody = TableShapeProposalRequest
+
+// ResolveExplorerTableShapeJSONRequestBody defines body for ResolveExplorerTableShape for application/json ContentType.
+type ResolveExplorerTableShapeJSONRequestBody = TableShapeResolutionRequest
+
+// CreateExplorerSelectionJSONRequestBody defines body for CreateExplorerSelection for application/json ContentType.
+type CreateExplorerSelectionJSONRequestBody = SelectionCreateRequest
+
+// CreateExplorerExplicitGroupRevisionJSONRequestBody defines body for CreateExplorerExplicitGroupRevision for application/json ContentType.
+type CreateExplorerExplicitGroupRevisionJSONRequestBody = ExplicitGroupCreateRequest
+
 // PublishRepositoryExplorerConfigJSONRequestBody defines body for PublishRepositoryExplorerConfig for application/json ContentType.
 type PublishRepositoryExplorerConfigJSONRequestBody = Workspace
+
+// CreateInterpretationRevisionJSONRequestBody defines body for CreateInterpretationRevision for application/json ContentType.
+type CreateInterpretationRevisionJSONRequestBody = InterpretationRevisionCreateRequest
 
 // ExecuteDataframeGraphQLJSONRequestBody defines body for ExecuteDataframeGraphQL for application/json ContentType.
 type ExecuteDataframeGraphQLJSONRequestBody = RawJSON
@@ -1283,6 +8521,525 @@ func (a LegacyErrorResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(object)
 }
 
+// AsSetColumnTransformation returns the union data inside the ColumnTransformationChange as a SetColumnTransformation
+func (t ColumnTransformationChange) AsSetColumnTransformation() (SetColumnTransformation, error) {
+	var body SetColumnTransformation
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromSetColumnTransformation overwrites any union data inside the ColumnTransformationChange as the provided SetColumnTransformation
+func (t *ColumnTransformationChange) FromSetColumnTransformation(v SetColumnTransformation) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"SET"}`))
+	t.union = b
+	return err
+}
+
+// MergeSetColumnTransformation performs a merge with any union data inside the ColumnTransformationChange, using the provided SetColumnTransformation
+func (t *ColumnTransformationChange) MergeSetColumnTransformation(v SetColumnTransformation) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"SET"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsRemoveColumnTransformation returns the union data inside the ColumnTransformationChange as a RemoveColumnTransformation
+func (t ColumnTransformationChange) AsRemoveColumnTransformation() (RemoveColumnTransformation, error) {
+	var body RemoveColumnTransformation
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromRemoveColumnTransformation overwrites any union data inside the ColumnTransformationChange as the provided RemoveColumnTransformation
+func (t *ColumnTransformationChange) FromRemoveColumnTransformation(v RemoveColumnTransformation) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"REMOVE"}`))
+	t.union = b
+	return err
+}
+
+// MergeRemoveColumnTransformation performs a merge with any union data inside the ColumnTransformationChange, using the provided RemoveColumnTransformation
+func (t *ColumnTransformationChange) MergeRemoveColumnTransformation(v RemoveColumnTransformation) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"REMOVE"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ColumnTransformationChange) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ColumnTransformationChange) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "REMOVE":
+		return t.AsRemoveColumnTransformation()
+	case "SET":
+		return t.AsSetColumnTransformation()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t ColumnTransformationChange) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ColumnTransformationChange) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsExactCategoryRecodeTransformation returns the union data inside the ColumnValueTransformation as a ExactCategoryRecodeTransformation
+func (t ColumnValueTransformation) AsExactCategoryRecodeTransformation() (ExactCategoryRecodeTransformation, error) {
+	var body ExactCategoryRecodeTransformation
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromExactCategoryRecodeTransformation overwrites any union data inside the ColumnValueTransformation as the provided ExactCategoryRecodeTransformation
+func (t *ColumnValueTransformation) FromExactCategoryRecodeTransformation(v ExactCategoryRecodeTransformation) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"EXACT_CATEGORY_RECODE"}`))
+	t.union = b
+	return err
+}
+
+// MergeExactCategoryRecodeTransformation performs a merge with any union data inside the ColumnValueTransformation, using the provided ExactCategoryRecodeTransformation
+func (t *ColumnValueTransformation) MergeExactCategoryRecodeTransformation(v ExactCategoryRecodeTransformation) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"EXACT_CATEGORY_RECODE"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ColumnValueTransformation) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ColumnValueTransformation) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "EXACT_CATEGORY_RECODE":
+		return t.AsExactCategoryRecodeTransformation()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t ColumnValueTransformation) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ColumnValueTransformation) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsConfiguredColumnReadyResolution returns the union data inside the ConfiguredColumnResolution as a ConfiguredColumnReadyResolution
+func (t ConfiguredColumnResolution) AsConfiguredColumnReadyResolution() (ConfiguredColumnReadyResolution, error) {
+	var body ConfiguredColumnReadyResolution
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromConfiguredColumnReadyResolution overwrites any union data inside the ConfiguredColumnResolution as the provided ConfiguredColumnReadyResolution
+func (t *ConfiguredColumnResolution) FromConfiguredColumnReadyResolution(v ConfiguredColumnReadyResolution) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeConfiguredColumnReadyResolution performs a merge with any union data inside the ConfiguredColumnResolution, using the provided ConfiguredColumnReadyResolution
+func (t *ConfiguredColumnResolution) MergeConfiguredColumnReadyResolution(v ConfiguredColumnReadyResolution) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsConfiguredColumnUnavailableResolution returns the union data inside the ConfiguredColumnResolution as a ConfiguredColumnUnavailableResolution
+func (t ConfiguredColumnResolution) AsConfiguredColumnUnavailableResolution() (ConfiguredColumnUnavailableResolution, error) {
+	var body ConfiguredColumnUnavailableResolution
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromConfiguredColumnUnavailableResolution overwrites any union data inside the ConfiguredColumnResolution as the provided ConfiguredColumnUnavailableResolution
+func (t *ConfiguredColumnResolution) FromConfiguredColumnUnavailableResolution(v ConfiguredColumnUnavailableResolution) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeConfiguredColumnUnavailableResolution performs a merge with any union data inside the ConfiguredColumnResolution, using the provided ConfiguredColumnUnavailableResolution
+func (t *ConfiguredColumnResolution) MergeConfiguredColumnUnavailableResolution(v ConfiguredColumnUnavailableResolution) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ConfiguredColumnResolution) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"state"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ConfiguredColumnResolution) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "AMBIGUOUS":
+		return t.AsConfiguredColumnUnavailableResolution()
+	case "MISSING":
+		return t.AsConfiguredColumnUnavailableResolution()
+	case "READY":
+		return t.AsConfiguredColumnReadyResolution()
+	case "UNSUPPORTED":
+		return t.AsConfiguredColumnUnavailableResolution()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t ConfiguredColumnResolution) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ConfiguredColumnResolution) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsFieldChoiceSource returns the union data inside the ConstructionChoice_Source as a FieldChoiceSource
+func (t ConstructionChoice_Source) AsFieldChoiceSource() (FieldChoiceSource, error) {
+	var body FieldChoiceSource
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFieldChoiceSource overwrites any union data inside the ConstructionChoice_Source as the provided FieldChoiceSource
+func (t *ConstructionChoice_Source) FromFieldChoiceSource(v FieldChoiceSource) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"FIELD"}`))
+	t.union = b
+	return err
+}
+
+// MergeFieldChoiceSource performs a merge with any union data inside the ConstructionChoice_Source, using the provided FieldChoiceSource
+func (t *ConstructionChoice_Source) MergeFieldChoiceSource(v FieldChoiceSource) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"FIELD"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsSemanticBindingChoiceSource returns the union data inside the ConstructionChoice_Source as a SemanticBindingChoiceSource
+func (t ConstructionChoice_Source) AsSemanticBindingChoiceSource() (SemanticBindingChoiceSource, error) {
+	var body SemanticBindingChoiceSource
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromSemanticBindingChoiceSource overwrites any union data inside the ConstructionChoice_Source as the provided SemanticBindingChoiceSource
+func (t *ConstructionChoice_Source) FromSemanticBindingChoiceSource(v SemanticBindingChoiceSource) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"SEMANTIC"}`))
+	t.union = b
+	return err
+}
+
+// MergeSemanticBindingChoiceSource performs a merge with any union data inside the ConstructionChoice_Source, using the provided SemanticBindingChoiceSource
+func (t *ConstructionChoice_Source) MergeSemanticBindingChoiceSource(v SemanticBindingChoiceSource) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"SEMANTIC"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ConstructionChoice_Source) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ConstructionChoice_Source) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "FIELD":
+		return t.AsFieldChoiceSource()
+	case "SEMANTIC":
+		return t.AsSemanticBindingChoiceSource()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t ConstructionChoice_Source) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ConstructionChoice_Source) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsFieldConstructionChoiceSearchSource returns the union data inside the ConstructionChoiceSearchRequest_Source as a FieldConstructionChoiceSearchSource
+func (t ConstructionChoiceSearchRequest_Source) AsFieldConstructionChoiceSearchSource() (FieldConstructionChoiceSearchSource, error) {
+	var body FieldConstructionChoiceSearchSource
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFieldConstructionChoiceSearchSource overwrites any union data inside the ConstructionChoiceSearchRequest_Source as the provided FieldConstructionChoiceSearchSource
+func (t *ConstructionChoiceSearchRequest_Source) FromFieldConstructionChoiceSearchSource(v FieldConstructionChoiceSearchSource) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"FIELD"}`))
+	t.union = b
+	return err
+}
+
+// MergeFieldConstructionChoiceSearchSource performs a merge with any union data inside the ConstructionChoiceSearchRequest_Source, using the provided FieldConstructionChoiceSearchSource
+func (t *ConstructionChoiceSearchRequest_Source) MergeFieldConstructionChoiceSearchSource(v FieldConstructionChoiceSearchSource) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"FIELD"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsSemanticConstructionChoiceSearchSource returns the union data inside the ConstructionChoiceSearchRequest_Source as a SemanticConstructionChoiceSearchSource
+func (t ConstructionChoiceSearchRequest_Source) AsSemanticConstructionChoiceSearchSource() (SemanticConstructionChoiceSearchSource, error) {
+	var body SemanticConstructionChoiceSearchSource
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromSemanticConstructionChoiceSearchSource overwrites any union data inside the ConstructionChoiceSearchRequest_Source as the provided SemanticConstructionChoiceSearchSource
+func (t *ConstructionChoiceSearchRequest_Source) FromSemanticConstructionChoiceSearchSource(v SemanticConstructionChoiceSearchSource) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"SEMANTIC"}`))
+	t.union = b
+	return err
+}
+
+// MergeSemanticConstructionChoiceSearchSource performs a merge with any union data inside the ConstructionChoiceSearchRequest_Source, using the provided SemanticConstructionChoiceSearchSource
+func (t *ConstructionChoiceSearchRequest_Source) MergeSemanticConstructionChoiceSearchSource(v SemanticConstructionChoiceSearchSource) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"SEMANTIC"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ConstructionChoiceSearchRequest_Source) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ConstructionChoiceSearchRequest_Source) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "FIELD":
+		return t.AsFieldConstructionChoiceSearchSource()
+	case "SEMANTIC":
+		return t.AsSemanticConstructionChoiceSearchSource()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t ConstructionChoiceSearchRequest_Source) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ConstructionChoiceSearchRequest_Source) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsContributorStringValue returns the union data inside the ContributorValue as a ContributorStringValue
+func (t ContributorValue) AsContributorStringValue() (ContributorStringValue, error) {
+	var body ContributorStringValue
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromContributorStringValue overwrites any union data inside the ContributorValue as the provided ContributorStringValue
+func (t *ContributorValue) FromContributorStringValue(v ContributorStringValue) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeContributorStringValue performs a merge with any union data inside the ContributorValue, using the provided ContributorStringValue
+func (t *ContributorValue) MergeContributorStringValue(v ContributorStringValue) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsContributorCodeValue returns the union data inside the ContributorValue as a ContributorCodeValue
+func (t ContributorValue) AsContributorCodeValue() (ContributorCodeValue, error) {
+	var body ContributorCodeValue
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromContributorCodeValue overwrites any union data inside the ContributorValue as the provided ContributorCodeValue
+func (t *ContributorValue) FromContributorCodeValue(v ContributorCodeValue) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeContributorCodeValue performs a merge with any union data inside the ContributorValue, using the provided ContributorCodeValue
+func (t *ContributorValue) MergeContributorCodeValue(v ContributorCodeValue) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ContributorValue) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ContributorValue) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // AsLegacyErrorResponseError0 returns the union data inside the LegacyErrorResponse_Error as a LegacyErrorResponseError0
 func (t LegacyErrorResponse_Error) AsLegacyErrorResponseError0() (LegacyErrorResponseError0, error) {
 	var body LegacyErrorResponseError0
@@ -1345,6 +9102,381 @@ func (t *LegacyErrorResponse_Error) UnmarshalJSON(b []byte) error {
 	return err
 }
 
+// AsRowDefinitionComparisonAvailable returns the union data inside the RowDefinitionComparison as a RowDefinitionComparisonAvailable
+func (t RowDefinitionComparison) AsRowDefinitionComparisonAvailable() (RowDefinitionComparisonAvailable, error) {
+	var body RowDefinitionComparisonAvailable
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromRowDefinitionComparisonAvailable overwrites any union data inside the RowDefinitionComparison as the provided RowDefinitionComparisonAvailable
+func (t *RowDefinitionComparison) FromRowDefinitionComparisonAvailable(v RowDefinitionComparisonAvailable) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"RowDefinitionComparisonAvailable"}`))
+	t.union = b
+	return err
+}
+
+// MergeRowDefinitionComparisonAvailable performs a merge with any union data inside the RowDefinitionComparison, using the provided RowDefinitionComparisonAvailable
+func (t *RowDefinitionComparison) MergeRowDefinitionComparisonAvailable(v RowDefinitionComparisonAvailable) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"RowDefinitionComparisonAvailable"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsRowDefinitionComparisonUnavailable returns the union data inside the RowDefinitionComparison as a RowDefinitionComparisonUnavailable
+func (t RowDefinitionComparison) AsRowDefinitionComparisonUnavailable() (RowDefinitionComparisonUnavailable, error) {
+	var body RowDefinitionComparisonUnavailable
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromRowDefinitionComparisonUnavailable overwrites any union data inside the RowDefinitionComparison as the provided RowDefinitionComparisonUnavailable
+func (t *RowDefinitionComparison) FromRowDefinitionComparisonUnavailable(v RowDefinitionComparisonUnavailable) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"RowDefinitionComparisonUnavailable"}`))
+	t.union = b
+	return err
+}
+
+// MergeRowDefinitionComparisonUnavailable performs a merge with any union data inside the RowDefinitionComparison, using the provided RowDefinitionComparisonUnavailable
+func (t *RowDefinitionComparison) MergeRowDefinitionComparisonUnavailable(v RowDefinitionComparisonUnavailable) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"RowDefinitionComparisonUnavailable"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t RowDefinitionComparison) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"status"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t RowDefinitionComparison) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "RowDefinitionComparisonAvailable":
+		return t.AsRowDefinitionComparisonAvailable()
+	case "RowDefinitionComparisonUnavailable":
+		return t.AsRowDefinitionComparisonUnavailable()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t RowDefinitionComparison) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *RowDefinitionComparison) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsRowDefinitionRecordsSelection returns the union data inside the RowDefinitionProposalRequest_Selection as a RowDefinitionRecordsSelection
+func (t RowDefinitionProposalRequest_Selection) AsRowDefinitionRecordsSelection() (RowDefinitionRecordsSelection, error) {
+	var body RowDefinitionRecordsSelection
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromRowDefinitionRecordsSelection overwrites any union data inside the RowDefinitionProposalRequest_Selection as the provided RowDefinitionRecordsSelection
+func (t *RowDefinitionProposalRequest_Selection) FromRowDefinitionRecordsSelection(v RowDefinitionRecordsSelection) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"RECORDS"}`))
+	t.union = b
+	return err
+}
+
+// MergeRowDefinitionRecordsSelection performs a merge with any union data inside the RowDefinitionProposalRequest_Selection, using the provided RowDefinitionRecordsSelection
+func (t *RowDefinitionProposalRequest_Selection) MergeRowDefinitionRecordsSelection(v RowDefinitionRecordsSelection) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"RECORDS"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsRowDefinitionFieldGroupSelection returns the union data inside the RowDefinitionProposalRequest_Selection as a RowDefinitionFieldGroupSelection
+func (t RowDefinitionProposalRequest_Selection) AsRowDefinitionFieldGroupSelection() (RowDefinitionFieldGroupSelection, error) {
+	var body RowDefinitionFieldGroupSelection
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromRowDefinitionFieldGroupSelection overwrites any union data inside the RowDefinitionProposalRequest_Selection as the provided RowDefinitionFieldGroupSelection
+func (t *RowDefinitionProposalRequest_Selection) FromRowDefinitionFieldGroupSelection(v RowDefinitionFieldGroupSelection) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"FIELD_GROUP"}`))
+	t.union = b
+	return err
+}
+
+// MergeRowDefinitionFieldGroupSelection performs a merge with any union data inside the RowDefinitionProposalRequest_Selection, using the provided RowDefinitionFieldGroupSelection
+func (t *RowDefinitionProposalRequest_Selection) MergeRowDefinitionFieldGroupSelection(v RowDefinitionFieldGroupSelection) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"FIELD_GROUP"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsRowDefinitionExplicitGroupSelection returns the union data inside the RowDefinitionProposalRequest_Selection as a RowDefinitionExplicitGroupSelection
+func (t RowDefinitionProposalRequest_Selection) AsRowDefinitionExplicitGroupSelection() (RowDefinitionExplicitGroupSelection, error) {
+	var body RowDefinitionExplicitGroupSelection
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromRowDefinitionExplicitGroupSelection overwrites any union data inside the RowDefinitionProposalRequest_Selection as the provided RowDefinitionExplicitGroupSelection
+func (t *RowDefinitionProposalRequest_Selection) FromRowDefinitionExplicitGroupSelection(v RowDefinitionExplicitGroupSelection) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"EXPLICIT_GROUP"}`))
+	t.union = b
+	return err
+}
+
+// MergeRowDefinitionExplicitGroupSelection performs a merge with any union data inside the RowDefinitionProposalRequest_Selection, using the provided RowDefinitionExplicitGroupSelection
+func (t *RowDefinitionProposalRequest_Selection) MergeRowDefinitionExplicitGroupSelection(v RowDefinitionExplicitGroupSelection) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"EXPLICIT_GROUP"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsRowDefinitionExpandedSelection returns the union data inside the RowDefinitionProposalRequest_Selection as a RowDefinitionExpandedSelection
+func (t RowDefinitionProposalRequest_Selection) AsRowDefinitionExpandedSelection() (RowDefinitionExpandedSelection, error) {
+	var body RowDefinitionExpandedSelection
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromRowDefinitionExpandedSelection overwrites any union data inside the RowDefinitionProposalRequest_Selection as the provided RowDefinitionExpandedSelection
+func (t *RowDefinitionProposalRequest_Selection) FromRowDefinitionExpandedSelection(v RowDefinitionExpandedSelection) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"EXPANDED"}`))
+	t.union = b
+	return err
+}
+
+// MergeRowDefinitionExpandedSelection performs a merge with any union data inside the RowDefinitionProposalRequest_Selection, using the provided RowDefinitionExpandedSelection
+func (t *RowDefinitionProposalRequest_Selection) MergeRowDefinitionExpandedSelection(v RowDefinitionExpandedSelection) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"EXPANDED"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t RowDefinitionProposalRequest_Selection) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t RowDefinitionProposalRequest_Selection) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "EXPANDED":
+		return t.AsRowDefinitionExpandedSelection()
+	case "EXPLICIT_GROUP":
+		return t.AsRowDefinitionExplicitGroupSelection()
+	case "FIELD_GROUP":
+		return t.AsRowDefinitionFieldGroupSelection()
+	case "RECORDS":
+		return t.AsRowDefinitionRecordsSelection()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t RowDefinitionProposalRequest_Selection) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *RowDefinitionProposalRequest_Selection) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsTableShapeComparisonAvailable returns the union data inside the TableShapeComparison as a TableShapeComparisonAvailable
+func (t TableShapeComparison) AsTableShapeComparisonAvailable() (TableShapeComparisonAvailable, error) {
+	var body TableShapeComparisonAvailable
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromTableShapeComparisonAvailable overwrites any union data inside the TableShapeComparison as the provided TableShapeComparisonAvailable
+func (t *TableShapeComparison) FromTableShapeComparisonAvailable(v TableShapeComparisonAvailable) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"AVAILABLE"}`))
+	t.union = b
+	return err
+}
+
+// MergeTableShapeComparisonAvailable performs a merge with any union data inside the TableShapeComparison, using the provided TableShapeComparisonAvailable
+func (t *TableShapeComparison) MergeTableShapeComparisonAvailable(v TableShapeComparisonAvailable) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"AVAILABLE"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsTableShapeComparisonUnavailable returns the union data inside the TableShapeComparison as a TableShapeComparisonUnavailable
+func (t TableShapeComparison) AsTableShapeComparisonUnavailable() (TableShapeComparisonUnavailable, error) {
+	var body TableShapeComparisonUnavailable
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromTableShapeComparisonUnavailable overwrites any union data inside the TableShapeComparison as the provided TableShapeComparisonUnavailable
+func (t *TableShapeComparison) FromTableShapeComparisonUnavailable(v TableShapeComparisonUnavailable) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"UNAVAILABLE"}`))
+	t.union = b
+	return err
+}
+
+// MergeTableShapeComparisonUnavailable performs a merge with any union data inside the TableShapeComparison, using the provided TableShapeComparisonUnavailable
+func (t *TableShapeComparison) MergeTableShapeComparisonUnavailable(v TableShapeComparisonUnavailable) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"UNAVAILABLE"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t TableShapeComparison) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"status"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t TableShapeComparison) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "AVAILABLE":
+		return t.AsTableShapeComparisonAvailable()
+	case "UNAVAILABLE":
+		return t.AsTableShapeComparisonUnavailable()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t TableShapeComparison) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *TableShapeComparison) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// GetRecipeExecution Read public metadata for a dataframe recipe execution.
@@ -1369,14 +9501,65 @@ type ServerInterface interface {
 	// (GET /api/v1/projects/{project}/explorers/{explorerId})
 	GetExplorer(c fiber.Ctx, project Project, explorerId ExplorerId) error
 
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/artifacts)
+	PrepareExplorerArtifact(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/artifacts/{artifactId})
+	DownloadExplorerArtifact(c fiber.Ctx, project Project, explorerId ExplorerId, artifactId string) error
+
 	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder)
 	GetExplorerBuilder(c fiber.Ctx, project Project, explorerId ExplorerId) error
 
 	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability)
 	GetExplorerAuthoringCapability(c fiber.Ctx, project Project, explorerId ExplorerId) error
 
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/cell-trace)
+	TraceExplorerCell(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/column-source)
+	GetExplorerColumnSource(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands)
 	ApplyExplorerBuilderCommands(c fiber.Ctx, project Project, explorerId ExplorerId, params ApplyExplorerBuilderCommandsParams) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/configured-column-context)
+	ResolveConfiguredColumnContext(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities)
+	GetExplorerConstructionCapabilities(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-category-discoveries)
+	DiscoverExplorerConstructionCategories(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choice-proposals)
+	ProposeExplorerConstructionChoice(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choices)
+	SearchExplorerConstructionChoices(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-inputs)
+	GetExplorerConstructionInputs(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals)
+	ProposeExplorerConstruction(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/frame-source-options)
+	BrowseExplorerFrameSourceOptions(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-preview)
+	PreviewInterpretationCandidate(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-revisions)
+	CreateInterpretationRevisionFromColumn(c fiber.Ctx, project Project, explorerId ExplorerId, params CreateInterpretationRevisionFromColumnParams) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-mapping)
+	CheckExplorerPopulationMapping(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-member-proposals)
+	ProposeExplorerPopulationMemberRemoval(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-routes)
+	SearchExplorerPopulationRoutes(c fiber.Ctx, project Project, explorerId ExplorerId) error
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview)
 	PreviewExplorer(c fiber.Ctx, project Project, explorerId ExplorerId) error
@@ -1387,11 +9570,68 @@ type ServerInterface interface {
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile)
 	ReconcileExplorerBuilder(c fiber.Ctx, project Project, explorerId ExplorerId, params ReconcileExplorerBuilderParams) error
 
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-expand-choices)
+	SearchExplorerRelatedExpandChoices(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-expand-contributors)
+	SearchExplorerRelatedExpandContributors(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-field-choices)
+	SearchExplorerRelatedFieldChoices(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-change)
+	AssessExplorerRowChange(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices)
+	ListExplorerRowDefinitionChoices(c fiber.Ctx, project Project, explorerId ExplorerId, params ListExplorerRowDefinitionChoicesParams) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-proposals)
+	ProposeExplorerRowDefinition(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-lineage)
+	TraceExplorerRowLineage(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/schema-fields)
+	SearchExplorerSchemaFields(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/semantic-inventory)
+	BrowseExplorerSemanticInventory(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions)
 	SearchExplorerCandidates(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-capabilities)
+	GetExplorerTableShapeCapabilities(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-category-discoveries)
+	DiscoverExplorerTableShapeCategories(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-proposals)
+	ProposeExplorerTableShape(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-resolutions)
+	ResolveExplorerTableShape(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/selections)
+	CreateExplorerSelection(c fiber.Ctx, project Project, explorerId ExplorerId, params CreateExplorerSelectionParams) error
+
+	// (GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision})
+	GetExplorerSelection(c fiber.Ctx, project Project, explorerId ExplorerId, selectionRevision string, params GetExplorerSelectionParams) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}/explicit-groups)
+	CreateExplorerExplicitGroupRevision(c fiber.Ctx, project Project, explorerId ExplorerId, selectionRevision string, params CreateExplorerExplicitGroupRevisionParams) error
 	// PublishRepositoryExplorerConfig Compile and publish a repository-owned Explorer workspace.
 	// (POST /api/v1/projects/{project}/generations/{generation}/explorer-config)
 	PublishRepositoryExplorerConfig(c fiber.Ctx, project Project, generation Generation, params PublishRepositoryExplorerConfigParams) error
+
+	// (GET /api/v1/projects/{project}/interpretation-libraries)
+	ListInterpretationLibraries(c fiber.Ctx, project Project) error
+
+	// (POST /api/v1/projects/{project}/interpretation-libraries)
+	CreateInterpretationRevision(c fiber.Ctx, project Project, params CreateInterpretationRevisionParams) error
+
+	// (GET /api/v1/projects/{project}/interpretation-revisions/{revisionId})
+	GetInterpretationRevision(c fiber.Ctx, project Project, revisionId string) error
 	// GetApolloSandbox Render the Apollo GraphQL sandbox.
 	// (GET /apollo)
 	GetApolloSandbox(c fiber.Ctx) error
@@ -1714,6 +9954,88 @@ func (siw *ServerInterfaceWrapper) GetExplorer(c fiber.Ctx) error {
 	return handler(c)
 }
 
+// PrepareExplorerArtifact operation middleware
+func (siw *ServerInterfaceWrapper) PrepareExplorerArtifact(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.PrepareExplorerArtifact(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// DownloadExplorerArtifact operation middleware
+func (siw *ServerInterfaceWrapper) DownloadExplorerArtifact(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	// ------------- Path parameter "artifactId" -------------
+	var artifactId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "artifactId", c.Params("artifactId"), &artifactId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter artifactId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.DownloadExplorerArtifact(c, project, explorerId, artifactId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
 // GetExplorerBuilder operation middleware
 func (siw *ServerInterfaceWrapper) GetExplorerBuilder(c fiber.Ctx) error {
 
@@ -1788,6 +10110,80 @@ func (siw *ServerInterfaceWrapper) GetExplorerAuthoringCapability(c fiber.Ctx) e
 	return handler(c)
 }
 
+// TraceExplorerCell operation middleware
+func (siw *ServerInterfaceWrapper) TraceExplorerCell(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.TraceExplorerCell(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// GetExplorerColumnSource operation middleware
+func (siw *ServerInterfaceWrapper) GetExplorerColumnSource(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.GetExplorerColumnSource(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
 // ApplyExplorerBuilderCommands operation middleware
 func (siw *ServerInterfaceWrapper) ApplyExplorerBuilderCommands(c fiber.Ctx) error {
 
@@ -1828,6 +10224,503 @@ func (siw *ServerInterfaceWrapper) ApplyExplorerBuilderCommands(c fiber.Ctx) err
 
 	handler := func(c fiber.Ctx) error {
 		return siw.Handler.ApplyExplorerBuilderCommands(c, project, explorerId, params)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// ResolveConfiguredColumnContext operation middleware
+func (siw *ServerInterfaceWrapper) ResolveConfiguredColumnContext(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.ResolveConfiguredColumnContext(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// GetExplorerConstructionCapabilities operation middleware
+func (siw *ServerInterfaceWrapper) GetExplorerConstructionCapabilities(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.GetExplorerConstructionCapabilities(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// DiscoverExplorerConstructionCategories operation middleware
+func (siw *ServerInterfaceWrapper) DiscoverExplorerConstructionCategories(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.DiscoverExplorerConstructionCategories(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// ProposeExplorerConstructionChoice operation middleware
+func (siw *ServerInterfaceWrapper) ProposeExplorerConstructionChoice(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.ProposeExplorerConstructionChoice(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// SearchExplorerConstructionChoices operation middleware
+func (siw *ServerInterfaceWrapper) SearchExplorerConstructionChoices(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.SearchExplorerConstructionChoices(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// GetExplorerConstructionInputs operation middleware
+func (siw *ServerInterfaceWrapper) GetExplorerConstructionInputs(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.GetExplorerConstructionInputs(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// ProposeExplorerConstruction operation middleware
+func (siw *ServerInterfaceWrapper) ProposeExplorerConstruction(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.ProposeExplorerConstruction(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// BrowseExplorerFrameSourceOptions operation middleware
+func (siw *ServerInterfaceWrapper) BrowseExplorerFrameSourceOptions(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.BrowseExplorerFrameSourceOptions(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// PreviewInterpretationCandidate operation middleware
+func (siw *ServerInterfaceWrapper) PreviewInterpretationCandidate(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.PreviewInterpretationCandidate(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// CreateInterpretationRevisionFromColumn operation middleware
+func (siw *ServerInterfaceWrapper) CreateInterpretationRevisionFromColumn(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateInterpretationRevisionFromColumnParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "auth_resource_path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.CreateInterpretationRevisionFromColumn(c, project, explorerId, params)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// CheckExplorerPopulationMapping operation middleware
+func (siw *ServerInterfaceWrapper) CheckExplorerPopulationMapping(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.CheckExplorerPopulationMapping(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// ProposeExplorerPopulationMemberRemoval operation middleware
+func (siw *ServerInterfaceWrapper) ProposeExplorerPopulationMemberRemoval(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.ProposeExplorerPopulationMemberRemoval(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// SearchExplorerPopulationRoutes operation middleware
+func (siw *ServerInterfaceWrapper) SearchExplorerPopulationRoutes(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.SearchExplorerPopulationRoutes(c, project, explorerId)
 	}
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -1984,6 +10877,362 @@ func (siw *ServerInterfaceWrapper) ReconcileExplorerBuilder(c fiber.Ctx) error {
 	return handler(c)
 }
 
+// SearchExplorerRelatedExpandChoices operation middleware
+func (siw *ServerInterfaceWrapper) SearchExplorerRelatedExpandChoices(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.SearchExplorerRelatedExpandChoices(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// SearchExplorerRelatedExpandContributors operation middleware
+func (siw *ServerInterfaceWrapper) SearchExplorerRelatedExpandContributors(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.SearchExplorerRelatedExpandContributors(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// SearchExplorerRelatedFieldChoices operation middleware
+func (siw *ServerInterfaceWrapper) SearchExplorerRelatedFieldChoices(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.SearchExplorerRelatedFieldChoices(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// AssessExplorerRowChange operation middleware
+func (siw *ServerInterfaceWrapper) AssessExplorerRowChange(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.AssessExplorerRowChange(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// ListExplorerRowDefinitionChoices operation middleware
+func (siw *ServerInterfaceWrapper) ListExplorerRowDefinitionChoices(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListExplorerRowDefinitionChoicesParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Required query parameter "outputId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "outputId", query, &params.OutputId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter outputId: %w", err).Error())
+	}
+
+	// ------------- Required query parameter "snapshotToken" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "snapshotToken", query, &params.SnapshotToken, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter snapshotToken: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.ListExplorerRowDefinitionChoices(c, project, explorerId, params)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// ProposeExplorerRowDefinition operation middleware
+func (siw *ServerInterfaceWrapper) ProposeExplorerRowDefinition(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.ProposeExplorerRowDefinition(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// TraceExplorerRowLineage operation middleware
+func (siw *ServerInterfaceWrapper) TraceExplorerRowLineage(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.TraceExplorerRowLineage(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// SearchExplorerSchemaFields operation middleware
+func (siw *ServerInterfaceWrapper) SearchExplorerSchemaFields(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.SearchExplorerSchemaFields(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// BrowseExplorerSemanticInventory operation middleware
+func (siw *ServerInterfaceWrapper) BrowseExplorerSemanticInventory(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.BrowseExplorerSemanticInventory(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
 // SearchExplorerCandidates operation middleware
 func (siw *ServerInterfaceWrapper) SearchExplorerCandidates(c fiber.Ctx) error {
 
@@ -2008,6 +11257,336 @@ func (siw *ServerInterfaceWrapper) SearchExplorerCandidates(c fiber.Ctx) error {
 
 	handler := func(c fiber.Ctx) error {
 		return siw.Handler.SearchExplorerCandidates(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// GetExplorerTableShapeCapabilities operation middleware
+func (siw *ServerInterfaceWrapper) GetExplorerTableShapeCapabilities(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.GetExplorerTableShapeCapabilities(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// DiscoverExplorerTableShapeCategories operation middleware
+func (siw *ServerInterfaceWrapper) DiscoverExplorerTableShapeCategories(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.DiscoverExplorerTableShapeCategories(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// ProposeExplorerTableShape operation middleware
+func (siw *ServerInterfaceWrapper) ProposeExplorerTableShape(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.ProposeExplorerTableShape(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// ResolveExplorerTableShape operation middleware
+func (siw *ServerInterfaceWrapper) ResolveExplorerTableShape(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.ResolveExplorerTableShape(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// CreateExplorerSelection operation middleware
+func (siw *ServerInterfaceWrapper) CreateExplorerSelection(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateExplorerSelectionParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "auth_resource_path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.CreateExplorerSelection(c, project, explorerId, params)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// GetExplorerSelection operation middleware
+func (siw *ServerInterfaceWrapper) GetExplorerSelection(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	// ------------- Path parameter "selectionRevision" -------------
+	var selectionRevision string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "selectionRevision", c.Params("selectionRevision"), &selectionRevision, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter selectionRevision: %w", err).Error())
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetExplorerSelectionParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", query, &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter cursor: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", query, &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter limit: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.GetExplorerSelection(c, project, explorerId, selectionRevision, params)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// CreateExplorerExplicitGroupRevision operation middleware
+func (siw *ServerInterfaceWrapper) CreateExplorerExplicitGroupRevision(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	// ------------- Path parameter "selectionRevision" -------------
+	var selectionRevision string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "selectionRevision", c.Params("selectionRevision"), &selectionRevision, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter selectionRevision: %w", err).Error())
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateExplorerExplicitGroupRevisionParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "auth_resource_path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.CreateExplorerExplicitGroupRevision(c, project, explorerId, selectionRevision, params)
 	}
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -2082,6 +11661,117 @@ func (siw *ServerInterfaceWrapper) PublishRepositoryExplorerConfig(c fiber.Ctx) 
 
 	handler := func(c fiber.Ctx) error {
 		return siw.Handler.PublishRepositoryExplorerConfig(c, project, generation, params)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// ListInterpretationLibraries operation middleware
+func (siw *ServerInterfaceWrapper) ListInterpretationLibraries(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.ListInterpretationLibraries(c, project)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// CreateInterpretationRevision operation middleware
+func (siw *ServerInterfaceWrapper) CreateInterpretationRevision(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateInterpretationRevisionParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "auth_resource_path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.CreateInterpretationRevision(c, project, params)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// GetInterpretationRevision operation middleware
+func (siw *ServerInterfaceWrapper) GetInterpretationRevision(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "revisionId" -------------
+	var revisionId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "revisionId", c.Params("revisionId"), &revisionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter revisionId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.GetInterpretationRevision(c, project, revisionId)
 	}
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -2244,19 +11934,91 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 		router.Use(fiber.Handler(m))
 	}
 
+	router.Get(options.BaseURL+"/api/v1/projects/:project/interpretation-libraries", wrapper.ListInterpretationLibraries)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/interpretation-libraries", wrapper.CreateInterpretationRevision)
+
+	router.Get(options.BaseURL+"/api/v1/projects/:project/interpretation-revisions/:revisionId", wrapper.GetInterpretationRevision)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/selections", wrapper.CreateExplorerSelection)
+
+	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/selections/:selectionRevision", wrapper.GetExplorerSelection)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/selections/:selectionRevision/explicit-groups", wrapper.CreateExplorerExplicitGroupRevision)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/schema-fields", wrapper.SearchExplorerSchemaFields)
+
 	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/capability", wrapper.GetExplorerAuthoringCapability)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/suggestions", wrapper.SearchExplorerCandidates)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/semantic-inventory", wrapper.BrowseExplorerSemanticInventory)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/frame-source-options", wrapper.BrowseExplorerFrameSourceOptions)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/construction-choices", wrapper.SearchExplorerConstructionChoices)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/related-expand-choices", wrapper.SearchExplorerRelatedExpandChoices)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/related-field-choices", wrapper.SearchExplorerRelatedFieldChoices)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/related-expand-contributors", wrapper.SearchExplorerRelatedExpandContributors)
+
+	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/row-definition-choices", wrapper.ListExplorerRowDefinitionChoices)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/row-definition-proposals", wrapper.ProposeExplorerRowDefinition)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/table-shape-capabilities", wrapper.GetExplorerTableShapeCapabilities)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/table-shape-category-discoveries", wrapper.DiscoverExplorerTableShapeCategories)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/table-shape-resolutions", wrapper.ResolveExplorerTableShape)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/table-shape-proposals", wrapper.ProposeExplorerTableShape)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/construction-capabilities", wrapper.GetExplorerConstructionCapabilities)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/construction-category-discoveries", wrapper.DiscoverExplorerConstructionCategories)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/construction-inputs", wrapper.GetExplorerConstructionInputs)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/construction-proposals", wrapper.ProposeExplorerConstruction)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/population-member-proposals", wrapper.ProposeExplorerPopulationMemberRemoval)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/construction-choice-proposals", wrapper.ProposeExplorerConstructionChoice)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/population-routes", wrapper.SearchExplorerPopulationRoutes)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/column-source", wrapper.GetExplorerColumnSource)
 
 	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/builder", wrapper.GetExplorerBuilder)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/commands", wrapper.ApplyExplorerBuilderCommands)
 
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/row-change", wrapper.AssessExplorerRowChange)
+
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/reconcile", wrapper.ReconcileExplorerBuilder)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/preview", wrapper.PreviewExplorer)
 
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/cell-trace", wrapper.TraceExplorerCell)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/row-lineage", wrapper.TraceExplorerRowLineage)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/interpretation-preview", wrapper.PreviewInterpretationCandidate)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/configured-column-context", wrapper.ResolveConfiguredColumnContext)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/interpretation-revisions", wrapper.CreateInterpretationRevisionFromColumn)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/population-mapping", wrapper.CheckExplorerPopulationMapping)
+
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/publish", wrapper.PublishExplorer)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/artifacts", wrapper.PrepareExplorerArtifact)
+
+	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/artifacts/:artifactId", wrapper.DownloadExplorerArtifact)
 
 	router.Get(options.BaseURL+"/health", wrapper.GetHealth)
 
@@ -2364,7 +12126,7 @@ type GetRecipeExecutionResponseObject interface {
 	VisitGetRecipeExecutionResponse(ctx fiber.Ctx) error
 }
 
-type GetRecipeExecution200JSONResponse RawJSON
+type GetRecipeExecution200JSONResponse RecipeExecutionResponse
 
 func (response GetRecipeExecution200JSONResponse) VisitGetRecipeExecutionResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
@@ -2400,6 +12162,15 @@ func (response GetRecipeExecution404JSONResponse) VisitGetRecipeExecutionRespons
 	return ctx.JSON(&response)
 }
 
+type GetRecipeExecution503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response GetRecipeExecution503JSONResponse) VisitGetRecipeExecutionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
 type GetDatasetGenerationStatusRequestObject struct {
 	Project    Project    `json:"project"`
 	Generation Generation `json:"generation"`
@@ -2410,7 +12181,7 @@ type GetDatasetGenerationStatusResponseObject interface {
 	VisitGetDatasetGenerationStatusResponse(ctx fiber.Ctx) error
 }
 
-type GetDatasetGenerationStatus200JSONResponse RawJSON
+type GetDatasetGenerationStatus200JSONResponse GenerationStatusResponse
 
 func (response GetDatasetGenerationStatus200JSONResponse) VisitGetDatasetGenerationStatusResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
@@ -2586,7 +12357,7 @@ type ActivateDatasetGenerationResponseObject interface {
 	VisitActivateDatasetGenerationResponse(ctx fiber.Ctx) error
 }
 
-type ActivateDatasetGeneration200JSONResponse RawJSON
+type ActivateDatasetGeneration200JSONResponse GenerationActivationResponse
 
 func (response ActivateDatasetGeneration200JSONResponse) VisitActivateDatasetGenerationResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
@@ -2838,6 +12609,239 @@ func (response GetExplorer500JSONResponse) VisitGetExplorerResponse(ctx fiber.Ct
 	return ctx.JSON(&response)
 }
 
+type PrepareExplorerArtifactRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *PrepareExplorerArtifactJSONRequestBody
+}
+
+type PrepareExplorerArtifactResponseObject interface {
+	VisitPrepareExplorerArtifactResponse(ctx fiber.Ctx) error
+}
+
+type PrepareExplorerArtifact200JSONResponse Artifact
+
+func (response PrepareExplorerArtifact200JSONResponse) VisitPrepareExplorerArtifactResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type PrepareExplorerArtifact400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response PrepareExplorerArtifact400JSONResponse) VisitPrepareExplorerArtifactResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type PrepareExplorerArtifact401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response PrepareExplorerArtifact401JSONResponse) VisitPrepareExplorerArtifactResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type PrepareExplorerArtifact403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response PrepareExplorerArtifact403JSONResponse) VisitPrepareExplorerArtifactResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type PrepareExplorerArtifact404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response PrepareExplorerArtifact404JSONResponse) VisitPrepareExplorerArtifactResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type PrepareExplorerArtifact409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response PrepareExplorerArtifact409JSONResponse) VisitPrepareExplorerArtifactResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type PrepareExplorerArtifact413JSONResponse struct {
+	AuthoringPayloadTooLargeJSONResponse
+}
+
+func (response PrepareExplorerArtifact413JSONResponse) VisitPrepareExplorerArtifactResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(413)
+
+	return ctx.JSON(&response)
+}
+
+type PrepareExplorerArtifact422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response PrepareExplorerArtifact422JSONResponse) VisitPrepareExplorerArtifactResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type PrepareExplorerArtifact500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response PrepareExplorerArtifact500JSONResponse) VisitPrepareExplorerArtifactResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type PrepareExplorerArtifact503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response PrepareExplorerArtifact503JSONResponse) VisitPrepareExplorerArtifactResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type PrepareExplorerArtifact504JSONResponse struct {
+	AuthoringGatewayTimeoutJSONResponse
+}
+
+func (response PrepareExplorerArtifact504JSONResponse) VisitPrepareExplorerArtifactResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(504)
+
+	return ctx.JSON(&response)
+}
+
+type DownloadExplorerArtifactRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	ArtifactId string     `json:"artifactId"`
+}
+
+type DownloadExplorerArtifactResponseObject interface {
+	VisitDownloadExplorerArtifactResponse(ctx fiber.Ctx) error
+}
+
+type DownloadExplorerArtifact200ResponseHeaders struct {
+	ContentDisposition  *string
+	XLoomArtifactSHA256 *string
+}
+
+type DownloadExplorerArtifact200ApplicationzipResponse struct {
+	Body          io.Reader
+	Headers       DownloadExplorerArtifact200ResponseHeaders
+	ContentLength int64
+}
+
+func (response DownloadExplorerArtifact200ApplicationzipResponse) VisitDownloadExplorerArtifactResponse(ctx fiber.Ctx) error {
+	if response.Headers.ContentDisposition != nil {
+		ctx.Response().Header.Set("Content-Disposition", fmt.Sprint(*response.Headers.ContentDisposition))
+	}
+	if response.Headers.XLoomArtifactSHA256 != nil {
+		ctx.Response().Header.Set("X-Loom-Artifact-SHA256", fmt.Sprint(*response.Headers.XLoomArtifactSHA256))
+	}
+	ctx.Response().Header.Set("Content-Type", "application/zip")
+	if response.ContentLength != 0 {
+		ctx.Response().Header.Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	ctx.Status(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(ctx.Response().BodyWriter(), response.Body)
+	return err
+}
+
+type DownloadExplorerArtifact401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response DownloadExplorerArtifact401JSONResponse) VisitDownloadExplorerArtifactResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type DownloadExplorerArtifact403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response DownloadExplorerArtifact403JSONResponse) VisitDownloadExplorerArtifactResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type DownloadExplorerArtifact404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response DownloadExplorerArtifact404JSONResponse) VisitDownloadExplorerArtifactResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type DownloadExplorerArtifact409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response DownloadExplorerArtifact409JSONResponse) VisitDownloadExplorerArtifactResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type DownloadExplorerArtifact410JSONResponse ErrorResponse
+
+func (response DownloadExplorerArtifact410JSONResponse) VisitDownloadExplorerArtifactResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(410)
+
+	return ctx.JSON(&response)
+}
+
+type DownloadExplorerArtifact500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response DownloadExplorerArtifact500JSONResponse) VisitDownloadExplorerArtifactResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type DownloadExplorerArtifact503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response DownloadExplorerArtifact503JSONResponse) VisitDownloadExplorerArtifactResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
 type GetExplorerBuilderRequestObject struct {
 	Project    Project    `json:"project"`
 	ExplorerId ExplorerId `json:"explorerId"`
@@ -2965,6 +12969,197 @@ func (response GetExplorerAuthoringCapability500JSONResponse) VisitGetExplorerAu
 	return ctx.JSON(&response)
 }
 
+type TraceExplorerCellRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *TraceExplorerCellJSONRequestBody
+}
+
+type TraceExplorerCellResponseObject interface {
+	VisitTraceExplorerCellResponse(ctx fiber.Ctx) error
+}
+
+type TraceExplorerCell200JSONResponse CellTraceResponse
+
+func (response TraceExplorerCell200JSONResponse) VisitTraceExplorerCellResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type TraceExplorerCell400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response TraceExplorerCell400JSONResponse) VisitTraceExplorerCellResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type TraceExplorerCell401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response TraceExplorerCell401JSONResponse) VisitTraceExplorerCellResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type TraceExplorerCell403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response TraceExplorerCell403JSONResponse) VisitTraceExplorerCellResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type TraceExplorerCell404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response TraceExplorerCell404JSONResponse) VisitTraceExplorerCellResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type TraceExplorerCell409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response TraceExplorerCell409JSONResponse) VisitTraceExplorerCellResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type TraceExplorerCell422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response TraceExplorerCell422JSONResponse) VisitTraceExplorerCellResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type TraceExplorerCell500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response TraceExplorerCell500JSONResponse) VisitTraceExplorerCellResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type TraceExplorerCell503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response TraceExplorerCell503JSONResponse) VisitTraceExplorerCellResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerColumnSourceRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *GetExplorerColumnSourceJSONRequestBody
+}
+
+type GetExplorerColumnSourceResponseObject interface {
+	VisitGetExplorerColumnSourceResponse(ctx fiber.Ctx) error
+}
+
+type GetExplorerColumnSource200JSONResponse ColumnSourceResponse
+
+func (response GetExplorerColumnSource200JSONResponse) VisitGetExplorerColumnSourceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerColumnSource400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response GetExplorerColumnSource400JSONResponse) VisitGetExplorerColumnSourceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerColumnSource401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response GetExplorerColumnSource401JSONResponse) VisitGetExplorerColumnSourceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerColumnSource403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response GetExplorerColumnSource403JSONResponse) VisitGetExplorerColumnSourceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerColumnSource404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response GetExplorerColumnSource404JSONResponse) VisitGetExplorerColumnSourceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerColumnSource409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response GetExplorerColumnSource409JSONResponse) VisitGetExplorerColumnSourceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerColumnSource500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response GetExplorerColumnSource500JSONResponse) VisitGetExplorerColumnSourceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerColumnSource503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response GetExplorerColumnSource503JSONResponse) VisitGetExplorerColumnSourceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
 type ApplyExplorerBuilderCommandsRequestObject struct {
 	Project    Project    `json:"project"`
 	ExplorerId ExplorerId `json:"explorerId"`
@@ -3052,6 +13247,1408 @@ type ApplyExplorerBuilderCommands503JSONResponse struct {
 }
 
 func (response ApplyExplorerBuilderCommands503JSONResponse) VisitApplyExplorerBuilderCommandsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveConfiguredColumnContextRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *ResolveConfiguredColumnContextJSONRequestBody
+}
+
+type ResolveConfiguredColumnContextResponseObject interface {
+	VisitResolveConfiguredColumnContextResponse(ctx fiber.Ctx) error
+}
+
+type ResolveConfiguredColumnContext200JSONResponse ConfiguredColumnContextResponse
+
+func (response ResolveConfiguredColumnContext200JSONResponse) VisitResolveConfiguredColumnContextResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveConfiguredColumnContext400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response ResolveConfiguredColumnContext400JSONResponse) VisitResolveConfiguredColumnContextResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveConfiguredColumnContext401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response ResolveConfiguredColumnContext401JSONResponse) VisitResolveConfiguredColumnContextResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveConfiguredColumnContext403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response ResolveConfiguredColumnContext403JSONResponse) VisitResolveConfiguredColumnContextResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveConfiguredColumnContext404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response ResolveConfiguredColumnContext404JSONResponse) VisitResolveConfiguredColumnContextResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveConfiguredColumnContext409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response ResolveConfiguredColumnContext409JSONResponse) VisitResolveConfiguredColumnContextResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveConfiguredColumnContext422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response ResolveConfiguredColumnContext422JSONResponse) VisitResolveConfiguredColumnContextResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveConfiguredColumnContext500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response ResolveConfiguredColumnContext500JSONResponse) VisitResolveConfiguredColumnContextResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveConfiguredColumnContext503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response ResolveConfiguredColumnContext503JSONResponse) VisitResolveConfiguredColumnContextResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionCapabilitiesRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *GetExplorerConstructionCapabilitiesJSONRequestBody
+}
+
+type GetExplorerConstructionCapabilitiesResponseObject interface {
+	VisitGetExplorerConstructionCapabilitiesResponse(ctx fiber.Ctx) error
+}
+
+type GetExplorerConstructionCapabilities200JSONResponse ConstructionCapabilitiesResponse
+
+func (response GetExplorerConstructionCapabilities200JSONResponse) VisitGetExplorerConstructionCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionCapabilities400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response GetExplorerConstructionCapabilities400JSONResponse) VisitGetExplorerConstructionCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionCapabilities401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response GetExplorerConstructionCapabilities401JSONResponse) VisitGetExplorerConstructionCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionCapabilities403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response GetExplorerConstructionCapabilities403JSONResponse) VisitGetExplorerConstructionCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionCapabilities404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response GetExplorerConstructionCapabilities404JSONResponse) VisitGetExplorerConstructionCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionCapabilities409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response GetExplorerConstructionCapabilities409JSONResponse) VisitGetExplorerConstructionCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionCapabilities422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response GetExplorerConstructionCapabilities422JSONResponse) VisitGetExplorerConstructionCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionCapabilities500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response GetExplorerConstructionCapabilities500JSONResponse) VisitGetExplorerConstructionCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionCapabilities503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response GetExplorerConstructionCapabilities503JSONResponse) VisitGetExplorerConstructionCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerConstructionCategoriesRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *DiscoverExplorerConstructionCategoriesJSONRequestBody
+}
+
+type DiscoverExplorerConstructionCategoriesResponseObject interface {
+	VisitDiscoverExplorerConstructionCategoriesResponse(ctx fiber.Ctx) error
+}
+
+type DiscoverExplorerConstructionCategories200JSONResponse ConstructionCategoryDiscoveryResponse
+
+func (response DiscoverExplorerConstructionCategories200JSONResponse) VisitDiscoverExplorerConstructionCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerConstructionCategories400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response DiscoverExplorerConstructionCategories400JSONResponse) VisitDiscoverExplorerConstructionCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerConstructionCategories401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response DiscoverExplorerConstructionCategories401JSONResponse) VisitDiscoverExplorerConstructionCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerConstructionCategories403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response DiscoverExplorerConstructionCategories403JSONResponse) VisitDiscoverExplorerConstructionCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerConstructionCategories404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response DiscoverExplorerConstructionCategories404JSONResponse) VisitDiscoverExplorerConstructionCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerConstructionCategories409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response DiscoverExplorerConstructionCategories409JSONResponse) VisitDiscoverExplorerConstructionCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerConstructionCategories422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response DiscoverExplorerConstructionCategories422JSONResponse) VisitDiscoverExplorerConstructionCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerConstructionCategories500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response DiscoverExplorerConstructionCategories500JSONResponse) VisitDiscoverExplorerConstructionCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerConstructionCategories503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response DiscoverExplorerConstructionCategories503JSONResponse) VisitDiscoverExplorerConstructionCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerConstructionChoiceRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *ProposeExplorerConstructionChoiceJSONRequestBody
+}
+
+type ProposeExplorerConstructionChoiceResponseObject interface {
+	VisitProposeExplorerConstructionChoiceResponse(ctx fiber.Ctx) error
+}
+
+type ProposeExplorerConstructionChoice200JSONResponse ConstructionChoiceProposalResponse
+
+func (response ProposeExplorerConstructionChoice200JSONResponse) VisitProposeExplorerConstructionChoiceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerConstructionChoice400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response ProposeExplorerConstructionChoice400JSONResponse) VisitProposeExplorerConstructionChoiceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerConstructionChoice401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response ProposeExplorerConstructionChoice401JSONResponse) VisitProposeExplorerConstructionChoiceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerConstructionChoice403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response ProposeExplorerConstructionChoice403JSONResponse) VisitProposeExplorerConstructionChoiceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerConstructionChoice404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response ProposeExplorerConstructionChoice404JSONResponse) VisitProposeExplorerConstructionChoiceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerConstructionChoice409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response ProposeExplorerConstructionChoice409JSONResponse) VisitProposeExplorerConstructionChoiceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerConstructionChoice422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response ProposeExplorerConstructionChoice422JSONResponse) VisitProposeExplorerConstructionChoiceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerConstructionChoice500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response ProposeExplorerConstructionChoice500JSONResponse) VisitProposeExplorerConstructionChoiceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerConstructionChoice503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response ProposeExplorerConstructionChoice503JSONResponse) VisitProposeExplorerConstructionChoiceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerConstructionChoice504JSONResponse struct {
+	AuthoringGatewayTimeoutJSONResponse
+}
+
+func (response ProposeExplorerConstructionChoice504JSONResponse) VisitProposeExplorerConstructionChoiceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(504)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerConstructionChoicesRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *SearchExplorerConstructionChoicesJSONRequestBody
+}
+
+type SearchExplorerConstructionChoicesResponseObject interface {
+	VisitSearchExplorerConstructionChoicesResponse(ctx fiber.Ctx) error
+}
+
+type SearchExplorerConstructionChoices200JSONResponse ConstructionChoiceSearchResponse
+
+func (response SearchExplorerConstructionChoices200JSONResponse) VisitSearchExplorerConstructionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerConstructionChoices400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response SearchExplorerConstructionChoices400JSONResponse) VisitSearchExplorerConstructionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerConstructionChoices401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response SearchExplorerConstructionChoices401JSONResponse) VisitSearchExplorerConstructionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerConstructionChoices403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response SearchExplorerConstructionChoices403JSONResponse) VisitSearchExplorerConstructionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerConstructionChoices404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response SearchExplorerConstructionChoices404JSONResponse) VisitSearchExplorerConstructionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerConstructionChoices409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response SearchExplorerConstructionChoices409JSONResponse) VisitSearchExplorerConstructionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerConstructionChoices422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response SearchExplorerConstructionChoices422JSONResponse) VisitSearchExplorerConstructionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerConstructionChoices500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response SearchExplorerConstructionChoices500JSONResponse) VisitSearchExplorerConstructionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerConstructionChoices503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response SearchExplorerConstructionChoices503JSONResponse) VisitSearchExplorerConstructionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionInputsRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *GetExplorerConstructionInputsJSONRequestBody
+}
+
+type GetExplorerConstructionInputsResponseObject interface {
+	VisitGetExplorerConstructionInputsResponse(ctx fiber.Ctx) error
+}
+
+type GetExplorerConstructionInputs200JSONResponse ConstructionInputsResponse
+
+func (response GetExplorerConstructionInputs200JSONResponse) VisitGetExplorerConstructionInputsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionInputs400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response GetExplorerConstructionInputs400JSONResponse) VisitGetExplorerConstructionInputsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionInputs401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response GetExplorerConstructionInputs401JSONResponse) VisitGetExplorerConstructionInputsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionInputs403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response GetExplorerConstructionInputs403JSONResponse) VisitGetExplorerConstructionInputsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionInputs404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response GetExplorerConstructionInputs404JSONResponse) VisitGetExplorerConstructionInputsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionInputs409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response GetExplorerConstructionInputs409JSONResponse) VisitGetExplorerConstructionInputsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionInputs422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response GetExplorerConstructionInputs422JSONResponse) VisitGetExplorerConstructionInputsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionInputs500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response GetExplorerConstructionInputs500JSONResponse) VisitGetExplorerConstructionInputsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionInputs503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response GetExplorerConstructionInputs503JSONResponse) VisitGetExplorerConstructionInputsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerConstructionRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *ProposeExplorerConstructionJSONRequestBody
+}
+
+type ProposeExplorerConstructionResponseObject interface {
+	VisitProposeExplorerConstructionResponse(ctx fiber.Ctx) error
+}
+
+type ProposeExplorerConstruction200JSONResponse ConstructionProposalResponse
+
+func (response ProposeExplorerConstruction200JSONResponse) VisitProposeExplorerConstructionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerConstruction400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response ProposeExplorerConstruction400JSONResponse) VisitProposeExplorerConstructionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerConstruction401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response ProposeExplorerConstruction401JSONResponse) VisitProposeExplorerConstructionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerConstruction403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response ProposeExplorerConstruction403JSONResponse) VisitProposeExplorerConstructionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerConstruction404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response ProposeExplorerConstruction404JSONResponse) VisitProposeExplorerConstructionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerConstruction409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response ProposeExplorerConstruction409JSONResponse) VisitProposeExplorerConstructionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerConstruction422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response ProposeExplorerConstruction422JSONResponse) VisitProposeExplorerConstructionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerConstruction500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response ProposeExplorerConstruction500JSONResponse) VisitProposeExplorerConstructionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerConstruction503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response ProposeExplorerConstruction503JSONResponse) VisitProposeExplorerConstructionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerConstruction504JSONResponse struct {
+	AuthoringGatewayTimeoutJSONResponse
+}
+
+func (response ProposeExplorerConstruction504JSONResponse) VisitProposeExplorerConstructionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(504)
+
+	return ctx.JSON(&response)
+}
+
+type BrowseExplorerFrameSourceOptionsRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *BrowseExplorerFrameSourceOptionsJSONRequestBody
+}
+
+type BrowseExplorerFrameSourceOptionsResponseObject interface {
+	VisitBrowseExplorerFrameSourceOptionsResponse(ctx fiber.Ctx) error
+}
+
+type BrowseExplorerFrameSourceOptions200JSONResponse FrameSourceOptionsResponse
+
+func (response BrowseExplorerFrameSourceOptions200JSONResponse) VisitBrowseExplorerFrameSourceOptionsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type BrowseExplorerFrameSourceOptions400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response BrowseExplorerFrameSourceOptions400JSONResponse) VisitBrowseExplorerFrameSourceOptionsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type BrowseExplorerFrameSourceOptions401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response BrowseExplorerFrameSourceOptions401JSONResponse) VisitBrowseExplorerFrameSourceOptionsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type BrowseExplorerFrameSourceOptions403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response BrowseExplorerFrameSourceOptions403JSONResponse) VisitBrowseExplorerFrameSourceOptionsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type BrowseExplorerFrameSourceOptions404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response BrowseExplorerFrameSourceOptions404JSONResponse) VisitBrowseExplorerFrameSourceOptionsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type BrowseExplorerFrameSourceOptions409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response BrowseExplorerFrameSourceOptions409JSONResponse) VisitBrowseExplorerFrameSourceOptionsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type BrowseExplorerFrameSourceOptions422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response BrowseExplorerFrameSourceOptions422JSONResponse) VisitBrowseExplorerFrameSourceOptionsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type BrowseExplorerFrameSourceOptions500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response BrowseExplorerFrameSourceOptions500JSONResponse) VisitBrowseExplorerFrameSourceOptionsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type BrowseExplorerFrameSourceOptions503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response BrowseExplorerFrameSourceOptions503JSONResponse) VisitBrowseExplorerFrameSourceOptionsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidateRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *PreviewInterpretationCandidateJSONRequestBody
+}
+
+type PreviewInterpretationCandidateResponseObject interface {
+	VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error
+}
+
+type PreviewInterpretationCandidate200JSONResponse InterpretationPreviewResponse
+
+func (response PreviewInterpretationCandidate200JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response PreviewInterpretationCandidate400JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response PreviewInterpretationCandidate401JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response PreviewInterpretationCandidate403JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response PreviewInterpretationCandidate404JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response PreviewInterpretationCandidate409JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate413JSONResponse struct {
+	AuthoringPayloadTooLargeJSONResponse
+}
+
+func (response PreviewInterpretationCandidate413JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(413)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response PreviewInterpretationCandidate422JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate429JSONResponse struct {
+	AuthoringTooManyRequestsJSONResponse
+}
+
+func (response PreviewInterpretationCandidate429JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(429)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate499JSONResponse struct {
+	AuthoringClientClosedRequestJSONResponse
+}
+
+func (response PreviewInterpretationCandidate499JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(499)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response PreviewInterpretationCandidate500JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response PreviewInterpretationCandidate503JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate504JSONResponse struct {
+	AuthoringGatewayTimeoutJSONResponse
+}
+
+func (response PreviewInterpretationCandidate504JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(504)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevisionFromColumnRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Params     CreateInterpretationRevisionFromColumnParams
+	Body       *CreateInterpretationRevisionFromColumnJSONRequestBody
+}
+
+type CreateInterpretationRevisionFromColumnResponseObject interface {
+	VisitCreateInterpretationRevisionFromColumnResponse(ctx fiber.Ctx) error
+}
+
+type CreateInterpretationRevisionFromColumn201JSONResponse InterpretationRevision
+
+func (response CreateInterpretationRevisionFromColumn201JSONResponse) VisitCreateInterpretationRevisionFromColumnResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(201)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevisionFromColumn400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response CreateInterpretationRevisionFromColumn400JSONResponse) VisitCreateInterpretationRevisionFromColumnResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevisionFromColumn401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response CreateInterpretationRevisionFromColumn401JSONResponse) VisitCreateInterpretationRevisionFromColumnResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevisionFromColumn403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response CreateInterpretationRevisionFromColumn403JSONResponse) VisitCreateInterpretationRevisionFromColumnResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevisionFromColumn404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response CreateInterpretationRevisionFromColumn404JSONResponse) VisitCreateInterpretationRevisionFromColumnResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevisionFromColumn409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response CreateInterpretationRevisionFromColumn409JSONResponse) VisitCreateInterpretationRevisionFromColumnResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevisionFromColumn422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response CreateInterpretationRevisionFromColumn422JSONResponse) VisitCreateInterpretationRevisionFromColumnResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevisionFromColumn500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response CreateInterpretationRevisionFromColumn500JSONResponse) VisitCreateInterpretationRevisionFromColumnResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevisionFromColumn503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response CreateInterpretationRevisionFromColumn503JSONResponse) VisitCreateInterpretationRevisionFromColumnResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type CheckExplorerPopulationMappingRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *CheckExplorerPopulationMappingJSONRequestBody
+}
+
+type CheckExplorerPopulationMappingResponseObject interface {
+	VisitCheckExplorerPopulationMappingResponse(ctx fiber.Ctx) error
+}
+
+type CheckExplorerPopulationMapping200JSONResponse PopulationMappingResponse
+
+func (response CheckExplorerPopulationMapping200JSONResponse) VisitCheckExplorerPopulationMappingResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type CheckExplorerPopulationMapping400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response CheckExplorerPopulationMapping400JSONResponse) VisitCheckExplorerPopulationMappingResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type CheckExplorerPopulationMapping401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response CheckExplorerPopulationMapping401JSONResponse) VisitCheckExplorerPopulationMappingResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type CheckExplorerPopulationMapping403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response CheckExplorerPopulationMapping403JSONResponse) VisitCheckExplorerPopulationMappingResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type CheckExplorerPopulationMapping404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response CheckExplorerPopulationMapping404JSONResponse) VisitCheckExplorerPopulationMappingResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type CheckExplorerPopulationMapping409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response CheckExplorerPopulationMapping409JSONResponse) VisitCheckExplorerPopulationMappingResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type CheckExplorerPopulationMapping422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response CheckExplorerPopulationMapping422JSONResponse) VisitCheckExplorerPopulationMappingResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type CheckExplorerPopulationMapping500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response CheckExplorerPopulationMapping500JSONResponse) VisitCheckExplorerPopulationMappingResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type CheckExplorerPopulationMapping503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response CheckExplorerPopulationMapping503JSONResponse) VisitCheckExplorerPopulationMappingResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type CheckExplorerPopulationMapping504JSONResponse struct {
+	AuthoringGatewayTimeoutJSONResponse
+}
+
+func (response CheckExplorerPopulationMapping504JSONResponse) VisitCheckExplorerPopulationMappingResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(504)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerPopulationMemberRemovalRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *ProposeExplorerPopulationMemberRemovalJSONRequestBody
+}
+
+type ProposeExplorerPopulationMemberRemovalResponseObject interface {
+	VisitProposeExplorerPopulationMemberRemovalResponse(ctx fiber.Ctx) error
+}
+
+type ProposeExplorerPopulationMemberRemoval200JSONResponse PopulationMemberRemovalProposalResponse
+
+func (response ProposeExplorerPopulationMemberRemoval200JSONResponse) VisitProposeExplorerPopulationMemberRemovalResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerPopulationMemberRemoval400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response ProposeExplorerPopulationMemberRemoval400JSONResponse) VisitProposeExplorerPopulationMemberRemovalResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerPopulationMemberRemoval401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response ProposeExplorerPopulationMemberRemoval401JSONResponse) VisitProposeExplorerPopulationMemberRemovalResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerPopulationMemberRemoval403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response ProposeExplorerPopulationMemberRemoval403JSONResponse) VisitProposeExplorerPopulationMemberRemovalResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerPopulationMemberRemoval404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response ProposeExplorerPopulationMemberRemoval404JSONResponse) VisitProposeExplorerPopulationMemberRemovalResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerPopulationMemberRemoval409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response ProposeExplorerPopulationMemberRemoval409JSONResponse) VisitProposeExplorerPopulationMemberRemovalResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerPopulationMemberRemoval422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response ProposeExplorerPopulationMemberRemoval422JSONResponse) VisitProposeExplorerPopulationMemberRemovalResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerPopulationMemberRemoval500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response ProposeExplorerPopulationMemberRemoval500JSONResponse) VisitProposeExplorerPopulationMemberRemovalResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerPopulationMemberRemoval503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response ProposeExplorerPopulationMemberRemoval503JSONResponse) VisitProposeExplorerPopulationMemberRemovalResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerPopulationMemberRemoval504JSONResponse struct {
+	AuthoringGatewayTimeoutJSONResponse
+}
+
+func (response ProposeExplorerPopulationMemberRemoval504JSONResponse) VisitProposeExplorerPopulationMemberRemovalResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(504)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerPopulationRoutesRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *SearchExplorerPopulationRoutesJSONRequestBody
+}
+
+type SearchExplorerPopulationRoutesResponseObject interface {
+	VisitSearchExplorerPopulationRoutesResponse(ctx fiber.Ctx) error
+}
+
+type SearchExplorerPopulationRoutes200JSONResponse PopulationRoutesResponse
+
+func (response SearchExplorerPopulationRoutes200JSONResponse) VisitSearchExplorerPopulationRoutesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerPopulationRoutes400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response SearchExplorerPopulationRoutes400JSONResponse) VisitSearchExplorerPopulationRoutesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerPopulationRoutes401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response SearchExplorerPopulationRoutes401JSONResponse) VisitSearchExplorerPopulationRoutesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerPopulationRoutes403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response SearchExplorerPopulationRoutes403JSONResponse) VisitSearchExplorerPopulationRoutesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerPopulationRoutes404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response SearchExplorerPopulationRoutes404JSONResponse) VisitSearchExplorerPopulationRoutesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerPopulationRoutes409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response SearchExplorerPopulationRoutes409JSONResponse) VisitSearchExplorerPopulationRoutesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerPopulationRoutes422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response SearchExplorerPopulationRoutes422JSONResponse) VisitSearchExplorerPopulationRoutesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerPopulationRoutes500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response SearchExplorerPopulationRoutes500JSONResponse) VisitSearchExplorerPopulationRoutesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerPopulationRoutes503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response SearchExplorerPopulationRoutes503JSONResponse) VisitSearchExplorerPopulationRoutesResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(503)
 
@@ -3407,6 +15004,897 @@ func (response ReconcileExplorerBuilder503JSONResponse) VisitReconcileExplorerBu
 	return ctx.JSON(&response)
 }
 
+type SearchExplorerRelatedExpandChoicesRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *SearchExplorerRelatedExpandChoicesJSONRequestBody
+}
+
+type SearchExplorerRelatedExpandChoicesResponseObject interface {
+	VisitSearchExplorerRelatedExpandChoicesResponse(ctx fiber.Ctx) error
+}
+
+type SearchExplorerRelatedExpandChoices200JSONResponse RelatedExpandChoiceSearchResponse
+
+func (response SearchExplorerRelatedExpandChoices200JSONResponse) VisitSearchExplorerRelatedExpandChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedExpandChoices400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response SearchExplorerRelatedExpandChoices400JSONResponse) VisitSearchExplorerRelatedExpandChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedExpandChoices401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response SearchExplorerRelatedExpandChoices401JSONResponse) VisitSearchExplorerRelatedExpandChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedExpandChoices403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response SearchExplorerRelatedExpandChoices403JSONResponse) VisitSearchExplorerRelatedExpandChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedExpandChoices404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response SearchExplorerRelatedExpandChoices404JSONResponse) VisitSearchExplorerRelatedExpandChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedExpandChoices409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response SearchExplorerRelatedExpandChoices409JSONResponse) VisitSearchExplorerRelatedExpandChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedExpandChoices422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response SearchExplorerRelatedExpandChoices422JSONResponse) VisitSearchExplorerRelatedExpandChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedExpandChoices500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response SearchExplorerRelatedExpandChoices500JSONResponse) VisitSearchExplorerRelatedExpandChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedExpandChoices503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response SearchExplorerRelatedExpandChoices503JSONResponse) VisitSearchExplorerRelatedExpandChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedExpandContributorsRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *SearchExplorerRelatedExpandContributorsJSONRequestBody
+}
+
+type SearchExplorerRelatedExpandContributorsResponseObject interface {
+	VisitSearchExplorerRelatedExpandContributorsResponse(ctx fiber.Ctx) error
+}
+
+type SearchExplorerRelatedExpandContributors200JSONResponse RelatedExpandContributorChoiceSearchResponse
+
+func (response SearchExplorerRelatedExpandContributors200JSONResponse) VisitSearchExplorerRelatedExpandContributorsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedExpandContributors400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response SearchExplorerRelatedExpandContributors400JSONResponse) VisitSearchExplorerRelatedExpandContributorsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedExpandContributors401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response SearchExplorerRelatedExpandContributors401JSONResponse) VisitSearchExplorerRelatedExpandContributorsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedExpandContributors403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response SearchExplorerRelatedExpandContributors403JSONResponse) VisitSearchExplorerRelatedExpandContributorsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedExpandContributors404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response SearchExplorerRelatedExpandContributors404JSONResponse) VisitSearchExplorerRelatedExpandContributorsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedExpandContributors409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response SearchExplorerRelatedExpandContributors409JSONResponse) VisitSearchExplorerRelatedExpandContributorsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedExpandContributors422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response SearchExplorerRelatedExpandContributors422JSONResponse) VisitSearchExplorerRelatedExpandContributorsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedExpandContributors500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response SearchExplorerRelatedExpandContributors500JSONResponse) VisitSearchExplorerRelatedExpandContributorsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedExpandContributors503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response SearchExplorerRelatedExpandContributors503JSONResponse) VisitSearchExplorerRelatedExpandContributorsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedFieldChoicesRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *SearchExplorerRelatedFieldChoicesJSONRequestBody
+}
+
+type SearchExplorerRelatedFieldChoicesResponseObject interface {
+	VisitSearchExplorerRelatedFieldChoicesResponse(ctx fiber.Ctx) error
+}
+
+type SearchExplorerRelatedFieldChoices200JSONResponse RelatedFieldChoiceSearchResponse
+
+func (response SearchExplorerRelatedFieldChoices200JSONResponse) VisitSearchExplorerRelatedFieldChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedFieldChoices400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response SearchExplorerRelatedFieldChoices400JSONResponse) VisitSearchExplorerRelatedFieldChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedFieldChoices401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response SearchExplorerRelatedFieldChoices401JSONResponse) VisitSearchExplorerRelatedFieldChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedFieldChoices403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response SearchExplorerRelatedFieldChoices403JSONResponse) VisitSearchExplorerRelatedFieldChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedFieldChoices404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response SearchExplorerRelatedFieldChoices404JSONResponse) VisitSearchExplorerRelatedFieldChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedFieldChoices409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response SearchExplorerRelatedFieldChoices409JSONResponse) VisitSearchExplorerRelatedFieldChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedFieldChoices422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response SearchExplorerRelatedFieldChoices422JSONResponse) VisitSearchExplorerRelatedFieldChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedFieldChoices500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response SearchExplorerRelatedFieldChoices500JSONResponse) VisitSearchExplorerRelatedFieldChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerRelatedFieldChoices503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response SearchExplorerRelatedFieldChoices503JSONResponse) VisitSearchExplorerRelatedFieldChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type AssessExplorerRowChangeRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *AssessExplorerRowChangeJSONRequestBody
+}
+
+type AssessExplorerRowChangeResponseObject interface {
+	VisitAssessExplorerRowChangeResponse(ctx fiber.Ctx) error
+}
+
+type AssessExplorerRowChange200JSONResponse RowChangeAssessmentResponse
+
+func (response AssessExplorerRowChange200JSONResponse) VisitAssessExplorerRowChangeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type AssessExplorerRowChange400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response AssessExplorerRowChange400JSONResponse) VisitAssessExplorerRowChangeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type AssessExplorerRowChange401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response AssessExplorerRowChange401JSONResponse) VisitAssessExplorerRowChangeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type AssessExplorerRowChange403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response AssessExplorerRowChange403JSONResponse) VisitAssessExplorerRowChangeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type AssessExplorerRowChange404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response AssessExplorerRowChange404JSONResponse) VisitAssessExplorerRowChangeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type AssessExplorerRowChange409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response AssessExplorerRowChange409JSONResponse) VisitAssessExplorerRowChangeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type AssessExplorerRowChange422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response AssessExplorerRowChange422JSONResponse) VisitAssessExplorerRowChangeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type AssessExplorerRowChange500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response AssessExplorerRowChange500JSONResponse) VisitAssessExplorerRowChangeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type AssessExplorerRowChange503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response AssessExplorerRowChange503JSONResponse) VisitAssessExplorerRowChangeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type ListExplorerRowDefinitionChoicesRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Params     ListExplorerRowDefinitionChoicesParams
+}
+
+type ListExplorerRowDefinitionChoicesResponseObject interface {
+	VisitListExplorerRowDefinitionChoicesResponse(ctx fiber.Ctx) error
+}
+
+type ListExplorerRowDefinitionChoices200JSONResponse RowDefinitionChoicesResponse
+
+func (response ListExplorerRowDefinitionChoices200JSONResponse) VisitListExplorerRowDefinitionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type ListExplorerRowDefinitionChoices400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response ListExplorerRowDefinitionChoices400JSONResponse) VisitListExplorerRowDefinitionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type ListExplorerRowDefinitionChoices401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response ListExplorerRowDefinitionChoices401JSONResponse) VisitListExplorerRowDefinitionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type ListExplorerRowDefinitionChoices403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response ListExplorerRowDefinitionChoices403JSONResponse) VisitListExplorerRowDefinitionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type ListExplorerRowDefinitionChoices404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response ListExplorerRowDefinitionChoices404JSONResponse) VisitListExplorerRowDefinitionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type ListExplorerRowDefinitionChoices409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response ListExplorerRowDefinitionChoices409JSONResponse) VisitListExplorerRowDefinitionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type ListExplorerRowDefinitionChoices422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response ListExplorerRowDefinitionChoices422JSONResponse) VisitListExplorerRowDefinitionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type ListExplorerRowDefinitionChoices500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response ListExplorerRowDefinitionChoices500JSONResponse) VisitListExplorerRowDefinitionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type ListExplorerRowDefinitionChoices503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response ListExplorerRowDefinitionChoices503JSONResponse) VisitListExplorerRowDefinitionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerRowDefinitionRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *ProposeExplorerRowDefinitionJSONRequestBody
+}
+
+type ProposeExplorerRowDefinitionResponseObject interface {
+	VisitProposeExplorerRowDefinitionResponse(ctx fiber.Ctx) error
+}
+
+type ProposeExplorerRowDefinition200JSONResponse RowDefinitionProposal
+
+func (response ProposeExplorerRowDefinition200JSONResponse) VisitProposeExplorerRowDefinitionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerRowDefinition400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response ProposeExplorerRowDefinition400JSONResponse) VisitProposeExplorerRowDefinitionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerRowDefinition401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response ProposeExplorerRowDefinition401JSONResponse) VisitProposeExplorerRowDefinitionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerRowDefinition403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response ProposeExplorerRowDefinition403JSONResponse) VisitProposeExplorerRowDefinitionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerRowDefinition404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response ProposeExplorerRowDefinition404JSONResponse) VisitProposeExplorerRowDefinitionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerRowDefinition409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response ProposeExplorerRowDefinition409JSONResponse) VisitProposeExplorerRowDefinitionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerRowDefinition422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response ProposeExplorerRowDefinition422JSONResponse) VisitProposeExplorerRowDefinitionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerRowDefinition500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response ProposeExplorerRowDefinition500JSONResponse) VisitProposeExplorerRowDefinitionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerRowDefinition503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response ProposeExplorerRowDefinition503JSONResponse) VisitProposeExplorerRowDefinitionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type TraceExplorerRowLineageRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *TraceExplorerRowLineageJSONRequestBody
+}
+
+type TraceExplorerRowLineageResponseObject interface {
+	VisitTraceExplorerRowLineageResponse(ctx fiber.Ctx) error
+}
+
+type TraceExplorerRowLineage200JSONResponse RowLineageResponse
+
+func (response TraceExplorerRowLineage200JSONResponse) VisitTraceExplorerRowLineageResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type TraceExplorerRowLineage400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response TraceExplorerRowLineage400JSONResponse) VisitTraceExplorerRowLineageResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type TraceExplorerRowLineage401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response TraceExplorerRowLineage401JSONResponse) VisitTraceExplorerRowLineageResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type TraceExplorerRowLineage403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response TraceExplorerRowLineage403JSONResponse) VisitTraceExplorerRowLineageResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type TraceExplorerRowLineage404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response TraceExplorerRowLineage404JSONResponse) VisitTraceExplorerRowLineageResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type TraceExplorerRowLineage409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response TraceExplorerRowLineage409JSONResponse) VisitTraceExplorerRowLineageResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type TraceExplorerRowLineage422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response TraceExplorerRowLineage422JSONResponse) VisitTraceExplorerRowLineageResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type TraceExplorerRowLineage500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response TraceExplorerRowLineage500JSONResponse) VisitTraceExplorerRowLineageResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type TraceExplorerRowLineage503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response TraceExplorerRowLineage503JSONResponse) VisitTraceExplorerRowLineageResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type TraceExplorerRowLineage504JSONResponse struct {
+	AuthoringGatewayTimeoutJSONResponse
+}
+
+func (response TraceExplorerRowLineage504JSONResponse) VisitTraceExplorerRowLineageResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(504)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerSchemaFieldsRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *SearchExplorerSchemaFieldsJSONRequestBody
+}
+
+type SearchExplorerSchemaFieldsResponseObject interface {
+	VisitSearchExplorerSchemaFieldsResponse(ctx fiber.Ctx) error
+}
+
+type SearchExplorerSchemaFields200JSONResponse SchemaFieldSearchResponse
+
+func (response SearchExplorerSchemaFields200JSONResponse) VisitSearchExplorerSchemaFieldsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerSchemaFields400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response SearchExplorerSchemaFields400JSONResponse) VisitSearchExplorerSchemaFieldsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerSchemaFields401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response SearchExplorerSchemaFields401JSONResponse) VisitSearchExplorerSchemaFieldsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerSchemaFields403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response SearchExplorerSchemaFields403JSONResponse) VisitSearchExplorerSchemaFieldsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerSchemaFields409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response SearchExplorerSchemaFields409JSONResponse) VisitSearchExplorerSchemaFieldsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerSchemaFields422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response SearchExplorerSchemaFields422JSONResponse) VisitSearchExplorerSchemaFieldsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerSchemaFields500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response SearchExplorerSchemaFields500JSONResponse) VisitSearchExplorerSchemaFieldsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerSchemaFields503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response SearchExplorerSchemaFields503JSONResponse) VisitSearchExplorerSchemaFieldsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type BrowseExplorerSemanticInventoryRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *BrowseExplorerSemanticInventoryJSONRequestBody
+}
+
+type BrowseExplorerSemanticInventoryResponseObject interface {
+	VisitBrowseExplorerSemanticInventoryResponse(ctx fiber.Ctx) error
+}
+
+type BrowseExplorerSemanticInventory200JSONResponse SemanticInventoryBrowseResponse
+
+func (response BrowseExplorerSemanticInventory200JSONResponse) VisitBrowseExplorerSemanticInventoryResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type BrowseExplorerSemanticInventory400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response BrowseExplorerSemanticInventory400JSONResponse) VisitBrowseExplorerSemanticInventoryResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type BrowseExplorerSemanticInventory401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response BrowseExplorerSemanticInventory401JSONResponse) VisitBrowseExplorerSemanticInventoryResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type BrowseExplorerSemanticInventory403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response BrowseExplorerSemanticInventory403JSONResponse) VisitBrowseExplorerSemanticInventoryResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type BrowseExplorerSemanticInventory409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response BrowseExplorerSemanticInventory409JSONResponse) VisitBrowseExplorerSemanticInventoryResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type BrowseExplorerSemanticInventory500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response BrowseExplorerSemanticInventory500JSONResponse) VisitBrowseExplorerSemanticInventoryResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type BrowseExplorerSemanticInventory503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response BrowseExplorerSemanticInventory503JSONResponse) VisitBrowseExplorerSemanticInventoryResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
 type SearchExplorerCandidatesRequestObject struct {
 	Project    Project    `json:"project"`
 	ExplorerId ExplorerId `json:"explorerId"`
@@ -3482,6 +15970,717 @@ type SearchExplorerCandidates503JSONResponse struct {
 }
 
 func (response SearchExplorerCandidates503JSONResponse) VisitSearchExplorerCandidatesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerTableShapeCapabilitiesRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *GetExplorerTableShapeCapabilitiesJSONRequestBody
+}
+
+type GetExplorerTableShapeCapabilitiesResponseObject interface {
+	VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error
+}
+
+type GetExplorerTableShapeCapabilities200JSONResponse TableShapeCapabilitiesResponse
+
+func (response GetExplorerTableShapeCapabilities200JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerTableShapeCapabilities400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response GetExplorerTableShapeCapabilities400JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerTableShapeCapabilities401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response GetExplorerTableShapeCapabilities401JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerTableShapeCapabilities403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response GetExplorerTableShapeCapabilities403JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerTableShapeCapabilities404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response GetExplorerTableShapeCapabilities404JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerTableShapeCapabilities409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response GetExplorerTableShapeCapabilities409JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerTableShapeCapabilities422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response GetExplorerTableShapeCapabilities422JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerTableShapeCapabilities500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response GetExplorerTableShapeCapabilities500JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerTableShapeCapabilities503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response GetExplorerTableShapeCapabilities503JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerTableShapeCategoriesRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *DiscoverExplorerTableShapeCategoriesJSONRequestBody
+}
+
+type DiscoverExplorerTableShapeCategoriesResponseObject interface {
+	VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error
+}
+
+type DiscoverExplorerTableShapeCategories200JSONResponse TableShapeCategoryDiscoveryResponse
+
+func (response DiscoverExplorerTableShapeCategories200JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerTableShapeCategories400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response DiscoverExplorerTableShapeCategories400JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerTableShapeCategories401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response DiscoverExplorerTableShapeCategories401JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerTableShapeCategories403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response DiscoverExplorerTableShapeCategories403JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerTableShapeCategories404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response DiscoverExplorerTableShapeCategories404JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerTableShapeCategories409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response DiscoverExplorerTableShapeCategories409JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerTableShapeCategories422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response DiscoverExplorerTableShapeCategories422JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerTableShapeCategories500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response DiscoverExplorerTableShapeCategories500JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerTableShapeCategories503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response DiscoverExplorerTableShapeCategories503JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerTableShapeRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *ProposeExplorerTableShapeJSONRequestBody
+}
+
+type ProposeExplorerTableShapeResponseObject interface {
+	VisitProposeExplorerTableShapeResponse(ctx fiber.Ctx) error
+}
+
+type ProposeExplorerTableShape200JSONResponse TableShapeProposal
+
+func (response ProposeExplorerTableShape200JSONResponse) VisitProposeExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerTableShape400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response ProposeExplorerTableShape400JSONResponse) VisitProposeExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerTableShape401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response ProposeExplorerTableShape401JSONResponse) VisitProposeExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerTableShape403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response ProposeExplorerTableShape403JSONResponse) VisitProposeExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerTableShape404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response ProposeExplorerTableShape404JSONResponse) VisitProposeExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerTableShape409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response ProposeExplorerTableShape409JSONResponse) VisitProposeExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerTableShape422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response ProposeExplorerTableShape422JSONResponse) VisitProposeExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerTableShape500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response ProposeExplorerTableShape500JSONResponse) VisitProposeExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerTableShape503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response ProposeExplorerTableShape503JSONResponse) VisitProposeExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveExplorerTableShapeRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *ResolveExplorerTableShapeJSONRequestBody
+}
+
+type ResolveExplorerTableShapeResponseObject interface {
+	VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error
+}
+
+type ResolveExplorerTableShape200JSONResponse TableShapeResolutionResponse
+
+func (response ResolveExplorerTableShape200JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveExplorerTableShape400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response ResolveExplorerTableShape400JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveExplorerTableShape401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response ResolveExplorerTableShape401JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveExplorerTableShape403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response ResolveExplorerTableShape403JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveExplorerTableShape404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response ResolveExplorerTableShape404JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveExplorerTableShape409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response ResolveExplorerTableShape409JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveExplorerTableShape422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response ResolveExplorerTableShape422JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveExplorerTableShape500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response ResolveExplorerTableShape500JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveExplorerTableShape503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response ResolveExplorerTableShape503JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerSelectionRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Params     CreateExplorerSelectionParams
+	Body       *CreateExplorerSelectionJSONRequestBody
+}
+
+type CreateExplorerSelectionResponseObject interface {
+	VisitCreateExplorerSelectionResponse(ctx fiber.Ctx) error
+}
+
+type CreateExplorerSelection201JSONResponse SelectionRevision
+
+func (response CreateExplorerSelection201JSONResponse) VisitCreateExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(201)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerSelection400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response CreateExplorerSelection400JSONResponse) VisitCreateExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerSelection401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response CreateExplorerSelection401JSONResponse) VisitCreateExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerSelection403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response CreateExplorerSelection403JSONResponse) VisitCreateExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerSelection404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response CreateExplorerSelection404JSONResponse) VisitCreateExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerSelection409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response CreateExplorerSelection409JSONResponse) VisitCreateExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerSelection422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response CreateExplorerSelection422JSONResponse) VisitCreateExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerSelection500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response CreateExplorerSelection500JSONResponse) VisitCreateExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerSelection503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response CreateExplorerSelection503JSONResponse) VisitCreateExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerSelectionRequestObject struct {
+	Project           Project    `json:"project"`
+	ExplorerId        ExplorerId `json:"explorerId"`
+	SelectionRevision string     `json:"selectionRevision"`
+	Params            GetExplorerSelectionParams
+}
+
+type GetExplorerSelectionResponseObject interface {
+	VisitGetExplorerSelectionResponse(ctx fiber.Ctx) error
+}
+
+type GetExplorerSelection200JSONResponse SelectionPage
+
+func (response GetExplorerSelection200JSONResponse) VisitGetExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerSelection400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response GetExplorerSelection400JSONResponse) VisitGetExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerSelection401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response GetExplorerSelection401JSONResponse) VisitGetExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerSelection403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response GetExplorerSelection403JSONResponse) VisitGetExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerSelection404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response GetExplorerSelection404JSONResponse) VisitGetExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerSelection409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response GetExplorerSelection409JSONResponse) VisitGetExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerSelection422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response GetExplorerSelection422JSONResponse) VisitGetExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerSelection500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response GetExplorerSelection500JSONResponse) VisitGetExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerSelection503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response GetExplorerSelection503JSONResponse) VisitGetExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerExplicitGroupRevisionRequestObject struct {
+	Project           Project    `json:"project"`
+	ExplorerId        ExplorerId `json:"explorerId"`
+	SelectionRevision string     `json:"selectionRevision"`
+	Params            CreateExplorerExplicitGroupRevisionParams
+	Body              *CreateExplorerExplicitGroupRevisionJSONRequestBody
+}
+
+type CreateExplorerExplicitGroupRevisionResponseObject interface {
+	VisitCreateExplorerExplicitGroupRevisionResponse(ctx fiber.Ctx) error
+}
+
+type CreateExplorerExplicitGroupRevision201JSONResponse ExplicitGroupRevisionSummary
+
+func (response CreateExplorerExplicitGroupRevision201JSONResponse) VisitCreateExplorerExplicitGroupRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(201)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerExplicitGroupRevision400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response CreateExplorerExplicitGroupRevision400JSONResponse) VisitCreateExplorerExplicitGroupRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerExplicitGroupRevision401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response CreateExplorerExplicitGroupRevision401JSONResponse) VisitCreateExplorerExplicitGroupRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerExplicitGroupRevision403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response CreateExplorerExplicitGroupRevision403JSONResponse) VisitCreateExplorerExplicitGroupRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerExplicitGroupRevision404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response CreateExplorerExplicitGroupRevision404JSONResponse) VisitCreateExplorerExplicitGroupRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerExplicitGroupRevision409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response CreateExplorerExplicitGroupRevision409JSONResponse) VisitCreateExplorerExplicitGroupRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerExplicitGroupRevision422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response CreateExplorerExplicitGroupRevision422JSONResponse) VisitCreateExplorerExplicitGroupRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerExplicitGroupRevision500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response CreateExplorerExplicitGroupRevision500JSONResponse) VisitCreateExplorerExplicitGroupRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerExplicitGroupRevision503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response CreateExplorerExplicitGroupRevision503JSONResponse) VisitCreateExplorerExplicitGroupRevisionResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(503)
 
@@ -3577,6 +16776,235 @@ func (response PublishRepositoryExplorerConfig503JSONResponse) VisitPublishRepos
 	return ctx.JSON(&response)
 }
 
+type ListInterpretationLibrariesRequestObject struct {
+	Project Project `json:"project"`
+}
+
+type ListInterpretationLibrariesResponseObject interface {
+	VisitListInterpretationLibrariesResponse(ctx fiber.Ctx) error
+}
+
+type ListInterpretationLibraries200JSONResponse InterpretationLibraryListResponse
+
+func (response ListInterpretationLibraries200JSONResponse) VisitListInterpretationLibrariesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type ListInterpretationLibraries401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response ListInterpretationLibraries401JSONResponse) VisitListInterpretationLibrariesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type ListInterpretationLibraries403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response ListInterpretationLibraries403JSONResponse) VisitListInterpretationLibrariesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type ListInterpretationLibraries500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response ListInterpretationLibraries500JSONResponse) VisitListInterpretationLibrariesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type ListInterpretationLibraries503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response ListInterpretationLibraries503JSONResponse) VisitListInterpretationLibrariesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevisionRequestObject struct {
+	Project Project `json:"project"`
+	Params  CreateInterpretationRevisionParams
+	Body    *CreateInterpretationRevisionJSONRequestBody
+}
+
+type CreateInterpretationRevisionResponseObject interface {
+	VisitCreateInterpretationRevisionResponse(ctx fiber.Ctx) error
+}
+
+type CreateInterpretationRevision201JSONResponse InterpretationRevision
+
+func (response CreateInterpretationRevision201JSONResponse) VisitCreateInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(201)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevision400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response CreateInterpretationRevision400JSONResponse) VisitCreateInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevision401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response CreateInterpretationRevision401JSONResponse) VisitCreateInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevision403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response CreateInterpretationRevision403JSONResponse) VisitCreateInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevision404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response CreateInterpretationRevision404JSONResponse) VisitCreateInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevision409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response CreateInterpretationRevision409JSONResponse) VisitCreateInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevision422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response CreateInterpretationRevision422JSONResponse) VisitCreateInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevision500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response CreateInterpretationRevision500JSONResponse) VisitCreateInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevision503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response CreateInterpretationRevision503JSONResponse) VisitCreateInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type GetInterpretationRevisionRequestObject struct {
+	Project    Project `json:"project"`
+	RevisionId string  `json:"revisionId"`
+}
+
+type GetInterpretationRevisionResponseObject interface {
+	VisitGetInterpretationRevisionResponse(ctx fiber.Ctx) error
+}
+
+type GetInterpretationRevision200JSONResponse InterpretationRevision
+
+func (response GetInterpretationRevision200JSONResponse) VisitGetInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type GetInterpretationRevision401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response GetInterpretationRevision401JSONResponse) VisitGetInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type GetInterpretationRevision403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response GetInterpretationRevision403JSONResponse) VisitGetInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type GetInterpretationRevision404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response GetInterpretationRevision404JSONResponse) VisitGetInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type GetInterpretationRevision500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response GetInterpretationRevision500JSONResponse) VisitGetInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type GetInterpretationRevision503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response GetInterpretationRevision503JSONResponse) VisitGetInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
 type GetApolloSandboxRequestObject struct {
 }
 
@@ -3657,6 +17085,15 @@ func (response ExecuteDataframeGraphQL401JSONResponse) VisitExecuteDataframeGrap
 	return ctx.JSON(&response)
 }
 
+type ExecuteDataframeGraphQL409JSONResponse RawJSON
+
+func (response ExecuteDataframeGraphQL409JSONResponse) VisitExecuteDataframeGraphQLResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
 type ExecuteDataframeGraphQL422JSONResponse struct {
 	GraphQLUnprocessableJSONResponse
 }
@@ -3675,6 +17112,15 @@ type ExecuteDataframeGraphQL500JSONResponse struct {
 func (response ExecuteDataframeGraphQL500JSONResponse) VisitExecuteDataframeGraphQLResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type ExecuteDataframeGraphQL503JSONResponse RawJSON
+
+func (response ExecuteDataframeGraphQL503JSONResponse) VisitExecuteDataframeGraphQLResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
 
 	return ctx.JSON(&response)
 }
@@ -3759,6 +17205,15 @@ func (response ExecuteGraphQL401JSONResponse) VisitExecuteGraphQLResponse(ctx fi
 	return ctx.JSON(&response)
 }
 
+type ExecuteGraphQL409JSONResponse RawJSON
+
+func (response ExecuteGraphQL409JSONResponse) VisitExecuteGraphQLResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
 type ExecuteGraphQL422JSONResponse struct {
 	GraphQLUnprocessableJSONResponse
 }
@@ -3777,6 +17232,15 @@ type ExecuteGraphQL500JSONResponse struct {
 func (response ExecuteGraphQL500JSONResponse) VisitExecuteGraphQLResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type ExecuteGraphQL503JSONResponse RawJSON
+
+func (response ExecuteGraphQL503JSONResponse) VisitExecuteGraphQLResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
 
 	return ctx.JSON(&response)
 }
@@ -3871,14 +17335,65 @@ type StrictServerInterface interface {
 	// (GET /api/v1/projects/{project}/explorers/{explorerId})
 	GetExplorer(ctx context.Context, request GetExplorerRequestObject) (GetExplorerResponseObject, error)
 
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/artifacts)
+	PrepareExplorerArtifact(ctx context.Context, request PrepareExplorerArtifactRequestObject) (PrepareExplorerArtifactResponseObject, error)
+
+	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/artifacts/{artifactId})
+	DownloadExplorerArtifact(ctx context.Context, request DownloadExplorerArtifactRequestObject) (DownloadExplorerArtifactResponseObject, error)
+
 	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder)
 	GetExplorerBuilder(ctx context.Context, request GetExplorerBuilderRequestObject) (GetExplorerBuilderResponseObject, error)
 
 	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability)
 	GetExplorerAuthoringCapability(ctx context.Context, request GetExplorerAuthoringCapabilityRequestObject) (GetExplorerAuthoringCapabilityResponseObject, error)
 
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/cell-trace)
+	TraceExplorerCell(ctx context.Context, request TraceExplorerCellRequestObject) (TraceExplorerCellResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/column-source)
+	GetExplorerColumnSource(ctx context.Context, request GetExplorerColumnSourceRequestObject) (GetExplorerColumnSourceResponseObject, error)
+
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands)
 	ApplyExplorerBuilderCommands(ctx context.Context, request ApplyExplorerBuilderCommandsRequestObject) (ApplyExplorerBuilderCommandsResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/configured-column-context)
+	ResolveConfiguredColumnContext(ctx context.Context, request ResolveConfiguredColumnContextRequestObject) (ResolveConfiguredColumnContextResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities)
+	GetExplorerConstructionCapabilities(ctx context.Context, request GetExplorerConstructionCapabilitiesRequestObject) (GetExplorerConstructionCapabilitiesResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-category-discoveries)
+	DiscoverExplorerConstructionCategories(ctx context.Context, request DiscoverExplorerConstructionCategoriesRequestObject) (DiscoverExplorerConstructionCategoriesResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choice-proposals)
+	ProposeExplorerConstructionChoice(ctx context.Context, request ProposeExplorerConstructionChoiceRequestObject) (ProposeExplorerConstructionChoiceResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choices)
+	SearchExplorerConstructionChoices(ctx context.Context, request SearchExplorerConstructionChoicesRequestObject) (SearchExplorerConstructionChoicesResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-inputs)
+	GetExplorerConstructionInputs(ctx context.Context, request GetExplorerConstructionInputsRequestObject) (GetExplorerConstructionInputsResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals)
+	ProposeExplorerConstruction(ctx context.Context, request ProposeExplorerConstructionRequestObject) (ProposeExplorerConstructionResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/frame-source-options)
+	BrowseExplorerFrameSourceOptions(ctx context.Context, request BrowseExplorerFrameSourceOptionsRequestObject) (BrowseExplorerFrameSourceOptionsResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-preview)
+	PreviewInterpretationCandidate(ctx context.Context, request PreviewInterpretationCandidateRequestObject) (PreviewInterpretationCandidateResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-revisions)
+	CreateInterpretationRevisionFromColumn(ctx context.Context, request CreateInterpretationRevisionFromColumnRequestObject) (CreateInterpretationRevisionFromColumnResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-mapping)
+	CheckExplorerPopulationMapping(ctx context.Context, request CheckExplorerPopulationMappingRequestObject) (CheckExplorerPopulationMappingResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-member-proposals)
+	ProposeExplorerPopulationMemberRemoval(ctx context.Context, request ProposeExplorerPopulationMemberRemovalRequestObject) (ProposeExplorerPopulationMemberRemovalResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-routes)
+	SearchExplorerPopulationRoutes(ctx context.Context, request SearchExplorerPopulationRoutesRequestObject) (SearchExplorerPopulationRoutesResponseObject, error)
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview)
 	PreviewExplorer(ctx context.Context, request PreviewExplorerRequestObject) (PreviewExplorerResponseObject, error)
@@ -3889,11 +17404,68 @@ type StrictServerInterface interface {
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile)
 	ReconcileExplorerBuilder(ctx context.Context, request ReconcileExplorerBuilderRequestObject) (ReconcileExplorerBuilderResponseObject, error)
 
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-expand-choices)
+	SearchExplorerRelatedExpandChoices(ctx context.Context, request SearchExplorerRelatedExpandChoicesRequestObject) (SearchExplorerRelatedExpandChoicesResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-expand-contributors)
+	SearchExplorerRelatedExpandContributors(ctx context.Context, request SearchExplorerRelatedExpandContributorsRequestObject) (SearchExplorerRelatedExpandContributorsResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-field-choices)
+	SearchExplorerRelatedFieldChoices(ctx context.Context, request SearchExplorerRelatedFieldChoicesRequestObject) (SearchExplorerRelatedFieldChoicesResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-change)
+	AssessExplorerRowChange(ctx context.Context, request AssessExplorerRowChangeRequestObject) (AssessExplorerRowChangeResponseObject, error)
+
+	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices)
+	ListExplorerRowDefinitionChoices(ctx context.Context, request ListExplorerRowDefinitionChoicesRequestObject) (ListExplorerRowDefinitionChoicesResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-proposals)
+	ProposeExplorerRowDefinition(ctx context.Context, request ProposeExplorerRowDefinitionRequestObject) (ProposeExplorerRowDefinitionResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-lineage)
+	TraceExplorerRowLineage(ctx context.Context, request TraceExplorerRowLineageRequestObject) (TraceExplorerRowLineageResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/schema-fields)
+	SearchExplorerSchemaFields(ctx context.Context, request SearchExplorerSchemaFieldsRequestObject) (SearchExplorerSchemaFieldsResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/semantic-inventory)
+	BrowseExplorerSemanticInventory(ctx context.Context, request BrowseExplorerSemanticInventoryRequestObject) (BrowseExplorerSemanticInventoryResponseObject, error)
+
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions)
 	SearchExplorerCandidates(ctx context.Context, request SearchExplorerCandidatesRequestObject) (SearchExplorerCandidatesResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-capabilities)
+	GetExplorerTableShapeCapabilities(ctx context.Context, request GetExplorerTableShapeCapabilitiesRequestObject) (GetExplorerTableShapeCapabilitiesResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-category-discoveries)
+	DiscoverExplorerTableShapeCategories(ctx context.Context, request DiscoverExplorerTableShapeCategoriesRequestObject) (DiscoverExplorerTableShapeCategoriesResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-proposals)
+	ProposeExplorerTableShape(ctx context.Context, request ProposeExplorerTableShapeRequestObject) (ProposeExplorerTableShapeResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-resolutions)
+	ResolveExplorerTableShape(ctx context.Context, request ResolveExplorerTableShapeRequestObject) (ResolveExplorerTableShapeResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/selections)
+	CreateExplorerSelection(ctx context.Context, request CreateExplorerSelectionRequestObject) (CreateExplorerSelectionResponseObject, error)
+
+	// (GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision})
+	GetExplorerSelection(ctx context.Context, request GetExplorerSelectionRequestObject) (GetExplorerSelectionResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}/explicit-groups)
+	CreateExplorerExplicitGroupRevision(ctx context.Context, request CreateExplorerExplicitGroupRevisionRequestObject) (CreateExplorerExplicitGroupRevisionResponseObject, error)
 	// PublishRepositoryExplorerConfig Compile and publish a repository-owned Explorer workspace.
 	// (POST /api/v1/projects/{project}/generations/{generation}/explorer-config)
 	PublishRepositoryExplorerConfig(ctx context.Context, request PublishRepositoryExplorerConfigRequestObject) (PublishRepositoryExplorerConfigResponseObject, error)
+
+	// (GET /api/v1/projects/{project}/interpretation-libraries)
+	ListInterpretationLibraries(ctx context.Context, request ListInterpretationLibrariesRequestObject) (ListInterpretationLibrariesResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/interpretation-libraries)
+	CreateInterpretationRevision(ctx context.Context, request CreateInterpretationRevisionRequestObject) (CreateInterpretationRevisionResponseObject, error)
+
+	// (GET /api/v1/projects/{project}/interpretation-revisions/{revisionId})
+	GetInterpretationRevision(ctx context.Context, request GetInterpretationRevisionRequestObject) (GetInterpretationRevisionResponseObject, error)
 	// GetApolloSandbox Render the Apollo GraphQL sandbox.
 	// (GET /apollo)
 	GetApolloSandbox(ctx context.Context, request GetApolloSandboxRequestObject) (GetApolloSandboxResponseObject, error)
@@ -4134,6 +17706,69 @@ func (sh *strictHandler) GetExplorer(ctx fiber.Ctx, project Project, explorerId 
 	return nil
 }
 
+// PrepareExplorerArtifact operation middleware
+func (sh *strictHandler) PrepareExplorerArtifact(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request PrepareExplorerArtifactRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body PrepareExplorerArtifactJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.PrepareExplorerArtifact(ctx.Context(), request.(PrepareExplorerArtifactRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PrepareExplorerArtifact")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(PrepareExplorerArtifactResponseObject); ok {
+		if err := validResponse.VisitPrepareExplorerArtifactResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// DownloadExplorerArtifact operation middleware
+func (sh *strictHandler) DownloadExplorerArtifact(ctx fiber.Ctx, project Project, explorerId ExplorerId, artifactId string) error {
+	var request DownloadExplorerArtifactRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+	request.ArtifactId = artifactId
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.DownloadExplorerArtifact(ctx.Context(), request.(DownloadExplorerArtifactRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DownloadExplorerArtifact")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(DownloadExplorerArtifactResponseObject); ok {
+		if err := validResponse.VisitDownloadExplorerArtifactResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
 // GetExplorerBuilder operation middleware
 func (sh *strictHandler) GetExplorerBuilder(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
 	var request GetExplorerBuilderRequestObject
@@ -4190,6 +17825,74 @@ func (sh *strictHandler) GetExplorerAuthoringCapability(ctx fiber.Ctx, project P
 	return nil
 }
 
+// TraceExplorerCell operation middleware
+func (sh *strictHandler) TraceExplorerCell(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request TraceExplorerCellRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body TraceExplorerCellJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.TraceExplorerCell(ctx.Context(), request.(TraceExplorerCellRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "TraceExplorerCell")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(TraceExplorerCellResponseObject); ok {
+		if err := validResponse.VisitTraceExplorerCellResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetExplorerColumnSource operation middleware
+func (sh *strictHandler) GetExplorerColumnSource(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request GetExplorerColumnSourceRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body GetExplorerColumnSourceJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.GetExplorerColumnSource(ctx.Context(), request.(GetExplorerColumnSourceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetExplorerColumnSource")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetExplorerColumnSourceResponseObject); ok {
+		if err := validResponse.VisitGetExplorerColumnSourceResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
 // ApplyExplorerBuilderCommands operation middleware
 func (sh *strictHandler) ApplyExplorerBuilderCommands(ctx fiber.Ctx, project Project, explorerId ExplorerId, params ApplyExplorerBuilderCommandsParams) error {
 	var request ApplyExplorerBuilderCommandsRequestObject
@@ -4217,6 +17920,449 @@ func (sh *strictHandler) ApplyExplorerBuilderCommands(ctx fiber.Ctx, project Pro
 		return err
 	} else if validResponse, ok := response.(ApplyExplorerBuilderCommandsResponseObject); ok {
 		if err := validResponse.VisitApplyExplorerBuilderCommandsResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ResolveConfiguredColumnContext operation middleware
+func (sh *strictHandler) ResolveConfiguredColumnContext(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request ResolveConfiguredColumnContextRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body ResolveConfiguredColumnContextJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.ResolveConfiguredColumnContext(ctx.Context(), request.(ResolveConfiguredColumnContextRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResolveConfiguredColumnContext")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ResolveConfiguredColumnContextResponseObject); ok {
+		if err := validResponse.VisitResolveConfiguredColumnContextResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetExplorerConstructionCapabilities operation middleware
+func (sh *strictHandler) GetExplorerConstructionCapabilities(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request GetExplorerConstructionCapabilitiesRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body GetExplorerConstructionCapabilitiesJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.GetExplorerConstructionCapabilities(ctx.Context(), request.(GetExplorerConstructionCapabilitiesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetExplorerConstructionCapabilities")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetExplorerConstructionCapabilitiesResponseObject); ok {
+		if err := validResponse.VisitGetExplorerConstructionCapabilitiesResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// DiscoverExplorerConstructionCategories operation middleware
+func (sh *strictHandler) DiscoverExplorerConstructionCategories(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request DiscoverExplorerConstructionCategoriesRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body DiscoverExplorerConstructionCategoriesJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.DiscoverExplorerConstructionCategories(ctx.Context(), request.(DiscoverExplorerConstructionCategoriesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DiscoverExplorerConstructionCategories")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(DiscoverExplorerConstructionCategoriesResponseObject); ok {
+		if err := validResponse.VisitDiscoverExplorerConstructionCategoriesResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ProposeExplorerConstructionChoice operation middleware
+func (sh *strictHandler) ProposeExplorerConstructionChoice(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request ProposeExplorerConstructionChoiceRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body ProposeExplorerConstructionChoiceJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.ProposeExplorerConstructionChoice(ctx.Context(), request.(ProposeExplorerConstructionChoiceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ProposeExplorerConstructionChoice")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ProposeExplorerConstructionChoiceResponseObject); ok {
+		if err := validResponse.VisitProposeExplorerConstructionChoiceResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// SearchExplorerConstructionChoices operation middleware
+func (sh *strictHandler) SearchExplorerConstructionChoices(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request SearchExplorerConstructionChoicesRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body SearchExplorerConstructionChoicesJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.SearchExplorerConstructionChoices(ctx.Context(), request.(SearchExplorerConstructionChoicesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SearchExplorerConstructionChoices")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(SearchExplorerConstructionChoicesResponseObject); ok {
+		if err := validResponse.VisitSearchExplorerConstructionChoicesResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetExplorerConstructionInputs operation middleware
+func (sh *strictHandler) GetExplorerConstructionInputs(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request GetExplorerConstructionInputsRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body GetExplorerConstructionInputsJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.GetExplorerConstructionInputs(ctx.Context(), request.(GetExplorerConstructionInputsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetExplorerConstructionInputs")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetExplorerConstructionInputsResponseObject); ok {
+		if err := validResponse.VisitGetExplorerConstructionInputsResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ProposeExplorerConstruction operation middleware
+func (sh *strictHandler) ProposeExplorerConstruction(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request ProposeExplorerConstructionRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body ProposeExplorerConstructionJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.ProposeExplorerConstruction(ctx.Context(), request.(ProposeExplorerConstructionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ProposeExplorerConstruction")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ProposeExplorerConstructionResponseObject); ok {
+		if err := validResponse.VisitProposeExplorerConstructionResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// BrowseExplorerFrameSourceOptions operation middleware
+func (sh *strictHandler) BrowseExplorerFrameSourceOptions(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request BrowseExplorerFrameSourceOptionsRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body BrowseExplorerFrameSourceOptionsJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.BrowseExplorerFrameSourceOptions(ctx.Context(), request.(BrowseExplorerFrameSourceOptionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "BrowseExplorerFrameSourceOptions")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(BrowseExplorerFrameSourceOptionsResponseObject); ok {
+		if err := validResponse.VisitBrowseExplorerFrameSourceOptionsResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// PreviewInterpretationCandidate operation middleware
+func (sh *strictHandler) PreviewInterpretationCandidate(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request PreviewInterpretationCandidateRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body PreviewInterpretationCandidateJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.PreviewInterpretationCandidate(ctx.Context(), request.(PreviewInterpretationCandidateRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PreviewInterpretationCandidate")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(PreviewInterpretationCandidateResponseObject); ok {
+		if err := validResponse.VisitPreviewInterpretationCandidateResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// CreateInterpretationRevisionFromColumn operation middleware
+func (sh *strictHandler) CreateInterpretationRevisionFromColumn(ctx fiber.Ctx, project Project, explorerId ExplorerId, params CreateInterpretationRevisionFromColumnParams) error {
+	var request CreateInterpretationRevisionFromColumnRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+	request.Params = params
+
+	var body CreateInterpretationRevisionFromColumnJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateInterpretationRevisionFromColumn(ctx.Context(), request.(CreateInterpretationRevisionFromColumnRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateInterpretationRevisionFromColumn")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(CreateInterpretationRevisionFromColumnResponseObject); ok {
+		if err := validResponse.VisitCreateInterpretationRevisionFromColumnResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// CheckExplorerPopulationMapping operation middleware
+func (sh *strictHandler) CheckExplorerPopulationMapping(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request CheckExplorerPopulationMappingRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body CheckExplorerPopulationMappingJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.CheckExplorerPopulationMapping(ctx.Context(), request.(CheckExplorerPopulationMappingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CheckExplorerPopulationMapping")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(CheckExplorerPopulationMappingResponseObject); ok {
+		if err := validResponse.VisitCheckExplorerPopulationMappingResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ProposeExplorerPopulationMemberRemoval operation middleware
+func (sh *strictHandler) ProposeExplorerPopulationMemberRemoval(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request ProposeExplorerPopulationMemberRemovalRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body ProposeExplorerPopulationMemberRemovalJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.ProposeExplorerPopulationMemberRemoval(ctx.Context(), request.(ProposeExplorerPopulationMemberRemovalRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ProposeExplorerPopulationMemberRemoval")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ProposeExplorerPopulationMemberRemovalResponseObject); ok {
+		if err := validResponse.VisitProposeExplorerPopulationMemberRemovalResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// SearchExplorerPopulationRoutes operation middleware
+func (sh *strictHandler) SearchExplorerPopulationRoutes(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request SearchExplorerPopulationRoutesRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body SearchExplorerPopulationRoutesJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.SearchExplorerPopulationRoutes(ctx.Context(), request.(SearchExplorerPopulationRoutesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SearchExplorerPopulationRoutes")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(SearchExplorerPopulationRoutesResponseObject); ok {
+		if err := validResponse.VisitSearchExplorerPopulationRoutesResponse(ctx); err != nil {
 			return err
 		}
 	} else if response != nil {
@@ -4329,6 +18475,307 @@ func (sh *strictHandler) ReconcileExplorerBuilder(ctx fiber.Ctx, project Project
 	return nil
 }
 
+// SearchExplorerRelatedExpandChoices operation middleware
+func (sh *strictHandler) SearchExplorerRelatedExpandChoices(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request SearchExplorerRelatedExpandChoicesRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body SearchExplorerRelatedExpandChoicesJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.SearchExplorerRelatedExpandChoices(ctx.Context(), request.(SearchExplorerRelatedExpandChoicesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SearchExplorerRelatedExpandChoices")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(SearchExplorerRelatedExpandChoicesResponseObject); ok {
+		if err := validResponse.VisitSearchExplorerRelatedExpandChoicesResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// SearchExplorerRelatedExpandContributors operation middleware
+func (sh *strictHandler) SearchExplorerRelatedExpandContributors(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request SearchExplorerRelatedExpandContributorsRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body SearchExplorerRelatedExpandContributorsJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.SearchExplorerRelatedExpandContributors(ctx.Context(), request.(SearchExplorerRelatedExpandContributorsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SearchExplorerRelatedExpandContributors")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(SearchExplorerRelatedExpandContributorsResponseObject); ok {
+		if err := validResponse.VisitSearchExplorerRelatedExpandContributorsResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// SearchExplorerRelatedFieldChoices operation middleware
+func (sh *strictHandler) SearchExplorerRelatedFieldChoices(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request SearchExplorerRelatedFieldChoicesRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body SearchExplorerRelatedFieldChoicesJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.SearchExplorerRelatedFieldChoices(ctx.Context(), request.(SearchExplorerRelatedFieldChoicesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SearchExplorerRelatedFieldChoices")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(SearchExplorerRelatedFieldChoicesResponseObject); ok {
+		if err := validResponse.VisitSearchExplorerRelatedFieldChoicesResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// AssessExplorerRowChange operation middleware
+func (sh *strictHandler) AssessExplorerRowChange(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request AssessExplorerRowChangeRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body AssessExplorerRowChangeJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.AssessExplorerRowChange(ctx.Context(), request.(AssessExplorerRowChangeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AssessExplorerRowChange")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(AssessExplorerRowChangeResponseObject); ok {
+		if err := validResponse.VisitAssessExplorerRowChangeResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ListExplorerRowDefinitionChoices operation middleware
+func (sh *strictHandler) ListExplorerRowDefinitionChoices(ctx fiber.Ctx, project Project, explorerId ExplorerId, params ListExplorerRowDefinitionChoicesParams) error {
+	var request ListExplorerRowDefinitionChoicesRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+	request.Params = params
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.ListExplorerRowDefinitionChoices(ctx.Context(), request.(ListExplorerRowDefinitionChoicesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListExplorerRowDefinitionChoices")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ListExplorerRowDefinitionChoicesResponseObject); ok {
+		if err := validResponse.VisitListExplorerRowDefinitionChoicesResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ProposeExplorerRowDefinition operation middleware
+func (sh *strictHandler) ProposeExplorerRowDefinition(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request ProposeExplorerRowDefinitionRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body ProposeExplorerRowDefinitionJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.ProposeExplorerRowDefinition(ctx.Context(), request.(ProposeExplorerRowDefinitionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ProposeExplorerRowDefinition")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ProposeExplorerRowDefinitionResponseObject); ok {
+		if err := validResponse.VisitProposeExplorerRowDefinitionResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// TraceExplorerRowLineage operation middleware
+func (sh *strictHandler) TraceExplorerRowLineage(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request TraceExplorerRowLineageRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body TraceExplorerRowLineageJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.TraceExplorerRowLineage(ctx.Context(), request.(TraceExplorerRowLineageRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "TraceExplorerRowLineage")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(TraceExplorerRowLineageResponseObject); ok {
+		if err := validResponse.VisitTraceExplorerRowLineageResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// SearchExplorerSchemaFields operation middleware
+func (sh *strictHandler) SearchExplorerSchemaFields(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request SearchExplorerSchemaFieldsRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body SearchExplorerSchemaFieldsJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.SearchExplorerSchemaFields(ctx.Context(), request.(SearchExplorerSchemaFieldsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SearchExplorerSchemaFields")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(SearchExplorerSchemaFieldsResponseObject); ok {
+		if err := validResponse.VisitSearchExplorerSchemaFieldsResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// BrowseExplorerSemanticInventory operation middleware
+func (sh *strictHandler) BrowseExplorerSemanticInventory(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request BrowseExplorerSemanticInventoryRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body BrowseExplorerSemanticInventoryJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.BrowseExplorerSemanticInventory(ctx.Context(), request.(BrowseExplorerSemanticInventoryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "BrowseExplorerSemanticInventory")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(BrowseExplorerSemanticInventoryResponseObject); ok {
+		if err := validResponse.VisitBrowseExplorerSemanticInventoryResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
 // SearchExplorerCandidates operation middleware
 func (sh *strictHandler) SearchExplorerCandidates(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
 	var request SearchExplorerCandidatesRequestObject
@@ -4355,6 +18802,243 @@ func (sh *strictHandler) SearchExplorerCandidates(ctx fiber.Ctx, project Project
 		return err
 	} else if validResponse, ok := response.(SearchExplorerCandidatesResponseObject); ok {
 		if err := validResponse.VisitSearchExplorerCandidatesResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetExplorerTableShapeCapabilities operation middleware
+func (sh *strictHandler) GetExplorerTableShapeCapabilities(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request GetExplorerTableShapeCapabilitiesRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body GetExplorerTableShapeCapabilitiesJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.GetExplorerTableShapeCapabilities(ctx.Context(), request.(GetExplorerTableShapeCapabilitiesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetExplorerTableShapeCapabilities")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetExplorerTableShapeCapabilitiesResponseObject); ok {
+		if err := validResponse.VisitGetExplorerTableShapeCapabilitiesResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// DiscoverExplorerTableShapeCategories operation middleware
+func (sh *strictHandler) DiscoverExplorerTableShapeCategories(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request DiscoverExplorerTableShapeCategoriesRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body DiscoverExplorerTableShapeCategoriesJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.DiscoverExplorerTableShapeCategories(ctx.Context(), request.(DiscoverExplorerTableShapeCategoriesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DiscoverExplorerTableShapeCategories")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(DiscoverExplorerTableShapeCategoriesResponseObject); ok {
+		if err := validResponse.VisitDiscoverExplorerTableShapeCategoriesResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ProposeExplorerTableShape operation middleware
+func (sh *strictHandler) ProposeExplorerTableShape(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request ProposeExplorerTableShapeRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body ProposeExplorerTableShapeJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.ProposeExplorerTableShape(ctx.Context(), request.(ProposeExplorerTableShapeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ProposeExplorerTableShape")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ProposeExplorerTableShapeResponseObject); ok {
+		if err := validResponse.VisitProposeExplorerTableShapeResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ResolveExplorerTableShape operation middleware
+func (sh *strictHandler) ResolveExplorerTableShape(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request ResolveExplorerTableShapeRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body ResolveExplorerTableShapeJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.ResolveExplorerTableShape(ctx.Context(), request.(ResolveExplorerTableShapeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResolveExplorerTableShape")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ResolveExplorerTableShapeResponseObject); ok {
+		if err := validResponse.VisitResolveExplorerTableShapeResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// CreateExplorerSelection operation middleware
+func (sh *strictHandler) CreateExplorerSelection(ctx fiber.Ctx, project Project, explorerId ExplorerId, params CreateExplorerSelectionParams) error {
+	var request CreateExplorerSelectionRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+	request.Params = params
+
+	var body CreateExplorerSelectionJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateExplorerSelection(ctx.Context(), request.(CreateExplorerSelectionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateExplorerSelection")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(CreateExplorerSelectionResponseObject); ok {
+		if err := validResponse.VisitCreateExplorerSelectionResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetExplorerSelection operation middleware
+func (sh *strictHandler) GetExplorerSelection(ctx fiber.Ctx, project Project, explorerId ExplorerId, selectionRevision string, params GetExplorerSelectionParams) error {
+	var request GetExplorerSelectionRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+	request.SelectionRevision = selectionRevision
+	request.Params = params
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.GetExplorerSelection(ctx.Context(), request.(GetExplorerSelectionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetExplorerSelection")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetExplorerSelectionResponseObject); ok {
+		if err := validResponse.VisitGetExplorerSelectionResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// CreateExplorerExplicitGroupRevision operation middleware
+func (sh *strictHandler) CreateExplorerExplicitGroupRevision(ctx fiber.Ctx, project Project, explorerId ExplorerId, selectionRevision string, params CreateExplorerExplicitGroupRevisionParams) error {
+	var request CreateExplorerExplicitGroupRevisionRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+	request.SelectionRevision = selectionRevision
+	request.Params = params
+
+	var body CreateExplorerExplicitGroupRevisionJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateExplorerExplicitGroupRevision(ctx.Context(), request.(CreateExplorerExplicitGroupRevisionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateExplorerExplicitGroupRevision")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(CreateExplorerExplicitGroupRevisionResponseObject); ok {
+		if err := validResponse.VisitCreateExplorerExplicitGroupRevisionResponse(ctx); err != nil {
 			return err
 		}
 	} else if response != nil {
@@ -4390,6 +19074,95 @@ func (sh *strictHandler) PublishRepositoryExplorerConfig(ctx fiber.Ctx, project 
 		return err
 	} else if validResponse, ok := response.(PublishRepositoryExplorerConfigResponseObject); ok {
 		if err := validResponse.VisitPublishRepositoryExplorerConfigResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ListInterpretationLibraries operation middleware
+func (sh *strictHandler) ListInterpretationLibraries(ctx fiber.Ctx, project Project) error {
+	var request ListInterpretationLibrariesRequestObject
+
+	request.Project = project
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.ListInterpretationLibraries(ctx.Context(), request.(ListInterpretationLibrariesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListInterpretationLibraries")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ListInterpretationLibrariesResponseObject); ok {
+		if err := validResponse.VisitListInterpretationLibrariesResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// CreateInterpretationRevision operation middleware
+func (sh *strictHandler) CreateInterpretationRevision(ctx fiber.Ctx, project Project, params CreateInterpretationRevisionParams) error {
+	var request CreateInterpretationRevisionRequestObject
+
+	request.Project = project
+	request.Params = params
+
+	var body CreateInterpretationRevisionJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateInterpretationRevision(ctx.Context(), request.(CreateInterpretationRevisionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateInterpretationRevision")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(CreateInterpretationRevisionResponseObject); ok {
+		if err := validResponse.VisitCreateInterpretationRevisionResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetInterpretationRevision operation middleware
+func (sh *strictHandler) GetInterpretationRevision(ctx fiber.Ctx, project Project, revisionId string) error {
+	var request GetInterpretationRevisionRequestObject
+
+	request.Project = project
+	request.RevisionId = revisionId
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.GetInterpretationRevision(ctx.Context(), request.(GetInterpretationRevisionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetInterpretationRevision")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetInterpretationRevisionResponseObject); ok {
+		if err := validResponse.VisitGetInterpretationRevisionResponse(ctx); err != nil {
 			return err
 		}
 	} else if response != nil {
@@ -4590,106 +19363,448 @@ func (sh *strictHandler) GetReadiness(ctx fiber.Ctx) error {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"L0//FwAA//8=",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

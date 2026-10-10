@@ -15,36 +15,44 @@ const projectIDColumn = "project_id"
 const StateReady State = "READY"
 
 type Column struct {
+	ID           string `json:"id,omitempty"`
 	Name         string `json:"name"`
 	SemanticPath string `json:"semanticPath,omitempty"`
 	ClickHouse   string `json:"clickhouseType"`
 	LogicalType  string `json:"logicalType,omitempty"`
 	Nullable     bool   `json:"nullable,omitempty"`
 	Repeated     bool   `json:"repeated,omitempty"`
+	LoomOwned    bool   `json:"loomOwned,omitempty"`
 }
 
 type DataframeSelector = dataset.DataframeSelector
 
 type Materialization struct {
-	ID                string            `json:"id"`
-	Name              string            `json:"name"`
-	Revision          string            `json:"revision,omitempty"`
-	Project           string            `json:"project"`
-	DatasetGeneration string            `json:"datasetGeneration"`
-	State             State             `json:"state"`
-	ScopeUnrestricted bool              `json:"scopeUnrestricted"`
-	AuthResourcePaths []string          `json:"authResourcePaths,omitempty"`
-	Columns           []Column          `json:"columns"`
-	PhysicalTable     string            `json:"physicalTable"`
-	RowCount          int64             `json:"rowCount"`
-	RowCountKnown     bool              `json:"-"`
-	CreatedAt         time.Time         `json:"createdAt"`
-	UpdatedAt         time.Time         `json:"updatedAt"`
-	ReadyAt           *time.Time        `json:"readyAt,omitempty"`
-	Error             string            `json:"error,omitempty"`
-	FailureCode       string            `json:"failureCode,omitempty"`
-	FailureRetryable  bool              `json:"failureRetryable,omitempty"`
-	Selector          DataframeSelector `json:"selector"`
+	ID                string                         `json:"id"`
+	Name              string                         `json:"name"`
+	Revision          string                         `json:"revision,omitempty"`
+	SourceRevision    string                         `json:"sourceRevision,omitempty"`
+	ReceiptID         string                         `json:"receiptId,omitempty"`
+	SchemaDigest      string                         `json:"schemaDigest,omitempty"`
+	ScopeDigest       string                         `json:"scopeDigest,omitempty"`
+	AuthScopeMode     string                         `json:"authScopeMode,omitempty"`
+	Project           string                         `json:"project"`
+	DatasetGeneration string                         `json:"datasetGeneration"`
+	State             State                          `json:"state"`
+	ScopeUnrestricted bool                           `json:"scopeUnrestricted"`
+	AuthResourcePaths []string                       `json:"authResourcePaths,omitempty"`
+	Columns           []Column                       `json:"columns"`
+	PhysicalTable     string                         `json:"physicalTable"`
+	RowCount          int64                          `json:"rowCount"`
+	RowCountKnown     bool                           `json:"-"`
+	CreatedAt         time.Time                      `json:"createdAt"`
+	UpdatedAt         time.Time                      `json:"updatedAt"`
+	ReadyAt           *time.Time                     `json:"readyAt,omitempty"`
+	Error             string                         `json:"error,omitempty"`
+	FailureCode       string                         `json:"failureCode,omitempty"`
+	FailureRetryable  bool                           `json:"failureRetryable,omitempty"`
+	Selector          DataframeSelector              `json:"selector"`
+	SourceRow         *publication.SourceRowMetadata `json:"sourceRow,omitempty"`
 }
 
 func publishedMaterialization(execution publication.BundleExecution, output publication.BundleOutputRecord, resourceType string) Materialization {
@@ -52,6 +60,10 @@ func publishedMaterialization(execution publication.BundleExecution, output publ
 		ID:                execution.ID + ":" + output.Name,
 		Name:              resourceType,
 		Revision:          execution.ID,
+		ReceiptID:         execution.ReceiptID,
+		SchemaDigest:      execution.SchemaDigest,
+		ScopeDigest:       execution.ScopeDigest,
+		AuthScopeMode:     execution.AuthScopeMode,
 		Project:           execution.Project,
 		DatasetGeneration: execution.DatasetGeneration,
 		State:             StateReady,
@@ -63,13 +75,22 @@ func publishedMaterialization(execution publication.BundleExecution, output publ
 		CreatedAt:         execution.CreatedAt,
 		UpdatedAt:         execution.UpdatedAt,
 		ReadyAt:           execution.ReadyAt,
+		SourceRow:         cloneSourceRow(output.SourceRow),
 	}
+}
+
+func cloneSourceRow(value *publication.SourceRowMetadata) *publication.SourceRowMetadata {
+	if value == nil {
+		return nil
+	}
+	clone := *value
+	return &clone
 }
 
 func publishedColumns(columns []publication.PhysicalColumn) []Column {
 	result := make([]Column, len(columns))
 	for index, column := range columns {
-		result[index] = Column{Name: column.Name, SemanticPath: column.SemanticPath, ClickHouse: column.ClickHouse, LogicalType: column.LogicalType, Nullable: column.Nullable, Repeated: column.Repeated}
+		result[index] = Column{ID: column.ID, Name: column.Name, SemanticPath: column.SemanticPath, ClickHouse: column.ClickHouse, LogicalType: column.LogicalType, Nullable: column.Nullable, Repeated: column.Repeated, LoomOwned: column.LoomOwned}
 	}
 	return result
 }

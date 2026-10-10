@@ -1,0 +1,170 @@
+{
+  "epoch": 102,
+  "status": "CLOSED_FAILED_HARNESS",
+  "case": {
+    "scenarioId": "cda-five-hop-related-expansion",
+    "caseName": "medication-preserve-parent",
+    "status": "failed_harness",
+    "failureAttribution": "HARNESS_FRESH_WORKSPACE_ASSUMPTION",
+    "classificationNote": "The Builder body was not retained; server source guarantees a null workspace for a new empty Interactive Explorer, and the preserved TypeError is consistent with that contract.",
+    "requiredChecks": {
+      "total": 11,
+      "passed": 2,
+      "missingOrUnrun": 9,
+      "missingOrFailed": 0,
+      "evidence": [
+        {
+          "name": "bounded independent raw CDA oracle proves the exact five-hop Medication route and records match availability",
+          "status": "passed"
+        },
+        {
+          "name": "CDA watched source and API build stayed unchanged",
+          "status": "passed"
+        }
+      ]
+    },
+    "assertions": {
+      "passed": 2,
+      "failed": 0,
+      "total": 2
+    },
+    "actions": {
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "maxElapsedMs": 0
+    },
+    "dimensions": {
+      "usability": "untested",
+      "correctness": "partial",
+      "persistence": "untested",
+      "performance": "untested"
+    },
+    "firstFailure": {
+      "location": "scripts/verify-ui/workflows/verify-cda-zero-column-related-medication.mjs:251",
+      "message": "TypeError: Cannot read properties of null (reading 'documents')",
+      "observableSequence": "Bounded oracle passed; POST fresh Explorer returned 201; Builder GET returned 200; workflow dereferenced builder.workspace.documents before creating a table.",
+      "sourceContract": {
+        "create": "internal/explorer/service.go:createEmptyInteractive creates only the Explorer identity; it has no draft content.",
+        "builder": "internal/explorer/lifecycle/query.go:Builder initializes LifecycleState=NEW and Workspace=nil, setting a workspace only from persisted DraftConfig or an ActiveRevision.",
+        "wire": "internal/explorer/authoringv2/types.go:BuilderState.Workspace is json:\"workspace\" without omitempty, so the nil pointer is represented as null.",
+        "workflow": "The zero-column workflow creates an Explorer without sourceExplorerId, reads Builder state, then dereferences builder.workspace.documents before issuing CREATE_TABLE.",
+        "responseBodyRetained": false,
+        "responseBodyNote": "The preserved report records only GET status/timing and the null-dereference TypeError; it does not retain the Builder response JSON. Null is supported by the source contract and error, not claimed as a captured response body.",
+        "stateValidation": "internal/explorer/authoringv2/validation.go:344-351 explicitly requires LifecycleState=NEW to have Workspace=null and accepts the null-workspace state."
+      },
+      "nativeActions": 0,
+      "requiredChecksPassed": 2,
+      "requiredChecksUnrun": 9,
+      "productFailureEstablished": false
+    }
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "99c1f4b7d0da25af7926b06c2f60b604cf3a7a4e18916fb55b62beb21468fe4b",
+        "files": 1531
+      },
+      "after": {
+        "sha256": "99c1f4b7d0da25af7926b06c2f60b604cf3a7a4e18916fb55b62beb21468fe4b",
+        "files": 1531
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave102/source-before.json",
+        "sha256": "2dcdffc23c0ebc496fc6650a833429692ae7e076de874a13e0a7325398a10344"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave102/source-after.json",
+        "sha256": "0aea815ff346f393a9172ad48dfef80d461ff45924d1393f211462086414a260"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "912200e75adeae515720a85a6b133dafb8f942667b235e30e0f4a9dbc2a7c088",
+        "files": 238
+      },
+      "after": {
+        "sha256": "912200e75adeae515720a85a6b133dafb8f942667b235e30e0f4a9dbc2a7c088",
+        "files": 238
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave102/docs-before.json",
+        "sha256": "d7516a1d7a332bb4417d86a9ce8a2afc0ef80dba1ed0696b32f95b1c14ad5679"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave102/docs-after.json",
+        "sha256": "952e42c82e6cfa66bbe946b28ddd077b7b2f80d607c47fbcf9f5b420e4a2fb93"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+      "after": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+      "precheck": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave102/api-identity-before.json",
+        "sha256": "7513b17d4a037e54efd5cde2b9f6a75998bc4b06556bf3e92cd37c9de331f29b"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave102/api-identity-after.json",
+        "sha256": "71176c0ca7de8a03d2dc8527a4ea9abff7df8fb04c900c599346dfc830fae05d"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave102/api-build-precheck-confirmed.json",
+        "sha256": "aded136cbf1bc0e715dc9a9a55ab2fcfcd15a83e6101a0b6f89c1ae02ea76012"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave102/owned-mounts-before.json",
+        "sha256": "7a876ab9f8145c2fa554586c099b6591365269e891f6805ebf5343e6d126f2a4"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave102/owned-mounts-after.json",
+        "sha256": "93ec4dca2818bc324d76f628c6210bf73f16c98bf6b9ec7ccc21e54ffc4f0a8f"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave102/health-before.json",
+        "sha256": "00260ef8e7cf67b66a951bfc13376eec23875a9afca29e004dccafe3bc9444d2"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave102/health-after.json",
+        "sha256": "a3b4ccf869fb497a25192236d6145583fc2855ec611d668b8731939af1faa1b5"
+      }
+    }
+  },
+  "rawCoordinatorClosure": {
+    "path": "/private/tmp/loom-native-related-expansion-wave102/closure.json",
+    "sha256": "d5715ffa3e5f8648e08fb012339a992404ceaa0cb416a9d9468e23e6f24a6690"
+  }
+}

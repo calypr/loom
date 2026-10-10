@@ -1,0 +1,117 @@
+{
+  "epoch": 44,
+  "status": "CLOSED_GREEN",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "beforeSha256": "6ff5de5bb68cd6eb2449c01f0c7fd10bd61c2783feb9daf42272c4864ffd9b35",
+      "afterSha256": "6ff5de5bb68cd6eb2449c01f0c7fd10bd61c2783feb9daf42272c4864ffd9b35",
+      "files": 1495,
+      "changedPaths": []
+    },
+    "docs": {
+      "beforeSha256": "ed0c6990f0ee7403bb3029933eec4038682ab25ad33dbab5b9a758f38765c23a",
+      "afterSha256": "ed0c6990f0ee7403bb3029933eec4038682ab25ad33dbab5b9a758f38765c23a",
+      "files": 119,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8",
+      "after": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "beforeStatus": "PASS",
+      "afterStatus": "PASS",
+      "targetUnchanged": true,
+      "composeProject": "loom-dev-6d7df93d6a37",
+      "sourceRoot": "/private/tmp/loom-construction-implementation",
+      "project": "loom_dev_cda_fhir",
+      "generation": "cda-fhir-v1"
+    },
+    "health": {
+      "beforeStatus": "PASS",
+      "beforeSamples": 3,
+      "afterStatus": "PASS",
+      "afterSamples": 3,
+      "allApiUiHealthy": true
+    },
+    "captureHandles": {
+      "beforeCapture": {
+        "session": 67265,
+        "exitCode": 0
+      },
+      "beforeHealth": {
+        "session": 98794,
+        "exitCode": 0
+      },
+      "afterCapture": {
+        "session": 60729,
+        "exitCode": 0
+      },
+      "afterHealth": {
+        "session": 32057,
+        "exitCode": 0
+      }
+    }
+  },
+  "case": {
+    "owner": "verify_group_pivot_join",
+    "title": "GROUP-to-PIVOT current-draft Join supports cancel, apply, edit, removal, and reload",
+    "session": 45407,
+    "terminal": true,
+    "exitCode": 0,
+    "result": "PASSED",
+    "processDurationMs": 21376.685,
+    "caseDurationMs": 17259,
+    "fixtureProject": "loom_dev_verify_muvy0fat-1efbffe",
+    "requiredChecks": {
+      "passed": 21,
+      "total": 21,
+      "missing": 0
+    },
+    "assertions": {
+      "passed": 96,
+      "total": 96
+    },
+    "actions": {
+      "passed": 30,
+      "total": 30
+    },
+    "maxActionMs": 1064.0,
+    "errors": 0,
+    "networkFailures": 0,
+    "assetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ],
+    "lifecycle": {
+      "kind": "official-playwright-page",
+      "status": "passed",
+      "durationMs": 17012,
+      "diagnosticLimit": 100,
+      "droppedDiagnostics": 0
+    },
+    "persistedJoinWorkflow": "Cancel and reload; LEFT Join apply and reload; edit to INNER and reload; cancellation/removal; rooted empty restoration.",
+    "sourceAndApiIdentityUnchangedInBrowser": true,
+    "report": "/private/tmp/loom-native-parallel-wave44/group-pivot-join/artifacts/verify-ui/builder-combine-draft-group-pivot-muvy0fat-1efbffe.json"
+  },
+  "artifacts": {
+    "sourceBefore": "/private/tmp/loom-native-parallel-wave44/source-before.json",
+    "sourceAfter": "/private/tmp/loom-native-parallel-wave44/source-after.json",
+    "docsBefore": "/private/tmp/loom-native-parallel-wave44/docs-before.json",
+    "docsAfter": "/private/tmp/loom-native-parallel-wave44/docs-after.json",
+    "apiBefore": "/private/tmp/loom-native-parallel-wave44/api-identity-before.json",
+    "apiAfter": "/private/tmp/loom-native-parallel-wave44/api-identity-after.json",
+    "mountsBefore": "/private/tmp/loom-native-parallel-wave44/owned-mounts-before.json",
+    "mountsAfter": "/private/tmp/loom-native-parallel-wave44/owned-mounts-after.json",
+    "healthBefore": "/private/tmp/loom-native-parallel-wave44/health-before.json",
+    "healthAfter": "/private/tmp/loom-native-parallel-wave44/health-after.json",
+    "playwrightResults": "/private/tmp/loom-native-parallel-wave44/group-pivot-join/results.json",
+    "runPlan": "/private/tmp/loom-native-parallel-wave44/run-plan.json"
+  },
+  "serialRepeatRequired": false
+}

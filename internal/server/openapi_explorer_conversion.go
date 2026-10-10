@@ -34,6 +34,8 @@ func firstNonEmpty(values ...string) string {
 	return "Explorer"
 }
 
+func pointerTo[T any](value T) *T { return &value }
+
 func v2ReceiptResponse(receipt *explorer.CompilationReceipt, workspace authoringv2.Workspace) loomapi.CompileResponse {
 	if receipt != nil && len(receipt.NormalizedBundle) != 0 {
 		if normalized, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle); err == nil {
@@ -55,9 +57,98 @@ func v2ReceiptResponse(receipt *explorer.CompilationReceipt, workspace authoring
 				continue
 			}
 			label := firstNonEmpty(column.Label, column.PublicColumn)
-			columns = append(columns, loomapi.ContractColumn{Column: column.PublicColumn, Label: label, LogicalType: column.LogicalType, Filterable: column.Filterable, Chartable: column.Chartable})
+			coordinates := make([]loomapi.RepeatedCoordinate, 0, len(column.Coordinates))
+			for _, coordinate := range column.Coordinates {
+				coordinates = append(coordinates, loomapi.RepeatedCoordinate{BoundaryPath: coordinate.BoundaryPath, Index: coordinate.Index, Width: coordinate.Width})
+			}
+			wire := loomapi.ContractColumn{
+				Column: column.PublicColumn, Label: label, LogicalType: column.LogicalType,
+				Filterable: column.Filterable, Chartable: column.Chartable,
+				Nullable: pointerTo(column.Nullable), Shape: pointerTo(column.Shape),
+				Lossless: pointerTo(column.Lossless), MlReady: pointerTo(column.MLReady),
+			}
+			if column.ResultUnit != nil {
+				wire.ResultUnit = &loomapi.UnitIdentity{System: column.ResultUnit.System, Code: column.ResultUnit.Code}
+			}
+			if column.StructuralSuitability != "" {
+				wire.StructuralSuitability = pointerTo(loomapi.ContractColumnStructuralSuitability(column.StructuralSuitability))
+			}
+			if len(column.LossReasons) > 0 {
+				reasons := append([]string(nil), column.LossReasons...)
+				wire.LossReasons = &reasons
+			}
+			if len(column.AuthoredColumns) > 0 {
+				authoredColumns := append([]string(nil), column.AuthoredColumns...)
+				wire.AuthoredColumns = &authoredColumns
+			}
+			if column.SourceResourceType != "" {
+				wire.SourceResourceType = pointerTo(column.SourceResourceType)
+			}
+			if column.SourcePath != "" {
+				wire.SourcePath = pointerTo(column.SourcePath)
+			}
+			if column.ChoiceArm != "" {
+				wire.ChoiceArm = pointerTo(column.ChoiceArm)
+			}
+			if len(coordinates) > 0 {
+				wire.Coordinates = &coordinates
+			}
+			if column.UnitNormalization != nil {
+				rules := make([]loomapi.UnitRuleReference, 0, len(column.UnitNormalization.Rules))
+				for _, rule := range column.UnitNormalization.Rules {
+					rules = append(rules, loomapi.UnitRuleReference{Id: rule.ID, Version: rule.Version})
+				}
+				wire.UnitNormalization = &loomapi.UnitNormalizationContract{Target: loomapi.UnitIdentity{System: column.UnitNormalization.Target.System, Code: column.UnitNormalization.Target.Code}, Rules: rules}
+			}
+			columns = append(columns, wire)
 		}
-		outputs = append(outputs, loomapi.ReceiptOutput{OutputId: document.Output.ID, Title: document.Output.Title, RowGrain: rowGrain, Columns: columns})
+		rootResourceType := document.RootResourceType
+		multiplication := loomapi.None
+		lossless, mlReady := true, true
+		structuralSuitability := ""
+		var lossReasons []string
+		for _, column := range receipt.EmittedColumns {
+			if column.OutputID == document.Output.ID {
+				lossless = lossless && column.Lossless
+				mlReady = mlReady && column.MLReady
+				if column.StructuralSuitability == "requires-review" {
+					structuralSuitability = "requires-review"
+				} else if structuralSuitability == "" && column.StructuralSuitability != "" {
+					structuralSuitability = column.StructuralSuitability
+				} else if structuralSuitability == "scalar" && column.StructuralSuitability == "array" {
+					structuralSuitability = "array"
+				}
+				for _, reason := range column.LossReasons {
+					found := false
+					for _, existing := range lossReasons {
+						if existing == reason {
+							found = true
+							break
+						}
+					}
+					if !found {
+						lossReasons = append(lossReasons, reason)
+					}
+				}
+			}
+		}
+		output := loomapi.ReceiptOutput{OutputId: document.Output.ID, Title: document.Output.Title, RowGrain: rowGrain, RootResourceType: &rootResourceType, RowMultiplication: &multiplication, Lossless: &lossless, MlReady: &mlReady, Columns: columns}
+		if structuralSuitability != "" {
+			output.StructuralSuitability = pointerTo(loomapi.ReceiptOutputStructuralSuitability(structuralSuitability))
+		}
+		if len(lossReasons) > 0 {
+			output.LossReasons = &lossReasons
+		}
+		outputs = append(outputs, output)
 	}
-	return loomapi.CompileResponse{ApiVersion: loomapi.LoomCalyprOrgexplorerAuthoringv2, Kind: loomapi.ExplorerBuilderReceipt, ReceiptId: receipt.ID, SnapshotToken: receipt.SnapshotToken, Generation: receipt.SourceGeneration, IntentDigest: receipt.IntentDigest, CompilerVersion: explorer.CurrentCompilerContractVersion + "+" + explorercompilation.TranslationVersion, Builder: workspace, Outputs: outputs, Diagnostics: []loomapi.Diagnostic{}}
+	return loomapi.CompileResponse{
+		ApiVersion: loomapi.LoomCalyprOrgexplorerAuthoringv2, Kind: loomapi.ExplorerBuilderReceipt,
+		ReceiptId: receipt.ID, SnapshotToken: receipt.SnapshotToken, Generation: receipt.SourceGeneration,
+		IntentDigest: receipt.IntentDigest, CompilerVersion: explorer.CurrentCompilerContractVersion + "+" + explorercompilation.TranslationVersion,
+		ShapeDigest: &receipt.ShapeDigest, RecipeDigest: &receipt.RecipeDigest,
+		ResolvedRecipeDigest: &receipt.ResolvedRecipeDigest, ResolvedSchemaDigest: &receipt.ResolvedSchemaDigest,
+		OutputContractDigest: &receipt.OutputContractDigest, AuthorizationScopeDigest: &receipt.AuthorizationScopeDigest,
+		CapabilitySchemaDigest: &receipt.CapabilitySchemaDigest,
+		Builder:                workspace, Outputs: outputs, Diagnostics: []loomapi.Diagnostic{},
+	}
 }

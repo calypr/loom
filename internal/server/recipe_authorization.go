@@ -2,12 +2,14 @@ package server
 
 import (
 	"context"
-	"errors"
 
+	"github.com/calypr/loom/internal/api/authpolicy"
 	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	explorerarango "github.com/calypr/loom/internal/explorer/arango"
+	"github.com/calypr/loom/internal/projectid"
 )
 
 type recipeAuthorization struct {
@@ -20,6 +22,8 @@ func (a recipeAuthorization) AuthorizeRead(ctx context.Context, bindings recipe.
 	if bindings.Project == "" {
 		return recipe.RuntimeBindings{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
+	bindings.SelectionProject = projectid.Canonical(bindings.Project)
+	bindings.SelectionMembersCollection = explorerarango.SelectionMembersCollection
 	if a.resolver == nil {
 		bindings.AuthScopeMode = authscope.ReadScopeUnrestricted
 		return bindings, nil
@@ -41,6 +45,8 @@ func (a recipeAuthorization) AuthorizeWrite(ctx context.Context, bindings recipe
 	if bindings.Project == "" {
 		return recipe.RuntimeBindings{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
+	bindings.SelectionProject = projectid.Canonical(bindings.Project)
+	bindings.SelectionMembersCollection = explorerarango.SelectionMembersCollection
 	if a.resolver == nil {
 		bindings.AuthScopeMode = authscope.ReadScopeUnrestricted
 		return bindings, nil
@@ -56,14 +62,9 @@ func (a recipeAuthorization) AuthorizeWrite(ctx context.Context, bindings recipe
 }
 
 func recipeAuthorizationError(err error) error {
-	switch {
-	case errors.Is(err, authscope.ErrUnauthenticated):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeUnauthenticated, "")
-	case errors.Is(err, authscope.ErrForbidden):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeUnauthorizedProject, "")
-	case errors.Is(err, authscope.ErrAuthorizationBackendUnavailable):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	default:
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+	classified := authpolicy.Classify(err, authpolicy.OperationRecipeAuthorization)
+	if _, ok := dataframeerrors.AsUserError(classified); ok {
+		return classified
 	}
+	return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 }

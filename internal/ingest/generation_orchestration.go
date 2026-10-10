@@ -24,6 +24,32 @@ func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 	return loadGeneration(ctx, opts)
 }
 
+const generationCleanupTimeout = 10 * time.Second
+
+func totalResourceRows(resources map[string]int) int64 {
+	var total int64
+	for _, count := range resources {
+		total += int64(count)
+	}
+	return total
+}
+
+// Cleanup actions receive independent deadlines. A stalled manifest transition
+// cannot consume the close deadline, so failure cleanup may use two windows.
+func boundedGenerationCleanup(parent context.Context, timeout time.Duration, cleanup func(context.Context) error) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
+	defer cancel()
+	return cleanup(cleanupCtx)
+}
+
+func generationCleanupError(parent context.Context, timeout time.Duration, original error, label string, cleanup func(context.Context) error) error {
+	cleanupErr := boundedGenerationCleanup(parent, timeout, cleanup)
+	if cleanupErr == nil {
+		return original
+	}
+	return errors.Join(original, fmt.Errorf("%s: %w", label, cleanupErr))
+}
+
 func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary, err error) {
 	opts = normalizeLoadOptions(opts)
 
@@ -105,7 +131,9 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	if err != nil {
 		return summary, err
 	}
-	defer func() { _ = client.Close(context.WithoutCancel(ctx)) }()
+	defer func() {
+		err = generationCleanupError(ctx, generationCleanupTimeout, err, "close generation backend", client.Close)
+	}()
 	catalogStore, err := catalogarango.New(client)
 	if err != nil {
 		return summary, err
@@ -155,17 +183,28 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		// Once STAGED is persisted we deliberately leave it alone,
 		// because an activation error is an unknown outcome rather than proof
 		// that the generation failed.
-		_, cleanupErr := lifecycleStore.TransitionManifest(
-			context.WithoutCancel(ctx),
-			manifest,
-			publication.StateFailed,
-		)
-		if cleanupErr != nil {
-			err = errors.Join(err, fmt.Errorf("mark dataset generation %s/%s failed: %w", plan.Dataset.Project, plan.Dataset.Generation, cleanupErr))
+		err = generationCleanupError(ctx, generationCleanupTimeout, err, fmt.Sprintf("mark dataset generation %s/%s failed", plan.Dataset.Project, plan.Dataset.Generation), func(cleanupCtx context.Context) error {
+			_, err := lifecycleStore.TransitionManifest(cleanupCtx, manifest, publication.StateFailed)
+			return err
+		})
+	}()
+	inventoryBuild := catalog.NewSemanticInventoryBuild(opts.Project, plan.Dataset.Generation, opts.AuthResourcePath)
+	if err = catalogStore.BeginSemanticInventoryBuild(ctx, inventoryBuild); err != nil {
+		return summary, err
+	}
+	inventoryComplete := false
+	defer func() {
+		if err == nil || inventoryComplete {
+			return
 		}
+		diagnostic := err.Error()
+		err = generationCleanupError(ctx, generationCleanupTimeout, err, "mark semantic inventory build failed", func(cleanupCtx context.Context) error {
+			return catalogStore.FailSemanticInventoryBuild(cleanupCtx, inventoryBuild, diagnostic)
+		})
 	}()
 	catalogs := make(map[generationCatalogKey]*catalog.Profiler)
 	relationshipCounts := make(map[catalog.RelationshipKey]int64)
+	lastInventoryCheckpoint := ""
 	for _, file := range files {
 		if err = ctx.Err(); err != nil {
 			return summary, err
@@ -208,6 +247,11 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		for name, seconds := range result.StageSeconds {
 			summary.StageSeconds[name] += seconds
 		}
+		summary.BatchCounts["semantic_inventory"] += result.SemanticInventoryBatches
+		lastInventoryCheckpoint = semanticInventorySourceFileID(opts.MetaDir, file)
+		if err = catalogStore.AdvanceSemanticInventoryBuild(ctx, inventoryBuild, totalResourceRows(summary.Resources), lastInventoryCheckpoint); err != nil {
+			return summary, fmt.Errorf("advance semantic inventory checkpoint: %w", err)
+		}
 		catalog.MergeRelationshipCounts(relationshipCounts, result.RelationshipCounts)
 
 		key := generationCatalogKey{
@@ -223,7 +267,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 				key.datasetGeneration,
 				key.authResourcePath,
 				key.resourceType,
-				catalog.NewShapePlanCacheWithLimit(opts.CatalogLimits.MaxShapePlans),
+				catalog.NewShapePlanCacheWithLimits(opts.CatalogLimits.MaxShapePlans, opts.CatalogLimits.MaxRetainedBytes),
 				opts.CatalogLimits,
 			)
 			catalogs[key] = merged
@@ -283,6 +327,10 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	if err = ctx.Err(); err != nil {
 		return summary, err
 	}
+	if err = catalogStore.CompleteSemanticInventoryBuild(ctx, inventoryBuild, totalResourceRows(summary.Resources), lastInventoryCheckpoint); err != nil {
+		return summary, fmt.Errorf("complete semantic inventory build: %w", err)
+	}
+	inventoryComplete = true
 	stagedManifest, transitionErr := lifecycleStore.TransitionManifest(ctx, manifest, publication.StateStaged)
 	if transitionErr != nil {
 		return summary, transitionErr

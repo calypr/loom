@@ -19,6 +19,62 @@ func TestParseServerOptionsWithoutConfigUsesFlags(t *testing.T) {
 	}
 }
 
+func TestDevFaultOverridesAreNoAuthOnly(t *testing.T) {
+	t.Setenv("LOOM_DEV_RECIPE_QUALITY_MAX_ROWS", "1")
+	t.Setenv("LOOM_DEV_RECIPE_QUALITY_MAX_DISTINCT_KEYS", "2")
+	t.Setenv("LOOM_DEV_ACTIVATION_CONFLICT_ONCE", "true")
+	t.Setenv("LOOM_DEV_ARTIFACT_MAX_ROWS", "3")
+	t.Setenv("LOOM_DEV_ARTIFACT_ROW_DELAY_MS", "25")
+
+	options, err := parseServerOptions([]string{"--no-auth", "--dataframer-recipe", "recipe.json"}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatalf("parseServerOptions() error = %v", err)
+	}
+	if options.Server.RecipeQualityMaxRows != 1 || options.Server.RecipeQualityMaxDistinctKeys != 2 || !options.Server.DevActivationConflictOnce || options.Server.ArtifactMaxRows != 3 || options.Server.DevArtifactRowDelay != 25*time.Millisecond {
+		t.Fatalf("dev fault overrides = %#v", options.Server)
+	}
+
+	secure := DefaultConfig()
+	secure.Server.RecipeQualityMaxRows = 17
+	secure.Auth.Basic.Username = "loom"
+	secure.Auth.Basic.Password = "secret"
+	if err := applyDevFaultOverrides(&secure); err != nil {
+		t.Fatalf("authenticated override check = %v", err)
+	}
+	if secure.Server.RecipeQualityMaxRows != 17 || secure.Server.DevActivationConflictOnce || secure.Server.ArtifactMaxRows != 10_000_000 || secure.Server.DevArtifactRowDelay != 0 {
+		t.Fatalf("authenticated config was changed by dev fault overrides: %#v", secure.Server)
+	}
+}
+
+func TestDevFaultOverridesRejectInvalidValues(t *testing.T) {
+	t.Setenv("LOOM_DEV_RECIPE_QUALITY_MAX_ROWS", "zero")
+	cfg := DefaultConfig()
+	cfg.Server.AllowUnauthenticated = true
+	cfg.Auth.AllowUnauthenticated = true
+	if err := applyDevFaultOverrides(&cfg); err == nil || !strings.Contains(err.Error(), "LOOM_DEV_RECIPE_QUALITY_MAX_ROWS") {
+		t.Fatalf("invalid quality limit error = %v", err)
+	}
+}
+
+func TestDevArtifactFaultOverridesRejectInvalidValues(t *testing.T) {
+	for _, test := range []struct {
+		name, key, value string
+	}{
+		{name: "row limit", key: "LOOM_DEV_ARTIFACT_MAX_ROWS", value: "zero"},
+		{name: "row delay", key: "LOOM_DEV_ARTIFACT_ROW_DELAY_MS", value: "-1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv(test.key, test.value)
+			cfg := DefaultConfig()
+			cfg.Server.AllowUnauthenticated = true
+			cfg.Auth.AllowUnauthenticated = true
+			if err := applyDevFaultOverrides(&cfg); err == nil || !strings.Contains(err.Error(), test.key) {
+				t.Fatalf("invalid artifact fault error = %v", err)
+			}
+		})
+	}
+}
+
 func TestLocalWorkspaceWritebackRequiresNoAuth(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "workspace.json")
 	if _, err := parseServerOptions([]string{"--dataframer-recipe", "recipe.json", "--local-workspace-writeback", path, "--local-workspace-project", "project-a"}, flag.ContinueOnError); err == nil || !strings.Contains(err.Error(), "requires unauthenticated") {
@@ -72,6 +128,27 @@ func TestRecipeQueryPageRowsCanBeConfiguredOrDisabled(t *testing.T) {
 	cfg.Server.RecipeQueryPageRows = -1
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "cannot be negative") {
 		t.Fatalf("negative recipe query page rows error = %v", err)
+	}
+}
+
+func TestArtifactConfigurationHasBoundedDefaultsAndEnvironmentOverride(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Server.ArtifactDirectory == "" || cfg.Server.ArtifactTTL != 24*time.Hour || cfg.Server.ArtifactMaxRows <= 0 || cfg.Server.ArtifactMaxBytes <= 0 {
+		t.Fatalf("artifact defaults = %#v", cfg.Server)
+	}
+	t.Setenv("LOOM_ARTIFACT_DIRECTORY", filepath.Join(t.TempDir(), "exports"))
+	loaded, err := LoadConfig("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Server.ArtifactDirectory != os.Getenv("LOOM_ARTIFACT_DIRECTORY") {
+		t.Fatalf("artifact directory = %q", loaded.Server.ArtifactDirectory)
+	}
+	loaded.Server.ArtifactMaxBytes = 0
+	loaded.Auth.AllowUnauthenticated = true
+	loaded.Server.ClickHouse.Enabled = false
+	if err := loaded.Validate(); err == nil || !strings.Contains(err.Error(), "artifact directory") {
+		t.Fatalf("invalid artifact bound error = %v", err)
 	}
 }
 
@@ -172,5 +249,16 @@ func TestInvalidRequiredDataframeSelectorsEnvironmentIsRejected(t *testing.T) {
 	t.Setenv("LOOM_REQUIRED_DATAFRAME_SELECTORS", `{not-json}`)
 	if _, err := LoadConfig(""); err == nil || !strings.Contains(err.Error(), "LOOM_REQUIRED_DATAFRAME_SELECTORS") {
 		t.Fatalf("invalid selector environment = %v", err)
+	}
+}
+
+func TestPopulationMappingCursorSecretFromEnvironment(t *testing.T) {
+	t.Setenv("LOOM_POPULATION_MAPPING_CURSOR_SECRET", "configured-population-cursor-secret")
+	cfg, err := LoadConfig("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Server.PopulationMappingCursorSecret != "configured-population-cursor-secret" {
+		t.Fatalf("population mapping cursor secret = %q", cfg.Server.PopulationMappingCursorSecret)
 	}
 }

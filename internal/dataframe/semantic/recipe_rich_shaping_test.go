@@ -6,7 +6,40 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/dataframe/unit"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
+
+func TestLowerRecipeOwnerRecordsPreservesCheckedBindingAndSelectedKey(t *testing.T) {
+	binding := fhirschema.CorrelatedBinding{
+		OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
+		SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value",
+		ChoiceArms: []string{"valueQuantity"}, LogicalType: "decimal", UnitPath: "valueQuantity.unit",
+	}
+	items, err := lowerRecipeOwnerRecords("Observation", []recipe.OwnerRecordProjection{{
+		Name: "systolic_records", FieldRef: "Observation.component", Binding: binding,
+		Key: fhirschema.CorrelatedKey{System: "http://loinc.org", Code: "8480-6"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Binding.OwnerPath != "component[]" || items[0].Binding.UnitPath != "valueQuantity.unit" ||
+		items[0].Key.System != "http://loinc.org" || items[0].Key.Code != "8480-6" {
+		t.Fatalf("owner-record semantic operation = %#v", items)
+	}
+	binding.ChoiceArms[0] = "valueString"
+	if items[0].Binding.ChoiceArms[0] != "valueQuantity" {
+		t.Fatal("semantic owner-record binding aliases recipe-owned choice arms")
+	}
+
+	invalid := items[0].Binding
+	invalid.KeyPath = "code.coding[]"
+	if _, err := lowerRecipeOwnerRecords("Observation", []recipe.OwnerRecordProjection{{
+		Name: "invalid", Binding: invalid, Key: items[0].Key,
+	}}); err == nil || !strings.Contains(err.Error(), "outside owner") {
+		t.Fatalf("cross-owner binding error = %v", err)
+	}
+}
 
 func TestLowerRecipePivotsUsesGeneratedFamilyAndDeclaredColumns(t *testing.T) {
 	scope := newRootScope("Condition")
@@ -72,18 +105,22 @@ func TestLowerRecipeAggregatesMapsSelectorWhereAndOperation(t *testing.T) {
 	if len(aggregates) != 1 || aggregates[0].Selector == nil || aggregates[0].Predicate == nil {
 		t.Fatalf("aggregate selectors missing: %#v", aggregates)
 	}
-	if aggregates[0].Operation != string(recipe.AggregateCountDistinct) || aggregates[0].PredicateEquals != want {
+	predicate := aggregates[0].Predicate
+	if aggregates[0].Operation != string(recipe.AggregateCountDistinct) || predicate.FieldRef != "Patient.gender" || predicate.Selector != "gender" || predicate.FieldKind != spec.FilterString || predicate.Operator != spec.FilterEquals || predicate.Repeated || len(predicate.Values) != 1 || predicate.Values[0].String == nil || *predicate.Values[0].String != want {
 		t.Fatalf("aggregate = %#v", aggregates[0])
 	}
 }
 
-func TestLowerRecipeAggregatesRejectsUnrepresentableWhereAndCountExpr(t *testing.T) {
+func TestLowerRecipeAggregatesCountsExtractedValuesAndRejectsUnrepresentableWhere(t *testing.T) {
 	scope := newRootScope("Patient")
-	_, err := lowerRecipeAggregates("Patient", "root", scope, []recipe.Aggregate{{
+	aggregates, err := lowerRecipeAggregates("Patient", "root", scope, []recipe.Aggregate{{
 		Name: "count", Operation: recipe.AggregateCount, Expr: recipeExpr("id"),
 	}})
-	if err == nil || !strings.Contains(err.Error(), "not accepted") {
-		t.Fatalf("expected count expression rejection, got %v", err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aggregates) != 1 || aggregates[0].Selector == nil || aggregates[0].Selector.CanonicalPath() != "id" || aggregates[0].ValueKind != "integer" {
+		t.Fatalf("value count aggregate = %#v", aggregates)
 	}
 	_, err = lowerRecipeAggregates("Patient", "root", scope, []recipe.Aggregate{{
 		Name: "count", Operation: recipe.AggregateCount, Where: &recipe.Filter{
@@ -110,6 +147,28 @@ func TestLowerRecipeAggregatesPreservesOutputNameAndRequiredValues(t *testing.T)
 	}
 }
 
+func TestLowerRecipeNumericAggregatesDeclareNullableDecimalAndRejectText(t *testing.T) {
+	for _, operation := range []recipe.AggregateOperation{recipe.AggregateSum, recipe.AggregateMean} {
+		aggregates, err := lowerRecipeAggregates("Observation", "root", newRootScope("Observation"), []recipe.Aggregate{{
+			Name: string(operation), Operation: operation, Expr: recipeExpr("valueQuantity.value"),
+		}})
+		if err != nil {
+			t.Fatalf("%s numeric lowering: %v", operation, err)
+		}
+		if len(aggregates) != 1 || aggregates[0].ValueKind != "decimal" || aggregates[0].Selector == nil {
+			t.Fatalf("%s semantic contract = %#v", operation, aggregates)
+		}
+	}
+	for _, operation := range []recipe.AggregateOperation{recipe.AggregateSum, recipe.AggregateMean} {
+		_, err := lowerRecipeAggregates("Patient", "root", newRootScope("Patient"), []recipe.Aggregate{{
+			Name: string(operation), Operation: operation, Expr: recipeExpr("gender"),
+		}})
+		if err == nil || !strings.Contains(err.Error(), "integer or decimal") {
+			t.Fatalf("%s text input error = %v", operation, err)
+		}
+	}
+}
+
 func TestLowerRecipeAggregatesPreservesCodePredicateKind(t *testing.T) {
 	code := "Tumor"
 	scope := newRootScope("Specimen")
@@ -120,8 +179,103 @@ func TestLowerRecipeAggregatesPreservesCodePredicateKind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(aggregates) != 1 || aggregates[0].PredicateKind != spec.FilterCode || aggregates[0].PredicateEquals != code {
+	if len(aggregates) != 1 || aggregates[0].Predicate.FieldKind != spec.FilterCode || aggregates[0].Predicate.Values[0].Code == nil || aggregates[0].Predicate.Values[0].Code.Code != code {
 		t.Fatalf("aggregate = %#v", aggregates)
+	}
+}
+
+func TestLowerRecipeAggregatesSeparatesContributorWindowAndOrdering(t *testing.T) {
+	scope, err := newRootScope("Patient").child("observation", scopeBinding{ResourceType: "Observation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	aggregates, err := lowerRecipeAggregates("Observation", "observation", scope, []recipe.Aggregate{{
+		Name: "latest_height", Operation: recipe.AggregateFirstOrdered, Expr: recipeExpr("observation.valueQuantity.value"),
+		ContributorWindow: &recipe.ContributorWindow{
+			Timestamp: recipe.Expression{Select: "observation.effectiveDateTime"}, Anchor: recipe.Expression{Select: "root.meta.lastUpdated"},
+			LowerOffset: -86400, UpperOffset: 0, LowerInclusive: true, UpperInclusive: true,
+			Precision: recipe.TemporalPrecisionInstant,
+		},
+		Ordering: &recipe.TemporalOrdering{Timestamp: recipe.Expression{Select: "observation.effectiveDateTime"}, Direction: recipe.TemporalDescending, TiePolicy: recipe.TemporalTieRequireUnique},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aggregates) != 1 || aggregates[0].ContributorWindow == nil || aggregates[0].ContributorWindow.Timestamp.CanonicalPath() != "effectiveDateTime" || aggregates[0].ContributorWindow.Anchor.CanonicalPath() != "meta.lastUpdated" || aggregates[0].ContributorWindow.AnchorResource != "Patient" || aggregates[0].Ordering == nil || aggregates[0].Ordering.Timestamp.CanonicalPath() != "effectiveDateTime" || aggregates[0].Ordering.Direction != string(recipe.TemporalDescending) {
+		t.Fatalf("ordered contributor-window aggregate = %#v", aggregates)
+	}
+}
+
+func TestLowerRecipeAggregatesAllowsPathlessWindowedCount(t *testing.T) {
+	scope, err := newRootScope("Patient").child("observation", scopeBinding{ResourceType: "Observation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	aggregates, err := lowerRecipeAggregates("Observation", "observation", scope, []recipe.Aggregate{{
+		Name: "recent_observations", Operation: recipe.AggregateCount,
+		ContributorWindow: &recipe.ContributorWindow{
+			Timestamp: recipe.Expression{Select: "observation.effectiveDateTime"}, Anchor: recipe.Expression{Select: "root.meta.lastUpdated"},
+			LowerOffset: -172800, UpperOffset: 0, LowerInclusive: true, UpperInclusive: false, Precision: recipe.TemporalPrecisionInstant,
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aggregates) != 1 || aggregates[0].Selector != nil || aggregates[0].ContributorWindow == nil || aggregates[0].Ordering != nil {
+		t.Fatalf("pathless windowed count = %#v", aggregates)
+	}
+}
+
+func TestLowerRecipeAggregatesResolvesQuantityNormalizationBeforeReduction(t *testing.T) {
+	scope, err := newRootScope("Patient").child("observation", scopeBinding{ResourceType: "Observation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	aggregates, err := lowerRecipeAggregates("Observation", "observation", scope, []recipe.Aggregate{{
+		Name: "height_cm", Operation: recipe.AggregateMax, Expr: recipeExpr("observation.valueQuantity.value"),
+		UnitNormalization: &recipe.UnitNormalizationPolicy{
+			SystemPath: "valueQuantity.system", CodePath: "valueQuantity.code",
+			Target: unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "cm"},
+			Rules:  []unit.UnitRuleReference{{ID: "ucum:m-to-cm", Version: "1"}, {ID: "identity-v1", Version: "1"}},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aggregates) != 1 || aggregates[0].UnitNormalization == nil || aggregates[0].UnitNormalization.Dimension != (unit.UnitDimension{Length: 1}) || len(aggregates[0].UnitNormalization.Rules) != 2 {
+		t.Fatalf("resolved normalization = %#v", aggregates)
+	}
+	if aggregates[0].UnitSystemSelector == nil || aggregates[0].UnitCodeSelector == nil {
+		t.Fatalf("unit identity selectors missing: %#v", aggregates[0])
+	}
+	_, err = lowerRecipeAggregates("Patient", "root", newRootScope("Patient"), []recipe.Aggregate{{
+		Name: "bad", Operation: recipe.AggregateMax, Expr: recipeExpr("gender"),
+		UnitNormalization: &recipe.UnitNormalizationPolicy{
+			SystemPath: "gender", CodePath: "gender", Target: unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "cm"}, Rules: []unit.UnitRuleReference{{ID: "identity-v1", Version: "1"}},
+		},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "integer or decimal") {
+		t.Fatalf("non-numeric normalization error = %v", err)
+	}
+	for _, tc := range []struct {
+		name, valuePath, systemPath, codePath, want string
+	}{
+		{name: "unpaired siblings", valuePath: "observation.valueQuantity.value", systemPath: "status", codePath: "valueQuantity.code", want: "must be siblings"},
+		{name: "repeated quantity", valuePath: "observation.component[].valueQuantity.value", systemPath: "component[].valueQuantity.system", codePath: "component[].valueQuantity.code", want: "does not support repeated Quantity paths"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := lowerRecipeAggregates("Observation", "observation", scope, []recipe.Aggregate{{
+				Name: "bad", Operation: recipe.AggregateMax, Expr: recipeExpr(tc.valuePath),
+				UnitNormalization: &recipe.UnitNormalizationPolicy{
+					SystemPath: tc.systemPath, CodePath: tc.codePath,
+					Target: unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "cm"},
+					Rules:  []unit.UnitRuleReference{{ID: "identity-v1", Version: "1"}},
+				},
+			}})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("normalization error = %v, want %q", err, tc.want)
+			}
+		})
 	}
 }
 

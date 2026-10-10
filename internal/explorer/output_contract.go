@@ -6,9 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/unit"
+	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 // PublicOutputContracts is the current, transport-neutral public output
@@ -20,16 +23,39 @@ type PublicOutputContracts struct {
 
 // PublicOutputContract describes one compiled workspace output.
 type PublicOutputContract struct {
-	OutputID string               `json:"outputId"`
-	Columns  []PublicOutputColumn `json:"columns"`
+	OutputID              string               `json:"outputId"`
+	RootResourceType      string               `json:"rootResourceType,omitempty"`
+	RowGrain              string               `json:"rowGrain,omitempty"`
+	RowMultiplication     string               `json:"rowMultiplication,omitempty"`
+	Lossless              bool                 `json:"lossless"`
+	MLReady               bool                 `json:"mlReady"`
+	StructuralSuitability string               `json:"structuralSuitability,omitempty"`
+	LossReasons           []string             `json:"lossReasons,omitempty"`
+	Columns               []PublicOutputColumn `json:"columns"`
 }
 
 type PublicOutputColumn struct {
-	Column      string `json:"column"`
-	Label       string `json:"label"`
-	LogicalType string `json:"logicalType"`
-	Filterable  bool   `json:"filterable"`
-	Chartable   bool   `json:"chartable"`
+	Column                string                          `json:"column"`
+	AuthoredColumns       []string                        `json:"authoredColumns,omitempty"`
+	InputColumns          []string                        `json:"inputColumns,omitempty"`
+	ConstructionID        string                          `json:"constructionId,omitempty"`
+	Label                 string                          `json:"label"`
+	LogicalType           string                          `json:"logicalType"`
+	Cardinality           string                          `json:"cardinality,omitempty"`
+	Nullable              bool                            `json:"nullable"`
+	ResultUnit            *unit.UnitIdentity              `json:"resultUnit,omitempty"`
+	Shape                 string                          `json:"shape,omitempty"`
+	SourceResourceType    string                          `json:"sourceResourceType,omitempty"`
+	SourcePath            string                          `json:"sourcePath,omitempty"`
+	ChoiceArm             string                          `json:"choiceArm,omitempty"`
+	Coordinates           []capability.RepeatedCoordinate `json:"coordinates,omitempty"`
+	Lossless              bool                            `json:"lossless"`
+	MLReady               bool                            `json:"mlReady"`
+	StructuralSuitability string                          `json:"structuralSuitability,omitempty"`
+	LossReasons           []string                        `json:"lossReasons,omitempty"`
+	Filterable            bool                            `json:"filterable"`
+	Chartable             bool                            `json:"chartable"`
+	UnitNormalization     *PublicUnitNormalization        `json:"unitNormalization,omitempty"`
 
 	// Compiler identities remain available to internal legacy tests only. They
 	// are deliberately absent from the V2 public contract.
@@ -38,6 +64,16 @@ type PublicOutputColumn struct {
 	CandidateID    string `json:"-"`
 	OccurrenceID   string `json:"-"`
 	ProjectionMode string `json:"-"`
+}
+
+type PublicUnitRuleIdentity struct {
+	ID      string `json:"id"`
+	Version string `json:"version"`
+}
+
+type PublicUnitNormalization struct {
+	Target unit.UnitIdentity        `json:"target"`
+	Rules  []PublicUnitRuleIdentity `json:"rules"`
 }
 
 // DecodePublicOutputContracts strictly decodes the current contract shape.
@@ -158,20 +194,33 @@ func (c PublicOutputContract) ValidateAgainst(bundle recipe.Bundle, emitted []Em
 	if strings.TrimSpace(c.OutputID) == "" {
 		return invalidOutputContract("outputId is required")
 	}
-	outputFound := false
+	var compiledOutput *recipe.Output
 	for _, output := range bundle.Outputs {
 		if output.Name == c.OutputID {
-			outputFound = true
+			value := output
+			compiledOutput = &value
 			break
 		}
 	}
-	if !outputFound {
+	if compiledOutput == nil {
 		return invalidOutputContract("outputId %q is absent from the compiled recipe", c.OutputID)
+	}
+	if c.RootResourceType != "" && c.RootResourceType != compiledOutput.RootResourceType {
+		return invalidOutputContract("rootResourceType %q does not match compiled recipe %q", c.RootResourceType, compiledOutput.RootResourceType)
+	}
+	if c.RowGrain != "" && c.RowGrain != compiledOutput.RowGrain {
+		return invalidOutputContract("rowGrain %q does not match compiled recipe %q", c.RowGrain, compiledOutput.RowGrain)
+	}
+	if c.RowMultiplication != "" && c.RowMultiplication != "none" && c.RowMultiplication != "expand" {
+		return invalidOutputContract("unsupported rowMultiplication %q", c.RowMultiplication)
 	}
 	if len(c.Columns) != len(emitted) {
 		return invalidOutputContract("column count %d does not match emitted column count %d", len(c.Columns), len(emitted))
 	}
 	seenPublic := make(map[string]struct{}, len(emitted))
+	expectedLossless, expectedMLReady := true, true
+	expectedSuitability := ""
+	var expectedLossReasons []string
 	for i, column := range emitted {
 		if strings.TrimSpace(column.OutputID) != c.OutputID {
 			return invalidOutputContract("emittedColumns[%d] belongs to output %q, want %q", i, column.OutputID, c.OutputID)
@@ -183,12 +232,38 @@ func (c PublicOutputContract) ValidateAgainst(bundle recipe.Bundle, emitted []Em
 			return invalidOutputContract("duplicate publicColumn %q", column.PublicColumn)
 		}
 		seenPublic[column.PublicColumn] = struct{}{}
+		expectedLossless = expectedLossless && column.Lossless
+		expectedMLReady = expectedMLReady && column.MLReady
+		if column.StructuralSuitability == "requires-review" {
+			expectedSuitability = "requires-review"
+		} else if expectedSuitability == "" && column.StructuralSuitability != "" {
+			expectedSuitability = column.StructuralSuitability
+		} else if expectedSuitability == "scalar" && column.StructuralSuitability == "array" {
+			expectedSuitability = "array"
+		}
+		for _, reason := range column.LossReasons {
+			if !containsString(expectedLossReasons, reason) {
+				expectedLossReasons = append(expectedLossReasons, reason)
+			}
+		}
 		actual := c.Columns[i]
-		if actual.Column != column.PublicColumn || actual.Label != column.Label || actual.LogicalType != column.LogicalType || actual.Filterable != column.Filterable || actual.Chartable != column.Chartable {
+		if actual.Column != column.PublicColumn || !reflect.DeepEqual(actual.AuthoredColumns, column.AuthoredColumns) || !reflect.DeepEqual(actual.InputColumns, column.InputColumns) || actual.ConstructionID != column.ConstructionID || actual.Label != column.Label || actual.LogicalType != column.LogicalType || actual.Cardinality != column.Cardinality || actual.Nullable != column.Nullable || !reflect.DeepEqual(actual.ResultUnit, column.ResultUnit) || actual.Shape != column.Shape || actual.SourceResourceType != column.SourceResourceType || actual.SourcePath != column.SourcePath || actual.ChoiceArm != column.ChoiceArm || !reflect.DeepEqual(actual.Coordinates, column.Coordinates) || actual.Lossless != column.Lossless || actual.MLReady != column.MLReady || actual.StructuralSuitability != column.StructuralSuitability || !reflect.DeepEqual(actual.LossReasons, column.LossReasons) || actual.Filterable != column.Filterable || actual.Chartable != column.Chartable || !reflect.DeepEqual(actual.UnitNormalization, column.UnitNormalization) {
 			return invalidOutputContract("columns[%d] does not match emittedColumns[%d]", i, i)
 		}
 	}
+	if c.Lossless != expectedLossless || c.MLReady != expectedMLReady || c.StructuralSuitability != expectedSuitability || !reflect.DeepEqual(c.LossReasons, expectedLossReasons) {
+		return invalidOutputContract("aggregate metadata does not match emitted columns: got lossless=%t mlReady=%t structuralSuitability=%q lossReasons=%#v, want lossless=%t mlReady=%t structuralSuitability=%q lossReasons=%#v", c.Lossless, c.MLReady, c.StructuralSuitability, c.LossReasons, expectedLossless, expectedMLReady, expectedSuitability, expectedLossReasons)
+	}
 	return nil
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func invalidOutputContract(format string, args ...any) error {

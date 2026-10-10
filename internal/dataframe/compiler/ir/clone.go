@@ -1,6 +1,9 @@
 package ir
 
-import "github.com/calypr/loom/internal/dataframe/spec"
+import (
+	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/dataframe/unit"
+)
 
 func cloneStrings(in []string) []string {
 	if in == nil {
@@ -34,11 +37,145 @@ func clonePhysicalPlan(plan PhysicalPlan) PhysicalPlan {
 	copy := plan
 	copy.BindVars = clonePhysicalBindVars(plan.BindVars)
 	copy.OptimizationPolicy = clonePhysicalOptimizationReport(plan.OptimizationPolicy)
+	copy.ClickHouseCombine = clonePhysicalClickHouseCombine(plan.ClickHouseCombine)
+	copy.ClickHousePrefix = clonePhysicalClickHousePrefix(plan.ClickHousePrefix)
+	copy.StageSequence = clonePhysicalStageSequence(plan.StageSequence)
 	copy.Operations = make([]PhysicalOperation, len(plan.Operations))
 	for index, operation := range plan.Operations {
 		copy.Operations[index] = clonePhysicalOperation(operation)
 	}
 	return copy
+}
+
+func clonePhysicalClickHouseCombine(combine *PhysicalClickHouseCombine) *PhysicalClickHouseCombine {
+	if combine == nil {
+		return nil
+	}
+	copy := *combine
+	copy.Inputs = append([]PhysicalCombineInputRef(nil), combine.Inputs...)
+	copy.Keys = append([]PhysicalCombineKey(nil), combine.Keys...)
+	copy.Projections = append([]PhysicalCombineProjection(nil), combine.Projections...)
+	copy.Outputs = append([]PhysicalCombineOutputColumn(nil), combine.Outputs...)
+	return &copy
+}
+
+func clonePhysicalClickHousePrefix(prefix *PhysicalClickHousePrefix) *PhysicalClickHousePrefix {
+	if prefix == nil {
+		return nil
+	}
+	copy := *prefix
+	copy.AuthResourcePaths = cloneStrings(prefix.AuthResourcePaths)
+	return &copy
+}
+
+func clonePhysicalStageSequence(sequence *PhysicalStageSequence) *PhysicalStageSequence {
+	if sequence == nil {
+		return nil
+	}
+	copy := *sequence
+	copy.SourceColumns = clonePhysicalStageColumns(sequence.SourceColumns)
+	copy.FinalColumns = clonePhysicalStageColumns(sequence.FinalColumns)
+	if sequence.CellTraceReturn != nil {
+		copy.CellTraceReturn = clonePhysicalOperation(PhysicalOperation{
+			Kind: PhysicalCellTraceReturnOp, CellTraceReturn: sequence.CellTraceReturn,
+		}).CellTraceReturn
+	}
+	if sequence.RowLineageReturn != nil {
+		rowLineage := *sequence.RowLineageReturn
+		if sequence.RowLineageReturn.Trace != nil {
+			trace := *sequence.RowLineageReturn.Trace
+			trace.Stages = append([]PhysicalRowLineageStageMatch(nil), sequence.RowLineageReturn.Trace.Stages...)
+			for index := range trace.Stages {
+				trace.Stages[index].IdentityKeyBindKeys = append([]string(nil), trace.Stages[index].IdentityKeyBindKeys...)
+			}
+			rowLineage.Trace = &trace
+		}
+		copy.RowLineageReturn = &rowLineage
+	}
+	if sequence.PopulationMappingReturn != nil {
+		mappingReturn := *sequence.PopulationMappingReturn
+		copy.PopulationMappingReturn = &mappingReturn
+	}
+	copy.Stages = make([]PhysicalConstructionStage, len(sequence.Stages))
+	for index, stage := range sequence.Stages {
+		cloned := stage
+		cloned.InputColumns = clonePhysicalStageColumns(stage.InputColumns)
+		cloned.OutputColumns = clonePhysicalStageColumns(stage.OutputColumns)
+		cloned.InputProjections = clonePhysicalOperation(PhysicalOperation{Kind: PhysicalReturnOp, Return: &PhysicalReturn{Projections: stage.InputProjections}}).Return.Projections
+		cloned.OutputProjections = clonePhysicalOperation(PhysicalOperation{Kind: PhysicalReturnOp, Return: &PhysicalReturn{Projections: stage.OutputProjections}}).Return.Projections
+		cloned.DerivedLets = clonePhysicalOperations(stage.DerivedLets)
+		if stage.Group != nil {
+			groupCopy := *stage.Group
+			groupCopy.Keys = append([]PhysicalStageGroupKey(nil), stage.Group.Keys...)
+			groupCopy.Aggregates = append([]PhysicalStageGroupAggregate(nil), stage.Group.Aggregates...)
+			groupCopy.RowValues = append([]PhysicalStageRowValue(nil), stage.Group.RowValues...)
+			cloned.Group = &groupCopy
+		}
+		if stage.CodedGroup != nil {
+			codedGroupCopy := *stage.CodedGroup
+			codedGroupCopy.PathSegments = append([]PhysicalCodedGroupPathSegment(nil), stage.CodedGroup.PathSegments...)
+			codedGroupCopy.RowValues = append([]PhysicalStageRowValue(nil), stage.CodedGroup.RowValues...)
+			codedGroupCopy.RowValueProjections = clonePhysicalProjections(stage.CodedGroup.RowValueProjections)
+			cloned.CodedGroup = &codedGroupCopy
+		}
+		if stage.CohortGroup != nil {
+			cohortCopy := *stage.CohortGroup
+			cohortCopy.Rows.MemberValues = append([]PhysicalGroupMemberValue(nil), stage.CohortGroup.Rows.MemberValues...)
+			for valueIndex := range cohortCopy.Rows.MemberValues {
+				cohortCopy.Rows.MemberValues[valueIndex].Expression = clonePhysicalExpression(stage.CohortGroup.Rows.MemberValues[valueIndex].Expression)
+			}
+			cloned.CohortGroup = &cohortCopy
+		}
+		if stage.Expand != nil {
+			expandCopy := *stage.Expand
+			cloned.Expand = &expandCopy
+		}
+		if stage.Filter != nil {
+			cloned.Filter = clonePhysicalOperation(PhysicalOperation{Kind: PhysicalFilterOp, Filter: stage.Filter}).Filter
+		}
+		if stage.RelatedSource != nil {
+			relatedSourceCopy := *stage.RelatedSource
+			cloned.RelatedSource = &relatedSourceCopy
+		}
+		if stage.RelatedExpand != nil {
+			relatedExpandCopy := *stage.RelatedExpand
+			relatedExpandCopy.RelatedRecords = clonePhysicalSubplan(stage.RelatedExpand.RelatedRecords)
+			relatedExpandCopy.Route = append([]PhysicalStageRelatedRouteStep(nil), stage.RelatedExpand.Route...)
+			cloned.RelatedExpand = &relatedExpandCopy
+		}
+		if stage.RelatedField != nil {
+			relatedFieldCopy := *stage.RelatedField
+			relatedFieldCopy.Path = cloneStrings(stage.RelatedField.Path)
+			cloned.RelatedField = &relatedFieldCopy
+		}
+		if stage.GroupedPivot != nil {
+			cloned.GroupedPivot = clonePhysicalOperation(PhysicalOperation{Kind: PhysicalGroupedPivotOp, GroupedPivot: stage.GroupedPivot}).GroupedPivot
+		}
+		if stage.Unpivot != nil {
+			cloned.Unpivot = clonePhysicalOperation(PhysicalOperation{Kind: PhysicalUnpivotOp, Unpivot: stage.Unpivot}).Unpivot
+		}
+		copy.Stages[index] = cloned
+	}
+	return &copy
+}
+
+func clonePhysicalStageColumns(columns []PhysicalStageColumn) []PhysicalStageColumn {
+	if columns == nil {
+		return nil
+	}
+	cloned := append([]PhysicalStageColumn(nil), columns...)
+	for index := range cloned {
+		cloned[index].NormalizedUnit = cloneUnitIdentity(cloned[index].NormalizedUnit)
+	}
+	return cloned
+}
+
+func cloneUnitIdentity(identity *unit.UnitIdentity) *unit.UnitIdentity {
+	if identity == nil {
+		return nil
+	}
+	cloned := *identity
+	return &cloned
 }
 
 func ClonePhysicalPlan(plan PhysicalPlan) PhysicalPlan { return clonePhysicalPlan(plan) }
@@ -70,6 +207,7 @@ func CanonicalExecutionPhysicalPlan(plan PhysicalPlan) PhysicalPlan {
 	out.OptimizationPolicy = PhysicalOptimizationReport{}
 	out.RequiredMatchReuseCount = 0
 	canonicalizePhysicalOperations(out.Operations)
+	canonicalizePhysicalStageSequence(out.StageSequence)
 	return out
 }
 
@@ -77,6 +215,16 @@ func canonicalizePhysicalOperations(operations []PhysicalOperation) {
 	for index := range operations {
 		operation := &operations[index]
 		operation.Source = PhysicalSource{}
+		if operation.RootScan != nil && operation.RootScan.Population != nil {
+			for filter := range operation.RootScan.Population.MemberFilters {
+				canonicalizePhysicalPredicateExpression(operation.RootScan.Population.MemberFilters[filter].Expression)
+			}
+			canonicalizePhysicalOperations(operation.RootScan.Population.ResourceOperations)
+		}
+		if operation.RootScan != nil && operation.RootScan.PageCandidateSeed != nil {
+			seed := operation.RootScan.PageCandidateSeed
+			canonicalizePhysicalSubplan(&seed.Subplan)
+		}
 		if operation.Set != nil {
 			canonicalizePhysicalSubplan(&operation.Set.Subplan)
 		}
@@ -88,14 +236,90 @@ func canonicalizePhysicalOperations(operations []PhysicalOperation) {
 		}
 		if operation.Unnest != nil {
 			canonicalizePhysicalExpression(&operation.Unnest.Expression)
+			for routeIndex := range operation.Unnest.Owner.Route {
+				canonicalizePhysicalOperations(operation.Unnest.Owner.Route[routeIndex].Scope)
+			}
 		}
 		if operation.Return != nil {
 			for projection := range operation.Return.Projections {
 				canonicalizePhysicalExpression(operation.Return.Projections[projection].Expression)
 			}
 		}
+		if operation.GroupedPivot != nil {
+			for projection := range operation.GroupedPivot.InputProjections {
+				canonicalizePhysicalExpression(operation.GroupedPivot.InputProjections[projection].Expression)
+			}
+		}
+		if operation.TableShapeExclusionReturn != nil {
+			for projection := range operation.TableShapeExclusionReturn.Pivot.InputProjections {
+				canonicalizePhysicalExpression(operation.TableShapeExclusionReturn.Pivot.InputProjections[projection].Expression)
+			}
+		}
+		if operation.Unpivot != nil {
+			for projection := range operation.Unpivot.InputProjections {
+				canonicalizePhysicalExpression(operation.Unpivot.InputProjections[projection].Expression)
+			}
+		}
+		if operation.PopulationMappingReturn != nil {
+			canonicalizePhysicalExpression(&operation.PopulationMappingReturn.Members)
+			for part := range operation.PopulationMappingReturn.IdentityParts {
+				canonicalizePhysicalExpression(&operation.PopulationMappingReturn.IdentityParts[part].Expression)
+			}
+			if operation.PopulationMappingReturn.ExplicitIdentity != nil {
+				canonicalizePhysicalExpression(operation.PopulationMappingReturn.ExplicitIdentity)
+			}
+		}
+		if operation.CellTraceReturn != nil {
+			canonicalizePhysicalExpression(&operation.CellTraceReturn.Value)
+			for part := range operation.CellTraceReturn.IdentityParts {
+				canonicalizePhysicalExpression(&operation.CellTraceReturn.IdentityParts[part].Expression)
+			}
+			canonicalizePhysicalExpression(operation.CellTraceReturn.ExplicitIdentity)
+		}
 		if operation.PathExtend != nil {
 			canonicalizePhysicalOperations(operation.PathExtend.Scope)
+		}
+	}
+}
+
+func canonicalizePhysicalStageSequence(sequence *PhysicalStageSequence) {
+	if sequence == nil {
+		return
+	}
+	for index := range sequence.Stages {
+		stage := &sequence.Stages[index]
+		canonicalizePhysicalOperations(stage.DerivedLets)
+		if stage.Filter != nil && stage.Filter.Expression != nil {
+			canonicalizePhysicalPredicateExpression(stage.Filter.Expression)
+		}
+		for projection := range stage.InputProjections {
+			canonicalizePhysicalExpression(stage.InputProjections[projection].Expression)
+		}
+		for projection := range stage.OutputProjections {
+			canonicalizePhysicalExpression(stage.OutputProjections[projection].Expression)
+		}
+		if stage.GroupedPivot != nil {
+			for projection := range stage.GroupedPivot.InputProjections {
+				canonicalizePhysicalExpression(stage.GroupedPivot.InputProjections[projection].Expression)
+			}
+		}
+		if stage.CodedGroup != nil {
+			for projection := range stage.CodedGroup.RowValueProjections {
+				canonicalizePhysicalExpression(stage.CodedGroup.RowValueProjections[projection].Expression)
+			}
+		}
+		if stage.CohortGroup != nil {
+			for valueIndex := range stage.CohortGroup.Rows.MemberValues {
+				canonicalizePhysicalExpression(&stage.CohortGroup.Rows.MemberValues[valueIndex].Expression)
+			}
+		}
+		if stage.Unpivot != nil {
+			for projection := range stage.Unpivot.InputProjections {
+				canonicalizePhysicalExpression(stage.Unpivot.InputProjections[projection].Expression)
+			}
+		}
+		if stage.RelatedExpand != nil {
+			canonicalizePhysicalSubplan(&stage.RelatedExpand.RelatedRecords)
 		}
 	}
 }
@@ -127,6 +351,13 @@ func canonicalizePhysicalExpression(expression *PhysicalExpression) {
 	}
 	if expression.Aggregate != nil {
 		canonicalizePhysicalExpression(expression.Aggregate.Value)
+		if expression.Aggregate.ContributorWindow != nil {
+			canonicalizePhysicalExpression(&expression.Aggregate.ContributorWindow.Timestamp)
+			canonicalizePhysicalExpression(&expression.Aggregate.ContributorWindow.Anchor)
+		}
+		if expression.Aggregate.Ordering != nil {
+			canonicalizePhysicalExpression(&expression.Aggregate.Ordering.Timestamp)
+		}
 		canonicalizePhysicalPredicateExpression(expression.Aggregate.Predicate)
 	}
 	if expression.Slice != nil {
@@ -158,6 +389,9 @@ func canonicalizePhysicalExpression(expression *PhysicalExpression) {
 			canonicalizePhysicalExpression(&expression.Call.Args[index])
 		}
 	}
+	if expression.Subplan != nil {
+		canonicalizePhysicalSubplan(expression.Subplan)
+	}
 }
 
 func clonePhysicalBindVars(bindVars map[string]any) map[string]any {
@@ -175,10 +409,36 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 	copy := operation
 	if operation.RootScan != nil {
 		rootScanCopy := *operation.RootScan
+		if operation.RootScan.PageCandidateSeed != nil {
+			seedCopy := *operation.RootScan.PageCandidateSeed
+			seedCopy.Subplan = clonePhysicalSubplan(operation.RootScan.PageCandidateSeed.Subplan)
+			rootScanCopy.PageCandidateSeed = &seedCopy
+		}
+		if operation.RootScan.Population != nil {
+			populationCopy := *operation.RootScan.Population
+			populationCopy.MemberFilters = make([]PhysicalFilter, len(operation.RootScan.Population.MemberFilters))
+			for index, filter := range operation.RootScan.Population.MemberFilters {
+				populationCopy.MemberFilters[index] = filter
+				populationCopy.MemberFilters[index].Predicate = clonePhysicalPredicate(filter.Predicate)
+				if filter.Expression != nil {
+					expression := clonePhysicalPredicateExpression(*filter.Expression)
+					populationCopy.MemberFilters[index].Expression = &expression
+				}
+			}
+			populationCopy.ResourceOperations = clonePhysicalOperations(operation.RootScan.Population.ResourceOperations)
+			populationCopy.RootKey = clonePhysicalValue(operation.RootScan.Population.RootKey)
+			populationCopy.MemberID = clonePhysicalValue(operation.RootScan.Population.MemberID)
+			rootScanCopy.Population = &populationCopy
+		}
+		if operation.RootScan.CohortSource != nil {
+			cohortSourceCopy := *operation.RootScan.CohortSource
+			rootScanCopy.CohortSource = &cohortSourceCopy
+		}
 		copy.RootScan = &rootScanCopy
 	}
 	if operation.Traversal != nil {
 		traversalCopy := *operation.Traversal
+		traversalCopy.EndpointIndexFields = cloneStrings(operation.Traversal.EndpointIndexFields)
 		copy.Traversal = &traversalCopy
 	}
 	if operation.Filter != nil {
@@ -218,6 +478,13 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 	if operation.Unnest != nil {
 		unnestCopy := *operation.Unnest
 		unnestCopy.Expression = clonePhysicalExpression(operation.Unnest.Expression)
+		unnestCopy.Ancestors = append([]PhysicalUnnestAncestor(nil), operation.Unnest.Ancestors...)
+		unnestCopy.Owner.Route = append([]PhysicalUnnestRouteStep(nil), operation.Unnest.Owner.Route...)
+		for routeIndex := range unnestCopy.Owner.Route {
+			step := &unnestCopy.Owner.Route[routeIndex]
+			step.Traversal.EndpointIndexFields = cloneStrings(step.Traversal.EndpointIndexFields)
+			step.Scope = clonePhysicalOperations(operation.Unnest.Owner.Route[routeIndex].Scope)
+		}
 		copy.Unnest = &unnestCopy
 	}
 	if operation.DerivedLet != nil {
@@ -235,7 +502,10 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 	}
 	if operation.Sort != nil {
 		sortCopy := *operation.Sort
-		sortCopy.Value = clonePhysicalValue(operation.Sort.Value)
+		sortCopy.Keys = make([]PhysicalValue, len(operation.Sort.Keys))
+		for index, key := range operation.Sort.Keys {
+			sortCopy.Keys[index] = clonePhysicalValue(key)
+		}
 		copy.Sort = &sortCopy
 	}
 	if operation.Limit != nil {
@@ -274,7 +544,152 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 		graphCopy.PathSets = cloneStrings(operation.GraphReturn.PathSets)
 		copy.GraphReturn = &graphCopy
 	}
+	if operation.CollectionScan != nil {
+		collectionCopy := *operation.CollectionScan
+		copy.CollectionScan = &collectionCopy
+	}
+	if operation.KeySetLookup != nil {
+		lookupCopy := *operation.KeySetLookup
+		lookupCopy.Keys = clonePhysicalValue(operation.KeySetLookup.Keys)
+		copy.KeySetLookup = &lookupCopy
+	}
+	if operation.PopulationMappingReturn != nil {
+		mappingCopy := *operation.PopulationMappingReturn
+		mappingCopy.Members = clonePhysicalExpression(operation.PopulationMappingReturn.Members)
+		mappingCopy.IdentityParts = make([]PhysicalPopulationMappingIdentityPart, len(operation.PopulationMappingReturn.IdentityParts))
+		for index, part := range operation.PopulationMappingReturn.IdentityParts {
+			mappingCopy.IdentityParts[index] = part
+			mappingCopy.IdentityParts[index].Expression = clonePhysicalExpression(part.Expression)
+		}
+		if operation.PopulationMappingReturn.ExplicitIdentity != nil {
+			explicit := clonePhysicalExpression(*operation.PopulationMappingReturn.ExplicitIdentity)
+			mappingCopy.ExplicitIdentity = &explicit
+		}
+		copy.PopulationMappingReturn = &mappingCopy
+	}
+	if operation.CellTraceReturn != nil {
+		traceCopy := *operation.CellTraceReturn
+		if operation.CellTraceReturn.Contribution != nil {
+			contribution := *operation.CellTraceReturn.Contribution
+			traceCopy.Contribution = &contribution
+		}
+		if operation.CellTraceReturn.Reshape != nil {
+			reshape := *operation.CellTraceReturn.Reshape
+			reshape.Sources = make([]PhysicalCellTraceReshapeSource, len(operation.CellTraceReturn.Reshape.Sources))
+			for index, source := range operation.CellTraceReturn.Reshape.Sources {
+				reshape.Sources[index] = source
+				if source.Category != nil {
+					category := *source.Category
+					reshape.Sources[index].Category = &category
+				}
+			}
+			traceCopy.Reshape = &reshape
+		}
+		if operation.CellTraceReturn.Construction != nil {
+			construction := *operation.CellTraceReturn.Construction
+			construction.RowIdentityFields = append([]string(nil), operation.CellTraceReturn.Construction.RowIdentityFields...)
+			construction.Inputs = append([]PhysicalCellTraceConstructionInput(nil), operation.CellTraceReturn.Construction.Inputs...)
+			if construction.RelatedSource != nil {
+				relatedSource := *construction.RelatedSource
+				relatedSource.Subplan = clonePhysicalSubplan(construction.RelatedSource.Subplan)
+				construction.RelatedSource = &relatedSource
+			}
+			traceCopy.Construction = &construction
+		}
+		traceCopy.Value = clonePhysicalExpression(operation.CellTraceReturn.Value)
+		traceCopy.IdentityParts = make([]PhysicalPopulationMappingIdentityPart, len(operation.CellTraceReturn.IdentityParts))
+		for index, part := range operation.CellTraceReturn.IdentityParts {
+			traceCopy.IdentityParts[index] = part
+			traceCopy.IdentityParts[index].Expression = clonePhysicalExpression(part.Expression)
+		}
+		if operation.CellTraceReturn.ExplicitIdentity != nil {
+			explicit := clonePhysicalExpression(*operation.CellTraceReturn.ExplicitIdentity)
+			traceCopy.ExplicitIdentity = &explicit
+		}
+		copy.CellTraceReturn = &traceCopy
+	}
+	if operation.TableShapeExclusionReturn != nil {
+		exclusionCopy := *operation.TableShapeExclusionReturn
+		pivotCopy := clonePhysicalOperation(PhysicalOperation{GroupedPivot: &operation.TableShapeExclusionReturn.Pivot})
+		exclusionCopy.Pivot = *pivotCopy.GroupedPivot
+		copy.TableShapeExclusionReturn = &exclusionCopy
+	}
+	if operation.GroupRows != nil {
+		groupRowsCopy := *operation.GroupRows
+		groupRowsCopy.MemberValues = append([]PhysicalGroupMemberValue(nil), operation.GroupRows.MemberValues...)
+		for index := range groupRowsCopy.MemberValues {
+			groupRowsCopy.MemberValues[index].Expression = ClonePhysicalExpression(groupRowsCopy.MemberValues[index].Expression)
+		}
+		if operation.GroupRows.CellTrace != nil {
+			traceCopy := *operation.GroupRows.CellTrace
+			groupRowsCopy.CellTrace = &traceCopy
+		}
+		copy.GroupRows = &groupRowsCopy
+	}
+	if operation.GroupedPivot != nil {
+		pivotCopy := *operation.GroupedPivot
+		pivotCopy.InputProjections = clonePhysicalProjections(operation.GroupedPivot.InputProjections)
+		pivotCopy.GroupKeys = append([]PhysicalGroupedPivotKey(nil), operation.GroupedPivot.GroupKeys...)
+		pivotCopy.Categories = append([]PhysicalGroupedPivotCategory(nil), operation.GroupedPivot.Categories...)
+		pivotCopy.CodedCategories = append([]PhysicalGroupedCodedPivotCategory(nil), operation.GroupedPivot.CodedCategories...)
+		pivotCopy.RowValues = append([]PhysicalStageRowValue(nil), operation.GroupedPivot.RowValues...)
+		pivotCopy.CodedCorrelation = clonePhysicalCorrelation(operation.GroupedPivot.CodedCorrelation)
+		if operation.GroupedPivot.CategoryPresence != nil {
+			presence := clonePhysicalProjectionPresence(*operation.GroupedPivot.CategoryPresence)
+			pivotCopy.CategoryPresence = &presence
+		}
+		copy.GroupedPivot = &pivotCopy
+	}
+	if operation.Unpivot != nil {
+		unpivotCopy := *operation.Unpivot
+		unpivotCopy.InputProjections = clonePhysicalProjections(operation.Unpivot.InputProjections)
+		unpivotCopy.Inputs = append([]PhysicalUnpivotInput(nil), operation.Unpivot.Inputs...)
+		unpivotCopy.PreservedOutputs = append([]PhysicalUnpivotOutput(nil), operation.Unpivot.PreservedOutputs...)
+		unpivotCopy.IdentityParts = append([]PhysicalUnpivotIdentityPart(nil), operation.Unpivot.IdentityParts...)
+		for index := range unpivotCopy.IdentityParts {
+			unpivotCopy.IdentityParts[index].Value = clonePhysicalValue(operation.Unpivot.IdentityParts[index].Value)
+		}
+		copy.Unpivot = &unpivotCopy
+	}
 	return copy
+}
+
+func clonePhysicalProjections(projections []PhysicalProjection) []PhysicalProjection {
+	if projections == nil {
+		return nil
+	}
+	out := make([]PhysicalProjection, len(projections))
+	for index, projection := range projections {
+		out[index] = projection
+		out[index].Value = clonePhysicalValue(projection.Value)
+		if projection.Expression != nil {
+			expression := clonePhysicalExpression(*projection.Expression)
+			out[index].Expression = &expression
+		}
+		if projection.Presence != nil {
+			presence := clonePhysicalProjectionPresence(*projection.Presence)
+			out[index].Presence = &presence
+		}
+	}
+	return out
+}
+
+func clonePhysicalProjectionPresence(presence PhysicalProjectionPresence) PhysicalProjectionPresence {
+	return PhysicalProjectionPresence{
+		Source: clonePhysicalValue(presence.Source),
+		Paths:  cloneNestedStrings(presence.Paths),
+	}
+}
+
+func cloneNestedStrings(values [][]string) [][]string {
+	if values == nil {
+		return nil
+	}
+	cloned := make([][]string, len(values))
+	for index, value := range values {
+		cloned[index] = append([]string(nil), value...)
+	}
+	return cloned
 }
 
 func clonePhysicalPredicate(predicate PhysicalPredicate) PhysicalPredicate {
@@ -288,7 +703,44 @@ func clonePhysicalPredicate(predicate PhysicalPredicate) PhysicalPredicate {
 		rightCopy := clonePhysicalValue(*predicate.Right)
 		copy.Right = &rightCopy
 	}
+	copy.Correlation = clonePhysicalCorrelation(predicate.Correlation)
 	return copy
+}
+
+func clonePhysicalCorrelation(correlation *PhysicalCorrelation) *PhysicalCorrelation {
+	if correlation == nil {
+		return nil
+	}
+	copy := *correlation
+	copy.Source = clonePhysicalValue(correlation.Source)
+	copy.OwnerSelector.Steps = append([]spec.SelectorStep(nil), correlation.OwnerSelector.Steps...)
+	copy.KeySelector.Steps = append([]spec.SelectorStep(nil), correlation.KeySelector.Steps...)
+	copy.SystemSelector.Steps = append([]spec.SelectorStep(nil), correlation.SystemSelector.Steps...)
+	copy.CodeSelector.Steps = append([]spec.SelectorStep(nil), correlation.CodeSelector.Steps...)
+	copy.ValueSelector.Steps = append([]spec.SelectorStep(nil), correlation.ValueSelector.Steps...)
+	copy.ValueFallbacks = make([]spec.Selector, len(correlation.ValueFallbacks))
+	for index := range correlation.ValueFallbacks {
+		copy.ValueFallbacks[index] = correlation.ValueFallbacks[index]
+		copy.ValueFallbacks[index].Steps = append([]spec.SelectorStep(nil), correlation.ValueFallbacks[index].Steps...)
+	}
+	copy.ChoiceArms = append([]string(nil), correlation.ChoiceArms...)
+	copy.ChoiceSelectors = make([]spec.Selector, len(correlation.ChoiceSelectors))
+	for index := range correlation.ChoiceSelectors {
+		copy.ChoiceSelectors[index] = correlation.ChoiceSelectors[index]
+		copy.ChoiceSelectors[index].Steps = append([]spec.SelectorStep(nil), correlation.ChoiceSelectors[index].Steps...)
+	}
+	if correlation.UnitSelector != nil {
+		unit := *correlation.UnitSelector
+		unit.Steps = append([]spec.SelectorStep(nil), correlation.UnitSelector.Steps...)
+		copy.UnitSelector = &unit
+	}
+	copy.ExtensionURLSelectors = make([]spec.Selector, len(correlation.ExtensionURLSelectors))
+	for index := range correlation.ExtensionURLSelectors {
+		copy.ExtensionURLSelectors[index] = correlation.ExtensionURLSelectors[index]
+		copy.ExtensionURLSelectors[index].Steps = append([]spec.SelectorStep(nil), correlation.ExtensionURLSelectors[index].Steps...)
+	}
+	copy.ExtensionURLBindKeys = append([]string(nil), correlation.ExtensionURLBindKeys...)
+	return &copy
 }
 
 func clonePhysicalPredicateExpression(predicate PhysicalPredicateExpression) PhysicalPredicateExpression {
@@ -301,9 +753,11 @@ func clonePhysicalPredicateExpression(predicate PhysicalPredicateExpression) Phy
 		subplan := clonePhysicalSubplan(*predicate.Exists)
 		copy.Exists = &subplan
 	}
-	copy.Children = make([]PhysicalPredicateExpression, len(predicate.Children))
-	for index, child := range predicate.Children {
-		copy.Children[index] = clonePhysicalPredicateExpression(child)
+	if predicate.Children != nil {
+		copy.Children = make([]PhysicalPredicateExpression, len(predicate.Children))
+		for index, child := range predicate.Children {
+			copy.Children[index] = clonePhysicalPredicateExpression(child)
+		}
 	}
 	return copy
 }
@@ -317,10 +771,26 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 	if expression.Extract != nil {
 		extract := *expression.Extract
 		extract.Source = clonePhysicalValue(extract.Source)
-		extract.Fallbacks = append([]spec.Selector(nil), extract.Fallbacks...)
+		if expression.Extract.Fallbacks != nil {
+			extract.Fallbacks = make([]PhysicalSelectorFallback, len(expression.Extract.Fallbacks))
+			for index, fallback := range expression.Extract.Fallbacks {
+				extract.Fallbacks[index] = PhysicalSelectorFallback{
+					Source: clonePhysicalValue(fallback.Source), ResourceType: fallback.ResourceType,
+					Selector: clonePhysicalSelector(fallback.Selector),
+				}
+			}
+		}
 		if extract.Prepared != nil {
 			prepared := *extract.Prepared
 			extract.Prepared = &prepared
+		}
+		if extract.UnitNormalization != nil {
+			normalization := *extract.UnitNormalization
+			normalization.OriginalValue = clonePhysicalSelector(extract.UnitNormalization.OriginalValue)
+			normalization.SourceSystem = clonePhysicalSelector(extract.UnitNormalization.SourceSystem)
+			normalization.SourceCode = clonePhysicalSelector(extract.UnitNormalization.SourceCode)
+			normalization.Rules = append([]unit.UnitConversionRule(nil), extract.UnitNormalization.Rules...)
+			extract.UnitNormalization = &normalization
 		}
 		copy.Extract = &extract
 	}
@@ -329,6 +799,11 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 		pivot.Source = clonePhysicalValue(expression.Pivot.Source)
 		pivot.ItemSource.Steps = append([]spec.SelectorStep(nil), expression.Pivot.ItemSource.Steps...)
 		pivot.ValueFallbacks = append([]spec.Selector(nil), expression.Pivot.ValueFallbacks...)
+		pivot.ColumnAliases = make(map[string]string, len(expression.Pivot.ColumnAliases))
+		for key, value := range expression.Pivot.ColumnAliases {
+			pivot.ColumnAliases[key] = value
+		}
+		pivot.Correlation = clonePhysicalCorrelation(expression.Pivot.Correlation)
 		pivot.ColumnsBindKey = expression.Pivot.ColumnsBindKey
 		if pivot.PreparedKey != nil {
 			prepared := *pivot.PreparedKey
@@ -340,12 +815,28 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 		}
 		copy.Pivot = &pivot
 	}
+	if expression.OwnerRecords != nil {
+		ownerRecords := *expression.OwnerRecords
+		ownerRecords.Correlation = *clonePhysicalCorrelation(&expression.OwnerRecords.Correlation)
+		copy.OwnerRecords = &ownerRecords
+	}
 	if expression.Aggregate != nil {
 		aggregate := *expression.Aggregate
 		aggregate.Source = clonePhysicalValue(aggregate.Source)
 		if aggregate.Value != nil {
 			value := clonePhysicalExpression(*aggregate.Value)
 			aggregate.Value = &value
+		}
+		if aggregate.ContributorWindow != nil {
+			window := *aggregate.ContributorWindow
+			window.Timestamp = clonePhysicalExpression(aggregate.ContributorWindow.Timestamp)
+			window.Anchor = clonePhysicalExpression(aggregate.ContributorWindow.Anchor)
+			aggregate.ContributorWindow = &window
+		}
+		if aggregate.Ordering != nil {
+			ordering := *aggregate.Ordering
+			ordering.Timestamp = clonePhysicalExpression(aggregate.Ordering.Timestamp)
+			aggregate.Ordering = &ordering
 		}
 		copy.Aggregate = &aggregate
 	}
@@ -371,6 +862,12 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 	if expression.ObjectLookup != nil {
 		lookup := *expression.ObjectLookup
 		copy.ObjectLookup = &lookup
+	}
+	if expression.RelatedField != nil {
+		relatedField := *expression.RelatedField
+		relatedField.DocumentID = clonePhysicalValue(expression.RelatedField.DocumentID)
+		relatedField.Path = cloneStrings(expression.RelatedField.Path)
+		copy.RelatedField = &relatedField
 	}
 	if expression.KeyedMap != nil {
 		keyed := *expression.KeyedMap
@@ -403,6 +900,18 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 		}
 		copy.Object = &object
 	}
+	if expression.Call != nil {
+		call := *expression.Call
+		call.Args = make([]PhysicalExpression, len(expression.Call.Args))
+		for index, argument := range expression.Call.Args {
+			call.Args[index] = clonePhysicalExpression(argument)
+		}
+		copy.Call = &call
+	}
+	if expression.Subplan != nil {
+		subplan := clonePhysicalSubplan(*expression.Subplan)
+		copy.Subplan = &subplan
+	}
 	return copy
 }
 
@@ -414,6 +923,14 @@ func clonePhysicalSubplan(subplan PhysicalSubplan) PhysicalSubplan {
 		copy.Operations[i] = clonePhysicalOperation(op)
 	}
 	copy.Return = clonePhysicalExpression(subplan.Return)
+	if subplan.Sort != nil {
+		sort := clonePhysicalValue(*subplan.Sort)
+		copy.Sort = &sort
+	}
+	if subplan.DistinctBy != nil {
+		distinctBy := clonePhysicalValue(*subplan.DistinctBy)
+		copy.DistinctBy = &distinctBy
+	}
 	return copy
 }
 
@@ -421,4 +938,19 @@ func clonePhysicalValue(value PhysicalValue) PhysicalValue {
 	copy := value
 	copy.Path = cloneStrings(value.Path)
 	return copy
+}
+
+func clonePhysicalSelector(selector spec.Selector) spec.Selector {
+	selector.Steps = append([]spec.SelectorStep(nil), selector.Steps...)
+	for index := range selector.Steps {
+		if selector.Steps[index].Index != nil {
+			value := *selector.Steps[index].Index
+			selector.Steps[index].Index = &value
+		}
+	}
+	if selector.Filter != nil {
+		filter := *selector.Filter
+		selector.Filter = &filter
+	}
+	return selector
 }

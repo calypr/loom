@@ -1,0 +1,143 @@
+{
+  "schemaVersion": 1,
+  "status": "superseded",
+  "date": "2026-09-19",
+  "replacement": "docs/product/ML_DATAFRAMER_DELIVERY_PLAN.md",
+  "files": [
+    {
+      "original": "docs/product/BACKEND_GAP_ANALYSIS_20260916.md",
+      "archived": "docs/product/history/20260919-superseded/BACKEND_GAP_ANALYSIS_20260916.md",
+      "sha256": "a95dcf1c8bb3211fad509aa2953ed80374651af096701785bacddbc5e0ecf9f0"
+    },
+    {
+      "original": "docs/product/ML_DATAFRAMER_DELIVERY_PLAN.md",
+      "archived": "docs/product/history/20260919-superseded/ML_DATAFRAMER_DELIVERY_PLAN.md",
+      "sha256": "18b557c89d8b643e0c6466442e641b4ada30ec93ccfb1c2407a39955d650f3bc"
+    },
+    {
+      "original": "docs/product/ML_DATAFRAME_IMPLEMENTATION_PLAN.md",
+      "archived": "docs/product/history/20260919-superseded/ML_DATAFRAME_IMPLEMENTATION_PLAN.md",
+      "sha256": "361610e144f5055a1cbc5e56c977debb8592b3cac1c8810aa918044d18f72d63"
+    },
+    {
+      "original": "docs/product/ML_DATAFRAME_PRODUCT_PLAN.md",
+      "archived": "docs/product/history/20260919-superseded/ML_DATAFRAME_PRODUCT_PLAN.md",
+      "sha256": "2ec6e0ad08998a6937e3f0517fee4b80b3034530e200900f1b742b88f6331f12"
+    },
+    {
+      "original": "docs/product/ML_DATAFRAME_TECHNICAL_DESIGN.md",
+      "archived": "docs/product/history/20260919-superseded/ML_DATAFRAME_TECHNICAL_DESIGN.md",
+      "sha256": "bd89d11d5e63b54e5b532ba2d96e6d517f038c03d962dc5133f2de4a2bc0e86a"
+    },
+    {
+      "original": "docs/product/ml-dataframe/B01_VERIFICATION.md",
+      "archived": "docs/product/history/20260919-superseded/ml-dataframe/B01_VERIFICATION.md",
+      "sha256": "39fe484d64408de27360619434849182dce79d609d71682b0e1019f39922f442"
+    },
+    {
+      "original": "docs/product/ml-dataframe/B02_B03_VERIFICATION.md",
+      "archived": "docs/product/history/20260919-superseded/ml-dataframe/B02_B03_VERIFICATION.md",
+      "sha256": "2be561b5c3f428e495b4d0754c53a34e30f85d51a0fca31f873f7b05e9f2f39e"
+    },
+    {
+      "original": "docs/product/ml-dataframe/B03_EXTENSION_BINDING.md",
+      "archived": "docs/product/history/20260919-superseded/ml-dataframe/B03_EXTENSION_BINDING.md",
+      "sha256": "ef6c296d96a729e1cb64540d1797658109ef73fe9d3cff3812d3da557cf64c04"
+    },
+    {
+      "original": "docs/product/ml-dataframe/B04_POPULATION_MAPPING_DESIGN.md",
+      "archived": "docs/product/history/20260919-superseded/ml-dataframe/B04_POPULATION_MAPPING_DESIGN.md",
+      "sha256": "98d67b04ee52167f3118ec9ca6d1da8c9219fe98c90340bcbab86fe43920f291"
+    },
+    {
+      "original": "docs/product/ml-dataframe/B04_POPULATION_ROW_DESIGN.md",
+      "archived": "docs/product/history/20260919-superseded/ml-dataframe/B04_POPULATION_ROW_DESIGN.md",
+      "sha256": "8813fa18400382af6eb246e2b567686037bf82af41ef4a0389599f9a36f3bf9a"
+    },
+    {
+      "original": "docs/product/ml-dataframe/B04_TYPED_CONTRIBUTOR_PREDICATE_DESIGN.md",
+      "archived": "docs/product/history/20260919-superseded/ml-dataframe/B04_TYPED_CONTRIBUTOR_PREDICATE_DESIGN.md",
+      "sha256": "f99ddf8dc83e71e6201208cda28ee921544e67bb8d9826cce93dfe6cb96ee2b8"
+    },
+    {
+      "original": "docs/product/ml-dataframe/B04_VERTICAL_SLICE_VERIFICATION.md",
+      "archived": "docs/product/history/20260919-superseded/ml-dataframe/B04_VERTICAL_SLICE_VERIFICATION.md",
+      "sha256": "34555d9eae5e6c3e006f6ddb704681428b8107ea069b43b316d5d3dde93570a4"
+    },
+    {
+      "original": "docs/product/ml-dataframe/B06_INTERPRETATION_REVISION_DESIGN.md",
+      "archived": "docs/product/history/20260919-superseded/ml-dataframe/B06_INTERPRETATION_REVISION_DESIGN.md",
+      "sha256": "0add6da14e50ab559b973e127808396da93e7e68168d36483880e4fc725eb709"
+    },
+    {
+      "original": "docs/product/ml-dataframe/B06_VERTICAL_SLICE_VERIFICATION.md",
+      "archived": "docs/product/history/20260919-superseded/ml-dataframe/B06_VERTICAL_SLICE_VERIFICATION.md",
+      "sha256": "3c792fef25df5e46bdb4ec680fc32ec94a5fe027da72b5afba7f073ff7a2c2ea"
+    },
+    {
+      "original": "docs/product/ml-dataframe/B07_EVIDENCE_VERIFICATION.md",
+      "archived": "docs/product/history/20260919-superseded/ml-dataframe/B07_EVIDENCE_VERIFICATION.md",
+      "sha256": "750627e3f2d3d85d58d161a36aedefe91bd61619b6947a6ffb43c635698487e1"
+    },
+    {
+      "original": "docs/product/ml-dataframe/B08_INTEGRATED_VERIFICATION.md",
+      "archived": "docs/product/history/20260919-superseded/ml-dataframe/B08_INTEGRATED_VERIFICATION.md",
+      "sha256": "360482a0489c953deb55a62322befbda72cfd73ac9be46f29b9bd4d4b129abba"
+    },
+    {
+      "original": "docs/product/ml-dataframe/BASELINE.json",
+      "archived": "docs/product/history/20260919-superseded/ml-dataframe/BASELINE.json",
+      "sha256": "8ea088171d78f9531946f4df23833995b2454d2f56207e4f4f70fbe8bb2d36a4"
+    },
+    {
+      "original": "docs/product/ml-dataframe/ISSUES.csv",
+      "archived": "docs/product/history/20260919-superseded/ml-dataframe/ISSUES.csv",
+      "sha256": "0bcd38befda2123eb1a2ad590cf13d4aab2956f44f777739d55965905406e115"
+    },
+    {
+      "original": "docs/product/ml-dataframe/WORK_PACKAGES.csv",
+      "archived": "docs/product/history/20260919-superseded/ml-dataframe/WORK_PACKAGES.csv",
+      "sha256": "18f386c4c9834505c764c7cb8717a6e6b7162defe390655dca238a11263d7a4a"
+    },
+    {
+      "original": "docs/product/ml-dataframer/ACCEPTANCE.md",
+      "archived": "docs/product/history/20260919-superseded/ml-dataframer/ACCEPTANCE.md",
+      "sha256": "8c870b7425549192025872e3fd9553e28225494781a14d60e898c05b348b6080"
+    },
+    {
+      "original": "docs/product/ml-dataframer/ARCHITECTURE.md",
+      "archived": "docs/product/history/20260919-superseded/ml-dataframer/ARCHITECTURE.md",
+      "sha256": "a7848d65567dd5b7ef1c34f29ff5036f486743bee8fbdbd7959528e6081d55db"
+    },
+    {
+      "original": "docs/product/ml-dataframer/C01_INVENTORY_EVIDENCE.json",
+      "archived": "docs/product/history/20260919-superseded/ml-dataframer/C01_INVENTORY_EVIDENCE.json",
+      "sha256": "4601efde6a8a83340144bd577448c051c9f57bcbbfdc64a10360e6a73a212ade"
+    },
+    {
+      "original": "docs/product/ml-dataframer/CONTRACTS.md",
+      "archived": "docs/product/history/20260919-superseded/ml-dataframer/CONTRACTS.md",
+      "sha256": "5b318e98b35d8a7ce24026fa5c5c3e4bdc8bf3fd25c810b367279238ced4385f"
+    },
+    {
+      "original": "docs/product/ml-dataframer/FHIR_SEMANTIC_FOUNDATION.md",
+      "archived": "docs/product/history/20260919-superseded/ml-dataframer/FHIR_SEMANTIC_FOUNDATION.md",
+      "sha256": "ec772b2445325f5386e4f08b13345fc1e19bc1dc26375aecb8854a5a30d846d7"
+    },
+    {
+      "original": "docs/product/ml-dataframer/RUNBOOK.md",
+      "archived": "docs/product/history/20260919-superseded/ml-dataframer/RUNBOOK.md",
+      "sha256": "70433bff07b50ef83418eeacc283cf0652b26b3f1aaad3139a72a2c6b51297ba"
+    },
+    {
+      "original": "docs/product/ml-dataframer/catalog-prototype.html",
+      "archived": "docs/product/history/20260919-superseded/ml-dataframer/catalog-prototype.html",
+      "sha256": "41182552b4239be81783cd91fb3a1112c66814a2aef3aef7e3b139348682f0e0"
+    },
+    {
+      "original": "docs/product/ml-dataframer/execution.json",
+      "archived": "docs/product/history/20260919-superseded/ml-dataframer/execution.json",
+      "sha256": "4b60b2cea93e83fac2738a849f882585563994971d32379d38c0fd76f474437d"
+    }
+  ]
+}

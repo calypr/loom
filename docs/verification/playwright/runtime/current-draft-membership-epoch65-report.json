@@ -1,0 +1,86 @@
+{
+  "epoch": 65,
+  "scenario": "builder-combine-draft/membership",
+  "status": "failed",
+  "lifecycleStatus": "partial",
+  "classification": "PRODUCT_SAVED_MEMBERSHIP_EDIT_UNAVAILABLE",
+  "case": {
+    "owner": "membership_native_lifecycle",
+    "scenario": "builder-combine-draft/membership",
+    "title": "current-draft MEMBERSHIP supports INCLUDE, EXCLUDE edit, removal, restoration, and reload",
+    "runnerStatus": "failed",
+    "runnerExpected": 0,
+    "runnerUnexpected": 1,
+    "playwrightTestDurationMs": 18623,
+    "runnerProcessDurationMs": 22951.774,
+    "reportStatus": "failed",
+    "attribution": "PRODUCT_SAVED_MEMBERSHIP_EDIT_UNAVAILABLE",
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "failed",
+      "persistence": "passed",
+      "performance": "passed"
+    },
+    "assertions": {
+      "total": 65,
+      "failed": 1
+    },
+    "nativeActions": {
+      "passed": 14,
+      "failed": 0,
+      "maxElapsedMs": 594
+    },
+    "requiredChecks": {
+      "total": 50,
+      "missing": 14,
+      "missingNames": [
+        "open saved Combine editor after draft input schemas resolve action-to-render within budget",
+        "edit saved MEMBERSHIP from INCLUDE to EXCLUDE and preview the exact unmatched row action-to-render within budget",
+        "EXCLUDE preview changes to exactly the unmatched Observation ID",
+        "EXCLUDE edit changes membership policy while preserving exact inputs, keys, and output identity",
+        "Apply saved MEMBERSHIP EXCLUDE edit action-to-render within budget",
+        "saved EXCLUDE MEMBERSHIP policy and stable output identity survive Apply",
+        "reload edited EXCLUDE MEMBERSHIP and render its exact output action-to-render within budget",
+        "EXCLUDE values survive reload as the exact unmatched Observation ID",
+        "propose Combine removal and render the exact rooted empty output action-to-render within budget",
+        "apply Combine removal to restore the empty target action-to-render within budget",
+        "reload removed Combine and select its exact rooted empty output action-to-render within budget",
+        "removing Combine and reloading restores its rooted empty target",
+        "removing MEMBERSHIP preserves both exact GROUP source outputs after reload",
+        "MEMBERSHIP lifecycle makes no Publish request or pinned revision reference"
+      ]
+    },
+    "failureSummary": "Membership capability, source binding, INCLUDE proposal/preview, cancellation, apply, and exact reload values passed. The case then timed out waiting to open the saved Membership step for editing; EXCLUDE edit and removal/restoration were not reached.",
+    "firstFailure": "TimeoutError: page.waitForFunction: Timeout 10000ms exceeded.\n\n   at ../workflows/builder-combine-draft.mjs:120\n\n  118 |\n  119 | const evaluate = (page, expression) => page.evaluate(expression);\n> 120 | const waitFor = (page, expression, timeout = 5000) => page.waitForFunction(expression, undefined, { timeout });\n      |                                                            ^\n  121 | const locate = async (page, selector, identity = {}) => {\n  122 |   const indices = await page.locator(selector).evaluateAll((nodes, wanted) => {\n  123 |     const normalize = (value) => String(value ?? '').replace(/\\s+/g, ' ').trim();\n    at waitFor (/private/tmp/loom-construction-implementation/scripts/verify-ui/workflows/builder-combine-draft.mjs:120:60)\n    at editSavedStep (/private/tmp/loom-construction-implementation/scripts/verify-ui/workflows/builder-combine-draft.mjs:1035:9)\n    at draftMembershipWorkflow (/private/tmp/loom-construction-implementation/scripts/verify-ui/workflows/builder-combine-draft.mjs:1447:5)\n    at /private/tmp/loom-construction-implementation/scripts/verify-ui/specs/draft-combine.spec.mjs:43:5",
+    "failedAssertions": [
+      {
+        "dimension": "correctness",
+        "name": "official Playwright case completed without failure",
+        "status": "failed",
+        "evidence": {
+          "status": "failed"
+        }
+      }
+    ],
+    "reachedExcludeEdit": false,
+    "reachedRemoval": false,
+    "networkErrors": 0,
+    "runtimeErrors": 1,
+    "assetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ],
+    "freshFixtureProject": "loom_dev_verify_muw9kfn4-1103e01",
+    "explorer": "verify-n4-1103e01-draft-combine-membership",
+    "reportPath": "/private/tmp/loom-native-parallel-wave65/basic-membership/attempt1/artifacts/draft-combine-Builder-Comb-74e97-oval-restoration-and-reload/attachments/loom-verification-report-json-7cb2ea35fdba4d412a6285dd417e92f01be5d7e7.json",
+    "reportSha256": "71797591ac2c327e751a06be485a6ead8d28bc1a2238ad92538d6f7ccaab5e7c",
+    "playwrightResultsPath": "/private/tmp/loom-native-parallel-wave65/basic-membership/attempt1/results.json",
+    "playwrightResultsSha256": "52acc51303d886ed26cf76d5f82d42225cc62feec5f21db2dad160c6575d3186",
+    "noRetry": true
+  },
+  "integrityStatus": "PASS",
+  "nextAction": "Expose saved Membership edit through supported Combine history/editor routing; rerun original native lifecycle."
+}

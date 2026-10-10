@@ -23,6 +23,7 @@ const ready: ExplorerBuilderState = {
         output: { id: 'Specimen', title: 'Specimen' },
         rootResourceType: 'Specimen',
         route: { occurrenceId: 'base', resourceType: 'Specimen' },
+        rows: { kind: 'RECORDS', records: {} },
         columns: [
           {
             column: 'specimen_identifier',
@@ -30,8 +31,10 @@ const ready: ExplorerBuilderState = {
             occurrenceId: 'base',
             source: {
               kind: 'identifierBySystem',
-              match: 'https://aced-idp.org/project',
-              projectionMode: 'FIRST',
+              lookup: {
+                match: 'https://aced-idp.org/project',
+                projectionMode: 'FIRST',
+              },
             },
             table: { visible: true, order: 0 },
           },
@@ -99,6 +102,7 @@ describe('semantic Builder hydration', () => {
     const preview = {
       apiVersion: 'loom.calypr.org/explorer-authoring/v2' as const,
       kind: 'ExplorerBuilderPreview' as const,
+      rowLineageCapability: { status: 'UNAVAILABLE' as const, reasonCode: 'TEST_FIXTURE' },
       receiptId: 'receipt_preview',
       outputId: 'Specimen',
       columns: [],
@@ -138,6 +142,52 @@ describe('semantic Builder hydration', () => {
       chart: { type: 'bar', title: 'Specimens' },
       source: original.source,
     });
+  });
+
+  it('treats selecting the current table as a no-op and clears preview when switching tables', () => {
+    const preview = {
+      apiVersion: 'loom.calypr.org/explorer-authoring/v2' as const,
+      kind: 'ExplorerBuilderPreview' as const,
+      rowLineageCapability: { status: 'UNAVAILABLE' as const, reasonCode: 'TEST_FIXTURE' },
+      receiptId: 'receipt_preview',
+      outputId: 'Specimen',
+      columns: [],
+      rows: [{ specimen_identifier: 'sample-1' }],
+      rowCount: 1,
+      diagnostics: [],
+    };
+    const state = {
+      ...stateFromBuilder(ready, {
+        project: 'project',
+        explorerId: 'default',
+      }),
+      preview,
+    };
+
+    const next = builderAuthoringReducer(state, {
+      type: 'selectTable',
+      outputId: 'Specimen',
+    });
+
+    expect(next).toBe(state);
+
+    const secondTable = {
+      ...state.tables[0],
+      outputId: 'Observation',
+      tabId: 'observation',
+      title: 'Observation',
+      document: {
+        ...state.tables[0].document,
+        output: { id: 'Observation', title: 'Observation' },
+      },
+    };
+    const switched = builderAuthoringReducer(
+      { ...state, tables: [...state.tables, secondTable] },
+      { type: 'selectTable', outputId: 'Observation' },
+    );
+
+    expect(switched.selectedOutputId).toBe('Observation');
+    expect(switched.preview).toBeUndefined();
   });
 
   it('removes configured columns without candidate identity reconciliation', () => {
@@ -228,8 +278,10 @@ describe('semantic Builder hydration', () => {
         occurrenceId: 'base',
         source: {
           kind: 'field',
-          fieldPath: 'birthDate',
-          projectionMode: 'FIRST',
+          field: {
+            path: 'birthDate',
+            projectionMode: 'FIRST',
+          },
         },
         table: { visible: true, order: 1 },
       },
@@ -237,7 +289,7 @@ describe('semantic Builder hydration', () => {
 
     expect(workspaceFromState(edited).documents[0].columns[1]).toMatchObject({
       column: 'birth_date',
-      source: { kind: 'field', fieldPath: 'birthDate' },
+      source: { kind: 'field', field: { path: 'birthDate' } },
     });
   });
 
@@ -318,6 +370,7 @@ describe('semantic Builder hydration', () => {
         output: { id: 'blank-output', title: 'Blank table' },
         rootResourceType: '',
         route: { occurrenceId: 'base', resourceType: '' },
+        rows: { kind: 'RECORDS' as const, records: {} },
         columns: [],
       },
     };
@@ -376,8 +429,10 @@ describe('semantic Builder hydration', () => {
                 occurrenceId: 'observation',
                 source: {
                   kind: 'field',
-                  fieldPath: 'status',
-                  projectionMode: 'FIRST',
+                  field: {
+                    path: 'status',
+                    projectionMode: 'FIRST',
+                  },
                 },
                 table: { visible: true, order: 1 },
               },
@@ -387,8 +442,10 @@ describe('semantic Builder hydration', () => {
                 occurrenceId: 'patient',
                 source: {
                   kind: 'field',
-                  fieldPath: 'identifier[].value',
-                  projectionMode: 'FIRST',
+                  field: {
+                    path: 'identifier[].value',
+                    projectionMode: 'FIRST',
+                  },
                 },
                 table: { visible: true, order: 2 },
               },
@@ -495,6 +552,173 @@ describe('semantic Builder hydration', () => {
     expect(workspaceFromState(edited).sharedFilters).toBeUndefined();
   });
 
+  it('persists and reconstructs parallel route choices by exact catalog edge', () => {
+    const parallel: ExplorerBuilderState = {
+      ...ready,
+      workspace: {
+        ...ready.workspace!,
+        documents: [
+          {
+            ...ready.workspace!.documents[0],
+            output: { id: 'Patient', title: 'Patient' },
+            rootResourceType: 'Patient',
+            route: { occurrenceId: 'base', resourceType: 'Patient' },
+            columns: [],
+          },
+        ],
+      },
+      catalog: {
+        ...ready.catalog,
+        nodes: [
+          {
+            nodeId: 'patient-root',
+            resourceType: 'Patient',
+            rowRootEligible: true,
+            populated: true,
+            documentCount: 1,
+          },
+          {
+            nodeId: 'encounter-a',
+            resourceType: 'Encounter',
+            rowRootEligible: false,
+            populated: true,
+            documentCount: 1,
+          },
+          {
+            nodeId: 'encounter-b',
+            resourceType: 'Encounter',
+            rowRootEligible: false,
+            populated: true,
+            documentCount: 1,
+          },
+        ],
+        edges: [
+          {
+            edgeId: 'patient-encounter-a',
+            fromNodeId: 'patient-root',
+            toNodeId: 'encounter-a',
+            label: 'encounters',
+          },
+          {
+            edgeId: 'patient-encounter-b',
+            fromNodeId: 'patient-root',
+            toNodeId: 'encounter-b',
+            label: 'encounters',
+          },
+        ],
+      },
+    };
+    const state = stateFromBuilder(parallel, {
+      project: 'project',
+      explorerId: 'default',
+    });
+    const first = builderAuthoringReducer(state, {
+      type: 'addRouteChild',
+      outputId: 'Patient',
+      parentOccurrenceId: 'base',
+      edgeId: 'patient-encounter-a',
+      occurrenceId: 'encounter-a',
+    });
+    const both = builderAuthoringReducer(first, {
+      type: 'addRouteChild',
+      outputId: 'Patient',
+      parentOccurrenceId: 'base',
+      edgeId: 'patient-encounter-b',
+      occurrenceId: 'encounter-b',
+    });
+
+    expect(
+      derivedOccurrences(both.tables[0], both.catalog).map(
+        ({ id, incomingEdgeId }) => [id, incomingEdgeId],
+      ),
+    ).toEqual([
+      ['base', undefined],
+      ['encounter-a', 'patient-encounter-a'],
+      ['encounter-b', 'patient-encounter-b'],
+    ]);
+    expect(
+      workspaceFromState(both).documents[0].route.children?.map(
+        ({ catalogEdgeId }) => catalogEdgeId,
+      ),
+    ).toEqual(['patient-encounter-a', 'patient-encounter-b']);
+  });
+
+  it('does not choose an edge for an ambiguous legacy route tuple', () => {
+    const parallel: ExplorerBuilderState = {
+      ...ready,
+      workspace: {
+        ...ready.workspace!,
+        documents: [
+          {
+            ...ready.workspace!.documents[0],
+            output: { id: 'Patient', title: 'Patient' },
+            rootResourceType: 'Patient',
+            route: {
+              occurrenceId: 'base',
+              resourceType: 'Patient',
+              children: [
+                {
+                  occurrenceId: 'legacy-encounter',
+                  resourceType: 'Encounter',
+                  relationship: 'encounters',
+                },
+              ],
+            },
+            columns: [],
+          },
+        ],
+      },
+      catalog: {
+        ...ready.catalog,
+        nodes: [
+          {
+            nodeId: 'patient-root',
+            resourceType: 'Patient',
+            rowRootEligible: true,
+            populated: true,
+            documentCount: 1,
+          },
+          {
+            nodeId: 'encounter-a',
+            resourceType: 'Encounter',
+            rowRootEligible: false,
+            populated: true,
+            documentCount: 1,
+          },
+          {
+            nodeId: 'encounter-b',
+            resourceType: 'Encounter',
+            rowRootEligible: false,
+            populated: true,
+            documentCount: 1,
+          },
+        ],
+        edges: [
+          {
+            edgeId: 'patient-encounter-a',
+            fromNodeId: 'patient-root',
+            toNodeId: 'encounter-a',
+            label: 'encounters',
+          },
+          {
+            edgeId: 'patient-encounter-b',
+            fromNodeId: 'patient-root',
+            toNodeId: 'encounter-b',
+            label: 'encounters',
+          },
+        ],
+      },
+    };
+    const state = stateFromBuilder(parallel, {
+      project: 'project',
+      explorerId: 'default',
+    });
+
+    expect(derivedOccurrences(state.tables[0], state.catalog).map(({ id }) => id)).toEqual([
+      'base',
+    ]);
+  });
+
   it('replaces local identities with the authoritative command workspace', () => {
     const state = stateFromBuilder(ready, {
       project: 'project',
@@ -534,12 +758,13 @@ describe('semantic Builder hydration', () => {
     expect(next.draftVersion).toBe(2);
     expect(next.workspace).toEqual(workspace);
     expect(next.reconciliation).toBe('idle');
+    expect(next.dirty).toBe(false);
 
     const requested = builderAuthoringReducer(next, {
       type: 'requestRecompile',
     });
     expect(requested.reconciliation).toBe('pending');
-    expect(requested.dirty).toBe(true);
+    expect(requested.dirty).toBe(false);
   });
 
   it('preserves the selected traversal node after a table presentation update', () => {

@@ -1,0 +1,1503 @@
+{
+  "schemaVersion": 1,
+  "kind": "official-playwright-static-discovery",
+  "sourceRoot": ".",
+  "baseCommit": "4a8d22ce01e499bd40486167d9ddb6c6b7ee513c",
+  "status": "discovery-only",
+  "runtimeStatus": "not-run",
+  "commandTemplate": "<repo>/scripts/node_modules/.bin/playwright test --config <configPath> --list --reporter=json",
+  "note": "Captured from 6 official Playwright --list --reporter=json outputs. These reports list registrations only and skip every test body; no lifecycle ran. The 6 session counts sum to 173 entries.",
+  "mainDiscoveryTestCount": 168,
+  "mainDiscoverySpecFileCount": 28,
+  "dedicatedBenchmarkTestCount": 1,
+  "dedicatedBenchmarkSpecFileCount": 1,
+  "totalDeclaredTestCount": 173,
+  "sessions": [
+    {
+      "sessionID": "main",
+      "configPath": "scripts/playwright.config.mjs",
+      "configSha256": "d16ccb10ccf63f8a711ae7f8c5b61d4bc44452172e9a309a06cab32ce30f69bc",
+      "environment": {},
+      "testCount": 168,
+      "specFileCount": 28,
+      "discoveredCasesSha256": "f6d3d04f89ce0141fb6047097a4a243534c98c13144bbf4a5b6e786d465ea92c",
+      "specs": [
+        {
+          "path": "scripts/verify-ui/specs/append.spec.mjs",
+          "sha256": "2d68e6e877d30ce14a75e3d338ee82a83af43318677873cf45d4f2db5d4c2ec0",
+          "cases": [
+            {
+              "title": "APPEND preview, apply, edit, cancel, removal and reload",
+              "id": "d0974d882aa3158ff774-858329bc98253d5941be",
+              "line": 6,
+              "column": 1,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/authoring-summary.spec.mjs",
+          "sha256": "80388f34f1f076b108a06e9657af3f049e47622fd81aa73f7de39032363db844",
+          "cases": [
+            {
+              "title": "opens an exact-text native summary when Chromium exposes no button role",
+              "id": "0d52153f53ca2a05a671-d4908707be4f0240822a",
+              "line": 9,
+              "column": 1,
+              "occurrence": 1
+            },
+            {
+              "title": "duplicate exact native summaries retain Playwright strictness",
+              "id": "0d52153f53ca2a05a671-e05d4570972df6a996f3",
+              "line": 29,
+              "column": 1,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
+          "sha256": "a18a1b18baca15ef3f1aadb2f6f2e8c089c70600ffc4807b04a41c3d49d784ab",
+          "cases": [
+            {
+              "title": "catalog-backed suggestions expose actionable Patient candidates",
+              "id": "24bb9758cf56e99e0894-8b4e0a361d583a42be89",
+              "line": 15,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "Builder authoring previews, publishes, and reloads configured fields",
+              "id": "24bb9758cf56e99e0894-687369b05c2060a831eb",
+              "line": 15,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "named cohort recoding preserves raw ALL bindings across edit and reload",
+              "id": "24bb9758cf56e99e0894-5a211cb23de4663e6a93",
+              "line": 15,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "named cohort expansion preserves exact Patient IDs through its lifecycle",
+              "id": "24bb9758cf56e99e0894-cef2ae9fee6132f1d22b",
+              "line": 15,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "repeated empty and missing values preserve source row identities",
+              "id": "24bb9758cf56e99e0894-adf50e5cd6d8b8491d02",
+              "line": 15,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "standard Group entry proposes an empty-key COUNT_ROWS preview",
+              "id": "24bb9758cf56e99e0894-ef0ef98f335e23257ca7",
+              "line": 15,
+              "column": 7,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/builder-controls.spec.mjs",
+          "sha256": "43b85851f51efdfec62b43daf9d6d884bbbb944e4efbf0a76ec09ab5915d0560",
+          "cases": [
+            {
+              "title": "Recompile recovers from automatic compilation failure",
+              "id": "6e723d1f3566d166de96-0255dfd7b8877f9485f3",
+              "line": 7,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "Add columns waits for a current-draft preview",
+              "id": "6e723d1f3566d166de96-f20597d411b51d5e3413",
+              "line": 17,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "Duplicate, rename, select, delete, copy, and reload tables",
+              "id": "6e723d1f3566d166de96-e0ac805a89876ba03ef7",
+              "line": 27,
+              "column": 3,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/builder-load.spec.mjs",
+          "sha256": "bc1909efa4dfd41bf3fcb7e76dfed92404f4c6174e9a57bde903772c12df7d0c",
+          "cases": [
+            {
+              "title": "shows the list failure and recovers through the in-app Retry",
+              "id": "08c92f1d926b924cb542-744a543a6e54ca4c3e47",
+              "line": 7,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "shows the state failure and recovers through the in-app Retry",
+              "id": "08c92f1d926b924cb542-5bc73b99d26aaeb4764b",
+              "line": 15,
+              "column": 3,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/cda-current-draft-group-join.spec.mjs",
+          "sha256": "2657e9aabd54d4a0df3989e3b23059cf6625bfcc2b8c1c5db058656d0aa093ae",
+          "cases": [
+            {
+              "title": "two independent native Observation Groups join through the current draft lifecycle",
+              "id": "608bad1f9c0a44d25038-a32f3794026ad9f02d1c",
+              "line": 11,
+              "column": 3,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+          "sha256": "f91956162b8fac0d255a7ff3a04bfe24f6348fd6fff56a794ab6ef5e4930b24a",
+          "cases": [
+            {
+              "title": "exact Observation Groups feed a native Pivot and editable current-draft Join",
+              "id": "51cfd5a4838546f5b945-414d4e23064ecb647dba",
+              "line": 12,
+              "column": 3,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/cda-current-draft-membership.spec.mjs",
+          "sha256": "736fb4b8393d6e9297ec0bc159ca5fc6f0c6ee39d232b1675bd5e63f92396bbe",
+          "cases": [
+            {
+              "title": "native INCLUDE and EXCLUDE Membership use two exact grouped Observation ID populations",
+              "id": "e00616ef1ee3950d633f-fd3433698874f3988888",
+              "line": 11,
+              "column": 3,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/cda-current-draft-upstream-append.spec.mjs",
+          "sha256": "eb5ab7aa78b9e1d2fe941f274979f7a62bd13ed6942e1904f40f52dea73fabd4",
+          "cases": [
+            {
+              "title": "three exact CDA populations Group, edit Patient DERIVE, then Append with full restoration",
+              "id": "65ae1e78a00c3709544b-ad05492db2f8d13a6274",
+              "line": 12,
+              "column": 3,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/dev-journeys.spec.mjs",
+          "sha256": "9837f4549c9e80b011bd45b8c84c0dbf1624a5b2764d80a8dd342447f7aa8f1a",
+          "cases": [
+            {
+              "title": "Loom development journey verify-current @dev-journey:verify-current",
+              "id": "d5ada7e99f144faf30cf-bf63bda0cb6935aaf488",
+              "line": 192,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "Loom development journey verify-fast @dev-journey:verify-fast",
+              "id": "d5ada7e99f144faf30cf-066414cca9cef3cef9bb",
+              "line": 192,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "Loom development journey verify-full @dev-journey:verify-full",
+              "id": "d5ada7e99f144faf30cf-05d12d1f6847bd96e6ff",
+              "line": 192,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "Loom development journey verify-j01 @dev-journey:verify-j01",
+              "id": "d5ada7e99f144faf30cf-d58bc88fbfb1f92ccd6b",
+              "line": 192,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "Loom development journey verify-j02 @dev-journey:verify-j02",
+              "id": "d5ada7e99f144faf30cf-8a2f48abea33f494cbfe",
+              "line": 192,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "Loom development journey verify-j03 @dev-journey:verify-j03",
+              "id": "d5ada7e99f144faf30cf-2278d4575fff596c3938",
+              "line": 192,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "Loom development journey verify-j04 @dev-journey:verify-j04",
+              "id": "d5ada7e99f144faf30cf-f6da220e7832663f54e5",
+              "line": 192,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "Loom development journey verify-j04-patient @dev-journey:verify-j04-patient",
+              "id": "d5ada7e99f144faf30cf-879158fb20eb1ed20994",
+              "line": 192,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "Loom development journey verify-j05 @dev-journey:verify-j05",
+              "id": "d5ada7e99f144faf30cf-25d047a211c6aacbcdab",
+              "line": 192,
+              "column": 3,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/draft-combine.spec.mjs",
+          "sha256": "5d7c58b86e8aee4c485b19138bc73dee2fc2599dfcf531252564cccaa9c3302c",
+          "cases": [
+            {
+              "title": "grouped current-draft Join supports cancel, apply, edit, removal, and reload",
+              "id": "8ae9a22d8f0663aee4a2-b43dfd4ad51d0f4500dc",
+              "line": 12,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "three-source current-draft APPEND supports cancel, apply, edit, removal, and reload",
+              "id": "8ae9a22d8f0663aee4a2-fdf7e068bce5d2088182",
+              "line": 22,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "upstream Group→DERIVE edit recomputes APPEND and removal restores its current-draft sources",
+              "id": "8ae9a22d8f0663aee4a2-3d3fc7354f2b7e1dd769",
+              "line": 32,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "GROUP-to-PIVOT current-draft Join supports cancel, apply, edit, removal, and reload",
+              "id": "8ae9a22d8f0663aee4a2-3aeae72c4f1c9f3e1ad4",
+              "line": 42,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "current-draft MEMBERSHIP supports INCLUDE, EXCLUDE edit, removal, restoration, and reload",
+              "id": "8ae9a22d8f0663aee4a2-e9f9b079b84b34fe7a1e",
+              "line": 52,
+              "column": 3,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/join.spec.mjs",
+          "sha256": "6e6604abf412aa2179972bae3b1bbde4009dd1ad5b1e40edda3aa85094c3c0a6",
+          "cases": [
+            {
+              "title": "KEY_JOIN INNER/LEFT preview, apply, cancel, removal and reload",
+              "id": "e3aac273ff777bff343d-2f4b32edf9e41e3d9a44",
+              "line": 6,
+              "column": 1,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/legacy-v9-workspace.spec.mjs",
+          "sha256": "0bf8284e42d07cbba4db5c182e5bba7a1a48b72f07fba2284984a2ffbf4a8269",
+          "cases": [
+            {
+              "title": "legacy semantics v9 preserves the saved Patient digest through native row actions and reload",
+              "id": "666cd413b8edb2a25cd9-eab9593f309db15a19bb",
+              "line": 7,
+              "column": 3,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/native-action-readiness.spec.mjs",
+          "sha256": "ea91700315d59fc0d963f4126a6fe9c157ce4582aca0ad8b03c19d2c41ac95d4",
+          "cases": [
+            {
+              "title": "shared action readiness uses Playwright auto-waiting for count and editability",
+              "id": "574935c15c3b65b95d70-3d10aa1e4cde9720ad6a",
+              "line": 11,
+              "column": 1,
+              "occurrence": 1
+            },
+            {
+              "title": "CDA button locator clicks a uniquely selected no-identity tab with decorative icon text",
+              "id": "574935c15c3b65b95d70-20810978b04b2b54efaa",
+              "line": 45,
+              "column": 1,
+              "occurrence": 1
+            },
+            {
+              "title": "CDA button locator follows its accessible name after a DOM reorder",
+              "id": "574935c15c3b65b95d70-64d4322495d77e1098d1",
+              "line": 60,
+              "column": 1,
+              "occurrence": 1
+            },
+            {
+              "title": "CDA button locator rejects duplicate accessible names before action dispatch",
+              "id": "574935c15c3b65b95d70-0e294a666d31bc3fc83b",
+              "line": 89,
+              "column": 1,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/native-authoring-oracles.spec.mjs",
+          "sha256": "c704bcb0319537d85e07cc94d7e65a5877bd76a882f7b5df2fa690ebf498aa19",
+          "cases": [
+            {
+              "title": "authoring oracle rejects a wrong visible row and a missing persisted field",
+              "id": "3797f30ed051c0586b49-35951de8c36584d5fbcf",
+              "line": 4,
+              "column": 1,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/native-failure-evidence.spec.mjs",
+          "sha256": "a8968212a3c35daa2964da2704812868afeebf652a99f10c4fa42a32d653d3a3",
+          "cases": [
+            {
+              "title": "closed pages return a failure summary without querying page or locator",
+              "id": "f478a689c4bfe041b37a-7d696672109155a725ff",
+              "line": 6,
+              "column": 1,
+              "occurrence": 1
+            },
+            {
+              "title": "unowned page origins do not expose URL, DOM text, or locator state",
+              "id": "f478a689c4bfe041b37a-0487ea9ca45cae6112af",
+              "line": 18,
+              "column": 1,
+              "occurrence": 1
+            },
+            {
+              "title": "failure text drops unrelated URLs and credentials from URL queries",
+              "id": "f478a689c4bfe041b37a-023005ccf5e2596fb41a",
+              "line": 37,
+              "column": 1,
+              "occurrence": 1
+            },
+            {
+              "title": "owned page snapshots preserve control state and redact credential values",
+              "id": "f478a689c4bfe041b37a-becceca8384901ebb97d",
+              "line": 49,
+              "column": 1,
+              "occurrence": 1
+            },
+            {
+              "title": "hung native reads are bounded and reported as timed out",
+              "id": "f478a689c4bfe041b37a-65279f3a15bde489d0f9",
+              "line": 103,
+              "column": 1,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/native-raw-fields-locator.spec.mjs",
+          "sha256": "4580f6c11b1775fc86583ab789d143b60ea1ecde02243f161502dbccaa00a775",
+          "cases": [
+            {
+              "title": "raw FHIR locator targets the exact direct disclosure summary in the Add columns editor",
+              "id": "5b7f9ec248e34f9750bb-641125ace107b4a91cf5",
+              "line": 4,
+              "column": 1,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/nullable-combine.spec.mjs",
+          "sha256": "ce1d9b2870d07a6a3a8664099b715ae393923c7a45937b69d96ba8148bb5f261",
+          "cases": [
+            {
+              "title": "nullable KEY_JOIN INNER and LEFT lifecycle preserves ordinary NULL equality",
+              "id": "a055be703766c3270de8-c69a46bd488f0c0c0b5e",
+              "line": 6,
+              "column": 1,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/population-member-removal.spec.mjs",
+          "sha256": "da827919139dadb1f233e580a98ceced530db7b9775ea610f271cfc9a2fde96e",
+          "cases": [
+            {
+              "title": "removes the mapped source member and restores the full population after undo",
+              "id": "21b3a2e64b3e0928bb8e-7f074473d0ba153cfa9d",
+              "line": 10,
+              "column": 3,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/root-quantity-pivot.spec.mjs",
+          "sha256": "a5a4f83002d5ba753e212235c1ad561e614f0572bdce5a398f65f66136c0f3ce",
+          "cases": [
+            {
+              "title": "discovers typed categories and completes the SUM, edit, removal, and reload lifecycle",
+              "id": "6c764da72a49cd3a0553-1d2b7cac0f8d7fc95744",
+              "line": 12,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "matches the complete typed CDA category domain to the independent Arango oracle",
+              "id": "6c764da72a49cd3a0553-c0f742024e4704fbeb99",
+              "line": 23,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "matches SUM and MAX output and restores the full CDA source after reload",
+              "id": "6c764da72a49cd3a0553-23017a760ea7d3b890cc",
+              "line": 31,
+              "column": 3,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/standalone-builder.spec.mjs",
+          "sha256": "de10a7b0067c3bcec377a9867544f089f8a667d45f0e586d9300cda9bb53aa03",
+          "cases": [
+            {
+              "title": "Verify related source chooser",
+              "id": "6939c11f571a5f8781e8-2130d310c400a2c17088",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Inspect Patient field choice",
+              "id": "6939c11f571a5f8781e8-2d59dfb596a7cde2955a",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Inspect selected Patient route",
+              "id": "6939c11f571a5f8781e8-655e15a126e3cfbc8e91",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Inspect Patient proposal",
+              "id": "6939c11f571a5f8781e8-c5a1ea5705c4103ea579",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Verify Patient related column",
+              "id": "6939c11f571a5f8781e8-64c7667f732152487582",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Edit and remove Patient related column",
+              "id": "6939c11f571a5f8781e8-5d5375c0d8ab6cdcecec",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Inspect saved related step",
+              "id": "6939c11f571a5f8781e8-6aaa4f3959586e938305",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Inspect related edit",
+              "id": "6939c11f571a5f8781e8-7c96e88eb2bf7509fb51",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Preview limits",
+              "id": "6939c11f571a5f8781e8-66224313933eca13d95d",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Verify duplicate and delete",
+              "id": "6939c11f571a5f8781e8-14e1b338b6b4443859ad",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Cleanup orphan Patient table",
+              "id": "6939c11f571a5f8781e8-b6c9c154895b06bb66f4",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Duplicate table",
+              "id": "6939c11f571a5f8781e8-6263526c915a3c9b7a58",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Rename reorder undo table",
+              "id": "6939c11f571a5f8781e8-c14cb191bcae78942c92",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Inspect tables",
+              "id": "6939c11f571a5f8781e8-017ea918e847ddbc737b",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Switch explorers",
+              "id": "6939c11f571a5f8781e8-4beffe5f7acf00ff4de1",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Inspect bounded Patient row choices",
+              "id": "6939c11f571a5f8781e8-71df6900f382fb209055",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Inspect bounded BodyStructure row choices",
+              "id": "6939c11f571a5f8781e8-2653acfddd82d514a1b4",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Inspect bounded Observation row choices",
+              "id": "6939c11f571a5f8781e8-b224deb273bacb4717a7",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Toggle source visibility",
+              "id": "6939c11f571a5f8781e8-9a8094ba8e6174a20f4c",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Verify constructed column rename",
+              "id": "6939c11f571a5f8781e8-7973eba1643512c8d96c",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Verify constructed column presentation",
+              "id": "6939c11f571a5f8781e8-9311d4b17b98634608d1",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Inspect columns",
+              "id": "6939c11f571a5f8781e8-2be1e2ff33115499cdb4",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Inspect source column controls",
+              "id": "6939c11f571a5f8781e8-840e63c8e80ee45a83e4",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Verify source column reorder",
+              "id": "6939c11f571a5f8781e8-c46fd94ad7c62c3dfc21",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Apply missing",
+              "id": "6939c11f571a5f8781e8-c128eef8873f79f72564",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Missing proposal",
+              "id": "6939c11f571a5f8781e8-ed17f388ab5b64669198",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Remove saved filter",
+              "id": "6939c11f571a5f8781e8-31638667230d85e48f7f",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Edit saved missing filter",
+              "id": "6939c11f571a5f8781e8-cd6c8ab6098e9b06910c",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Edit saved filter",
+              "id": "6939c11f571a5f8781e8-9ae980fbb020976ba84a",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Apply known filter",
+              "id": "6939c11f571a5f8781e8-e725764bb90c3a1243ce",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Toggle filter flag",
+              "id": "6939c11f571a5f8781e8-ade3eadc74819d47e97e",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Inspect filters",
+              "id": "6939c11f571a5f8781e8-d13a9b1b44a6518e9d46",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/standalone-cda-cohort.spec.mjs",
+          "sha256": "a7662dcb6d6eaf569624d86aac68a533fb6762c85545656510cae49dcfb4ac87",
+          "cases": [
+            {
+              "title": "preserve RECORDS rows while applying, editing, reloading, and removing EXPAND",
+              "id": "ecc6449e1ec1baeb90d6-7fc1337dcbb45558baa4",
+              "line": 16,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "revise immutable membership and restore the source scope through the native Builder",
+              "id": "ecc6449e1ec1baeb90d6-cd4bc858b40e40fb9ff4",
+              "line": 28,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "revise immutable membership and restore the source scope through the native Builder",
+              "id": "ecc6449e1ec1baeb90d6-c025afb3b226eee2150d",
+              "line": 28,
+              "column": 5,
+              "occurrence": 2
+            },
+            {
+              "title": "verify scoped row membership, source lineage, member values, and saved policy edits",
+              "id": "ecc6449e1ec1baeb90d6-9638686e2413d0cb9942",
+              "line": 39,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "verify scoped row membership, source lineage, member values, and saved policy edits",
+              "id": "ecc6449e1ec1baeb90d6-2e1a60bcfbb563c7ed3b",
+              "line": 39,
+              "column": 5,
+              "occurrence": 2
+            },
+            {
+              "title": "compare native row identities and contributors with the independent scoped source oracle",
+              "id": "ecc6449e1ec1baeb90d6-a26841e86d435df45e9a",
+              "line": 56,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "compare native row identities and contributors with the independent scoped source oracle",
+              "id": "ecc6449e1ec1baeb90d6-66d6159d66e5e24cfffd",
+              "line": 56,
+              "column": 5,
+              "occurrence": 2
+            },
+            {
+              "title": "compare native row identities and contributors with the independent scoped source oracle",
+              "id": "ecc6449e1ec1baeb90d6-09cdef54625f344bf2f6",
+              "line": 56,
+              "column": 5,
+              "occurrence": 3
+            },
+            {
+              "title": "compare native row identities and contributors with the independent scoped source oracle",
+              "id": "ecc6449e1ec1baeb90d6-b68c90d188b454f5a9ed",
+              "line": 56,
+              "column": 5,
+              "occurrence": 4
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/standalone-cda-fields.spec.mjs",
+          "sha256": "535e536d39e51672537408bc44ae579aa10973dde24fff57d39633189cfaeab1",
+          "cases": [
+            {
+              "title": "CDA coded field lifecycle",
+              "id": "4074da69e426647e39aa-fe3eda15c2d6f58527e7",
+              "line": 13,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "CDA cohort fields",
+              "id": "4074da69e426647e39aa-88b6009e549d425f6d13",
+              "line": 22,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "CDA compound fields",
+              "id": "4074da69e426647e39aa-a72532d38658d2ae6c33",
+              "line": 31,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "CDA contributor code",
+              "id": "4074da69e426647e39aa-e18fc38a7751b20e7805",
+              "line": 40,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "CDA contributor exists",
+              "id": "4074da69e426647e39aa-1b3a044b4e2b6f7af89a",
+              "line": 49,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "CDA contributor rules",
+              "id": "4074da69e426647e39aa-ffaf6ca278ea113cdf9e",
+              "line": 58,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "CDA source fields",
+              "id": "4074da69e426647e39aa-632dbbd5196f15b43437",
+              "line": 67,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "CDA repeated contributor ANY",
+              "id": "4074da69e426647e39aa-442b1cb6bf2b28a3ea6e",
+              "line": 76,
+              "column": 3,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
+          "cases": [
+            {
+              "title": "cancel each coded suggestion dialog without changing the draft",
+              "id": "4d172c4a6a38586646e6-1b8cc3c7bc1bc1a3a191",
+              "line": 30,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "publish a bounded Specimen output and verify its viewer rows",
+              "id": "4d172c4a6a38586646e6-435a225baa46f3c120f3",
+              "line": 42,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "change related-record eligibility and restore the source rows",
+              "id": "4d172c4a6a38586646e6-638ce83a79557b718506",
+              "line": 54,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "save and remove a related framed column",
+              "id": "4d172c4a6a38586646e6-d18fbcc32897ca084460",
+              "line": 66,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "preserve Condition diagnosis identifier multiplicity through add and remove",
+              "id": "4d172c4a6a38586646e6-dba0cda85d490aafa4e3",
+              "line": 78,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "create, edit, cancel, apply, and remove a typed CDA filter",
+              "id": "4d172c4a6a38586646e6-621633bed352e7b48e57",
+              "line": 90,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "preserve selected CDA membership while changing and restoring the row root",
+              "id": "4d172c4a6a38586646e6-ec3d273225b48916026d",
+              "line": 102,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "create, edit, apply, and remove a CDA Patient filter with raw-source checks",
+              "id": "4d172c4a6a38586646e6-3e2150f1bcaa9d976f4b",
+              "line": 114,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "rebase Patient rows through Observation and restore the original route and values",
+              "id": "4d172c4a6a38586646e6-a8d71af32391fc504d89",
+              "line": 126,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "read legacy selection coverage and prove the saved draft remains unchanged",
+              "id": "4d172c4a6a38586646e6-65fa371682241e5b4aac",
+              "line": 138,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "delete the only CDA table, restore it with Undo, and verify reload state",
+              "id": "4d172c4a6a38586646e6-65f300352e5d3d8303e7",
+              "line": 150,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "remove an unmapped selected resource, verify the saved route, and reload",
+              "id": "4d172c4a6a38586646e6-5405fbd63533ae57b73b",
+              "line": 164,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "inspect grouped, coded, or related row sources across save, edit, removal, and reload",
+              "id": "4d172c4a6a38586646e6-9ac425e567118bb8bb6a",
+              "line": 178,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "create, rename, duplicate, reorder, delete, undo, and reload CDA tables",
+              "id": "4d172c4a6a38586646e6-394d0b838808d379b0f2",
+              "line": 190,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "cancel, save, reload, and remove three related COUNT siblings",
+              "id": "4d172c4a6a38586646e6-e866f61c92abef04f071",
+              "line": 202,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "save, reload, and remove three sibling SourceAggregate COUNT columns",
+              "id": "4d172c4a6a38586646e6-a550ff29d8c7faeba737",
+              "line": 215,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "expand exact Observation component tuples, publish, and verify ClickHouse Viewer rows",
+              "id": "4d172c4a6a38586646e6-75849434acf9478f21e8",
+              "line": 229,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "verify Patient.id values through the Specimen to Observation to Patient route",
+              "id": "4d172c4a6a38586646e6-a56810c5eabe60021b7e",
+              "line": 242,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "verify related Patient.id counts through the Specimen to Observation to Patient route",
+              "id": "4d172c4a6a38586646e6-063c46cb757fab0d4288",
+              "line": 254,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "author and restore an Observation Contributor ANY rule from the active Patient anchor",
+              "id": "4d172c4a6a38586646e6-56187ce73ef28ce78130",
+              "line": 266,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "author and restore the exact named-cohort COUNT contributor lifecycle",
+              "id": "4d172c4a6a38586646e6-6dcaf3fb0700fc763f1d",
+              "line": 285,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "author and restore the exact named-cohort COUNT contributor lifecycle",
+              "id": "4d172c4a6a38586646e6-e3c5c26a58bdbb56db20",
+              "line": 285,
+              "column": 5,
+              "occurrence": 2
+            },
+            {
+              "title": "author and restore the exact named-cohort ALL contributor lifecycle",
+              "id": "4d172c4a6a38586646e6-228ca6b8e39c791eede7",
+              "line": 285,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "author and restore the exact named-cohort ALL contributor lifecycle",
+              "id": "4d172c4a6a38586646e6-312fa1af77966ba86b32",
+              "line": 285,
+              "column": 5,
+              "occurrence": 2
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/standalone-cda-rows.spec.mjs",
+          "sha256": "718bbe68348bdc5565631e586f79a2a52b4159c848a4f33b757a06e7d2376d63",
+          "cases": [
+            {
+              "title": "expands nested component coding items and verifies exact raw source identities",
+              "id": "ba1e5e1830d6296fdd86-645ea6cbccbec225a968",
+              "line": 35,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "preserves cda id behavior against raw related records",
+              "id": "ba1e5e1830d6296fdd86-c344932bb4689f7412a9",
+              "line": 52,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "preserves empty and populated component owners through row policy and GROUP lifecycle",
+              "id": "ba1e5e1830d6296fdd86-b3e1bfd4663eb546c5c7",
+              "line": 66,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "applies source expansion, verifies item values, and restores original Observation rows",
+              "id": "ba1e5e1830d6296fdd86-b24bd225ef5087925f70",
+              "line": 80,
+              "column": 3,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/standalone-misc.spec.mjs",
+          "sha256": "0e7a77c38b45eba524a5330ecf7bd4c94e547d993319198d066a4b053002c9b5",
+          "cases": [
+            {
+              "title": "native disclosure controls reject hidden edits and accept visible typing",
+              "id": "aff388ba640ac1dec379-220f2c419afb6f6afaac",
+              "line": 26,
+              "column": 1,
+              "occurrence": 1
+            },
+            {
+              "title": "preserves authored construction through cancel, apply, and reload",
+              "id": "aff388ba640ac1dec379-4528cafb95f23a8a6a21",
+              "line": 48,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "selects, edits, removes, and reloads the coded group from a fresh synthetic fixture",
+              "id": "aff388ba640ac1dec379-3a85fb3011bdacdf3562",
+              "line": 60,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "selects, edits, removes, and reloads the coded group",
+              "id": "aff388ba640ac1dec379-f10e124424d644d6da01",
+              "line": 121,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "selects, edits, removes, and reloads the coded group",
+              "id": "aff388ba640ac1dec379-5651b6a1268aa369f901",
+              "line": 121,
+              "column": 5,
+              "occurrence": 2
+            },
+            {
+              "title": "retains dependent-removal warnings through apply and reload",
+              "id": "aff388ba640ac1dec379-50706259e8967d5df5b0",
+              "line": 128,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "preserves, excludes, cancels, applies, and restores exact source rows",
+              "id": "aff388ba640ac1dec379-07dd88d2e5fe66e51ec0",
+              "line": 134,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "previews and cancels or applies removal from an explicitly owned Explorer",
+              "id": "aff388ba640ac1dec379-e1013ece13ee59913ebe",
+              "line": 140,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "renders exact selected resources from explicit selection evidence",
+              "id": "aff388ba640ac1dec379-962e878abcc271809724",
+              "line": 148,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "leaves the explicitly owned workspace unchanged",
+              "id": "aff388ba640ac1dec379-16c9f7240e25ba6cb863",
+              "line": 156,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "preserves source, preview, and persisted population shape",
+              "id": "aff388ba640ac1dec379-270e0fb5ccab265ebab6",
+              "line": 164,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "preserves feature keys and configured filters",
+              "id": "aff388ba640ac1dec379-1dd2b9765ab49233bfc6",
+              "line": 172,
+              "column": 3,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/standalone-reshape.spec.mjs",
+          "sha256": "459705176a59746c914d4f53e4855f3adcd42224c12b998c8bb89c9c1032c524",
+          "cases": [
+            {
+              "title": "coded-pivot-integer",
+              "id": "70fc556bb9ebf4a2c951-7ab88f919bb28279df9b",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "coded-pivot-string",
+              "id": "70fc556bb9ebf4a2c951-7dd8406544bdcb4a9b97",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "implicit-pivot-root",
+              "id": "70fc556bb9ebf4a2c951-ad5bd3f18c5e706f3158",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "implicit-pivot-related",
+              "id": "70fc556bb9ebf4a2c951-04b2ee9faec0dafd9e25",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "implicit-pivot-related-source-key",
+              "id": "70fc556bb9ebf4a2c951-20eba20e46dd65f23758",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "group-add-fields",
+              "id": "70fc556bb9ebf4a2c951-6b9b3b6a5a2c0d93090f",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "group-one-conflict",
+              "id": "70fc556bb9ebf4a2c951-0d4d546e6dab82e4b508",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "group-related-values",
+              "id": "70fc556bb9ebf4a2c951-39ee699c3511160e0617",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "related-group",
+              "id": "70fc556bb9ebf4a2c951-5dc98710202ac2a3d60f",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "group-related-summary",
+              "id": "70fc556bb9ebf4a2c951-65a12826e3564a6b3364",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "group-edit-before-related-column",
+              "id": "70fc556bb9ebf4a2c951-d380baa278a6427b4b0e",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "pivot-category-cycle",
+              "id": "70fc556bb9ebf4a2c951-5138202bfff701c27b50",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "pivot-related-apply-only",
+              "id": "70fc556bb9ebf4a2c951-772f3aefa24c0dafb1ea",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "pivot-category-edit",
+              "id": "70fc556bb9ebf4a2c951-619a25be04c05783cbe4",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "pivot-field-change",
+              "id": "70fc556bb9ebf4a2c951-7dbaf8e1ea53e8785df2",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "pivot-reload",
+              "id": "70fc556bb9ebf4a2c951-adc542d8fb2c0dbce85e",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "quantity-pivot",
+              "id": "70fc556bb9ebf4a2c951-270793e0aa3a2fae00a6",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "quantity-pivot-full-population",
+              "id": "70fc556bb9ebf4a2c951-56b17fbe8a8bef766a60",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "quantity-pivot-native-drag",
+              "id": "70fc556bb9ebf4a2c951-45d9b49cda1d76dffea6",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "quantity-pivot-native-drag-full-population",
+              "id": "70fc556bb9ebf4a2c951-4308951f6d2ba7245619",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "related-field-after-unpivot-gender-all",
+              "id": "70fc556bb9ebf4a2c951-fb91349f8ab5d693ef44",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "related-field-after-unpivot-gender-null-all",
+              "id": "70fc556bb9ebf4a2c951-a53330265486fcbfb425",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "related-field-after-unpivot-resource-type-all",
+              "id": "70fc556bb9ebf4a2c951-972e19c83316a4227ffd",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "related-field-after-unpivot-id-count",
+              "id": "70fc556bb9ebf4a2c951-810c1355138963e42cd0",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "related-pivot",
+              "id": "70fc556bb9ebf4a2c951-689cab6dc5f25b80d9a7",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "related-source-after-pivot",
+              "id": "70fc556bb9ebf4a2c951-0209db370e0a3d8bb3ed",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "related-unpivot",
+              "id": "70fc556bb9ebf4a2c951-7f9b3125ebf59b617774",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "unpivot",
+              "id": "70fc556bb9ebf4a2c951-203307ea5c48abe76f36",
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/viewer-query.spec.mjs",
+          "sha256": "7b3212ac3c14192f09dd1fc35850acfffd3820f21ba08772bf544532247cce00",
+          "cases": [
+            {
+              "title": "Viewer query reports an owned read failure and recovers through Retry",
+              "id": "238d878b28835f3edd72-579e8c53adb1c0250539",
+              "line": 6,
+              "column": 1,
+              "occurrence": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sessionID": "construction-preview-bench",
+      "configPath": "scripts/measurements/construction-preview/construction-preview-bench.config.mjs",
+      "configSha256": "3ad96e538a1eb730dcd1e102576f4347b90ce83ba9504c4cd59f762700295ed3",
+      "environment": {},
+      "testCount": 1,
+      "specFileCount": 1,
+      "discoveredCasesSha256": "35b7c01b5009b411a0f9f6ceeef538cdc29683f63aa03c6b9dab20a429e8552b",
+      "specs": [
+        {
+          "path": "scripts/measurements/construction-preview/construction-preview-bench.spec.mjs",
+          "sha256": "fee4ec063ed931a48fe9edd88009913d93e69bcb757e8611be17d024c9c8d043",
+          "cases": [
+            {
+              "title": "construction preview benchmark @construction-preview-bench",
+              "id": "437ed127b10ff3c054fb-2a684fa81c551a813709",
+              "line": 9,
+              "column": 1,
+              "occurrence": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sessionID": "collection-partial-long-route",
+      "configPath": "scripts/playwright.config.mjs",
+      "configSha256": "d16ccb10ccf63f8a711ae7f8c5b61d4bc44452172e9a309a06cab32ce30f69bc",
+      "environment": {
+        "LOOM_COLLECTION_PARTIAL_LONG_ROUTE": "1"
+      },
+      "testCount": 1,
+      "specFileCount": 1,
+      "discoveredCasesSha256": "6214cf0ee7a22fd53bf094c924afabecdcec288a04303b7c65f312bcf0efab12",
+      "specs": [
+        {
+          "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
+          "cases": [
+            {
+              "title": "remove an unmapped selected resource, verify the saved route, and reload",
+              "id": "4d172c4a6a38586646e6-5405fbd63533ae57b73b",
+              "line": 164,
+              "column": 3,
+              "occurrence": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sessionID": "related-one-all-basic-status",
+      "configPath": "scripts/playwright.config.mjs",
+      "configSha256": "d16ccb10ccf63f8a711ae7f8c5b61d4bc44452172e9a309a06cab32ce30f69bc",
+      "environment": {
+        "LOOM_RELATED_ONE_ALL_MODE": "basic",
+        "LOOM_RELATED_ONE_ALL_FIELD": "status"
+      },
+      "testCount": 1,
+      "specFileCount": 1,
+      "discoveredCasesSha256": "96822ddacdad131715e7d00f3216d67cdd20dc2086d3630f5c99ffcc226b1916",
+      "specs": [
+        {
+          "path": "scripts/verify-ui/specs/standalone-cda-rows.spec.mjs",
+          "sha256": "718bbe68348bdc5565631e586f79a2a52b4159c848a4f33b757a06e7d2376d63",
+          "cases": [
+            {
+              "title": "preserves basic status behavior against raw related records",
+              "id": "ba1e5e1830d6296fdd86-df097afebecd22172985",
+              "line": 52,
+              "column": 3,
+              "occurrence": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sessionID": "related-one-all-cda-status",
+      "configPath": "scripts/playwright.config.mjs",
+      "configSha256": "d16ccb10ccf63f8a711ae7f8c5b61d4bc44452172e9a309a06cab32ce30f69bc",
+      "environment": {
+        "LOOM_RELATED_ONE_ALL_MODE": "cda",
+        "LOOM_RELATED_ONE_ALL_FIELD": "status"
+      },
+      "testCount": 1,
+      "specFileCount": 1,
+      "discoveredCasesSha256": "b9a93786ad4d5d7f7c915b9a7dca0f0099c3e4dcc55cd0e16e5363d47a7c6c72",
+      "specs": [
+        {
+          "path": "scripts/verify-ui/specs/standalone-cda-rows.spec.mjs",
+          "sha256": "718bbe68348bdc5565631e586f79a2a52b4159c848a4f33b757a06e7d2376d63",
+          "cases": [
+            {
+              "title": "preserves cda status behavior against raw related records",
+              "id": "ba1e5e1830d6296fdd86-0383dbe56a1b66c3b456",
+              "line": 52,
+              "column": 3,
+              "occurrence": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sessionID": "related-one-all-cda-specimen-reference",
+      "configPath": "scripts/playwright.config.mjs",
+      "configSha256": "d16ccb10ccf63f8a711ae7f8c5b61d4bc44452172e9a309a06cab32ce30f69bc",
+      "environment": {
+        "LOOM_RELATED_ONE_ALL_MODE": "cda",
+        "LOOM_RELATED_ONE_ALL_FIELD": "specimen-reference"
+      },
+      "testCount": 1,
+      "specFileCount": 1,
+      "discoveredCasesSha256": "e312358e9a723de1c9cc4982af2d7b9571adfacaf15d4f3949e61ed6ddcd0d19",
+      "specs": [
+        {
+          "path": "scripts/verify-ui/specs/standalone-cda-rows.spec.mjs",
+          "sha256": "718bbe68348bdc5565631e586f79a2a52b4159c848a4f33b757a06e7d2376d63",
+          "cases": [
+            {
+              "title": "preserves cda specimen-reference behavior against raw related records",
+              "id": "ba1e5e1830d6296fdd86-77e2f986ba68efb017d9",
+              "line": 52,
+              "column": 3,
+              "occurrence": 1
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

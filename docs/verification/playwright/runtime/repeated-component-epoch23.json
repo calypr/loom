@@ -1,0 +1,342 @@
+{
+  "case": "CDA repeated component rows",
+  "caseTitle": "CDA repeated component rows applies source expansion, verifies item values, and restores original Observation rows",
+  "runner": {
+    "status": "passed",
+    "durationMs": 27248,
+    "workers": 1,
+    "reportedDurationMs": 27247.965
+  },
+  "workflow": {
+    "status": "passed",
+    "assertionCount": 12,
+    "assertions": [
+      {
+        "name": "bounded independent raw CDA oracle selected at most three Observations",
+        "status": "passed"
+      },
+      {
+        "name": "modern row-definition choice binds root Observation.component[]",
+        "status": "passed"
+      },
+      {
+        "name": "native row-definition Cancel preserves source-record rows",
+        "status": "passed"
+      },
+      {
+        "name": "native row-definition Apply persists exact component[] scope and policy",
+        "status": "passed"
+      },
+      {
+        "name": "reload renders the applied repeated component rows",
+        "status": "passed"
+      },
+      {
+        "name": "native sibling field preview matches exact raw Observation/component tuples",
+        "status": "passed"
+      },
+      {
+        "name": "native Apply persists canonical component[].valueString at base occurrence",
+        "status": "passed"
+      },
+      {
+        "name": "native field removal restores prior columns and preserves repeated rows",
+        "status": "passed"
+      },
+      {
+        "name": "row-definition edit and reload restore one row per selected Observation",
+        "status": "passed"
+      },
+      {
+        "name": "expanded item identities are unique and stable across proposals and saved reload",
+        "status": "passed"
+      },
+      {
+        "name": "source restoration preserves original population, route, field bindings and exact CDA members",
+        "status": "passed"
+      },
+      {
+        "name": "browser lifecycle had no runtime, module, console, or HTTP errors",
+        "status": "passed"
+      }
+    ],
+    "timingCount": 22,
+    "maxActionMs": 1456,
+    "allActionsWithin5000ms": true,
+    "failures": [],
+    "gaps": [],
+    "durationMs": 25921,
+    "durationLabel": "workflow native-action report duration, milliseconds"
+  },
+  "independentRawOracle": {
+    "source": "ArangoDB raw Observation payloads",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "queryLimit": 1000,
+    "scanned": 1000,
+    "observationCount": 3,
+    "componentItemCount": 6,
+    "selected": [
+      {
+        "id": "00004888-0740-540e-bc75-68b5192fbf5a",
+        "generation": "cda-fhir-v1",
+        "resourceType": "Observation",
+        "componentValues": [
+          {
+            "ordinal": 0,
+            "value": "aliquot"
+          },
+          {
+            "ordinal": 1,
+            "value": "Adenoma, NOS"
+          }
+        ]
+      },
+      {
+        "id": "00008c9a-64db-55f9-96bf-7a0db4e32551",
+        "generation": "cda-fhir-v1",
+        "resourceType": "Observation",
+        "componentValues": [
+          {
+            "ordinal": 0,
+            "value": "sample"
+          },
+          {
+            "ordinal": 1,
+            "value": "Acinar cell adenoma"
+          }
+        ]
+      },
+      {
+        "id": "0000961c-775c-52cf-b25c-c71ee28c423f",
+        "generation": "cda-fhir-v1",
+        "resourceType": "Observation",
+        "componentValues": [
+          {
+            "ordinal": 0,
+            "value": "aliquot"
+          },
+          {
+            "ordinal": 1,
+            "value": "Glioma, malignant"
+          }
+        ]
+      }
+    ],
+    "expectedTuples": [
+      {
+        "id": "00004888-0740-540e-bc75-68b5192fbf5a",
+        "ordinal": 0,
+        "value": "aliquot"
+      },
+      {
+        "id": "00004888-0740-540e-bc75-68b5192fbf5a",
+        "ordinal": 1,
+        "value": "Adenoma, NOS"
+      },
+      {
+        "id": "00008c9a-64db-55f9-96bf-7a0db4e32551",
+        "ordinal": 0,
+        "value": "sample"
+      },
+      {
+        "id": "00008c9a-64db-55f9-96bf-7a0db4e32551",
+        "ordinal": 1,
+        "value": "Acinar cell adenoma"
+      },
+      {
+        "id": "0000961c-775c-52cf-b25c-c71ee28c423f",
+        "ordinal": 0,
+        "value": "aliquot"
+      },
+      {
+        "id": "0000961c-775c-52cf-b25c-c71ee28c423f",
+        "ordinal": 1,
+        "value": "Glioma, malignant"
+      }
+    ]
+  },
+  "timings": [
+    {
+      "name": "fresh-explorer-load-to-render",
+      "durationMs": 1456,
+      "limitMs": 5000
+    },
+    {
+      "name": "row-definition-choice-discovery",
+      "durationMs": 137,
+      "limitMs": 5000
+    },
+    {
+      "name": "row-definition-expanded-preview",
+      "durationMs": 634,
+      "limitMs": 5000
+    },
+    {
+      "name": "native-row-definition-cancel",
+      "durationMs": 126,
+      "limitMs": 5000
+    },
+    {
+      "name": "row-definition-choice-discovery",
+      "durationMs": 111,
+      "limitMs": 5000
+    },
+    {
+      "name": "row-definition-expanded-preview",
+      "durationMs": 604,
+      "limitMs": 5000
+    },
+    {
+      "name": "native-row-definition-apply",
+      "durationMs": 504,
+      "limitMs": 5000
+    },
+    {
+      "name": "reload-expanded-component-rows",
+      "durationMs": 1322,
+      "limitMs": 5000
+    },
+    {
+      "name": "native-component-field-preview",
+      "durationMs": 697,
+      "limitMs": 5000
+    },
+    {
+      "name": "native-component-field-cancel",
+      "durationMs": 146,
+      "limitMs": 5000
+    },
+    {
+      "name": "native-component-field-confirmed-preview",
+      "durationMs": 815,
+      "limitMs": 5000
+    },
+    {
+      "name": "native-component-field-apply",
+      "durationMs": 427,
+      "limitMs": 5000
+    },
+    {
+      "name": "reload-added-component-field",
+      "durationMs": 1384,
+      "limitMs": 5000
+    },
+    {
+      "name": "native-component-field-remove",
+      "durationMs": 320,
+      "limitMs": 5000
+    },
+    {
+      "name": "reload-after-field-removal",
+      "durationMs": 1317,
+      "limitMs": 5000
+    },
+    {
+      "name": "row-definition-choice-discovery",
+      "durationMs": 110,
+      "limitMs": 5000
+    },
+    {
+      "name": "row-definition-records-preview",
+      "durationMs": 606,
+      "limitMs": 5000
+    },
+    {
+      "name": "edit-cancel-preserves-expanded-row-definition",
+      "durationMs": 134,
+      "limitMs": 5000
+    },
+    {
+      "name": "row-definition-choice-discovery",
+      "durationMs": 115,
+      "limitMs": 5000
+    },
+    {
+      "name": "row-definition-records-preview",
+      "durationMs": 602,
+      "limitMs": 5000
+    },
+    {
+      "name": "edit-row-definition-to-source-records",
+      "durationMs": 419,
+      "limitMs": 5000
+    },
+    {
+      "name": "reload-after-row-restoration",
+      "durationMs": 1356,
+      "limitMs": 5000
+    }
+  ],
+  "closure": {
+    "status": "SOURCE_DOCS_API_MOUNTS_CLOSED_UNCHANGED",
+    "sourceUnchanged": true,
+    "sourceFingerprint": {
+      "sha256": "a36e39de88257af8cfe4c84ab8798de1f7468b84f206cc7f0581421589fe15a6",
+      "files": 1489
+    },
+    "docsUnchanged": true,
+    "docsFingerprint": {
+      "sha256": "3c29d06b28f6607942ce0078b6783a9130834bf7f6d78e542d98904ecd3b664d",
+      "files": 107
+    },
+    "apiUnchanged": true,
+    "apiBuildIdentity": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+    "ownedMountsUnchanged": true,
+    "ownedMountsStatus": "PASS",
+    "health": {
+      "api": 200,
+      "ui": 200
+    },
+    "capturedAt": "2026-10-05T20:32:33.406864+00:00"
+  },
+  "genericFixtureEnvelope": {
+    "status": "unverified",
+    "runnerStatus": "passed",
+    "missingRequiredChecks": [],
+    "incidentalErrors": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ]
+  },
+  "artifacts": {
+    "runner": "/private/tmp/loom-native-parallel-wave23/cda-repeated-component-rows/results.json",
+    "runnerLog": "/private/tmp/loom-native-parallel-wave23/cda-repeated-component-rows/runner.log",
+    "workflow": "/private/tmp/loom-native-parallel-wave23/cda-repeated-component-rows/results/standalone-cda-rows-CDA-re-72fb1-s-original-Observation-rows/attachments/standalone-cda-repeated-rows.json",
+    "fixtureEnvelope": "/private/tmp/loom-native-parallel-wave23/cda-repeated-component-rows/results/standalone-cda-rows-CDA-re-72fb1-s-original-Observation-rows/cda-report.json",
+    "release": "/private/tmp/loom-native-parallel-wave23/release.json",
+    "closure": "/private/tmp/loom-native-parallel-wave23/closure.json"
+  },
+  "sha256": {
+    "runner": "3b258bbc8debd64dbc329a61e1c19d575fd9817c4f399272c76a1c0332a17b23",
+    "workflow": "824bc54e00a755794736287f6c1bb4f14eb974c3c6376928cd81c05e6b33778f",
+    "closure": "d09d5040ec43f7bf3e402c4be347cf0be8b8de558ffae427a09a9e50c412adcc",
+    "release": "63bc8b923ec4f3ad774c1ef53033451237b02b1927b8a5a36a03066ae796ae54"
+  },
+  "proposedTsvRow": {
+    "feature": "Native CDA repeated component rows",
+    "transition_or_variant": "Source Observation.component[] expansion; ALL item field, Cancel/Apply/reload/removal and RECORDS restoration",
+    "status": "passed",
+    "usability": "passed",
+    "correctness": "passed",
+    "persistence": "passed",
+    "performance": "passed",
+    "runnable_command": "cd '/private/tmp/loom-construction-implementation/scripts' && source '/private/tmp/loom-native-parallel-wave23/environment.sh' && set -o pipefail && export LOOM_ARANGO_CONTAINER=\"$LOOM_CDA_ARANGO_CONTAINER\" && export LOOM_ARANGO_DATABASE=loom_dev && mkdir -p '/private/tmp/loom-native-parallel-wave23/cda-repeated-component-rows' && PLAYWRIGHT_JSON_OUTPUT_FILE='/private/tmp/loom-native-parallel-wave23/cda-repeated-component-rows/results.json' npm run test:browser -- 'playwright/standalone-cda-rows.spec.mjs' --grep 'CDA repeated component rows applies source expansion, verifies item values, and restores original Observation rows$' --output '/private/tmp/loom-native-parallel-wave23/cda-repeated-component-rows/results' 2>&1 | tee '/private/tmp/loom-native-parallel-wave23/cda-repeated-component-rows/runner.log'",
+    "evidence": "Epoch23 native Playwright 1/1 passed; workflow report passed 12/12 assertions. Independent Arango raw oracle scanned 1000 scoped current-generation Observations, selected 3 with 6 exact component[] items. 22 timed actions, max 1456ms (all <=5s); Cancel/Apply/reload, exact tuples, stable item identities, field add/remove and source restoration passed. Epoch23 source/docs/API/mount closure: SOURCE_DOCS_API_MOUNTS_CLOSED_UNCHANGED; source 1489 files/a36e39de88257af8cfe4c84ab8798de1f7468b84f206cc7f0581421589fe15a6; docs 107 files/3c29d06b28f6607942ce0078b6783a9130834bf7f6d78e542d98904ecd3b664d; API and mounts unchanged. Runner /private/tmp/loom-native-parallel-wave23/cda-repeated-component-rows/results.json; workflow /private/tmp/loom-native-parallel-wave23/cda-repeated-component-rows/results/standalone-cda-rows-CDA-re-72fb1-s-original-Observation-rows/attachments/standalone-cda-repeated-rows.json; closure /private/tmp/loom-native-parallel-wave23/closure.json. Generic fixture envelope status=unverified with runnerStatus=passed; incidental favicon 404 only.",
+    "next_check": "Nested second repeated boundary and empty-item policies remain separate behavior classes."
+  },
+  "preimage": {
+    "path": "/private/tmp/loom-native-parallel-wave23/integration-stage/preimage/docs/BUILDER_VERIFICATION.tsv",
+    "sha256": "ea80306962997e603938a92e7e907ecd9e4d8637a34014619236fbdfbb873ba6"
+  },
+  "candidate": {
+    "path": "/private/tmp/loom-native-parallel-wave23/integration-stage/candidate/docs/BUILDER_VERIFICATION.tsv",
+    "patch": "/private/tmp/loom-native-parallel-wave23/integration-stage/patches/builder-verification-row154.patch",
+    "sha256": "6ce787ab4da9243be97be1c9cfbbf4974dd26e231c043b478b3ed9033e7e56fc"
+  },
+  "coordinatorReleaseStatus": "SERIAL_CASE_PASSED_CLOSED",
+  "canonicalEdited": false
+}

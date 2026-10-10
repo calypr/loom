@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "fix": "Pin historical authoring semantics migration boundaries so persisted v9 workspaces retain their digest when decoded under current v10 semantics; preserve supported v8-to-v9 migrations.",
+  "staging": {
+    "candidate_root": "/private/tmp/loom-draft-digest-lifecycle-stage",
+    "evidence_root": "/private/tmp/loom-draft-digest-evidence",
+    "patch": "/private/tmp/loom-draft-digest-evidence/loom-draft-digest-fix.patch",
+    "patch_sha256": "97d1816ccf3aede4087e54ab616b208454f2c39676f1101fb71364a8ab07fc55",
+    "preimage_manifest": "/private/tmp/loom-draft-digest-evidence/preimages.json",
+    "files": [
+      {
+        "path": "internal/explorer/authoringv2/types.go",
+        "preimage_sha256": "991607374fee7df9e6a33213e7bcbd120fe8dfa856cf467818194d23305c25ab",
+        "candidate_sha256": "16a6b6878935405c6cb156abf673a0d507e0d3ab5d84e9d01bb0a11eb4394273"
+      },
+      {
+        "path": "internal/explorer/authoringv2/migration.go",
+        "preimage_sha256": "f1f535f7a0bf94634a088ac416de3d3886ccf4d8033219a90dce219873ff8f08",
+        "candidate_sha256": "d51ded2d2977a23b5eed4e6a50b4f470e1a3c1a3b28ef398faab45847d8d71ff"
+      },
+      {
+        "path": "internal/explorer/authoringv2/validation.go",
+        "preimage_sha256": "9a36e869df97d7402db92748ab971e90466cfb79f51cea97af8f00e3a5b9a8dd",
+        "candidate_sha256": "9361897266c50ea7eb1dab5ee13d3da474c0486f545a4a7dd1cdef3f43bb7d9f"
+      },
+      {
+        "path": "internal/explorer/authoringv2/canonical.go",
+        "preimage_sha256": "6d415dc4a8314cb9915b384d491d6715eab0bfc74ea0e05a56151a773df9ac97",
+        "candidate_sha256": "f0e745304a3c4417aca1a23cda9eb9a701a0bd17be592ce986c2f19bd8d2090c"
+      },
+      {
+        "path": "internal/explorer/authoringv2/migration_test.go",
+        "preimage_sha256": "d96a48c71b52c1d21fac9140c874708837312968f29bc18b6f53f75276f8b142",
+        "candidate_sha256": "ae383e606d0934ea2b1d11fd082407a525433d8755af311ddaa0f0b53e72efb8"
+      },
+      {
+        "path": "internal/explorer/authoringv2/table_shape_test.go",
+        "preimage_sha256": "b9bbeb1b101b6ed4dd0036e805bdcf6b6c9a836b573c196ebecfbc605d250d97",
+        "candidate_sha256": "a5da46a6f8e479873d0e167fe7c2e3b588c643417bbf05377b052efa02d0a43d"
+      }
+    ]
+  },
+  "verification": {
+    "red_before": {
+      "stage": "/private/tmp/loom-draft-digest-evidence/red-before-stage",
+      "command": "GOCACHE=/private/tmp/loom-draft-digest-lifecycle-stage/.gocache go test ./internal/explorer/authoringv2 -run '^TestTableShapeV9WorkspacePreservesDigestOnDecode$' -count=1",
+      "result": "FAIL as expected: semanticsVersion = 10, want 9",
+      "exit_status": 1,
+      "log": "/private/tmp/loom-draft-digest-evidence/red-before.log",
+      "source_note": "The three changed runtime files canonical.go, migration.go, and validation.go were restored from preimages; candidate types.go constants and candidate regression tests were retained so the new test compiles. This isolates the moving migration gate rather than claiming a pristine full-checkout baseline."
+    },
+    "green_after": {
+      "command": "GOCACHE=/private/tmp/loom-draft-digest-lifecycle-stage/.gocache go test ./internal/explorer/authoringv2 -run '^TestTableShapeV9WorkspacePreservesDigestOnDecode$' -count=1",
+      "result": "PASS",
+      "exit_status": 0,
+      "log": "/private/tmp/loom-draft-digest-evidence/green-after.log"
+    },
+    "package_suite": {
+      "command": "GOCACHE=/private/tmp/loom-draft-digest-lifecycle-stage/.gocache go test ./internal/explorer/authoringv2 -count=1",
+      "result": "PASS (0.743s)",
+      "record": "/private/tmp/loom-draft-digest-evidence/verification.txt"
+    },
+    "api_build_health": {
+      "source_record": "/private/tmp/loom-native-parallel-wave28/build-health.json",
+      "status": "healthy-new-build",
+      "startedAt": "2026-10-05T21:12:36.263Z",
+      "finishedAt": "2026-10-05T21:12:43.265Z",
+      "container": "loom-dev-6d7df93d6a37-loom-api-1",
+      "oldIdentity": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+      "apiBuildIdentity": "5a78601a4662696e29b46183f9d1503224354fb6cd2f3919d6587896fceac4ac:5a78601a4662696e29b46183f9d1503224354fb6cd2f3919d6587896fceac4ac:14de1228f61002d308f018bf4d019e4fc805a33791b528352bb07887613f964a",
+      "sourceFingerprint": {
+        "sha256": "45193eb244467953252f6f735adb2b0f993fb57b1cfbf8c09e5ad2f8e6a608ce",
+        "files": 1489
+      },
+      "stableSamples": 3,
+      "api": {
+        "status": 200,
+        "body": "{\"core\":\"ready\",\"dataframe\":\"ready\",\"status\":\"ready\"}"
+      },
+      "ui": {
+        "status": 200
+      },
+      "source_manifest_matches_candidate": true,
+      "source_manifest_candidate_paths": {
+        "internal/explorer/authoringv2/types.go": "16a6b6878935405c6cb156abf673a0d507e0d3ab5d84e9d01bb0a11eb4394273",
+        "internal/explorer/authoringv2/migration.go": "d51ded2d2977a23b5eed4e6a50b4f470e1a3c1a3b28ef398faab45847d8d71ff",
+        "internal/explorer/authoringv2/validation.go": "9361897266c50ea7eb1dab5ee13d3da474c0486f545a4a7dd1cdef3f43bb7d9f",
+        "internal/explorer/authoringv2/canonical.go": "f0e745304a3c4417aca1a23cda9eb9a701a0bd17be592ce986c2f19bd8d2090c",
+        "internal/explorer/authoringv2/migration_test.go": "ae383e606d0934ea2b1d11fd082407a525433d8755af311ddaa0f0b53e72efb8",
+        "internal/explorer/authoringv2/table_shape_test.go": "a5da46a6f8e479873d0e167fe7c2e3b588c643417bbf05377b052efa02d0a43d"
+      }
+    },
+    "browser_lifecycle": {
+      "status": "unverified",
+      "note": "No browser lifecycle rerun is recorded in this evidence bundle."
+    },
+    "capability_integrity_regression": {
+      "test": "TestTableShapeCapabilitiesRejectInconsistentOwnerDigestAndAcceptCanonicalV9",
+      "file": "internal/explorer/lifecycle/table_shape_capabilities_test.go",
+      "candidate_sha256": "51b549c51c4e2cdf48046d3db120004069a15b260c49d6716de9f040bbc8a271",
+      "command": "GOCACHE=/private/tmp/loom-table-shape-draft-digest-regression/gocache go test ./internal/explorer/lifecycle -run ^TestTableShapeCapabilitiesRejectInconsistentOwnerDigestAndAcceptCanonicalV9$ -count=1",
+      "working_directory": "/private/tmp/loom-table-shape-draft-digest-regression/repo",
+      "exit_status": 0,
+      "package_seconds": 0.741,
+      "exec_session": 51973,
+      "evidence_source": "Worker terminal tool output reported to root; no standalone stdout log retained at integration time.",
+      "checks": [
+        "Valid canonical saved semantics v9 Pivot reaches table-shape capabilities.",
+        "A valid-format incorrect stored digest echoed by the request returns DRAFT_CONFLICT before receipt/catalog writes."
+      ]
+    }
+  }
+}

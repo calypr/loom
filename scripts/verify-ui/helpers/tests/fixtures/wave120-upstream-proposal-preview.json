@@ -1,0 +1,419 @@
+{
+  "evidence": {
+    "runReportSha256": "8810e4ab21401b90ee507a857bf59427f8e8f33d62caf02fbd3c526637d027aa",
+    "errorContextSha256": "1aa8b15ee5b911dd6135679cf01c709a9666b4fcb154b10d03227476944e0697",
+    "sourceScenario": "cda-upstream-related-edit-cascade",
+    "sourceCase": "upstream-edit-cascade",
+    "provenance": "Expected arrays are the retained independent raw-oracle side of the wave120 duplicate-sensitive assertion; API preview is the owned proposal response that preceded Cancel."
+  },
+  "candidateConstruction": {
+    "steps": [
+      {
+        "id": "related_expand_f073802f-d4c5-4b0b-8d08-b464104f51c1",
+        "inputs": [
+          {
+            "kind": "SOURCE_PROJECTION"
+          }
+        ],
+        "operation": {
+          "kind": "RELATED_EXPAND",
+          "relatedExpand": {
+            "anchorColumnId": "_key",
+            "choiceId": "cc2.eyJ2ZXJzaW9uIjoiY29uc3RydWN0aW9uLWNob2ljZS92MiIsImtpbmQiOiJSRUxBVEVEX1JFU09VUkNFIiwic25hcHNob3RUb2tlbiI6InNoYTI1Njo3ZTlhMDI1ZWMyNTU1MDMzZmQxMzhhM2NiZjllYWVjZWJiMjRmODcwYTZiMzdjZjVlODZlMDM1NWM4NGI0MGY3Iiwic291cmNlIjp7ImtpbmQiOiJSRUxBVEVEX1JFU09VUkNFIiwic3RhZ2VJZCI6InNvdXJjZV9wcm9qZWN0aW9uIiwiYW5jaG9yQ29sdW1uSWQiOiJfa2V5IiwiYW5jaG9yS2luZCI6InJvb3QiLCJhbmNob3JOb2RlSWQiOiJuXzAwOWNiYjA4NDI1NWJkYTA0ZTljYzVkMiIsImFuY2hvclJlc291cmNlVHlwZSI6IlNwZWNpbWVuIiwibm9kZUlkIjoibl8zYjc1YjU2ZTQ3M2JkMmViNjhiOWQ2ZjYiLCJyZXNvdXJjZVR5cGUiOiJQYXRpZW50In0sInJvdXRlIjpbeyJlZGdlSWQiOiJlX2M2OGJmMmFhNjgzYzMwZjRlYTc0ZjIxNSIsImZyb21Ob2RlSWQiOiJuXzAwOWNiYjA4NDI1NWJkYTA0ZTljYzVkMiIsInRvTm9kZUlkIjoibl8zYjc1YjU2ZTQ3M2JkMmViNjhiOWQ2ZjYiLCJmcm9tUmVzb3VyY2VUeXBlIjoiU3BlY2ltZW4iLCJ0b1Jlc291cmNlVHlwZSI6IlBhdGllbnQiLCJyZWxhdGlvbnNoaXAiOiJzdWJqZWN0X1BhdGllbnQiLCJzdG9yYWdlRGlyZWN0aW9uIjoiT1VUQk9VTkQiLCJtYXRjaE1vZGUiOiJPUFRJT05BTCJ9XX0.917dd15ac00a4ca8115c0a033b86bf7bbeda0ac5f9d8018245496f87082b6c3d",
+            "contributorRule": {
+              "policy": "ALL_MATCHES"
+            },
+            "emptyPolicy": "EXCLUDE",
+            "relatedRecordColumnId": "related_record_5632fd3d-b68d-4f76-918d-05d67ee5092f",
+            "route": [
+              {
+                "edgeId": "e_c68bf2aa683c30f4ea74f215",
+                "fromNodeId": "n_009cbb084255bda04e9cc5d2",
+                "fromResourceType": "Specimen",
+                "matchMode": "OPTIONAL",
+                "relationship": "subject_Patient",
+                "storageDirection": "OUTBOUND",
+                "toNodeId": "n_3b75b56e473bd2eb68b9d6f6",
+                "toResourceType": "Patient"
+              }
+            ],
+            "targetNodeId": "n_3b75b56e473bd2eb68b9d6f6",
+            "targetResourceType": "Patient"
+          }
+        },
+        "outputs": [
+          {
+            "id": "source_7bd6825b2f1c5d1434c38702",
+            "label": "FHIR resource ID",
+            "name": "col_98c3a0e9e93bac68a4a74736",
+            "type": "string"
+          },
+          {
+            "id": "source_4202b804aee2bb931ae4fcd3",
+            "label": "Record type",
+            "name": "col_7e492678813cd84593ff88f7",
+            "type": "string"
+          },
+          {
+            "id": "related_record_5632fd3d-b68d-4f76-918d-05d67ee5092f",
+            "label": "Patient FHIR resource ID",
+            "name": "related_patient_id",
+            "type": "string"
+          }
+        ]
+      },
+      {
+        "id": "related_expand_8308c881-2209-43c3-9978-58a508a2b8fa",
+        "inputs": [
+          {
+            "kind": "STEP_OUTPUT",
+            "stepId": "related_expand_f073802f-d4c5-4b0b-8d08-b464104f51c1"
+          }
+        ],
+        "operation": {
+          "kind": "RELATED_EXPAND",
+          "relatedExpand": {
+            "anchorColumnId": "__loom_related_terminal_id_3ba9f7e1489a9880a6b9349690c206f97fae99c7b48c7c421be468dfc2257c1d",
+            "choiceId": "cc2.eyJ2ZXJzaW9uIjoiY29uc3RydWN0aW9uLWNob2ljZS92MiIsImtpbmQiOiJSRUxBVEVEX1JFU09VUkNFIiwic25hcHNob3RUb2tlbiI6InNoYTI1Njo3ZTlhMDI1ZWMyNTU1MDMzZmQxMzhhM2NiZjllYWVjZWJiMjRmODcwYTZiMzdjZjVlODZlMDM1NWM4NGI0MGY3Iiwic291cmNlIjp7ImtpbmQiOiJSRUxBVEVEX1JFU09VUkNFIiwic3RhZ2VJZCI6InJlbGF0ZWRfZXhwYW5kX2YwNzM4MDJmLWQ0YzUtNGIwYi04ZDA4LWI0NjQxMDRmNTFjMSIsImFuY2hvckNvbHVtbklkIjoiX19sb29tX3JlbGF0ZWRfdGVybWluYWxfaWRfM2JhOWY3ZTE0ODlhOTg4MGE2YjkzNDk2OTBjMjA2Zjk3ZmFlOTljN2I0OGM3YzQyMWJlNDY4ZGZjMjI1N2MxZCIsImFuY2hvcktpbmQiOiJhY3RpdmVSZWxhdGVkUmVjb3JkIiwiYW5jaG9yTm9kZUlkIjoibl8zYjc1YjU2ZTQ3M2JkMmViNjhiOWQ2ZjYiLCJhbmNob3JSZXNvdXJjZVR5cGUiOiJQYXRpZW50Iiwibm9kZUlkIjoibl8wMDljYmIwODQyNTViZGEwNGU5Y2M1ZDIiLCJyZXNvdXJjZVR5cGUiOiJTcGVjaW1lbiJ9LCJyb3V0ZSI6W3siZWRnZUlkIjoiZV8wMWQxMTUwMjNkZTZmZGUyMmVjYTYxZmUiLCJmcm9tTm9kZUlkIjoibl8zYjc1YjU2ZTQ3M2JkMmViNjhiOWQ2ZjYiLCJ0b05vZGVJZCI6Im5fZjM5NmM4Y2E3MjhmNDM0OWZhOGQyZTNjIiwiZnJvbVJlc291cmNlVHlwZSI6IlBhdGllbnQiLCJ0b1Jlc291cmNlVHlwZSI6Ik9ic2VydmF0aW9uIiwicmVsYXRpb25zaGlwIjoic3ViamVjdF9QYXRpZW50Iiwic3RvcmFnZURpcmVjdGlvbiI6IklOQk9VTkQiLCJtYXRjaE1vZGUiOiJPUFRJT05BTCJ9LHsiZWRnZUlkIjoiZV80Zjc5Y2JmZGYwNmY1MGQzMGYyNzNkZTQiLCJmcm9tTm9kZUlkIjoibl9mMzk2YzhjYTcyOGY0MzQ5ZmE4ZDJlM2MiLCJ0b05vZGVJZCI6Im5fMDA5Y2JiMDg0MjU1YmRhMDRlOWNjNWQyIiwiZnJvbVJlc291cmNlVHlwZSI6Ik9ic2VydmF0aW9uIiwidG9SZXNvdXJjZVR5cGUiOiJTcGVjaW1lbiIsInJlbGF0aW9uc2hpcCI6InNwZWNpbWVuX1NwZWNpbWVuIiwic3RvcmFnZURpcmVjdGlvbiI6Ik9VVEJPVU5EIiwibWF0Y2hNb2RlIjoiT1BUSU9OQUwifV19.0cb2ec34a986b4db822334b15f1f76dc5176d10f9887f2ffb2fe24e28a678c64",
+            "contributorRule": {
+              "policy": "ALL_MATCHES"
+            },
+            "emptyPolicy": "EXCLUDE",
+            "relatedRecordColumnId": "related_record_b90d8fdc-dac9-43a8-b21c-f12c1bac28b7",
+            "route": [
+              {
+                "edgeId": "e_01d115023de6fde22eca61fe",
+                "fromNodeId": "n_3b75b56e473bd2eb68b9d6f6",
+                "fromResourceType": "Patient",
+                "matchMode": "OPTIONAL",
+                "relationship": "subject_Patient",
+                "storageDirection": "INBOUND",
+                "toNodeId": "n_f396c8ca728f4349fa8d2e3c",
+                "toResourceType": "Observation"
+              },
+              {
+                "edgeId": "e_4f79cbfdf06f50d30f273de4",
+                "fromNodeId": "n_f396c8ca728f4349fa8d2e3c",
+                "fromResourceType": "Observation",
+                "matchMode": "OPTIONAL",
+                "relationship": "specimen_Specimen",
+                "storageDirection": "OUTBOUND",
+                "toNodeId": "n_009cbb084255bda04e9cc5d2",
+                "toResourceType": "Specimen"
+              }
+            ],
+            "targetNodeId": "n_009cbb084255bda04e9cc5d2",
+            "targetResourceType": "Specimen"
+          }
+        },
+        "outputs": [
+          {
+            "id": "source_7bd6825b2f1c5d1434c38702",
+            "label": "FHIR resource ID",
+            "name": "col_98c3a0e9e93bac68a4a74736",
+            "type": "string"
+          },
+          {
+            "id": "source_4202b804aee2bb931ae4fcd3",
+            "label": "Record type",
+            "name": "col_7e492678813cd84593ff88f7",
+            "type": "string"
+          },
+          {
+            "id": "related_record_5632fd3d-b68d-4f76-918d-05d67ee5092f",
+            "label": "Patient FHIR resource ID",
+            "name": "related_patient_id",
+            "type": "string"
+          },
+          {
+            "id": "related_record_b90d8fdc-dac9-43a8-b21c-f12c1bac28b7",
+            "label": "Specimen FHIR resource ID",
+            "name": "related_specimen_id",
+            "type": "string"
+          }
+        ]
+      },
+      {
+        "id": "related_expand_d8b69753-faf6-4580-957a-718d88ac2a8f",
+        "inputs": [
+          {
+            "kind": "STEP_OUTPUT",
+            "stepId": "related_expand_8308c881-2209-43c3-9978-58a508a2b8fa"
+          }
+        ],
+        "operation": {
+          "kind": "RELATED_EXPAND",
+          "relatedExpand": {
+            "anchorColumnId": "__loom_related_terminal_id_5d549ef22610686bbba61623e380743eb13949b4f4c8654fb7e2ac30cd8ea891",
+            "choiceId": "cc2.eyJ2ZXJzaW9uIjoiY29uc3RydWN0aW9uLWNob2ljZS92MiIsImtpbmQiOiJSRUxBVEVEX1JFU09VUkNFIiwic25hcHNob3RUb2tlbiI6InNoYTI1Njo3ZTlhMDI1ZWMyNTU1MDMzZmQxMzhhM2NiZjllYWVjZWJiMjRmODcwYTZiMzdjZjVlODZlMDM1NWM4NGI0MGY3Iiwic291cmNlIjp7ImtpbmQiOiJSRUxBVEVEX1JFU09VUkNFIiwic3RhZ2VJZCI6InJlbGF0ZWRfZXhwYW5kXzgzMDhjODgxLTIyMDktNDNjMy05OTc4LTU4YTUwOGEyYjhmYSIsImFuY2hvckNvbHVtbklkIjoiX19sb29tX3JlbGF0ZWRfdGVybWluYWxfaWRfNWQ1NDllZjIyNjEwNjg2YmJiYTYxNjIzZTM4MDc0M2ViMTM5NDliNGY0Yzg2NTRmYjdlMmFjMzBjZDhlYTg5MSIsImFuY2hvcktpbmQiOiJhY3RpdmVSZWxhdGVkUmVjb3JkIiwiYW5jaG9yTm9kZUlkIjoibl8wMDljYmIwODQyNTViZGEwNGU5Y2M1ZDIiLCJhbmNob3JSZXNvdXJjZVR5cGUiOiJTcGVjaW1lbiIsIm5vZGVJZCI6Im5fM2I3NWI1NmU0NzNiZDJlYjY4YjlkNmY2IiwicmVzb3VyY2VUeXBlIjoiUGF0aWVudCJ9LCJyb3V0ZSI6W3siZWRnZUlkIjoiZV9jNjhiZjJhYTY4M2MzMGY0ZWE3NGYyMTUiLCJmcm9tTm9kZUlkIjoibl8wMDljYmIwODQyNTViZGEwNGU5Y2M1ZDIiLCJ0b05vZGVJZCI6Im5fM2I3NWI1NmU0NzNiZDJlYjY4YjlkNmY2IiwiZnJvbVJlc291cmNlVHlwZSI6IlNwZWNpbWVuIiwidG9SZXNvdXJjZVR5cGUiOiJQYXRpZW50IiwicmVsYXRpb25zaGlwIjoic3ViamVjdF9QYXRpZW50Iiwic3RvcmFnZURpcmVjdGlvbiI6Ik9VVEJPVU5EIiwibWF0Y2hNb2RlIjoiT1BUSU9OQUwifV19.92564d0d91ea55d0c91281205ad96a8c9fc3863aac457f6975aa3ebf6f6d9767",
+            "contributorRule": {
+              "policy": "ALL_MATCHES"
+            },
+            "emptyPolicy": "EXCLUDE",
+            "relatedRecordColumnId": "related_record_ee9bd661-a843-4e7e-8033-2468cd8195b1",
+            "route": [
+              {
+                "edgeId": "e_c68bf2aa683c30f4ea74f215",
+                "fromNodeId": "n_009cbb084255bda04e9cc5d2",
+                "fromResourceType": "Specimen",
+                "matchMode": "OPTIONAL",
+                "relationship": "subject_Patient",
+                "storageDirection": "OUTBOUND",
+                "toNodeId": "n_3b75b56e473bd2eb68b9d6f6",
+                "toResourceType": "Patient"
+              }
+            ],
+            "targetNodeId": "n_3b75b56e473bd2eb68b9d6f6",
+            "targetResourceType": "Patient"
+          }
+        },
+        "outputs": [
+          {
+            "id": "source_7bd6825b2f1c5d1434c38702",
+            "label": "FHIR resource ID",
+            "name": "col_98c3a0e9e93bac68a4a74736",
+            "type": "string"
+          },
+          {
+            "id": "source_4202b804aee2bb931ae4fcd3",
+            "label": "Record type",
+            "name": "col_7e492678813cd84593ff88f7",
+            "type": "string"
+          },
+          {
+            "id": "related_record_5632fd3d-b68d-4f76-918d-05d67ee5092f",
+            "label": "Patient FHIR resource ID",
+            "name": "related_patient_id",
+            "type": "string"
+          },
+          {
+            "id": "related_record_b90d8fdc-dac9-43a8-b21c-f12c1bac28b7",
+            "label": "Specimen FHIR resource ID",
+            "name": "related_specimen_id",
+            "type": "string"
+          },
+          {
+            "id": "related_record_ee9bd661-a843-4e7e-8033-2468cd8195b1",
+            "label": "Patient FHIR resource ID",
+            "name": "related_patient_id_2",
+            "type": "string"
+          }
+        ]
+      }
+    ],
+    "version": 1
+  },
+  "preview": {
+    "columns": [
+      {
+        "authoredColumns": [
+          "col_98c3a0e9e93bac68a4a74736"
+        ],
+        "chartable": false,
+        "column": "col_98c3a0e9e93bac68a4a74736",
+        "filterable": false,
+        "label": "FHIR resource ID",
+        "logicalType": "string",
+        "nullable": true,
+        "shape": "scalar"
+      },
+      {
+        "authoredColumns": [
+          "col_7e492678813cd84593ff88f7"
+        ],
+        "chartable": false,
+        "column": "col_7e492678813cd84593ff88f7",
+        "filterable": false,
+        "label": "Record type",
+        "logicalType": "string",
+        "nullable": true,
+        "shape": "scalar"
+      },
+      {
+        "chartable": true,
+        "column": "related_patient_id",
+        "filterable": true,
+        "label": "Patient FHIR resource ID",
+        "logicalType": "string",
+        "nullable": false,
+        "shape": "scalar"
+      },
+      {
+        "chartable": true,
+        "column": "related_specimen_id",
+        "filterable": true,
+        "label": "Specimen FHIR resource ID",
+        "logicalType": "string",
+        "nullable": false,
+        "shape": "scalar"
+      },
+      {
+        "chartable": true,
+        "column": "related_patient_id_2",
+        "filterable": true,
+        "label": "Patient FHIR resource ID",
+        "logicalType": "string",
+        "nullable": false,
+        "shape": "scalar"
+      }
+    ],
+    "rows": [
+      {
+        "__loom_row_id": "[[\"input\",\"[[\\\"input\\\",\\\"[[\\\\\\\"input\\\\\\\",\\\\\\\"g_000067177310c707afd3a332b500e25241336f474ff1e17a5e25b5cbf87c0529\\\\\\\"],[\\\\\\\"construction\\\\\\\",\\\\\\\"related_expand_f073802f-d4c5-4b0b-8d08-b464104f51c1\\\\\\\"],[\\\\\\\"related\\\\\\\",\\\\\\\"Patient/g_17ddd286a6e6d5fb15b15487aa5a68482eacdaa3505cef7b43282dade370a3c4\\\\\\\"]]\\\"],[\\\"construction\\\",\\\"related_expand_8308c881-2209-43c3-9978-58a508a2b8fa\\\"],[\\\"related\\\",\\\"Specimen/g_000067177310c707afd3a332b500e25241336f474ff1e17a5e25b5cbf87c0529\\\"]]\"],[\"construction\",\"related_expand_d8b69753-faf6-4580-957a-718d88ac2a8f\"],[\"related\",\"Patient/g_17ddd286a6e6d5fb15b15487aa5a68482eacdaa3505cef7b43282dade370a3c4\"]]",
+        "col_7e492678813cd84593ff88f7": "Specimen",
+        "col_98c3a0e9e93bac68a4a74736": "77d5efff-e239-57d9-88ac-bbb6394872fe",
+        "related_patient_id": "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+        "related_patient_id_2": "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+        "related_specimen_id": "77d5efff-e239-57d9-88ac-bbb6394872fe"
+      },
+      {
+        "__loom_row_id": "[[\"input\",\"[[\\\"input\\\",\\\"[[\\\\\\\"input\\\\\\\",\\\\\\\"g_000067177310c707afd3a332b500e25241336f474ff1e17a5e25b5cbf87c0529\\\\\\\"],[\\\\\\\"construction\\\\\\\",\\\\\\\"related_expand_f073802f-d4c5-4b0b-8d08-b464104f51c1\\\\\\\"],[\\\\\\\"related\\\\\\\",\\\\\\\"Patient/g_17ddd286a6e6d5fb15b15487aa5a68482eacdaa3505cef7b43282dade370a3c4\\\\\\\"]]\\\"],[\\\"construction\\\",\\\"related_expand_8308c881-2209-43c3-9978-58a508a2b8fa\\\"],[\\\"related\\\",\\\"Specimen/g_07d59aa0ed5f00a3f27b01151aee6c9cbbf3b888f9db2068ad49acaf55cacf07\\\"]]\"],[\"construction\",\"related_expand_d8b69753-faf6-4580-957a-718d88ac2a8f\"],[\"related\",\"Patient/g_17ddd286a6e6d5fb15b15487aa5a68482eacdaa3505cef7b43282dade370a3c4\"]]",
+        "col_7e492678813cd84593ff88f7": "Specimen",
+        "col_98c3a0e9e93bac68a4a74736": "77d5efff-e239-57d9-88ac-bbb6394872fe",
+        "related_patient_id": "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+        "related_patient_id_2": "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+        "related_specimen_id": "e5ca1fe6-e4e0-579c-ad47-fb15a54fe3d3"
+      },
+      {
+        "__loom_row_id": "[[\"input\",\"[[\\\"input\\\",\\\"[[\\\\\\\"input\\\\\\\",\\\\\\\"g_000067177310c707afd3a332b500e25241336f474ff1e17a5e25b5cbf87c0529\\\\\\\"],[\\\\\\\"construction\\\\\\\",\\\\\\\"related_expand_f073802f-d4c5-4b0b-8d08-b464104f51c1\\\\\\\"],[\\\\\\\"related\\\\\\\",\\\\\\\"Patient/g_17ddd286a6e6d5fb15b15487aa5a68482eacdaa3505cef7b43282dade370a3c4\\\\\\\"]]\\\"],[\\\"construction\\\",\\\"related_expand_8308c881-2209-43c3-9978-58a508a2b8fa\\\"],[\\\"related\\\",\\\"Specimen/g_60e48a5c202c1edcdc5f6af5feb96a52877a4f86e856a4cc0d3d23878cba5a95\\\"]]\"],[\"construction\",\"related_expand_d8b69753-faf6-4580-957a-718d88ac2a8f\"],[\"related\",\"Patient/g_17ddd286a6e6d5fb15b15487aa5a68482eacdaa3505cef7b43282dade370a3c4\"]]",
+        "col_7e492678813cd84593ff88f7": "Specimen",
+        "col_98c3a0e9e93bac68a4a74736": "77d5efff-e239-57d9-88ac-bbb6394872fe",
+        "related_patient_id": "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+        "related_patient_id_2": "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+        "related_specimen_id": "799a9867-e0e8-5ef1-ab4f-f077e2135fe7"
+      },
+      {
+        "__loom_row_id": "[[\"input\",\"[[\\\"input\\\",\\\"[[\\\\\\\"input\\\\\\\",\\\\\\\"g_000067177310c707afd3a332b500e25241336f474ff1e17a5e25b5cbf87c0529\\\\\\\"],[\\\\\\\"construction\\\\\\\",\\\\\\\"related_expand_f073802f-d4c5-4b0b-8d08-b464104f51c1\\\\\\\"],[\\\\\\\"related\\\\\\\",\\\\\\\"Patient/g_17ddd286a6e6d5fb15b15487aa5a68482eacdaa3505cef7b43282dade370a3c4\\\\\\\"]]\\\"],[\\\"construction\\\",\\\"related_expand_8308c881-2209-43c3-9978-58a508a2b8fa\\\"],[\\\"related\\\",\\\"Specimen/g_6153462693d3a045615139bc7ed2924f5c312c95ea50f7b7a002b2140604cb20\\\"]]\"],[\"construction\",\"related_expand_d8b69753-faf6-4580-957a-718d88ac2a8f\"],[\"related\",\"Patient/g_17ddd286a6e6d5fb15b15487aa5a68482eacdaa3505cef7b43282dade370a3c4\"]]",
+        "col_7e492678813cd84593ff88f7": "Specimen",
+        "col_98c3a0e9e93bac68a4a74736": "77d5efff-e239-57d9-88ac-bbb6394872fe",
+        "related_patient_id": "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+        "related_patient_id_2": "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+        "related_specimen_id": "b992bfa9-cf1a-5a4b-9889-5d371c48967c"
+      },
+      {
+        "__loom_row_id": "[[\"input\",\"[[\\\"input\\\",\\\"[[\\\\\\\"input\\\\\\\",\\\\\\\"g_000067177310c707afd3a332b500e25241336f474ff1e17a5e25b5cbf87c0529\\\\\\\"],[\\\\\\\"construction\\\\\\\",\\\\\\\"related_expand_f073802f-d4c5-4b0b-8d08-b464104f51c1\\\\\\\"],[\\\\\\\"related\\\\\\\",\\\\\\\"Patient/g_17ddd286a6e6d5fb15b15487aa5a68482eacdaa3505cef7b43282dade370a3c4\\\\\\\"]]\\\"],[\\\"construction\\\",\\\"related_expand_8308c881-2209-43c3-9978-58a508a2b8fa\\\"],[\\\"related\\\",\\\"Specimen/g_715728a0f248e0ced6b0602de2524531b47d00673bbd44fcc198bb1d580e735c\\\"]]\"],[\"construction\",\"related_expand_d8b69753-faf6-4580-957a-718d88ac2a8f\"],[\"related\",\"Patient/g_17ddd286a6e6d5fb15b15487aa5a68482eacdaa3505cef7b43282dade370a3c4\"]]",
+        "col_7e492678813cd84593ff88f7": "Specimen",
+        "col_98c3a0e9e93bac68a4a74736": "77d5efff-e239-57d9-88ac-bbb6394872fe",
+        "related_patient_id": "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+        "related_patient_id_2": "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+        "related_specimen_id": "b012dd47-36e0-5256-8525-8de7d8b6ff9a"
+      },
+      {
+        "__loom_row_id": "[[\"input\",\"[[\\\"input\\\",\\\"[[\\\\\\\"input\\\\\\\",\\\\\\\"g_000067177310c707afd3a332b500e25241336f474ff1e17a5e25b5cbf87c0529\\\\\\\"],[\\\\\\\"construction\\\\\\\",\\\\\\\"related_expand_f073802f-d4c5-4b0b-8d08-b464104f51c1\\\\\\\"],[\\\\\\\"related\\\\\\\",\\\\\\\"Patient/g_17ddd286a6e6d5fb15b15487aa5a68482eacdaa3505cef7b43282dade370a3c4\\\\\\\"]]\\\"],[\\\"construction\\\",\\\"related_expand_8308c881-2209-43c3-9978-58a508a2b8fa\\\"],[\\\"related\\\",\\\"Specimen/g_7abc3cfec596e9db73ab43977345a82c2a0affdc11a6147516d79eaa792db970\\\"]]\"],[\"construction\",\"related_expand_d8b69753-faf6-4580-957a-718d88ac2a8f\"],[\"related\",\"Patient/g_17ddd286a6e6d5fb15b15487aa5a68482eacdaa3505cef7b43282dade370a3c4\"]]",
+        "col_7e492678813cd84593ff88f7": "Specimen",
+        "col_98c3a0e9e93bac68a4a74736": "77d5efff-e239-57d9-88ac-bbb6394872fe",
+        "related_patient_id": "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+        "related_patient_id_2": "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+        "related_specimen_id": "0ebe374a-fae6-5565-9704-1b9aaa6c614b"
+      },
+      {
+        "__loom_row_id": "[[\"input\",\"[[\\\"input\\\",\\\"[[\\\\\\\"input\\\\\\\",\\\\\\\"g_000067177310c707afd3a332b500e25241336f474ff1e17a5e25b5cbf87c0529\\\\\\\"],[\\\\\\\"construction\\\\\\\",\\\\\\\"related_expand_f073802f-d4c5-4b0b-8d08-b464104f51c1\\\\\\\"],[\\\\\\\"related\\\\\\\",\\\\\\\"Patient/g_17ddd286a6e6d5fb15b15487aa5a68482eacdaa3505cef7b43282dade370a3c4\\\\\\\"]]\\\"],[\\\"construction\\\",\\\"related_expand_8308c881-2209-43c3-9978-58a508a2b8fa\\\"],[\\\"related\\\",\\\"Specimen/g_7bdacada53886007628a490897c3e467f685540df46940ac3f0a8f3cd6a5de74\\\"]]\"],[\"construction\",\"related_expand_d8b69753-faf6-4580-957a-718d88ac2a8f\"],[\"related\",\"Patient/g_17ddd286a6e6d5fb15b15487aa5a68482eacdaa3505cef7b43282dade370a3c4\"]]",
+        "col_7e492678813cd84593ff88f7": "Specimen",
+        "col_98c3a0e9e93bac68a4a74736": "77d5efff-e239-57d9-88ac-bbb6394872fe",
+        "related_patient_id": "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+        "related_patient_id_2": "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+        "related_specimen_id": "2143647e-a2dd-5323-bd28-7d9e3678a763"
+      },
+      {
+        "__loom_row_id": "[[\"input\",\"[[\\\"input\\\",\\\"[[\\\\\\\"input\\\\\\\",\\\\\\\"g_000067177310c707afd3a332b500e25241336f474ff1e17a5e25b5cbf87c0529\\\\\\\"],[\\\\\\\"construction\\\\\\\",\\\\\\\"related_expand_f073802f-d4c5-4b0b-8d08-b464104f51c1\\\\\\\"],[\\\\\\\"related\\\\\\\",\\\\\\\"Patient/g_17ddd286a6e6d5fb15b15487aa5a68482eacdaa3505cef7b43282dade370a3c4\\\\\\\"]]\\\"],[\\\"construction\\\",\\\"related_expand_8308c881-2209-43c3-9978-58a508a2b8fa\\\"],[\\\"related\\\",\\\"Specimen/g_900facfc0a9ca1671c1a7cfcd08da08fd18e209e989cec1a3e52c64a14b45aa0\\\"]]\"],[\"construction\",\"related_expand_d8b69753-faf6-4580-957a-718d88ac2a8f\"],[\"related\",\"Patient/g_17ddd286a6e6d5fb15b15487aa5a68482eacdaa3505cef7b43282dade370a3c4\"]]",
+        "col_7e492678813cd84593ff88f7": "Specimen",
+        "col_98c3a0e9e93bac68a4a74736": "77d5efff-e239-57d9-88ac-bbb6394872fe",
+        "related_patient_id": "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+        "related_patient_id_2": "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+        "related_specimen_id": "64e394ee-d8b4-50ba-aa1f-8bce03879f18"
+      },
+      {
+        "__loom_row_id": "[[\"input\",\"[[\\\"input\\\",\\\"[[\\\\\\\"input\\\\\\\",\\\\\\\"g_000067177310c707afd3a332b500e25241336f474ff1e17a5e25b5cbf87c0529\\\\\\\"],[\\\\\\\"construction\\\\\\\",\\\\\\\"related_expand_f073802f-d4c5-4b0b-8d08-b464104f51c1\\\\\\\"],[\\\\\\\"related\\\\\\\",\\\\\\\"Patient/g_17ddd286a6e6d5fb15b15487aa5a68482eacdaa3505cef7b43282dade370a3c4\\\\\\\"]]\\\"],[\\\"construction\\\",\\\"related_expand_8308c881-2209-43c3-9978-58a508a2b8fa\\\"],[\\\"related\\\",\\\"Specimen/g_a97371063d5257b8a72135dae3914f7ea8b0efbdf2b787ee0c0a673121ad6588\\\"]]\"],[\"construction\",\"related_expand_d8b69753-faf6-4580-957a-718d88ac2a8f\"],[\"related\",\"Patient/g_17ddd286a6e6d5fb15b15487aa5a68482eacdaa3505cef7b43282dade370a3c4\"]]",
+        "col_7e492678813cd84593ff88f7": "Specimen",
+        "col_98c3a0e9e93bac68a4a74736": "77d5efff-e239-57d9-88ac-bbb6394872fe",
+        "related_patient_id": "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+        "related_patient_id_2": "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+        "related_specimen_id": "a39d8b01-0abc-5fb0-b435-252f559d50db"
+      },
+      {
+        "__loom_row_id": "[[\"input\",\"[[\\\"input\\\",\\\"[[\\\\\\\"input\\\\\\\",\\\\\\\"g_000067177310c707afd3a332b500e25241336f474ff1e17a5e25b5cbf87c0529\\\\\\\"],[\\\\\\\"construction\\\\\\\",\\\\\\\"related_expand_f073802f-d4c5-4b0b-8d08-b464104f51c1\\\\\\\"],[\\\\\\\"related\\\\\\\",\\\\\\\"Patient/g_17ddd286a6e6d5fb15b15487aa5a68482eacdaa3505cef7b43282dade370a3c4\\\\\\\"]]\\\"],[\\\"construction\\\",\\\"related_expand_8308c881-2209-43c3-9978-58a508a2b8fa\\\"],[\\\"related\\\",\\\"Specimen/g_c5da4bfa656e29142080f460326f714087eb605141401dfd125dbb6d1182d252\\\"]]\"],[\"construction\",\"related_expand_d8b69753-faf6-4580-957a-718d88ac2a8f\"],[\"related\",\"Patient/g_17ddd286a6e6d5fb15b15487aa5a68482eacdaa3505cef7b43282dade370a3c4\"]]",
+        "col_7e492678813cd84593ff88f7": "Specimen",
+        "col_98c3a0e9e93bac68a4a74736": "77d5efff-e239-57d9-88ac-bbb6394872fe",
+        "related_patient_id": "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+        "related_patient_id_2": "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+        "related_specimen_id": "470386b7-fac4-5fc0-a4bc-424df12dba3a"
+      }
+    ],
+    "rowCount": 10,
+    "sampled": false,
+    "receiptId": "receipt_11ead373f9c79575f557e01e46bebc2e3907559d6b5598248e39dbc286228445",
+    "outputId": "out_bb223a4aadf20d8387bbd8c1"
+  },
+  "expectedRows": [
+    [
+      "77d5efff-e239-57d9-88ac-bbb6394872fe",
+      "Specimen",
+      "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+      "0ebe374a-fae6-5565-9704-1b9aaa6c614b",
+      "2e9d8760-633a-5d9d-b2f7-e3e324762b60"
+    ],
+    [
+      "77d5efff-e239-57d9-88ac-bbb6394872fe",
+      "Specimen",
+      "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+      "2143647e-a2dd-5323-bd28-7d9e3678a763",
+      "2e9d8760-633a-5d9d-b2f7-e3e324762b60"
+    ],
+    [
+      "77d5efff-e239-57d9-88ac-bbb6394872fe",
+      "Specimen",
+      "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+      "470386b7-fac4-5fc0-a4bc-424df12dba3a",
+      "2e9d8760-633a-5d9d-b2f7-e3e324762b60"
+    ],
+    [
+      "77d5efff-e239-57d9-88ac-bbb6394872fe",
+      "Specimen",
+      "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+      "64e394ee-d8b4-50ba-aa1f-8bce03879f18",
+      "2e9d8760-633a-5d9d-b2f7-e3e324762b60"
+    ],
+    [
+      "77d5efff-e239-57d9-88ac-bbb6394872fe",
+      "Specimen",
+      "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+      "77d5efff-e239-57d9-88ac-bbb6394872fe",
+      "2e9d8760-633a-5d9d-b2f7-e3e324762b60"
+    ],
+    [
+      "77d5efff-e239-57d9-88ac-bbb6394872fe",
+      "Specimen",
+      "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+      "799a9867-e0e8-5ef1-ab4f-f077e2135fe7",
+      "2e9d8760-633a-5d9d-b2f7-e3e324762b60"
+    ],
+    [
+      "77d5efff-e239-57d9-88ac-bbb6394872fe",
+      "Specimen",
+      "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+      "a39d8b01-0abc-5fb0-b435-252f559d50db",
+      "2e9d8760-633a-5d9d-b2f7-e3e324762b60"
+    ],
+    [
+      "77d5efff-e239-57d9-88ac-bbb6394872fe",
+      "Specimen",
+      "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+      "b012dd47-36e0-5256-8525-8de7d8b6ff9a",
+      "2e9d8760-633a-5d9d-b2f7-e3e324762b60"
+    ],
+    [
+      "77d5efff-e239-57d9-88ac-bbb6394872fe",
+      "Specimen",
+      "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+      "b992bfa9-cf1a-5a4b-9889-5d371c48967c",
+      "2e9d8760-633a-5d9d-b2f7-e3e324762b60"
+    ],
+    [
+      "77d5efff-e239-57d9-88ac-bbb6394872fe",
+      "Specimen",
+      "2e9d8760-633a-5d9d-b2f7-e3e324762b60",
+      "e5ca1fe6-e4e0-579c-ad47-fb15a54fe3d3",
+      "2e9d8760-633a-5d9d-b2f7-e3e324762b60"
+    ]
+  ]
+}

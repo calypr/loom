@@ -1,0 +1,169 @@
+{
+  "epoch": 65,
+  "status": "CLOSED_WITH_CASE_FAILURE",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "beforeSha256": "a08f5d9211d5f9eb68c449482cc0e305b0544664344672e5daf07f8251f2a950",
+      "afterSha256": "a08f5d9211d5f9eb68c449482cc0e305b0544664344672e5daf07f8251f2a950",
+      "files": 1503,
+      "changedPaths": []
+    },
+    "docs": {
+      "beforeSha256": "266dc72aa74b12371775cb461f1cf4ba7b851040b5330fa9cf424f1cd1aa07cc",
+      "afterSha256": "266dc72aa74b12371775cb461f1cf4ba7b851040b5330fa9cf424f1cd1aa07cc",
+      "files": 159,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "beforeStatus": "PASS",
+      "afterStatus": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "beforeStatus": "PASS",
+      "beforeSamples": 3,
+      "afterStatus": "PASS",
+      "afterSamples": 3,
+      "allApiUiHealthy": true
+    },
+    "handles": {
+      "apiBuildPrecheck": {
+        "session": 46625,
+        "exitCode": 0,
+        "artifact": "/private/tmp/loom-native-parallel-wave65/api-build-precheck-attempt1.json",
+        "fresh": true
+      },
+      "beforeCapture": {
+        "session": 60991,
+        "exitCode": 0
+      },
+      "beforeHealth": {
+        "session": 44716,
+        "exitCode": 0
+      },
+      "browser": {
+        "session": 65565,
+        "exitCode": 1
+      },
+      "afterCapture": {
+        "session": 50389,
+        "exitCode": 0
+      },
+      "afterHealth": {
+        "session": 30528,
+        "exitCode": 0
+      }
+    }
+  },
+  "case": {
+    "owner": "membership_native_lifecycle",
+    "scenario": "builder-combine-draft/membership",
+    "title": "current-draft MEMBERSHIP supports INCLUDE, EXCLUDE edit, removal, restoration, and reload",
+    "runnerStatus": "failed",
+    "runnerExpected": 0,
+    "runnerUnexpected": 1,
+    "playwrightTestDurationMs": 18623,
+    "runnerProcessDurationMs": 22951.774,
+    "reportStatus": "failed",
+    "attribution": "PRODUCT_SAVED_MEMBERSHIP_EDIT_UNAVAILABLE",
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "failed",
+      "persistence": "passed",
+      "performance": "passed"
+    },
+    "assertions": {
+      "total": 65,
+      "failed": 1
+    },
+    "nativeActions": {
+      "passed": 14,
+      "failed": 0,
+      "maxElapsedMs": 594
+    },
+    "requiredChecks": {
+      "total": 50,
+      "missing": 14,
+      "missingNames": [
+        "open saved Combine editor after draft input schemas resolve action-to-render within budget",
+        "edit saved MEMBERSHIP from INCLUDE to EXCLUDE and preview the exact unmatched row action-to-render within budget",
+        "EXCLUDE preview changes to exactly the unmatched Observation ID",
+        "EXCLUDE edit changes membership policy while preserving exact inputs, keys, and output identity",
+        "Apply saved MEMBERSHIP EXCLUDE edit action-to-render within budget",
+        "saved EXCLUDE MEMBERSHIP policy and stable output identity survive Apply",
+        "reload edited EXCLUDE MEMBERSHIP and render its exact output action-to-render within budget",
+        "EXCLUDE values survive reload as the exact unmatched Observation ID",
+        "propose Combine removal and render the exact rooted empty output action-to-render within budget",
+        "apply Combine removal to restore the empty target action-to-render within budget",
+        "reload removed Combine and select its exact rooted empty output action-to-render within budget",
+        "removing Combine and reloading restores its rooted empty target",
+        "removing MEMBERSHIP preserves both exact GROUP source outputs after reload",
+        "MEMBERSHIP lifecycle makes no Publish request or pinned revision reference"
+      ]
+    },
+    "failureSummary": "Membership capability, source binding, INCLUDE proposal/preview, cancellation, apply, and exact reload values passed. The case then timed out waiting to open the saved Membership step for editing; EXCLUDE edit and removal/restoration were not reached.",
+    "firstFailure": "TimeoutError: page.waitForFunction: Timeout 10000ms exceeded.\n\n   at ../workflows/builder-combine-draft.mjs:120\n\n  118 |\n  119 | const evaluate = (page, expression) => page.evaluate(expression);\n> 120 | const waitFor = (page, expression, timeout = 5000) => page.waitForFunction(expression, undefined, { timeout });\n      |                                                            ^\n  121 | const locate = async (page, selector, identity = {}) => {\n  122 |   const indices = await page.locator(selector).evaluateAll((nodes, wanted) => {\n  123 |     const normalize = (value) => String(value ?? '').replace(/\\s+/g, ' ').trim();\n    at waitFor (/private/tmp/loom-construction-implementation/scripts/verify-ui/workflows/builder-combine-draft.mjs:120:60)\n    at editSavedStep (/private/tmp/loom-construction-implementation/scripts/verify-ui/workflows/builder-combine-draft.mjs:1035:9)\n    at draftMembershipWorkflow (/private/tmp/loom-construction-implementation/scripts/verify-ui/workflows/builder-combine-draft.mjs:1447:5)\n    at /private/tmp/loom-construction-implementation/scripts/verify-ui/specs/draft-combine.spec.mjs:43:5",
+    "failedAssertions": [
+      {
+        "dimension": "correctness",
+        "name": "official Playwright case completed without failure",
+        "status": "failed",
+        "evidence": {
+          "status": "failed"
+        }
+      }
+    ],
+    "reachedExcludeEdit": false,
+    "reachedRemoval": false,
+    "networkErrors": 0,
+    "runtimeErrors": 1,
+    "assetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ],
+    "freshFixtureProject": "loom_dev_verify_muw9kfn4-1103e01",
+    "explorer": "verify-n4-1103e01-draft-combine-membership",
+    "reportPath": "/private/tmp/loom-native-parallel-wave65/basic-membership/attempt1/artifacts/draft-combine-Builder-Comb-74e97-oval-restoration-and-reload/attachments/loom-verification-report-json-7cb2ea35fdba4d412a6285dd417e92f01be5d7e7.json",
+    "reportSha256": "71797591ac2c327e751a06be485a6ead8d28bc1a2238ad92538d6f7ccaab5e7c",
+    "playwrightResultsPath": "/private/tmp/loom-native-parallel-wave65/basic-membership/attempt1/results.json",
+    "playwrightResultsSha256": "52acc51303d886ed26cf76d5f82d42225cc62feec5f21db2dad160c6575d3186",
+    "noRetry": true
+  },
+  "artifacts": {
+    "runPlan": "/private/tmp/loom-native-parallel-wave65/run-plan.json",
+    "browserEnvironment": "/private/tmp/loom-native-parallel-wave65/browser-environment.sh",
+    "captureEnvironment": "/private/tmp/loom-native-parallel-wave65/capture-environment.sh",
+    "precheck": "/private/tmp/loom-native-parallel-wave65/api-build-precheck-attempt1.json",
+    "sourceBefore": "/private/tmp/loom-native-parallel-wave65/source-before.json",
+    "sourceAfter": "/private/tmp/loom-native-parallel-wave65/source-after.json",
+    "docsBefore": "/private/tmp/loom-native-parallel-wave65/docs-before.json",
+    "docsAfter": "/private/tmp/loom-native-parallel-wave65/docs-after.json",
+    "apiBefore": "/private/tmp/loom-native-parallel-wave65/api-identity-before.json",
+    "apiAfter": "/private/tmp/loom-native-parallel-wave65/api-identity-after.json",
+    "mountsBefore": "/private/tmp/loom-native-parallel-wave65/owned-mounts-before.json",
+    "mountsAfter": "/private/tmp/loom-native-parallel-wave65/owned-mounts-after.json",
+    "healthBefore": "/private/tmp/loom-native-parallel-wave65/health-before.json",
+    "healthAfter": "/private/tmp/loom-native-parallel-wave65/health-after.json"
+  }
+}

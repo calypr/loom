@@ -1,0 +1,464 @@
+{
+  "schemaVersion": 1,
+  "epoch": 132,
+  "status": "CLOSED_PASS",
+  "rawCoordinatorStatus": "BROWSER_PASS_INTEGRITY_PASS",
+  "rawCoordinatorClosurePath": null,
+  "rawCoordinatorClosureSha256": null,
+  "rootReviewStatus": "ACCEPTED_FULL_LIFECYCLE_PASS",
+  "rootAcceptanceReceipt": {
+    "path": "/private/tmp/loom-native-parallel-wave132/root-acceptance.json",
+    "sha256": "a39f9675c1aecab2298c08ce6834a53b47559c24e63b3020a872833cd9646597",
+    "status": "ACCEPTED_FULL_LIFECYCLE_PASS",
+    "lifecycleAccepted": true,
+    "classification": null,
+    "sourceFreezeReleased": true
+  },
+  "case": {
+    "scenarioId": "cda-collection-repair-partial",
+    "caseName": "partial-long-route-repair-and-reload",
+    "title": "remove an unmapped selected resource, verify the saved route, and reload",
+    "status": "passed",
+    "classification": null,
+    "requiredChecks": {
+      "passed": 11,
+      "total": 11,
+      "missingOrFailed": 0,
+      "missingOrUnrun": 0,
+      "passedNames": [
+        "bounded raw CDA oracle contains two mapped and one unmapped project/generation-scoped Specimens with exact Observation IDs",
+        "initial immutable selection preserves exact Specimen IDs, project, generation, and authorization scope",
+        "saved population preserves the exact two-hop Observation → Specimen → parent route",
+        "native preview and coverage match exact mapped/unmapped raw membership",
+        "removing the unmapped Specimen preserves mapped membership, route, columns, and construction",
+        "repaired route, immutable selection, and preview survive Builder reload",
+        "clearing the collection displays rows from the scoped current-generation Observation source",
+        "native reattachment preserves the repaired membership, route, columns, preview, and reload state",
+        "all measured native actions and workflow checkpoints complete within five seconds",
+        "no unexpected HTTP or workflow errors occur",
+        "CDA watched source and API build stayed unchanged"
+      ],
+      "failedNames": [],
+      "unrunNames": [],
+      "outcomes": [
+        {
+          "name": "bounded raw CDA oracle contains two mapped and one unmapped project/generation-scoped Specimens with exact Observation IDs",
+          "status": "passed"
+        },
+        {
+          "name": "initial immutable selection preserves exact Specimen IDs, project, generation, and authorization scope",
+          "status": "passed"
+        },
+        {
+          "name": "saved population preserves the exact two-hop Observation → Specimen → parent route",
+          "status": "passed"
+        },
+        {
+          "name": "native preview and coverage match exact mapped/unmapped raw membership",
+          "status": "passed"
+        },
+        {
+          "name": "removing the unmapped Specimen preserves mapped membership, route, columns, and construction",
+          "status": "passed"
+        },
+        {
+          "name": "repaired route, immutable selection, and preview survive Builder reload",
+          "status": "passed"
+        },
+        {
+          "name": "clearing the collection displays rows from the scoped current-generation Observation source",
+          "status": "passed"
+        },
+        {
+          "name": "native reattachment preserves the repaired membership, route, columns, preview, and reload state",
+          "status": "passed"
+        },
+        {
+          "name": "all measured native actions and workflow checkpoints complete within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "no unexpected HTTP or workflow errors occur",
+          "status": "passed"
+        },
+        {
+          "name": "CDA watched source and API build stayed unchanged",
+          "status": "passed"
+        }
+      ],
+      "evidence": [
+        {
+          "name": "bounded raw CDA oracle contains two mapped and one unmapped project/generation-scoped Specimens with exact Observation IDs",
+          "status": "passed"
+        },
+        {
+          "name": "initial immutable selection preserves exact Specimen IDs, project, generation, and authorization scope",
+          "status": "passed"
+        },
+        {
+          "name": "saved population preserves the exact two-hop Observation → Specimen → parent route",
+          "status": "passed"
+        },
+        {
+          "name": "native preview and coverage match exact mapped/unmapped raw membership",
+          "status": "passed"
+        },
+        {
+          "name": "removing the unmapped Specimen preserves mapped membership, route, columns, and construction",
+          "status": "passed"
+        },
+        {
+          "name": "repaired route, immutable selection, and preview survive Builder reload",
+          "status": "passed"
+        },
+        {
+          "name": "clearing the collection displays rows from the scoped current-generation Observation source",
+          "status": "passed"
+        },
+        {
+          "name": "native reattachment preserves the repaired membership, route, columns, preview, and reload state",
+          "status": "passed"
+        },
+        {
+          "name": "all measured native actions and workflow checkpoints complete within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "no unexpected HTTP or workflow errors occur",
+          "status": "passed"
+        },
+        {
+          "name": "CDA watched source and API build stayed unchanged",
+          "status": "passed"
+        }
+      ]
+    }
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "eaeb83f50840f94a70272715c73da52a834ce7eaedc0542bd98ee235ccd1f967",
+        "files": 1557
+      },
+      "after": {
+        "sha256": "eaeb83f50840f94a70272715c73da52a834ce7eaedc0542bd98ee235ccd1f967",
+        "files": 1557
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave132/population-mapping500-attempt1/source-before.json",
+        "sha256": "febd16e05ad1a13230eb9be22b3b7b702500d960501e55413b71728805baea9c",
+        "sizeBytes": 200282
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave132/population-mapping500-attempt1/source-after.json",
+        "sha256": "f37f7d3acd47c22a59cbe25d83cb2ffad444db098a1dec6176a03a5d1fc845b7",
+        "sizeBytes": 200281
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "0df4c9488ee74a8b1be5f7142524e55cc5dc9a7b47227d1d186598cd520d1618",
+        "files": 282
+      },
+      "after": {
+        "sha256": "0df4c9488ee74a8b1be5f7142524e55cc5dc9a7b47227d1d186598cd520d1618",
+        "files": 282
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave132/population-mapping500-attempt1/docs-before.json",
+        "sha256": "d7877f25887898133635e4fef324dd346de9183876c9700d6c0535a4636bb528",
+        "sizeBytes": 42159
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave132/population-mapping500-attempt1/docs-after.json",
+        "sha256": "8698dfc6714df26f3f072b6fa05a9b0a863c6991732bf47c07f6f3d784e74bf1",
+        "sizeBytes": 42158
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+      "after": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+      "precheck": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave132/population-mapping500-attempt1/api-identity-before.json",
+        "sha256": "782e1526178ca337f567ea8478e680895c6012c470efe0ac31057e6bf9d5ba9b",
+        "sizeBytes": 2825
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave132/population-mapping500-attempt1/api-identity-after.json",
+        "sha256": "4e20578e464c2c019d338419f527e0532c62fd311803ab9830815ea0b843e373",
+        "sizeBytes": 1857
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave132/population-mapping500-attempt1/api-build-precheck.json",
+        "sha256": "0cd540ff846c22698c41309baca363d6156c78edf9a1db0921b4762aaa3fdf98",
+        "sizeBytes": 686
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave132/population-mapping500-attempt1/owned-mounts-before.json",
+        "sha256": "000e734c87f2252e6fd3762896e3a475f9bd64aaff27a033dce38c9730cc78a4",
+        "sizeBytes": 734
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave132/population-mapping500-attempt1/owned-mounts-after.json",
+        "sha256": "24886ad0acedc7b077fb2f7d66af447dd99df0c96c09770d2699adca4408bd6b",
+        "sizeBytes": 733
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave132/population-mapping500-attempt1/health-before.json",
+        "sha256": "3de931fac167d0c8b7c334164e7f561306f4064c7cdf40d0850543debc0fbee3",
+        "sizeBytes": 2057
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave132/population-mapping500-attempt1/health-after.json",
+        "sha256": "a3e193ce92097f68f621b1107851e2b92a15b6e659f36f9a85c02a4b47dd5f49",
+        "sizeBytes": 2057
+      }
+    }
+  },
+  "runner": {
+    "status": "passed",
+    "exitCode": 0,
+    "durationMs": 26900,
+    "suiteDurationMs": 28900,
+    "results": {
+      "path": "/private/tmp/loom-native-parallel-wave132/cda-collection-repair-partial-long-route/attempt1/results.json",
+      "sha256": "4813fd732a6f60cbb16c42c2f3dd86d1c250bd7d89ba2f526350eb389110fbcd",
+      "sizeBytes": 9064
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave132/cda-collection-repair-partial-long-route/attempt1/runner.log",
+      "sha256": "f33d3aed920f1d57db2a8a32015cb3c3669a21aecc93b0ebd16b9029da385111",
+      "sizeBytes": 716
+    },
+    "terminalRecord": {
+      "path": "/private/tmp/loom-native-parallel-wave132/cda-collection-repair-partial-long-route/attempt1/terminal.json",
+      "sha256": "3edd82d4e49f89c30270dee752ac018539f4dc6848d7a33b1553404e6f8b58af",
+      "sizeBytes": 15
+    }
+  },
+  "lifecycleReport": {
+    "path": "/private/tmp/loom-native-parallel-wave132/cda-collection-repair-partial-long-route/attempt1/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/cda-report.json",
+    "sha256": "dedccb212d3f64b135bcd24c5d54842d56e03e4c776278eba110b0afbc75c45f",
+    "sizeBytes": 11562362
+  },
+  "lifecycleReportCreated": true,
+  "strictIntegrityClosure": {
+    "status": "embedded_integrity_artifacts",
+    "sourceBefore": {
+      "path": "/private/tmp/loom-native-parallel-wave132/population-mapping500-attempt1/source-before.json",
+      "sha256": "febd16e05ad1a13230eb9be22b3b7b702500d960501e55413b71728805baea9c",
+      "sizeBytes": 200282
+    },
+    "sourceAfter": {
+      "path": "/private/tmp/loom-native-parallel-wave132/population-mapping500-attempt1/source-after.json",
+      "sha256": "f37f7d3acd47c22a59cbe25d83cb2ffad444db098a1dec6176a03a5d1fc845b7",
+      "sizeBytes": 200281
+    },
+    "docsBefore": {
+      "path": "/private/tmp/loom-native-parallel-wave132/population-mapping500-attempt1/docs-before.json",
+      "sha256": "d7877f25887898133635e4fef324dd346de9183876c9700d6c0535a4636bb528",
+      "sizeBytes": 42159
+    },
+    "docsAfter": {
+      "path": "/private/tmp/loom-native-parallel-wave132/population-mapping500-attempt1/docs-after.json",
+      "sha256": "8698dfc6714df26f3f072b6fa05a9b0a863c6991732bf47c07f6f3d784e74bf1",
+      "sizeBytes": 42158
+    },
+    "apiBefore": {
+      "path": "/private/tmp/loom-native-parallel-wave132/population-mapping500-attempt1/api-identity-before.json",
+      "sha256": "782e1526178ca337f567ea8478e680895c6012c470efe0ac31057e6bf9d5ba9b",
+      "sizeBytes": 2825
+    },
+    "apiAfter": {
+      "path": "/private/tmp/loom-native-parallel-wave132/population-mapping500-attempt1/api-identity-after.json",
+      "sha256": "4e20578e464c2c019d338419f527e0532c62fd311803ab9830815ea0b843e373",
+      "sizeBytes": 1857
+    },
+    "apiPrecheck": {
+      "path": "/private/tmp/loom-native-parallel-wave132/population-mapping500-attempt1/api-build-precheck.json",
+      "sha256": "0cd540ff846c22698c41309baca363d6156c78edf9a1db0921b4762aaa3fdf98",
+      "sizeBytes": 686
+    },
+    "mountsBefore": {
+      "path": "/private/tmp/loom-native-parallel-wave132/population-mapping500-attempt1/owned-mounts-before.json",
+      "sha256": "000e734c87f2252e6fd3762896e3a475f9bd64aaff27a033dce38c9730cc78a4",
+      "sizeBytes": 734
+    },
+    "mountsAfter": {
+      "path": "/private/tmp/loom-native-parallel-wave132/population-mapping500-attempt1/owned-mounts-after.json",
+      "sha256": "24886ad0acedc7b077fb2f7d66af447dd99df0c96c09770d2699adca4408bd6b",
+      "sizeBytes": 733
+    },
+    "healthBefore": {
+      "path": "/private/tmp/loom-native-parallel-wave132/population-mapping500-attempt1/health-before.json",
+      "sha256": "3de931fac167d0c8b7c334164e7f561306f4064c7cdf40d0850543debc0fbee3",
+      "sizeBytes": 2057
+    },
+    "healthAfter": {
+      "path": "/private/tmp/loom-native-parallel-wave132/population-mapping500-attempt1/health-after.json",
+      "sha256": "a3e193ce92097f68f621b1107851e2b92a15b6e659f36f9a85c02a4b47dd5f49",
+      "sizeBytes": 2057
+    }
+  },
+  "jsonAttachments": [
+    {
+      "name": "cda-domain-report-json-03c81750d9bb3650c39d39b4e9fe1ab3a90fe187.json",
+      "path": "/private/tmp/loom-native-parallel-wave132/cda-collection-repair-partial-long-route/attempt1/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/attachments/cda-domain-report-json-03c81750d9bb3650c39d39b4e9fe1ab3a90fe187.json",
+      "sha256": "dedccb212d3f64b135bcd24c5d54842d56e03e4c776278eba110b0afbc75c45f",
+      "sizeBytes": 11562362
+    },
+    {
+      "name": "collection-repair-domain-report-json-c9498e8f3975b762744c4d27b24479dd1c172992.json",
+      "path": "/private/tmp/loom-native-parallel-wave132/cda-collection-repair-partial-long-route/attempt1/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/attachments/collection-repair-domain-report-json-c9498e8f3975b762744c4d27b24479dd1c172992.json",
+      "sha256": "74bebe3930aa8510be24cab2bbe0abc4aee6db2458941396f171904c325cb657",
+      "sizeBytes": 11557143
+    },
+    {
+      "name": "collection-repair-domain-report.json",
+      "path": "/private/tmp/loom-native-parallel-wave132/cda-collection-repair-partial-long-route/attempt1/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/attachments/collection-repair-domain-report.json",
+      "sha256": "74bebe3930aa8510be24cab2bbe0abc4aee6db2458941396f171904c325cb657",
+      "sizeBytes": 11557143
+    }
+  ],
+  "performance": {
+    "completeActionToRender": {
+      "source": {
+        "path": "/private/tmp/loom-native-parallel-wave132/cda-collection-repair-partial-long-route/attempt1/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/attachments/collection-repair-domain-report.json",
+        "sha256": "74bebe3930aa8510be24cab2bbe0abc4aee6db2458941396f171904c325cb657",
+        "sizeBytes": 11557143
+      },
+      "measurementScope": "workflow_completion_with_post_render_oracle_and_api_checks",
+      "timedCompleteCheckpoints": 17,
+      "maximumDurationMs": 2831,
+      "thresholdMs": 5000,
+      "withinThreshold": true,
+      "checkpoints": [
+        {
+          "name": "partial-long-route-preview",
+          "durationMs": 23
+        },
+        {
+          "name": "partial-long-route-table-load-to-settings",
+          "durationMs": 1644
+        },
+        {
+          "name": "nonempty-construction-seed-preview",
+          "durationMs": 163
+        },
+        {
+          "name": "seed-nonempty-exists-construction-before-repair",
+          "durationMs": 2831
+        },
+        {
+          "name": "partial-mapped-unmapped-coverage",
+          "durationMs": 130
+        },
+        {
+          "name": "remove-unmapped-record",
+          "durationMs": 2470
+        },
+        {
+          "name": "partial-long-route-reload-raw-oracle",
+          "durationMs": 13
+        },
+        {
+          "name": "partial-long-route-table-load-to-settings",
+          "durationMs": 1418
+        },
+        {
+          "name": "partial-collection-reload",
+          "durationMs": 123
+        },
+        {
+          "name": "partial-long-route-reload-exact-rows-and-state",
+          "durationMs": 2654
+        },
+        {
+          "name": "clear-long-collection-to-authorized-rows",
+          "durationMs": 435
+        },
+        {
+          "name": "reattached-partial-long-route-visible-preview",
+          "durationMs": 14
+        },
+        {
+          "name": "reattach-repaired-multi-member-long-collection",
+          "durationMs": 512
+        },
+        {
+          "name": "reattached-partial-long-route-reload-raw-oracle",
+          "durationMs": 13
+        },
+        {
+          "name": "partial-long-route-table-load-to-settings",
+          "durationMs": 1373
+        },
+        {
+          "name": "reattached-partial-long-collection-reload",
+          "durationMs": 124
+        },
+        {
+          "name": "reattached-partial-long-route-reload-exact-rows-and-state",
+          "durationMs": 2641
+        }
+      ],
+      "qualification": "Workflow completion upper bounds; these include post-render raw-oracle/API verification and are not represented as pure UI action-to-render times."
+    },
+    "nativeControlOnly": {
+      "actionsTotal": 21,
+      "maximumActionElapsedMs": 249,
+      "usedForPerformanceClaim": false
+    }
+  },
+  "checks": {
+    "required": 11,
+    "passed": 11,
+    "failed": 0,
+    "unrun": 0,
+    "assertions": 33,
+    "passedAssertions": 33,
+    "failedAssertions": 0,
+    "actions": 21,
+    "maxNativeControlMs": 249,
+    "timedCompleteCheckpoints": 17,
+    "maxCheckpointMs": 2831,
+    "budgetMs": 5000
+  },
+  "noRawPayloadsEmbedded": true,
+  "scope": "CDA collection repair with one unmapped selected Specimen; preserves the two mapped rows, saved route, and reload behavior.",
+  "rootAcceptanceStatus": null
+}

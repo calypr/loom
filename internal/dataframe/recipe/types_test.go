@@ -3,6 +3,7 @@ package recipe
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -78,6 +79,21 @@ func TestParseRejectsDuplicateUnknownAndStorageFields(t *testing.T) {
 	}
 }
 
+func TestParseRejectsMalformedTrailingJSON(t *testing.T) {
+	for _, suffix := range []string{"{}", "{"} {
+		if _, err := Parse([]byte(validDocument + suffix)); err == nil || !strings.HasPrefix(err.Error(), "parse_error ") {
+			t.Fatalf("suffix %q: expected strict trailing parse error, got %v", suffix, err)
+		}
+	}
+}
+
+func TestExpressionRejectsMalformedTrailingJSON(t *testing.T) {
+	var expression Expression
+	if err := json.Unmarshal([]byte(`{"select":"root.id"}{`), &expression); err == nil {
+		t.Fatal("expected malformed trailing JSON error")
+	}
+}
+
 func TestParseAcceptsBuilderFieldMetadataWithoutPersistingIt(t *testing.T) {
 	input := `{"recipeSchemaVersion":1,"name":"builder","translationVersion":"interactive","outputs":[{"name":"DocumentReference","rootResourceType":"DocumentReference","rowGrain":"resource","fields":[{"name":"status","fieldRef":"DocumentReference.status","expr":{"select":"root.status"},"logicalType":"scalar","repeated":false,"family":"field","selectionKey":"DocumentReference.status","valueSelector":"status","familyName":"Fields","familyKind":"FIELD"}]}]}`
 	bundle, err := Parse([]byte(input))
@@ -93,6 +109,59 @@ func TestParseAcceptsBuilderFieldMetadataWithoutPersistingIt(t *testing.T) {
 	}
 	if !bytes.Contains(canonical, []byte(`"fieldRef":"DocumentReference.status"`)) {
 		t.Fatalf("semantic field provenance was lost: %s", canonical)
+	}
+}
+
+func TestParseRoundTripsFieldLabelAndColumnID(t *testing.T) {
+	input := `{"recipeSchemaVersion":1,"name":"builder","translationVersion":"interactive","outputs":[{"name":"DocumentReference","rootResourceType":"DocumentReference","rowGrain":"resource","fields":[{"name":"status","columnId":"status_slot_1","label":"Current status","expr":{"select":"root.status"}}]}]}`
+	bundle, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	field := bundle.Outputs[0].Fields[0]
+	if field.ColumnID != "status_slot_1" || field.Label != "Current status" {
+		t.Fatalf("parsed field metadata = columnId %q, label %q", field.ColumnID, field.Label)
+	}
+
+	canonical, err := bundle.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(canonical, []byte(`"columnId":"status_slot_1"`)) || !bytes.Contains(canonical, []byte(`"label":"Current status"`)) {
+		t.Fatalf("canonical recipe lost stable field metadata: %s", canonical)
+	}
+
+	roundTripped, err := Parse(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := roundTripped.Outputs[0].Fields[0]
+	if got.ColumnID != field.ColumnID || got.Label != field.Label {
+		t.Fatalf("round-tripped field metadata = columnId %q, label %q; want %q, %q", got.ColumnID, got.Label, field.ColumnID, field.Label)
+	}
+}
+
+func TestParseRoundTripsDynamicColumnValueMode(t *testing.T) {
+	input := `{"recipeSchemaVersion":1,"name":"dynamic","translationVersion":"1","outputs":[{"name":"patients","rootResourceType":"Patient","rowGrain":"resource","dynamicColumns":[{"name":"identifiers","valueMode":"ALL","source":{"select":"root.identifier[]"},"key":{"select":"item.system"},"value":{"select":"item.value"},"columns":["diagnosis"]}]}]}`
+	bundle, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := bundle.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := Parse(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := parsed.Outputs[0].DynamicColumns[0].ValueMode; got != ValueModeAll {
+		t.Fatalf("round-tripped dynamic value mode = %q, want %q", got, ValueModeAll)
+	}
+
+	invalid := strings.Replace(input, `"valueMode":"ALL"`, `"valueMode":"EVERY"`, 1)
+	if _, err := Parse([]byte(invalid)); err == nil || !strings.Contains(err.Error(), "invalid_value_mode") {
+		t.Fatalf("expected invalid dynamic value mode, got %v", err)
 	}
 }
 
@@ -116,9 +185,111 @@ func TestValidationRejectsVersionNamesAndArity(t *testing.T) {
 	}
 }
 
+func TestValidationRejectsNonSelectorRichShapingExpressions(t *testing.T) {
+	base := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient",%s}]}`
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"pivot", `"pivots":[{"name":"p","columnExpr":{"call":"concat","args":[{"literal":"a"},{"literal":"b"}]},"valueExpr":{"select":"id"},"columns":["a"]}]`},
+		{"aggregate", `"aggregates":[{"name":"a","operation":"DISTINCT_VALUES","expr":{"call":"concat","args":[{"literal":"a"},{"literal":"b"}]}}]`},
+		{"slice", `"slices":[{"name":"s","limit":1,"fields":[{"name":"f","expr":{"call":"concat","args":[{"literal":"a"},{"literal":"b"}]}}]}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := Parse([]byte(fmt.Sprintf(base, tc.body))); err == nil || !strings.Contains(err.Error(), "unsupported_expression") {
+				t.Fatalf("expected rich selector validation error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestValidationRejectsAggregateValueModesBeyondAuto(t *testing.T) {
+	input := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","aggregates":[{"name":"values","operation":"DISTINCT_VALUES","expr":{"select":"name[].family"},"valueMode":"ALL"}]}]}`
+	if _, err := Parse([]byte(input)); err == nil || !strings.Contains(err.Error(), "aggregate valueMode must be AUTO") {
+		t.Fatalf("expected aggregate value mode rejection, got %v", err)
+	}
+}
+
+func TestValidationRejectsUnsupportedRichFilterShapes(t *testing.T) {
+	input := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","slices":[{"name":"s","limit":1,"where":{"select":"gender","operator":"EQUALS","quantifier":"ANY","values":[{"kind":"STRING","string":"female"}]},"fields":[{"name":"id","expr":{"select":"id"}}]}]}]}`
+	if _, err := Parse([]byte(input)); err == nil || !strings.Contains(err.Error(), "rich shaping predicates do not support quantifiers") {
+		t.Fatalf("expected rich filter quantifier rejection, got %v", err)
+	}
+}
+
+func TestValidationAcceptsAggregateContributorQuantifier(t *testing.T) {
+	input := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","aggregates":[{"name":"named","operation":"COUNT","where":{"select":"name[].family","operator":"EXISTS","quantifier":"ANY"}}]}]}`
+	if _, err := Parse([]byte(input)); err != nil {
+		t.Fatalf("expected aggregate contributor quantifier to validate, got %v", err)
+	}
+}
+
+func TestValidationAcceptsExplicitRelatedValueReductions(t *testing.T) {
+	for _, operation := range []string{"REQUIRE_ONE", "COLLECT"} {
+		input := fmt.Sprintf(`{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","aggregates":[{"name":"values","operation":%q,"expr":{"select":"name[].family"}}]}]}`, operation)
+		if _, err := Parse([]byte(input)); err != nil {
+			t.Fatalf("expected %s aggregate to validate, got %v", operation, err)
+		}
+	}
+}
+
+func TestValidationAcceptsCountAndExistsOverExtractedValues(t *testing.T) {
+	for _, operation := range []string{"COUNT", "EXISTS"} {
+		input := fmt.Sprintf(`{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","aggregates":[{"name":"values","operation":%q,"expr":{"select":"name[].family"}}]}]}`, operation)
+		if _, err := Parse([]byte(input)); err != nil {
+			t.Fatalf("expected %s over extracted values to validate, got %v", operation, err)
+		}
+	}
+}
+
+func TestValidationAcceptsWindowedReducersWithoutValuesAndOrderedWindow(t *testing.T) {
+	window := `"contributorWindow":{"timestamp":{"select":"observation.effectiveDateTime"},"anchor":{"select":"root.meta.lastUpdated"},"lowerOffsetSeconds":-86400,"upperOffsetSeconds":0,"lowerInclusive":true,"upperInclusive":false,"precision":"INSTANT"}`
+	for _, operation := range []string{"COUNT", "EXISTS"} {
+		input := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","traversals":[{"name":"observations","alias":"observation","toResourceType":"Observation","aggregates":[{"name":"values","operation":"` + operation + `",` + window + `}]}]}]}`
+		if _, err := Parse([]byte(input)); err != nil {
+			t.Fatalf("expected pathless windowed %s to validate, got %v", operation, err)
+		}
+	}
+
+	ordered := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","traversals":[{"name":"observations","alias":"observation","toResourceType":"Observation","aggregates":[{"name":"latest","operation":"FIRST_ORDERED","expr":{"select":"observation.valueQuantity.value"},` + window + `,"ordering":{"timestamp":{"select":"observation.effectiveDateTime"},"direction":"DESC","tiePolicy":"REQUIRE_UNIQUE"}}]}]}]}`
+	if _, err := Parse([]byte(ordered)); err != nil {
+		t.Fatalf("expected ordered contributor window to validate, got %v", err)
+	}
+	invalid := strings.Replace(ordered, `"lowerOffsetSeconds":-86400`, `"lowerOffsetSeconds":1`, 1)
+	if _, err := Parse([]byte(invalid)); err == nil || !strings.Contains(err.Error(), "lowerOffsetSeconds") {
+		t.Fatalf("expected inverted contributor window rejection, got %v", err)
+	}
+	missingOrdering := strings.Replace(ordered, `,"ordering":{"timestamp":{"select":"observation.effectiveDateTime"},"direction":"DESC","tiePolicy":"REQUIRE_UNIQUE"}`, "", 1)
+	if _, err := Parse([]byte(missingOrdering)); err == nil || !strings.Contains(err.Error(), "ordering") {
+		t.Fatalf("expected FIRST_ORDERED ordering to be required, got %v", err)
+	}
+	invalidOrdering := strings.Replace(ordered, `"operation":"FIRST_ORDERED"`, `"operation":"SUM"`, 1)
+	if _, err := Parse([]byte(invalidOrdering)); err == nil || !strings.Contains(err.Error(), "ordering is only valid") {
+		t.Fatalf("expected ordering on SUM to be rejected, got %v", err)
+	}
+}
+
+func TestValidationAcceptsTypedExpressionOperationSet(t *testing.T) {
+	for _, call := range []string{"fallback", "not", "and", "or", "eq", "neq", "gt", "gte", "lt", "lte", "contains"} {
+		bundle := Bundle{RecipeSchemaVersion: 1, Name: "ops", TranslationVersion: "1"}
+		bundle.Outputs = []Output{{Name: "Patient", RootResourceType: "Patient", RowGrain: "patient"}}
+		bundle.Outputs[0].Fields = []Field{{Name: "value", Expr: Expression{Call: call, Args: []Expression{{Literal: []byte(`true`)}, {Literal: []byte(`true`)}}}}}
+		if call == "not" {
+			bundle.Outputs[0].Fields[0].Expr.Args = bundle.Outputs[0].Fields[0].Expr.Args[:1]
+		}
+		if err := bundle.Validate(); err != nil {
+			t.Fatalf("call %q rejected by recipe operation registry: %v", call, err)
+		}
+	}
+}
+
 func TestTraversalColumnNamingValidation(t *testing.T) {
 	valid := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","traversalColumnNaming":"ALIAS","traversals":[{"name":"edge_a","alias":"occ_a","toResourceType":"Condition"},{"name":"edge_b","alias":"occ_b","toResourceType":"Condition"}]}]}`
 	if _, err := Parse([]byte(valid)); err != nil {
+		t.Fatal(err)
+	}
+	exact := strings.Replace(valid, `"ALIAS"`, `"EXACT"`, 1)
+	if _, err := Parse([]byte(exact)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -195,5 +366,86 @@ func TestParseAcceptsDocumentExpression(t *testing.T) {
 	}
 	if bundle.Outputs[0].Fields[0].Expr.Document == nil {
 		t.Fatalf("document expression was not parsed: %#v", bundle.Outputs[0].Fields[0].Expr)
+	}
+}
+
+func TestExpansionOccurrencePolicyAndIdentityAlternatives(t *testing.T) {
+	valid := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rootOccurrenceId":"root_1","rowGrain":"expanded","expand":{"ownerOccurrenceId":"root_1","from":{"select":"root.identifier[]"},"as":"item","ordinality":"position","emptyPolicy":"PRESERVE_PARENT"},"identity":{"name":"row","expr":{"literal":"stable"}},"traversals":[{"name":"subject","occurrenceId":"subject_1","toResourceType":"Patient"}]}]}`
+	bundle, err := Parse([]byte(valid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := bundle.Outputs[0]
+	if output.RootOccurrenceID != "root_1" || output.Expand.OwnerOccurrenceID != "root_1" || output.Expand.Ordinality != "position" || output.Expand.EmptyPolicy.Normalized() != ExpansionPreserveParent {
+		t.Fatalf("expanded recipe fields = %#v", output)
+	}
+	var identityLiteral string
+	if output.Identity.Expr.Literal == nil || json.Unmarshal(output.Identity.Expr.Literal, &identityLiteral) != nil || identityLiteral != "stable" {
+		t.Fatalf("literal identity = %#v", output.Identity)
+	}
+	if output.Traversals[0].OccurrenceID != "subject_1" {
+		t.Fatalf("traversal occurrence ID = %q", output.Traversals[0].OccurrenceID)
+	}
+	if (Expansion{}).EmptyPolicy.Normalized() != ExpansionExclude {
+		t.Fatal("an omitted empty policy must preserve legacy EXCLUDE behavior")
+	}
+
+	for _, test := range []struct {
+		name  string
+		field string
+		want  string
+	}{
+		{name: "unsupported policy", field: `"emptyPolicy":"CROSS"`, want: "invalid_empty_policy"},
+		{name: "ordinality collision", field: `"ordinality":"item"`, want: "binding_collision"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input := strings.Replace(valid, `"ordinality":"position","emptyPolicy":"PRESERVE_PARENT"`, test.field, 1)
+			if _, err := Parse([]byte(input)); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Parse() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+
+	identityUnionCases := []struct {
+		name  string
+		body  string
+		valid bool
+	}{
+		{name: "typed expansion", body: `"identity":{"name":"row","expansion":{}}`, valid: true},
+		{name: "both alternatives", body: `"identity":{"name":"row","expr":{"select":"root.id"},"expansion":{}}`},
+		{name: "expansion without row expansion", body: `"identity":{"name":"row","expansion":{}}`},
+	}
+	for _, test := range identityUnionCases {
+		t.Run(test.name, func(t *testing.T) {
+			input := strings.Replace(valid, `"identity":{"name":"row","expr":{"literal":"stable"}}`, test.body, 1)
+			if test.name == "expansion without row expansion" {
+				input = strings.Replace(input, `,"expand":{"ownerOccurrenceId":"root_1","from":{"select":"root.identifier[]"},"as":"item","ordinality":"position","emptyPolicy":"PRESERVE_PARENT"}`, "", 1)
+			}
+			parsed, err := Parse([]byte(input))
+			if test.valid && err != nil {
+				t.Fatalf("Parse() error = %v", err)
+			}
+			if !test.valid && err == nil {
+				t.Fatal("Parse() unexpectedly succeeded")
+			}
+			if test.name == "both alternatives" && (err == nil || !strings.Contains(err.Error(), "expr and expansion are mutually exclusive")) {
+				t.Fatalf("Parse() error = %v, want identity alternative rejection", err)
+			}
+			if test.name == "expansion without row expansion" && (err == nil || !strings.Contains(err.Error(), "requires an output expansion")) {
+				t.Fatalf("Parse() error = %v, want missing expansion rejection", err)
+			}
+			if test.name == "typed expansion" {
+				canonical, err := parsed.CanonicalJSON()
+				if err != nil {
+					t.Fatalf("CanonicalJSON() error = %v", err)
+				}
+				if !bytes.Contains(canonical, []byte(`"identity":{"name":"row","expansion":{}}`)) || bytes.Contains(canonical, []byte(`"identity":{"name":"row","expr"`)) {
+					t.Fatalf("canonical expansion identity has wrong wire form: %s", canonical)
+				}
+				if _, err := Parse(canonical); err != nil {
+					t.Fatalf("Parse(canonical expansion identity) error = %v", err)
+				}
+			}
+		})
 	}
 }

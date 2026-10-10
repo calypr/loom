@@ -1,0 +1,438 @@
+{
+  "schemaVersion": 1,
+  "epoch": 106,
+  "scenario": "cda-five-hop-related-expansion",
+  "case": "medication-preserve-parent",
+  "title": "Make a row for each Medication from a zero-column Specimen through five relationship hops",
+  "status": "passed",
+  "runnerStatus": "passed",
+  "coverageStatus": "passed",
+  "classification": "FULL_NULL_PRESERVING_LIFECYCLE_PASS",
+  "classificationReason": "The exact five-hop route completed through native PRESERVE_PARENT preview, Cancel, Apply and reload, EXCLUDE edit and reload, then removal and zero-column restoration on reload. The final cda-report and Playwright result are passed; one retained workflow attachment has top-level status running while its lifecycle status is passed. The bounded first 1,000 Specimen roots contained no positive Medication witness; this is a null-preserving lifecycle pass, not positive-value or multiplicity coverage.",
+  "startedAt": "2026-10-06T17:52:40.386Z",
+  "finishedAt": "2026-10-06T17:53:05.239Z",
+  "durableClosurePath": "docs/verification/playwright/runtime/zero-column-related-medication-epoch106-closure.json",
+  "target": {
+    "kind": "owned-cda",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorerId": "related-medication-0b639f56-5de4-4b8a-a841-d21afc04eb58",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "sourceFingerprint": {
+      "sha256": "f2f14f25c74e526a2a783a6a55b2b397fcc33418a18bf581c1dbb84dd18cfd91",
+      "files": 1534
+    },
+    "apiBuildIdentity": "d5761c2b73710d7ae8326591d0d12d426513319e3cb66d262e43001e82acb9a3:d5761c2b73710d7ae8326591d0d12d426513319e3cb66d262e43001e82acb9a3:f89ec2658ca120f51d8e4e9868b718fda210111895b8b3f06877c3a0ef76b9db",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008"
+  },
+  "requiredChecks": {
+    "total": 11,
+    "passed": 11,
+    "failed": 0,
+    "unrun": 0,
+    "passedNames": [
+      "bounded independent raw CDA oracle proves the exact five-hop Medication route and records match availability",
+      "fresh Specimen table has zero public columns and exact scoped selected membership",
+      "native RelatedExpand editor selects the exact five-hop route from root identity to Medication",
+      "PRESERVE_PARENT automatic proposal renders exact terminal Medication IDs and one null ID per unmatched parent",
+      "Cancel leaves the zero-column source population and saved draft unchanged",
+      "Apply saves the exact route and renders actual Medication table preview rows matching raw membership",
+      "reload restores the exact route, policy, row identities, and Medication preview values",
+      "editing to EXCLUDE removes unmatched parents in preview and after reload",
+      "removing RelatedExpand restores the zero-column Specimen table, selection, direct route, and no stale Medication output after reload",
+      "native route, proposal, Apply, edit, removal, and reload checkpoints complete within five seconds",
+      "CDA watched source and API build stayed unchanged"
+    ],
+    "unrunNames": [],
+    "note": "All registered lifecycle checks are recorded as passed; positive-value Medication coverage remains explicitly separate."
+  },
+  "assertions": {
+    "passed": 35,
+    "failed": 0,
+    "total": 35
+  },
+  "nativeActions": {
+    "passed": 23,
+    "failed": 0,
+    "total": 23,
+    "maxElapsedMs": 169,
+    "actions": [
+      {
+        "label": "▤ Zero-column Specimen",
+        "status": "passed",
+        "elapsedMs": 92
+      },
+      {
+        "label": "Configure rows",
+        "status": "passed",
+        "elapsedMs": 58
+      },
+      {
+        "label": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations → 2 rows, each describing Patient A and one Observation",
+        "status": "passed",
+        "elapsedMs": 88
+      },
+      {
+        "label": "Select Medication",
+        "status": "passed",
+        "elapsedMs": 38
+      },
+      {
+        "label": "Other relationship paths (28)",
+        "status": "passed",
+        "elapsedMs": 51
+      },
+      {
+        "label": "Specimen <-[focus]- Observation <-[stage_assessment]- Condition -[subject]-> Patient <-[subject]- MedicationAdministration -[medication_reference]-> Medication",
+        "status": "passed",
+        "elapsedMs": 81
+      },
+      {
+        "label": "Cancel",
+        "status": "passed",
+        "elapsedMs": 127
+      },
+      {
+        "label": "Configure rows",
+        "status": "passed",
+        "elapsedMs": 65
+      },
+      {
+        "label": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations → 2 rows, each describing Patient A and one Observation",
+        "status": "passed",
+        "elapsedMs": 99
+      },
+      {
+        "label": "Select Medication",
+        "status": "passed",
+        "elapsedMs": 27
+      },
+      {
+        "label": "Other relationship paths (28)",
+        "status": "passed",
+        "elapsedMs": 54
+      },
+      {
+        "label": "Specimen <-[focus]- Observation <-[stage_assessment]- Condition -[subject]-> Patient <-[subject]- MedicationAdministration -[medication_reference]-> Medication",
+        "status": "passed",
+        "elapsedMs": 104
+      },
+      {
+        "label": "Apply change",
+        "status": "passed",
+        "elapsedMs": 142
+      },
+      {
+        "label": "▤ Zero-column Specimen",
+        "status": "passed",
+        "elapsedMs": 169
+      },
+      {
+        "label": "1. Expand related records",
+        "status": "passed",
+        "elapsedMs": 103
+      },
+      {
+        "label": "Edit",
+        "status": "passed",
+        "elapsedMs": 89
+      },
+      {
+        "label": "Select EXCLUDE",
+        "status": "passed",
+        "elapsedMs": 49
+      },
+      {
+        "label": "Apply change",
+        "status": "passed",
+        "elapsedMs": 88
+      },
+      {
+        "label": "▤ Zero-column Specimen",
+        "status": "passed",
+        "elapsedMs": 160
+      },
+      {
+        "label": "1. Expand related records",
+        "status": "passed",
+        "elapsedMs": 109
+      },
+      {
+        "label": "Remove",
+        "status": "passed",
+        "elapsedMs": 79
+      },
+      {
+        "label": "Apply removal",
+        "status": "passed",
+        "elapsedMs": 117
+      },
+      {
+        "label": "▤ Zero-column Specimen",
+        "status": "passed",
+        "elapsedMs": 91
+      }
+    ]
+  },
+  "dimensions": {
+    "usability": "passed",
+    "correctness": "passed",
+    "persistence": "passed",
+    "performance": "passed"
+  },
+  "rawOracle": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "scannedSpecimenCount": 1000,
+    "selectedRoots": [
+      {
+        "id": "00001c68-2c20-5003-a144-b2442469d8de",
+        "_id": "Specimen/g_af8d27ece3cef704ce1e40a8289c835969a1868685394a4260da3941864236f8",
+        "medicationIDs": []
+      },
+      {
+        "id": "0000ae4e-5498-51e8-a091-32b0552093ac",
+        "_id": "Specimen/g_98e422afa3a377b97d6cf4c70963714be734cc4ad84c6b1cdaed8b853aecbf79",
+        "medicationIDs": []
+      }
+    ],
+    "positiveWitnessWithinBound": false,
+    "unmatchedRootCountWithinBound": 1000,
+    "expectedMedicationIDs": [],
+    "expectedVisibleMedicationValues": [
+      null,
+      null
+    ],
+    "expectedPreserveRowCount": 2,
+    "expectedExcludeRowCount": 0,
+    "route": [
+      {
+        "fromResourceType": "Specimen",
+        "toResourceType": "Observation",
+        "relationship": "focus_Specimen",
+        "storageDirection": "INBOUND"
+      },
+      {
+        "fromResourceType": "Observation",
+        "toResourceType": "Condition",
+        "relationship": "stage_assessment_Observation",
+        "storageDirection": "INBOUND"
+      },
+      {
+        "fromResourceType": "Condition",
+        "toResourceType": "Patient",
+        "relationship": "subject_Patient",
+        "storageDirection": "OUTBOUND"
+      },
+      {
+        "fromResourceType": "Patient",
+        "toResourceType": "MedicationAdministration",
+        "relationship": "subject_Patient",
+        "storageDirection": "INBOUND"
+      },
+      {
+        "fromResourceType": "MedicationAdministration",
+        "toResourceType": "Medication",
+        "relationship": "medication_reference_Medication",
+        "storageDirection": "OUTBOUND"
+      }
+    ],
+    "bound": {
+      "rootLimit": 1000,
+      "distinctMedicationLimitPerRoot": 26
+    }
+  },
+  "rawWorkflowAttachmentStatusCaveat": "One retained workflow attachment reports top-level status running while its lifecycle is passed; the final cda-report and Playwright result are passed and are authoritative for this run.",
+  "routeEnumeration": {
+    "pageCount": 1,
+    "returnedChoiceCount": 29,
+    "exactFiveHopMatchCount": 1,
+    "exactRouteObserved": true,
+    "truncated": true
+  },
+  "lifecycle": {
+    "status": "passed",
+    "preservePreviewRows": 2,
+    "preservePreviewMedicationValues": [
+      null,
+      null
+    ],
+    "cancel": "passed; saved zero-column source unchanged",
+    "applyReload": "passed; exact two row identities and null Medication values restored",
+    "excludeEditReload": "passed; zero rows for the selected unmatched roots after reload",
+    "removeRestoreReload": "passed; zero-column Specimen source restored after reload",
+    "checkpoints": [
+      {
+        "name": "native related-expansion editor discovery",
+        "durationMs": 204,
+        "limitMs": 5000
+      },
+      {
+        "name": "native Medication route-choice discovery",
+        "durationMs": 258,
+        "limitMs": 5000
+      },
+      {
+        "name": "native Medication target selection through exact five-hop ready proposal",
+        "durationMs": 928,
+        "limitMs": 5000
+      },
+      {
+        "name": "native Cancel to restored zero-column source state",
+        "durationMs": 142,
+        "limitMs": 5000
+      },
+      {
+        "name": "native RelatedExpand editor reopen after Cancel",
+        "durationMs": 196,
+        "limitMs": 5000
+      },
+      {
+        "name": "reopened Medication route-choice discovery",
+        "durationMs": 241,
+        "limitMs": 5000
+      },
+      {
+        "name": "reopened Medication target selection through exact five-hop ready proposal",
+        "durationMs": 937,
+        "limitMs": 5000
+      },
+      {
+        "name": "native Apply to actual Medication table preview",
+        "durationMs": 1094,
+        "limitMs": 5000
+      },
+      {
+        "name": "reload to restored Medication output rows",
+        "durationMs": 1952,
+        "limitMs": 5000
+      },
+      {
+        "name": "open saved RelatedExpand editor",
+        "durationMs": 402,
+        "limitMs": 5000
+      },
+      {
+        "name": "EXCLUDE policy selection to exact automatic proposal",
+        "durationMs": 765,
+        "limitMs": 5000
+      },
+      {
+        "name": "EXCLUDE Apply to actual table preview",
+        "durationMs": 974,
+        "limitMs": 5000
+      },
+      {
+        "name": "reload after EXCLUDE edit",
+        "durationMs": 1979,
+        "limitMs": 5000
+      },
+      {
+        "name": "open saved RelatedExpand removal controls",
+        "durationMs": 125,
+        "limitMs": 5000
+      },
+      {
+        "name": "native Remove to zero-column restoration proposal",
+        "durationMs": 791,
+        "limitMs": 5000
+      },
+      {
+        "name": "native Remove Apply to restored zero-column UI",
+        "durationMs": 398,
+        "limitMs": 5000
+      },
+      {
+        "name": "reload to restored zero-column Specimen table state",
+        "durationMs": 1273,
+        "limitMs": 5000
+      }
+    ],
+    "maxCheckpointMs": 1979,
+    "checkpointBudgetMs": 5000
+  },
+  "timing": {
+    "nativeActionMaxMs": 169,
+    "maxCheckpointMs": 1979,
+    "checkpointBudgetMs": 5000
+  },
+  "positiveValueCoverage": {
+    "status": "untested_separate_gap",
+    "scannedSpecimenCount": 1000,
+    "positiveWitnessWithinBound": false,
+    "note": "The passing run validates the exact null-preserving and EXCLUDE/removal lifecycle for two unmatched roots only."
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "f2f14f25c74e526a2a783a6a55b2b397fcc33418a18bf581c1dbb84dd18cfd91",
+        "files": 1534
+      },
+      "after": {
+        "sha256": "f2f14f25c74e526a2a783a6a55b2b397fcc33418a18bf581c1dbb84dd18cfd91",
+        "files": 1534
+      },
+      "unchanged": true
+    },
+    "apiBuildIdentity": {
+      "before": "d5761c2b73710d7ae8326591d0d12d426513319e3cb66d262e43001e82acb9a3:d5761c2b73710d7ae8326591d0d12d426513319e3cb66d262e43001e82acb9a3:f89ec2658ca120f51d8e4e9868b718fda210111895b8b3f06877c3a0ef76b9db",
+      "after": "d5761c2b73710d7ae8326591d0d12d426513319e3cb66d262e43001e82acb9a3:d5761c2b73710d7ae8326591d0d12d426513319e3cb66d262e43001e82acb9a3:f89ec2658ca120f51d8e4e9868b718fda210111895b8b3f06877c3a0ef76b9db",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave106/health-before.json",
+        "sha256": "c1e00e6d1bbfdddcaefb5101fd848d2ffd9825c348ddfb3852b77bf909ed7f6c"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave106/health-after.json",
+        "sha256": "20d76c4358de59a3c898f17757d9439bb07392975c475779e2935beabf969886"
+      }
+    }
+  },
+  "rawArtifacts": {
+    "domainReport": {
+      "path": "/private/tmp/loom-native-related-expansion-wave106/attempt1/artifacts/standalone-cda-other-CDA-z-888f6-ough-five-relationship-hops/cda-report.json",
+      "sha256": "5e0382fca3af9a1bec902e64532a45ca1d2374920430e08a0306c28517790aa7"
+    },
+    "integrityClosure": {
+      "path": "/private/tmp/loom-native-related-expansion-wave106/closure.json",
+      "sha256": "59b18a1421bfee11cc958f495faa1eef203b439d9f882a7b7070edadda647b85"
+    },
+    "playwrightResults": {
+      "path": "/private/tmp/loom-native-related-expansion-wave106/attempt1/results.json",
+      "sha256": "a169b8065eaf1dc2e1282ebc48b4a924f4938c1f82d68bbfaba310314aad37df"
+    }
+  }
+}

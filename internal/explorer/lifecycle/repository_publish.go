@@ -12,7 +12,8 @@ import (
 
 func (s *Service) PublishRepository(ctx context.Context, request RepositoryPublishRequest) (RepositoryPublishResult, error) {
 	if err := request.Workspace.ValidateForPublication(); err != nil {
-		return RepositoryPublishResult{}, unprocessable("repository_publish", "INVALID_WORKSPACE", err.Error(), err)
+		code := workspaceValidationCode(err)
+		return RepositoryPublishResult{}, unprocessable("repository_publish", code, err.Error(), err)
 	}
 	if s.config.Capability.Current == nil || s.config.Capability.ForCompilation == nil || s.config.CompileReceipt == nil {
 		return RepositoryPublishResult{}, unavailable("repository_publish", "PUBLICATION_UNAVAILABLE", "repository V2 compilation is not configured", nil)
@@ -41,7 +42,7 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 			return RepositoryPublishResult{}, forbidden("repository_publish", fmt.Sprintf("authorize repository V2 materialization: %v", err), err)
 		}
 	}
-	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), DatasetGeneration: request.Generation}
+	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), SelectionProject: projectid.Canonical(request.Project), DatasetGeneration: request.Generation, SelectionMembersCollection: s.config.SelectionMembersCollection}
 	applyAuthorizedScope(&bindings, authorized, true)
 	var execution Execution
 	if s.config.MaterializeReceipt == nil {
@@ -50,18 +51,21 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 		execution, err = s.config.MaterializeReceipt(ctx, receipt, bindings)
 	}
 	if err != nil {
-		if resourceErr := materializationResourceError("repository_publish", err); resourceErr != nil {
-			return RepositoryPublishResult{}, resourceErr
+		if classifiedErr := classifyMaterializationError("repository_publish", err); classifiedErr != nil {
+			return RepositoryPublishResult{}, classifiedErr
 		}
 		return RepositoryPublishResult{}, unprocessable("repository_publish", "MATERIALIZATION_FAILED", fmt.Sprintf("materialize repository V2 workspace: %v", err), err)
 	}
 	if err := verifyQueryableOutputs(receipt.Bundle, execution); err != nil {
 		return RepositoryPublishResult{}, unprocessable("repository_publish", "MATERIALIZATION_FAILED", err.Error(), err)
 	}
+	if err := verifyActivationQuality(receipt, execution); err != nil {
+		return RepositoryPublishResult{}, unprocessable("repository_publish", "QUALITY_EVIDENCE_INVALID", err.Error(), err)
+	}
 	materialized := materializations(receipt.Bundle, execution)
 	datasetMetadata := datasetMetadataFromExecution(receipt.Bundle, request.Generation, receipt.ResolvedSchemaDigest, execution)
 	publication := explorer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: request.Generation, ExecutionID: execution.ID, UpdatedAt: s.now()}
-	owner, revision, err := s.store.UpsertRepositoryV2(ctx, *receipt, request.Commit, request.Actor, materialized, datasetMetadata, publication)
+	owner, revision, err := s.store.UpsertRepositoryV2(ctx, *receipt, request.Commit, request.Actor, materialized, datasetMetadata, execution.QualityReports, publication)
 	if err != nil {
 		return RepositoryPublishResult{}, internal("repository_publish", "PERSISTENCE_FAILED", fmt.Sprintf("persist Explorer lifecycle V2: %v", err), err)
 	}
@@ -76,6 +80,7 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 		return RepositoryPublishResult{}, conflict("repository_publish", "RELEASE_ACTIVATION_FAILED", fmt.Sprintf("activate published ExplorerConfigV2: %v", err), nil, err)
 	}
 	if err := s.store.ActivateRepositoryGeneration(ctx, request.Project, request.Generation, revision.ID); err != nil {
+		_, _ = s.store.FailRevision(ctx, revision.ID, []explorer.Diagnostic{{Severity: "ERROR", Code: "GENERATION_ACTIVATION_FAILED", Message: err.Error(), Retryable: true}})
 		return RepositoryPublishResult{}, conflict("repository_publish", "RELEASE_ACTIVATION_FAILED", fmt.Sprintf("activate ExplorerConfigV2: %v", err), nil, err)
 	}
 	publication.State, publication.RevisionID, publication.UpdatedAt = string(explorer.RevisionActive), revision.ID, s.now()

@@ -298,7 +298,7 @@ func (r *ScopeResolver) resolveCallerPaths(ctx context.Context, principal *Princ
 }
 
 func (r *ScopeResolver) listExistingPaths(ctx context.Context, project, datasetGeneration string) ([]string, error) {
-	project = strings.TrimSpace(project)
+	project = projectid.Canonical(project)
 	datasetGeneration = catalog.NormalizeDatasetGeneration(datasetGeneration)
 	if project == "" {
 		return []string{}, nil
@@ -315,7 +315,7 @@ func (r *ScopeResolver) listExistingPaths(ctx context.Context, project, datasetG
 		return nil, ErrAuthorizationBackendUnavailable
 	}
 	paths, err := r.listExisting(ctx, catalog.AuthResourcePathOptions{
-		Project:           project,
+		Project:           projectid.Legacy(project),
 		DatasetGeneration: datasetGeneration,
 	})
 	if err != nil {
@@ -332,7 +332,7 @@ func (r *ScopeResolver) listExistingPaths(ctx context.Context, project, datasetG
 }
 
 func (r *ScopeResolver) InvalidateProject(project string) {
-	project = strings.TrimSpace(project)
+	project = projectid.Canonical(project)
 	if project == "" {
 		r.mu.Lock()
 		r.cache = make(map[scopeCacheKey]cachedPaths)
@@ -353,7 +353,7 @@ func (r *ScopeResolver) InvalidateProject(project string) {
 // the active scope cache for every other immutable generation in the project.
 func (r *ScopeResolver) InvalidateGeneration(project, datasetGeneration string) {
 	key := scopeCacheKey{
-		project:           strings.TrimSpace(project),
+		project:           projectid.Canonical(project),
 		datasetGeneration: catalog.NormalizeDatasetGeneration(datasetGeneration),
 	}
 	if key.project == "" {

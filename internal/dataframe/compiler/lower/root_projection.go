@@ -7,6 +7,8 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/dataframe/unit"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 // physicalSemanticBinding records the physical value and schema resource
@@ -68,12 +70,34 @@ func lowerSemanticFieldProjection(physical *ir.PhysicalPlan, node semantic.Seman
 	}
 	expression := ir.PhysicalExpression{
 		Kind: ir.PhysicalExtractExpression, Cardinality: cardinality, NullBehavior: ir.PhysicalPreserveNull,
-		Extract: &ir.PhysicalExtract{Source: source, ResourceType: node.ResourceType, Selector: selection.Selector, Fallbacks: fallbacks, Distinct: distinct, ExecutionMode: selectorExecutionMode(node.ResourceType, selection.Selector, fallbacks...)},
+		Extract: &ir.PhysicalExtract{Source: source, ResourceType: node.ResourceType, Selector: selection.Selector, Fallbacks: physicalSelectorFallbacks(source, node.ResourceType, fallbacks), Distinct: distinct, ExecutionMode: selectorExecutionMode(node.ResourceType, selection.Selector, fallbacks...)},
 	}
 	if cardinality == ir.PhysicalArrayCardinality {
 		expression.NullBehavior = ir.PhysicalEmptyOnNull
 	}
-	return ir.PhysicalProjection{Name: field.Name, Expression: &expression}, nil
+	presenceSelectors := append([]spec.Selector{selection.Selector}, fallbacks...)
+	return ir.PhysicalProjection{Name: field.Name, Expression: &expression, Presence: physicalProjectionPresence(source, presenceSelectors...)}, nil
+}
+
+func physicalProjectionPresence(source ir.PhysicalValue, selectors ...spec.Selector) *ir.PhysicalProjectionPresence {
+	paths := make([][]string, 0, len(selectors))
+	for _, selector := range selectors {
+		if selector.Filter != nil || len(selector.Steps) == 0 {
+			return nil
+		}
+		path := make([]string, 0, len(selector.Steps))
+		for _, step := range selector.Steps {
+			if step.Iterate || step.Index != nil || step.Field == "" {
+				return nil
+			}
+			path = append(path, step.Field)
+		}
+		paths = append(paths, path)
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	return &ir.PhysicalProjectionPresence{Source: source, Paths: paths}
 }
 
 func lowerSemanticFieldProjections(physical *ir.PhysicalPlan, node semantic.SemanticNode, source ir.PhysicalValue, bindings map[string]physicalSemanticBinding, lowerer semanticFieldProjectionLowerer) ([]ir.PhysicalProjection, error) {
@@ -93,34 +117,77 @@ func rootPhysicalProjections(physical *ir.PhysicalPlan, root semantic.SemanticNo
 	if fields != nil {
 		projections = append(projections, fields...)
 	} else {
-		fields, err := lowerSemanticFieldProjections(physical, root, ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}, bindings, lowerer)
+		fields, err := semanticNodePhysicalProjections(physical, root, ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}, bindings, lowerer, "")
 		if err != nil {
 			return nil, err
 		}
 		projections = append(projections, fields...)
 	}
-	for _, aggregate := range root.Aggregates {
-		expression, err := physicalAggregateExpression(physical, root.ResourceType, ir.PhysicalValue{Variable: "root"}, aggregate, false)
+	return projections, nil
+}
+
+func semanticNodePhysicalProjections(physical *ir.PhysicalPlan, node semantic.SemanticNode, source ir.PhysicalValue, bindings map[string]physicalSemanticBinding, lowerer semanticFieldProjectionLowerer, prefix string) ([]ir.PhysicalProjection, error) {
+	fields, err := lowerSemanticFieldProjections(physical, node, source, bindings, lowerer)
+	if err != nil {
+		return nil, err
+	}
+	projections := make([]ir.PhysicalProjection, 0, len(fields)+len(node.Aggregates)+len(node.OwnerRecords)+len(node.Slices))
+	for _, field := range fields {
+		field.Name = traversalColumnName(prefix, field.Name)
+		projections = append(projections, field)
+	}
+	for _, aggregate := range node.Aggregates {
+		expression, err := physicalAggregateExpression(physical, node.ResourceType, ir.PhysicalValue{Variable: source.Variable}, aggregate, false)
 		if err != nil {
 			return nil, err
 		}
-		projections = append(projections, ir.PhysicalProjection{Name: aggregateProjectionName(aggregate, ""), Expression: &expression})
+		projections = append(projections, ir.PhysicalProjection{Name: aggregateProjectionName(aggregate, traversalColumnNamePrefix(prefix)), Expression: &expression})
 	}
-	for _, pivot := range root.Pivots {
-		pivotProjections, err := physicalPivotProjections(physical, root.ResourceType, ir.PhysicalValue{Variable: "root"}, pivot, "")
+	for _, pivot := range node.Pivots {
+		pivotProjections, err := physicalPivotProjections(physical, node.ResourceType, ir.PhysicalValue{Variable: source.Variable}, pivot, traversalColumnNamePrefix(prefix))
 		if err != nil {
 			return nil, err
 		}
 		projections = append(projections, pivotProjections...)
 	}
-	for _, slice := range root.Slices {
-		expression, err := physicalSliceExpression(physical, root.ResourceType, ir.PhysicalValue{Variable: "root"}, slice)
+	for _, ownerRecords := range node.OwnerRecords {
+		expression, err := physicalOwnerRecordsExpression(physical, node.ResourceType, ir.PhysicalValue{Variable: source.Variable}, ownerRecords)
 		if err != nil {
 			return nil, err
 		}
-		projections = append(projections, ir.PhysicalProjection{Name: slice.Name, Expression: &expression})
+		projections = append(projections, ir.PhysicalProjection{Name: traversalColumnName(prefix, ownerRecords.Name), Expression: &expression})
+	}
+	for _, slice := range node.Slices {
+		expression, err := physicalSliceExpression(physical, node.ResourceType, ir.PhysicalValue{Variable: source.Variable}, slice)
+		if err != nil {
+			return nil, err
+		}
+		projections = append(projections, ir.PhysicalProjection{Name: traversalColumnName(prefix, slice.Name), Expression: &expression})
 	}
 	return projections, nil
+}
+
+func physicalOwnerRecordsExpression(physical *ir.PhysicalPlan, resourceType string, source ir.PhysicalValue, operation semantic.SemanticOwnerRecords) (ir.PhysicalExpression, error) {
+	prefix := "owner_records_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(operation.Name)
+	systemKey := prefix + "_system"
+	codeKey := prefix + "_code"
+	ownerPathKey := prefix + "_owner_path"
+	choiceArmKey := prefix + "_choice_arm"
+	logicalTypeKey := prefix + "_logical_type"
+	physical.BindVars[systemKey] = operation.Key.System
+	physical.BindVars[codeKey] = operation.Key.Code
+	physical.BindVars[ownerPathKey] = operation.Binding.OwnerPath
+	choiceArm := strings.TrimSuffix(strings.Split(operation.Binding.ValuePath, ".")[0], "[]")
+	physical.BindVars[choiceArmKey] = choiceArm
+	physical.BindVars[logicalTypeKey] = operation.Binding.LogicalType
+	correlation, err := LowerCorrelatedBinding(resourceType, operation.Binding, source, systemKey, codeKey)
+	if err != nil {
+		return ir.PhysicalExpression{}, fmt.Errorf("owner records %q: %w", operation.Name, err)
+	}
+	return ir.PhysicalExpression{
+		Kind: ir.PhysicalOwnerRecordsExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
+		OwnerRecords: &ir.PhysicalOwnerRecords{Correlation: correlation, OwnerPathBindKey: ownerPathKey, ChoiceArmBindKey: choiceArmKey, LogicalTypeBindKey: logicalTypeKey},
+	}, nil
 }
 
 func physicalPivotProjections(physical *ir.PhysicalPlan, resourceType string, source ir.PhysicalValue, pivot semantic.SemanticPivot, prefix string) ([]ir.PhysicalProjection, error) {
@@ -135,15 +202,53 @@ func physicalPivotProjections(physical *ir.PhysicalPlan, resourceType string, so
 		familyVariable = fmt.Sprintf("__loom_pivot_%s_%s_%d", sanitizeColumnName(source.Variable), sanitizeColumnName(pivot.Name), index)
 	}
 	sharedExpression := ir.PhysicalExpression{Kind: ir.PhysicalPivotExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalPreserveNull,
-		Pivot: &ir.PhysicalPivotMap{Source: source, ResourceType: resourceType, ItemSource: pivot.ItemSource, ItemResourceType: pivot.ItemResourceType, KeySelector: pivot.ColumnSelector, ValueSelector: pivot.ValueSelector, ValueFallbacks: append([]spec.Selector(nil), pivot.ValueFallbacks...), StringifyValue: pivot.StringifyValue, ColumnsBindKey: columnsBindKey, FlattenSingleColumn: false}}
+		Pivot: &ir.PhysicalPivotMap{Source: source, ResourceType: resourceType, ItemSource: pivot.ItemSource, ItemResourceType: pivot.ItemResourceType, KeySelector: pivot.ColumnSelector, ValueSelector: pivot.ValueSelector, ValueFallbacks: append([]spec.Selector(nil), pivot.ValueFallbacks...), StringifyValue: pivot.StringifyValue, ColumnsBindKey: columnsBindKey, FlattenSingleColumn: false, ColumnAliases: cloneStringMap(pivot.ColumnAliases), ProjectionMode: pivot.ProjectionMode}}
+	if pivot.ExtensionCorrelation != nil {
+		urlBindKeys := make([]string, len(pivot.ExtensionCorrelation.URLPath))
+		for index, url := range pivot.ExtensionCorrelation.URLPath {
+			key := fmt.Sprintf("%s_url_%d", columnsBindKey, index)
+			physical.BindVars[key] = url
+			urlBindKeys[index] = key
+		}
+		correlation, err := LowerExtensionBinding(resourceType, *pivot.ExtensionCorrelation, source, urlBindKeys)
+		if err != nil {
+			return nil, err
+		}
+		sharedExpression.Pivot.Correlation = &correlation
+	} else if pivot.Correlation != nil {
+		systemKey := columnsBindKey + "_system"
+		codeKey := columnsBindKey + "_code"
+		physical.BindVars[systemKey] = pivot.CorrelationSystem
+		physical.BindVars[codeKey] = pivot.CorrelationCode
+		correlation, err := LowerCorrelatedBinding(resourceType, *pivot.Correlation, source, systemKey, codeKey)
+		if err != nil {
+			return nil, err
+		}
+		sharedExpression.Pivot.Correlation = &correlation
+	}
 	physical.DeferredExpressionLets = append(physical.DeferredExpressionLets, ir.PhysicalOperation{Kind: ir.PhysicalExpressionLetOp, Source: ir.PhysicalSource{ResourceType: resourceType, SemanticField: "pivot_family"}, ExpressionLet: &ir.PhysicalExpressionLet{Variable: familyVariable, Expression: sharedExpression}})
 	for _, column := range pivot.Columns {
 		columnBindKey := columnsBindKey + "_" + sanitizeColumnName(column)
 		physical.BindVars[columnBindKey] = column
 		expression := ir.PhysicalExpression{Kind: ir.PhysicalObjectLookupExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, ObjectLookup: &ir.PhysicalObjectLookup{ObjectVariable: familyVariable, KeyBindKey: columnBindKey}}
-		projections = append(projections, ir.PhysicalProjection{Name: prefix + pivot.Name + "__" + sanitizeColumnName(column), Expression: &expression})
+		name := prefix + pivot.Name + "__" + sanitizeColumnName(column)
+		if alias, ok := pivot.ColumnAliases[column]; ok {
+			name = prefix + alias
+		}
+		projections = append(projections, ir.PhysicalProjection{Name: name, Expression: &expression})
 	}
 	return projections, nil
+}
+
+func cloneStringMap(input map[string]string) map[string]string {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(input))
+	for key, value := range input {
+		out[key] = value
+	}
+	return out
 }
 
 func deferredExpressionVariableExists(physical ir.PhysicalPlan, variable string) bool {
@@ -168,9 +273,18 @@ func deferredExpressionVariableExists(physical ir.PhysicalPlan, variable string)
 func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string, source ir.PhysicalValue, aggregate semantic.SemanticAggregate, sourceIsSet bool) (ir.PhysicalExpression, error) {
 	op := ir.PhysicalAggregateOperation(strings.ToUpper(strings.TrimSpace(aggregate.Operation)))
 	switch op {
-	case ir.PhysicalCountAggregate, ir.PhysicalCountDistinctAggregate, ir.PhysicalExistsAggregate, ir.PhysicalDistinctValuesAggregate, ir.PhysicalMinAggregate, ir.PhysicalMaxAggregate, ir.PhysicalFirstAggregate, ir.PhysicalContainsAllAggregate:
+	case ir.PhysicalCountAggregate, ir.PhysicalCountDistinctAggregate, ir.PhysicalExistsAggregate, ir.PhysicalDistinctValuesAggregate, ir.PhysicalMinAggregate, ir.PhysicalMaxAggregate, ir.PhysicalSumAggregate, ir.PhysicalMeanAggregate, ir.PhysicalFirstAggregate, ir.PhysicalContainsAllAggregate, ir.PhysicalRequireOneAggregate, ir.PhysicalCollectAggregate, ir.PhysicalFirstOrderedAggregate:
 	default:
 		return ir.PhysicalExpression{}, fmt.Errorf("aggregate %q uses unsupported operation %q", aggregate.Name, aggregate.Operation)
+	}
+	if op == ir.PhysicalSumAggregate || op == ir.PhysicalMeanAggregate {
+		if aggregate.Selector == nil {
+			return ir.PhysicalExpression{}, fmt.Errorf("aggregate %q requires a numeric selector", aggregate.Name)
+		}
+		metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, aggregate.Selector.CanonicalPath())
+		if !ok || (metadata.Primitive != fhirschema.PrimitiveInteger && metadata.Primitive != fhirschema.PrimitiveDecimal) {
+			return ir.PhysicalExpression{}, fmt.Errorf("aggregate %q operation %s requires an integer or decimal selector", aggregate.Name, op)
+		}
 	}
 	aggregatePhysical := ir.PhysicalAggregate{Source: source, Operation: op}
 	if len(aggregate.RequiredValues) > 0 {
@@ -183,33 +297,60 @@ func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string,
 		if !sourceIsSet && source.Variable != "" && len(source.Path) == 0 {
 			valueSource = ir.PhysicalValue{Variable: source.Variable, Path: []string{"payload"}}
 		}
-		value := ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
-			Extract: &ir.PhysicalExtract{Source: valueSource, ResourceType: resourceType, Selector: *aggregate.Selector, ExecutionMode: selectorExecutionMode(resourceType, *aggregate.Selector)}}
+		extract := &ir.PhysicalExtract{Source: valueSource, ResourceType: resourceType, Selector: *aggregate.Selector, ExecutionMode: selectorExecutionMode(resourceType, *aggregate.Selector)}
+		if aggregate.UnitNormalization != nil {
+			if aggregate.UnitSystemSelector == nil || aggregate.UnitCodeSelector == nil {
+				return ir.PhysicalExpression{}, fmt.Errorf("aggregate %q unit normalization is missing source identity selectors", aggregate.Name)
+			}
+			extract.UnitNormalization = &ir.PhysicalUnitNormalization{
+				OriginalValue: *aggregate.Selector,
+				SourceSystem:  *aggregate.UnitSystemSelector,
+				SourceCode:    *aggregate.UnitCodeSelector,
+				Target:        aggregate.UnitNormalization.Target,
+				Dimension:     aggregate.UnitNormalization.Dimension,
+				Rules:         append([]unit.UnitConversionRule(nil), aggregate.UnitNormalization.Rules...),
+			}
+		}
+		value := ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Extract: extract}
 		aggregatePhysical.Value = &value
 	}
 	if aggregate.Predicate != nil {
-		leftSource := source
-		if !sourceIsSet && source.Variable != "" && len(source.Path) == 0 {
-			leftSource = ir.PhysicalValue{Variable: source.Variable, Path: []string{"payload"}}
+		bindPrefix := "aggregate_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(aggregate.Name) + "_predicate"
+		predicate, err := lowerTypedPredicate(physical, resourceType, source, *aggregate.Predicate, bindPrefix)
+		if err != nil {
+			return ir.PhysicalExpression{}, fmt.Errorf("aggregate %q predicate: %w", aggregate.Name, err)
 		}
-		left := ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
-			Extract: &ir.PhysicalExtract{Source: leftSource, ResourceType: resourceType, Selector: *aggregate.Predicate, ExecutionMode: selectorExecutionMode(resourceType, *aggregate.Predicate)}}
-		comparison := &ir.PhysicalPredicate{Operator: "EXISTS", LeftExpression: &left}
-		if aggregate.PredicateEquals != "" {
-			comparison.Operator = "EQUALS"
-			comparison.ValueKind = aggregate.PredicateKind
-			if comparison.ValueKind == "" {
-				comparison.ValueKind = spec.FilterString
-			}
-			key := "aggregate_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(aggregate.Name) + "_predicate_equals"
-			physical.BindVars[key] = aggregate.PredicateEquals
-			comparison.Right = &ir.PhysicalValue{BindKey: key}
+		aggregatePhysical.Predicate = predicate
+	}
+	if aggregate.ContributorWindow != nil {
+		if !sourceIsSet {
+			return ir.PhysicalExpression{}, fmt.Errorf("aggregate %q contributor window requires a related resource set", aggregate.Name)
 		}
-		aggregatePhysical.Predicate = &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: comparison}
+		window := aggregate.ContributorWindow
+		timestamp := ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
+			Extract: &ir.PhysicalExtract{Source: source, ResourceType: resourceType, Selector: window.Timestamp, ExecutionMode: selectorExecutionMode(resourceType, window.Timestamp)}}
+		anchorSource := ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}
+		anchor := ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
+			Extract: &ir.PhysicalExtract{Source: anchorSource, ResourceType: window.AnchorResource, Selector: window.Anchor, ExecutionMode: selectorExecutionMode(window.AnchorResource, window.Anchor)}}
+		aggregatePhysical.ContributorWindow = &ir.PhysicalContributorWindow{
+			Timestamp: timestamp, Anchor: anchor,
+			LowerOffset: window.LowerOffset, UpperOffset: window.UpperOffset,
+			LowerInclusive: window.LowerInclusive, UpperInclusive: window.UpperInclusive,
+			Precision: window.Precision,
+		}
+	}
+	if aggregate.Ordering != nil {
+		if !sourceIsSet {
+			return ir.PhysicalExpression{}, fmt.Errorf("aggregate %q ordering requires a related resource set", aggregate.Name)
+		}
+		ordering := aggregate.Ordering
+		timestamp := ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
+			Extract: &ir.PhysicalExtract{Source: source, ResourceType: resourceType, Selector: ordering.Timestamp, ExecutionMode: selectorExecutionMode(resourceType, ordering.Timestamp)}}
+		aggregatePhysical.Ordering = &ir.PhysicalTemporalOrdering{Timestamp: timestamp, Direction: ordering.Direction, TiePolicy: ordering.TiePolicy}
 	}
 	cardinality := ir.PhysicalScalarCardinality
 	nullBehavior := ir.PhysicalEmptyOnNull
-	if op == ir.PhysicalDistinctValuesAggregate {
+	if op == ir.PhysicalDistinctValuesAggregate || op == ir.PhysicalCollectAggregate {
 		cardinality = ir.PhysicalArrayCardinality
 	}
 	if op == ir.PhysicalContainsAllAggregate {
@@ -245,7 +386,14 @@ func physicalSliceExpression(physical *ir.PhysicalPlan, resourceType string, sou
 		Sort:         &ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{Variable: source.Variable, Path: []string{"_key"}}},
 		Projections:  make([]ir.PhysicalExpressionProjection, 0, len(slice.Fields)),
 	}
-	if slice.Predicate != nil {
+	if slice.TypedPredicate != nil {
+		bindPrefix := "slice_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(slice.Name) + "_predicate"
+		predicate, err := lowerTypedPredicate(physical, resourceType, source, *slice.TypedPredicate, bindPrefix)
+		if err != nil {
+			return ir.PhysicalExpression{}, fmt.Errorf("slice %q predicate: %w", slice.Name, err)
+		}
+		physicalSlice.Predicate = predicate
+	} else if slice.Predicate != nil {
 		left := ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
 			Extract: &ir.PhysicalExtract{Source: leftSource, ResourceType: resourceType, Selector: *slice.Predicate, ExecutionMode: selectorExecutionMode(resourceType, *slice.Predicate)}}
 		comparison := &ir.PhysicalPredicate{Operator: "EXISTS", LeftExpression: &left}
@@ -274,10 +422,24 @@ func physicalSliceExpression(physical *ir.PhysicalPlan, resourceType string, sou
 		if err != nil {
 			return ir.PhysicalExpression{}, err
 		}
+		cardinality, distinct := ir.PhysicalScalarCardinality, false
+		switch selection.Projection {
+		case spec.ProjectionArray:
+			cardinality = ir.PhysicalArrayCardinality
+		case spec.ProjectionDistinctArray:
+			cardinality, distinct = ir.PhysicalArrayCardinality, true
+		case "", spec.ProjectionScalar, spec.ProjectionFirst:
+		default:
+			return ir.PhysicalExpression{}, fmt.Errorf("slice %q field %q has unsupported projection %q", slice.Name, selection.Name, selection.Projection)
+		}
+		nullBehavior := ir.PhysicalPreserveNull
+		if cardinality == ir.PhysicalArrayCardinality {
+			nullBehavior = ir.PhysicalEmptyOnNull
+		}
 		physicalSlice.Projections = append(physicalSlice.Projections, ir.PhysicalExpressionProjection{
 			Name: selection.Name,
-			Expression: ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
-				Extract: &ir.PhysicalExtract{Source: leftSource, ResourceType: resourceType, Selector: selector, Fallbacks: fallbacks, ExecutionMode: selectorExecutionMode(resourceType, selector, fallbacks...)}},
+			Expression: ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: cardinality, NullBehavior: nullBehavior,
+				Extract: &ir.PhysicalExtract{Source: leftSource, ResourceType: resourceType, Selector: selector, Fallbacks: physicalSelectorFallbacks(leftSource, resourceType, fallbacks), Distinct: distinct, ExecutionMode: selectorExecutionMode(resourceType, selector, fallbacks...)}},
 		})
 	}
 	return ir.PhysicalExpression{Kind: ir.PhysicalSliceExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Slice: &physicalSlice}, nil
@@ -287,6 +449,18 @@ func appendRootPhysicalFilters(physical *ir.PhysicalPlan, root semantic.Semantic
 	for index, filter := range root.Filters {
 		if err := spec.ValidateTypedFilterForResource(root.ResourceType, filter); err != nil {
 			return fmt.Errorf("root filter %q: %w", filter.FieldRef, err)
+		}
+		binding := filter.Correlation
+		if binding != nil {
+			if len(filter.Values) != 1 || filter.Values[0].Code == nil {
+				return fmt.Errorf("root correlated filter %q requires one CODE value", filter.FieldRef)
+			}
+			predicate, err := LowerCorrelatedPredicateWithIdentity(physical, root.ResourceType, *binding, ir.PhysicalValue{Variable: "root"}, *filter.Values[0].Code, fmt.Sprintf("filter_%d", index+1))
+			if err != nil {
+				return fmt.Errorf("root filter %q correlation: %w", filter.FieldRef, err)
+			}
+			physical.Operations = append(physical.Operations, ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Source: ir.PhysicalSource{SemanticNode: root.Alias, ResourceType: root.ResourceType, SemanticField: filter.FieldRef}, Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: &predicate}}})
+			continue
 		}
 		selector, err := spec.ParseSelector(filter.Selector)
 		if err != nil {
@@ -317,6 +491,20 @@ func appendRootPhysicalFilters(physical *ir.PhysicalPlan, root semantic.Semantic
 				physical.BindVars[key] = literal
 			}
 			predicate.Right = &ir.PhysicalValue{BindKey: key}
+		}
+		// Ingestion stores the FHIR id unchanged in both document.id and
+		// payload.id. Narrow exact ID matches with the indexed document field
+		// before extracting FHIR values or expanding repeated rows. Retain the
+		// original predicate below as the value-level check.
+		if selector.CanonicalPath() == "id" && selector.Filter == nil && filter.Quantifier == "" &&
+			(filter.Operator == spec.FilterEquals || filter.Operator == spec.FilterIn) {
+			physical.Operations = append(physical.Operations, ir.PhysicalOperation{
+				Kind:   ir.PhysicalFilterOp,
+				Source: ir.PhysicalSource{SemanticNode: root.Alias, ResourceType: root.ResourceType, SemanticField: "id"},
+				Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+					Operator: string(filter.Operator), Left: ir.PhysicalValue{Variable: "root", Path: []string{"id"}}, Right: predicate.Right,
+				}},
+			})
 		}
 		physical.Operations = append(physical.Operations, ir.PhysicalOperation{Kind: ir.PhysicalFilterOp,
 			Source: ir.PhysicalSource{SemanticNode: root.Alias, ResourceType: root.ResourceType, SemanticField: filter.FieldRef},

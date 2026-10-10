@@ -1,0 +1,272 @@
+package loomapi
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"io"
+)
+
+// strictDecodeGenerated keeps mutation requests closed at the generated HTTP
+// boundary. The generated Fiber binder otherwise silently drops unknown JSON
+// members before the authoring domain can enforce its semantics-version guard.
+func strictDecodeGenerated(raw []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return errors.New("multiple JSON values")
+		}
+		return err
+	}
+	return nil
+}
+
+func (value *ApplyCommandsRequest) UnmarshalJSON(raw []byte) error {
+	type wire ApplyCommandsRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = ApplyCommandsRequest(decoded)
+	return nil
+}
+
+func (value *AuthoringCommand) UnmarshalJSON(raw []byte) error {
+	type wire AuthoringCommand
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = AuthoringCommand(decoded)
+	return nil
+}
+
+func (value *PopulationMemberRemovalProposalRequest) UnmarshalJSON(raw []byte) error {
+	type wire PopulationMemberRemovalProposalRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = PopulationMemberRemovalProposalRequest(decoded)
+	return nil
+}
+
+func (value *SelectionResourceRef) UnmarshalJSON(raw []byte) error {
+	type wire SelectionResourceRef
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = SelectionResourceRef(decoded)
+	return nil
+}
+
+func (value *Column) UnmarshalJSON(raw []byte) error {
+	type wire Column
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = Column(decoded)
+	return nil
+}
+
+func (value *ColumnSource) UnmarshalJSON(raw []byte) error {
+	type wire ColumnSource
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = ColumnSource(decoded)
+	return nil
+}
+
+func (value *FieldSource) UnmarshalJSON(raw []byte) error {
+	type wire FieldSource
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = FieldSource(decoded)
+	return nil
+}
+
+func (value *AggregateSource) UnmarshalJSON(raw []byte) error {
+	type wire AggregateSource
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = AggregateSource(decoded)
+	return nil
+}
+
+func (value *ContributorPredicate) UnmarshalJSON(raw []byte) error {
+	type wire ContributorPredicate
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = ContributorPredicate(decoded)
+	return nil
+}
+
+func (value *LookupSource) UnmarshalJSON(raw []byte) error {
+	type wire LookupSource
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	if decoded.Extension != nil {
+		if decoded.Binding != nil || decoded.Key != nil || decoded.Match != nil || decoded.Path != nil {
+			return errors.New("extension lookup requires only extension binding")
+		}
+	} else if decoded.Binding != nil || decoded.Key != nil {
+		if decoded.Binding == nil || decoded.Key == nil || decoded.Match != nil || decoded.Path != nil {
+			return errors.New("correlated lookup requires only binding and key")
+		}
+	} else if decoded.Match == nil {
+		return errors.New("legacy lookup requires match")
+	}
+	*value = LookupSource(decoded)
+	return nil
+}
+
+func (value *RelatedSelection) UnmarshalJSON(raw []byte) error {
+	type wire RelatedSelection
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = RelatedSelection(decoded)
+	return nil
+}
+
+func (value *SelectionCreateRequest) UnmarshalJSON(raw []byte) error {
+	type wire SelectionCreateRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	switch decoded.Source.Kind {
+	case "resources":
+		if decoded.Source.Resources == nil || decoded.Source.PublishedOutput != nil || decoded.Source.SelectionRevision != nil {
+			return errors.New("resources selection requires only the resources payload")
+		}
+	case "publishedOutput":
+		if decoded.Source.PublishedOutput == nil || decoded.Source.Resources != nil || decoded.Source.SelectionRevision != nil {
+			return errors.New("publishedOutput selection requires only the publishedOutput payload")
+		}
+	case "selectionRevision":
+		if decoded.Source.SelectionRevision == nil || decoded.Source.Resources != nil || decoded.Source.PublishedOutput != nil {
+			return errors.New("selectionRevision selection requires only the selectionRevision payload")
+		}
+	default:
+		return errors.New("unsupported selection source kind")
+	}
+	*value = SelectionCreateRequest(decoded)
+	return nil
+}
+
+func (value *TableShapeCapabilitiesRequest) UnmarshalJSON(raw []byte) error {
+	type wire TableShapeCapabilitiesRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = TableShapeCapabilitiesRequest(decoded)
+	return nil
+}
+
+func (value *TableShapeCategoryDiscoveryRequest) UnmarshalJSON(raw []byte) error {
+	type wire TableShapeCategoryDiscoveryRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = TableShapeCategoryDiscoveryRequest(decoded)
+	return nil
+}
+
+func (value *TableShapeResolutionRequest) UnmarshalJSON(raw []byte) error {
+	type wire TableShapeResolutionRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	payloads := 0
+	if decoded.Pivot != nil {
+		payloads++
+	}
+	if decoded.Unpivot != nil {
+		payloads++
+	}
+	if decoded.Derived != nil {
+		payloads++
+	}
+	if payloads != 1 {
+		return errors.New("table-shape resolution requires exactly one selection payload")
+	}
+	switch decoded.Kind {
+	case TableShapeResolutionRequestKindPIVOT:
+		if decoded.Pivot == nil || decoded.Unpivot != nil || decoded.Derived != nil {
+			return errors.New("PIVOT resolution requires only the pivot payload")
+		}
+	case TableShapeResolutionRequestKindUNPIVOT:
+		if decoded.Unpivot == nil || decoded.Pivot != nil || decoded.Derived != nil {
+			return errors.New("UNPIVOT resolution requires only the unpivot payload")
+		}
+	case TableShapeResolutionRequestKindDERIVED:
+		if decoded.Derived == nil || decoded.Pivot != nil || decoded.Unpivot != nil {
+			return errors.New("DERIVED resolution requires only the derived payload")
+		}
+	default:
+		return errors.New("unsupported table-shape resolution kind")
+	}
+	*value = TableShapeResolutionRequest(decoded)
+	return nil
+}
+
+func (value *TableShapeProposalRequest) UnmarshalJSON(raw []byte) error {
+	type wire TableShapeProposalRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = TableShapeProposalRequest(decoded)
+	return nil
+}
+
+func (value *TableShapeOperandSelection) UnmarshalJSON(raw []byte) error {
+	type wire TableShapeOperandSelection
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	choice := decoded.ChoiceId != nil
+	resolution := decoded.ResolutionId != nil
+	literal := decoded.Literal != nil
+	switch decoded.Kind {
+	case TableShapeOperandSelectionKindCATALOGCHOICE:
+		if !choice || resolution || literal {
+			return errors.New("CATALOG_CHOICE operand requires only choiceId")
+		}
+	case TableShapeOperandSelectionKindRESOLUTIONOUTPUT:
+		if !resolution || choice || literal {
+			return errors.New("RESOLUTION_OUTPUT operand requires only resolutionId")
+		}
+	case TableShapeOperandSelectionKindLITERAL:
+		if !literal || choice || resolution {
+			return errors.New("LITERAL operand requires only literal")
+		}
+	default:
+		return errors.New("unsupported table-shape operand kind")
+	}
+	*value = TableShapeOperandSelection(decoded)
+	return nil
+}

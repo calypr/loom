@@ -1,0 +1,70 @@
+{
+  "status": "closed",
+  "phase": "after-passing-run",
+  "runner": {
+    "handle": 70079,
+    "exitCode": 0,
+    "expected": 1,
+    "unexpected": 0,
+    "skipped": 0,
+    "flaky": 0,
+    "durationMs": 13364,
+    "casePassed": true,
+    "assertionCount": 64,
+    "failedAssertionCount": 0,
+    "requiredCheckCount": 12,
+    "missingRequiredChecks": [],
+    "passedRequiredChecks": [
+      "basic Patient fixture contains the two independently known records",
+      "saved v9 Builder workspace preserves the Go canonical draft digest",
+      "reload keeps legacy semantics v9 and its exact saved digest",
+      "construction capabilities echo the exact legacy output, source stage, snapshot, version, and digest",
+      "Group, RelatedExpand, and ListExpand are enabled and actionable for the saved legacy draft",
+      "canceling RelatedExpand and ListExpand leaves the v9 draft version and digest unchanged",
+      "legacy Group action produces a ready proposal preview",
+      "Group proposal is pinned to the exact legacy project, snapshot, draft version, and digest",
+      "Cancel keeps the exact legacy Group draft digest",
+      "applied Group draft survives Builder reload with exact digest and scope",
+      "reloaded Group result visibly renders literal COUNT_ROWS 2",
+      "native row-action lifecycle issued no scoped draft conflict"
+    ],
+    "artifacts": "/private/tmp/loom-native-parallel-wave37/legacy-v9-workspace"
+  },
+  "source": {
+    "fingerprint": {
+      "sha256": "991be8732dbb106004a329d3f35efc54e0f0d33c74c5d7fe18ffcfcf9730a5e9",
+      "files": 1493
+    },
+    "manifestUnchanged": true
+  },
+  "docs": {
+    "fingerprint": {
+      "sha256": "c590d4aee2fd16a52a0ff867e1eced775844b42fe3ee9e147be21d44731baea7",
+      "files": 110
+    },
+    "manifestUnchanged": true
+  },
+  "api": {
+    "buildIdentity": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8",
+    "unchanged": true,
+    "sourceFingerprintUnchanged": true
+  },
+  "ownedMounts": {
+    "status": "PASS",
+    "targetUnchanged": true
+  },
+  "health": {
+    "before": {
+      "status": "PASS",
+      "samples": 3,
+      "apiBuildIdentity": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8"
+    },
+    "after": {
+      "status": "PASS",
+      "samples": 3,
+      "apiBuildIdentity": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8"
+    }
+  },
+  "editAllowedAfterThisRecord": true,
+  "closureChecksPass": true
+}

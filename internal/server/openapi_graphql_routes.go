@@ -36,7 +36,7 @@ func serveGraphQL(ctx context.Context, handler http.Handler, body any, method st
 	}
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
-	return response.Code, append([]byte(nil), response.Body.Bytes()...), nil
+	return response.Code, response.Body.Bytes(), nil
 }
 
 func (r *HTTPRoutes) ExecuteGraphQL(ctx context.Context, request loomapi.ExecuteGraphQLRequestObject) (loomapi.ExecuteGraphQLResponseObject, error) {
@@ -60,10 +60,14 @@ func (r *HTTPRoutes) ExecuteGraphQL(ctx context.Context, request loomapi.Execute
 	switch status {
 	case http.StatusBadRequest:
 		return loomapi.ExecuteGraphQL400JSONResponse{GraphQLBadRequestJSONResponse: loomapi.GraphQLBadRequestJSONResponse(value)}, nil
+	case http.StatusConflict:
+		return loomapi.ExecuteGraphQL409JSONResponse(value), nil
 	case http.StatusUnprocessableEntity:
 		return loomapi.ExecuteGraphQL422JSONResponse{GraphQLUnprocessableJSONResponse: loomapi.GraphQLUnprocessableJSONResponse(value)}, nil
 	case http.StatusInternalServerError:
 		return loomapi.ExecuteGraphQL500JSONResponse{GraphQLInternalErrorJSONResponse: loomapi.GraphQLInternalErrorJSONResponse(value)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.ExecuteGraphQL503JSONResponse(value), nil
 	default:
 		return nil, unexpectedResponseStatus("executeGraphQL", status)
 	}
@@ -90,10 +94,14 @@ func (r *HTTPRoutes) ExecuteDataframeGraphQL(ctx context.Context, request loomap
 	switch status {
 	case http.StatusBadRequest:
 		return loomapi.ExecuteDataframeGraphQL400JSONResponse{GraphQLBadRequestJSONResponse: loomapi.GraphQLBadRequestJSONResponse(value)}, nil
+	case http.StatusConflict:
+		return loomapi.ExecuteDataframeGraphQL409JSONResponse(value), nil
 	case http.StatusUnprocessableEntity:
 		return loomapi.ExecuteDataframeGraphQL422JSONResponse{GraphQLUnprocessableJSONResponse: loomapi.GraphQLUnprocessableJSONResponse(value)}, nil
 	case http.StatusInternalServerError:
 		return loomapi.ExecuteDataframeGraphQL500JSONResponse{GraphQLInternalErrorJSONResponse: loomapi.GraphQLInternalErrorJSONResponse(value)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.ExecuteDataframeGraphQL503JSONResponse(value), nil
 	default:
 		return nil, unexpectedResponseStatus("executeDataframeGraphQL", status)
 	}

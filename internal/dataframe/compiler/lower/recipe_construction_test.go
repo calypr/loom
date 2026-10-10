@@ -1,0 +1,1664 @@
+package lower
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	"github.com/calypr/loom/internal/dataframe/recipe"
+)
+
+func TestCompileConstructionUsesTypedIntermediateStages(t *testing.T) {
+	output := constructionTestOutput()
+	compiled := compileDerivedTestOutput(t, output)
+	if compiled.Plan.StageSequence == nil {
+		t.Fatal("compiled plan has no typed stage sequence")
+	}
+	if got := len(compiled.Stages); got != 5 {
+		t.Fatalf("compiled stage descriptors = %d, want source plus four operations", got)
+	}
+	wantOperations := []ir.PhysicalStageOperationKind{
+		ir.PhysicalStagePivotOp, ir.PhysicalStageDeriveOp, ir.PhysicalStageFilterOp, ir.PhysicalStageUnpivotOp,
+	}
+	for index, want := range wantOperations {
+		stage := compiled.Plan.StageSequence.Stages[index]
+		if stage.Kind != want {
+			t.Fatalf("stage %d operation = %q, want %q", index, stage.Kind, want)
+		}
+		if stage.InputStageID != compiled.Stages[index].ID {
+			t.Fatalf("stage %q input = %q, want immediately preceding stage %q", stage.ID, stage.InputStageID, compiled.Stages[index].ID)
+		}
+	}
+	wantNames := []string{"group", "total", "measure", "amount", "__loom_row_id"}
+	if got := compiledSchemaNames(compiled.OutputSchema); !equalStringSlices(got, wantNames) {
+		t.Fatalf("final construction schema = %#v, want %#v", got, wantNames)
+	}
+	if compiled.OutputSchema[0].ID != "group_id" || compiled.OutputSchema[1].ID != "total_id" || compiled.OutputSchema[2].ID != "measure_id" || compiled.OutputSchema[3].ID != "amount_id" {
+		t.Fatalf("stable column IDs were lost in final schema: %#v", compiled.OutputSchema)
+	}
+	if compiled.Stages[0].ID != recipe.ConstructionSourceProjectionID || len(compiled.Stages[0].Capabilities) != 12 {
+		t.Fatalf("source stage descriptor lacks exact source capabilities: %#v", compiled.Stages[0])
+	}
+	var sourceCodedPivotCapability *StageOperationCapability
+	var sourceRelatedExpandCapability *StageOperationCapability
+	var sourceRelatedEligibilityCapability *StageOperationCapability
+	var sourceRelatedFieldCapability *StageOperationCapability
+	for _, capability := range compiled.Stages[0].Capabilities {
+		if capability.Operation == recipe.ConstructionCodedPivotOp {
+			sourceCodedPivotCapability = &capability
+		}
+		if capability.Operation == recipe.ConstructionRelatedExpandOp {
+			sourceRelatedExpandCapability = &capability
+		}
+		if capability.Operation == recipe.ConstructionRelatedEligibilityOp {
+			sourceRelatedEligibilityCapability = &capability
+		}
+		if capability.Operation == recipe.ConstructionRelatedFieldOp {
+			sourceRelatedFieldCapability = &capability
+		}
+	}
+	if sourceCodedPivotCapability == nil || !sourceCodedPivotCapability.Supported {
+		t.Fatalf("source stage should support a coded Pivot with an authorized family: %#v", sourceCodedPivotCapability)
+	}
+	if sourceRelatedExpandCapability == nil || !sourceRelatedExpandCapability.Supported {
+		t.Fatalf("source stage should retain its root key for related expansion: %#v", sourceRelatedExpandCapability)
+	}
+	if len(compiled.Stages[0].RelatedExpandAnchors) != 1 || compiled.Stages[0].RelatedExpandAnchors[0].Kind != "root" ||
+		compiled.Stages[0].RelatedExpandAnchors[0].AnchorColumnID != "_key" {
+		t.Fatalf("direct-root stage should expose only its scalar root anchor: %#v", compiled.Stages[0].RelatedExpandAnchors)
+	}
+	if sourceRelatedEligibilityCapability == nil || !sourceRelatedEligibilityCapability.Supported {
+		t.Fatalf("source stage should retain its root key for related eligibility: %#v", sourceRelatedEligibilityCapability)
+	}
+	if sourceRelatedFieldCapability == nil || sourceRelatedFieldCapability.Supported || sourceRelatedFieldCapability.ReasonCode != "NO_ACTIVE_RELATED_RECORD" {
+		t.Fatalf("source stage must not offer exact related fields without a terminal record: %#v", sourceRelatedFieldCapability)
+	}
+	var relatedSourceCapability *StageOperationCapability
+	for _, capability := range compiled.Stages[1].Capabilities {
+		if capability.Operation == recipe.ConstructionRelatedSourceOp {
+			relatedSourceCapability = &capability
+			break
+		}
+	}
+	if relatedSourceCapability == nil || !relatedSourceCapability.Supported {
+		t.Fatalf("Pivot stage should advertise compiler-proven root contributors for a later related source: %#v", relatedSourceCapability)
+	}
+	if compiled.Stages[1].Columns != nil {
+		for _, column := range compiled.Stages[1].Columns {
+			if column.Name == rootContributorSetColumn {
+				t.Fatalf("unused future related source caused hidden contributor IDs to be retained: %#v", compiled.Stages[1].Columns)
+			}
+		}
+	}
+	var reshapedRelatedExpandCapability *StageOperationCapability
+	var reshapedRelatedEligibilityCapability *StageOperationCapability
+	for _, capability := range compiled.Stages[1].Capabilities {
+		if capability.Operation == recipe.ConstructionRelatedExpandOp {
+			reshapedRelatedExpandCapability = &capability
+		}
+		if capability.Operation == recipe.ConstructionRelatedEligibilityOp {
+			reshapedRelatedEligibilityCapability = &capability
+		}
+	}
+	if reshapedRelatedExpandCapability == nil || !reshapedRelatedExpandCapability.Supported {
+		t.Fatalf("Pivot stage should offer related expansion from compiler-proven root contributors: %#v", reshapedRelatedExpandCapability)
+	}
+	if reshapedRelatedEligibilityCapability == nil || !reshapedRelatedEligibilityCapability.Supported {
+		t.Fatalf("Pivot stage should offer related eligibility from compiler-proven root contributors: %#v", reshapedRelatedEligibilityCapability)
+	}
+	if len(compiled.Stages[1].RelatedExpandAnchors) != 1 ||
+		compiled.Stages[1].RelatedExpandAnchors[0].AnchorColumnID != rootContributorSetColumn ||
+		compiled.Stages[1].RelatedExpandAnchors[0].Kind != "rootContributors" ||
+		compiled.Stages[1].RelatedExpandAnchors[0].ResourceType != "Patient" {
+		t.Fatalf("Pivot stage did not expose its compiler-proven root contributors: %#v", compiled.Stages[1].RelatedExpandAnchors)
+	}
+
+	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"COLLECT", " + ", "FILTER", "TABLE_UNPIVOT", "__loom_construction_stage_4"} {
+		if !strings.Contains(rendered.Query, expected) {
+			t.Fatalf("rendered stage sequence is missing %q: %s", expected, rendered.Query)
+		}
+	}
+	if strings.Contains(rendered.Query, "LIMIT @") {
+		t.Fatalf("lowering inserted a preview limit before the caller requested one: %s", rendered.Query)
+	}
+}
+
+func TestConstructionUnpivotPreservesInternalSourceIdentity(t *testing.T) {
+	output := constructionTestOutput()
+	keyGroup, keyAmount := "category", "amount"
+	output.Construction.Steps = []recipe.ConstructionStep{{
+		ID: "unpivot", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionUnpivotOp, Unpivot: &recipe.ConstructionUnpivot{
+			ConstructionID: "unpivot_source_values",
+			Inputs: []recipe.ConstructionUnpivotInput{
+				{ColumnID: "category_id", Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &keyGroup}},
+				{ColumnID: "amount_id", Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &keyAmount}},
+			},
+			KeyOutputColumnID: "measure_id", ValueOutputColumnID: "measure_value_id", NullRowPolicy: recipe.UnpivotNullDrop,
+		}},
+		Outputs: []recipe.StageColumn{
+			{ID: "group_id", Name: "group", Label: "Group"},
+			{ID: "measure_id", Name: "measure", Label: "Measure"},
+			{ID: "measure_value_id", Name: "measure_value", Label: "Measure value"},
+		},
+	}}
+
+	compiled := compileDerivedTestOutput(t, output)
+	if len(compiled.Plan.StageSequence.Stages) != 1 {
+		t.Fatalf("construction stages = %d, want one unpivot stage", len(compiled.Plan.StageSequence.Stages))
+	}
+	stage := compiled.Plan.StageSequence.Stages[0]
+	if stage.Unpivot == nil {
+		t.Fatal("construction stage has no unpivot payload")
+	}
+	if !hasConstructionUnpivotOutput(stage.Unpivot.PreservedOutputs, "_key", "_key") {
+		t.Fatalf("unpivot preserved outputs do not retain hidden source identity: %#v", stage.Unpivot.PreservedOutputs)
+	}
+	if !hasCompiledColumn(compiled.OutputSchema, "_key", true) {
+		t.Fatalf("final construction schema dropped hidden source identity: %#v", compiled.OutputSchema)
+	}
+}
+
+func hasConstructionUnpivotOutput(outputs []ir.PhysicalUnpivotOutput, input, output string) bool {
+	for _, candidate := range outputs {
+		if candidate.InputColumn == input && candidate.OutputColumn == output {
+			return true
+		}
+	}
+	return false
+}
+
+func TestCompileSourceOnlyConstructionKeepsSourcePlan(t *testing.T) {
+	output := constructionTestOutput()
+	output.Construction = &recipe.Construction{
+		Version: 1,
+		SourceColumns: []recipe.StageColumn{
+			{ID: "group_id", Name: "group"},
+			{ID: "category_id", Name: "category"},
+			{ID: "amount_id", Name: "amount"},
+		},
+	}
+	compiled := compileDerivedTestOutput(t, output)
+	if compiled.Plan.StageSequence != nil {
+		t.Fatal("source-only construction created a fake physical stage")
+	}
+	if len(compiled.Stages) != 1 || compiled.Stages[0].ID != recipe.ConstructionSourceProjectionID {
+		t.Fatalf("source-only descriptors = %#v", compiled.Stages)
+	}
+	if got, want := compiledSchemaNames(compiled.OutputSchema), []string{"group", "category", "amount", "_key"}; !equalStringSlices(got, want) {
+		t.Fatalf("source-only schema = %#v, want %#v", got, want)
+	}
+}
+
+func TestCompileRelatedSourceAddsAllMatchesAfterSelectedStage(t *testing.T) {
+	output := constructionTestOutput()
+	status := "registered"
+	output.Construction = &recipe.Construction{
+		Version: 1,
+		SourceColumns: []recipe.StageColumn{
+			{ID: "group_id", Name: "group"}, {ID: "category_id", Name: "category"}, {ID: "amount_id", Name: "amount"},
+		},
+		Steps: []recipe.ConstructionStep{
+			{
+				ID: "keep_patients", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{ColumnID: "group_id", Operator: recipe.FilterExists}},
+				Outputs:   []recipe.StageColumn{{ID: "group_id", Name: "group"}, {ID: "category_id", Name: "category"}, {ID: "amount_id", Name: "amount"}},
+			},
+			{
+				ID: "add_observation_status", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "keep_patients"}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedSourceOp, RelatedSource: &recipe.ConstructionRelatedSource{
+					AnchorColumnID: "_key", ChoiceID: "choice-token", SourceOccurrenceID: "observation-node",
+					Source:            recipe.ConstructionRelatedFieldSource{CandidateID: "observation-status", NodeID: "observation-node", ResourceType: "Observation", Path: "Observation.status", Cardinality: "optional_one", LogicalType: "string"},
+					Route:             []recipe.ConstructionRelatedRouteStep{{EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node", FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient", StorageDirection: "INBOUND", MatchMode: "OPTIONAL"}},
+					ContributorPolicy: "ALL_MATCHES",
+					Predicate:         &recipe.ConstructionRelatedPredicate{CandidateID: "observation-status", Operator: recipe.FilterEquals, Value: &recipe.FilterValue{Kind: recipe.FilterString, String: &status}},
+					Form:              "ALL", OutputColumnID: "observation-status",
+				}},
+				Outputs: []recipe.StageColumn{{ID: "group_id", Name: "group"}, {ID: "category_id", Name: "category"}, {ID: "amount_id", Name: "amount"}, {ID: "observation-status", Name: "observation_status", Label: "Observation statuses"}},
+			},
+		},
+	}
+	compiled := compileDerivedTestOutput(t, output)
+	if compiled.Plan.StageSequence == nil || len(compiled.Plan.StageSequence.Stages) != 2 {
+		t.Fatalf("stage sequence = %#v, want filter then related source", compiled.Plan.StageSequence)
+	}
+	sequence := compiled.Plan.StageSequence
+	if len(sequence.SourceColumns) != 4 || sequence.SourceColumns[len(sequence.SourceColumns)-1].ID == "observation-status" {
+		t.Fatalf("initial source projection was rewritten: %#v", sequence.SourceColumns)
+	}
+	related := sequence.Stages[1]
+	if related.Kind != ir.PhysicalStageRelatedSourceOp || related.InputStageID != "keep_patients" || related.RelatedSource == nil ||
+		related.RelatedSource.AnchorColumnID != "_key" || related.RelatedSource.OutputColumnID != "observation-status" {
+		t.Fatalf("related source stage is not bound to exact prior row identity and schema: %#v", related)
+	}
+	gotRelatedColumns := make([]string, len(related.OutputColumns))
+	for index, column := range related.OutputColumns {
+		gotRelatedColumns[index] = column.Name
+	}
+	if !equalStringSlices(gotRelatedColumns, []string{"group", "category", "amount", "observation_status", "_key"}) {
+		t.Fatalf("related stage output schema = %#v", gotRelatedColumns)
+	}
+	if related.OutputColumns[3].Cardinality != "many" || related.OutputColumns[3].Kind != "string" {
+		t.Fatalf("related ALL output type = %#v, want string array", related.OutputColumns[3])
+	}
+	var relatedProjection *ir.PhysicalProjection
+	for index := range related.OutputProjections {
+		if related.OutputProjections[index].Name == "observation_status" {
+			relatedProjection = &related.OutputProjections[index]
+		}
+	}
+	if relatedProjection == nil || relatedProjection.Expression == nil || relatedProjection.Expression.Subplan == nil {
+		t.Fatalf("related output has no correlated route subplan: %#v", relatedProjection)
+	}
+	var traversal *ir.PhysicalTraversal
+	for _, operation := range relatedProjection.Expression.Subplan.Operations {
+		if operation.Kind == ir.PhysicalTraversalOp {
+			traversal = operation.Traversal
+		}
+	}
+	if traversal == nil || traversal.Direction != ir.PhysicalInbound || traversal.EndpointField != "_to" || traversal.EndpointJoinField != "_from" {
+		t.Fatalf("related route did not lower through the schema-derived Patient-to-Observation edge: %#v", traversal)
+	}
+	var contributorFilter *ir.PhysicalFilter
+	for _, operation := range relatedProjection.Expression.Subplan.Operations {
+		if operation.Kind == ir.PhysicalFilterOp && operation.Filter != nil && operation.Filter.Expression != nil {
+			contributorFilter = operation.Filter
+		}
+	}
+	if contributorFilter == nil || contributorFilter.Expression.Comparison == nil || contributorFilter.Expression.Comparison.Operator != string(recipe.FilterEquals) ||
+		contributorFilter.Expression.Comparison.LeftExpression == nil || contributorFilter.Expression.Comparison.LeftExpression.Extract == nil ||
+		contributorFilter.Expression.Comparison.LeftExpression.Extract.Selector.CanonicalPath() != "status" {
+		t.Fatalf("related source predicate did not target the selected scalar field: %#v", contributorFilter)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"IN @@root_collection", "._key == __loom_construction_input_2._key", "DOCUMENT(", "dataset_generation", "auth_resource_path", ".status", "== @related_1_contributor_value"} {
+		if !strings.Contains(rendered.Query, expected) {
+			t.Fatalf("rendered related stage omits %q: %s", expected, rendered.Query)
+		}
+	}
+	if rendered.BindVars["related_1_hop_1_label"] != "subject_Patient" || rendered.BindVars["related_1_hop_1_target_type"] != "Observation" {
+		t.Fatalf("rendered traversal binds do not match selected route: %#v", rendered.BindVars)
+	}
+	if rendered.BindVars["@related_1_hop_1_edge_collection"] != "fhir_edge" {
+		t.Fatalf("rendered route collection bind is missing or unprefixed: %#v", rendered.BindVars)
+	}
+	if rendered.BindVars["related_1_contributor_value"] != status {
+		t.Fatalf("related contributor predicate bind = %#v, want %q", rendered.BindVars["related_1_contributor_value"], status)
+	}
+}
+
+func TestCompileRelatedFieldCarriesExactTerminalIdentityThroughRowPreservingStages(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		operations []string
+	}{
+		{name: "expand then repeated fields", operations: []string{"RELATED_EXPAND", "RELATED_FIELD", "RELATED_FIELD"}},
+		{name: "expand then filter then field", operations: []string{"RELATED_EXPAND", "FILTER", "RELATED_FIELD"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			output := constructionTestOutput()
+			output.Construction = relatedFieldTestConstruction(test.operations)
+			compiled := compileDerivedTestOutput(t, output)
+			sequence := compiled.Plan.StageSequence
+			if sequence == nil || len(sequence.Stages) != len(test.operations) {
+				t.Fatalf("stage sequence = %#v, want %d operations", sequence, len(test.operations))
+			}
+			terminalColumn := sequence.Stages[0].RelatedExpand.TerminalIdentityColumn
+			activeIdentity := sequence.Stages[0].RowIdentityColumn
+			for index, operation := range test.operations {
+				stage := sequence.Stages[index]
+				if string(stage.Kind) != operation {
+					t.Fatalf("stage %d kind = %q, want %q", index, stage.Kind, operation)
+				}
+				if index == 0 {
+					continue
+				}
+				if stage.RowIdentityColumn != activeIdentity {
+					t.Fatalf("row-preserving stage %q changed exact row identity from %q to %q", stage.ID, activeIdentity, stage.RowIdentityColumn)
+				}
+				if _, found := physicalStageColumnsForTest(stage.InputColumns)[terminalColumn]; !found {
+					t.Fatalf("stage %q input lost physical terminal identity %q: %#v", stage.ID, terminalColumn, stage.InputColumns)
+				}
+				if anchor, found := physicalStageColumnsForTest(stage.OutputColumns)[terminalColumn]; !found || !anchor.Internal || anchor.Identity {
+					t.Fatalf("stage %q output lost hidden terminal identity %q: %#v", stage.ID, terminalColumn, anchor)
+				}
+				if !projectionPassesThroughHiddenColumn(stage.OutputProjections, terminalColumn) {
+					t.Fatalf("stage %q does not physically project terminal identity %q: %#v", stage.ID, terminalColumn, stage.OutputProjections)
+				}
+				descriptor := compiled.Stages[index+1]
+				if descriptor.ActiveRelatedRecord == nil || descriptor.ActiveRelatedRecord.TerminalIdentityColumn != terminalColumn ||
+					descriptor.ActiveRelatedRecord.TargetNodeID != "observation-node" || descriptor.ActiveRelatedRecord.TargetResourceType != "Observation" {
+					t.Fatalf("stage %q descriptor lost exact active terminal record: %#v", stage.ID, descriptor.ActiveRelatedRecord)
+				}
+				hasRoot, hasActive := false, false
+				for _, anchor := range descriptor.RelatedExpandAnchors {
+					hasRoot = hasRoot || (anchor.AnchorColumnID == "_key" && anchor.Kind == "root" && anchor.ResourceType == "Patient")
+					hasActive = hasActive || (anchor.AnchorColumnID == terminalColumn && anchor.Kind == "activeRelatedRecord" && anchor.NodeID == "observation-node")
+				}
+				if !hasRoot || !hasActive {
+					t.Fatalf("row-preserving stage %q lost a compiler-proven expansion anchor: %#v", stage.ID, descriptor.RelatedExpandAnchors)
+				}
+			}
+			rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, expected := range []string{
+				"related_field_document.project == @project",
+				"related_field_document.dataset_generation == @dataset_generation",
+				"related_field_document.resourceType == @",
+				"related_field_document.auth_resource_path IN @auth_resource_paths",
+				".payload[@",
+			} {
+				if !strings.Contains(rendered.Query, expected) {
+					t.Fatalf("rendered query lacks scoped exact-field lookup %q: %s", expected, rendered.Query)
+				}
+			}
+		})
+	}
+}
+
+func TestFilterDoesNotDuplicateRootAnchorWhenItIsTheRowIdentity(t *testing.T) {
+	output := constructionTestOutput()
+	output.Construction = &recipe.Construction{
+		Version: 1,
+		SourceColumns: []recipe.StageColumn{
+			{ID: "group_id", Name: "group", Label: "Group"},
+			{ID: "category_id", Name: "category", Label: "Category"},
+			{ID: "amount_id", Name: "amount", Label: "Amount"},
+		},
+		Steps: []recipe.ConstructionStep{{
+			ID: "filter_source", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
+				ColumnID: "group_id", Operator: recipe.FilterExists,
+			}},
+			Outputs: []recipe.StageColumn{
+				{ID: "group_id", Name: "group", Label: "Group"},
+				{ID: "category_id", Name: "category", Label: "Category"},
+				{ID: "amount_id", Name: "amount", Label: "Amount"},
+			},
+		}},
+	}
+	compiled := compileDerivedTestOutput(t, output)
+	stage := compiled.Plan.StageSequence.Stages[0]
+	keyColumns, keyProjections := 0, 0
+	for _, column := range stage.OutputColumns {
+		if column.Name == "_key" {
+			keyColumns++
+			if !column.Identity {
+				t.Fatalf("source _key ceased to be the row identity through FILTER: %#v", column)
+			}
+		}
+	}
+	for _, projection := range stage.OutputProjections {
+		if projection.Name == "_key" {
+			keyProjections++
+		}
+	}
+	if keyColumns != 1 || keyProjections != 1 {
+		t.Fatalf("FILTER must carry the row-identity root key once: columns=%d projections=%d", keyColumns, keyProjections)
+	}
+}
+
+func relatedFieldTestConstruction(operations []string) *recipe.Construction {
+	sourceColumns := []recipe.StageColumn{
+		{ID: "group_id", Name: "group", Label: "Group"},
+		{ID: "category_id", Name: "category", Label: "Category"},
+		{ID: "amount_id", Name: "amount", Label: "Amount"},
+	}
+	steps := make([]recipe.ConstructionStep, 0, len(operations))
+	priorID := ""
+	columns := append([]recipe.StageColumn(nil), sourceColumns...)
+	for index, operation := range operations {
+		step := recipe.ConstructionStep{ID: fmt.Sprintf("related_step_%d", index+1)}
+		if index == 0 {
+			step.Inputs = []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}}
+		} else {
+			step.Inputs = []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: priorID}}
+		}
+		switch operation {
+		case "RELATED_EXPAND":
+			step.Operation = recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedExpandOp, RelatedExpand: &recipe.ConstructionRelatedExpand{
+				AnchorColumnID: "_key", ChoiceID: "related-route-choice", TargetNodeID: "observation-node", TargetResourceType: "Observation",
+				Route: []recipe.ConstructionRelatedRouteStep{{
+					EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+					FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+					StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+				}}, ContributorPolicy: "ALL_MATCHES", EmptyPolicy: recipe.ExpansionPreserveParent,
+				RelatedRecordColumnID: "observation_id",
+			}}
+			columns = append(append([]recipe.StageColumn(nil), columns...), recipe.StageColumn{
+				ID: "observation_id", Name: "observation_id", Label: "Observation ID", Type: "string", Nullable: true,
+			})
+		case "FILTER":
+			step.Operation = recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
+				ColumnID: "group_id", Operator: recipe.FilterExists,
+			}}
+		case "RELATED_FIELD":
+			fieldID, fieldName, candidateID, path := "observation_status", "observation_status", "observation-status", "status"
+			if len(steps) > 0 && steps[len(steps)-1].Operation.RelatedField != nil {
+				fieldID, fieldName, candidateID, path = "observation_effective", "observation_effective", "observation-effective", "effectiveDateTime"
+			}
+			step.Operation = recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedFieldOp, RelatedField: &recipe.ConstructionRelatedField{
+				ChoiceID: "related-field-choice-" + candidateID,
+				Source: recipe.ConstructionRelatedFieldSource{
+					CandidateID: candidateID, NodeID: "observation-node", ResourceType: "Observation", Path: path,
+					Cardinality: "optional_one", LogicalType: "string",
+				},
+				OutputColumnID: fieldID,
+			}}
+			columns = append(append([]recipe.StageColumn(nil), columns...), recipe.StageColumn{
+				ID: fieldID, Name: fieldName, Label: fieldName, Type: "string", Nullable: true,
+			})
+		}
+		step.Outputs = append([]recipe.StageColumn(nil), columns...)
+		steps = append(steps, step)
+		priorID = step.ID
+	}
+	return &recipe.Construction{Version: 1, SourceColumns: sourceColumns, Steps: steps}
+}
+
+func projectionPassesThroughHiddenColumn(projections []ir.PhysicalProjection, name string) bool {
+	for _, projection := range projections {
+		if projection.Name == name && projection.Hidden && len(projection.Value.Path) > 0 && projection.Value.Path[0] == name {
+			return true
+		}
+	}
+	return false
+}
+
+func physicalStageColumnsForTest(columns []ir.PhysicalStageColumn) map[string]ir.PhysicalStageColumn {
+	indexed := make(map[string]ir.PhysicalStageColumn, len(columns))
+	for _, column := range columns {
+		indexed[column.ID] = column
+	}
+	return indexed
+}
+
+func TestDescribeConstructionSourceStageForZeroColumnOutput(t *testing.T) {
+	output := constructionTestOutput()
+	output.Fields = nil
+	output.Construction = nil
+	compiled := compileDerivedTestOutput(t, output)
+
+	descriptor, err := DescribeConstructionSourceStage(compiled.OutputSchema, output.RootResourceType)
+	if err != nil {
+		t.Fatalf("describe compiler-resolved source stage: %v", err)
+	}
+	if descriptor.ID != recipe.ConstructionSourceProjectionID || descriptor.RowIdentityColumn == "" {
+		t.Fatalf("source descriptor identity = %#v", descriptor)
+	}
+	publicColumns := 0
+	for _, column := range descriptor.Columns {
+		if !column.Internal {
+			publicColumns++
+		}
+	}
+	if publicColumns != 0 {
+		t.Fatalf("zero-column source descriptor exposed %d public columns: %#v", publicColumns, descriptor.Columns)
+	}
+	wantUnsupported := map[recipe.ConstructionOperationKind]string{
+		recipe.ConstructionPivotOp:        "INSUFFICIENT_SCALAR_COLUMNS",
+		recipe.ConstructionDeriveOp:       "NO_NUMERIC_COLUMN",
+		recipe.ConstructionFilterOp:       "NO_PUBLIC_COLUMNS",
+		recipe.ConstructionUnpivotOp:      "NO_COMPATIBLE_UNPIVOT_COLUMNS",
+		recipe.ConstructionGroupOp:        "NO_PUBLIC_COLUMNS",
+		recipe.ConstructionCodedGroupOp:   "NO_PUBLIC_SOURCE_COLUMNS",
+		recipe.ConstructionExpandOp:       "NO_ARRAY_COLUMNS",
+		recipe.ConstructionRelatedFieldOp: "NO_ACTIVE_RELATED_RECORD",
+	}
+	var relatedSourceCapability *StageOperationCapability
+	var relatedExpandCapability *StageOperationCapability
+	var relatedEligibilityCapability *StageOperationCapability
+	var relatedFieldCapability *StageOperationCapability
+	for _, capability := range descriptor.Capabilities {
+		if capability.Operation == recipe.ConstructionCodedPivotOp {
+			if !capability.Supported || capability.ReasonCode != "" {
+				t.Fatalf("zero-column direct root stage should support coded Pivot: %#v", capability)
+			}
+			continue
+		}
+		if capability.Operation == recipe.ConstructionRelatedSourceOp {
+			relatedSourceCapability = &capability
+			continue
+		}
+		if capability.Operation == recipe.ConstructionRelatedExpandOp {
+			relatedExpandCapability = &capability
+			continue
+		}
+		if capability.Operation == recipe.ConstructionRelatedEligibilityOp {
+			relatedEligibilityCapability = &capability
+			continue
+		}
+		if capability.Operation == recipe.ConstructionRelatedFieldOp {
+			relatedFieldCapability = &capability
+			wantReason, exists := wantUnsupported[capability.Operation]
+			if !exists || capability.Supported || capability.ReasonCode != wantReason {
+				t.Fatalf("zero-column capability = %#v, want unsupported reason %q", capability, wantReason)
+			}
+			delete(wantUnsupported, capability.Operation)
+			continue
+		}
+		wantReason, exists := wantUnsupported[capability.Operation]
+		if !exists || capability.Supported || capability.ReasonCode != wantReason {
+			t.Fatalf("zero-column capability = %#v, want unsupported reason %q", capability, wantReason)
+		}
+		delete(wantUnsupported, capability.Operation)
+	}
+	if len(wantUnsupported) != 0 {
+		t.Fatalf("source descriptor omitted compiler capabilities %v", wantUnsupported)
+	}
+	if relatedSourceCapability == nil || !relatedSourceCapability.Supported {
+		t.Fatalf("root row identity should make related-source available: %#v", relatedSourceCapability)
+	}
+	if relatedExpandCapability == nil || !relatedExpandCapability.Supported {
+		t.Fatalf("zero-column source retains its root _key and should advertise related expansion: %#v", relatedExpandCapability)
+	}
+	if relatedEligibilityCapability == nil || !relatedEligibilityCapability.Supported {
+		t.Fatalf("zero-column source retains its root _key and should advertise related eligibility: %#v", relatedEligibilityCapability)
+	}
+	if relatedFieldCapability == nil || relatedFieldCapability.Supported || relatedFieldCapability.ReasonCode != "NO_ACTIVE_RELATED_RECORD" {
+		t.Fatalf("zero-column source must not offer exact related fields without a terminal record: %#v", relatedFieldCapability)
+	}
+	if compiled.Plan.StageSequence != nil {
+		t.Fatal("capability description introduced an executable construction stage sequence")
+	}
+}
+
+func TestCompileRelatedSourceMarksNonObservationListsWithCompilerSemanticPath(t *testing.T) {
+	output := constructionTestOutput()
+	output.Fields = []recipe.Field{{Name: "patient_id", ColumnID: "patient_id", Expr: recipe.Expression{Select: "id"}}}
+	output.Construction = &recipe.Construction{
+		Version:       1,
+		SourceColumns: []recipe.StageColumn{{ID: "patient_id", Name: "patient_id"}},
+		Steps: []recipe.ConstructionStep{{
+			ID: "add_medication_route", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedSourceOp, RelatedSource: &recipe.ConstructionRelatedSource{
+				AnchorColumnID: "_key", ChoiceID: "medication-route-choice", SourceOccurrenceID: "medication-route",
+				Source: recipe.ConstructionRelatedFieldSource{
+					CandidateID: "medication-route-field", NodeID: "medication-route", ResourceType: "MedicationAdministration",
+					Path: "MedicationAdministration.status", Cardinality: "optional_one", LogicalType: "string",
+				},
+				Route: []recipe.ConstructionRelatedRouteStep{{
+					EdgeID: "patient-medication-administration", FromNodeID: "patient", ToNodeID: "medication-route",
+					FromResourceType: "Patient", ToResourceType: "MedicationAdministration", Relationship: "subject_Patient",
+					StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+				}},
+				ContributorPolicy: "ALL_MATCHES", Form: "ALL", OutputColumnID: "medication-route-id",
+			}},
+			Outputs: []recipe.StageColumn{
+				{ID: "patient_id", Name: "patient_id"},
+				{ID: "medication-route-id", Name: "medication_route"},
+			},
+		}},
+	}
+
+	compiled := compileDerivedTestOutput(t, output)
+	for _, column := range compiled.OutputSchema {
+		if column.Name != "medication_route" {
+			continue
+		}
+		if column.SemanticPath != "related_source:medication-route.status" || column.Cardinality != "many" {
+			t.Fatalf("compiled related source metadata = %#v", column)
+		}
+		return
+	}
+	t.Fatal("compiled schema omitted the MedicationAdministration related-source list")
+}
+
+func TestCompileRelatedEligibilityPreservesRowsAndCountsDistinctTerminalResources(t *testing.T) {
+	exactValue := "final"
+	contributorSource := func(candidate, path, cardinality string) *recipe.ConstructionRelatedFieldSource {
+		return &recipe.ConstructionRelatedFieldSource{
+			CandidateID: candidate, NodeID: "observation-node", ResourceType: "Observation",
+			Path: path, Cardinality: cardinality, LogicalType: "string",
+		}
+	}
+	for _, match := range []struct {
+		kind                 string
+		threshold            *int
+		contributorSource    *recipe.ConstructionRelatedFieldSource
+		contributorPredicate *recipe.ConstructionRelatedPredicate
+	}{
+		{kind: recipe.RelatedEligibilityExists,
+			contributorSource:    contributorSource("observation-value-string", "Observation.valueString", "optional_one"),
+			contributorPredicate: &recipe.ConstructionRelatedPredicate{CandidateID: "observation-value-string", Operator: recipe.FilterExists}},
+		{kind: recipe.RelatedEligibilityAbsent},
+		{kind: recipe.RelatedEligibilityCountAtLeast, threshold: intPointer(2),
+			contributorSource: contributorSource("observation-id", "Observation.id", "required_one"),
+			contributorPredicate: &recipe.ConstructionRelatedPredicate{CandidateID: "observation-id", Operator: recipe.FilterEquals,
+				Value: &recipe.FilterValue{Kind: recipe.FilterString, String: &exactValue}}},
+	} {
+		t.Run(match.kind, func(t *testing.T) {
+			output := constructionTestOutput()
+			output.Construction = &recipe.Construction{
+				Version: 1,
+				SourceColumns: []recipe.StageColumn{
+					{ID: "group_id", Name: "group", Label: "Group"},
+					{ID: "category_id", Name: "category", Label: "Category"},
+					{ID: "amount_id", Name: "amount", Label: "Amount"},
+				},
+				Steps: []recipe.ConstructionStep{{
+					ID: "eligible_patients", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedEligibilityOp, RelatedEligibility: &recipe.ConstructionRelatedEligibility{
+						AnchorColumnID: "_key", ChoiceID: "patient-observation-choice", TargetNodeID: "observation-node", TargetResourceType: "Observation",
+						Route: []recipe.ConstructionRelatedRouteStep{{
+							EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+							FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+							StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+						}}, ContributorPolicy: "ALL_MATCHES", MatchKind: match.kind, Threshold: match.threshold,
+						ContributorSource: match.contributorSource, ContributorPredicate: match.contributorPredicate,
+						ContributorChoiceID: func() string {
+							if match.contributorPredicate != nil {
+								return "observation-contributor-choice"
+							}
+							return ""
+						}(),
+					}},
+					Outputs: []recipe.StageColumn{
+						{ID: "group_id", Name: "group", Label: "Group"},
+						{ID: "category_id", Name: "category", Label: "Category"},
+						{ID: "amount_id", Name: "amount", Label: "Amount"},
+					},
+				}},
+			}
+
+			compiled := compileDerivedTestOutput(t, output)
+			if len(compiled.Plan.StageSequence.Stages) != 1 {
+				t.Fatalf("related eligibility stage count = %d, want 1", len(compiled.Plan.StageSequence.Stages))
+			}
+			stage := compiled.Plan.StageSequence.Stages[0]
+			if stage.Kind != ir.PhysicalStageRelatedEligibilityOp || stage.Filter == nil {
+				t.Fatalf("lowered stage = %#v, want typed related eligibility filter", stage)
+			}
+			if stage.RowIdentityColumn != stage.InputColumns[len(stage.InputColumns)-1].Name {
+				t.Fatalf("eligibility changed row identity: input=%#v output=%q", stage.InputColumns, stage.RowIdentityColumn)
+			}
+			if len(stage.OutputColumns) != len(stage.InputColumns) {
+				t.Fatalf("eligibility changed output schema width: in=%d out=%d", len(stage.InputColumns), len(stage.OutputColumns))
+			}
+			rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch match.kind {
+			case recipe.RelatedEligibilityExists:
+				if stage.Filter.Expression.Kind != ir.PhysicalExistsPredicate || !strings.Contains(rendered.Query, "LIMIT 1") || !strings.Contains(rendered.Query, "valueString") {
+					t.Fatalf("EXISTS must compile to bounded existence: %#v\n%s", stage.Filter, rendered.Query)
+				}
+			case recipe.RelatedEligibilityAbsent:
+				if stage.Filter.Expression.Kind != ir.PhysicalNotPredicate || !strings.Contains(rendered.Query, "FILTER NOT (LENGTH(") {
+					t.Fatalf("ABSENT must negate bounded existence: %#v\n%s", stage.Filter, rendered.Query)
+				}
+			case recipe.RelatedEligibilityCountAtLeast:
+				if len(stage.DerivedLets) != 1 || stage.DerivedLets[0].ExpressionLet.Expression.Call == nil || !strings.Contains(rendered.Query, "SORTED_UNIQUE") || !strings.Contains(rendered.Query, ">= @related_eligibility_threshold") || !strings.Contains(rendered.Query, "__loom_physical_construction_filter_value == @related_eligibility_contributor_value") {
+					t.Fatalf("COUNT_AT_LEAST must count distinct terminal IDs through a scalar LET: lets=%#v\n%s", stage.DerivedLets, rendered.Query)
+				}
+				if rendered.BindVars["related_eligibility_threshold"] != 2 {
+					t.Fatalf("threshold bind = %#v, want 2", rendered.BindVars["related_eligibility_threshold"])
+				}
+				if rendered.BindVars["related_eligibility_contributor_value"] != exactValue {
+					t.Fatalf("contributor exact-value bind = %#v, want %q", rendered.BindVars["related_eligibility_contributor_value"], exactValue)
+				}
+			}
+		})
+	}
+}
+
+func intPointer(value int) *int { return &value }
+
+func TestRelatedEligibilityAfterGroupUsesCompilerOwnedRootContributors(t *testing.T) {
+	for _, match := range []struct {
+		name      string
+		kind      string
+		threshold *int
+	}{
+		{name: "exists", kind: recipe.RelatedEligibilityExists},
+		{name: "absent", kind: recipe.RelatedEligibilityAbsent},
+		{name: "distinct count", kind: recipe.RelatedEligibilityCountAtLeast, threshold: intPointer(2)},
+	} {
+		t.Run(match.name, func(t *testing.T) {
+			output := constructionTestOutput()
+			output.Fields = []recipe.Field{{Name: "gender", ColumnID: "gender_id", Expr: recipe.Expression{Select: "root.gender"}}}
+			groupColumns := []recipe.StageColumn{
+				{ID: "group_gender_id", Name: "gender", Type: "string"},
+				{ID: "patient_count_id", Name: "patient_count", Type: "integer"},
+			}
+			output.Construction = &recipe.Construction{
+				Version:       1,
+				SourceColumns: []recipe.StageColumn{{ID: "gender_id", Name: "gender", Label: "Gender", Type: "string"}},
+				Steps: []recipe.ConstructionStep{
+					{ID: "group_patients", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+						Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+							ConstructionID: "group_patients",
+							Keys:           []recipe.ConstructionGroupKey{{InputColumnID: "gender_id", OutputColumnID: "group_gender_id"}},
+							Aggregates:     []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "patient_count_id"}},
+						}}, Outputs: groupColumns},
+					{ID: "eligible_groups", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "group_patients"}},
+						Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedEligibilityOp, RelatedEligibility: &recipe.ConstructionRelatedEligibility{
+							AnchorColumnID: rootContributorSetColumn, ChoiceID: "patient-observation-choice",
+							TargetNodeID: "observation-node", TargetResourceType: "Observation",
+							Route: []recipe.ConstructionRelatedRouteStep{{
+								EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+								FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+								StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+							}}, ContributorPolicy: "ALL_MATCHES", MatchKind: match.kind, Threshold: match.threshold,
+						}}, Outputs: groupColumns},
+				},
+			}
+
+			compiled := compileDerivedTestOutput(t, output)
+			if len(compiled.Stages) != 3 || len(compiled.Plan.StageSequence.Stages) != 2 {
+				t.Fatalf("compiled stages = %#v, want source, Group, and related eligibility", compiled.Stages)
+			}
+			groupStage := compiled.Plan.StageSequence.Stages[0]
+			eligibility := compiled.Plan.StageSequence.Stages[1]
+			if groupStage.Group == nil || groupStage.Group.RootContributorOutputColumn != rootContributorSetColumn {
+				t.Fatalf("Group did not materialize contributors for filtering: %#v", groupStage.Group)
+			}
+			if eligibility.Kind != ir.PhysicalStageRelatedEligibilityOp || eligibility.Filter == nil {
+				t.Fatalf("lowered stage = %#v, want related-eligibility filter", eligibility)
+			}
+			if eligibility.Filter.Expression.Kind != ir.PhysicalExistsPredicate && match.kind == recipe.RelatedEligibilityExists ||
+				eligibility.Filter.Expression.Kind != ir.PhysicalNotPredicate && match.kind == recipe.RelatedEligibilityAbsent ||
+				len(eligibility.DerivedLets) != 1 && match.kind == recipe.RelatedEligibilityCountAtLeast {
+				t.Fatalf("match %s lowered to unexpected filter/LETs: %#v / %#v", match.kind, eligibility.Filter, eligibility.DerivedLets)
+			}
+			capable := false
+			for _, capability := range compiled.Stages[1].Capabilities {
+				if capability.Operation == recipe.ConstructionRelatedEligibilityOp {
+					capable = capability.Supported
+				}
+			}
+			if !capable || len(compiled.Stages[1].RelatedExpandAnchors) != 1 ||
+				compiled.Stages[1].RelatedExpandAnchors[0].Kind != "rootContributors" ||
+				compiled.Stages[1].RelatedExpandAnchors[0].AnchorColumnID != rootContributorSetColumn {
+				t.Fatalf("Group stage did not advertise its compiler-owned eligibility anchor: %#v", compiled.Stages[1])
+			}
+			var subplan *ir.PhysicalSubplan
+			switch match.kind {
+			case recipe.RelatedEligibilityExists:
+				subplan = eligibility.Filter.Expression.Exists
+			case recipe.RelatedEligibilityAbsent:
+				subplan = eligibility.Filter.Expression.Children[0].Exists
+			case recipe.RelatedEligibilityCountAtLeast:
+				subplan = eligibility.DerivedLets[0].ExpressionLet.Expression.Call.Args[0].Subplan
+			}
+			if subplan == nil || len(subplan.Operations) < 2 || subplan.Operations[0].CollectionScan == nil ||
+				subplan.Operations[1].Filter == nil || subplan.Operations[1].Filter.Predicate.Operator != "IN" ||
+				subplan.Operations[1].Filter.Predicate.Right == nil ||
+				!equalStringSlices(subplan.Operations[1].Filter.Predicate.Right.Path, []string{rootContributorSetColumn}) {
+				t.Fatalf("eligibility did not scan the exact compiler-owned contributor set: %#v", subplan)
+			}
+			if err := compiled.Plan.Validate(); err != nil {
+				t.Fatalf("valid grouped eligibility plan does not validate: %v", err)
+			}
+			if match.kind == recipe.RelatedEligibilityCountAtLeast {
+				scanSource := subplan.Operations[0].Source.ResourceType
+				if scanSource != "Patient" {
+					t.Fatalf("COUNT root scan source type = %q, want Patient", scanSource)
+				}
+				_ = ir.CanonicalExecutionPhysicalPlan(compiled.Plan)
+				if got := subplan.Operations[0].Source.ResourceType; got != scanSource {
+					t.Fatalf("canonical fingerprint changed source plan metadata from %q to %q", scanSource, got)
+				}
+				if err := compiled.Plan.Validate(); err != nil {
+					t.Fatalf("COUNT plan no longer validates after canonical fingerprinting: %v", err)
+				}
+			}
+			originalCollectionBind := subplan.Operations[0].CollectionScan.CollectionBindKey
+			compiled.Plan.BindVars["alternate_root_collection"] = "Patient"
+			subplan.Operations[0].CollectionScan.CollectionBindKey = "alternate_root_collection"
+			if err := compiled.Plan.Validate(); err == nil {
+				t.Fatal("eligibility scan with an alternate collection binding unexpectedly validated")
+			}
+			subplan.Operations[0].CollectionScan.CollectionBindKey = originalCollectionBind
+			delete(compiled.Plan.BindVars, "alternate_root_collection")
+			eligibility.InputColumns = append([]ir.PhysicalStageColumn(nil), eligibility.InputColumns...)
+			for index := range eligibility.InputColumns {
+				if eligibility.InputColumns[index].Name == rootContributorSetColumn {
+					eligibility.InputColumns[index].RootContributorResourceType = "Observation"
+				}
+			}
+			compiled.Plan.StageSequence.Stages[1] = eligibility
+			if err := compiled.Plan.Validate(); err == nil {
+				t.Fatal("eligibility with a mismatched contributor resource type unexpectedly validated")
+			}
+		})
+	}
+}
+
+func TestRelatedEligibilityKeepsRootAnchorAfterRowExpansion(t *testing.T) {
+	output := constructionTestOutput()
+	output.RootOccurrenceID = "patient-root"
+	output.RowGrain = "expanded"
+	output.Expand = &recipe.Expansion{
+		OwnerOccurrenceID: "patient-root", From: recipe.Expression{Select: "root.identifier[]"},
+		As: "item", Ordinality: "position", EmptyPolicy: recipe.ExpansionPreserveParent,
+	}
+	output.Identity = &recipe.Identity{Name: "row", Expansion: &recipe.ExpansionIdentity{}}
+	output.Construction.Steps = []recipe.ConstructionStep{{
+		ID: "eligible_observations", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedEligibilityOp, RelatedEligibility: &recipe.ConstructionRelatedEligibility{
+			AnchorColumnID: "_key", ChoiceID: "patient-observation-choice", TargetNodeID: "observation-node", TargetResourceType: "Observation",
+			Route: []recipe.ConstructionRelatedRouteStep{{
+				EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+				FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+				StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+			}},
+			ContributorPolicy: "ALL_MATCHES", MatchKind: recipe.RelatedEligibilityExists,
+		}},
+		Outputs: output.Construction.SourceColumns,
+	}}
+
+	compiled := compileDerivedTestOutput(t, output)
+	if got := compiled.Plan.StageSequence.SourceRowIdentity; got != "__loom_expansion_identity" {
+		t.Fatalf("source row identity = %q, want expanded-row identity", got)
+	}
+	if got := compiled.Stages[0].RelatedExpandAnchors; len(got) != 1 || got[0].AnchorColumnID != "_key" {
+		t.Fatalf("expanded source lost exact root resource anchor: %#v", got)
+	}
+	if compiled.Plan.StageSequence.Stages[0].Kind != ir.PhysicalStageRelatedEligibilityOp {
+		t.Fatalf("related eligibility did not compile after row expansion")
+	}
+}
+
+func TestRelatedEligibilityUsesActiveRelatedRecordAnchor(t *testing.T) {
+	output := constructionTestOutput()
+	_, activeObservationID := relatedExpandIdentityColumnNames("expand_observations")
+	output.Construction = &recipe.Construction{
+		Version: 1,
+		SourceColumns: []recipe.StageColumn{
+			{ID: "group_id", Name: "group", Label: "Group"},
+			{ID: "category_id", Name: "category", Label: "Category"},
+			{ID: "amount_id", Name: "amount", Label: "Amount"},
+		},
+		Steps: []recipe.ConstructionStep{
+			{
+				ID: "expand_observations", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedExpandOp, RelatedExpand: &recipe.ConstructionRelatedExpand{
+					AnchorColumnID: "_key", ChoiceID: "patient-observation-choice", TargetNodeID: "observation-node", TargetResourceType: "Observation",
+					Route:             []recipe.ConstructionRelatedRouteStep{{EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node", FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient", StorageDirection: "INBOUND", MatchMode: "OPTIONAL"}},
+					ContributorPolicy: "ALL_MATCHES", EmptyPolicy: recipe.ExpansionPreserveParent, RelatedRecordColumnID: "observation_id",
+				}},
+				Outputs: []recipe.StageColumn{
+					{ID: "group_id", Name: "group", Label: "Group"}, {ID: "category_id", Name: "category", Label: "Category"},
+					{ID: "amount_id", Name: "amount", Label: "Amount"}, {ID: "observation_id", Name: "observation_id", Label: "Observation ID", Type: "string", Nullable: true},
+				},
+			},
+			{
+				ID: "eligible_specimens", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "expand_observations"}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedEligibilityOp, RelatedEligibility: &recipe.ConstructionRelatedEligibility{
+					AnchorColumnID: activeObservationID, ChoiceID: "observation-specimen-choice", TargetNodeID: "specimen-node", TargetResourceType: "Specimen",
+					Route:             []recipe.ConstructionRelatedRouteStep{{EdgeID: "observation-specimen", FromNodeID: "observation-node", ToNodeID: "specimen-node", FromResourceType: "Observation", ToResourceType: "Specimen", Relationship: "specimen_Specimen", StorageDirection: "OUTBOUND", MatchMode: "OPTIONAL"}},
+					ContributorPolicy: "ALL_MATCHES", MatchKind: recipe.RelatedEligibilityExists,
+				}},
+				Outputs: []recipe.StageColumn{
+					{ID: "group_id", Name: "group", Label: "Group"}, {ID: "category_id", Name: "category", Label: "Category"},
+					{ID: "amount_id", Name: "amount", Label: "Amount"}, {ID: "observation_id", Name: "observation_id", Label: "Observation ID", Type: "string", Nullable: true},
+				},
+			},
+		},
+	}
+
+	compiled := compileDerivedTestOutput(t, output)
+	stage := compiled.Plan.StageSequence.Stages[1]
+	if stage.Kind != ir.PhysicalStageRelatedEligibilityOp || stage.RowIdentityColumn != compiled.Plan.StageSequence.Stages[0].RowIdentityColumn {
+		t.Fatalf("active-anchor eligibility changed row identity or operation: %#v", stage)
+	}
+	if compiled.Stages[2].ActiveRelatedRecord == nil || compiled.Stages[2].ActiveRelatedRecord.TargetNodeID != "observation-node" {
+		t.Fatalf("eligibility did not preserve active related-record capability: %#v", compiled.Stages[2])
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.Query, "DOCUMENT(@@related_eligibility_anchor_collection") || !strings.Contains(rendered.Query, "PARSE_IDENTIFIER(") {
+		t.Fatalf("active related anchor must use exact document lookup: %s", rendered.Query)
+	}
+}
+
+func TestCompileRelatedExpandSupportsScalarContributorPredicate(t *testing.T) {
+	output := constructionTestOutput()
+	specimenID := "specimen-123"
+	output.Construction = &recipe.Construction{
+		Version: 1,
+		SourceColumns: []recipe.StageColumn{
+			{ID: "group_id", Name: "group", Label: "Group"},
+			{ID: "category_id", Name: "category", Label: "Category"},
+			{ID: "amount_id", Name: "amount", Label: "Amount"},
+		},
+		Steps: []recipe.ConstructionStep{{
+			ID: "expand_observations", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedExpandOp, RelatedExpand: &recipe.ConstructionRelatedExpand{
+				AnchorColumnID: "_key", ChoiceID: "patient-observations", TargetNodeID: "observation-node", TargetResourceType: "Observation",
+				Route: []recipe.ConstructionRelatedRouteStep{{
+					EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+					FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+					StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+				}},
+				ContributorPolicy: "ALL_MATCHES",
+				ContributorPredicate: &recipe.ConstructionRelatedPredicate{
+					CandidateID: "observation-id", Operator: recipe.FilterEquals,
+					Value: &recipe.FilterValue{Kind: recipe.FilterString, String: &specimenID},
+				},
+				ContributorSource: &recipe.ConstructionRelatedFieldSource{
+					CandidateID: "observation-id", NodeID: "observation-node", ResourceType: "Observation",
+					Path: "Observation.id", Cardinality: "required_one", LogicalType: "string",
+				},
+				ContributorChoiceID: "observation-id-choice",
+				EmptyPolicy:         recipe.ExpansionExclude, RelatedRecordColumnID: "observation_id",
+			}},
+			Outputs: []recipe.StageColumn{
+				{ID: "group_id", Name: "group", Label: "Group"},
+				{ID: "category_id", Name: "category", Label: "Category"},
+				{ID: "amount_id", Name: "amount", Label: "Amount"},
+				{ID: "observation_id", Name: "observation_id", Label: "Observation ID", Type: "string"},
+			},
+		}},
+	}
+
+	compiled := compileDerivedTestOutput(t, output)
+	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{".id", "== @related_expand_contributor_value"} {
+		if !strings.Contains(rendered.Query, expected) {
+			t.Fatalf("rendered related expansion omitted %q: %s", expected, rendered.Query)
+		}
+	}
+	if rendered.BindVars["related_expand_contributor_value"] != specimenID {
+		t.Fatalf("related expansion contributor bind = %#v, want %q", rendered.BindVars["related_expand_contributor_value"], specimenID)
+	}
+}
+
+func TestCompileRelatedExpandSupportsRepeatedScalarContributorPredicate(t *testing.T) {
+	code := "target-code"
+	output := constructionTestOutput()
+	output.Construction = &recipe.Construction{
+		Version: 1,
+		SourceColumns: []recipe.StageColumn{
+			{ID: "group_id", Name: "group", Label: "Group"},
+			{ID: "category_id", Name: "category", Label: "Category"},
+			{ID: "amount_id", Name: "amount", Label: "Amount"},
+		},
+		Steps: []recipe.ConstructionStep{{
+			ID: "expand_observations", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedExpandOp, RelatedExpand: &recipe.ConstructionRelatedExpand{
+				AnchorColumnID: "_key", ChoiceID: "patient-observations", TargetNodeID: "observation-node", TargetResourceType: "Observation",
+				Route: []recipe.ConstructionRelatedRouteStep{{
+					EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+					FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+					StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+				}},
+				ContributorPolicy: "ALL_MATCHES",
+				ContributorPredicate: &recipe.ConstructionRelatedPredicate{
+					CandidateID: "observation-code", Quantifier: recipe.QuantifierAny, Operator: recipe.FilterEquals,
+					Value: &recipe.FilterValue{Kind: recipe.FilterCode, Code: &recipe.CodeValue{Code: code}},
+				},
+				ContributorSource: &recipe.ConstructionRelatedFieldSource{
+					CandidateID: "observation-code", NodeID: "observation-node", ResourceType: "Observation",
+					Path: "Observation.category[].coding[].code", Cardinality: "many", LogicalType: "code",
+					RepeatedBoundaries: []recipe.ConstructionRelatedRepeatedBoundary{
+						{Path: "category[]", MaxItems: 8},
+						{Path: "category[].coding[]", MaxItems: 8},
+					},
+				},
+				ContributorChoiceID: "observation-code-choice",
+				EmptyPolicy:         recipe.ExpansionExclude, RelatedRecordColumnID: "observation_id",
+			}},
+			Outputs: []recipe.StageColumn{
+				{ID: "group_id", Name: "group", Label: "Group"},
+				{ID: "category_id", Name: "category", Label: "Category"},
+				{ID: "amount_id", Name: "amount", Label: "Amount"},
+				{ID: "observation_id", Name: "observation_id", Label: "Observation ID", Type: "string"},
+			},
+		}},
+	}
+	if err := output.Construction.Validate(output.Fields); err != nil {
+		t.Fatalf("valid repeated scalar contributor was rejected: %v", err)
+	}
+
+	compiled := compileDerivedTestOutput(t, output)
+	stage := compiled.Plan.StageSequence.Stages[0]
+	if stage.Kind != ir.PhysicalStageRelatedExpandOp || stage.RelatedExpand == nil || !stage.RelatedExpand.RelatedRecords.Unique {
+		t.Fatalf("repeated predicate changed terminal-record uniqueness: %#v", stage)
+	}
+	filterFound := false
+	for _, operation := range stage.RelatedExpand.RelatedRecords.Operations {
+		if operation.Filter == nil || operation.Filter.Expression == nil || operation.Filter.Expression.Comparison == nil {
+			continue
+		}
+		comparison := operation.Filter.Expression.Comparison
+		if comparison.Operator == string(recipe.FilterEquals) {
+			filterFound = true
+			if string(comparison.Quantifier) != string(recipe.QuantifierAny) {
+				t.Fatalf("repeated contributor predicate quantifier = %q, want ANY", comparison.Quantifier)
+			}
+		}
+	}
+	if !filterFound {
+		t.Fatal("related terminal subplan omitted the repeated contributor filter")
+	}
+
+	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{".category", ".coding", "== @related_expand_contributor_value"} {
+		if !strings.Contains(rendered.Query, expected) {
+			t.Fatalf("rendered repeated related expansion omitted %q: %s", expected, rendered.Query)
+		}
+	}
+	if got := rendered.BindVars["related_expand_contributor_value"]; got != code {
+		t.Fatalf("CODE predicate bound %#v, want its code string %q", got, code)
+	}
+
+	cloneWith := func(change func(*recipe.ConstructionRelatedFieldSource, *recipe.ConstructionRelatedPredicate)) recipe.Output {
+		cloned := output
+		construction := *output.Construction
+		steps := append([]recipe.ConstructionStep(nil), construction.Steps...)
+		operation := steps[0].Operation
+		related := *operation.RelatedExpand
+		source := *related.ContributorSource
+		source.RepeatedBoundaries = append([]recipe.ConstructionRelatedRepeatedBoundary(nil), source.RepeatedBoundaries...)
+		predicate := *related.ContributorPredicate
+		change(&source, &predicate)
+		related.ContributorSource = &source
+		related.ContributorPredicate = &predicate
+		operation.RelatedExpand = &related
+		steps[0].Operation = operation
+		construction.Steps = steps
+		cloned.Construction = &construction
+		return cloned
+	}
+	existsOutput := cloneWith(func(_ *recipe.ConstructionRelatedFieldSource, predicate *recipe.ConstructionRelatedPredicate) {
+		predicate.Operator, predicate.Value = recipe.FilterExists, nil
+	})
+	existsCompiled := compileDerivedTestOutput(t, existsOutput)
+	existsStage := existsCompiled.Plan.StageSequence.Stages[0]
+	if existsStage.RelatedExpand == nil {
+		t.Fatal("repeated EXISTS predicate lost its related expansion")
+	}
+	existsFound := false
+	for _, operation := range existsStage.RelatedExpand.RelatedRecords.Operations {
+		if operation.Filter == nil || operation.Filter.Expression == nil || operation.Filter.Expression.Comparison == nil {
+			continue
+		}
+		comparison := operation.Filter.Expression.Comparison
+		if comparison.Operator == string(recipe.FilterExists) && string(comparison.Quantifier) == string(recipe.QuantifierAny) {
+			existsFound = true
+		}
+	}
+	if !existsFound {
+		t.Fatal("repeated EXISTS predicate did not carry explicit ANY into the terminal subplan")
+	}
+	terminalRepeatedOutput := cloneWith(func(source *recipe.ConstructionRelatedFieldSource, _ *recipe.ConstructionRelatedPredicate) {
+		source.Path = "Observation.category[].coding[].code[]"
+		source.RepeatedBoundaries = append(source.RepeatedBoundaries, recipe.ConstructionRelatedRepeatedBoundary{
+			Path: "category[].coding[].code[]", MaxItems: 8,
+		})
+	})
+	if err := terminalRepeatedOutput.Construction.Validate(terminalRepeatedOutput.Fields); err != nil {
+		t.Fatalf("primitive repeated terminal selector was rejected: %v", err)
+	}
+	terminalRepeatedCompiled := compileDerivedTestOutput(t, terminalRepeatedOutput)
+	terminalRepeatedQuery, err := aql.RenderPhysicalPlan(terminalRepeatedCompiled.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{".category", ".coding", ".code", "FLATTEN(", " != null"} {
+		if !strings.Contains(terminalRepeatedQuery.Query, expected) {
+			t.Fatalf("terminal repeated scalar query omitted %q: %s", expected, terminalRepeatedQuery.Query)
+		}
+	}
+	for _, mismatch := range []struct {
+		name   string
+		change func(*recipe.ConstructionRelatedFieldSource, *recipe.ConstructionRelatedPredicate)
+	}{
+		{name: "repeated source omits ANY", change: func(_ *recipe.ConstructionRelatedFieldSource, predicate *recipe.ConstructionRelatedPredicate) {
+			predicate.Quantifier = ""
+		}},
+		{name: "scalar source has ANY", change: func(source *recipe.ConstructionRelatedFieldSource, _ *recipe.ConstructionRelatedPredicate) {
+			source.Path, source.Cardinality, source.RepeatedBoundaries = "Observation.code", "optional_one", nil
+		}},
+		{name: "repeated boundary differs from selector", change: func(source *recipe.ConstructionRelatedFieldSource, _ *recipe.ConstructionRelatedPredicate) {
+			source.RepeatedBoundaries[1].Path = "category[].component[]"
+		}},
+	} {
+		t.Run(mismatch.name, func(t *testing.T) {
+			invalid := cloneWith(mismatch.change)
+			if err := invalid.Construction.Validate(invalid.Fields); err == nil {
+				t.Fatal("invalid repeated/scalar contributor shape was accepted")
+			}
+		})
+	}
+}
+
+func TestCompileRelatedExpandUsesDistinctTerminalIdentityAndExplicitEmptyPolicy(t *testing.T) {
+	for _, policy := range []recipe.ExpansionEmptyPolicy{
+		recipe.ExpansionError,
+		recipe.ExpansionExclude,
+		recipe.ExpansionPreserveParent,
+	} {
+		t.Run(string(policy), func(t *testing.T) {
+			output := constructionTestOutput()
+			output.Construction = &recipe.Construction{
+				Version: 1,
+				SourceColumns: []recipe.StageColumn{
+					{ID: "group_id", Name: "group", Label: "Group"},
+					{ID: "category_id", Name: "category", Label: "Category"},
+					{ID: "amount_id", Name: "amount", Label: "Amount"},
+				},
+				Steps: []recipe.ConstructionStep{{
+					ID: "expand_observations", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedExpandOp, RelatedExpand: &recipe.ConstructionRelatedExpand{
+						AnchorColumnID: "_key", ChoiceID: "related-observation-choice", TargetNodeID: "observation-node", TargetResourceType: "Observation",
+						Route: []recipe.ConstructionRelatedRouteStep{{
+							EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+							FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+							StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+						}},
+						ContributorPolicy: "ALL_MATCHES", EmptyPolicy: policy, RelatedRecordColumnID: "observation_id",
+					}},
+					Outputs: []recipe.StageColumn{
+						{ID: "group_id", Name: "group", Label: "Group"},
+						{ID: "category_id", Name: "category", Label: "Category"},
+						{ID: "amount_id", Name: "amount", Label: "Amount"},
+						{ID: "observation_id", Name: "observation_id", Label: "Observation ID", Type: "string", Nullable: policy == recipe.ExpansionPreserveParent},
+					},
+				}},
+			}
+
+			compiled := compileDerivedTestOutput(t, output)
+			if len(compiled.Plan.StageSequence.Stages) != 1 {
+				t.Fatalf("physical related expansion stage count = %d", len(compiled.Plan.StageSequence.Stages))
+			}
+			stage := compiled.Plan.StageSequence.Stages[0]
+			if stage.Kind != ir.PhysicalStageRelatedExpandOp || stage.RelatedExpand == nil || !stage.RelatedExpand.RelatedRecords.Unique {
+				t.Fatalf("related expansion lowering did not deduplicate terminal resources: %#v", stage)
+			}
+			parentIdentityColumn := stage.RelatedExpand.ParentIdentityColumnID
+			terminalIdentityColumn := stage.RelatedExpand.TerminalIdentityColumn
+			if stage.RelatedExpand.Route[0].EdgeID != "patient-observation" || stage.RelatedExpand.TargetResourceType != "Observation" {
+				t.Fatalf("compiled related route metadata = %#v", stage.RelatedExpand)
+			}
+			if !hasCompiledColumn(compiled.OutputSchema, "_key", true) ||
+				!hasCompiledColumn(compiled.OutputSchema, parentIdentityColumn, true) ||
+				!hasCompiledColumn(compiled.OutputSchema, terminalIdentityColumn, true) {
+				t.Fatalf("related expansion lost separate root, parent, or terminal identity: %#v", compiled.OutputSchema)
+			}
+			if compiled.Stages[1].RelatedExpand == nil || compiled.Stages[1].RelatedExpand.TargetNodeID != "observation-node" ||
+				compiled.Stages[1].RelatedExpand.ParentIdentityColumn != "_key" || compiled.Stages[1].RelatedExpand.TerminalIdentityColumn != terminalIdentityColumn {
+				t.Fatalf("related expansion stage descriptor lacks downstream identity contract: %#v", compiled.Stages[1])
+			}
+
+			rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			foundTraversal := false
+			for _, operation := range stage.RelatedExpand.RelatedRecords.Operations {
+				if operation.Traversal == nil {
+					continue
+				}
+				foundTraversal = true
+				if rendered.BindVars["@"+operation.Traversal.EdgeCollectionBindKey] != "fhir_edge" {
+					t.Fatalf("related expansion edge collection bind = %#v", rendered.BindVars["@"+operation.Traversal.EdgeCollectionBindKey])
+				}
+			}
+			if !foundTraversal {
+				t.Fatal("related expansion did not retain its graph traversal")
+			}
+			recordsVariable := stage.RelatedExpand.RelatedRecordsVariable
+			for _, expected := range []string{"SORTED_UNIQUE", "terminal_id", "resource_id", parentIdentityColumn, terminalIdentityColumn, `TO_STRING([["input"`} {
+				if !strings.Contains(rendered.Query, expected) {
+					t.Fatalf("rendered related expansion omitted %q: %s", expected, rendered.Query)
+				}
+			}
+			if !strings.Contains(rendered.Query, ".id") || strings.Contains(rendered.Query, "related_key") {
+				t.Fatalf("public related ID must be the required FHIR document id, not Arango _key: %s", rendered.Query)
+			}
+			switch policy {
+			case recipe.ExpansionError:
+				if !strings.Contains(rendered.Query, "FILTER ASSERT(LENGTH("+recordsVariable+") > 0") {
+					t.Fatalf("ERROR policy did not reject a missing related resource: %s", rendered.Query)
+				}
+			case recipe.ExpansionExclude:
+				if !strings.Contains(rendered.Query, "LENGTH("+recordsVariable+") == 0 ? []") {
+					t.Fatalf("EXCLUDE policy did not remove empty parents: %s", rendered.Query)
+				}
+			case recipe.ExpansionPreserveParent:
+				if !strings.Contains(rendered.Query, "LENGTH("+recordsVariable+") == 0 ? [null]") {
+					t.Fatalf("PRESERVE_PARENT policy did not emit an empty related row: %s", rendered.Query)
+				}
+			}
+		})
+	}
+}
+
+func TestCompileRelatedExpandChainFromIdentityOnlySource(t *testing.T) {
+	output := constructionTestOutput()
+	output.Fields = nil
+	_, activeObservationIdentity := relatedExpandIdentityColumnNames("expand_observations")
+	output.Construction = &recipe.Construction{Version: 1, Steps: []recipe.ConstructionStep{
+		{
+			ID: "expand_observations", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedExpandOp, RelatedExpand: &recipe.ConstructionRelatedExpand{
+				AnchorColumnID: "_key", ChoiceID: "patient-observation", TargetNodeID: "observation-node", TargetResourceType: "Observation",
+				Route: []recipe.ConstructionRelatedRouteStep{{
+					EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+					FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+					StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+				}},
+				ContributorPolicy: "ALL_MATCHES", EmptyPolicy: recipe.ExpansionPreserveParent, RelatedRecordColumnID: "observation_id",
+			}},
+			Outputs: []recipe.StageColumn{{ID: "observation_id", Name: "observation_id", Label: "Observation ID", Type: "string", Nullable: true}},
+		},
+		{
+			ID: "expand_specimens", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "expand_observations"}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedExpandOp, RelatedExpand: &recipe.ConstructionRelatedExpand{
+				AnchorColumnID: activeObservationIdentity, ChoiceID: "observation-specimen", TargetNodeID: "specimen-node", TargetResourceType: "Specimen",
+				Route: []recipe.ConstructionRelatedRouteStep{{
+					EdgeID: "observation-specimen", FromNodeID: "observation-node", ToNodeID: "specimen-node",
+					FromResourceType: "Observation", ToResourceType: "Specimen", Relationship: "specimen_Specimen",
+					StorageDirection: "OUTBOUND", MatchMode: "OPTIONAL",
+				}},
+				ContributorPolicy: "ALL_MATCHES", EmptyPolicy: recipe.ExpansionPreserveParent, RelatedRecordColumnID: "specimen_id",
+			}},
+			Outputs: []recipe.StageColumn{
+				{ID: "observation_id", Name: "observation_id", Label: "Observation ID", Type: "string", Nullable: true},
+				{ID: "specimen_id", Name: "specimen_id", Label: "Specimen ID", Type: "string", Nullable: true},
+			},
+		},
+	}}
+
+	compiled, err := compileDerivedTestBundle(t, output)
+	if err != nil {
+		t.Fatalf("compile identity-only RELATED_EXPAND chain: %v", err)
+	}
+	sequence := compiled.Plan.StageSequence
+	if sequence == nil || sequence.SourceRowIdentity != "_key" || len(sequence.Stages) != 2 {
+		t.Fatalf("identity-only source sequence = %#v, want root _key and two expansion stages", sequence)
+	}
+	if len(publicCompiledSchema(compiled.Stages[0].Columns)) != 0 {
+		t.Fatalf("source projection should have no visible columns: %#v", compiled.Stages[0].Columns)
+	}
+	rootKey, found := physicalStageColumnsForTest(sequence.Stages[0].InputColumns)["_key"]
+	if !found || !rootKey.Internal || !rootKey.Identity || rootKey.Kind != "string" || rootKey.Cardinality != "required_one" {
+		t.Fatalf("first expansion did not receive the exact hidden root identity: %#v", sequence.Stages[0].InputColumns)
+	}
+	first, second := sequence.Stages[0], sequence.Stages[1]
+	if first.RelatedExpand == nil || first.RelatedExpand.AnchorKind != "root" || first.RelatedExpand.AnchorColumnID != "_key" ||
+		first.RelatedExpand.ParentIdentityColumn != "_key" || first.RelatedExpand.EmptyPolicy != ir.PhysicalUnnestPreserveParent {
+		t.Fatalf("first expansion lost its root identity or empty policy: %#v", first.RelatedExpand)
+	}
+	if second.RelatedExpand == nil || second.RelatedExpand.AnchorKind != "activeRelatedRecord" ||
+		second.RelatedExpand.AnchorColumnID != first.RelatedExpand.TerminalIdentityColumn ||
+		second.RelatedExpand.AnchorNodeID != "observation-node" || second.RelatedExpand.AnchorResourceType != "Observation" ||
+		second.RelatedExpand.ParentIdentityColumn != first.RowIdentityColumn ||
+		second.RelatedExpand.EmptyPolicy != ir.PhysicalUnnestPreserveParent {
+		t.Fatalf("onward expansion lost its active record identity or parent policy: %#v", second.RelatedExpand)
+	}
+	if got := publicCompiledSchema(compiled.OutputSchema); len(got) != 2 || got[0].ID != "observation_id" || got[1].ID != "specimen_id" {
+		t.Fatalf("identity-only chain public output = %#v, want only its two related IDs", got)
+	}
+	if !hasCompiledColumn(compiled.OutputSchema, "_key", true) {
+		t.Fatalf("related expansion chain dropped the original hidden root key: %#v", compiled.OutputSchema)
+	}
+	if compiled.Plan.BindVars["project"] != "project" || compiled.Plan.BindVars["dataset_generation"] != "generation" {
+		t.Fatalf("related expansion changed project or generation bindings: %#v", compiled.Plan.BindVars)
+	}
+	for _, stage := range []ir.PhysicalConstructionStage{first, second} {
+		projectScope, generationScope, authScope := false, false, false
+		for _, operation := range stage.RelatedExpand.RelatedRecords.Operations {
+			if operation.Filter != nil && operation.Filter.Predicate.Right != nil {
+				predicate := operation.Filter.Predicate
+				projectScope = projectScope || len(predicate.Left.Path) == 1 && predicate.Left.Path[0] == "project" && predicate.Right.BindKey == "project"
+				generationScope = generationScope || len(predicate.Left.Path) == 1 && predicate.Left.Path[0] == "dataset_generation" && predicate.Right.BindKey == "dataset_generation"
+			}
+			if operation.DerivedLet != nil && operation.DerivedLet.Operator == "AUTH_RESOURCE_PATH_ALLOWED" {
+				authScope = true
+			}
+		}
+		if !projectScope || !generationScope || !authScope {
+			t.Fatalf("%s route lost project, generation, or authorization scope: project=%t generation=%t auth=%t", stage.ID, projectScope, generationScope, authScope)
+		}
+	}
+
+	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stage := range []ir.PhysicalConstructionStage{first, second} {
+		if !strings.Contains(rendered.Query, "LENGTH("+stage.RelatedExpand.RelatedRecordsVariable+") == 0 ? [null]") {
+			t.Errorf("rendered %s expansion does not preserve empty parents: %s", stage.ID, rendered.Query)
+		}
+	}
+}
+
+func TestRelatedExpandAfterGroupUsesCompilerOwnedRootContributors(t *testing.T) {
+	output := recipe.Output{
+		Name: "group_related_expand", RootResourceType: "Patient", RowGrain: "patient",
+		Fields: []recipe.Field{{Name: "gender", ColumnID: "gender_id", Expr: recipe.Expression{Select: "root.gender"}}},
+		Construction: &recipe.Construction{
+			Version:       1,
+			SourceColumns: []recipe.StageColumn{{ID: "gender_id", Name: "gender", Label: "Gender", Type: "string"}},
+			Steps: []recipe.ConstructionStep{
+				{
+					ID: "group_patients", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+						ConstructionID: "group_by_gender",
+						Keys:           []recipe.ConstructionGroupKey{{InputColumnID: "gender_id", OutputColumnID: "group_gender_id"}},
+						Aggregates:     []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "patient_count_id"}},
+					}},
+					Outputs: []recipe.StageColumn{
+						{ID: "group_gender_id", Name: "gender", Type: "string"},
+						{ID: "patient_count_id", Name: "patient_count", Type: "integer"},
+					},
+				},
+				{
+					ID: "expand_observations", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "group_patients"}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedExpandOp, RelatedExpand: &recipe.ConstructionRelatedExpand{
+						AnchorColumnID: rootContributorSetColumn, ChoiceID: "patient-observation-choice",
+						TargetNodeID: "observation-node", TargetResourceType: "Observation",
+						Route: []recipe.ConstructionRelatedRouteStep{{
+							EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+							FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+							StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+						}},
+						ContributorPolicy: "ALL_MATCHES", EmptyPolicy: recipe.ExpansionPreserveParent,
+						RelatedRecordColumnID: "observation_id",
+					}},
+					Outputs: []recipe.StageColumn{
+						{ID: "group_gender_id", Name: "gender", Type: "string"},
+						{ID: "patient_count_id", Name: "patient_count", Type: "integer"},
+						{ID: "observation_id", Name: "observation_id", Type: "string", Nullable: true},
+					},
+				},
+			},
+		},
+	}
+
+	compiled := compileDerivedTestOutput(t, output)
+	if len(compiled.Stages) != 3 {
+		t.Fatalf("compiled stages = %d, want source, Group, related expansion", len(compiled.Stages))
+	}
+	if anchors := compiled.Stages[0].RelatedExpandAnchors; len(anchors) != 1 || anchors[0].Kind != "root" || anchors[0].AnchorColumnID != "_key" {
+		t.Fatalf("direct source discovery must prefer its retained scalar root key: %#v", anchors)
+	}
+	group := compiled.Plan.StageSequence.Stages[0]
+	if group.Group == nil || group.Group.RootContributorOutputColumn != rootContributorSetColumn {
+		t.Fatalf("Group did not materialize contributors needed by the following expansion: %#v", group.Group)
+	}
+	contributors, found := physicalStageColumnsForTest(group.OutputColumns)[rootContributorSetColumn]
+	if !found || !contributors.Internal || contributors.Kind != "string" || contributors.Cardinality != string("many") ||
+		contributors.RootContributorResourceType != "Patient" {
+		t.Fatalf("Group contributor output = %#v, want a hidden Patient key set", contributors)
+	}
+	stage := compiled.Plan.StageSequence.Stages[1]
+	related := stage.RelatedExpand
+	if related == nil || related.AnchorKind != "rootContributors" || related.AnchorColumnID != rootContributorSetColumn ||
+		related.RootContributorColumn != rootContributorSetColumn || related.RootResourceType != "Patient" ||
+		related.EmptyPolicy != ir.PhysicalUnnestPreserveParent || !related.RelatedRecords.Unique || related.RelatedRecords.Sort == nil ||
+		related.RelatedRecords.Sort.Variable == "" || len(related.RelatedRecords.Sort.Path) != 1 || related.RelatedRecords.Sort.Path[0] != "_id" {
+		t.Fatalf("related expansion lacks typed contributor union, stable deduplication, or empty-row behavior: %#v", related)
+	}
+	if len(related.RelatedRecords.Operations) < 2 || related.RelatedRecords.Operations[0].CollectionScan == nil ||
+		related.RelatedRecords.Operations[1].Filter == nil || related.RelatedRecords.Operations[1].Filter.Predicate.Operator != "IN" ||
+		related.RelatedRecords.Operations[1].Filter.Predicate.Right == nil ||
+		related.RelatedRecords.Operations[1].Filter.Predicate.Right.Path[0] != rootContributorSetColumn {
+		t.Fatalf("root scan does not select exactly the input row's compiler-owned contributor set: %#v", related.RelatedRecords.Operations)
+	}
+	if !hasCompiledColumn(compiled.OutputSchema, "gender", false) || !hasCompiledColumn(compiled.OutputSchema, "patient_count", false) ||
+		!hasCompiledColumn(compiled.OutputSchema, related.TerminalIdentityColumn, true) {
+		t.Fatalf("related expansion lost grouped values or exact terminal identity: %#v", compiled.OutputSchema)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"_key IN", "project == @project", "dataset_generation == @dataset_generation",
+		"auth_resource_path", "SORTED_UNIQUE", "LENGTH(", "? [null]",
+	} {
+		if !strings.Contains(rendered.Query, expected) {
+			t.Errorf("grouped related expansion query omitted %q:\n%s", expected, rendered.Query)
+		}
+	}
+	if err := compiled.Plan.Validate(); err != nil {
+		t.Fatalf("valid typed contributor expansion plan does not validate: %v", err)
+	}
+	relatedStage := &compiled.Plan.StageSequence.Stages[1]
+	originalRelated := *relatedStage.RelatedExpand
+	originalInputColumns := append([]ir.PhysicalStageColumn(nil), relatedStage.InputColumns...)
+	for _, test := range []struct {
+		name   string
+		mutate func()
+	}{
+		{name: "non-string contributor set", mutate: func() {
+			for index := range relatedStage.InputColumns {
+				if relatedStage.InputColumns[index].ID == rootContributorSetColumn {
+					relatedStage.InputColumns[index].Kind = "integer"
+				}
+			}
+		}},
+		{name: "scalar contributor cardinality", mutate: func() {
+			for index := range relatedStage.InputColumns {
+				if relatedStage.InputColumns[index].ID == rootContributorSetColumn {
+					relatedStage.InputColumns[index].Cardinality = "required_one"
+				}
+			}
+		}},
+		{name: "wrong contributor resource metadata", mutate: func() {
+			relatedStage.RelatedExpand.RootResourceType = "Observation"
+		}},
+	} {
+		t.Run("rejects malformed contributor anchor/"+test.name, func(t *testing.T) {
+			relatedStage.RelatedExpand = &originalRelated
+			relatedStage.InputColumns = append([]ir.PhysicalStageColumn(nil), originalInputColumns...)
+			test.mutate()
+			if err := compiled.Plan.Validate(); err == nil {
+				t.Fatal("malformed root contributor anchor unexpectedly validated")
+			}
+		})
+	}
+	relatedStage.RelatedExpand = &originalRelated
+	relatedStage.InputColumns = originalInputColumns
+}
+
+func TestOnwardRelatedExpandLooksUpActiveIdentityAndPreservesNullParentRows(t *testing.T) {
+	output := constructionTestOutput()
+	_, observationIdentity := relatedExpandIdentityColumnNames("expand_observations")
+	output.Construction = &recipe.Construction{
+		Version: 1,
+		SourceColumns: []recipe.StageColumn{
+			{ID: "group_id", Name: "group", Label: "Group"},
+			{ID: "category_id", Name: "category", Label: "Category"},
+			{ID: "amount_id", Name: "amount", Label: "Amount"},
+		},
+		Steps: []recipe.ConstructionStep{
+			{
+				ID: "expand_observations", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedExpandOp, RelatedExpand: &recipe.ConstructionRelatedExpand{
+					AnchorColumnID: "_key", ChoiceID: "patient-observation", TargetNodeID: "observation-node", TargetResourceType: "Observation",
+					Route: []recipe.ConstructionRelatedRouteStep{{
+						EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+						FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+						StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+					}},
+					ContributorPolicy: "ALL_MATCHES", EmptyPolicy: recipe.ExpansionPreserveParent, RelatedRecordColumnID: "observation_id",
+				}},
+				Outputs: []recipe.StageColumn{
+					{ID: "group_id", Name: "group", Label: "Group"}, {ID: "category_id", Name: "category", Label: "Category"},
+					{ID: "amount_id", Name: "amount", Label: "Amount"}, {ID: "observation_id", Name: "observation_id", Label: "Observation ID", Type: "string", Nullable: true},
+				},
+			},
+			{
+				ID: "expand_specimens", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "expand_observations"}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedExpandOp, RelatedExpand: &recipe.ConstructionRelatedExpand{
+					AnchorColumnID: observationIdentity, ChoiceID: "observation-specimen", TargetNodeID: "specimen-node", TargetResourceType: "Specimen",
+					Route: []recipe.ConstructionRelatedRouteStep{{
+						EdgeID: "observation-specimen", FromNodeID: "observation-node", ToNodeID: "specimen-node",
+						FromResourceType: "Observation", ToResourceType: "Specimen", Relationship: "specimen_Specimen",
+						StorageDirection: "OUTBOUND", MatchMode: "OPTIONAL",
+					}},
+					ContributorPolicy: "ALL_MATCHES", EmptyPolicy: recipe.ExpansionPreserveParent, RelatedRecordColumnID: "specimen_id",
+				}},
+				Outputs: []recipe.StageColumn{
+					{ID: "group_id", Name: "group", Label: "Group"}, {ID: "category_id", Name: "category", Label: "Category"},
+					{ID: "amount_id", Name: "amount", Label: "Amount"},
+					{ID: "observation_id", Name: "observation_id", Label: "Observation ID", Type: "string", Nullable: true},
+					{ID: "specimen_id", Name: "specimen_id", Label: "Specimen ID", Type: "string", Nullable: true},
+				},
+			},
+		},
+	}
+
+	compiled := compileDerivedTestOutput(t, output)
+	if len(compiled.Plan.StageSequence.Stages) != 2 {
+		t.Fatalf("onward related expansion stages = %d, want 2", len(compiled.Plan.StageSequence.Stages))
+	}
+	first, second := compiled.Plan.StageSequence.Stages[0], compiled.Plan.StageSequence.Stages[1]
+	if second.RelatedExpand == nil || second.RelatedExpand.AnchorKind != "activeRelatedRecord" ||
+		second.RelatedExpand.AnchorNodeID != "observation-node" || second.RelatedExpand.AnchorResourceType != "Observation" ||
+		second.RelatedExpand.AnchorColumnID != observationIdentity {
+		t.Fatalf("onward expansion did not retain its exact active source identity: %#v", second.RelatedExpand)
+	}
+	if first.RelatedExpand.EmptyPolicy != ir.PhysicalUnnestPreserveParent || second.RelatedExpand.EmptyPolicy != ir.PhysicalUnnestPreserveParent {
+		t.Fatalf("both expansions must preserve parents with missing related records: first=%q second=%q", first.RelatedExpand.EmptyPolicy, second.RelatedExpand.EmptyPolicy)
+	}
+	if !hasCompiledColumn(compiled.OutputSchema, "_key", true) {
+		t.Fatalf("onward expansion dropped the original root key needed for sibling routes: %#v", compiled.OutputSchema)
+	}
+	var activeLookup *ir.PhysicalDocumentLookup
+	for _, operation := range second.RelatedExpand.RelatedRecords.Operations {
+		if operation.Kind == ir.PhysicalDocumentLookupOp {
+			activeLookup = operation.DocumentLookup
+			break
+		}
+	}
+	if activeLookup == nil || activeLookup.ExactID.Path[0] != observationIdentity || compiled.Plan.BindVars[activeLookup.CollectionBindKey] != "Observation" {
+		t.Fatalf("onward expansion must point-lookup the selected Observation identity: lookup=%#v binds=%#v", activeLookup, compiled.Plan.BindVars)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := rendered.Query
+	parseIndex := strings.Index(query, "PARSE_IDENTIFIER(")
+	if parseIndex < 0 {
+		t.Fatalf("active source lookup did not parse the exact FHIR id: %s", query)
+	}
+	guardIndex := strings.LastIndex(query[:parseIndex], "FILTER ")
+	if guardIndex < 0 || !strings.Contains(query[guardIndex:parseIndex], " != null") {
+		t.Fatalf("null-preserved parent identity must be filtered before PARSE_IDENTIFIER: %s", query)
+	}
+	for _, expected := range []string{
+		activeLookup.Variable + ".project == @project",
+		activeLookup.Variable + ".dataset_generation == @dataset_generation",
+		activeLookup.Variable + ".auth_resource_path IN @auth_resource_paths",
+		"LENGTH(" + second.RelatedExpand.RelatedRecordsVariable + ") == 0 ? [null]",
+	} {
+		if !strings.Contains(query, expected) {
+			t.Fatalf("onward expansion query omitted %q: %s", expected, query)
+		}
+	}
+}
+
+func hasCompiledColumn(columns []CompiledOutputColumn, name string, internal bool) bool {
+	for _, column := range columns {
+		if column.Name == name && column.Internal == internal {
+			return true
+		}
+	}
+	return false
+}
+
+func constructionTestOutput() recipe.Output {
+	groupLabel, categoryLabel, amountLabel := "Group", "Category", "Amount"
+	integerZero, integerOne := int64(0), int64(1)
+	stringA, stringB := "a", "b"
+	filterValue := int64(5)
+	return recipe.Output{
+		Name: "construction_test", RootResourceType: "Patient", RowGrain: "patient",
+		Fields: []recipe.Field{
+			{Name: "group", ColumnID: "group_id", Label: groupLabel, Expr: recipe.Expression{Select: "gender"}},
+			{Name: "category", ColumnID: "category_id", Label: categoryLabel, Expr: recipe.Expression{Select: "multipleBirthInteger"}},
+			{Name: "amount", ColumnID: "amount_id", Label: amountLabel, Expr: recipe.Expression{Select: "multipleBirthInteger"}},
+		},
+		Construction: &recipe.Construction{
+			Version: 1,
+			SourceColumns: []recipe.StageColumn{
+				{ID: "group_id", Name: "group", Label: groupLabel},
+				{ID: "category_id", Name: "category", Label: categoryLabel},
+				{ID: "amount_id", Name: "amount", Label: amountLabel},
+			},
+			Steps: []recipe.ConstructionStep{
+				{
+					ID: "pivot", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionPivotOp, Pivot: &recipe.ConstructionPivot{
+						ConstructionID: "pivot_values", GroupKeyIDs: []string{"group_id"}, CategoryColumnID: "category_id", ValueColumnID: "amount_id",
+						Categories: []recipe.ConstructionPivotCategory{
+							{Key: recipe.TableScalar{Kind: recipe.TableScalarInteger, Integer: &integerZero}, OutputColumnID: "amount_a_id"},
+							{Key: recipe.TableScalar{Kind: recipe.TableScalarInteger, Integer: &integerOne}, OutputColumnID: "amount_b_id"},
+						},
+						DuplicatePolicy: recipe.PivotDuplicateSum, MissingCellPolicy: recipe.PivotMissingCellNull,
+						UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
+					}},
+					Outputs: []recipe.StageColumn{{ID: "group_id", Name: "group", Label: groupLabel}, {ID: "amount_a_id", Name: "amount_a"}, {ID: "amount_b_id", Name: "amount_b"}},
+				},
+				{
+					ID: "derive", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "pivot"}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionDeriveOp, Derive: &recipe.ConstructionDerive{
+						ConstructionID: "derive_total", OutputColumnID: "total_id", Operation: recipe.DerivedAdd,
+						Left:               recipe.ConstructionOperand{Kind: recipe.DerivedColumnOperand, ColumnID: "amount_a_id"},
+						Right:              recipe.ConstructionOperand{Kind: recipe.DerivedLiteralOperand, Literal: &recipe.DerivedLiteral{Kind: recipe.NumericInteger, Integer: &integerOne}},
+						MissingInputPolicy: recipe.MissingInputPropagateNull,
+					}},
+					Outputs: []recipe.StageColumn{{ID: "group_id", Name: "group", Label: groupLabel}, {ID: "amount_a_id", Name: "amount_a"}, {ID: "amount_b_id", Name: "amount_b"}, {ID: "total_id", Name: "total"}},
+				},
+				{
+					ID: "filter", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "derive"}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
+						ColumnID: "total_id", Operator: recipe.FilterGreaterEq,
+						Values: []recipe.FilterValue{{Kind: recipe.FilterInteger, Integer: &filterValue}},
+					}},
+					Outputs: []recipe.StageColumn{{ID: "group_id", Name: "group", Label: groupLabel}, {ID: "amount_a_id", Name: "amount_a"}, {ID: "amount_b_id", Name: "amount_b"}, {ID: "total_id", Name: "total"}},
+				},
+				{
+					ID: "unpivot", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "filter"}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionUnpivotOp, Unpivot: &recipe.ConstructionUnpivot{
+						ConstructionID: "unpivot_values", Inputs: []recipe.ConstructionUnpivotInput{
+							{ColumnID: "amount_a_id", Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &stringA}},
+							{ColumnID: "amount_b_id", Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &stringB}},
+						}, KeyOutputColumnID: "measure_id", ValueOutputColumnID: "amount_id", NullRowPolicy: recipe.UnpivotNullPreserve,
+					}},
+					Outputs: []recipe.StageColumn{{ID: "group_id", Name: "group", Label: groupLabel}, {ID: "total_id", Name: "total"}, {ID: "measure_id", Name: "measure"}, {ID: "amount_id", Name: "amount"}},
+				},
+			},
+		},
+	}
+}
+
+func equalStringSlices(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}

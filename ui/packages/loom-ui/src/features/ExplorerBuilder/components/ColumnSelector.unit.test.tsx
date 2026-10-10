@@ -1,12 +1,17 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type {
+  AggregateTransformationCapability,
+  ColumnValueTransformationCapabilities,
+  Construction,
   ExplorerBuilderCandidate,
   ExplorerBuilderCatalog,
+  ExplorerBuilderColumn,
 } from '../../../types';
 import type { DraftTable } from '../authoring/model';
+import type { ConfiguredColumnContextResponse } from '../../../interpretation';
 import { ColumnSelector, columnFromCandidate } from './ColumnSelector';
 
 const catalog: ExplorerBuilderCatalog = {
@@ -35,6 +40,7 @@ const table: DraftTable = {
     output: { id: 'Patient', title: 'Patient' },
     rootResourceType: 'ResearchSubject',
     route: { occurrenceId: 'base', resourceType: 'ResearchSubject' },
+    rows: { kind: 'RECORDS', records: {} },
     columns: [
       {
         column: 'research_subject_identifier',
@@ -42,8 +48,10 @@ const table: DraftTable = {
         occurrenceId: 'base',
         source: {
           kind: 'field',
-          fieldPath: 'identifier[].value',
-          projectionMode: 'FIRST',
+          field: {
+            path: 'identifier[].value',
+            projectionMode: 'FIRST',
+          },
         },
         table: { visible: true, order: 0 },
       },
@@ -51,7 +59,1044 @@ const table: DraftTable = {
   },
 };
 
+const unavailableTransformations: AggregateTransformationCapability = {
+  temporalReduction: {
+    available: false,
+    reasonCode: 'NO_TIMESTAMP_FIELDS',
+    reason: 'No advertised temporal choices are available for this candidate.',
+    timestampFields: [],
+    anchorFields: [],
+  },
+  unitNormalization: {
+    available: false,
+    reasonCode: 'NO_COMPATIBLE_UNIT_PRESET',
+    reason: 'No approved unit preset is available for this candidate.',
+    presets: [],
+  },
+};
+
+const availableStringValueTransformations: ColumnValueTransformationCapabilities = {
+  exactCategoryRecode: { available: true },
+  codedValueRecoding: {
+    available: false,
+    reasonCode: 'CODED_VALUE_RECODE_UNAVAILABLE',
+    reason: 'Coded value recoding is unavailable because this scalar transformation cannot preserve both Coding.system and Coding.code.',
+  },
+};
+
+const unsupportedValueTransformations: ColumnValueTransformationCapabilities = {
+  exactCategoryRecode: {
+    available: false,
+    reasonCode: 'COLUMN_VALUE_TYPE_UNSUPPORTED',
+    reason: 'Exact category recoding requires a scalar string value.',
+  },
+  codedValueRecoding: {
+    available: false,
+    reasonCode: 'CODED_VALUE_RECODE_UNAVAILABLE',
+    reason: 'Coded value recoding is unavailable because this scalar transformation cannot preserve both Coding.system and Coding.code.',
+  },
+};
+
+const contextFor = (
+  outputId: string,
+  column: string,
+  candidateIds: ReadonlyArray<string>,
+): ConfiguredColumnContextResponse => ({
+  snapshotToken: 'snapshot',
+  draftVersion: 1,
+  draftDigest: 'draft-digest',
+  libraries: [],
+  pinnedRevisions: [],
+  columns: [{
+    outputId,
+    column,
+    occurrenceId: 'base',
+    resolution: { state: 'READY', capabilityCandidateIds: [...candidateIds], applicableRevisionIds: [] },
+  }],
+});
+
 describe('configured V2 columns', () => {
+  it('shows the exact FHIR source and saved route, then hands the column to the graph', async () => {
+    const onEditInGraph = vi.fn();
+    const height = {
+      column: 'height',
+      label: 'Height',
+      logicalType: 'decimal',
+      occurrenceId: 'observations',
+      source: {
+        kind: 'codedValue' as const,
+        lookup: {
+          binding: {
+            ownerPath: 'component[]',
+            keyPath: 'code',
+            systemPath: 'code.coding[].system',
+            codePath: 'code.coding[].code',
+            valuePath: 'valueQuantity.value',
+            logicalType: 'decimal',
+            unitPath: 'valueQuantity.unit',
+          },
+          key: { system: 'http://loinc.org', code: '8302-2' },
+          projectionMode: 'FIRST' as const,
+        },
+      },
+      table: { visible: true, order: 0 },
+    };
+    const relatedCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      nodes: [
+        ...catalog.nodes,
+        {
+          nodeId: 'observation',
+          resourceType: 'Observation',
+          rowRootEligible: true,
+          populated: true,
+          documentCount: 4,
+        },
+      ],
+      edges: [{
+        edgeId: 'subject-observation',
+        fromNodeId: 'research-subject',
+        toNodeId: 'observation',
+        label: 'subject_Observation',
+      }],
+      candidates: [{
+        candidateId: 'candidate-height',
+        nodeId: 'observation',
+        fieldPath: 'component[].valueQuantity.value',
+        label: 'Height',
+        logicalType: 'decimal',
+        cardinality: 'optional_one',
+        repeated: false,
+        filterable: true,
+        chartable: false,
+        projectionModes: ['VALUE'],
+        defaultProjectionMode: 'VALUE',
+        aggregateOperations: [],
+        transformations: unavailableTransformations,
+        valueTransformations: availableStringValueTransformations,
+        conceptCandidates: [{
+          sourceResourceType: 'Observation',
+          sourcePath: 'component[].valueQuantity.value',
+          owningScope: 'component[]',
+          system: 'http://loinc.org',
+          code: '8302-2',
+          display: 'Body height',
+          logicalType: 'decimal',
+          completeness: 'COMPLETE',
+          status: 'SUPPORTED',
+          population: 4,
+          examples: ['170', '172'],
+          examplesTruncated: false,
+          observedUnits: ['cm'],
+          observedUnitsTruncated: false,
+        }],
+      }],
+    };
+    const relatedTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        route: {
+          ...table.document.route,
+          children: [{
+            occurrenceId: 'observations',
+            resourceType: 'Observation',
+            relationship: 'subject_Observation',
+          }],
+        },
+        columns: [height],
+      },
+    };
+
+    render(
+      <ColumnSelector
+        catalog={relatedCatalog}
+        interpretationContext={contextFor(relatedTable.outputId, height.column, ['candidate-height'])}
+        table={relatedTable}
+        occurrenceId="base"
+        showAvailable={false}
+        disabled={false}
+        onAdd={vi.fn()}
+        onAddAll={vi.fn()}
+        onChange={vi.fn()}
+        onSourceChange={vi.fn()}
+        onRemove={vi.fn()}
+        onInspectSource={vi.fn().mockResolvedValue({
+          snapshotToken: 'snapshot',
+          outputId: relatedTable.outputId,
+          column: height.column,
+          summary: 'LOINC height from Observation component',
+          route: [
+            { occurrenceId: 'base', resourceType: 'ResearchSubject' },
+            {
+              occurrenceId: 'observations',
+              resourceType: 'Observation',
+              relationship: 'subject_Observation',
+              storageDirection: 'INBOUND',
+              matchMode: 'OPTIONAL',
+            },
+          ],
+          facts: [
+            { label: 'FHIR owner', value: 'component[]' },
+            { label: 'Code', value: 'http://loinc.org · 8302-2' },
+            { label: 'Value member', value: 'valueQuantity.value' },
+            { label: 'Unit member', value: 'valueQuantity.unit' },
+          ],
+        })}
+        onEditInGraph={onEditInGraph}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Column details' }));
+
+    const inspector = await screen.findByRole('region', { name: 'Source for Height' });
+    expect(inspector).toHaveTextContent('ResearchSubject');
+    expect(inspector).toHaveTextContent('Observation');
+    expect(inspector).toHaveTextContent('via subject_Observation');
+    expect(inspector).toHaveTextContent('http://loinc.org · 8302-2');
+    expect(inspector).toHaveTextContent('component[]');
+    expect(inspector).toHaveTextContent('valueQuantity.value');
+    expect(inspector).toHaveTextContent('valueQuantity.unit');
+    expect(await screen.findByText('Observed code meaning for this saved source')).toBeInTheDocument();
+    expect(screen.getByText('Body height · http://loinc.org · 8302-2')).toBeInTheDocument();
+    expect(screen.getByText(/Observed examples: 170, 172/)).toBeInTheDocument();
+    expect(screen.getByText(/Observed units: cm/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit in graph' }));
+    expect(onEditInGraph).toHaveBeenCalledWith(height);
+  });
+
+  it('narrows and highlights the exact feature handed off for repair', async () => {
+    render(<ColumnSelector catalog={catalog} table={table} occurrenceId="base"
+      focusColumn="research_subject_identifier" disabled={false} onAdd={vi.fn()}
+      onAddAll={vi.fn()} onChange={vi.fn()} onSourceChange={vi.fn()} onRemove={vi.fn()} />);
+
+    await waitFor(() => expect((screen.getByRole('textbox', { name: 'Search columns' }) as HTMLInputElement).value).toBe('research_subject_identifier'));
+    expect(document.querySelector('[data-feature-focus="true"]')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Display name for configured Research Subject ID' })).toBeInTheDocument();
+  });
+
+  it('inspects observed code examples with their source scope and explicit coverage limits', () => {
+    const observedField: ExplorerBuilderCandidate = {
+      candidateId: 'candidate-status',
+      nodeId: 'research-subject',
+      fieldPath: 'status',
+      label: 'Status',
+      logicalType: 'code',
+      cardinality: 'optional_one',
+      repeated: false,
+      filterable: true,
+      chartable: false,
+      projectionModes: ['VALUE'],
+      defaultProjectionMode: 'VALUE',
+      aggregateOperations: [],
+      transformations: unavailableTransformations,
+      valueTransformations: availableStringValueTransformations,
+      conceptCandidates: [{
+        sourceResourceType: 'ResearchSubject',
+        sourcePath: 'status',
+        owningScope: 'status',
+        system: 'urn:study-status',
+        code: 'active',
+        display: 'Active',
+        logicalType: 'code',
+        completeness: 'PARTIAL',
+        status: 'SUPPORTED',
+        population: 12,
+        examples: ['active', 'on-study'],
+        examplesTruncated: true,
+        observedUnits: ['cm', 'kg'],
+        observedUnitsTruncated: true,
+      }],
+    };
+    const dataCatalog = {
+      ...catalog,
+      candidates: [observedField],
+    } satisfies ExplorerBuilderCatalog;
+
+    render(
+      <ColumnSelector catalog={dataCatalog} table={table} occurrenceId="base"
+        disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()} onChange={vi.fn()}
+        onSourceChange={vi.fn()} onRemove={vi.fn()} />,
+    );
+
+    const evidence = screen.getByText('Active · urn:study-status · active');
+    expect(evidence).toBeInTheDocument();
+    expect(screen.getByText(/ResearchSubject · status · partial evidence/)).toBeInTheDocument();
+    expect(screen.getByText(/12 observed source occurrences; denominator and current-table coverage are not provided/)).toBeInTheDocument();
+    expect(screen.getByText(/Observed examples: active, on-study · additional examples exist/)).toBeInTheDocument();
+    expect(screen.getByText(/Observed units: cm, kg · additional units exist/)).toBeInTheDocument();
+  });
+
+  it('types and saves exact category mappings without changing column identity or source', async () => {
+    const column: ExplorerBuilderColumn = {
+      column: 'status',
+      label: 'Status',
+      occurrenceId: 'base',
+      source: { kind: 'field', field: { path: 'status', projectionMode: 'FIRST' } },
+      table: { visible: true, order: 0 },
+    };
+    const transformTable: DraftTable = {
+      ...table,
+      document: { ...table.document, columns: [column] },
+    };
+    const candidate: ExplorerBuilderCandidate = {
+      candidateId: 'c_status',
+      nodeId: 'research-subject',
+      fieldPath: 'status',
+      label: 'Status',
+      logicalType: 'string',
+      cardinality: 'optional_one',
+      filterable: true,
+      chartable: false,
+      projectionModes: ['FIRST'],
+      defaultProjectionMode: 'FIRST',
+      aggregateOperations: [],
+      transformations: unavailableTransformations,
+      valueTransformations: {
+        exactCategoryRecode: { available: true },
+        codedValueRecoding: {
+          available: false,
+          reasonCode: 'CODED_VALUE_RECODE_UNAVAILABLE',
+          reason: 'Both Coding.system and Coding.code must be preserved.',
+        },
+      },
+    };
+    const onTransformationChange = vi.fn();
+    const onSourceChange = vi.fn();
+
+    render(<ColumnSelector
+      catalog={{ ...catalog, candidates: [candidate] }}
+      interpretationContext={contextFor(transformTable.outputId, column.column, [candidate.candidateId])}
+      table={transformTable}
+      occurrenceId="base"
+      disabled={false}
+      onAdd={vi.fn()}
+      onAddAll={vi.fn()}
+      onChange={vi.fn()}
+      onSourceChange={onSourceChange}
+      onTransformationChange={onTransformationChange}
+      onRemove={vi.fn()}
+    />);
+
+    fireEvent.click(screen.getByText('Recode exact category values'));
+    fireEvent.click(screen.getByRole('button', { name: 'Add mapping' }));
+    const recordedCategory = screen.getByRole('textbox', { name: 'Recorded category 1 for Status' });
+    fireEvent.click(recordedCategory);
+    fireEvent.change(recordedCategory, { target: { value: 'recorded-A' } });
+    expect(screen.getByDisplayValue('recorded-A')).toBe(recordedCategory);
+    const replacementValue = screen.getByRole('textbox', { name: 'Replacement value 1 for Status' });
+    fireEvent.click(replacementValue);
+    fireEvent.change(replacementValue, { target: { value: 'group-1' } });
+    expect(screen.getByDisplayValue('group-1')).toBe(replacementValue);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Unmapped value policy for Status' }), { target: { value: 'KEEP_ORIGINAL' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save recoding' }));
+
+    expect(onTransformationChange).toHaveBeenCalledWith('status', {
+      kind: 'SET',
+      transformation: {
+        kind: 'EXACT_CATEGORY_RECODE',
+        exactCategoryRecode: {
+          mappings: [{ from: 'recorded-A', to: 'group-1' }],
+          unknownPolicy: 'KEEP_ORIGINAL',
+        },
+      },
+    });
+    expect(onSourceChange).not.toHaveBeenCalled();
+    expect(transformTable.document.columns[0]).toMatchObject({
+      column: 'status',
+      source: { kind: 'field', field: { path: 'status', projectionMode: 'FIRST' } },
+    });
+  });
+
+  it('edits repeated values independently from related-record selection', () => {
+    const onSourceChange = vi.fn();
+    const repeatedCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      candidates: [{
+        candidateId: 'c_identifier',
+        nodeId: 'research-subject',
+        fieldPath: 'identifier[].value',
+        label: 'Research Subject ID',
+        logicalType: 'string',
+        cardinality: 'many',
+        repeated: true,
+        filterable: true,
+        chartable: false,
+        projectionModes: ['FIRST', 'ALL', 'DISTINCT'],
+        defaultProjectionMode: 'FIRST',
+        aggregateOperations: [],
+        transformations: unavailableTransformations,
+        valueTransformations: availableStringValueTransformations,
+      }],
+    };
+
+    render(<ColumnSelector catalog={repeatedCatalog} interpretationContext={contextFor(table.outputId, 'research_subject_identifier', ['c_identifier'])} table={table} occurrenceId="base"
+      disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()} onChange={vi.fn()}
+      onSourceChange={onSourceChange} onRemove={vi.fn()} />);
+
+    fireEvent.change(screen.getByRole('combobox', {
+      name: 'Repeated values for Research Subject ID',
+    }), { target: { value: 'ALL' } });
+
+    expect(onSourceChange).toHaveBeenCalledWith('research_subject_identifier', {
+      kind: 'field',
+      field: {
+        path: 'identifier[].value',
+        projectionMode: 'ALL',
+      },
+    });
+    expect(screen.getByText(/within each Research Subject/)).toBeInTheDocument();
+  });
+
+  it('uses only the server candidate ID when a source path has multiple candidates', () => {
+    const idCandidate: ExplorerBuilderCandidate = {
+      candidateId: 'opaque-selected',
+      nodeId: 'research-subject',
+      fieldPath: 'identifier[].value',
+      label: 'Selected identity',
+      logicalType: 'string',
+      cardinality: 'many',
+      repeated: true,
+      filterable: false,
+      chartable: false,
+      projectionModes: ['FIRST'],
+      defaultProjectionMode: 'FIRST',
+      aggregateOperations: [],
+      transformations: unavailableTransformations,
+      valueTransformations: availableStringValueTransformations,
+    };
+    const samePathDecoy = { ...idCandidate, candidateId: 'opaque-decoy', label: 'Decoy identity', filterable: true };
+    render(<ColumnSelector
+      catalog={{ ...catalog, candidates: [idCandidate, samePathDecoy] }}
+      interpretationContext={contextFor(table.outputId, 'research_subject_identifier', ['opaque-selected'])}
+      table={table}
+      occurrenceId="base"
+      disabled={false}
+      onAdd={vi.fn()}
+      onAddAll={vi.fn()}
+      onChange={vi.fn()}
+      onSourceChange={vi.fn()}
+      onRemove={vi.fn()}
+    />);
+
+    expect(screen.getByRole('checkbox', { name: 'Use Research Subject ID as filter' })).toBeDisabled();
+  });
+
+  it('edits an existing resource reduction without changing its scope', () => {
+    const onSourceChange = vi.fn();
+    const onContributorChange = vi.fn();
+    const contributorCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      candidates: [{
+        candidateId: 'c_identifier',
+        nodeId: 'research-subject',
+        fieldPath: 'identifier[].value',
+        label: 'Identifier',
+        logicalType: 'string',
+        cardinality: 'many',
+        repeated: true,
+        filterable: true,
+        chartable: false,
+        projectionModes: ['FIRST', 'ALL'],
+        defaultProjectionMode: 'FIRST',
+        aggregateOperations: [],
+        transformations: unavailableTransformations,
+        valueTransformations: availableStringValueTransformations,
+      }],
+    };
+    const aggregateTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        columns: [{
+          column: 'subject_count',
+          label: 'Subject count',
+          occurrenceId: 'base',
+          logicalType: 'integer',
+          source: { kind: 'aggregate', aggregate: { operation: 'COUNT' } },
+          table: { visible: true, order: 0 },
+        }],
+      },
+    };
+
+    const { rerender } = render(<ColumnSelector catalog={contributorCatalog} table={aggregateTable} occurrenceId="base"
+      disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()} onChange={vi.fn()}
+      onSourceChange={onSourceChange} onContributorChange={onContributorChange}
+      onRemove={vi.fn()} />);
+
+    fireEvent.change(screen.getByRole('combobox', {
+      name: 'Calculation for Subject count',
+    }), { target: { value: 'EXISTS' } });
+
+    expect(onSourceChange).toHaveBeenCalledWith('subject_count', {
+      kind: 'aggregate',
+      aggregate: { operation: 'EXISTS' },
+    });
+    expect(screen.getByText('Counts matching Research Subject resources.')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('combobox', {
+      name: 'Contributors for Subject count',
+    }), { target: { value: 'c_identifier' } });
+    expect(onContributorChange).toHaveBeenCalledWith('subject_count', {
+      candidateId: 'c_identifier',
+      operator: 'EXISTS',
+      quantifier: 'ANY',
+    });
+
+    fireEvent.change(screen.getByRole('combobox', {
+      name: 'Contributor condition for Subject count',
+    }), { target: { value: 'EQUALS' } });
+    fireEvent.change(screen.getByRole('textbox', {
+      name: 'Contributor value for Subject count',
+    }), { target: { value: 'registered' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply condition' }));
+    expect(onContributorChange).toHaveBeenLastCalledWith('subject_count', {
+      candidateId: 'c_identifier',
+      operator: 'EQUALS',
+      quantifier: 'ANY',
+      value: { kind: 'STRING', string: 'registered' },
+    });
+
+    rerender(<ColumnSelector catalog={contributorCatalog} table={{
+      ...aggregateTable,
+      document: {
+        ...aggregateTable.document,
+        columns: [{
+          ...aggregateTable.document.columns[0],
+          contributor: {
+            candidateId: 'c_identifier', operator: 'EQUALS', quantifier: 'ANY',
+            value: { kind: 'STRING', string: 'registered' },
+          },
+        }],
+      },
+    }} occurrenceId="base" disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()}
+      onChange={vi.fn()} onSourceChange={onSourceChange}
+      onContributorChange={onContributorChange} onRemove={vi.fn()} />);
+    expect(screen.getByText('Only Research Subject records where Identifier equals “registered” contribute to this feature.')).toBeInTheDocument();
+  });
+
+  it('adds count and existence features for a related resource without replacing fields', () => {
+    const onAddSource = vi.fn();
+    const relatedCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      nodes: [
+        ...catalog.nodes,
+        {
+          nodeId: 'observation',
+          resourceType: 'Observation',
+          rowRootEligible: true,
+          populated: true,
+          documentCount: 4,
+        },
+      ],
+      edges: [{
+        edgeId: 'subject-observation',
+        fromNodeId: 'research-subject',
+        toNodeId: 'observation',
+        label: 'subject_Observation',
+      }],
+    };
+    const relatedTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        route: {
+          ...table.document.route,
+          children: [{
+            occurrenceId: 'observations',
+            resourceType: 'Observation',
+            relationship: 'subject_Observation',
+          }],
+        },
+      },
+    };
+
+    render(<ColumnSelector catalog={relatedCatalog} table={relatedTable} occurrenceId="observations"
+      disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()} onAddSource={onAddSource}
+      onChange={vi.fn()} onSourceChange={vi.fn()} onRemove={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Count' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes / no' }));
+
+    expect(onAddSource).toHaveBeenNthCalledWith(1,
+      { kind: 'aggregate', aggregate: { operation: 'COUNT' } },
+      'Observation count',
+    );
+    expect(onAddSource).toHaveBeenNthCalledWith(2,
+      { kind: 'aggregate', aggregate: { operation: 'EXISTS' } },
+      'Has Observation',
+    );
+  });
+
+  it('requires a separate source edit to acknowledge omitting related records', () => {
+    const onSourceChange = vi.fn();
+    const onChange = vi.fn();
+    const relatedTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        columns: [{
+          column: 'observation_value',
+          label: 'Observation value',
+          occurrenceId: 'base',
+          source: {
+            kind: 'field',
+            field: {
+              path: 'valueQuantity.value',
+              projectionMode: 'VALUE',
+              relatedSelection: { kind: 'first-by-resource-key', acknowledged: false },
+            },
+          },
+          table: { visible: true, order: 0 },
+        }],
+      },
+    };
+    render(<ColumnSelector catalog={catalog} table={relatedTable} occurrenceId="base"
+      disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()} onChange={onChange}
+      onSourceChange={onSourceChange} onRemove={vi.fn()} />);
+    const acknowledgment = screen.getByRole('checkbox', { name: 'Allow first related value for Observation value' });
+    expect(acknowledgment).toHaveProperty('checked', false);
+    expect(screen.getByText(/Other records are omitted/)).toBeInTheDocument();
+    fireEvent.click(acknowledgment);
+    expect(onSourceChange).toHaveBeenCalledWith('observation_value', {
+      kind: 'field',
+      field: {
+        path: 'valueQuantity.value',
+        projectionMode: 'VALUE',
+        relatedSelection: { kind: 'first-by-resource-key', acknowledged: true },
+      },
+    });
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('changes a related value into an explicit cross-record reduction and back', () => {
+    const onSourceChange = vi.fn();
+    const relatedCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      nodes: [
+        ...catalog.nodes,
+        {
+          nodeId: 'observation',
+          resourceType: 'Observation',
+          rowRootEligible: true,
+          populated: true,
+          documentCount: 4,
+        },
+      ],
+      edges: [{
+        edgeId: 'subject-observation',
+        fromNodeId: 'research-subject',
+        toNodeId: 'observation',
+        label: 'subject_Observation',
+      }],
+      candidates: [{
+        candidateId: 'c_value',
+        nodeId: 'observation',
+        fieldPath: 'valueQuantity.value',
+        label: 'Measured value',
+        logicalType: 'decimal',
+        cardinality: 'optional_one',
+        repeated: false,
+        filterable: true,
+        chartable: true,
+        projectionModes: ['VALUE'],
+        defaultProjectionMode: 'VALUE',
+        aggregateOperations: [
+          {
+            operation: 'COUNT',
+            rowContext: 'RECORDS',
+            supported: true,
+            resultLogicalType: 'integer',
+            resultCardinality: 'ONE',
+            missingValueSemantics: 'missing values are excluded; an empty set returns zero',
+            contributorSemantics: 'each non-null value contributes once',
+          },
+          {
+            operation: 'MAX',
+            rowContext: 'RECORDS',
+            supported: true,
+            resultLogicalType: 'decimal',
+            resultCardinality: 'OPTIONAL_ONE',
+            missingValueSemantics: 'missing values are excluded',
+            contributorSemantics: 'all non-null values are considered',
+          },
+        ],
+        transformations: unavailableTransformations,
+        valueTransformations: unsupportedValueTransformations,
+      }],
+    };
+    const relatedTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        route: {
+          ...table.document.route,
+          children: [{
+            occurrenceId: 'observations',
+            resourceType: 'Observation',
+            relationship: 'subject_Observation',
+          }],
+        },
+        columns: [{
+          column: 'observation_value',
+          label: 'Observation value',
+          occurrenceId: 'observations',
+          source: {
+            kind: 'field',
+            field: {
+              path: 'valueQuantity.value',
+              projectionMode: 'VALUE',
+              relatedSelection: { kind: 'first-by-resource-key', acknowledged: false },
+            },
+          },
+          table: { visible: true, order: 0 },
+        }],
+      },
+    };
+
+    const { rerender } = render(<ColumnSelector catalog={relatedCatalog} interpretationContext={contextFor(relatedTable.outputId, 'observation_value', ['c_value'])} table={relatedTable}
+      occurrenceId="observations" disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()}
+      onChange={vi.fn()} onSourceChange={onSourceChange} onRemove={vi.fn()} />);
+
+    fireEvent.change(screen.getByRole('combobox', {
+      name: 'Across related Observation records for Observation value',
+    }), { target: { value: 'MAX' } });
+    expect(onSourceChange).toHaveBeenCalledWith('observation_value', {
+      kind: 'aggregate',
+      aggregate: { operation: 'MAX', path: 'valueQuantity.value' },
+    });
+
+    fireEvent.change(screen.getByRole('combobox', {
+      name: 'Across related Observation records for Observation value',
+    }), { target: { value: 'COUNT' } });
+    expect(onSourceChange).toHaveBeenLastCalledWith('observation_value', {
+      kind: 'aggregate',
+      aggregate: { operation: 'COUNT', path: 'valueQuantity.value' },
+    });
+
+    const aggregateTable: DraftTable = {
+      ...relatedTable,
+      document: {
+        ...relatedTable.document,
+        columns: [{
+          ...relatedTable.document.columns[0],
+          source: { kind: 'aggregate', aggregate: { operation: 'MAX', path: 'valueQuantity.value' } },
+        }],
+      },
+    };
+    rerender(<ColumnSelector catalog={relatedCatalog} interpretationContext={contextFor(aggregateTable.outputId, 'observation_value', ['c_value'])} table={aggregateTable}
+      occurrenceId="observations" disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()}
+      onChange={vi.fn()} onSourceChange={onSourceChange} onRemove={vi.fn()} />);
+
+    expect(screen.getByText(/1 configured · 0 available/)).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', {
+      name: 'Across related Observation records for Observation value',
+    }), { target: { value: 'FIRST_BY_RESOURCE_KEY' } });
+    expect(onSourceChange).toHaveBeenLastCalledWith('observation_value', {
+      kind: 'field',
+      field: {
+        path: 'valueQuantity.value',
+        projectionMode: 'VALUE',
+        relatedSelection: { kind: 'first-by-resource-key', acknowledged: false },
+      },
+    });
+  });
+
+  it('applies a complete date-aware related value policy in one source edit', () => {
+    const onSourceChange = vi.fn();
+    const temporalCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      nodes: [
+        ...catalog.nodes,
+        {
+          nodeId: 'observation',
+          resourceType: 'Observation',
+          rowRootEligible: true,
+          populated: true,
+          documentCount: 4,
+        },
+      ],
+      edges: [{
+        edgeId: 'subject-observation',
+        fromNodeId: 'research-subject',
+        toNodeId: 'observation',
+        label: 'subject_Observation',
+      }],
+      candidates: [
+        {
+          candidateId: 'c_anchor',
+          nodeId: 'research-subject',
+          fieldPath: 'meta.lastUpdated',
+          label: 'Row updated at',
+          logicalType: 'date_time',
+          cardinality: 'optional_one',
+          repeated: false,
+          filterable: true,
+          chartable: false,
+          projectionModes: ['VALUE'],
+          defaultProjectionMode: 'VALUE',
+          aggregateOperations: [],
+          transformations: unavailableTransformations,
+          valueTransformations: unsupportedValueTransformations,
+        },
+        {
+          candidateId: 'c_value',
+          nodeId: 'observation',
+          fieldPath: 'valueQuantity.value',
+          label: 'Measured value',
+          logicalType: 'decimal',
+          cardinality: 'optional_one',
+          repeated: false,
+          filterable: true,
+          chartable: true,
+          projectionModes: ['VALUE'],
+          defaultProjectionMode: 'VALUE',
+          aggregateOperations: [{
+            operation: 'FIRST_ORDERED',
+            rowContext: 'RECORDS',
+            supported: true,
+            resultLogicalType: 'decimal',
+            resultCardinality: 'OPTIONAL_ONE',
+            missingValueSemantics: 'missing values are excluded; no eligible input returns null',
+            contributorSemantics: 'the value attached to the selected timestamp/resource contributes',
+            requiresConfiguration: ['temporal'],
+          }],
+          transformations: {
+            ...unavailableTransformations,
+            temporalReduction: {
+              available: true,
+              timestampFields: [{
+                candidateId: 'c_timestamp',
+                nodeId: 'observation',
+                resourceType: 'Observation',
+                fieldPath: 'effectiveDateTime',
+                label: 'Observed at',
+              }],
+              anchorFields: [{
+                candidateId: 'c_timestamp',
+                nodeId: 'observation',
+                resourceType: 'Observation',
+                fieldPath: 'effectiveDateTime',
+                label: 'Observed at',
+              }, {
+                candidateId: 'c_anchor',
+                nodeId: 'research-subject',
+                resourceType: 'ResearchSubject',
+                fieldPath: 'meta.lastUpdated',
+                label: 'Row updated at',
+              }],
+            },
+          },
+          valueTransformations: unsupportedValueTransformations,
+        },
+        {
+          candidateId: 'c_timestamp',
+          nodeId: 'observation',
+          fieldPath: 'effectiveDateTime',
+          label: 'Observed at',
+          logicalType: 'date_time',
+          cardinality: 'optional_one',
+          repeated: false,
+          filterable: true,
+          chartable: false,
+          projectionModes: ['VALUE'],
+          defaultProjectionMode: 'VALUE',
+          aggregateOperations: [],
+          transformations: unavailableTransformations,
+          valueTransformations: unsupportedValueTransformations,
+        },
+        {
+          candidateId: 'c_unadvertised_anchor',
+          nodeId: 'research-subject',
+          fieldPath: 'birthDate',
+          label: 'Unadvertised row date',
+          logicalType: 'date_time',
+          cardinality: 'optional_one',
+          repeated: false,
+          filterable: true,
+          chartable: false,
+          projectionModes: ['VALUE'],
+          defaultProjectionMode: 'VALUE',
+          aggregateOperations: [],
+          transformations: unavailableTransformations,
+          valueTransformations: unsupportedValueTransformations,
+        },
+        {
+          candidateId: 'c_unadvertised_timestamp',
+          nodeId: 'observation',
+          fieldPath: 'issued',
+          label: 'Unadvertised observation date',
+          logicalType: 'date_time',
+          cardinality: 'optional_one',
+          repeated: false,
+          filterable: true,
+          chartable: false,
+          projectionModes: ['VALUE'],
+          defaultProjectionMode: 'VALUE',
+          aggregateOperations: [],
+          transformations: unavailableTransformations,
+          valueTransformations: unsupportedValueTransformations,
+        },
+      ],
+    };
+    const temporalTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        route: {
+          ...table.document.route,
+          children: [{
+            occurrenceId: 'observations',
+            resourceType: 'Observation',
+            relationship: 'subject_Observation',
+          }],
+        },
+        columns: [{
+          column: 'observation_value',
+          label: 'Observation value',
+          occurrenceId: 'observations',
+          source: {
+            kind: 'field',
+            field: {
+              path: 'valueQuantity.value',
+              projectionMode: 'VALUE',
+              relatedSelection: { kind: 'first-by-resource-key', acknowledged: false },
+            },
+          },
+          table: { visible: true, order: 0 },
+        }],
+      },
+    };
+
+    render(<ColumnSelector catalog={temporalCatalog}
+      interpretationContext={contextFor(temporalTable.outputId, 'observation_value', ['c_value'])}
+      table={temporalTable}
+      occurrenceId="observations" disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()}
+      onChange={vi.fn()} onSourceChange={onSourceChange} onRemove={vi.fn()} />);
+
+    fireEvent.change(screen.getByRole('combobox', {
+      name: 'Across related Observation records for Observation value',
+    }), { target: { value: 'FIRST_ORDERED' } });
+    expect(onSourceChange).not.toHaveBeenCalled();
+    expect(screen.getByRole('combobox', { name: 'Record date' })).toHaveProperty('value', 'effectiveDateTime');
+    expect(screen.getByRole('combobox', { name: 'Compare with row date' })).toHaveProperty('value', 'meta.lastUpdated');
+    expect(within(screen.getByRole('combobox', { name: 'Compare with row date' }))
+      .queryByRole('option', { name: 'Observed at · Observation · effectiveDateTime' })).toBeNull();
+    expect(screen.queryByRole('option', { name: 'Unadvertised observation date · Observation · issued' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Unadvertised row date · ResearchSubject · birthDate' })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Look back days' }), {
+      target: { value: '90' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Equal date handling' }), {
+      target: { value: 'RESOURCE_KEY' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply date selection' }));
+
+    expect(onSourceChange).toHaveBeenCalledOnce();
+    expect(onSourceChange).toHaveBeenCalledWith('observation_value', {
+      kind: 'aggregate',
+      aggregate: {
+        operation: 'FIRST_ORDERED',
+        path: 'valueQuantity.value',
+        contributorWindow: {
+          timestampPath: 'effectiveDateTime',
+          anchorPath: 'meta.lastUpdated',
+          lowerOffsetSeconds: -7_776_000,
+          upperOffsetSeconds: 0,
+          lowerInclusive: true,
+          upperInclusive: true,
+          precision: 'INSTANT',
+        },
+        ordering: {
+          timestampPath: 'effectiveDateTime',
+          direction: 'DESC',
+          tiePolicy: 'RESOURCE_KEY',
+        },
+      },
+    });
+  });
+
+  it('applies an approved measurement-unit preset without exposing conversion coefficients', () => {
+    const onSourceChange = vi.fn();
+    const measurementCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      candidates: [{
+        candidateId: 'c_height',
+        nodeId: 'research-subject',
+        fieldPath: 'valueQuantity.value',
+        label: 'Height',
+        logicalType: 'decimal',
+        cardinality: 'optional_one',
+        repeated: false,
+        filterable: true,
+        chartable: true,
+        projectionModes: ['VALUE'],
+        defaultProjectionMode: 'VALUE',
+        aggregateOperations: [],
+        transformations: {
+          ...unavailableTransformations,
+          unitNormalization: {
+            available: true,
+            presets: [{
+              policyId: 'to-centimeters',
+              version: '7',
+              target: { system: 'http://unitsofmeasure.org', code: 'cm' },
+              available: true,
+            }, {
+              policyId: 'to-kilograms',
+              version: '3',
+              target: { system: 'http://unitsofmeasure.org', code: 'kg' },
+              available: false,
+              reasonCode: 'UNIT_PRESET_INCOMPATIBLE',
+              reason: 'The preset does not cover every observed source unit.',
+            }],
+          },
+        },
+        valueTransformations: unsupportedValueTransformations,
+      }],
+    };
+    const measurementTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        columns: [{
+          column: 'height',
+          label: 'Height',
+          occurrenceId: 'base',
+          source: { kind: 'aggregate', aggregate: { operation: 'MAX', path: 'valueQuantity.value' } },
+          table: { visible: true, order: 0 },
+        }],
+      },
+    };
+
+    render(<ColumnSelector catalog={measurementCatalog} interpretationContext={contextFor(measurementTable.outputId, 'height', ['c_height'])} table={measurementTable}
+      occurrenceId="base" disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()}
+      onChange={vi.fn()} onSourceChange={onSourceChange} onRemove={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Normalize units' }));
+    const presetSelect = screen.getByRole('combobox', { name: 'Unit conversion preset' });
+    expect(screen.getByRole('option', {
+      name: /to-kilograms v3 — unavailable: The preset does not cover every observed source unit\./,
+    })).toBeDisabled();
+    fireEvent.change(presetSelect, {
+      target: { value: JSON.stringify(['to-centimeters', '7']) },
+    });
+    expect(screen.queryByText(/scale|offset|system path|code path/i)).not.toBeInTheDocument();
+    expect(onSourceChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Apply normalization' }));
+
+    expect(onSourceChange).toHaveBeenCalledWith('height', {
+      kind: 'aggregate',
+      aggregate: {
+        operation: 'MAX',
+        path: 'valueQuantity.value',
+        unitNormalization: { policyId: 'to-centimeters', version: '7' },
+      },
+    });
+  });
+
   it('renders document columns even when the catalog has no candidates', () => {
     const onChange = vi.fn();
     render(
@@ -63,6 +1108,7 @@ describe('configured V2 columns', () => {
         onAdd={vi.fn()}
         onAddAll={vi.fn()}
         onChange={onChange}
+        onSourceChange={vi.fn()}
         onRemove={vi.fn()}
       />,
     );
@@ -103,10 +1149,14 @@ describe('configured V2 columns', () => {
       fieldPath: 'alpha',
       label: 'Alpha',
       logicalType: 'string',
+      cardinality: 'required_one',
       filterable: true,
       chartable: true,
       projectionModes: ['FIRST'],
       defaultProjectionMode: 'FIRST',
+      aggregateOperations: [],
+      transformations: unavailableTransformations,
+      valueTransformations: availableStringValueTransformations,
     };
     const beta: ExplorerBuilderCandidate = {
       ...alpha,
@@ -122,7 +1172,7 @@ describe('configured V2 columns', () => {
           column: 'alpha',
           label: 'Alpha',
           occurrenceId: 'base',
-          source: { kind: 'field', fieldPath: 'alpha', projectionMode: 'FIRST' },
+          source: { kind: 'field', field: { path: 'alpha', projectionMode: 'FIRST' } },
           table: { visible: true, order: 0 },
         }],
       },
@@ -132,11 +1182,13 @@ describe('configured V2 columns', () => {
       return (
         <ColumnSelector
           catalog={{ ...catalog, candidates: [alpha, beta] }}
+          interpretationContext={contextFor(initialTable.outputId, 'alpha', ['c_alpha'])}
           table={currentTable}
           occurrenceId="base"
           disabled={false}
           onAdd={vi.fn()}
           onAddAll={vi.fn()}
+          onSourceChange={vi.fn()}
           onChange={(next) => setCurrentTable((current) => ({
             ...current,
             document: {
@@ -158,6 +1210,80 @@ describe('configured V2 columns', () => {
     expect(screen.getAllByRole('textbox', { name: /Display name for/ }).map((input) => (input as HTMLInputElement).value)).toEqual(['Zulu', 'Beta']);
   });
 
+  it('moves a visible configured column to the end with one persisted update', () => {
+    const alpha = table.document.columns[0];
+    const beta: ExplorerBuilderColumn = {
+      ...alpha,
+      column: 'research_subject_birth_date',
+      label: 'Birth date',
+      source: { kind: 'field' as const, field: { path: 'birthDate', projectionMode: 'VALUE' } },
+      table: { visible: true, order: 1 },
+    };
+    const orderedTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        columns: [{ ...alpha, table: { visible: true, order: 0 } }, beta],
+      },
+    };
+    const onChange = vi.fn();
+    render(
+      <ColumnSelector
+        catalog={catalog}
+        table={orderedTable}
+        occurrenceId="base"
+        disabled={false}
+        onAdd={vi.fn()}
+        onAddAll={vi.fn()}
+        onChange={onChange}
+        onSourceChange={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Move Research Subject ID to end' }));
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      column: 'research_subject_identifier',
+      table: { visible: true, order: 2 },
+    }));
+    expect(screen.getByRole('button', { name: 'Move Birth date to end' })).toBeDisabled();
+  });
+
+  it('normalizes missing orders before moving a configured column to the end', () => {
+    const alpha = { ...table.document.columns[0], table: { visible: true } };
+    const beta: ExplorerBuilderColumn = {
+      ...alpha,
+      column: 'research_subject_birth_date',
+      label: 'Birth date',
+      occurrenceId: 'observations',
+      source: { kind: 'field' as const, field: { path: 'birthDate', projectionMode: 'VALUE' } },
+    };
+    const onColumnsChange = vi.fn();
+    render(
+      <ColumnSelector
+        catalog={catalog}
+        table={{ ...table, document: { ...table.document, columns: [alpha, beta] } }}
+        occurrenceId="base"
+        disabled={false}
+        onAdd={vi.fn()}
+        onAddAll={vi.fn()}
+        onChange={vi.fn()}
+        onColumnsChange={onColumnsChange}
+        onSourceChange={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Move Research Subject ID to end' }));
+
+    expect(onColumnsChange).toHaveBeenCalledWith([
+      expect.objectContaining({ column: 'research_subject_birth_date', table: { visible: true, order: 0 } }),
+      expect.objectContaining({ column: 'research_subject_identifier', table: { visible: true, order: 1 } }),
+    ]);
+  });
+
   it('shows primitive leaf fields, hides object containers, and adds from the table checkbox', () => {
     const candidate: ExplorerBuilderCandidate = {
       candidateId: 'c_birth_date',
@@ -165,10 +1291,14 @@ describe('configured V2 columns', () => {
       fieldPath: 'birthDate',
       label: 'Birth date',
       logicalType: 'date',
+      cardinality: 'optional_one',
       filterable: true,
       chartable: true,
       projectionModes: ['FIRST'],
       defaultProjectionMode: 'FIRST',
+      aggregateOperations: [],
+      transformations: unavailableTransformations,
+      valueTransformations: unsupportedValueTransformations,
     };
     const onAdd = vi.fn();
     const onAddAll = vi.fn();
@@ -188,12 +1318,14 @@ describe('configured V2 columns', () => {
             },
           ],
         }}
+        interpretationContext={contextFor(table.outputId, 'research_subject_identifier', ['c_identifier'])}
         table={table}
         occurrenceId="base"
         disabled={false}
         onAdd={onAdd}
         onAddAll={onAddAll}
         onChange={vi.fn()}
+        onSourceChange={vi.fn()}
         onRemove={vi.fn()}
       />,
     );
@@ -232,10 +1364,14 @@ describe('configured V2 columns', () => {
       fieldPath: 'status',
       label: 'Status',
       logicalType: 'string',
+      cardinality: 'required_one',
       filterable: true,
       chartable: false,
       projectionModes: ['FIRST'],
       defaultProjectionMode: 'FIRST',
+      aggregateOperations: [],
+      transformations: unavailableTransformations,
+      valueTransformations: availableStringValueTransformations,
     };
     render(
       <ColumnSelector
@@ -252,12 +1388,14 @@ describe('configured V2 columns', () => {
             },
           ],
         }}
+        interpretationContext={contextFor(table.outputId, 'research_subject_identifier', ['c_identifier'])}
         table={table}
         occurrenceId="base"
         disabled={false}
         onAdd={vi.fn()}
         onAddAll={vi.fn()}
         onChange={vi.fn()}
+        onSourceChange={vi.fn()}
         onRemove={vi.fn()}
       />,
     );
@@ -280,6 +1418,124 @@ describe('configured V2 columns', () => {
     ).toBeDisabled();
   });
 
+  it('edits constructed output labels and table visibility without changing compiler identity', () => {
+    const construction = {
+      version: 1,
+      steps: [{
+        id: 'patient_score_step',
+        outputs: [{
+          id: 'research-subject-id',
+          name: 'research_subject_identifier',
+          label: 'Stale stage identifier',
+          type: 'string',
+        }, {
+          id: 'patient-score-id',
+          name: 'patient_score',
+          label: 'Patient score',
+          type: 'integer',
+        }, {
+          id: 'study-count-id',
+          name: 'study_count',
+          label: 'Study count',
+          type: 'integer',
+        }],
+      }],
+    } as unknown as Construction;
+    const constructedTable: DraftTable = {
+      ...table,
+      document: { ...table.document, construction },
+    };
+    const onConstructionOutputChange = vi.fn();
+    const onPresentationChanges = vi.fn();
+    const onChange = vi.fn();
+    render(
+      <ColumnSelector
+        catalog={catalog}
+        table={constructedTable}
+        occurrenceId="base"
+        disabled={false}
+        showAvailable={false}
+        onAdd={vi.fn()}
+        onAddAll={vi.fn()}
+        onChange={onChange}
+        onConstructionOutputChange={onConstructionOutputChange}
+        onPresentationChanges={onPresentationChanges}
+        onSourceChange={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByRole('textbox', {
+      name: 'Display name for configured Research Subject ID',
+    })).toHaveLength(1);
+    expect(screen.queryByRole('textbox', {
+      name: 'Display name for construction output Stale stage identifier',
+    })).not.toBeInTheDocument();
+    const label = screen.getByRole('textbox', {
+      name: 'Display name for construction output Patient score',
+    });
+    fireEvent.change(label, { target: { value: 'Patient total' } });
+    fireEvent.blur(label);
+    expect(onConstructionOutputChange).toHaveBeenLastCalledWith(
+      'patient_score_step',
+      expect.objectContaining({
+        id: 'patient-score-id',
+        name: 'patient_score',
+        type: 'integer',
+        label: 'Patient total',
+      }),
+    );
+
+    fireEvent.click(screen.getByRole('checkbox', {
+      name: 'Display Patient score in table',
+    }));
+    expect(onConstructionOutputChange).toHaveBeenLastCalledWith(
+      'patient_score_step',
+      expect.objectContaining({
+        id: 'patient-score-id',
+        name: 'patient_score',
+        table: expect.objectContaining({ visible: false }),
+      }),
+    );
+    expect(screen.getAllByText(/Reorder in Preview → Columns/)).toHaveLength(2);
+    expect(screen.getAllByText(/Filters, charts, and removal/)).toHaveLength(2);
+
+    onConstructionOutputChange.mockClear();
+    fireEvent.click(screen.getByRole('button', {
+      name: 'Deselect all table columns',
+    }));
+    expect(onPresentationChanges).toHaveBeenCalledTimes(1);
+    expect(onPresentationChanges).toHaveBeenCalledWith([
+      expect.objectContaining({
+        kind: 'AUTHORED_COLUMN',
+        column: expect.objectContaining({
+          column: 'research_subject_identifier',
+          table: expect.objectContaining({ visible: false }),
+        }),
+      }),
+      expect.objectContaining({
+        kind: 'CONSTRUCTION_OUTPUT',
+        stepId: 'patient_score_step',
+        column: expect.objectContaining({
+          id: 'patient-score-id',
+          name: 'patient_score',
+          table: { visible: false },
+        }),
+      }),
+      expect.objectContaining({
+        kind: 'CONSTRUCTION_OUTPUT',
+        stepId: 'patient_score_step',
+        column: expect.objectContaining({
+          id: 'study-count-id',
+          name: 'study_count',
+          table: { visible: false },
+        }),
+      }),
+    ]);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onConstructionOutputChange).not.toHaveBeenCalled();
+  });
+
   it('toggles all configured table columns off without removing their configuration', () => {
     const onChange = vi.fn();
     render(
@@ -291,6 +1547,7 @@ describe('configured V2 columns', () => {
         onAdd={vi.fn()}
         onAddAll={vi.fn()}
         onChange={onChange}
+        onSourceChange={vi.fn()}
         onRemove={vi.fn()}
       />,
     );
@@ -317,10 +1574,14 @@ describe('configured V2 columns', () => {
         fieldPath: 'birthDate',
         label: 'Birth date',
         logicalType: 'date',
+        cardinality: 'optional_one',
         filterable: true,
         chartable: true,
         projectionModes: ['FIRST'],
         defaultProjectionMode: 'FIRST',
+        aggregateOperations: [],
+        transformations: unavailableTransformations,
+        valueTransformations: unsupportedValueTransformations,
       },
       'patient-step',
       table.document.columns,
@@ -333,8 +1594,10 @@ describe('configured V2 columns', () => {
       occurrenceId: 'patient-step',
       source: {
         kind: 'field',
-        fieldPath: 'birthDate',
-        projectionMode: 'FIRST',
+        field: {
+          path: 'birthDate',
+          projectionMode: 'FIRST',
+        },
       },
       table: { visible: true, order: 1 },
     });
@@ -348,11 +1611,15 @@ describe('configured V2 columns', () => {
         fieldPath: 'identifier[].value',
         label: 'Research Subject ID',
         logicalType: 'string',
+        cardinality: 'many',
         repeated: true,
         filterable: true,
         chartable: false,
         projectionModes: ['FIRST', 'ALL'],
         defaultProjectionMode: 'FIRST',
+        aggregateOperations: [],
+        transformations: unavailableTransformations,
+        valueTransformations: availableStringValueTransformations,
       },
       'base',
       [],
@@ -361,6 +1628,6 @@ describe('configured V2 columns', () => {
     );
 
     expect(column.column).toBe('research_subject_identifier');
-    expect(column.source.fieldPath).toBe('identifier[].value');
+    expect(column.source).toMatchObject({ kind: 'field', field: { path: 'identifier[].value' } });
   });
 });

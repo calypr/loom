@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
 func (r *physicalPlanRenderer) renderTraversalSet(block physicalNavigationTraversal, rootVariable string, traversalIndex int) ([]string, error) {
@@ -22,28 +23,7 @@ func (r *physicalPlanRenderer) renderTraversalSet(block physicalNavigationTraver
 		lines = append(lines, fmt.Sprintf("    FOR %s IN %s", parentVariable, parentSet))
 		traversalIndent = "      "
 	}
-	strategy := traversal.Strategy
-	if strategy == "" {
-		strategy = ir.PhysicalTraversalNative
-	}
-	if strategy == ir.PhysicalTraversalEndpointLookup {
-		lines = append(lines,
-			fmt.Sprintf("%sFOR %s IN @@%s", traversalIndent, traversal.EdgeVariable, traversal.EdgeCollectionBindKey),
-			fmt.Sprintf("%s  FILTER %s.%s == %s._id", traversalIndent, traversal.EdgeVariable, traversal.EndpointField, parentVariable),
-			fmt.Sprintf("%s  FILTER %s.label == @%s", traversalIndent, traversal.EdgeVariable, traversal.EdgeLabelBindKey),
-			fmt.Sprintf("%s  FILTER %s.%s == @%s", traversalIndent, traversal.EdgeVariable, traversal.EdgeTargetTypeField, traversal.TargetTypeBindKey),
-			fmt.Sprintf("%s  LET %s = DOCUMENT(%s.%s)", traversalIndent, traversal.TargetVariable, traversal.EdgeVariable, traversal.EndpointJoinField),
-			fmt.Sprintf("%s  FILTER %s != null", traversalIndent, traversal.TargetVariable),
-			fmt.Sprintf("%s  FILTER %s.resourceType == @%s", traversalIndent, traversal.TargetVariable, traversal.TargetTypeBindKey),
-		)
-	} else {
-		lines = append(lines,
-			fmt.Sprintf("%sFOR %s, %s IN 1..1 %s %s @@%s", traversalIndent, traversal.TargetVariable, traversal.EdgeVariable, traversal.Direction, parentVariable, traversal.EdgeCollectionBindKey),
-			fmt.Sprintf("%s  FILTER %s.label == @%s", traversalIndent, traversal.EdgeVariable, traversal.EdgeLabelBindKey),
-			fmt.Sprintf("%s  FILTER %s.%s == @%s", traversalIndent, traversal.EdgeVariable, traversal.EdgeTargetTypeField, traversal.TargetTypeBindKey),
-			fmt.Sprintf("%s  FILTER %s.resourceType == @%s", traversalIndent, traversal.TargetVariable, traversal.TargetTypeBindKey),
-		)
-	}
+	lines = append(lines, r.renderTraversalScan(traversal, parentVariable, traversalIndent)...)
 	for scopeIndex, operation := range block.scope {
 		line, err := r.renderScopeOperation(operation, traversalIndent+"  ")
 		if err != nil {
@@ -54,6 +34,101 @@ func (r *physicalPlanRenderer) renderTraversalSet(block physicalNavigationTraver
 	lines = append(lines, traversalIndent+"  RETURN "+traversal.TargetVariable, "  )")
 	r.setVariables[traversal.TargetVariable] = setVariable
 	return lines, nil
+}
+
+func (r *physicalPlanRenderer) renderTraversalScan(traversal ir.PhysicalTraversal, sourceVariable, indent string) []string {
+	strategy := traversal.Strategy
+	if strategy == "" {
+		strategy = ir.PhysicalTraversalNative
+	}
+	if strategy == ir.PhysicalTraversalEndpointLookup {
+		return []string{
+			fmt.Sprintf("%sFOR %s IN @@%s", indent, traversal.EdgeVariable, traversal.EdgeCollectionBindKey),
+			fmt.Sprintf("%s  FILTER %s.%s == %s._id", indent, traversal.EdgeVariable, traversal.EndpointField, sourceVariable),
+			fmt.Sprintf("%s  FILTER %s.label == @%s", indent, traversal.EdgeVariable, traversal.EdgeLabelBindKey),
+			fmt.Sprintf("%s  FILTER %s.%s == @%s", indent, traversal.EdgeVariable, traversal.EdgeTargetTypeField, traversal.TargetTypeBindKey),
+			fmt.Sprintf("%s  LET %s = DOCUMENT(%s.%s)", indent, traversal.TargetVariable, traversal.EdgeVariable, traversal.EndpointJoinField),
+			fmt.Sprintf("%s  FILTER %s != null", indent, traversal.TargetVariable),
+			fmt.Sprintf("%s  FILTER %s.resourceType == @%s", indent, traversal.TargetVariable, traversal.TargetTypeBindKey),
+		}
+	}
+	return []string{
+		fmt.Sprintf("%sFOR %s, %s IN 1..1 %s %s @@%s", indent, traversal.TargetVariable, traversal.EdgeVariable, traversal.Direction, sourceVariable, traversal.EdgeCollectionBindKey),
+		fmt.Sprintf("%s  FILTER %s.label == @%s", indent, traversal.EdgeVariable, traversal.EdgeLabelBindKey),
+		fmt.Sprintf("%s  FILTER %s.%s == @%s", indent, traversal.EdgeVariable, traversal.EdgeTargetTypeField, traversal.TargetTypeBindKey),
+		fmt.Sprintf("%s  FILTER %s.resourceType == @%s", indent, traversal.TargetVariable, traversal.TargetTypeBindKey),
+	}
+}
+
+func (r *physicalPlanRenderer) renderUnnestSource(unnest ir.PhysicalUnnest) (string, error) {
+	if len(unnest.Ancestors) == 0 {
+		return r.renderExpression(unnest.Expression)
+	}
+	extract := unnest.Expression.Extract
+	if extract == nil || extract.Prepared != nil || len(extract.Selector.Steps) == 0 {
+		return "", fmt.Errorf("unnest ancestry requires an unprepared selector source")
+	}
+	selector := extract.Selector
+	if !selector.Steps[len(selector.Steps)-1].Iterate {
+		return "", fmt.Errorf("unnest ancestry requires a repeated terminal selector step")
+	}
+	source, err := r.renderValue(extract.Source)
+	if err != nil {
+		return "", err
+	}
+	ancestorsByStep := make(map[int]ir.PhysicalUnnestAncestor, len(unnest.Ancestors))
+	for index, ancestor := range unnest.Ancestors {
+		if ancestor.StepIndex < 0 || ancestor.StepIndex >= len(selector.Steps)-1 || !selector.Steps[ancestor.StepIndex].Iterate {
+			return "", fmt.Errorf("unnest ancestor %d does not refer to a repeated prefix step", index)
+		}
+		if _, duplicate := ancestorsByStep[ancestor.StepIndex]; duplicate {
+			return "", fmt.Errorf("unnest repeats ancestry step %d", ancestor.StepIndex)
+		}
+		ancestorsByStep[ancestor.StepIndex] = ancestor
+	}
+	root := r.newInternalVariable("unnest_lineage_root")
+	current := root
+	capturedAncestors := make(map[int]string, len(unnest.Ancestors))
+	lines := []string{"FOR " + root + " IN [" + source + "]"}
+	for index, step := range selector.Steps {
+		if index == len(selector.Steps)-1 && selector.Filter != nil {
+			key := r.newInternalBindKey("unnest_lineage_contains")
+			r.bindVars[key] = selector.Filter.Needle
+			lines = append(lines, fmt.Sprintf("  FILTER CONTAINS(%s.%s ? %s.%s : \"\", @%s)", current, selector.Filter.Field, current, selector.Filter.Field, key))
+		}
+		next := r.newInternalVariable(fmt.Sprintf("unnest_lineage_step_%d", index))
+		switch {
+		case step.Iterate:
+			lines = append(lines, fmt.Sprintf("  FOR %s IN (%s.%s ? %s.%s : [])", next, current, step.Field, current, step.Field))
+		case step.Index != nil:
+			lines = append(lines,
+				fmt.Sprintf("  LET %s = ((%s.%s ? %s.%s : [])[%d])", next, current, step.Field, current, step.Field, *step.Index),
+				"  FILTER "+next+" != null",
+			)
+		default:
+			lines = append(lines, fmt.Sprintf("  LET %s = %s.%s", next, current, step.Field))
+			if index < len(selector.Steps)-1 {
+				lines = append(lines, "  FILTER "+next+" != null")
+			}
+		}
+		current = next
+		if _, capture := ancestorsByStep[index]; capture {
+			capturedAncestors[index] = current
+		}
+		if index == len(selector.Steps)-1 {
+			lines = append(lines, "  FILTER "+current+" != null")
+		}
+	}
+	fields := []string{"item: " + current}
+	for index, ancestor := range unnest.Ancestors {
+		variable, ok := capturedAncestors[ancestor.StepIndex]
+		if !ok {
+			return "", fmt.Errorf("unnest ancestor %d was not captured", index)
+		}
+		fields = append(fields, fmt.Sprintf("ancestor_%d: %s", index, variable))
+	}
+	lines = append(lines, "  RETURN {"+strings.Join(fields, ", ")+"}")
+	return "(\n    " + strings.Join(lines, "\n    ") + "\n  )", nil
 }
 
 // renderUnnest lowers the canonical cardinality-changing operation into
@@ -67,36 +142,68 @@ func (r *physicalPlanRenderer) renderTraversalSet(block physicalNavigationTraver
 // are used whenever ordinality or OUTER semantics are requested, preserving
 // duplicate values and a stable zero-based position.
 func (r *physicalPlanRenderer) renderUnnest(unnest ir.PhysicalUnnest, indent string, ordinal, depth int) ([]string, error) {
-	source, err := r.renderExpression(unnest.Expression)
+	source, err := r.renderUnnestSource(unnest)
 	if err != nil {
 		return nil, fmt.Errorf("unnest source: %w", err)
 	}
-	if unnest.InputVariable == "" || unnest.OutputVariable == "" {
-		return nil, fmt.Errorf("unnest requires input and output variables")
+	if unnest.Owner.RootVariable == "" || unnest.Owner.OwnerVariable == "" || unnest.OutputVariable == "" || unnest.HasItemVariable == "" {
+		return nil, fmt.Errorf("unnest requires root, owner, output, and item-discriminator variables")
 	}
 	baseIndent := indent
 	if depth > 0 {
 		baseIndent = strings.Repeat("  ", depth+1)
+	}
+	lines := make([]string, 0, len(unnest.Owner.Route)*8+6)
+	parentVariable := unnest.Owner.RootVariable
+	for routeIndex, step := range unnest.Owner.Route {
+		lines = append(lines, r.renderTraversalScan(step.Traversal, parentVariable, baseIndent)...)
+		for scopeIndex, operation := range step.Scope {
+			rendered, err := r.renderScopeOperation(operation, baseIndent+"  ")
+			if err != nil {
+				return nil, fmt.Errorf("owner route step %d scope operation %d: %w", routeIndex, scopeIndex, err)
+			}
+			lines = append(lines, rendered...)
+		}
+		parentVariable = step.Traversal.TargetVariable
+	}
+	if parentVariable != unnest.Owner.OwnerVariable {
+		return nil, fmt.Errorf("unnest route terminates at %q, not owner %q", parentVariable, unnest.Owner.OwnerVariable)
 	}
 	sourceVariable := r.newInternalVariable(fmt.Sprintf("unnest_source_%d", ordinal))
 	// Selector extraction preserves one array layer per repeated path. UNNEST
 	// consumes the resulting collection, so flatten exactly one layer here;
 	// otherwise a source such as root.member[] becomes [member[]] and emits one
 	// row per parent rather than one row per member.
-	lines := []string{fmt.Sprintf("%sLET %s = (%s == null ? [] : FLATTEN(%s))", baseIndent, sourceVariable, source, source)}
-	indexed := unnest.JoinMode == ir.PhysicalUnnestOuter || unnest.Ordinality != ""
-	if !indexed {
-		lines = append(lines, fmt.Sprintf("%sFOR %s IN %s", baseIndent, unnest.OutputVariable, sourceVariable))
-		return lines, nil
+	lines = append(lines, fmt.Sprintf("%sLET %s = (%s == null ? [] : FLATTEN(%s))", baseIndent, sourceVariable, source, source))
+	if unnest.EmptyPolicy == ir.PhysicalUnnestError {
+		errorBindKey := fmt.Sprintf("unnest_error_occurrence_%d", ordinal)
+		occurrenceID := unnest.Owner.OccurrenceID
+		if occurrenceID == "" {
+			occurrenceID = "root"
+		}
+		r.bindVars[errorBindKey] = occurrenceID
+		message := fmt.Sprintf("CONCAT(\"%s: row expansion occurrence \", @%s, \" has no items for owner \", %s._key)", dataframeerrors.CodeConstructionExpansionEmpty, errorBindKey, unnest.Owner.OwnerVariable)
+		lines = append(lines, fmt.Sprintf("%sFILTER ASSERT(LENGTH(%s) > 0, %s)", baseIndent, sourceVariable, message))
 	}
 	indexVariable := r.newInternalVariable(fmt.Sprintf("unnest_index_%d", ordinal))
-	indices := fmt.Sprintf("LENGTH(%s) == 0 ? %s : RANGE(0, LENGTH(%s) - 1)", sourceVariable, "[]", sourceVariable)
-	if unnest.JoinMode == ir.PhysicalUnnestOuter {
+	indices := fmt.Sprintf("LENGTH(%s) == 0 ? [] : RANGE(0, LENGTH(%s) - 1)", sourceVariable, sourceVariable)
+	if unnest.EmptyPolicy == ir.PhysicalUnnestPreserveParent {
 		indices = fmt.Sprintf("LENGTH(%s) == 0 ? [null] : RANGE(0, LENGTH(%s) - 1)", sourceVariable, sourceVariable)
 	}
 	lines = append(lines, fmt.Sprintf("%sFOR %s IN (%s)", baseIndent, indexVariable, indices))
-	item := fmt.Sprintf("%s == null ? null : %s[%s]", indexVariable, sourceVariable, indexVariable)
+	itemSource := fmt.Sprintf("%s[%s]", sourceVariable, indexVariable)
+	carrierVariable := ""
+	if len(unnest.Ancestors) > 0 {
+		carrierVariable = r.newInternalVariable(fmt.Sprintf("unnest_lineage_item_%d", ordinal))
+		lines = append(lines, fmt.Sprintf("%sLET %s = %s == null ? null : %s", baseIndent, carrierVariable, indexVariable, itemSource))
+		itemSource = carrierVariable + ".item"
+	}
+	item := fmt.Sprintf("%s == null ? null : %s", indexVariable, itemSource)
 	lines = append(lines, fmt.Sprintf("%sLET %s = %s", baseIndent, unnest.OutputVariable, item))
+	lines = append(lines, fmt.Sprintf("%sLET %s = %s != null", baseIndent, unnest.HasItemVariable, indexVariable))
+	for index, ancestor := range unnest.Ancestors {
+		lines = append(lines, fmt.Sprintf("%sLET %s = %s == null ? null : %s.ancestor_%d", baseIndent, ancestor.Variable, carrierVariable, carrierVariable, index))
+	}
 	if unnest.Ordinality != "" {
 		lines = append(lines, fmt.Sprintf("%sLET %s = %s", baseIndent, unnest.Ordinality, indexVariable))
 	}
@@ -149,7 +256,10 @@ func (r *physicalPlanRenderer) renderSet(set ir.PhysicalSet, index int) ([]strin
 		)
 		if t.TargetTypeBindKey != "" {
 			if _, ok := r.bindVars[t.TargetTypeBindKey].([]string); ok {
-				lines = append(lines, fmt.Sprintf("%s  FILTER POSITION(@%s, %s.resourceType)", indent, t.TargetTypeBindKey, t.TargetVariable))
+				lines = append(lines,
+					fmt.Sprintf("%s  FILTER POSITION(@%s, %s.resourceType)", indent, t.TargetTypeBindKey, t.TargetVariable),
+					fmt.Sprintf("%s  FILTER %s.%s == %s.resourceType", indent, t.EdgeVariable, t.EdgeTargetTypeField, t.TargetVariable),
+				)
 			} else {
 				lines = append(lines, fmt.Sprintf("%s  FILTER %s.resourceType == @%s", indent, t.TargetVariable, t.TargetTypeBindKey))
 			}
@@ -314,6 +424,7 @@ func (r *physicalPlanRenderer) renderTraversalTypeFilters(t *ir.PhysicalTraversa
 		return []string{
 			fmt.Sprintf("%s  FILTER POSITION(@%s, %s.%s)", indent, t.TargetTypeBindKey, t.EdgeVariable, t.EdgeTargetTypeField),
 			fmt.Sprintf("%s  FILTER POSITION(@%s, %s.resourceType)", indent, t.TargetTypeBindKey, t.TargetVariable),
+			fmt.Sprintf("%s  FILTER %s.%s == %s.resourceType", indent, t.EdgeVariable, t.EdgeTargetTypeField, t.TargetVariable),
 		}
 	}
 	return []string{fmt.Sprintf("%s  FILTER %s.%s == @%s", indent, t.EdgeVariable, t.EdgeTargetTypeField, t.TargetTypeBindKey), fmt.Sprintf("%s  FILTER %s.resourceType == @%s", indent, t.TargetVariable, t.TargetTypeBindKey)}
@@ -387,6 +498,41 @@ func physicalPlanVariableNames(plan ir.PhysicalPlan) map[string]struct{} {
 		switch operation.Kind {
 		case ir.PhysicalRootScanOp:
 			variables[operation.RootScan.Variable] = struct{}{}
+			if seed := operation.RootScan.PageCandidateSeed; seed != nil {
+				for _, seedOperation := range seed.Subplan.Operations {
+					switch seedOperation.Kind {
+					case ir.PhysicalCollectionScanOp:
+						variables[seedOperation.CollectionScan.Variable] = struct{}{}
+					case ir.PhysicalTraversalOp:
+						variables[seedOperation.Traversal.SourceVariable] = struct{}{}
+						variables[seedOperation.Traversal.TargetVariable] = struct{}{}
+						if seedOperation.Traversal.EdgeVariable != "" {
+							variables[seedOperation.Traversal.EdgeVariable] = struct{}{}
+						}
+					case ir.PhysicalDerivedLetOp:
+						variables[seedOperation.DerivedLet.Variable] = struct{}{}
+					case ir.PhysicalExpressionLetOp:
+						variables[seedOperation.ExpressionLet.Variable] = struct{}{}
+					}
+				}
+			}
+			if population := operation.RootScan.Population; population != nil {
+				variables[population.MemberScan.Variable] = struct{}{}
+				if population.CollectMembersVariable != "" {
+					variables[population.CollectMembersVariable] = struct{}{}
+				}
+				for _, populationOperation := range population.ResourceOperations {
+					switch populationOperation.Kind {
+					case ir.PhysicalCollectionScanOp:
+						variables[populationOperation.CollectionScan.Variable] = struct{}{}
+					case ir.PhysicalTraversalOp:
+						variables[populationOperation.Traversal.TargetVariable] = struct{}{}
+						variables[populationOperation.Traversal.EdgeVariable] = struct{}{}
+					case ir.PhysicalDerivedLetOp:
+						variables[populationOperation.DerivedLet.Variable] = struct{}{}
+					}
+				}
+			}
 		case ir.PhysicalTraversalOp:
 			variables[operation.Traversal.SourceVariable] = struct{}{}
 			variables[operation.Traversal.TargetVariable] = struct{}{}
@@ -406,11 +552,41 @@ func physicalPlanVariableNames(plan ir.PhysicalPlan) map[string]struct{} {
 				variables[operation.Set.Prepared.Variable] = struct{}{}
 			}
 		case ir.PhysicalUnnestOp:
-			variables[operation.Unnest.InputVariable] = struct{}{}
+			variables[operation.Unnest.Owner.RootVariable] = struct{}{}
+			variables[operation.Unnest.Owner.OwnerVariable] = struct{}{}
+			for _, step := range operation.Unnest.Owner.Route {
+				variables[step.Traversal.SourceVariable] = struct{}{}
+				variables[step.Traversal.TargetVariable] = struct{}{}
+				if step.Traversal.EdgeVariable != "" {
+					variables[step.Traversal.EdgeVariable] = struct{}{}
+				}
+				for _, scoped := range step.Scope {
+					if scoped.Kind == ir.PhysicalDerivedLetOp {
+						variables[scoped.DerivedLet.Variable] = struct{}{}
+					}
+					if scoped.Kind == ir.PhysicalExpressionLetOp {
+						variables[scoped.ExpressionLet.Variable] = struct{}{}
+					}
+				}
+			}
 			variables[operation.Unnest.OutputVariable] = struct{}{}
+			variables[operation.Unnest.HasItemVariable] = struct{}{}
 			if operation.Unnest.Ordinality != "" {
 				variables[operation.Unnest.Ordinality] = struct{}{}
 			}
+		case ir.PhysicalGroupedPivotOp:
+			pivot := operation.GroupedPivot
+			variables[pivot.InputRowVariable] = struct{}{}
+			variables[pivot.GroupRowsVariable] = struct{}{}
+			variables[pivot.OutputRowVariable] = struct{}{}
+			for _, key := range pivot.GroupKeys {
+				variables[key.Variable] = struct{}{}
+			}
+		case ir.PhysicalUnpivotOp:
+			unpivot := operation.Unpivot
+			variables[unpivot.InputRowVariable] = struct{}{}
+			variables[unpivot.SlotVariable] = struct{}{}
+			variables[unpivot.OutputRowVariable] = struct{}{}
 		case ir.PhysicalPathSeedOp:
 			variables[operation.PathSeed.Variable] = struct{}{}
 		case ir.PhysicalPathExtendOp:
@@ -423,7 +599,7 @@ func physicalPlanVariableNames(plan ir.PhysicalPlan) map[string]struct{} {
 }
 
 func (r *physicalPlanRenderer) newInternalVariable(suffix string) string {
-	base := "__loom_physical_" + suffix
+	base := "__loom_physical_" + r.internalPrefix + suffix
 	variable := base
 	for counter := 1; ; counter++ {
 		if _, exists := r.reservedVars[variable]; !exists {

@@ -1,0 +1,300 @@
+{
+  "schemaVersion": 1,
+  "epoch": 105,
+  "scenario": "cda-five-hop-related-expansion",
+  "case": "medication-preserve-parent",
+  "title": "Make a row for each Medication from a zero-column Specimen through five relationship hops",
+  "status": "failed_harness",
+  "runnerStatus": "failed",
+  "coverageStatus": "failed_harness",
+  "classification": "HARNESS_PREVIEW_HEADER_TEXT_INCLUDES_LOGICAL_TYPE",
+  "classificationReason": "The exact route and a READY PRESERVE_PARENT proposal were observed; the proposal preview held two rows with null Medication values matching the bounded raw oracle. The workflow then compared the entire rendered preview header text (label plus logical type) against a label-only string and failed at verify-cda-zero-column-related-medication.mjs:434. The captured textContent was `Medication FHIR resource IDstring` while the expected label was `Medication FHIR resource ID`; the source renders label and logical type in separate spans. This is a harness assertion mismatch, not evidence of a product failure. Cancel, Apply, reload, EXCLUDE edit, and removal were not run.",
+  "startedAt": "2026-10-06T17:48:42.891Z",
+  "finishedAt": "2026-10-06T17:49:01.454Z",
+  "durableClosurePath": "docs/verification/playwright/runtime/zero-column-related-medication-epoch105-closure.json",
+  "target": {
+    "kind": "owned-cda",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorerId": "related-medication-e63f1cb2-630a-42ae-8274-43cc13175845",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "sourceFingerprint": {
+      "sha256": "25a99f02f687f215ed014f19f417a436005b0c8bc35b72523b7445d19d73796d",
+      "files": 1534
+    },
+    "apiBuildIdentity": "d5761c2b73710d7ae8326591d0d12d426513319e3cb66d262e43001e82acb9a3:d5761c2b73710d7ae8326591d0d12d426513319e3cb66d262e43001e82acb9a3:f89ec2658ca120f51d8e4e9868b718fda210111895b8b3f06877c3a0ef76b9db",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008"
+  },
+  "requiredChecks": {
+    "total": 11,
+    "passed": 3,
+    "failed": 0,
+    "unrun": 8,
+    "passedNames": [
+      "bounded independent raw CDA oracle proves the exact five-hop Medication route and records match availability",
+      "fresh Specimen table has zero public columns and exact scoped selected membership",
+      "CDA watched source and API build stayed unchanged"
+    ],
+    "unrunNames": [
+      "native RelatedExpand editor selects the exact five-hop route from root identity to Medication",
+      "PRESERVE_PARENT automatic proposal renders exact terminal Medication IDs and one null ID per unmatched parent",
+      "Cancel leaves the zero-column source population and saved draft unchanged",
+      "Apply saves the exact route and renders actual Medication table preview rows matching raw membership",
+      "reload restores the exact route, policy, row identities, and Medication preview values",
+      "editing to EXCLUDE removes unmatched parents in preview and after reload",
+      "removing RelatedExpand restores the zero-column Specimen table, selection, direct route, and no stale Medication output after reload",
+      "native route, proposal, Apply, edit, removal, and reload checkpoints complete within five seconds"
+    ],
+    "note": "The exact five-hop route selection and proposal preview are preserved in the native action/request evidence, but the registered route/proposal checks were not recorded before the label assertion stopped the workflow. The remaining 8 checks are unrun; no Cancel, Apply, reload, EXCLUDE edit, or removal is claimed."
+  },
+  "assertions": {
+    "passed": 10,
+    "failed": 0,
+    "total": 10,
+    "note": "The 10 named report assertions passed. The terminal native header assertion is recorded separately as the harness failure below."
+  },
+  "nativeActions": {
+    "passed": 6,
+    "failed": 0,
+    "total": 6,
+    "maxElapsedMs": 103,
+    "actions": [
+      {
+        "label": "▤ Zero-column Specimen",
+        "status": "passed",
+        "elapsedMs": 103
+      },
+      {
+        "label": "Configure rows",
+        "status": "passed",
+        "elapsedMs": 57
+      },
+      {
+        "label": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations → 2 rows, each describing Patient A and one Observation",
+        "status": "passed",
+        "elapsedMs": 87
+      },
+      {
+        "label": "Select Medication",
+        "status": "passed",
+        "elapsedMs": 33
+      },
+      {
+        "label": "Other relationship paths (28)",
+        "status": "passed",
+        "elapsedMs": 66
+      },
+      {
+        "label": "Specimen <-[focus]- Observation <-[stage_assessment]- Condition -[subject]-> Patient <-[subject]- MedicationAdministration -[medication_reference]-> Medication",
+        "status": "passed",
+        "elapsedMs": 82
+      }
+    ]
+  },
+  "dimensions": {
+    "usability": "partial",
+    "correctness": "partial",
+    "persistence": "untested",
+    "performance": "partial"
+  },
+  "rawOracle": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "scannedSpecimenCount": 1000,
+    "selectedRoots": [
+      {
+        "id": "00001c68-2c20-5003-a144-b2442469d8de",
+        "_id": "Specimen/g_af8d27ece3cef704ce1e40a8289c835969a1868685394a4260da3941864236f8",
+        "medicationIDs": []
+      },
+      {
+        "id": "0000ae4e-5498-51e8-a091-32b0552093ac",
+        "_id": "Specimen/g_98e422afa3a377b97d6cf4c70963714be734cc4ad84c6b1cdaed8b853aecbf79",
+        "medicationIDs": []
+      }
+    ],
+    "positiveWitnessWithinBound": false,
+    "unmatchedRootCountWithinBound": 1000,
+    "expectedMedicationIDs": [],
+    "expectedVisibleMedicationValues": [
+      null,
+      null
+    ],
+    "expectedPreserveRowCount": 2,
+    "expectedExcludeRowCount": 0,
+    "route": [
+      {
+        "fromResourceType": "Specimen",
+        "toResourceType": "Observation",
+        "relationship": "focus_Specimen",
+        "storageDirection": "INBOUND"
+      },
+      {
+        "fromResourceType": "Observation",
+        "toResourceType": "Condition",
+        "relationship": "stage_assessment_Observation",
+        "storageDirection": "INBOUND"
+      },
+      {
+        "fromResourceType": "Condition",
+        "toResourceType": "Patient",
+        "relationship": "subject_Patient",
+        "storageDirection": "OUTBOUND"
+      },
+      {
+        "fromResourceType": "Patient",
+        "toResourceType": "MedicationAdministration",
+        "relationship": "subject_Patient",
+        "storageDirection": "INBOUND"
+      },
+      {
+        "fromResourceType": "MedicationAdministration",
+        "toResourceType": "Medication",
+        "relationship": "medication_reference_Medication",
+        "storageDirection": "OUTBOUND"
+      }
+    ],
+    "bound": {
+      "rootLimit": 1000,
+      "distinctMedicationLimitPerRoot": 26
+    }
+  },
+  "routeEnumeration": {
+    "pageCount": 1,
+    "returnedChoiceCount": 29,
+    "exactFiveHopMatchCount": 1,
+    "exactRouteObserved": true,
+    "truncated": true
+  },
+  "proposalPreview": {
+    "method": "POST",
+    "status": 200,
+    "requestId": "construction-proposal-e53c4a2c-1812-466f-8d66-8a385e193209",
+    "responseDurationMs": 258,
+    "previewStatus": "READY",
+    "previewDurationMs": 59,
+    "rowCount": 2,
+    "relatedMedicationValues": [
+      null,
+      null
+    ]
+  },
+  "checkpoints": [
+    {
+      "name": "native related-expansion editor discovery",
+      "durationMs": 206,
+      "limitMs": 5000
+    },
+    {
+      "name": "native Medication route-choice discovery",
+      "durationMs": 303,
+      "limitMs": 5000
+    },
+    {
+      "name": "native Medication target selection through exact five-hop ready proposal",
+      "durationMs": 978,
+      "limitMs": 5000
+    }
+  ],
+  "timing": {
+    "runIntervalMs": 18563,
+    "nativeActionBudgetMs": 5000,
+    "nativeActionMaxMs": 103,
+    "readyProposalCheckpointMs": 978
+  },
+  "failure": {
+    "kind": "AssertionError",
+    "phase": "preview-header assertion after READY proposal response",
+    "sourceLocation": "scripts/verify-ui/workflows/verify-cda-zero-column-related-medication.mjs:434",
+    "actualHeaderTextContent": "Medication FHIR resource IDstring",
+    "expectedHeaderLabel": "Medication FHIR resource ID",
+    "cause": "The header textContent concatenates the label and logical-type spans; the assertion expected only the label.",
+    "lifecycleAfterFailure": {
+      "cancel": "unrun",
+      "apply": "unrun",
+      "reload": "unrun",
+      "excludeEdit": "unrun",
+      "removal": "unrun",
+      "sourceRestoration": "unrun"
+    }
+  },
+  "environmentRepair": {
+    "classification": "operational_setup_overhead",
+    "summary": "Before the browser attempt, a direct Compose start omitted required command environment; the owned environment was repaired before the run. This is separate from the browser harness assertion and product behavior.",
+    "durationMs": null,
+    "durationNote": "Repair duration was not captured."
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "25a99f02f687f215ed014f19f417a436005b0c8bc35b72523b7445d19d73796d",
+        "files": 1534
+      },
+      "after": {
+        "sha256": "25a99f02f687f215ed014f19f417a436005b0c8bc35b72523b7445d19d73796d",
+        "files": 1534
+      },
+      "unchanged": true
+    },
+    "apiBuildIdentity": {
+      "before": "d5761c2b73710d7ae8326591d0d12d426513319e3cb66d262e43001e82acb9a3:d5761c2b73710d7ae8326591d0d12d426513319e3cb66d262e43001e82acb9a3:f89ec2658ca120f51d8e4e9868b718fda210111895b8b3f06877c3a0ef76b9db",
+      "after": "d5761c2b73710d7ae8326591d0d12d426513319e3cb66d262e43001e82acb9a3:d5761c2b73710d7ae8326591d0d12d426513319e3cb66d262e43001e82acb9a3:f89ec2658ca120f51d8e4e9868b718fda210111895b8b3f06877c3a0ef76b9db",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave105/health-before.json",
+        "sha256": "8349d4f9e9dcae918369c4b9474945404c00e30d22175a4d4e747728130f0549"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave105/health-after.json",
+        "sha256": "a30a10eaa0af796694ad8ca8b632ad79a56ea3eabc1ea00a49da40555ef310e0"
+      }
+    }
+  },
+  "rawArtifacts": {
+    "domainReport": {
+      "path": "/private/tmp/loom-native-related-expansion-wave105/attempt1/artifacts/standalone-cda-other-CDA-z-888f6-ough-five-relationship-hops/cda-report.json",
+      "sha256": "7edf47aaac63689bfa43dbba9b5eefa4a3b40808303e3f321fd812628d6ae524"
+    },
+    "integrityClosure": {
+      "path": "/private/tmp/loom-native-related-expansion-wave105/closure.json",
+      "sha256": "cd2da0017d3ecd904a71e50f16f0206896d2fdb50a8d8bba756d0b7dfb96a9dd"
+    },
+    "playwrightResults": {
+      "path": "/private/tmp/loom-native-related-expansion-wave105/attempt1/results.json",
+      "sha256": "35cf6e622e9382e9418afbb8a6756f1ed9f437ad977ff80c551b6bb4600ad954"
+    }
+  }
+}

@@ -55,7 +55,7 @@ const initialOutputState = (): ViewerOutputState => ({
 });
 
 export const runtimeSessionKey = (runtime: ExplorerRuntimeV1): string =>
-  runtime.publication?.revisionId ?? runtime.publication?.generation ?? runtime.generation ?? runtime.schema?.digest ?? 'runtime';
+  runtime.responseIdentity ?? runtime.publication?.revisionId ?? runtime.publication?.generation ?? runtime.generation ?? runtime.schema?.digest ?? '';
 
 export const initialViewerState = (
   runtime: ExplorerRuntimeV1,
@@ -70,7 +70,7 @@ export const initialViewerState = (
   const chartsVisible: Record<string, boolean> = {};
   for (const output of runtime.outputs) {
     outputs[output.outputId] = initialOutputState();
-    chartsVisible[output.outputId] = true;
+    chartsVisible[output.outputId] = false;
   }
   return {
     activeOutputId: selected,

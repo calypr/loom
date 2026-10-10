@@ -9,22 +9,26 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	"github.com/calypr/loom/internal/dataframe/unit"
 )
+
+type outputFingerprintColumn struct {
+	Name, SemanticPath, Kind, Cardinality string
+	NormalizedUnit                        *unit.UnitIdentity
+	Nullable, Internal, Identity          bool
+}
 
 func resolvedOutputArtifacts(resolved dataframeexecution.Resolved) (map[string]string, map[string]map[string]string, error) {
 	result := make(map[string]string, len(resolved.Compiled.Outputs))
 	provenance := make(map[string]map[string]string, len(resolved.Compiled.Outputs))
 	for _, output := range resolved.Compiled.Outputs {
-		columns := make([]struct {
-			Name, SemanticPath, Kind, Cardinality string
-			Nullable, Internal, Identity          bool
-		}, 0, len(output.OutputSchema))
+		columns := make([]outputFingerprintColumn, 0, len(output.OutputSchema))
 		provenance[output.Name] = make(map[string]string, len(output.OutputSchema))
 		for _, column := range output.OutputSchema {
-			columns = append(columns, struct {
-				Name, SemanticPath, Kind, Cardinality string
-				Nullable, Internal, Identity          bool
-			}{column.Name, column.SemanticPath, column.Kind, column.Cardinality, column.Nullable, column.Internal, column.Identity})
+			columns = append(columns, outputFingerprintColumn{
+				Name: column.Name, SemanticPath: column.SemanticPath, Kind: column.Kind, Cardinality: column.Cardinality,
+				NormalizedUnit: column.NormalizedUnit, Nullable: column.Nullable, Internal: column.Internal, Identity: column.Identity,
+			})
 			value := "EXPLICIT"
 			if column.Discovered {
 				value = "DISCOVERED"

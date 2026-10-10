@@ -1,0 +1,244 @@
+{
+  "epoch": 89,
+  "status": "partial_harness_failure",
+  "runnerStatus": "failed",
+  "coverageStatus": "partial",
+  "scenario": "cda-workspace-combine",
+  "case": "group-pivot-join",
+  "title": "CDA current-draft Group→Pivot→Join exact Observation Groups feed a native Pivot and editable current-draft Join",
+  "durableClosurePath": "docs/verification/playwright/runtime/current-draft-cda-group-pivot-join-epoch89-lifecycle-closure.json",
+  "coordinatorClosurePath": "docs/verification/playwright/runtime/current-draft-cda-group-pivot-join-epoch89-closure.json",
+  "target": {
+    "kind": "owned-cda",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorer": "cda-group-pivot-join-cac986c6-aef8-4669-b27c-c471853ef18e",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "sourceFingerprint": {
+      "sha256": "645515c8bb3b8a82de7fb4ff77b321d236db375d99c07d50caf459332e1f048b",
+      "files": 1526
+    },
+    "apiBuildIdentity": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+    "rawCapturedExplorer": null,
+    "explorerIdentitySource": "Derived from the correlated expected-cancellation and successful replacement-selection GET paths; raw report target.explorer was null."
+  },
+  "dimensions": {
+    "usability": "partial",
+    "correctness": "partial",
+    "persistence": "partial",
+    "performance": "partial"
+  },
+  "rawReportedDimensions": {
+    "usability": "passed",
+    "correctness": "passed",
+    "persistence": "untested",
+    "performance": "passed"
+  },
+  "requiredChecks": {
+    "passed": 13,
+    "failed": 0,
+    "unrun": 17,
+    "total": 30,
+    "reached": 13,
+    "passedNames": [
+      "Bounded scoped raw Observation witness has exact A,A,B shared and left-only identities",
+      "left Group immutable selection and direct population bind exact scoped FHIR IDs",
+      "left Group native GROUP proposal matches raw group counts",
+      "left Group proposal carries exact direct Group keys and COUNT_ROWS",
+      "left Group saved Group survives reload",
+      "Left native Group produces the exact shared count 3 and left-only count 1",
+      "right Group Pivot immutable selection and direct population bind exact scoped FHIR IDs",
+      "right Group Pivot native GROUP proposal matches raw group counts",
+      "right Group Pivot proposal carries exact direct Group keys and COUNT_ROWS",
+      "right Group Pivot saved Group survives reload",
+      "Right native Group preserves subject/code-category multiplicity as two COUNT_ROWS groups",
+      "all native lifecycle actions complete within five seconds",
+      "CDA watched source and API build stayed unchanged"
+    ],
+    "failedNames": [],
+    "unrunNames": [
+      "Right native Pivot proposal preserves exact code category multiplicity 2 and 1",
+      "Right Group→Pivot rows survive reload with exact code category multiplicity",
+      "Exact source outputs persist as one GROUP and one ordered GROUP→PIVOT",
+      "LEFT Join preview matches exact Group/Pivot oracle",
+      "LEFT native Join binds exact Group/Pivot inputs, keys, mappings, and current CAS",
+      "Join proposal Cancel preserves the exact full workspace and draft CAS after reload",
+      "Apply native Group/Pivot LEFT Join persists exact visible values",
+      "Edited INNER proposal matches exact shared-key rows",
+      "Cancel saved LEFT Join edit to INNER preserves existing target rows",
+      "Canceled INNER edit retains LEFT values",
+      "INNER Join proposal matches exact shared-key rows",
+      "Apply saved LEFT Join edit as INNER persists exact visible values",
+      "Cancel INNER Join removal preserves existing target rows",
+      "Cancel removal preserves saved INNER values",
+      "Join removal Apply restores exact empty target and preserves scoped Group/Pivot sources",
+      "CDA Group/Pivot/Join lifecycle never publishes or pins TABLE_REVISION inputs",
+      "All native Group/Pivot/Join browser actions remain within five seconds"
+    ]
+  },
+  "assertions": {
+    "passed": 65,
+    "failed": 0,
+    "total": 65
+  },
+  "actions": {
+    "passed": 34,
+    "failed": 0,
+    "total": 34,
+    "maxElapsedMs": 1381,
+    "budgetMs": 5000
+  },
+  "nativeRequests": {
+    "recordedEntries": 74,
+    "http200": 74,
+    "non200OrNoStatus": 0,
+    "unexpectedNetworkErrors": 0,
+    "expectedCancellationEvents": 1
+  },
+  "browserLifecycle": {
+    "kind": "official-playwright-page",
+    "status": "failed",
+    "durationMs": 38095,
+    "droppedDiagnostics": 0,
+    "droppedNavigationTimings": 0
+  },
+  "failure": {
+    "classification": "harness-strict-locator-ambiguity",
+    "description": "The Pivot category wait used a singular Playwright locator that matched both visible category checkboxes, so strict mode stopped the workflow before selecting/applying categories.",
+    "workflowPath": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+    "workflowLine": 750,
+    "selector": "[data-testid=\"construction-reshape-pivot-categories\"] input[aria-label^=\"Include category \"]",
+    "matchedCategories": [
+      "1222593009",
+      "81247-9"
+    ],
+    "rawFailure": "Error: locator.waitFor: Error: strict mode violation: locator('[data-testid=\"construction-reshape-pivot-categories\"] input[aria-label^=\"Include category \"]') resolved to 2 elements:\n    1) <input type=\"checkbox\" aria-label=\"Include category 1222593009\"/> aka getByRole('checkbox', { name: 'Include category 1222593009' })\n    2) <input type=\"checkbox\" aria-label=\"Include category 81247-9\"/> aka getByRole('checkbox', { name: 'Include category 81247-' })\n\nCall log:\n\u001b[2m  - waiting for locator('[data-testid=\"construction-reshape-pivot-categories\"] input[aria-label^=\"Include category \"]') to be visible\u001b[22m\n",
+    "interpretation": "Harness failure after right Group save/reload and entry into the native Pivot category chooser. The strict locator did not show a product failure; the Pivot save/reload and native Join lifecycle were not reached."
+  },
+  "expectedSelectionCancellation": {
+    "count": 1,
+    "method": "GET",
+    "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/cda-group-pivot-join-cac986c6-aef8-4669-b27c-c471853ef18e/selections/selection_3d024f9ca28831e95a4c06df1f1ee11ef81b330c8b26203c83af2d810cfd564e",
+    "requestId": "cda-request-376",
+    "expected": true,
+    "reason": "Selecting the right Group Pivot output retires the previous left attached-selection query.",
+    "proof": {
+      "project": "loom_dev_cda_fhir",
+      "explorer": "cda-group-pivot-join-cac986c6-aef8-4669-b27c-c471853ef18e",
+      "generation": "cda-fhir-v1",
+      "previousOutputId": "out_067ea4c515d3c9203caa6c82",
+      "previousSelectionRevisionId": "selection_3d024f9ca28831e95a4c06df1f1ee11ef81b330c8b26203c83af2d810cfd564e",
+      "nextOutputId": "out_62e85175b09306e8d5fbe88f",
+      "nextSelectionRevisionId": "selection_76a19e2ee134596bbd2230f50273113c24a1f59a9f6dd0ba7b1b42c06990880a",
+      "query": {
+        "method": "GET",
+        "limit": 1
+      },
+      "retirement": "BuilderWorkspace replaces the keyed active-table population selection query; resourceFor aborts its stale getSelection AbortSignal when the selected table changes.",
+      "scopeAction": "Select right Group Pivot exact source population",
+      "scopeRequest": {
+        "requestId": null,
+        "draftVersion": null,
+        "draftDigest": null,
+        "outputId": null,
+        "stageId": null
+      }
+    },
+    "replacementRead": {
+      "selectionId": "selection_76a19e2ee134596bbd2230f50273113c24a1f59a9f6dd0ba7b1b42c06990880a",
+      "status": 200,
+      "limit": "1"
+    },
+    "strictUnexpectedNetworkErrors": 0
+  },
+  "lifecycleExtent": {
+    "completed": [
+      "bounded scoped A,A,B raw Observation witness and exact source-selection binding",
+      "left Group proposal, apply, exact rows, and reload",
+      "right Group proposal, apply, exact grouped rows, and reload",
+      "native Pivot editor opened with exact subject grouping and code category field; both exact categories were visible in the chooser",
+      "stale left-selection GET cancellation correlated to the right-source switch with a successful replacement right-selection GET"
+    ],
+    "notReached": [
+      "selecting/applying Pivot categories, saved Pivot rows, and Pivot reload",
+      "native Join preview, apply, cancel, edit, removal, and reload lifecycle"
+    ],
+    "productPassClaim": false
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "645515c8bb3b8a82de7fb4ff77b321d236db375d99c07d50caf459332e1f048b",
+        "files": 1526
+      },
+      "after": {
+        "sha256": "645515c8bb3b8a82de7fb4ff77b321d236db375d99c07d50caf459332e1f048b",
+        "files": 1526
+      },
+      "unchanged": true,
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "docsBeforeAfter": {
+      "before": {
+        "sha256": "852646ba4a8253981786dfd2fea1080df79b15e4544cee71c975568bfafcd97f",
+        "files": 208
+      },
+      "after": {
+        "sha256": "852646ba4a8253981786dfd2fea1080df79b15e4544cee71c975568bfafcd97f",
+        "files": 208
+      },
+      "unchanged": true,
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true
+    },
+    "apiBuildIdentityUnchanged": true,
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  },
+  "rawArtifacts": {
+    "domainReport": {
+      "path": "/private/tmp/loom-native-parallel-wave89/cda-current-draft-group-pivot-join/attempt1/artifacts/cda-current-draft-group-pi-508e8-editable-current-draft-Join/attachments/cda-domain-report-json-2af3273e8aeaca66fa6cafc781299d3b56c7a5c6.json",
+      "sha256": "75190de617f72e4aeee9249b639e3837b80c1624f14a320dd79d43899e77ffc3"
+    },
+    "results": {
+      "path": "/private/tmp/loom-native-parallel-wave89/cda-current-draft-group-pivot-join/attempt1/results.json",
+      "sha256": "63a15d1b064063e34cf890f1d8d438002eee0952016a99b70ea7e9c5b657ec63"
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave89/cda-current-draft-group-pivot-join/attempt1/runner.log",
+      "sha256": "156e64c4e2c58c250acb6ecb04c204e7ec32c8bd478e926f04e0cf0365c04b78"
+    },
+    "errorContext": {
+      "path": "/private/tmp/loom-native-parallel-wave89/cda-current-draft-group-pivot-join/attempt1/artifacts/cda-current-draft-group-pi-508e8-editable-current-draft-Join/error-context.md",
+      "sha256": "144cf5ebefdc991f88a42130499f347fd3a36ab2195311c8177a173ee00521f2"
+    },
+    "coordinatorClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave89/closure.json",
+      "sha256": "216417d8c8a9059cedba1d5cf530c6b35be4241060447b953101a2d6c9b21829"
+    }
+  },
+  "nextCheck": "Replace the singular category wait with an assertion over both exact expected checkbox labels, then continue Pivot apply/reload and the full Join lifecycle in a fresh Explorer. Keep the proven request-scoped expected cancellation and successful replacement right read; require all 30 checks before passing."
+}

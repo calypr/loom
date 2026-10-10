@@ -1,0 +1,13 @@
+{
+  "recipeSchemaVersion": 1,
+  "name": "loom_dev_bootstrap",
+  "translationVersion": "loom-dev-bootstrap-v1",
+  "outputs": [
+    {
+      "name": "patients",
+      "rootResourceType": "Patient",
+      "rowGrain": "patient",
+      "fields": [{"name": "patient_id", "expr": {"select": "root.id"}}]
+    }
+  ]
+}

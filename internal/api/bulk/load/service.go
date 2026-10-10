@@ -37,6 +37,13 @@ type GenerationStatusResult struct {
 	Reusable   bool              `json:"reusable"`
 }
 
+type GenerationActivationResult struct {
+	Project              string `json:"project"`
+	Generation           string `json:"generation"`
+	DataframeExecutionID string `json:"dataframeExecutionId"`
+	Activated            bool   `json:"activated"`
+}
+
 type GenerationActivator interface {
 	ReadManifest(context.Context, publication.Ref) (publication.Manifest, error)
 	Activate(context.Context, publication.Manifest) error

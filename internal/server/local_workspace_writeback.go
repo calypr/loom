@@ -27,12 +27,15 @@ func localWorkspaceWriter(path, configuredProject string) (func(context.Context,
 	if err != nil || !info.IsDir() {
 		return nil, fmt.Errorf("local workspace writeback directory %q is unavailable", directory)
 	}
-	return func(ctx context.Context, project, _ string, workspace []byte) error {
+	return func(ctx context.Context, project, explorerID string, workspace []byte) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if projectid.Canonical(project) != configuredProject {
 			return fmt.Errorf("project %q cannot update the local workspace for %q", project, configuredProject)
+		}
+		if strings.TrimSpace(explorerID) != "default" {
+			return fmt.Errorf("local workspace writeback only supports the default Explorer")
 		}
 		if len(workspace) == 0 {
 			return fmt.Errorf("published workspace is empty")

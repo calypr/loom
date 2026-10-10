@@ -265,6 +265,29 @@ func TestOptimizePhysicalPlanRendersOneScopedTraversalForSiblingSets(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
+	var sharedTargetTypesKey string
+	for _, set := range physicalSets(optimized) {
+		if set.SourceSetVariable != "" {
+			continue
+		}
+		sharedTargetTypesKey = set.Subplan.Operations[0].Traversal.TargetTypeBindKey
+		break
+	}
+	if sharedTargetTypesKey == "" {
+		t.Fatal("optimized plan has no broad shared traversal")
+	}
+	targetTypes, ok := optimized.BindVars[sharedTargetTypesKey].([]string)
+	if !ok || !slices.Equal(targetTypes, []string{"Condition", "Specimen"}) {
+		t.Fatalf("shared traversal target types = %#v, want [Condition Specimen]", optimized.BindVars[sharedTargetTypesKey])
+	}
+	for _, fragment := range []string{
+		"POSITION(@" + sharedTargetTypesKey + ", child_set_1_edge.from_type)",
+		"POSITION(@" + sharedTargetTypesKey + ", child_set_1_node.resourceType)",
+	} {
+		if !strings.Contains(rendered.Query, fragment) {
+			t.Fatalf("shared traversal omitted multi-type discriminator %q:\n%s", fragment, rendered.Query)
+		}
+	}
 	nativeRoot := strings.Count(rendered.Query, "INBOUND root @@child_set_")
 	endpointRoot := strings.Count(rendered.Query, "FOR child_set_1_edge IN @@child_set_1_edge_collection")
 	if got := nativeRoot + endpointRoot; got != 1 {
@@ -275,6 +298,78 @@ func TestOptimizePhysicalPlanRendersOneScopedTraversalForSiblingSets(t *testing.
 	}
 	if got := strings.Count(rendered.Query, "child_set_1_node.auth_resource_path IN @auth_resource_paths"); got != 1 {
 		t.Fatalf("shared traversal did not retain its node auth scope exactly once:\n%s", rendered.Query)
+	}
+	for _, fragment := range []string{
+		"child_set_1_edge.project == @project",
+		"child_set_1_node.project == @project",
+		"child_set_1_edge.dataset_generation == @dataset_generation",
+		"child_set_1_node.dataset_generation == @dataset_generation",
+	} {
+		if got := strings.Count(rendered.Query, fragment); got != 1 {
+			t.Fatalf("shared traversal scope fragment %q occurs %d times, want exactly once:\n%s", fragment, got, rendered.Query)
+		}
+	}
+}
+
+func TestSharedHeterogeneousTraversalRetainsEdgeNodeTypePairing(t *testing.T) {
+	cases := []struct {
+		name   string
+		policy ir.PhysicalOptimizationPolicy
+	}{
+		{name: "endpoint_lookup", policy: ir.DefaultPhysicalOptimizationPolicy()},
+		{name: "native_traversal", policy: ir.DefaultPhysicalOptimizationPolicy().WithRule(ir.PhysicalOptimizationRuleEndpointTraversal, false)},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			optimized, err := optimize.OptimizePhysicalPlanWithPolicy(physicalScopedSiblingPlan(t), testCase.policy)
+			if err != nil {
+				t.Fatalf("OptimizePhysicalPlan() error = %v", err)
+			}
+			rendered, err := aql.RenderPhysicalPlan(optimized)
+			if err != nil {
+				t.Fatalf("RenderPhysicalPlan() error = %v", err)
+			}
+			var broad *ir.PhysicalSet
+			for _, set := range physicalSets(optimized) {
+				if set.SourceSetVariable == "" {
+					broad = set
+					break
+				}
+			}
+			if broad == nil || len(broad.Subplan.Operations) == 0 || broad.Subplan.Operations[0].Traversal == nil {
+				t.Fatal("optimized plan has no broad shared traversal")
+			}
+			traversal := broad.Subplan.Operations[0].Traversal
+			typeKey := traversal.TargetTypeBindKey
+			for _, fragment := range []string{
+				fmt.Sprintf("POSITION(@%s, %s.%s)", typeKey, traversal.EdgeVariable, traversal.EdgeTargetTypeField),
+				fmt.Sprintf("POSITION(@%s, %s.resourceType)", typeKey, traversal.TargetVariable),
+				fmt.Sprintf("%s.%s == %s.resourceType", traversal.EdgeVariable, traversal.EdgeTargetTypeField, traversal.TargetVariable),
+			} {
+				if !strings.Contains(rendered.Query, fragment) {
+					t.Fatalf("shared traversal omitted type-fidelity fragment %q:\n%s", fragment, rendered.Query)
+				}
+			}
+			for _, set := range physicalSets(optimized) {
+				if set.SourceSetVariable == "" {
+					continue
+				}
+				if len(set.Subplan.Operations) == 0 || set.Subplan.Operations[0].Filter == nil {
+					t.Fatalf("typed subset %q lost its target-type filter", set.Variable)
+				}
+				filter := set.Subplan.Operations[0].Filter.Predicate
+				if filter.Right == nil || filter.Right.BindKey == "" {
+					t.Fatalf("typed subset %q filter is not bound to its scalar target type: %#v", set.Variable, filter)
+				}
+				if _, ok := optimized.BindVars[filter.Right.BindKey].(string); !ok {
+					t.Fatalf("typed subset %q target type bind is not scalar: %#v", set.Variable, optimized.BindVars[filter.Right.BindKey])
+				}
+				fragment := fmt.Sprintf("%s.resourceType == @%s", set.ItemVariable, filter.Right.BindKey)
+				if !strings.Contains(rendered.Query, fragment) {
+					t.Fatalf("typed subset %q omitted its scalar discriminator %q:\n%s", set.Variable, fragment, rendered.Query)
+				}
+			}
+		})
 	}
 }
 

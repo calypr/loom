@@ -47,6 +47,8 @@ func TestGeneratedExplorerMutationRoutesForwardAuthResourcePath(t *testing.T) {
 		{name: "commands", path: "/api/v1/projects/HTAN_INT%252FBForePC/explorers/test/authoring/v2/commands", body: `{}`},
 		{name: "reconcile", path: "/api/v1/projects/HTAN_INT%252FBForePC/explorers/test/authoring/v2/reconcile", body: `{}`},
 		{name: "publish", path: "/api/v1/projects/HTAN_INT%252FBForePC/explorers/test/authoring/v2/publish", body: `{}`},
+		{name: "interpretation revision", path: "/api/v1/projects/HTAN_INT%252FBForePC/interpretation-libraries", body: `{"libraryId":"codes","applicability":{},"rules":[],"explanation":"codes"}`},
+		{name: "interpretation revision from column", path: "/api/v1/projects/HTAN_INT%252FBForePC/explorers/test/authoring/v2/interpretation-revisions", body: `{"snapshotToken":"token","expectedDraftVersion":1,"expectedDraftDigest":"digest","outputId":"patients","column":"code","libraryId":"codes","explanation":"codes"}`},
 	}
 
 	for _, test := range tests {

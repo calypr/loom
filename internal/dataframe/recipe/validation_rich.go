@@ -131,6 +131,40 @@ func filterOperatorSupportsKind(op FilterOperator, kind FilterValueKind) bool {
 	}
 }
 
+func validateRichFilterAt(filter Filter, path string, allowQuantifier bool) error {
+	if err := filter.validateAt(path); err != nil {
+		return err
+	}
+	if filter.Quantifier != "" && !allowQuantifier {
+		return validationError("unsupported_filter_quantifier", path+".quantifier", "rich shaping predicates do not support quantifiers")
+	}
+	switch filter.Operator {
+	case FilterExists:
+		return nil
+	case FilterEquals:
+		if len(filter.Values) != 1 || (filter.Values[0].Kind != FilterString && filter.Values[0].Kind != FilterCode) {
+			return validationError("unsupported_filter_value", path+".values", "rich shaping equality supports STRING and CODE values")
+		}
+		return nil
+	default:
+		return validationError("unsupported_filter_operator", path+".operator", "rich shaping predicates support only EXISTS and EQUALS")
+	}
+}
+
+func validateSelectorExpression(input Expression, path string) error {
+	if strings.HasPrefix(strings.TrimSpace(input.Call), "fragment:") {
+		return nil
+	}
+	switch strings.ToLower(strings.TrimSpace(input.Call)) {
+	case "reference_id", "path_segment", "basename", "last_segment", "sanitize_name", "sanitize_graphql_name":
+		return nil
+	}
+	if input.Select == "" || input.Call != "" || input.Literal != nil || input.Document != nil || len(input.Args) != 0 {
+		return validationError("unsupported_expression", path, "rich shaping requires a selector expression")
+	}
+	return nil
+}
+
 func (p Pivot) validateAt(path string, budget *int) error {
 	if err := validateRecipeName(p.Name, path+".name"); err != nil {
 		return err
@@ -159,10 +193,62 @@ func (p Pivot) validateAt(path string, budget *int) error {
 		}
 		seen[column] = true
 	}
+	if !ValidPivotProjectionMode(p.ProjectionMode) {
+		return validationError("invalid_projection_mode", path+".projectionMode", fmt.Sprintf("unsupported projection mode %q", p.ProjectionMode))
+	}
+	aliases := map[string]string{}
+	for key, alias := range p.ColumnAliases {
+		if !seen[key] {
+			return validationError("unknown_column_alias", path+".columnAliases", fmt.Sprintf("alias key %q is not a pivot column", key))
+		}
+		if err := validateRecipeName(alias, path+".columnAliases."+key); err != nil {
+			return err
+		}
+		if previous, exists := aliases[alias]; exists && previous != key {
+			return validationError("duplicate_column_alias", path+".columnAliases", fmt.Sprintf("columns %q and %q share output alias %q", previous, key, alias))
+		}
+		aliases[alias] = key
+	}
+	if p.Correlation != nil && p.ExtensionCorrelation != nil {
+		return validationError("ambiguous_correlation", path, "pivot cannot carry both terminology and extension correlation")
+	}
+	if p.Correlation != nil {
+		if p.Discovery != nil {
+			return validationError("ambiguous_correlation", path, "correlated pivot cannot use discovery")
+		}
+		if strings.TrimSpace(p.CorrelationSystem) == "" || strings.TrimSpace(p.CorrelationCode) == "" {
+			return validationError("invalid_correlation", path+".correlation", "selected system and code are required")
+		}
+		if p.ItemResourceType == "" && p.ColumnExpr.zero() && p.ValueExpr.zero() && p.ItemSource.zero() && len(p.ValueFallbacks) == 0 {
+			// Correlated pivots are a closed binding variant. Their selectors are
+			// validated from Correlation and are deliberately not duplicated as
+			// writable legacy expressions.
+			return nil
+		}
+		return validationError("ambiguous_correlation", path, "correlated pivot must not carry legacy selector expressions")
+	}
+	if p.ExtensionCorrelation != nil {
+		if p.Discovery != nil {
+			return validationError("ambiguous_correlation", path, "extension-correlated pivot cannot use discovery")
+		}
+		if p.Correlation != nil || strings.TrimSpace(p.CorrelationSystem) != "" || strings.TrimSpace(p.CorrelationCode) != "" {
+			return validationError("ambiguous_correlation", path, "extension-correlated pivot must not carry terminology correlation fields")
+		}
+		if p.ItemResourceType != "" || !p.ColumnExpr.zero() || !p.ValueExpr.zero() || !p.ItemSource.zero() || len(p.ValueFallbacks) != 0 {
+			return validationError("ambiguous_correlation", path, "extension-correlated pivot must not carry legacy selector expressions")
+		}
+		return nil
+	}
 	// A catalog-backed pivot may omit selectors: the scoped resolver fills them
 	// from the catalog's validated pivot metadata before semantic compilation.
 	if p.Discovery != nil && p.ColumnExpr.Select == "" && p.ValueExpr.Select == "" && p.ColumnExpr.Call == "" && p.ValueExpr.Call == "" {
 		return nil
+	}
+	if err := validateSelectorExpression(p.ColumnExpr, path+".columnExpr"); err != nil {
+		return err
+	}
+	if err := validateSelectorExpression(p.ValueExpr, path+".valueExpr"); err != nil {
+		return err
 	}
 	if err := validateExpressionBudget(p.ColumnExpr, path+".columnExpr", budget); err != nil {
 		return err
@@ -235,20 +321,54 @@ func (a Aggregate) validateAt(path string, budget *int) error {
 	if !a.ValueMode.Valid() {
 		return validationError("invalid_value_mode", path+".valueMode", fmt.Sprintf("unsupported value mode %q", a.ValueMode))
 	}
-	requiresExpr := a.Operation == AggregateCountDistinct || a.Operation == AggregateDistinctValues || a.Operation == AggregateMin || a.Operation == AggregateMax || a.Operation == AggregateContainsAll
+	if a.ValueMode != "" && a.ValueMode != ValueModeAuto {
+		return validationError("unsupported_value_mode", path+".valueMode", "aggregate valueMode must be AUTO")
+	}
+	requiresExpr := a.Operation == AggregateCountDistinct || a.Operation == AggregateDistinctValues || a.Operation == AggregateMin || a.Operation == AggregateMax || a.Operation == AggregateSum || a.Operation == AggregateMean || a.Operation == AggregateContainsAll || a.Operation == AggregateRequireOne || a.Operation == AggregateCollect || a.Operation == AggregateFirstOrdered
 	if requiresExpr && a.Expr == nil {
 		return validationError("required", path+".expr", "operation requires expr")
 	}
-	if !requiresExpr && a.Expr != nil {
-		return validationError("invalid_expr", path+".expr", "COUNT and EXISTS do not accept expr")
-	}
 	if a.Expr != nil {
+		if err := validateSelectorExpression(*a.Expr, path+".expr"); err != nil {
+			return err
+		}
 		if err := validateExpressionBudget(*a.Expr, path+".expr", budget); err != nil {
 			return err
 		}
 	}
+	if a.UnitNormalization != nil {
+		if a.Expr == nil {
+			return validationError("required", path+".expr", "unit normalization requires a measurement expression")
+		}
+		if err := a.UnitNormalization.Validate(); err != nil {
+			return validationError("invalid_unit_normalization", path+".unitNormalization", err.Error())
+		}
+	}
+	if a.ContributorWindow != nil {
+		switch a.Operation {
+		case AggregateCount, AggregateExists, AggregateMin, AggregateMax, AggregateMean, AggregateSum, AggregateFirstOrdered:
+		default:
+			return validationError("invalid_contributor_window", path+".contributorWindow", "contributor window is not valid for this aggregate operation")
+		}
+		if err := a.ContributorWindow.validateAt(path+".contributorWindow", budget); err != nil {
+			return err
+		}
+	}
+	if a.Operation == AggregateFirstOrdered {
+		if a.ContributorWindow == nil {
+			return validationError("required", path+".contributorWindow", "FIRST_ORDERED requires a contributor window")
+		}
+		if a.Ordering == nil {
+			return validationError("required", path+".ordering", "FIRST_ORDERED requires temporal ordering")
+		}
+		if err := a.Ordering.validateAt(path+".ordering", budget); err != nil {
+			return err
+		}
+	} else if a.Ordering != nil {
+		return validationError("invalid_ordering", path+".ordering", "ordering is only valid for FIRST_ORDERED")
+	}
 	if a.Where != nil {
-		if err := a.Where.validateAt(path + ".where"); err != nil {
+		if err := validateRichFilterAt(*a.Where, path+".where", true); err != nil {
 			return err
 		}
 	}
@@ -272,6 +392,44 @@ func (a Aggregate) validateAt(path string, budget *int) error {
 	return nil
 }
 
+func (w ContributorWindow) validateAt(path string, budget *int) error {
+	if err := validateSelectorExpression(w.Timestamp, path+".timestamp"); err != nil {
+		return err
+	}
+	if err := validateExpressionBudget(w.Timestamp, path+".timestamp", budget); err != nil {
+		return err
+	}
+	if err := validateSelectorExpression(w.Anchor, path+".anchor"); err != nil {
+		return err
+	}
+	if err := validateExpressionBudget(w.Anchor, path+".anchor", budget); err != nil {
+		return err
+	}
+	if w.LowerOffset > w.UpperOffset {
+		return validationError("invalid_temporal_window", path, "lowerOffsetSeconds must not exceed upperOffsetSeconds")
+	}
+	if w.Precision != TemporalPrecisionInstant {
+		return validationError("invalid_temporal_precision", path+".precision", "precision must be INSTANT")
+	}
+	return nil
+}
+
+func (o TemporalOrdering) validateAt(path string, budget *int) error {
+	if err := validateSelectorExpression(o.Timestamp, path+".timestamp"); err != nil {
+		return err
+	}
+	if err := validateExpressionBudget(o.Timestamp, path+".timestamp", budget); err != nil {
+		return err
+	}
+	if o.Direction != TemporalAscending && o.Direction != TemporalDescending {
+		return validationError("invalid_temporal_direction", path+".direction", "direction must be ASC or DESC")
+	}
+	if o.TiePolicy != TemporalTieRequireUnique && o.TiePolicy != TemporalTieResourceKey {
+		return validationError("invalid_temporal_tie_policy", path+".tiePolicy", "tiePolicy must be REQUIRE_UNIQUE or RESOURCE_KEY")
+	}
+	return nil
+}
+
 func (s RepresentativeSlice) validateAt(path string, budget *int) error {
 	if err := validateRecipeName(s.Name, path+".name"); err != nil {
 		return err
@@ -283,7 +441,13 @@ func (s RepresentativeSlice) validateAt(path string, budget *int) error {
 		return validationError("required", path+".fields", "at least one field is required")
 	}
 	if s.Where != nil {
-		if err := s.Where.validateAt(path + ".where"); err != nil {
+		if err := validateRichFilterAt(*s.Where, path+".where", false); err != nil {
+			return err
+		}
+	}
+	for index, field := range s.Fields {
+		fieldPath := fmt.Sprintf("%s.fields[%d]", path, index)
+		if err := validateSelectorExpression(field.Expr, fieldPath+".expr"); err != nil {
 			return err
 		}
 	}
@@ -342,7 +506,7 @@ func validateFieldsBudget(fields []Field, path string, budget *int) error {
 	return nil
 }
 
-func validateNodeShape(fields []Field, filters []Filter, pivots []Pivot, aggregates []Aggregate, slices []RepresentativeSlice, path string, budget *int) error {
+func validateNodeShape(fields []Field, filters []Filter, pivots []Pivot, ownerRecords []OwnerRecordProjection, aggregates []Aggregate, slices []RepresentativeSlice, path string, budget *int) error {
 	if err := validateFieldsBudget(fields, path+".fields", budget); err != nil {
 		return err
 	}
@@ -364,6 +528,18 @@ func validateNodeShape(fields []Field, filters []Filter, pivots []Pivot, aggrega
 		}
 		if err := pivot.validateAt(p, budget); err != nil {
 			return err
+		}
+	}
+	for i, projection := range ownerRecords {
+		p := fmt.Sprintf("%s.ownerRecords[%d]", path, i)
+		if err := validateRecipeName(projection.Name, p+".name"); err != nil {
+			return err
+		}
+		if err := check(projection.Name, p); err != nil {
+			return err
+		}
+		if strings.TrimSpace(projection.Binding.OwnerPath) == "" || strings.TrimSpace(projection.Key.System) == "" || strings.TrimSpace(projection.Key.Code) == "" {
+			return validationError("invalid_owner_records", p, "binding.ownerPath and key.system/code are required")
 		}
 	}
 	for i, aggregate := range aggregates {

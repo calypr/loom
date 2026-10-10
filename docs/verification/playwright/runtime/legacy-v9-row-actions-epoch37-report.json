@@ -1,0 +1,808 @@
+{
+  "status": "passed",
+  "scenario": "builder-authoring",
+  "assertions": [
+    {
+      "dimension": "correctness",
+      "name": "watched source fingerprint baseline captured before browser lifecycle",
+      "status": "passed",
+      "evidence": {
+        "fingerprint": {
+          "sha256": "991be8732dbb106004a329d3f35efc54e0f0d33c74c5d7fe18ffcfcf9730a5e9",
+          "files": 1493
+        }
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "API build identity baseline captured before browser lifecycle",
+      "status": "passed",
+      "evidence": {
+        "identity": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8"
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "basic Patient fixture contains the two independently known records",
+      "status": "passed",
+      "evidence": {
+        "source": "fresh project Patient.ndjson",
+        "project": "loom_dev_verify_muvvs6zl-0522c98",
+        "generation": "fixture-v1",
+        "resourceType": "Patient",
+        "patientIDs": [
+          "dev-patient-001",
+          "dev-patient-002"
+        ]
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "open Explorer creation completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 77,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "name legacy Explorer completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 39,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "create blank legacy Explorer completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 291,
+        "afterMs": 216
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "create blank legacy Explorer action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "afterMs": 216,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "name Patient table completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 35,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "create Patient root table completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 732,
+        "afterMs": 651
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "create Patient root table action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "afterMs": 651,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "open field picker for nested Patient list completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 76,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "choose Patient fields and related data completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 88,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "open raw FHIR fields completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 93,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "select repeated Patient given-name field completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 68,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "add repeated Patient given-name field completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 167,
+        "afterMs": 8
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "add repeated Patient given-name field action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "afterMs": 8,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "choose ALL for Patient.name[].given[] list output completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 153,
+        "afterMs": 7
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "choose ALL for Patient.name[].given[] list output action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "afterMs": 7,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "confirm Patient given-name ALL column completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 441,
+        "afterMs": 316
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "confirm Patient given-name ALL column action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "afterMs": 316,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "apply independent array-backed Patient column completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 432,
+        "afterMs": 291
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "apply independent array-backed Patient column action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "afterMs": 291,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "saved v9 Builder workspace preserves the Go canonical draft digest",
+      "status": "passed",
+      "evidence": {
+        "semanticsVersion": 9,
+        "draftVersion": 3,
+        "digestMatched": true,
+        "generation": "fixture-v1",
+        "scopeDigestMatched": true,
+        "apiProject": "loom_dev_verify_muvvs6zl/0522c98",
+        "rawStorageProject": "loom_dev_verify_muvvs6zl-0522c98",
+        "explorer": "verify-zl-0522c98-legacy-v9-rows",
+        "title": "Verify zl-0522c98 legacy v9 rows"
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "reload saved legacy v9 workspace completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 684,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "persistence",
+      "name": "reload keeps legacy semantics v9 and its exact saved digest",
+      "status": "passed",
+      "evidence": {
+        "semanticsVersion": 9,
+        "draftVersion": 3,
+        "digest": "sha256:a08e8b2b64bc7b1f8f86b60b5188631503eecfc67695ce811604e9dfd5485387",
+        "rawStorageProject": "loom_dev_verify_muvvs6zl-0522c98",
+        "apiProject": "loom_dev_verify_muvvs6zl/0522c98",
+        "explorer": "verify-zl-0522c98-legacy-v9-rows",
+        "generation": "fixture-v1",
+        "authorizationScopeDigest": "[REDACTED]"
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "select legacy Patient table completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 340,
+        "afterMs": 212
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "select legacy Patient table action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "afterMs": 212,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "open legacy Patient row settings completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 55,
+        "afterMs": 3
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "open legacy Patient row settings action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "afterMs": 3,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "construction capabilities echo the exact legacy output, source stage, snapshot, version, and digest",
+      "status": "passed",
+      "evidence": {
+        "status": 200,
+        "path": "/api/v1/projects/loom_dev_verify_muvvs6zl-0522c98/explorers/verify-zl-0522c98-legacy-v9-rows/authoring/v2/construction-capabilities",
+        "outputIdMatched": true,
+        "stageId": "source_projection",
+        "snapshotTokenMatched": true,
+        "expectedDraftVersion": 3,
+        "expectedDraftDigestMatched": true,
+        "responseOutputId": "out_ea5148f313af59876c8e5a73",
+        "responseStageId": "source_projection",
+        "responseSnapshotMatched": true,
+        "responseDraftVersion": 3,
+        "responseDraftDigestMatched": true,
+        "selectedStageId": "source_projection",
+        "rawFixtureProject": "loom_dev_verify_muvvs6zl-0522c98",
+        "apiProject": "loom_dev_verify_muvvs6zl/0522c98",
+        "explorer": "verify-zl-0522c98-legacy-v9-rows",
+        "generation": "fixture-v1",
+        "authorizationScopeDigest": "[REDACTED]"
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Group, RelatedExpand, and ListExpand are enabled and actionable for the saved legacy draft",
+      "status": "passed",
+      "evidence": {
+        "actions": {
+          "construction-action-group-rows": {
+            "count": 1,
+            "visible": true,
+            "enabled": true,
+            "receivesEvents": true
+          },
+          "construction-action-related-rows": {
+            "count": 1,
+            "visible": true,
+            "enabled": true,
+            "receivesEvents": true
+          },
+          "construction-action-expand-rows": {
+            "count": 1,
+            "visible": true,
+            "enabled": true,
+            "receivesEvents": true
+          }
+        },
+        "repeatedField": "Patient.name[].given[]",
+        "repeated": true,
+        "projectionModes": [
+          "ALL",
+          "DISTINCT",
+          "FIRST",
+          "INDEXED"
+        ],
+        "projectionMode": "ALL",
+        "rawArrayValues": {
+          "dev-patient-001": [
+            "Ada",
+            "Augusta",
+            "Addie"
+          ],
+          "dev-patient-002": [
+            "Grace"
+          ]
+        }
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "open RelatedExpand from legacy row settings completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 92,
+        "afterMs": 2
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "open RelatedExpand from legacy row settings action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "afterMs": 2,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "cancel RelatedExpand row editor completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 126,
+        "afterMs": 2
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "cancel RelatedExpand row editor action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "afterMs": 2,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "reopen legacy Patient row settings for ListExpand completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 69,
+        "afterMs": 2
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "reopen legacy Patient row settings for ListExpand action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "afterMs": 2,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "open ListExpand from legacy row settings completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 123,
+        "afterMs": 2
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "open ListExpand from legacy row settings action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "afterMs": 2,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "cancel ListExpand row editor completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 102,
+        "afterMs": 3
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "cancel ListExpand row editor action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "afterMs": 3,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "persistence",
+      "name": "canceling RelatedExpand and ListExpand leaves the v9 draft version and digest unchanged",
+      "status": "passed",
+      "evidence": {
+        "semanticsVersion": 9,
+        "draftVersion": 3,
+        "digestMatched": true
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "open legacy Patient row settings for Group completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 52,
+        "afterMs": 3
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "open legacy Patient row settings for Group action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "afterMs": 3,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "open Group proposal from the exact legacy draft completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 809,
+        "afterMs": 725
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "open Group proposal from the exact legacy draft action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "afterMs": 725,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "legacy Group action produces a ready proposal preview",
+      "status": "passed",
+      "evidence": {
+        "status": "ready",
+        "preview": "ready",
+        "summary": "COUNT_ROWS",
+        "headers": [
+          "Row count"
+        ],
+        "rows": [
+          [
+            "2"
+          ]
+        ],
+        "count": "2",
+        "groupKeys": [],
+        "independentPatientIDs": [
+          "dev-patient-001",
+          "dev-patient-002"
+        ]
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "Group proposal is pinned to the exact legacy project, snapshot, draft version, and digest",
+      "status": "passed",
+      "evidence": {
+        "outputIdMatched": true,
+        "snapshotTokenMatched": true,
+        "expectedDraftVersion": 3,
+        "expectedDraftDigestMatched": true,
+        "path": "/api/v1/projects/loom_dev_verify_muvvs6zl-0522c98/explorers/verify-zl-0522c98-legacy-v9-rows/authoring/v2/construction-proposals",
+        "scopeDigest": "ec9d970710fa72b2edaa12c9080c3861e1c191935535582b23f0a29b50f042d6"
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "cancel legacy Group preview completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 145,
+        "afterMs": 2
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "cancel legacy Group preview action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "afterMs": 2,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "persistence",
+      "name": "Cancel keeps the exact legacy Group draft digest",
+      "status": "passed",
+      "evidence": {
+        "semanticsVersion": 9,
+        "draftVersion": 3,
+        "digestMatched": true
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "reopen legacy Patient row settings for Group Apply completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 60,
+        "afterMs": 3
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "reopen legacy Patient row settings for Group Apply action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "afterMs": 3,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "reopen Group proposal for Apply completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 808,
+        "afterMs": 726
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "reopen Group proposal for Apply action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "afterMs": 726,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Apply Group proposal from the exact legacy draft completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 337,
+        "afterMs": 253
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "Apply Group proposal from the exact legacy draft action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "afterMs": 253,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "reload applied Group draft completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 886,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "persistence",
+      "name": "applied Group draft survives Builder reload with exact digest and scope",
+      "status": "passed",
+      "evidence": {
+        "draftVersion": 4,
+        "appliedDraftVersion": 4,
+        "draftVersionMatches": true,
+        "draftDigest": "sha256:ae959257d3ede75d7f94230b82ddac778e2b48bb34d5f586ae02d2d49d472390",
+        "appliedDraftDigest": "sha256:ae959257d3ede75d7f94230b82ddac778e2b48bb34d5f586ae02d2d49d472390",
+        "draftDigestMatches": true,
+        "semanticsVersion": 10,
+        "appliedSemanticsVersion": 10,
+        "semanticsVersionMatches": true,
+        "ownerMatches": true,
+        "rawFixtureProject": "loom_dev_verify_muvvs6zl-0522c98",
+        "apiProject": "loom_dev_verify_muvvs6zl/0522c98",
+        "explorer": "verify-zl-0522c98-legacy-v9-rows",
+        "generation": "fixture-v1",
+        "expectedGeneration": "fixture-v1",
+        "authorizationScopeDigest": "[REDACTED]",
+        "scopeMatches": true,
+        "persistedGroupStepCount": 1,
+        "persistedGroupKind": "GROUP",
+        "persistedGroupObjectPresent": true,
+        "persistedGroupKeysOmitted": true,
+        "persistedGroupKeysEmptyArray": false,
+        "persistedGroupHasDefaultEmptyKeys": true,
+        "persistedGroupAggregateCount": 1,
+        "persistedGroupAggregateOperation": "COUNT_ROWS",
+        "persistedGroupAggregateOutputColumnIdPresent": true,
+        "persistedGroupHasSingleCountRowsAggregate": true
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "reloaded Group result visibly renders literal COUNT_ROWS 2",
+      "status": "passed",
+      "evidence": {
+        "headers": [
+          "ROW COUNT"
+        ],
+        "rows": [
+          [
+            "2"
+          ]
+        ],
+        "expectedCount": 2
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "native row-action lifecycle issued no scoped draft conflict",
+      "status": "passed",
+      "evidence": {
+        "scoped409Responses": []
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "incidental asset failures are explicitly recorded",
+      "status": "passed",
+      "evidence": {
+        "failures": [
+          {
+            "kind": "asset-failure",
+            "url": "http://127.0.0.1:30008/favicon.ico",
+            "status": 404
+          }
+        ]
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "watched source stayed unchanged during browser run",
+      "status": "passed",
+      "evidence": {
+        "before": {
+          "sha256": "991be8732dbb106004a329d3f35efc54e0f0d33c74c5d7fe18ffcfcf9730a5e9",
+          "files": 1493
+        },
+        "after": {
+          "sha256": "991be8732dbb106004a329d3f35efc54e0f0d33c74c5d7fe18ffcfcf9730a5e9",
+          "files": 1493
+        },
+        "changedPaths": []
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "API build identity stayed unchanged during browser run",
+      "status": "passed",
+      "evidence": {
+        "before": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8",
+        "after": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8"
+      }
+    }
+  ],
+  "timings": {
+    "open Explorer creation": 77,
+    "name legacy Explorer": 39,
+    "create blank legacy Explorer": 291,
+    "name Patient table": 35,
+    "create Patient root table": 732,
+    "open field picker for nested Patient list": 76,
+    "choose Patient fields and related data": 88,
+    "open raw FHIR fields": 93,
+    "select repeated Patient given-name field": 68,
+    "add repeated Patient given-name field": 167,
+    "choose ALL for Patient.name[].given[] list output": 153,
+    "confirm Patient given-name ALL column": 441,
+    "apply independent array-backed Patient column": 432,
+    "reload saved legacy v9 workspace": 684,
+    "select legacy Patient table": 340,
+    "open legacy Patient row settings": 55,
+    "open RelatedExpand from legacy row settings": 92,
+    "cancel RelatedExpand row editor": 126,
+    "reopen legacy Patient row settings for ListExpand": 69,
+    "open ListExpand from legacy row settings": 123,
+    "cancel ListExpand row editor": 102,
+    "open legacy Patient row settings for Group": 52,
+    "open Group proposal from the exact legacy draft": 809,
+    "cancel legacy Group preview": 145,
+    "reopen legacy Patient row settings for Group Apply": 60,
+    "reopen Group proposal for Apply": 808,
+    "Apply Group proposal from the exact legacy draft": 337,
+    "reload applied Group draft": 886
+  },
+  "target": {
+    "kind": "isolated",
+    "uiUrl": "http://127.0.0.1:30008",
+    "sourceRoot": "$TMP/<path>",
+    "project": "loom_dev_verify_muvvs6zl-0522c98",
+    "generation": "fixture-v1",
+    "sourceFingerprint": {
+      "sha256": "991be8732dbb106004a329d3f35efc54e0f0d33c74c5d7fe18ffcfcf9730a5e9",
+      "files": 1493
+    },
+    "apiBuildIdentity": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8",
+    "fixtureRawOracle": {
+      "source": "fresh project Patient.ndjson",
+      "project": "loom_dev_verify_muvvs6zl-0522c98",
+      "generation": "fixture-v1",
+      "resourceType": "Patient",
+      "patientIDs": [
+        "dev-patient-001",
+        "dev-patient-002"
+      ]
+    },
+    "apiProject": "loom_dev_verify_muvvs6zl/0522c98",
+    "explorer": "verify-zl-0522c98-legacy-v9-rows",
+    "ownerBoundary": {
+      "createMethod": "POST",
+      "createPath": "/api/v1/projects/loom_dev_verify_muvvs6zl-0522c98/explorers",
+      "builderPath": "/api/v1/projects/loom_dev_verify_muvvs6zl-0522c98/explorers/verify-zl-0522c98-legacy-v9-rows/authoring/v2/builder",
+      "summaryMethod": "GET",
+      "summaryPath": "/api/v1/projects/loom_dev_verify_muvvs6zl-0522c98/explorers",
+      "rawFixtureProject": "loom_dev_verify_muvvs6zl-0522c98",
+      "apiProject": "loom_dev_verify_muvvs6zl/0522c98",
+      "explorerId": "verify-zl-0522c98-legacy-v9-rows",
+      "title": "Verify zl-0522c98 legacy v9 rows",
+      "management": "INTERACTIVE"
+    },
+    "legacySeed": {
+      "semanticsVersion": 9,
+      "storageKey": "explorer_a562616075c9b331fc19f1865cad97c36b0a8307bd0708652e4ff7a507d21d10",
+      "draftVersion": 3,
+      "digest": "sha256:a08e8b2b64bc7b1f8f86b60b5188631503eecfc67695ce811604e9dfd5485387",
+      "rawProject": "loom_dev_verify_muvvs6zl-0522c98",
+      "explorer": "verify-zl-0522c98-legacy-v9-rows"
+    },
+    "appliedDraft": {
+      "draftVersion": 4,
+      "draftDigest": "sha256:ae959257d3ede75d7f94230b82ddac778e2b48bb34d5f586ae02d2d49d472390",
+      "semanticsVersion": 10,
+      "project": "loom_dev_verify_muvvs6zl-0522c98",
+      "explorer": "verify-zl-0522c98-legacy-v9-rows",
+      "generation": "fixture-v1",
+      "authorizationScopeDigest": "[REDACTED]"
+    },
+    "sourceFingerprintAfter": {
+      "sha256": "991be8732dbb106004a329d3f35efc54e0f0d33c74c5d7fe18ffcfcf9730a5e9",
+      "files": 1493
+    },
+    "apiBuildIdentityAfter": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8"
+  },
+  "fullReportPath": "/private/tmp/loom-native-parallel-wave37/legacy-v9-workspace/artifacts/verify-ui/builder-authoring-legacy-v9-rows-muvvs6zl-0522c98.json"
+}

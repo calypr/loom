@@ -1,0 +1,426 @@
+{
+  "schemaVersion": 1,
+  "target": {
+    "pageUrl": "http://127.0.0.1:30006/?project=loom_dev_c89a69d7e137&explorer=loom-dev-bootstrap&mode=builder",
+    "apiUrl": "http://127.0.0.1:8186/api/v1/projects/loom_dev_c89a69d7e137/explorers/loom-dev-bootstrap/authoring/v2/builder"
+  },
+  "metadata": {
+    "fixtureGeneration": "fixture-v1",
+    "project": "loom_dev_c89a69d7e137",
+    "explorer": "loom-dev-bootstrap",
+    "operation": "Unpivot Patient id and gender; propose then cancel without applying",
+    "sourceRowsAreNotTruncated": true
+  },
+  "workloads": [
+    {
+      "id": "patients-unpivot-id-gender",
+      "family": "Reshape",
+      "identity": {
+        "sourceSnapshot": "fixture-v1",
+        "inputRows": 2,
+        "outputRows": 3,
+        "outputWidth": 7,
+        "constructionDepth": 1,
+        "previewLimit": 5,
+        "categoryCardinality": {
+          "gender": 2,
+          "resourceType": 1
+        },
+        "matchMultiplicity": "one-to-one; no joins"
+      },
+      "samples": [
+        {
+          "id": "id-gender-drop-null",
+          "expectedCheckedChoices": [
+            "Unpivot input columns: id",
+            "Unpivot input columns: gender"
+          ],
+          "setup": [
+            {
+              "type": "waitFor",
+              "selector": "[data-testid='construction-action-reshape']",
+              "enabled": true,
+              "timeoutMs": 10000
+            },
+            {
+              "type": "clickUnlessVisible",
+              "selector": "[data-testid='construction-action-reshape']",
+              "visibleSelector": "[data-testid='construction-operation-editor']"
+            },
+            {
+              "type": "waitFor",
+              "selector": "[data-testid='construction-operation-editor']",
+              "timeoutMs": 10000
+            },
+            {
+              "type": "clickUnlessVisible",
+              "selector": "[data-testid='ui04-open-table-shape-settings']",
+              "visibleSelector": "[data-testid='ui04-reshape-mode']"
+            },
+            {
+              "type": "waitFor",
+              "selector": "[data-testid='ui04-reshape-mode']",
+              "enabled": true,
+              "timeoutMs": 10000
+            },
+            {
+              "type": "select",
+              "selector": "[data-testid='ui04-reshape-mode']",
+              "optionText": "Unpivot"
+            },
+            {
+              "type": "waitFor",
+              "selector": "input[aria-label='Unpivot input columns: id']",
+              "enabled": true,
+              "timeoutMs": 10000
+            },
+            {
+              "type": "setChecked",
+              "selector": "input[aria-label='Unpivot input columns: id']",
+              "checked": true
+            },
+            {
+              "type": "waitFor",
+              "selector": "input[aria-label='Unpivot input columns: gender']",
+              "enabled": true,
+              "timeoutMs": 10000
+            },
+            {
+              "type": "setChecked",
+              "selector": "input[aria-label='Unpivot input columns: gender']",
+              "checked": true
+            },
+            {
+              "type": "fill",
+              "selector": "[data-testid='ui04-unpivot-key-output-column']",
+              "value": "source_field"
+            },
+            {
+              "type": "fill",
+              "selector": "[data-testid='ui04-unpivot-key-output-label']",
+              "value": "Source field"
+            },
+            {
+              "type": "fill",
+              "selector": "[data-testid='ui04-unpivot-value-output-column']",
+              "value": "source_value"
+            },
+            {
+              "type": "fill",
+              "selector": "[data-testid='ui04-unpivot-value-output-label']",
+              "value": "Source value"
+            },
+            {
+              "type": "select",
+              "selector": "[data-testid='ui04-unpivot-null-row-policy']",
+              "optionText": "Drop null rows"
+            },
+            {
+              "type": "waitFor",
+              "selector": "[data-testid='ui04-preview-table-shape']",
+              "enabled": true,
+              "timeoutMs": 10000
+            }
+          ],
+          "request": [
+            {
+              "type": "click",
+              "selector": "[data-testid='ui04-preview-table-shape']"
+            }
+          ],
+          "expectedTables": [
+            {
+              "columns": [
+                "Row",
+                "Column",
+                "Before",
+                "After"
+              ],
+              "rows": [
+                [
+                  "$any",
+                  "id",
+                  "\"dev-patient-001\"",
+                  "No row"
+                ],
+                [
+                  "$any",
+                  "gender",
+                  "\"female\"",
+                  "No row"
+                ],
+                [
+                  "$any",
+                  "col_cf6757284f0af9f1d1a32127__0",
+                  "\"Example\"",
+                  "No row"
+                ],
+                [
+                  "$any",
+                  "col_cf6757284f0af9f1d1a32127__1",
+                  "\"Example-Smith\"",
+                  "No row"
+                ],
+                [
+                  "$any",
+                  "name__count",
+                  "2",
+                  "No row"
+                ],
+                [
+                  "$any",
+                  "Source field",
+                  "Missing",
+                  "No row"
+                ],
+                [
+                  "$any",
+                  "Source value",
+                  "Missing",
+                  "No row"
+                ]
+              ]
+            },
+            {
+              "columns": [
+                "Row",
+                "Column",
+                "Before",
+                "After"
+              ],
+              "rows": [
+                [
+                  "$any",
+                  "id",
+                  "\"dev-patient-002\"",
+                  "No row"
+                ],
+                [
+                  "$any",
+                  "gender",
+                  "null",
+                  "No row"
+                ],
+                [
+                  "$any",
+                  "col_cf6757284f0af9f1d1a32127__0",
+                  "\"Builder\"",
+                  "No row"
+                ],
+                [
+                  "$any",
+                  "col_cf6757284f0af9f1d1a32127__1",
+                  "null",
+                  "No row"
+                ],
+                [
+                  "$any",
+                  "name__count",
+                  "1",
+                  "No row"
+                ],
+                [
+                  "$any",
+                  "Source field",
+                  "Missing",
+                  "No row"
+                ],
+                [
+                  "$any",
+                  "Source value",
+                  "Missing",
+                  "No row"
+                ]
+              ]
+            },
+            {
+              "columns": [
+                "Row",
+                "Column",
+                "Before",
+                "After"
+              ],
+              "rows": [
+                [
+                  "$any",
+                  "id",
+                  "No row",
+                  "Missing"
+                ],
+                [
+                  "$any",
+                  "gender",
+                  "No row",
+                  "Missing"
+                ],
+                [
+                  "$any",
+                  "col_cf6757284f0af9f1d1a32127__0",
+                  "No row",
+                  "\"Builder\""
+                ],
+                [
+                  "$any",
+                  "col_cf6757284f0af9f1d1a32127__1",
+                  "No row",
+                  "null"
+                ],
+                [
+                  "$any",
+                  "name__count",
+                  "No row",
+                  "1"
+                ],
+                [
+                  "$any",
+                  "Source field",
+                  "No row",
+                  "\"col_0960488bb0297beb4cfd83c9\""
+                ],
+                [
+                  "$any",
+                  "Source value",
+                  "No row",
+                  "\"dev-patient-002\""
+                ]
+              ]
+            },
+            {
+              "columns": [
+                "Row",
+                "Column",
+                "Before",
+                "After"
+              ],
+              "rows": [
+                [
+                  "$any",
+                  "id",
+                  "No row",
+                  "Missing"
+                ],
+                [
+                  "$any",
+                  "gender",
+                  "No row",
+                  "Missing"
+                ],
+                [
+                  "$any",
+                  "col_cf6757284f0af9f1d1a32127__0",
+                  "No row",
+                  "\"Example\""
+                ],
+                [
+                  "$any",
+                  "col_cf6757284f0af9f1d1a32127__1",
+                  "No row",
+                  "\"Example-Smith\""
+                ],
+                [
+                  "$any",
+                  "name__count",
+                  "No row",
+                  "2"
+                ],
+                [
+                  "$any",
+                  "Source field",
+                  "No row",
+                  "\"col_0960488bb0297beb4cfd83c9\""
+                ],
+                [
+                  "$any",
+                  "Source value",
+                  "No row",
+                  "\"dev-patient-001\""
+                ]
+              ]
+            },
+            {
+              "columns": [
+                "Row",
+                "Column",
+                "Before",
+                "After"
+              ],
+              "rows": [
+                [
+                  "$any",
+                  "id",
+                  "No row",
+                  "Missing"
+                ],
+                [
+                  "$any",
+                  "gender",
+                  "No row",
+                  "Missing"
+                ],
+                [
+                  "$any",
+                  "col_cf6757284f0af9f1d1a32127__0",
+                  "No row",
+                  "\"Example\""
+                ],
+                [
+                  "$any",
+                  "col_cf6757284f0af9f1d1a32127__1",
+                  "No row",
+                  "\"Example-Smith\""
+                ],
+                [
+                  "$any",
+                  "name__count",
+                  "No row",
+                  "2"
+                ],
+                [
+                  "$any",
+                  "Source field",
+                  "No row",
+                  "\"col_209ca51800c9d668215e0f54\""
+                ],
+                [
+                  "$any",
+                  "Source value",
+                  "No row",
+                  "\"female\""
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "cleanup": [
+        {
+          "type": "click",
+          "selector": "[data-testid='ui04-cancel-table-shape-proposal']"
+        }
+      ],
+      "completion": {
+        "rootSelector": "main",
+        "tablesSelector": "[data-testid^='ui04-comparison-example-'][data-testid$='-cells'] table",
+        "headerSelector": "thead th",
+        "rowSelector": "tbody tr:has(th)",
+        "cellSelector": "th, td",
+        "rowGroupSelector": "li[data-testid^='ui04-comparison-example-']",
+        "rowIdentitySelector": "h4",
+        "applySelector": "[data-testid='ui04-confirm-table-shape']",
+        "networkIdentity": "proposalId",
+        "builderStateIdentityFields": [
+          "outputId",
+          "baseReceiptId",
+          "draftVersion",
+          "draftDigest",
+          "snapshotToken"
+        ],
+        "checkedChoiceSelector": "input[data-testid^='ui04-unpivot-input-columns-choice-']",
+        "metricSelectors": {
+          "baseRowCount": "[data-testid='ui04-comparison-base-rows'] dd",
+          "candidateRowCount": "[data-testid='ui04-comparison-candidate-rows'] dd"
+        }
+      }
+    }
+  ]
+}

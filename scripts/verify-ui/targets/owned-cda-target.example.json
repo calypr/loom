@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "sourceRoot": "/absolute/path/to/loom-checkout",
+  "datasetDir": "/absolute/path/to/CDA-FHIR/META",
+  "composeProject": "loom-dev-local-project",
+  "project": "loom_dev_cda_fhir",
+  "generation": "cda-fhir-v1",
+  "apiOrigin": "http://127.0.0.1:8188",
+  "uiOrigin": "http://127.0.0.1:30008",
+  "apiContainer": "loom-dev-local-project-loom-api-1",
+  "arangoContainer": "loom-dev-local-project-arangodb-1",
+  "clickhouseContainer": "loom-dev-local-project-clickhouse-1",
+  "noAuth": true
+}

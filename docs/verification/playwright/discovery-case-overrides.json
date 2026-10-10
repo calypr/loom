@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "kind": "explicit-discovery-title-overrides",
+  "note": "Only cases whose portable source names differ from the official discovered Playwright title are listed. Every target title is checked against the hashed static discovery snapshot. Variant names and environment values remain explicit.",
+  "cases": [
+    {
+      "sourcePath": "scripts/verify-ui/workflows/verify-cda-named-cohort-related-count-browser.mjs",
+      "scenarioID": "cda-named-cohort-related-count",
+      "caseName": "related-count-nonempty-groups",
+      "specPath": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
+      "sessionID": "main",
+      "testTitle": "author and restore the exact named-cohort COUNT contributor lifecycle",
+      "expectedVariants": {
+        "relatedForm": "COUNT",
+        "includeEmptyGroup": false
+      }
+    },
+    {
+      "sourcePath": "scripts/verify-ui/workflows/verify-cda-named-cohort-related-count-browser.mjs",
+      "scenarioID": "cda-named-cohort-related-count",
+      "caseName": "related-count-including-empty-group",
+      "specPath": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
+      "sessionID": "main",
+      "testTitle": "author and restore the exact named-cohort COUNT contributor lifecycle",
+      "expectedVariants": {
+        "relatedForm": "COUNT",
+        "includeEmptyGroup": true
+      }
+    },
+    {
+      "sourcePath": "scripts/verify-ui/workflows/verify-cda-named-cohort-related-count-browser.mjs",
+      "scenarioID": "cda-named-cohort-related-count",
+      "caseName": "related-all-nonempty-groups",
+      "specPath": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
+      "sessionID": "main",
+      "testTitle": "author and restore the exact named-cohort ALL contributor lifecycle",
+      "expectedVariants": {
+        "relatedForm": "ALL",
+        "includeEmptyGroup": false
+      }
+    },
+    {
+      "sourcePath": "scripts/verify-ui/workflows/verify-cda-named-cohort-related-count-browser.mjs",
+      "scenarioID": "cda-named-cohort-related-count",
+      "caseName": "related-all-including-empty-group",
+      "specPath": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
+      "sessionID": "main",
+      "testTitle": "author and restore the exact named-cohort ALL contributor lifecycle",
+      "expectedVariants": {
+        "relatedForm": "ALL",
+        "includeEmptyGroup": true
+      }
+    },
+    {
+      "sourcePath": "scripts/verify-ui/workflows/verify-cda-add-column-dialog.mjs",
+      "scenarioID": "cda-add-column-dialog",
+      "caseName": "add-columns-dialog-cancel-and-restore-coded-suggestions",
+      "specPath": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
+      "sessionID": "main",
+      "testTitle": "cancel each coded suggestion dialog without changing the draft",
+      "expectedVariants": {
+        "workflow": "cancel coded suggestion dialog and restore the unchanged draft"
+      }
+    },
+    {
+      "sourcePath": "scripts/verify-ui/workflows/verify-cda-related-one-all-browser.mjs",
+      "scenarioID": "cda-related-one-all",
+      "caseName": "${mode}-${field}-raw-oracle-one-all-lifecycle",
+      "specPath": "scripts/verify-ui/specs/standalone-cda-rows.spec.mjs",
+      "sessionID": "main",
+      "testTitle": "preserves cda id behavior against raw related records",
+      "expectedVariants": [
+        {
+          "mode": "cda",
+          "field": "id"
+        },
+        {
+          "mode": "cda",
+          "field": "status"
+        },
+        {
+          "mode": "cda",
+          "field": "specimen-reference"
+        },
+        {
+          "mode": "basic",
+          "field": "status"
+        }
+      ],
+      "variantDiscoveryBindings": [
+        {
+          "sessionID": "main",
+          "testTitle": "preserves cda id behavior against raw related records"
+        },
+        {
+          "sessionID": "related-one-all-cda-status",
+          "testTitle": "preserves cda status behavior against raw related records"
+        },
+        {
+          "sessionID": "related-one-all-cda-specimen-reference",
+          "testTitle": "preserves cda specimen-reference behavior against raw related records"
+        },
+        {
+          "sessionID": "related-one-all-basic-status",
+          "testTitle": "preserves basic status behavior against raw related records"
+        }
+      ]
+    },
+    {
+      "sourcePath": "scripts/verify-ui/workflows/verify-cda-collection-repair.mjs",
+      "scenarioID": "cda-collection-repair-partial",
+      "caseName": "partial-long-route-repair-and-reload",
+      "specPath": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
+      "sessionID": "collection-partial-long-route",
+      "testTitle": "remove an unmapped selected resource, verify the saved route, and reload",
+      "expectedVariants": {
+        "LOOM_COLLECTION_PARTIAL_LONG_ROUTE": "1"
+      }
+    }
+  ]
+}

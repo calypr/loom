@@ -36,3 +36,4 @@ func key(parts ...string) string {
 func explorerKey(project, id string) string { return "explorer_" + key(project, id) }
 
 var _ explorer.Store = (*Store)(nil)
+var _ explorer.DraftRevisionReader = (*Store)(nil)

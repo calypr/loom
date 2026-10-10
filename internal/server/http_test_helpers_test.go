@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -64,6 +66,7 @@ func (r compilerTestRegistry) LoadRecipeVersion(ctx context.Context, name, _ str
 type testHTTPResponse struct {
 	StatusCode int
 	Body       string
+	Headers    http.Header
 }
 
 func requestJSON(t *testing.T, app *fiber.App, method, path, body string) testHTTPResponse {
@@ -72,7 +75,7 @@ func requestJSON(t *testing.T, app *fiber.App, method, path, body string) testHT
 	if body != "" {
 		request.Header.Set("Content-Type", "application/json")
 	}
-	response, err := app.Test(request)
+	response, err := app.Test(request, fiber.TestConfig{Timeout: 5 * time.Second, FailOnTimeout: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,19 +84,20 @@ func requestJSON(t *testing.T, app *fiber.App, method, path, body string) testHT
 	if err != nil {
 		t.Fatal(err)
 	}
-	return testHTTPResponse{StatusCode: response.StatusCode, Body: string(raw)}
+	return testHTTPResponse{StatusCode: response.StatusCode, Body: string(raw), Headers: response.Header.Clone()}
 }
 
 type testExplorerStore struct {
 	explorer.Store
-	mu        sync.Mutex
-	explorers map[string]explorer.Explorer
-	receipts  map[string]explorer.CompilationReceipt
-	revisions map[string]explorer.Revision
+	mu             sync.Mutex
+	explorers      map[string]explorer.Explorer
+	receipts       map[string]explorer.CompilationReceipt
+	revisions      map[string]explorer.Revision
+	draftRevisions map[string]explorer.DraftRevision
 }
 
 func newTestExplorerStore() *testExplorerStore {
-	return &testExplorerStore{explorers: map[string]explorer.Explorer{}, receipts: map[string]explorer.CompilationReceipt{}, revisions: map[string]explorer.Revision{}}
+	return &testExplorerStore{explorers: map[string]explorer.Explorer{}, receipts: map[string]explorer.CompilationReceipt{}, revisions: map[string]explorer.Revision{}, draftRevisions: map[string]explorer.DraftRevision{}}
 }
 
 func testExplorerKey(project, id string) string { return project + "\x00" + id }
@@ -146,8 +150,30 @@ func (s *testExplorerStore) SaveDraft(_ context.Context, value explorer.Explorer
 	if prior.DraftVersion != expected || (len(expectedDigest) > 0 && expectedDigest[0] != "" && prior.DraftDigest != expectedDigest[0]) {
 		return nil, explorer.ErrDraftConflict
 	}
+	if s.draftRevisions == nil {
+		s.draftRevisions = map[string]explorer.DraftRevision{}
+	}
+	revisionID := fmt.Sprintf("draft_revision_%s_%d", prior.ExplorerID, prior.DraftVersion)
+	s.draftRevisions[testExplorerKey(prior.Project, prior.ExplorerID)+"\x00"+revisionID] = explorer.DraftRevision{
+		ID: revisionID, Project: prior.Project, ExplorerID: prior.ExplorerID, DraftVersion: prior.DraftVersion,
+		DraftDigest: prior.DraftDigest, DraftConfig: append([]byte(nil), prior.DraftConfig...), Title: prior.Title,
+		SnapshotToken: prior.DraftSnapshotToken, SourceGeneration: prior.DraftSourceGeneration,
+		AuthorizationScopeDigest: prior.DraftAuthorizationScopeDigest, UpdatedBy: prior.UpdatedBy, UpdatedAt: prior.UpdatedAt,
+	}
+	value.PreviousDraftRevisionID = revisionID
 	value.DraftVersion++
 	s.explorers[key] = value
+	return &value, nil
+}
+
+func (s *testExplorerStore) GetDraftRevision(_ context.Context, project, explorerID, revisionID string) (*explorer.DraftRevision, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	value, ok := s.draftRevisions[testExplorerKey(project, explorerID)+"\x00"+revisionID]
+	if !ok {
+		return nil, explorer.ErrNotFound
+	}
+	value.DraftConfig = append([]byte(nil), value.DraftConfig...)
 	return &value, nil
 }
 
@@ -237,7 +263,7 @@ func (s *testExplorerStore) activateLocked(project, explorerID, revisionID strin
 
 func baselineExplorerWorkspaceV2() []byte {
 	visible, order := true, 0
-	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Patients"}, Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients", RowLabel: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient"}, Columns: []authoringv2.Column{{Column: "c_patient", Label: "Patient ID", LogicalType: "string", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, FieldPath: "id", ProjectionMode: "FIRST"}, Table: &authoringv2.TablePresentation{Visible: &visible, Order: &order}}}}}, Tabs: []authoringv2.Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}}
+	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Patients"}, Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients", RowLabel: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient"}, Columns: []authoringv2.Column{{Column: "c_patient", Label: "Patient ID", LogicalType: "string", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "FIRST"}}, Table: &authoringv2.TablePresentation{Visible: &visible, Order: &order}}}}}, Tabs: []authoringv2.Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}}
 	raw, _ := json.Marshal(workspace)
 	return raw
 }

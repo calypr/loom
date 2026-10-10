@@ -1,0 +1,186 @@
+{
+  "epoch": 104,
+  "status": "CLOSED_FAILED_PRODUCT",
+  "case": {
+    "scenarioId": "cda-five-hop-related-expansion",
+    "caseName": "medication-preserve-parent",
+    "title": "Make a row for each Medication from a zero-column Specimen through five relationship hops",
+    "status": "failed_product",
+    "failureAttribution": "PRODUCT_CONSTRUCTION_PROPOSAL_HTTP_500",
+    "classificationNote": "The native five-hop RELATED_EXPAND proposal POST returned HTTP 500 with request ID construction-proposal-fd712624-7c13-40c2-9b30-b7434569043c; the response was generic INTERNAL_ERROR. The backend owner reported a nil panic in API logs for this request, but the retained evidence does not establish the panic frame or identify a specific root cause. The workflow then timed out waiting for proposal preview. This records the observed product failure without attributing it to a particular backend stage. Cancel, Apply, edit, removal, and reload were not reached.",
+    "requiredChecks": {
+      "total": 11,
+      "passed": 3,
+      "failed": 0,
+      "unrun": 8,
+      "passedNames": [
+        "bounded independent raw CDA oracle proves the exact five-hop Medication route and records match availability",
+        "fresh Specimen table has zero public columns and exact scoped selected membership",
+        "CDA watched source and API build stayed unchanged"
+      ],
+      "unrunNames": [
+        "native RelatedExpand editor selects the exact five-hop route from root identity to Medication",
+        "PRESERVE_PARENT automatic proposal renders exact terminal Medication IDs and one null ID per unmatched parent",
+        "Cancel leaves the zero-column source population and saved draft unchanged",
+        "Apply saves the exact route and renders actual Medication table preview rows matching raw membership",
+        "reload restores the exact route, policy, row identities, and Medication preview values",
+        "editing to EXCLUDE removes unmatched parents in preview and after reload",
+        "removing RelatedExpand restores the zero-column Specimen table, selection, direct route, and no stale Medication output after reload",
+        "native route, proposal, Apply, edit, removal, and reload checkpoints complete within five seconds"
+      ],
+      "note": "The exact-route native action completed and is preserved separately; the composite registered route/proposal check was not recorded before the proposal failure. The 8 missing checks reflect workflow check accounting, not absence of the selected-route action."
+    },
+    "assertions": {
+      "passed": 10,
+      "failed": 1,
+      "total": 11
+    },
+    "actions": {
+      "passed": 6,
+      "failed": 0,
+      "total": 6,
+      "maxElapsedMs": 105
+    },
+    "dimensions": {
+      "usability": "partial",
+      "correctness": "failed",
+      "persistence": "untested",
+      "performance": "partial"
+    },
+    "firstFailure": {
+      "requestId": "construction-proposal-fd712624-7c13-40c2-9b30-b7434569043c",
+      "method": "POST",
+      "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/related-medication-0d14e33e-ffcc-4b03-b0ed-033f932b4f24/authoring/v2/construction-proposals",
+      "status": 500,
+      "responseCode": "INTERNAL_ERROR",
+      "backendOwnerLogFinding": "Backend owner reported a nil panic in API logs for this request; retained evidence does not include a stack trace or establish the panic frame/root cause.",
+      "workflowFailure": "page.waitForFunction: Timeout 5000ms exceeded.",
+      "afterFailureLifecycle": {
+        "proposalPreview": "failed",
+        "cancel": "unrun",
+        "apply": "unrun",
+        "reload": "unrun",
+        "excludeEdit": "unrun",
+        "removal": "unrun"
+      }
+    }
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "09af1cbcd30136fba2ceb3d6990fe1b098d1ecf1be860177e7b136cd8ea40fec",
+        "files": 1533
+      },
+      "after": {
+        "sha256": "09af1cbcd30136fba2ceb3d6990fe1b098d1ecf1be860177e7b136cd8ea40fec",
+        "files": 1533
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave104/source-before.json",
+        "sha256": "925389582aadad5b70711693b6ab781dafb28933a532de44c69b9bf7096995c4"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave104/source-after.json",
+        "sha256": "0ef449295046ba5a0da29c8ab2c3540d5dd691c1d23b6013f43bef88139b0b5f"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "7270ba15cc0b80ddabae2e38036e5c8108bc347f07c0b54e70e8ceb5aeefd1b7",
+        "files": 240
+      },
+      "after": {
+        "sha256": "7270ba15cc0b80ddabae2e38036e5c8108bc347f07c0b54e70e8ceb5aeefd1b7",
+        "files": 240
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave104/docs-before.json",
+        "sha256": "67c8566e853bb9bc177513e2faedadaa437b505b51d2600ba13a0a3bbec1090d"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave104/docs-after.json",
+        "sha256": "5ad6974a0bc62b5f98db9d65d641a760ca0f20df4294e284bf10465e223678c4"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+      "after": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+      "precheck": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave104/api-identity-before.json",
+        "sha256": "76ee7f066665d26317d14babf54fbccc56738bde89a20f2c788823953fe02039"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave104/api-identity-after.json",
+        "sha256": "155672e2d1cb4ff13e3a4dabf4ee5e6b168bbc9bfc761a43d5bcef25b2b27edf"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave104/api-build-precheck-confirmed.json",
+        "sha256": "11803360b2b704b4b8887f7a95a50e37af3c74a673794f94d780c45efd4d0f64"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave104/owned-mounts-before.json",
+        "sha256": "3acb2ba02e3fc3b503fd5ed633d571c44faaf508ee705b56b175e872e5c3e56f"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave104/owned-mounts-after.json",
+        "sha256": "f79ef8a09c65f0832775112bdd9dc84739d1f83dd9980f0c42cb966be2e15c95"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave104/health-before.json",
+        "sha256": "8d0d9169336685b4fd010b9cd71fda6b3e91907bffbad4b9648893d1c8cf5542"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave104/health-after.json",
+        "sha256": "c7d98e15a5b6e2b4b28afaea18e41f372f25ecce67891beea0e4b994dced1556"
+      }
+    }
+  },
+  "rawArtifacts": {
+    "domainReport": {
+      "path": "/private/tmp/loom-native-related-expansion-wave104/attempt1/artifacts/standalone-cda-other-CDA-z-888f6-ough-five-relationship-hops/cda-report.json",
+      "sha256": "272d73828230924616668426d4943247e3b0401323631acbdceaba5f3d23e9d3"
+    },
+    "integrityClosure": {
+      "path": "/private/tmp/loom-native-related-expansion-wave104/integrity-closure.json",
+      "sha256": "0318cca1f1a9a1555facdaf641efb669693dbabae81cd7c709efff506f58c938"
+    },
+    "playwrightResults": {
+      "path": "/private/tmp/loom-native-related-expansion-wave104/attempt1/results.json",
+      "sha256": "48955057e5a87ca8f442daee61cf1f31b9673c86c4af864712163bdb2e46f150"
+    }
+  }
+}

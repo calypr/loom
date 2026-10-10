@@ -9,6 +9,15 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func validatePhysicalExtract(extract PhysicalExtract, defined map[string]bool, bindVars map[string]any) error {
 	if err := validatePhysicalValue(extract.Source, defined, bindVars); err != nil {
 		return err
@@ -29,7 +38,13 @@ func validatePhysicalExtract(extract PhysicalExtract, defined map[string]bool, b
 		return fmt.Errorf("conditional array selector mode requires one fallback-free repeated selector")
 	}
 	for index, fallback := range extract.Fallbacks {
-		if err := validatePhysicalSelector(extract.ResourceType, fallback); err != nil {
+		if err := validatePhysicalValue(fallback.Source, defined, bindVars); err != nil {
+			return fmt.Errorf("extract fallback %d source: %w", index, err)
+		}
+		if !schemaDefinitionExists(fallback.ResourceType) {
+			return fmt.Errorf("extract fallback %d resource type %q is not represented by the active generated FHIR schema", index, fallback.ResourceType)
+		}
+		if err := validatePhysicalSelector(fallback.ResourceType, fallback.Selector); err != nil {
 			return fmt.Errorf("extract fallback %d: %w", index, err)
 		}
 	}
@@ -41,7 +56,51 @@ func validatePhysicalExtract(extract PhysicalExtract, defined map[string]bool, b
 			return fmt.Errorf("prepared extract cannot use fallback selectors")
 		}
 	}
+	if extract.UnitNormalization != nil {
+		normalization := extract.UnitNormalization
+		if !normalization.Target.Valid() || len(normalization.Rules) == 0 {
+			return fmt.Errorf("unit normalization target and approved rules are required")
+		}
+		if normalization.OriginalValue.CanonicalPath() != extract.Selector.CanonicalPath() {
+			return fmt.Errorf("unit normalization original value must match extract selector")
+		}
+		valuePath := normalization.OriginalValue.CanonicalPath()
+		if !strings.HasSuffix(valuePath, ".value") {
+			return fmt.Errorf("unit normalization original value must select a FHIR Quantity value")
+		}
+		quantityPath := strings.TrimSuffix(valuePath, ".value")
+		if physicalSelectorIterates(normalization.OriginalValue) || physicalSelectorIterates(normalization.SourceSystem) || physicalSelectorIterates(normalization.SourceCode) {
+			return fmt.Errorf("unit normalization requires one scalar or indexed Quantity")
+		}
+		if normalization.SourceSystem.CanonicalPath() != quantityPath+".system" || normalization.SourceCode.CanonicalPath() != quantityPath+".code" {
+			return fmt.Errorf("unit normalization system and code selectors must be siblings of the original Quantity value")
+		}
+		quantity, ok := fhirschema.ResolveFieldSemantics(extract.ResourceType, quantityPath)
+		if !ok || quantity.Kind != fhirschema.FieldKindObject || quantity.Reference != "Quantity" {
+			return fmt.Errorf("unit normalization original value must be owned by a FHIR Quantity")
+		}
+		if err := validatePhysicalSelector(extract.ResourceType, normalization.SourceSystem); err != nil {
+			return fmt.Errorf("unit normalization system selector: %w", err)
+		}
+		if err := validatePhysicalSelector(extract.ResourceType, normalization.SourceCode); err != nil {
+			return fmt.Errorf("unit normalization code selector: %w", err)
+		}
+		for index, rule := range normalization.Rules {
+			if err := rule.Validate(normalization.Target, normalization.Dimension); err != nil {
+				return fmt.Errorf("unit normalization rule %d: %w", index, err)
+			}
+		}
+	}
 	return nil
+}
+
+func physicalSelectorIterates(selector spec.Selector) bool {
+	for _, step := range selector.Steps {
+		if step.Iterate {
+			return true
+		}
+	}
+	return false
 }
 
 func validatePhysicalPreparedReference(reference PhysicalPreparedReference, defined map[string]bool) error {
@@ -77,12 +136,12 @@ func validatePhysicalAggregate(aggregate PhysicalAggregate, defined map[string]b
 		return err
 	}
 	switch aggregate.Operation {
-	case PhysicalCountAggregate, PhysicalCountDistinctAggregate, PhysicalExistsAggregate, PhysicalDistinctValuesAggregate, PhysicalMinAggregate, PhysicalMaxAggregate, PhysicalFirstAggregate, PhysicalContainsAllAggregate:
+	case PhysicalCountAggregate, PhysicalCountDistinctAggregate, PhysicalExistsAggregate, PhysicalDistinctValuesAggregate, PhysicalMinAggregate, PhysicalMaxAggregate, PhysicalSumAggregate, PhysicalMeanAggregate, PhysicalFirstAggregate, PhysicalContainsAllAggregate, PhysicalRequireOneAggregate, PhysicalCollectAggregate, PhysicalFirstOrderedAggregate:
 	default:
 		return fmt.Errorf("unknown aggregate operation %q", aggregate.Operation)
 	}
-	needsValue := aggregate.Operation != PhysicalCountAggregate && aggregate.Operation != PhysicalExistsAggregate
-	if needsValue != (aggregate.Value != nil) {
+	requiresValue := aggregate.Operation != PhysicalCountAggregate && aggregate.Operation != PhysicalExistsAggregate
+	if requiresValue && aggregate.Value == nil {
 		return fmt.Errorf("aggregate operation %q value presence is invalid", aggregate.Operation)
 	}
 	if aggregate.Value != nil {
@@ -93,6 +152,41 @@ func validatePhysicalAggregate(aggregate PhysicalAggregate, defined map[string]b
 	if aggregate.Predicate != nil {
 		if err := validatePhysicalPredicateExpression(*aggregate.Predicate, defined, bindVars); err != nil {
 			return fmt.Errorf("aggregate predicate: %w", err)
+		}
+	}
+	if aggregate.ContributorWindow != nil {
+		switch aggregate.Operation {
+		case PhysicalCountAggregate, PhysicalExistsAggregate, PhysicalMinAggregate, PhysicalMaxAggregate, PhysicalSumAggregate, PhysicalMeanAggregate, PhysicalFirstOrderedAggregate:
+		default:
+			return fmt.Errorf("aggregate operation %q does not accept a contributor window", aggregate.Operation)
+		}
+		if err := validatePhysicalExpression(aggregate.ContributorWindow.Timestamp, defined, bindVars); err != nil {
+			return fmt.Errorf("aggregate contributor-window timestamp: %w", err)
+		}
+		if err := validatePhysicalExpression(aggregate.ContributorWindow.Anchor, defined, bindVars); err != nil {
+			return fmt.Errorf("aggregate contributor-window anchor: %w", err)
+		}
+		if aggregate.ContributorWindow.LowerOffset > aggregate.ContributorWindow.UpperOffset || aggregate.ContributorWindow.Precision != "INSTANT" {
+			return fmt.Errorf("aggregate contributor window is invalid")
+		}
+	}
+	if aggregate.Operation == PhysicalFirstOrderedAggregate {
+		if aggregate.ContributorWindow == nil {
+			return fmt.Errorf("FIRST_ORDERED requires a contributor window")
+		}
+		if aggregate.Ordering == nil {
+			return fmt.Errorf("FIRST_ORDERED requires temporal ordering")
+		}
+	}
+	if aggregate.Ordering != nil {
+		if aggregate.Operation != PhysicalFirstOrderedAggregate {
+			return fmt.Errorf("aggregate operation %q does not accept ordering", aggregate.Operation)
+		}
+		if err := validatePhysicalExpression(aggregate.Ordering.Timestamp, defined, bindVars); err != nil {
+			return fmt.Errorf("aggregate ordering timestamp: %w", err)
+		}
+		if (aggregate.Ordering.Direction != "ASC" && aggregate.Ordering.Direction != "DESC") || (aggregate.Ordering.TiePolicy != "REQUIRE_UNIQUE" && aggregate.Ordering.TiePolicy != "RESOURCE_KEY") {
+			return fmt.Errorf("FIRST_ORDERED temporal ordering is invalid")
 		}
 	}
 	if aggregate.Operation == PhysicalContainsAllAggregate {
@@ -126,11 +220,13 @@ func validatePhysicalPivot(pivot PhysicalPivotMap, defined map[string]bool, bind
 	if strings.TrimSpace(pivot.ResourceType) == "" || !fhirschema.HasResource(pivot.ResourceType) {
 		return fmt.Errorf("pivot resource type %q is not represented by the active generated FHIR schema", pivot.ResourceType)
 	}
-	if err := validatePhysicalSelector(pivot.ResourceType, pivot.KeySelector); err != nil {
-		return fmt.Errorf("pivot key selector: %w", err)
-	}
-	if err := validatePhysicalSelector(pivot.ResourceType, pivot.ValueSelector); err != nil {
-		return fmt.Errorf("pivot value selector: %w", err)
+	if pivot.Correlation == nil {
+		if err := validatePhysicalSelector(pivot.ResourceType, pivot.KeySelector); err != nil {
+			return fmt.Errorf("pivot key selector: %w", err)
+		}
+		if err := validatePhysicalSelector(pivot.ResourceType, pivot.ValueSelector); err != nil {
+			return fmt.Errorf("pivot value selector: %w", err)
+		}
 	}
 	if err := requireBind(bindVars, pivot.ColumnsBindKey); err != nil {
 		return err
@@ -144,6 +240,24 @@ func validatePhysicalPivot(pivot PhysicalPivotMap, defined map[string]bool, bind
 			return fmt.Errorf("pivot columns bind %q contains an empty column", pivot.ColumnsBindKey)
 		}
 	}
+	if mode := strings.ToUpper(strings.TrimSpace(pivot.ProjectionMode)); mode != "" && mode != "VALUE" && mode != "FIRST" && mode != "ALL" && mode != "DISTINCT" {
+		return fmt.Errorf("pivot projection mode %q is unsupported", pivot.ProjectionMode)
+	}
+	aliases := map[string]string{}
+	for key, alias := range pivot.ColumnAliases {
+		if !containsString(columns, key) || strings.TrimSpace(alias) == "" {
+			return fmt.Errorf("pivot column alias %q is invalid", key)
+		}
+		if previous, exists := aliases[alias]; exists && previous != key {
+			return fmt.Errorf("pivot column alias %q is shared by %q and %q", alias, previous, key)
+		}
+		aliases[alias] = key
+	}
+	if pivot.Correlation != nil {
+		if err := validatePhysicalCorrelation(*pivot.Correlation, defined, bindVars); err != nil {
+			return fmt.Errorf("pivot correlation: %w", err)
+		}
+	}
 	if pivot.PreparedKey != nil {
 		if err := validatePhysicalPreparedReference(*pivot.PreparedKey, defined); err != nil {
 			return fmt.Errorf("prepared pivot key: %w", err)
@@ -152,6 +266,115 @@ func validatePhysicalPivot(pivot PhysicalPivotMap, defined map[string]bool, bind
 	if pivot.PreparedValue != nil {
 		if err := validatePhysicalPreparedReference(*pivot.PreparedValue, defined); err != nil {
 			return fmt.Errorf("prepared pivot value: %w", err)
+		}
+	}
+	return nil
+}
+
+func validatePhysicalCorrelation(correlation PhysicalCorrelation, defined map[string]bool, bindVars map[string]any) error {
+	if err := validatePhysicalValue(correlation.Source, defined, bindVars); err != nil {
+		return err
+	}
+	if strings.TrimSpace(correlation.ResourceType) == "" || !schemaDefinitionExists(correlation.ResourceType) {
+		return fmt.Errorf("correlation resource type %q is not represented by generated FHIR schema", correlation.ResourceType)
+	}
+	ownerResource := correlation.OwnerResource
+	if ownerResource == "" {
+		ownerResource = correlation.ResourceType
+	}
+	if !schemaDefinitionExists(ownerResource) {
+		return fmt.Errorf("correlation owner resource %q is not represented by generated FHIR schema", ownerResource)
+	}
+	if correlation.OwnerSelector.CanonicalPath() != "" {
+		if err := validatePhysicalSelector(correlation.ResourceType, correlation.OwnerSelector); err != nil {
+			return fmt.Errorf("owner selector: %w", err)
+		}
+	}
+	if len(correlation.ExtensionURLSelectors) > 0 {
+		if correlation.OwnerResource != "Extension" {
+			return fmt.Errorf("extension correlation owner resource %q is not Extension", correlation.OwnerResource)
+		}
+		if len(correlation.ExtensionURLSelectors) != len(correlation.ExtensionURLBindKeys) {
+			return fmt.Errorf("extension URL selectors and bind keys must have equal length")
+		}
+		for index, selector := range correlation.ExtensionURLSelectors {
+			if err := validatePhysicalSelector(correlation.OwnerResource, selector); err != nil {
+				return fmt.Errorf("extension URL selector %d: %w", index, err)
+			}
+			key := strings.TrimSpace(correlation.ExtensionURLBindKeys[index])
+			if key == "" {
+				return fmt.Errorf("extension URL bind key %d is required", index)
+			}
+			if err := requireBind(bindVars, key); err != nil {
+				return err
+			}
+			if _, ok := bindVars[key].(string); !ok {
+				return fmt.Errorf("extension URL bind %q must be a string", key)
+			}
+		}
+		if err := validatePhysicalSelector(correlation.OwnerResource, correlation.ValueSelector); err != nil {
+			return fmt.Errorf("extension value selector: %w", err)
+		}
+		for index, fallback := range correlation.ValueFallbacks {
+			if err := validatePhysicalSelector(correlation.OwnerResource, fallback); err != nil {
+				return fmt.Errorf("extension value fallback %d: %w", index, err)
+			}
+		}
+		for index, choice := range correlation.ChoiceSelectors {
+			if err := validatePhysicalSelector(correlation.OwnerResource, choice); err != nil {
+				return fmt.Errorf("extension choice selector %d: %w", index, err)
+			}
+		}
+		if strings.TrimSpace(correlation.LogicalType) == "" {
+			return fmt.Errorf("extension correlation logical type is required")
+		}
+		return nil
+	}
+	if strings.TrimSpace(correlation.KeyResource) == "" || !schemaDefinitionExists(correlation.KeyResource) {
+		return fmt.Errorf("correlation key resource %q is not represented by generated FHIR schema", correlation.KeyResource)
+	}
+	if err := validatePhysicalSelector(ownerResource, correlation.KeySelector); err != nil {
+		return fmt.Errorf("key selector: %w", err)
+	}
+	if err := validatePhysicalSelector(correlation.KeyResource, correlation.SystemSelector); err != nil {
+		return fmt.Errorf("system selector: %w", err)
+	}
+	if err := validatePhysicalSelector(correlation.KeyResource, correlation.CodeSelector); err != nil {
+		return fmt.Errorf("code selector: %w", err)
+	}
+	if err := validatePhysicalSelector(ownerResource, correlation.ValueSelector); err != nil {
+		return fmt.Errorf("value selector: %w", err)
+	}
+	for index, fallback := range correlation.ValueFallbacks {
+		if err := validatePhysicalSelector(ownerResource, fallback); err != nil {
+			return fmt.Errorf("value fallback %d: %w", index, err)
+		}
+	}
+	for index, choice := range correlation.ChoiceSelectors {
+		if err := validatePhysicalSelector(ownerResource, choice); err != nil {
+			return fmt.Errorf("choice selector %d: %w", index, err)
+		}
+	}
+	if correlation.UnitSelector != nil {
+		if err := validatePhysicalSelector(ownerResource, *correlation.UnitSelector); err != nil {
+			return fmt.Errorf("unit selector: %w", err)
+		}
+	}
+	if strings.TrimSpace(correlation.LogicalType) == "" {
+		return fmt.Errorf("correlation logical type is required")
+	}
+	if primitive := strings.TrimSpace(correlation.ValuePrimitive); primitive != "" && primitive != string(fhirschema.PrimitiveString) && primitive != string(fhirschema.PrimitiveBoolean) && primitive != string(fhirschema.PrimitiveInteger) && primitive != string(fhirschema.PrimitiveDecimal) && primitive != string(fhirschema.PrimitiveDate) && primitive != string(fhirschema.PrimitiveDateTime) {
+		return fmt.Errorf("correlation value primitive %q is unsupported", correlation.ValuePrimitive)
+	}
+	for name, key := range map[string]string{"system": correlation.SystemBindKey, "code": correlation.CodeBindKey} {
+		if strings.TrimSpace(key) == "" {
+			return fmt.Errorf("correlation %s bind key is required", name)
+		}
+		if err := requireBind(bindVars, key); err != nil {
+			return err
+		}
+		if _, ok := bindVars[key].(string); !ok {
+			return fmt.Errorf("correlation %s bind %q must be a string", name, key)
 		}
 	}
 	return nil

@@ -1,0 +1,174 @@
+{
+  "schemaVersion": 1,
+  "epoch": 122,
+  "status": "CLOSED_INTEGRITY_PASS_BROWSER_FAIL",
+  "rawCoordinatorStatus": "CLOSED_INTEGRITY_PASS_BROWSER_FAIL",
+  "rawCoordinatorClosurePath": "/private/tmp/loom-native-parallel-wave122/failure-closure.json",
+  "rawCoordinatorClosureSha256": "7fd3c7f0331c4d2cf657c53248dab385bf63a24bd93a0c3c0865b2a6ae700d8f",
+  "case": {
+    "scenarioId": "cda-contributor-exists",
+    "caseName": "contributor-exists",
+    "title": "CDA contributor EXISTS",
+    "status": "failed_harness",
+    "classification": "harness_canonicalization_expectation",
+    "failure": {
+      "type": "assertion",
+      "phase": "all-matching-contributor-baseline-preview",
+      "message": "proposal response candidate differs from the exact submitted candidate",
+      "source": "scripts/verify-ui/workflows/contributor-exists-workflow.mjs:265",
+      "candidateDifference": "steps[0].outputs[1].nullable is absent in the submitted candidate and true in the response; owner inspected the retained request/response evidence, all other compared fields match.",
+      "runnerContext": "/private/tmp/loom-native-parallel-wave122/cda-contributor-exists/attempt1/artifacts/standalone-cda-fields-CDA--7cbad-ists-CDA-contributor-exists/error-context.md"
+    },
+    "requiredChecks": {
+      "passed": 3,
+      "total": 16,
+      "missingOrFailed": 0,
+      "missingOrUnrun": 13
+    },
+    "productLifecycleAccepted": false
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "76c707d48a69f88b19e408b0d49a97962aee11690f0e9b410fb6e7f086cab229",
+        "files": 1553
+      },
+      "after": {
+        "sha256": "76c707d48a69f88b19e408b0d49a97962aee11690f0e9b410fb6e7f086cab229",
+        "files": 1553
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave122/source-before.json",
+        "sha256": "b309a8140d244c5ffbcf9f4d0b16502c00390c10cb5c02a4e0dde293703b9cd7"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave122/source-after.json",
+        "sha256": "9b802ecc40d9cbebce9639ebe46f3fff124b461e02d578040ae0259cf5ca928c"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "eb8953f683d1c6451c0c8586b335965623dec520e0736e6571ae3b3bce00d2db",
+        "files": 266
+      },
+      "after": {
+        "sha256": "eb8953f683d1c6451c0c8586b335965623dec520e0736e6571ae3b3bce00d2db",
+        "files": 266
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave122/docs-before.json",
+        "sha256": "b5a3af68e5882b0003c3f6f456efe95e1a0c3842e00a61a4c883760657030b72"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave122/docs-after.json",
+        "sha256": "5b7def09ed9efdecc754596b0626535653f2e767696721908c585571589633f9"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "precheck": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave122/api-identity-before.json",
+        "sha256": "b60afd51cc2376bb60d355b8eae42e8d4318478c3458fcd513ee2f8b6a5c7db0"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave122/api-identity-after.json",
+        "sha256": "91646a62fbebc8cd02c018c1e0ec3a3284e56edf5176c1a372837036879462fe"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave122/api-build-precheck.json",
+        "sha256": "89e6b8a100f9bcc637fcbac9e5f7f76004fcffb693fa5e2d52633f65ef58d6a1"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave122/owned-mounts-before.json",
+        "sha256": "00cc6a583736c4ee5cedbc31cc7be7717c39741a164afeb2c632adcb65a8542c"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave122/owned-mounts-after.json",
+        "sha256": "422d5d2be6319644eeea10e5bf8f048315297458e96880d1f8f9e03da7ca90bd"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave122/health-before.json",
+        "sha256": "0ecb4aeabcf053504924b7bc97105969c62648b147c4bd88c930d8fe57b946eb"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave122/health-after.json",
+        "sha256": "44ba92397ad01f15b75c116829b0bff12dbb353100594be9636c313f6da6048d"
+      }
+    }
+  },
+  "runner": {
+    "status": "failed",
+    "exitCode": 1,
+    "durationMs": 20363,
+    "results": {
+      "path": "/private/tmp/loom-native-parallel-wave122/cda-contributor-exists/attempt1/results.json",
+      "sha256": "b130142a6db3ca57624495005746254db10ad09c7abab97952b496b4c12f03ce",
+      "sizeBytes": 10666
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave122/cda-contributor-exists/attempt1/runner.log",
+      "sha256": "7584e7a7291562e3a36bcdff7493a78a45702e6406e362091677d63bc27c90f6",
+      "sizeBytes": 3647
+    },
+    "lifecycleReport": {
+      "path": "/private/tmp/loom-native-parallel-wave122/cda-contributor-exists/attempt1/artifacts/standalone-cda-fields-CDA--7cbad-ists-CDA-contributor-exists/cda-report.json",
+      "sha256": "cc8449597e3b7365bbd796c16235d8a0cec5bab31b64051e729c5e5d157ef080",
+      "sizeBytes": 91467
+    }
+  },
+  "rootAcceptanceReceipt": {
+    "path": "/private/tmp/loom-native-parallel-wave122/root-acceptance.json",
+    "sha256": "02a673e96e57430130786a7ab9547ef7bb132e9be7cb6a7edd3f8cc04303d387",
+    "status": "INTEGRITY_ACCEPTED_BROWSER_FAILED",
+    "classification": "harness canonicalization expectation",
+    "sourceFreezeReleased": true,
+    "lifecycleAccepted": false
+  },
+  "checks": {
+    "required": 16,
+    "passed": 3,
+    "failed": 0,
+    "unrun": 13,
+    "instrumentationAssertionsPassed": 10,
+    "instrumentationAssertionsTotal": 10,
+    "nativeActions": 6
+  },
+  "nextAction": "Reviewed case-local expected candidate normalization, then rerun same complete browser lifecycle",
+  "noProductPassClaim": true,
+  "noRawPayloadsEmbedded": true
+}

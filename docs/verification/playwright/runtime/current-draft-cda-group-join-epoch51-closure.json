@@ -1,0 +1,119 @@
+{
+  "epoch": 51,
+  "status": "CLOSED_WITH_CASE_FAILURE",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "beforeSha256": "84847fceffb27fc1b67d0b1450bd9cf82fd19adc2741ff6682fe431e8cf48412",
+      "afterSha256": "84847fceffb27fc1b67d0b1450bd9cf82fd19adc2741ff6682fe431e8cf48412",
+      "files": 1498,
+      "changedPaths": []
+    },
+    "docs": {
+      "beforeSha256": "78471a72396cbd0bd1cff2d742b48f7ab8c4559ff75f3b8216e1cef5a4741c44",
+      "afterSha256": "78471a72396cbd0bd1cff2d742b48f7ab8c4559ff75f3b8216e1cef5a4741c44",
+      "files": 133,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+      "after": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "beforeStatus": "PASS",
+      "afterStatus": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "beforeStatus": "PASS",
+      "beforeSamples": 3,
+      "afterStatus": "PASS",
+      "afterSamples": 3,
+      "allApiUiHealthy": true
+    },
+    "handles": {
+      "apiBuildPrecheck": {
+        "session": 65031,
+        "exitCode": 0
+      },
+      "beforeCapture": {
+        "session": 80104,
+        "exitCode": 0
+      },
+      "beforeHealth": {
+        "session": 20006,
+        "exitCode": 0
+      },
+      "browser": {
+        "session": 66783,
+        "exitCode": 1
+      },
+      "afterCapture": {
+        "session": 12228,
+        "exitCode": 0
+      },
+      "afterHealth": {
+        "session": 49336,
+        "exitCode": 0
+      }
+    }
+  },
+  "case": {
+    "owner": "legacy_workspace_browser_case",
+    "scenario": "cda-workspace-combine/group-join",
+    "title": "two independent native Observation Groups join through the current draft lifecycle",
+    "result": "FAILED_HARNESS_PAGE_CONTEXT_REFERENCE",
+    "causeClassification": "HARNESS_PAGE_CONTEXT_REFERENCE",
+    "durationMs": 35439,
+    "runnerProcessDurationMs": null,
+    "runnerExpected": 0,
+    "runnerUnexpected": 1,
+    "reportStatus": "failed",
+    "reportPath": "/private/tmp/loom-native-parallel-wave51/cda-workspace-combine/artifacts/cda-current-draft-group-jo-424dc-the-current-draft-lifecycle/cda-report.json",
+    "targetProject": "loom_dev_cda_fhir",
+    "targetGeneration": "cda-fhir-v1",
+    "firstFailure": "Output option readiness evaluation raised ReferenceError: tidy is not defined in page.evaluateAll at the workflow output-option assertion.",
+    "scopeNote": "The failure is in the harness evaluation callback referencing Node-scope tidy from the browser page context. No Join proposal/lifecycle behavior was reached.",
+    "actionsPassed": 29,
+    "actionsFailed": 0,
+    "nativeRequests": 4,
+    "requiredChecksPassed": 7,
+    "requiredChecksTotal": 16,
+    "missingRequiredChecks": 9,
+    "recordedAssertionsPassed": 58,
+    "recordedAssertionsFailed": 1,
+    "groupJoinLifecycleReached": false,
+    "reportSha256": "cfebcc47b1993dfc7234be5f72c873a1016369984800e3dadc801264a1585948",
+    "errorContextSha256": "be404fae58bb76702750fe73cc64045589d969749db5d14f23b9e93d9d71907c",
+    "playwrightResultsSha256": "3985d0363b07ebcc4f4847004627185918923686157645fa21fdc80f60331012"
+  },
+  "retryPerformed": false,
+  "artifacts": {
+    "apiBuildPrecheck": "/private/tmp/loom-native-parallel-wave51/api-build-precheck.json",
+    "sourceBefore": "/private/tmp/loom-native-parallel-wave51/source-before.json",
+    "sourceAfter": "/private/tmp/loom-native-parallel-wave51/source-after.json",
+    "docsBefore": "/private/tmp/loom-native-parallel-wave51/docs-before.json",
+    "docsAfter": "/private/tmp/loom-native-parallel-wave51/docs-after.json",
+    "apiBefore": "/private/tmp/loom-native-parallel-wave51/api-identity-before.json",
+    "apiAfter": "/private/tmp/loom-native-parallel-wave51/api-identity-after.json",
+    "mountsBefore": "/private/tmp/loom-native-parallel-wave51/owned-mounts-before.json",
+    "mountsAfter": "/private/tmp/loom-native-parallel-wave51/owned-mounts-after.json",
+    "healthBefore": "/private/tmp/loom-native-parallel-wave51/health-before.json",
+    "healthAfter": "/private/tmp/loom-native-parallel-wave51/health-after.json",
+    "playwrightResults": "/private/tmp/loom-native-parallel-wave51/cda-workspace-combine/results.json",
+    "runPlan": "/private/tmp/loom-native-parallel-wave51/run-plan.json"
+  }
+}

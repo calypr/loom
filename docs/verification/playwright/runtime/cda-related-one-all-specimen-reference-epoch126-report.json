@@ -1,0 +1,1842 @@
+{
+  "schemaVersion": 1,
+  "epoch": 126,
+  "scenario": "cda-related-one-all-specimen-reference",
+  "case": "cda-specimen-reference-raw-oracle-one-all-lifecycle",
+  "title": "preserves cda specimen-reference behavior against raw related records",
+  "status": "passed",
+  "runnerStatus": "passed",
+  "coverageStatus": "passed",
+  "durableClosurePath": "docs/verification/playwright/runtime/cda-related-one-all-specimen-reference-epoch126-closure.json",
+  "rawCoordinatorStatus": "CLOSED_INTEGRITY_PASS_BROWSER_PASS",
+  "rootAcceptanceStatus": "ACCEPTED_FULL_LIFECYCLE_PASS",
+  "classification": "EXACT_CDA_SPECIMEN_REFERENCE_ONE_ALL_LIFECYCLE",
+  "target": {
+    "kind": "owned-cda",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorer": "related-one-all-1791333286608",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "sourceRoot": "$TMP/<path>",
+    "sourceFingerprint": {
+      "sha256": "c6d058e4f71d6c46c9d671a1cf06e0415d7034ee2eb73084cea20eb94f75c38e",
+      "files": 1553
+    },
+    "apiBuildIdentity": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135"
+  },
+  "ownedStackValidationTarget": {
+    "project": "loom_dev_cda_fhir",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiPort": "8188",
+    "uiPort": "30008",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "generation": "cda-fhir-v1"
+  },
+  "apiBuildIdentity": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+  "requiredChecks": {
+    "total": 2,
+    "passed": 2,
+    "failed": 0,
+    "unrun": 0,
+    "passedNames": [
+      "related ONE/ALL lifecycle preserves exact raw-source values and row identities",
+      "CDA watched source and API build stayed unchanged"
+    ],
+    "failedNames": [],
+    "unrunNames": [],
+    "outcomes": [
+      {
+        "name": "related ONE/ALL lifecycle preserves exact raw-source values and row identities",
+        "status": "passed"
+      },
+      {
+        "name": "CDA watched source and API build stayed unchanged",
+        "status": "passed"
+      }
+    ]
+  },
+  "assertions": [
+    {
+      "name": "click [data-testid=\"construction-table-out_2487e88c8e29186abca3d8b5\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-rows-settings-trigger\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-action-related-rows\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "select [data-testid=\"construction-related-expand-editor\"] select[aria-label=\"Related record type\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-related-expand-editor\"] input[aria-label=\"Specimen -[subject]-> Patient\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-apply-proposal\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-rows-settings-trigger\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-action-related-rows\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "select [data-testid=\"construction-related-expand-editor\"] select[aria-label=\"Related record type\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-related-expand-editor\"] input[aria-label=\"Patient <-[subject]- Observation\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-apply-proposal\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-rows-settings-trigger\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-action-group-rows\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click input[aria-label=\"Group by Patient FHIR resource ID\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-cancel-proposal\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-table-out_2487e88c8e29186abca3d8b5\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-rows-settings-trigger\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-action-group-rows\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click input[aria-label=\"Group by Patient FHIR resource ID\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-apply-proposal\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-table-out_2487e88c8e29186abca3d8b5\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-action-add-columns\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click Fields and related data completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [aria-label=\"Related resources\"] summary completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-add-columns-source-option\"][aria-label=\"Observation, Related resource\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"feature-catalog-raw-fields\"] > summary completed",
+      "status": "passed"
+    },
+    {
+      "name": "click input[aria-label=\"Select Observation.specimen.reference\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click Add 1 selected feature completed",
+      "status": "passed"
+    },
+    {
+      "name": "click Other relationship paths completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [role=\"dialog\"] input[aria-label=\"Specimen Reference: Specimen -[subject]-> Patient <-[subject]- Observation\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [role=\"dialog\"] input[aria-label=\"Specimen Reference: Keep all matching values\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "select [role=\"dialog\"] select[aria-label=\"Values per grouped row\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click Add 1 column completed",
+      "status": "passed"
+    },
+    {
+      "name": "select [role=\"dialog\"] select[aria-label=\"Values per grouped row\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click Add 1 column completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-cancel-proposal\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-action-add-columns\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click Fields and related data completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-add-columns-source-option\"][aria-label=\"Observation, Related resource\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"feature-catalog-raw-fields\"] > summary completed",
+      "status": "passed"
+    },
+    {
+      "name": "click input[aria-label=\"Select Observation.specimen.reference\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click Add 1 selected feature completed",
+      "status": "passed"
+    },
+    {
+      "name": "click Other relationship paths completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [role=\"dialog\"] input[aria-label=\"Specimen Reference: Specimen -[subject]-> Patient <-[subject]- Observation\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [role=\"dialog\"] input[aria-label=\"Specimen Reference: Keep all matching values\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "select [role=\"dialog\"] select[aria-label=\"Values per grouped row\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click Add 1 column completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-apply-proposal\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-table-out_2487e88c8e29186abca3d8b5\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click Columns completed",
+      "status": "passed"
+    },
+    {
+      "name": "fill output label Observation specimen.reference completed",
+      "status": "passed"
+    },
+    {
+      "name": "commit output label Observation specimen.reference completed",
+      "status": "passed"
+    },
+    {
+      "name": "click Columns completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-table-out_2487e88c8e29186abca3d8b5\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-history-step-step-f03e18e4-edf6-4f37-88bf-1f6ca745d1f1\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-remove-step-step-f03e18e4-edf6-4f37-88bf-1f6ca745d1f1\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-apply-proposal\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "click [data-testid=\"construction-table-out_2487e88c8e29186abca3d8b5\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "related ONE/ALL lifecycle preserves exact raw-source values and row identities",
+      "status": "passed"
+    },
+    {
+      "name": "CDA watched source and API build stayed unchanged",
+      "status": "passed"
+    },
+    {
+      "name": "incidental asset failures are explicitly recorded",
+      "status": "passed"
+    }
+  ],
+  "assertionSummary": {
+    "passed": 61,
+    "failed": 0,
+    "total": 61
+  },
+  "dimensions": {
+    "usability": {
+      "status": "passed",
+      "evidence": [
+        {
+          "name": "click [data-testid=\"construction-table-out_2487e88c8e29186abca3d8b5\"] completed",
+          "status": "passed",
+          "elapsedMs": 97,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 12
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 30
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 55
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-rows-settings-trigger\"] completed",
+          "status": "passed",
+          "elapsedMs": 77,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 21
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 53
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-action-related-rows\"] completed",
+          "status": "passed",
+          "elapsedMs": 121,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 36
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 83
+            }
+          }
+        },
+        {
+          "name": "select [data-testid=\"construction-related-expand-editor\"] select[aria-label=\"Related record type\"] completed",
+          "status": "passed",
+          "elapsedMs": 41,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 31
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 8
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-related-expand-editor\"] input[aria-label=\"Specimen -[subject]-> Patient\"] completed",
+          "status": "passed",
+          "elapsedMs": 79,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 10
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 66
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-apply-proposal\"] completed",
+          "status": "passed",
+          "elapsedMs": 104,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 41
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 62
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-rows-settings-trigger\"] completed",
+          "status": "passed",
+          "elapsedMs": 66,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 23
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 40
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-action-related-rows\"] completed",
+          "status": "passed",
+          "elapsedMs": 119,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 40
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 77
+            }
+          }
+        },
+        {
+          "name": "select [data-testid=\"construction-related-expand-editor\"] select[aria-label=\"Related record type\"] completed",
+          "status": "passed",
+          "elapsedMs": 43,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 33
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 7
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-related-expand-editor\"] input[aria-label=\"Patient <-[subject]- Observation\"] completed",
+          "status": "passed",
+          "elapsedMs": 84,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 14
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 68
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-apply-proposal\"] completed",
+          "status": "passed",
+          "elapsedMs": 100,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 32
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 65
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-rows-settings-trigger\"] completed",
+          "status": "passed",
+          "elapsedMs": 61,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 19
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 40
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-action-group-rows\"] completed",
+          "status": "passed",
+          "elapsedMs": 121,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 24
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 95
+            }
+          }
+        },
+        {
+          "name": "click input[aria-label=\"Group by Patient FHIR resource ID\"] completed",
+          "status": "passed",
+          "elapsedMs": 89,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 26
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 61
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-cancel-proposal\"] completed",
+          "status": "passed",
+          "elapsedMs": 207,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 20
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 184
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-table-out_2487e88c8e29186abca3d8b5\"] completed",
+          "status": "passed",
+          "elapsedMs": 60,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 11
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 47
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-rows-settings-trigger\"] completed",
+          "status": "passed",
+          "elapsedMs": 61,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 23
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 36
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-action-group-rows\"] completed",
+          "status": "passed",
+          "elapsedMs": 99,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 25
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 72
+            }
+          }
+        },
+        {
+          "name": "click input[aria-label=\"Group by Patient FHIR resource ID\"] completed",
+          "status": "passed",
+          "elapsedMs": 78,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 35
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 41
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-apply-proposal\"] completed",
+          "status": "passed",
+          "elapsedMs": 103,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 25
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 76
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-table-out_2487e88c8e29186abca3d8b5\"] completed",
+          "status": "passed",
+          "elapsedMs": 70,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 24
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 43
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-action-add-columns\"] completed",
+          "status": "passed",
+          "elapsedMs": 73,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 23
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 48
+            }
+          }
+        },
+        {
+          "name": "click Fields and related data completed",
+          "status": "passed",
+          "elapsedMs": 80,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 6
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 26
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 48
+            }
+          }
+        },
+        {
+          "name": "click [aria-label=\"Related resources\"] summary completed",
+          "status": "passed",
+          "elapsedMs": 111,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 52
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 56
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-add-columns-source-option\"][aria-label=\"Observation, Related resource\"] completed",
+          "status": "passed",
+          "elapsedMs": 88,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 31
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 54
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"feature-catalog-raw-fields\"] > summary completed",
+          "status": "passed",
+          "elapsedMs": 105,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 36
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 67
+            }
+          }
+        },
+        {
+          "name": "click input[aria-label=\"Select Observation.specimen.reference\"] completed",
+          "status": "passed",
+          "elapsedMs": 74,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 30
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 41
+            }
+          }
+        },
+        {
+          "name": "click Add 1 selected feature completed",
+          "status": "passed",
+          "elapsedMs": 96,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 9
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 32
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 55
+            }
+          }
+        },
+        {
+          "name": "click Other relationship paths completed",
+          "status": "passed",
+          "elapsedMs": 73,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 21
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 49
+            }
+          }
+        },
+        {
+          "name": "click [role=\"dialog\"] input[aria-label=\"Specimen Reference: Specimen -[subject]-> Patient <-[subject]- Observation\"] completed",
+          "status": "passed",
+          "elapsedMs": 71,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 24
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 45
+            }
+          }
+        },
+        {
+          "name": "click [role=\"dialog\"] input[aria-label=\"Specimen Reference: Keep all matching values\"] completed",
+          "status": "passed",
+          "elapsedMs": 72,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 28
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 42
+            }
+          }
+        },
+        {
+          "name": "select [role=\"dialog\"] select[aria-label=\"Values per grouped row\"] completed",
+          "status": "passed",
+          "elapsedMs": 90,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 18
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 70
+            }
+          }
+        },
+        {
+          "name": "click Add 1 column completed",
+          "status": "passed",
+          "elapsedMs": 154,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 13
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 24
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 117
+            }
+          }
+        },
+        {
+          "name": "select [role=\"dialog\"] select[aria-label=\"Values per grouped row\"] completed",
+          "status": "passed",
+          "elapsedMs": 117,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 19
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 95
+            }
+          }
+        },
+        {
+          "name": "click Add 1 column completed",
+          "status": "passed",
+          "elapsedMs": 140,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 24
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 22
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 94
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-cancel-proposal\"] completed",
+          "status": "passed",
+          "elapsedMs": 190,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 30
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 157
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-action-add-columns\"] completed",
+          "status": "passed",
+          "elapsedMs": 115,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 20
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 93
+            }
+          }
+        },
+        {
+          "name": "click Fields and related data completed",
+          "status": "passed",
+          "elapsedMs": 87,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 7
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 47
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 33
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-add-columns-source-option\"][aria-label=\"Observation, Related resource\"] completed",
+          "status": "passed",
+          "elapsedMs": 69,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 29
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 38
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"feature-catalog-raw-fields\"] > summary completed",
+          "status": "passed",
+          "elapsedMs": 71,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 32
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 36
+            }
+          }
+        },
+        {
+          "name": "click input[aria-label=\"Select Observation.specimen.reference\"] completed",
+          "status": "passed",
+          "elapsedMs": 89,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 39
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 47
+            }
+          }
+        },
+        {
+          "name": "click Add 1 selected feature completed",
+          "status": "passed",
+          "elapsedMs": 82,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 4
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 29
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 49
+            }
+          }
+        },
+        {
+          "name": "click Other relationship paths completed",
+          "status": "passed",
+          "elapsedMs": 63,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 29
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 31
+            }
+          }
+        },
+        {
+          "name": "click [role=\"dialog\"] input[aria-label=\"Specimen Reference: Specimen -[subject]-> Patient <-[subject]- Observation\"] completed",
+          "status": "passed",
+          "elapsedMs": 102,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 29
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 71
+            }
+          }
+        },
+        {
+          "name": "click [role=\"dialog\"] input[aria-label=\"Specimen Reference: Keep all matching values\"] completed",
+          "status": "passed",
+          "elapsedMs": 59,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 15
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 41
+            }
+          }
+        },
+        {
+          "name": "select [role=\"dialog\"] select[aria-label=\"Values per grouped row\"] completed",
+          "status": "passed",
+          "elapsedMs": 45,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 38
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 4
+            }
+          }
+        },
+        {
+          "name": "click Add 1 column completed",
+          "status": "passed",
+          "elapsedMs": 110,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 13
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 28
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 69
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-apply-proposal\"] completed",
+          "status": "passed",
+          "elapsedMs": 111,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 30
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 78
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-table-out_2487e88c8e29186abca3d8b5\"] completed",
+          "status": "passed",
+          "elapsedMs": 62,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 12
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 48
+            }
+          }
+        },
+        {
+          "name": "click Columns completed",
+          "status": "passed",
+          "elapsedMs": 80,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 9
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 33
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 39
+            }
+          }
+        },
+        {
+          "name": "fill output label Observation specimen.reference completed",
+          "status": "passed",
+          "elapsedMs": 31,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 17
+            },
+            "editable": {
+              "completed": true,
+              "durationMs": 4
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 8
+            }
+          }
+        },
+        {
+          "name": "commit output label Observation specimen.reference completed",
+          "status": "passed",
+          "elapsedMs": 84,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 36
+            },
+            "editable": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 43
+            }
+          }
+        },
+        {
+          "name": "click Columns completed",
+          "status": "passed",
+          "elapsedMs": 74,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 7
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 32
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 34
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-table-out_2487e88c8e29186abca3d8b5\"] completed",
+          "status": "passed",
+          "elapsedMs": 73,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 4
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 27
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 43
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-history-step-step-f03e18e4-edf6-4f37-88bf-1f6ca745d1f1\"] completed",
+          "status": "passed",
+          "elapsedMs": 86,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 22
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 62
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-remove-step-step-f03e18e4-edf6-4f37-88bf-1f6ca745d1f1\"] completed",
+          "status": "passed",
+          "elapsedMs": 64,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 11
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 51
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-apply-proposal\"] completed",
+          "status": "passed",
+          "elapsedMs": 107,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 31
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 75
+            }
+          }
+        },
+        {
+          "name": "click [data-testid=\"construction-table-out_2487e88c8e29186abca3d8b5\"] completed",
+          "status": "passed",
+          "elapsedMs": 68,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 25
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 41
+            }
+          }
+        }
+      ]
+    },
+    "correctness": {
+      "status": "passed",
+      "evidence": [
+        {
+          "name": "related ONE/ALL lifecycle preserves exact raw-source values and row identities",
+          "status": "passed",
+          "mode": "cda",
+          "fieldMode": "specimen-reference",
+          "cases": [
+            "reload-exact-available-cardinality-source-members",
+            "expand-Specimen-Patient-preview",
+            "expand-Specimen-Patient-apply-to-render",
+            "expand-Patient-Observation-preview",
+            "expand-Patient-Observation-apply-to-render",
+            "group-available-patient-witnesses-preview-cancel-target",
+            "cancel-group-proposal-preserves-source-bindings",
+            "reload-expanded-source-after-group-cancel",
+            "group-available-patient-witnesses-preview",
+            "group-available-patient-witnesses-apply-to-render",
+            "reload-independent-grouped-witnesses",
+            "related-observation-one-disagreement",
+            "same-chooser-all-repair-preview",
+            "cancel-related-all-proposal-preserves-group",
+            "reopened-all-preview-before-apply",
+            "apply-related-all-to-native-table-render",
+            "native-preview-matches-exact-related-field-oracle",
+            "reload-related-all-available-cardinality-values",
+            "edit-related-field-output-label",
+            "reload-edited-related-field-output-label",
+            "remove-related-source-step-preview",
+            "apply-remove-related-step-restores-native-group-table",
+            "reload-restored-available-witness-group-table"
+          ],
+          "exactRawOracle": true,
+          "oneValidationCount": 1
+        },
+        {
+          "name": "CDA watched source and API build stayed unchanged",
+          "status": "passed",
+          "sourceFingerprint": {
+            "before": {
+              "sha256": "c6d058e4f71d6c46c9d671a1cf06e0415d7034ee2eb73084cea20eb94f75c38e",
+              "files": 1553
+            },
+            "after": {
+              "sha256": "c6d058e4f71d6c46c9d671a1cf06e0415d7034ee2eb73084cea20eb94f75c38e",
+              "files": 1553
+            }
+          },
+          "apiBuildIdentity": {
+            "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+            "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135"
+          },
+          "sourceFreeze": {
+            "unchanged": true,
+            "watchedFileCount": 1118,
+            "changedPaths": [],
+            "invalidatesRun": false,
+            "productFailure": false
+          }
+        },
+        {
+          "name": "incidental asset failures are explicitly recorded",
+          "status": "passed",
+          "failures": [
+            {
+              "kind": "asset-failure",
+              "url": "http://127.0.0.1:30008/favicon.ico",
+              "status": 404
+            },
+            {
+              "kind": "console",
+              "url": "http://127.0.0.1:30008/favicon.ico",
+              "status": 404
+            }
+          ]
+        }
+      ]
+    },
+    "persistence": {
+      "status": "untested",
+      "evidence": []
+    },
+    "performance": {
+      "status": "untested",
+      "evidence": []
+    }
+  },
+  "lifecycle": null,
+  "performanceEvidence": {
+    "completeActionToRender": {
+      "source": {
+        "path": "/private/tmp/loom-native-parallel-wave126/cda-related-one-all-specimen-reference/attempt1/artifacts/standalone-cda-rows-CDA-re-6f685-against-raw-related-records/attachments/standalone-cda-related-one-all.json",
+        "sha256": "e54858a4338ff263b7c9d107ec92ab8e38a04306b73596aa89cc778522a68dde",
+        "sizeBytes": 1062446
+      },
+      "timedCompleteCheckpoints": 22,
+      "maximumDurationMs": 1538,
+      "thresholdMs": 5000,
+      "withinThreshold": true,
+      "checkpoints": [
+        {
+          "name": "reload-exact-available-cardinality-source-members",
+          "durationMs": 1538
+        },
+        {
+          "name": "expand-Specimen-Patient-preview",
+          "durationMs": 704
+        },
+        {
+          "name": "expand-Specimen-Patient-apply-to-render",
+          "durationMs": 544
+        },
+        {
+          "name": "expand-Patient-Observation-preview",
+          "durationMs": 732
+        },
+        {
+          "name": "expand-Patient-Observation-apply-to-render",
+          "durationMs": 554
+        },
+        {
+          "name": "group-available-patient-witnesses-preview-cancel-target",
+          "durationMs": 731
+        },
+        {
+          "name": "cancel-group-proposal-preserves-source-bindings",
+          "durationMs": 751
+        },
+        {
+          "name": "reload-expanded-source-after-group-cancel",
+          "durationMs": 1415
+        },
+        {
+          "name": "group-available-patient-witnesses-preview",
+          "durationMs": 743
+        },
+        {
+          "name": "group-available-patient-witnesses-apply-to-render",
+          "durationMs": 443
+        },
+        {
+          "name": "reload-independent-grouped-witnesses",
+          "durationMs": 1416
+        },
+        {
+          "name": "related-observation-one-disagreement",
+          "durationMs": 793
+        },
+        {
+          "name": "same-chooser-all-repair-preview",
+          "durationMs": 790
+        },
+        {
+          "name": "cancel-related-all-proposal-preserves-group",
+          "durationMs": 741
+        },
+        {
+          "name": "reopened-all-preview-before-apply",
+          "durationMs": 824
+        },
+        {
+          "name": "apply-related-all-to-native-table-render",
+          "durationMs": 468
+        },
+        {
+          "name": "reload-related-all-available-cardinality-values",
+          "durationMs": 1419
+        },
+        {
+          "name": "edit-related-field-output-label",
+          "durationMs": 896
+        },
+        {
+          "name": "reload-edited-related-field-output-label",
+          "durationMs": 1420
+        },
+        {
+          "name": "remove-related-source-step-preview",
+          "durationMs": 808
+        },
+        {
+          "name": "apply-remove-related-step-restores-native-group-table",
+          "durationMs": 893
+        },
+        {
+          "name": "reload-restored-available-witness-group-table",
+          "durationMs": 1413
+        }
+      ]
+    },
+    "nativeControlOnly": {
+      "actionsTotal": 58,
+      "maximumActionElapsedMs": 207,
+      "usedForPerformanceClaim": false
+    }
+  },
+  "nativeActions": {
+    "total": 58,
+    "maximumNativeControlElapsedMs": 207
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "c6d058e4f71d6c46c9d671a1cf06e0415d7034ee2eb73084cea20eb94f75c38e",
+        "files": 1553
+      },
+      "after": {
+        "sha256": "c6d058e4f71d6c46c9d671a1cf06e0415d7034ee2eb73084cea20eb94f75c38e",
+        "files": 1553
+      },
+      "unchanged": true,
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "unchanged": true
+    },
+    "apiBuildIdentityUnchanged": true,
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  },
+  "rootAcceptanceReceipt": {
+    "path": "/private/tmp/loom-native-parallel-wave126/root-acceptance.json",
+    "sha256": "dacbd6a52000858ee3ab9cb3ca5c9c644a041084c65a114dff5ada3aad9fb801",
+    "status": "ACCEPTED_FULL_LIFECYCLE_PASS",
+    "lifecycleAccepted": true,
+    "classification": "EXACT_CDA_SPECIMEN_REFERENCE_ONE_ALL_LIFECYCLE",
+    "sourceFreezeReleased": true,
+    "coordinatorClosureSha256": "9e97f674d671f48365f244cfcbf494031ec1460743356ad6f3bb88ecca9a4d8a"
+  },
+  "rawArtifacts": {
+    "coordinatorClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave126/closure.json",
+      "sha256": "9e97f674d671f48365f244cfcbf494031ec1460743356ad6f3bb88ecca9a4d8a"
+    },
+    "rootAcceptance": {
+      "path": "/private/tmp/loom-native-parallel-wave126/root-acceptance.json",
+      "sha256": "dacbd6a52000858ee3ab9cb3ca5c9c644a041084c65a114dff5ada3aad9fb801",
+      "status": "ACCEPTED_FULL_LIFECYCLE_PASS",
+      "lifecycleAccepted": true,
+      "classification": "EXACT_CDA_SPECIMEN_REFERENCE_ONE_ALL_LIFECYCLE",
+      "sourceFreezeReleased": true,
+      "coordinatorClosureSha256": "9e97f674d671f48365f244cfcbf494031ec1460743356ad6f3bb88ecca9a4d8a"
+    },
+    "integrityClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave126/integrity-closure.json",
+      "sha256": "da95c0ace41ee2baa9102b3b7cad277b4ee45f775aaaec58717718ca4974a7d8",
+      "sizeBytes": 4500
+    },
+    "lifecycleReport": {
+      "path": "/private/tmp/loom-native-parallel-wave126/cda-related-one-all-specimen-reference/attempt1/artifacts/standalone-cda-rows-CDA-re-6f685-against-raw-related-records/cda-report.json",
+      "sha256": "09d87e7fe36659ded4340a62e67ee3f935c4de14a92be3bba84d141c6a9c697c",
+      "sizeBytes": 2414764,
+      "status": "passed"
+    },
+    "lifecycleReportCreated": true,
+    "timingAttachment": {
+      "path": "/private/tmp/loom-native-parallel-wave126/cda-related-one-all-specimen-reference/attempt1/artifacts/standalone-cda-rows-CDA-re-6f685-against-raw-related-records/attachments/standalone-cda-related-one-all.json",
+      "sha256": "e54858a4338ff263b7c9d107ec92ab8e38a04306b73596aa89cc778522a68dde",
+      "sizeBytes": 1062446
+    },
+    "jsonAttachments": [],
+    "runnerResults": null,
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave126/cda-related-one-all-specimen-reference/attempt1/runner.log",
+      "sha256": "fe2d89dbd393df73c15fd0cab6839efa6f1382692ddf82719642cfe490ff3d12",
+      "sizeBytes": 721
+    },
+    "terminalRecord": {
+      "path": "/private/tmp/loom-native-parallel-wave126/cda-related-one-all-specimen-reference/attempt1/terminal.json",
+      "sha256": "3edd82d4e49f89c30270dee752ac018539f4dc6848d7a33b1553404e6f8b58af",
+      "sizeBytes": 15
+    }
+  },
+  "scopeNote": "cda-related-one-all-specimen-reference/cda-specimen-reference-raw-oracle-one-all-lifecycle"
+}

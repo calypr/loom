@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "scenario": "cda-workspace-combine",
+  "case": "group-join",
+  "status": "unverified",
+  "classification": "HARNESS_READINESS_HEADER",
+  "scope": "Real CDA project loom_dev_cda_fhir, generation cda-fhir-v1. Group/Join current-draft lifecycle did not complete.",
+  "rawOracle": {
+    "status": "passed",
+    "fieldPath": "subject.reference",
+    "scanLimit": 2000,
+    "rowsReturned": 2000,
+    "leftMemberCount": 3,
+    "rightMemberCount": 1,
+    "sharedKeyCountOnLeft": 2,
+    "exactSelectedIDs": true
+  },
+  "nativeSetup": {
+    "freshExplorerCreated": true,
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "selectionAndPopulationAssertions": "passed",
+    "subjectReferenceDisplayLabel": "Subject Reference",
+    "groupPreviewMs": 27,
+    "groupPreviewRows": 2,
+    "groupPreviewMatchesExactOracle": true
+  },
+  "failure": {
+    "message": "The Group COUNT_ROWS post-click readiness predicate timed out: it compared the first-span label with the full-text label plus type.",
+    "phase": "after clicking Group by subject.reference; before the Group/Join lifecycle completed",
+    "causeClassification": "HARNESS_READINESS_HEADER"
+  },
+  "lifecycle": {
+    "groupActionAttempted": true,
+    "groupReadinessTimeoutMs": 5000,
+    "joinActionsReached": false,
+    "actionsPassed": 9,
+    "actionsFailed": 1,
+    "nativeBrowserRequests": 0,
+    "requiredChecks": {
+      "passed": 5,
+      "total": 16,
+      "missing": 11
+    },
+    "recordedAssertions": {
+      "passed": 19,
+      "failed": 2
+    },
+    "browserTestDurationMs": 22687,
+    "runnerProcessDurationMs": null,
+    "errors": [],
+    "networkFailures": [],
+    "incidentalErrors": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ]
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "sha256": "17a3440fb11504223d63e9136e906f6b3cd089740d5444c2ddf097d415e406fa",
+      "files": 1498,
+      "changedPaths": 0
+    },
+    "docs": {
+      "sha256": "ec226ec008e4bb019e0fb7f983fb998a3a5dbe8157b319549ad4dbde3182463e",
+      "files": 127,
+      "changedPaths": 0
+    },
+    "apiBuildIdentity": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+    "ownedMounts": "PASS unchanged",
+    "health": {
+      "before": "PASS 3/3",
+      "after": "PASS 3/3"
+    }
+  },
+  "artifacts": {
+    "fullReport": {
+      "path": "/private/tmp/loom-native-parallel-wave48/cda-workspace-combine/artifacts/cda-current-draft-group-jo-424dc-the-current-draft-lifecycle/cda-report.json",
+      "sha256": "92db7b093f23d5e914cfb04ab297ca99ce0062e8663bee644b7d25ecb0dfa5ce"
+    },
+    "errorContext": {
+      "path": "/private/tmp/loom-native-parallel-wave48/cda-workspace-combine/artifacts/cda-current-draft-group-jo-424dc-the-current-draft-lifecycle/error-context.md",
+      "sha256": "02f3d1984b76794dc6483aaf642ae2d80040e4a224a323805f644d96bbca55b6"
+    },
+    "playwrightResults": {
+      "path": "/private/tmp/loom-native-parallel-wave48/cda-workspace-combine/results.json",
+      "sha256": "2f4d0ecdfcaf7c5ca289ddc3a799508bcd4e8a4cdc9705aa9b64dd525990ce8c"
+    },
+    "authoritativeClosure": {
+      "path": "docs/verification/playwright/runtime/current-draft-cda-group-join-epoch48-closure.json",
+      "sha256": "f42c14bd8108096c848af294c97155bcde0677620ca614c24c7b30cad9705238"
+    },
+    "closureCapture": "/private/tmp/loom-native-parallel-wave48/closure.json"
+  },
+  "previousAttempt": "Epoch47 stopped at a harness label-expectation mismatch before Group/Join. Epoch48 passed that step and its bounded raw oracle, then stopped at a harness Group readiness header predicate.",
+  "nextCheck": "Integrate the reviewed focused Group readiness-predicate correction, then rerun this exact real-CDA Group→Group lifecycle. Keep Group/Join unverified until the full lifecycle passes."
+}

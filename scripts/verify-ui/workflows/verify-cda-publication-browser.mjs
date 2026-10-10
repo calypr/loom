@@ -1,0 +1,336 @@
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+
+export async function cdaPublicationWorkflow({ page, cda }) {
+const project = cda.project;
+const apiOrigin = cda.apiOrigin.replace(/\/$/, '');
+const uiOrigin = cda.uiOrigin.replace(/\/$/, '');
+const explorerId = `cda-publication-browser-${Date.now()}-${randomUUID().slice(0, 8)}`;
+const explorerRoot = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
+const explorerPath = `${explorerRoot}/${encodeURIComponent(explorerId)}`;
+const authoringPath = `${explorerPath}/authoring/v2`;
+const pageURL = `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`;
+const viewerURL = `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorerId)}&mode=viewer`;
+const evidenceDirectory = cda.evidence;
+const apiToken = process.env.LOOM_CDA_API_TOKEN;
+const clickhouseContainer = cda.target.clickhouseContainer;
+const report = Object.assign(cda.report, {
+  explorerId,
+  project,
+  pageURL,
+  viewerURL,
+  protectedOriginalMutations: 0,
+  setup: [],
+  protocol: [],
+  incidentalErrors: [],
+  timingsMs: {},
+  limitations: [
+    'The run-owned Explorer and its materialization are retained because this local API has no Explorer or publication delete operation.',
+    'The publication contract covers one direct Specimen ID output with at most three source records; it does not exercise broader CDA transformations.',
+  ],
+});
+report.dialogs ??= [];
+let browserEvents;
+let builder;
+let sourceIds = [];
+let outputId;
+let datasetGeneration;
+
+const api = async (path, body) => {
+  const method = body === undefined ? 'GET' : 'POST';
+  const requestId = `cda-publication-${randomUUID()}`;
+  const headers = { 'Content-Type': 'application/json', 'X-Request-ID': requestId };
+  if (apiToken) headers.Authorization = `Bearer ${apiToken}`;
+  const response = await fetch(apiOrigin + path, {
+    method,
+    headers,
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    signal: AbortSignal.timeout(30000),
+  });
+  const text = await response.text();
+  let value;
+  try { value = text ? JSON.parse(text) : undefined; }
+  catch { value = text; }
+  report.setup.push({ path, method, requestId, status: response.status });
+  assert(response.ok, `${response.status} ${path}: ${JSON.stringify(value)}`);
+  return value;
+};
+
+const rawCdaOracle = (query, bindVars) => {
+  const javascript = `const rows = db._query(${JSON.stringify(query)}, ${JSON.stringify(bindVars)}).toArray(); print(JSON.stringify(rows));`;
+  const result = spawnSync('rtk', [
+    'proxy', 'docker', 'exec', cda.target.arangoContainer,
+    'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', javascript,
+  ], { encoding: 'utf8', timeout: 30000, maxBuffer: 2_000_000 });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const start = result.stdout.indexOf('[');
+  assert(start >= 0, 'Raw scoped CDA oracle returned no JSON rows');
+  return JSON.parse(result.stdout.slice(start));
+};
+
+const identity = (value) => ({
+  snapshotToken: value.catalog.snapshotToken,
+  expectedDraftVersion: value.draftVersion,
+  expectedDraftDigest: value.draftDigest,
+});
+
+const readBuilder = () => api(`${authoringPath}/builder`);
+
+const apply = async (commands) => {
+  const result = await api(`${authoringPath}/commands`, {
+    ...identity(builder),
+    commandId: randomUUID(),
+    semanticsVersion: builder.workspace?.semanticsVersion ?? 10,
+    commands,
+  });
+  builder = await readBuilder();
+  return result;
+};
+
+const seedOwnedExplorer = async () => {
+  assert(!explorerId.includes('cda-builder-full-qa-1790440983382'), 'Protected Explorer cannot be targeted');
+  await api(explorerRoot, { name: explorerId, title: `CDA publication QA ${explorerId}` });
+  builder = await readBuilder();
+  datasetGeneration = builder.catalog?.generation;
+  assert.equal(typeof datasetGeneration, 'string');
+  assert(datasetGeneration.length > 0, 'Fresh Builder catalog has no active dataset generation');
+
+  const oracleQuery = `FOR s IN Specimen FILTER s.project == ${JSON.stringify(project)} AND s.dataset_generation == ${JSON.stringify(datasetGeneration)} SORT s._key LIMIT 3 RETURN {id:s.id,key:s._key}`;
+  const oracleRows = rawCdaOracle(oracleQuery, {});
+  assert(oracleRows.length > 0 && oracleRows.length <= 3, 'Fresh active-generation oracle must return one to three Specimen records');
+  assert(oracleRows.every((row) => typeof row.id === 'string' && row.id.length > 0 && typeof row.key === 'string'));
+  sourceIds = oracleRows.map((row) => row.id);
+  assert.equal(new Set(sourceIds).size, sourceIds.length, 'Scoped Specimen oracle returned duplicate source IDs');
+  report.oracle = {
+    collection: 'Specimen',
+    project,
+    generation: datasetGeneration,
+    query: oracleQuery,
+    bindVars: {},
+    rows: oracleRows,
+  };
+
+  const node = builder.catalog.nodes.find((candidate) => candidate.resourceType === 'Specimen');
+  assert(node, 'Fresh Builder catalog has no Specimen node');
+  const idCandidate = builder.catalog.candidates.find((candidate) => candidate.nodeId === node.nodeId && candidate.fieldPath === 'id');
+  assert(idCandidate, 'Fresh Builder catalog has no direct Specimen ID field');
+
+  await apply([{ type: 'CREATE_TABLE', title: 'Bounded Specimen publication', rootNodeId: node.nodeId }]);
+  const document = builder.workspace.documents.find((entry) => entry.output.title === 'Bounded Specimen publication');
+  assert(document, 'API seed did not create the run-owned publication table');
+  outputId = document.output.id;
+  await apply([{
+    type: 'ADD_COLUMN',
+    outputId,
+    occurrenceId: 'base',
+    candidateId: idCandidate.candidateId,
+    projectionMode: 'VALUE',
+    initialPresentation: 'TABLE',
+    title: 'Specimen ID',
+  }]);
+
+  const selection = await api(`${explorerPath}/selections`, {
+    snapshotToken: builder.catalog.snapshotToken,
+    idempotencyKey: `cda-publication-${explorerId}`,
+    source: {
+      kind: 'resources',
+      resources: {
+        refs: sourceIds.map((id) => ({ project, generation: datasetGeneration, resourceType: 'Specimen', id })),
+      },
+    },
+  });
+  const routes = await api(`${authoringPath}/population-routes`, {
+    snapshotToken: builder.catalog.snapshotToken,
+    outputId,
+    selectionRevisionId: selection.id,
+    limit: 50,
+  });
+  const directRoute = routes.choices.find((choice) => choice.route.length === 0);
+  assert(directRoute, 'Scoped source selection has no direct population route');
+  await apply([{
+    type: 'SET_TABLE_POPULATION',
+    outputId,
+    selectionRevisionId: selection.id,
+    routeChoiceId: directRoute.routeChoiceId,
+  }]);
+
+  const documents = builder.workspace.documents;
+  assert.equal(documents.length, 1, 'Publication would include an unexpected extra output');
+  assert.deepEqual(builder.workspace.tabs.map((tab) => tab.outputId), [outputId]);
+  const column = documents[0].columns.find((candidate) => candidate.occurrenceId === 'base');
+  assert.equal(column?.source?.kind, 'field');
+  assert.equal(column?.source?.field?.path, 'id');
+  assert.equal(column?.source?.field?.projectionMode, 'VALUE');
+  assert.equal(documents[0].population?.selectionRevisionId, selection.id);
+  report.seed = {
+    generation: datasetGeneration,
+    selectionRevisionId: selection.id,
+    outputId,
+    title: documents[0].output.title,
+    sourceIds,
+    route: directRoute.route,
+  };
+};
+
+const captureNativeProtocol = () => {
+  report.nativeRequests = [];
+  browserEvents = cda.captureRequests(explorerPath, { responsePaths: /preview|publish/ });
+  report.protocol = report.nativeRequests;
+};
+
+const waitForProtocolResponse = async (pathSuffix, timeoutMs) => {
+  const predicate = entry => entry.path.endsWith(pathSuffix) && entry.response !== undefined;
+  const existing = report.protocol.findLast(predicate);
+  return existing ?? cda.waitForCapturedResponse(browserEvents, predicate, timeoutMs);
+};
+
+const previewSnapshot = async () => cda.inspect(() => { const panel=document.querySelector('[data-testid="construction-preview"]');const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');const headers=table?[...table.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText.trim()):[];const rows=table?[...table.querySelectorAll('[role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())):[];const idIndex=headers.findIndex(header=>header.toUpperCase()==='SPECIMEN ID');return {status:panel?.dataset.previewStatus,outputId:panel?.dataset.previewOutputId,currentDraftVersion:panel?.dataset.currentDraftVersion,currentDraftDigest:panel?.dataset.currentDraftDigest,receiptId:panel?.dataset.previewReceiptId,headers,rows,specimenIds:idIndex<0?[]:rows.map(row=>row[idIndex]).filter(Boolean),ariaRowCount:table?.getAttribute('aria-rowcount')}; });
+
+const viewerSnapshot = async () => cda.inspect(() => { const normalize=value=>String(value??'').replace(/\s+/g,' ').trim();const tables=[...document.querySelectorAll('[role="table"],table')];const readTable=table=>{const headerNodes=[...table.querySelectorAll('[role="columnheader"],thead th')];const headers=headerNodes.map(cell=>normalize(cell.innerText||cell.textContent));const idIndex=headers.findIndex(header=>header.toUpperCase()==='SPECIMEN ID');const rowNodes=[...table.querySelectorAll('[role="row"],tbody tr')].filter(row=>!row.querySelector('[role="columnheader"],th'));const rows=rowNodes.map(row=>[...row.querySelectorAll('[role="cell"],td')].map(cell=>normalize(cell.innerText||cell.textContent)));return {headers,idIndex,rows,specimenIds:idIndex<0?[]:rows.map(row=>row[idIndex]).filter(Boolean),ariaRowCount:table.getAttribute('aria-rowcount')};};return {url:location.href,body:document.body.innerText.slice(0,1800),tables:tables.map(readTable)}; });
+
+const assertExactIds = (actualIds, expectedIds, label) => {
+  assert(actualIds.length > 0, `${label} rendered no source IDs`);
+  assert.equal(new Set(actualIds).size, actualIds.length, `${label} rendered duplicate source IDs`);
+  assert.deepEqual([...actualIds].sort(), [...expectedIds].sort(), `${label} source ID membership differs from the scoped CDA oracle`);
+};
+
+const readPublishedMaterialization = (publication) => {
+  assert.equal(publication.state, 'ACTIVE', `Native Publish did not activate the revision: ${JSON.stringify(publication)}`);
+  assert(publication.revisionId, 'Native Publish omitted its revision ID');
+  assert.equal(publication.receiptId, report.preview.receiptId, 'Native Publish did not consume the current automatic preview receipt');
+  assert.equal(publication.outputs?.length, 1, 'Native Publish returned an unexpected output set');
+  const output = publication.outputs[0];
+  assert.equal(output.outputId, report.seed.outputId, 'Published output identity differs from the authored table');
+  assert.equal(output.state, 'READY', 'Published output is not materialized and ready');
+  assert.match(output.materializationId, /^[A-Za-z0-9_-]{1,128}$/, 'Materialization identifier is not safe for a ClickHouse table name');
+  assert.match(output.outputId, /^[A-Za-z0-9_-]{1,128}$/, 'Output identifier is not safe for a ClickHouse table name');
+
+  const tableName = `loom_bundle_${output.materializationId.replaceAll('-', '')}_${output.outputId}`;
+  assert.match(tableName, /^[A-Za-z0-9_]+$/, 'Generated ClickHouse table identifier contains unsafe characters');
+  assert.match(clickhouseContainer, /^[A-Za-z0-9_.-]+$/, 'ClickHouse container name contains unsafe characters');
+  const query = `SELECT * FROM \`loom_dev\`.\`${tableName}\` LIMIT 4 FORMAT JSONEachRow`;
+  const raw = spawnSync('rtk', [
+    'proxy', 'docker', 'exec', clickhouseContainer, 'clickhouse-client', '--query', query,
+  ], { encoding: 'utf8', timeout: 30000, maxBuffer: 2_000_000 });
+  assert.equal(raw.status, 0, raw.stderr || raw.stdout);
+  const rows = raw.stdout.trim() ? raw.stdout.trim().split('\n').map((line) => JSON.parse(line)) : [];
+  assert(rows.length > 0 && rows.length <= 3, `Bounded ClickHouse materialization has unexpected row count ${rows.length}`);
+  const expected = new Set(sourceIds);
+  const observed = [];
+  for (const row of rows) {
+    const matchingValues = Object.values(row).filter((value) => typeof value === 'string' && expected.has(value));
+    assert.equal(matchingValues.length, 1, `Materialized row does not have exactly one expected Specimen ID: ${JSON.stringify(row)}`);
+    observed.push(matchingValues[0]);
+  }
+  assertExactIds(observed, sourceIds, 'Independent ClickHouse read');
+  report.materialization = {
+    outputId: output.outputId,
+    materializationId: output.materializationId,
+    table: `loom_dev.${tableName}`,
+    query,
+    rows,
+    sourceIds: observed,
+  };
+};
+
+const verifyViewerAndReload = async () => {
+  const viewerRowsReady = ([expectedIds]) => [...document.querySelectorAll('[role="table"],table')].some(table => {
+    const headers = [...table.querySelectorAll('[role="columnheader"],thead th')];
+    const index = headers.findIndex(cell => cell.innerText.trim().toUpperCase() === 'SPECIMEN ID');
+    if (index < 0) return false;
+    const rows = [...table.querySelectorAll('[role="row"],tbody tr')].filter(row => !row.querySelector('[role="columnheader"],th'));
+    const ids = rows.map(row => [...row.querySelectorAll('[role="cell"],td')][index]?.innerText.trim()).filter(Boolean);
+    return JSON.stringify(ids.sort()) === JSON.stringify([...expectedIds].sort());
+  });
+  const openedAt = Date.now();
+  const viewerControl = await cda.inspect(() => { const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Viewer');return {visible:Boolean(button&&button.offsetParent!==null),disabled:button?.disabled}; });
+  assert(viewerControl.visible && !viewerControl.disabled, 'Native Viewer control is missing or disabled after publication');
+  report.viewerControl = await cda.click('button', { name: 'Viewer' }, 1500);
+  await cda.wait(([__arg0, __arg1]) => Boolean(new URL(location.href).searchParams.get('mode')==='viewer'&&new URL(location.href).searchParams.get('project')===__arg0&&new URL(location.href).searchParams.get('explorer')===__arg1), [project, explorerId], 5000);
+  const currentViewerURL = await cda.inspect(() => { return location.href; });
+  await cda.wait(viewerRowsReady, [sourceIds], 5000);
+  const first = await viewerSnapshot();
+  const table = first.tables.find((candidate) => candidate.idIndex >= 0);
+  assert(table, 'Viewer has no published Specimen ID output table');
+  assert.equal(first.tables.filter((candidate) => candidate.idIndex >= 0).length, 1, 'Viewer exposed unexpected extra Specimen ID tables');
+  assertExactIds(table.specimenIds, sourceIds, 'Viewer');
+  assert.equal(table.rows.length, sourceIds.length, 'Viewer contains extra or missing data rows');
+  report.viewerURL = currentViewerURL;
+  report.viewer = { first, exactMembership: true, reload: undefined };
+  report.timingsMs.viewerOpen = Date.now() - openedAt;
+  assert(report.timingsMs.viewerOpen <= 5000, `Native Viewer open and exact membership exceeded 5000 ms (${report.timingsMs.viewerOpen} ms)`);
+
+  const reloadStarted = Date.now();
+  await cda.navigate(currentViewerURL);
+  await cda.wait(viewerRowsReady, [sourceIds], 5000);
+  const reloaded = await viewerSnapshot();
+  const reloadedTable = reloaded.tables.find((candidate) => candidate.idIndex >= 0);
+  assert(reloadedTable, 'Reloaded Viewer has no published Specimen ID output table');
+  assert.equal(reloaded.tables.filter((candidate) => candidate.idIndex >= 0).length, 1, 'Reloaded Viewer exposed unexpected extra Specimen ID tables');
+  assertExactIds(reloadedTable.specimenIds, sourceIds, 'Reloaded Viewer');
+  assert.equal(reloadedTable.rows.length, sourceIds.length, 'Reloaded Viewer contains extra or missing data rows');
+  report.viewer.reload = { ...reloaded, exactMembership: true };
+  report.timingsMs.viewerReload = Date.now() - reloadStarted;
+  assert(report.timingsMs.viewerReload <= 5000, `Viewer reload and exact membership exceeded 5000 ms (${report.timingsMs.viewerReload} ms)`);
+};
+
+const main = async () => {
+  await seedOwnedExplorer();
+  captureNativeProtocol();
+  if (apiToken) await cda.browserContext.setExtraHTTPHeaders({ Authorization: `Bearer ${apiToken}` });
+
+  const previewStarted = Date.now();
+  await cda.navigate(pageURL);
+  await cda.wait(() => Boolean(Boolean(document.querySelector('[data-testid="construction-workspace"]'))), [], 5000);
+  await cda.wait(([__arg0]) => Boolean((()=>{const p=document.querySelector('[data-testid="construction-preview"]');return Boolean(p&&p.dataset.previewStatus==='ready'&&p.dataset.previewReceiptId&&p.dataset.previewOutputId===__arg0&&p.dataset.currentDraftVersion&&p.dataset.currentDraftDigest);})()), [outputId], 5000);
+  report.preview = await previewSnapshot();
+  report.timingsMs.automaticPreviewRender = Date.now() - previewStarted;
+  assert(report.timingsMs.automaticPreviewRender <= 5000, `Automatic preview render exceeded 5000 ms (${report.timingsMs.automaticPreviewRender} ms)`);
+  assert.equal(report.preview.status, 'ready', 'Native automatic preview is not ready');
+  assert.equal(report.preview.outputId, outputId, 'Automatic preview targets a different output');
+  assert(report.preview.receiptId, 'Automatic preview has no receipt');
+  assert(report.preview.currentDraftDigest, 'Automatic preview has no current draft digest');
+  assert(report.preview.headers.includes('SPECIMEN ID'), 'Automatic preview omitted the authored direct ID column');
+  assert.equal(report.preview.rows.length, sourceIds.length, 'Automatic preview contains extra or missing rows');
+  assertExactIds(report.preview.specimenIds, sourceIds, 'Native automatic preview');
+  const previewProtocol = await waitForProtocolResponse('/preview', 5000);
+  assert.equal(previewProtocol.status, 200, `Native automatic preview request failed: ${JSON.stringify(previewProtocol)}`);
+  report.nativePreviewProtocol = previewProtocol;
+
+  const publishButton = await cda.inspect(() => { const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Publish');return {disabled:button?.disabled,visible:Boolean(button)}; });
+  assert(publishButton.visible && !publishButton.disabled, 'Publish is not enabled after the ready native preview');
+  const publicationStarted = Date.now();
+  report.publishClick = await cda.click('button', { name: 'Publish' }, 1500);
+  const publishProtocol = await waitForProtocolResponse('/publish', 5000);
+  assert.equal(publishProtocol.status, 200, `Native Publish request failed: ${JSON.stringify(publishProtocol)}`);
+  const publication = publishProtocol.response;
+  assert(publication && typeof publication === 'object', 'Native Publish response body is missing');
+  report.publication = publication;
+  await cda.wait(() => Boolean((()=>{const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Publish');return Boolean(button&&button.getAttribute('aria-busy')!=='true'&&button.disabled);})()), [], 5000);
+  report.timingsMs.publicationFullAction = Date.now() - publicationStarted;
+  assert(report.timingsMs.publicationFullAction <= 5000, `Publication full action exceeded 5000 ms (${report.timingsMs.publicationFullAction} ms)`);
+  const materializationStarted = Date.now();
+  readPublishedMaterialization(publication);
+  report.timingsMs.independentClickHouseRead = Date.now() - materializationStarted;
+  assert(report.timingsMs.independentClickHouseRead <= 5000, `Independent ClickHouse proof exceeded 5000 ms (${report.timingsMs.independentClickHouseRead} ms)`);
+
+  await verifyViewerAndReload();
+  await browserEvents?.flush();
+  cda.includeBrowserDiagnostics();
+  assert.equal(report.dialogs.length, 0, `Unexpected browser dialogs: ${JSON.stringify(report.dialogs)}`);
+  assert.equal(report.errors.length, 0, `Unexpected browser protocol or runtime errors: ${JSON.stringify(report.errors)}`);
+  report.status = 'pass';
+};
+
+try {
+  await main();
+  cda.includeBrowserDiagnostics();
+  return report;
+} catch (error) {
+  report.status = 'fail';
+  report.failure = { message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined };
+  report.errors.push({ kind: 'fatal', message: report.failure.message });
+  throw error;
+}
+}

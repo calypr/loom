@@ -1,0 +1,204 @@
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+
+export async function rootSettingsWorkflow({ page, cda }) {
+  const apiOrigin = cda.apiOrigin.replace(/\/$/, '');
+  const uiOrigin = cda.uiOrigin.replace(/\/$/, '');
+  const project = cda.project;
+  const arangoContainer = cda.target.arangoContainer;
+  const arangoDatabase = process.env.LOOM_ARANGO_DATABASE ?? 'loom_dev';
+  const evidence = cda.evidence;
+  const explorer = `root-settings-${Date.now()}`;
+  const root = `/api/v1/projects/${project}/explorers`;
+  const base = `${root}/${explorer}/authoring/v2`;
+  const report = cda.report;
+  Object.assign(report, { project, explorer, cases: [], requests: [], errors: report.errors ?? [], responses: [], started: new Date().toISOString() });
+  const recordCase = result => {
+    report.cases.push(result);
+    console.log(JSON.stringify({ case: result.name, durationMs: result.durationMs, populationRouteHops: result.populationRouteHops }));
+  };
+  const api = async (path, body) => {
+    const request = { path, body, requestId: `root-settings-${randomUUID()}` };
+    report.requests.push(request);
+    const start = Date.now();
+    const response = await fetch(apiOrigin + path, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', 'X-Request-ID': request.requestId }, ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(30000) });
+    request.status = response.status;
+    request.response = await response.json();
+    request.durationMs = Date.now() - start;
+    assert(response.ok, JSON.stringify(request));
+    return request.response;
+  };
+  let builder;
+  let outputId;
+  let browserEvents, fatal;
+  const command = async commands => {
+    await api(base + '/commands', { commandId: randomUUID(), semanticsVersion: builder.workspace?.semanticsVersion ?? 10, snapshotToken: builder.catalog.snapshotToken, expectedDraftVersion: builder.draftVersion, expectedDraftDigest: builder.draftDigest, commands });
+    builder = await api(base + '/builder');
+  };
+  const rawQuery = query => {
+    const result = spawnSync('rtk', ['proxy', 'docker', 'exec', arangoContainer, 'arangosh', '--server.database', arangoDatabase, '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`], { encoding: 'utf8', timeout: 30000 });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    return JSON.parse(result.stdout.slice(result.stdout.indexOf('[')));
+  };
+  const open = async () => {
+    await cda.navigate(`${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`);
+    const table = `[data-testid="construction-table-${outputId}"]`;
+    await cda.wait(([selector]) => Boolean(document.querySelector(selector)), [table]);
+    await cda.click(table);
+    await cda.wait(() => document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false);
+    await cda.click('[data-testid="construction-rows-settings-trigger"]');
+    await cda.wait(() => document.querySelector('select[aria-label="Record type"]')?.disabled === false);
+  };
+  const proposeRoot = async resourceType => {
+    await open();
+    const selector = 'select[aria-label="Record type"]';
+    const options = await page.locator(selector).locator('option').evaluateAll(items => items.map(option => ({ value: option.value, label: option.text, disabled: option.disabled })));
+    const target = options.find(o => o.value !== 'base' && o.label.startsWith(resourceType));
+    assert(target && !target.disabled, `${resourceType} must be selectable`);
+    const responseStart = report.nativeRequests.length;
+    const start = Date.now();
+    const before = builder.draftDigest;
+    await cda.selectOption(selector, target.value, { settledWhen: () => !document.querySelector('[aria-label="Row definition settings"]') });
+    await cda.wait(() => Boolean(document.querySelector('[data-testid="row-change-preview-panel"]') || document.getElementById('row-change-repair-title') || document.querySelector('[data-testid="row-change-preview-panel"] [role="alert"]')));
+    report.lastUI = await cda.inspect(() => document.body.innerText);
+    assert.equal(await cda.inspect(() => Boolean(document.getElementById('row-change-repair-title'))), false, 'A defined Subject route must not require another relationship choice');
+    await cda.wait(() => [...document.querySelectorAll('[data-testid="row-change-preview-panel"] button')].some(button => button.innerText === 'Apply row change' && !button.disabled) || document.querySelector('[data-testid="row-change-preview-panel"] [role="alert"]'));
+    const previewError = await cda.inspect(() => document.querySelector('[data-testid="row-change-preview-panel"] [role="alert"]')?.innerText);
+    assert.equal(previewError, undefined, `Root change must produce a usable preview: ${previewError}`);
+    const durationMs = Date.now() - start;
+    assert(durationMs <= 5000, `Root preview took ${durationMs}ms`);
+    await browserEvents.flush();
+    const responseWindow = capturedResponses(report.nativeRequests.slice(responseStart));
+    report.responses = capturedResponses();
+    const assessment = responseWindow.find(r => r.path.endsWith('/row-change'))?.body;
+    assert.equal(assessment?.status, 'READY');
+    const preview = report.responses.find(r => r.path.endsWith('/preview') && r.body.receiptId === assessment.candidateReceiptId)?.body;
+    assert(Array.isArray(preview?.rows), 'Root change must render a real preview response');
+    assert.equal((await api(base + '/builder')).draftDigest, before, 'Root proposal must not change the saved draft');
+    recordCase({ name: `propose-${resourceType}`, durationMs, preview });
+    return preview;
+  };
+  const applyRoot = async resourceType => {
+    await cda.click('[data-testid="row-change-preview-panel"] button', { name: 'Apply row change' });
+    await cda.wait(() => !document.querySelector('[data-testid="row-change-preview-panel"]'));
+    builder = await api(base + '/builder');
+    assert.equal(builder.workspace.documents[0].rootResourceType, resourceType);
+  };
+  const capturedResponses = (requests = report.nativeRequests) => requests
+    .filter(request => request.response && request.path.startsWith(base))
+    .map(request => ({ path: request.path, status: request.status, body: request.response }));
+  try {
+    report.target = cda.target;
+    const [anchor] = rawQuery(`FOR o IN Observation FILTER o.project == "${project}" AND o.dataset_generation == "cda-fhir-v1" AND o.id == "485e2567-b566-56f3-b5bd-5f025f37cd95" RETURN {id:o.id, subject:o.payload.subject.reference}`);
+    assert(anchor?.subject?.startsWith('Patient/'));
+    const patientId = anchor.subject.slice('Patient/'.length);
+    const observations = rawQuery(`FOR p IN Patient FILTER p.project == "${project}" AND p.dataset_generation == "cda-fhir-v1" AND p.id == "${patientId}" FOR e IN fhir_edge FILTER e._to == p._id AND STARTS_WITH(e._from, "Observation/") AND e.label == "subject_Patient" AND e.project == "${project}" AND e.dataset_generation == "cda-fhir-v1" LET o = DOCUMENT(e._from) RETURN DISTINCT {id:o.id}`);
+    report.oracle = { patientId, selectedObservation: anchor, observations };
+    await api(root, { name: explorer, title: 'Root settings browser QA' });
+    builder = await api(base + '/builder');
+    const patient = builder.catalog.nodes.find(n => n.resourceType === 'Patient');
+    const observation = builder.catalog.nodes.find(n => n.resourceType === 'Observation');
+    const edge = builder.catalog.edges.find(e => e.fromNodeId === patient.nodeId && e.toNodeId === observation.nodeId && e.label === 'subject_Patient');
+    assert(edge);
+    await command([{ type: 'CREATE_TABLE', title: 'Patient root QA', rootNodeId: patient.nodeId }]);
+    outputId = builder.workspace.documents[0].output.id;
+    const idField = builder.catalog.candidates.find(c => c.nodeId === patient.nodeId && c.fieldPath === 'id');
+    await command([{ type: 'ADD_COLUMN', outputId, occurrenceId: 'base', candidateId: idField.candidateId, projectionMode: 'VALUE', initialPresentation: 'TABLE', title: 'Patient ID' }, { type: 'ADD_ROUTE', outputId, parentOccurrenceId: 'base', edgeId: edge.edgeId }]);
+    const selections = base.replace('/authoring/v2', '/selections');
+    const selection = await api(selections, { snapshotToken: builder.catalog.snapshotToken, idempotencyKey: explorer, source: { kind: 'resources', resources: { refs: [{ project, generation: builder.catalog.generation, resourceType: 'Observation', id: anchor.id }] } } });
+    const routes = await api(base + '/population-routes', { snapshotToken: builder.catalog.snapshotToken, outputId, selectionRevisionId: selection.id, limit: 50 });
+    const mapping = routes.choices.find(c => c.route.length === 1 && c.route[0].relationship === 'subject_Patient');
+    assert(mapping, 'The selected Observation must map to its Patient through Subject');
+    await command([{ type: 'SET_TABLE_POPULATION', outputId, selectionRevisionId: selection.id, routeChoiceId: mapping.routeChoiceId }]);
+    const original = builder.workspace.documents[0];
+    browserEvents = cda.captureRequests(`${root}/${explorer}`, { responsePaths: /row-change|preview|population-coverage|commands/ });
+    const candidate = await proposeRoot('Observation');
+    assert.equal(candidate.rowCount, Math.min(25, report.oracle.observations.length));
+    for (const source of candidate.rowSources) assert(report.oracle.observations.some(o => o.id === source.id), 'Preview observation must belong to the selected Patient cohort');
+    const patientColumn = candidate.columns.find(c => c.label === 'Patient ID');
+    assert(patientColumn);
+    for (const row of candidate.rows) assert.equal(row[patientColumn.column], patientId);
+    await cda.click('[data-testid="row-change-preview-panel"] button', { name: 'Keep current rows' });
+    assert.equal((await api(base + '/builder')).draftDigest, builder.draftDigest);
+    await proposeRoot('Observation');
+    await applyRoot('Observation');
+    assert.deepEqual(builder.workspace.documents[0].columns.map(c=>c.column), original.columns.map(c=>c.column));
+    assert.equal(builder.workspace.documents[0].population.selectionRevisionId, selection.id);
+    await open();
+    assert.match(await cda.inspect(() => document.querySelector('select[aria-label="Record type"]').selectedOptions[0].text), /^Observation/);
+    await cda.click('[aria-label="Row definition settings"] button', { name: 'Back to table' });
+    const restoredPreview = await proposeRoot('Patient');
+    assert.equal(restoredPreview.rowCount, 1);
+    await applyRoot('Patient');
+    assert.equal(builder.workspace.documents[0].population.selectionRevisionId, selection.id);
+    await open();
+    assert.match(await cda.inspect(() => document.querySelector('select[aria-label="Record type"]').selectedOptions[0].text), /^Patient/);
+    for (let cycle = 0; cycle < Number(process.env.LOOM_ROOT_REPEAT_CYCLES ?? 0); cycle++) {
+      const expanded = await proposeRoot('Observation');
+      assert.equal(expanded.rowCount, Math.min(25, report.oracle.observations.length));
+      await applyRoot('Observation');
+      const restored = await proposeRoot('Patient');
+      assert.equal(restored.rowCount, 1);
+      await applyRoot('Patient');
+      assert.equal(builder.workspace.documents[0].population.selectionRevisionId, selection.id);
+      recordCase({ name: `repeat-root-cycle-${cycle + 1}`, populationRouteHops: builder.workspace.documents[0].population.route.length });
+    }
+    if (Number(process.env.LOOM_ROOT_REPEAT_CYCLES ?? 0) > 0) await open();
+    const collectionSelector = 'section[aria-label="Starting collection"]';
+    const checkCoverage = async name => {
+      const started = Date.now();
+      await cda.click(`${collectionSelector} button`, { name: 'Check selected-resource coverage' });
+      await cda.wait(() => document.querySelector('[data-testid="population-coverage-report"]') || document.querySelector('section[aria-label="Starting collection"] [role="alert"]'));
+      const text = await cda.inspect(() => document.querySelector('[data-testid="population-coverage-report"]')?.innerText);
+      assert.match(text ?? '', /1 selected · 1 produce rows · 0 needs attention/);
+      const durationMs = Date.now() - started;
+      assert(durationMs <= 5000, `Coverage took ${durationMs}ms`);
+      recordCase({ name, durationMs, text });
+    };
+    await checkCoverage('restored-root-coverage');
+    const clearStart = Date.now();
+    await cda.click(`${collectionSelector} button`, { name: 'Use all authorized rows' });
+    await cda.wait(() => [...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button => button.innerText === 'Use selected resources' && !button.disabled));
+    builder = await api(base + '/builder');
+    assert.equal(builder.workspace.documents[0].population, undefined);
+    assert(Date.now() - clearStart <= 5000, 'Clearing the collection must finish within five seconds');
+    recordCase({ name: 'clear-starting-collection', durationMs: Date.now() - clearStart });
+    const attachStart = Date.now();
+    const connection = 'select[aria-label="Population connection"]';
+    const connectionGeometry = await cda.inspect(() => { const element = document.querySelector('select[aria-label="Population connection"]'); const rect = element?.getBoundingClientRect(); return rect ? { left: rect.left, right: rect.right, width: rect.width, viewportWidth: innerWidth } : undefined; });
+    report.connectionGeometry = connectionGeometry;
+    if (connectionGeometry) assert(connectionGeometry.width <= connectionGeometry.viewportWidth, 'Long route names must not make the population dropdown wider than the viewport');
+    const choices = await page.locator(connection).locator('option').evaluateAll(options => options.map(option => ({ value: option.value, label: option.text })));
+    const subject = choices.find(o => /Subject/i.test(o.label) && !/Focus/i.test(o.label));
+    if (subject) await cda.selectOption(connection, subject.value);
+    await cda.click(`${collectionSelector} button`, { name: 'Use selected resources' });
+    await cda.wait(() => [...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button => button.innerText === 'Use all authorized rows' && !button.disabled));
+    builder = await api(base + '/builder');
+    assert.equal(builder.workspace.documents[0].population.selectionRevisionId, selection.id);
+    assert.equal(builder.workspace.documents[0].population.route.length, 1);
+    assert(Date.now() - attachStart <= 5000, 'Reattaching the collection must finish within five seconds');
+    recordCase({ name: 'reattach-starting-collection', durationMs: Date.now() - attachStart });
+    await open();
+    await checkCoverage('reattached-collection-reload-coverage');
+    report.finalUI = await cda.inspect(() => document.body.innerText);
+    assert(report.finalUI.includes(patientId), 'Reloaded table must render the original CDA Patient ID');
+    await browserEvents.flush();
+    report.responses = capturedResponses();
+    cda.includeBrowserDiagnostics();
+    assert.equal(report.errors.length, 0, JSON.stringify(report.errors));
+    report.status = 'passed';
+  } catch (error) {
+    report.status = 'failed';
+    report.error = String(error.stack ?? error);
+    if (browserEvents) await browserEvents.flush().catch(() => undefined);
+    cda.includeBrowserDiagnostics();
+    report.responses = capturedResponses();
+    report.failureUI = await cda.inspect(() => document.body.innerText).catch(() => undefined);
+    fatal = error;
+  } finally {
+    report.finished = new Date().toISOString();
+    await cda.attachReport('root-settings', report);
+  }
+  if (fatal) throw fatal;
+}

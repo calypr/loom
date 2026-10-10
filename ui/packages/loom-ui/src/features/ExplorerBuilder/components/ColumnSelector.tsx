@@ -1,10 +1,31 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  AggregateOperationCapability,
+  ColumnTransformationChange,
   ExplorerBuilderCandidate,
   ExplorerBuilderCatalog,
   ExplorerBuilderColumn,
+  ConstructionStageColumn,
+  ExplorerColumnSourceDescriptor,
+  ExplorerColumnSource,
 } from '../../../types';
+import type {
+  ConfiguredColumnContext,
+  ConfiguredColumnContextResponse,
+} from '../../../interpretation';
 import { derivedOccurrences, type DraftTable } from '../authoring/model';
+import { ObservedCodeEvidence } from '../discovery/ObservedCodeEvidence';
+import {
+  FeaturePolicyEditor,
+  RelatedFeatureCreator,
+} from './FeaturePolicyEditor';
+import {
+  ColumnSourceInspector,
+} from './ColumnSourceInspector';
+import { useVirtualViewport, virtualRange } from './virtualization';
+import type { PreviewTablePresentationChange } from './PreviewTable';
+
+const CANDIDATE_ROW_HEIGHT = 144;
 
 const titleForResource = (value: string): string =>
   value
@@ -59,13 +80,105 @@ const candidateColumnName = (
 };
 
 const sourceSummary = (column: ExplorerBuilderColumn): string =>
-  [
-    column.source.kind,
-    column.source.fieldPath,
-    'match' in column.source ? column.source.match : undefined,
-  ]
-    .filter(Boolean)
-    .join(' · ');
+  [column.logicalType, column.source.kind].filter(Boolean).join(' · ');
+
+const ConstructionOutputRow = ({
+  column,
+  disabled,
+  onChange,
+}: {
+  readonly column: ConstructionStageColumn;
+  readonly disabled: boolean;
+  readonly onChange: (column: ConstructionStageColumn) => void;
+}) => {
+  const [label, setLabel] = useState(column.label);
+  useEffect(() => setLabel(column.label), [column.label]);
+  const commitLabel = () => {
+    const next = label.trim();
+    if (!next) {
+      setLabel(column.label);
+      return;
+    }
+    if (next !== column.label) onChange({ ...column, label: next });
+  };
+
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem_2rem_2rem] items-center gap-2 border-b border-slate-200 px-2 py-1.5 last:border-b-0 hover:bg-slate-50/70">
+      <div className="min-w-0">
+        <input
+          aria-label={`Display name for construction output ${column.label}`}
+          className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm font-medium text-slate-800 outline-blue-500 focus:border-blue-500"
+          value={label}
+          disabled={disabled}
+          onChange={(event) => setLabel(event.currentTarget.value)}
+          onBlur={commitLabel}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur();
+            if (event.key === 'Escape') {
+              setLabel(column.label);
+              event.currentTarget.blur();
+            }
+          }}
+        />
+        <div className="break-all px-1 font-mono text-[10px] leading-tight text-slate-400">
+          {column.name} · {column.type ?? 'constructed'}
+        </div>
+        <p className="mt-1 px-1 text-[10px] leading-tight text-slate-500">
+          Reorder in Preview → Columns. Filters, charts, and removal aren’t available for constructed outputs.
+        </p>
+      </div>
+      <label className="flex justify-center" title="Display in table">
+        <span className="sr-only">Table</span>
+        <input
+          aria-label={`Display ${column.label} in table`}
+          type="checkbox"
+          checked={column.table?.visible ?? true}
+          disabled={disabled}
+          onChange={(event) =>
+            onChange({
+              ...column,
+              table: {
+                ...(column.table ?? {}),
+                visible: event.currentTarget.checked,
+              },
+            })
+          }
+        />
+      </label>
+      <span className="text-center text-xs text-slate-400" title="Filters are unavailable for constructed outputs">—</span>
+      <span className="text-center text-xs text-slate-400" title="Charts are unavailable for constructed outputs">—</span>
+      <span className="text-center text-[10px] text-slate-500">Preview</span>
+      <span />
+    </div>
+  );
+};
+
+const candidateForRowRoot = (
+  candidate: ExplorerBuilderCandidate | undefined,
+  rootResourceType: string | undefined,
+): ExplorerBuilderCandidate | undefined => {
+  if (!candidate) return undefined;
+  const temporalReduction = candidate.transformations.temporalReduction;
+  const anchorFields = temporalReduction.anchorFields.filter(
+    (field) => field.resourceType === rootResourceType,
+  );
+  const noRootAnchor = temporalReduction.available && anchorFields.length === 0;
+  return {
+    ...candidate,
+    transformations: {
+      ...candidate.transformations,
+      temporalReduction: {
+        ...temporalReduction,
+        available: temporalReduction.available && anchorFields.length > 0,
+        reasonCode: noRootAnchor ? 'NO_ROOT_ANCHOR_FIELDS' : temporalReduction.reasonCode,
+        reason: noRootAnchor
+          ? `No date-time field is available for ${rootResourceType || 'this table'} rows.`
+          : temporalReduction.reason,
+        anchorFields,
+      },
+    },
+  };
+};
 
 const ConfiguredColumnRow = ({
   column,
@@ -73,16 +186,48 @@ const ConfiguredColumnRow = ({
   disabled,
   filterable,
   chartable,
+  candidate,
+  resolution,
+  candidates,
+  related,
+  rowContext,
+  rootResourceType,
+  resourceLabel,
   onChange,
+  onSourceChange,
+  onContributorChange,
+  onTransformationChange,
+  onMoveToEnd,
+  moveToEndDisabled,
   onRemove,
+  onInspect,
 }: {
   readonly column: ExplorerBuilderColumn;
   readonly order: number;
   readonly disabled: boolean;
   readonly filterable: boolean;
   readonly chartable: boolean;
+  readonly candidate?: ExplorerBuilderCandidate;
+  readonly resolution?: ConfiguredColumnContext['resolution'];
+  readonly candidates: ReadonlyArray<ExplorerBuilderCandidate>;
+  readonly related: boolean;
+  readonly rowContext: AggregateOperationCapability['rowContext'] | undefined;
+  readonly rootResourceType: string | undefined;
+  readonly resourceLabel: string;
   readonly onChange: (value: ExplorerBuilderColumn) => void;
+  readonly onSourceChange: (column: string, source: ExplorerColumnSource) => void;
+  readonly onContributorChange: (
+    column: string,
+    contributor: ExplorerBuilderColumn['contributor'],
+  ) => void;
+  readonly onTransformationChange: (
+    column: string,
+    change: ColumnTransformationChange,
+  ) => void;
+  readonly onMoveToEnd: () => void;
+  readonly moveToEndDisabled: boolean;
   readonly onRemove: () => void;
+  readonly onInspect: () => void;
 }) => {
   const [label, setLabel] = useState(column.label);
 
@@ -97,7 +242,7 @@ const ConfiguredColumnRow = ({
   const visible = column.table?.visible ?? Boolean(column.table);
 
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem_2rem] items-center gap-2 border-b border-slate-200 px-2 py-1.5 last:border-b-0 hover:bg-slate-50/70">
+    <div className="grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem_2rem_2rem] items-center gap-2 border-b border-slate-200 px-2 py-1.5 last:border-b-0 hover:bg-slate-50/70">
       <div className="min-w-0">
         <input
           aria-label={`Display name for configured ${column.label}`}
@@ -117,6 +262,16 @@ const ConfiguredColumnRow = ({
         <div className="break-all px-1 font-mono text-[10px] leading-tight text-slate-400">
           {column.column} · {sourceSummary(column)}
         </div>
+        {resolution && resolution.state !== 'READY' ? (
+          <p className="mt-1 px-1 text-[11px] text-amber-800">{resolution.reason}</p>
+        ) : null}
+        <button
+          type="button"
+          className="ml-1 mt-1 text-[11px] font-semibold text-blue-700 hover:text-blue-900 hover:underline"
+          onClick={onInspect}
+        >
+          Column details
+        </button>
       </div>
       <label className="flex justify-center" title="Display in table">
         <span className="sr-only">Table</span>
@@ -187,6 +342,16 @@ const ConfiguredColumnRow = ({
       </label>
       <button
         type="button"
+        aria-label={`Move ${column.label} to end`}
+        title="Move to end"
+        className="h-6 w-6 rounded text-sm leading-none text-slate-600 hover:bg-slate-100 disabled:opacity-30"
+        disabled={disabled || moveToEndDisabled}
+        onClick={onMoveToEnd}
+      >
+        ↓
+      </button>
+      <button
+        type="button"
         aria-label={`Remove ${column.label}`}
         title="Remove configured column"
         className="h-6 w-6 rounded text-base leading-none text-red-600 hover:bg-red-50 disabled:opacity-40"
@@ -195,42 +360,67 @@ const ConfiguredColumnRow = ({
       >
         ×
       </button>
+      <FeaturePolicyEditor
+        column={column}
+        candidate={candidateForRowRoot(candidate, rootResourceType)}
+        candidates={candidates}
+        related={related}
+        rowContext={rowContext}
+        resourceLabel={resourceLabel}
+        disabled={disabled}
+        onSourceChange={(source) => onSourceChange(column.column, source)}
+        onContributorChange={(contributor) =>
+          onContributorChange(column.column, contributor)
+        }
+        onTransformationChange={(change) =>
+          onTransformationChange(column.column, change)
+        }
+      />
     </div>
   );
 };
 
 const AvailableColumnRow = ({
   candidate,
+  displayName,
   disabled,
+  onDisplayNameChange,
   onAdd,
 }: {
   readonly candidate: ExplorerBuilderCandidate;
+  readonly displayName: string;
   readonly disabled: boolean;
+  readonly onDisplayNameChange: (value: string) => void;
   readonly onAdd: (
     displayName: string,
     initialPresentation: InitialPresentation,
   ) => void;
 }) => {
-  const [displayName, setDisplayName] = useState(candidate.label);
   const normalizedDisplayName = displayName.trim();
+  const concepts = candidate.conceptCandidates ?? [];
 
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem_2rem] items-center gap-2 border-b border-slate-200 px-2 py-1.5 last:border-b-0 hover:bg-blue-50/40">
+    <div className="grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem_2rem_2rem] items-center gap-2 border-b border-slate-200 px-2 py-1.5 last:border-b-0 hover:bg-blue-50/40">
       <div className="min-w-0">
         <input
           aria-label={`Display name for available ${candidate.label}`}
           className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm font-medium text-slate-700 outline-blue-500 focus:border-blue-500"
           value={displayName}
           disabled={disabled}
-          onChange={(event) => setDisplayName(event.currentTarget.value)}
+          onChange={(event) => onDisplayNameChange(event.currentTarget.value)}
           onBlur={() => {
-            if (!displayName.trim()) setDisplayName(candidate.label);
+            if (!displayName.trim()) onDisplayNameChange(candidate.label);
           }}
         />
         <div className="break-all px-1 font-mono text-[10px] leading-tight text-slate-400">
           {candidate.fieldPath} · {candidate.logicalType}
           {candidate.repeated ? ' · repeated' : ''}
         </div>
+        {concepts.length > 0 ? (
+          <div className="mt-1 text-[10px]">
+            <ObservedCodeEvidence concepts={concepts} compact />
+          </div>
+        ) : null}
       </div>
       <label className="flex justify-center" title="Add to table">
         <span className="sr-only">Table</span>
@@ -282,24 +472,39 @@ const AvailableColumnRow = ({
         />
       </label>
       <span />
+      <span />
     </div>
   );
 };
 
 export const ColumnSelector = ({
   catalog,
+  interpretationContext,
   table,
   occurrenceId,
+  focusColumn,
   disabled,
   loadingCandidates = false,
   onAdd,
   onAddAll,
+  onAddSource,
   onChange,
+  onColumnsChange,
+  onPresentationChanges,
+  onConstructionOutputChange,
+  onSourceChange,
+  onContributorChange = () => undefined,
+  onTransformationChange = () => undefined,
   onRemove,
+  onInspectSource,
+  onEditInGraph,
+  showAvailable = true,
 }: {
   readonly catalog: ExplorerBuilderCatalog;
+  readonly interpretationContext?: ConfiguredColumnContextResponse;
   readonly table?: DraftTable;
   readonly occurrenceId: string;
+  readonly focusColumn?: string;
   readonly disabled: boolean;
   readonly loadingCandidates?: boolean;
   readonly onAdd: (
@@ -310,11 +515,50 @@ export const ColumnSelector = ({
   readonly onAddAll: (
     candidates: ReadonlyArray<ExplorerBuilderCandidate>,
   ) => void;
+  readonly onAddSource?: (source: ExplorerColumnSource, title: string) => void;
   readonly onChange: (column: ExplorerBuilderColumn) => void;
+  readonly onColumnsChange?: (
+    columns: ReadonlyArray<ExplorerBuilderColumn>,
+  ) => void;
+  readonly onConstructionOutputChange?: (
+    stepId: string,
+    column: ConstructionStageColumn,
+  ) => void;
+  readonly onPresentationChanges?: (
+    changes: ReadonlyArray<PreviewTablePresentationChange>,
+  ) => void;
+  readonly onSourceChange: (column: string, source: ExplorerColumnSource) => void;
+  readonly onContributorChange?: (
+    column: string,
+    contributor: ExplorerBuilderColumn['contributor'],
+  ) => void;
+  readonly onTransformationChange?: (
+    column: string,
+    change: ColumnTransformationChange,
+  ) => void;
   readonly onRemove: (column: string) => void;
+  readonly onInspectSource?: (
+    column: ExplorerBuilderColumn,
+  ) => Promise<ExplorerColumnSourceDescriptor>;
+  readonly onEditInGraph?: (column: ExplorerBuilderColumn) => void;
+  readonly showAvailable?: boolean;
 }) => {
   const [query, setQuery] = useState('');
-  const occurrence = derivedOccurrences(table, catalog).find(
+  const [inspection, setInspection] = useState<{
+    readonly column: string;
+    readonly loading: boolean;
+    readonly descriptor?: ExplorerColumnSourceDescriptor;
+    readonly error?: string;
+  }>();
+  const inspectionGeneration = useRef(0);
+  useEffect(() => {
+    if (focusColumn) setQuery(focusColumn);
+  }, [focusColumn]);
+  const [availableDisplayNames, setAvailableDisplayNames] = useState<Readonly<Record<string, string>>>({});
+  const { viewport, ref: candidateScrollRef } =
+    useVirtualViewport<HTMLDivElement>();
+  const occurrences = derivedOccurrences(table, catalog);
+  const occurrence = occurrences.find(
     (candidate) => candidate.id === occurrenceId,
   );
   const resourceType =
@@ -322,48 +566,97 @@ export const ColumnSelector = ({
       ?.resourceType ?? 'resource';
   const configured = useMemo(
     () =>
-      (table?.document.columns ?? []).filter(
-        (column) => column.occurrenceId === occurrenceId,
-      ),
-    [occurrenceId, table?.document.columns],
+      showAvailable
+        ? (table?.document.columns ?? []).filter(
+            (column) => column.occurrenceId === occurrenceId,
+          )
+        : (table?.document.columns ?? []),
+    [occurrenceId, showAvailable, table?.document.columns],
   );
-  const configuredFieldPaths = useMemo(
-    () =>
-      new Set(
-        configured.flatMap((column) =>
-          column.source.kind === 'field' && column.source.fieldPath
-            ? [column.source.fieldPath.replace(/^root\./, '')]
-            : [],
-        ),
+  const constructionStep = showAvailable
+    ? undefined
+    : table?.document.construction?.steps.at(-1);
+  const authoredColumnNames = new Set(
+    table?.document.columns.map((column) => column.column) ?? [],
+  );
+  const constructionOutputs = constructionStep?.outputs.filter(
+    (output) => !authoredColumnNames.has(output.name),
+  ) ?? [];
+  const inspectedColumn = configured.find(
+    (column) => column.column === inspection?.column,
+  );
+  const inspectColumn = async (column: ExplorerBuilderColumn) => {
+    if (!onInspectSource) return;
+    const generation = ++inspectionGeneration.current;
+    setInspection({ column: column.column, loading: true });
+    try {
+      const descriptor = await onInspectSource(column);
+      if (generation !== inspectionGeneration.current) return;
+      if (descriptor.column !== column.column) {
+        throw new Error('Loom returned source details for a different column.');
+      }
+      setInspection({ column: column.column, loading: false, descriptor });
+    } catch (error) {
+      if (generation !== inspectionGeneration.current) return;
+      setInspection({
+        column: column.column,
+        loading: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Loom could not load this column source.',
+      });
+    }
+  };
+  const contextColumns = useMemo(
+    () => new Map(
+      (interpretationContext?.columns ?? [])
+        .filter((item) => item.outputId === table?.outputId)
+        .map((item) => [item.column, item]),
+    ),
+    [interpretationContext?.columns, table?.outputId],
+  );
+  const configuredResolutions = useMemo(
+    () => new Map(configured.map((column) => [column.column, contextColumns.get(column.column)?.resolution])),
+    [configured, contextColumns],
+  );
+  const configuredCandidateIds = useMemo(
+    () => new Set(
+      [...configuredResolutions.values()].flatMap((resolution) =>
+        resolution?.state === 'READY' ? resolution.capabilityCandidateIds : [],
       ),
-    [configured],
+    ),
+    [configuredResolutions],
+  );
+  const catalogCandidatesById = useMemo(
+    () => new Map((catalog.candidates ?? []).map((candidate) => [candidate.candidateId, candidate])),
+    [catalog.candidates],
   );
   const configuredCapabilities = useMemo(
-    () =>
-      new Map(
-        configured.map((column) => [
-          column.column,
-          column.source.kind === 'field'
-            ? (catalog.candidates ?? []).find(
-                (candidate) =>
-                  candidate.nodeId === occurrence?.nodeId &&
-                  candidate.fieldPath.replace(/^root\./, '') ===
-                    column.source.fieldPath?.replace(/^root\./, ''),
-              )
-            : undefined,
-        ]),
-      ),
-    [catalog.candidates, configured, occurrence?.nodeId],
+    () => new Map<string, ExplorerBuilderCandidate | undefined>(configured.map((column) => {
+      const resolution = configuredResolutions.get(column.column);
+      if (resolution?.state !== 'READY') return [column.column, undefined];
+      const matches = resolution.capabilityCandidateIds
+        .map((candidateId) => catalogCandidatesById.get(candidateId))
+        .filter((candidate): candidate is ExplorerBuilderCandidate => candidate !== undefined);
+      return [column.column, matches.length === 1 ? matches[0] : undefined];
+    })),
+    [catalogCandidatesById, configured, configuredResolutions],
   );
+  const inspectedEvidence = inspectedColumn
+    ? configuredCapabilities.get(inspectedColumn.column)?.conceptCandidates ?? []
+    : [];
   const available = useMemo(
     () =>
-      (catalog.candidates ?? []).filter(
-        (candidate) =>
-          candidate.nodeId === occurrence?.nodeId &&
-          isTabularCandidate(candidate) &&
-          !configuredFieldPaths.has(candidate.fieldPath.replace(/^root\./, '')),
-      ),
-    [catalog.candidates, configuredFieldPaths, occurrence?.nodeId],
+      showAvailable
+        ? (catalog.candidates ?? []).filter(
+            (candidate) =>
+              candidate.nodeId === occurrence?.nodeId &&
+              isTabularCandidate(candidate) &&
+              !configuredCandidateIds.has(candidate.candidateId),
+          )
+        : [],
+    [catalog.candidates, configuredCandidateIds, occurrence?.nodeId, showAvailable],
   );
   const normalizedQuery = query.trim().toLowerCase();
   const rows = useMemo(
@@ -371,6 +664,11 @@ export const ColumnSelector = ({
       [
         ...configured.map((column) => ({
           kind: 'configured' as const,
+          column,
+        })),
+        ...constructionOutputs.map((column) => ({
+          kind: 'construction' as const,
+          stepId: constructionStep?.id ?? '',
           column,
         })),
         ...available.map((candidate) => ({
@@ -383,22 +681,35 @@ export const ColumnSelector = ({
           const value =
             row.kind === 'configured'
               ? `${row.column.label} ${row.column.column} ${sourceSummary(row.column)}`
-              : `${row.candidate.label} ${row.candidate.fieldPath} ${row.candidate.logicalType}`;
+              : row.kind === 'construction'
+                ? `${row.column.label} ${row.column.name} ${row.column.type ?? 'constructed'}`
+                : `${row.candidate.label} ${row.candidate.fieldPath} ${row.candidate.logicalType}`;
           return value.toLowerCase().includes(normalizedQuery);
         })
         .sort((left, right) => {
           const leftLabel =
             left.kind === 'configured'
-              ? configuredCapabilities.get(left.column.column)?.label ?? left.column.source.fieldPath ?? left.column.column
-              : left.candidate.label;
+              ? configuredCapabilities.get(left.column.column)?.label ?? sourceSummary(left.column)
+              : left.kind === 'construction'
+                ? left.column.label
+                : left.candidate.label;
           const rightLabel =
             right.kind === 'configured'
-              ? configuredCapabilities.get(right.column.column)?.label ?? right.column.source.fieldPath ?? right.column.column
-              : right.candidate.label;
+              ? configuredCapabilities.get(right.column.column)?.label ?? sourceSummary(right.column)
+              : right.kind === 'construction'
+                ? right.column.label
+                : right.candidate.label;
           return leftLabel.localeCompare(rightLabel);
         }),
-    [available, configured, configuredCapabilities, normalizedQuery],
+    [available, configured, configuredCapabilities, constructionOutputs, constructionStep?.id, normalizedQuery],
   );
+  const rowRange = virtualRange({
+    count: rows.length,
+    offset: viewport.scrollTop,
+    viewport: viewport.height,
+    itemSize: CANDIDATE_ROW_HEIGHT,
+    overscan: 3,
+  });
   const addCandidate = (
     candidate: ExplorerBuilderCandidate,
     displayName: string,
@@ -409,37 +720,116 @@ export const ColumnSelector = ({
   };
   const allTableColumnsSelected =
     available.length === 0 &&
-    configured.length > 0 &&
+    configured.length + constructionOutputs.length > 0 &&
     configured.every(
       (column) => column.table?.visible ?? Boolean(column.table),
-    );
-  const toggleAllTableColumns = () => {
-    if (disabled) return;
-    if (allTableColumnsSelected) {
-      configured.forEach((column) =>
-        onChange({
-          ...column,
-          table: {
-            ...(column.table ?? {}),
-            visible: false,
-          },
-        }),
+    ) &&
+    constructionOutputs.every((column) => column.table?.visible ?? true);
+  const visibleConfigured = (table?.document.columns ?? [])
+    .filter((column) => column.table?.visible ?? Boolean(column.table))
+    .map((column, index) => ({ column, index }))
+    .sort(
+      (left, right) =>
+        (left.column.table?.order ?? Number.MAX_SAFE_INTEGER) -
+          (right.column.table?.order ?? Number.MAX_SAFE_INTEGER) ||
+        left.index - right.index,
+    )
+    .map(({ column }) => column);
+  const lastVisibleColumn = visibleConfigured.at(-1)?.column;
+  const moveColumnToEnd = (column: ExplorerBuilderColumn) => {
+    if (visibleConfigured.every((item) => item.table?.order !== undefined)) {
+      const maximumOrder = Math.max(
+        -1,
+        ...visibleConfigured.map((item) => item.table?.order ?? -1),
       );
+      onChange({
+        ...column,
+        table: { ...(column.table ?? {}), visible: true, order: maximumOrder + 1 },
+      });
       return;
     }
-    configured
-      .filter((column) => !(column.table?.visible ?? Boolean(column.table)))
-      .forEach((column, order) =>
-        onChange({
-          ...column,
-          table: {
-            ...(column.table ?? {}),
-            visible: true,
-            order: column.table?.order ?? order,
-          },
-        }),
+    const updates = visibleConfigured
+      .filter((item) => item.column !== column.column)
+      .concat(column)
+      .flatMap((item, order) =>
+        item.table?.order === order
+          ? []
+          : [{ ...item, table: { ...(item.table ?? {}), visible: true, order } }],
       );
-    if (available.length > 0) onAddAll(available);
+    if (onColumnsChange) onColumnsChange(updates);
+    else updates.forEach(onChange);
+  };
+  const dispatchPresentationChanges = (
+    changes: ReadonlyArray<PreviewTablePresentationChange>,
+  ) => {
+    if (onPresentationChanges) {
+      onPresentationChanges(changes);
+      return;
+    }
+    const authored = changes.flatMap((change) =>
+      change.kind === 'AUTHORED_COLUMN' ? [change.column] : [],
+    );
+    if (authored.length > 0) {
+      if (onColumnsChange) onColumnsChange(authored);
+      else authored.forEach((column) => onChange(column));
+    }
+    changes.forEach((change) => {
+      if (change.kind === 'CONSTRUCTION_OUTPUT') {
+        onConstructionOutputChange?.(change.stepId, change.column);
+      }
+    });
+  };
+  const toggleAllTableColumns = () => {
+    if (disabled) return;
+    const changes: PreviewTablePresentationChange[] = allTableColumnsSelected
+      ? [
+          ...configured.map((column) => ({
+            kind: 'AUTHORED_COLUMN' as const,
+            column: {
+              ...column,
+              table: { ...(column.table ?? {}), visible: false },
+            },
+          })),
+          ...constructionOutputs.map((column) => ({
+            kind: 'CONSTRUCTION_OUTPUT' as const,
+            stepId: constructionStep?.id ?? '',
+            column: {
+              ...column,
+              table: { ...(column.table ?? {}), visible: false },
+            },
+          })),
+        ]
+      : [
+          ...configured
+            .filter((column) => !(column.table?.visible ?? Boolean(column.table)))
+            .map((column, order) => ({
+              kind: 'AUTHORED_COLUMN' as const,
+              column: {
+                ...column,
+                table: {
+                  ...(column.table ?? {}),
+                  visible: true,
+                  order: column.table?.order ?? order,
+                },
+              },
+            })),
+          ...constructionOutputs
+            .filter((column) => !(column.table?.visible ?? true))
+            .map((column, order) => ({
+              kind: 'CONSTRUCTION_OUTPUT' as const,
+              stepId: constructionStep?.id ?? '',
+              column: {
+                ...column,
+                table: {
+                  ...(column.table ?? {}),
+                  visible: true,
+                  order: column.table?.order ?? configured.length + order,
+                },
+              },
+            })),
+        ];
+    dispatchPresentationChanges(changes);
+    if (!allTableColumnsSelected && available.length > 0) onAddAll(available);
   };
 
   return (
@@ -447,14 +837,26 @@ export const ColumnSelector = ({
       <div className="flex min-w-0 items-start gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="text-base font-semibold text-slate-900">
-            {titleForResource(resourceType)} columns
+            {showAvailable
+              ? `${titleForResource(resourceType)} columns`
+              : 'Your columns'}
           </h2>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {occurrenceId !== 'base' && onAddSource ? (
+            <RelatedFeatureCreator
+              resourceLabel={titleForResource(resourceType)}
+              disabled={disabled}
+              onAdd={onAddSource}
+            />
+          ) : null}
           <button
             type="button"
             disabled={
-              disabled || (configured.length === 0 && available.length === 0)
+              disabled ||
+              (configured.length === 0 &&
+                constructionOutputs.length === 0 &&
+                available.length === 0)
             }
             aria-pressed={allTableColumnsSelected}
             onClick={toggleAllTableColumns}
@@ -465,7 +867,9 @@ export const ColumnSelector = ({
               : 'Select all table columns'}
           </button>
           <span className="rounded bg-slate-100 px-2 py-1 text-[11px] text-slate-600">
-            {configured.length} configured · {available.length} available
+            {showAvailable
+              ? `${configured.length} configured · ${available.length} available`
+              : `${configured.length + constructionOutputs.length} configured`}
           </span>
         </div>
       </div>
@@ -480,50 +884,165 @@ export const ColumnSelector = ({
             className="mt-2 rounded border border-slate-300 px-2.5 py-1.5 text-sm outline-blue-500"
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
-            placeholder="Search labels, column names, or field paths"
+            placeholder={
+              showAvailable
+                ? 'Search labels, column names, or field paths'
+                : 'Search your configured columns'
+            }
           />
-          <div className="mt-2 grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem_2rem] gap-2 border-b border-slate-200 bg-slate-50/70 px-2 py-1 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+          {inspectedColumn && inspection?.loading ? (
+            <p className="mt-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900" role="status">
+              Loading the saved route and exact source…
+            </p>
+          ) : null}
+          {inspectedColumn && inspection?.error ? (
+            <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-900" role="alert">
+              <p>{inspection.error}</p>
+              <button
+                type="button"
+                className="mt-2 font-semibold underline"
+                onClick={() => setInspection(undefined)}
+              >
+                Close
+              </button>
+            </div>
+          ) : null}
+          {inspectedColumn && inspection?.descriptor ? (
+            <>
+              <ColumnSourceInspector
+                column={inspectedColumn}
+                descriptor={inspection.descriptor}
+                onClose={() => {
+                  inspectionGeneration.current += 1;
+                  setInspection(undefined);
+                }}
+                onEditInGraph={
+                  onEditInGraph
+                    ? () => onEditInGraph(inspectedColumn)
+                    : undefined
+                }
+              />
+              {inspectedEvidence.length > 0 ? (
+                <div className="mt-2 rounded-lg border border-slate-200 bg-white p-2">
+                  <p className="mb-2 text-xs font-semibold text-slate-800">Observed code meaning for this saved source</p>
+                  <ObservedCodeEvidence concepts={inspectedEvidence} compact />
+                </div>
+              ) : null}
+            </>
+          ) : null}
+          <div className="mt-2 grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem_2rem_2rem] gap-2 border-b border-slate-200 bg-slate-50/70 px-2 py-1 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-500">
             <span className="text-left">Display name / source</span>
             <span>Table</span>
             <span>Filter</span>
             <span>Chart</span>
+            <span>Order</span>
             <span />
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto bg-white/80">
+          <div
+            ref={candidateScrollRef}
+            className="min-h-0 flex-1 overflow-y-auto bg-white/80"
+          >
             {rows.length ? (
-              rows.map((row, order) =>
-                row.kind === 'configured' ? (
-                  <ConfiguredColumnRow
-                    key={`configured:${row.column.column}`}
-                    column={row.column}
-                    order={row.column.table?.order ?? order}
-                    disabled={disabled}
-                    filterable={
-                      configuredCapabilities.get(row.column.column)
-                        ?.filterable ?? true
-                    }
-                    chartable={
-                      configuredCapabilities.get(row.column.column)
-                        ?.chartable ?? true
-                    }
-                    onChange={onChange}
-                    onRemove={() => onRemove(row.column.column)}
-                  />
-                ) : (
-                  <AvailableColumnRow
-                    key={`available:${row.candidate.candidateId}`}
-                    candidate={row.candidate}
-                    disabled={disabled}
-                    onAdd={(displayName, initialPresentation) =>
-                      addCandidate(
-                        row.candidate,
-                        displayName,
-                        initialPresentation,
-                      )
-                    }
-                  />
-                ),
-              )
+              <div
+                className="relative"
+                style={{ height: rows.length * CANDIDATE_ROW_HEIGHT }}
+              >
+                {rows.slice(rowRange.start, rowRange.end).map((row, visibleIndex) => {
+                  const order = rowRange.start + visibleIndex;
+                  const configuredOccurrence =
+                    row.kind === 'configured'
+                      ? occurrences.find(
+                          ({ id }) => id === row.column.occurrenceId,
+                        )
+                      : undefined;
+                  const configuredResourceType = configuredOccurrence
+                    ? catalog.nodes.find(
+                        ({ nodeId }) => nodeId === configuredOccurrence.nodeId,
+                      )?.resourceType
+                    : undefined;
+                  return (
+                    <div
+                      key={row.kind === 'configured'
+                        ? `configured:${row.column.column}`
+                        : row.kind === 'construction'
+                          ? `construction:${row.stepId}:${row.column.id}`
+                          : `available:${row.candidate.candidateId}`}
+                      className={`absolute inset-x-0 ${row.kind === 'configured' && row.column.column === focusColumn ? 'rounded border-2 border-blue-500 bg-blue-50' : ''}`}
+                      data-feature-focus={row.kind === 'configured' && row.column.column === focusColumn ? 'true' : undefined}
+                      style={{ top: order * CANDIDATE_ROW_HEIGHT, height: CANDIDATE_ROW_HEIGHT }}
+                    >
+                      {row.kind === 'configured' ? (
+                        <ConfiguredColumnRow
+                          column={row.column}
+                          order={row.column.table?.order ?? order}
+                          disabled={disabled}
+                          filterable={
+                            configuredCapabilities.get(row.column.column)
+                              ?.filterable ?? true
+                          }
+                          chartable={
+                            configuredCapabilities.get(row.column.column)
+                              ?.chartable ?? true
+                          }
+                          candidate={configuredCapabilities.get(row.column.column)}
+                          resolution={configuredResolutions.get(row.column.column)}
+                          related={row.column.occurrenceId !== 'base'}
+                          rowContext={table?.document.rows.kind}
+                          rootResourceType={table?.document.rootResourceType}
+                          candidates={(catalog.candidates ?? []).filter(
+                            (candidateOption) =>
+                              candidateOption.nodeId ===
+                              configuredOccurrence?.nodeId,
+                          )}
+                          resourceLabel={titleForResource(
+                            configuredResourceType ?? resourceType,
+                          )}
+                          onChange={onChange}
+                          onSourceChange={onSourceChange}
+                          onContributorChange={onContributorChange}
+                          onTransformationChange={onTransformationChange}
+                          moveToEndDisabled={
+                            !(row.column.table?.visible ?? Boolean(row.column.table)) ||
+                            row.column.column === lastVisibleColumn
+                          }
+                          onMoveToEnd={() => moveColumnToEnd(row.column)}
+                          onRemove={() => onRemove(row.column.column)}
+                          onInspect={() =>
+                            void inspectColumn(row.column)
+                          }
+                        />
+                      ) : row.kind === 'construction' ? (
+                        <ConstructionOutputRow
+                          column={row.column}
+                          disabled={disabled || !onConstructionOutputChange}
+                          onChange={(column) =>
+                            onConstructionOutputChange?.(row.stepId, column)
+                          }
+                        />
+                      ) : (
+                        <AvailableColumnRow
+                          candidate={row.candidate}
+                          displayName={availableDisplayNames[row.candidate.candidateId] ?? row.candidate.label}
+                          disabled={disabled}
+                          onDisplayNameChange={(value) =>
+                            setAvailableDisplayNames((current) => ({
+                              ...current,
+                              [row.candidate.candidateId]: value,
+                            }))
+                          }
+                          onAdd={(displayName, initialPresentation) =>
+                            addCandidate(
+                              row.candidate,
+                              displayName,
+                              initialPresentation,
+                            )
+                          }
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             ) : (
               <p className="p-4 text-sm text-slate-500">
                 {loadingCandidates
@@ -557,8 +1076,10 @@ export const columnFromCandidate = (
     occurrenceId,
     source: {
       kind: 'field',
-      fieldPath: candidate.fieldPath,
-      projectionMode: candidate.defaultProjectionMode,
+      field: {
+        path: candidate.fieldPath,
+        projectionMode: candidate.defaultProjectionMode,
+      },
     },
     table: { visible: true, order },
   };

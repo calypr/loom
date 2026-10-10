@@ -1,0 +1,316 @@
+{
+  "schemaVersion": 1,
+  "epoch": 102,
+  "scenario": "cda-five-hop-related-expansion",
+  "case": "medication-preserve-parent",
+  "title": "Make a row for each Medication from a zero-column Specimen through five relationship hops",
+  "status": "failed_harness",
+  "classification": "HARNESS_FRESH_WORKSPACE_ASSUMPTION",
+  "classificationReason": "Fresh Explorer creation intentionally returns an uninitialized Builder workspace; the test dereferenced workspace.documents before CREATE_TABLE. This is a harness setup assertion error, not an established product failure.",
+  "runnerStatus": "failed",
+  "coverageStatus": "failed_harness",
+  "startedAt": "2026-10-06T16:44:15.394Z",
+  "finishedAt": "2026-10-06T16:44:19.611Z",
+  "durableClosurePath": "docs/verification/playwright/runtime/zero-column-related-medication-epoch102-closure.json",
+  "target": {
+    "kind": "owned-cda",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorer": "related-medication-e64780fb-942e-41cd-9b89-488333509adc",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "sourceFingerprint": {
+      "sha256": "99c1f4b7d0da25af7926b06c2f60b604cf3a7a4e18916fb55b62beb21468fe4b",
+      "files": 1531
+    },
+    "apiBuildIdentity": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008"
+  },
+  "requiredChecks": {
+    "total": 11,
+    "passed": 2,
+    "failed": 0,
+    "unrun": 9
+  },
+  "assertions": [
+    {
+      "dimension": "correctness",
+      "name": "bounded independent raw CDA oracle proves the exact five-hop Medication route and records match availability",
+      "status": "passed",
+      "evidence": {
+        "project": "loom_dev_cda_fhir",
+        "generation": "cda-fhir-v1",
+        "scannedSpecimenCount": 1000,
+        "selectedRoots": [
+          {
+            "id": "00001c68-2c20-5003-a144-b2442469d8de",
+            "_id": "Specimen/g_af8d27ece3cef704ce1e40a8289c835969a1868685394a4260da3941864236f8",
+            "medicationIDs": []
+          },
+          {
+            "id": "0000ae4e-5498-51e8-a091-32b0552093ac",
+            "_id": "Specimen/g_98e422afa3a377b97d6cf4c70963714be734cc4ad84c6b1cdaed8b853aecbf79",
+            "medicationIDs": []
+          }
+        ],
+        "positiveWitnessWithinBound": false,
+        "unmatchedRootCountWithinBound": 1000,
+        "expectedMedicationIDs": [],
+        "expectedVisibleMedicationValues": [
+          null,
+          null
+        ],
+        "expectedPreserveRowCount": 2,
+        "expectedExcludeRowCount": 0,
+        "route": [
+          {
+            "fromResourceType": "Specimen",
+            "toResourceType": "Observation",
+            "relationship": "focus_Specimen",
+            "storageDirection": "INBOUND"
+          },
+          {
+            "fromResourceType": "Observation",
+            "toResourceType": "Condition",
+            "relationship": "stage_assessment_Observation",
+            "storageDirection": "INBOUND"
+          },
+          {
+            "fromResourceType": "Condition",
+            "toResourceType": "Patient",
+            "relationship": "subject_Patient",
+            "storageDirection": "OUTBOUND"
+          },
+          {
+            "fromResourceType": "Patient",
+            "toResourceType": "MedicationAdministration",
+            "relationship": "subject_Patient",
+            "storageDirection": "INBOUND"
+          },
+          {
+            "fromResourceType": "MedicationAdministration",
+            "toResourceType": "Medication",
+            "relationship": "medication_reference_Medication",
+            "storageDirection": "OUTBOUND"
+          }
+        ],
+        "bound": {
+          "rootLimit": 1000,
+          "distinctMedicationLimitPerRoot": 26
+        }
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "CDA watched source and API build stayed unchanged",
+      "status": "passed",
+      "evidence": {
+        "sourceBefore": {
+          "sha256": "99c1f4b7d0da25af7926b06c2f60b604cf3a7a4e18916fb55b62beb21468fe4b",
+          "files": 1531
+        },
+        "sourceAfter": {
+          "sha256": "99c1f4b7d0da25af7926b06c2f60b604cf3a7a4e18916fb55b62beb21468fe4b",
+          "files": 1531
+        },
+        "apiBuildIdentityBefore": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+        "apiBuildIdentityAfter": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+        "sourceUnchanged": true,
+        "apiBuildUnchanged": true
+      }
+    }
+  ],
+  "dimensions": {
+    "usability": {
+      "status": "untested",
+      "evidence": []
+    },
+    "correctness": {
+      "status": "partial",
+      "evidence": [
+        "Bounded raw route oracle passed; native lifecycle did not begin."
+      ]
+    },
+    "persistence": {
+      "status": "untested",
+      "evidence": []
+    },
+    "performance": {
+      "status": "untested",
+      "evidence": []
+    }
+  },
+  "failure": {
+    "location": "scripts/verify-ui/workflows/verify-cda-zero-column-related-medication.mjs:251",
+    "message": "TypeError: Cannot read properties of null (reading 'documents')",
+    "observableSequence": "Bounded oracle passed; POST fresh Explorer returned 201; Builder GET returned 200; workflow dereferenced builder.workspace.documents before creating a table.",
+    "sourceContract": {
+      "create": "internal/explorer/service.go:createEmptyInteractive creates only the Explorer identity; it has no draft content.",
+      "builder": "internal/explorer/lifecycle/query.go:Builder initializes LifecycleState=NEW and Workspace=nil, setting a workspace only from persisted DraftConfig or an ActiveRevision.",
+      "wire": "internal/explorer/authoringv2/types.go:BuilderState.Workspace is json:\"workspace\" without omitempty, so the nil pointer is represented as null.",
+      "workflow": "The zero-column workflow creates an Explorer without sourceExplorerId, reads Builder state, then dereferences builder.workspace.documents before issuing CREATE_TABLE.",
+      "responseBodyRetained": false,
+      "responseBodyNote": "The preserved report records only GET status/timing and the null-dereference TypeError; it does not retain the Builder response JSON. Null is supported by the source contract and error, not claimed as a captured response body.",
+      "stateValidation": "internal/explorer/authoringv2/validation.go:344-351 explicitly requires LifecycleState=NEW to have Workspace=null and accepts the null-workspace state."
+    },
+    "nativeActions": 0,
+    "requiredChecksPassed": 2,
+    "requiredChecksUnrun": 9,
+    "productFailureEstablished": false
+  },
+  "rawOracle": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "scannedSpecimenCount": 1000,
+    "selectedRoots": [
+      {
+        "id": "00001c68-2c20-5003-a144-b2442469d8de",
+        "_id": "Specimen/g_af8d27ece3cef704ce1e40a8289c835969a1868685394a4260da3941864236f8",
+        "medicationIDs": []
+      },
+      {
+        "id": "0000ae4e-5498-51e8-a091-32b0552093ac",
+        "_id": "Specimen/g_98e422afa3a377b97d6cf4c70963714be734cc4ad84c6b1cdaed8b853aecbf79",
+        "medicationIDs": []
+      }
+    ],
+    "positiveWitnessWithinBound": false,
+    "unmatchedRootCountWithinBound": 1000,
+    "expectedMedicationIDs": [],
+    "expectedVisibleMedicationValues": [
+      null,
+      null
+    ],
+    "expectedPreserveRowCount": 2,
+    "expectedExcludeRowCount": 0,
+    "route": [
+      {
+        "fromResourceType": "Specimen",
+        "toResourceType": "Observation",
+        "relationship": "focus_Specimen",
+        "storageDirection": "INBOUND"
+      },
+      {
+        "fromResourceType": "Observation",
+        "toResourceType": "Condition",
+        "relationship": "stage_assessment_Observation",
+        "storageDirection": "INBOUND"
+      },
+      {
+        "fromResourceType": "Condition",
+        "toResourceType": "Patient",
+        "relationship": "subject_Patient",
+        "storageDirection": "OUTBOUND"
+      },
+      {
+        "fromResourceType": "Patient",
+        "toResourceType": "MedicationAdministration",
+        "relationship": "subject_Patient",
+        "storageDirection": "INBOUND"
+      },
+      {
+        "fromResourceType": "MedicationAdministration",
+        "toResourceType": "Medication",
+        "relationship": "medication_reference_Medication",
+        "storageDirection": "OUTBOUND"
+      }
+    ],
+    "bound": {
+      "rootLimit": 1000,
+      "distinctMedicationLimitPerRoot": 26
+    }
+  },
+  "apiRequests": [
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/loom_dev_cda_fhir/explorers",
+      "status": 201,
+      "durationMs": 15
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/related-medication-e64780fb-942e-41cd-9b89-488333509adc/authoring/v2/builder",
+      "status": 200,
+      "durationMs": 605
+    }
+  ],
+  "network": {
+    "recordedNativeEntries": 0,
+    "unexpectedNetworkFailures": 0,
+    "note": "Builder GET response body was not retained."
+  },
+  "timing": {
+    "playwrightReportedTestDurationMs": 5083,
+    "playwrightRunDurationMs": 7432.656,
+    "reportObservedIntervalMs": 4217,
+    "nativeActionMaxMs": 0
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "99c1f4b7d0da25af7926b06c2f60b604cf3a7a4e18916fb55b62beb21468fe4b",
+        "files": 1531
+      },
+      "after": {
+        "sha256": "99c1f4b7d0da25af7926b06c2f60b604cf3a7a4e18916fb55b62beb21468fe4b",
+        "files": 1531
+      },
+      "unchanged": true,
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+      "after": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+      "unchanged": true
+    },
+    "apiBuildIdentityUnchanged": true,
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  },
+  "rawEvidence": {
+    "coordinatorClosure": {
+      "path": "/private/tmp/loom-native-related-expansion-wave102/closure.json",
+      "sha256": "d5715ffa3e5f8648e08fb012339a992404ceaa0cb416a9d9468e23e6f24a6690"
+    },
+    "domainReport": {
+      "path": "/private/tmp/loom-native-related-expansion-wave102/attempt1/artifacts/standalone-cda-other-CDA-z-888f6-ough-five-relationship-hops/cda-report.json",
+      "sha256": "4e881d0c7dd389caecc58244dcf8f1681ada9afa8224a0bd6bf3decb890abcb4"
+    },
+    "domainAttachment": {
+      "path": "/private/tmp/loom-native-related-expansion-wave102/attempt1/artifacts/standalone-cda-other-CDA-z-888f6-ough-five-relationship-hops/attachments/cda-domain-report-json-10b0e8db38f663ccc3ef63ff9c5ac4b508a865a9.json",
+      "sha256": "4e881d0c7dd389caecc58244dcf8f1681ada9afa8224a0bd6bf3decb890abcb4"
+    },
+    "results": {
+      "path": "/private/tmp/loom-native-related-expansion-wave102/attempt1/results.json",
+      "sha256": "a38fb9baa4c7f17cea023de844f7d9413eb1c6f9933f0cd8cb096a852b0953de"
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-related-expansion-wave102/attempt1/runner.log",
+      "sha256": "3bb647bb2080ee411f1c37dd9ed25293cc6b03e73efd17eb70904a86d9711eac"
+    },
+    "sourceContractFiles": [
+      "internal/explorer/service.go",
+      "internal/explorer/lifecycle/query.go",
+      "internal/explorer/authoringv2/types.go"
+    ]
+  }
+}

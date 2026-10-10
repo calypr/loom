@@ -7,8 +7,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -18,7 +20,7 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-const TranslationVersion = "authoring-v2-native-5"
+const TranslationVersion = "authoring-v2-native-10"
 
 // Error is a structured translation failure. Stage, Code, Path, and Details
 // remain transport-neutral so adapters never parse error strings.
@@ -61,17 +63,18 @@ type PresentationConfig struct {
 }
 
 type PresentationColumn struct {
-	EmissionID   string `json:"emissionId"`
-	PublicColumn string `json:"publicColumn"`
-	Label        string `json:"label"`
-	Visible      bool   `json:"visible"`
-	Order        int    `json:"order"`
-	Pinned       bool   `json:"pinned"`
-	FilterLabel  string `json:"filterLabel,omitempty"`
-	FilterOrder  int    `json:"filterOrder,omitempty"`
-	ChartType    string `json:"chartType,omitempty"`
-	ChartTitle   string `json:"chartTitle,omitempty"`
-	ChartOrder   int    `json:"chartOrder,omitempty"`
+	EmissionID    string `json:"emissionId"`
+	PublicColumn  string `json:"publicColumn"`
+	Label         string `json:"label"`
+	Visible       bool   `json:"visible"`
+	Order         int    `json:"order"`
+	PhysicalOrder int    `json:"-"`
+	Pinned        bool   `json:"pinned"`
+	FilterLabel   string `json:"filterLabel,omitempty"`
+	FilterOrder   int    `json:"filterOrder,omitempty"`
+	ChartType     string `json:"chartType,omitempty"`
+	ChartTitle    string `json:"chartTitle,omitempty"`
+	ChartOrder    int    `json:"chartOrder,omitempty"`
 }
 
 // Result is one deterministic semantic document compilation.
@@ -87,24 +90,67 @@ type Result struct {
 // WorkspaceResult combines independently compiled table documents into one
 // recipe and one public Explorer configuration.
 type WorkspaceResult struct {
-	Bundle           recipe.Bundle
-	RecipeDigest     string
-	EmittedColumns   []explorer.EmittedColumn
-	IdentityMappings []explorer.IdentityMapping
-	Presentations    []PresentationConfig
-	OutputContracts  []explorer.PublicOutputContract
-	Workspace        authoringv2.Workspace
+	Bundle               recipe.Bundle
+	RecipeDigest         string
+	ResolvedInputsDigest string
+	EmittedColumns       []explorer.EmittedColumn
+	IdentityMappings     []explorer.IdentityMapping
+	Presentations        []PresentationConfig
+	OutputContracts      []explorer.PublicOutputContract
+	Workspace            authoringv2.Workspace
 }
 
-func CompileWorkspace(ctx context.Context, project, explorerID string, workspace authoringv2.Workspace, snapshot capability.Snapshot) (WorkspaceResult, error) {
+// ResolvedPopulation is the immutable, checked external input for one output.
+// It is kept separate from the authoring workspace so changing a selection
+// revision can never mutate draft intent in place.
+type ResolvedPopulation struct {
+	OutputID            string                            `json:"outputId"`
+	SelectionRevisionID string                            `json:"selectionRevisionId"`
+	MembershipDigest    string                            `json:"membershipDigest"`
+	MemberCount         int64                             `json:"memberCount"`
+	ResourceType        string                            `json:"resourceType"`
+	Route               []authoringv2.PopulationRouteStep `json:"route,omitempty"`
+}
+
+// ResolvedInterpretation is an alias of the receipt-safe explorer domain
+// value. Keeping the canonical value in explorer avoids a package cycle while
+// preserving a single shape for lifecycle, compilation, and receipts.
+type ResolvedInterpretation = explorer.ResolvedInterpretation
+
+func CompileWorkspace(ctx context.Context, project, explorerID string, workspace authoringv2.Workspace, snapshot capability.Snapshot, resolvedInputs ResolvedInputs) (WorkspaceResult, error) {
 	project = projectid.Canonical(project)
 	wire := catalogFromCapability(snapshot, explorerID)
+	var migrationErr error
+	workspace, migrationErr = authoringv2.MigrateLegacyContributors(workspace, wire)
+	if migrationErr != nil {
+		return WorkspaceResult{}, fail("intent", "LEGACY_CONTRIBUTOR_MIGRATION_FAILED", "$.workspace", migrationErr.Error(), nil, migrationErr)
+	}
+	workspace = authoringv2.MigrateLosslessDefaults(workspace, wire)
 	if err := (authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, Workspace: &workspace, Catalog: wire}).Validate(); err != nil {
 		return WorkspaceResult{}, fail("intent", "INVALID_AUTHORING_INTENT", "$.workspace", err.Error(), nil, err)
 	}
 	workspace = workspace.NormalizePresentationOrders()
+	if err := validateResolvedPopulationCoverage(workspace, resolvedInputs); err != nil {
+		return WorkspaceResult{}, fail("intent", "POPULATION_INPUT_MISMATCH", "$.resolvedInputs.populations", err.Error(), nil, err)
+	}
+	if err := validateResolvedInterpretationCoverage(project, snapshot, workspace, resolvedInputs); err != nil {
+		return WorkspaceResult{}, fail("intent", "INTERPRETATION_INPUT_MISMATCH", "$.resolvedInputs.interpretations", err.Error(), nil, err)
+	}
+	resolvedInputsDigest, err := ResolvedInputsDigest(workspace, snapshot, resolvedInputs)
+	if err != nil {
+		return WorkspaceResult{}, fail("intent", "RESOLVED_INPUTS_DIGEST_FAILED", "$.workspace", "resolved input identity could not be calculated", nil, err)
+	}
+	// Keep the authored workspace (including exact PINNED references) in the
+	// result and receipt. Effective definitions are applied only to this clone;
+	// the source suggestion and inline anchor can therefore never win over a
+	// resolved human definition during compilation.
+	effectiveWorkspace := applyResolvedInterpretations(workspace, resolvedInputs)
+	if err := (authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, Workspace: &effectiveWorkspace, Catalog: wire}).Validate(); err != nil {
+		return WorkspaceResult{}, fail("intent", "INVALID_RESOLVED_INTERPRETATION", "$.resolvedInputs.interpretations", err.Error(), nil, err)
+	}
 	result := WorkspaceResult{
-		Workspace: workspace,
+		Workspace:            workspace,
+		ResolvedInputsDigest: resolvedInputsDigest,
 		Bundle: recipe.Bundle{
 			RecipeSchemaVersion: recipe.CurrentSchemaVersion,
 			Name:                "explorer_" + safeName(project) + "_" + safeName(explorerID),
@@ -115,10 +161,33 @@ func CompileWorkspace(ctx context.Context, project, explorerID string, workspace
 		Presentations:    []PresentationConfig{},
 		OutputContracts:  []explorer.PublicOutputContract{},
 	}
-	for i, document := range workspace.Documents {
-		compiled, err := Compile(ctx, project, explorerID, document, snapshot)
+	workspaceOutputIDs := make([]string, 0, len(effectiveWorkspace.Documents))
+	for _, document := range effectiveWorkspace.Documents {
+		workspaceOutputIDs = append(workspaceOutputIDs, document.Output.ID)
+	}
+	for i, document := range effectiveWorkspace.Documents {
+		population, hasResolvedPopulation := resolvedInputs.PopulationFor(document.Output.ID)
+		if document.Population == nil {
+			if hasResolvedPopulation {
+				return WorkspaceResult{}, fail("intent", "POPULATION_INPUT_MISMATCH", fmt.Sprintf("$.workspace.documents[%d].population", i), "resolved population input has no matching authoring population", nil, nil)
+			}
+		} else {
+			if !hasResolvedPopulation {
+				return WorkspaceResult{}, fail("intent", "POPULATION_UNRESOLVED", fmt.Sprintf("$.workspace.documents[%d].population", i), "population selection must be resolved before compilation", nil, nil)
+			}
+			if err := validateResolvedPopulation(document, population, snapshot); err != nil {
+				return WorkspaceResult{}, fail("intent", "POPULATION_INPUT_MISMATCH", fmt.Sprintf("$.workspace.documents[%d].population", i), err.Error(), nil, err)
+			}
+		}
+		compiled, err := compileWithWorkspaceOutputs(ctx, project, explorerID, document, snapshot, workspaceOutputIDs)
 		if err != nil {
 			return WorkspaceResult{}, fail("compile", "DOCUMENT_COMPILE_FAILED", fmt.Sprintf("$.workspace.documents[%d]", i), err.Error(), nil, err)
+		}
+		if hasResolvedPopulation {
+			if len(compiled.Bundle.Outputs) != 1 {
+				return WorkspaceResult{}, fail("compile", "POPULATION_OUTPUT_MISMATCH", fmt.Sprintf("$.workspace.documents[%d]", i), "population could not be attached to the compiled output", nil, nil)
+			}
+			compiled.Bundle.Outputs[0].Population = recipePopulation(population)
 		}
 		result.Bundle.Outputs = append(result.Bundle.Outputs, compiled.Bundle.Outputs...)
 		result.EmittedColumns = append(result.EmittedColumns, compiled.EmittedColumns...)
@@ -137,9 +206,400 @@ func CompileWorkspace(ctx context.Context, project, explorerID string, workspace
 	return result, nil
 }
 
+func validateResolvedPopulationCoverage(workspace authoringv2.Workspace, inputs ResolvedInputs) error {
+	expected := make(map[string]struct{})
+	for _, document := range workspace.Documents {
+		if document.Population != nil {
+			expected[document.Output.ID] = struct{}{}
+		}
+	}
+	seen := make(map[string]struct{}, len(inputs.Populations))
+	for index, population := range inputs.Populations {
+		outputID := strings.TrimSpace(population.OutputID)
+		if outputID == "" {
+			return fmt.Errorf("resolvedInputs.populations[%d].outputId is required", index)
+		}
+		if _, duplicate := seen[outputID]; duplicate {
+			return fmt.Errorf("resolvedInputs.populations contains duplicate outputId %q", outputID)
+		}
+		seen[outputID] = struct{}{}
+		if _, known := expected[outputID]; !known {
+			return fmt.Errorf("resolved population outputId %q has no matching populated document", outputID)
+		}
+	}
+	for outputID := range expected {
+		if _, resolved := seen[outputID]; !resolved {
+			return fmt.Errorf("populated document %q has no resolved population input", outputID)
+		}
+	}
+	return nil
+}
+
+func validateResolvedPopulation(document authoringv2.Document, resolved ResolvedPopulation, snapshot capability.Snapshot) error {
+	if strings.TrimSpace(resolved.OutputID) != document.Output.ID {
+		return fmt.Errorf("resolved population outputId %q does not match document outputId %q", resolved.OutputID, document.Output.ID)
+	}
+	if strings.TrimSpace(resolved.SelectionRevisionID) == "" || resolved.SelectionRevisionID != document.Population.SelectionRevisionID {
+		return fmt.Errorf("resolved population selectionRevisionId does not match authoring intent")
+	}
+	if strings.TrimSpace(resolved.ResourceType) == "" {
+		return fmt.Errorf("resolved population resourceType is required")
+	}
+	if resolved.MemberCount < 0 || strings.TrimSpace(resolved.MembershipDigest) == "" {
+		return fmt.Errorf("resolved population membership identity is incomplete")
+	}
+	if len(resolved.Route) != len(document.Population.Route) {
+		return fmt.Errorf("resolved population route does not match authoring intent")
+	}
+	for index, authoredStep := range document.Population.Route {
+		resolvedStep := resolved.Route[index]
+		withoutResolvedDirection := resolvedStep
+		withoutResolvedDirection.StorageDirection = authoredStep.StorageDirection
+		if withoutResolvedDirection != authoredStep || (authoredStep.StorageDirection != "" && resolvedStep.StorageDirection != authoredStep.StorageDirection) {
+			return fmt.Errorf("resolved population route does not match authoring intent")
+		}
+		if authoredStep.StorageDirection != "" {
+			continue
+		}
+		capabilityDirection, proven := populationRouteDirectionFromSnapshot(document, document.Population.Route, index, snapshot)
+		if !proven {
+			if resolvedStep.StorageDirection != "" {
+				return fmt.Errorf("resolved population route direction is not proven by the current capability")
+			}
+			continue
+		}
+		if capabilityDirection != resolvedStep.StorageDirection {
+			return fmt.Errorf("resolved population route direction does not match the current capability")
+		}
+	}
+	return nil
+}
+
+// populationRouteDirectionFromSnapshot proves a compile-only direction
+// enrichment against the current authorized capability, following the exact
+// saved route to the step being enriched. It deliberately does not rewrite
+// authoring intent or accept a direction that conflicts with the catalog.
+func populationRouteDirectionFromSnapshot(document authoringv2.Document, route []authoringv2.PopulationRouteStep, targetIndex int, snapshot capability.Snapshot) (string, bool) {
+	if targetIndex < 0 || targetIndex >= len(route) {
+		return "", false
+	}
+	rootID, currentType := "", strings.TrimSpace(document.RootResourceType)
+	for _, node := range snapshot.Nodes {
+		if node.RowRootEligible && node.ResourceType == currentType {
+			if rootID != "" {
+				return "", false
+			}
+			rootID = node.ID
+		}
+	}
+	if rootID == "" || currentType == "" {
+		return "", false
+	}
+	currentID := rootID
+	for index := 0; index <= targetIndex; index++ {
+		step := route[index]
+		edge, target, ok := resolvePopulationRouteEdge(snapshot, currentID, currentType, step)
+		if !ok {
+			return "", false
+		}
+		if index == targetIndex {
+			direction := strings.ToUpper(strings.TrimSpace(edge.StorageDirection))
+			if direction != "" && direction != "INBOUND" && direction != "OUTBOUND" {
+				return "", false
+			}
+			return direction, true
+		}
+		currentID, currentType = target.ID, target.ResourceType
+	}
+	return "", false
+}
+
+func resolvePopulationRouteEdge(snapshot capability.Snapshot, currentID, currentType string, step authoringv2.PopulationRouteStep) (capability.Edge, capability.Node, bool) {
+	valid := func(edge capability.Edge) (capability.Node, bool) {
+		from, fromOK := snapshot.Node(edge.FromNodeID)
+		to, toOK := snapshot.Node(edge.ToNodeID)
+		direction := strings.ToUpper(strings.TrimSpace(edge.StorageDirection))
+		directionMatches := step.StorageDirection == "" || direction == step.StorageDirection
+		return to, edge.ID != "" && edge.BlockedReason == "" && edge.FromNodeID == currentID &&
+			fromOK && toOK && from.ResourceType == currentType && (edge.SourceResourceType == "" || edge.SourceResourceType == currentType) &&
+			to.ResourceType == step.ResourceType && (edge.TargetResourceType == "" || edge.TargetResourceType == step.ResourceType) && edge.Label == step.Relationship &&
+			(direction == "" || direction == "INBOUND" || direction == "OUTBOUND") && directionMatches
+	}
+	if step.CatalogEdgeID != "" {
+		edge, found := snapshot.Edge(step.CatalogEdgeID)
+		if !found {
+			return capability.Edge{}, capability.Node{}, false
+		}
+		target, ok := valid(edge)
+		return edge, target, ok
+	}
+	var match capability.Edge
+	var target capability.Node
+	for _, edge := range snapshot.Edges {
+		resolvedTarget, ok := valid(edge)
+		if !ok {
+			continue
+		}
+		if match.ID != "" {
+			return capability.Edge{}, capability.Node{}, false
+		}
+		match, target = edge, resolvedTarget
+	}
+	return match, target, match.ID != ""
+}
+
+func validateResolvedInterpretationCoverage(project string, snapshot capability.Snapshot, workspace authoringv2.Workspace, inputs ResolvedInputs) error {
+	type expectedInterpretation struct {
+		document authoringv2.Document
+		column   authoringv2.Column
+	}
+	expected := make(map[string]expectedInterpretation)
+	for _, document := range workspace.Documents {
+		for _, column := range document.Columns {
+			if column.Interpretation == nil || column.Interpretation.Kind != authoringv2.FeatureInterpretationPinned {
+				continue
+			}
+			key := interpretationKey(document.Output.ID, column.Column, column.OccurrenceID)
+			expected[key] = expectedInterpretation{document: document, column: column}
+		}
+	}
+	seen := make(map[string]struct{}, len(inputs.Interpretations))
+	for index, resolved := range inputs.Interpretations {
+		key := interpretationKey(resolved.OutputID, resolved.Column, resolved.OccurrenceID)
+		if strings.TrimSpace(resolved.OutputID) == "" || strings.TrimSpace(resolved.Column) == "" || strings.TrimSpace(resolved.OccurrenceID) == "" {
+			return fmt.Errorf("resolvedInputs.interpretations[%d] requires outputId, column, and occurrenceId", index)
+		}
+		if _, duplicate := seen[key]; duplicate {
+			return fmt.Errorf("resolvedInputs.interpretations contains duplicate %q", key)
+		}
+		seen[key] = struct{}{}
+		entry, known := expected[key]
+		if !known {
+			return fmt.Errorf("resolved interpretation %q has no matching pinned column", key)
+		}
+		if err := validateResolvedInterpretation(resolved, entry.column); err != nil {
+			return fmt.Errorf("resolved interpretation %q: %w", key, err)
+		}
+		if projectid.Canonical(resolved.Revision.Project) != projectid.Canonical(project) {
+			return fmt.Errorf("resolved interpretation %q belongs to a different project", key)
+		}
+		candidate, err := structuralCandidate(entry.document, entry.column, snapshot)
+		if err != nil {
+			return fmt.Errorf("resolved interpretation %q structural candidate: %w", key, err)
+		}
+		if !resolved.Revision.Applicability.Matches(candidate) {
+			return fmt.Errorf("resolved interpretation %q is not applicable to the exact capability snapshot", key)
+		}
+		rule, err := resolved.Revision.SelectRule(candidate)
+		if err != nil {
+			return fmt.Errorf("resolved interpretation %q rule selection: %w", key, err)
+		}
+		if rule.ID != resolved.SelectedRuleID || !definitionEqual(rule.Definition, resolved.Definition) {
+			return fmt.Errorf("resolved interpretation %q does not contain the exact selected rule", key)
+		}
+	}
+	for key := range expected {
+		if _, resolved := seen[key]; !resolved {
+			return fmt.Errorf("pinned column %q has no resolved interpretation", key)
+		}
+	}
+	return nil
+}
+
+func validateResolvedInterpretation(resolved ResolvedInterpretation, column authoringv2.Column) error {
+	if resolved.Revision.ID == "" || resolved.SelectedRuleID == "" {
+		return fmt.Errorf("revision and selectedRuleId are required")
+	}
+	if resolved.Revision.Project == "" {
+		return fmt.Errorf("revision project is required")
+	}
+	if err := resolved.Revision.Validate(); err != nil {
+		return fmt.Errorf("revision is invalid: %w", err)
+	}
+	if column.Interpretation == nil || column.Interpretation.Pinned == nil || string(resolved.Revision.ID) != strings.TrimSpace(column.Interpretation.Pinned.RevisionID) {
+		return fmt.Errorf("revision does not match pinned authoring reference")
+	}
+	for _, rule := range resolved.Revision.Rules {
+		if rule.ID == resolved.SelectedRuleID {
+			if !definitionEqual(rule.Definition, resolved.Definition) {
+				return fmt.Errorf("selected definition does not match selected rule")
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("selected rule %q is not present in revision", resolved.SelectedRuleID)
+}
+
+func interpretationKey(outputID, column, occurrenceID string) string {
+	return outputID + "\x00" + column + "\x00" + occurrenceID
+}
+
+func cloneResolvedInterpretation(input ResolvedInterpretation) ResolvedInterpretation {
+	out := input
+	out.Revision.Applicability.ResourceTypes = append([]string(nil), input.Revision.Applicability.ResourceTypes...)
+	out.Revision.Applicability.SourceProfiles = append([]string(nil), input.Revision.Applicability.SourceProfiles...)
+	out.Revision.Applicability.SourceCanonical = append([]string(nil), input.Revision.Applicability.SourceCanonical...)
+	out.Revision.Applicability.LogicalTypes = append([]string(nil), input.Revision.Applicability.LogicalTypes...)
+	out.Revision.Applicability.Cardinalities = append([]string(nil), input.Revision.Applicability.Cardinalities...)
+	out.Revision.Applicability.SchemaDigests = append([]string(nil), input.Revision.Applicability.SchemaDigests...)
+	out.Revision.Rules = append([]explorer.InterpretationRule(nil), input.Revision.Rules...)
+	for index := range out.Revision.Rules {
+		out.Revision.Rules[index].Match.ExtensionURLPath = append([]string(nil), input.Revision.Rules[index].Match.ExtensionURLPath...)
+		if input.Revision.Rules[index].Priority != nil {
+			priority := *input.Revision.Rules[index].Priority
+			out.Revision.Rules[index].Priority = &priority
+		}
+		out.Revision.Rules[index].Definition = cloneInterpretationDefinition(input.Revision.Rules[index].Definition)
+	}
+	out.Definition = cloneInterpretationDefinition(input.Definition)
+	if input.Revision.ParentRevisionID != nil {
+		value := *input.Revision.ParentRevisionID
+		out.Revision.ParentRevisionID = &value
+	}
+	if input.Revision.ParentDigest != nil {
+		value := *input.Revision.ParentDigest
+		out.Revision.ParentDigest = &value
+	}
+	return out
+}
+
+func cloneInterpretationDefinition(input explorer.InterpretationFeatureDefinition) explorer.InterpretationFeatureDefinition {
+	out := input
+	out.Source = input.Source.Normalized()
+	if input.Contributor != nil {
+		value := input.Contributor.Normalized()
+		out.Contributor = &value
+	}
+	return out
+}
+
+func definitionEqual(left, right explorer.InterpretationFeatureDefinition) bool {
+	leftRaw, leftErr := json.Marshal(cloneInterpretationDefinition(left))
+	rightRaw, rightErr := json.Marshal(cloneInterpretationDefinition(right))
+	return leftErr == nil && rightErr == nil && string(leftRaw) == string(rightRaw)
+}
+
+func applyResolvedInterpretations(workspace authoringv2.Workspace, inputs ResolvedInputs) authoringv2.Workspace {
+	effective := workspace.NormalizePresentationOrders()
+	byKey := make(map[string]ResolvedInterpretation, len(inputs.Interpretations))
+	for _, input := range inputs.Interpretations {
+		byKey[interpretationKey(input.OutputID, input.Column, input.OccurrenceID)] = input
+	}
+	for documentIndex := range effective.Documents {
+		document := &effective.Documents[documentIndex]
+		for columnIndex := range document.Columns {
+			column := &document.Columns[columnIndex]
+			input, ok := byKey[interpretationKey(document.Output.ID, column.Column, column.OccurrenceID)]
+			if !ok {
+				continue
+			}
+			column.Source = input.Definition.Source.Normalized()
+			if input.Definition.Contributor == nil {
+				column.Contributor = nil
+			} else {
+				value := input.Definition.Contributor.Normalized()
+				column.Contributor = &value
+			}
+			// The effective clone is inline by construction. The authored result
+			// retains the PINNED reference; keeping it here would make validation
+			// mistake the resolved human definition for an inline override.
+			column.Interpretation = nil
+		}
+	}
+	return effective
+}
+
+// ResolvedInputs is the explicit compile-only seam for resolved external
+// values. B01 has no external values, so callers pass the zero value. The
+// normalized workspace meaning is supplied separately to the digest function;
+// it is not duplicated inside this seam.
+type ResolvedInputs struct {
+	Populations     []ResolvedPopulation     `json:"populations,omitempty"`
+	Interpretations []ResolvedInterpretation `json:"interpretations,omitempty"`
+}
+
+func (r ResolvedInputs) PopulationFor(outputID string) (ResolvedPopulation, bool) {
+	for _, population := range r.Populations {
+		if population.OutputID == outputID {
+			return population, true
+		}
+	}
+	return ResolvedPopulation{}, false
+}
+
+func recipePopulation(input ResolvedPopulation) *recipe.PopulationConstraint {
+	route := make([]recipe.PopulationRouteStep, len(input.Route))
+	for index, step := range input.Route {
+		route[index] = recipe.PopulationRouteStep{
+			ResourceType: step.ResourceType, Relationship: step.Relationship,
+			StorageDirection: step.StorageDirection,
+		}
+	}
+	return &recipe.PopulationConstraint{SelectionRevisionID: input.SelectionRevisionID, MembershipDigest: input.MembershipDigest, MemberCount: input.MemberCount, ResourceType: input.ResourceType, Route: route}
+}
+
+// ResolvedInputsDigest returns a stable digest for normalized authoring
+// meaning plus the capability identity used to resolve it.
+func ResolvedInputsDigest(workspace authoringv2.Workspace, snapshot capability.Snapshot, resolvedInputs ResolvedInputs) (string, error) {
+	resolvedInputs = resolvedInputs.Canonical()
+	normalized, err := workspace.CanonicalJSON()
+	if err != nil {
+		return "", err
+	}
+	identity := struct {
+		Workspace                json.RawMessage `json:"workspace"`
+		ResolvedInputs           ResolvedInputs  `json:"resolvedInputs"`
+		SourceGeneration         string          `json:"sourceGeneration"`
+		CapabilitySchemaDigest   string          `json:"capabilitySchemaDigest"`
+		CapabilityShapeDigest    string          `json:"capabilityShapeDigest"`
+		AuthorizationScopeDigest string          `json:"authorizationScopeDigest"`
+	}{
+		Workspace: normalized, ResolvedInputs: resolvedInputs, SourceGeneration: snapshot.Identity.Generation,
+		CapabilitySchemaDigest: snapshot.Identity.SchemaDigest, CapabilityShapeDigest: snapshot.Identity.ShapeDigest,
+		AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
+	}
+	raw, err := json.Marshal(identity)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(raw)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+func (r ResolvedInputs) Canonical() ResolvedInputs {
+	copy := ResolvedInputs{Populations: append([]ResolvedPopulation(nil), r.Populations...), Interpretations: append([]ResolvedInterpretation(nil), r.Interpretations...)}
+	for index := range copy.Populations {
+		copy.Populations[index].Route = append([]authoringv2.PopulationRouteStep(nil), copy.Populations[index].Route...)
+	}
+	sort.SliceStable(copy.Populations, func(i, j int) bool {
+		if copy.Populations[i].OutputID != copy.Populations[j].OutputID {
+			return copy.Populations[i].OutputID < copy.Populations[j].OutputID
+		}
+		return copy.Populations[i].SelectionRevisionID < copy.Populations[j].SelectionRevisionID
+	})
+	for index := range copy.Interpretations {
+		copy.Interpretations[index] = cloneResolvedInterpretation(copy.Interpretations[index])
+	}
+	sort.SliceStable(copy.Interpretations, func(i, j int) bool {
+		left, right := copy.Interpretations[i], copy.Interpretations[j]
+		if left.OutputID != right.OutputID {
+			return left.OutputID < right.OutputID
+		}
+		if left.Column != right.Column {
+			return left.Column < right.Column
+		}
+		return left.OccurrenceID < right.OccurrenceID
+	})
+	return copy
+}
+
 // Compile translates one semantic V2 document against the exact capability
 // snapshot. It performs no discovery, profiling, or recipe execution.
 func Compile(ctx context.Context, project, explorerID string, document authoringv2.Document, snapshot capability.Snapshot) (Result, error) {
+	return compileWithWorkspaceOutputs(ctx, project, explorerID, document, snapshot, nil)
+}
+
+func compileWithWorkspaceOutputs(ctx context.Context, project, explorerID string, document authoringv2.Document, snapshot capability.Snapshot, workspaceOutputIDs []string) (Result, error) {
 	if err := contextErr(ctx); err != nil {
 		return Result{}, err
 	}
@@ -163,7 +623,7 @@ func Compile(ctx context.Context, project, explorerID string, document authoring
 	if err := validateSnapshot(snapshot); err != nil {
 		return Result{}, err
 	}
-	return compileSemanticDocument(ctx, project, explorerID, document, snapshot)
+	return compileSemanticDocument(ctx, project, explorerID, document, snapshot, workspaceOutputIDs)
 }
 
 func catalogFromCapability(snapshot capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
@@ -183,24 +643,69 @@ func catalogFromCapability(snapshot capability.Snapshot, explorerID string) auth
 		catalog.Nodes = append(catalog.Nodes, authoringv2.CatalogNode{ID: node.ID, ResourceType: node.ResourceType, RowRootEligible: node.RowRootEligible, RowGrain: node.RowGrain, Populated: node.Populated, DocumentCount: &count})
 	}
 	for _, edge := range snapshot.Edges {
-		catalog.Edges = append(catalog.Edges, authoringv2.CatalogEdge{ID: edge.ID, FromNodeID: edge.FromNodeID, ToNodeID: edge.ToNodeID, Label: edge.Label, Populated: edge.ObservedEdgeCount > 0})
+		catalog.Edges = append(catalog.Edges, authoringv2.CatalogEdge{
+			ID: edge.ID, FromNodeID: edge.FromNodeID, ToNodeID: edge.ToNodeID, Label: edge.Label,
+			StorageDirection: edge.StorageDirection, Populated: edge.ObservedEdgeCount > 0,
+		})
 	}
 	for _, candidate := range snapshot.Candidates {
 		modes := make([]string, len(candidate.ProjectionModes))
 		for i, mode := range candidate.ProjectionModes {
 			modes[i] = wireProjectionMode(mode)
 		}
-		defaultMode := ""
-		if len(modes) > 0 {
-			defaultMode = modes[0]
+		defaultMode := preferredProjectionMode(modes)
+		conceptCandidates := make([]authoringv2.ConceptCandidate, len(candidate.ConceptCandidates))
+		for index, concept := range candidate.ConceptCandidates {
+			conceptCandidates[index] = authoringv2.ConceptCandidate{
+				SourceResourceType: concept.SourceResourceType, SourcePath: concept.SourcePath, SourceCanonical: concept.SourceCanonical, SourceProfile: concept.SourceProfile, OwningScope: concept.OwningScope,
+				ExtensionURLPath: append([]string(nil), concept.ExtensionURLPath...), KeySelector: concept.KeySelector,
+				System: concept.System, Code: concept.Code, Display: concept.Display, ValueSelector: concept.ValueSelector,
+				ChoiceArm: concept.ChoiceArm, LogicalType: concept.LogicalType, ObservedUnits: append([]string(nil), concept.ObservedUnits...),
+				ObservedUnitsTruncated: concept.ObservedUnitsTruncated,
+				Completeness:           concept.Completeness, Status: concept.Status, Population: concept.Population, Examples: append([]string(nil), concept.Examples...), ExamplesTruncated: concept.ExamplesTruncated, RuleHint: concept.RuleHint, RuleVersion: concept.RuleVersion,
+			}
 		}
-		catalog.Candidates = append(catalog.Candidates, authoringv2.CatalogCandidate{
+		wire := authoringv2.CatalogCandidate{
 			ID: candidate.ID, NodeID: candidate.NodeID, Label: candidate.Label, LogicalType: candidate.LogicalType,
-			Repeated: candidate.Cardinality != "scalar", Filterable: supportsOperation(candidate.SupportedOperations, capability.OperationFilter), Chartable: supportsOperation(candidate.SupportedOperations, capability.OperationChart),
-			ProjectionModes: modes, DefaultProjectionMode: defaultMode, Populated: candidate.Populated,
-		})
+			Cardinality: candidate.Cardinality, Repeated: capability.IsRepeatedCardinality(candidate.Cardinality), Filterable: supportsOperation(candidate.SupportedOperations, capability.OperationFilter), Chartable: supportsOperation(candidate.SupportedOperations, capability.OperationChart),
+			FieldPath: candidate.FieldPath, ProjectionModes: modes, DefaultProjectionMode: defaultMode, Populated: candidate.Populated,
+			RepeatedBoundaries: authoringRepeatedBoundaries(candidate.RepeatedBoundaries), ConceptCandidates: conceptCandidates,
+			AggregateOperations: append([]capability.AggregateOperationCapability{}, candidate.AggregateOperations...),
+		}
+		choice, err := capability.NewFieldConstructionChoice(snapshot.Token, candidate)
+		if err != nil {
+			catalog.Diagnostics = append(catalog.Diagnostics, authoringv2.CatalogDiagnostic{
+				Severity: "WARNING", Code: "CONSTRUCTION_CHOICE_UNAVAILABLE",
+				Message: "A catalog candidate was omitted because no compiler-proved construction output is available.",
+			})
+			continue
+		}
+		wire.ConstructionChoice = &choice
+		catalog.Candidates = append(catalog.Candidates, wire)
+	}
+	for index := range catalog.Candidates {
+		catalog.Candidates[index].Transformations = authoringv2.AggregateTransformationCapabilitiesForCatalog(catalog, catalog.Candidates[index].ID)
 	}
 	return catalog
+}
+
+func preferredProjectionMode(values []string) string {
+	for _, preferred := range []string{"VALUE", "INDEXED", "ALL", "FIRST"} {
+		for _, value := range values {
+			if value == preferred {
+				return value
+			}
+		}
+	}
+	return ""
+}
+
+func authoringRepeatedBoundaries(values []capability.RepeatedBoundary) []authoringv2.RepeatedBoundary {
+	out := make([]authoringv2.RepeatedBoundary, len(values))
+	for index, value := range values {
+		out[index] = authoringv2.RepeatedBoundary{Path: value.Path, MaxItems: value.MaxItems}
+	}
+	return out
 }
 
 func validateSnapshot(snapshot capability.Snapshot) error {
@@ -263,8 +768,12 @@ func wireProjectionMode(mode capability.ProjectionMode) string {
 	switch mode {
 	case capability.ProjectionScalar:
 		return "VALUE"
-	case capability.ProjectionArray, capability.ProjectionDistinctArray:
+	case capability.ProjectionIndexed:
+		return "INDEXED"
+	case capability.ProjectionArray:
 		return "ALL"
+	case capability.ProjectionDistinctArray:
+		return "DISTINCT"
 	default:
 		return string(mode)
 	}

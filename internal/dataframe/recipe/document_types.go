@@ -5,9 +5,13 @@ package recipe
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/columntransform"
+	"github.com/calypr/loom/internal/dataframe/unit"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 // CurrentSchemaVersion is the first stable recipe document schema.
@@ -31,23 +35,72 @@ type Bundle struct {
 // Output describes one row-shaped result. Names are semantic names, not
 // storage identifiers.
 type Output struct {
-	Name                  string                `json:"name"`
-	RootResourceType      string                `json:"rootResourceType"`
-	RowGrain              string                `json:"rowGrain"`
-	RootColumnNaming      RootColumnNaming      `json:"rootColumnNaming,omitempty"`
-	TraversalColumnNaming TraversalColumnNaming `json:"traversalColumnNaming,omitempty"`
-	Fields                []Field               `json:"fields,omitempty"`
-	Filters               []Filter              `json:"filters,omitempty"`
-	Pivots                []Pivot               `json:"pivots,omitempty"`
-	Aggregates            []Aggregate           `json:"aggregates,omitempty"`
-	Slices                []RepresentativeSlice `json:"slices,omitempty"`
-	Traversals            []Traversal           `json:"traversals,omitempty"`
-	Expand                *Expansion            `json:"expand,omitempty"`
-	Identity              *Identity             `json:"identity,omitempty"`
-	DynamicColumns        []DynamicColumn       `json:"dynamicColumns,omitempty"`
-	ExtensionColumns      []ExtensionColumn     `json:"extensionColumns,omitempty"`
-	CatalogProjections    []CatalogProjection   `json:"catalogProjections,omitempty"`
-	CollisionPolicy       string                `json:"collisionPolicy,omitempty"`
+	Name                  string                  `json:"name"`
+	RootResourceType      string                  `json:"rootResourceType"`
+	RootOccurrenceID      string                  `json:"rootOccurrenceId,omitempty"`
+	RowGrain              string                  `json:"rowGrain"`
+	RootColumnNaming      RootColumnNaming        `json:"rootColumnNaming,omitempty"`
+	TraversalColumnNaming TraversalColumnNaming   `json:"traversalColumnNaming,omitempty"`
+	Fields                []Field                 `json:"fields,omitempty"`
+	Filters               []Filter                `json:"filters,omitempty"`
+	Pivots                []Pivot                 `json:"pivots,omitempty"`
+	OwnerRecords          []OwnerRecordProjection `json:"ownerRecords,omitempty"`
+	Aggregates            []Aggregate             `json:"aggregates,omitempty"`
+	Slices                []RepresentativeSlice   `json:"slices,omitempty"`
+	Traversals            []Traversal             `json:"traversals,omitempty"`
+	TableReshape          *TableReshape           `json:"tableReshape,omitempty"`
+	Expand                *Expansion              `json:"expand,omitempty"`
+	GroupRows             *GroupRows              `json:"groupRows,omitempty"`
+	Identity              *Identity               `json:"identity,omitempty"`
+	DynamicColumns        []DynamicColumn         `json:"dynamicColumns,omitempty"`
+	ExtensionColumns      []ExtensionColumn       `json:"extensionColumns,omitempty"`
+	CatalogProjections    []CatalogProjection     `json:"catalogProjections,omitempty"`
+	ColumnTransformations []ColumnTransformation  `json:"columnTransformations,omitempty"`
+	DerivedColumns        []DerivedColumn         `json:"derivedColumns,omitempty"`
+	// Construction is an ordered typed sequence over the source projection.
+	// When present, legacy output-level shape operations are not used.
+	Construction    *Construction         `json:"construction,omitempty"`
+	Population      *PopulationConstraint `json:"population,omitempty"`
+	CollisionPolicy string                `json:"collisionPolicy,omitempty"`
+}
+
+// ColumnTransformation binds one closed value transformation to its stable
+// public output column name. It is applied only after normal source lowering.
+type ColumnTransformation struct {
+	Column         string                              `json:"column"`
+	Transformation columntransform.ValueTransformation `json:"transformation"`
+}
+
+// GroupRows pins an output to an immutable explicit-group revision.
+type GroupRows struct {
+	RevisionID             string                `json:"revisionId"`
+	UnassignedMemberPolicy string                `json:"unassignedMemberPolicy"`
+	AfterStepID            string                `json:"afterStepId,omitempty"`
+	RowValues              []GroupRowValuePolicy `json:"rowValues,omitempty"`
+}
+
+// GroupRowValuePolicy binds a selected root field projection to its reduction
+// across the exact member records of one explicit group.
+type GroupRowValuePolicy struct {
+	ColumnID string                     `json:"columnId"`
+	Policy   ConstructionRowValuePolicy `json:"policy"`
+}
+
+// PopulationConstraint is a storage-neutral row-root membership constraint.
+// Selection identity is resolved before compilation; the physical collection
+// used to read its members remains a runtime binding.
+type PopulationConstraint struct {
+	SelectionRevisionID string                `json:"selectionRevisionId"`
+	MembershipDigest    string                `json:"membershipDigest"`
+	MemberCount         int64                 `json:"memberCount"`
+	ResourceType        string                `json:"resourceType"`
+	Route               []PopulationRouteStep `json:"route,omitempty"`
+}
+
+type PopulationRouteStep struct {
+	ResourceType     string `json:"resourceType"`
+	Relationship     string `json:"relationship"`
+	StorageDirection string `json:"storageDirection,omitempty"`
 }
 
 type RootColumnNaming string
@@ -71,17 +124,19 @@ func (n RootColumnNaming) Normalized() RootColumnNaming {
 // TraversalColumnNaming controls how traversal aliases contribute to public
 // output column names. PATH is the backwards-compatible recipe behavior and
 // includes every ancestor alias. ALIAS treats each traversal alias as a
-// globally scoped output namespace, which is useful for authoring systems that
-// allocate stable, globally unique occurrence IDs.
+// globally scoped output namespace. EXACT emits the authored field name
+// without coupling it to the traversal position; callers must provide globally
+// unique field names.
 type TraversalColumnNaming string
 
 const (
 	TraversalColumnNamingPath  TraversalColumnNaming = "PATH"
 	TraversalColumnNamingAlias TraversalColumnNaming = "ALIAS"
+	TraversalColumnNamingExact TraversalColumnNaming = "EXACT"
 )
 
 func (n TraversalColumnNaming) Valid() bool {
-	return n == "" || n == TraversalColumnNamingPath || n == TraversalColumnNamingAlias
+	return n == "" || n == TraversalColumnNamingPath || n == TraversalColumnNamingAlias || n == TraversalColumnNamingExact
 }
 
 func (n TraversalColumnNaming) Normalized() TraversalColumnNaming {
@@ -93,7 +148,11 @@ func (n TraversalColumnNaming) Normalized() TraversalColumnNaming {
 
 // Field projects one named semantic value into an output row.
 type Field struct {
-	Name       string       `json:"name"`
+	Name string `json:"name"`
+	// ColumnID is the stable authoring identity used by construction stages.
+	// Legacy recipes may omit it and retain name-based behavior.
+	ColumnID   string       `json:"columnId,omitempty"`
+	Label      string       `json:"label,omitempty"`
 	FieldRef   string       `json:"fieldRef,omitempty"`
 	Expr       Expression   `json:"expr"`
 	Fallbacks  []Expression `json:"fallbacks,omitempty"`
@@ -213,16 +272,68 @@ type FilterValue struct {
 
 // Pivot describes a bounded, schema-validated column/value mapping.
 type Pivot struct {
-	Name             string          `json:"name"`
-	FieldRef         string          `json:"fieldRef,omitempty"`
-	ColumnExpr       Expression      `json:"columnExpr"`
-	ValueExpr        Expression      `json:"valueExpr"`
-	ValueFallbacks   []Expression    `json:"valueFallbacks,omitempty"`
-	ItemSource       Expression      `json:"itemSource,omitempty"`
-	ItemResourceType string          `json:"itemResourceType,omitempty"`
-	Columns          []string        `json:"columns"`
-	Discovery        *PivotDiscovery `json:"discovery,omitempty"`
-	Discovered       bool            `json:"-"`
+	Name             string       `json:"name"`
+	FieldRef         string       `json:"fieldRef,omitempty"`
+	ColumnExpr       Expression   `json:"columnExpr"`
+	ValueExpr        Expression   `json:"valueExpr"`
+	ValueFallbacks   []Expression `json:"valueFallbacks,omitempty"`
+	ItemSource       Expression   `json:"itemSource,omitempty"`
+	ItemResourceType string       `json:"itemResourceType,omitempty"`
+	Columns          []string     `json:"columns"`
+	// ColumnAliases binds each discovered/raw pivot key to its authored public
+	// output name. Correlated pivots use this explicit mapping so a public
+	// column may remain stable when the selected terminology code changes.
+	ColumnAliases map[string]string `json:"columnAliases,omitempty"`
+	// ProjectionMode is the lookup's declared reduction policy. Empty is the
+	// legacy FIRST default; correlated pivots preserve ALL, DISTINCT, VALUE,
+	// and FIRST through physical lowering.
+	ProjectionMode string          `json:"projectionMode,omitempty"`
+	Discovery      *PivotDiscovery `json:"discovery,omitempty"`
+	// Correlation is the closed system+code/value binding for terminology
+	// pivots. Nil preserves the legacy selector pivot representation.
+	Correlation       *fhirschema.CorrelatedBinding `json:"correlation,omitempty"`
+	CorrelationSystem string                        `json:"correlationSystem,omitempty"`
+	CorrelationCode   string                        `json:"correlationCode,omitempty"`
+	// ExtensionCorrelation is the closed ancestor-aware extension binding. It
+	// is mutually exclusive with Correlation and legacy selector expressions.
+	ExtensionCorrelation *fhirschema.ExtensionBinding `json:"extensionCorrelation,omitempty"`
+	Discovered           bool                         `json:"-"`
+}
+
+// OwnerRecordProjection preserves each repeated owner selected by a checked
+// code/value binding as one ordered object in a list-valued output column.
+// It does not change the output row grain.
+type OwnerRecordProjection struct {
+	Name     string                       `json:"name"`
+	FieldRef string                       `json:"fieldRef,omitempty"`
+	Binding  fhirschema.CorrelatedBinding `json:"binding"`
+	Key      fhirschema.CorrelatedKey     `json:"key"`
+}
+
+const (
+	PivotProjectionValue    = "VALUE"
+	PivotProjectionFirst    = "FIRST"
+	PivotProjectionAll      = "ALL"
+	PivotProjectionDistinct = "DISTINCT"
+)
+
+// ValidPivotProjectionMode is intentionally closed. Lookup sources use the
+// uppercase authoring spelling; empty retains the historical FIRST behavior.
+func ValidPivotProjectionMode(mode string) bool {
+	switch strings.ToUpper(strings.TrimSpace(mode)) {
+	case "", PivotProjectionValue, PivotProjectionFirst, PivotProjectionAll, PivotProjectionDistinct:
+		return true
+	default:
+		return false
+	}
+}
+
+func NormalizedPivotProjectionMode(mode string) string {
+	mode = strings.ToUpper(strings.TrimSpace(mode))
+	if mode == "" {
+		return PivotProjectionFirst
+	}
+	return mode
 }
 
 // MarshalJSON permits catalog-backed pivots to omit selectors in their stored
@@ -232,22 +343,28 @@ type Pivot struct {
 // contract.
 func (p Pivot) MarshalJSON() ([]byte, error) {
 	type pivotJSON struct {
-		Name             string          `json:"name"`
-		FieldRef         string          `json:"fieldRef,omitempty"`
-		ColumnExpr       *Expression     `json:"columnExpr,omitempty"`
-		ValueExpr        *Expression     `json:"valueExpr,omitempty"`
-		ValueFallbacks   []Expression    `json:"valueFallbacks,omitempty"`
-		ItemSource       *Expression     `json:"itemSource,omitempty"`
-		ItemResourceType string          `json:"itemResourceType,omitempty"`
-		Columns          []string        `json:"columns"`
-		Discovery        *PivotDiscovery `json:"discovery,omitempty"`
+		Name                 string                        `json:"name"`
+		FieldRef             string                        `json:"fieldRef,omitempty"`
+		ColumnExpr           *Expression                   `json:"columnExpr,omitempty"`
+		ValueExpr            *Expression                   `json:"valueExpr,omitempty"`
+		ValueFallbacks       []Expression                  `json:"valueFallbacks,omitempty"`
+		ItemSource           *Expression                   `json:"itemSource,omitempty"`
+		ItemResourceType     string                        `json:"itemResourceType,omitempty"`
+		Columns              []string                      `json:"columns"`
+		ColumnAliases        map[string]string             `json:"columnAliases,omitempty"`
+		ProjectionMode       string                        `json:"projectionMode,omitempty"`
+		Discovery            *PivotDiscovery               `json:"discovery,omitempty"`
+		Correlation          *fhirschema.CorrelatedBinding `json:"correlation,omitempty"`
+		CorrelationSystem    string                        `json:"correlationSystem,omitempty"`
+		CorrelationCode      string                        `json:"correlationCode,omitempty"`
+		ExtensionCorrelation *fhirschema.ExtensionBinding  `json:"extensionCorrelation,omitempty"`
 	}
-	wire := pivotJSON{Name: p.Name, FieldRef: p.FieldRef, ValueFallbacks: p.ValueFallbacks, ItemResourceType: p.ItemResourceType, Columns: p.Columns, Discovery: p.Discovery}
-	if p.Discovery == nil || !p.ColumnExpr.zero() {
+	wire := pivotJSON{Name: p.Name, FieldRef: p.FieldRef, ValueFallbacks: p.ValueFallbacks, ItemResourceType: p.ItemResourceType, Columns: p.Columns, ColumnAliases: p.ColumnAliases, ProjectionMode: p.ProjectionMode, Discovery: p.Discovery, Correlation: p.Correlation, CorrelationSystem: p.CorrelationSystem, CorrelationCode: p.CorrelationCode, ExtensionCorrelation: p.ExtensionCorrelation}
+	if p.Correlation == nil && p.ExtensionCorrelation == nil && (p.Discovery == nil || !p.ColumnExpr.zero()) {
 		value := p.ColumnExpr
 		wire.ColumnExpr = &value
 	}
-	if p.Discovery == nil || !p.ValueExpr.zero() {
+	if p.Correlation == nil && p.ExtensionCorrelation == nil && (p.Discovery == nil || !p.ValueExpr.zero()) {
 		value := p.ValueExpr
 		wire.ValueExpr = &value
 	}
@@ -280,27 +397,107 @@ const (
 	AggregateDistinctValues AggregateOperation = "DISTINCT_VALUES"
 	AggregateMin            AggregateOperation = "MIN"
 	AggregateMax            AggregateOperation = "MAX"
+	AggregateSum            AggregateOperation = "SUM"
+	AggregateMean           AggregateOperation = "MEAN"
 	AggregateContainsAll    AggregateOperation = "CONTAINS_ALL"
+	AggregateRequireOne     AggregateOperation = "REQUIRE_ONE"
+	AggregateCollect        AggregateOperation = "COLLECT"
+	AggregateFirstOrdered   AggregateOperation = "FIRST_ORDERED"
 )
 
 func (op AggregateOperation) Valid() bool {
 	switch op {
-	case AggregateCount, AggregateCountDistinct, AggregateExists, AggregateDistinctValues, AggregateMin, AggregateMax, AggregateContainsAll:
+	case AggregateCount, AggregateCountDistinct, AggregateExists, AggregateDistinctValues, AggregateMin, AggregateMax, AggregateSum, AggregateMean, AggregateContainsAll, AggregateRequireOne, AggregateCollect, AggregateFirstOrdered:
 		return true
 	default:
 		return false
 	}
 }
 
+type TemporalDirection string
+
+const (
+	TemporalAscending  TemporalDirection = "ASC"
+	TemporalDescending TemporalDirection = "DESC"
+)
+
+type TemporalPrecision string
+
+const TemporalPrecisionInstant TemporalPrecision = "INSTANT"
+
+type TemporalTiePolicy string
+
+const (
+	TemporalTieRequireUnique TemporalTiePolicy = "REQUIRE_UNIQUE"
+	TemporalTieResourceKey   TemporalTiePolicy = "RESOURCE_KEY"
+)
+
+// ContributorWindow selects related resources relative to a root-row anchor.
+// Offsets are seconds relative to the anchor and form an explicit interval.
+type ContributorWindow struct {
+	Timestamp      Expression        `json:"timestamp"`
+	Anchor         Expression        `json:"anchor"`
+	LowerOffset    int64             `json:"lowerOffsetSeconds"`
+	UpperOffset    int64             `json:"upperOffsetSeconds"`
+	LowerInclusive bool              `json:"lowerInclusive"`
+	UpperInclusive bool              `json:"upperInclusive"`
+	Precision      TemporalPrecision `json:"precision"`
+}
+
+// TemporalOrdering chooses one eligible contributor for FIRST_ORDERED.
+type TemporalOrdering struct {
+	Timestamp Expression        `json:"timestamp"`
+	Direction TemporalDirection `json:"direction"`
+	TiePolicy TemporalTiePolicy `json:"tiePolicy"`
+}
+
 type Aggregate struct {
-	Name string `json:"name"`
-	OutputName     string             `json:"outputName,omitempty"`
-	Operation      AggregateOperation `json:"operation"`
-	FieldRef       string             `json:"fieldRef,omitempty"`
-	Expr           *Expression        `json:"expr,omitempty"`
-	Where          *Filter            `json:"where,omitempty"`
-	ValueMode      ValueMode          `json:"valueMode,omitempty"`
-	RequiredValues []string           `json:"requiredValues,omitempty"`
+	Name              string                   `json:"name"`
+	OutputName        string                   `json:"outputName,omitempty"`
+	Operation         AggregateOperation       `json:"operation"`
+	FieldRef          string                   `json:"fieldRef,omitempty"`
+	Expr              *Expression              `json:"expr,omitempty"`
+	Where             *Filter                  `json:"where,omitempty"`
+	ValueMode         ValueMode                `json:"valueMode,omitempty"`
+	RequiredValues    []string                 `json:"requiredValues,omitempty"`
+	ContributorWindow *ContributorWindow       `json:"contributorWindow,omitempty"`
+	Ordering          *TemporalOrdering        `json:"ordering,omitempty"`
+	UnitNormalization *UnitNormalizationPolicy `json:"unitNormalization,omitempty"`
+}
+
+// UnitNormalizationPolicy binds exact source unit selectors to an approved,
+// versioned conversion set. It belongs to the recipe because selectors are
+// recipe semantics; the conversion coefficients remain in the compiler-owned
+// backend-neutral unit domain.
+type UnitNormalizationPolicy struct {
+	SystemPath string                   `json:"systemPath"`
+	CodePath   string                   `json:"codePath"`
+	Target     unit.UnitIdentity        `json:"target"`
+	Rules      []unit.UnitRuleReference `json:"rules"`
+}
+
+func (p UnitNormalizationPolicy) Validate() error {
+	if !p.Target.Valid() {
+		return fmt.Errorf("unit normalization target requires system and code")
+	}
+	if strings.TrimSpace(p.SystemPath) == "" || strings.TrimSpace(p.CodePath) == "" {
+		return fmt.Errorf("unit normalization requires systemPath and codePath")
+	}
+	if len(p.Rules) == 0 {
+		return fmt.Errorf("unit normalization requires at least one approved conversion rule")
+	}
+	seen := make(map[string]struct{}, len(p.Rules))
+	for index, rule := range p.Rules {
+		if err := unit.ValidateUnitRuleReference(rule); err != nil {
+			return fmt.Errorf("rules[%d]: %w", index, err)
+		}
+		key := strings.TrimSpace(rule.ID) + "\x00" + strings.TrimSpace(rule.Version)
+		if _, ok := seen[key]; ok {
+			return fmt.Errorf("rules[%d] duplicates source unit identity", index)
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
 }
 
 type RepresentativeSlice struct {
@@ -335,38 +532,79 @@ func (m TraversalMatchMode) Normalized() TraversalMatchMode {
 // Traversal describes a relationship traversal without naming a physical
 // graph collection or edge table.
 type Traversal struct {
-	Name               string                `json:"name"`
-	ToResourceType     string                `json:"toResourceType"`
-	Alias              string                `json:"alias,omitempty"`
-	From               *Expression           `json:"from,omitempty"`
-	MatchMode          TraversalMatchMode    `json:"matchMode,omitempty"`
-	Fields             []Field               `json:"fields,omitempty"`
-	Filters            []Filter              `json:"filters,omitempty"`
-	Pivots             []Pivot               `json:"pivots,omitempty"`
-	Aggregates         []Aggregate           `json:"aggregates,omitempty"`
-	Slices             []RepresentativeSlice `json:"slices,omitempty"`
-	Traversals         []Traversal           `json:"traversals,omitempty"`
-	DynamicColumns     []DynamicColumn       `json:"dynamicColumns,omitempty"`
-	ExtensionColumns   []ExtensionColumn     `json:"extensionColumns,omitempty"`
-	CatalogProjections []CatalogProjection   `json:"catalogProjections,omitempty"`
+	Name               string                  `json:"name"`
+	OccurrenceID       string                  `json:"occurrenceId,omitempty"`
+	ToResourceType     string                  `json:"toResourceType"`
+	Alias              string                  `json:"alias,omitempty"`
+	From               *Expression             `json:"from,omitempty"`
+	MatchMode          TraversalMatchMode      `json:"matchMode,omitempty"`
+	Fields             []Field                 `json:"fields,omitempty"`
+	Filters            []Filter                `json:"filters,omitempty"`
+	Pivots             []Pivot                 `json:"pivots,omitempty"`
+	OwnerRecords       []OwnerRecordProjection `json:"ownerRecords,omitempty"`
+	Aggregates         []Aggregate             `json:"aggregates,omitempty"`
+	Slices             []RepresentativeSlice   `json:"slices,omitempty"`
+	Traversals         []Traversal             `json:"traversals,omitempty"`
+	DynamicColumns     []DynamicColumn         `json:"dynamicColumns,omitempty"`
+	ExtensionColumns   []ExtensionColumn       `json:"extensionColumns,omitempty"`
+	CatalogProjections []CatalogProjection     `json:"catalogProjections,omitempty"`
 }
 
 // Expansion turns a repeated expression into one row per element.
 type Expansion struct {
-	From Expression `json:"from"`
-	As   string     `json:"as"`
+	OwnerOccurrenceID string               `json:"ownerOccurrenceId,omitempty"`
+	From              Expression           `json:"from"`
+	As                string               `json:"as"`
+	Ordinality        string               `json:"ordinality,omitempty"`
+	EmptyPolicy       ExpansionEmptyPolicy `json:"emptyPolicy,omitempty"`
+}
+
+type ExpansionEmptyPolicy string
+
+const (
+	ExpansionError          ExpansionEmptyPolicy = "ERROR"
+	ExpansionExclude        ExpansionEmptyPolicy = "EXCLUDE"
+	ExpansionPreserveParent ExpansionEmptyPolicy = "PRESERVE_PARENT"
+)
+
+func (p ExpansionEmptyPolicy) Valid() bool {
+	return p == "" || p == ExpansionError || p == ExpansionExclude || p == ExpansionPreserveParent
+}
+
+func (p ExpansionEmptyPolicy) Normalized() ExpansionEmptyPolicy {
+	if p == "" {
+		return ExpansionExclude
+	}
+	return p
 }
 
 // Identity derives a deterministic row identity.
 type Identity struct {
-	Name string     `json:"name"`
-	Expr Expression `json:"expr"`
+	Name      string             `json:"name"`
+	Expr      Expression         `json:"expr,omitempty"`
+	Expansion *ExpansionIdentity `json:"expansion,omitempty"`
 }
+
+func (i Identity) MarshalJSON() ([]byte, error) {
+	if i.Expansion != nil && !expressionPresent(i.Expr) {
+		return json.Marshal(struct {
+			Name      string             `json:"name"`
+			Expansion *ExpansionIdentity `json:"expansion"`
+		}{Name: i.Name, Expansion: i.Expansion})
+	}
+	type identityWire Identity
+	return json.Marshal(identityWire(i))
+}
+
+// ExpansionIdentity declares that the compiler derives row identity from the
+// selected expansion occurrence and its owner-relative ordinal.
+type ExpansionIdentity struct{}
 
 // DynamicColumn discovers a bounded set of key/value columns. The compiler
 // freezes discovered keys before materialization.
 type DynamicColumn struct {
-	Name string `json:"name"`
+	Name      string    `json:"name"`
+	ValueMode ValueMode `json:"valueMode,omitempty"`
 	// ColumnPrefix controls the public prefix of frozen dynamic columns. When
 	// omitted, Name remains the prefix for backwards compatibility. An explicit
 	// empty string permits a dynamic family such as URL-keyed extensions to
@@ -442,7 +680,13 @@ type RuntimeBindings struct {
 	DatasetGeneration string
 	AuthResourcePaths []string
 	AuthScopeMode     authscope.ReadScopeMode
-	PreviewLimit      int
+	// SelectionProject is the canonical project identity stored with immutable
+	// selection members. Project may use the legacy FHIR-storage spelling.
+	SelectionProject string
+	// SelectionMembersCollection is a runtime-only collection binding used by
+	// population constraints. It is never serialized into a recipe digest.
+	SelectionMembersCollection string
+	PreviewLimit               int
 	// IncludeAuthResourcePath is set only for ClickHouse publication streams.
 	// It keeps the reserved row-level authorization field out of ordinary
 	// dataframe previews while ensuring published rows carry their source path.
@@ -451,6 +695,14 @@ type RuntimeBindings struct {
 	// empty list preserves the bundle's all-output behavior and is not part of
 	// recipe or schema identity.
 	OutputNames []string
+	// IncludeRowIdentity is an internal, lifecycle-scoped preview option. It
+	// exposes the already-validated stable row identity to a comparison sink;
+	// ordinary previews keep compiler-owned identity columns hidden.
+	IncludeRowIdentity bool
+	// IncludeSourceIdentity is set only for an authorized Builder preview. It
+	// privately carries the root FHIR id to the preview sink without adding a
+	// public output column or changing the published schema.
+	IncludeSourceIdentity bool
 }
 
 // Clone returns request-scoped bindings with independent authorization paths.

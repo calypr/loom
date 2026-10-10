@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"html/template"
+	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/99designs/gqlgen/graphql"
@@ -66,6 +68,7 @@ func NewHandler(root *resolver.Resolver, loggers ...*slog.Logger) http.Handler {
 type bufferedGraphQLResponse struct {
 	header http.Header
 	body   bytes.Buffer
+	spill  *os.File
 	status int
 }
 
@@ -81,20 +84,73 @@ func (w *bufferedGraphQLResponse) Write(body []byte) (int, error) {
 	if w.status == 0 {
 		w.status = http.StatusOK
 	}
-	return w.body.Write(body)
+	if w.spill != nil {
+		return w.spill.Write(body)
+	}
+	if w.body.Len()+len(body) <= maxGraphQLResponseMemoryBytes {
+		return w.body.Write(body)
+	}
+	spill, err := os.CreateTemp("", "loom-graphql-response-*")
+	if err != nil {
+		return 0, err
+	}
+	if _, err := spill.Write(w.body.Bytes()); err != nil {
+		_ = spill.Close()
+		_ = os.Remove(spill.Name())
+		return 0, err
+	}
+	w.body.Reset()
+	w.spill = spill
+	return w.spill.Write(body)
 }
 
 func (w *bufferedGraphQLResponse) Flush() {}
 
+func (w *bufferedGraphQLResponse) reader() (io.Reader, error) {
+	if w.spill == nil {
+		return bytes.NewReader(w.body.Bytes()), nil
+	}
+	if _, err := w.spill.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+	return w.spill, nil
+}
+
+func (w *bufferedGraphQLResponse) close() error {
+	if w.spill == nil {
+		return nil
+	}
+	name := w.spill.Name()
+	err := w.spill.Close()
+	if removeErr := os.Remove(name); err == nil {
+		err = removeErr
+	}
+	w.spill = nil
+	return err
+}
+
 func serveGraphQLResponse(destination http.ResponseWriter, request *http.Request, next http.Handler) {
 	captured := &bufferedGraphQLResponse{header: make(http.Header)}
+	defer func() { _ = captured.close() }()
 	next.ServeHTTP(captured, request)
 	status := captured.status
 	if status == 0 {
 		status = http.StatusOK
 	}
+	reader, err := captured.reader()
+	if err != nil {
+		destination.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 	if status < http.StatusBadRequest {
-		if failureStatus := graphqlFailureStatus(captured.body.Bytes()); failureStatus != 0 {
+		var failureStatus int
+		if captured.spill == nil {
+			failureStatus = graphqlFailureStatus(captured.body.Bytes())
+		} else {
+			failureStatus = graphqlFailureStatusReader(reader)
+			_, _ = captured.spill.Seek(0, io.SeekStart)
+		}
+		if failureStatus != 0 {
 			status = failureStatus
 		}
 	}
@@ -104,7 +160,172 @@ func serveGraphQLResponse(destination http.ResponseWriter, request *http.Request
 		}
 	}
 	destination.WriteHeader(status)
-	_, _ = destination.Write(captured.body.Bytes())
+	_, _ = io.Copy(destination, reader)
+}
+
+const maxGraphQLResponseMemoryBytes = 8 << 20
+
+func graphqlFailureStatusReader(reader io.Reader) int {
+	decoder := json.NewDecoder(reader)
+	first, err := decoder.Token()
+	if err != nil {
+		return 0
+	}
+	opening, ok := first.(json.Delim)
+	if !ok || opening != '{' {
+		return 0
+	}
+	hasErrors := false
+	dataNull := true
+	statuses := make([]int, 0, 1)
+	for decoder.More() {
+		key, err := decoder.Token()
+		if err != nil {
+			return 0
+		}
+		name, ok := key.(string)
+		if !ok {
+			return 0
+		}
+		value, err := decoder.Token()
+		if err != nil {
+			return 0
+		}
+		switch name {
+		case "data":
+			dataNull = value == nil
+			if err := skipJSONValue(decoder, value); err != nil {
+				return 0
+			}
+		case "errors":
+			hasErrors = true
+			if err := collectGraphQLErrorStatuses(decoder, value, &statuses); err != nil {
+				return 0
+			}
+		default:
+			if err := skipJSONValue(decoder, value); err != nil {
+				return 0
+			}
+		}
+	}
+	if _, err := decoder.Token(); err != nil || !hasErrors || !dataNull {
+		return 0
+	}
+	status := http.StatusBadRequest
+	for _, candidate := range statuses {
+		if candidate >= http.StatusInternalServerError {
+			return candidate
+		}
+		if candidate > status {
+			status = candidate
+		}
+	}
+	return status
+}
+
+func collectGraphQLErrorStatuses(decoder *json.Decoder, value any, statuses *[]int) error {
+	opening, ok := value.(json.Delim)
+	if !ok || opening != '[' {
+		return errors.New("graphql errors is not an array")
+	}
+	for decoder.More() {
+		value, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		opening, ok := value.(json.Delim)
+		if !ok || opening != '{' {
+			if err := skipJSONValue(decoder, value); err != nil {
+				return err
+			}
+			continue
+		}
+		for decoder.More() {
+			key, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			name, ok := key.(string)
+			if !ok {
+				return errors.New("graphql error key is not a string")
+			}
+			field, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			if name == "extensions" {
+				collectGraphQLExtensionStatus(decoder, field, statuses)
+				continue
+			}
+			if err := skipJSONValue(decoder, field); err != nil {
+				return err
+			}
+		}
+		if _, err := decoder.Token(); err != nil {
+			return err
+		}
+	}
+	_, err := decoder.Token()
+	return err
+}
+
+func collectGraphQLExtensionStatus(decoder *json.Decoder, value any, statuses *[]int) {
+	opening, ok := value.(json.Delim)
+	if !ok || opening != '{' {
+		_ = skipJSONValue(decoder, value)
+		return
+	}
+	for decoder.More() {
+		key, err := decoder.Token()
+		if err != nil {
+			return
+		}
+		name, ok := key.(string)
+		if !ok {
+			return
+		}
+		field, err := decoder.Token()
+		if err != nil {
+			return
+		}
+		if name == "code" {
+			if code, ok := field.(string); ok {
+				*statuses = append(*statuses, httpapi.StatusForErrorCode(code))
+				continue
+			}
+		}
+		if err := skipJSONValue(decoder, field); err != nil {
+			return
+		}
+	}
+	_, _ = decoder.Token()
+}
+
+func skipJSONValue(decoder *json.Decoder, value any) error {
+	delimiter, ok := value.(json.Delim)
+	if !ok || (delimiter != '{' && delimiter != '[') {
+		return nil
+	}
+	for decoder.More() {
+		next, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		if delimiter == '{' {
+			if _, ok := next.(string); !ok {
+				return errors.New("json object key is not a string")
+			}
+			next, err = decoder.Token()
+			if err != nil {
+				return err
+			}
+		}
+		if err := skipJSONValue(decoder, next); err != nil {
+			return err
+		}
+	}
+	_, err := decoder.Token()
+	return err
 }
 
 func graphqlFailureStatus(body []byte) int {

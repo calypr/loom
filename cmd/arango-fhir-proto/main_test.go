@@ -1,10 +1,66 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
+
+const backfillSignalChildEnv = "LOOM_C01_BACKFILL_SIGNAL_CHILD"
+const backfillSignalReadyEnv = "LOOM_C01_BACKFILL_SIGNAL_READY"
+
+func TestBackfillSemanticInventorySignalCancelsProcessContext(t *testing.T) {
+	if os.Getenv(backfillSignalChildEnv) == "1" {
+		readyPath := os.Getenv(backfillSignalReadyEnv)
+		err := withBackfillSignalCancellation(context.Background(), func(ctx context.Context) error {
+			if err := os.WriteFile(readyPath, []byte("ready"), 0o600); err != nil {
+				return err
+			}
+			<-ctx.Done()
+			return ctx.Err()
+		})
+		if !errors.Is(err, context.Canceled) {
+			os.Exit(2)
+		}
+		os.Exit(0)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	readyPath := filepath.Join(t.TempDir(), "ready")
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestBackfillSemanticInventorySignalCancelsProcessContext$")
+	cmd.Env = append(os.Environ(), backfillSignalChildEnv+"=1", backfillSignalReadyEnv+"="+readyPath)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(readyPath); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			t.Fatal("child did not enter the backfill signal context")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.Fatalf("send SIGTERM to backfill subprocess: %v", err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("backfill subprocess did not cleanly observe SIGTERM: %v", err)
+	}
+}
 
 func TestParseGenerationLoadWiresImmutableDataset(t *testing.T) {
 	config, err := parseLoadCommand([]string{
@@ -130,6 +186,38 @@ func TestParseActivateCommandRequiresValidGeneration(t *testing.T) {
 	}
 	if _, err := parseActivateCommand([]string{"--project", "project-a"}, flag.ContinueOnError); err == nil || !strings.Contains(err.Error(), "--generation is required") {
 		t.Fatalf("missing generation error = %v", err)
+	}
+}
+
+func TestParseBackfillSemanticInventoryRequiresScopedBoundedRequest(t *testing.T) {
+	config, err := parseBackfillSemanticInventoryCommand([]string{
+		"--project", "cda-project", "--generation", "cda-v1",
+		"--url", "http://arangodb:8529", "--database", "loom-test",
+		"--page-size", "700", "--batch-size", "1200",
+	}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Options.Project != "cda-project" || config.Options.DatasetGeneration != "cda-v1" || config.Options.PageSize != 700 || config.Options.BatchSize != 1200 {
+		t.Fatalf("parsed backfill request = %+v", config)
+	}
+	if config.Connection.URL != "http://arangodb:8529" || config.Connection.Database != "loom-test" {
+		t.Fatalf("parsed backfill connection = %+v", config.Connection)
+	}
+
+	for _, test := range []struct {
+		args []string
+		want string
+	}{
+		{args: []string{"--generation", "g"}, want: "--project is required"},
+		{args: []string{"--project", "p"}, want: "--generation is required"},
+		{args: []string{"--project", "p", "--generation", "g", "--page-size", "1001"}, want: "--page-size"},
+		{args: []string{"--project", "p", "--generation", "g", "--batch-size", "5001"}, want: "--batch-size"},
+	} {
+		_, err := parseBackfillSemanticInventoryCommand(test.args, flag.ContinueOnError)
+		if err == nil || !strings.Contains(err.Error(), test.want) {
+			t.Fatalf("parse backfill %v error = %v, want %q", test.args, err, test.want)
+		}
 	}
 }
 

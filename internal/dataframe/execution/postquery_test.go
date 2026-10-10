@@ -88,6 +88,43 @@ func TestMaterializePostQueryExtensionFamilyStillRejectsKnownKeyTypeDrift(t *tes
 	}
 }
 
+func TestMaterializePostQueryAllowsFixedLookupAfterConstructionDropsRuntimeKeys(t *testing.T) {
+	checks := map[string]map[string]DynamicColumnCheck{
+		"condition_identifier": {
+			"https://cda.readthedocs.io/diagnosis": {ColumnName: "diagnosis", ValueType: "string", AllowUnknownKeys: true},
+		},
+	}
+	row, err := materializePostQueryRowWithChecks(map[string]any{"diagnosis": "C50.9"}, checks)
+	if err != nil || row["diagnosis"] != "C50.9" {
+		t.Fatalf("fixed lookup after construction = %#v, %v", row, err)
+	}
+	if _, err := materializePostQueryRowWithChecks(map[string]any{"diagnosis": 42}, checks); err == nil {
+		t.Fatal("fixed lookup with wrong value type was accepted")
+	}
+	checks["frozen"] = map[string]DynamicColumnCheck{"a": {ColumnName: "frozen_a", ValueType: "string"}}
+	if _, err := materializePostQueryRowWithChecks(map[string]any{"diagnosis": "C50.9"}, checks); err == nil {
+		t.Fatal("frozen dynamic family without runtime keys was accepted")
+	}
+}
+
+func TestMaterializePostQueryValidatesAllValuesAfterConstruction(t *testing.T) {
+	checks := map[string]map[string]DynamicColumnCheck{
+		"condition_identifier": {
+			"https://cda.readthedocs.io/diagnosis": {ColumnName: "diagnosis", ValueType: "string", Many: true, AllowUnknownKeys: true},
+		},
+	}
+	for _, values := range []any{[]any{}, []any{"C50.9", "C50.8"}} {
+		if _, err := materializePostQueryRowWithChecks(map[string]any{"diagnosis": values}, checks); err != nil {
+			t.Fatalf("valid diagnosis list %#v rejected: %v", values, err)
+		}
+	}
+	for _, values := range []any{"C50.9", nil, []any{"C50.9", 42}} {
+		if _, err := materializePostQueryRowWithChecks(map[string]any{"diagnosis": values}, checks); err == nil {
+			t.Fatalf("invalid diagnosis list %#v accepted", values)
+		}
+	}
+}
+
 func TestMaterializePostQueryStripsDynamicMetadata(t *testing.T) {
 	checks := map[string]map[string]DynamicColumnCheck{
 		"code": {"a": {ColumnName: "code_a", ValueType: "string"}},

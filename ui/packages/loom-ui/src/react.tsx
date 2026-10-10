@@ -1,15 +1,21 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createLoomClient, type LoomClient, type LoomOutputRequest, type LoomOutputResult } from './api';
+import type { SelectionRevision } from './selection';
 import type {
   ApplyExplorerBuilderCommandsArgs,
+  AssessExplorerRowChangeArgs,
+  BrowseSemanticInventoryArgs,
+  CellTraceArgs,
   CreateExplorerArgs,
   DeleteExplorerArgs,
   ExplorerAuthoringProjectArgs,
   ExplorerAuthoringStateArgs,
   ExplorerCandidateSuggestionsArgs,
   PreviewExplorerBuilderArgs,
+  PopulationMappingArgs,
   PublishExplorerBuilderArgs,
   ReconcileExplorerBuilderArgs,
+  ResolveConfiguredColumnContextsArgs,
 } from './api';
 
 const LoomClientContext = createContext<LoomClient | null>(null);
@@ -37,7 +43,11 @@ interface QueryResult<T> {
   readonly error?: unknown;
   readonly isLoading: boolean;
   readonly isFetching: boolean;
-  readonly refetch: () => Promise<{ readonly data?: T; readonly error?: unknown }>;
+  readonly refetch: (options?: QueryRefetchOptions) => Promise<{ readonly data?: T; readonly error?: unknown }>;
+}
+
+export interface QueryRefetchOptions {
+  readonly reload?: boolean;
 }
 
 interface ResourceSnapshot<T> {
@@ -49,17 +59,21 @@ interface ResourceSnapshot<T> {
 interface Resource<T> {
   readonly getSnapshot: () => ResourceSnapshot<T>;
   readonly subscribe: (listener: () => void) => () => void;
-  readonly refresh: () => Promise<{ readonly data?: T; readonly error?: unknown }>;
+  readonly refresh: (options?: QueryRefetchOptions) => Promise<{ readonly data?: T; readonly error?: unknown }>;
 }
 
-export const resourceFor = <T,>(loader: (signal: AbortSignal) => Promise<T>): Resource<T> => {
-  let snapshot: ResourceSnapshot<T> = { loading: true };
+export const resourceFor = <T,>(
+  loader: (signal: AbortSignal, options?: QueryRefetchOptions) => Promise<T>,
+  enabled = true,
+): Resource<T> => {
+  let snapshot: ResourceSnapshot<T> = { loading: enabled };
   let controller: AbortController | undefined;
   const listeners = new Set<() => void>();
   let started = false;
   let epoch = 0;
   const notify = () => listeners.forEach((listener) => listener());
-  const refresh = async () => {
+  const refresh = async (options?: QueryRefetchOptions) => {
+    if (!enabled) return {};
     controller?.abort();
     const requestController = new AbortController();
     controller = requestController;
@@ -68,7 +82,7 @@ export const resourceFor = <T,>(loader: (signal: AbortSignal) => Promise<T>): Re
     snapshot = { ...snapshot, loading: true, error: undefined };
     notify();
     try {
-      const data = await loader(requestController.signal);
+      const data = await loader(requestController.signal, options);
       if (controller !== requestController || epoch !== requestEpoch) return { data };
       snapshot = { data, loading: false };
       notify();
@@ -86,7 +100,7 @@ export const resourceFor = <T,>(loader: (signal: AbortSignal) => Promise<T>): Re
     getSnapshot: () => snapshot,
     subscribe: (listener) => {
       listeners.add(listener);
-      if (!started) void refresh();
+      if (!started && enabled) void refresh();
       return () => {
         listeners.delete(listener);
         queueMicrotask(() => {
@@ -95,7 +109,7 @@ export const resourceFor = <T,>(loader: (signal: AbortSignal) => Promise<T>): Re
           controller = undefined;
           epoch += 1;
           started = false;
-          snapshot = { loading: true };
+          snapshot = { loading: enabled };
         });
       };
     },
@@ -104,24 +118,31 @@ export const resourceFor = <T,>(loader: (signal: AbortSignal) => Promise<T>): Re
   return resource;
 };
 
-const useQuery = <T,>(
-  loader: (signal: AbortSignal) => Promise<T>,
+export const useQuery = <T,>(
+  loader: (signal: AbortSignal, options?: QueryRefetchOptions) => Promise<T>,
   dependencies: ReadonlyArray<unknown>,
+  enabled = true,
 ): QueryResult<T> => {
   const loaderRef = useRef(loader);
   loaderRef.current = loader;
   const resource = useMemo(
-    () => resourceFor((signal) => loaderRef.current(signal)),
-    dependencies,
+    () => resourceFor((signal, options) => loaderRef.current(signal, options), enabled),
+    [...dependencies, enabled],
   );
   const snapshot = useSyncExternalStore(resource.subscribe, resource.getSnapshot, resource.getSnapshot);
   return {
     ...snapshot,
-    isLoading: snapshot.loading,
-    isFetching: snapshot.loading,
+    isLoading: enabled && snapshot.loading,
+    isFetching: enabled && snapshot.loading,
     refetch: resource.refresh,
   };
 };
+
+export const useKeyedQuery = <T,>(
+  key: string | undefined,
+  loader: (signal: AbortSignal, options?: QueryRefetchOptions) => Promise<T>,
+  enabled = true,
+): QueryResult<T> => useQuery(loader, [key], Boolean(key) && enabled);
 
 interface MutationState {
   readonly isLoading: boolean;
@@ -156,7 +177,104 @@ export const useGetExplorerAuthoringExplorersQuery = (args: ExplorerAuthoringPro
 
 export const useGetExplorerBuilderStateV2Query = (args: ExplorerAuthoringStateArgs): QueryResult<Awaited<ReturnType<LoomClient['getBuilder']>>> => {
   const client = useLoomClient();
-  return useQuery((signal) => client.getBuilder(args, { signal }), [client, args.project, args.explorerId]);
+  return useQuery((signal, options) => client.getBuilder(args, { signal, reload: options?.reload }), [client, args.project, args.explorerId, args.authResourcePath]);
+};
+
+export const useResolveConfiguredColumnContextsQuery = (
+  args: ResolveConfiguredColumnContextsArgs | undefined,
+  key: string,
+): QueryResult<Awaited<ReturnType<LoomClient['resolveConfiguredColumnContexts']>>> => {
+  const client = useLoomClient();
+  return useQuery(
+    (signal) => {
+      if (!args) throw new Error('Configured column context query started without a saved draft identity.');
+      const requestId = `configured-column-context-${window.crypto.randomUUID()}`;
+      return client.resolveConfiguredColumnContexts({ ...args, requestId }, signal);
+    },
+    [
+      client,
+      key,
+      args?.project,
+      args?.explorerId,
+      args?.authResourcePath,
+      args?.snapshotToken,
+      args?.expectedDraftVersion,
+      args?.expectedDraftDigest,
+    ],
+    args !== undefined,
+  );
+};
+
+export interface ResolvePopulationSelectionQueryArgs {
+  readonly project: string;
+  readonly explorerId: string;
+  readonly authResourcePath?: string;
+  readonly snapshotToken: string;
+  readonly generation: string;
+  readonly outputId: string;
+  readonly resourceType: string;
+  readonly attachedSelectionId?: string;
+  readonly cohortRevisionId?: string;
+}
+
+export const useResolvePopulationSelectionQuery = (
+  args: ResolvePopulationSelectionQueryArgs | undefined,
+  key: string,
+): QueryResult<SelectionRevision> => {
+  const client = useLoomClient();
+  return useQuery(
+    async (signal) => {
+      if (!args) throw new Error('Population selection query started without a table identity.');
+      let selectionRevisionId = args.attachedSelectionId;
+      if (!selectionRevisionId) {
+        if (!args.cohortRevisionId) {
+          throw new Error('Population selection query started without a saved selection.');
+        }
+        const choices = await client.listRowDefinitionChoices({
+          project: args.project,
+          explorerId: args.explorerId,
+          authResourcePath: args.authResourcePath,
+          snapshotToken: args.snapshotToken,
+          outputId: args.outputId,
+        }, signal);
+        if (choices.outputId !== args.outputId || choices.snapshotToken !== args.snapshotToken) {
+          throw new Error('Loom returned cohort choices for a different table or catalog snapshot.');
+        }
+        const cohortChoice = choices.explicitGroups.find((candidate) => candidate.revisionId === args.cohortRevisionId);
+        if (!cohortChoice?.sourceSelectionRevisionId) {
+          throw new Error('The saved cohort does not expose its source selection in this authorized catalog snapshot.');
+        }
+        selectionRevisionId = cohortChoice.sourceSelectionRevisionId;
+      }
+      const page = await client.getSelection({
+        project: args.project,
+        explorerId: args.explorerId,
+        authResourcePath: args.authResourcePath,
+        selectionRevision: selectionRevisionId,
+        limit: 1,
+      }, signal);
+      if (page.revision.id !== selectionRevisionId || page.revision.project !== args.project ||
+        page.revision.generation !== args.generation ||
+        (!args.attachedSelectionId && page.revision.resourceType !== args.resourceType)) {
+        throw new Error('The saved cohort source selection does not match this table and catalog snapshot.');
+      }
+      return page.revision;
+    },
+    [
+      client,
+      key,
+      args?.project,
+      args?.explorerId,
+      args?.authResourcePath,
+      args?.snapshotToken,
+      args?.generation,
+      args?.outputId,
+      args?.resourceType,
+      args?.attachedSelectionId,
+      args?.cohortRevisionId,
+    ],
+    args !== undefined,
+  );
 };
 
 export const useGetExplorerAuthoringCapabilityV2Query = (args: ExplorerAuthoringStateArgs): QueryResult<Awaited<ReturnType<LoomClient['getCapability']>>> => {
@@ -169,6 +287,11 @@ export const useApplyExplorerBuilderCommandsV2Mutation = () => {
   return useMutation<ApplyExplorerBuilderCommandsArgs, Awaited<ReturnType<LoomClient['applyCommands']>>>((args, signal) => client.applyCommands(args, signal));
 };
 
+export const useAssessExplorerRowChangeMutation = () => {
+  const client = useLoomClient();
+  return useMutation<AssessExplorerRowChangeArgs, Awaited<ReturnType<LoomClient['assessRowChange']>>>((args, signal) => client.assessRowChange(args, signal));
+};
+
 export const useReconcileExplorerBuilderV2Mutation = () => {
   const client = useLoomClient();
   return useMutation<ReconcileExplorerBuilderArgs, Awaited<ReturnType<LoomClient['reconcile']>>>((args, signal) => client.reconcile(args, signal));
@@ -179,9 +302,27 @@ export const useGetExplorerCandidateSuggestionsV2Mutation = () => {
   return useMutation<ExplorerCandidateSuggestionsArgs, Awaited<ReturnType<LoomClient['suggestions']>>>((args, signal) => client.suggestions(args, signal));
 };
 
+export const useBrowseSemanticInventoryV2Mutation = () => {
+  const client = useLoomClient();
+  return useMutation<BrowseSemanticInventoryArgs, Awaited<ReturnType<LoomClient['browseSemanticInventory']>>>((args, signal) => client.browseSemanticInventory(args, signal));
+};
+
 export const usePreviewExplorerAuthoringV2Mutation = () => {
   const client = useLoomClient();
   return useMutation<PreviewExplorerBuilderArgs, Awaited<ReturnType<LoomClient['preview']>>>((args, signal) => client.preview(args, signal));
+};
+
+export const usePopulationMappingMutation = () => {
+  const client = useContext(LoomClientContext);
+  return useMutation<PopulationMappingArgs, Awaited<ReturnType<LoomClient['populationMapping']>>>((args, signal) => {
+    if (!client) return Promise.reject(new Error('Loom UI must be rendered inside LoomProvider.'));
+    return client.populationMapping(args, signal);
+  });
+};
+
+export const useCellTraceMutation = () => {
+  const client = useLoomClient();
+  return useMutation<CellTraceArgs, Awaited<ReturnType<LoomClient['cellTrace']>>>((args, signal) => client.cellTrace(args, signal));
 };
 
 export const usePublishExplorerAuthoringV2Mutation = () => {
@@ -214,7 +355,7 @@ export const useLoomOutput = (
   const query = useQuery(
     (signal) => enabled
       ? client.queryOutput(request, signal)
-      : Promise.resolve({ columns: [], rows: [], totalCount: 0, pageInfo: { hasNextPage: false }, facets: [] }),
+      : Promise.resolve({ columns: [], rows: [], rowIds: [], totalCount: 0, pageInfo: { hasNextPage: false }, facets: [] }),
     [client, enabled, identity],
   );
   return enabled ? query : { data: undefined, error: undefined, isLoading: false, isFetching: false, refetch: async () => ({}) };

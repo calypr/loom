@@ -1,0 +1,205 @@
+import assert from 'node:assert/strict';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { sanitizeBody } from '../helpers/playwright-browser.mjs';
+
+export async function verifyRowActionsClarity({ page, cda }) {
+const project = cda.project;
+const explorer = cda.explorer;
+assert(project && explorer && ['group-related-summary-browser-', 'cohort-add-fields-browser-'].some(prefix => explorer.startsWith(prefix)),
+  'Set the native CDA fixture explorer to an owned group-related-summary-browser or cohort-add-fields-browser QA Explorer');
+const apiOrigin = cda.apiOrigin;
+const uiOrigin = cda.uiOrigin;
+const evidence = cda.evidence;
+const base = `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorer)}/authoring/v2`;
+const report = { status: 'running', project, explorer, evidence, cases: [], transitions: [], workspaceChecks: [], screenshots: [], target: cda.target };
+const screenshotsEnabled = process.env.LOOM_VERIFY_SCREENSHOTS === '1';
+const browserErrors = [];
+page.on('pageerror', error => browserErrors.push({ type: 'pageerror', text: error.message }));
+page.on('console', message => { if (message.type() === 'error') browserErrors.push({ type: 'console', text: message.text() }); });
+page.on('requestfailed', request => browserErrors.push({ type: 'requestfailed', url: request.url(), error: request.failure()?.errorText }));
+await mkdir(evidence, { recursive: true });
+
+const read = async () => {
+  const response = await fetch(`${apiOrigin}${base}/builder`, { signal: AbortSignal.timeout(30000) });
+  const text = await response.text();
+  report.apiReads ??= [];
+  report.apiReads.push({ path: `${base}/builder`, status: response.status, ...(response.ok ? {} : { diagnosticBody: sanitizeBody(text) }) });
+  assert(response.ok, `Builder read returned ${response.status}: ${sanitizeBody(text)}`);
+  return JSON.parse(text);
+};
+const wait = async condition => cda.wait(condition, [], 5000);
+const stateOf = (locator, fn) => locator.evaluate(fn);
+const action = async (name, locator, method) => cda.action(name, locator, target => method(target));
+const assertWorkspaceUnchanged = async phase => {
+  const current = await read();
+  assert.deepEqual(current.workspace, report.before.workspace, `${phase}: opening and closing row actions must not save workspace changes`);
+  assert.equal(current.draftVersion, report.before.draftVersion, `${phase}: draft version must remain unchanged`);
+  assert.equal(current.draftDigest, report.before.draftDigest, `${phase}: draft digest must remain unchanged`);
+  report.workspaceChecks.push({ phase, unchanged: true, draftVersion: current.draftVersion, draftDigest: current.draftDigest });
+};
+
+async function timedTransition(name, locator, method, settledWhen) {
+  const started = Date.now();
+  report.activeAction = { label: name, locator: locator.toString(), startedAt: started };
+  try {
+    await action(name, locator, method);
+    report.activeAction = { label: name, locator: locator.toString(), startedAt: started };
+    await wait(settledWhen);
+  } catch (error) {
+    const durationMs = Date.now() - started;
+    report.transitions.push({ name, durationMs, limitMs: 5000, status: 'failed', error: String(error) });
+    report.firstFailedAction ??= { label: name, locator: locator.toString(), elapsedMs: durationMs };
+    throw new Error(`${name} did not render within 5000 ms (observed ${durationMs} ms): ${error.message}`);
+  }
+  report.activeAction = undefined;
+  const durationMs = Date.now() - started;
+  assert(durationMs <= 5000, `${name} took ${durationMs} ms to render (limit 5000 ms)`);
+  report.transitions.push({ name, durationMs, limitMs: 5000, status: 'passed' });
+}
+
+try {
+  report.before = await read();
+  const outputId = report.before.workspace.documents[0]?.output.id;
+  assert(outputId, 'The owned QA Explorer must contain an output table');
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const builderURL = `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`;
+  report.activeAction = { label: 'navigate to QA Builder', locator: builderURL, startedAt: Date.now() };
+  await page.goto(builderURL, { waitUntil: 'domcontentloaded' });
+  report.activeAction = undefined;
+  const tableCard = page.locator(`[data-testid="construction-table-${outputId}"]`);
+  await tableCard.waitFor({ state: 'visible', timeout: 5000 });
+  await action('open output table', tableCard, target => target.click());
+  const rowsTrigger = page.getByTestId('construction-rows-settings-trigger');
+  await rowsTrigger.waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(await rowsTrigger.isEnabled(), true);
+
+  const inspectCards = async name => {
+    const device = name.startsWith('mobile') ? 'mobile' : 'desktop';
+    const related = page.getByTestId('construction-action-related-rows');
+    await timedTransition(
+      `${device}-row-actions-open`, rowsTrigger, target => target.click(),
+      () => Boolean(document.querySelector('[data-testid="construction-action-related-rows"]')?.getClientRects().length),
+    );
+    const relatedState = await stateOf(related, button => ({ disabled: button.disabled, text: button.innerText }));
+    assert(!relatedState.disabled, `Related row action is disabled: ${relatedState.text}`);
+    const cards = await page.locator('[data-testid^="construction-action-"][data-testid$="-rows"]').evaluateAll(buttons => buttons.map(button => {
+      const kind = button.getAttribute('data-testid').replace(/^construction-action-/, '').replace(/-rows$/, '');
+      const bounds = button.getBoundingClientRect();
+      return {
+        kind, text: button.innerText, accessibleName: button.getAttribute('aria-label'), disabled: button.disabled,
+        visible: bounds.width > 0 && bounds.left >= 0 && bounds.right <= innerWidth,
+      };
+    }));
+    const expectedKinds = ['expand', 'group', 'keep', 'pivot', 'related', 'table-pivot', 'unpivot'];
+    assert.deepEqual(cards.map(card => card.kind).sort(), expectedKinds, 'All seven row/action controls must be rendered');
+    assert(cards.every(card => card.visible), JSON.stringify(cards));
+    const byKind = Object.fromEntries(cards.map(card => [card.kind, card]));
+    for (const kind of ['group', 'keep', 'pivot', 'related', 'table-pivot', 'unpivot']) {
+      assert.equal(byKind[kind].disabled, false, `${kind} action should be enabled`);
+    }
+    assert.equal(byKind.expand.disabled, true, 'Expand must remain unavailable without a supported array column');
+    assert(byKind.expand.text.includes('Make one row per list value'));
+    assert(byKind.expand.text.includes('public array-valued column'), 'Disabled Expand must explain why it is unavailable');
+    assert(byKind.group.text.includes('Combine rows into groups'));
+    assert(byKind.group.text.includes('matching values in the fields you choose'));
+    assert(byKind.keep.text.includes('Filter rows'));
+    assert(byKind.keep.accessibleName?.includes('Choose which rows appear in the table output'), 'Filter rows must explain its effect');
+    assert(byKind.pivot.text.includes('Turn categories into columns'));
+    assert(byKind.pivot.text.includes('Make a column for each category'));
+    assert(byKind['table-pivot'].text.includes('Choose category and value fields'));
+    assert(byKind.unpivot.text.includes('Turn columns into rows'));
+    assert(byKind.unpivot.text.includes('Other columns repeat on each new row'));
+    const relatedCard = cards.find(card => card.kind === 'related');
+    assert(relatedCard?.text.includes('Make a row for each related record'));
+    assert(relatedCard.text.toLowerCase().includes('existing values') || relatedCard.text.toLowerCase().includes('original values'));
+    assert(relatedCard.text.includes('keep a current row once when no records match'));
+    assert(relatedCard.text.includes('By default'));
+    assert(cards.find(card => card.kind === 'group')?.text.includes('Combine rows into groups'));
+    assert(cards.find(card => card.kind === 'unpivot')?.text.includes('Other columns repeat on each new row'));
+    report.dialogLayout = await page.getByRole('dialog', { name: 'Row definition settings' }).evaluate(dialog => {
+      const ancestors = [dialog, dialog.parentElement];
+      let node = dialog.parentElement?.parentElement;
+      while (node) { ancestors.push(node); node = node.parentElement; }
+      return ancestors.map(element => ({
+        tag: element.tagName, className: String(element.className), position: getComputedStyle(element).position,
+        zIndex: getComputedStyle(element).zIndex, transform: getComputedStyle(element).transform,
+        overflow: getComputedStyle(element).overflow, top: element.getBoundingClientRect().top,
+      }));
+    });
+    if (screenshotsEnabled) {
+      const screenshotPath = join(evidence, `${name}.png`);
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+      report.screenshots.push(screenshotPath);
+    }
+    report.cases.push({ name, actionInventory: cards, cards });
+  };
+
+  await inspectCards('desktop-actions');
+  const relatedAction = page.getByTestId('construction-action-related-rows');
+  await timedTransition(
+    'desktop-related-editor-open', relatedAction, target => target.click(),
+    () => Boolean(document.querySelector('[data-testid="construction-related-expand-editor"]')?.getClientRects().length),
+  );
+  const editorLocator = page.getByTestId('construction-related-expand-editor');
+  const editor = await editorLocator.innerText();
+  assert(editor.includes('Make a row for each related record'));
+  assert(editor.includes('Start from'));
+  const startControl = await editorLocator.evaluate(editorNode => {
+    const label = [...editorNode.querySelectorAll('label,div')].find(node => node.innerText.trim().startsWith('Start from'));
+    return { present: Boolean(label), hiddenInDetails: Boolean(label?.closest('details')), text: label?.innerText };
+  });
+  assert(startControl.present, 'Starting records must be explained in the main form');
+  assert(!startControl.hiddenInDetails, 'Starting-record choice must not be hidden in Advanced options');
+  report.startControl = startControl;
+  const noMatchControl = await editorLocator.evaluate(editorNode => {
+    const select = [...editorNode.querySelectorAll('select')].find(node => [...node.options].some(option => option.value === 'PRESERVE_PARENT'));
+    return { present: Boolean(select), hiddenInDetails: Boolean(select?.closest('details')), value: select?.value };
+  });
+  assert(noMatchControl.present, 'The no-match choice must be available');
+  assert(!noMatchControl.hiddenInDetails, 'The no-match outcome must not require opening Advanced options');
+  assert.equal(noMatchControl.value, 'PRESERVE_PARENT');
+  report.noMatchControl = noMatchControl;
+  for (const text of ['What will change', 'Rows before and after', 'Patient A + Observation 1', 'Patient A + Observation 2', 'Fields you can add', 'changes which records those fields come from']) assert(editor.includes(text), `Related editor must explain: ${text}`);
+  report.cases.push({ name: 'related-editor-explanation', editor });
+  await assertWorkspaceUnchanged('desktop editor open');
+  const closeEditor = page.getByTestId('construction-close-operation-editor');
+  await timedTransition(
+    'desktop-related-editor-close', closeEditor, target => target.click(),
+    () => (!document.querySelector('[data-testid="construction-related-expand-editor"]')?.getClientRects().length)
+      && document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false,
+  );
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await inspectCards('mobile-actions');
+  await timedTransition(
+    'mobile-related-editor-open', page.getByTestId('construction-action-related-rows'), target => target.click(),
+    () => Boolean(document.querySelector('[data-testid="construction-related-expand-editor"]')?.getClientRects().length),
+  );
+  const mobileEditor = await editorLocator.innerText();
+  for (const text of ['What will change', 'Rows before and after', 'Fields you can add']) assert(mobileEditor.includes(text));
+  report.cases.push({ name: 'mobile-related-action', editor: mobileEditor });
+  await assertWorkspaceUnchanged('mobile editor open');
+  await timedTransition(
+    'mobile-related-editor-close', closeEditor, target => target.click(),
+    () => (!document.querySelector('[data-testid="construction-related-expand-editor"]')?.getClientRects().length)
+      && document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false,
+  );
+  await assertWorkspaceUnchanged('mobile editor closed');
+  report.errors = browserErrors;
+  assert.deepEqual(report.errors, []);
+  report.status = 'passed';
+  cda.check('correctness', 'row action choices and editor explanation are available', true, { cases: report.cases.map(value => value.name) });
+} catch (error) {
+  report.status = 'failed';
+  report.error = String(error.stack ?? error);
+  if (report.activeAction) report.firstFailedAction = { label: report.activeAction.label, locator: report.activeAction.locator, elapsedMs: Date.now() - report.activeAction.startedAt };
+  report.diagnostics = browserErrors;
+  throw error;
+} finally {
+  report.finishedAt = new Date().toISOString();
+  await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
+  await cda.attachReport('row-actions-clarity', report);
+}
+return report;
+}

@@ -44,6 +44,11 @@ func (r *physicalPlanRenderer) renderCall(expression ir.PhysicalExpression) (str
 		return "@" + key
 	}
 	switch name {
+	case "length":
+		if err := require(1); err != nil {
+			return "", err
+		}
+		return "LENGTH(FLATTEN(" + args[0] + "))", nil
 	case "coalesce_string":
 		if len(args) == 0 {
 			return "", fmt.Errorf("coalesce_string requires at least one argument")
@@ -148,6 +153,11 @@ func (r *physicalPlanRenderer) renderCall(expression ir.PhysicalExpression) (str
 			return "", err
 		}
 		return "(" + args[0] + " ? " + args[1] + " : " + args[2] + ")", nil
+	case "assert":
+		if err := require(2); err != nil {
+			return "", err
+		}
+		return "ASSERT(" + args[0] + ", " + args[1] + ")", nil
 	case "case":
 		if len(args) < 2 {
 			return "", fmt.Errorf("case requires at least one condition/result pair")
@@ -185,6 +195,12 @@ func (r *physicalPlanRenderer) renderCall(expression ir.PhysicalExpression) (str
 			return "", err
 		}
 		operator := map[string]string{"eq": "==", "neq": "!=", "gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[name]
+		return "(" + args[0] + " " + operator + " " + args[1] + ")", nil
+	case "add", "subtract", "multiply", "divide":
+		if err := require(2); err != nil {
+			return "", err
+		}
+		operator := map[string]string{"add": "+", "subtract": "-", "multiply": "*", "divide": "/"}[name]
 		return "(" + args[0] + " " + operator + " " + args[1] + ")", nil
 	case "contains":
 		if err := require(2); err != nil {

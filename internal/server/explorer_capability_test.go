@@ -2,13 +2,17 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 
+	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/dataset"
+	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
@@ -74,7 +78,11 @@ func TestAuthoringV2CatalogExposesCandidateFieldPath(t *testing.T) {
 		[]capability.Candidate{{
 			ID: "c_patient_birth_date", NodeID: "n_patient", ResourceType: "Patient",
 			FieldPath: "birthDate", Label: "Birth date", LogicalType: "date",
-			ProjectionModes: []capability.ProjectionMode{capability.ProjectionFirst},
+			Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+			AggregateOperations: []capability.AggregateOperationCapability{{
+				Operation: capability.AggregateSum, RowContext: capability.AggregateRowsRecords, Supported: false,
+				ReasonCode: "NUMERIC_INPUT_REQUIRED", Reason: "SUM requires an integer or decimal input",
+			}},
 		}},
 		nil,
 	)
@@ -82,6 +90,315 @@ func TestAuthoringV2CatalogExposesCandidateFieldPath(t *testing.T) {
 	wire := authoringV2Catalog(snapshot, "default")
 	if len(wire.Candidates) != 1 || wire.Candidates[0].FieldPath != "birthDate" {
 		t.Fatalf("catalog candidates = %#v", wire.Candidates)
+	}
+	choice := wire.Candidates[0].ConstructionChoice
+	if choice == nil || choice.ChoiceID == "" || len(choice.Options) != 1 || choice.Options[0].Form != capability.ConstructionChoiceValue || choice.Options[0].Decision != capability.ConstructionChoiceDefault {
+		t.Fatalf("field construction choice = %#v", choice)
+	}
+	encoded, err := json.Marshal(wire.Candidates[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &decoded); err != nil || len(decoded["constructionChoice"]) == 0 {
+		t.Fatalf("construction choice missing from candidate JSON %s: %v", encoded, err)
+	}
+	var aggregateChoices []capability.AggregateOperationCapability
+	if err := json.Unmarshal(decoded["aggregateOperations"], &aggregateChoices); err != nil || len(aggregateChoices) != 1 || aggregateChoices[0].ReasonCode != "NUMERIC_INPUT_REQUIRED" || aggregateChoices[0].RowContext != capability.AggregateRowsRecords {
+		t.Fatalf("typed aggregate choices missing or inaccurate in candidate JSON %s: choices=%#v err=%v", encoded, aggregateChoices, err)
+	}
+	var generated loomapi.CatalogCandidate
+	if err := json.Unmarshal(encoded, &generated); err != nil {
+		t.Fatalf("generated candidate boundary rejected choice: %v", err)
+	}
+	if len(generated.AggregateOperations) != 1 || generated.AggregateOperations[0].ReasonCode == nil || *generated.AggregateOperations[0].ReasonCode != "NUMERIC_INPUT_REQUIRED" || generated.Transformations.TemporalReduction.TimestampFields == nil || generated.Transformations.UnitNormalization.Presets == nil {
+		t.Fatalf("generated candidate boundary lost typed compiler capabilities: %#v", generated)
+	}
+	fieldSource, err := generated.ConstructionChoice.Source.AsFieldChoiceSource()
+	if err != nil || fieldSource.Kind != loomapi.FieldChoiceSourceKindFIELD || fieldSource.CandidateId != "c_patient_birth_date" || fieldSource.Path != "birthDate" {
+		t.Fatalf("generated field choice source=%#v err=%v", fieldSource, err)
+	}
+}
+
+func TestBuilderStateGeneratedContractPreservesCandidateCapabilities(t *testing.T) {
+	state := authoringv2.BuilderState{
+		APIVersion:     authoringv2.APIVersion,
+		Kind:           authoringv2.StateKind,
+		LifecycleState: "NEW",
+		Catalog: authoringv2.CatalogSnapshot{
+			SourceGeneration:         "generation-a",
+			AuthorizationScopeDigest: "scope-a",
+			SnapshotToken:            "snapshot-a",
+			Complete:                 true,
+			Nodes:                    []authoringv2.CatalogNode{},
+			Edges:                    []authoringv2.CatalogEdge{},
+			Candidates: []authoringv2.CatalogCandidate{{
+				ID:                    "c_height_value",
+				NodeID:                "n_observation",
+				FieldPath:             "valueQuantity.value",
+				Label:                 "Height",
+				LogicalType:           "decimal",
+				Cardinality:           "optional_one",
+				Filterable:            true,
+				Chartable:             true,
+				ProjectionModes:       []string{"VALUE"},
+				DefaultProjectionMode: "VALUE",
+				AggregateOperations: []capability.AggregateOperationCapability{{
+					Operation:  capability.AggregateSum,
+					RowContext: capability.AggregateRowsRecords,
+					Supported:  true,
+				}},
+				Transformations: authoringv2.AggregateTransformationCapabilities{
+					Temporal: authoringv2.TemporalReductionCapabilities{
+						Available: true,
+						TimestampFields: []authoringv2.TemporalFieldChoice{{
+							CandidateID:  "c_observation_issued",
+							NodeID:       "n_observation",
+							ResourceType: "Observation",
+							FieldPath:    "issued",
+							Label:        "Issued",
+						}},
+						AnchorFields: []authoringv2.TemporalFieldChoice{{
+							CandidateID:  "c_patient_birth_date",
+							NodeID:       "n_patient",
+							ResourceType: "Patient",
+							FieldPath:    "birthDate",
+							Label:        "Birth date",
+						}},
+					},
+					UnitNormalization: authoringv2.UnitNormalizationCapabilities{
+						Available: true,
+						Presets: []authoringv2.UnitNormalizationPresetCapability{{
+							PolicyID:  "ucum-pressure",
+							Version:   "1",
+							Target:    unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "mm[Hg]"},
+							Available: true,
+						}},
+					},
+				},
+			}},
+			RoutePolicy: authoringv2.RoutePolicy{AllowRepeatedEdges: true, AllowSelfLoops: true},
+		},
+	}
+	noOperationSnapshot := capability.NewSnapshot(
+		capability.SnapshotIdentity{Project: "project-a", Generation: "generation-no-operations"},
+		capability.Policy{}, capability.StatusReady, true, false,
+		[]capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true}},
+		nil,
+		[]capability.Candidate{{
+			ID: "c_patient_id_no_aggregates", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "id", Label: "Patient ID", LogicalType: "string", Cardinality: "optional_one",
+			ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+		}},
+		nil,
+	)
+	noOperationCatalog := authoringV2Catalog(noOperationSnapshot, "default")
+	if len(noOperationCatalog.Candidates) != 1 {
+		t.Fatalf("no-operation catalog candidates = %#v, want one candidate", noOperationCatalog.Candidates)
+	}
+	if operations := noOperationCatalog.Candidates[0].AggregateOperations; operations == nil || len(operations) != 0 {
+		t.Fatalf("no-operation candidate aggregate operations = %#v, want non-nil empty slice", operations)
+	}
+	state.Catalog.Candidates = append(state.Catalog.Candidates, noOperationCatalog.Candidates[0])
+
+	generated, err := directAuthoringJSON[loomapi.BuilderState](state)
+	if err != nil {
+		t.Fatalf("convert Builder state through generated contract: %v", err)
+	}
+	encoded, err := json.Marshal(generated)
+	if err != nil {
+		t.Fatalf("marshal generated Builder state: %v", err)
+	}
+	if len(generated.Catalog.Candidates) != 2 {
+		t.Fatalf("generated Builder candidates = %#v, want two candidates", generated.Catalog.Candidates)
+	}
+	candidate := generated.Catalog.Candidates[0]
+	if len(candidate.AggregateOperations) != 1 {
+		t.Fatalf("generated aggregate operations = %#v, want one supported SUM for RECORDS", candidate.AggregateOperations)
+	}
+	aggregateOperation := candidate.AggregateOperations[0]
+	if string(aggregateOperation.Operation) != "SUM" || string(aggregateOperation.RowContext) != "RECORDS" || !aggregateOperation.Supported {
+		t.Fatalf("generated aggregate operations = %#v, want supported SUM for RECORDS", candidate.AggregateOperations)
+	}
+	temporal := candidate.Transformations.TemporalReduction
+	if !temporal.Available || len(temporal.TimestampFields) != 1 || len(temporal.AnchorFields) != 1 {
+		t.Fatalf("generated temporal capabilities = %#v, want issued timestamp and birthDate anchor", temporal)
+	}
+	if got, want := temporal.TimestampFields[0], (authoringv2.TemporalFieldChoice{
+		CandidateID:  "c_observation_issued",
+		NodeID:       "n_observation",
+		ResourceType: "Observation",
+		FieldPath:    "issued",
+		Label:        "Issued",
+	}); got.CandidateId != want.CandidateID || got.NodeId != want.NodeID || got.ResourceType != want.ResourceType || got.FieldPath != want.FieldPath || got.Label != want.Label {
+		t.Fatalf("generated temporal timestamp = %#v, want %#v", got, want)
+	}
+	if got, want := temporal.AnchorFields[0], (authoringv2.TemporalFieldChoice{
+		CandidateID:  "c_patient_birth_date",
+		NodeID:       "n_patient",
+		ResourceType: "Patient",
+		FieldPath:    "birthDate",
+		Label:        "Birth date",
+	}); got.CandidateId != want.CandidateID || got.NodeId != want.NodeID || got.ResourceType != want.ResourceType || got.FieldPath != want.FieldPath || got.Label != want.Label {
+		t.Fatalf("generated temporal anchor = %#v, want %#v", got, want)
+	}
+	unitCapabilities := candidate.Transformations.UnitNormalization
+	if !unitCapabilities.Available || len(unitCapabilities.Presets) != 1 {
+		t.Fatalf("generated unit capabilities = %#v, want mm[Hg] target", unitCapabilities)
+	}
+	if got, want := unitCapabilities.Presets[0], (loomapi.UnitNormalizationPresetCapability{
+		PolicyId:  "ucum-pressure",
+		Version:   "1",
+		Target:    loomapi.UnitIdentity{System: "http://unitsofmeasure.org", Code: "mm[Hg]"},
+		Available: true,
+	}); got != want {
+		t.Fatalf("generated unit preset = %#v, want %#v", got, want)
+	}
+	if operations := generated.Catalog.Candidates[1].AggregateOperations; operations == nil || len(operations) != 0 {
+		t.Fatalf("generated no-operation candidate aggregate operations = %#v, want non-nil empty slice", operations)
+	}
+	var rawState struct {
+		Catalog struct {
+			Candidates []struct {
+				AggregateOperations json.RawMessage `json:"aggregateOperations"`
+			} `json:"candidates"`
+		} `json:"catalog"`
+	}
+	if err := json.Unmarshal(encoded, &rawState); err != nil {
+		t.Fatalf("decode generated Builder candidate JSON: %v", err)
+	}
+	if got := string(rawState.Catalog.Candidates[1].AggregateOperations); got != "[]" {
+		t.Fatalf("generated no-operation aggregateOperations JSON = %q, want []", got)
+	}
+}
+
+func TestAuthoringV2CatalogPreservesDistinctArrayProjectionMode(t *testing.T) {
+	snapshot := capability.NewSnapshot(
+		capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a"},
+		capability.Policy{}, capability.StatusReady, true, false,
+		[]capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true}},
+		nil,
+		[]capability.Candidate{{
+			ID: "c_patient_name", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "name[]", Label: "Patient name", LogicalType: "string", Cardinality: "many",
+			ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray, capability.ProjectionDistinctArray},
+		}},
+		nil,
+	)
+
+	wire := authoringV2Catalog(snapshot, "default")
+	if len(wire.Candidates) != 1 || len(wire.Candidates[0].ProjectionModes) != 2 {
+		t.Fatalf("catalog candidates = %#v", wire.Candidates)
+	}
+	if wire.Candidates[0].ProjectionModes[0] != "ALL" || wire.Candidates[0].ProjectionModes[1] != "DISTINCT" {
+		t.Fatalf("projection modes = %#v, want [ALL DISTINCT]", wire.Candidates[0].ProjectionModes)
+	}
+	encoded, err := json.Marshal(wire.Candidates[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var generated loomapi.CatalogCandidate
+	if err := json.Unmarshal(encoded, &generated); err != nil {
+		t.Fatalf("generated candidate boundary rejected empty capabilities: %v", err)
+	}
+	if generated.AggregateOperations == nil || generated.Transformations.TemporalReduction.TimestampFields == nil || generated.Transformations.UnitNormalization.Presets == nil {
+		t.Fatalf("generated candidate boundary lost empty capability arrays: %#v", generated)
+	}
+	choice := wire.Candidates[0].ConstructionChoice
+	if choice == nil || len(choice.Options) != 2 || choice.Options[0].Form != capability.ConstructionChoiceAll || choice.Options[0].Decision != capability.ConstructionChoiceDefault {
+		t.Fatalf("repeated field construction choice = %#v", choice)
+	}
+}
+
+func TestAuthoringV2CatalogAdvertisesScalarRecodingAndCodedIdentityRefusal(t *testing.T) {
+	snapshot := capability.NewSnapshot(
+		capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a"},
+		capability.Policy{}, capability.StatusReady, true, false,
+		[]capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true}},
+		nil,
+		[]capability.Candidate{{
+			ID: "c_patient_status", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "status", Label: "Patient status", LogicalType: "string", Cardinality: "optional_one",
+			ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+		}},
+		nil,
+	)
+
+	wire := authoringV2Catalog(snapshot, "default")
+	if len(wire.Candidates) != 1 || !wire.Candidates[0].ValueTransformations.ExactCategoryRecode.Available {
+		t.Fatalf("scalar recoding capability = %#v", wire.Candidates)
+	}
+	coded := wire.Candidates[0].ValueTransformations.CodedValueRecoding
+	if coded.Available || coded.ReasonCode != "CODED_VALUE_RECODE_UNAVAILABLE" || !strings.Contains(coded.Reason, "Coding.system and Coding.code") {
+		t.Fatalf("coded recoding capability = %#v", coded)
+	}
+	encoded, err := json.Marshal(wire.Candidates[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var generated loomapi.CatalogCandidate
+	if err := json.Unmarshal(encoded, &generated); err != nil {
+		t.Fatalf("generated candidate boundary rejected value transformation capabilities: %v", err)
+	}
+	if !generated.ValueTransformations.ExactCategoryRecode.Available || generated.ValueTransformations.CodedValueRecoding.ReasonCode == nil || *generated.ValueTransformations.CodedValueRecoding.ReasonCode != "CODED_VALUE_RECODE_UNAVAILABLE" {
+		t.Fatalf("generated candidate capability = %#v", generated.ValueTransformations)
+	}
+}
+
+func TestGeneratedAuthoringCommandPreservesColumnTransformationUnion(t *testing.T) {
+	const requestJSON = `{"commandId":"recode-status","semanticsVersion":7,"snapshotToken":"snapshot","expectedDraftVersion":3,"commands":[{"type":"UPDATE_COLUMN_TRANSFORMATION","outputId":"patients","column":"status","transformationChange":{"kind":"SET","transformation":{"kind":"EXACT_CATEGORY_RECODE","exactCategoryRecode":{"mappings":[{"from":"recorded-A","to":"group-1"}],"unknownPolicy":"ERROR"}}}}]}`
+	var generated loomapi.ApplyCommandsRequest
+	if err := json.Unmarshal([]byte(requestJSON), &generated); err != nil {
+		t.Fatalf("generated OpenAPI command decoder rejected transformation union: %v", err)
+	}
+	request, err := directAuthoringJSON[authoringv2.ApplyCommandsRequest](generated)
+	if err != nil {
+		t.Fatalf("generated command conversion failed: %v", err)
+	}
+	if len(request.Commands) != 1 || request.Commands[0].Type != authoringv2.CommandUpdateColumnTransformation || request.Commands[0].TransformationChange == nil || request.Commands[0].TransformationChange.Transformation == nil {
+		t.Fatalf("converted command = %#v", request.Commands)
+	}
+	transformation := request.Commands[0].TransformationChange.Transformation
+	if transformation.Kind != "EXACT_CATEGORY_RECODE" || transformation.ExactCategoryRecode == nil || transformation.ExactCategoryRecode.UnknownPolicy != "ERROR" || len(transformation.ExactCategoryRecode.Mappings) != 1 || transformation.ExactCategoryRecode.Mappings[0].From != "recorded-A" || transformation.ExactCategoryRecode.Mappings[0].To != "group-1" {
+		t.Fatalf("converted transformation = %#v", transformation)
+	}
+}
+
+func TestAuthoringV2CatalogOmitsCandidateWithoutExecutableConstructionChoice(t *testing.T) {
+	snapshot := capability.NewSnapshot(
+		capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a"},
+		capability.Policy{}, capability.StatusReady, true, false,
+		[]capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true}},
+		nil,
+		[]capability.Candidate{{
+			ID: "c_patient_name", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "name[]", Label: "Patient name", LogicalType: "string", Cardinality: "many",
+			ProjectionModes: []capability.ProjectionMode{capability.ProjectionIndexed},
+		}},
+		nil,
+	)
+
+	wire := authoringV2Catalog(snapshot, "default")
+	if len(wire.Candidates) != 0 || len(wire.Diagnostics) != 1 || wire.Diagnostics[0].Code != "CONSTRUCTION_CHOICE_UNAVAILABLE" {
+		t.Fatalf("catalog=%#v, want candidate omitted with diagnostic", wire)
+	}
+}
+
+func TestAuthoringV2CatalogBlocksObjectProjectionWithTypedChildHint(t *testing.T) {
+	snapshot := capability.NewSnapshot(
+		capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a"},
+		capability.Policy{}, capability.StatusReady, true, false,
+		[]capability.Node{{ID: "n_specimen", ResourceType: "Specimen", RowRootEligible: true}}, nil,
+		[]capability.Candidate{
+			{ID: "c_specimen_coding", NodeID: "n_specimen", ResourceType: "Specimen", FieldPath: "type.coding[]", LogicalType: "unknown", Cardinality: "many", ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}},
+			{ID: "c_specimen_coding_system", NodeID: "n_specimen", ResourceType: "Specimen", FieldPath: "type.coding[].system", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}},
+		}, nil,
+	)
+
+	wire := authoringV2Catalog(snapshot, "default")
+	if len(wire.Candidates) != 1 || wire.Candidates[0].FieldPath != "type.coding[].system" {
+		t.Fatalf("catalog candidates = %#v, want only the typed child field", wire.Candidates)
+	}
+	if len(wire.Diagnostics) != 1 || wire.Diagnostics[0].Code != "UNSUPPORTED_CONSTRUCTION_SOURCE_TYPE" ||
+		!strings.Contains(wire.Diagnostics[0].Message, "Specimen.type.coding[]") ||
+		!strings.Contains(wire.Diagnostics[0].Message, "Specimen.type.coding[].system") {
+		t.Fatalf("catalog diagnostics = %#v, want unsupported field and typed child guidance", wire.Diagnostics)
 	}
 }
 
@@ -291,7 +608,7 @@ func testCapabilityManifest(t *testing.T) dataset.Manifest {
 
 func testAuthoringV2CapabilitySnapshot() capability.Snapshot {
 	return capability.NewSnapshot(
-		capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: explorerScopeDigest(authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}), SchemaDigest: strings.Repeat("a", 64), ResourceInventoryDigest: "inventory", RelationshipDigest: "relationships", FieldDigest: "fields", ProtocolVersion: explorerCapabilityProtocolVersion, CompilerVersion: explorerCapabilityCompilerVersion, TraversalPolicyVersion: explorerTraversalPolicyVersion, ProjectionPolicyVersion: explorerProjectionPolicyVersion},
+		capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: explorerScopeDigest(authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}), SchemaDigest: strings.Repeat("a", 64), ResourceInventoryDigest: "inventory", RelationshipDigest: "relationships", FieldDigest: "fields", ShapeDigest: strings.Repeat("b", 64), ProtocolVersion: explorerCapabilityProtocolVersion, CompilerVersion: explorerCapabilityCompilerVersion, TraversalPolicyVersion: explorerTraversalPolicyVersion, ProjectionPolicyVersion: explorerProjectionPolicyVersion},
 		capability.Policy{Route: capability.RoutePolicy{Version: explorerTraversalPolicyVersion, AllowsRepeatedEdges: true, AllowsSelfLoops: true}, Projection: capability.ProjectionPolicy{Version: explorerProjectionPolicyVersion}},
 		capability.StatusReady, true, false,
 		[]capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true, RowGrain: "RESOURCE", Populated: true, DocumentCount: 1, SupportedOperations: []capability.Operation{capability.OperationSelect}}},

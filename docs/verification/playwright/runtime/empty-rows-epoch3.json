@@ -1,0 +1,297 @@
+{
+  "case": {
+    "scenario": "Owned CDA Observation.component[] source EXPANDED composed with authored GROUP COUNT_ROWS, with raw-value, preview, cancel, apply, reload, and removal restoration checks.",
+    "caseName": "preserve-parent-exclude-error-group-count-and-restoration",
+    "spec": "scripts/playwright/standalone-cda-rows.spec.mjs",
+    "title": "preserves empty and populated component owners through row policy and GROUP lifecycle",
+    "scope": "bounded real-CDA missing-component owners plus populated Observation.component arrays"
+  },
+  "outcome": {
+    "nativeRunnerExitCode": 0,
+    "nativeTestOutcome": "skipped",
+    "nativeTestDurationMs": 42768,
+    "workflowShapeSpecificOutcome": "passed",
+    "workflowReportStatus": "unverified",
+    "workflowSkipReason": "literal component: [] source shape: Only missing/null/non-array component witnesses were selected; this run does not prove a literal empty-array source.",
+    "functionalAssertionsPassed": 14,
+    "functionalAssertionCount": 14,
+    "workflowErrors": [],
+    "workflowFailures": [],
+    "unverifiedGaps": [
+      {
+        "assertion": "literal component: [] source shape",
+        "status": "unverified",
+        "reason": "Only missing/null/non-array component witnesses were selected; this run does not prove a literal empty-array source."
+      }
+    ],
+    "browserErrorCounts": {
+      "exceptions": 0,
+      "console": 0,
+      "modules": 0,
+      "http": 0,
+      "incidental": 0
+    },
+    "nativeTestStatus": "skipped",
+    "nativeTestTitle": "preserves empty and populated component owners through row policy and GROUP lifecycle"
+  },
+  "lifecycleAssertions": [
+    "bounded raw CDA oracle selected positive and zero-component Observations",
+    "seeded table starts with exact selected source records and both field bindings",
+    "native PRESERVE_PARENT preview Cancel restores source-record rows",
+    "PRESERVE_PARENT preserves positive item values and one empty row per owner across reload",
+    "automatic Group COUNT_ROWS proposal matches raw expanded-item cardinalities",
+    "Cancel restores exact source EXPANDED component rows before Apply",
+    "authored GROUP is composed after source EXPANDED without changing source bindings",
+    "reloaded GROUP output matches exact raw Observation component counts",
+    "removing GROUP restores exact raw component[] rows and preserved empty owners after reload",
+    "EXCLUDE omits zero-component owners and retains exact positive item values across reload",
+    "ERROR policy gives understandable empty-only validation and keeps repair choices enabled",
+    "empty-only ERROR leaves an actionable repair policy and Cancel retains saved EXCLUDE",
+    "edit and reload restore RECORDS with exact selection and source field bindings",
+    "native row-policy lifecycle had no browser, module, console, or unexpected HTTP errors"
+  ],
+  "rawOracle": {
+    "source": "ArangoDB raw Observation payloads",
+    "limit": 1000,
+    "scanned": 1000,
+    "positiveObservation": {
+      "id": "00004888-0740-540e-bc75-68b5192fbf5a",
+      "generation": "cda-fhir-v1",
+      "values": [
+        "aliquot",
+        "Adenoma, NOS"
+      ]
+    },
+    "zeroComponentOwners": [
+      {
+        "id": "00006c79-f75f-5d62-9bba-24ae84c2e65a",
+        "kind": "missing"
+      },
+      {
+        "id": "00016773-de1e-5397-a798-61e5420624cc",
+        "kind": "missing"
+      },
+      {
+        "id": "00016dd6-fe35-5663-a1fa-206e1d3ad866",
+        "kind": "missing"
+      }
+    ],
+    "literalEmptyArrayCountWithinBound": 0,
+    "scopeNote": "The zero count is limited to the first 1000 sorted loaded Observation payloads; it does not establish global absence."
+  },
+  "expectedValidation": {
+    "request": {
+      "status": 422,
+      "requestId": "playwright-107",
+      "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/cda-repeated-empty-1791176659107/authoring/v2/row-definition-proposals",
+      "reason": "The current ERROR-policy preview intentionally validates an empty collection."
+    },
+    "diagnosticCode": "EMPTY_COLLECTION_ERROR",
+    "repairOptions": [
+      {
+        "label": "Keep records with no values as one empty row",
+        "disabled": false
+      },
+      {
+        "label": "Require at least one value for every record",
+        "disabled": false
+      },
+      {
+        "label": "Leave out records with no values",
+        "disabled": false
+      }
+    ],
+    "fixtureAuditExpectedHttpFailures": [
+      {
+        "browserRequestId": "playwright-107",
+        "requestId": "playwright-107",
+        "method": "POST",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/cda-repeated-empty-1791176659107/authoring/v2/row-definition-proposals",
+        "status": 422,
+        "reason": "The independent raw CDA oracle predicts empty-only ERROR validation",
+        "proof": {
+          "outputPath": "/api/v1/projects/loom_dev_cda_fhir/explorers/cda-repeated-empty-1791176659107/authoring/v2/row-definition-proposals",
+          "method": "POST",
+          "status": 422,
+          "requestId": "playwright-107",
+          "rawOracle": [
+            {
+              "id": "00006c79-f75f-5d62-9bba-24ae84c2e65a",
+              "emptyComponentKind": "missing"
+            },
+            {
+              "id": "00016773-de1e-5397-a798-61e5420624cc",
+              "emptyComponentKind": "missing"
+            },
+            {
+              "id": "00016dd6-fe35-5663-a1fa-206e1d3ad866",
+              "emptyComponentKind": "missing"
+            }
+          ],
+          "policy": "ERROR",
+          "reason": "The current ERROR-policy preview intentionally validates an empty collection."
+        },
+        "console": {
+          "status": 422,
+          "message": "Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)",
+          "location": "http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/cda-repeated-empty-1791176659107/authoring/v2/row-definition-proposals",
+          "fixtureDiagnostic": true,
+          "requestCaptureError": true
+        }
+      }
+    ]
+  },
+  "performance": {
+    "timedActions": 34,
+    "maxActionMs": 1373,
+    "limitMs": 5000,
+    "status": "partial",
+    "note": "All observed actions met the limit; measurements are provisional because independent wave4 cases ran concurrently."
+  },
+  "target": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "actualQaExplorer": "cda-repeated-empty-1791176659107",
+    "prospectiveQaExplorerBeforeRun": {
+      "id": "cda-repeated-empty-1791176621709",
+      "lookupPath": "/api/v1/projects/loom_dev_cda_fhir/explorers/cda-repeated-empty-1791176621709/authoring/v2/builder",
+      "status": 404,
+      "clearIf404": true
+    },
+    "containerLabelsBefore": {
+      "api": {
+        "name": "loom-dev-6d7df93d6a37-loom-api-1",
+        "labels": "/loom-dev-6d7df93d6a37-loom-api-1|loom-dev-6d7df93d6a37|loom-api"
+      },
+      "arango": {
+        "name": "loom-dev-6d7df93d6a37-arangodb-1",
+        "labels": "/loom-dev-6d7df93d6a37-arangodb-1|loom-dev-6d7df93d6a37|arangodb"
+      },
+      "clickhouse": {
+        "name": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "labels": "/loom-dev-6d7df93d6a37-clickhouse-1|loom-dev-6d7df93d6a37|clickhouse"
+      }
+    },
+    "containerLabelsAfter": {
+      "api": "/loom-dev-6d7df93d6a37-loom-api-1|loom-dev-6d7df93d6a37|loom-api",
+      "arango": "/loom-dev-6d7df93d6a37-arangodb-1|loom-dev-6d7df93d6a37|arangodb",
+      "clickhouse": "/loom-dev-6d7df93d6a37-clickhouse-1|loom-dev-6d7df93d6a37|clickhouse"
+    }
+  },
+  "sourceAndApiFreeze": {
+    "preflight": {
+      "baseline": {
+        "sha256": "a0aaa3bbf00335239bdb399b82481a4dbb92afb5a1a8a4c7080bb83d4cb36d51",
+        "files": 1481
+      },
+      "current": {
+        "sha256": "a0aaa3bbf00335239bdb399b82481a4dbb92afb5a1a8a4c7080bb83d4cb36d51",
+        "files": 1481
+      },
+      "unchanged": true
+    },
+    "postflight": {
+      "sourceUnchanged": true,
+      "apiUnchanged": true
+    },
+    "workflowSourceFreeze": {
+      "root": "$CHECKOUT",
+      "startedAt": "2026-10-05T05:04:19.108Z",
+      "available": true,
+      "invalidatesRun": false,
+      "productFailure": false,
+      "watchedFileCount": 1114,
+      "unchanged": true,
+      "changedPaths": [],
+      "finishedAt": "2026-10-05T05:04:53.369Z"
+    },
+    "workflowApiBuildFreeze": {
+      "target": "local-cda-api",
+      "container": "loom-dev-6d7df93d6a37-loom-api-1",
+      "startedAt": "2026-10-05T05:04:19.523Z",
+      "invalidatesRun": false,
+      "productFailure": false,
+      "initial": {
+        "checked": true,
+        "fresh": true,
+        "status": 0
+      },
+      "checked": true,
+      "unchanged": true,
+      "after": {
+        "checked": true,
+        "fresh": true,
+        "status": 0
+      },
+      "finishedAt": "2026-10-05T05:04:53.718Z"
+    },
+    "apiBuildIdentityBefore": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+    "apiBuildIdentityAfter": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114"
+  },
+  "nativeRunnerCommand": [
+    "rtk",
+    "proxy",
+    "./scripts/node_modules/.bin/playwright",
+    "test",
+    "--config",
+    "scripts/playwright.config.mjs",
+    "standalone-cda-rows.spec.mjs",
+    "--grep",
+    "preserves empty and populated component owners through row policy and GROUP lifecycle",
+    "--output",
+    "/private/tmp/loom-native-parallel-wave4/empty-rows/artifacts"
+  ],
+  "runArtifacts": {
+    "playwrightJson": "/private/tmp/loom-native-parallel-wave4/empty-rows/results.json",
+    "runnerLog": "/private/tmp/loom-native-parallel-wave4/empty-rows/runner.log",
+    "workflowReport": "/private/tmp/loom-native-parallel-wave4/empty-rows/artifacts/standalone-cda-rows-CDA-re-c35ea--policy-and-GROUP-lifecycle/attachments/standalone-cda-repeated-empty.json",
+    "fixtureReport": "/private/tmp/loom-native-parallel-wave4/empty-rows/artifacts/standalone-cda-rows-CDA-re-c35ea--policy-and-GROUP-lifecycle/cda-report.json",
+    "preflight": "/private/tmp/loom-native-parallel-wave4/empty-rows/preflight.json",
+    "postflight": "/private/tmp/loom-native-parallel-wave4/empty-rows/postflight.json",
+    "runResult": "/private/tmp/loom-native-parallel-wave4/empty-rows/run-result.json",
+    "commandRecord": "/private/tmp/loom-native-parallel-wave4/empty-rows/command.json",
+    "sha256": {
+      "/private/tmp/loom-native-parallel-wave4/empty-rows/results.json": "f8778fafa75ce421476b401c28cccf380a6d6e1bcca2fb92390f828bd6dda258",
+      "/private/tmp/loom-native-parallel-wave4/empty-rows/artifacts/standalone-cda-rows-CDA-re-c35ea--policy-and-GROUP-lifecycle/attachments/standalone-cda-repeated-empty.json": "b96d6497a50206e46c19174ca6437aa5798e73a57a9c9d5a92e47f9153e426b3",
+      "/private/tmp/loom-native-parallel-wave4/empty-rows/artifacts/standalone-cda-rows-CDA-re-c35ea--policy-and-GROUP-lifecycle/cda-report.json": "2d0e2ad49de83baa82c4c754a3f2203949b75dece1d57f6bff1769073b16697e"
+    }
+  },
+  "literalEmptyFixtureCoverage": {
+    "newRunPerformed": false,
+    "registryFeatureId": "builder-authoring",
+    "registryCaseId": "repeated-empty",
+    "registrySpec": "scripts/playwright/builder-authoring.spec.mjs",
+    "nativeTitle": "Builder authoring repeated-empty repeated empty and missing values preserve source row identities",
+    "fixtureDirectory": "/private/tmp/loom-construction-implementation/testdata/verify-repeated-empty",
+    "fixtureObservationShapes": [
+      {
+        "id": "verify-repeat-two",
+        "component": "two populated items: component-alpha and component-beta"
+      },
+      {
+        "id": "verify-repeat-empty",
+        "component": "literal empty array"
+      },
+      {
+        "id": "verify-repeat-missing",
+        "component": "property omitted"
+      }
+    ],
+    "registeredLifecycle": {
+      "requiredCheckCount": 53,
+      "missingRequiredChecks": [],
+      "historicalReportStatus": "passed",
+      "historicalAssertionCount": 89,
+      "historicalNativeTimedTransitions": 26,
+      "historicalMaxActionMs": 699,
+      "historicalErrors": 0,
+      "historicalFinishedAt": "2026-10-04T06:19:27.495Z"
+    },
+    "coverageBoundary": "The basic isolated-fixture workflow covers PRESERVE_PARENT/EXCLUDE, native preview/cancel/apply/reload, item-value checks, and restoration to RECORDS; it does not cover the real-CDA EXPANDED\u2192GROUP composition or the CDA-only ERROR repair check.",
+    "historicalReportPath": "/tmp/loom-repeated-source-direct-rows-restored-values.json.repeated-empty",
+    "historicalReportSha256": "6f03dcbdbc56af2ac766cf9a09fe9e585ee4121d97aaa69a5b748424760c3422",
+    "fixtureFileSha256": "c7edac9bff7a467913cfc3243ce4274cb8d38da9935507c3312d171a82ec56b0",
+    "exactNativeCommand": "cd /private/tmp/loom-construction-implementation && PLAYWRIGHT_JSON_OUTPUT_FILE=/private/tmp/loom-native-parallel-wave4/literal-empty-fixture/results.json LOOM_DEV_SOURCE_ROOT=/private/tmp/loom-construction-implementation LOOM_DEV_COMPOSE_PROJECT=loom-dev-6d7df93d6a37 LOOM_DEV_API_PORT=8188 LOOM_DEV_UI_PORT=30008 LOOM_DEV_PROJECT=loom_dev_c89a69d7e137 LOOM_DEV_FIXTURE_DIR=/private/tmp/loom-construction-implementation/testdata/verify-repeated-empty ./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs builder-authoring.spec.mjs --grep 'Builder authoring repeated-empty repeated empty and missing values preserve source row identities$' --output /private/tmp/loom-native-parallel-wave4/literal-empty-fixture/artifacts"
+  }
+}

@@ -132,10 +132,12 @@ type FieldEnrichmentObservation struct {
 	Path                  string                      `json:"path"`
 	Kind                  string                      `json:"kind"`
 	DocCount              int64                       `json:"doc_count"`
+	MaxItems              int                         `json:"max_items,omitempty"`
 	SampleCount           int                         `json:"sample_count"`
 	DistinctValues        []string                    `json:"distinct_values,omitempty"`
 	DistinctTruncated     bool                        `json:"distinct_truncated"`
 	ExtensionValues       []ExtensionValueObservation `json:"extension_values,omitempty"`
+	SemanticObservations  []SemanticObservation       `json:"semantic_observations,omitempty"`
 	PivotCandidate        bool                        `json:"pivot_candidate"`
 	PivotKind             string                      `json:"pivot_kind,omitempty"`
 	PivotColumns          []string                    `json:"pivot_columns,omitempty"`
@@ -180,25 +182,91 @@ type FieldCatalogDocument struct {
 	// produced this catalog row. An omitted value is intentionally the legacy
 	// dataset namespace; readers always bind either this exact value or null so
 	// legacy and generation-qualified observations never mix.
-	DatasetGeneration     string                      `json:"dataset_generation,omitempty"`
-	AuthResourcePath      string                      `json:"auth_resource_path,omitempty"`
-	ResourceType          string                      `json:"resource_type"`
-	Path                  string                      `json:"path"`
-	Kind                  string                      `json:"kind"`
-	DocCount              int64                       `json:"doc_count"`
-	SampleCount           int                         `json:"sample_count"`
-	DistinctValues        []string                    `json:"distinct_values,omitempty"`
-	DistinctTruncated     bool                        `json:"distinct_truncated"`
-	ExtensionValues       []ExtensionValueObservation `json:"extension_values,omitempty"`
-	PivotCandidate        bool                        `json:"pivot_candidate"`
-	PivotKind             string                      `json:"pivot_kind,omitempty"`
-	PivotColumns          []string                    `json:"pivot_columns,omitempty"`
-	PivotFamily           string                      `json:"pivot_family,omitempty"`
-	PivotColumnSelect     string                      `json:"pivot_column_selector,omitempty"`
-	PivotValueSelect      string                      `json:"pivot_value_selector,omitempty"`
-	PivotItemSource       string                      `json:"pivot_item_source,omitempty"`
-	PivotItemResourceType string                      `json:"pivot_item_resource_type,omitempty"`
-	PivotValueSelectors   []string                    `json:"pivot_value_selectors,omitempty"`
+	DatasetGeneration string                      `json:"dataset_generation,omitempty"`
+	AuthResourcePath  string                      `json:"auth_resource_path,omitempty"`
+	ResourceType      string                      `json:"resource_type"`
+	Path              string                      `json:"path"`
+	Kind              string                      `json:"kind"`
+	DocCount          int64                       `json:"doc_count"`
+	MaxItems          int                         `json:"max_items,omitempty"`
+	SampleCount       int                         `json:"sample_count"`
+	DistinctValues    []string                    `json:"distinct_values,omitempty"`
+	DistinctTruncated bool                        `json:"distinct_truncated"`
+	ExtensionValues   []ExtensionValueObservation `json:"extension_values,omitempty"`
+	// SemanticObservations retain correlated terminology/value facts discovered
+	// on one owning FHIR item. They are additive to the raw field profile: a
+	// missing or unresolved interpretation never removes the source field.
+	SemanticObservations  []SemanticObservation `json:"semantic_observations,omitempty"`
+	PivotCandidate        bool                  `json:"pivot_candidate"`
+	PivotKind             string                `json:"pivot_kind,omitempty"`
+	PivotColumns          []string              `json:"pivot_columns,omitempty"`
+	PivotFamily           string                `json:"pivot_family,omitempty"`
+	PivotColumnSelect     string                `json:"pivot_column_selector,omitempty"`
+	PivotValueSelect      string                `json:"pivot_value_selector,omitempty"`
+	PivotItemSource       string                `json:"pivot_item_source,omitempty"`
+	PivotItemResourceType string                `json:"pivot_item_resource_type,omitempty"`
+	PivotValueSelectors   []string              `json:"pivot_value_selectors,omitempty"`
+}
+
+// SemanticObservationCompleteness describes how much evidence backs one
+// observed concept. It is intentionally data-only: completeness is not a
+// claim that a concept is clinically equivalent to another label.
+type SemanticObservationCompleteness string
+
+const (
+	SemanticComplete   SemanticObservationCompleteness = "complete"
+	SemanticPartial    SemanticObservationCompleteness = "partial"
+	SemanticIncomplete SemanticObservationCompleteness = "incomplete"
+)
+
+// SemanticObservation is a bounded, correlated concept candidate. The key and
+// value are observed on the same owning item; downstream code must not flatten
+// those selectors independently and zip them together. All identity fields are
+// extensible strings so new FHIR profiles can remain visible without changing
+// the storage envelope.
+type SemanticObservation struct {
+	SchemaVersion          int                             `json:"schema_version"`
+	Source                 SemanticObservationSource       `json:"source"`
+	Key                    SemanticObservationKey          `json:"key"`
+	Value                  SemanticObservationValue        `json:"value"`
+	OwningScope            string                          `json:"owning_scope,omitempty"`
+	ExtensionURLPath       []string                        `json:"extension_url_path,omitempty"`
+	ChoiceArm              string                          `json:"choice_arm,omitempty"`
+	LogicalType            string                          `json:"logical_type,omitempty"`
+	ObservedUnits          []string                        `json:"observed_units,omitempty"`
+	ObservedUnitsTruncated bool                            `json:"observed_units_truncated,omitempty"`
+	Completeness           SemanticObservationCompleteness `json:"completeness"`
+	Status                 string                          `json:"status,omitempty"`
+	Population             int64                           `json:"population"`
+	Examples               []string                        `json:"examples,omitempty"`
+	ExamplesTruncated      bool                            `json:"examples_truncated"`
+	RuleHint               string                          `json:"rule_hint,omitempty"`
+	RuleVersion            string                          `json:"rule_version,omitempty"`
+}
+
+// ConceptCandidate is the public catalog vocabulary used by Builder and
+// semantic planning. It aliases the persisted observation to keep one source
+// of truth for identity and completeness.
+type ConceptCandidate = SemanticObservation
+
+type SemanticObservationSource struct {
+	Canonical string `json:"canonical,omitempty"`
+	Type      string `json:"type,omitempty"`
+	Profile   string `json:"profile,omitempty"`
+	Path      string `json:"path,omitempty"`
+}
+
+type SemanticObservationKey struct {
+	Selector string `json:"selector,omitempty"`
+	System   string `json:"system,omitempty"`
+	Version  string `json:"version,omitempty"`
+	Code     string `json:"code,omitempty"`
+	Display  string `json:"display,omitempty"`
+}
+
+type SemanticObservationValue struct {
+	Selector string `json:"selector,omitempty"`
+	Type     string `json:"type,omitempty"`
 }
 
 // ExtensionValueObservation preserves the correlation between an Extension
@@ -242,10 +310,12 @@ type PopulatedField struct {
 	Path                  string                      `json:"path"`
 	Kind                  string                      `json:"kind"`
 	DocCount              int64                       `json:"doc_count"`
+	MaxItems              int                         `json:"max_items,omitempty"`
 	SampleCount           int                         `json:"sample_count"`
 	DistinctValues        []string                    `json:"distinct_values,omitempty"`
 	DistinctTruncated     bool                        `json:"distinct_truncated"`
 	ExtensionValues       []ExtensionValueObservation `json:"extension_values,omitempty"`
+	SemanticObservations  []SemanticObservation       `json:"semantic_observations,omitempty"`
 	PivotCandidate        bool                        `json:"pivot_candidate"`
 	PivotKind             string                      `json:"pivot_kind,omitempty"`
 	PivotColumns          []string                    `json:"pivot_columns,omitempty"`
@@ -313,19 +383,25 @@ type RelationshipKey struct {
 
 // Write-side field profiling state.
 type Profiler struct {
-	project           string
-	datasetGeneration string
-	authResourcePath  string
-	resourceType      string
-	limits            ProfileLimits
-	shapeCache        *ShapePlanCache
-	stats             map[string]*fieldCatalogStats
+	project            string
+	datasetGeneration  string
+	authResourcePath   string
+	resourceType       string
+	semanticSourceKind string
+	semanticOnly       bool
+	limits             ProfileLimits
+	shapeCache         *ShapePlanCache
+	stats              map[string]*fieldCatalogStats
+	retainedBytes      int
+	truncated          bool
+	budget             *retentionBudget
 }
 
 type fieldCatalogStats struct {
 	path                  string
 	kind                  string
 	docCount              int64
+	maxItems              int
 	distinctValues        []string
 	distinctSet           map[string]struct{}
 	distinctTruncated     bool
@@ -341,13 +417,82 @@ type fieldCatalogStats struct {
 	pivotValueSelectors   []string
 	extensionValues       []ExtensionValueObservation
 	extensionValueSet     map[string]struct{}
+	semanticObservations  map[string]*semanticObservationStats
+}
+
+type semanticObservationStats struct {
+	observation SemanticObservation
+	exampleSet  map[string]struct{}
+	unitSet     map[string]struct{}
 }
 
 // Shared write-side shape planning cache.
 type ShapePlanCache struct {
-	mu       sync.RWMutex
-	plans    map[string]*shapePlan
-	maxPlans int
+	mu            sync.RWMutex
+	plans         map[string]*shapePlan
+	maxPlans      int
+	maxBytes      int
+	retainedBytes int
+	truncated     bool
+	budget        *retentionBudget
+}
+
+type retentionBudget struct {
+	mu   sync.Mutex
+	max  int
+	used int
+}
+
+func newRetentionBudget(max int) *retentionBudget {
+	return &retentionBudget{max: max}
+}
+
+func (b *retentionBudget) reserve(weight int) bool {
+	if weight <= 0 {
+		return true
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.max > 0 && b.used > b.max-weight {
+		return false
+	}
+	b.used += weight
+	return true
+}
+
+func (b *retentionBudget) release(weight int) {
+	if weight <= 0 {
+		return
+	}
+	b.mu.Lock()
+	b.used -= weight
+	if b.used < 0 {
+		b.used = 0
+	}
+	b.mu.Unlock()
+}
+
+func (b *retentionBudget) usage() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.used
+}
+
+func (c *ShapePlanCache) retentionBudget(max int) *retentionBudget {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.budget == nil {
+		c.budget = newRetentionBudget(max)
+	} else if c.budget.max <= 0 && max > 0 {
+		c.budget.max = max
+	}
+	return c.budget
+}
+
+func (c *ShapePlanCache) isTruncated() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.truncated
 }
 
 type shapePlan struct {

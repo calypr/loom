@@ -1,0 +1,15 @@
+{
+  "epoch": 61,
+  "status": "failed",
+  "classification": "HARNESS_REDUNDANT_ID_SOURCE_SETUP",
+  "scope": "Basic Membership native lifecycle; failed before first GROUP or Membership capability request",
+  "failure": "Group field identity is ambiguous for Observation: [\"Observation ID\",\"Observation ID\"]",
+  "rootCause": "Source creation already provides its verified id column; Membership setup added another raw id field. Correction must reuse the existing exact bound identity, not choose the first matching label.",
+  "rawReport": "/private/tmp/loom-native-parallel-wave61/basic-membership/attempt3/artifacts/draft-combine-Builder-Comb-74e97-oval-restoration-and-reload/attachments/loom-verification-report-json-dab937c0b129ee783c36d4d9d649c6740c656071.json",
+  "rawReportSha256": "a1df5448836464b2fb5e56c147718d9abe0960796cd05f710bfee44c1c46c629",
+  "rawClosure": "/private/tmp/loom-native-parallel-wave61/closure.json",
+  "integrityStatus": "PASS",
+  "discoveryFailures": "Two earlier discovery attempts used a leading ^ against Playwright full hierarchical titles; suffix-only --list selected exactly one. No browser/project started on those two attempts.",
+  "membershipLifecycleReached": false,
+  "runtimePass": false
+}

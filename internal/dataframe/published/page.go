@@ -21,11 +21,12 @@ type PageRequest struct {
 
 // StreamRequest describes a bounded-memory scan over one published table.
 type StreamRequest struct {
-	Columns           []string
-	Filters           []Filter
-	Sort              *Sort
-	AuthResourcePaths []string
-	Unrestricted      bool
+	Columns            []string
+	Filters            []Filter
+	Sort               *Sort
+	AuthResourcePaths  []string
+	Unrestricted       bool
+	IncludeRowIdentity bool
 }
 
 // Page reads one active/queryable materialization. It never constructs a
@@ -48,6 +49,16 @@ func (r *Reader) Page(ctx context.Context, materialization Materialization, req 
 	cursor, err := decodeCursor(req.After)
 	if err != nil {
 		return Page{}, err
+	}
+	var binding string
+	if cursor != nil {
+		binding, err = cursorFingerprint(materialization, req)
+		if err != nil {
+			return Page{}, err
+		}
+		if cursor.Version != 1 || cursor.Binding == "" || cursor.Binding != binding {
+			return Page{}, staleCursor()
+		}
 	}
 	queryColumns := append([]string(nil), columns...)
 	if req.Sort != nil && !contains(queryColumns, req.Sort.Column) {
@@ -128,9 +139,21 @@ func (r *Reader) Page(ctx context.Context, materialization Materialization, req 
 				return Page{}, invalidCursor()
 			}
 		}
-		next = encodeCursor(fmt.Sprint(last["__loom_row_id"]), sortValue)
+		if binding == "" {
+			binding, err = cursorFingerprint(materialization, req)
+			if err != nil {
+				return Page{}, err
+			}
+		}
+		next = encodeBoundCursor(fmt.Sprint(last["__loom_row_id"]), sortValue, binding)
 	}
+	rowIDs := make([]string, 0, len(rows))
 	for _, row := range rows {
+		rowID := strings.TrimSpace(fmt.Sprint(row["__loom_row_id"]))
+		if rowID == "" {
+			return Page{}, fmt.Errorf("published row is missing its stable identity")
+		}
+		rowIDs = append(rowIDs, rowID)
 		delete(row, "__loom_total")
 		delete(row, "__loom_row_id")
 		for _, column := range queryColumns {
@@ -139,7 +162,7 @@ func (r *Reader) Page(ctx context.Context, materialization Materialization, req 
 			}
 		}
 	}
-	return Page{Materialization: materialization, Columns: columns, Rows: rows, TotalCount: total, HasNext: hasNext, NextCursor: next}, nil
+	return Page{Materialization: materialization, Columns: columns, Rows: rows, RowIDs: rowIDs, TotalCount: total, HasNext: hasNext, NextCursor: next}, nil
 }
 
 // Stream scans one published table without retaining all rows in memory.
@@ -189,9 +212,11 @@ func (r *Reader) Stream(ctx context.Context, materialization Materialization, re
 		query += " ORDER BY `__loom_row_id` ASC"
 	}
 	if err := r.ClickHouse.QueryRowsArgsVisit(ctx, query, queryColumns, func(row map[string]any) error {
-		delete(row, "__loom_row_id")
+		if !req.IncludeRowIdentity {
+			delete(row, "__loom_row_id")
+		}
 		for _, column := range queryColumns {
-			if !contains(columns, column) {
+			if !contains(columns, column) && !(req.IncludeRowIdentity && column == "__loom_row_id") {
 				delete(row, column)
 			}
 		}

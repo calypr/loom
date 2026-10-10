@@ -1,0 +1,348 @@
+{
+  "schemaVersion": 1,
+  "epoch": 104,
+  "scenario": "cda-five-hop-related-expansion",
+  "case": "medication-preserve-parent",
+  "title": "Make a row for each Medication from a zero-column Specimen through five relationship hops",
+  "status": "failed_product",
+  "classification": "PRODUCT_CONSTRUCTION_PROPOSAL_HTTP_500",
+  "classificationReason": "The native five-hop RELATED_EXPAND proposal POST returned HTTP 500 with request ID construction-proposal-fd712624-7c13-40c2-9b30-b7434569043c; the response was generic INTERNAL_ERROR. The backend owner reported a nil panic in API logs for this request, but the retained evidence does not establish the panic frame or identify a specific root cause. The workflow then timed out waiting for proposal preview. This records the observed product failure without attributing it to a particular backend stage. Cancel, Apply, edit, removal, and reload were not reached.",
+  "runnerStatus": "failed",
+  "coverageStatus": "failed_product",
+  "startedAt": "2026-10-06T17:07:53.934Z",
+  "finishedAt": "2026-10-06T17:08:11.411Z",
+  "durableClosurePath": "docs/verification/playwright/runtime/zero-column-related-medication-epoch104-closure.json",
+  "target": {
+    "kind": "owned-cda",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorerId": "related-medication-0d14e33e-ffcc-4b03-b0ed-033f932b4f24",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "sourceFingerprint": {
+      "sha256": "09af1cbcd30136fba2ceb3d6990fe1b098d1ecf1be860177e7b136cd8ea40fec",
+      "files": 1533
+    },
+    "apiBuildIdentity": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008"
+  },
+  "requiredChecks": {
+    "total": 11,
+    "passed": 3,
+    "failed": 0,
+    "unrun": 8,
+    "passedNames": [
+      "bounded independent raw CDA oracle proves the exact five-hop Medication route and records match availability",
+      "fresh Specimen table has zero public columns and exact scoped selected membership",
+      "CDA watched source and API build stayed unchanged"
+    ],
+    "unrunNames": [
+      "native RelatedExpand editor selects the exact five-hop route from root identity to Medication",
+      "PRESERVE_PARENT automatic proposal renders exact terminal Medication IDs and one null ID per unmatched parent",
+      "Cancel leaves the zero-column source population and saved draft unchanged",
+      "Apply saves the exact route and renders actual Medication table preview rows matching raw membership",
+      "reload restores the exact route, policy, row identities, and Medication preview values",
+      "editing to EXCLUDE removes unmatched parents in preview and after reload",
+      "removing RelatedExpand restores the zero-column Specimen table, selection, direct route, and no stale Medication output after reload",
+      "native route, proposal, Apply, edit, removal, and reload checkpoints complete within five seconds"
+    ],
+    "note": "The exact-route native action completed and is preserved separately; the composite registered route/proposal check was not recorded before the proposal failure. The 8 missing checks reflect workflow check accounting, not absence of the selected-route action. The separate assertion ledger records the HTTP/network failure."
+  },
+  "assertions": {
+    "passed": 10,
+    "failed": 1,
+    "total": 11,
+    "failedNames": [
+      {
+        "dimension": "correctness",
+        "name": "no unexpected network, module, or browser errors",
+        "evidence": {
+          "count": 2
+        }
+      }
+    ]
+  },
+  "nativeActions": {
+    "passed": 6,
+    "failed": 0,
+    "total": 6,
+    "maxElapsedMs": 105,
+    "actions": [
+      {
+        "label": "▤ Zero-column Specimen",
+        "status": "passed",
+        "elapsedMs": 105
+      },
+      {
+        "label": "Configure rows",
+        "status": "passed",
+        "elapsedMs": 80
+      },
+      {
+        "label": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations → 2 rows, each describing Patient A and one Observation",
+        "status": "passed",
+        "elapsedMs": 85
+      },
+      {
+        "label": "Select Medication",
+        "status": "passed",
+        "elapsedMs": 27
+      },
+      {
+        "label": "Other relationship paths (28)",
+        "status": "passed",
+        "elapsedMs": 80
+      },
+      {
+        "label": "Specimen <-[focus]- Observation <-[stage_assessment]- Condition -[subject]-> Patient <-[subject]- MedicationAdministration -[medication_reference]-> Medication",
+        "status": "passed",
+        "elapsedMs": 105
+      }
+    ]
+  },
+  "dimensions": {
+    "usability": "partial",
+    "correctness": "failed",
+    "persistence": "untested",
+    "performance": "partial"
+  },
+  "rawOracle": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "scannedSpecimenCount": 1000,
+    "selectedRoots": [
+      {
+        "id": "00001c68-2c20-5003-a144-b2442469d8de",
+        "medicationIDs": []
+      },
+      {
+        "id": "0000ae4e-5498-51e8-a091-32b0552093ac",
+        "medicationIDs": []
+      }
+    ],
+    "positiveWitnessWithinBound": false,
+    "unmatchedRootCountWithinBound": 1000,
+    "expectedVisibleMedicationValues": [
+      null,
+      null
+    ],
+    "route": [
+      {
+        "fromResourceType": "Specimen",
+        "relationship": "focus_Specimen",
+        "toResourceType": "Observation",
+        "storageDirection": "INBOUND"
+      },
+      {
+        "fromResourceType": "Observation",
+        "relationship": "stage_assessment_Observation",
+        "toResourceType": "Condition",
+        "storageDirection": "INBOUND"
+      },
+      {
+        "fromResourceType": "Condition",
+        "relationship": "subject_Patient",
+        "toResourceType": "Patient",
+        "storageDirection": "OUTBOUND"
+      },
+      {
+        "fromResourceType": "Patient",
+        "relationship": "subject_Patient",
+        "toResourceType": "MedicationAdministration",
+        "storageDirection": "INBOUND"
+      },
+      {
+        "fromResourceType": "MedicationAdministration",
+        "relationship": "medication_reference_Medication",
+        "toResourceType": "Medication",
+        "storageDirection": "OUTBOUND"
+      }
+    ],
+    "bound": {
+      "rootLimit": 1000,
+      "distinctMedicationLimitPerRoot": 26
+    }
+  },
+  "routeEnumeration": {
+    "pageCount": 1,
+    "returnedChoiceCount": 29,
+    "exactFiveHopMatchCount": 1,
+    "exactRouteObserved": true,
+    "enumerationTruncated": true,
+    "scopeNote": "The exact route was observed once among 29 returned options. The raw report marks route enumeration truncated; this is not a claim that the full catalog contains only 29 routes."
+  },
+  "proposalFailure": {
+    "method": "POST",
+    "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/related-medication-0d14e33e-ffcc-4b03-b0ed-033f932b4f24/authoring/v2/construction-proposals",
+    "status": 500,
+    "requestId": "construction-proposal-fd712624-7c13-40c2-9b30-b7434569043c",
+    "browserRequestId": "playwright-9",
+    "responseDurationMs": 193,
+    "response": {
+      "code": "INTERNAL_ERROR",
+      "message": "internal server error",
+      "retryable": false
+    },
+    "backendOwnerLogFinding": "Backend owner reported a nil panic in API logs for this request; retained evidence does not include a stack trace or establish the panic frame/root cause.",
+    "requestBinding": {
+      "snapshotToken": "sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7",
+      "expectedDraftVersion": 2,
+      "expectedDraftDigest": "sha256:fba6dc0d9efafedad8b845900bde78bbc71649e916529a1b87ebe8aa0dff0021",
+      "outputId": "out_94215571ddc47819604adf96",
+      "changedStepId": "related_expand_7a83754c-f1da-4376-a2eb-ff1b9e6db071",
+      "operationKind": "RELATED_EXPAND",
+      "targetResourceType": "Medication",
+      "route": [
+        {
+          "fromResourceType": "Specimen",
+          "relationship": "focus_Specimen",
+          "toResourceType": "Observation",
+          "storageDirection": "INBOUND"
+        },
+        {
+          "fromResourceType": "Observation",
+          "relationship": "stage_assessment_Observation",
+          "toResourceType": "Condition",
+          "storageDirection": "INBOUND"
+        },
+        {
+          "fromResourceType": "Condition",
+          "relationship": "subject_Patient",
+          "toResourceType": "Patient",
+          "storageDirection": "OUTBOUND"
+        },
+        {
+          "fromResourceType": "Patient",
+          "relationship": "subject_Patient",
+          "toResourceType": "MedicationAdministration",
+          "storageDirection": "INBOUND"
+        },
+        {
+          "fromResourceType": "MedicationAdministration",
+          "relationship": "medication_reference_Medication",
+          "toResourceType": "Medication",
+          "storageDirection": "OUTBOUND"
+        }
+      ],
+      "contributorPolicy": "ALL_MATCHES",
+      "emptyPolicy": "PRESERVE_PARENT",
+      "limit": 25
+    },
+    "previewWaitTimeoutMs": 5000,
+    "previewProduced": false
+  },
+  "lifecycle": {
+    "status": "failed_before_proposal_preview",
+    "completedNativeActions": 6,
+    "exactRouteSelection": "passed",
+    "proposalPreview": "failed_product_http_500",
+    "cancel": "unrun",
+    "apply": "unrun",
+    "reload": "unrun",
+    "excludeEdit": "unrun",
+    "removal": "unrun",
+    "sourceRestoration": "unrun",
+    "performanceBudgetCheckpoint": "unrun"
+  },
+  "timing": {
+    "elapsedReportIntervalMs": 17477,
+    "nativeActionBudgetMs": 5000,
+    "nativeActionMaxMs": 105,
+    "proposalResponseMs": 193,
+    "proposalPreviewWaitMs": 5000
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "09af1cbcd30136fba2ceb3d6990fe1b098d1ecf1be860177e7b136cd8ea40fec",
+        "files": 1533
+      },
+      "after": {
+        "sha256": "09af1cbcd30136fba2ceb3d6990fe1b098d1ecf1be860177e7b136cd8ea40fec",
+        "files": 1533
+      },
+      "unchanged": true,
+      "changedPaths": []
+    },
+    "docsBeforeAfter": {
+      "before": {
+        "sha256": "7270ba15cc0b80ddabae2e38036e5c8108bc347f07c0b54e70e8ceb5aeefd1b7",
+        "files": 240
+      },
+      "after": {
+        "sha256": "7270ba15cc0b80ddabae2e38036e5c8108bc347f07c0b54e70e8ceb5aeefd1b7",
+        "files": 240
+      },
+      "unchanged": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+      "after": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+      "precheck": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  },
+  "diagnostics": {
+    "incidentalAssetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ],
+    "unexpectedProductFailureCount": 1,
+    "note": "The HTTP 500 is tied to the exact native proposal request; other console/network entries are duplicate observations of that same request, not additional product failures."
+  },
+  "rawEvidence": {
+    "domainReport": {
+      "path": "/private/tmp/loom-native-related-expansion-wave104/attempt1/artifacts/standalone-cda-other-CDA-z-888f6-ough-five-relationship-hops/cda-report.json",
+      "sha256": "272d73828230924616668426d4943247e3b0401323631acbdceaba5f3d23e9d3"
+    },
+    "integrityClosure": {
+      "path": "/private/tmp/loom-native-related-expansion-wave104/integrity-closure.json",
+      "sha256": "0318cca1f1a9a1555facdaf641efb669693dbabae81cd7c709efff506f58c938"
+    },
+    "playwrightResults": {
+      "path": "/private/tmp/loom-native-related-expansion-wave104/attempt1/results.json",
+      "sha256": "48955057e5a87ca8f442daee61cf1f31b9673c86c4af864712163bdb2e46f150"
+    },
+    "runPlan": {
+      "path": "/private/tmp/loom-native-related-expansion-wave104/run-plan.json",
+      "sha256": "1aa0f6dfe5836880603b86d9a99336b79229bda372adda13d48f1ccb5e252ab9"
+    }
+  },
+  "runnableCommand": "set -euo pipefail\nsource '/private/tmp/loom-native-related-expansion-wave104/browser-environment.sh'\nexport LOOM_ARANGO_CONTAINER=\"$LOOM_CDA_ARANGO_CONTAINER\"\nexport LOOM_ARANGO_DATABASE='loom_dev'\nunset LOOM_CDA_EXPLORER_ID LOOM_CDA_EXPLORER LOOM_QA_EXPLORER\nmkdir -p '/private/tmp/loom-native-related-expansion-wave104/attempt1'\nPLAYWRIGHT_JSON_OUTPUT_FILE='/private/tmp/loom-native-related-expansion-wave104/attempt1/results.json' npm --prefix scripts run test:browser -- 'verify-ui/specs/standalone-cda-other.spec.mjs' --grep 'Make a row for each Medication from a zero-column Specimen through five relationship hops$' --output '/private/tmp/loom-native-related-expansion-wave104/attempt1/artifacts' 2>&1 | tee '/private/tmp/loom-native-related-expansion-wave104/attempt1/runner.log'"
+}

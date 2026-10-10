@@ -1,0 +1,196 @@
+{
+  "schemaVersion": 1,
+  "artifactType": "native-playwright-lifecycle-evidence",
+  "feature": "Named cohort member fields",
+  "test": {
+    "title": "CDA cohort fields",
+    "spec": "scripts/playwright/standalone-cda-fields.spec.mjs",
+    "scenario": "cda-cohort-fields",
+    "case": "cohort-fields",
+    "baseline": {
+      "memberField": "resourceType",
+      "cohortVariantFlags": "all unset"
+    }
+  },
+  "result": {
+    "playwrightStatus": "passed",
+    "fixtureReportStatus": "passed",
+    "domainLifecycleStatus": "passed",
+    "expected": 1,
+    "unexpected": 0,
+    "skipped": 0,
+    "flaky": 0,
+    "caseDurationMs": 19905,
+    "runnerDurationMs": 21110.031
+  },
+  "reportDimensions": {
+    "usability": "passed",
+    "correctness": "passed",
+    "persistence": "passed",
+    "performance": "untested"
+  },
+  "requiredChecks": [
+    {
+      "name": "raw CDA oracle and immutable selection match the exact two scoped Specimen IDs",
+      "status": "passed"
+    },
+    {
+      "name": "saved cohort and Apply controls are enabled in native Rows settings",
+      "status": "passed"
+    },
+    {
+      "name": "Cancel preserves the exact saved Builder workspace",
+      "status": "passed"
+    },
+    {
+      "name": "applied cohort renders the exact independent Specimen members",
+      "status": "passed"
+    },
+    {
+      "name": "ALL member field and cohort persist exactly after Builder reload",
+      "status": "passed"
+    },
+    {
+      "name": "member-field removal restores the exact saved cohort schema after reload",
+      "status": "passed"
+    },
+    {
+      "name": "CDA watched source and API build stayed unchanged",
+      "status": "passed"
+    }
+  ],
+  "missingRequiredChecks": [],
+  "target": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "explorer": "cohort-add-fields-browser-1791175923670"
+  },
+  "lifecycle": {
+    "sourceOracle": {
+      "resourceType": "Specimen",
+      "distinctScopedMembers": 2,
+      "exactSelectionAndCohort": true
+    },
+    "rowDefinition": {
+      "selectable": true,
+      "cancelPreservesSavedWorkspace": true,
+      "applyRendersExactMembers": true
+    },
+    "memberField": "resourceType",
+    "reloads": [
+      {
+        "withField": true,
+        "headers": [
+          "GROUP LABEL",
+          "GROUP ORDINAL",
+          "MEMBERS",
+          "RESOURCE TYPE"
+        ],
+        "fieldCell": "Specimen"
+      },
+      {
+        "withField": false,
+        "headers": [
+          "GROUP LABEL",
+          "GROUP ORDINAL",
+          "MEMBERS"
+        ],
+        "fieldCell": null
+      }
+    ],
+    "removalRestoresExactSavedSchemaAfterReload": true
+  },
+  "sourceAndApiIdentity": {
+    "sourceBefore": {
+      "sha256": "a0aaa3bbf00335239bdb399b82481a4dbb92afb5a1a8a4c7080bb83d4cb36d51",
+      "files": 1481
+    },
+    "sourceAfter": {
+      "sha256": "a0aaa3bbf00335239bdb399b82481a4dbb92afb5a1a8a4c7080bb83d4cb36d51",
+      "files": 1481
+    },
+    "watchedFileCount": 1114,
+    "changedPaths": [],
+    "apiBuildBefore": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+    "apiBuildAfter": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114"
+  },
+  "diagnostics": {
+    "unexpectedErrors": 0,
+    "unexpectedNetworkRecords": 0,
+    "incidentalAssetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      },
+      {
+        "kind": "console",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ]
+  },
+  "serialTransitionTiming": {
+    "runConcurrency": "serial; no other browser run overlapped this execution",
+    "individualTransitionBudgetMs": 5000,
+    "measurements": [
+      {
+        "name": "load-to-render",
+        "durationMs": 1645
+      },
+      {
+        "name": "cohort-preview",
+        "durationMs": 581
+      },
+      {
+        "name": "cohort-cancel",
+        "durationMs": 75
+      },
+      {
+        "name": "confirmed-cohort-preview",
+        "durationMs": 584
+      },
+      {
+        "name": "cohort-apply",
+        "durationMs": 388
+      },
+      {
+        "name": "cohort-member-field-preview",
+        "durationMs": 407
+      },
+      {
+        "name": "cohort-member-field-preview",
+        "durationMs": 415
+      },
+      {
+        "name": "cohort-member-field-apply",
+        "durationMs": 483
+      },
+      {
+        "name": "cohort-reload-true",
+        "durationMs": 1273
+      },
+      {
+        "name": "cohort-member-field-remove",
+        "durationMs": 369
+      },
+      {
+        "name": "cohort-reload-false",
+        "durationMs": 1285
+      }
+    ],
+    "maximumMs": 1645,
+    "allWithinBudget": true,
+    "aggregatePerformanceDimension": "untested",
+    "interpretation": "Serial transition timings satisfy the workflow budget; the fixture report has no aggregate performance check and correctly retains performance as untested."
+  },
+  "artifacts": {
+    "playwrightJson": "/private/tmp/loom-native-parallel-wave3/cohort/results.json",
+    "fixtureReport": "/private/tmp/loom-native-parallel-wave3/cohort/results/standalone-cda-fields-CDA-cohort-fields-CDA-cohort-fields/cda-report.json",
+    "domainReport": "/private/tmp/loom-native-parallel-wave3/cohort/results/standalone-cda-fields-CDA-cohort-fields-CDA-cohort-fields/attachments/standalone-cohort-fields-domain.json",
+    "runnerLog": "/private/tmp/loom-native-parallel-wave3/cohort/runner.log"
+  }
+}

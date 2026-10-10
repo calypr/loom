@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "scenario": "cda-workspace-combine",
+  "case": "group-join",
+  "status": "unverified",
+  "classification": "HARNESS_RESULT_BASELINE_ORDERING",
+  "scope": "Real CDA project loom_dev_cda_fhir, generation cda-fhir-v1. The Group/Join current-draft lifecycle did not complete.",
+  "firstFailure": "Native Combine creation target assertion returned resultBound=false after HTTP 200; the command, workspace, editor, root, output, and empty-target checks passed.",
+  "diagnosis": "The harness captured existing output IDs after clicking Create, so previousOutputIDs included the newly created target. This is a harness baseline-ordering issue, not a product or schema failure.",
+  "lifecycle": {
+    "realCdaRawOracle": "passed",
+    "groupStages": "passed through target creation",
+    "joinActionsReached": false,
+    "requiredChecksPassed": 6,
+    "requiredChecksTotal": 16,
+    "missingRequiredChecks": 10,
+    "recordedAssertionsPassed": 55,
+    "recordedAssertionsFailed": 1,
+    "nativeActionsPassed": 27,
+    "nativeActionsFailed": 0,
+    "browserTestDurationMs": 34877,
+    "runnerProcessDurationMs": null
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "sha256": "5ae9b4ec59b32a7a6f8ffc1e423952fa5158653b710548ddd3a9b283e12dbad5",
+      "files": 1498,
+      "changedPaths": 0
+    },
+    "docs": {
+      "sha256": "af735862ff68851800e4c066382c206a783067855dbf43b2603bcae93a9a41aa",
+      "files": 131,
+      "changedPaths": 0
+    },
+    "apiBuildIdentity": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+    "ownedMounts": "PASS unchanged",
+    "health": "PASS 3/3 before and after"
+  },
+  "artifacts": {
+    "rawReport": {
+      "path": "/private/tmp/loom-native-parallel-wave50/cda-workspace-combine/artifacts/cda-current-draft-group-jo-424dc-the-current-draft-lifecycle/cda-report.json",
+      "sha256": "c9e9f793f2b0d388986be6c961566b7aa720fd6502d3abd18a247e9abdee9d1c"
+    },
+    "closure": {
+      "path": "docs/verification/playwright/runtime/current-draft-cda-group-join-epoch50-closure.json",
+      "sha256": "327d0c0418799b91042b303e32d8ae4676824ba80d64dfc95b97880614c7b91e"
+    },
+    "errorContextSha256": "737f8a036d3fb774b63e2d5d21a2f799b68ea62f54967fac7ec83742ce222bbd",
+    "playwrightResultsSha256": "2c0448822dc51b7e94fa012f2ee108acac2877f4afaa53900eac2c4c317ca692"
+  },
+  "nextCheck": "Integrate the focused harness baseline-ordering correction and rerun this exact real-CDA Group→Group lifecycle. Keep Join unverified until the full lifecycle passes."
+}

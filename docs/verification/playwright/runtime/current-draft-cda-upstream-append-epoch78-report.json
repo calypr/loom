@@ -1,0 +1,136 @@
+{
+  "epoch": 78,
+  "scenario": "cda-current-draft-upstream-append",
+  "case": "upstream-append",
+  "title": "three exact CDA populations Group, edit Patient DERIVE, then Append with full restoration",
+  "status": "passed",
+  "runnerStatus": "passed",
+  "coverageStatus": "passed",
+  "classification": "The native real-CDA Group→DERIVE→APPEND lifecycle passed on the adapted witness shape. All 26 required checks, 215 assertions, 93 native actions, all four dimensions, and the strict network gate passed through reload and full restoration. This closes this adapted real-CDA case; it does not cover a DiagnosticReport source or published-source variant.",
+  "browserProcess": {
+    "session": 94088,
+    "exitCode": 0
+  },
+  "requiredChecks": {
+    "passed": 26,
+    "failed": 0,
+    "total": 26
+  },
+  "assertions": {
+    "passed": 215,
+    "failed": 0,
+    "total": 215
+  },
+  "dimensions": {
+    "usability": "passed",
+    "correctness": "passed",
+    "persistence": "passed",
+    "performance": "passed"
+  },
+  "nativeActions": {
+    "passed": 93,
+    "failed": 0,
+    "total": 93,
+    "maxElapsedMs": 1858,
+    "budgetMs": 5000
+  },
+  "network": {
+    "unexpectedNetworkErrors": 0,
+    "domainErrors": 0,
+    "incidentalErrors": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ]
+  },
+  "rawWitness": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "scanLimitPerResource": 2000,
+    "resources": [
+      {
+        "resourceType": "Patient",
+        "fieldPath": "id",
+        "returnedRows": 2000,
+        "eligibleRows": 2000,
+        "uniqueFHIRIDs": 2000,
+        "selectedStatus": null
+      },
+      {
+        "resourceType": "Observation",
+        "fieldPath": "status",
+        "returnedRows": 2000,
+        "eligibleRows": 2000,
+        "uniqueFHIRIDs": null,
+        "selectedStatus": "final"
+      }
+    ],
+    "selectionCounts": {
+      "observation-left": 2,
+      "observation-right": 2,
+      "patient-id": 2
+    },
+    "adaptation": "Patient.id plus two disjoint Observation.status=final pairs; no DiagnosticReport witness."
+  },
+  "lifecycleCompletion": "Native cancel/apply, APPEND recomputation after Patient DERIVE edit, removal, reload, empty-target restoration, and preserved Patient DERIVE source all passed. No Publish or pinned table revisions.",
+  "harnessCorrection": "The passing run used a scoped exact-selection GET waiter that awaited response and body completion, and selected APPEND before reload then asserted the persisted selection without reselecting it. Strict network diagnostics remained enabled; no whitelist was added.",
+  "timing": {
+    "browserLifecycleDurationMs": 80223,
+    "playwrightTestResultDurationMs": 82077,
+    "runnerProcessDurationMs": null,
+    "maxNativeActionMs": 1858,
+    "nativeActionBudgetMs": 5000
+  },
+  "target": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorer": "cda-upstream-append-497ee5d1-0580-4c11-8c4c-9296ec36d331",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008",
+    "sourceRoot": "/private/tmp/loom-construction-implementation"
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "sha256": "6f60d503e8441c9a9fef304684c6d796a12e9513b6e7e754f848a77fef61f920",
+      "files": 1518,
+      "unchanged": true,
+      "changedPaths": []
+    },
+    "docsBeforeAfter": {
+      "sha256": "9154cac7aea63ee16d18e1a3d5ac8cea8da21648027816fe8ff634c6e99ff4f6",
+      "files": 185,
+      "unchanged": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentityUnchanged": true,
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  },
+  "nextCheck": "Keep the DiagnosticReport-based and published-source variants separate and unverified; epoch78 covers Patient.id with two disjoint Observation.status=final pairs only.",
+  "rawReportPath": "/private/tmp/loom-native-parallel-wave78/cda-current-draft-upstream-append/attempt1/artifacts/cda-current-draft-upstream-d2dbe-ppend-with-full-restoration/cda-report.json",
+  "rawReportSha256": "46ca0259df931df57fc8d39ff10321c92c557c7153104067ee1520b5f360d94a",
+  "playwrightResultsPath": "/private/tmp/loom-native-parallel-wave78/cda-current-draft-upstream-append/attempt1/results.json",
+  "playwrightResultsSha256": "38a6173e95bb3ca2ac6546103dea35350de9cf96910d0d85c1a02095cfbf0395",
+  "runnerLogPath": "/private/tmp/loom-native-parallel-wave78/cda-current-draft-upstream-append/attempt1/runner.log",
+  "runnerLogSha256": "2eed85ac2ee4b0ed7c1e64ba87c03afb06a7f1b7314e101150f915727a5a1b70",
+  "coordinatorClosurePath": "/private/tmp/loom-native-parallel-wave78/closure.json",
+  "coordinatorClosureSha256": "38125743af667fbc838991f35b86b9c71b68dac4ce64cf97e381029e496143c8",
+  "durableClosurePath": "docs/verification/playwright/runtime/current-draft-cda-upstream-append-epoch78-closure.json"
+}

@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "scenario": "cda-current-draft-upstream-append",
+  "case": "upstream-append",
+  "status": "CLOSED_PASS",
+  "scope": "Real-CDA current-draft APPEND with Patient.id and disjoint Observation.status=final witnesses; not DiagnosticReport-backed APPEND.",
+  "runId": "4nlXSv",
+  "sourceCommit": "da6cc1286aac3c94d35c8ccfee0cca1a85ad27ef",
+  "sourceFingerprint": {
+    "sha256": "85ce05539585a2946fdb857f7cc6019ec57745f9027932b4b839a1af4318355e",
+    "files": 1612,
+    "unchanged": true
+  },
+  "apiBuildIdentity": {
+    "before": "786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:ce684c31db8b835d3cbc164086e1e5184df7e3affff5ffa4493c07ea01125ec5",
+    "after": "786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:ce684c31db8b835d3cbc164086e1e5184df7e3affff5ffa4493c07ea01125ec5",
+    "unchanged": true
+  },
+  "health": {
+    "before": "PASS",
+    "after": "PASS",
+    "mountsUnchanged": true
+  },
+  "result": {
+    "requiredChecks": "26/26",
+    "assertions": 215,
+    "actions": 93,
+    "maxActionMs": 3069,
+    "budgetMs": 5000,
+    "errors": 0,
+    "incidental404": "http://127.0.0.1:30008/favicon.ico",
+    "cancelApplyEditRemovalReloadRestoration": "passed"
+  },
+  "rawWitnesses": {
+    "PatientFHIRIDs": [
+      "dd5ed8d2-853b-51d6-9beb-dfa8aa71322d",
+      "15063d54-c705-58e2-acfe-f5d7d48b415a"
+    ],
+    "ObservationSourceA": [
+      "52f5e622-0181-5feb-936c-e9992ab26616",
+      "485e2567-b566-56f3-b5bd-5f025f37cd95"
+    ],
+    "ObservationSourceB": [
+      "2cad1748-5e1e-5018-b5b4-f87ac1d8aef8",
+      "5577788c-1255-5439-85bb-8651f6f597a4"
+    ],
+    "exactRereads": true
+  },
+  "outputRowsAfterDERIVEPlusTwo": [
+    [
+      "final",
+      "2"
+    ],
+    [
+      "final",
+      "2"
+    ],
+    [
+      "15063d54-c705-58e2-acfe-f5d7d48b415a",
+      "3"
+    ],
+    [
+      "dd5ed8d2-853b-51d6-9beb-dfa8aa71322d",
+      "3"
+    ]
+  ],
+  "noPublish": true,
+  "noPinnedTableRevisions": true,
+  "emptyTargetRestored": true,
+  "report": {
+    "path": "docs/verification/playwright/runtime/cda-current-draft-upstream-append-20261007-run4nlXSv-report.json",
+    "sha256": "72d8ecf1b7aed2b869d55232f7560acd40eaaa4c3d0be77992fb5f8e80e2569a"
+  },
+  "rawArtifacts": {
+    "summary": {
+      "path": "/private/tmp/loom-verification-runs/run-cda-current-draft-upstream-append-upstream-append-4nlXSv/summary.json",
+      "sha256": "bca7ee31c126ad5b3546becea8c636ae9883d3b156f1df48946db963ab4a4206"
+    },
+    "domainReport": {
+      "path": "/private/tmp/loom-verification-runs/run-cda-current-draft-upstream-append-upstream-append-4nlXSv/playwright-results/cda-current-draft-upstream-d2dbe-ppend-with-full-restoration/attachments/cda-domain-report-json-3cf9dd8e2d67a03fef4af5ef6dbe5442b887aef9.json",
+      "sha256": "0c4d84686dab1fd98301e8f579f32371d00f41e24940c4ab808b30fa27f4038b"
+    }
+  },
+  "priorStrictNetworkFailure": {
+    "runId": "XrW1Cx",
+    "retainedReportSha256": "385a66933d1418b47a07b3750fd961f2f3cf1f7e069f52a83f8aa60fff029024",
+    "unmatchedAbortRemainsFatal": true
+  },
+  "cancellationCoverage": {
+    "abortedIntermediateProposalsObserved": 0,
+    "supersededIntermediateProposals": [],
+    "classificationBranchExercisedInThisBrowserRun": false,
+    "focusedSourceProof": "9/9 focused helper tests passed; browser lifecycle used the no-abort path."
+  }
+}

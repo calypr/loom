@@ -1,0 +1,6 @@
+interface:
+  display_name: "Peter Mode"
+  short_description: "Conservative, verified pstack entry point"
+  default_prompt: "Use $peter-mode to handle this with conservative pstack escalation."
+policy:
+  allow_implicit_invocation: false

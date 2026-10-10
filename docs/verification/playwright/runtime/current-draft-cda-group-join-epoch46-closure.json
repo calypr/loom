@@ -1,0 +1,93 @@
+{
+  "epoch": 46,
+  "status": "CLOSED_WITH_CASE_PRECONDITION_FAILURE",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "beforeSha256": "4127fb334612f642656db515f9cba4b2ab6d2e62b9d9b23f1f131350c2eff7bd",
+      "afterSha256": "4127fb334612f642656db515f9cba4b2ab6d2e62b9d9b23f1f131350c2eff7bd",
+      "files": 1497,
+      "changedPaths": []
+    },
+    "docs": {
+      "beforeSha256": "44d871f7939975ac0c557cf3bf61d865ecb53814950610fe7adc9b1d63ec12a2",
+      "afterSha256": "44d871f7939975ac0c557cf3bf61d865ecb53814950610fe7adc9b1d63ec12a2",
+      "files": 123,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8",
+      "after": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "beforeStatus": "PASS",
+      "afterStatus": "PASS",
+      "targetUnchanged": true,
+      "composeProject": "loom-dev-6d7df93d6a37",
+      "project": "loom_dev_cda_fhir",
+      "generation": "cda-fhir-v1"
+    },
+    "health": {
+      "beforeStatus": "PASS",
+      "beforeSamples": 3,
+      "afterStatus": "PASS",
+      "afterSamples": 3,
+      "allApiUiHealthy": true
+    },
+    "handles": {
+      "beforeCapture": {
+        "session": 71053,
+        "exitCode": 0
+      },
+      "beforeHealth": {
+        "session": 49192,
+        "exitCode": 0
+      },
+      "case": {
+        "session": 91069,
+        "exitCode": 1
+      },
+      "afterCapture": {
+        "session": 48494,
+        "exitCode": 0
+      },
+      "afterHealth": {
+        "session": 97805,
+        "exitCode": 0
+      }
+    }
+  },
+  "case": {
+    "owner": "legacy_workspace_browser_case",
+    "scenario": "cda-workspace-combine/group-join",
+    "title": "two independent native Observation Groups join through the current draft lifecycle",
+    "result": "FAILED_RAW_WITNESS_PRECONDITION",
+    "durationMs": 14517,
+    "runnerExpected": 0,
+    "runnerUnexpected": 1,
+    "reportStatus": "failed",
+    "reportPath": "/private/tmp/loom-native-parallel-wave46/cda-workspace-combine/artifacts/cda-current-draft-group-jo-424dc-the-current-draft-lifecycle/cda-report.json",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "firstFailure": "The bounded CDA witness had no second status for a left-only Group key. At most 2,000 scoped raw Observation rows were scanned; three repeated-status records existed, but all returned observations had one status. The browser remained about:blank; zero UI actions and native requests occurred.",
+    "actions": 0,
+    "nativeRequests": 0,
+    "missingRequiredChecks": 15,
+    "productFailureEstablished": false
+  },
+  "artifacts": {
+    "sourceBefore": "/private/tmp/loom-native-parallel-wave46/source-before.json",
+    "sourceAfter": "/private/tmp/loom-native-parallel-wave46/source-after.json",
+    "docsBefore": "/private/tmp/loom-native-parallel-wave46/docs-before.json",
+    "docsAfter": "/private/tmp/loom-native-parallel-wave46/docs-after.json",
+    "apiBefore": "/private/tmp/loom-native-parallel-wave46/api-identity-before.json",
+    "apiAfter": "/private/tmp/loom-native-parallel-wave46/api-identity-after.json",
+    "mountsBefore": "/private/tmp/loom-native-parallel-wave46/owned-mounts-before.json",
+    "mountsAfter": "/private/tmp/loom-native-parallel-wave46/owned-mounts-after.json",
+    "healthBefore": "/private/tmp/loom-native-parallel-wave46/health-before.json",
+    "healthAfter": "/private/tmp/loom-native-parallel-wave46/health-after.json",
+    "playwrightResults": "/private/tmp/loom-native-parallel-wave46/cda-workspace-combine/results.json",
+    "runPlan": "/private/tmp/loom-native-parallel-wave46/run-plan.json"
+  }
+}

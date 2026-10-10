@@ -1,0 +1,3 @@
+{"resourceType":"DiagnosticReport","id":"combine-observation-final-1","status":"final","code":{"coding":[{"system":"urn:loom:verify-combine","code":"report-one","display":"Report one"}]}}
+{"resourceType":"DiagnosticReport","id":"combine-observation-final-2","status":"final","subject":{"reference":"Patient/combine-null-key-match"},"code":{"coding":[{"system":"urn:loom:verify-combine","code":"report-two","display":"Report two"}]}}
+{"resourceType":"DiagnosticReport","id":"combine-observation-preliminary","status":"preliminary","subject":{"reference":"Patient/combine-null-key-match"},"code":{"coding":[{"system":"urn:loom:verify-combine","code":"report-three","display":"Report three"}]}}

@@ -1,0 +1,182 @@
+{
+  "epoch": 75,
+  "status": "CLOSED_SKIP_BOUNDED_WITNESS",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "631fcb9a08dc37fb78cbd383dba83d956d5e843f45c7e3810056512d280a2b05",
+        "files": 1516
+      },
+      "after": {
+        "sha256": "631fcb9a08dc37fb78cbd383dba83d956d5e843f45c7e3810056512d280a2b05",
+        "files": 1516
+      },
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "docs": {
+      "before": {
+        "sha256": "52786f743211d373b8a2e6fba637675710b78968593267722a3cc38e30316d56",
+        "files": 179
+      },
+      "after": {
+        "sha256": "52786f743211d373b8a2e6fba637675710b78968593267722a3cc38e30316d56",
+        "files": 179
+      },
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "precheck": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    },
+    "handles": {
+      "precheck": {
+        "session": 35185,
+        "exitCode": 0,
+        "fresh": true,
+        "artifact": "/private/tmp/loom-native-parallel-wave75/api-build-precheck-confirmed.json"
+      },
+      "beforeCapture": {
+        "session": 13577,
+        "exitCode": 0
+      },
+      "beforeHealth": {
+        "session": 15882,
+        "exitCode": 0
+      },
+      "browser": {
+        "session": 88566,
+        "exitCode": 0
+      },
+      "afterCapture": {
+        "session": 10740,
+        "exitCode": 0
+      },
+      "afterHealth": {
+        "session": 38830,
+        "exitCode": 0
+      }
+    }
+  },
+  "case": {
+    "scenarioId": "cda-current-draft-upstream-append",
+    "caseName": "upstream-append",
+    "title": "three exact CDA populations Group, edit Patient DERIVE, then Append with full restoration",
+    "status": "skipped_bounded_witness_unavailable",
+    "requiredChecks": {
+      "passed": 1,
+      "total": 26,
+      "missingOrUnrun": 25
+    },
+    "assertions": {
+      "passed": 1,
+      "failed": 0,
+      "total": 1
+    },
+    "dimensions": {
+      "usability": "untested",
+      "correctness": "passed",
+      "persistence": "untested",
+      "performance": "untested"
+    },
+    "boundedWitnessUnavailable": {
+      "project": "loom_dev_cda_fhir",
+      "generation": "cda-fhir-v1",
+      "scanLimitPerResource": 2000,
+      "scanLimitBoundsReturnedRowsNotDatabaseScanCost": true,
+      "resources": [
+        {
+          "resourceType": "Patient",
+          "fieldPath": "gender",
+          "returnedRows": 2000,
+          "eligibleRows": 0,
+          "excludedMissingOrNullOrNonString": 2000,
+          "categoriesWithTwoRecords": []
+        },
+        {
+          "resourceType": "Observation",
+          "fieldPath": "status",
+          "returnedRows": 2000,
+          "eligibleRows": 2000,
+          "excludedMissingOrNullOrNonString": 0,
+          "categoriesWithTwoRecords": [
+            "final"
+          ]
+        },
+        {
+          "resourceType": "DiagnosticReport",
+          "fieldPath": "status",
+          "returnedRows": 0,
+          "eligibleRows": 0,
+          "excludedMissingOrNullOrNonString": 0,
+          "categoriesWithTwoRecords": []
+        }
+      ],
+      "reason": [
+        "no gender category has two eligible Patient records",
+        "no status category has two eligible Observation and DiagnosticReport records"
+      ]
+    },
+    "actions": {
+      "passed": 0,
+      "total": 0,
+      "maxElapsedMs": null
+    },
+    "errors": [],
+    "network": [],
+    "testElapsedMs": 12543,
+    "playwrightResultsDurationMs": 14596.2,
+    "processDurationMs": null,
+    "domainReportPath": "/private/tmp/loom-native-parallel-wave75/cda-current-draft-upstream-append/attempt1/artifacts/cda-current-draft-upstream-d2dbe-ppend-with-full-restoration/attachments/cda-domain-report-json-a03cd9499e1fbdc0c3873d1a6149265d8a62f820.json",
+    "domainReportSha256": "6b238a9881d40e21505f73129d40fb24e6caddee1047caa7bfc49573f64c1b76",
+    "playwrightResultsPath": "/private/tmp/loom-native-parallel-wave75/cda-current-draft-upstream-append/attempt1/results.json",
+    "playwrightResultsSha256": "188291cfefbfa41a292211813c62994fd36954c9895f1134887ae6bb489b514d",
+    "runnerLogPath": "/private/tmp/loom-native-parallel-wave75/cda-current-draft-upstream-append/attempt1/runner.log",
+    "runnerLogSha256": "8cb2f7b2c57b1ebae0b00fd69fe7a299435c77c82fa89bd24ebd2caf26f3bf91"
+  },
+  "artifacts": {
+    "run-plan.json": "/private/tmp/loom-native-parallel-wave75/run-plan.json",
+    "api-build-precheck-confirmed.json": "/private/tmp/loom-native-parallel-wave75/api-build-precheck-confirmed.json",
+    "source-before.json": "/private/tmp/loom-native-parallel-wave75/source-before.json",
+    "source-after.json": "/private/tmp/loom-native-parallel-wave75/source-after.json",
+    "docs-before.json": "/private/tmp/loom-native-parallel-wave75/docs-before.json",
+    "docs-after.json": "/private/tmp/loom-native-parallel-wave75/docs-after.json",
+    "api-identity-before.json": "/private/tmp/loom-native-parallel-wave75/api-identity-before.json",
+    "api-identity-after.json": "/private/tmp/loom-native-parallel-wave75/api-identity-after.json",
+    "owned-mounts-before.json": "/private/tmp/loom-native-parallel-wave75/owned-mounts-before.json",
+    "owned-mounts-after.json": "/private/tmp/loom-native-parallel-wave75/owned-mounts-after.json",
+    "health-before.json": "/private/tmp/loom-native-parallel-wave75/health-before.json",
+    "health-after.json": "/private/tmp/loom-native-parallel-wave75/health-after.json"
+  }
+}

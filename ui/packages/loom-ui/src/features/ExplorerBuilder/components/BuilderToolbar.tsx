@@ -22,9 +22,9 @@ interface BuilderToolbarProps {
   onDuplicateTable: () => void;
   onDeleteTable: () => void;
   onReorderTable: (outputId: string, before?: string) => void;
-  onPreview: () => void;
+  onReview: () => void;
+  reviewExpanded: boolean;
   onPublish: () => void;
-  previewDisabled: boolean;
   publishDisabled: boolean;
   publishing: boolean;
   busy?: boolean;
@@ -168,7 +168,7 @@ const TableToolbar = ({
       <button
         type="button"
         onClick={onDeleteTable}
-        disabled={!selectedTable || tables.length <= 1 || busy}
+        disabled={!selectedTable || busy}
         aria-label="Delete table"
         title="Delete table"
         className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40"
@@ -195,9 +195,9 @@ export function BuilderToolbar({
   onDuplicateTable,
   onDeleteTable,
   onReorderTable,
-  onPreview,
+  onReview,
+  reviewExpanded,
   onPublish,
-  previewDisabled,
   publishDisabled,
   publishing,
   busy = false,
@@ -242,7 +242,7 @@ export function BuilderToolbar({
       className="min-w-0 border-l border-slate-200 bg-white pl-4"
       data-explorer-delete-supported={deleteSupported}
     >
-      <div className="flex min-w-0 items-center gap-2 py-1">
+      <div className="flex min-w-0 flex-wrap items-center gap-2 py-1">
         <label className="flex min-w-0 items-center gap-2 text-xs font-semibold text-slate-600">
           <span className="sr-only">Explorer</span>
           <select
@@ -358,11 +358,13 @@ export function BuilderToolbar({
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <button
             type="button"
-            onClick={onPreview}
-            disabled={!selectedTable || busy || previewDisabled}
-            className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+            onClick={onReview}
+            aria-expanded={reviewExpanded}
+            aria-controls="dataset-review-panel"
+            className="rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-900 hover:bg-blue-100 disabled:opacity-50"
+            disabled={busy}
           >
-            Preview
+            Review dataset
           </button>
           <button
             type="button"

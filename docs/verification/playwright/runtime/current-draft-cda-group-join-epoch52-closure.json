@@ -1,0 +1,122 @@
+{
+  "epoch": 52,
+  "status": "CLOSED_WITH_CASE_FAILURE",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "beforeSha256": "781c9d75e4250e33927981d8e96c4e97b7911dd64976569b86d5d3db684c7321",
+      "afterSha256": "781c9d75e4250e33927981d8e96c4e97b7911dd64976569b86d5d3db684c7321",
+      "files": 1498,
+      "changedPaths": []
+    },
+    "docs": {
+      "beforeSha256": "34b0b8054bdbd0f3e8b70dbb220bd7f39a2f704033a2e87fc3e2e295e8b7006e",
+      "afterSha256": "34b0b8054bdbd0f3e8b70dbb220bd7f39a2f704033a2e87fc3e2e295e8b7006e",
+      "files": 135,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+      "after": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "beforeStatus": "PASS",
+      "afterStatus": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "beforeStatus": "PASS",
+      "beforeSamples": 3,
+      "afterStatus": "PASS",
+      "afterSamples": 3,
+      "allApiUiHealthy": true
+    },
+    "handles": {
+      "apiBuildPrecheck": {
+        "session": 50340,
+        "exitCode": 0
+      },
+      "beforeCapture": {
+        "session": 16740,
+        "exitCode": 0
+      },
+      "beforeHealth": {
+        "session": 64335,
+        "exitCode": 0
+      },
+      "browser": {
+        "session": 37296,
+        "exitCode": 1
+      },
+      "afterCapture": {
+        "session": 92217,
+        "exitCode": 0
+      },
+      "afterHealth": {
+        "session": 21705,
+        "exitCode": 0
+      }
+    }
+  },
+  "case": {
+    "owner": "legacy_workspace_browser_case",
+    "scenario": "cda-workspace-combine/group-join",
+    "title": "two independent native Observation Groups join through the current draft lifecycle",
+    "result": "FAILED_HARNESS_CAPTURE_OWNERSHIP",
+    "causeClassification": "HARNESS_CAPTURE_OWNERSHIP",
+    "durationMs": 37530,
+    "runnerProcessDurationMs": null,
+    "runnerExpected": 0,
+    "runnerUnexpected": 1,
+    "reportStatus": "failed",
+    "reportPath": "/private/tmp/loom-native-parallel-wave52/cda-workspace-combine/artifacts/cda-current-draft-group-jo-424dc-the-current-draft-lifecycle/cda-report.json",
+    "targetProject": "loom_dev_cda_fhir",
+    "targetGeneration": "cda-fhir-v1",
+    "firstFailure": "The strict native-proposal assertion required exact request and response bodies, but the selected capture entry had null bodies. The LEFT Join preview was reached; no apply/reload/edit/removal lifecycle ran.",
+    "diagnosis": "The bodies live in per-tracker WeakMaps. The harness wait searched the shared nativeRequests array and could select an entry from an older still-active commands tracker; two proposal entries were present, with the later entry carrying exact payload. This is harness raw-body capture ownership, not a product issue.",
+    "actionsPassed": 50,
+    "actionsFailed": 0,
+    "nativeRequests": 6,
+    "requiredChecksPassed": 7,
+    "requiredChecksTotal": 16,
+    "missingRequiredChecks": 9,
+    "recordedAssertionsPassed": 81,
+    "recordedAssertionsFailed": 1,
+    "leftJoinPreviewReached": true,
+    "joinApplyReached": false,
+    "fullLifecycleReached": false,
+    "reportSha256": "faa40f889a065798afcc5fc9b6656147f52685642eec74c10a5df92e656d8178",
+    "errorContextSha256": "93c6f34370cb785b50e8f440b3cfc7a698e2ce741d9676254e7fbb1e10eb2187",
+    "playwrightResultsSha256": "f8e3dfebcf4c3c0be658857421855e45184a37e69baa81cb00f18e69312fd42f",
+    "classificationNote": "Each request tracker stores raw bodies in a private WeakMap, but the harness wait searches the shared nativeRequests array and may select an entry from another tracker. The later exact proposal entry carries the payload."
+  },
+  "retryPerformed": false,
+  "artifacts": {
+    "apiBuildPrecheck": "/private/tmp/loom-native-parallel-wave52/api-build-precheck.json",
+    "sourceBefore": "/private/tmp/loom-native-parallel-wave52/source-before.json",
+    "sourceAfter": "/private/tmp/loom-native-parallel-wave52/source-after.json",
+    "docsBefore": "/private/tmp/loom-native-parallel-wave52/docs-before.json",
+    "docsAfter": "/private/tmp/loom-native-parallel-wave52/docs-after.json",
+    "apiBefore": "/private/tmp/loom-native-parallel-wave52/api-identity-before.json",
+    "apiAfter": "/private/tmp/loom-native-parallel-wave52/api-identity-after.json",
+    "mountsBefore": "/private/tmp/loom-native-parallel-wave52/owned-mounts-before.json",
+    "mountsAfter": "/private/tmp/loom-native-parallel-wave52/owned-mounts-after.json",
+    "healthBefore": "/private/tmp/loom-native-parallel-wave52/health-before.json",
+    "healthAfter": "/private/tmp/loom-native-parallel-wave52/health-after.json",
+    "playwrightResults": "/private/tmp/loom-native-parallel-wave52/cda-workspace-combine/results.json",
+    "runPlan": "/private/tmp/loom-native-parallel-wave52/run-plan.json"
+  }
+}

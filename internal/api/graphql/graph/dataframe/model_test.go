@@ -28,6 +28,16 @@ func TestProjectMetadataMapping(t *testing.T) {
 	}
 }
 
+func TestColumnModelUsesSharedCapabilitiesAndPersistedOverrides(t *testing.T) {
+	column := ColumnModel(dfpublished.Column{Name: "values", ClickHouse: "Nullable(Array(Int64))", LogicalType: "integer", Repeated: true})
+	if column.LogicalType != "integer" || !column.Nullable || !column.Repeated || !column.Filterable {
+		t.Fatalf("column capabilities = %#v", column)
+	}
+	if column.Sortable || column.Aggregatable {
+		t.Fatalf("repeated column capabilities = %#v, want not sortable or aggregatable", column)
+	}
+}
+
 func TestAggregateRowsResultReturnsEncodingError(t *testing.T) {
 	_, err := AggregateRowsResult([]map[string]any{{"bad": func() {}}})
 	if err == nil {

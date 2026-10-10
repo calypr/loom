@@ -1,0 +1,151 @@
+{
+  "scenario": "standalone-reshape-related-source-after-pivot",
+  "case": "related-source-after-pivot",
+  "title": "standalone CDA reshape workflows related-source-after-pivot related-source-after-pivot",
+  "target": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiPort": "8188",
+    "uiPort": "30008"
+  },
+  "epoch": 80,
+  "status": "untested",
+  "coverageStatus": "untested",
+  "runnerStatus": "failed_before_lifecycle_raw_oracle",
+  "classification": "The corrected title selected and executed the test, but setup failed in the raw Arango oracle before any native lifecycle action. This is a pre-lifecycle harness/fixture failure; no product behavior was exercised and no product defect is claimed.",
+  "browserProcess": {
+    "session": 4626,
+    "exitCode": 1
+  },
+  "requiredChecks": {
+    "total": 25,
+    "passed": 1,
+    "missing": 24,
+    "missingNames": [
+      "CDA raw oracle selects two same-status Observation roots with distinct Patient references",
+      "Exact scoped subject_Patient edges resolve the two roots to distinct Patient documents",
+      "Fresh Explorer binds the exact two-root Observation population to its direct source table",
+      "Native Pivot preview matches the two exact source categories and coalesces one row",
+      "Pivot Cancel preserves exact source workspace and rows after reload",
+      "Confirmed Pivot proposal retains exact typed category and value bindings",
+      "Applied Pivot persists typed categories and one independently verified coalesced row after reload",
+      "Pivot compiler stage exposes the exact row identity and RELATED_SOURCE capability",
+      "Post-Pivot Patient.id ALL proposal retains both source contributors",
+      "Native chooser and candidate bind Patient.id ALL through exact Observation.subject → Patient",
+      "Post-Pivot ALL returns both independently resolved Patient IDs on one Pivot row",
+      "Related-source Cancel preserves the exact saved Pivot and its raw values after reload",
+      "Confirmed post-Pivot Patient.id ALL preview",
+      "Applied post-Pivot RELATED_SOURCE retains exact ALL binding and contributors after reload",
+      "Edited related-source label keeps exact contributor values",
+      "Editing the saved related source and Cancel preserves its exact construction and ALL values",
+      "Apply related-source edit preserves the post-Pivot binding",
+      "Applied related-source edit changes only the label and survives reload with exact Patient values",
+      "Related-source removal preview restores exact Pivot values",
+      "Related-source removal Cancel preserves the edited binding and exact ALL values after reload",
+      "Confirmed related-source removal restores the exact Pivot row",
+      "Applying related-source removal restores the exact pre-source Pivot workspace and values",
+      "No unexpected native network, module, or browser errors occurred",
+      "All native lifecycle actions complete within five seconds"
+    ]
+  },
+  "assertions": {
+    "passed": 1,
+    "failed": 0,
+    "total": 1
+  },
+  "nativeActions": {
+    "passed": 0,
+    "failed": 0,
+    "total": 0
+  },
+  "playwrightDiscovery": {
+    "selectedTestCount": 1,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  },
+  "failure": {
+    "classification": "PRE_LIFECYCLE_RAW_ORACLE_FAILURE_UNATTRIBUTED",
+    "phase": "raw oracle setup",
+    "message": "ArangoError 1203: collection or view not found: generation. Captured context also begins with an Arango password prompt; no credential value is retained. Cause remains unattributed in the sealed run closure.",
+    "productBehaviorExercised": false,
+    "errorContextPath": "/private/tmp/loom-native-parallel-wave80/standalone-reshape-related-source-after-pivot/attempt1/artifacts/standalone-reshape-standal-689d5--related-source-after-pivot/error-context.md",
+    "errorContextSha256": "5598073629cdcfe3d18775a011b8039782f8dd808b9f70988f0daa4f64905dcd"
+  },
+  "timing": {
+    "testDurationMs": 4500,
+    "playwrightRunnerDurationMs": 6257.786,
+    "processDurationMs": null
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "source": {
+      "sha256": "fbb157236d7df3392bf009b1a235f0d26d1b0db4ac67a5f4bb71d90644c70f3e",
+      "files": 1521,
+      "unchanged": true,
+      "changedPaths": []
+    },
+    "docs": {
+      "sha256": "ac031159f2e642ec8dda59a7633d0789e570ebb455ac0f8648ba0f1ea0d14478",
+      "files": 187,
+      "unchanged": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentityUnchanged": true,
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  },
+  "command": "set -euo pipefail\nsource '/private/tmp/loom-native-parallel-wave80/browser-environment.sh'\nexport LOOM_ARANGO_CONTAINER=\"$LOOM_CDA_ARANGO_CONTAINER\"\nexport LOOM_ARANGO_DATABASE='loom_dev'\nunset LOOM_CDA_EXPLORER_ID LOOM_CDA_EXPLORER LOOM_QA_EXPLORER\nmkdir -p '/private/tmp/loom-native-parallel-wave80/standalone-reshape-related-source-after-pivot/attempt1'\nPLAYWRIGHT_JSON_OUTPUT_FILE='/private/tmp/loom-native-parallel-wave80/standalone-reshape-related-source-after-pivot/attempt1/results.json' npm --prefix scripts run test:browser -- 'verify-ui/specs/standalone-reshape.spec.mjs' --grep 'standalone CDA reshape workflows related-source-after-pivot related-source-after-pivot$' --output '/private/tmp/loom-native-parallel-wave80/standalone-reshape-related-source-after-pivot/attempt1/artifacts' 2>&1 | tee '/private/tmp/loom-native-parallel-wave80/standalone-reshape-related-source-after-pivot/attempt1/runner.log'",
+  "nextCheck": "Integrate the focused literal-@ transport correction with its regression, then rerun this exact browser case. Keep lifecycle coverage untested until the raw witness and full native workflow pass.",
+  "domainReportPath": "/private/tmp/loom-native-parallel-wave80/standalone-reshape-related-source-after-pivot/attempt1/artifacts/standalone-reshape-standal-689d5--related-source-after-pivot/cda-report.json",
+  "domainReportSha256": "cf6fb4b2f8a3a8366da94e1c10e795209938f5903b6917900c4ba2964ef772d0",
+  "playwrightResultsPath": "/private/tmp/loom-native-parallel-wave80/standalone-reshape-related-source-after-pivot/attempt1/results.json",
+  "playwrightResultsSha256": "5fc457345e3b5ceb9bead21f6133933b929c501516e7aa0c50879dd36e600a7b",
+  "runnerLogPath": "/private/tmp/loom-native-parallel-wave80/standalone-reshape-related-source-after-pivot/attempt1/runner.log",
+  "runnerLogSha256": "e091ae3b2d66119c76eee8d67f122a411f898f552e1028460ababdef11f1b010",
+  "coordinatorClosurePath": "/private/tmp/loom-native-parallel-wave80/closure.json",
+  "coordinatorClosureSha256": "e810b9d6fa90275f89f126ebf02fb9b6e7f73eb5a1c2ecfe7f3eeb3294fdb2cf",
+  "durableClosurePath": "docs/verification/playwright/runtime/post-pivot-related-source-epoch80-closure.json",
+  "laterReadOnlyDiagnosis": {
+    "status": "transport_root_cause_supported_by_read_only_A_B_probe",
+    "probePath": "/private/tmp/loom-wave80-rawquery-escape-stage/probe-evidence.json",
+    "probeSha256": "672f1c8de575deb3ff3cce91f69d2bace6ec8184f2f3cf7993eaf3206c952bc1",
+    "session": 73475,
+    "exitCode": 0,
+    "container": "loom-dev-6d7df93d6a37-arangodb-1",
+    "database": "loom_dev",
+    "sameReadOnlyQueryAndBindVars": true,
+    "query": "FOR o IN Observation FILTER o.project == @project AND o.dataset_generation == @generation AND o.payload.resourceType == \"Observation\" SORT o._id LIMIT 1 RETURN {id:o.id, project:o.project, generation:o.dataset_generation}",
+    "bindVars": {
+      "project": "loom_dev_cda_fhir",
+      "generation": "cda-fhir-v1"
+    },
+    "comparison": {
+      "unescapedAt": {
+        "exitCode": 1,
+        "result": "ArangoError 1203: collection or view not found: generation"
+      },
+      "atReplacedWithJavaScriptUnicodeEscape": {
+        "exitCode": 0,
+        "result": "one scoped Observation row; document id redacted"
+      }
+    },
+    "interpretation": "The A/B result supports an outer arangosh --javascript.execute-string @-substitution issue: the unescaped AQL bind marker is altered before AQL execution, while preserving the literal @ through a JavaScript Unicode escape returns the scoped row. This explains the raw-oracle setup error as a harness transport issue, not a missing generation collection or a product failure.",
+    "historicalRunBoundary": "The sealed epoch80 closure remains byte-exact and retains PRE_LIFECYCLE_RAW_ORACLE_FAILURE_UNATTRIBUTED as the run-time classification. The later probe does not change epoch80 lifecycle coverage: 24 checks remain missing and zero native actions ran; product behavior remains untested."
+  }
+}

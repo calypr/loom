@@ -1,0 +1,118 @@
+import assert from 'node:assert/strict';
+import { performance } from 'node:perf_hooks';
+import { checkContainerApiBuildStamp } from './api-build-freeze.mjs';
+
+const digestPattern = /^[a-f0-9]{64}$/i;
+
+export function inspectBuildStamp(result) {
+  const parts = typeof result?.stdout === 'string' ? result.stdout.trim().split(/\s+/) : [];
+  const outputValid = parts.length === 3 && parts.every(part => digestPattern.test(part));
+  const normalized = outputValid ? parts.map(part => part.toLowerCase()) : [];
+  const sourceDigestMatchesCurrentMountedSource = outputValid && normalized[0] === normalized[1];
+  const valid = result?.status === 0 && outputValid;
+  const failureKind = result?.failureKind ?? (
+    outputValid && !sourceDigestMatchesCurrentMountedSource ? 'source-stamp-mismatch'
+      : result?.status !== 0 ? 'stamp-check-failed'
+        : !outputValid ? 'invalid-stamp-output' : undefined
+  );
+  return {
+    valid,
+    fresh: valid && sourceDigestMatchesCurrentMountedSource,
+    sourceDigestMatchesCurrentMountedSource,
+    runningBinaryMatchesRecordedBuild: valid,
+    apiBuildIdentity: valid ? normalized.join(':') : null,
+    exitCode: Number.isInteger(result?.status) ? result.status : null,
+    ...(failureKind ? { failureKind } : {}),
+    ...(typeof result?.diagnostic === 'string' && result.diagnostic ? { diagnostic: result.diagnostic.slice(0, 1000) } : {}),
+  };
+}
+
+export function parseCapturedBuildIdentity(value) {
+  const parts = typeof value === 'string' ? value.split(':') : [];
+  assert.equal(parts.length, 3, 'Captured API identity must contain three SHA-256 digests');
+  assert(parts.every(part => digestPattern.test(part)), 'Captured API identity must contain three 64-character hex digests');
+  const normalized = parts.map(part => part.toLowerCase());
+  assert.equal(normalized[0], normalized[1], 'Captured identity must describe the current mounted source');
+  return normalized.join(':');
+}
+
+export function assertFreshApiBuildPrecheck(record, { targetContainer, apiBuildIdentity } = {}) {
+  assert(record && typeof record === 'object' && !Array.isArray(record), 'API build precheck must be an object.');
+  assert.equal(record.exitCode, 0, 'API build precheck must exit successfully.');
+  assert.equal(record.fresh, true, 'API build precheck must be fresh.');
+  assert.equal(record.sourceDigestMatchesCurrentMountedSource, true,
+    'API build precheck must match the current mounted source.');
+  assert.equal(record.runningBinaryMatchesRecordedBuild, true,
+    'API build precheck must confirm the running binary.');
+  assert.equal(record.targetContainer, targetContainer, 'API build precheck must target the owned API container.');
+  const precheckIdentity = parseCapturedBuildIdentity(record.apiBuildIdentity);
+  if (apiBuildIdentity !== undefined) {
+    assert.equal(parseCapturedBuildIdentity(apiBuildIdentity), precheckIdentity,
+      'API identity changed after the fresh precheck and before capture.');
+  }
+  return precheckIdentity;
+}
+
+export function assertCapturedTargetMatches(captured, current) {
+  assert(captured && typeof captured === 'object', 'Capture must contain an owned target');
+  for (const key of [
+    'project', 'generation', 'composeProject', 'apiContainer', 'uiContainer', 'arangoContainer',
+    'clickhouseContainer', 'apiPort', 'uiPort', 'sourceRoot',
+  ]) {
+    assert.equal(captured[key] ?? null, current[key] ?? null, `Owned target changed since capture: ${key}`);
+  }
+}
+
+export async function runOwnedStackHealth({
+  apiURL,
+  uiURL,
+  apiContainer,
+  expectedIdentity,
+  fetchImpl = fetch,
+  readStamp = checkContainerApiBuildStamp,
+  sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)),
+  now = () => new Date().toISOString(),
+  monotonicNow = () => performance.now(),
+}) {
+  const identity = parseCapturedBuildIdentity(expectedIdentity);
+  const samples = [];
+  let previousSampleStartedAt;
+  for (let index = 0; index < 3; index += 1) {
+    if (index > 0) {
+      const earliestStart = previousSampleStartedAt + 2000;
+      while (true) {
+        const remaining = earliestStart - monotonicNow();
+        if (remaining <= 0) break;
+        await sleep(remaining);
+      }
+    }
+    const sampleStartedAt = monotonicNow();
+    previousSampleStartedAt = sampleStartedAt;
+    const [api, ui, stamp] = await Promise.all([
+      fetchImpl(`${apiURL.replace(/\/$/, '')}/readyz`, { signal: AbortSignal.timeout(5000) })
+        .then(async response => ({ response, body: await response.text() })),
+      fetchImpl(`${uiURL.replace(/\/$/, '')}/`, { signal: AbortSignal.timeout(5000) })
+        .then(async response => ({ response, body: await response.text() })),
+      readStamp(apiContainer),
+    ]);
+    const { response: apiResponse, body: apiBody } = api;
+    const { response: uiResponse, body: uiBody } = ui;
+    const observation = inspectBuildStamp(stamp);
+    const sample = {
+      at: now(),
+      apiStatus: apiResponse.status,
+      apiBody,
+      uiStatus: uiResponse.status,
+      uiHasDocument: /<!doctype html>/i.test(uiBody),
+      apiBuildIdentity: observation.apiBuildIdentity,
+    };
+    samples.push(sample);
+    assert.equal(apiResponse.status, 200, `Owned API health failed at sample ${index + 1}`);
+    assert.match(apiBody, /"status":"ready"/, `Owned API readiness body failed at sample ${index + 1}`);
+    assert.equal(uiResponse.status, 200, `Owned UI health failed at sample ${index + 1}`);
+    assert(sample.uiHasDocument, `Owned UI document check failed at sample ${index + 1}`);
+    assert(observation.fresh, `Owned API build stamp is stale or invalid at sample ${index + 1}`);
+    assert.equal(observation.apiBuildIdentity, identity, `Owned API build identity changed at sample ${index + 1}`);
+  }
+  return { status: 'PASS', apiBuildIdentity: identity, samples };
+}

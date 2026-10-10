@@ -1,0 +1,107 @@
+{
+  "status": "INTEGRITY_CLOSED_PASS",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "9f4d6ee05a37f00bed82f177b8a367353a1259386e0a407b1cbb3027c865e83f",
+        "files": 1537
+      },
+      "after": {
+        "sha256": "9f4d6ee05a37f00bed82f177b8a367353a1259386e0a407b1cbb3027c865e83f",
+        "files": 1537
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-combine-nullable-wave112/source-before.json",
+        "sha256": "a59414a3ca354b52382948eba882f332e5cc8ba8c85547d6c933435bf2aaca6b"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-combine-nullable-wave112/source-after.json",
+        "sha256": "22b4053ff2a474af0ad90c5d9ab85cdcf119eae46080af647c12b8e2f5ae0319"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "aef1257609b5e88df6df420212218a986edb52849eecbe843d72ae02da2b1f0a",
+        "files": 256
+      },
+      "after": {
+        "sha256": "aef1257609b5e88df6df420212218a986edb52849eecbe843d72ae02da2b1f0a",
+        "files": 256
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-combine-nullable-wave112/docs-before.json",
+        "sha256": "51c87a94fe871a963c7429fbf904751319182d77443f6984cfb22e5989bb4b1a"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-combine-nullable-wave112/docs-after.json",
+        "sha256": "df0b0f9a23cb9b09930e626d0854039101944211a4287f5fb9548f15bac653d5"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "precheck": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-combine-nullable-wave112/api-identity-before.json",
+        "sha256": "e689930d7f2cde974499577f04f19830bc51ab0048ffc65d14ed2d26f1200aaa"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-combine-nullable-wave112/api-identity-after.json",
+        "sha256": "652b68ecd8dbd0ac6d12cd234e0a8a073a93c0c11870b23dec58656a71e7d461"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-combine-nullable-wave112/api-build-precheck.json",
+        "sha256": "6c1bb88fe50b3f196c3013fc0186bdd987222f6e12e6ece3956f4f20c77d08a1"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-combine-nullable-wave112/owned-mounts-before.json",
+        "sha256": "bf40b5c1da43c76593269699eb9cb6d832b0e24b3fdd65ef4d54d58b331288a3"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-combine-nullable-wave112/owned-mounts-after.json",
+        "sha256": "99583ec48871a3a90c63a8a6534d9ae2b393bfd303bdc34ea8335dd1ae3cc7be"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-combine-nullable-wave112/health-before.json",
+        "sha256": "a23407c02d351fa3eaa238da909223391d7e46696371677224b341f90b2d9bdf"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-combine-nullable-wave112/health-after.json",
+        "sha256": "ce23909906b3dbf862e00e976592ea98637e27fff44bb21ff7db40f0648d602c"
+      }
+    }
+  }
+}

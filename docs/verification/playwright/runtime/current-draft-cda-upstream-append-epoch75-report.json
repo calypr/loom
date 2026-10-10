@@ -1,0 +1,183 @@
+{
+  "epoch": 75,
+  "scenario": "cda-current-draft-upstream-append",
+  "case": "upstream-append",
+  "title": "three exact CDA populations Group, edit Patient DERIVE, then Append with full restoration",
+  "status": "skipped_bounded_witness_unavailable",
+  "coverageStatus": "untested",
+  "classification": "No UI lifecycle ran; the bounded raw-witness precondition was unavailable. This is not a product failure.",
+  "requiredChecks": {
+    "passed": 1,
+    "failed": 0,
+    "unrun": 25,
+    "total": 26
+  },
+  "assertions": {
+    "passed": 1,
+    "failed": 0,
+    "total": 1,
+    "meaning": "The sole assertion is the unchanged watched source/API integrity check; it does not establish Builder correctness."
+  },
+  "dimensions": {
+    "usability": "untested",
+    "correctness": "untested",
+    "persistence": "untested",
+    "performance": "untested"
+  },
+  "boundedWitnessUnavailable": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "scanLimitPerResource": 2000,
+    "scanLimitBoundsReturnedRowsNotDatabaseScanCost": true,
+    "resources": [
+      {
+        "resourceType": "Patient",
+        "fieldPath": "gender",
+        "returnedRows": 2000,
+        "eligibleRows": 0,
+        "excludedMissingOrNullOrNonString": 2000,
+        "categoriesWithTwoRecords": []
+      },
+      {
+        "resourceType": "Observation",
+        "fieldPath": "status",
+        "returnedRows": 2000,
+        "eligibleRows": 2000,
+        "excludedMissingOrNullOrNonString": 0,
+        "categoriesWithTwoRecords": [
+          "final"
+        ]
+      },
+      {
+        "resourceType": "DiagnosticReport",
+        "fieldPath": "status",
+        "returnedRows": 0,
+        "eligibleRows": 0,
+        "excludedMissingOrNullOrNonString": 0,
+        "categoriesWithTwoRecords": []
+      }
+    ],
+    "reason": [
+      "no gender category has two eligible Patient records",
+      "no status category has two eligible Observation and DiagnosticReport records"
+    ]
+  },
+  "nativeActions": {
+    "passed": 0,
+    "total": 0,
+    "maxElapsedMs": null
+  },
+  "errors": {
+    "workflow": 0,
+    "network": 0,
+    "incidental": []
+  },
+  "timing": {
+    "fixtureSetupMs": 1999,
+    "browserLifecycleDurationMs": 10669,
+    "playwrightTestResultDurationMs": 12543,
+    "playwrightReporterDurationMs": 14596.2,
+    "runnerProcessDurationMs": null,
+    "runnerProcessDurationNote": "Not recorded in retained evidence."
+  },
+  "target": {
+    "project": "loom_dev_cda_fhir",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiPort": "8188",
+    "uiPort": "30008",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "generation": "cda-fhir-v1"
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "631fcb9a08dc37fb78cbd383dba83d956d5e843f45c7e3810056512d280a2b05",
+        "files": 1516
+      },
+      "after": {
+        "sha256": "631fcb9a08dc37fb78cbd383dba83d956d5e843f45c7e3810056512d280a2b05",
+        "files": 1516
+      },
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "docsBeforeAfter": {
+      "before": {
+        "sha256": "52786f743211d373b8a2e6fba637675710b78968593267722a3cc38e30316d56",
+        "files": 179
+      },
+      "after": {
+        "sha256": "52786f743211d373b8a2e6fba637675710b78968593267722a3cc38e30316d56",
+        "files": 179
+      },
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "precheck": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  },
+  "diagnosticConclusion": "The run skipped before Builder actions because the bounded scan found no duplicate eligible Patient.gender witnesses, only Observation.status=final witnesses, and no DiagnosticReport rows. No UI, Explorer lifecycle, or APPEND behavior was exercised; no product failure is claimed.",
+  "rawReportPath": "/private/tmp/loom-native-parallel-wave75/cda-current-draft-upstream-append/attempt1/artifacts/cda-current-draft-upstream-d2dbe-ppend-with-full-restoration/cda-report.json",
+  "rawReportSha256": "6b238a9881d40e21505f73129d40fb24e6caddee1047caa7bfc49573f64c1b76",
+  "playwrightResultsPath": "/private/tmp/loom-native-parallel-wave75/cda-current-draft-upstream-append/attempt1/results.json",
+  "playwrightResultsSha256": "188291cfefbfa41a292211813c62994fd36954c9895f1134887ae6bb489b514d",
+  "runnerLogPath": "/private/tmp/loom-native-parallel-wave75/cda-current-draft-upstream-append/attempt1/runner.log",
+  "runnerLogSha256": "8cb2f7b2c57b1ebae0b00fd69fe7a299435c77c82fa89bd24ebd2caf26f3bf91",
+  "coordinatorClosurePath": "/private/tmp/loom-native-parallel-wave75/closure.json",
+  "coordinatorClosureSha256": "68caf089d09fff18b487f46eac6b5a33a6a58d1d722d32f029d6881684e94777",
+  "durableClosurePath": "docs/verification/playwright/runtime/current-draft-cda-upstream-append-epoch75-closure.json",
+  "artifacts": {
+    "domainAttachmentPath": "/private/tmp/loom-native-parallel-wave75/cda-current-draft-upstream-append/attempt1/artifacts/cda-current-draft-upstream-d2dbe-ppend-with-full-restoration/attachments/cda-domain-report-json-a03cd9499e1fbdc0c3873d1a6149265d8a62f820.json",
+    "domainAttachmentSha256": "6b238a9881d40e21505f73129d40fb24e6caddee1047caa7bfc49573f64c1b76",
+    "runPlanPath": "/private/tmp/loom-native-parallel-wave75/run-plan.json",
+    "runPlanSha256": "e8fd86db36de2a8b29fae099409cafa0e7ab0ae25bb6f0a7a77b82e5bac50194"
+  },
+  "rawReportedDimensions": {
+    "usability": "untested",
+    "correctness": "passed",
+    "persistence": "untested",
+    "performance": "untested"
+  },
+  "dimensionInterpretation": "All Builder lifecycle dimensions are untested. The raw report labels correctness passed only for the unchanged source/API integrity check, not for Builder correctness.",
+  "runnerStatus": "skipped",
+  "browserProcess": {
+    "session": 88566,
+    "exitCode": 0
+  }
+}

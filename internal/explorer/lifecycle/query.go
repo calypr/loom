@@ -29,6 +29,9 @@ func (s *Service) Get(ctx context.Context, project, id string) (explorer.Explore
 	if errors.Is(err, explorer.ErrNotFound) {
 		return explorer.ExplorerStateV1{}, notFound("get", "EXPLORER_NOT_FOUND", "Explorer not found", err)
 	}
+	if errors.Is(err, explorer.ErrViewerProjectionIntegrity) {
+		return explorer.ExplorerStateV1{}, internal("get", "EXPLORER_INTEGRITY_FAILURE", "active Explorer revision contains an invalid immutable projection", err)
+	}
 	if err != nil {
 		return explorer.ExplorerStateV1{}, internal("get", "EXPLORER_READ_FAILED", err.Error(), err)
 	}
@@ -107,7 +110,7 @@ func (s *Service) Builder(ctx context.Context, request BuilderRequest) (authorin
 		}
 		return authoringv2.BuilderState{}, err
 	}
-	state := authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, LifecycleState: authoringv2.LifecycleNew, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, Catalog: catalog}
+	state := authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, LifecycleState: authoringv2.LifecycleNew, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, PreviousDraftRevisionID: owner.PreviousDraftRevisionID, Catalog: catalog}
 	var activeWorkspace *authoringv2.Workspace
 	if owner.ActiveRevisionID != "" {
 		active, activeErr := s.store.ActiveRevision(ctx, request.Project, request.ExplorerID)
@@ -125,6 +128,12 @@ func (s *Service) Builder(ctx context.Context, request BuilderRequest) (authorin
 		if decodeErr != nil {
 			return authoringv2.BuilderState{}, conflict("builder", "DRAFT_STATE_INVALID", "the saved Explorer draft is not a valid V2 workspace", map[string]any{"draftVersion": owner.DraftVersion}, decodeErr)
 		}
+		if err := s.migrateLegacyConstructionSteps(ctx, owner, workspace); err != nil {
+			return authoringv2.BuilderState{}, err
+		}
+		state.DraftVersion = owner.DraftVersion
+		state.DraftDigest = owner.DraftDigest
+		state.PreviousDraftRevisionID = owner.PreviousDraftRevisionID
 		state.Workspace, state.LifecycleState = &workspace, authoringv2.LifecycleReady
 	} else if activeWorkspace != nil {
 		state.Workspace, state.LifecycleState = activeWorkspace, authoringv2.LifecycleReady
@@ -133,4 +142,44 @@ func (s *Service) Builder(ctx context.Context, request BuilderRequest) (authorin
 		return authoringv2.BuilderState{}, unavailable("capability", "CAPABILITY_UNAVAILABLE", err.Error(), err)
 	}
 	return state, nil
+}
+
+func (s *Service) migrateLegacyConstructionSteps(ctx context.Context, owner *explorer.Explorer, workspace authoringv2.Workspace) error {
+	if owner == nil || owner.DraftDigest == "" {
+		return nil
+	}
+	hasNilConstructionSteps := false
+	for _, document := range workspace.Documents {
+		if document.Construction != nil && document.Construction.Steps == nil {
+			hasNilConstructionSteps = true
+			break
+		}
+	}
+	if !hasNilConstructionSteps {
+		return nil
+	}
+	currentDigest, err := workspace.Digest()
+	if err != nil {
+		return internal("builder", "DRAFT_DIGEST_FAILED", "the saved Explorer draft could not be digested", err)
+	}
+	if currentDigest == owner.DraftDigest {
+		return nil
+	}
+	legacyDigest, err := workspace.LegacyNilConstructionStepsDigest()
+	if err != nil {
+		return internal("builder", "DRAFT_DIGEST_FAILED", "the saved Explorer draft could not be checked for legacy construction encoding", err)
+	}
+	if legacyDigest == "" || legacyDigest != owner.DraftDigest {
+		return nil
+	}
+	previousDigest := owner.DraftDigest
+	updated, err := s.store.MigrateLegacyConstructionSteps(ctx, owner.Project, owner.ExplorerID, owner.DraftVersion, previousDigest)
+	if errors.Is(err, explorer.ErrDraftConflict) {
+		return conflict("builder", "DRAFT_CONFLICT", "the Explorer draft changed while its construction encoding was being migrated; reload and retry", nil, err)
+	}
+	if err != nil {
+		return internal("builder", "DRAFT_MIGRATION_FAILED", "the saved Explorer draft could not be migrated", err)
+	}
+	*owner = *updated
+	return nil
 }

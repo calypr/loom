@@ -1,0 +1,190 @@
+{
+  "schemaVersion": 1,
+  "epoch": 122,
+  "scenario": "cda-contributor-exists",
+  "case": "contributor-exists",
+  "title": "CDA contributor EXISTS: exact baseline and policy lifecycle",
+  "status": "failed_harness",
+  "runnerStatus": "failed",
+  "coverageStatus": "partial",
+  "durableClosurePath": "docs/verification/playwright/runtime/cda-contributor-exists-epoch122-closure.json",
+  "classification": {
+    "kind": "harness_canonicalization_expectation",
+    "rootAcceptedClassification": "harness canonicalization expectation",
+    "message": "The response candidate contains steps[0].outputs[1].nullable=true, derived from RELATED_EXPAND PRESERVE_PARENT. The submitted candidate omits that policy-derived field; all other compared fields match.",
+    "productFailureEstablished": false,
+    "productLifecycleAccepted": false
+  },
+  "target": {
+    "kind": "owned-cda",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008",
+    "sourceRoot": "$TMP/<path>",
+    "sourceFingerprint": {
+      "sha256": "76c707d48a69f88b19e408b0d49a97962aee11690f0e9b410fb6e7f086cab229",
+      "files": 1553
+    },
+    "apiBuildIdentity": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135"
+  },
+  "requiredChecks": {
+    "total": 16,
+    "passed": 3,
+    "failed": 0,
+    "unrun": 13,
+    "passedNames": [
+      "Independent scoped CDA oracle supplies exact zero, one, and many Patient-to-Observation witnesses",
+      "Initial source preview matches the exact three raw Patient witnesses",
+      "CDA watched source and API build stayed unchanged"
+    ],
+    "failedNames": [],
+    "unrunNames": [
+      "Unfiltered ALL_MATCHES preview equals every exact raw related Observation row",
+      "Cancel preserves the exact source document, population, and rendered rows",
+      "Native Contributor controls select the exact Observation.id EXISTS condition",
+      "Scoped ERROR validation exposes enabled PRESERVE_PARENT and EXCLUDE repair choices",
+      "PRESERVE_PARENT Apply saves the exact EXISTS rule and raw-oracle rows",
+      "PRESERVE_PARENT rows, EXISTS policy, and source binding survive reload",
+      "EXCLUDE edit preserves the EXISTS binding and renders exactly matching raw rows",
+      "EXCLUDE rows, policy, and source binding survive reload",
+      "Cancel removal preserves saved EXCLUDE rows and the exact Builder workspace",
+      "Removal Apply restores exact source construction, columns, rows, and population",
+      "Restored source schema, population, and exact baseline rows survive reload",
+      "Only the scoped ERROR validation and proven cancellation are expected; unrelated diagnostics remain fatal",
+      "All Contributor EXISTS lifecycle actions finish within five seconds"
+    ]
+  },
+  "assertions": {
+    "passed": 10,
+    "failed": 0,
+    "total": 10,
+    "note": "These instrumentation assertions do not override the 3/16 registered required-check result or the failed browser run."
+  },
+  "nativeActions": {
+    "completed": 6,
+    "failed": 0,
+    "workflowStatus": "incomplete"
+  },
+  "dimensions": {
+    "usability": {
+      "status": "partial"
+    },
+    "correctness": {
+      "status": "partial",
+      "scope": "independent raw oracle and initial source preview only"
+    },
+    "persistence": {
+      "status": "untested"
+    },
+    "performance": {
+      "status": "untested"
+    }
+  },
+  "lifecycle": {
+    "status": "failed_harness",
+    "firstFailure": {
+      "type": "assertion",
+      "phase": "all-matching-contributor-baseline-preview",
+      "message": "proposal response candidate differs from the exact submitted candidate",
+      "source": "scripts/verify-ui/workflows/contributor-exists-workflow.mjs:265",
+      "candidateDifference": "steps[0].outputs[1].nullable is absent in the submitted candidate and true in the response; owner inspected the retained request/response evidence, all other compared fields match.",
+      "runnerContext": "/private/tmp/loom-native-parallel-wave122/cda-contributor-exists/attempt1/artifacts/standalone-cda-fields-CDA--7cbad-ists-CDA-contributor-exists/error-context.md"
+    },
+    "completeLifecyclePassed": false,
+    "productProgressClaim": "none; no product lifecycle pass is established",
+    "nextAction": "Reviewed case-local expected candidate normalization, then rerun same complete browser lifecycle"
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "76c707d48a69f88b19e408b0d49a97962aee11690f0e9b410fb6e7f086cab229",
+        "files": 1553
+      },
+      "after": {
+        "sha256": "76c707d48a69f88b19e408b0d49a97962aee11690f0e9b410fb6e7f086cab229",
+        "files": 1553
+      },
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "docsUnchanged": true,
+    "apiBuildIdentity": {
+      "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "unchanged": true
+    },
+    "ownedMountsUnchanged": true,
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave122/health-before.json",
+        "sha256": "0ecb4aeabcf053504924b7bc97105969c62648b147c4bd88c930d8fe57b946eb"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave122/health-after.json",
+        "sha256": "44ba92397ad01f15b75c116829b0bff12dbb353100594be9636c313f6da6048d"
+      }
+    }
+  },
+  "runner": {
+    "status": "failed",
+    "exitCode": 1,
+    "durationMs": 20363,
+    "unexpected": 1,
+    "expected": 0,
+    "results": {
+      "path": "/private/tmp/loom-native-parallel-wave122/cda-contributor-exists/attempt1/results.json",
+      "sha256": "b130142a6db3ca57624495005746254db10ad09c7abab97952b496b4c12f03ce",
+      "sizeBytes": 10666
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave122/cda-contributor-exists/attempt1/runner.log",
+      "sha256": "7584e7a7291562e3a36bcdff7493a78a45702e6406e362091677d63bc27c90f6",
+      "sizeBytes": 3647
+    }
+  },
+  "rootAcceptanceReceipt": {
+    "path": "/private/tmp/loom-native-parallel-wave122/root-acceptance.json",
+    "sha256": "02a673e96e57430130786a7ab9547ef7bb132e9be7cb6a7edd3f8cc04303d387",
+    "status": "INTEGRITY_ACCEPTED_BROWSER_FAILED",
+    "classification": "harness canonicalization expectation",
+    "sourceFreezeReleased": true,
+    "lifecycleAccepted": false
+  },
+  "rawArtifacts": {
+    "failureClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave122/failure-closure.json",
+      "sha256": "7fd3c7f0331c4d2cf657c53248dab385bf63a24bd93a0c3c0865b2a6ae700d8f",
+      "sizeBytes": 6576
+    },
+    "rootAcceptance": {
+      "path": "/private/tmp/loom-native-parallel-wave122/root-acceptance.json",
+      "sha256": "02a673e96e57430130786a7ab9547ef7bb132e9be7cb6a7edd3f8cc04303d387",
+      "sizeBytes": 676
+    },
+    "integrityClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave122/integrity-closure.json",
+      "sha256": "cc73dcb27e2c427091b0e8e81b6e2c201a8b5c864d41ead7afe04a29e69d8126",
+      "sizeBytes": 4500
+    },
+    "lifecycleReport": {
+      "path": "/private/tmp/loom-native-parallel-wave122/cda-contributor-exists/attempt1/artifacts/standalone-cda-fields-CDA--7cbad-ists-CDA-contributor-exists/cda-report.json",
+      "sha256": "cc8449597e3b7365bbd796c16235d8a0cec5bab31b64051e729c5e5d157ef080",
+      "sizeBytes": 91467
+    }
+  },
+  "noProductPassClaim": true
+}
