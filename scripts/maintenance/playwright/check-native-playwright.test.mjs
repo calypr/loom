@@ -9,7 +9,7 @@ import test from 'node:test';
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const requireUI = createRequire(join(repositoryRoot, 'ui/packages/loom-ui/package.json'));
 const ts = requireUI('typescript');
-const checkedCodes = new Set([2304, 2552, 18004]);
+const checkedCodes = new Set([2304, 2552, 18004, 2448]);
 const nodeGlobals = new Set(['process', 'Buffer', 'setImmediate', 'clearImmediate', 'global']);
 const checkerSource = readFileSync(new URL('./check-native-playwright.mjs', import.meta.url), 'utf8');
 
@@ -43,7 +43,7 @@ function unresolvedName(message) {
 }
 
 test('the saved-scope typo emits a gate-covered TS2552, while its explicit binding passes', () => {
-  assert.match(checkerSource, /if \(!\[2304, 2552, 18004\]\.includes\(diagnostic\.code\)\) continue;/);
+  assert.match(checkerSource, /if \(!\[2304, 2552, 18004, 2448\]\.includes\(diagnostic\.code\)\) continue;/);
   const broken = diagnostics(`async function inspect() {
   const rootReread = [];
   return { rawRootReread };
@@ -59,6 +59,40 @@ test('the saved-scope typo emits a gate-covered TS2552, while its explicit bindi
   return { rawRootReread: rootReread };
 }`);
   assert.deepEqual(fixed.filter(item => checkedCodes.has(item.code)), []);
+});
+
+test('the RelatedExpand removal branch rejects the retained directSaved TDZ and accepts its fixed order', () => {
+  assert.match(checkerSource, /if \(!\[2304, 2552, 18004, 2448\]\.includes\(diagnostic\.code\)\) continue;/);
+  const retainedPreimage = diagnostics(`async function editSavedRoute(includeRemovalLifecycle) {
+  if (includeRemovalLifecycle) {
+    const removalBaseline = {
+      ...directSaved,
+      document: structuredClone(directSaved.document),
+    };
+    await previewRelatedRemoval('RelatedExpand removal Cancel', directSaved);
+    return removalBaseline;
+  }
+  const directSaved = savedRelatedState(await apiJSON(target, routeApiRoot, '/builder'), outputId);
+  return directSaved;
+}`);
+  const tdz = retainedPreimage.filter(item => item.code === 2448);
+  assert.ok(tdz.length > 0, JSON.stringify(retainedPreimage));
+  assert.ok(tdz.every(item => /directSaved/.test(item.message)), JSON.stringify(tdz));
+  assert.ok(checkedCodes.has(2448), 'the gate must report the retained TS2448 declaration-order failure');
+
+  const fixed = diagnostics(`async function editSavedRoute(includeRemovalLifecycle) {
+  const directSaved = savedRelatedState(await apiJSON(target, routeApiRoot, '/builder'), outputId);
+  if (includeRemovalLifecycle) {
+    const removalBaseline = {
+      ...directSaved,
+      document: structuredClone(directSaved.document),
+    };
+    await previewRelatedRemoval('RelatedExpand removal Cancel', directSaved);
+    return removalBaseline;
+  }
+  return directSaved;
+}`);
+  assert.deepEqual(fixed.filter(item => item.code === 2448), []);
 });
 
 test('unresolved shorthand is caught and known Node globals stay exempt', () => {

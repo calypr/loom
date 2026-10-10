@@ -116,12 +116,15 @@ basicTest.describe('Native standalone compound coded grouping: basic', () => {
   });
 });
 
-for (const mode of ['single', 'differential']) {
-  cdaCase(`compound-coded-group-${mode}`, `Native standalone compound coded grouping: ${mode}`, () => {
+for (const { mode, caseName } of [
+  { mode: 'single', caseName: 'compound-coded-group-single' },
+  { mode: 'differential', caseName: 'compound-coded-group-differential' },
+]) {
+  cdaCase(caseName, `Native standalone compound coded grouping: ${mode}`, () => {
     cdaTest('selects, edits, removes, and reloads the coded group', async ({ page, cda }) => {
       await verifyCompoundCodedGroup({ page, cda, mode });
     });
-  });
+  }, mode === 'single' ? { cdaScenarioID: 'cda-workspace-combine' } : {});
 }
 
 cdaCase('upstream-edits', 'Native standalone upstream edits', () => {

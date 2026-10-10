@@ -975,6 +975,7 @@ try {
   const patientIDStep = relatedSourceStepFor(relatedBaseline, 'id');
   assert(patientIDStep, 'Applied Patient.id binding is missing.');
   assertDirectPatientRoute(patientIDStep, 'id');
+  let savedPatientID = patientIDStep;
   const savedPatientIDLabel = outputForStep(patientIDStep, patientIDStep.operation.relatedSource.outputColumnId).label;
   assert.equal(savedPatientIDLabel, patientIDLabel, 'Apply changed the proposed Patient.id output label.');
   assert(/patient/i.test(patientIDLabel) && /\bids?\b/i.test(patientIDLabel),
@@ -1033,7 +1034,7 @@ try {
   ], 'apply-Unpivot-with-retained-related-Patient-binding');
   let unpivotBaseline = structuredClone(builder);
   const savedUnpivot = lastStep(unpivotBaseline, 'UNPIVOT');
-  const savedPatientID = relatedSourceStepFor(unpivotBaseline, 'id');
+  savedPatientID = relatedSourceStepFor(unpivotBaseline, 'id');
   assert(savedUnpivot && savedPatientID);
   assertDirectPatientRoute(savedPatientID, 'id');
   assert.deepEqual(savedPatientID.operation.relatedSource.route, patientIDStep.operation.relatedSource.route,

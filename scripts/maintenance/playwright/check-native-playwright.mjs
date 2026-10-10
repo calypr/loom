@@ -95,13 +95,16 @@ try {
   const nodeGlobals = new Set(['process', 'Buffer', 'setImmediate', 'clearImmediate', 'global']);
   const checkBrowserCallbackScope = createBrowserCallbackScopeChecker(ts, program);
   for (const diagnostic of program.getSemanticDiagnostics()) {
-    if (![2304, 2552, 18004].includes(diagnostic.code)) continue;
+    if (![2304, 2552, 18004, 2448].includes(diagnostic.code)) continue;
     const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, ' ');
     const missingName = message.match(/Cannot find name '([^']+)'/)?.[1]
       ?? message.match(/shorthand property '([^']+)'/)?.[1];
     if (missingName && nodeGlobals.has(missingName)) continue;
     const { line } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
-    problems.push(`${diagnostic.file.fileName.slice(root.length + 1)}:${line + 1}: ${message} Restore its import or use the native fixture API.`);
+    const guidance = diagnostic.code === 2448
+      ? 'Move the declaration before its first use.'
+      : 'Restore its import or use the native fixture API.';
+    problems.push(`${diagnostic.file.fileName.slice(root.length + 1)}:${line + 1}: ${message} ${guidance}`);
   }
   for (const path of checkedPaths) {
     const sourceFile = program.getSourceFile(path);
