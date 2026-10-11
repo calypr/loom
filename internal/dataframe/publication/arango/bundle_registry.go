@@ -9,15 +9,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 const (
-	BundleExecutionsCollection = "loom_dataframe_bundle_executions"
-	BundlePointersCollection   = "loom_dataframe_bundle_pointers"
-	BundleLeasesCollection     = "loom_dataframe_bundle_leases"
-	executionCleanupTTL        = 2 * time.Minute
+	BundleExecutionsCollection  = "loom_dataframe_bundle_executions"
+	BundlePointersCollection    = "loom_dataframe_bundle_pointers"
+	BundleLeasesCollection      = "loom_dataframe_bundle_leases"
+	executionCleanupTTL         = 2 * time.Minute
+	executionReadPinMaxAttempts = 4
+	executionReadPinRetryDelay  = 5 * time.Millisecond
 )
 
 func (r *Registry) SaveExecution(ctx context.Context, execution publication.BundleExecution, fenceOwner string) error {
@@ -343,8 +346,7 @@ func (r *Registry) AcquireExecutionReadPin(ctx context.Context, executionID, own
 		return false, publication.ErrExecutionReadPinLost
 	}
 	now := time.Now().UTC()
-	claimed := false
-	err := r.client.QueryRows(ctx, `LET state = DOCUMENT(@@collection, @stateKey)
+	query := `LET state = DOCUMENT(@@collection, @stateKey)
 LET pins = state == null ? [] : NOT_NULL(state.pins, [])
 LET retained = (FOR pin IN pins FILTER pin.expiresAt >= @now AND pin.ownerId != @owner RETURN pin)
 LET cleanup = state == null ? null : state.cleanup
@@ -352,11 +354,36 @@ FILTER cleanup == null OR cleanup.expiresAt < @now
 UPSERT {_key: @stateKey}
 INSERT {_key: @stateKey, executionId: @executionId, pins: APPEND(retained, [{ownerId: @owner, expiresAt: @expiresAt}]), cleanup: null, updatedAt: @now}
 UPDATE {pins: APPEND(retained, [{ownerId: @owner, expiresAt: @expiresAt}]), updatedAt: @now} IN @@collection
-	RETURN {claimed: true}`, r.batchSize, map[string]interface{}{"@collection": ExecutionReadPinsCollection, "stateKey": executionStateKey(executionID), "executionId": executionID, "owner": owner, "expiresAt": expires, "now": now}, func(row map[string]any) error {
-		claimed, _ = row["claimed"].(bool)
+	RETURN {claimed: true}`
+	bindVars := map[string]interface{}{"@collection": ExecutionReadPinsCollection, "stateKey": executionStateKey(executionID), "executionId": executionID, "owner": owner, "expiresAt": expires, "now": now}
+	for attempt := 0; attempt < executionReadPinMaxAttempts; attempt++ {
+		claimed := false
+		err := r.client.QueryRows(ctx, query, r.batchSize, bindVars, func(row map[string]any) error {
+			claimed, _ = row["claimed"].(bool)
+			return nil
+		})
+		if err == nil {
+			return claimed, nil
+		}
+		if !shared.IsArangoErrorWithErrorNum(err, shared.ErrArangoConflict) || attempt == executionReadPinMaxAttempts-1 {
+			return false, err
+		}
+		if err := waitForExecutionReadPinRetry(ctx, time.Duration(attempt+1)*executionReadPinRetryDelay); err != nil {
+			return false, fmt.Errorf("retry execution read pin acquisition: %w", err)
+		}
+	}
+	return false, fmt.Errorf("unreachable execution read pin acquisition state")
+}
+
+func waitForExecutionReadPinRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
 		return nil
-	})
-	return claimed, err
+	}
 }
 
 func (r *Registry) RenewExecutionReadPin(ctx context.Context, executionID, owner string, expires time.Time) (bool, error) {

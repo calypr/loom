@@ -108,3 +108,75 @@ func TestExecutionReadPinArbitrationAgainstArango(t *testing.T) {
 		_ = registry.ReleaseExecutionCleanup(ctx, tracedExecution, tracedCleanup)
 	}
 }
+
+func TestConcurrentExecutionReadPinsAgainstArango(t *testing.T) {
+	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
+	if url == "" || database == "" {
+		t.Skip("set LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	client, err := store.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Bootstrap(ctx, BootstrapSpec()); err != nil {
+		t.Fatal(err)
+	}
+	registry, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executionID := "pin-readers-" + uuid.NewString()
+	owners := []string{"reader-a-" + uuid.NewString(), "reader-b-" + uuid.NewString()}
+	cleanupOwner := "cleanup-" + uuid.NewString()
+	t.Cleanup(func() {
+		for _, owner := range owners {
+			_ = registry.ReleaseExecutionReadPin(context.Background(), executionID, owner)
+		}
+		_ = registry.ReleaseExecutionCleanup(context.Background(), executionID, cleanupOwner)
+	})
+
+	start := make(chan struct{})
+	type outcome struct {
+		owner   string
+		claimed bool
+		err     error
+	}
+	outcomes := make(chan outcome, len(owners))
+	var wg sync.WaitGroup
+	for _, owner := range owners {
+		owner := owner
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			claimed, err := registry.AcquireExecutionReadPin(ctx, executionID, owner, time.Now().UTC().Add(time.Minute))
+			outcomes <- outcome{owner: owner, claimed: claimed, err: err}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(outcomes)
+	for result := range outcomes {
+		if result.err != nil || !result.claimed {
+			t.Fatalf("concurrent AcquireExecutionReadPin(%q) = %v, %v; both readers must be retained", result.owner, result.claimed, result.err)
+		}
+	}
+	for _, owner := range owners {
+		if renewed, err := registry.RenewExecutionReadPin(ctx, executionID, owner, time.Now().UTC().Add(time.Minute)); err != nil || !renewed {
+			t.Fatalf("RenewExecutionReadPin(%q) after concurrent acquisition = %v, %v; each owner must remain persisted", owner, renewed, err)
+		}
+	}
+	if claimed, err := registry.ClaimExecutionCleanup(ctx, executionID, cleanupOwner); err != nil || claimed {
+		t.Fatalf("cleanup crossed two active readers: claimed=%v err=%v", claimed, err)
+	}
+	for _, owner := range owners {
+		if err := registry.ReleaseExecutionReadPin(ctx, executionID, owner); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if claimed, err := registry.ClaimExecutionCleanup(ctx, executionID, cleanupOwner); err != nil || !claimed {
+		t.Fatalf("cleanup did not claim after both readers released: claimed=%v err=%v", claimed, err)
+	}
+}
