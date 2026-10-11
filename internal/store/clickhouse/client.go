@@ -35,8 +35,9 @@ type Client struct {
 }
 
 type Column struct {
-	Name string
-	Type string
+	Name        string
+	Type        string
+	LogicalType string
 }
 
 var identifierRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -268,7 +269,7 @@ func normalizeInsertValue(column Column, value any) (any, error) {
 		if unwrapClickHouseType(itemType, "Nullable") == "JSON" {
 			normalized := make([]*ch.JSON, items.Len())
 			for index := 0; index < items.Len(); index++ {
-				item, err := normalizeInsertValue(Column{Name: column.Name, Type: itemType}, items.Index(index).Interface())
+				item, err := normalizeInsertValue(Column{Name: column.Name, Type: itemType, LogicalType: column.LogicalType}, items.Index(index).Interface())
 				if err != nil {
 					return nil, err
 				}
@@ -285,7 +286,7 @@ func normalizeInsertValue(column Column, value any) (any, error) {
 		}
 		normalized := make([]any, items.Len())
 		for index := 0; index < items.Len(); index++ {
-			item, err := normalizeInsertValue(Column{Name: column.Name, Type: itemType}, items.Index(index).Interface())
+			item, err := normalizeInsertValue(Column{Name: column.Name, Type: itemType, LogicalType: column.LogicalType}, items.Index(index).Interface())
 			if err != nil {
 				return nil, err
 			}
@@ -295,6 +296,20 @@ func normalizeInsertValue(column Column, value any) (any, error) {
 	}
 	if baseType == "JSON" {
 		return normalizeJSONInsertValue(column.Name, value)
+	}
+	if strings.EqualFold(strings.TrimSpace(column.LogicalType), "object") && baseType == "String" {
+		object, ok, err := jsonObjectMap(value)
+		if err != nil {
+			return nil, fmt.Errorf("ClickHouse column %q JSON text object: %w", column.Name, err)
+		}
+		if !ok {
+			return nil, fmt.Errorf("ClickHouse column %q expects a JSON object, got %T", column.Name, value)
+		}
+		encoded, err := json.Marshal(object)
+		if err != nil {
+			return nil, fmt.Errorf("ClickHouse column %q encode JSON text object: %w", column.Name, err)
+		}
+		return string(encoded), nil
 	}
 	text, isString := value.(string)
 	if !isString {

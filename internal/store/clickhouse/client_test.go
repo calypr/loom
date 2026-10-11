@@ -1,6 +1,7 @@
 package clickhouse
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -96,6 +97,37 @@ func TestNormalizeInsertValuePassesNativeJSONValuesThrough(t *testing.T) {
 	items, ok := value.([]*ch.JSON)
 	if !ok || len(items) != 2 {
 		t.Fatalf("native JSON array = %#v", value)
+	}
+}
+
+func TestNormalizeInsertValueEncodesOnlyLogicalObjectsStoredAsText(t *testing.T) {
+	value, err := normalizeInsertValue(Column{Name: "profile", Type: "Nullable(String)", LogicalType: "object"}, map[string]any{
+		"unit":   nil,
+		"nested": map[string]any{"value": nil},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := value, `{"nested":{"value":null},"unit":null}`; got != want {
+		t.Fatalf("JSON text object = %#v, want %s", got, want)
+	}
+
+	value, err = normalizeInsertValue(Column{Name: "owners", Type: "Array(Nullable(String))", LogicalType: "object"}, []any{
+		map[string]any{"id": "first", "unit": nil}, nil, map[string]any{"id": "last"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := value, []any{`{"id":"first","unit":null}`, nil, `{"id":"last"}`}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("JSON text object array = %#v, want %#v", got, want)
+	}
+
+	value, err = normalizeInsertValue(Column{Name: "text", Type: "String", LogicalType: "string"}, `{"unit":null}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := value; got != `{"unit":null}` {
+		t.Fatalf("logical string changed = %#v", got)
 	}
 }
 

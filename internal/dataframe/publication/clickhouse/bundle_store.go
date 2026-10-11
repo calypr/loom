@@ -977,6 +977,7 @@ func toColumns(columns []publication.LogicalColumn) ([]clickhouse.Column, error)
 	for _, column := range columns {
 		kind := strings.ToLower(strings.TrimSpace(column.Kind))
 		columnType := "String"
+		logicalType := ""
 		switch kind {
 		case "boolean":
 			columnType = "Bool"
@@ -993,14 +994,22 @@ func toColumns(columns []publication.LogicalColumn) ([]clickhouse.Column, error)
 		case "code":
 			columnType = "String"
 		case "object":
-			columnType = "JSON"
+			// ClickHouse's native JSON type drops explicit null object paths.
+			// Store logical objects as JSON text so publication preserves the
+			// distinction between an absent key and a key whose value is null.
+			columnType = "String"
+			logicalType = "object"
 		}
 		if column.Repeated {
-			columnType = "Array(" + columnType + ")"
+			if logicalType == "object" {
+				columnType = "Array(Nullable(String))"
+			} else {
+				columnType = "Array(" + columnType + ")"
+			}
 		} else if column.Nullable {
 			columnType = "Nullable(" + columnType + ")"
 		}
-		result = append(result, clickhouse.Column{Name: column.Name, Type: columnType})
+		result = append(result, clickhouse.Column{Name: column.Name, Type: columnType, LogicalType: logicalType})
 	}
 	return result, nil
 }

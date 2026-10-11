@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	publishedreader "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/google/uuid"
 )
 
@@ -187,33 +189,35 @@ func TestClickHouseNativeOWNERRecordsJSONRoundTrip(t *testing.T) {
 	defer client.DropTable(ctx, table)
 	columns := []Column{
 		{Name: "__loom_row_id", Type: "String"},
-		{Name: "OWNER_RECORDS", Type: "Array(JSON)"},
+		{Name: "OWNER_RECORDS", Type: "Array(Nullable(String))", LogicalType: "object"},
 	}
 	if err := client.CreateTable(ctx, table, columns); err != nil {
 		t.Fatal(err)
 	}
 
 	ownerRecordJSON := []string{
-		`[{"source":{"resourceType":"Observation","resourceId":"obs-1","ownerPath":"component","ownerOrdinal":0},"codings":[{"system":"urn:test","code":"quantity"}],"choiceArm":"valueQuantity","logicalType":"decimal","value":111,"values":[111],"unit":null,"status":"VALUE","owner":{"id":"obs-1","detail":{"location":"arm"}}}]`,
+		`[{"source":{"resourceType":"Observation","resourceId":"obs-1","ownerPath":"component","ownerOrdinal":0},"codings":[{"system":"urn:test","code":"quantity"}],"choiceArm":"valueQuantity","logicalType":"decimal","value":111,"values":[111],"unit":null,"status":"VALUE","owner":{"id":"obs-1","detail":{"location":"arm","exact":9007199254740993}}}]`,
 		`[{"source":{"resourceType":"Observation","resourceId":"obs-2","ownerPath":"component","ownerOrdinal":1},"codings":[],"choiceArm":"valueQuantity","logicalType":"decimal","value":null,"values":[],"unit":null,"status":"ABSENT","owner":{"id":"obs-2"}}]`,
 		`[{"source":{"resourceType":"Observation","resourceId":"obs-3","ownerPath":"component","ownerOrdinal":2},"codings":[],"choiceArm":"valueString","logicalType":"string","value":"text","values":["text"],"unit":"mg","status":"VALUE","owner":{"id":"obs-3"}}]`,
 		`[{"source":{"resourceType":"Observation","resourceId":"obs-4","ownerPath":"component","ownerOrdinal":3},"codings":[],"choiceArm":"valueQuantity","logicalType":"decimal","value":null,"values":[null],"unit":null,"status":"ABSENT","owner":{"id":"obs-4"}}]`,
 		`[{"source":{"resourceType":"Observation","resourceId":"obs-5","ownerPath":"component","ownerOrdinal":4},"codings":[],"choiceArm":"valueQuantity","logicalType":"decimal","status":"ABSENT","owner":{"id":"obs-5"}}]`,
 		`[{"source":{"resourceType":"Observation","resourceId":"obs-6","ownerPath":"component","ownerOrdinal":5},"codings":[],"choiceArm":"valueString","logicalType":"string","value":true,"values":[true,"mixed",null,[2,null],{"nested":{"score":0}}],"unit":"mg","status":"VALUE","owner":{"id":"obs-6"}}]`,
+		`[{"source":{"resourceType":"Observation","resourceId":"obs-7a","ownerPath":"component","ownerOrdinal":6},"codings":[],"choiceArm":"valueString","logicalType":"string","unit":null,"status":"ABSENT","owner":{"id":"obs-7a"}},null,{"source":{"resourceType":"Observation","resourceId":"obs-7b","ownerPath":"component","ownerOrdinal":7},"codings":[],"choiceArm":"valueString","logicalType":"string","status":"ABSENT","owner":{"id":"obs-7b"}}]`,
 	}
 	rows := make([]map[string]any, len(ownerRecordJSON))
-	want := make([][]map[string]any, len(ownerRecordJSON))
+	want := make([][]any, len(ownerRecordJSON))
 	for index, encoded := range ownerRecordJSON {
-		var input []map[string]any
-		if err := json.Unmarshal([]byte(encoded), &input); err != nil {
+		var input []any
+		decoder := json.NewDecoder(strings.NewReader(encoded))
+		decoder.UseNumber()
+		if err := decoder.Decode(&input); err != nil {
 			t.Fatalf("decode OWNER_RECORDS fixture %d: %v", index, err)
 		}
-		// ClickHouse JSON omits null-valued object paths. Null array elements
-		// remain meaningful and are retained by this oracle.
-		want[index] = make([]map[string]any, len(input))
-		for recordIndex, record := range input {
-			want[index][recordIndex] = withoutNativeJSONNullObjectFields(record).(map[string]any)
-		}
+		// The materialized OWNER_RECORDS contract distinguishes an explicit
+		// null-valued object path from a path that was absent in the source.
+		// Preserve the exact source values here, including null object fields
+		// and null array elements, so this roundtrip catches either being lost.
+		want[index] = input
 		rows[index] = map[string]any{
 			"__loom_row_id": fmt.Sprintf("%d", index+1),
 			"OWNER_RECORDS": input,
@@ -222,14 +226,19 @@ func TestClickHouseNativeOWNERRecordsJSONRoundTrip(t *testing.T) {
 	if err := client.InsertRows(ctx, table, columns, rows); err != nil {
 		t.Fatal(err)
 	}
-	got, err := client.QueryRowsArgs(ctx, "SELECT `OWNER_RECORDS` FROM `"+table+"` ORDER BY `__loom_row_id`", []string{"OWNER_RECORDS"})
+	materialization := publishedreader.Materialization{
+		ID: "roundtrip", Revision: "roundtrip", PhysicalTable: table,
+		Columns: []publishedreader.Column{{Name: "OWNER_RECORDS", ClickHouse: "Array(Nullable(String))", LogicalType: "object", Repeated: true}},
+	}
+	reader := &publishedreader.Reader{ClickHouse: client}
+	page, err := reader.Page(ctx, materialization, publishedreader.PageRequest{Columns: []string{"OWNER_RECORDS"}, First: len(want), Unrestricted: true})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("read typed OWNER_RECORDS page: %v", err)
 	}
-	if len(got) != len(want) {
-		t.Fatalf("OWNER_RECORDS row count = %d, want %d", len(got), len(want))
+	if len(page.Rows) != len(want) {
+		t.Fatalf("OWNER_RECORDS page row count = %d, want %d", len(page.Rows), len(want))
 	}
-	for index, row := range got {
+	for index, row := range page.Rows {
 		encoded, err := json.Marshal(row["OWNER_RECORDS"])
 		if err != nil {
 			t.Fatalf("encode OWNER_RECORDS result %d: %v", index, err)
@@ -242,26 +251,32 @@ func TestClickHouseNativeOWNERRecordsJSONRoundTrip(t *testing.T) {
 			t.Errorf("OWNER_RECORDS row %d = %s, want %s", index, encoded, wantEncoded)
 		}
 	}
-}
-
-func withoutNativeJSONNullObjectFields(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		result := make(map[string]any, len(typed))
-		for key, field := range typed {
-			if field == nil {
-				continue
-			}
-			result[key] = withoutNativeJSONNullObjectFields(field)
+	var streamed [][]any
+	err = reader.Stream(ctx, materialization, publishedreader.StreamRequest{Columns: []string{"OWNER_RECORDS"}, Unrestricted: true}, func(row map[string]any) error {
+		items, ok := row["OWNER_RECORDS"].([]any)
+		if !ok {
+			return fmt.Errorf("stream OWNER_RECORDS = %T, want array", row["OWNER_RECORDS"])
 		}
-		return result
-	case []any:
-		result := make([]any, len(typed))
-		for index, item := range typed {
-			result[index] = withoutNativeJSONNullObjectFields(item)
+		streamed = append(streamed, items)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("stream typed OWNER_RECORDS: %v", err)
+	}
+	if len(streamed) != len(want) {
+		t.Fatalf("OWNER_RECORDS stream row count = %d, want %d", len(streamed), len(want))
+	}
+	for index, row := range streamed {
+		gotEncoded, err := json.Marshal(row)
+		if err != nil {
+			t.Fatalf("encode streamed OWNER_RECORDS %d: %v", index, err)
 		}
-		return result
-	default:
-		return value
+		wantEncoded, err := json.Marshal(want[index])
+		if err != nil {
+			t.Fatalf("encode OWNER_RECORDS expectation %d: %v", index, err)
+		}
+		if string(gotEncoded) != string(wantEncoded) {
+			t.Errorf("stream OWNER_RECORDS row %d = %s, want %s", index, gotEncoded, wantEncoded)
+		}
 	}
 }

@@ -2,6 +2,7 @@ package published
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -10,18 +11,98 @@ import (
 )
 
 type pageQueryer struct {
-	queries []string
-	args    [][]any
+	queries    []string
+	args       [][]any
+	queryRows  []map[string]any
+	streamRows []map[string]any
 }
 
 func (q *pageQueryer) QueryRowsArgs(_ context.Context, query string, _ []string, args ...any) ([]map[string]any, error) {
 	q.queries = append(q.queries, query)
 	q.args = append(q.args, append([]any(nil), args...))
+	if q.queryRows != nil {
+		return q.queryRows, nil
+	}
 	return []map[string]any{{"__loom_row_id": "2", "__loom_total": int64(2)}}, nil
 }
 
-func (q *pageQueryer) QueryRowsArgsVisit(context.Context, string, []string, func(map[string]any) error, ...any) error {
+func (q *pageQueryer) QueryRowsArgsVisit(_ context.Context, query string, _ []string, visit func(map[string]any) error, args ...any) error {
+	q.queries = append(q.queries, query)
+	q.args = append(q.args, append([]any(nil), args...))
+	for _, row := range q.streamRows {
+		copy := make(map[string]any, len(row))
+		for key, value := range row {
+			copy[key] = value
+		}
+		if err := visit(copy); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func TestReaderPageAndStreamDecodeOnlyJSONTextObjects(t *testing.T) {
+	columns := []Column{
+		{Name: "profile", ClickHouse: "Nullable(String)", LogicalType: "object", Nullable: true},
+		{Name: "owners", ClickHouse: "Array(Nullable(String))", LogicalType: "object", Repeated: true},
+		{Name: "legacy", ClickHouse: "Array(JSON)", LogicalType: "object", Repeated: true},
+		{Name: "text", ClickHouse: "String", LogicalType: "string"},
+	}
+	raw := map[string]any{
+		"__loom_row_id": "row-1", "__loom_total": int64(1),
+		"profile": `{"unit":null,"nested":{"value":null,"sequence":9007199254740993}}`,
+		"owners":  []any{`{"id":"first","unit":null}`, nil, `{"id":"last"}`},
+		"legacy":  []any{map[string]any{"unit": nil}},
+		"text":    `{"unit":null}`,
+	}
+	materialization := Materialization{PhysicalTable: "published_observation", Columns: columns}
+	queryer := &pageQueryer{queryRows: []map[string]any{raw}}
+	page, err := (&Reader{ClickHouse: queryer}).Page(context.Background(), materialization, PageRequest{Unrestricted: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProfile := map[string]any{"unit": nil, "nested": map[string]any{"value": nil, "sequence": json.Number("9007199254740993")}}
+	wantOwners := []any{map[string]any{"id": "first", "unit": nil}, nil, map[string]any{"id": "last"}}
+	wantLegacy := []any{map[string]any{"unit": nil}}
+	if len(page.Rows) != 1 || !reflect.DeepEqual(page.Rows[0]["profile"], wantProfile) || !reflect.DeepEqual(page.Rows[0]["owners"], wantOwners) {
+		t.Fatalf("page decoded objects = %#v", page.Rows)
+	}
+	if !reflect.DeepEqual(page.Rows[0]["legacy"], wantLegacy) || page.Rows[0]["text"] != `{"unit":null}` {
+		t.Fatalf("page changed legacy JSON or scalar string = %#v", page.Rows[0])
+	}
+
+	streamRows := []map[string]any{{
+		"__loom_row_id": "row-1",
+		"profile":       `{"unit":null,"nested":{"value":null,"sequence":9007199254740993}}`,
+		"owners":        []any{`{"id":"first","unit":null}`, nil, `{"id":"last"}`},
+		"legacy":        []any{map[string]any{"unit": nil}},
+		"text":          `{"unit":null}`,
+	}}
+	queryer = &pageQueryer{streamRows: streamRows}
+	var streamed []map[string]any
+	err = (&Reader{ClickHouse: queryer}).Stream(context.Background(), materialization, StreamRequest{Unrestricted: true}, func(row map[string]any) error {
+		streamed = append(streamed, row)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(streamed) != 1 || !reflect.DeepEqual(streamed[0]["profile"], wantProfile) || !reflect.DeepEqual(streamed[0]["owners"], wantOwners) {
+		t.Fatalf("stream decoded objects = %#v", streamed)
+	}
+	if !reflect.DeepEqual(streamed[0]["legacy"], wantLegacy) || streamed[0]["text"] != `{"unit":null}` {
+		t.Fatalf("stream changed legacy JSON or scalar string = %#v", streamed[0])
+	}
+}
+
+func TestDecodeJSONTextObjectColumnsRejectsMalformedText(t *testing.T) {
+	columns := []Column{{Name: "owners", ClickHouse: "Array(Nullable(String))", LogicalType: "object", Repeated: true}}
+	for _, malformed := range []string{`not-json`, `{"id":"valid"} trailing`} {
+		row := map[string]any{"owners": []any{malformed}}
+		if err := decodeJSONTextObjectColumns(row, columns); err == nil || !strings.Contains(err.Error(), "item 0") {
+			t.Errorf("malformed object array value %q error = %v", malformed, err)
+		}
+	}
 }
 
 func TestPageCursorAddsWhereForUnrestrictedTable(t *testing.T) {

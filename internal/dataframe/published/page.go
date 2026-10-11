@@ -2,7 +2,9 @@ package published
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -113,6 +115,11 @@ func (r *Reader) Page(ctx context.Context, materialization Materialization, req 
 	if err != nil {
 		return Page{}, backendCallError(err)
 	}
+	for _, row := range rows {
+		if err := decodeJSONTextObjectColumns(row, materialization.Columns); err != nil {
+			return Page{}, err
+		}
+	}
 	var total int64
 	if len(rows) > 0 {
 		total, err = numericCount(rows[0]["__loom_total"])
@@ -212,6 +219,9 @@ func (r *Reader) Stream(ctx context.Context, materialization Materialization, re
 		query += " ORDER BY `__loom_row_id` ASC"
 	}
 	if err := r.ClickHouse.QueryRowsArgsVisit(ctx, query, queryColumns, func(row map[string]any) error {
+		if err := decodeJSONTextObjectColumns(row, materialization.Columns); err != nil {
+			return err
+		}
 		if !req.IncludeRowIdentity {
 			delete(row, "__loom_row_id")
 		}
@@ -225,6 +235,90 @@ func (r *Reader) Stream(ctx context.Context, materialization Materialization, re
 		return backendCallError(err)
 	}
 	return nil
+}
+
+// decodeJSONTextObjectColumns decodes only logical objects stored in the new
+// JSON-text physical representation. Legacy JSON columns still arrive from
+// ClickHouse as maps and deliberately bypass this path.
+func decodeJSONTextObjectColumns(row map[string]any, columns []Column) error {
+	for _, column := range columns {
+		if strings.ToLower(strings.TrimSpace(column.LogicalType)) != "object" {
+			continue
+		}
+		value, present := row[column.Name]
+		if !present || value == nil {
+			continue
+		}
+		if column.Repeated {
+			if !isJSONTextObjectArrayType(column.ClickHouse) {
+				continue
+			}
+			items, ok := value.([]any)
+			if !ok {
+				return fmt.Errorf("published object column %q expected an array of JSON text, got %T", column.Name, value)
+			}
+			decoded := make([]any, len(items))
+			for index, item := range items {
+				if item == nil {
+					continue
+				}
+				object, err := decodeJSONTextObject(item)
+				if err != nil {
+					return fmt.Errorf("published object column %q item %d: %w", column.Name, index, err)
+				}
+				decoded[index] = object
+			}
+			row[column.Name] = decoded
+			continue
+		}
+		if !isJSONTextObjectScalarType(column.ClickHouse) {
+			continue
+		}
+		object, err := decodeJSONTextObject(value)
+		if err != nil {
+			return fmt.Errorf("published object column %q: %w", column.Name, err)
+		}
+		row[column.Name] = object
+	}
+	return nil
+}
+
+func isJSONTextObjectScalarType(clickHouseType string) bool {
+	typ := strings.TrimSpace(clickHouseType)
+	return typ == "String" || typ == "Nullable(String)"
+}
+
+func isJSONTextObjectArrayType(clickHouseType string) bool {
+	typ := strings.TrimSpace(clickHouseType)
+	return typ == "Array(String)" || typ == "Array(Nullable(String))"
+}
+
+func decodeJSONTextObject(value any) (map[string]any, error) {
+	text, ok := value.(string)
+	if !ok {
+		return nil, fmt.Errorf("expected JSON text, got %T", value)
+	}
+	decoder := json.NewDecoder(strings.NewReader(text))
+	decoder.UseNumber()
+	var decoded any
+	if err := decoder.Decode(&decoded); err != nil {
+		return nil, fmt.Errorf("decode JSON text: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("decode JSON text: unexpected trailing JSON value")
+		}
+		return nil, fmt.Errorf("decode JSON text: %w", err)
+	}
+	if decoded == nil {
+		return nil, nil
+	}
+	object, ok := decoded.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("expected JSON object, got %T", decoded)
+	}
+	return object, nil
 }
 
 func readerColumns(source []Column, requested []string, sortBy *Sort) ([]string, map[string]struct{}, error) {
