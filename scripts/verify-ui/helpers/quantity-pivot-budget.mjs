@@ -1,5 +1,8 @@
 export const DEFAULT_ACTION_TO_RENDER_BUDGET_MS = 5_000;
-export const FULL_POPULATION_PIVOT_ACTION_TO_RENDER_BUDGET_MS = 10_000;
+export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+export const FULL_POPULATION_PIVOT_ACTION_TO_RENDER_BUDGET_MS = 30_000;
+export const FULL_POPULATION_PIVOT_REQUEST_TIMEOUT_MS = 35_000;
+export const FULL_POPULATION_PIVOT_OBSERVER_TIMEOUT_MS = 35_000;
 
 const fullPopulationCases = new Set([
   'full-population-discovery',
@@ -15,6 +18,26 @@ export function actionToRenderBudgetMs({ scenarioID, caseName }) {
 
 export function actionToRenderBudgetMsForReport(report) {
   return actionToRenderBudgetMs({ scenarioID: report?.scenario, caseName: report?.case });
+}
+
+export function requestTimeoutMs(identity) {
+  return actionToRenderBudgetMs(identity) > DEFAULT_ACTION_TO_RENDER_BUDGET_MS
+    ? FULL_POPULATION_PIVOT_REQUEST_TIMEOUT_MS
+    : DEFAULT_REQUEST_TIMEOUT_MS;
+}
+
+export function observerTimeoutMs(identity) {
+  return actionToRenderBudgetMs(identity) > DEFAULT_ACTION_TO_RENDER_BUDGET_MS
+    ? FULL_POPULATION_PIVOT_OBSERVER_TIMEOUT_MS
+    : DEFAULT_ACTION_TO_RENDER_BUDGET_MS;
+}
+
+export function requestTimeoutMsForReport(report) {
+  return requestTimeoutMs({ scenarioID: report?.scenario, caseName: report?.case });
+}
+
+export function observerTimeoutMsForReport(report) {
+  return observerTimeoutMs({ scenarioID: report?.scenario, caseName: report?.case });
 }
 
 export async function waitForPivotObservable({ page, fallbackWait, predicate, argument, timeoutMs, budgetMs }) {

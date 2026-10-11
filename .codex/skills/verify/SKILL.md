@@ -363,17 +363,18 @@ with the invocation and evidence path. Distinguish passed, failed, untested,
 skipped, and unreachable. Capture JavaScript exceptions, failed module loads,
 unexpected 4xx/5xx, dead controls, clicks, and action-to-render time including
 discovery and compilation. More than five seconds on CDA fails performance by
-default. The current user-approved exception is limited to full-population root
-quantity Pivot and related text-only quantity Pivot: category discovery and
-native Pivot action-to-render checkpoints may take up to ten seconds. The
-category scanner has a ten-second server deadline; construction proposal
-preview already uses the existing ten-second preview runtime, and the browser
-request transport allows thirty seconds. The bounded Pivot fixture and every
-other operation retain the five-second acceptance budget. This exception
-changes the threshold, not the evidence: real-CDA Pivot performance remains
-unverified until a fresh registered native run completes within ten seconds
-and passes its independent correctness, lifecycle, and source/API integrity
-checks. Historical reports and synthetic profiles do not establish that pass.
+default. The user approved deferring Pivot optimization on 2026-10-11 and increasing
+Pivot request timeouts. Pivot requests may use a bounded thirty-second server
+and query deadline, with browser transport headroom. The full-population root
+quantity Pivot and related text-only quantity Pivot native cases may use the
+thirty-second allowance. Keep bounded fixtures and non-Pivot operations at their
+existing five-second action-to-render budgets and retain non-Pivot server limits.
+Use the implemented budget helper and registry contracts as the numeric source
+of truth. Longer deadlines do not prove a speedup or correctness: rerun the
+same affected native lifecycle with its independent row oracle, successful writes,
+persistence, and source/API integrity checks. Historical reports and synthetic
+profiles do not establish that pass. Do not resume query optimization for this
+variant unless the user asks.
 Expected validation errors must offer an understandable repair path;
 INTERNAL_ERROR always fails. Record incidental asset errors explicitly.
 

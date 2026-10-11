@@ -24,6 +24,8 @@ import {
 } from '../helpers/related-quantity-pivot-oracle.mjs';
 import {
   actionToRenderBudgetMsForReport,
+  observerTimeoutMsForReport,
+  requestTimeoutMsForReport,
   DEFAULT_ACTION_TO_RENDER_BUDGET_MS,
   recordPivotActionToRender,
   waitForPivotObservable,
@@ -209,6 +211,8 @@ if (retainedDiscoveryConfig !== undefined) {
   }
 }
 const registeredActionToRenderBudgetMs = actionToRenderBudgetMsForReport(cda.report);
+const registeredRequestTimeoutMs = requestTimeoutMsForReport(cda.report);
+const registeredObserverTimeoutMs = observerTimeoutMsForReport(cda.report);
 let activePivotActionToRenderBudgetMs = DEFAULT_ACTION_TO_RENDER_BUDGET_MS;
 const project = cda.project;
 const explorer = cda.explorer;
@@ -284,7 +288,7 @@ const correlateAuthoringRequests = requests => {
     }
   }
 };
-const waitForAuthoringResponse = (endpoint, fromIndex, predicate = () => true, timeoutMs = 5000) =>
+const waitForAuthoringResponse = (endpoint, fromIndex, predicate = () => true, timeoutMs = registeredObserverTimeoutMs) =>
   browserRequestCapture.waitForResponse(entry => entry.path.endsWith(`/${endpoint}`) && predicate(entry), { fromIndex, timeoutMs });
 const browserCommands = (fromIndex = 0) => authoringRequests(fromIndex).filter(request => request.endpoint === 'commands');
 const captureFailureDOM = () => inspectPage(page, () => {
@@ -319,7 +323,7 @@ return (() => {
 const api = async (path, body) => {
   const response = await fetch(apiOrigin + path, {
     method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', 'X-Request-ID': `quantity-category-browser-${randomUUID()}` },
-    ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(30000),
+    ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(registeredRequestTimeoutMs),
   });
   const value = await response.json();
   report.requests.push({ path, body, status: response.status, response: value });
@@ -345,7 +349,7 @@ const p=document.querySelector('[data-testid="construction-proposal-panel"]');re
   const permitted = new Set(expectedRows.map(row=>JSON.stringify(row)));
   for (const row of result.rows) assert(permitted.has(JSON.stringify(row)), 'Preview row must match an independent CDA relationship witness: '+JSON.stringify(row));
   const durationMs = Date.now() - start;
-  assert(durationMs <= 5000, `${name} took ${durationMs}ms`);
+  assert(durationMs <= activePivotActionToRenderBudgetMs, `${name} took ${durationMs}ms (budget ${activePivotActionToRenderBudgetMs}ms)`);
   report.cases.push({ name, durationMs, result });
 };
 const recordRender = (name, start) => {
@@ -488,10 +492,10 @@ const assertExactRows = async ({ name, columns, rows, rowLimit = 1000, panel = f
   const ready = panel
     ? ({ prefix, rowSelector, rowCount }) => Boolean(document.querySelector(`${prefix} table`)) && document.querySelectorAll(`${prefix} ${rowSelector}`).length === rowCount
     : ({ prefix, rowCount }) => document.querySelector(`${prefix} [role="table"]`)?.getAttribute('aria-rowcount') === String(rowCount + 1) && !document.body.innerText.includes('Loading your table…');
-  await waitForObservable(page, ready, { prefix, rowSelector, rowCount: Math.min(rowLimit, rows.length) }, 10000);
+  await waitForObservable(page, ready, { prefix, rowSelector, rowCount: Math.min(rowLimit, rows.length) }, activePivotActionToRenderBudgetMs);
   const actual = panel
     ? await inspectPage(page, ({ prefix, rowSelector, cellSelector }) => { const root=document.querySelector(prefix); return {headers:[...root.querySelectorAll('th,[role="columnheader"]')].map(cell=>cell.innerText.trim().split('\n')[0]),rows:[...root.querySelectorAll(rowSelector)].map(row=>[...row.querySelectorAll(cellSelector)].map(cell=>cell.innerText.trim()))}; }, { prefix, rowSelector, cellSelector })
-    : await collectPreviewRows(page, { containerSelector: prefix, tableSelector: '[role="table"]', rowSelector, cellSelector });
+    : await collectPreviewRows(page, { containerSelector: prefix, tableSelector: '[role="table"]', rowSelector, cellSelector, timeout: activePivotActionToRenderBudgetMs });
   if (!panel) actual.rows = actual.rows.map(row => row.values);
   assert.deepEqual(actual.headers.map(header => header.toLowerCase()), columns.map(column => column.label.trim().toLowerCase()), `${name} column labels must match the native Pivot preview`);
   const expectedCells = rows.map(row => columns.map(column => {
@@ -501,7 +505,7 @@ const assertExactRows = async ({ name, columns, rows, rowLimit = 1000, panel = f
   assert.equal(actual.rows.length, Math.min(rowLimit, rows.length), `${name} must render every row allowed by the selected preview limit`);
   assert.deepEqual(actual.rows.map(row => JSON.stringify(row)).sort(), expectedCells.map(row => JSON.stringify(row)).sort(), `${name} must match every independent CDA row and value`);
   const durationMs = Date.now() - start;
-  assert(durationMs <= 5000, `${name} exact row check took ${durationMs}ms`);
+  assert(durationMs <= activePivotActionToRenderBudgetMs, `${name} exact row check took ${durationMs}ms (budget ${activePivotActionToRenderBudgetMs}ms)`);
   report.cases.push({ name, durationMs, rowCount: rows.length, visibleRowCount: actual.rows.length, columns });
   return actual;
 };

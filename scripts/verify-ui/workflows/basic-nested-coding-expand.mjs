@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { browserURL } from './builder-url.mjs';
 import { configureNativePage } from '../helpers/playwright-authoring-page.mjs';
 import { buildBasicNestedCodingExpandOracle } from '../helpers/basic-nested-coding-expand-oracle.mjs';
+import { fixtureProjectExplorerCollectionPath } from '../helpers/fixture-context.mjs';
 
 const ACTION_TIMEOUT_MS = 5_000;
 const sourceIDPath = 'id';
@@ -226,7 +227,9 @@ export const basicNestedCodingExpandWorkflow = async ({ page, action, check, net
   }, { rows, proposal, proposalId }, { timeout });
 
   const project = target.fixtureProject;
-  const explorerPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
+  const browserOrigin = new URL(target.uiUrl).origin;
+  const browserExplorerCollectionPath = fixtureProjectExplorerCollectionPath(project);
+  const directAPIExplorerCollectionPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
   await page.goto(browserURL(target, project, target.bootstrapExplorerId, 'builder'), {
     waitUntil: 'domcontentloaded', timeout: ACTION_TIMEOUT_MS,
   });
@@ -238,7 +241,8 @@ export const basicNestedCodingExpandWorkflow = async ({ page, action, check, net
   const explorerTitle = `Verify ${project.slice(-10)} nested coding EXPAND`;
   await fill('name the disposable nested-coding Explorer', page.locator('#new-explorer-name'), explorerTitle);
   const createdExplorerResponse = observeResponse(networkObserver.waitForResponse(entry =>
-    entry.method === 'POST' && entry.path === explorerPath && entry.request?.title === explorerTitle,
+    entry.origin === browserOrigin && entry.method === 'POST' &&
+      entry.path === browserExplorerCollectionPath && entry.request?.title === explorerTitle,
   { fromIndex: networkObserver.requests.length, timeoutMs: ACTION_TIMEOUT_MS }));
   const createExplorerStartedAt = performance.now();
   await click('create the fresh nested-coding Explorer', page.getByRole('button', { name: 'Create blank', exact: true }), async () => {
@@ -263,7 +267,11 @@ export const basicNestedCodingExpandWorkflow = async ({ page, action, check, net
     await page.getByTestId('construction-action-add-columns').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
   });
 
-  const authoringBase = `${explorerPath}/${encodeURIComponent(explorer)}/authoring/v2`;
+  const browserAuthoringBase = `${browserExplorerCollectionPath}/${encodeURIComponent(explorer)}/authoring/v2`;
+  const isOwnedBrowserAuthoringRequest = (entry, endpoint, method = 'POST') =>
+    entry.origin === browserOrigin && entry.method === method &&
+    entry.path === `${browserAuthoringBase}/${endpoint}`;
+  const authoringBase = `${directAPIExplorerCollectionPath}/${encodeURIComponent(explorer)}/authoring/v2`;
   const readBuilder = async (timeout = ACTION_TIMEOUT_MS) => {
     const response = await page.context().request.get(`${target.apiUrl}${authoringBase}/builder`, { timeout });
     const body = await response.json();
@@ -328,8 +336,8 @@ export const basicNestedCodingExpandWorkflow = async ({ page, action, check, net
 
       const addFieldsIndex = networkObserver.requests.length;
       const addFieldsResponse = observeResponse(networkObserver.waitForResponse(entry => {
-        if (entry.index < addFieldsIndex || entry.method !== 'POST' ||
-          !entry.path.endsWith('/construction-choice-proposals')) return false;
+        if (entry.index < addFieldsIndex ||
+          !isOwnedBrowserAuthoringRequest(entry, 'construction-choice-proposals')) return false;
         const request = entry.request;
         const choices = request?.constructionChoices;
         return request?.outputId === outputId &&
@@ -427,7 +435,7 @@ export const basicNestedCodingExpandWorkflow = async ({ page, action, check, net
         expandCapability: entry.response?.selectedStage?.capabilities?.find(capability => capability.kind === 'EXPAND'),
       });
       const latestFor = suffix => networkObserver.requests
-        .filter(entry => entry.method === 'POST' && entry.path.endsWith(suffix) && currentDraft(entry))
+        .filter(entry => isOwnedBrowserAuthoringRequest(entry, suffix.replace(/^\//, '')) && currentDraft(entry))
         .at(-1);
       const nativeState = await expand.evaluate(button => ({
         disabled: button.disabled,
@@ -469,7 +477,7 @@ export const basicNestedCodingExpandWorkflow = async ({ page, action, check, net
       () => waitVisible(page.locator('[data-testid="construction-reshape-expand"]')));
   };
   const waitForExpandResponse = (fromIndex, expected) => networkObserver.waitForResponse(entry => {
-    if (entry.index < fromIndex || entry.method !== 'POST' || !entry.path.endsWith('/construction-proposals')) return false;
+    if (entry.index < fromIndex || !isOwnedBrowserAuthoringRequest(entry, 'construction-proposals')) return false;
     const request = entry.request;
     const step = request?.candidateConstruction?.steps?.findLast(candidate => candidate.operation?.kind === 'EXPAND');
     const expand = step?.operation?.expand;

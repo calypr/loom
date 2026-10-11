@@ -14,7 +14,7 @@ import { captureApiBuildFreeze, checkContainerApiBuildStamp } from '../helpers/a
 import { fixtureSourceDigest } from '../../loom-dev.mjs';
 import { browserURL } from './builder-url.mjs';
 import { scenarioCaseFor } from '../registry.mjs';
-import { actionToRenderBudgetMs } from '../helpers/quantity-pivot-budget.mjs';
+import { actionToRenderBudgetMs, observerTimeoutMs, requestTimeoutMs } from '../helpers/quantity-pivot-budget.mjs';
 
 export function readProposalPanelSnapshot() {
   const panel = document.querySelector('[data-testid="construction-proposal-preview"]');
@@ -98,6 +98,8 @@ export async function rootQuantityPivotWorkflow(page, nativeReport, action, chec
   const reportCase = isFixture ? 'fixture-lifecycle'
     : mode === 'full-population-lifecycle' ? 'full-population-lifecycle' : 'full-population-discovery';
   const actionRenderBudgetMs = actionToRenderBudgetMs({ scenarioID: 'root-quantity-pivot', caseName: reportCase });
+  const requestTimeoutBudgetMs = requestTimeoutMs({ scenarioID: 'root-quantity-pivot', caseName: reportCase });
+  const observerTimeoutBudgetMs = observerTimeoutMs({ scenarioID: 'root-quantity-pivot', caseName: reportCase });
   const requiredChecks = scenarioCaseFor('root-quantity-pivot', reportCase).requiredChecks;
   const sourceRoot = target.sourceRoot ?? env.LOOM_SOURCE_FREEZE_ROOT ?? fileURLToPath(new URL('../../..', import.meta.url));
   const fixtureDirectory = env.LOOM_ROOT_QUANTITY_FIXTURE_DIR ?? resolve(sourceRoot, 'testdata/root-quantity-pivot-fixture');
@@ -152,7 +154,7 @@ const inspectPage = (page, inspect, argument) => page.evaluate(inspect, argument
 const waitForObservable = (page, predicate, argumentOrTimeout, _timeoutArgument = 5000) => {
   const argument = typeof argumentOrTimeout === 'number' ? undefined : argumentOrTimeout;
   // This workflow is Pivot-only; full-population cases use the approved
-  // 10-second action-to-render ceiling, while the fixture case remains 5s.
+  // 30-second full-population Pivot ceiling; the fixture remains 5s.
   const requestedTimeout = typeof argumentOrTimeout === 'number' ? argumentOrTimeout : _timeoutArgument;
   const timeout = isFullCda ? actionRenderBudgetMs : requestedTimeout;
   return page.waitForFunction(predicate, argument, { timeout }).then(() => undefined);
@@ -195,7 +197,7 @@ const recordRequirement = (name, condition, evidence = {}, dimension = 'correctn
   return check(dimension, name, passed, evidence);
 };
 const requestCheckpoint = () => browserRequestCapture?.requests.length ?? 0;
-const waitForAuthoringEntry = async (fromIndex, endpoint, timeoutMs = actionRenderBudgetMs) => {
+const waitForAuthoringEntry = async (fromIndex, endpoint, timeoutMs = observerTimeoutBudgetMs) => {
   const entry = await browserRequestCapture.waitForResponse(
     request => request.path.split('/').at(-1) === endpoint && request.method === 'POST',
     { fromIndex, timeoutMs },
@@ -203,14 +205,14 @@ const waitForAuthoringEntry = async (fromIndex, endpoint, timeoutMs = actionRend
   syncAuthoringRequests();
   return entry;
 };
-const waitForAuthoringRequest = async (fromIndex, endpoint, timeoutMs = actionRenderBudgetMs) =>
+const waitForAuthoringRequest = async (fromIndex, endpoint, timeoutMs = observerTimeoutBudgetMs) =>
   authoringRequestsFromNative([await waitForAuthoringEntry(fromIndex, endpoint, timeoutMs)])[0];
-const api = async (path, body, timeoutMs = 30000) => {
+const api = async (path, body, timeoutMs = requestTimeoutBudgetMs) => {
   const response = await fetch(apiOrigin + path, {
     method: body ? 'POST' : 'GET',
     headers: { 'Content-Type': 'application/json', 'X-Request-ID': `root-quantity-category-${randomUUID()}` },
     ...(body ? { body: JSON.stringify(body) } : {}),
-    signal: AbortSignal.timeout(Math.max(1, Math.min(30000, Math.floor(timeoutMs)))),
+    signal: AbortSignal.timeout(Math.max(1, Math.min(requestTimeoutBudgetMs, Math.floor(timeoutMs)))),
   });
   const value = await response.json();
   report.requests.push({ path, body, status: response.status, response: value });
@@ -492,7 +494,7 @@ const waitForProposal = async (requestOffset, previousProposalId, name) => {
     const panel=document.querySelector('[data-testid="construction-proposal-panel"]');
     return panel?.dataset.proposalStatus==='ready'&&Boolean(panel.dataset.proposalId)&&panel.dataset.proposalId!==previousProposalId;
   }, { previousProposalId: previousProposalId ?? '' }, 15000);
-  const request = await waitForAuthoringRequest(requestOffset, 'construction-proposals', actionRenderBudgetMs);
+  const request = await waitForAuthoringRequest(requestOffset, 'construction-proposals', observerTimeoutBudgetMs);
   assert(request, `${name} must issue a native construction proposal`);
   assert.equal(request.status, 200, `${name} proposal failed: ${JSON.stringify(request.response)}`);
   assert(request.response && typeof request.response === 'object', `${name} proposal response must be readable`);
@@ -612,7 +614,7 @@ const setPivotDuplicatePolicy = async (policy, requestOffset, name) => {
   const startedAt = Date.now();
   await clickNative(page, '[data-testid="construction-reshape-pivot-advanced"] > summary');
   if (policy === 'SUM') {
-    const rejectionEntry = await waitForAuthoringEntry(requestOffset, 'construction-proposals', actionRenderBudgetMs);
+    const rejectionEntry = await waitForAuthoringEntry(requestOffset, 'construction-proposals', observerTimeoutBudgetMs);
     const rejection = authoringRequestsFromNative([rejectionEntry])[0];
     measure(`${name} expected duplicate validation to render`, startedAt);
     assert.equal(rejection.status, 422, `${name} must produce the exact expected HTTP 422 validation: ${JSON.stringify(rejection.response)}`);
@@ -845,7 +847,7 @@ return document.querySelector('[data-testid="construction-proposal-panel"]')?.da
     const panel=document.querySelector('[data-testid="construction-proposal-panel"]');
     return panel?.dataset.proposalStatus==='ready'&&panel.dataset.proposalId!==previousProposalId&&[...document.querySelectorAll('[data-testid="construction-proposal-preview"] th')].some(cell=>cell.innerText.includes('d maximum'));
   }, { previousProposalId: priorEditProposal }, 15000);
-  const editRequest = await waitForAuthoringRequest(editRequestOffset, 'construction-proposals', actionRenderBudgetMs);
+  const editRequest = await waitForAuthoringRequest(editRequestOffset, 'construction-proposals', observerTimeoutBudgetMs);
   const editPivot = expectedPivot(editRequest, oracle, 'MAX', {
     [applyPivot.categories.find(category => pivotIdentity(category.key) === JSON.stringify({ kind: 'STRING', string: 'd' })).output.name]: 'd maximum',
   });
@@ -898,7 +900,7 @@ return [...document.querySelectorAll('[data-testid^="construction-history-step-"
   await clickNative(page, '[data-testid^="construction-remove-step-"]');
   await waitForObservable(page, () => Boolean(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'), 5000);
   const removePreviewRenderedAt = Date.now();
-  const removeRequest = await waitForAuthoringRequest(removeRequestOffset, 'construction-proposals', actionRenderBudgetMs);
+  const removeRequest = await waitForAuthoringRequest(removeRequestOffset, 'construction-proposals', observerTimeoutBudgetMs);
   assert.equal(removeRequest?.status, 200, 'Removing the saved quantity Pivot must produce a native proposal');
   const removePreview = removeRequest.response.preview;
   assert(removePreview, 'Pivot removal proposal must include source rows');
@@ -1127,7 +1129,7 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
   const headingInput = pivotOutputLabelLocator(page, originalHeading);
   await action('fill Pivot category label', headingInput, locator => locator.fill(editedHeading), { editable: true });
   await waitForBrowser(page, `(()=>{const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return panel?.dataset.proposalStatus==='ready'&&panel.dataset.proposalId!==${JSON.stringify(priorEditProposal)}&&[...document.querySelectorAll('[data-testid="construction-proposal-preview"] th')].some(cell=>cell.innerText.includes(${JSON.stringify(editedHeading)}))})()`, 15000);
-  const editRequest = await waitForAuthoringRequest(editRequestOffset, 'construction-proposals', actionRenderBudgetMs);
+  const editRequest = await waitForAuthoringRequest(editRequestOffset, 'construction-proposals', observerTimeoutBudgetMs);
   assert(editRequest, 'Full CDA Pivot edit must issue a native construction proposal');
   assert.equal(editRequest.status, 200, `Full CDA Pivot edit proposal failed: ${JSON.stringify(editRequest.response)}`);
   assert.equal(editRequest.pathname, `${base}/construction-proposals`);
@@ -1178,7 +1180,7 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
   await click(page, '[data-testid^="construction-remove-step-"]');
   await waitForBrowser(page, `document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'`, 10000);
   const removePreviewRenderedAt = Date.now();
-  const removeRequest = await waitForAuthoringRequest(removeRequestOffset, 'construction-proposals', actionRenderBudgetMs);
+  const removeRequest = await waitForAuthoringRequest(removeRequestOffset, 'construction-proposals', observerTimeoutBudgetMs);
   assert.equal(removeRequest?.status, 200, 'Removing the saved full CDA Pivot must produce a native proposal');
   assert.equal(removeRequest.pathname, `${base}/construction-proposals`);
   assert.equal(removeRequest.request?.outputId, outputId);
@@ -1239,7 +1241,7 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
   await click(page, `[data-testid="construction-table-${outputId}"]`);
   await waitForBrowser(page, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false`, 10000);
   await waitForBrowser(page, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='${Math.min(25, oracle.sourceRows) + 1}'&&!document.body.innerText.includes('Loading your table…')`, 10000);
-  await waitForAuthoringRequest(finalReloadNativeOffset, 'preview', actionRenderBudgetMs);
+  await waitForAuthoringRequest(finalReloadNativeOffset, 'preview', observerTimeoutBudgetMs);
   const reloadPreviewContext = assertReloadPreviewContext({
     requests: report.authoringRequests,
     requestOffset: finalReloadRequestOffset,
@@ -1405,7 +1407,7 @@ const menu=document.querySelector('[aria-label="Choose a row change"]');return [
   await waitForObservable(page,
     () => Boolean((()=>{const editor=document.querySelector('[data-testid="construction-reshape-pivot"]');const text=editor?.innerText??'';return !text.includes('Finding categories')&&(Boolean(document.querySelector('[data-testid="construction-reshape-pivot-category-summary"]'))||text.includes('Some records have no category field')||text.includes('more than 256 category values'))})()),
     15000);
-  const discovery = await waitForAuthoringRequest(requestOffset, 'construction-category-discoveries', 15000);
+  const discovery = await waitForAuthoringRequest(requestOffset, 'construction-category-discoveries', observerTimeoutBudgetMs);
   const editorState = await inspectPage(page, () => {
 const editor=document.querySelector('[data-testid="construction-reshape-pivot"]');const prefix='Include category ';return {text:editor?.innerText??'',summary:document.querySelector('[data-testid="construction-reshape-pivot-category-summary"]')?.innerText,categoryControls:[...document.querySelectorAll('[data-testid="construction-reshape-pivot-categories"] input[aria-label^="Include category "]')].map(input=>({label:input.getAttribute('aria-label')?.slice(prefix.length),checked:input.checked})).filter(item=>item.label)};
 });

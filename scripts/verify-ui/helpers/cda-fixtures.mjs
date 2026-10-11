@@ -33,6 +33,7 @@ import { captureNativeFailureEvidence, MAX_NATIVE_FAILURE_CAPTURE_MS } from './n
 import { createPlaywrightNetworkObserver } from './playwright-network-observer.mjs';
 import { createCDARequestView } from './cda-playwright-requests.mjs';
 import { assertNoUnexpectedFixtureFailures } from './fixture-failure-assertions.mjs';
+import { actionToRenderBudgetMs } from './quantity-pivot-budget.mjs';
 
 const ACTION_TIMEOUT_MS = 5_000;
 const MAX_DIAGNOSTICS = 100;
@@ -373,6 +374,8 @@ export const test = base.extend({
     };
     report.fixtureTimings = { setupMs: Math.round(performance.now() - setupStarted) };
 
+    const actionBudgetMs = actionToRenderBudgetMs({ scenarioID: cdaScenarioID, caseName: cdaCaseName });
+    const actionStepTimeoutMs = actionBudgetMs + MAX_NATIVE_FAILURE_CAPTURE_MS + 250;
     const workflowStartedAt = performance.now();
     const ownedOrigins = new Set([apiUrl, uiUrl].map(value => new URL(value).origin));
     const captureFailureEvidence = async details => {
@@ -458,8 +461,8 @@ export const test = base.extend({
 
     const action = async (label, locator, perform, {
       after,
-      timeout = ACTION_TIMEOUT_MS,
-      budget = ACTION_TIMEOUT_MS,
+      timeout = actionBudgetMs,
+      budget = actionBudgetMs,
       editable = false,
       requiredCheck,
     } = {}) => base.step(label, async () => {
@@ -469,8 +472,8 @@ export const test = base.extend({
       const startedAt = Date.now();
       const actionContext = { id: `cda-action-${++actionSequence}`, label: safeText(label), locator, startedAt, startedMs: Math.round(started - workflowStartedAt) };
       activeActionContext = actionContext;
-      const actionTimeout = Math.max(1, Math.min(ACTION_TIMEOUT_MS, Number.isFinite(timeout) ? timeout : ACTION_TIMEOUT_MS));
-      const budgetMs = Math.max(1, Math.min(ACTION_TIMEOUT_MS, Number.isFinite(budget) ? budget : ACTION_TIMEOUT_MS));
+      const actionTimeout = Math.max(1, Math.min(actionBudgetMs, Number.isFinite(timeout) ? timeout : actionBudgetMs));
+      const budgetMs = Math.max(1, Math.min(actionBudgetMs, Number.isFinite(budget) ? budget : actionBudgetMs));
       const phases = {
         count: { completed: false },
         trial: { completed: false },
@@ -520,7 +523,7 @@ export const test = base.extend({
         elapsedMs = performance.now() - started;
         failurePhase = 'budget';
         actionContext.failurePhase = 'budget';
-        expect(elapsedMs, `${label} action-to-render exceeded ${ACTION_TIMEOUT_MS} ms`).toBeLessThanOrEqual(budgetMs);
+        expect(elapsedMs, `${label} action-to-render exceeded ${actionBudgetMs} ms`).toBeLessThanOrEqual(budgetMs);
         failurePhase = undefined;
         return elapsedMs;
       } catch (error) {
@@ -534,7 +537,7 @@ export const test = base.extend({
         actionContext.phases = phases;
         if (!passed && !firstFailureActionContext) firstFailureActionContext = actionContext;
         // Leave a full read-capture window before the native step deadline; teardown captures late failures.
-        if (!passed && !report.failureEvidence && elapsedMs + MAX_NATIVE_FAILURE_CAPTURE_MS + 250 < ACTION_TIMEOUT_MS) {
+        if (!passed && !report.failureEvidence && elapsedMs + MAX_NATIVE_FAILURE_CAPTURE_MS + 250 < actionStepTimeoutMs) {
           await captureFailureEvidence({
             reason: failureReason ?? `${label} did not complete successfully`,
             label,
@@ -564,7 +567,7 @@ export const test = base.extend({
           activeLocator = undefined;
         }
       }
-    }, { timeout: ACTION_TIMEOUT_MS });
+    }, { timeout: actionStepTimeoutMs });
 
     const check = (dimension, name, passed, evidence = {}) => {
       const success = Boolean(passed);
