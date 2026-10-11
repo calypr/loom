@@ -42,6 +42,7 @@ func TestRelatedGroupPreviewPreservesProjectionAndScopeContracts(t *testing.T) {
 		name              string
 		change            func(*ir.PhysicalPlan)
 		invalidProjection bool
+		wantError         string
 	}{
 		{"related_id_projection", func(plan *ir.PhysicalPlan) {
 			stage := &plan.StageSequence.Stages[0]
@@ -50,7 +51,7 @@ func TestRelatedGroupPreviewPreservesProjectionAndScopeContracts(t *testing.T) {
 					stage.OutputProjections[i].Value.Path = []string{"terminal_id"}
 				}
 			}
-		}, true},
+		}, true, ""},
 		{"root_key_projection", func(plan *ir.PhysicalPlan) {
 			returned := plan.Operations[len(plan.Operations)-1].Return
 			for i := range returned.Projections {
@@ -58,7 +59,7 @@ func TestRelatedGroupPreviewPreservesProjectionAndScopeContracts(t *testing.T) {
 					returned.Projections[i].Value.Path = []string{"payload", "id"}
 				}
 			}
-		}, false},
+		}, false, ""},
 		{"edge_project_binding", func(plan *ir.PhysicalPlan) {
 			operations := plan.StageSequence.Stages[0].RelatedExpand.RelatedRecords.Operations
 			var edgeVariable string
@@ -71,13 +72,20 @@ func TestRelatedGroupPreviewPreservesProjectionAndScopeContracts(t *testing.T) {
 				}
 			}
 			plan.BindVars["other_edge_project"] = plan.BindVars["project"]
-		}, false},
+		}, false, "apply canonical recipe execution window: validate construction physical execution scope"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			bindings := recipe.RuntimeBindings{Project: "owned-project", DatasetGeneration: "owned-generation", IncludeRowIdentity: true}
 			compiled := lowerConstructionOutput(t, relatedGroupPreviewOutput(t, bindings), bindings)
 			test.change(&compiled.Plan)
 			preview, err := CompileRecipeOutputWithPolicy(compiled, bindings, 2, ir.DefaultPhysicalOptimizationPolicy())
+			if test.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantError) ||
+					!strings.Contains(err.Error(), "project scope filter at operation") || !strings.Contains(err.Error(), ".project == @project") {
+					t.Fatalf("noncanonical related project binding must be rejected without weakening scope isolation: %v", err)
+				}
+				return
+			}
 			if test.invalidProjection {
 				if err == nil || !strings.Contains(err.Error(), "public related-record ID must project the terminal FHIR id") {
 					t.Fatalf("invalid related-ID projection must be rejected: %v", err)

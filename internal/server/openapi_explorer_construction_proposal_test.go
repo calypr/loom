@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"reflect"
 	"testing"
+	"time"
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
@@ -52,6 +53,32 @@ func TestConstructionCodedGroupOpenAPIDTOPreservesPayloadAndChoices(t *testing.T
 	if response.SelectedStage.CodedGroupChoices == nil || len(*response.SelectedStage.CodedGroupChoices) != 1 ||
 		(*response.SelectedStage.CodedGroupChoices)[0].CodingPath != "includedStructure[].structure.coding[]" {
 		t.Fatalf("OpenAPI response conversion dropped codedGroupChoices: %#v", response.SelectedStage)
+	}
+}
+
+func TestConstructionProposalPreviewBudgetExtendsOnlyPivot(t *testing.T) {
+	pivotContext, pivotTimeout := constructionProposalPreviewBudget(context.Background(), authoringv2.Construction{
+		Steps: []authoringv2.ConstructionStep{{Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationPivot}}},
+	})
+	if pivotTimeout != 30*time.Second || previewQueryMaxRuntime(pivotContext) != pivotCategoryScanTimeout {
+		t.Fatalf("Pivot proposal preview budget = %s / query max runtime %s, want 30s", pivotTimeout, previewQueryMaxRuntime(pivotContext))
+	}
+
+	parentDeadline := time.Now().Add(2 * time.Second)
+	parentContext, cancel := context.WithDeadline(context.Background(), parentDeadline)
+	defer cancel()
+	boundedContext, _ := constructionProposalPreviewBudget(parentContext, authoringv2.Construction{
+		Steps: []authoringv2.ConstructionStep{{Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationPivot}}},
+	})
+	if got, ok := boundedContext.Deadline(); !ok || !got.Equal(parentDeadline) {
+		t.Fatalf("Pivot proposal context deadline = %s (present %t), want caller deadline %s", got, ok, parentDeadline)
+	}
+
+	ordinaryContext, ordinaryTimeout := constructionProposalPreviewBudget(context.Background(), authoringv2.Construction{
+		Steps: []authoringv2.ConstructionStep{{Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter}}},
+	})
+	if ordinaryTimeout != explorerPreviewTimeout || previewQueryMaxRuntime(ordinaryContext) != explorerPreviewTimeout {
+		t.Fatalf("ordinary proposal preview budget = %s / query max runtime %s, want 10s", ordinaryTimeout, previewQueryMaxRuntime(ordinaryContext))
 	}
 }
 
@@ -123,6 +150,7 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 	readScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	categoryScanCalls := 0
 	proposalPreviewCalls := 0
+	var proposalPreviewQueryRuntime time.Duration
 	config := lifecycle.Config{
 		Capability: lifecycle.CapabilityResolver{
 			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
@@ -140,8 +168,9 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 			categoryScanCalls++
 			return dataframeexecution.CategoryScanResult{}, nil
 		},
-		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(previewCtx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			proposalPreviewCalls++
+			proposalPreviewQueryRuntime = previewQueryMaxRuntime(previewCtx)
 			if receipt == nil || receipt.ConstructionProposal == nil || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "patients" {
 				t.Fatalf("unexpected exact candidate preview receipt/bindings: %#v / %#v", receipt, bindings)
 			}
@@ -306,6 +335,9 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 	}
 	if proposal.ProposalId == nil || *proposal.ProposalId == "" || proposal.ChangedStepId != "" || proposal.PreviewStatus != "READY" || proposal.Preview == nil || proposal.Preview.RowCount != 1 || proposal.PreviewDurationMs < 0 {
 		t.Fatalf("proposal omitted exact preview evidence or removal identity: %#v", proposal)
+	}
+	if proposalPreviewQueryRuntime != explorerPreviewTimeout {
+		t.Fatalf("ordinary proposal inline preview max runtime = %s, want %s", proposalPreviewQueryRuntime, explorerPreviewTimeout)
 	}
 	if proposal.Preview.ReceiptId != *proposal.ProposalId || proposal.Preview.OutputId != "patients" {
 		t.Fatalf("preview is not bound to the proposal receipt/output: %#v", proposal.Preview)
@@ -701,11 +733,19 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 			if relatedEmission == nil {
 				return dataframeexecution.PreviewSummary{}, fmt.Errorf("candidate receipt omitted the related-source list metadata")
 			}
+			wantCardinality, wantShape := "many", "array"
+			wantFilterable, wantChartable := false, false
+			relatedValue := any([]any{"final", "amended"})
+			if related.RowValuePolicy == authoringv2.ConstructionRowValueOne {
+				wantCardinality, wantShape = "optional_one", "scalar"
+				wantFilterable, wantChartable = true, true
+				relatedValue = "final"
+			}
 			if relatedEmission.ConstructionID != step.ID || relatedEmission.SourceResourceType != "Observation" || relatedEmission.SourcePath != "status" || relatedEmission.CandidateID != candidate.ID || relatedEmission.OccurrenceID != candidate.NodeID ||
 				relatedEmission.NodeID != candidate.NodeID || len(relatedEmission.AuthoredColumns) != 0 || len(relatedEmission.InputColumns) != 0 ||
-				relatedEmission.Cardinality != "many" || relatedEmission.Shape != "array" || relatedEmission.Lossless || relatedEmission.MLReady || relatedEmission.StructuralSuitability != "requires-review" || relatedEmission.Filterable || relatedEmission.Chartable ||
+				relatedEmission.Cardinality != wantCardinality || relatedEmission.Shape != wantShape || relatedEmission.Lossless || relatedEmission.MLReady || relatedEmission.StructuralSuitability != "requires-review" || relatedEmission.Filterable != wantFilterable || relatedEmission.Chartable != wantChartable ||
 				!containsOutputContractString(relatedEmission.LossReasons, "RELATED_SOURCE_AUTHORIZED_MATCHES_ONLY") || !containsOutputContractString(relatedEmission.LossReasons, tableShapeMLReadinessUnassessed) {
-				return dataframeexecution.PreviewSummary{}, fmt.Errorf("related-source list metadata is not conservative: %#v", *relatedEmission)
+				return dataframeexecution.PreviewSummary{}, fmt.Errorf("related-source output metadata does not match row value policy %q: %#v", related.RowValuePolicy, *relatedEmission)
 			}
 			contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
 			if err != nil || len(contracts.Outputs) != 1 {
@@ -719,8 +759,8 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 				}
 			}
 			if relatedContract == nil || relatedContract.ConstructionID != step.ID || relatedContract.SourceResourceType != "Observation" || relatedContract.SourcePath != "status" ||
-				relatedContract.Cardinality != "many" || relatedContract.Shape != "array" || relatedContract.Lossless || relatedContract.MLReady || len(relatedContract.AuthoredColumns) != 0 || len(relatedContract.InputColumns) != 0 {
-				return dataframeexecution.PreviewSummary{}, fmt.Errorf("public contract lost related-source identity or list shape: %#v", relatedContract)
+				relatedContract.Cardinality != wantCardinality || relatedContract.Shape != wantShape || relatedContract.Lossless || relatedContract.MLReady || len(relatedContract.AuthoredColumns) != 0 || len(relatedContract.InputColumns) != 0 {
+				return dataframeexecution.PreviewSummary{}, fmt.Errorf("public contract lost related-source identity or shape for row value policy %q: %#v", related.RowValuePolicy, relatedContract)
 			}
 			row := make(map[string]any, len(receipt.EmittedColumns))
 			previewColumns := make([]string, 0, len(receipt.EmittedColumns))
@@ -729,7 +769,7 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 				previewColumns = append(previewColumns, emitted.PublicColumn)
 			}
 			row["c_patient"] = "patient-1"
-			row["observation_statuses"] = []any{"final", "amended"}
+			row["observation_statuses"] = relatedValue
 			if err := visit(row); err != nil {
 				return dataframeexecution.PreviewSummary{}, err
 			}
@@ -752,6 +792,47 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 	}
 	if proposal.ProposalId == nil || proposal.PreviewStatus != "READY" || proposal.Preview == nil || proposal.Preview.RowCount != 1 {
 		t.Fatalf("related-source proposal did not preview the exact candidate: %#v", proposal)
+	}
+	if got := proposal.Preview.Rows[0]["observation_statuses"]; !reflect.DeepEqual(got, []any{"final", "amended"}) {
+		t.Fatalf("related-source default ALL value = %#v, want the full matching list", got)
+	}
+
+	// Exercise the same exact proposal through the generated OpenAPI request DTO.
+	// A missing wire field silently resets ONE to the default ALL array.
+	related.RowValuePolicy = authoringv2.ConstructionRowValueOne
+	candidateJSON, err = json.Marshal(candidateConstruction)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oneProposalHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-proposals", fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","changedStepId":%q,"candidateConstruction":%s}`,
+		snapshot.Token, digest, step.ID, candidateJSON,
+	))
+	if oneProposalHTTP.StatusCode != http.StatusOK {
+		t.Fatalf("related-source ONE proposal status=%d body=%s", oneProposalHTTP.StatusCode, oneProposalHTTP.Body)
+	}
+	var oneProposal loomapi.ConstructionProposalResponse
+	if err := json.Unmarshal([]byte(oneProposalHTTP.Body), &oneProposal); err != nil {
+		t.Fatal(err)
+	}
+	if oneProposal.ProposalId == nil || oneProposal.PreviewStatus != "READY" || oneProposal.Preview == nil || oneProposal.Preview.RowCount != 1 {
+		t.Fatalf("related-source ONE proposal did not preview the exact candidate: %#v", oneProposal)
+	}
+	if authored := oneProposal.CandidateConstruction.Steps[0].Operation.RelatedSource; authored == nil || authored.RowValuePolicy == nil || *authored.RowValuePolicy != loomapi.ConstructionRelatedSourceRowValuePolicyONE {
+		t.Fatalf("generated OpenAPI proposal DTO dropped related-source ONE policy: %#v", authored)
+	}
+	if got := oneProposal.Preview.Rows[0]["observation_statuses"]; got != "final" {
+		t.Fatalf("related-source ONE value = %#v, want scalar %q", got, "final")
+	}
+	var relatedPreviewColumn *loomapi.ContractColumn
+	for index := range oneProposal.Preview.Columns {
+		if oneProposal.Preview.Columns[index].Column == "observation_statuses" {
+			relatedPreviewColumn = &oneProposal.Preview.Columns[index]
+			break
+		}
+	}
+	if relatedPreviewColumn == nil || relatedPreviewColumn.Shape == nil || *relatedPreviewColumn.Shape != "scalar" {
+		t.Fatalf("related-source ONE preview column did not retain scalar shape: %#v", relatedPreviewColumn)
 	}
 }
 

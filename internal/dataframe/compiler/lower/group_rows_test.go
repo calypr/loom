@@ -396,39 +396,67 @@ func TestRelatedCountAppendedToExplicitCohortUsesExactRootContributors(t *testin
 			}
 		})
 	}
-	for _, form := range []string{"PRESENCE", "ALL"} {
+	for _, test := range []struct {
+		form           string
+		rowValuePolicy recipe.ConstructionRowValuePolicy
+	}{
+		{form: "PRESENCE"},
+		{form: "ALL"},
+		{form: "ALL", rowValuePolicy: recipe.ConstructionRowValueOne},
+	} {
 		variant := output
 		construction := *output.Construction
 		construction.SourceColumns = append([]recipe.StageColumn(nil), output.Construction.SourceColumns...)
 		construction.Steps = append([]recipe.ConstructionStep(nil), output.Construction.Steps...)
 		step := construction.Steps[0]
 		relatedSource := *step.Operation.RelatedSource
-		relatedSource.Form = form
+		relatedSource.Form = test.form
+		relatedSource.RowValuePolicy = test.rowValuePolicy
 		step.Operation.RelatedSource = &relatedSource
 		construction.Steps[0] = step
 		variant.Construction = &construction
 		variantPlan, buildErr := semantic.BuildRecipePlan(recipe.Bundle{
-			RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "cohort related " + strings.ToLower(form), TranslationVersion: "test",
+			RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "cohort related " + strings.ToLower(test.form+string(test.rowValuePolicy)), TranslationVersion: "test",
 			Outputs: []recipe.Output{variant},
 		}, recipe.RuntimeBindings{Project: "fixture_program-project-1", SelectionProject: "fixture_program/project-1", DatasetGeneration: "generation-1"})
 		if buildErr != nil {
-			t.Fatalf("build %s related cohort plan: %v", form, buildErr)
+			t.Fatalf("build %s related cohort plan: %v", test.form+string(test.rowValuePolicy), buildErr)
 		}
 		variantResolved, resolveErr := semantic.ResolveRecipePlan(variantPlan, "fixture_program-project-1", "generation-1")
 		if resolveErr != nil {
-			t.Fatalf("resolve %s related cohort plan: %v", form, resolveErr)
+			t.Fatalf("resolve %s related cohort plan: %v", test.form+string(test.rowValuePolicy), resolveErr)
 		}
 		variantCompiled, compileErr := CompileResolvedRecipePlan(variantResolved, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
-			t.Fatalf("compile %s related cohort plan: %v", form, compileErr)
+			t.Fatalf("compile %s related cohort plan: %v", test.form+string(test.rowValuePolicy), compileErr)
 		}
 		variantRendered, renderErr := aql.RenderPhysicalPlan(variantCompiled.Outputs[0].Plan)
 		if renderErr != nil {
-			t.Fatalf("render %s related cohort plan: %v", form, renderErr)
+			t.Fatalf("render %s related cohort plan: %v", test.form+string(test.rowValuePolicy), renderErr)
 		}
 		if !strings.Contains(variantRendered.Query, "FOR __loom_construction_related_0_root_key_1 IN SORTED_UNIQUE(__loom_construction_input_1.__loom_root_contributor_keys)") ||
 			strings.Contains(variantRendered.Query, "__loom_construction_related_0_root_1._key IN __loom_construction_input_1.__loom_root_contributor_keys") {
-			t.Fatalf("%s did not use exact contributor key lookup:\n%s", form, variantRendered.Query)
+			t.Fatalf("%s did not use exact contributor key lookup:\n%s", test.form+string(test.rowValuePolicy), variantRendered.Query)
+		}
+		if test.rowValuePolicy == recipe.ConstructionRowValueOne {
+			stage := variantCompiled.Outputs[0].Plan.StageSequence.Stages[1]
+			if stage.RelatedSource == nil || stage.RelatedSource.Form != "ALL" ||
+				stage.RelatedSource.RowValuePolicy != "ONE" || stage.RelatedSource.RootContributorColumn != rootContributorSetColumn {
+				t.Fatalf("ONE related output lost the exact explicit-cohort contributor set: %#v", stage.RelatedSource)
+			}
+			var outputColumn *ir.PhysicalStageColumn
+			for index := range stage.OutputColumns {
+				if stage.OutputColumns[index].ID == "observation-count" {
+					outputColumn = &stage.OutputColumns[index]
+				}
+			}
+			if outputColumn == nil || outputColumn.Kind != "string" || outputColumn.Cardinality != "optional_one" || !outputColumn.Nullable {
+				t.Fatalf("ONE related cohort output schema = %#v, want nullable scalar string", outputColumn)
+			}
+			if !strings.Contains(variantRendered.Query, "CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES") ||
+				!strings.Contains(variantRendered.Query, "LENGTH(__loom_physical_construction_related_source_row_value_values) == 0 ? null") {
+				t.Fatalf("ONE related cohort output omitted nullable/multiple-value behavior:\n%s", variantRendered.Query)
+			}
 		}
 	}
 	if rendered.BindVars["cohort_dataset_generation"] != "generation-1" {

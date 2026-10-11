@@ -169,7 +169,18 @@ func decodeSemanticObservations(value any) ([]catalog.SemanticObservation, error
 			observation.Key = catalog.SemanticObservationKey{Selector: stringValue(key["selector"]), System: stringValue(key["system"]), Version: stringValue(key["version"]), Code: stringValue(key["code"]), Display: stringValue(key["display"])}
 		}
 		if value, ok := row["value"].(map[string]any); ok {
-			observation.Value = catalog.SemanticObservationValue{Selector: stringValue(value["selector"]), Type: stringValue(value["type"])}
+			fallbackSelectors, err := decodeStrings(value["fallback_selectors"])
+			if err != nil {
+				return nil, fmt.Errorf("decode semantic observation fallback selectors: %w", err)
+			}
+			fallbackOnBlankString, err := decodeBool(value["fallback_on_blank_string"])
+			if err != nil {
+				return nil, fmt.Errorf("decode semantic observation blank fallback: %w", err)
+			}
+			observation.Value = catalog.SemanticObservationValue{
+				Selector: stringValue(value["selector"]), Type: stringValue(value["type"]),
+				FallbackSelectors: fallbackSelectors, FallbackOnBlankString: fallbackOnBlankString,
+			}
 		}
 		result = append(result, observation)
 	}

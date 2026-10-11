@@ -237,24 +237,32 @@ func TestConfiguredCategoryScannerUsesPivotTimeoutAndPreservesBackendErrors(t *t
 	if err != nil {
 		t.Fatalf("compile receipt fixture: %v", err)
 	}
-	if pivotCategoryScanTimeout != 10*time.Second {
-		t.Fatalf("Pivot category timeout = %s, want 10s", pivotCategoryScanTimeout)
+	if pivotCategoryScanTimeout != 30*time.Second {
+		t.Fatalf("Pivot category timeout = %s, want 30s", pivotCategoryScanTimeout)
 	}
 	if explorerPreviewTimeout != 10*time.Second {
-		t.Fatalf("existing proposal preview timeout = %s, want unchanged 10s", explorerPreviewTimeout)
+		t.Fatalf("ordinary proposal/direct preview timeout = %s, want unchanged 10s", explorerPreviewTimeout)
+	}
+	if got := previewQueryMaxRuntime(context.Background()); got != explorerPreviewTimeout {
+		t.Fatalf("ordinary preview query max runtime = %s, want %s", got, explorerPreviewTimeout)
+	}
+	if got := previewQueryMaxRuntime(withPivotPreviewQueryBudget(context.Background())); got != pivotCategoryScanTimeout {
+		t.Fatalf("Pivot preview query max runtime = %s, want %s", got, pivotCategoryScanTimeout)
 	}
 
 	var queryDeadline time.Time
+	var queryRuntime time.Duration
+	queryRows := func(ctx context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		var ok bool
+		queryDeadline, ok = ctx.Deadline()
+		if !ok {
+			t.Fatal("Pivot category query has no scanner deadline")
+		}
+		queryRuntime = previewQueryMaxRuntime(ctx)
+		return visit(map[string]any{"present": true, "value": "patient-1"})
+	}
 	scanEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{},
-		QueryRows: func(ctx context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
-			var ok bool
-			queryDeadline, ok = ctx.Deadline()
-			if !ok {
-				t.Fatal("Pivot category query has no scanner deadline")
-			}
-			return visit(map[string]any{"present": true, "value": "patient-1"})
-		},
+		Registry: compilerTestRegistry{}, QueryRows: queryRows, PreviewQueryRows: queryRows,
 	})
 	if err != nil {
 		t.Fatalf("create category scan engine: %v", err)
@@ -266,6 +274,19 @@ func TestConfiguredCategoryScannerUsesPivotTimeoutAndPreservesBackendErrors(t *t
 	remaining := time.Until(queryDeadline)
 	if remaining > pivotCategoryScanTimeout || remaining < pivotCategoryScanTimeout-time.Second {
 		t.Fatalf("category query deadline remaining = %s, want approximately %s", remaining, pivotCategoryScanTimeout)
+	}
+	if queryRuntime != pivotCategoryScanTimeout {
+		t.Fatalf("category Arango max runtime = %s, want %s", queryRuntime, pivotCategoryScanTimeout)
+	}
+
+	parentDeadline := time.Now().Add(2 * time.Second)
+	parentCtx, cancel := context.WithDeadline(context.Background(), parentDeadline)
+	defer cancel()
+	if _, err := configuredCategoryScanner(logger, scanEngine)(parentCtx, receipt, recipeBindingsForDiagnostic(receipt), requestScan); err != nil {
+		t.Fatalf("category scan with earlier caller deadline: %v", err)
+	}
+	if !queryDeadline.Equal(parentDeadline) {
+		t.Fatalf("category query deadline = %s, want earlier caller deadline %s", queryDeadline, parentDeadline)
 	}
 
 	backendFailure := errors.New("synthetic category backend failure")

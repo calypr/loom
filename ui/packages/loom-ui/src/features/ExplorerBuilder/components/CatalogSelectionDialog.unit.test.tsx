@@ -181,6 +181,23 @@ describe('CatalogSelectionDialog', () => {
     })]));
   });
 
+  it('includes the selected ONE policy on an ALL related-field choice', async () => {
+    const onChange = vi.fn();
+    const { onConfirm } = createDialog([], {}, false, undefined, false, {
+      value: 'ONE',
+      onChange,
+    }, [allOption], 'ALL');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add 1 column' }));
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledWith([expect.objectContaining({
+      constructionChoice: {
+        choiceId: 'saved-subject-choice',
+        form: 'ALL',
+        rowValuePolicy: 'ONE',
+      },
+    })]));
+  });
+
   it('keeps the dialog visible when opened from a collapsed source disclosure', () => {
     createDialog(['EXISTS', 'EQUALS'], {}, false, undefined, true);
     const dialog = screen.getByRole('dialog', { name: 'Choose how to add these fields' });

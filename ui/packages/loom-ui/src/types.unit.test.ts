@@ -135,6 +135,33 @@ describe('explorerBuilderDocumentSchema', () => {
     }).success).toBe(false);
   });
 
+  it('parses the retained Specimen Builder source-column wire shape with strict columnId identity', () => {
+    const sourceColumn = {
+      columnId: 'source_42a14cadde54956b093d80e8',
+      column: 'col_508383e21aa9e8d193733aca',
+      label: 'Specimen ID',
+      logicalType: 'string',
+      occurrenceId: 'base',
+      source: { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } },
+      table: { visible: true, order: 0 },
+    };
+    const retainedDocument = {
+      ...document,
+      output: { id: 'out_2bee220ff3d8abd656ea6870', title: 'Specimen route witness' },
+      rootResourceType: 'Specimen',
+      route: { occurrenceId: 'base', resourceType: 'Specimen' },
+      rows: { kind: 'RECORDS', records: {} },
+      columns: [sourceColumn],
+    };
+
+    expect(explorerBuilderDocumentSchema.parse(retainedDocument).columns[0]?.columnId)
+      .toBe('source_42a14cadde54956b093d80e8');
+    expect(explorerBuilderDocumentSchema.safeParse({
+      ...retainedDocument,
+      columns: [{ ...sourceColumn, id: sourceColumn.columnId }],
+    }).success).toBe(false);
+  });
+
   it('preserves a persisted server table shape as opaque JSON during Builder reload parsing', () => {
     const tableShape = {
       reshape: {

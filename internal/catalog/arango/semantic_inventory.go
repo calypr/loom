@@ -599,37 +599,12 @@ func validateSemanticInventoryContribution(contribution catalog.SemanticInventor
 }
 
 func selectSemanticInventoryBuild(builds []catalog.SemanticInventoryBuild, currentBuildID string) (catalog.SemanticInventoryBuild, bool) {
-	if len(builds) == 0 {
-		return catalog.SemanticInventoryBuild{}, false
-	}
-	sort.Slice(builds, func(i, j int) bool {
-		if builds[i].InventorySchema != builds[j].InventorySchema {
-			return builds[i].InventorySchema > builds[j].InventorySchema
-		}
-		if builds[i].ObservationSchema != builds[j].ObservationSchema {
-			return builds[i].ObservationSchema > builds[j].ObservationSchema
-		}
-		if builds[i].RuleVersion != builds[j].RuleVersion {
-			return builds[i].RuleVersion > builds[j].RuleVersion
-		}
-		return builds[i].BuildID > builds[j].BuildID
-	})
-	for _, build := range builds {
-		if build.BuildID == currentBuildID && build.State == catalog.SemanticInventoryComplete {
-			return build, true
-		}
-	}
-	for _, build := range builds {
-		if build.State == catalog.SemanticInventoryComplete {
-			return build, true
-		}
-	}
 	for _, build := range builds {
 		if build.BuildID == currentBuildID {
 			return build, true
 		}
 	}
-	return builds[0], true
+	return catalog.SemanticInventoryBuild{}, false
 }
 
 func semanticInventoryLimit(limit int) int {
@@ -688,6 +663,8 @@ FOR d IN fhir_semantic_inventory
     display = MIN(d.observation.key.display),
     value_selector = MIN(d.observation.value.selector),
     value_type = MIN(d.observation.value.type),
+    fallback_selectors = MIN(d.observation.value.fallback_selectors),
+    fallback_on_blank_string = MIN(d.observation.value.fallback_on_blank_string),
     owning_scope = MIN(d.observation.owning_scope),
     extension_url_path = MIN(d.observation.extension_url_path),
     choice_arm = MIN(d.observation.choice_arm),
@@ -715,7 +692,12 @@ FOR d IN fhir_semantic_inventory
       schema_version: @observation_schema,
       source: {canonical: canonical, type: resource_type, profile: profile, path: path},
       key: {selector: key_selector, system: system, version: version, code: code, display: display},
-      value: {selector: value_selector, type: value_type},
+      value: {
+        selector: value_selector,
+        type: value_type,
+        fallback_selectors: fallback_selectors,
+        fallback_on_blank_string: fallback_on_blank_string
+      },
       owning_scope: owning_scope,
       extension_url_path: extension_url_path,
       choice_arm: choice_arm,
@@ -781,6 +763,8 @@ FOR identity IN identities
         display = MIN(d.observation.key.display),
         value_selector = MIN(d.observation.value.selector),
         value_type = MIN(d.observation.value.type),
+        fallback_selectors = MIN(d.observation.value.fallback_selectors),
+        fallback_on_blank_string = MIN(d.observation.value.fallback_on_blank_string),
         owning_scope = MIN(d.observation.owning_scope),
         extension_url_path = MIN(d.observation.extension_url_path),
         choice_arm = MIN(d.observation.choice_arm),
@@ -799,7 +783,12 @@ FOR identity IN identities
           schema_version: @observation_schema,
           source: {canonical: canonical, type: resource_type, profile: profile, path: path},
           key: {selector: key_selector, system: system, version: version, code: code, display: display},
-          value: {selector: value_selector, type: value_type},
+          value: {
+            selector: value_selector,
+            type: value_type,
+            fallback_selectors: fallback_selectors,
+            fallback_on_blank_string: fallback_on_blank_string
+          },
           owning_scope: owning_scope,
           extension_url_path: extension_url_path,
           choice_arm: choice_arm,
@@ -869,6 +858,8 @@ FOR requested IN @references
         code = MIN(d.observation.key.code),
         value_selector = MIN(d.observation.value.selector),
         value_type = MIN(d.observation.value.type),
+        fallback_selectors = MIN(d.observation.value.fallback_selectors),
+        fallback_on_blank_string = MIN(d.observation.value.fallback_on_blank_string),
         owning_scope = MIN(d.observation.owning_scope),
         extension_url_path = MIN(d.observation.extension_url_path),
         choice_arm = MIN(d.observation.choice_arm),
@@ -887,7 +878,12 @@ FOR requested IN @references
           schema_version: @observation_schema,
           source: {canonical: canonical, type: resource_type, profile: profile, path: path},
           key: {selector: key_selector, system: system, version: version, code: code, display: MIN(displays)},
-          value: {selector: value_selector, type: value_type},
+          value: {
+            selector: value_selector,
+            type: value_type,
+            fallback_selectors: fallback_selectors,
+            fallback_on_blank_string: fallback_on_blank_string
+          },
           owning_scope: owning_scope,
           extension_url_path: extension_url_path,
           choice_arm: choice_arm,

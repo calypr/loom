@@ -296,6 +296,73 @@ func TestCompileRelatedSourceAddsAllMatchesAfterSelectedStage(t *testing.T) {
 	}
 }
 
+func TestCompileRelatedSourceOnePolicyReducesDistinctPresentValuesToNullableScalar(t *testing.T) {
+	output := constructionTestOutput()
+	output.Construction = &recipe.Construction{
+		Version: 1,
+		SourceColumns: []recipe.StageColumn{
+			{ID: "group_id", Name: "group"}, {ID: "category_id", Name: "category"}, {ID: "amount_id", Name: "amount"},
+		},
+		Steps: []recipe.ConstructionStep{{
+			ID: "add_observation_status", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedSourceOp, RelatedSource: &recipe.ConstructionRelatedSource{
+				AnchorColumnID: "_key", ChoiceID: "choice-token", SourceOccurrenceID: "observation-node",
+				Source:            recipe.ConstructionRelatedFieldSource{CandidateID: "observation-status", NodeID: "observation-node", ResourceType: "Observation", Path: "Observation.status", Cardinality: "optional_one", LogicalType: "string"},
+				Route:             []recipe.ConstructionRelatedRouteStep{{EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node", FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient", StorageDirection: "INBOUND", MatchMode: "OPTIONAL"}},
+				ContributorPolicy: "ALL_MATCHES", Form: "ALL", RowValuePolicy: recipe.ConstructionRowValueOne, OutputColumnID: "observation-status",
+			}},
+			Outputs: []recipe.StageColumn{
+				{ID: "group_id", Name: "group"}, {ID: "category_id", Name: "category"}, {ID: "amount_id", Name: "amount"},
+				{ID: "observation-status", Name: "observation_status", Label: "Observation status"},
+			},
+		}},
+	}
+	compiled := compileDerivedTestOutput(t, output)
+	stage := compiled.Plan.StageSequence.Stages[0]
+	if stage.RelatedSource == nil || stage.RelatedSource.Form != "ALL" || stage.RelatedSource.RowValuePolicy != "ONE" || stage.RelatedSource.ContributorPolicy != "ALL_MATCHES" {
+		t.Fatalf("operation-local reduction changed related-resource form or contributor policy: %#v", stage.RelatedSource)
+	}
+	column := stage.OutputColumns[3]
+	if column.Kind != "string" || column.Cardinality != "optional_one" || !column.Nullable {
+		t.Fatalf("ONE related output = %#v, want nullable scalar string", column)
+	}
+	var projected *ir.PhysicalProjection
+	for index := range stage.OutputProjections {
+		if stage.OutputProjections[index].Name == "observation_status" {
+			projected = &stage.OutputProjections[index]
+		}
+	}
+	if projected == nil || projected.Expression == nil || projected.Expression.Call == nil ||
+		projected.Expression.Call.Name != "distinct_present_one" || projected.Expression.Call.TargetKind != "STRING" ||
+		len(projected.Expression.Call.Args) != 1 || projected.Expression.Call.Args[0].Subplan == nil ||
+		projected.Expression.Call.Args[0].Subplan.DistinctBy == nil {
+		t.Fatalf("ONE expression did not retain the exact distinct related-source subplan: %#v", projected)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES",
+		"CONSTRUCTION_ROW_VALUE_TYPE_MISMATCH",
+		"FILTER __loom_physical_construction_related_source_row_value_item != null",
+		"LENGTH(__loom_physical_construction_related_source_row_value_values) == 0 ? null : FIRST(__loom_physical_construction_related_source_row_value_values)",
+	} {
+		if !strings.Contains(rendered.Query, expected) {
+			t.Fatalf("ONE related query omits %q: %s", expected, rendered.Query)
+		}
+	}
+	foundType := false
+	for key, value := range rendered.BindVars {
+		if strings.Contains(key, "related_source_row_value_type") && value == "string" {
+			foundType = true
+		}
+	}
+	if !foundType {
+		t.Fatalf("ONE related query has no typed scalar guard bind: %#v", rendered.BindVars)
+	}
+}
+
 func TestCompileRelatedFieldCarriesExactTerminalIdentityThroughRowPreservingStages(t *testing.T) {
 	for _, test := range []struct {
 		name       string

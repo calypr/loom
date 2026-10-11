@@ -1028,6 +1028,12 @@ func validateConstructionRelatedSource(step ConstructionStep, input map[string]S
 	default:
 		return fmt.Errorf("relatedSource.form must be ALL, COUNT, or PRESENCE")
 	}
+	if related.RowValuePolicy != "" && related.RowValuePolicy != ConstructionRowValueAll && related.RowValuePolicy != ConstructionRowValueOne {
+		return fmt.Errorf("relatedSource.rowValuePolicy must be ALL or ONE")
+	}
+	if related.RowValuePolicy == ConstructionRowValueOne && related.Form != capability.ConstructionChoiceAll {
+		return fmt.Errorf("relatedSource.rowValuePolicy ONE is supported only when form is ALL")
+	}
 	if related.ContributorRule.Policy != ConstructionRelatedAllMatches {
 		return fmt.Errorf("relatedSource.contributorRule policy must be ALL_MATCHES")
 	}

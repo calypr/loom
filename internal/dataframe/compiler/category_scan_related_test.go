@@ -18,7 +18,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func TestCompileCategoryScanReversesExactRelatedRouteWithScopeAndStageWitnesses(t *testing.T) {
+func TestCompileCategoryScanStreamsExactRelatedRouteWithScopeAndStageWitnesses(t *testing.T) {
 	output := compilePopulationMappingOutput(t, relatedCategoryScanOutput(relatedCategoryScanOptions{}))
 	scanned, err := CompileCategoryScanStageWithPolicy(output, "add_amount", "category_id", "amount_id", MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
@@ -41,35 +41,87 @@ func TestCompileCategoryScanReversesExactRelatedRouteWithScopeAndStageWitnesses(
 	if !reflect.DeepEqual(gotRoute, wantRoute) {
 		t.Fatalf("typed category route = %#v, want %#v", gotRoute, wantRoute)
 	}
-	if strings.Contains(query, "__loom_construction_stage_") || strings.Contains(query, "related_expand_records") || strings.Contains(query, "related_field_document") {
-		t.Fatalf("exact related-category scan fell back to forward construction materialization:\n%s", query)
+	if strings.Contains(query, "__loom_construction_stage_") || strings.Contains(query, "related_expand_records") || strings.Contains(query, "related_field_document") ||
+		strings.Contains(query, "__loom_related_category_candidates") || strings.Contains(query, "reverse_edge_") {
+		t.Fatalf("exact related-category scan retained a materialized fallback or terminal candidate pass:\n%s", query)
 	}
-	for _, required := range []string{
-		"._from ==", "._to ==", "project == @project",
-		"dataset_generation == @dataset_generation", "auth_resource_path", "auth_resource_paths",
+	for _, marker := range []string{
+		"FOR __loom_related_category_stream_root IN @@root_collection",
+		"__loom_related_category_stream_edge_1._from == __loom_related_category_stream_root._id",
+		"RETURN __loom_related_category_stream_document_1._id",
+		"APPEND(__loom_related_category_stream_records_1, LENGTH(__loom_related_category_stream_records_1)==0 ? [null] : [])",
+		"COLLECT __loom_related_category_stream_parent_key = __loom_related_category_stream_first_parent",
+		"DOCUMENT(__loom_related_category_stream_parent_key)",
+		"__loom_related_category_stream_edge_2._to == __loom_related_category_stream_parent._id",
+		"APPEND(__loom_related_category_stream_records_2, LENGTH(__loom_related_category_stream_records_2)==0 ? [null] : [])",
+		"COLLECT present = __loom_related_category_stream_present, value = __loom_related_category_stream_value",
 	} {
-		if !strings.Contains(query, required) {
-			t.Errorf("reverse route is missing %q:\n%s", required, query)
-		}
-	}
-	for _, marker := range []string{"__loom_related_category_candidates", "__loom_related_category_empty_stage_1", "__loom_related_category_empty_stage_2"} {
 		if !strings.Contains(query, marker) {
-			t.Errorf("related-category query is missing stage or candidate marker %q:\n%s", marker, query)
+			t.Errorf("streamed related-category query omitted %q:\n%s", marker, query)
 		}
 	}
-	if scanned.CategoryIndex == nil || scanned.CategoryIndex.Collection != "Observation" || !reflect.DeepEqual(scanned.CategoryIndex.Fields, []string{"project", "dataset_generation", "resourceType", "payload.valueQuantity.code", "auth_resource_path"}) {
-		t.Fatalf("related category index = %+v, want the five-field Observation code index", scanned.CategoryIndex)
+	firstHopScope := strings.Index(query, "__loom_related_category_stream_document_1.auth_resource_path IN @auth_resource_paths")
+	parentIdentityCollect := strings.Index(query, "COLLECT __loom_related_category_stream_parent_key = __loom_related_category_stream_first_parent")
+	secondHop := strings.Index(query, "FOR __loom_related_category_stream_edge_2 IN @@")
+	terminalPresence := strings.Index(query, `HAS(__loom_related_category_stream_document_2.payload.valueQuantity, "code")`)
+	secondDocumentScope := strings.Index(query, "__loom_related_category_stream_document_2.auth_resource_path IN @auth_resource_paths")
+	if firstHopScope < 0 || parentIdentityCollect <= firstHopScope || secondHop <= parentIdentityCollect || terminalPresence <= secondDocumentScope {
+		t.Fatalf("identity dedup moved ahead of first-hop scope or terminal presence ahead of terminal scope: firstScope=%d collect=%d secondHop=%d terminalScope=%d terminalPresence=%d\n%s",
+			firstHopScope, parentIdentityCollect, secondHop, secondDocumentScope, terminalPresence, query)
 	}
-	legacyFields := []string{"project", "dataset_generation", "payload.valueQuantity.code", "auth_resource_path"}
-	if scanned.CategoryIndex.Supersedes == nil || scanned.CategoryIndex.Supersedes.Name != previewCoveringIndexName("Observation", legacyFields) || !reflect.DeepEqual(scanned.CategoryIndex.Supersedes.Fields, legacyFields) {
-		t.Fatalf("related category index supersession = %+v, want only its deterministic four-field legacy index", scanned.CategoryIndex.Supersedes)
+	fallbackScope := strings.Index(query, "__loom_related_category_stream_fallback_document_2.auth_resource_path IN @auth_resource_paths")
+	fallbackPresence := strings.Index(query, `HAS(__loom_related_category_stream_fallback_document_2.payload.valueQuantity, "code")`)
+	if fallbackScope < 0 || fallbackPresence <= fallbackScope {
+		t.Fatalf("cross-collection fallback lost its scope-before-presence check: scope=%d presence=%d\n%s", fallbackScope, fallbackPresence, query)
 	}
-	if !containsCollectionBindValue(scanned.BindVars, "Observation") {
-		t.Fatalf("reverse scan is not rooted at terminal Observation candidates: %#v", scanned.BindVars)
+	for _, guard := range []string{
+		"__loom_related_category_stream_root.project == @project",
+		"__loom_related_category_stream_root.dataset_generation == @dataset_generation",
+		"__loom_related_category_stream_root.auth_resource_path IN @auth_resource_paths",
+		"__loom_related_category_stream_edge_1.project == @project",
+		"__loom_related_category_stream_edge_1.dataset_generation == @dataset_generation",
+		"__loom_related_category_stream_edge_1.auth_resource_path IN @auth_resource_paths",
+		"__loom_related_category_stream_document_1.resourceType == @related_expand_0_hop_1_target_type",
+		"__loom_related_category_stream_document_1.project == @project",
+		"__loom_related_category_stream_document_1.dataset_generation == @dataset_generation",
+		"__loom_related_category_stream_document_1.auth_resource_path IN @auth_resource_paths",
+	} {
+		position := strings.Index(query, guard)
+		if position < 0 || position >= parentIdentityCollect {
+			t.Errorf("first-hop scope/type guard %q is missing or occurs after identity COLLECT (position=%d collect=%d):\n%s", guard, position, parentIdentityCollect, query)
+		}
+	}
+	for _, variable := range []string{
+		"__loom_related_category_stream_root",
+		"__loom_related_category_stream_edge_1",
+		"__loom_related_category_stream_document_1",
+		"__loom_related_category_stream_parent",
+		"__loom_related_category_stream_edge_2",
+		"__loom_related_category_stream_document_2",
+	} {
+		if !strings.Contains(query, variable+".project == @project") ||
+			!strings.Contains(query, variable+".dataset_generation == @dataset_generation") ||
+			!strings.Contains(query, variable+".auth_resource_path IN @auth_resource_paths") {
+			t.Errorf("streamed route component %q is missing project, generation, or auth scope:\n%s", variable, query)
+		}
+	}
+	if scanned.CategoryIndex != nil {
+		t.Fatalf("streamed related category query should not synchronously prepare a terminal category index: %+v", scanned.CategoryIndex)
+	}
+	if !containsCollectionBindValue(scanned.BindVars, "Specimen") || !containsCollectionBindValue(scanned.BindVars, "fhir_edge") {
+		t.Fatalf("streamed route is missing its typed root or edge collection bind: %#v", scanned.BindVars)
+	}
+	if !strings.Contains(query, "FOR __loom_related_category_stream_document_2 IN @@__loom_related_category_target_collection") ||
+		scanned.BindVars["@__loom_related_category_target_collection"] != "Observation" {
+		t.Fatalf("valueQuantity.code projection is not using the exact typed Observation primary-key collection lookup: bind=%#v\n%s", scanned.BindVars["@__loom_related_category_target_collection"], query)
+	}
+	if !strings.Contains(query, "IS_SAME_COLLECTION(@related_expand_1_hop_1_target_type, __loom_related_category_stream_edge_2._from)") ||
+		!strings.Contains(query, "LET __loom_related_category_stream_fallback_document_2 = DOCUMENT(__loom_related_category_stream_edge_2._from)") {
+		t.Fatalf("projected category lookup must retain the collection-identity fallback for a resourceType stored in another collection:\n%s", query)
 	}
 	for _, routeValue := range []string{"Specimen", "Patient", "Observation", "subject_Patient", "fhir_edge"} {
 		if !relatedCategoryHasBindValue(scanned.BindVars, routeValue) {
-			t.Errorf("typed reverse route did not bind exact route value %q: %#v", routeValue, scanned.BindVars)
+			t.Errorf("typed related route did not bind exact route value %q: %#v", routeValue, scanned.BindVars)
 		}
 	}
 	assertCategoryScanBindVarsMatchQuery(t, scanned.Query, scanned.BindVars)
@@ -79,12 +131,45 @@ func TestCompileCategoryScanReversesExactRelatedRouteWithScopeAndStageWitnesses(
 		}
 		assertCategoryScanBindVarsMatchQuery(t, scanned.OverflowWitness.Query, scanned.OverflowWitness.BindVars)
 	}
-	assertCategoryScanLimitFollowsStageWitnesses(t, scanned.Query)
+	assertCategoryScanLimitFollowsStreamedWitnesses(t, scanned.Query)
 	if scanned.BindVars[categoryLimitBind] != MaxCategoryScanValues+1 {
 		t.Fatalf("category limit = %#v, want complete-category sentinel %d", scanned.BindVars[categoryLimitBind], MaxCategoryScanValues+1)
 	}
-	if !scanned.Proof.PresenceTracked || !strings.Contains(query, "candidate_present") || !strings.Contains(query, "present: category.present") {
+	if !scanned.Proof.PresenceTracked || !strings.Contains(query, "stream_present") || !strings.Contains(query, "HAS(") {
 		t.Fatalf("exact related-field presence is not bound into the category proof/query: proof=%#v\n%s", scanned.Proof, query)
+	}
+}
+
+func TestRelatedCategoryStreamingPathRequiresTwoSinglePreservingHops(t *testing.T) {
+	stage := func(routeHops int, policy ir.PhysicalUnnestEmptyPolicy) ir.PhysicalConstructionStage {
+		return ir.PhysicalConstructionStage{RelatedExpand: &ir.PhysicalStageRelatedExpand{
+			EmptyPolicy: policy,
+			Route:       make([]ir.PhysicalStageRelatedRouteStep, routeHops),
+		}}
+	}
+	preserve := ir.PhysicalUnnestPreserveParent
+	valid := relatedCategoryPlan{
+		expands:     []ir.PhysicalConstructionStage{stage(1, preserve), stage(1, preserve)},
+		hopsByStage: [][]relatedCategoryHop{{{}}, {{}}},
+	}
+	if !relatedCategoryStreamingPathEligible(valid) {
+		t.Fatal("two one-hop PRESERVE_PARENT stages should use the streaming related-category renderer")
+	}
+	for _, test := range []struct {
+		name  string
+		shape relatedCategoryPlan
+	}{
+		{name: "one stage", shape: relatedCategoryPlan{expands: valid.expands[:1], hopsByStage: valid.hopsByStage[:1]}},
+		{name: "three stages", shape: relatedCategoryPlan{expands: append(append([]ir.PhysicalConstructionStage(nil), valid.expands...), stage(1, preserve)), hopsByStage: append(append([][]relatedCategoryHop(nil), valid.hopsByStage...), []relatedCategoryHop{{}})}},
+		{name: "multi-hop stage", shape: relatedCategoryPlan{expands: []ir.PhysicalConstructionStage{stage(1, preserve), stage(2, preserve)}, hopsByStage: valid.hopsByStage}},
+		{name: "non-preserving stage", shape: relatedCategoryPlan{expands: []ir.PhysicalConstructionStage{stage(1, preserve), stage(1, ir.PhysicalUnnestExclude)}, hopsByStage: valid.hopsByStage}},
+		{name: "route and traversal mismatch", shape: relatedCategoryPlan{expands: valid.expands, hopsByStage: [][]relatedCategoryHop{{{}}, {{}, {}}}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if relatedCategoryStreamingPathEligible(test.shape) {
+				t.Fatal("unsupported related shape selected the streaming renderer")
+			}
+		})
 	}
 }
 
@@ -105,8 +190,8 @@ func TestRelatedCategoryScanRetainsLegacyGenerationRejectionAndFalseScopeFallbac
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(deniedScan.Query, "__loom_construction_stage_") || strings.Contains(deniedScan.Query, "__loom_related_category_candidates") {
-		t.Fatalf("scope_allowed=false physical plan bypassed its source guards:\n%s", deniedScan.Query)
+	if !strings.Contains(deniedScan.Query, "__loom_construction_stage_") || strings.Contains(deniedScan.Query, "__loom_related_category_stream_") {
+		t.Fatalf("scope_allowed=false physical plan bypassed its source guards or selected the streamed specialization:\n%s", deniedScan.Query)
 	}
 }
 
@@ -165,14 +250,18 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
 		}
 	}
 
-	// s1 has one populated patient and a sibling patient with no Observation;
-	// s2 has no Patient. Both empty boundaries must contribute the native NULL.
+	// s1 and s3 share one populated patient; s1 also has a sibling patient with
+	// no Observation. s2 has no Patient. The category query may deduplicate the
+	// shared patient identity, but the ordinary output must preserve each root's
+	// full row multiplicity and both empty boundaries.
 	s1 := insertResource(project, "Specimen", "s1", map[string]any{"status": "available"})
 	insertResource(project, "Specimen", "s2", map[string]any{"status": "available"})
+	s3 := insertResource(project, "Specimen", "s3", map[string]any{"status": "available"})
 	p1 := insertResource(project, "Patient", "p1", map[string]any{})
 	p2 := insertResource(project, "Patient", "p2", map[string]any{})
 	insertEdge(project, "s1-p1", "Specimen", s1, "Patient", p1)
 	insertEdge(project, "s1-p2", "Specimen", s1, "Patient", p2)
+	insertEdge(project, "s3-p1", "Specimen", s3, "Patient", p1)
 	for id, quantity := range map[string]any{
 		"o-code":    map[string]any{"code": "native-string"},
 		"o-null":    map[string]any{"code": nil},
@@ -187,11 +276,14 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
 
 	_, full, scanned := compileRelatedCategoryRuntimeScans(t, relatedCategoryScanOutput(relatedCategoryScanOptions{}), project, generation, MaxCategoryScanValues)
 	fullRows := executeReshapeOracleQuery(t, ctx, client, full)
-	if len(fullRows) != 6 {
-		t.Fatalf("native related rows = %d, want four linked Observation rows plus two per-boundary preserved NULL rows: %#v", len(fullRows), fullRows)
+	if len(fullRows) != 10 {
+		t.Fatalf("native related rows = %d, want eight linked Observation rows for two roots sharing Patient p1, one empty second-hop row, and one empty first-hop row: %#v", len(fullRows), fullRows)
 	}
 	var sawSecondStageEmpty, sawFirstStageEmpty bool
+	rowsByRoot := map[string]int{}
 	for _, row := range fullRows {
+		rootID, _ := row["specimen_id"].(string)
+		rowsByRoot[rootID]++
 		if row["specimen_id"] == "s1" && row["patient_record"] == "p2" && row["observation_record"] == nil {
 			sawSecondStageEmpty = true
 		}
@@ -202,10 +294,64 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
 	if !sawSecondStageEmpty || !sawFirstStageEmpty {
 		t.Fatalf("native rows omitted an empty expansion boundary: second=%t first=%t rows=%#v", sawSecondStageEmpty, sawFirstStageEmpty, fullRows)
 	}
-	want := map[string]struct{}{}
-	for _, row := range fullRows {
-		value, present := row["category"]
-		want[relatedCategoryValueKey(present, value)] = struct{}{}
+	if want := map[string]int{"s1": 5, "s2": 1, "s3": 4}; !reflect.DeepEqual(rowsByRoot, want) {
+		t.Fatalf("native output multiplicity by Specimen = %v, want %v; category-scan identity dedup must not affect ordinary rows", rowsByRoot, want)
+	}
+	// The public no-Pivot output materializes optional related fields as nullable
+	// values, so its `category` property cannot distinguish a missing source
+	// path from explicit NULL. Discover chooser categories from an independent
+	// raw traversal that tracks both PRESERVE_PARENT boundaries and exact path
+	// presence instead.
+	rawCategories := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{
+		Query: `FOR root IN Specimen
+  FILTER root.project == @project AND root.dataset_generation == @generation
+  LET patients = (
+    FOR first_edge IN fhir_edge
+      FILTER first_edge._from == root._id AND first_edge.label == "subject_Patient" AND first_edge.to_type == "Patient"
+        AND first_edge.project == @project AND first_edge.dataset_generation == @generation
+      LET patient = DOCUMENT(first_edge._to)
+      FILTER patient != null AND patient.resourceType == "Patient" AND patient.project == @project
+        AND patient.dataset_generation == @generation
+      RETURN patient
+  )
+  FOR patient_record IN APPEND(patients, LENGTH(patients) == 0 ? [null] : [])
+    LET observations = (
+      FOR second_edge IN fhir_edge
+        FILTER patient_record != null AND second_edge._to == patient_record._id
+          AND second_edge.label == "subject_Patient" AND second_edge.from_type == "Observation"
+          AND second_edge.project == @project AND second_edge.dataset_generation == @generation
+        LET observation = DOCUMENT(second_edge._from)
+        FILTER observation != null AND observation.resourceType == "Observation" AND observation.project == @project
+          AND observation.dataset_generation == @generation
+        RETURN observation
+    )
+    FOR terminal IN APPEND(observations, LENGTH(observations) == 0 ? [null] : [])
+      LET category_present = terminal == null ? true : (
+        IS_OBJECT(terminal) AND HAS(terminal, "payload")
+        AND IS_OBJECT(terminal.payload) AND HAS(terminal.payload, "valueQuantity")
+        AND IS_OBJECT(terminal.payload.valueQuantity) AND HAS(terminal.payload.valueQuantity, "code")
+      )
+      LET category_value = category_present ? terminal.payload.valueQuantity.code : null
+      COLLECT present = category_present, value = category_value
+      RETURN { present, value }
+`,
+		BindVars: map[string]any{"project": project, "generation": generation},
+	})
+	want := map[string]struct{}{
+		relatedCategoryValueKey(false, nil):            {},
+		relatedCategoryValueKey(true, nil):             {},
+		relatedCategoryValueKey(true, "native-string"): {},
+	}
+	oracleCategories := map[string]struct{}{}
+	for _, row := range rawCategories {
+		present, ok := row["present"].(bool)
+		if !ok {
+			t.Fatalf("independent raw category presence = %#v, want bool", row["present"])
+		}
+		oracleCategories[relatedCategoryValueKey(present, row["value"])] = struct{}{}
+	}
+	if !reflect.DeepEqual(oracleCategories, want) {
+		t.Fatalf("independent raw category states = %v, want explicit MISSING, NULL, and native string: %v", oracleCategories, want)
 	}
 	actualRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: scanned.Query, BindVars: scanned.BindVars})
 	got := map[string]struct{}{}
@@ -220,13 +366,13 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
 		t.Fatalf("optimized category scan returned duplicate category rows: rows=%#v distinct=%v", actualRows, got)
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("optimized categories = %v, native distinct categories = %v; query:\n%s", got, want, scanned.Query)
+		t.Fatalf("optimized categories = %v, independent raw categories = %v; query:\n%s", got, want, scanned.Query)
 	}
 	if _, found := got[relatedCategoryValueKey(true, "orphan-terminal")]; found {
 		t.Fatalf("orphan terminal leaked into related categories: %v", got)
 	}
 	if _, ok := want[relatedCategoryValueKey(true, nil)]; !ok {
-		t.Fatalf("native recipe did not expose its expected preserved/explicit NULL category: %v", want)
+		t.Fatalf("independent raw traversal omitted its expected preserved/explicit NULL category: %v", want)
 	}
 
 	// This isolated project has only the category "d" on terminal records,
@@ -378,11 +524,11 @@ func TestRelatedCategoryScanMatchesRestrictedRootEdgeAndTargetScopeAgainstArango
 	}
 	_, full, scanned := compileRelatedCategoryRuntimeScansWithBindings(t, relatedCategoryScanOutput(relatedCategoryScanOptions{}), bindings, MaxCategoryScanValues)
 	for _, path := range []string{
-		"terminal.auth_resource_path IN @auth_resource_paths",
-		"reverse_edge_0.auth_resource_path IN @auth_resource_paths",
-		"reverse_edge_1.auth_resource_path IN @auth_resource_paths",
-		"reverse_document_0.auth_resource_path IN @auth_resource_paths",
-		"reverse_document_1.auth_resource_path IN @auth_resource_paths",
+		"__loom_related_category_stream_root.auth_resource_path IN @auth_resource_paths",
+		"__loom_related_category_stream_edge_1.auth_resource_path IN @auth_resource_paths",
+		"__loom_related_category_stream_document_1.auth_resource_path IN @auth_resource_paths",
+		"__loom_related_category_stream_edge_2.auth_resource_path IN @auth_resource_paths",
+		"__loom_related_category_stream_document_2.auth_resource_path IN @auth_resource_paths",
 	} {
 		if !strings.Contains(scanned.Query, path) {
 			t.Errorf("related-category query omitted scoped route component %q:\n%s", path, scanned.Query)
@@ -483,8 +629,8 @@ func TestCompileRelatedCategoryScanFallsBackForUnsafeShapes(t *testing.T) {
 			if !strings.Contains(scanned.Query, "__loom_construction_stage_") || !strings.Contains(scanned.Query, "related_expand_records") {
 				t.Fatalf("unsafe shape bypassed the exact construction prefix:\n%s", scanned.Query)
 			}
-			if strings.Contains(scanned.Query, "__loom_related_category_candidates") {
-				t.Fatalf("unsafe shape selected the related-category fast path:\n%s", scanned.Query)
+			if strings.Contains(scanned.Query, "__loom_related_category_stream_") {
+				t.Fatalf("unsafe shape selected the streamed related-category specialization:\n%s", scanned.Query)
 			}
 		})
 	}
@@ -509,18 +655,18 @@ func TestCompileRelatedCategoryScanRejectsMismatchedOrInactiveColumnIDs(t *testi
 	}
 }
 
-func assertCategoryScanLimitFollowsStageWitnesses(t *testing.T, query string) {
+func assertCategoryScanLimitFollowsStreamedWitnesses(t *testing.T, query string) {
 	t.Helper()
-	union := strings.LastIndex(query, "UNION_DISTINCT(")
-	limit := strings.LastIndex(query, "LIMIT ")
-	if union < 0 || limit <= union {
-		t.Fatalf("complete category cap must follow final distinct across all witness branches:\n%s", query)
+	firstWitness := strings.Index(query, "APPEND(__loom_related_category_stream_records_1,")
+	parentIdentity := strings.Index(query, "COLLECT __loom_related_category_stream_parent_key = __loom_related_category_stream_first_parent")
+	secondWitness := strings.Index(query, "APPEND(__loom_related_category_stream_records_2,")
+	distinct := strings.Index(query, "COLLECT present = __loom_related_category_stream_present, value = __loom_related_category_stream_value")
+	limit := strings.LastIndex(query, "LIMIT @"+categoryLimitBind)
+	if firstWitness < 0 || parentIdentity <= firstWitness || secondWitness <= parentIdentity || distinct <= secondWitness || limit <= distinct {
+		t.Fatalf("parent identity and typed category aggregation must follow the scoped first hop and preserved empty witnesses:\n%s", query)
 	}
-	for _, marker := range []string{"__loom_related_category_empty_stage_1", "__loom_related_category_empty_stage_2"} {
-		let := strings.Index(query, "LET "+marker+" =")
-		if let < 0 || let >= union || !strings.Contains(query[union:limit], marker) {
-			t.Fatalf("category cap does not include %s in the final distinct:\n%s", marker, query)
-		}
+	if strings.Count(query, "COLLECT ") != 2 {
+		t.Fatalf("streamed category query must use one scoped parent identity collect and one final typed distinct aggregation:\n%s", query)
 	}
 }
 

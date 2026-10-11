@@ -124,6 +124,79 @@ func TestSemanticFrameChoiceBindsCorrelatedFamilyToCompilerValuePath(t *testing.
 	}
 }
 
+func TestSemanticFrameFallbackIdentityAndPresentationPreserveRepeatedValues(t *testing.T) {
+	family := SemanticFrameFamily{
+		BindingID: "binding-codeable", ResourceType: "Observation", SourcePath: "valueCodeableConcept",
+		KeyPath: "code.coding[]", ValuePath: "valueCodeableConcept.text",
+		ValueFallbacks: []string{"valueCodeableConcept.coding[].display"}, FallbackOnBlankString: true,
+		LogicalType: "string", RuleVersion: "5", SchemaVersion: 4,
+	}
+	candidate := Candidate{
+		ID: "observation-value-text", NodeID: "observation", ResourceType: "Observation",
+		FieldPath: "valueCodeableConcept.text", LogicalType: "string", Cardinality: "many",
+		RepeatedBoundaries: []RepeatedBoundary{{Path: "valueCodeableConcept.coding[]", MaxItems: 4}},
+		ProjectionModes:    []ProjectionMode{ProjectionScalar, ProjectionFirst, ProjectionArray},
+	}
+	newChoice := func(family SemanticFrameFamily) ConstructionChoice {
+		t.Helper()
+		choice, err := NewSemanticFrameConstructionChoice("snapshot", "context", "build", SemanticFrameChoiceSource{
+			Kind: ConstructionChoiceSourceSemanticFrame, AnchorConceptID: "stage", Family: family,
+			CandidateID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath,
+		}, nil, candidate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return choice
+	}
+	choice := newChoice(family)
+	if constructionOption(t, choice, ConstructionChoiceValue).Decision != ConstructionChoiceRequiresDecision {
+		t.Fatalf("repeated semantic value option = %#v, want explicit reduction decision", constructionOption(t, choice, ConstructionChoiceValue))
+	}
+	if constructionOption(t, choice, ConstructionChoiceAll).Decision != ConstructionChoiceDefault {
+		t.Fatalf("all-values option = %#v, want default preserving projection", constructionOption(t, choice, ConstructionChoiceAll))
+	}
+	if !constructionPresentationHasFact(choice.Presentation, "Fallback value", "valueCodeableConcept.coding[].display") ||
+		!constructionPresentationHasFact(choice.Presentation, "Fallback rule", "Use the fallback when the primary string is blank") {
+		t.Fatalf("semantic fallback presentation = %#v", choice.Presentation)
+	}
+	changed := family
+	changed.FallbackOnBlankString = false
+	if got := newChoice(changed).ChoiceID; got == choice.ChoiceID {
+		t.Fatal("blank-string policy did not change frame-choice identity")
+	}
+	changed = family
+	changed.ValueFallbacks = []string{"valueCodeableConcept.coding[].code"}
+	if got := newChoice(changed).ChoiceID; got == choice.ChoiceID {
+		t.Fatal("fallback selectors did not change frame-choice identity")
+	}
+
+	badType := family
+	badType.LogicalType = "integer"
+	if _, err := NewSemanticFrameConstructionChoice("snapshot", "context", "build", SemanticFrameChoiceSource{
+		Kind: ConstructionChoiceSourceSemanticFrame, AnchorConceptID: "stage", Family: badType,
+		CandidateID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath,
+	}, nil, candidate); err == nil {
+		t.Fatal("blank-string fallback accepted a non-string semantic value")
+	}
+	noFallback := family
+	noFallback.ValueFallbacks = nil
+	if _, err := NewSemanticFrameConstructionChoice("snapshot", "context", "build", SemanticFrameChoiceSource{
+		Kind: ConstructionChoiceSourceSemanticFrame, AnchorConceptID: "stage", Family: noFallback,
+		CandidateID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath,
+	}, nil, candidate); err == nil {
+		t.Fatal("blank-string fallback accepted without a fallback selector")
+	}
+}
+
+func constructionPresentationHasFact(presentation ConstructionChoicePresentation, label, value string) bool {
+	for _, fact := range presentation.Facts {
+		if fact.Label == label && fact.Value == value {
+			return true
+		}
+	}
+	return false
+}
+
 func TestNewFieldConstructionChoiceRejectsUnsupportedObjectProjection(t *testing.T) {
 	t.Parallel()
 

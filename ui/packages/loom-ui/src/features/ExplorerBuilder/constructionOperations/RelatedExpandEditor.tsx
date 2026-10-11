@@ -104,7 +104,7 @@ const candidateFor = (
       ...stage.columns.map(({ id, name: columnName, label: columnLabel, type }) => ({
         id, name: columnName, label: columnLabel, ...(type ? { type } : {}),
       })),
-      { id: outputColumnId, name, label, type: 'string' },
+      { id: outputColumnId, name, label, type: 'string', nullable: emptyPolicy === 'PRESERVE_PARENT' },
     ];
   if (step && !priorOutput) return undefined;
   const contributorRule = condition.kind === 'ALL'

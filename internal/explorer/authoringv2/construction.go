@@ -189,6 +189,7 @@ type ConstructionRelatedSource struct {
 	Route              []capability.ConstructionRouteStep `json:"route"`
 	ContributorRule    ConstructionRelatedContributorRule `json:"contributorRule"`
 	Form               capability.ConstructionChoiceForm  `json:"form"`
+	RowValuePolicy     ConstructionRowValuePolicy         `json:"rowValuePolicy,omitempty"`
 	OutputColumnID     string                             `json:"outputColumnId"`
 }
 

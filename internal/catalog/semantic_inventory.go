@@ -16,10 +16,16 @@ const (
 	SemanticInventoryBuildCollection   = "fhir_semantic_inventory_builds"
 	SemanticInventorySchemaVersion     = 1
 	SemanticInventoryEntryIndexVersion = 2
-	SemanticObservationRuleVersion     = 4
-	SemanticInventoryPageLimit         = 50
-	SemanticInventorySourceFile        = "file"
-	SemanticInventorySourceRetained    = "retained_vertex"
+	SemanticObservationRuleVersion     = 5
+	// SemanticInventoryEmitterVersion changes when retained-resource emission changes independently of observation or binding identity.
+	SemanticInventoryEmitterVersion = 2
+	// These are the only prior observation versions whose primary-only
+	// semantic binding identity is still accepted for saved frames.
+	SemanticObservationLegacyV1SchemaVersion = 3
+	SemanticObservationLegacyV1RuleVersion   = 4
+	SemanticInventoryPageLimit               = 50
+	SemanticInventorySourceFile              = "file"
+	SemanticInventorySourceRetained          = "retained_vertex"
 )
 
 const SemanticRuleHintCodedValueV1 = "CODED_VALUE_V1"
@@ -156,6 +162,7 @@ func SemanticInventoryBuildID(project, datasetGeneration string) string {
 		strconv.Itoa(SemanticInventorySchemaVersion),
 		strconv.Itoa(SemanticObservationSchemaVersion),
 		strconv.Itoa(SemanticObservationRuleVersion),
+		strconv.Itoa(SemanticInventoryEmitterVersion),
 	)
 }
 
@@ -294,6 +301,32 @@ func semanticConceptID(observation SemanticObservation) string {
 
 func semanticBindingID(observation SemanticObservation) string {
 	parts := []string{
+		"semantic-binding/v2",
+		observation.Source.Type,
+		observation.Source.Profile,
+		observation.Source.Path,
+		observation.Source.Canonical,
+		observation.OwningScope,
+		observation.Key.Selector,
+		observation.Value.Selector,
+		observation.Value.Type,
+		strings.Join(observation.Value.FallbackSelectors, "\x1f"),
+		strconv.FormatBool(observation.Value.FallbackOnBlankString),
+		observation.ChoiceArm,
+		observation.LogicalType,
+		observation.RuleHint,
+		observation.RuleVersion,
+	}
+	parts = append(parts, observation.ExtensionURLPath...)
+	return catalogIdentityDigest(parts...)
+}
+
+// LegacySemanticBindingIDV1 reconstructs the pinned semantic-binding/v1
+// identity for schema 3 / rule 4 observations. Saved frames use this identity
+// to preserve their primary-only value binding while current inventory
+// observations gain fallback selectors.
+func LegacySemanticBindingIDV1(observation SemanticObservation) string {
+	parts := []string{
 		"semantic-binding/v1",
 		observation.Source.Type,
 		observation.Source.Profile,
@@ -306,7 +339,7 @@ func semanticBindingID(observation SemanticObservation) string {
 		observation.ChoiceArm,
 		observation.LogicalType,
 		observation.RuleHint,
-		observation.RuleVersion,
+		strconv.Itoa(SemanticObservationLegacyV1RuleVersion),
 	}
 	parts = append(parts, observation.ExtensionURLPath...)
 	return catalogIdentityDigest(parts...)

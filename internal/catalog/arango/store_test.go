@@ -6,6 +6,7 @@ import (
 	"errors"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -193,13 +194,16 @@ func TestResolveSemanticInventorySelectionsUsesIndexedScopedRows(t *testing.T) {
 		SchemaVersion: catalog.SemanticObservationSchemaVersion,
 		Source:        catalog.SemanticObservationSource{Type: "Observation", Path: "code"},
 		Key:           catalog.SemanticObservationKey{Selector: "code.coding[]", System: "urn:system", Code: "code", Display: "Label"},
-		Value:         catalog.SemanticObservationValue{Selector: "valueQuantity.value", Type: "decimal"},
-		LogicalType:   "decimal",
-		Population:    2,
-		Completeness:  catalog.SemanticComplete,
-		Status:        "SUPPORTED",
-		RuleHint:      "OBSERVATION_CODE_VALUE",
-		RuleVersion:   "3",
+		Value: catalog.SemanticObservationValue{
+			Selector: "valueCodeableConcept.text", Type: "string",
+			FallbackSelectors: []string{"valueCodeableConcept.coding[].display"}, FallbackOnBlankString: true,
+		},
+		LogicalType:  "string",
+		Population:   2,
+		Completeness: catalog.SemanticComplete,
+		Status:       "SUPPORTED",
+		RuleHint:     "OBSERVATION_CODE_VALUE",
+		RuleVersion:  strconv.Itoa(catalog.SemanticObservationRuleVersion),
 	}
 	entryRow := semanticInventoryTestRow(t, catalog.SemanticInventoryEntry{ConceptID: "concept-a", BindingID: "binding-a", Observation: observation})
 	client := &evidenceClient{
@@ -224,6 +228,11 @@ func TestResolveSemanticInventorySelectionsUsesIndexedScopedRows(t *testing.T) {
 	if result.State != catalog.SemanticInventoryComplete || len(result.Entries) != 1 || result.Entries[0].ConceptID != "concept-a" || result.Entries[0].Observation.Population != 2 {
 		t.Fatalf("resolved inventory = %#v", result)
 	}
+	resolvedValue := result.Entries[0].Observation.Value
+	if resolvedValue.Selector != "valueCodeableConcept.text" || resolvedValue.Type != "string" ||
+		!reflect.DeepEqual(resolvedValue.FallbackSelectors, []string{"valueCodeableConcept.coding[].display"}) || !resolvedValue.FallbackOnBlankString {
+		t.Fatalf("indexed resolver lost value fallback policy: %#v", resolvedValue)
+	}
 	if len(client.queries) != 2 || client.queries[1] != semanticInventoryResolveIndexedSelectionsAQL {
 		t.Fatalf("selection queries = %v, want indexed exact lookup", client.queries)
 	}
@@ -245,6 +254,10 @@ func TestResolveSemanticInventorySelectionsUsesIndexedScopedRows(t *testing.T) {
 		"FILTER d.binding_id == requested.binding_id",
 		"FILTER d.concept_id == requested.concept_id",
 		"COLLECT AGGREGATE population = SUM(d.observation.population)",
+		"fallback_selectors = MIN(d.observation.value.fallback_selectors)",
+		"fallback_on_blank_string = MIN(d.observation.value.fallback_on_blank_string)",
+		"fallback_selectors: fallback_selectors",
+		"fallback_on_blank_string: fallback_on_blank_string",
 	} {
 		if !strings.Contains(query, fragment) {
 			t.Fatalf("indexed selection query missing %q: %s", fragment, query)
@@ -252,6 +265,26 @@ func TestResolveSemanticInventorySelectionsUsesIndexedScopedRows(t *testing.T) {
 	}
 	if strings.Index(query, "FILTER @auth_resource_paths_unrestricted") > strings.Index(query, "COLLECT AGGREGATE") {
 		t.Fatalf("resolver aggregates before authorization filtering: %s", query)
+	}
+}
+
+func TestSemanticInventoryMaterializationAndPageQueriesPreserveValueFallbackPolicy(t *testing.T) {
+	for name, query := range map[string]string{
+		"materialization": materializeSemanticInventoryEntriesAQL,
+		"page":            semanticInventoryPageAQL,
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, fragment := range []string{
+				"fallback_selectors = MIN(d.observation.value.fallback_selectors)",
+				"fallback_on_blank_string = MIN(d.observation.value.fallback_on_blank_string)",
+				"fallback_selectors: fallback_selectors",
+				"fallback_on_blank_string: fallback_on_blank_string",
+			} {
+				if !strings.Contains(query, fragment) {
+					t.Fatalf("%s query omits fallback-policy projection %q", name, fragment)
+				}
+			}
+		})
 	}
 }
 
@@ -599,11 +632,14 @@ func TestCapabilityEvidenceFieldEnrichmentPreservesSemanticObservations(t *testi
 	client := &evidenceClient{rows: map[string][]map[string]any{fieldEnrichmentAQL: {{
 		"project": "p", "resource_type": "Observation", "path": "component[]", "kind": "array", "doc_count": int64(2), "sample_count": int64(2),
 		"semantic_observations": []any{map[string]any{
-			"schema_version": int64(2), "owning_scope": "component[]", "choice_arm": "valueQuantity", "logical_type": "decimal",
-			"completeness": "complete", "status": "supported", "population": int64(2), "examples": []any{"111", "222"},
+			"schema_version": int64(catalog.SemanticObservationSchemaVersion), "owning_scope": "component[]", "choice_arm": "valueCodeableConcept", "logical_type": "string",
+			"completeness": "complete", "status": "supported", "population": int64(2), "examples": []any{"Stage I", "Stage II"},
 			"source": map[string]any{"canonical": "Observation.component", "type": "Observation", "profile": "http://hl7.org/fhir/StructureDefinition/Observation", "path": "component"},
 			"key":    map[string]any{"selector": "code.coding[]", "system": "urn:study:A", "code": "shared", "display": "Shared"},
-			"value":  map[string]any{"selector": "valueQuantity.value", "type": "decimal"},
+			"value": map[string]any{
+				"selector": "valueCodeableConcept.text", "type": "string",
+				"fallback_selectors": []any{"valueCodeableConcept.coding[].display"}, "fallback_on_blank_string": true,
+			},
 		}},
 	}}}}
 	adapter, err := New(client)
@@ -618,7 +654,9 @@ func TestCapabilityEvidenceFieldEnrichmentPreservesSemanticObservations(t *testi
 		t.Fatalf("semantic observations = %#v", result.Values)
 	}
 	observation := result.Values[0].SemanticObservations[0]
-	if observation.Key.System != "urn:study:A" || observation.Key.Code != "shared" || observation.Value.Selector != "valueQuantity.value" || observation.LogicalType != "decimal" || observation.Population != 2 {
+	if observation.Key.System != "urn:study:A" || observation.Key.Code != "shared" || observation.Value.Selector != "valueCodeableConcept.text" ||
+		observation.Value.Type != "string" || !reflect.DeepEqual(observation.Value.FallbackSelectors, []string{"valueCodeableConcept.coding[].display"}) ||
+		!observation.Value.FallbackOnBlankString || observation.LogicalType != "string" || observation.Population != 2 {
 		t.Fatalf("semantic observation = %#v", observation)
 	}
 }

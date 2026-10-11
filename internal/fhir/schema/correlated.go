@@ -11,15 +11,16 @@ import (
 // and Code are relative to one Coding item, so they cannot be accidentally
 // paired from different array members.
 type CorrelatedBinding struct {
-	OwnerPath     string   `json:"ownerPath,omitempty"`
-	KeyPath       string   `json:"keyPath"`
-	SystemPath    string   `json:"systemPath"`
-	CodePath      string   `json:"codePath"`
-	ValuePath     string   `json:"valuePath"`
-	ValueFallback []string `json:"valueFallback,omitempty"`
-	ChoiceArms    []string `json:"choiceArms,omitempty"`
-	LogicalType   string   `json:"logicalType"`
-	UnitPath      string   `json:"unitPath,omitempty"`
+	OwnerPath             string   `json:"ownerPath,omitempty"`
+	KeyPath               string   `json:"keyPath"`
+	SystemPath            string   `json:"systemPath"`
+	CodePath              string   `json:"codePath"`
+	ValuePath             string   `json:"valuePath"`
+	ValueFallback         []string `json:"valueFallback,omitempty"`
+	FallbackOnBlankString bool     `json:"fallbackOnBlankString,omitempty"`
+	ChoiceArms            []string `json:"choiceArms,omitempty"`
+	LogicalType           string   `json:"logicalType"`
+	UnitPath              string   `json:"unitPath,omitempty"`
 }
 
 // CorrelatedKey is the selected terminology identity for one correlated
@@ -40,32 +41,34 @@ type CorrelatedKey struct {
 // flattened URL string. This keeps each ancestor identity in the same lexical
 // traversal scope as the value it owns.
 type ExtensionBinding struct {
-	OwnerPath     string   `json:"ownerPath,omitempty"`
-	URLPath       []string `json:"urlPath"`
-	ValuePath     string   `json:"valuePath"`
-	LogicalType   string   `json:"logicalType"`
-	ChoiceArms    []string `json:"choiceArms,omitempty"`
-	ValueFallback []string `json:"valueFallback,omitempty"`
-	UnitPath      string   `json:"unitPath,omitempty"`
+	OwnerPath             string   `json:"ownerPath,omitempty"`
+	URLPath               []string `json:"urlPath"`
+	ValuePath             string   `json:"valuePath"`
+	LogicalType           string   `json:"logicalType"`
+	ChoiceArms            []string `json:"choiceArms,omitempty"`
+	ValueFallback         []string `json:"valueFallback,omitempty"`
+	FallbackOnBlankString bool     `json:"fallbackOnBlankString,omitempty"`
+	UnitPath              string   `json:"unitPath,omitempty"`
 }
 
 // CorrelatedBindingSpec is the checked form consumed by semantic and physical
 // compilers. Selectors in this value are relative to the owning item unless
 // OwnerSelector is empty (the root resource is the owner).
 type CorrelatedBindingSpec struct {
-	ResourceType   string
-	OwnerSelector  Selector
-	OwnerResource  string
-	KeySelector    Selector
-	KeyResource    string
-	SystemSelector Selector
-	CodeSelector   Selector
-	ValueSelector  Selector
-	ValueFallbacks []Selector
-	ChoiceArms     []string
-	LogicalType    string
-	ValuePrimitive PrimitiveKind
-	UnitSelector   *Selector
+	ResourceType          string
+	OwnerSelector         Selector
+	OwnerResource         string
+	KeySelector           Selector
+	KeyResource           string
+	SystemSelector        Selector
+	CodeSelector          Selector
+	ValueSelector         Selector
+	ValueFallbacks        []Selector
+	FallbackOnBlankString bool
+	ChoiceArms            []string
+	LogicalType           string
+	ValuePrimitive        PrimitiveKind
+	UnitSelector          *Selector
 }
 
 // ExtensionBindingSpec is the checked extension form consumed by semantic and
@@ -73,16 +76,17 @@ type CorrelatedBindingSpec struct {
 // before the first extension boundary; URLSelectors are each relative to the
 // current Extension item and therefore preserve nested parent identity.
 type ExtensionBindingSpec struct {
-	ResourceType   string
-	OwnerSelector  Selector
-	OwnerResource  string
-	URLSelectors   []Selector
-	ValueSelector  Selector
-	ValueFallbacks []Selector
-	ChoiceArms     []string
-	LogicalType    string
-	ValuePrimitive PrimitiveKind
-	UnitSelector   *Selector
+	ResourceType          string
+	OwnerSelector         Selector
+	OwnerResource         string
+	URLSelectors          []Selector
+	ValueSelector         Selector
+	ValueFallbacks        []Selector
+	FallbackOnBlankString bool
+	ChoiceArms            []string
+	LogicalType           string
+	ValuePrimitive        PrimitiveKind
+	UnitSelector          *Selector
 }
 
 // ValidateCorrelatedBinding validates one binding against generated FHIR
@@ -148,26 +152,27 @@ func ValidateCorrelatedBinding(resourceType string, binding CorrelatedBinding) (
 	if ownerPath == "" {
 		valueResource = resourceType
 	}
-	value, valueErr := validateBindingValue(valueResource, binding.ValuePath, binding.ValueFallback, binding.ChoiceArms, binding.LogicalType, binding.UnitPath)
+	value, valueErr := validateBindingValue(valueResource, binding.ValuePath, binding.ValueFallback, binding.FallbackOnBlankString, binding.ChoiceArms, binding.LogicalType, binding.UnitPath)
 	if valueErr != nil {
 		return CorrelatedBindingSpec{}, valueErr
 	}
-	return CorrelatedBindingSpec{ResourceType: resourceType, OwnerSelector: ownerSelector, OwnerResource: ownerResource, KeySelector: mustParseSelector(keyRelative), KeyResource: keyResource, SystemSelector: system, CodeSelector: code, ValueSelector: value.ValueSelector, ValueFallbacks: value.ValueFallbacks, ChoiceArms: value.ChoiceArms, LogicalType: value.LogicalType, ValuePrimitive: value.ValuePrimitive, UnitSelector: value.UnitSelector}, nil
+	return CorrelatedBindingSpec{ResourceType: resourceType, OwnerSelector: ownerSelector, OwnerResource: ownerResource, KeySelector: mustParseSelector(keyRelative), KeyResource: keyResource, SystemSelector: system, CodeSelector: code, ValueSelector: value.ValueSelector, ValueFallbacks: value.ValueFallbacks, FallbackOnBlankString: value.FallbackOnBlankString, ChoiceArms: value.ChoiceArms, LogicalType: value.LogicalType, ValuePrimitive: value.ValuePrimitive, UnitSelector: value.UnitSelector}, nil
 }
 
 type checkedBindingValue struct {
-	ValueSelector  Selector
-	ValueFallbacks []Selector
-	ChoiceArms     []string
-	LogicalType    string
-	ValuePrimitive PrimitiveKind
-	UnitSelector   *Selector
+	ValueSelector         Selector
+	ValueFallbacks        []Selector
+	FallbackOnBlankString bool
+	ChoiceArms            []string
+	LogicalType           string
+	ValuePrimitive        PrimitiveKind
+	UnitSelector          *Selector
 }
 
 // validateBindingValue is shared by terminology and extension bindings. The
 // generated schema, not a client-declared label, owns primitive compatibility
 // and valid value[x] arms.
-func validateBindingValue(valueResource, valuePath string, valueFallback []string, requestedChoiceArms []string, requestedLogicalType, unitPath string) (checkedBindingValue, error) {
+func validateBindingValue(valueResource, valuePath string, valueFallback []string, fallbackOnBlankString bool, requestedChoiceArms []string, requestedLogicalType, unitPath string) (checkedBindingValue, error) {
 	valuePath = CanonicalizePath(valuePath)
 	if valuePath == "" {
 		return checkedBindingValue{}, fmt.Errorf("valuePath is required")
@@ -245,6 +250,9 @@ func validateBindingValue(valueResource, valuePath string, valueFallback []strin
 		}
 		fallbacks = append(fallbacks, fallback)
 	}
+	if fallbackOnBlankString && (logicalType != "string" || len(fallbacks) == 0) {
+		return checkedBindingValue{}, fmt.Errorf("fallbackOnBlankString requires a string value and at least one fallback selector")
+	}
 	var unit *Selector
 	if strings.TrimSpace(unitPath) == "" {
 		if inferred, ok := inferQuantityUnitSelector(valueResource, valuePath); ok {
@@ -264,7 +272,7 @@ func validateBindingValue(valueResource, valuePath string, valueFallback []strin
 		}
 		unit = &unitSelector
 	}
-	return checkedBindingValue{ValueSelector: value, ValueFallbacks: fallbacks, ChoiceArms: choiceArms, LogicalType: logicalType, ValuePrimitive: valueMetadata.Primitive, UnitSelector: unit}, nil
+	return checkedBindingValue{ValueSelector: value, ValueFallbacks: fallbacks, FallbackOnBlankString: fallbackOnBlankString, ChoiceArms: choiceArms, LogicalType: logicalType, ValuePrimitive: valueMetadata.Primitive, UnitSelector: unit}, nil
 }
 
 // inferQuantityUnitSelector retains the display unit owned by the same FHIR
@@ -373,7 +381,7 @@ func ValidateExtensionBinding(resourceType string, binding ExtensionBinding) (Ex
 			return ExtensionBindingSpec{}, fmt.Errorf("ownerPath base %q must resolve to a repeated object", basePath)
 		}
 	}
-	value, err := validateBindingValue("Extension", binding.ValuePath, binding.ValueFallback, binding.ChoiceArms, binding.LogicalType, binding.UnitPath)
+	value, err := validateBindingValue("Extension", binding.ValuePath, binding.ValueFallback, binding.FallbackOnBlankString, binding.ChoiceArms, binding.LogicalType, binding.UnitPath)
 	if err != nil {
 		return ExtensionBindingSpec{}, err
 	}
@@ -381,7 +389,7 @@ func ValidateExtensionBinding(resourceType string, binding ExtensionBinding) (Ex
 	for index := range urlSelectors {
 		urlSelectors[index], _ = ParseSelector("url")
 	}
-	return ExtensionBindingSpec{ResourceType: resourceType, OwnerSelector: ownerSelector, OwnerResource: "Extension", URLSelectors: urlSelectors, ValueSelector: value.ValueSelector, ValueFallbacks: value.ValueFallbacks, ChoiceArms: value.ChoiceArms, LogicalType: value.LogicalType, ValuePrimitive: value.ValuePrimitive, UnitSelector: value.UnitSelector}, nil
+	return ExtensionBindingSpec{ResourceType: resourceType, OwnerSelector: ownerSelector, OwnerResource: "Extension", URLSelectors: urlSelectors, ValueSelector: value.ValueSelector, ValueFallbacks: value.ValueFallbacks, FallbackOnBlankString: value.FallbackOnBlankString, ChoiceArms: value.ChoiceArms, LogicalType: value.LogicalType, ValuePrimitive: value.ValuePrimitive, UnitSelector: value.UnitSelector}, nil
 }
 
 func normalizeCorrelatedLogicalType(input string) (string, bool) {

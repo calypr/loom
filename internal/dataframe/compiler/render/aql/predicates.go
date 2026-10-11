@@ -81,7 +81,7 @@ func (r *physicalPlanRenderer) renderCorrelationPredicate(correlation ir.Physica
 	if correlation.SystemBindKey == "" || correlation.CodeBindKey == "" {
 		return "", fmt.Errorf("correlation match binds are required")
 	}
-	values, err := r.renderCorrelationValues(owner, correlation.ValueSelector, correlation.ValueFallbacks)
+	values, err := r.renderCorrelationValues(owner, correlation.ValueSelector, correlation.ValueFallbacks, correlation.FallbackOnBlankString)
 	if err != nil {
 		return "", err
 	}
@@ -146,7 +146,7 @@ func (r *physicalPlanRenderer) renderCorrelationScalar(source string, selector s
 	return "FIRST(" + values + ")", nil
 }
 
-func (r *physicalPlanRenderer) renderCorrelationValues(source string, selector spec.Selector, fallbacks []spec.Selector) (string, error) {
+func (r *physicalPlanRenderer) renderCorrelationValues(source string, selector spec.Selector, fallbacks []spec.Selector, fallbackOnBlankString bool) (string, error) {
 	selectors := append([]spec.Selector{selector}, fallbacks...)
 	values := make([]string, 0, len(selectors))
 	for _, candidate := range selectors {
@@ -159,7 +159,12 @@ func (r *physicalPlanRenderer) renderCorrelationValues(source string, selector s
 	if len(values) == 1 {
 		return values[0], nil
 	}
-	return "FIRST(FOR __correlation_candidate IN [" + strings.Join(values, ", ") + "] FILTER LENGTH(__correlation_candidate) > 0 RETURN __correlation_candidate)", nil
+	eligible := "LENGTH(__correlation_candidate) > 0"
+	if fallbackOnBlankString {
+		probe := r.newInternalVariable("correlation_nonblank_value")
+		eligible = "LENGTH(FOR " + probe + " IN __correlation_candidate FILTER IS_STRING(" + probe + ") AND TRIM(" + probe + ") != '' LIMIT 1 RETURN 1) > 0"
+	}
+	return "FIRST(FOR __correlation_candidate IN [" + strings.Join(values, ", ") + "] FILTER " + eligible + " RETURN __correlation_candidate)", nil
 }
 
 // renderCorrelationUnsupportedChoiceValues returns values observed on choice

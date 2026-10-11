@@ -661,6 +661,170 @@ func TestAnalyzeConstructionCandidateSupportsAppendAndRecalculatesStage(t *testi
 	}
 }
 
+func TestAnalyzeConstructionCandidateRecalculatesChainedSameRouteRelatedSources(t *testing.T) {
+	document := workspaceDocument("out_a27d2e89ad150ba83cfa4507")
+	patientColumn := constructionSourceColumn(
+		"source_c3a8832f4fca3ef4fc094bb0", "col_649f8c7bba4d5b652204c73f", "Patient ID", "string",
+	)
+	patientColumn.Source = ColumnSource{
+		Kind:  SourceField,
+		Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"},
+	}
+	document.Columns = []Column{patientColumn}
+
+	route := []capability.ConstructionRouteStep{{
+		EdgeID: "e_e225a17091bb09974fb4afe2", FromNodeID: "n_7855547e43c259d43ab787c6",
+		ToNodeID: "n_e8ff24d9e0b8c8f91ea140a6", FromResourceType: "Patient", ToResourceType: "Observation",
+		Relationship: "subject_Patient", StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+	}}
+	makeRelatedSource := func(
+		stepID, choiceID, candidateID, fieldPath, logicalType, outputID, outputName, outputLabel string,
+		input ConstructionInputRef,
+		outputs []StageColumn,
+	) ConstructionStep {
+		return ConstructionStep{
+			ID: stepID, Inputs: []ConstructionInputRef{input},
+			Operation: ConstructionOperation{
+				Kind: ConstructionOperationRelatedSource,
+				RelatedSource: &ConstructionRelatedSource{
+					AnchorColumnID: "_key", ChoiceID: choiceID, SourceOccurrenceID: "n_e8ff24d9e0b8c8f91ea140a6",
+					Source: ConstructionRelatedFieldSource{
+						Kind: capability.ConstructionChoiceSourceField, CandidateID: candidateID,
+						NodeID: "n_e8ff24d9e0b8c8f91ea140a6", ResourceType: "Observation", Path: fieldPath,
+						Cardinality: "optional_one", LogicalType: logicalType,
+					},
+					Route:           append([]capability.ConstructionRouteStep(nil), route...),
+					ContributorRule: ConstructionRelatedContributorRule{Policy: ConstructionRelatedAllMatches},
+					Form:            capability.ConstructionChoiceAll, OutputColumnID: outputID,
+				},
+			},
+			Outputs: append(append([]StageColumn(nil), outputs...), StageColumn{
+				ID: outputID, Name: outputName, Label: outputLabel, Type: logicalType,
+			}),
+		}
+	}
+	rootOutput := StageColumn{ID: patientColumn.ColumnID, Name: patientColumn.Column, Label: patientColumn.Label, Type: patientColumn.LogicalType}
+	first := makeRelatedSource(
+		"step-204eaeb8-5b66-45d2-9bae-8a2de6b47a07", "choice-observation-id", "c_31b05f0dcbcf99c2c17e6d95",
+		"id", "string", "related-e026caab-7839-460f-a872-acc4504c418b", "related_Observation_id", "Observation IDs",
+		ConstructionInputRef{Kind: ConstructionInputSourceProjection}, []StageColumn{rootOutput},
+	)
+	second := makeRelatedSource(
+		"step-b1b10346-9c35-43ef-9861-afdd3ba6ad4f", "choice-observation-value", "c_b84351cf8639d336ef2ff4a5",
+		"valueQuantity.value", "decimal", "related-b9c96965-3b12-4037-bdd5-39fe090bf091",
+		"related_Observation_valueQuantity_value", "Observation valueQuantity.value",
+		ConstructionInputRef{Kind: ConstructionInputStepOutput, StepID: first.ID},
+		[]StageColumn{rootOutput, first.Outputs[1]},
+	)
+	candidate := Construction{Version: ConstructionVersion, Steps: []ConstructionStep{first, second}}
+
+	updated, impact, err := document.AnalyzeConstructionCandidate(candidate, second.ID, nil)
+	if err != nil {
+		t.Fatalf("analyze retained two-field related-source proposal: %v", err)
+	}
+	if !reflect.DeepEqual(impact.AffectedStepIDs, []string{first.ID, second.ID}) {
+		t.Fatalf("affected steps = %#v, want the complete appended suffix in order", impact.AffectedStepIDs)
+	}
+	if len(updated.Construction.Steps) != 2 {
+		t.Fatalf("updated construction has %d steps, want 2", len(updated.Construction.Steps))
+	}
+	if got, want := orderedStageIDs(updated.Construction.Steps[0].Outputs), []string{patientColumn.ColumnID, first.Operation.RelatedSource.OutputColumnID}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("first appended stage columns = %#v, want %#v", got, want)
+	}
+	if got, want := orderedStageIDs(updated.Construction.Steps[1].Outputs), []string{
+		patientColumn.ColumnID, first.Operation.RelatedSource.OutputColumnID, second.Operation.RelatedSource.OutputColumnID,
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("second appended stage columns = %#v, want %#v", got, want)
+	}
+	if updated.Construction.Steps[1].Inputs[0] != (ConstructionInputRef{Kind: ConstructionInputStepOutput, StepID: first.ID}) {
+		t.Fatalf("second related source is not chained from the first: %#v", updated.Construction.Steps[1].Inputs)
+	}
+	if document.Construction != nil {
+		t.Fatal("analyzing the appended suffix mutated the accepted source-only document")
+	}
+	if err := updated.Validate(); err != nil {
+		t.Fatalf("recalculated two-field candidate is invalid: %v", err)
+	}
+	t.Run("appends after unchanged existing filter", func(t *testing.T) {
+		filteredDocument := document
+		filter := ConstructionStep{
+			ID:     "existing_patient_filter",
+			Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
+			Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{
+				ColumnID: patientColumn.ColumnID, Operator: ConstructionFilterExists,
+			}},
+			Outputs: []StageColumn{rootOutput},
+		}
+		filteredDocument.Construction = &Construction{Version: ConstructionVersion, Steps: []ConstructionStep{filter}}
+		filteredFirst, filteredSecond := first, second
+		filteredFirst.Inputs = []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: filter.ID}}
+		filteredSecond.Inputs = []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: filteredFirst.ID}}
+		filteredCandidate := Construction{Version: ConstructionVersion, Steps: []ConstructionStep{filter, filteredFirst, filteredSecond}}
+
+		result, impact, err := filteredDocument.AnalyzeConstructionCandidate(filteredCandidate, filteredSecond.ID, nil)
+		if err != nil {
+			t.Fatalf("analyze two related fields after existing filter: %v", err)
+		}
+		if !reflect.DeepEqual(impact.AffectedStepIDs, []string{filteredFirst.ID, filteredSecond.ID}) {
+			t.Fatalf("affected steps = %#v, want only the appended suffix", impact.AffectedStepIDs)
+		}
+		if !reflect.DeepEqual(result.Construction.Steps[0], filter) {
+			t.Fatalf("existing prefix changed: %#v", result.Construction.Steps[0])
+		}
+		if err := result.Validate(); err != nil {
+			t.Fatalf("candidate with existing prefix is invalid: %v", err)
+		}
+
+		changedPrefix, err := cloneConstruction(&filteredCandidate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		changedPrefix.Steps[0].Operation.Filter.Operator = ConstructionFilterMissing
+		if _, _, err := filteredDocument.AnalyzeConstructionCandidate(*changedPrefix, filteredSecond.ID, nil); err == nil {
+			t.Fatal("appended related-source candidate changed its existing filter prefix")
+		}
+	})
+
+	for _, test := range []struct {
+		name   string
+		mutate func(*Construction)
+	}{
+		{
+			name: "different route",
+			mutate: func(value *Construction) {
+				value.Steps[1].Operation.RelatedSource.Route[0].EdgeID = "other-edge"
+			},
+		},
+		{
+			name: "broken step chain",
+			mutate: func(value *Construction) {
+				value.Steps[1].Inputs = []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}}
+			},
+		},
+		{
+			name: "unrequested operation in suffix",
+			mutate: func(value *Construction) {
+				interleaved := ConstructionStep{ID: "unrequested-step", Operation: ConstructionOperation{Kind: ConstructionOperationFilter}}
+				value.Steps = append(value.Steps[:1], append([]ConstructionStep{interleaved}, value.Steps[1:]...)...)
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			invalid, err := cloneConstruction(&candidate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(invalid)
+			if _, _, err := document.AnalyzeConstructionCandidate(*invalid, second.ID, nil); err == nil {
+				t.Fatal("invalid related-source suffix was accepted")
+			}
+		})
+	}
+	if _, _, err := document.AnalyzeConstructionCandidate(candidate, first.ID, nil); err == nil {
+		t.Fatal("changedStepID naming the first step of a multi-step suffix was accepted")
+	}
+}
+
 func TestAnalyzeConstructionCandidateRequiresExplicitRemovalsAndReportsMissingInputs(t *testing.T) {
 	accepted := stagedConstructionDocument()
 	withoutFilter, err := cloneConstruction(accepted.Construction)
@@ -968,7 +1132,7 @@ func TestRelatedSourceAddsColumnAtSelectedStageWithoutRewritingSourceProjection(
 	}}
 	raw := `{"version":1,"steps":[
 		{"id":"keep_patients","inputs":[{"kind":"SOURCE_PROJECTION"}],"operation":{"kind":"FILTER","filter":{"columnId":"patient-id","operator":"EXISTS"}},"outputs":[{"id":"patient-id","name":"patient_id","label":"Patient ID","type":"string"}]},
-		{"id":"add_observation_status","inputs":[{"kind":"STEP_OUTPUT","stepId":"keep_patients"}],"operation":{"kind":"RELATED_SOURCE","relatedSource":{"anchorColumnId":"_key","choiceId":"choice-token","sourceOccurrenceId":"observation-node","source":{"kind":"FIELD","candidateId":"observation-status","nodeId":"observation-node","resourceType":"Observation","path":"status","cardinality":"optional_one","logicalType":"string"},"route":[{"edgeId":"patient-observation","fromNodeId":"patient-node","toNodeId":"observation-node","fromResourceType":"Patient","toResourceType":"Observation","relationship":"subject_Patient","storageDirection":"INBOUND","matchMode":"OPTIONAL"}],"contributorRule":{"policy":"ALL_MATCHES","predicate":{"candidateId":"observation-status","operator":"EQUALS","value":{"kind":"STRING","string":"registered"}}},"form":"ALL","outputColumnId":"observation-status"}},"outputs":[{"id":"patient-id","name":"patient_id","label":"Patient ID","type":"string"},{"id":"observation-status","name":"observation_status","label":"Observation statuses","type":"string"}]}
+		{"id":"add_observation_status","inputs":[{"kind":"STEP_OUTPUT","stepId":"keep_patients"}],"operation":{"kind":"RELATED_SOURCE","relatedSource":{"anchorColumnId":"_key","choiceId":"choice-token","sourceOccurrenceId":"observation-node","source":{"kind":"FIELD","candidateId":"observation-status","nodeId":"observation-node","resourceType":"Observation","path":"status","cardinality":"optional_one","logicalType":"string"},"route":[{"edgeId":"patient-observation","fromNodeId":"patient-node","toNodeId":"observation-node","fromResourceType":"Patient","toResourceType":"Observation","relationship":"subject_Patient","storageDirection":"INBOUND","matchMode":"OPTIONAL"}],"contributorRule":{"policy":"ALL_MATCHES","predicate":{"candidateId":"observation-status","operator":"EQUALS","value":{"kind":"STRING","string":"registered"}}},"form":"ALL","rowValuePolicy":"ONE","outputColumnId":"observation-status"}},"outputs":[{"id":"patient-id","name":"patient_id","label":"Patient ID","type":"string"},{"id":"observation-status","name":"observation_status","label":"Observation statuses","type":"string"}]}
 	]}`
 	var candidate Construction
 	if err := json.Unmarshal([]byte(raw), &candidate); err != nil {
@@ -986,12 +1150,36 @@ func TestRelatedSourceAddsColumnAtSelectedStageWithoutRewritingSourceProjection(
 	if got := candidate.Steps[1].Operation.RelatedSource.OutputColumnID; got != "observation-status" {
 		t.Fatalf("related source stable output ID = %q", got)
 	}
+	if candidate.Steps[1].Operation.RelatedSource.Form != capability.ConstructionChoiceAll ||
+		candidate.Steps[1].Operation.RelatedSource.RowValuePolicy != ConstructionRowValueOne {
+		t.Fatalf("related source ALL plus ONE row policy did not round-trip: %#v", candidate.Steps[1].Operation.RelatedSource)
+	}
 	predicate := candidate.Steps[1].Operation.RelatedSource.ContributorRule.Predicate
 	if predicate == nil || predicate.CandidateID != "observation-status" || predicate.Operator != ContributorEquals || predicate.Value == nil || predicate.Value.Kind != ContributorString || predicate.Value.String == nil || *predicate.Value.String != "registered" {
 		t.Fatalf("related source scalar contributor predicate did not round trip: %#v", predicate)
 	}
 	if len(document.Columns) != 1 || document.Columns[0].ColumnID != "patient-id" {
 		t.Fatalf("related source mutated initial projection columns: %#v", document.Columns)
+	}
+	for _, test := range []struct {
+		name   string
+		policy ConstructionRowValuePolicy
+		form   capability.ConstructionChoiceForm
+	}{
+		{name: "unsupported policy", policy: ConstructionRowValuePolicy("SOME"), form: capability.ConstructionChoiceAll},
+		{name: "ONE with count form", policy: ConstructionRowValueOne, form: capability.ConstructionChoiceCount},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			invalid := candidate
+			invalid.Steps = append([]ConstructionStep(nil), candidate.Steps...)
+			related := *candidate.Steps[1].Operation.RelatedSource
+			related.RowValuePolicy, related.Form = test.policy, test.form
+			invalid.Steps[1] = candidate.Steps[1]
+			invalid.Steps[1].Operation.RelatedSource = &related
+			if err := invalid.Validate(document.Columns); err == nil {
+				t.Fatal("invalid related-source row value policy was accepted")
+			}
+		})
 	}
 }
 

@@ -107,8 +107,8 @@ type PhysicalLiteral struct {
 }
 
 // PhysicalCall is a backend-neutral expression operator. TargetKind is used
-// only by cast and names a logical scalar type (for example "string" or
-// "integer"), never a backend type or query fragment.
+// by cast and distinct_present_one to name a logical or table scalar type,
+// never a backend type or query fragment.
 type PhysicalCall struct {
 	Name       string
 	Args       []PhysicalExpression
@@ -269,23 +269,24 @@ type PhysicalOwnerRecords struct {
 // owner payload, except SystemSelector and CodeSelector which are relative to
 // one item produced by KeySelector.
 type PhysicalCorrelation struct {
-	Source          PhysicalValue
-	ResourceType    string
-	OwnerResource   string
-	OwnerSelector   spec.Selector
-	KeyResource     string
-	KeySelector     spec.Selector
-	SystemSelector  spec.Selector
-	CodeSelector    spec.Selector
-	ValueSelector   spec.Selector
-	ValueFallbacks  []spec.Selector
-	ChoiceArms      []string
-	ChoiceSelectors []spec.Selector
-	LogicalType     string
-	ValuePrimitive  string
-	UnitSelector    *spec.Selector
-	SystemBindKey   string
-	CodeBindKey     string
+	Source                PhysicalValue
+	ResourceType          string
+	OwnerResource         string
+	OwnerSelector         spec.Selector
+	KeyResource           string
+	KeySelector           spec.Selector
+	SystemSelector        spec.Selector
+	CodeSelector          spec.Selector
+	ValueSelector         spec.Selector
+	ValueFallbacks        []spec.Selector
+	FallbackOnBlankString bool
+	ChoiceArms            []string
+	ChoiceSelectors       []spec.Selector
+	LogicalType           string
+	ValuePrimitive        string
+	UnitSelector          *spec.Selector
+	SystemBindKey         string
+	CodeBindKey           string
 	// ExtensionURLSelectors and ExtensionURLBindKeys describe an ancestor-
 	// aware extension correlation. Each selector is relative to the current
 	// Extension item and each bind is matched before descending to the next

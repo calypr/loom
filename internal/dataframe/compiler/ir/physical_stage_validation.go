@@ -1176,6 +1176,13 @@ func validatePhysicalStageRelatedSource(stage PhysicalConstructionStage, related
 	if (related.Form != "ALL" && related.Form != "COUNT" && related.Form != "PRESENCE") || related.ContributorPolicy != "ALL_MATCHES" {
 		return fmt.Errorf("only ALL, COUNT, or PRESENCE with ALL_MATCHES contributor policy is supported")
 	}
+	rowValuePolicy := related.RowValuePolicy
+	if rowValuePolicy == "" {
+		rowValuePolicy = "ALL"
+	}
+	if (rowValuePolicy != "ALL" && rowValuePolicy != "ONE") || (rowValuePolicy == "ONE" && related.Form != "ALL") {
+		return fmt.Errorf("related row value policy must be ALL, or ONE with form ALL")
+	}
 	var anchor, output *PhysicalStageColumn
 	for index := range stage.InputColumns {
 		if stage.InputColumns[index].ID == related.AnchorColumnID {
@@ -1213,6 +1220,9 @@ func validatePhysicalStageRelatedSource(stage PhysicalConstructionStage, related
 	case "PRESENCE":
 		outputKind, outputCardinality, outputNullable = "boolean", "required_one", false
 	}
+	if related.Form == "ALL" && rowValuePolicy == "ONE" {
+		outputCardinality = "optional_one"
+	}
 	if output.Kind != outputKind || output.Cardinality != outputCardinality || output.Nullable != outputNullable {
 		return fmt.Errorf("related output type does not match its selected form")
 	}
@@ -1227,10 +1237,10 @@ func validatePhysicalStageRelatedSource(stage PhysicalConstructionStage, related
 			identityProjection = projection
 		}
 	}
-	if relatedProjection == nil || relatedProjection.Expression == nil || relatedSourceProjectionSubplan(*relatedProjection.Expression, related.Form) == nil {
+	if relatedProjection == nil || relatedProjection.Expression == nil || relatedSourceProjectionSubplan(*relatedProjection.Expression, related) == nil {
 		return fmt.Errorf("related output does not match its typed route and form")
 	}
-	subplan := relatedSourceProjectionSubplan(*relatedProjection.Expression, related.Form)
+	subplan := relatedSourceProjectionSubplan(*relatedProjection.Expression, related)
 	var rootVariable string
 	if rootContributorColumn == "__loom_root_contributor_keys" {
 		if len(subplan.Operations) == 0 || subplan.Operations[0].Kind != PhysicalKeySetLookupOp || subplan.Operations[0].KeySetLookup == nil {
@@ -1276,8 +1286,26 @@ func validatePhysicalStageRelatedSource(stage PhysicalConstructionStage, related
 	return validateStageRowOperations(stage, bindVars, false)
 }
 
-func relatedSourceProjectionSubplan(expression PhysicalExpression, form string) *PhysicalSubplan {
-	if form == "ALL" {
+func relatedSourceProjectionSubplan(expression PhysicalExpression, related PhysicalStageRelatedSource) *PhysicalSubplan {
+	rowValuePolicy := related.RowValuePolicy
+	if rowValuePolicy == "" {
+		rowValuePolicy = "ALL"
+	}
+	if related.Form == "ALL" && rowValuePolicy == "ONE" {
+		if expression.Kind != PhysicalCallExpression || expression.Call == nil || expression.Call.Name != "distinct_present_one" ||
+			expression.Cardinality != PhysicalScalarCardinality || expression.NullBehavior != PhysicalPreserveNull ||
+			len(expression.Call.Args) != 1 || expression.Call.TargetKind != physicalRelatedSourceTableScalarKind(related.LogicalType) {
+			return nil
+		}
+		array := expression.Call.Args[0]
+		if array.Kind != PhysicalSubplanExpression || array.Subplan == nil || array.Cardinality != PhysicalArrayCardinality ||
+			array.NullBehavior != PhysicalEmptyOnNull || array.Subplan.Unique || array.Subplan.DistinctBy == nil ||
+			len(array.Subplan.DistinctBy.Path) != 1 || array.Subplan.DistinctBy.Path[0] != "_id" {
+			return nil
+		}
+		return array.Subplan
+	}
+	if related.Form == "ALL" {
 		if expression.Kind == PhysicalSubplanExpression && expression.Subplan != nil &&
 			expression.Cardinality == PhysicalArrayCardinality && expression.NullBehavior == PhysicalEmptyOnNull &&
 			!expression.Subplan.Unique && expression.Subplan.DistinctBy != nil &&
@@ -1289,7 +1317,7 @@ func relatedSourceProjectionSubplan(expression PhysicalExpression, form string) 
 	if expression.Kind != PhysicalCallExpression || expression.Call == nil || expression.Cardinality != PhysicalScalarCardinality {
 		return nil
 	}
-	if form == "PRESENCE" {
+	if related.Form == "PRESENCE" {
 		if expression.Call.Name != "gt" || len(expression.Call.Args) != 2 ||
 			expression.Call.Args[1].Kind != PhysicalLiteralExpression {
 			return nil
@@ -1307,6 +1335,21 @@ func relatedSourceProjectionSubplan(expression PhysicalExpression, form string) 
 		return nil
 	}
 	return source.Subplan
+}
+
+func physicalRelatedSourceTableScalarKind(logicalType string) string {
+	switch strings.ToLower(strings.TrimSpace(logicalType)) {
+	case "string", "code", "uuid", "date", "date_time", "datetime":
+		return "STRING"
+	case "integer":
+		return "INTEGER"
+	case "decimal":
+		return "DECIMAL"
+	case "boolean":
+		return "BOOLEAN"
+	default:
+		return ""
+	}
 }
 
 func validatePhysicalStageCohortGroup(stage PhysicalConstructionStage, cohort PhysicalStageCohortGroup, bindVars map[string]any) error {
@@ -1855,10 +1898,10 @@ func validatePhysicalStageCellTrace(sequence PhysicalStageSequence, terminal Phy
 					return fmt.Errorf("related-source lineage must be produced by a RELATED_SOURCE stage")
 				}
 				projection, found := findPhysicalStageProjection(stage.OutputProjections, construction.OutputColumn)
-				if !found || projection.Expression == nil || relatedSourceProjectionSubplan(*projection.Expression, stage.RelatedSource.Form) == nil {
+				if !found || projection.Expression == nil || relatedSourceProjectionSubplan(*projection.Expression, *stage.RelatedSource) == nil {
 					return fmt.Errorf("related-source output has no typed route subplan")
 				}
-				subplan := relatedSourceProjectionSubplan(*projection.Expression, stage.RelatedSource.Form)
+				subplan := relatedSourceProjectionSubplan(*projection.Expression, *stage.RelatedSource)
 				related := construction.RelatedSource
 				anchor, found := stageColumnsByID(stage.InputColumns)[stage.RelatedSource.AnchorColumnID]
 				if !found || related.InputRowVariable != stage.InputRowVariable || related.AnchorColumn != anchor.Name ||

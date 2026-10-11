@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { canonicalProject, createLoomClient, populationMappingResponseSchema } from './api';
+import { canonicalProject, createLoomClient, LoomRequestError, populationMappingResponseSchema } from './api';
 import { cellTraceResponseSchema } from './cellTrace';
 import {
+  EXPLORER_AUTHORING_API_VERSION,
   EXPLORER_AUTHORING_SEMANTICS_VERSION,
   type Construction,
   type ExplorerBuilderCommand,
@@ -102,6 +103,97 @@ describe('Loom project paths', () => {
     expect(fetch).toHaveBeenCalledWith(endpoint, expect.objectContaining({
       headers: expect.objectContaining({ 'X-Request-ID': requestId }),
     }));
+  });
+
+  it('preserves schema-field HTTP error provenance without changing success or aborts', async () => {
+    const args = {
+      project: 'project-a', explorerId: 'explorer-a', snapshotToken: 'snapshot-1',
+      nodeId: 'node-a', requestId: 'schema-fields-caller-request',
+    };
+    const searchFields = (client: ReturnType<typeof createLoomClient>, signal?: AbortSignal) => {
+      if (!client.searchSchemaFields) throw new Error('Schema-field discovery is not available.');
+      return client.searchSchemaFields(args, signal);
+    };
+    const endpoint = '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2/schema-fields';
+    const errorPayload = {
+      error: { code: 'UNAUTHENTICATED', message: 'authentication is required' },
+      message: 'outer message must not replace the server error',
+    };
+    const failedClient = createLoomClient({
+      fetch: vi.fn<typeof globalThis.fetch>()
+        .mockResolvedValue(new Response(JSON.stringify(errorPayload), { status: 401 })),
+    });
+
+    const callerIdError = await searchFields(failedClient).catch((error: unknown) => error);
+    expect(callerIdError).toBeInstanceOf(LoomRequestError);
+    expect(callerIdError).toMatchObject({
+      name: 'LoomRequestError',
+      status: 401,
+      code: 'UNAUTHENTICATED',
+      message: 'authentication is required',
+      requestId: args.requestId,
+    });
+
+    const serverRequestId = 'schema-fields-server-request';
+    const payloadRequestId = 'schema-fields-payload-request';
+    const payloadError = {
+      ...errorPayload,
+      error: { ...errorPayload.error, requestId: payloadRequestId },
+    };
+    const payloadIdClient = createLoomClient({
+      fetch: vi.fn<typeof globalThis.fetch>()
+        .mockResolvedValue(new Response(JSON.stringify(payloadError), { status: 401 })),
+    });
+    const payloadIdError = await searchFields(payloadIdClient).catch((error: unknown) => error);
+    expect(payloadIdError).toBeInstanceOf(LoomRequestError);
+    expect(payloadIdError).toMatchObject({
+      status: 401,
+      code: 'UNAUTHENTICATED',
+      message: 'authentication is required',
+      requestId: payloadRequestId,
+    });
+
+    const serverIdClient = createLoomClient({
+      fetch: vi.fn<typeof globalThis.fetch>()
+        .mockResolvedValue(new Response(JSON.stringify(payloadError), {
+          status: 401,
+          headers: { 'X-Request-ID': serverRequestId },
+        })),
+    });
+    const serverIdError = await searchFields(serverIdClient).catch((error: unknown) => error);
+    expect(serverIdError).toBeInstanceOf(LoomRequestError);
+    expect(serverIdError).toMatchObject({
+      status: 401,
+      code: 'UNAUTHENTICATED',
+      message: 'authentication is required',
+      requestId: serverRequestId,
+    });
+
+    const success = {
+      apiVersion: EXPLORER_AUTHORING_API_VERSION,
+      kind: 'ExplorerBuilderGeneratedSchemaFields',
+      snapshotToken: 'snapshot-1',
+      schemaDigest: 'a'.repeat(64),
+      nodeId: 'node-a',
+      resourceType: 'Observation',
+      query: '',
+      fields: [],
+      complete: true,
+      truncated: false,
+    } as const;
+    const successFetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValue(new Response(JSON.stringify(success), { status: 200 }));
+    await expect(searchFields(createLoomClient({ fetch: successFetch }))).resolves.toEqual(success);
+    expect(successFetch).toHaveBeenCalledWith(endpoint, expect.objectContaining({
+      headers: expect.objectContaining({ 'X-Request-ID': args.requestId }),
+    }));
+
+    const abortError = new DOMException('The request was aborted.', 'AbortError');
+    const abortController = new AbortController();
+    const abortFetch = vi.fn<typeof globalThis.fetch>().mockRejectedValue(abortError);
+    const pending = searchFields(createLoomClient({ fetch: abortFetch }), abortController.signal);
+    abortController.abort();
+    await expect(pending).rejects.toBe(abortError);
   });
 
   it('loads compiler stage choices and sends exact construction proposals', async () => {

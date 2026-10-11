@@ -1084,6 +1084,10 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 		if related == nil {
 			return constructionStageResult{}, fmt.Errorf("related source payload is required")
 		}
+		rowValuePolicy := related.RowValuePolicy
+		if rowValuePolicy == "" {
+			rowValuePolicy = recipe.ConstructionRowValueAll
+		}
 		projections, compiled, err := lowerConstructionRelatedSource(plan, step, *related, inputByID, outputByID, inputRow, inputIdentity, rootResourceType, policy, usedVariables, index)
 		if err != nil {
 			return constructionStageResult{}, err
@@ -1099,7 +1103,7 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 			RootResourceType: rootResourceType, OutputColumnID: related.OutputColumnID,
 			CandidateID: related.Source.CandidateID, SourceOccurrenceID: related.SourceOccurrenceID,
 			ResourceType: related.Source.ResourceType, Path: related.Source.Path, LogicalType: related.Source.LogicalType,
-			Form: related.Form, ContributorPolicy: related.ContributorPolicy,
+			Form: related.Form, RowValuePolicy: string(rowValuePolicy), ContributorPolicy: related.ContributorPolicy,
 		}
 		outputSchema, outputIdentity = compiled, inputIdentity
 	case recipe.ConstructionRelatedExpandOp:
@@ -1264,6 +1268,16 @@ func lowerConstructionRelatedSource(
 	if related.Source.Cardinality != "optional_one" && related.Source.Cardinality != "required_one" {
 		return nil, nil, fmt.Errorf("related source field must be scalar for ALL_MATCHES")
 	}
+	rowValuePolicy := related.RowValuePolicy
+	if rowValuePolicy == "" {
+		rowValuePolicy = recipe.ConstructionRowValueAll
+	}
+	if rowValuePolicy != recipe.ConstructionRowValueAll && rowValuePolicy != recipe.ConstructionRowValueOne {
+		return nil, nil, fmt.Errorf("related source row value policy %q is unsupported", rowValuePolicy)
+	}
+	if rowValuePolicy == recipe.ConstructionRowValueOne && related.Form != "ALL" {
+		return nil, nil, fmt.Errorf("related source ONE row value policy requires form ALL")
+	}
 	if related.SourceOccurrenceID != related.Source.NodeID || len(related.Route) == 0 {
 		return nil, nil, fmt.Errorf("related source must persist its exact source occurrence and route")
 	}
@@ -1406,6 +1420,17 @@ func lowerConstructionRelatedSource(
 	}
 	matchingValues := ir.PhysicalExpression{Kind: ir.PhysicalSubplanExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Subplan: &subplan}
 	outputExpression := matchingValues
+	if rowValuePolicy == recipe.ConstructionRowValueOne {
+		kind, scalar := tableReshapeScalarKind(related.Source.LogicalType)
+		if !scalar {
+			return nil, nil, fmt.Errorf("related source logical type %q is not a supported table scalar", related.Source.LogicalType)
+		}
+		outputExpression = ir.PhysicalExpression{
+			Kind: ir.PhysicalCallExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
+			Call: &ir.PhysicalCall{Name: "distinct_present_one", TargetKind: kind, Args: []ir.PhysicalExpression{matchingValues}},
+		}
+		outputCardinality = expression.OptionalOne
+	}
 	if related.Form == "COUNT" || related.Form == "PRESENCE" {
 		outputExpression = ir.PhysicalExpression{
 			Kind: ir.PhysicalCallExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,

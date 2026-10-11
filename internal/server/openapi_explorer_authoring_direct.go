@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
@@ -425,6 +426,10 @@ func (h *explorerHTTPHandlers) reconcileAuthoringDirect(ctx context.Context, pro
 }
 
 func (h *explorerHTTPHandlers) previewAuthoringDirect(ctx context.Context, project, explorerID string, body *loomapi.PreviewExplorerJSONRequestBody) (loomapi.PreviewResponse, error) {
+	return h.previewAuthoringDirectWithTimeout(ctx, project, explorerID, body, explorerPreviewTimeout)
+}
+
+func (h *explorerHTTPHandlers) previewAuthoringDirectWithTimeout(ctx context.Context, project, explorerID string, body *loomapi.PreviewExplorerJSONRequestBody, timeout time.Duration) (loomapi.PreviewResponse, error) {
 	var result loomapi.PreviewResponse
 	if err := h.authoringReadDirect(ctx, project); err != nil {
 		return result, err
@@ -439,7 +444,7 @@ func (h *explorerHTTPHandlers) previewAuthoringDirect(ctx context.Context, proje
 			limit = -1
 		}
 	}
-	previewCtx, cancel := context.WithTimeout(ctx, explorerPreviewTimeout)
+	previewCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var finish func() ([]byte, error)
 	preview, err := h.application.Preview(previewCtx, lifecycle.PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, OutputID: body.OutputId, Limit: limit, SinkFactory: func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {

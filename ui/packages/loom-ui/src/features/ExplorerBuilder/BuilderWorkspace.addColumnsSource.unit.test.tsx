@@ -20,6 +20,7 @@ import type {
   Construction,
   ConstructionChoice,
   ConstructionProposalResponse,
+  ConstructionStageDescriptor,
   ExplorerBuilderCandidate,
   ExplorerBuilderCatalog,
   ExplorerBuilderCommand,
@@ -1155,6 +1156,292 @@ describe('BuilderWorkspace Add columns source selection', () => {
         proposalId: 'related-source-proposal',
       }],
     }));
+  });
+
+  it('proposes two same-route related fields together while preserving the Patient row identity and auth scope', async () => {
+    const construction: Construction = {
+      version: 1,
+      steps: [{
+        id: 'keep-patients',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: {
+          kind: 'FILTER',
+          filter: { columnId: 'patient-row-key', operator: 'EXISTS' },
+        },
+        outputs: [{ id: 'patient-row-key', name: 'patient_row_key', label: 'Patient row key' }],
+      }],
+    };
+    const patientRowKey = { id: 'patient-row-key', name: 'patient_row_key', label: 'Patient row key' };
+    const sourceStage: ConstructionStageDescriptor = {
+      id: 'source_projection',
+      inputStageId: '',
+      rowIdentityColumn: 'source-row-key',
+      columns: [patientRowKey],
+      capabilities: [],
+    };
+    const selectedStage: ConstructionStageDescriptor = {
+      id: 'keep-patients',
+      inputStageId: 'source_projection',
+      operation: 'FILTER',
+      rowIdentityColumn: '_key',
+      columns: [{ ...patientRowKey, cardinality: 'required_one' }],
+      capabilities: [{ kind: 'RELATED_SOURCE', supported: true }],
+    };
+    const savedWorkspace: ExplorerBuilderWorkspace = {
+      ...workspace,
+      documents: [{ ...workspace.documents[0]!, construction }],
+    };
+    const relatedCandidates = [
+      { ...fieldCandidate('observation-id', 'observation-node', 'Observation', 'id'), label: 'Observation id' },
+      {
+        ...fieldCandidate('observation-value', 'observation-node', 'Observation', 'valueQuantity.value'),
+        label: 'Observation value',
+        logicalType: 'decimal',
+      },
+    ];
+    const relatedCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      candidates: [...(catalog.candidates ?? []), ...relatedCandidates],
+    };
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, catalog: relatedCatalog, workspace: savedWorkspace },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+      readonly outputId: string;
+      readonly stageId: string;
+    }) => ({
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      stageId: args.stageId,
+      baseConstruction: construction,
+      stages: [sourceStage, selectedStage],
+      selectedStage,
+    }));
+    const choiceForField = (candidate: ExplorerBuilderCandidate): ConstructionChoice => ({
+      ...relatedSourceChoice,
+      choiceId: `server-${candidate.candidateId}-related-choice`,
+      source: {
+        kind: 'FIELD',
+        candidateId: candidate.candidateId,
+        nodeId: candidate.nodeId,
+        resourceType: 'Observation',
+        path: candidate.fieldPath,
+        cardinality: candidate.cardinality,
+      },
+      options: [{
+        form: 'ALL',
+        shape: 'LIST',
+        decision: 'REQUIRES_DECISION',
+        preservation: 'PRESERVING',
+        rowEffect: 'PRESERVES_ROW_GRAIN',
+        support: 'SUPPORTED',
+        reason: 'Loom proves this list form preserves the selected Patient row grain.',
+      }],
+    });
+    const choices = relatedCandidates.map(choiceForField);
+    mockLoomClient.searchConstructionChoices.mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly outputId: string;
+      readonly source: { readonly candidateId: string };
+    }) => ({
+      snapshotToken: args.snapshotToken,
+      outputId: args.outputId,
+      complete: true,
+      truncated: false,
+      choices: choices.filter((choice) => choice.source.kind === 'FIELD' &&
+        choice.source.candidateId === args.source.candidateId),
+    }));
+    mockLoomClient.proposeConstruction.mockImplementation(async (args: {
+      readonly candidateConstruction: Construction;
+      readonly changedStepId?: string;
+      readonly requestId: string;
+    }): Promise<ConstructionProposalResponse> => {
+      const proposalId = args.requestId.startsWith('construction-route-coverage-')
+        ? `route-coverage-${args.candidateConstruction.steps.length}`
+        : 'related-source-batch-proposal';
+      const preview: ExplorerBuilderPreviewResult = {
+        apiVersion,
+        kind: 'ExplorerBuilderPreview',
+        rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
+        receiptId: proposalId,
+        outputId: 'patients',
+        columns: [
+          { column: 'patient_row_key', label: 'Patient row key', logicalType: 'string', filterable: true, chartable: false },
+          { column: 'related_Observation_id', label: 'Observation id', logicalType: 'string', filterable: true, chartable: false },
+          { column: 'related_Observation_valueQuantity_value', label: 'Observation value', logicalType: 'decimal', filterable: true, chartable: false },
+        ],
+        rows: [{
+          patient_row_key: 'patient-1',
+          related_Observation_id: ['observation-1'],
+          related_Observation_valueQuantity_value: [12.5],
+        }],
+        rowCount: 1,
+        diagnostics: [],
+      };
+      return {
+        proposalId,
+        outputId: 'patients',
+        snapshotToken: 'snapshot-1',
+        draftVersion: 1,
+        draftDigest: 'sha256:draft-1',
+        baseDocumentDigest: 'document-1',
+        candidateWorkspaceDigest: 'candidate-workspace-related-batch',
+        changedStepId: args.changedStepId ?? '',
+        candidateConstruction: args.candidateConstruction,
+        dependencyImpact: { affectedStepIds: [] },
+        stages: [sourceStage, selectedStage],
+        previewStatus: 'READY',
+        previewDurationMs: 7,
+        preview,
+      };
+    });
+    const savedPreview: ExplorerBuilderPreviewResult = {
+      apiVersion,
+      kind: 'ExplorerBuilderPreview',
+      rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
+      receiptId: 'saved-patient-preview',
+      outputId: 'patients',
+      columns: [{ column: 'patient_row_key', label: 'Patient row key', logicalType: 'string', filterable: true, chartable: false }],
+      rows: [{ patient_row_key: 'patient-1' }],
+      rowCount: 1,
+      diagnostics: [],
+    };
+    const savedReceipt: ExplorerBuilderCompileResult = {
+      apiVersion,
+      kind: 'ExplorerBuilderReceipt',
+      receiptId: savedPreview.receiptId,
+      snapshotToken: 'snapshot-1',
+      builder: savedWorkspace,
+      outputs: [{ outputId: 'patients', columns: savedPreview.columns }],
+      diagnostics: [],
+    };
+    const reconcileBuilder = vi.fn().mockReturnValue({
+      unwrap: vi.fn().mockResolvedValue(savedReceipt),
+    });
+    (useReconcileExplorerBuilderV2Mutation as Mock).mockReturnValue([
+      reconcileBuilder,
+      { isLoading: false },
+    ]);
+    const previewBuilder = vi.fn().mockReturnValue({
+      unwrap: vi.fn().mockResolvedValue(savedPreview),
+    });
+    (usePreviewExplorerAuthoringV2Mutation as Mock).mockReturnValue([
+      previewBuilder,
+      { isLoading: false },
+    ]);
+
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    fireEvent.click(screen.getByText('Advanced source setup'));
+    fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
+    fireEvent.click(screen.getByRole('button', { name: 'Fields and related data' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Observation, Related resource' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Observation.id' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Observation.valueQuantity.value' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add 2 selected features' }));
+
+    const selectionDialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
+    fireEvent.click(within(selectionDialog).getByRole('radio', { name: 'Observation id: Keep all matching values' }));
+    fireEvent.click(within(selectionDialog).getByRole('radio', { name: 'Observation value: Keep all matching values' }));
+    fireEvent.click(within(selectionDialog).getByRole('button', { name: 'Add 2 columns' }));
+
+    await screen.findByTestId('construction-proposal-ready');
+    await waitFor(() => expect(mockLoomClient.proposeConstruction.mock.calls.filter(
+      ([request]) => request.requestId.startsWith('construction-proposal-'),
+    )).toHaveLength(1));
+    const proposalArgs = mockLoomClient.proposeConstruction.mock.calls.find(
+      ([request]) => request.requestId.startsWith('construction-proposal-'),
+    )?.[0];
+    expect(proposalArgs).toEqual(expect.objectContaining({
+      project: 'HTAN_INT/BForePC',
+      authResourcePath: '/programs/HTAN_INT/projects/BForePC',
+      explorerId: 'test',
+      outputId: 'patients',
+      candidateConstruction: expect.objectContaining({
+        version: 1,
+        steps: [
+          expect.objectContaining({ id: 'keep-patients' }),
+          expect.objectContaining({
+            inputs: [{ kind: 'STEP_OUTPUT', stepId: 'keep-patients' }],
+            operation: expect.objectContaining({
+              kind: 'RELATED_SOURCE',
+              relatedSource: expect.objectContaining({
+                anchorColumnId: '_key',
+                choiceId: 'server-observation-id-related-choice',
+                sourceOccurrenceId: 'observation-node',
+                source: expect.objectContaining({
+                  candidateId: 'observation-id',
+                  nodeId: 'observation-node',
+                  resourceType: 'Observation',
+                  path: 'id',
+                  cardinality: 'optional_one',
+                }),
+                route: observationRouteChoice.route,
+                form: 'ALL',
+              }),
+            }),
+            outputs: [
+              patientRowKey,
+              expect.objectContaining({ name: 'related_Observation_id', label: 'Observation IDs' }),
+            ],
+          }),
+          expect.objectContaining({
+            inputs: [{ kind: 'STEP_OUTPUT', stepId: expect.any(String) }],
+            operation: expect.objectContaining({
+              kind: 'RELATED_SOURCE',
+              relatedSource: expect.objectContaining({
+                anchorColumnId: '_key',
+                choiceId: 'server-observation-value-related-choice',
+                sourceOccurrenceId: 'observation-node',
+                source: expect.objectContaining({
+                  candidateId: 'observation-value',
+                  nodeId: 'observation-node',
+                  resourceType: 'Observation',
+                  path: 'valueQuantity.value',
+                  cardinality: 'optional_one',
+                  logicalType: 'decimal',
+                }),
+                route: observationRouteChoice.route,
+                form: 'ALL',
+              }),
+            }),
+            outputs: [
+              patientRowKey,
+              expect.objectContaining({ name: 'related_Observation_id', label: 'Observation IDs' }),
+              expect.objectContaining({ name: 'related_Observation_valueQuantity_value', label: 'Observation value', type: 'decimal' }),
+            ],
+          }),
+        ],
+      }),
+    }));
+    const proposedSteps: Construction['steps'] = proposalArgs?.candidateConstruction.steps ?? [];
+    expect(proposedSteps).toHaveLength(3);
+    expect(proposedSteps?.[2]?.inputs).toEqual([{ kind: 'STEP_OUTPUT', stepId: proposedSteps[1]?.id }]);
+    expect(proposedSteps?.[1]?.outputs.map((column) => column.id)).toEqual([
+      'patient-row-key', proposedSteps[1]?.outputs[1]?.id,
+    ]);
+    expect(proposedSteps?.[2]?.outputs.map((column) => column.id)).toEqual([
+      'patient-row-key', proposedSteps[1]?.outputs[1]?.id, proposedSteps[2]?.outputs[2]?.id,
+    ]);
+    expect(screen.getByTestId('construction-proposal-ready')).toHaveTextContent(
+      '1 row and 3 columns · checked in 7 ms.',
+    );
+
+    fireEvent.click(screen.getByTestId('construction-cancel-proposal'));
+    expect(applyExplorerCommands).not.toHaveBeenCalled();
+    expect(savedWorkspace.documents[0]?.construction).toEqual(construction);
+    await waitFor(() => expect(screen.queryByTestId('construction-proposal-ready')).not.toBeInTheDocument());
+    const savedTable = screen.getByRole('table');
+    expect(within(savedTable).getByRole('columnheader', { name: 'Patient row key' })).toBeInTheDocument();
+    expect(within(savedTable).getByRole('cell')).toHaveTextContent('patient-1');
+    expect(within(savedTable).queryByRole('columnheader', { name: 'Observation id' })).not.toBeInTheDocument();
+    expect(within(savedTable).queryByRole('columnheader', { name: 'Observation value' })).not.toBeInTheDocument();
   });
 
   it('does not offer related sources while editing an earlier construction step', async () => {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -85,6 +86,9 @@ func (f FrameDefinition) Validate() error {
 		strings.TrimSpace(f.Source.LogicalType) == "" || strings.TrimSpace(f.Source.RuleVersion) == "" || f.Source.SchemaVersion <= 0 {
 		return fmt.Errorf("frame source identity is incomplete")
 	}
+	if f.Source.FallbackOnBlankString && (f.Source.LogicalType != "string" || len(f.Source.ValueFallbacks) == 0) {
+		return fmt.Errorf("frame blank-string fallback requires a string value and fallback selectors")
+	}
 	if f.ZeroPolicy == FrameZeroNull && f.ManyPolicy == FrameManyInvalidMultipleValues && f.Form == capability.ConstructionChoiceValue ||
 		f.ZeroPolicy == FrameZeroNull && f.ManyPolicy == FrameManyFirst && f.Form == capability.ConstructionChoiceFirst ||
 		f.ZeroPolicy == FrameZeroEmptyList && f.ManyPolicy == FrameManyAll && f.Form == capability.ConstructionChoiceAll ||
@@ -149,7 +153,8 @@ func validateDocumentFrames(document Document) error {
 		}
 		binding := column.Source.Lookup.Binding
 		if binding.OwnerPath != frame.Source.OwningScope || binding.KeyPath != frame.Source.KeyPath ||
-			binding.ValuePath != frame.Source.ValuePath || !reflect.DeepEqual(binding.ChoiceArms, frame.Source.ChoiceArms) ||
+			binding.ValuePath != frame.Source.ValuePath || !slices.Equal(binding.ValueFallback, frame.Source.ValueFallbacks) ||
+			binding.FallbackOnBlankString != frame.Source.FallbackOnBlankString || !reflect.DeepEqual(binding.ChoiceArms, frame.Source.ChoiceArms) ||
 			binding.LogicalType != frame.Source.LogicalType {
 			return fmt.Errorf("columns[%d].frameId does not match its coded-value family", index)
 		}
@@ -219,6 +224,7 @@ func (c *Command) ResolveFrameSource(frame FrameDefinition) error {
 	cloned := frame
 	cloned.Route = cloneFrameRoute(frame.Route)
 	cloned.Source.ChoiceArms = append([]string(nil), frame.Source.ChoiceArms...)
+	cloned.Source.ValueFallbacks = append([]string(nil), frame.Source.ValueFallbacks...)
 	c.resolvedFrame = &cloned
 	return nil
 }
@@ -269,6 +275,7 @@ func applyFrameSourceCommand(workspace *Workspace, command Command) (CommandResu
 	frame := *command.resolvedFrame
 	frame.Route = cloneFrameRoute(frame.Route)
 	frame.Source.ChoiceArms = append([]string(nil), frame.Source.ChoiceArms...)
+	frame.Source.ValueFallbacks = append([]string(nil), frame.Source.ValueFallbacks...)
 	document.Frames = append(document.Frames, frame)
 	result.Type, result.FrameID = CommandResultTableChanged, frame.ID
 	return result, nil

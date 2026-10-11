@@ -50,6 +50,15 @@ func (h *explorerHTTPHandlers) discoverConstructionCategoriesDirect(ctx context.
 	return directAuthoringJSON[loomapi.ConstructionCategoryDiscoveryResponse](value)
 }
 
+func constructionProposalPreviewBudget(ctx context.Context, candidate authoringv2.Construction) (context.Context, time.Duration) {
+	for _, step := range candidate.Steps {
+		if step.Operation.Kind == authoringv2.ConstructionOperationPivot {
+			return withPivotPreviewQueryBudget(ctx), pivotCategoryScanTimeout
+		}
+	}
+	return ctx, explorerPreviewTimeout
+}
+
 func (h *explorerHTTPHandlers) proposeConstructionDirect(ctx context.Context, project, explorerID string, body *loomapi.ConstructionProposalRequest) (loomapi.ConstructionProposalResponse, error) {
 	var result loomapi.ConstructionProposalResponse
 	if err := h.authoringReadDirect(ctx, project); err != nil {
@@ -119,10 +128,11 @@ func (h *explorerHTTPHandlers) proposeConstructionDirect(ctx context.Context, pr
 	if body.Limit != nil {
 		limit = *body.Limit
 	}
+	previewCtx, previewTimeout := constructionProposalPreviewBudget(ctx, candidate)
 	started := time.Now()
-	preview, err := h.previewAuthoringDirect(ctx, project, explorerID, &loomapi.PreviewExplorerJSONRequestBody{
+	preview, err := h.previewAuthoringDirectWithTimeout(previewCtx, project, explorerID, &loomapi.PreviewExplorerJSONRequestBody{
 		ReceiptId: *result.ProposalId, OutputId: body.OutputId, Limit: &limit,
-	})
+	}, previewTimeout)
 	result.PreviewDurationMs = time.Since(started).Milliseconds()
 	if err != nil {
 		return result, err

@@ -459,6 +459,7 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 				BindingID: family.BindingID, ResourceType: family.ResourceType, SourcePath: family.SourcePath,
 				SourceCanonical: family.SourceCanonical, SourceProfile: family.SourceProfile,
 				OwningScope: family.OwningScope, KeyPath: family.KeyPath, ValuePath: family.ValuePath,
+				ValueFallbacks: append([]string(nil), family.ValueFallbacks...), FallbackOnBlankString: family.FallbackOnBlankString,
 				ChoiceArms: append([]string(nil), family.ChoiceArms...), LogicalType: family.LogicalType,
 				RuleVersion: family.RuleVersion, SchemaVersion: family.SchemaVersion,
 				CandidateID: source.CandidateID, NodeID: source.NodeID, FieldPath: source.FieldPath,
@@ -513,6 +514,7 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 				RepeatedBoundaries: constructionRelatedRepeatedBoundaries(related.Source.RepeatedBoundaries),
 			},
 			ContributorPolicy: related.ContributorRule.Policy, Predicate: predicate, Form: string(related.Form),
+			RowValuePolicy: recipe.ConstructionRowValuePolicy(related.RowValuePolicy),
 			OutputColumnID: related.OutputColumnID,
 			Route:          make([]recipe.ConstructionRelatedRouteStep, 0, len(related.Route)),
 		}

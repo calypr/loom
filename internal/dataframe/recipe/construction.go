@@ -137,6 +137,7 @@ type ConstructionRelatedSource struct {
 	ContributorPolicy  string                         `json:"contributorPolicy"`
 	Predicate          *ConstructionRelatedPredicate  `json:"predicate,omitempty"`
 	Form               string                         `json:"form"`
+	RowValuePolicy     ConstructionRowValuePolicy     `json:"rowValuePolicy,omitempty"`
 	OutputColumnID     string                         `json:"outputColumnId"`
 }
 
@@ -313,22 +314,24 @@ type ConstructionCodedPivot struct {
 }
 
 type ConstructionCodedPivotSource struct {
-	BindingID       string                         `json:"bindingId"`
-	ResourceType    string                         `json:"resourceType"`
-	SourcePath      string                         `json:"sourcePath"`
-	SourceCanonical string                         `json:"sourceCanonical,omitempty"`
-	SourceProfile   string                         `json:"sourceProfile,omitempty"`
-	OwningScope     string                         `json:"owningScope,omitempty"`
-	KeyPath         string                         `json:"keyPath"`
-	ValuePath       string                         `json:"valuePath"`
-	ChoiceArms      []string                       `json:"choiceArms,omitempty"`
-	LogicalType     string                         `json:"logicalType"`
-	RuleVersion     string                         `json:"ruleVersion"`
-	SchemaVersion   int                            `json:"schemaVersion"`
-	CandidateID     string                         `json:"candidateId"`
-	NodeID          string                         `json:"nodeId"`
-	FieldPath       string                         `json:"fieldPath"`
-	Route           []ConstructionRelatedRouteStep `json:"route"`
+	BindingID             string                         `json:"bindingId"`
+	ResourceType          string                         `json:"resourceType"`
+	SourcePath            string                         `json:"sourcePath"`
+	SourceCanonical       string                         `json:"sourceCanonical,omitempty"`
+	SourceProfile         string                         `json:"sourceProfile,omitempty"`
+	OwningScope           string                         `json:"owningScope,omitempty"`
+	KeyPath               string                         `json:"keyPath"`
+	ValuePath             string                         `json:"valuePath"`
+	ValueFallbacks        []string                       `json:"valueFallbacks,omitempty"`
+	FallbackOnBlankString bool                           `json:"fallbackOnBlankString,omitempty"`
+	ChoiceArms            []string                       `json:"choiceArms,omitempty"`
+	LogicalType           string                         `json:"logicalType"`
+	RuleVersion           string                         `json:"ruleVersion"`
+	SchemaVersion         int                            `json:"schemaVersion"`
+	CandidateID           string                         `json:"candidateId"`
+	NodeID                string                         `json:"nodeId"`
+	FieldPath             string                         `json:"fieldPath"`
+	Route                 []ConstructionRelatedRouteStep `json:"route"`
 }
 
 type ConstructionCodedPivotCategory struct {
@@ -1083,6 +1086,12 @@ func validateConstructionRelatedSource(related ConstructionRelatedSource, input,
 	}
 	if (related.Form != "ALL" && related.Form != "COUNT" && related.Form != "PRESENCE") || related.ContributorPolicy != "ALL_MATCHES" {
 		return fmt.Errorf("%s.relatedSource supports ALL, COUNT, or PRESENCE with ALL_MATCHES contributor policy", path)
+	}
+	if related.RowValuePolicy != "" && related.RowValuePolicy != ConstructionRowValueAll && related.RowValuePolicy != ConstructionRowValueOne {
+		return fmt.Errorf("%s.relatedSource.rowValuePolicy must be ALL or ONE", path)
+	}
+	if related.RowValuePolicy == ConstructionRowValueOne && related.Form != "ALL" {
+		return fmt.Errorf("%s.relatedSource.rowValuePolicy ONE is supported only when form is ALL", path)
 	}
 	if err := validateConstructionRelatedPredicate(source, related.Predicate, path+".relatedSource.predicate"); err != nil {
 		return err

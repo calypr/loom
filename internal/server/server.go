@@ -327,14 +327,29 @@ func categoryScanReceiptResolutionError(receiptID string, err error) error {
 	return classified
 }
 
-const pivotCategoryScanTimeout = 10 * time.Second
+const pivotCategoryScanTimeout = 30 * time.Second
+
+type pivotPreviewQueryBudgetContextKey struct{}
+
+func withPivotPreviewQueryBudget(ctx context.Context) context.Context {
+	return context.WithValue(ctx, pivotPreviewQueryBudgetContextKey{}, true)
+}
+
+func previewQueryMaxRuntime(ctx context.Context) time.Duration {
+	if ctx != nil {
+		if extended, _ := ctx.Value(pivotPreviewQueryBudgetContextKey{}).(bool); extended {
+			return pivotCategoryScanTimeout
+		}
+	}
+	return explorerPreviewTimeout
+}
 
 func configuredCategoryScanner(logger *slog.Logger, recipeEngine *dataframeexecution.Engine) lifecycle.CategoryScanner {
 	return func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
-		// Category discovery is a Pivot-only operation. Keep its deadline aligned
-		// with the existing server-side preview runtime limit.
+		// Category discovery is Pivot-only and uses the extended query runtime limit.
 		scanCtx, cancel := context.WithTimeout(ctx, pivotCategoryScanTimeout)
 		defer cancel()
+		scanCtx = withPivotPreviewQueryBudget(scanCtx)
 		started := time.Now()
 		attrs := []any{"output_id", request.Output, "stage_id", request.StageID, "category_column_id", request.ColumnID, "value_column_id", request.ValueColumnID}
 		if receipt == nil {
@@ -517,7 +532,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		PreviewCollectionCount: lifecycleClient.CollectionCount,
 		ClickHouseQueryRows:    clickHouseQueryRows,
 		PreviewQueryRows: configuredAQLQueryRows(logger, "preview_query_rows", func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
-			return lifecycleClient.QueryRowsWithMaxRuntime(ctx, query, batchSize, bindVars, explorerPreviewTimeout, arangostore.RowVisitor(visit))
+			return lifecycleClient.QueryRowsWithMaxRuntime(ctx, query, batchSize, bindVars, previewQueryMaxRuntime(ctx), arangostore.RowVisitor(visit))
 		}),
 		ResolveClickHouseInputs:    resolveClickHouseInputs,
 		WithExecutionReadPins:      withExecutionReadPins,

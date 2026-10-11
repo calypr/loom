@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { LoomClient } from '../../../api';
+import { canonicalProject, type LoomClient } from '../../../api';
 import { useQuery } from '../../../react';
 import type { ResourceRef, SelectionPage, SelectionRevision } from '../../../selection';
 import type { PopulationMemberRemovalProposalResponse } from '../../../api';
@@ -45,7 +45,7 @@ const validateSelectionPage = (
 ): void => {
   const revision = page.revision;
   if (
-    selection.project !== scope.project || revision.id !== selection.id ||
+    selection.project !== canonicalProject(scope.project) || revision.id !== selection.id ||
     revision.project !== selection.project || revision.generation !== selection.generation ||
     revision.resourceType !== selection.resourceType || revision.scopeDigest !== selection.scopeDigest ||
     revision.membershipDigest !== selection.membershipDigest || revision.memberCount !== selection.memberCount ||

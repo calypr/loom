@@ -44,11 +44,32 @@ func compileRelatedCategoryScan(
 	if !eligible {
 		return "", nil, nil, false, nil
 	}
+	if relatedCategoryStreamingPathEligible(shape) {
+		query, bindVars, err := renderRelatedCategoryStreamingScan(plan, shape, maxValues)
+		if err != nil {
+			return "", nil, nil, true, err
+		}
+		return query, bindVars, nil, true, nil
+	}
 	query, bindVars, err := renderRelatedCategoryScan(plan, shape, maxValues)
 	if err != nil {
 		return "", nil, nil, true, err
 	}
 	return query, bindVars, shape.index, true, nil
+}
+
+func relatedCategoryStreamingPathEligible(shape relatedCategoryPlan) bool {
+	if len(shape.expands) != 2 || len(shape.hopsByStage) != 2 {
+		return false
+	}
+	for index, stage := range shape.expands {
+		if stage.RelatedExpand == nil ||
+			stage.RelatedExpand.EmptyPolicy != ir.PhysicalUnnestPreserveParent ||
+			len(stage.RelatedExpand.Route) != 1 || len(shape.hopsByStage[index]) != 1 {
+			return false
+		}
+	}
+	return true
 }
 
 func relatedCategoryScanShape(
@@ -535,6 +556,95 @@ func renderRelatedCategoryScan(plan ir.PhysicalPlan, shape relatedCategoryPlan, 
 	return query, categoryScanPruneBindVars(binds, query), nil
 }
 
+func renderRelatedCategoryStreamingScan(plan ir.PhysicalPlan, shape relatedCategoryPlan, maxValues int) (string, map[string]any, error) {
+	if maxValues < 1 || maxValues > MaxCategoryScanValues {
+		return "", nil, fmt.Errorf("invalid category scan limit")
+	}
+	binds := cloneCategoryScanBinds(plan.BindVars)
+	if _, exists := binds[categoryLimitBind]; exists {
+		return "", nil, fmt.Errorf("category scan bind %q is already defined", categoryLimitBind)
+	}
+	binds[categoryLimitBind] = maxValues + 1
+	targetTypeBindKey := shape.hopsByStage[1][0].traversal.TargetTypeBindKey
+	projectValueQuantityCode := relatedCategoryValueQuantityCodePath(shape.category.Path)
+	targetCollectionBind := ""
+	if projectValueQuantityCode {
+		targetCollection, ok := plan.BindVars[targetTypeBindKey].(string)
+		if !ok || targetCollection != shape.category.TargetResourceType {
+			return "", nil, fmt.Errorf("related category target collection does not match its typed target resource")
+		}
+		targetCollectionBind = categoryScanUniqueBindKey(binds, relatedCategoryTargetCollectionBind)
+		binds["@"+targetCollectionBind] = targetCollection
+	}
+
+	root := "__loom_related_category_stream_root"
+	firstRecords := "__loom_related_category_stream_records_1"
+	firstParent := "__loom_related_category_stream_first_parent"
+	parentKey := "__loom_related_category_stream_parent_key"
+	parent := "__loom_related_category_stream_parent"
+	secondRecords := "__loom_related_category_stream_records_2"
+	secondDocument := "__loom_related_category_stream_document_2"
+	terminal := "__loom_related_category_stream_terminal"
+	present := "__loom_related_category_stream_present"
+	value := "__loom_related_category_stream_value"
+	path := strings.Join(shape.category.Path, ".")
+	scope := func(variable string) string {
+		return fmt.Sprintf("%s.project == @project AND %s.dataset_generation == @dataset_generation AND (@auth_resource_paths_unrestricted == true OR %s.auth_resource_path IN @auth_resource_paths)", variable, variable, variable)
+	}
+	lines := []string{
+		fmt.Sprintf("FOR %s IN @@%s", root, shape.root.CollectionBindKey),
+		"FILTER " + scope(root),
+		"LET " + firstRecords + " = (",
+	}
+	lines = append(lines, relatedCategoryForwardInline(shape.hopsByStage[0][0], root,
+		"__loom_related_category_stream_edge_1", "__loom_related_category_stream_document_1", " ", scope)...)
+	lines = append(lines,
+		" RETURN __loom_related_category_stream_document_1._id",
+		")",
+		"FOR "+firstParent+" IN APPEND("+firstRecords+", LENGTH("+firstRecords+")==0 ? [null] : [])",
+		"COLLECT "+parentKey+" = "+firstParent,
+		"LET "+parent+" = "+parentKey+" == null ? null : DOCUMENT("+parentKey+")",
+		"FILTER "+parentKey+" == null OR ("+parent+" != null AND "+parent+".resourceType == @"+shape.hopsByStage[0][0].traversal.TargetTypeBindKey+" AND "+scope(parent)+")",
+		"LET "+secondRecords+" = "+parentKey+" == null ? [] : (",
+	)
+	if projectValueQuantityCode {
+		lines = append(lines, relatedCategoryProjectedTerminalInline(
+			shape.hopsByStage[1][0], parent, "__loom_related_category_stream_edge_2", secondDocument,
+			"__loom_related_category_stream_terminal_records", targetCollectionBind, shape.category.Path, " ", scope)...)
+		lines = append(lines, ")",
+			"FOR "+terminal+" IN APPEND("+secondRecords+", LENGTH("+secondRecords+")==0 ? [null] : [])",
+			"LET "+present+" = "+terminal+" == null ? true : "+terminal+".present",
+			"LET "+value+" = "+terminal+" == null ? null : "+terminal+".value",
+		)
+	} else {
+		lines = append(lines, relatedCategoryForwardInline(shape.hopsByStage[1][0], parent,
+			"__loom_related_category_stream_edge_2", secondDocument, " ", scope)...)
+		lines = append(lines,
+			" RETURN "+secondDocument,
+			")",
+			"FOR "+terminal+" IN APPEND("+secondRecords+", LENGTH("+secondRecords+")==0 ? [null] : [])",
+			"LET "+present+" = "+terminal+" == null ? true : ("+categoryRelatedPathPresenceExpression(terminal, shape.category.Path)+")",
+			"LET "+value+" = "+present+" ? "+terminal+"."+path+" : null",
+		)
+	}
+	lines = append(lines,
+		"COLLECT present = "+present+", value = "+value,
+		"SORT present ASC, TYPENAME(value), value",
+		"LIMIT @"+categoryLimitBind,
+		"RETURN { present, value }",
+	)
+	query := strings.Join(lines, "\n") + "\n"
+	binds["@"+shape.root.CollectionBindKey] = plan.BindVars[shape.root.CollectionBindKey]
+	delete(binds, shape.root.CollectionBindKey)
+	for _, stageHops := range shape.hopsByStage {
+		for _, hop := range stageHops {
+			binds["@"+hop.traversal.EdgeCollectionBindKey] = plan.BindVars[hop.traversal.EdgeCollectionBindKey]
+			delete(binds, hop.traversal.EdgeCollectionBindKey)
+		}
+	}
+	return query, categoryScanPruneBindVars(binds, query), nil
+}
+
 func categoryRelatedPathPresenceExpression(variable string, path []string) string {
 	current := variable
 	checks := make([]string, 0, len(path))
@@ -543,6 +653,58 @@ func categoryRelatedPathPresenceExpression(variable string, path []string) strin
 		current += "." + segment
 	}
 	return strings.Join(checks, " AND ")
+}
+
+func relatedCategoryValueQuantityCodePath(path []string) bool {
+	return reflect.DeepEqual(path, []string{"payload", "valueQuantity", "code"})
+}
+
+func relatedCategoryValueQuantityCodePresentExpression(variable string) string {
+	parent := variable + ".payload.valueQuantity"
+	return "(IS_OBJECT(" + parent + ") AND HAS(" + parent + ", \"code\"))"
+}
+
+func relatedCategoryProjectedTerminalInline(
+	hop relatedCategoryHop,
+	source, edge, target, records, collectionBind string,
+	path []string,
+	indent string,
+	scope func(string) string,
+) []string {
+	sourceEndpoint, targetEndpoint := "_from", "_to"
+	if hop.traversal.Direction == ir.PhysicalInbound {
+		sourceEndpoint, targetEndpoint = "_to", "_from"
+	}
+	projectedPresent := "__loom_related_category_stream_projected_present"
+	projectedValue := "__loom_related_category_stream_projected_value"
+	fallbackTarget := "__loom_related_category_stream_fallback_document_2"
+	fallbackPresent := "__loom_related_category_stream_fallback_present"
+	fallbackValue := "__loom_related_category_stream_fallback_value"
+	pathExpression := strings.Join(path, ".")
+	return []string{
+		fmt.Sprintf("%sFOR %s IN @@%s", indent, edge, hop.traversal.EdgeCollectionBindKey),
+		fmt.Sprintf("%sFILTER %s.%s == %s._id", indent, edge, sourceEndpoint, source),
+		fmt.Sprintf("%sFILTER %s.label == @%s AND %s.%s == @%s", indent, edge, hop.traversal.EdgeLabelBindKey, edge, hop.traversal.EdgeTargetTypeField, hop.traversal.TargetTypeBindKey),
+		indent + "FILTER " + scope(edge),
+		fmt.Sprintf("%sLET %s = IS_SAME_COLLECTION(@%s, %s.%s) ? (", indent, records, hop.traversal.TargetTypeBindKey, edge, targetEndpoint),
+		fmt.Sprintf("%s FOR %s IN @@%s", indent, target, collectionBind),
+		fmt.Sprintf("%s FILTER %s._id == %s.%s", indent, target, edge, targetEndpoint),
+		fmt.Sprintf("%s FILTER %s.resourceType == @%s", indent, target, hop.traversal.TargetTypeBindKey),
+		indent + " FILTER " + scope(target),
+		fmt.Sprintf("%s LET %s = %s", indent, projectedPresent, relatedCategoryValueQuantityCodePresentExpression(target)),
+		fmt.Sprintf("%s LET %s = %s ? %s.%s : null", indent, projectedValue, projectedPresent, target, pathExpression),
+		fmt.Sprintf("%s RETURN { present: %s, value: %s }", indent, projectedPresent, projectedValue),
+		indent + ") : (",
+		fmt.Sprintf("%s LET %s = DOCUMENT(%s.%s)", indent, fallbackTarget, edge, targetEndpoint),
+		fmt.Sprintf("%s FILTER %s != null AND %s.resourceType == @%s", indent, fallbackTarget, fallbackTarget, hop.traversal.TargetTypeBindKey),
+		indent + " FILTER " + scope(fallbackTarget),
+		fmt.Sprintf("%s LET %s = %s", indent, fallbackPresent, categoryRelatedPathPresenceExpression(fallbackTarget, path)),
+		fmt.Sprintf("%s LET %s = %s ? %s.%s : null", indent, fallbackValue, fallbackPresent, fallbackTarget, pathExpression),
+		fmt.Sprintf("%s RETURN { present: %s, value: %s }", indent, fallbackPresent, fallbackValue),
+		indent + ")",
+		fmt.Sprintf("%sFOR projected_terminal IN %s", indent, records),
+		fmt.Sprintf("%sRETURN projected_terminal", indent),
+	}
 }
 
 func relatedCategoryForwardInline(hop relatedCategoryHop, source, edge, target, indent string, scope func(string) string) []string {

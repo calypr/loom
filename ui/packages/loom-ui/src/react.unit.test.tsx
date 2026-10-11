@@ -9,6 +9,7 @@ import {
   resourceFor,
   useGetExplorerBuilderStateV2Query,
   useGetExplorerAuthoringExplorersQuery,
+  useGetExplorerAuthoringCapabilityV2Query,
   usePreviewExplorerAuthoringV2Mutation,
   useResolveConfiguredColumnContextsQuery,
 } from './react';
@@ -28,6 +29,26 @@ const BuilderStatus = () => {
 };
 
 describe('Loom React queries', () => {
+  it('keeps Builder and capability queries idle without an Explorer ID', () => {
+    const fetch = vi.fn<typeof globalThis.fetch>();
+    const client = createLoomClient({ fetch });
+    const wrapper = ({ children }: { readonly children: React.ReactNode }) => (
+      <LoomProvider client={client}>{children}</LoomProvider>
+    );
+    const { result } = renderHook(() => ({
+      builder: useGetExplorerBuilderStateV2Query(
+        { project: 'HTAN_INT/empty-project', explorerId: '' },
+      ),
+      capability: useGetExplorerAuthoringCapabilityV2Query(
+        { project: 'HTAN_INT/empty-project', explorerId: '' },
+      ),
+    }), { wrapper });
+
+    expect(result.current.builder.isLoading).toBe(false);
+    expect(result.current.capability.isLoading).toBe(false);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('keeps configured-context queries disabled until their saved draft identity is ready', async () => {
     const requests: Array<{
       readonly url: string;

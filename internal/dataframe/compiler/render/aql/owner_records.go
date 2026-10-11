@@ -38,7 +38,7 @@ func (r *physicalPlanRenderer) renderOwnerRecords(expression ir.PhysicalExpressi
 	if err != nil {
 		return "", err
 	}
-	values, err := r.renderCorrelationValues(owner, correlation.ValueSelector, correlation.ValueFallbacks)
+	values, err := r.renderCorrelationValues(owner, correlation.ValueSelector, correlation.ValueFallbacks, correlation.FallbackOnBlankString)
 	if err != nil {
 		return "", err
 	}

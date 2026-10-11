@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	SemanticObservationSchemaVersion         = 3
+	SemanticObservationSchemaVersion         = 4
 	maxSemanticObservations                  = 512
 	maxSemanticExamples                      = 32
 	maxSemanticExampleBytes                  = 256
@@ -41,34 +41,94 @@ func (p *Profiler) observeSemanticObservations(payload map[string]any, sourceID 
 }
 
 type semanticChoiceValue struct {
-	Arm      string
-	Selector string
-	Type     string
-	Status   string
-	Value    any
+	Arm                   string
+	Selector              string
+	FallbackSelectors     []string
+	FallbackOnBlankString bool
+	Type                  string
+	Status                string
+	Value                 any
 }
 
-func semanticExampleValue(value semanticChoiceValue) any {
+func semanticExampleValues(value semanticChoiceValue) []any {
 	object, ok := value.Value.(map[string]any)
 	if !ok {
-		return value.Value
+		return []any{value.Value}
+	}
+	if value.FallbackOnBlankString {
+		primary := semanticValueAtPath(object, semanticValuePathWithinArm(value.Selector, value.Arm))
+		if text, ok := primary.(string); ok && strings.TrimSpace(text) != "" {
+			return []any{text}
+		}
+		var examples []any
+		for _, selector := range value.FallbackSelectors {
+			examples = append(examples, semanticValuesAtPath(object, semanticValuePathWithinArm(selector, value.Arm))...)
+		}
+		return examples
 	}
 	// Keep a bounded scalar example for structured FHIR choice values while
 	// preserving the arm and selector in the observation itself.
 	path := strings.TrimPrefix(value.Selector, value.Arm+".")
 	if path != "" {
-		parts := strings.Split(path, ".")
-		current := any(object)
-		for _, part := range parts {
-			mapValue, mapOK := current.(map[string]any)
-			if !mapOK {
-				return value.Value
-			}
-			current = mapValue[part]
-		}
-		return current
+		return []any{semanticValueAtPath(object, path)}
 	}
-	return value.Value
+	return []any{value.Value}
+}
+
+func semanticValuePathWithinArm(path, arm string) string {
+	path, arm = strings.TrimSpace(path), strings.TrimSpace(arm)
+	if arm == "" {
+		return path
+	}
+	prefix := arm + "."
+	if index := strings.LastIndex(path, prefix); index >= 0 {
+		return path[index+len(prefix):]
+	}
+	return strings.TrimPrefix(path, prefix)
+}
+
+func semanticValueAtPath(value any, path string) any {
+	current := value
+	for _, part := range strings.Split(path, ".") {
+		part = strings.TrimSuffix(part, "[]")
+		object, ok := current.(map[string]any)
+		if !ok {
+			return nil
+		}
+		current = object[part]
+	}
+	return current
+}
+
+func semanticValuesAtPath(value any, path string) []any {
+	parts := strings.Split(path, ".")
+	var walk func(any, int) []any
+	walk = func(current any, index int) []any {
+		if index == len(parts) {
+			return []any{current}
+		}
+		part := parts[index]
+		array := strings.HasSuffix(part, "[]")
+		name := strings.TrimSuffix(part, "[]")
+		object, ok := current.(map[string]any)
+		if !ok {
+			return nil
+		}
+		next := object[name]
+		if !array {
+			return walk(next, index+1)
+		}
+		items, ok := next.([]any)
+		if !ok {
+			return nil
+		}
+		var values []any
+		for _, item := range items {
+			values = append(values, walk(item, index+1)...)
+		}
+		return values
+	}
+	return walk(value, 0)
 }
 
 func semanticProjectionStatus(value map[string]any, path string) string {
@@ -223,7 +283,9 @@ func semanticObservationKey(observation SemanticObservation) string {
 		observation.Source.Canonical, observation.Source.Profile, observation.Source.Path,
 		observation.OwningScope, strings.Join(observation.ExtensionURLPath, "\x1f"),
 		observation.Key.Selector, observation.Key.System, observation.Key.Version, observation.Key.Code, observation.Key.Display,
-		observation.Value.Selector, observation.Value.Type, observation.ChoiceArm, observation.LogicalType,
+		observation.Value.Selector, observation.Value.Type,
+		strings.Join(observation.Value.FallbackSelectors, "\x1f"), strconv.FormatBool(observation.Value.FallbackOnBlankString),
+		observation.ChoiceArm, observation.LogicalType,
 		observation.RuleHint, observation.RuleVersion,
 	}, "\x00")
 }

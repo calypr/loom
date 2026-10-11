@@ -161,6 +161,10 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 		if expression.Call == nil {
 			return fmt.Errorf("expression payload does not match kind")
 		}
+		if strings.EqualFold(strings.TrimSpace(expression.Call.Name), "distinct_present_one") &&
+			(expression.Cardinality != PhysicalScalarCardinality || expression.NullBehavior != PhysicalPreserveNull) {
+			return fmt.Errorf("distinct_present_one must produce a nullable scalar")
+		}
 		return validatePhysicalCall(*expression.Call, defined, bindVars)
 	case PhysicalRelatedFieldExpression:
 		if expression.RelatedField == nil {
@@ -262,7 +266,7 @@ func validatePhysicalCall(call PhysicalCall, defined map[string]bool, bindVars m
 		return fmt.Errorf("call name is required")
 	}
 	known := map[string]bool{
-		"coalesce": true, "coalesce_string": true, "fallback": true, "first": true, "all": true, "distinct": true, "length": true,
+		"coalesce": true, "coalesce_string": true, "fallback": true, "first": true, "all": true, "distinct": true, "distinct_present_one": true, "length": true,
 		"canonical_json": true,
 		"concat":         true, "join": true, "cast": true, "reference_id": true,
 		"path_segment": true, "basename": true, "last_segment": true,
@@ -284,11 +288,16 @@ func validatePhysicalCall(call PhysicalCall, defined map[string]bool, bindVars m
 		default:
 			return fmt.Errorf("cast target kind %q is unsupported", call.TargetKind)
 		}
+	} else if name == "distinct_present_one" {
+		if len(call.Args) != 1 || call.Args[0].Cardinality != PhysicalArrayCardinality ||
+			(call.TargetKind != "STRING" && call.TargetKind != "INTEGER" && call.TargetKind != "DECIMAL" && call.TargetKind != "BOOLEAN") {
+			return fmt.Errorf("distinct_present_one requires one array argument and a table scalar target kind")
+		}
 	} else if name == "assert" && len(call.Args) != 2 {
 		return fmt.Errorf("assert requires a condition and message")
 	} else if (name == "add" || name == "subtract" || name == "multiply" || name == "divide") && len(call.Args) != 2 {
 		return fmt.Errorf("%s requires two arguments", name)
-	} else if call.TargetKind != "" {
+	} else if name != "distinct_present_one" && call.TargetKind != "" {
 		return fmt.Errorf("target kind is only valid for cast")
 	}
 	for index, arg := range call.Args {

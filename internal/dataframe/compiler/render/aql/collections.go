@@ -310,7 +310,7 @@ func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorr
 	if err != nil {
 		return "", err
 	}
-	values, err := r.renderCorrelationValues(owner, correlation.ValueSelector, correlation.ValueFallbacks)
+	values, err := r.renderCorrelationValues(owner, correlation.ValueSelector, correlation.ValueFallbacks, correlation.FallbackOnBlankString)
 	if err != nil {
 		return "", err
 	}
@@ -727,7 +727,7 @@ func (r *physicalPlanRenderer) renderExtensionCorrelatedPivot(correlation ir.Phy
 		lines = append(lines, fmt.Sprintf("    FILTER %s != null AND %s == @%s", url, url, correlation.ExtensionURLBindKeys[index]))
 		current = extension
 	}
-	values, err := r.renderCorrelationValues(current, correlation.ValueSelector, correlation.ValueFallbacks)
+	values, err := r.renderCorrelationValues(current, correlation.ValueSelector, correlation.ValueFallbacks, correlation.FallbackOnBlankString)
 	if err != nil {
 		return "", err
 	}

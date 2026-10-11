@@ -54,6 +54,25 @@ describe('Explorer Viewer request serialization', () => {
     ]);
   });
 
+  it('starts a fresh Viewer state without selected local or shared values while retaining configured fixed filters', () => {
+    let selected = createViewerReducerState(runtime);
+    selected = viewerReducer(selected, { type: 'setFilter', outputId: 'patients', column: 'status', values: ['active'] });
+    selected = viewerReducer(selected, { type: 'setSharedFilter', name: 'cohort', values: ['reviewed'] });
+
+    expect(outputRequestFor('NCPI_ACCEPTANCE', runtime, selected, runtime.outputs[0]).filters).toEqual([
+      { column: 'project', op: 'EQ', value: 'NCPI' },
+      { column: 'status', op: 'EQ', value: 'reviewed' },
+    ]);
+
+    const reloaded = createViewerReducerState(runtime);
+
+    expect(reloaded.outputs.patients.filterValues).toEqual({});
+    expect(reloaded.sharedFilters).toEqual({});
+    expect(outputRequestFor('NCPI_ACCEPTANCE', runtime, reloaded, runtime.outputs[0]).filters).toEqual([
+      { column: 'project', op: 'EQ', value: 'NCPI' },
+    ]);
+  });
+
   it('requests filter and chart facets only when their controls are opened', () => {
     const initial = createViewerReducerState(runtime);
     expect(outputRequestFor('NCPI_ACCEPTANCE', runtime, initial, runtime.outputs[0]).facets).toEqual([]);

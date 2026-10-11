@@ -152,30 +152,6 @@ paths:
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
-  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/schema-fields:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-      - $ref: '#/components/parameters/ExplorerId'
-    post:
-      operationId: searchExplorerSchemaFields
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/SchemaFieldSearchRequest'}
-      responses:
-        '200':
-          description: A bounded page of generated primitive paths for one populated node in the authorized capability snapshot.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/SchemaFieldSearchResponse'}
-        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/AuthoringForbidden'}
-        '409': {$ref: '#/components/responses/AuthoringConflict'}
-        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
-        '500': {$ref: '#/components/responses/AuthoringInternalError'}
-        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -215,6 +191,30 @@ paths:
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/schema-fields:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: searchExplorerSchemaFields
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SchemaFieldSearchRequest'}
+      responses:
+        '200':
+          description: A bounded page of generated primitive paths for one populated node in the authorized capability snapshot.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SchemaFieldSearchResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/semantic-inventory:
@@ -3194,6 +3194,10 @@ components:
         version: {type: string}
         code: {type: string}
         valueSelector: {type: string, minLength: 1}
+        valueFallbacks:
+          type: array
+          items: {type: string, minLength: 1}
+        fallbackOnBlankString: {type: boolean}
         choiceArm: {type: string}
         logicalType: {type: string, minLength: 1}
         ruleHint: {type: string}
@@ -3500,7 +3504,7 @@ components:
       additionalProperties: false
       required: [kind]
       properties:
-        kind: {type: string, enum: [SOURCE_PROJECTION, STEP_OUTPUT, TABLE_REVISION, WORKSPACE_OUTPUT]}
+        kind: {type: string, enum: [SOURCE_PROJECTION, STEP_OUTPUT, TABLE_REVISION]}
         stepId: {type: string, minLength: 1}
         tableId: {type: string, minLength: 1}
         revisionId: {type: string, minLength: 1}
@@ -3589,6 +3593,7 @@ components:
           items: {$ref: '#/components/schemas/ConstructionRouteStep'}
         contributorRule: {$ref: '#/components/schemas/RelatedSourceContributorRule'}
         form: {type: string, enum: [ALL, COUNT, PRESENCE]}
+        rowValuePolicy: {type: string, enum: [ALL, ONE]}
         outputColumnId: {type: string, minLength: 1}
     RelatedSourceField:
       type: object
@@ -5295,6 +5300,10 @@ components:
         owningScope: {type: string}
         keyPath: {type: string, minLength: 1}
         valuePath: {type: string, minLength: 1}
+        valueFallbacks:
+          type: array
+          items: {type: string, minLength: 1}
+        fallbackOnBlankString: {type: boolean}
         choiceArms:
           type: array
           items: {type: string}

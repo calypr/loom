@@ -61,11 +61,24 @@ const table: DraftTable = {
   },
 };
 
-const renderPanel = (onApplyMemberRemoval = vi.fn().mockResolvedValue(true)) => {
+const renderPanel = (
+  onApplyMemberRemoval = vi.fn().mockResolvedValue(true),
+  options: { readonly project?: string; readonly selection?: SelectionRevision; readonly page?: SelectionPage } = {},
+) => {
+  const project = options.project ?? 'project';
+  const currentSelection = options.selection ?? selection;
+  const currentTable = {
+    ...table,
+    document: {
+      ...table.document,
+      population: { selectionRevisionId: currentSelection.id, route: [] },
+    },
+  };
+  if (options.page) loomClient.getSelection.mockResolvedValueOnce(options.page);
   const view = render(
     <PopulationPanel
-      table={table} selection={selection} loading={false} disabled={false}
-      project="project" explorerId="explorer-1" authResourcePath="/programs/alpha"
+      table={currentTable} selection={currentSelection} loading={false} disabled={false}
+      project={project} explorerId="explorer-1" authResourcePath="/programs/alpha"
       snapshotToken="snapshot" draftVersion={4} draftDigest="draft-4"
       onAttach={vi.fn()} onClear={vi.fn()} onApplyMemberRemoval={onApplyMemberRemoval}
     />,
@@ -136,6 +149,44 @@ it('rejects a selection page with a forged project or member scope before offeri
   expect(await screen.findByRole('alert')).toHaveTextContent(/duplicate or out-of-scope member/);
   expect(screen.queryByRole('button', { name: 'Review removal of DocumentReference/doc-1' })).not.toBeInTheDocument();
   expect(loomClient.proposePopulationMemberRemoval).not.toHaveBeenCalled();
+});
+
+it('accepts a canonical selection for a legacy route project but rejects a foreign selection', async () => {
+  const routeProject = 'loom_dev_verify_run-1234';
+  const canonicalSelection: SelectionRevision = {
+    ...selection, id: 'selection-canonical', project: 'loom_dev_verify_run/1234',
+  };
+  const canonicalMember = {
+    ...member,
+    ref: { ...member.ref, project: canonicalSelection.project },
+  };
+  const canonicalPage: SelectionPage = {
+    revision: canonicalSelection, members: [canonicalMember],
+  };
+  const canonicalView = renderPanel(vi.fn().mockResolvedValue(true), {
+    project: routeProject, selection: canonicalSelection, page: canonicalPage,
+  });
+
+  expect(await screen.findByRole('button', { name: 'Review removal of DocumentReference/doc-1' })).toBeEnabled();
+  expect(loomClient.getSelection).toHaveBeenCalledWith(expect.objectContaining({
+    project: routeProject, selectionRevision: canonicalSelection.id,
+  }));
+  canonicalView.unmount();
+
+  const foreignSelection: SelectionRevision = {
+    ...canonicalSelection, id: 'selection-foreign', project: 'foreign-project',
+  };
+  const foreignMember = {
+    ...canonicalMember,
+    ref: { ...canonicalMember.ref, project: foreignSelection.project },
+  };
+  const foreignPage: SelectionPage = { revision: foreignSelection, members: [foreignMember] };
+  renderPanel(vi.fn().mockResolvedValue(true), {
+    project: routeProject, selection: foreignSelection, page: foreignPage,
+  });
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(/changed scope/);
+  expect(screen.queryByRole('button', { name: 'Review removal of DocumentReference/doc-1' })).not.toBeInTheDocument();
 });
 
 it('locks controls during Apply and ignores the old completion after the authoring scope changes', async () => {

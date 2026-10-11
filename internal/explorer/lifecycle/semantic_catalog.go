@@ -8,6 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"slices"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -146,6 +149,12 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 		}
 		req.ResourceType = frame.Source.ResourceType
 		bindingFilter = frame.Source.BindingID
+		if isPriorPrimaryOnlySemanticFrameFamily(frame.Source) {
+			// The current inventory uses semantic-binding/v2 IDs. Query the
+			// authorized resource page without the obsolete v1 filter, then require
+			// an exact reconstructed v1 identity in semanticEntryForFrameFamily.
+			bindingFilter = ""
+		}
 		result.FrameID, result.FrameSource = frame.ID, frame
 	}
 	if req.SourceChoiceID != "" {
@@ -214,6 +223,13 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 	for _, entry := range page.Entries {
 		observation := entry.Observation
 		plan := authoringv2.ResolveSemanticSelectionPlan(observation)
+		if frame != nil {
+			projected, projectedPlan, ok := semanticEntryForFrameFamily(entry, frame.Source)
+			if !ok {
+				continue
+			}
+			entry, observation, plan = projected, projected.Observation, projectedPlan
+		}
 		item := SemanticInventoryItem{
 			ConceptID: entry.ConceptID, BindingID: entry.BindingID, ResourceType: observation.Source.Type,
 			SourcePath: observation.Source.Path, System: observation.Key.System, Code: observation.Key.Code,
@@ -232,7 +248,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 				}
 				var route []capability.ConstructionRouteStep
 				if frame != nil {
-					if !semanticEntryMatchesFrame(entry, observation, plan, *frame) {
+					if !semanticEntryMatchesFrame(entry, *frame) {
 						continue
 					}
 					resolvedRoute, routeErr := reauthorizeConstructionRoute(snapshot, req.RowRoot, candidate.NodeID, frame.Route)
@@ -241,7 +257,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 					}
 					route = resolvedRoute
 				} else if codedFamily != nil {
-					if observation.Key.Version != "" || !semanticEntryMatchesFrameFamily(entry, observation, plan, codedFamily.Family) {
+					if observation.Key.Version != "" || !semanticEntryMatchesFrameFamily(entry, codedFamily.Family) {
 						continue
 					}
 					route = codedRoute
@@ -295,40 +311,98 @@ func semanticInventoryConstructionChoiceForRoute(snapshot capability.Snapshot, c
 		SourceProfile: observation.Source.Profile, FieldPath: candidate.FieldPath,
 		OwningScope: observation.OwningScope, ExtensionURLPath: observation.ExtensionURLPath,
 		KeySelector: observation.Key.Selector, System: observation.Key.System, Version: observation.Key.Version,
-		Code: observation.Key.Code, ValueSelector: observation.Value.Selector, ChoiceArm: observation.ChoiceArm,
+		Code: observation.Key.Code, ValueSelector: observation.Value.Selector,
+		ValueFallbacks:        append([]string(nil), observation.Value.FallbackSelectors...),
+		FallbackOnBlankString: observation.Value.FallbackOnBlankString, ChoiceArm: observation.ChoiceArm,
 		LogicalType: logicalType, RuleHint: observation.RuleHint, RuleVersion: observation.RuleVersion,
 		SchemaVersion: observation.SchemaVersion,
 	}
-	return capability.NewSemanticConstructionChoiceForRoute(snapshot.Token, contextToken, buildID, route, source, candidate, ownerRecordsProved)
+	projectedCandidate, ok := semanticCandidateWithFallback(snapshot, observation, candidate)
+	if !ok {
+		return capability.ConstructionChoice{}, errors.New("semantic fallback value selectors have no exact compiler-proved candidates")
+	}
+	return capability.NewSemanticConstructionChoiceForRoute(snapshot.Token, contextToken, buildID, route, source, projectedCandidate, ownerRecordsProved)
 }
 
-func semanticEntryMatchesFrame(entry catalog.SemanticInventoryEntry, observation catalog.SemanticObservation, plan authoringv2.SemanticSelectionPlan, frame authoringv2.FrameDefinition) bool {
-	if entry.BindingID != frame.Source.BindingID || observation.Source.Type != frame.Source.ResourceType ||
-		observation.Source.Path != frame.Source.SourcePath || observation.Source.Canonical != frame.Source.SourceCanonical ||
-		observation.Source.Profile != frame.Source.SourceProfile || observation.RuleVersion != frame.Source.RuleVersion ||
-		observation.SchemaVersion != frame.Source.SchemaVersion || plan.Source == nil || plan.Source.Kind != authoringv2.SourceCodedValue ||
-		plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil || plan.Source.Lookup.Key == nil {
-		return false
-	}
-	binding := plan.Source.Lookup.Binding
-	return binding.OwnerPath == frame.Source.OwningScope && binding.KeyPath == frame.Source.KeyPath &&
-		binding.ValuePath == frame.Source.ValuePath && binding.LogicalType == frame.Source.LogicalType &&
-		reflect.DeepEqual(binding.ChoiceArms, frame.Source.ChoiceArms)
+func semanticEntryMatchesFrame(entry catalog.SemanticInventoryEntry, frame authoringv2.FrameDefinition) bool {
+	_, _, ok := semanticEntryForFrameFamily(entry, frame.Source)
+	return ok
 }
 
-func semanticEntryMatchesFrameFamily(entry catalog.SemanticInventoryEntry, observation catalog.SemanticObservation, plan authoringv2.SemanticSelectionPlan, family capability.SemanticFrameFamily) bool {
-	if entry.BindingID != family.BindingID || observation.Source.Type != family.ResourceType ||
-		observation.Source.Path != family.SourcePath || observation.Source.Canonical != family.SourceCanonical ||
-		observation.Source.Profile != family.SourceProfile || observation.RuleVersion != family.RuleVersion ||
-		observation.SchemaVersion != family.SchemaVersion || observation.Key.Version != "" ||
-		plan.Source == nil || plan.Source.Kind != authoringv2.SourceCodedValue ||
+func semanticEntryMatchesFrameFamily(entry catalog.SemanticInventoryEntry, family capability.SemanticFrameFamily) bool {
+	_, _, ok := semanticEntryForFrameFamily(entry, family)
+	return ok
+}
+
+func semanticFrameFamilyMatchesPinnedPrior(current, pinned capability.SemanticFrameFamily, observation catalog.SemanticObservation) bool {
+	return current.SchemaVersion == catalog.SemanticObservationSchemaVersion &&
+		current.RuleVersion == strconv.Itoa(catalog.SemanticObservationRuleVersion) &&
+		pinned.SchemaVersion == catalog.SemanticObservationLegacyV1SchemaVersion &&
+		pinned.RuleVersion == strconv.Itoa(catalog.SemanticObservationLegacyV1RuleVersion) &&
+		len(pinned.ValueFallbacks) == 0 && !pinned.FallbackOnBlankString &&
+		pinned.BindingID == catalog.LegacySemanticBindingIDV1(observation) &&
+		semanticEntrySourceMatchesFrameFamily(observation, pinned) &&
+		current.ResourceType == pinned.ResourceType &&
+		current.SourcePath == pinned.SourcePath && current.SourceCanonical == pinned.SourceCanonical &&
+		current.SourceProfile == pinned.SourceProfile && current.OwningScope == pinned.OwningScope &&
+		current.KeyPath == pinned.KeyPath && current.ValuePath == pinned.ValuePath &&
+		current.LogicalType == pinned.LogicalType && reflect.DeepEqual(current.ChoiceArms, pinned.ChoiceArms)
+}
+
+// semanticEntryForFrameFamily projects a current inventory observation back
+// to the exact value binding pinned by a saved frame. The only supported
+// transition is the immediately preceding semantic build, whose new behavior
+// adds fallback selectors. A legacy frame without fallbacks keeps its primary
+// selector and cannot silently acquire the new fallback behavior.
+func semanticEntryForFrameFamily(
+	entry catalog.SemanticInventoryEntry,
+	family capability.SemanticFrameFamily,
+) (catalog.SemanticInventoryEntry, authoringv2.SemanticSelectionPlan, bool) {
+	observation := entry.Observation
+	if !semanticEntrySourceMatchesFrameFamily(observation, family) || observation.Key.Version != "" {
+		return catalog.SemanticInventoryEntry{}, authoringv2.SemanticSelectionPlan{}, false
+	}
+
+	currentRuleVersion := strconv.Itoa(catalog.SemanticObservationRuleVersion)
+	if observation.SchemaVersion != catalog.SemanticObservationSchemaVersion || observation.RuleVersion != currentRuleVersion {
+		return catalog.SemanticInventoryEntry{}, authoringv2.SemanticSelectionPlan{}, false
+	}
+	currentFamily := family.SchemaVersion == observation.SchemaVersion && family.RuleVersion == observation.RuleVersion && family.BindingID == entry.BindingID
+	priorFamily := isPriorPrimaryOnlySemanticFrameFamily(family) &&
+		family.BindingID == catalog.LegacySemanticBindingIDV1(observation)
+	if !currentFamily && !priorFamily {
+		return catalog.SemanticInventoryEntry{}, authoringv2.SemanticSelectionPlan{}, false
+	}
+	if priorFamily {
+		observation.Value.FallbackSelectors = nil
+		observation.Value.FallbackOnBlankString = false
+		entry.Observation = observation
+	}
+
+	plan := authoringv2.ResolveSemanticSelectionPlan(observation)
+	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Kind != authoringv2.SourceCodedValue ||
 		plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil || plan.Source.Lookup.Key == nil {
-		return false
+		return catalog.SemanticInventoryEntry{}, authoringv2.SemanticSelectionPlan{}, false
 	}
 	binding := plan.Source.Lookup.Binding
-	return binding.OwnerPath == family.OwningScope && binding.KeyPath == family.KeyPath &&
-		binding.ValuePath == family.ValuePath && binding.LogicalType == family.LogicalType &&
-		reflect.DeepEqual(binding.ChoiceArms, family.ChoiceArms)
+	if binding.OwnerPath != family.OwningScope || binding.KeyPath != family.KeyPath || binding.ValuePath != family.ValuePath ||
+		!slices.Equal(binding.ValueFallback, family.ValueFallbacks) || binding.FallbackOnBlankString != family.FallbackOnBlankString ||
+		binding.LogicalType != family.LogicalType || !reflect.DeepEqual(binding.ChoiceArms, family.ChoiceArms) {
+		return catalog.SemanticInventoryEntry{}, authoringv2.SemanticSelectionPlan{}, false
+	}
+	return entry, plan, true
+}
+
+func isPriorPrimaryOnlySemanticFrameFamily(family capability.SemanticFrameFamily) bool {
+	return family.SchemaVersion == catalog.SemanticObservationLegacyV1SchemaVersion &&
+		family.RuleVersion == strconv.Itoa(catalog.SemanticObservationLegacyV1RuleVersion) &&
+		len(family.ValueFallbacks) == 0 && !family.FallbackOnBlankString
+}
+
+func semanticEntrySourceMatchesFrameFamily(observation catalog.SemanticObservation, family capability.SemanticFrameFamily) bool {
+	return observation.Source.Type == family.ResourceType &&
+		observation.Source.Path == family.SourcePath && observation.Source.Canonical == family.SourceCanonical &&
+		observation.Source.Profile == family.SourceProfile
 }
 
 func proveOwnerRecords(ctx context.Context, authorized AuthorizedCapability, rootResourceType string, observation catalog.SemanticObservation) bool {
@@ -379,6 +453,74 @@ func semanticConstructionCandidate(snapshot capability.Snapshot, observation cat
 		}
 	}
 	return match, found
+}
+
+func semanticCandidateWithFallback(snapshot capability.Snapshot, observation catalog.SemanticObservation, primary capability.Candidate) (capability.Candidate, bool) {
+	if len(observation.Value.FallbackSelectors) == 0 {
+		return primary, !observation.Value.FallbackOnBlankString
+	}
+	if primary.LogicalType != observation.Value.Type {
+		return capability.Candidate{}, false
+	}
+	combined := primary
+	unknownCardinality := strings.EqualFold(strings.TrimSpace(primary.Cardinality), "unknown_observed_many")
+	repeatedCardinality := capability.IsRepeatedCardinality(primary.Cardinality)
+	projectionModes := make(map[capability.ProjectionMode]struct{}, len(primary.ProjectionModes))
+	for _, mode := range primary.ProjectionModes {
+		projectionModes[mode] = struct{}{}
+	}
+	boundaries := make(map[string]capability.RepeatedBoundary, len(primary.RepeatedBoundaries))
+	for _, boundary := range primary.RepeatedBoundaries {
+		boundaries[boundary.Path] = boundary
+	}
+	for _, selector := range observation.Value.FallbackSelectors {
+		path := canonicalInventoryPath(selector)
+		ownerPath := canonicalInventoryPath(observation.OwningScope)
+		if ownerPath != "" && path != ownerPath && !strings.HasPrefix(path, ownerPath+".") {
+			path = ownerPath + "." + path
+		}
+		var fallback capability.Candidate
+		found := false
+		for _, candidate := range snapshot.Candidates {
+			if candidate.ResourceType != observation.Source.Type || canonicalInventoryPath(candidate.FieldPath) != path {
+				continue
+			}
+			if found || candidate.NodeID != primary.NodeID || candidate.LogicalType != primary.LogicalType {
+				return capability.Candidate{}, false
+			}
+			fallback, found = candidate, true
+		}
+		if !found || len(fallback.ProjectionModes) == 0 {
+			return capability.Candidate{}, false
+		}
+		unknownCardinality = unknownCardinality || strings.EqualFold(strings.TrimSpace(fallback.Cardinality), "unknown_observed_many")
+		repeatedCardinality = repeatedCardinality || capability.IsRepeatedCardinality(fallback.Cardinality)
+		for _, boundary := range fallback.RepeatedBoundaries {
+			if existing, ok := boundaries[boundary.Path]; !ok || boundary.MaxItems > existing.MaxItems {
+				boundaries[boundary.Path] = boundary
+			}
+		}
+		for _, mode := range fallback.ProjectionModes {
+			projectionModes[mode] = struct{}{}
+		}
+	}
+	if unknownCardinality {
+		combined.Cardinality = "unknown_observed_many"
+	} else if repeatedCardinality {
+		combined.Cardinality = "many"
+	}
+	combined.RepeatedBoundaries = make([]capability.RepeatedBoundary, 0, len(boundaries))
+	for _, boundary := range boundaries {
+		combined.RepeatedBoundaries = append(combined.RepeatedBoundaries, boundary)
+	}
+	sort.Slice(combined.RepeatedBoundaries, func(i, j int) bool { return combined.RepeatedBoundaries[i].Path < combined.RepeatedBoundaries[j].Path })
+	combined.ProjectionModes = make([]capability.ProjectionMode, 0, len(projectionModes))
+	for _, mode := range []capability.ProjectionMode{capability.ProjectionScalar, capability.ProjectionFirst, capability.ProjectionArray, capability.ProjectionDistinctArray} {
+		if _, ok := projectionModes[mode]; ok {
+			combined.ProjectionModes = append(combined.ProjectionModes, mode)
+		}
+	}
+	return combined, true
 }
 
 // Coded-value observations keep key and value selectors relative to the object

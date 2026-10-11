@@ -194,6 +194,8 @@ describe('RelatedExpandEditor', () => {
     expect(candidate).toBeDefined();
     expect(step?.inputs).toEqual([{ kind: 'SOURCE_PROJECTION' }]);
     expect(step?.outputs.map((column: { id: string }) => column.id)).toEqual(['patient-id', step.operation.relatedExpand.relatedRecordColumnId]);
+    expect(step?.outputs.find((column: { id: string }) => column.id === step.operation.relatedExpand.relatedRecordColumnId))
+      .toMatchObject({ nullable: true });
     expect(step?.operation).toMatchObject({
       kind: 'RELATED_EXPAND',
       relatedExpand: {
@@ -211,12 +213,17 @@ describe('RelatedExpandEditor', () => {
     expect((screen.getByLabelText('If a current row has no matches') as HTMLSelectElement).value)
       .toBe('PRESERVE_PARENT');
     fireEvent.change(screen.getByLabelText('If a current row has no matches'), { target: { value: 'EXCLUDE' } });
-    expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0].operation.relatedExpand.emptyPolicy)
-      .toBe('EXCLUDE');
+    const excludedCandidateStep = onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0];
+    expect(excludedCandidateStep?.operation.relatedExpand.emptyPolicy).toBe('EXCLUDE');
+    expect(excludedCandidateStep?.outputs.find((column: { id: string }) => column.id === excludedCandidateStep.operation.relatedExpand.relatedRecordColumnId))
+      .toMatchObject({ nullable: false });
     expect(screen.getByTestId('construction-related-expand-effect')).toHaveTextContent(
       'If a current row has no matching Encounter records: Leave that current row out.',
     );
     fireEvent.change(screen.getByLabelText('If a current row has no matches'), { target: { value: 'ERROR' } });
+    const errorCandidateStep = onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0];
+    expect(errorCandidateStep?.outputs.find((column: { id: string }) => column.id === errorCandidateStep.operation.relatedExpand.relatedRecordColumnId))
+      .toMatchObject({ nullable: false });
     expect(screen.getByTestId('construction-related-expand-effect')).toHaveTextContent(
       'If a current row has no matching Encounter records: Stop with an error if any current row has no match.',
     );

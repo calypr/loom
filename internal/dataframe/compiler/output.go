@@ -146,12 +146,31 @@ func withGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.Phy
 	// to the first traversal or terminal return. BuildGenericPhysicalPlan has
 	// already proven that the whole prefix scopes the root correctly.
 	insertAt := physicalScopeWindowEnd(plan.Operations, 1)
-	// Shared expression LETs are deliberately emitted immediately before
-	// RETURN for root-only plans. Put the root execution window before them so
-	// AQL can discard rows before evaluating the family maps, while traversal
-	// plans still insert the window before their first child SET.
-	for insertAt > 1 && insertAt <= len(plan.Operations) && plan.Operations[insertAt-1].Kind == ir.PhysicalExpressionLetOp {
-		insertAt--
+	unnestIndex := -1
+	for index, operation := range plan.Operations {
+		if operation.Kind == ir.PhysicalUnnestOp {
+			if unnestIndex >= 0 {
+				return ir.PhysicalPlan{}, fmt.Errorf("generic execution window supports one row expansion")
+			}
+			unnestIndex = index
+		}
+	}
+	if unnestIndex >= 0 {
+		// A row expansion owns the additional variables in its stable identity
+		// tuple. Keep the window after that operation, while still before the
+		// unrelated child SET/traversal operations it is intended to bound.
+		if unnestIndex > insertAt {
+			return ir.PhysicalPlan{}, fmt.Errorf("generic execution window requires row expansion before child SET/traversal operations")
+		}
+		insertAt = unnestIndex + 1
+	} else {
+		// Shared expression LETs are deliberately emitted immediately before
+		// RETURN for root-only plans. Put the root execution window before them so
+		// AQL can discard rows before evaluating the family maps, while traversal
+		// plans still insert the window before their first child SET.
+		for insertAt > 1 && insertAt <= len(plan.Operations) && plan.Operations[insertAt-1].Kind == ir.PhysicalExpressionLetOp {
+			insertAt--
+		}
 	}
 	if insertAt <= 1 || insertAt >= len(plan.Operations) {
 		return ir.PhysicalPlan{}, fmt.Errorf("generic physical execution plan requires a scoped root followed by RETURN or traversal")

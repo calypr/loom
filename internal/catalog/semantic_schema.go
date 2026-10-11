@@ -27,8 +27,10 @@ type semanticDatatypeAssociation struct {
 }
 
 type semanticValueProjectionAssociation struct {
-	selector    string
-	logicalType string
+	selector              string
+	fallbackSelectors     []string
+	fallbackOnBlankString bool
+	logicalType           string
 }
 
 var semanticDatatypeAssociations = map[schema.DefinitionName]semanticDatatypeAssociation{
@@ -47,11 +49,14 @@ var semanticDatatypeAssociations = map[schema.DefinitionName]semanticDatatypeAss
 // JSON-member dispatch. The containing resource may use any valid choice-arm
 // name; its resolved FHIR datatype determines the scalar preview projection.
 var semanticValueProjectionAssociations = map[schema.DefinitionName]semanticValueProjectionAssociation{
-	"Quantity":        {selector: "value", logicalType: "decimal"},
-	"CodeableConcept": {selector: "text", logicalType: "string"},
-	"Period":          {selector: "start", logicalType: "date_time"},
-	"Range":           {selector: "low.value", logicalType: "decimal"},
-	"Ratio":           {selector: "numerator.value", logicalType: "decimal"},
+	"Quantity": {selector: "value", logicalType: "decimal"},
+	"CodeableConcept": {
+		selector: "text", fallbackSelectors: []string{"coding[].display"},
+		fallbackOnBlankString: true, logicalType: "string",
+	},
+	"Period": {selector: "start", logicalType: "date_time"},
+	"Range":  {selector: "low.value", logicalType: "decimal"},
+	"Ratio":  {selector: "numerator.value", logicalType: "decimal"},
 }
 
 func (p *Profiler) observeSchemaSemantics(
@@ -220,8 +225,10 @@ func (p *Profiler) emitExtensionScope(
 				Display:  url,
 			},
 			Value: SemanticObservationValue{
-				Selector: appendSemanticPath(scope.canonicalPath, value.Selector),
-				Type:     value.Type,
+				Selector:              appendSemanticPath(scope.canonicalPath, value.Selector),
+				Type:                  value.Type,
+				FallbackSelectors:     prefixSemanticPaths(scope.canonicalPath, value.FallbackSelectors),
+				FallbackOnBlankString: value.FallbackOnBlankString,
 			},
 			OwningScope:      scope.canonicalPath,
 			ExtensionURLPath: ancestry,
@@ -233,7 +240,7 @@ func (p *Profiler) emitExtensionScope(
 			RuleHint:         association.ruleHint,
 			RuleVersion:      strconv.Itoa(SemanticObservationRuleVersion),
 		}
-		p.recordSchemaSemanticObservation(scope.canonicalPath, observation, []any{semanticExampleValue(value)}, emit)
+		p.recordSchemaSemanticObservation(scope.canonicalPath, observation, semanticExampleValues(value), emit)
 	}
 }
 
@@ -257,7 +264,7 @@ func (p *Profiler) emitCodedChoiceScope(
 			}
 			continue
 		}
-		if fact.ReferencedType == "CodeableConcept" {
+		if fact.ReferencedType == "CodeableConcept" && !fact.Repeated {
 			concepts = append(concepts, fact)
 		}
 	}
@@ -329,8 +336,10 @@ func (p *Profiler) emitSchemaCodedValue(
 		},
 		Key: key,
 		Value: SemanticObservationValue{
-			Selector: value.Selector,
-			Type:     value.Type,
+			Selector:              value.Selector,
+			Type:                  value.Type,
+			FallbackSelectors:     append([]string(nil), value.FallbackSelectors...),
+			FallbackOnBlankString: value.FallbackOnBlankString,
 		},
 		OwningScope:   scope.canonicalPath,
 		ChoiceArm:     value.Arm,
@@ -341,7 +350,7 @@ func (p *Profiler) emitSchemaCodedValue(
 		RuleHint:      SemanticRuleHintCodedValueV1,
 		RuleVersion:   strconv.Itoa(SemanticObservationRuleVersion),
 	}
-	p.recordSchemaSemanticObservation(storagePath, observation, []any{semanticExampleValue(value)}, emit)
+	p.recordSchemaSemanticObservation(storagePath, observation, semanticExampleValues(value), emit)
 }
 
 func (p *Profiler) recordSchemaSemanticObservation(
@@ -373,12 +382,16 @@ func semanticChoiceValueFromFact(resourceType string, fact fhirsemantic.MemberFa
 	selector := fact.Element.Name
 	valueType := semanticGeneratedValueType(resourceType, fact.CanonicalPath, value, semanticValueType(value))
 	status := "SUPPORTED"
+	var fallbackSelectors []string
+	fallbackOnBlankString := false
 	if object, structured := value.(map[string]any); structured {
 		projection, projected := semanticValueProjectionAssociations[fact.ReferencedType]
 		if projected {
 			selector = appendSemanticPath(selector, projection.selector)
 			valueType = semanticGeneratedValueType(resourceType, appendSemanticPath(fact.CanonicalPath, projection.selector), value, projection.logicalType)
-			status = semanticProjectionStatus(object, projection.selector)
+			status = semanticProjectionStatusWithFallback(object, projection.selector, projection.fallbackSelectors, projection.fallbackOnBlankString)
+			fallbackSelectors = prefixSemanticPaths(fact.Element.Name, projection.fallbackSelectors)
+			fallbackOnBlankString = projection.fallbackOnBlankString
 		} else {
 			valueType = "mixed"
 		}
@@ -387,12 +400,44 @@ func semanticChoiceValueFromFact(resourceType string, fact fhirsemantic.MemberFa
 		return semanticChoiceValue{}, false
 	}
 	return semanticChoiceValue{
-		Arm:      fact.Element.Name,
-		Selector: selector,
-		Type:     valueType,
-		Status:   status,
-		Value:    value,
+		Arm:                   fact.Element.Name,
+		Selector:              selector,
+		FallbackSelectors:     fallbackSelectors,
+		FallbackOnBlankString: fallbackOnBlankString,
+		Type:                  valueType,
+		Status:                status,
+		Value:                 value,
 	}, true
+}
+
+func prefixSemanticPaths(prefix string, paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(paths))
+	for _, path := range paths {
+		result = append(result, appendSemanticPath(prefix, path))
+	}
+	return result
+}
+
+func semanticProjectionStatusWithFallback(value map[string]any, selector string, fallbacks []string, fallbackOnBlankString bool) string {
+	primary := semanticValueAtPath(value, selector)
+	if text, ok := primary.(string); ok {
+		if strings.TrimSpace(text) != "" || !fallbackOnBlankString {
+			return semanticProjectionStatus(value, selector)
+		}
+	} else if primary != nil || !fallbackOnBlankString {
+		return semanticProjectionStatus(value, selector)
+	}
+	for _, fallback := range fallbacks {
+		for _, candidate := range semanticValuesAtPath(value, fallback) {
+			if text, ok := candidate.(string); ok && strings.TrimSpace(text) != "" {
+				return "SUPPORTED"
+			}
+		}
+	}
+	return SemanticStatusUnsupportedValueProjection
 }
 
 func decodeSemanticObject(raw json.RawMessage) (map[string]any, bool) {

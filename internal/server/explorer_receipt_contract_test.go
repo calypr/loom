@@ -815,13 +815,15 @@ func TestConstructedOutputProfileRequiresArrayPolicyForManyCardinality(t *testin
 
 func TestRelatedSourceOutputProfileMatchesSelectedForm(t *testing.T) {
 	for _, test := range []struct {
-		name        string
-		form        capability.ConstructionChoiceForm
-		kind        string
-		cardinality string
-		shape       string
+		name           string
+		form           capability.ConstructionChoiceForm
+		rowValuePolicy authoringv2.ConstructionRowValuePolicy
+		kind           string
+		cardinality    string
+		shape          string
 	}{
 		{name: "list", form: capability.ConstructionChoiceAll, kind: "string", cardinality: "many", shape: "array"},
+		{name: "one distinct value", form: capability.ConstructionChoiceAll, rowValuePolicy: authoringv2.ConstructionRowValueOne, kind: "string", cardinality: "optional_one", shape: "scalar"},
 		{name: "count", form: capability.ConstructionChoiceCount, kind: "integer", cardinality: "required_one", shape: "scalar"},
 		{name: "presence", form: capability.ConstructionChoicePresence, kind: "boolean", cardinality: "required_one", shape: "scalar"},
 	} {
@@ -832,7 +834,7 @@ func TestRelatedSourceOutputProfileMatchesSelectedForm(t *testing.T) {
 				Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
 					ID: "observation-step",
 					Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedSource, RelatedSource: &authoringv2.ConstructionRelatedSource{
-						Form: test.form, OutputColumnID: "observation-column",
+						Form: test.form, RowValuePolicy: test.rowValuePolicy, OutputColumnID: "observation-column",
 						ContributorRule: authoringv2.ConstructionRelatedContributorRule{Policy: authoringv2.ConstructionRelatedAllMatches},
 					}},
 					Outputs: []authoringv2.StageColumn{{ID: "observation-column", Name: columnName, Label: "Related observation", Type: test.kind}},
@@ -994,7 +996,7 @@ func TestAuthoredOutputColumnsResolvesFinalTypedConstructionLineage(t *testing.T
 		"category": {AuthoredColumns: []string{"category"}},
 		"value":    {AuthoredColumns: []string{"value"}},
 	}
-	lineage, err := resolveAuthoredOutputLineage(final, emitted)
+	lineage, err := resolveAuthoredOutputLineage(final, emitted, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1153,6 +1155,118 @@ func TestReconcileFinalOutputMetadataPublishesOnlyScalarGroupOutputs(t *testing.
 			emitted.PublicColumn == inputID || emitted.PublicColumn == authoringv2.ConstructionSourceProjectionName(inputID) {
 			t.Fatalf("hidden source input leaked into public emission: %#v", emitted)
 		}
+	}
+}
+
+func TestReconcileFinalOutputMetadataPreservesInheritedExplicitGroupKeyThroughExpand(t *testing.T) {
+	const (
+		outputID      = "patients"
+		groupRevision = "grouprev_fixture"
+		genderSource  = "gender-source"
+		genderItemID  = "gender-item-id"
+		genderItem    = "gender_item"
+	)
+	source := explorer.EmittedColumn{
+		EmissionID: "source-gender", OutputID: outputID, AuthoredColumns: []string{"gender"},
+		PublicColumn: "gender", Label: "Gender", LogicalType: "string", Cardinality: "optional_one",
+		Nullable: true, Shape: "scalar", SourceResourceType: "Patient", SourcePath: "gender",
+		Lossless: true, MLReady: true, StructuralSuitability: "scalar", Filterable: true, Chartable: true,
+	}
+	bundle := recipe.Bundle{Outputs: []recipe.Output{{
+		Name: outputID, RootResourceType: "Patient", RowGrain: "groups",
+		GroupRows: &recipe.GroupRows{RevisionID: groupRevision, UnassignedMemberPolicy: "GROUP_AS_UNASSIGNED"},
+	}}}
+	groupLabel := authoringv2.StageColumn{ID: "group-label-output", Name: "group_label", Label: "Group label", Type: "string"}
+	genderKey := authoringv2.StageColumn{ID: "gender-key-output", Name: genderItem, Label: "Gender item", Type: "string", Nullable: true}
+	rowCount := authoringv2.StageColumn{ID: "row-count-output", Name: "row_count", Label: "Row count", Type: "integer"}
+	document := authoringv2.Document{
+		Output: authoringv2.Output{ID: outputID, Title: "Two Patient cohort"},
+		Rows: authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionGroups, Groups: &authoringv2.GroupedRows{Source: authoringv2.GroupSource{
+			Kind: authoringv2.GroupSourceExplicit,
+			Explicit: &authoringv2.ExplicitGroupSource{
+				RevisionID: groupRevision, UnassignedMemberPolicy: authoringv2.UnassignedMemberGroupAsUnassigned,
+			},
+		}}},
+		Columns: []authoringv2.Column{{ColumnID: genderSource, Column: "gender", Label: "Gender"}},
+		Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+			{
+				ID:     "expand-members",
+				Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "group_rows"}},
+				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationExpand, Expand: &authoringv2.ConstructionExpand{
+					ConstructionID: "expand-members", InputColumnID: genderSource, OutputColumnID: genderItemID,
+					EmptyPolicy: authoringv2.ConstructionExpandEmptyPreserveParent,
+				}},
+				Outputs: []authoringv2.StageColumn{
+					{ID: "group_id", Name: "group_id", Label: "Group ID", Type: "string"},
+					{ID: "group_label", Name: "group_label", Label: "Group label", Type: "string"},
+					{ID: "group_ordinal", Name: "group_ordinal", Label: "Group ordinal", Type: "integer"},
+					{ID: "members", Name: "members", Label: "Members", Type: "array"},
+					{ID: genderItemID, Name: genderItem, Label: "Gender item", Type: "string", Nullable: true},
+				},
+			},
+			{
+				ID:     "group-by-gender",
+				Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "expand-members"}},
+				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
+					ConstructionID: "group-by-gender", MissingKeyPolicy: authoringv2.ConstructionGroupMissingKeyGroup,
+					Keys: []authoringv2.ConstructionGroupKey{
+						{InputColumnID: "group_label", OutputColumnID: groupLabel.ID},
+						{InputColumnID: genderItemID, OutputColumnID: genderKey.ID},
+					},
+					Aggregates: []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: rowCount.ID}},
+				}},
+				Outputs: []authoringv2.StageColumn{groupLabel, genderKey, rowCount},
+			},
+		}},
+	}
+	sourceContractColumn := receiptTestPublicColumn(source)
+	sourceContractColumn.Cardinality = source.Cardinality
+	translated := explorercompilation.WorkspaceResult{
+		Bundle: bundle, Workspace: authoringv2.Workspace{Documents: []authoringv2.Document{document}},
+		EmittedColumns: []explorer.EmittedColumn{source},
+		OutputContracts: []explorer.PublicOutputContract{{
+			OutputID: outputID, RootResourceType: "Patient", RowGrain: "groups", Lossless: true, MLReady: true,
+			StructuralSuitability: "scalar",
+			Columns:               []explorer.PublicOutputColumn{sourceContractColumn},
+		}},
+		Presentations: []explorercompilation.PresentationConfig{{OutputID: outputID, Title: "Two Patient cohort", Columns: []explorercompilation.PresentationColumn{{
+			EmissionID: source.EmissionID, PublicColumn: source.PublicColumn, Label: source.Label, Visible: true, Order: 0,
+		}}}},
+	}
+	resolved := dataframeexecution.Resolved{
+		Bundle: bundle,
+		Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{Name: outputID, OutputSchema: []lower.CompiledOutputColumn{
+			{Name: "group_label", SemanticPath: "groups.label", Kind: "string", Cardinality: "required_one"},
+			{Name: genderItem, SemanticPath: "construction:group-by-gender", Kind: "string", Cardinality: "optional_one", Nullable: true},
+			{Name: "row_count", SemanticPath: "construction:group-by-gender", Kind: "integer", Cardinality: "required_one"},
+			{Name: "__loom_row_id", Kind: "object", Cardinality: "required_one", Internal: true, Identity: true},
+		}}}},
+	}
+
+	reconciled, err := reconcileFinalOutputMetadata(translated, resolved)
+	if err != nil {
+		t.Fatalf("reconcile Group key inherited from explicit groups through Expand: %v", err)
+	}
+	if got, want := emittedPublicColumnNames(reconciled.EmittedColumns), []string{"group_label", genderItem, "row_count"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("reconciled output columns = %#v, want %#v", got, want)
+	}
+	groupLabelEmission := reconciled.EmittedColumns[0]
+	if groupLabelEmission.EmissionID != explicitGroupEmissionID(groupRevision, "group_label") || groupLabelEmission.ConstructionID != "" ||
+		len(groupLabelEmission.AuthoredColumns) != 0 || len(groupLabelEmission.InputColumns) != 0 || groupLabelEmission.Label != "Group label" {
+		t.Fatalf("inherited explicit group label metadata = %#v", groupLabelEmission)
+	}
+	genderEmission := reconciled.EmittedColumns[1]
+	if genderEmission.ConstructionID != "group-by-gender" || !reflect.DeepEqual(genderEmission.InputColumns, []string{"gender"}) ||
+		!reflect.DeepEqual(genderEmission.AuthoredColumns, []string{"gender"}) || genderEmission.LogicalType != "string" || genderEmission.Nullable != true {
+		t.Fatalf("grouped expanded Gender metadata = %#v", genderEmission)
+	}
+	rowCountEmission := reconciled.EmittedColumns[2]
+	if rowCountEmission.ConstructionID != "group-by-gender" || len(rowCountEmission.InputColumns) != 0 || len(rowCountEmission.AuthoredColumns) != 0 ||
+		rowCountEmission.LogicalType != "integer" || rowCountEmission.Nullable {
+		t.Fatalf("group row-count metadata = %#v", rowCountEmission)
+	}
+	if err := (explorer.PublicOutputContracts{Outputs: reconciled.OutputContracts}).ValidateAgainst(bundle, reconciled.EmittedColumns); err != nil {
+		t.Fatalf("validate Group→Expand public output contract: %v", err)
 	}
 }
 
@@ -2085,8 +2199,15 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 		ReceiptLookup: service.CompilationReceiptForExplorer,
 		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			previewCalls++
-			if _, ok := ctx.Deadline(); !ok {
+			deadline, ok := ctx.Deadline()
+			if !ok {
 				t.Fatal("builder preview context has no deadline")
+			}
+			if remaining := time.Until(deadline); remaining > explorerPreviewTimeout || remaining < explorerPreviewTimeout-time.Second {
+				t.Fatalf("direct preview deadline remaining = %s, want approximately %s", remaining, explorerPreviewTimeout)
+			}
+			if got := previewQueryMaxRuntime(ctx); got != explorerPreviewTimeout {
+				t.Fatalf("direct preview query max runtime = %s, want %s", got, explorerPreviewTimeout)
 			}
 			if receipt == nil || bindings.AuthScopeMode != authscope.ReadScopeUnrestricted || bindings.IncludeAuthResourcePath || !bindings.IncludeRowIdentity || !bindings.IncludeSourceIdentity {
 				t.Fatalf("preview bindings changed authorization or omitted preview-only row metadata: receipt=%#v bindings=%#v", receipt, bindings)

@@ -18,7 +18,7 @@ func TestExpandedWindowSortsStableIdentityBeforeUnrelatedSets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	unnestIndex, sortIndex, siblingSetIndex := -1, -1, -1
+	unnestIndex, sortIndex, limitIndex, siblingSetIndex := -1, -1, -1, -1
 	var unnest *ir.PhysicalUnnest
 	for index, operation := range window.Operations {
 		if operation.Kind == ir.PhysicalUnnestOp {
@@ -27,12 +27,15 @@ func TestExpandedWindowSortsStableIdentityBeforeUnrelatedSets(t *testing.T) {
 		if operation.Kind == ir.PhysicalSortOp {
 			sortIndex = index
 		}
+		if operation.Kind == ir.PhysicalLimitOp {
+			limitIndex = index
+		}
 		if operation.Kind == ir.PhysicalSetOp && operation.Source.SemanticNode == "focus" {
 			siblingSetIndex = index
 		}
 	}
-	if unnest == nil || unnestIndex >= sortIndex || sortIndex >= siblingSetIndex {
-		t.Fatalf("expanded window positions: unnest=%d sort=%d sibling-set=%d", unnestIndex, sortIndex, siblingSetIndex)
+	if unnest == nil || unnestIndex >= sortIndex || sortIndex+1 != limitIndex || limitIndex >= siblingSetIndex {
+		t.Fatalf("expanded window positions: unnest=%d sort=%d limit=%d sibling-set=%d", unnestIndex, sortIndex, limitIndex, siblingSetIndex)
 	}
 	sort := window.Operations[sortIndex].Sort
 	wantKeys := ir.PhysicalUnnestSortKeys(*unnest)

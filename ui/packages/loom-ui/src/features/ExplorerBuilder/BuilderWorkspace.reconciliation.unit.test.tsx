@@ -851,6 +851,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Choose Patient rows' }));
 
     await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole('button', { name: 'Close operation editor' })).not.toBeInTheDocument();
     expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
       commands: [{
         type: 'CREATE_TABLE',

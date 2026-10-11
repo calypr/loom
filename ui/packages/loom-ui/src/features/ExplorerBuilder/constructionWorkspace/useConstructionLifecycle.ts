@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { resourceFor } from '../../../react';
 import type {
   DiscoverConstructionCategoriesArgs,
   GetConstructionCapabilitiesArgs,
@@ -42,8 +43,17 @@ type CapabilitiesLoad = {
   readonly state: ConstructionCapabilitiesViewState;
 };
 
-type ProposalLoad = {
-  readonly key: string;
+type ProposalOutcome = Extract<ConstructionProposalViewState, { readonly status: 'ready' | 'needs-repair' }>;
+type ProposalResource = ReturnType<typeof resourceFor<ProposalOutcome>>;
+type ProposalOwner = {
+  readonly id: number;
+  readonly requestKey: string;
+  readonly generation: number;
+  readonly resource: ProposalResource;
+  readonly abortController: AbortController;
+};
+type ProposalOverride = {
+  readonly ownerId: number;
   readonly state: ConstructionProposalViewState;
 };
 
@@ -73,6 +83,25 @@ const errorMessage = (error: unknown, fallback: string): string =>
 const errorIsRetryable = (error: unknown): boolean =>
   typeof error === 'object' && error !== null && 'retryable' in error && Reflect.get(error, 'retryable') === true;
 
+const abortError = () => new DOMException('The construction proposal was canceled.', 'AbortError');
+
+const delayFor = (milliseconds: number, signal: AbortSignal): Promise<void> => new Promise((resolve, reject) => {
+  if (signal.aborted) {
+    reject(abortError());
+    return;
+  }
+  const timer = window.setTimeout(() => {
+    signal.removeEventListener('abort', abort);
+    resolve();
+  }, milliseconds);
+  const abort = () => {
+    window.clearTimeout(timer);
+    signal.removeEventListener('abort', abort);
+    reject(abortError());
+  };
+  signal.addEventListener('abort', abort, { once: true });
+});
+
 const previewMatchesProposal = (
   preview: ExplorerBuilderPreviewResult | undefined,
   proposalId: string,
@@ -97,22 +126,41 @@ export const useConstructionLifecycle = ({
     key: '',
     state: { status: 'idle' },
   });
-  const [proposalLoad, setProposalLoad] = useState<ProposalLoad>({
-    key: '',
-    state: { status: 'idle' },
-  });
+  const [proposalOwner, setProposalOwner] = useState<ProposalOwner | undefined>();
+  const [proposalOverride, setProposalOverride] = useState<ProposalOverride | undefined>();
   const [pivotDiscoveryLoad, setPivotDiscoveryLoad] = useState<PivotDiscoveryLoad>({ key: '', state: undefined });
   const capabilitiesController = useRef<AbortController | undefined>(undefined);
-  const proposalController = useRef<AbortController | undefined>(undefined);
   const pivotDiscoveryController = useRef<AbortController | undefined>(undefined);
-  const proposalTimer = useRef<number | undefined>(undefined);
   const proposalGeneration = useRef(0);
+  const proposalOwnerSequence = useRef(0);
+  const proposalOwnerRef = useRef<ProposalOwner | undefined>(undefined);
   const pivotDiscoveryGeneration = useRef(0);
   const candidateIntent = useRef<ConstructionCandidateIntent | undefined>(undefined);
   const capabilitiesRequestRef = useRef(capabilitiesRequest);
   capabilitiesRequestRef.current = capabilitiesRequest;
 
   const requestKey = capabilitiesIdentity(capabilitiesRequest);
+  const idleProposalResource = useMemo(
+    () => resourceFor<ProposalOutcome>(async () => { throw new Error('No construction proposal is active.'); }, false),
+    [],
+  );
+  const activeProposalOwner = proposalOwner?.requestKey === requestKey ? proposalOwner : undefined;
+  const activeProposalResource = activeProposalOwner?.resource ?? idleProposalResource;
+  const proposalSnapshot = useSyncExternalStore(
+    activeProposalResource.subscribe,
+    activeProposalResource.getSnapshot,
+    activeProposalResource.getSnapshot,
+  );
+  const snapshotProposal: ConstructionProposalViewState = !activeProposalOwner
+    ? { status: 'idle' }
+    : proposalSnapshot.loading
+      ? { status: 'previewing' }
+      : proposalSnapshot.error
+        ? { status: 'error', message: errorMessage(proposalSnapshot.error, 'Loom could not check this construction change.'), retryable: errorIsRetryable(proposalSnapshot.error) }
+        : proposalSnapshot.data ?? { status: 'error', message: 'Loom did not return a construction proposal.' };
+  const activeProposal = proposalOverride && proposalOverride.ownerId === activeProposalOwner?.id
+    ? proposalOverride.state
+    : snapshotProposal;
 
   const invalidatePivotDiscovery = useCallback(() => {
     pivotDiscoveryGeneration.current += 1;
@@ -174,81 +222,23 @@ export const useConstructionLifecycle = ({
 
   const invalidateProposalRequest = useCallback(() => {
     proposalGeneration.current += 1;
-    if (proposalTimer.current !== undefined) {
-      window.clearTimeout(proposalTimer.current);
-      proposalTimer.current = undefined;
-    }
-    proposalController.current?.abort();
-    proposalController.current = undefined;
+    proposalOwnerRef.current?.abortController.abort();
+    proposalOwnerRef.current = undefined;
+    setProposalOwner(undefined);
+    setProposalOverride(undefined);
   }, []);
 
-  useEffect(() => {
-    invalidateProposalRequest();
-    candidateIntent.current = undefined;
-    setProposalLoad({ key: requestKey, state: { status: 'idle' } });
-    return invalidateProposalRequest;
-  }, [invalidateProposalRequest, requestKey]);
-
-  const getPreview = useCallback(async (
-    response: ConstructionProposalResponse,
-    args: GetConstructionCapabilitiesArgs,
-    controller: AbortController,
-  ) => {
-    if (response.previewStatus !== 'READY') {
-      setProposalLoad({ key: requestKey, state: { status: 'needs-repair', response } });
-      return;
-    }
-    const proposalId = response.proposalId;
-    if (!proposalId) {
-      setProposalLoad({
-        key: requestKey,
-        state: { status: 'error', message: 'Loom did not return a proposal receipt for this change.' },
-      });
-      return;
-    }
-
-    let preview = response.preview;
-    if (!previewMatchesProposal(preview, proposalId, args.outputId)) {
-      preview = await client.preview({
-        project: args.project,
-        explorerId: args.explorerId,
-        ...(args.authResourcePath ? { authResourcePath: args.authResourcePath } : {}),
-        receiptId: proposalId,
-        outputId: args.outputId,
-        limit: previewLimit,
-        requestId: `construction-preview-${window.crypto.randomUUID()}`,
-      }, controller.signal);
-    }
-    if (controller.signal.aborted) return;
-    if (!previewMatchesProposal(preview, proposalId, args.outputId)) {
-      setProposalLoad({
-        key: requestKey,
-        state: {
-          status: 'error',
-          message: 'Loom did not return rows for this proposal receipt, so it cannot be applied yet.',
-        },
-      });
-      return;
-    }
-    setProposalLoad({ key: requestKey, state: { status: 'ready', response, preview } });
-  }, [client, previewLimit, requestKey]);
-
-  const onCandidateChange = useCallback((intent: ConstructionCandidateIntent | undefined) => {
+  const startCandidateProposal = useCallback((intent: ConstructionCandidateIntent) => {
     invalidateProposalRequest();
     candidateIntent.current = intent;
     const currentRequest = capabilitiesRequestRef.current;
-    if (!intent || !currentRequest) {
-      setProposalLoad({ key: requestKey, state: { status: 'idle' } });
-      return;
-    }
+    if (!currentRequest) return Promise.reject(new Error('The current table is still loading.'));
 
     const generation = proposalGeneration.current;
     const args: ProposeConstructionArgs = {
       project: currentRequest.project,
       explorerId: currentRequest.explorerId,
-      ...(currentRequest.authResourcePath
-        ? { authResourcePath: currentRequest.authResourcePath }
-        : {}),
+      ...(currentRequest.authResourcePath ? { authResourcePath: currentRequest.authResourcePath } : {}),
       snapshotToken: currentRequest.snapshotToken,
       expectedDraftVersion: currentRequest.expectedDraftVersion,
       expectedDraftDigest: currentRequest.expectedDraftDigest,
@@ -257,60 +247,103 @@ export const useConstructionLifecycle = ({
       limit: previewLimit,
       requestId: `construction-proposal-${window.crypto.randomUUID()}`,
     };
-    const controller = new AbortController();
-    proposalController.current = controller;
-    setProposalLoad({ key: requestKey, state: { status: 'previewing' } });
-    proposalTimer.current = window.setTimeout(() => {
-      proposalTimer.current = undefined;
-      void client.proposeConstruction(args, controller.signal).then(
-        async (response) => {
-          if (
-            controller.signal.aborted ||
-            proposalGeneration.current !== generation
-          ) return;
-          const matchesBase =
-            response.outputId === args.outputId &&
-            response.snapshotToken === args.snapshotToken &&
-            response.draftVersion === args.expectedDraftVersion &&
-            response.draftDigest === args.expectedDraftDigest;
-          if (!matchesBase) {
-            setProposalLoad({
-              key: requestKey,
-              state: {
-                status: 'error',
-                message: 'The table draft changed while Loom checked this proposal. Review the current draft and try again.',
-              },
-            });
-            return;
-          }
-          await getPreview(response, currentRequest, controller);
-        },
-      ).catch((error: unknown) => {
-        if (
-          controller.signal.aborted ||
-          proposalGeneration.current !== generation
-        ) return;
-        setProposalLoad({
-          key: requestKey,
-          state: {
-            status: 'error',
-            message: errorMessage(error, 'Loom could not check this construction change.'),
-            retryable: errorIsRetryable(error),
-          },
-        });
-      });
-    }, 300);
-  }, [client, getPreview, invalidateProposalRequest, previewLimit, requestKey]);
+    const abortController = new AbortController();
+    const resource = resourceFor<ProposalOutcome>(async (resourceSignal) => {
+      const abortFromResource = () => abortController.abort();
+      if (resourceSignal.aborted) abortController.abort();
+      else resourceSignal.addEventListener('abort', abortFromResource, { once: true });
+      try {
+        await delayFor(300, abortController.signal);
+        const response = await client.proposeConstruction(args, abortController.signal);
+        if (abortController.signal.aborted || proposalGeneration.current !== generation) throw abortError();
+        const matchesBase = response.outputId === args.outputId &&
+          response.snapshotToken === args.snapshotToken &&
+          response.draftVersion === args.expectedDraftVersion &&
+          response.draftDigest === args.expectedDraftDigest;
+        if (!matchesBase) throw new Error('The table draft changed while Loom checked this proposal. Review the current draft and try again.');
+        if (response.previewStatus !== 'READY') return { status: 'needs-repair', response };
+        const proposalId = response.proposalId;
+        if (!proposalId) throw new Error('Loom did not return a proposal receipt for this change.');
+        let preview = response.preview;
+        if (!previewMatchesProposal(preview, proposalId, args.outputId)) {
+          preview = await client.preview({
+            project: args.project,
+            explorerId: args.explorerId,
+            ...(args.authResourcePath ? { authResourcePath: args.authResourcePath } : {}),
+            receiptId: proposalId,
+            outputId: args.outputId,
+            limit: previewLimit,
+            requestId: `construction-preview-${window.crypto.randomUUID()}`,
+          }, abortController.signal);
+        }
+        if (abortController.signal.aborted || proposalGeneration.current !== generation) throw abortError();
+        if (!previewMatchesProposal(preview, proposalId, args.outputId)) {
+          throw new Error('Loom did not return rows for this proposal receipt, so it cannot be applied yet.');
+        }
+        return { status: 'ready', response, preview };
+      } finally {
+        resourceSignal.removeEventListener('abort', abortFromResource);
+      }
+    });
+    const owner: ProposalOwner = {
+      id: ++proposalOwnerSequence.current,
+      requestKey,
+      generation,
+      resource,
+      abortController,
+    };
+    proposalOwnerRef.current = owner;
+    setProposalOwner(owner);
+    setProposalOverride(undefined);
+    const request = resource.refresh();
+    let rejectAbort: ((reason: unknown) => void) | undefined;
+    const onAbort = () => rejectAbort?.(abortError());
+    const aborted = new Promise<never>((_resolve, reject) => {
+      rejectAbort = reject;
+      if (abortController.signal.aborted) onAbort();
+      else abortController.signal.addEventListener('abort', onAbort, { once: true });
+    });
+    return Promise.race([
+      request.then(({ data, error }) => {
+        if (error) throw error;
+        if (!data) throw new Error('Loom did not return a construction proposal.');
+        return data;
+      }),
+      aborted,
+    ]).then((outcome) => {
+      if (abortController.signal.aborted || proposalGeneration.current !== generation ||
+        capabilitiesIdentity(capabilitiesRequestRef.current) !== requestKey || proposalOwnerRef.current !== owner) {
+        throw abortError();
+      }
+      if (outcome.status !== 'ready') throw new Error('This construction change needs repair before it can be applied.');
+      return outcome;
+    }).finally(() => abortController.signal.removeEventListener('abort', onAbort));
+  }, [client, invalidateProposalRequest, previewLimit, requestKey]);
+
+  const onCandidateChange = useCallback((intent: ConstructionCandidateIntent | undefined) => {
+    if (!intent) {
+      invalidateProposalRequest();
+      candidateIntent.current = undefined;
+      return;
+    }
+    void startCandidateProposal(intent).catch(() => undefined);
+  }, [invalidateProposalRequest, startCandidateProposal]);
+
+  const proposeCandidateAndWait = useCallback(async (intent: ConstructionCandidateIntent) => {
+    await startCandidateProposal(intent);
+    return 'preview-ready' as const;
+  }, [startCandidateProposal]);
 
   const retry = useCallback(() => {
-    if (candidateIntent.current) onCandidateChange(candidateIntent.current);
-  }, [onCandidateChange]);
+    if (candidateIntent.current && proposalOwnerRef.current?.requestKey === requestKey) {
+      void startCandidateProposal(candidateIntent.current).catch(() => undefined);
+    }
+  }, [requestKey, startCandidateProposal]);
 
   const cancel = useCallback(() => {
     invalidateProposalRequest();
     candidateIntent.current = undefined;
-    setProposalLoad({ key: requestKey, state: { status: 'idle' } });
-  }, [invalidateProposalRequest, requestKey]);
+  }, [invalidateProposalRequest]);
 
   const onDiscoverCategories = useCallback((request: ConstructionReshapePivotDiscoveryRequest) => {
     invalidatePivotDiscovery();
@@ -391,8 +424,8 @@ export const useConstructionLifecycle = ({
   }, [capabilitiesLoad, client, invalidatePivotDiscovery, requestKey]);
 
   const beginApply = useCallback(() => {
-    const state = proposalLoad.key === requestKey ? proposalLoad.state : { status: 'idle' as const };
-    if (!capabilitiesRequest || state.status !== 'ready') return undefined;
+    const state = activeProposal;
+    if (!capabilitiesRequest || state.status !== 'ready' || !activeProposalOwner) return undefined;
     const identity = {
       outputId: capabilitiesRequest.outputId,
       snapshotToken: capabilitiesRequest.snapshotToken,
@@ -400,35 +433,30 @@ export const useConstructionLifecycle = ({
       draftDigest: capabilitiesRequest.expectedDraftDigest,
     };
     if (!constructionProposalIsApplicable(state, identity)) return undefined;
-    setProposalLoad({
-      key: requestKey,
-      state: { status: 'applying', response: state.response, preview: state.preview },
-    });
+    setProposalOverride({ ownerId: activeProposalOwner.id,
+      state: { status: 'applying', response: state.response, preview: state.preview } });
     return state.response.proposalId;
-  }, [capabilitiesRequest, proposalLoad, requestKey]);
+  }, [activeProposal, activeProposalOwner, capabilitiesRequest]);
 
   const finishApply = useCallback((applied: boolean) => {
     if (applied) {
       cancel();
       return;
     }
-    setProposalLoad({
-      key: requestKey,
+    if (activeProposalOwner) setProposalOverride({
+      ownerId: activeProposalOwner.id,
       state: {
         status: 'error',
         message: 'Loom could not save this proposal. Review the Builder message and try again if the draft is unchanged.',
       },
     });
-  }, [cancel, requestKey]);
+  }, [activeProposalOwner, cancel]);
 
   const activeCapabilities = capabilitiesLoad.key === requestKey
     ? capabilitiesLoad.state
     : requestKey
       ? { status: 'loading' as const }
       : { status: 'idle' as const };
-  const activeProposal = proposalLoad.key === requestKey
-    ? proposalLoad.state
-    : { status: 'idle' as const };
   const activePivotDiscoveryKey = pivotDiscoveryLoad.state
     ? JSON.stringify([
         requestKey,
@@ -456,6 +484,7 @@ export const useConstructionLifecycle = ({
     proposal: activeProposal,
     canApply,
     onCandidateChange,
+    proposeCandidateAndWait,
     retry,
     cancel,
     beginApply,

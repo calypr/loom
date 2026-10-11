@@ -183,19 +183,36 @@ func resolveExtensionSelectionPlan(observation catalog.SemanticObservation) Sema
 	}
 	ownerPath := strings.TrimSpace(observation.OwningScope)
 	valuePath, valueOK := relativeSemanticPath(ownerPath, observation.Value.Selector)
+	fallbackPaths := make([]string, 0, len(observation.Value.FallbackSelectors))
+	fallbacksOK := true
+	for _, selector := range observation.Value.FallbackSelectors {
+		fallbackPath, ok := relativeSemanticPath(ownerPath, selector)
+		if !ok {
+			fallbacksOK = false
+			break
+		}
+		fallbackPaths = append(fallbackPaths, fallbackPath)
+	}
 	logicalType := firstNonBlank(observation.LogicalType, observation.Value.Type)
-	if ownerPath == "" || !valueOK || logicalType == "" || len(observation.ExtensionURLPath) == 0 || strings.TrimSpace(observation.ChoiceArm) == "" {
+	if ownerPath == "" || !valueOK || !fallbacksOK || logicalType == "" || len(observation.ExtensionURLPath) == 0 || strings.TrimSpace(observation.ChoiceArm) == "" {
 		return semanticUnsupported("EXTENSION_BINDING_INCOMPLETE", "The catalog observation does not contain a complete Extension URL/value binding.")
 	}
 	binding := fhirschema.ExtensionBinding{
 		OwnerPath: ownerPath, URLPath: append([]string(nil), observation.ExtensionURLPath...),
-		ValuePath: valuePath, ChoiceArms: []string{observation.ChoiceArm}, LogicalType: logicalType,
+		ValuePath: valuePath, ValueFallback: fallbackPaths,
+		FallbackOnBlankString: observation.Value.FallbackOnBlankString,
+		ChoiceArms:            []string{observation.ChoiceArm}, LogicalType: logicalType,
 	}
 	checked, err := fhirschema.ValidateExtensionBinding(observation.Source.Type, binding)
 	if err != nil {
 		return semanticUnsupported("FHIR_BINDING_UNSUPPORTED", "The observed Extension paths do not match the generated FHIR schema.")
 	}
 	binding.ValuePath = checked.ValueSelector.CanonicalPath()
+	binding.ValueFallback = binding.ValueFallback[:0]
+	for _, fallback := range checked.ValueFallbacks {
+		binding.ValueFallback = append(binding.ValueFallback, fallback.CanonicalPath())
+	}
+	binding.FallbackOnBlankString = checked.FallbackOnBlankString
 	binding.ChoiceArms = append([]string(nil), checked.ChoiceArms...)
 	binding.LogicalType = checked.LogicalType
 	if checked.UnitSelector != nil {
@@ -228,7 +245,9 @@ func resolveCodedValueSelectionPlan(observation catalog.SemanticObservation) Sem
 	binding := fhirschema.CorrelatedBinding{
 		OwnerPath: ownerPath, KeyPath: qualifySemanticPath(ownerPath, keyPath),
 		SystemPath: "system", CodePath: "code", ValuePath: valuePath,
-		LogicalType: logicalType,
+		ValueFallback:         append([]string(nil), observation.Value.FallbackSelectors...),
+		FallbackOnBlankString: observation.Value.FallbackOnBlankString,
+		LogicalType:           logicalType,
 	}
 	if observation.ChoiceArm != "" {
 		binding.ChoiceArms = []string{observation.ChoiceArm}
@@ -242,6 +261,11 @@ func resolveCodedValueSelectionPlan(observation catalog.SemanticObservation) Sem
 	binding.SystemPath = checked.SystemSelector.CanonicalPath()
 	binding.CodePath = checked.CodeSelector.CanonicalPath()
 	binding.ValuePath = checked.ValueSelector.CanonicalPath()
+	binding.ValueFallback = make([]string, len(checked.ValueFallbacks))
+	for index := range checked.ValueFallbacks {
+		binding.ValueFallback[index] = checked.ValueFallbacks[index].CanonicalPath()
+	}
+	binding.FallbackOnBlankString = checked.FallbackOnBlankString
 	binding.ChoiceArms = append([]string(nil), checked.ChoiceArms...)
 	binding.LogicalType = checked.LogicalType
 	if checked.UnitSelector != nil {

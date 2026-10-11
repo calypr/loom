@@ -63,10 +63,16 @@ func (s *Service) resolveConstructionCodedPivotChoices(
 			NodeID: family.Candidate.NodeID, FieldPath: family.Candidate.FieldPath,
 			Route: append([]capability.ConstructionRouteStep{}, route...),
 		}
-		if existing, exists := priorByStep[step.ID]; exists && existing.Source != nil && !reflect.DeepEqual(existing.Source, durableSource) {
-			return candidate, nil, conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the selected family differs from the saved coded Pivot source", nil, nil)
-		}
 		prior, priorExists := priorByStep[step.ID]
+		if priorExists && prior.Source != nil && !reflect.DeepEqual(prior.Source, durableSource) {
+			if !codedPivotSourceMatchesPinnedPrior(durableSource, prior.Source, family.Entry.Observation) {
+				return candidate, nil, conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the selected family differs from the saved coded Pivot source", nil, nil)
+			}
+			// Reauthorization used the current inventory and current authorization
+			// route above. Keep the prior persisted identity so this edit does not
+			// silently add newly introduced fallback semantics to the saved step.
+			durableSource = prior.Source
+		}
 		priorKeys := make(map[string]bool, len(prior.Categories))
 		for _, category := range prior.Categories {
 			priorKeys[category.System+"\x00"+category.Code] = true
@@ -141,9 +147,8 @@ func (s *Service) resolveCodedPivotCategoryChoice(
 	}
 	entry := resolved.Entries[0]
 	observation := entry.Observation
-	plan := authoringv2.ResolveSemanticSelectionPlan(observation)
-	if entry.ConceptID != source.ConceptID || !plan.Readiness.Addable() || observation.Key.Version != "" ||
-		!semanticEntryMatchesFrameFamily(entry, observation, plan, frame.Family) {
+	if entry.ConceptID != source.ConceptID || observation.Key.Version != "" ||
+		!semanticEntryMatchesFrameFamily(entry, frame.Family) {
 		return catalog.SemanticInventoryEntry{}, capability.Candidate{}, unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "the selected category is no longer a versionless member of this coded family", nil)
 	}
 	candidate, ok := semanticConstructionCandidate(base.snapshot, observation)
@@ -180,6 +185,13 @@ func constructionStageSupportsCodedPivot(stage explorer.ReceiptConstructionStage
 		}
 	}
 	return false
+}
+
+func codedPivotSourceMatchesPinnedPrior(current, pinned *authoringv2.ConstructionCodedPivotSource, observation catalog.SemanticObservation) bool {
+	return current != nil && pinned != nil &&
+		semanticFrameFamilyMatchesPinnedPrior(current.Family, pinned.Family, observation) &&
+		current.CandidateID == pinned.CandidateID && current.NodeID == pinned.NodeID &&
+		current.FieldPath == pinned.FieldPath && reflect.DeepEqual(current.Route, pinned.Route)
 }
 
 func constructionSourceStage(stages []explorer.ReceiptConstructionStage) *explorer.ReceiptConstructionStage {

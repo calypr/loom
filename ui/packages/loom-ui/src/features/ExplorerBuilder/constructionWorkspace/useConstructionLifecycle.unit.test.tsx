@@ -193,6 +193,110 @@ describe('useConstructionLifecycle', () => {
     unmount();
   });
 
+  it('awaits each proposal so a related-field selection can be repaired and resubmitted', async () => {
+    vi.useFakeTimers();
+    let attempts = 0;
+    const proposeConstruction = vi.fn(async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error('ONE has multiple distinct values.');
+      return proposalResponse();
+    });
+    const client = {
+      getConstructionCapabilities: vi.fn(async (args: GetConstructionCapabilitiesArgs) => capabilitiesFor(args)),
+      discoverConstructionCategories: vi.fn(async (args: DiscoverConstructionCategoriesArgs) => categoriesFor(args)),
+      proposeConstruction,
+      preview: vi.fn(async () => proposalPreview),
+    } satisfies ConstructionLifecycleClient;
+    const { result, unmount } = renderHook(() => useConstructionLifecycle({
+      client,
+      capabilitiesRequest: request,
+    }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    let firstAttempt!: Promise<'preview-ready'>;
+    act(() => {
+      firstAttempt = result.current.proposeCandidateAndWait({
+        candidateConstruction: { version: 1, steps: [] },
+        changedStepId: 'related-one',
+      });
+    });
+    const failed = expect(firstAttempt).rejects.toThrow('ONE has multiple distinct values.');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+      await failed;
+    });
+    expect(result.current.proposal).toMatchObject({ status: 'error', message: 'ONE has multiple distinct values.' });
+
+    let repairedAttempt!: Promise<'preview-ready'>;
+    act(() => {
+      repairedAttempt = result.current.proposeCandidateAndWait({
+        candidateConstruction: { version: 1, steps: [] },
+        changedStepId: 'related-all',
+      });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+      await expect(repairedAttempt).resolves.toBe('preview-ready');
+    });
+    expect(proposeConstruction).toHaveBeenCalledTimes(2);
+    expect(result.current.proposal.status).toBe('ready');
+    expect(result.current.canApply).toBe(true);
+    unmount();
+  });
+
+  it('rejects an awaited proposal when its draft owner changes or the hook unmounts', async () => {
+    vi.useFakeTimers();
+    const client = {
+      getConstructionCapabilities: vi.fn(async (args: GetConstructionCapabilitiesArgs) => capabilitiesFor(args)),
+      discoverConstructionCategories: vi.fn(async (args: DiscoverConstructionCategoriesArgs) => categoriesFor(args)),
+      proposeConstruction: vi.fn(async () => proposalResponse()),
+      preview: vi.fn(async () => proposalPreview),
+    } satisfies ConstructionLifecycleClient;
+    const { result, rerender, unmount } = renderHook(
+      ({ capabilitiesRequest }: { readonly capabilitiesRequest: GetConstructionCapabilitiesArgs }) =>
+        useConstructionLifecycle({ client, capabilitiesRequest }),
+      { initialProps: { capabilitiesRequest: request } },
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    let navigated!: Promise<'preview-ready'>;
+    act(() => {
+      navigated = result.current.proposeCandidateAndWait({
+        candidateConstruction: { version: 1, steps: [] },
+        changedStepId: 'related-before-navigation',
+      });
+    });
+    const navigationAbort = expect(navigated).rejects.toMatchObject({ name: 'AbortError' });
+    await act(async () => {
+      rerender({ capabilitiesRequest: { ...request, expectedDraftVersion: 4, expectedDraftDigest: 'draft-4' } });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await navigationAbort;
+
+    let unmounted!: Promise<'preview-ready'>;
+    act(() => {
+      unmounted = result.current.proposeCandidateAndWait({
+        candidateConstruction: { version: 1, steps: [] },
+        changedStepId: 'related-before-unmount',
+      });
+    });
+    const unmountAbort = expect(unmounted).rejects.toMatchObject({ name: 'AbortError' });
+    unmount();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await unmountAbort;
+    expect(client.proposeConstruction).not.toHaveBeenCalled();
+  });
+
   it('does not install an older proposal after a newer candidate replaces it', async () => {
     vi.useFakeTimers();
     let resolveOld: ((response: ConstructionProposalResponse) => void) | undefined;

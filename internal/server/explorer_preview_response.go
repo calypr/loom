@@ -127,6 +127,12 @@ func v2EmissionColumns(columns []explorer.EmittedColumn) []v2EmissionWire {
 			AuthoredColumns: stringSlicePointer(column.AuthoredColumns),
 			Nullable:        pointerTo(column.Nullable), Shape: pointerTo(column.Shape),
 		}
+		if column.SourceResourceType != "" {
+			wire.SourceResourceType = &column.SourceResourceType
+		}
+		if column.SourcePath != "" {
+			wire.SourcePath = &column.SourcePath
+		}
 		if column.ResultUnit != nil {
 			wire.ResultUnit = &explorerv2api.UnitIdentity{System: column.ResultUnit.System, Code: column.ResultUnit.Code}
 		}

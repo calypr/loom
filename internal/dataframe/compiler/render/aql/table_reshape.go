@@ -334,7 +334,7 @@ func (r *physicalPlanRenderer) renderCodedPivotCategoryValues(correlation ir.Phy
 	if err != nil {
 		return "", fmt.Errorf("correlation code selector: %w", err)
 	}
-	values, err := r.renderCorrelationValues(owner, correlation.ValueSelector, correlation.ValueFallbacks)
+	values, err := r.renderCorrelationValues(owner, correlation.ValueSelector, correlation.ValueFallbacks, correlation.FallbackOnBlankString)
 	if err != nil {
 		return "", err
 	}

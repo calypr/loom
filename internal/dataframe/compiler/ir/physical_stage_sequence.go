@@ -260,6 +260,7 @@ type PhysicalStageRelatedSource struct {
 	Path                  string
 	LogicalType           string
 	Form                  string
+	RowValuePolicy        string
 	ContributorPolicy     string
 }
 

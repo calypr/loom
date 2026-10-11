@@ -56,6 +56,7 @@ func lowerConstructionCodedPivot(
 	correlatedBinding := fhirschema.CorrelatedBinding{
 		OwnerPath: pivot.Source.OwningScope, KeyPath: pivot.Source.KeyPath,
 		SystemPath: "system", CodePath: "code", ValuePath: pivot.Source.ValuePath,
+		ValueFallback: append([]string(nil), pivot.Source.ValueFallbacks...), FallbackOnBlankString: pivot.Source.FallbackOnBlankString,
 		ChoiceArms: append([]string(nil), pivot.Source.ChoiceArms...), LogicalType: pivot.Source.LogicalType,
 	}
 	physical := ir.PhysicalGroupedPivot{

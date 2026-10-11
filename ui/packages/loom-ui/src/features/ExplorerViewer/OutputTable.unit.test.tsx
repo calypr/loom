@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { LoomOutputResult } from '../../api';
 import type { ExplorerRuntimeV1 } from '../../types';
 import { createViewerReducerState } from './reducer';
-import { OutputTable } from './components';
+import { OutputTable, PageControls } from './components';
 
 const tableDataInputs = vi.hoisted((): unknown[][] => []);
 
@@ -49,6 +49,24 @@ const result: LoomOutputResult = {
 };
 
 describe('Explorer Viewer output table', () => {
+  it('changes page size through the accessible Mantine textbox and option', () => {
+    const state = createViewerReducerState(runtime);
+    const dispatch = vi.fn();
+    render(
+      <MantineProvider>
+        <PageControls output={runtime.outputs[0]} result={result} state={state} dispatch={dispatch} />
+      </MantineProvider>,
+    );
+
+    const pageSize = screen.getByRole('textbox', { name: 'Rows per page' });
+    expect((pageSize as HTMLInputElement).value).toBe('20');
+    fireEvent.click(pageSize);
+    const fiveRowOption = screen.getByRole('option', { name: '5' });
+    fireEvent.click(fiveRowOption);
+
+    expect(dispatch).toHaveBeenCalledWith({ type: 'setPageSize', outputId: 'patients', pageSize: 5 });
+  });
+
   it('shows compiler-provided units in output headers and leaves unitless headers unchanged', () => {
     const output = {
       ...runtime.outputs[0],

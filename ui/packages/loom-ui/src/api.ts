@@ -639,7 +639,6 @@ export interface LoomOutputResult {
 export interface LoomClient {
   readonly createSelection: (args: CreateSelectionArgs, signal?: AbortSignal) => Promise<SelectionRevision>;
   readonly getSelection: (args: GetSelectionArgs, signal?: AbortSignal) => Promise<SelectionPage>;
-
   readonly proposePopulationMemberRemoval: (
     args: ProposePopulationMemberRemovalArgs,
     signal?: AbortSignal,
@@ -897,7 +896,10 @@ const diagnosticsFrom = (value: unknown): ReadonlyArray<ExplorerAuthoringDiagnos
     }];
   }) : [];
 
-const requestError = async (response: Response): Promise<ExplorerAuthoringApiError> => {
+const requestError = async (
+  response: Response,
+  callerRequestId?: string,
+): Promise<ExplorerAuthoringApiError> => {
   const payload = await parseJSON(response);
   const record = isRecord(payload) ? payload : {};
   const nested = isRecord(record.error) ? record.error : record;
@@ -905,12 +907,16 @@ const requestError = async (response: Response): Promise<ExplorerAuthoringApiErr
   const message = typeof nested.message === 'string'
     ? nested.message
     : `Loom request failed (${response.status}).`;
+  const responseRequestId = response.headers.get('x-request-id') ?? response.headers.get('request-id');
+  const payloadRequestId = typeof nested.requestId === 'string'
+    ? nested.requestId
+    : typeof record.requestId === 'string' ? record.requestId : undefined;
   return {
     status: response.status,
     code,
     message,
     diagnostics: diagnosticsFrom(nested.diagnostics),
-    requestId: response.headers.get('x-request-id') ?? response.headers.get('request-id') ?? undefined,
+    requestId: responseRequestId?.trim() || payloadRequestId?.trim() || callerRequestId,
     details: isRecord(nested.details) ? nested.details : undefined,
     retryable: response.status === 408 || response.status === 429 || response.status >= 500,
   };
@@ -1103,7 +1109,10 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
           ...(init.headers ?? {}),
         },
       });
-      if (!response.ok) throw new LoomRequestError(await requestError(response));
+      if (!response.ok) {
+        const callerRequestId = new Headers(init.headers).get('X-Request-ID') ?? undefined;
+        throw new LoomRequestError(await requestError(response, callerRequestId));
+      }
       return parseJSON(response);
     } catch (error) {
       if (error instanceof LoomRequestError) throw error;

@@ -191,15 +191,26 @@ func finalConstructionPopulationMappingIdentity(plan ir.PhysicalPlan, output low
 		}
 		effectiveIdentity.Fields = []string{sequence.FinalRowIdentity}
 	}
-	identityFound := false
+	var finalIdentityColumn ir.PhysicalStageColumn
+	identityColumnFound := false
 	for _, column := range sequence.FinalColumns {
-		if column.Name == sequence.FinalRowIdentity && column.Internal && column.Identity &&
-			column.Kind == "string" && column.Cardinality == "required_one" {
-			identityFound = true
+		if column.Name == sequence.FinalRowIdentity {
+			finalIdentityColumn, identityColumnFound = column, true
 			break
 		}
 	}
+	cohortIdentityLineage, validCohortIdentity := constructionCohortGroupPopulationMappingIdentity(sequence, output, finalIdentityColumn)
+	identityFound := false
+	if cohortIdentityLineage {
+		identityFound = identityColumnFound && validCohortIdentity
+	} else {
+		identityFound = identityColumnFound && finalIdentityColumn.Internal && finalIdentityColumn.Identity &&
+			finalIdentityColumn.Kind == "string" && finalIdentityColumn.Cardinality == "required_one"
+	}
 	if !identityFound {
+		if cohortIdentityLineage {
+			return nil, nil, fmt.Errorf("construction cohort identity field %q is not a required group identity object over required string components", sequence.FinalRowIdentity)
+		}
 		return nil, nil, fmt.Errorf("construction identity field %q is not a required scalar string in the final typed stage", sequence.FinalRowIdentity)
 	}
 	for _, name := range []string{"__loom_root_contributor_keys", "_key"} {
@@ -218,6 +229,108 @@ func finalConstructionPopulationMappingIdentity(plan ir.PhysicalPlan, output low
 		}
 	}
 	return nil, nil, fmt.Errorf("construction population mapping requires compiler-proven root contributor identities in its final stage")
+}
+
+func constructionCohortGroupPopulationMappingIdentity(sequence *ir.PhysicalStageSequence, output lower.CompiledRecipeOutput, finalIdentityColumn ir.PhysicalStageColumn) (bool, bool) {
+	if sequence == nil || len(sequence.Stages) == 0 || sequence.FinalRowIdentity != "__loom_row_id" {
+		return false, false
+	}
+	identityName := sequence.FinalRowIdentity
+	cohortStageIndex := -1
+	for index := len(sequence.Stages) - 1; index >= 0; index-- {
+		stage := sequence.Stages[index]
+		if stage.RowIdentityColumn != identityName {
+			return false, false
+		}
+		if stage.Kind == ir.PhysicalStageCohortGroupOp || stage.CohortGroup != nil {
+			cohortStageIndex = index
+			break
+		}
+		switch stage.Kind {
+		case ir.PhysicalStageDeriveOp, ir.PhysicalStageFilterOp, ir.PhysicalStageRelatedSourceOp,
+			ir.PhysicalStageRelatedEligibilityOp, ir.PhysicalStageRelatedFieldOp:
+		default:
+			return false, false
+		}
+	}
+	if cohortStageIndex < 0 {
+		return false, false
+	}
+
+	if output.RowGrain != spec.RowGrainGroups || output.RowIdentity == nil ||
+		output.RowIdentity.Grain != output.RowGrain || len(output.RowIdentity.Fields) != 1 || output.RowIdentity.Fields[0] != identityName {
+		return true, false
+	}
+	if !validCohortGroupPopulationMappingIdentityColumn(finalIdentityColumn, identityName) {
+		return true, false
+	}
+	if sequence.Stages[len(sequence.Stages)-1].ID != sequence.FinalStageID {
+		return true, false
+	}
+
+	for index := cohortStageIndex; index < len(sequence.Stages); index++ {
+		stage := sequence.Stages[index]
+		previousStageID := sequence.SourceStageID
+		if index > 0 {
+			previousStageID = sequence.Stages[index-1].ID
+		}
+		if stage.ID == "" || stage.InputStageID != previousStageID || stage.RowIdentityColumn != identityName {
+			return true, false
+		}
+		if index == cohortStageIndex {
+			if stage.Kind != ir.PhysicalStageCohortGroupOp || stage.CohortGroup == nil ||
+				!validCohortGroupPopulationMappingIdentityColumns(stage.OutputColumns, identityName) {
+				return true, false
+			}
+			continue
+		}
+		if !constructionPopulationMappingPreservesIdentity(stage.Kind) ||
+			!hasCohortGroupPopulationMappingIdentityColumn(stage.InputColumns, identityName) ||
+			!hasCohortGroupPopulationMappingIdentityColumn(stage.OutputColumns, identityName) {
+			return true, false
+		}
+	}
+	return true, hasCohortGroupPopulationMappingIdentityColumn(sequence.FinalColumns, identityName)
+}
+
+func constructionPopulationMappingPreservesIdentity(kind ir.PhysicalStageOperationKind) bool {
+	switch kind {
+	case ir.PhysicalStageDeriveOp, ir.PhysicalStageFilterOp, ir.PhysicalStageRelatedSourceOp,
+		ir.PhysicalStageRelatedEligibilityOp, ir.PhysicalStageRelatedFieldOp:
+		return true
+	default:
+		return false
+	}
+}
+
+func validCohortGroupPopulationMappingIdentityColumns(columns []ir.PhysicalStageColumn, identityName string) bool {
+	identityFound := false
+	var revisionFound, groupFound bool
+	for _, column := range columns {
+		switch column.Name {
+		case identityName:
+			identityFound = validCohortGroupPopulationMappingIdentityColumn(column, identityName)
+		case "group_revision_id":
+			revisionFound = column.Identity && column.Kind == "string" && column.Cardinality == "required_one"
+		case "group_id":
+			groupFound = column.Identity && column.Kind == "string" && column.Cardinality == "required_one"
+		}
+	}
+	return identityFound && revisionFound && groupFound
+}
+
+func hasCohortGroupPopulationMappingIdentityColumn(columns []ir.PhysicalStageColumn, identityName string) bool {
+	for _, column := range columns {
+		if column.Name == identityName {
+			return validCohortGroupPopulationMappingIdentityColumn(column, identityName)
+		}
+	}
+	return false
+}
+
+func validCohortGroupPopulationMappingIdentityColumn(column ir.PhysicalStageColumn, identityName string) bool {
+	return column.Name == identityName && column.Internal && column.Identity &&
+		column.Kind == "object" && column.Cardinality == "required_one"
 }
 
 func finalPopulationMappingIdentity(plan ir.PhysicalPlan, identity *spec.RowIdentity) (int, []ir.PhysicalPopulationMappingIdentityPart, *ir.PhysicalExpression, error) {

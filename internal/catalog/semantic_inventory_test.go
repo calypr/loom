@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 )
 
@@ -85,6 +86,89 @@ func TestRetainedSemanticEmitterEmitsBeyondSummaryCapWithoutRetainingScopeMaps(t
 	}
 }
 
+func TestRetainedSemanticEmitterProjectsExactCodedGroupWitness(t *testing.T) {
+	witness := []struct {
+		id      string
+		payload map[string]any
+	}{
+		{
+			id: "26c7500c-f54f-5229-b5a7-a6757614bc21",
+			payload: map[string]any{
+				"resourceType": "Observation",
+				"id":           "26c7500c-f54f-5229-b5a7-a6757614bc21",
+				"code": map[string]any{"coding": []any{map[string]any{
+					"system":  "http://snomed.info/sct",
+					"code":    "1222593009",
+					"display": "American Joint Committee on Cancer pathological stage group allowable value",
+				}}},
+				"valueCodeableConcept": map[string]any{"coding": []any{map[string]any{
+					"system":  "http://snomed.info/sct",
+					"code":    "1222593009",
+					"display": "Stage I",
+				}}},
+			},
+		},
+		{
+			id: "64704041-c4da-5375-aac0-88f951f78344",
+			payload: map[string]any{
+				"resourceType": "Observation",
+				"id":           "64704041-c4da-5375-aac0-88f951f78344",
+				"code": map[string]any{"coding": []any{map[string]any{
+					"system":  "http://snomed.info/sct",
+					"code":    "1222593009",
+					"display": "American Joint Committee on Cancer pathological stage group allowable value",
+				}}},
+				"valueCodeableConcept": map[string]any{"coding": []any{map[string]any{
+					"system":  "http://snomed.info/sct",
+					"code":    "1222593009",
+					"display": "Stage I",
+				}}},
+			},
+		},
+		{
+			id: "7d2fe423-f934-56ff-bd96-426fb1fdf94e",
+			payload: map[string]any{
+				"resourceType": "Observation",
+				"id":           "7d2fe423-f934-56ff-bd96-426fb1fdf94e",
+				"code": map[string]any{"coding": []any{map[string]any{
+					"system":  "http://loinc.org",
+					"code":    "81247-9",
+					"display": "Master HL7 genetic variant reporting panel",
+				}}},
+				"valueCodeableConcept": nil,
+			},
+		},
+	}
+
+	emitter := NewSemanticInventoryEmitter("loom_dev_cda_fhir", "cda-fhir-v1")
+	contributionsByID := make(map[string][]SemanticInventoryContribution, len(witness))
+	for _, record := range witness {
+		record := record
+		emitter.ObservePayload(record.payload, "Observation", "", "retained:Observation/"+record.id, func(contribution SemanticInventoryContribution) {
+			contributionsByID[record.id] = append(contributionsByID[record.id], contribution)
+		})
+	}
+	for _, record := range witness[:2] {
+		contributions := contributionsByID[record.id]
+		if len(contributions) != 1 {
+			t.Fatalf("%s retained contributions = %d, want one coded value observation", record.id, len(contributions))
+		}
+		contribution := contributions[0]
+		observation := contribution.Observation
+		if contribution.SourceKind != SemanticInventorySourceRetained ||
+			contribution.ResourceType != "Observation" || contribution.SourceID != "retained:Observation/"+record.id ||
+			observation.Source.Path != "code" || observation.Key.System != "http://snomed.info/sct" || observation.Key.Code != "1222593009" ||
+			observation.Value.Selector != "valueCodeableConcept.text" ||
+			!reflect.DeepEqual(observation.Value.FallbackSelectors, []string{"valueCodeableConcept.coding[].display"}) ||
+			!observation.Value.FallbackOnBlankString || observation.Status != "SUPPORTED" {
+			t.Fatalf("%s retained semantic contribution = %#v", record.id, contribution)
+		}
+	}
+	if got := len(contributionsByID[witness[2].id]); got != 0 {
+		t.Fatalf("null-valued third observation contributions = %d, want none", got)
+	}
+}
+
 func TestSemanticInventoryIdentitySeparatesCodingVersionButNotDisplay(t *testing.T) {
 	base := inventoryTestObservation("v1", "original label")
 	renamed := inventoryTestObservation("v1", "updated label")
@@ -99,6 +183,60 @@ func TestSemanticInventoryIdentitySeparatesCodingVersionButNotDisplay(t *testing
 	}
 	if got := semanticConceptID(newVersion); got == baseConcept {
 		t.Fatalf("explicit Coding.version did not distinguish concepts: %q", got)
+	}
+}
+
+func TestSemanticBindingIdentityIncludesValueFallbackPolicy(t *testing.T) {
+	base := observeCodeableConceptValue(t, map[string]any{
+		"text":   "Stage I",
+		"coding": []any{map[string]any{"system": "urn:value", "code": "stage", "display": "Stage I"}},
+	})
+	withoutFallback := base
+	withoutFallback.Value.FallbackSelectors = nil
+	withoutFallback.Value.FallbackOnBlankString = false
+	if got, want := semanticBindingID(withoutFallback), semanticBindingID(base); got == want {
+		t.Fatalf("fallback policy did not change binding identity: %q", got)
+	}
+	changedFallback := base
+	changedFallback.Value.FallbackSelectors = []string{"valueCodeableConcept.coding[].code"}
+	if got, want := semanticBindingID(changedFallback), semanticBindingID(base); got == want {
+		t.Fatalf("fallback selector did not change binding identity: %q", got)
+	}
+}
+
+func TestLegacySemanticBindingIDV1MatchesPinnedPrimaryOnlyDigest(t *testing.T) {
+	current := SemanticObservation{
+		SchemaVersion: SemanticObservationSchemaVersion,
+		Source: SemanticObservationSource{
+			Type: "Observation", Profile: "http://example.org/Profile", Path: "valueCodeableConcept",
+			Canonical: "Observation.valueCodeableConcept",
+		},
+		Key:         SemanticObservationKey{Selector: "code.coding[]", System: "urn:study", Code: "stage"},
+		OwningScope: "", ChoiceArm: "valueCodeableConcept", LogicalType: "string",
+		RuleHint: SemanticRuleHintCodedValueV1, RuleVersion: "5",
+		ExtensionURLPath: []string{"urn:outer", "urn:inner"},
+		Value: SemanticObservationValue{
+			Selector: "valueCodeableConcept.text", Type: "string",
+			FallbackSelectors: []string{"valueCodeableConcept.coding[].display"}, FallbackOnBlankString: true,
+		},
+	}
+	const want = "f00fb0de08f991fba1daef08c147104f1ffcd9f0e7ac2c9a85f3aba9376f56eb"
+	if got := LegacySemanticBindingIDV1(current); got != want {
+		t.Fatalf("legacy v1 binding ID = %q, want pinned pre-change digest %q", got, want)
+	}
+
+	legacy := current
+	legacy.SchemaVersion = SemanticObservationLegacyV1SchemaVersion
+	legacy.RuleVersion = "4"
+	legacy.Value.FallbackSelectors = nil
+	legacy.Value.FallbackOnBlankString = false
+	if got := LegacySemanticBindingIDV1(legacy); got != want {
+		t.Fatalf("primary-only v1 frame identity = %q, want %q", got, want)
+	}
+	changedExtensionOrder := current
+	changedExtensionOrder.ExtensionURLPath = []string{"urn:inner", "urn:outer"}
+	if got := LegacySemanticBindingIDV1(changedExtensionOrder); got == want {
+		t.Fatalf("legacy binding ID ignored ExtensionURLPath order: %q", got)
 	}
 }
 

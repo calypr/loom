@@ -20,7 +20,7 @@ func TestPreviewResponseEncoderProducesAtomicContract(t *testing.T) {
 	columns := []explorer.EmittedColumn{
 		{EmissionID: "mean-weight", OutputID: "same-id", AuthoredColumns: []string{"weight"}, PublicColumn: "mean_weight", Label: "Mean weight", LogicalType: "decimal", Shape: "scalar", Nullable: true, ResultUnit: aggregateUnit},
 		{EmissionID: "bmi", OutputID: "same-id", AuthoredColumns: []string{"weight", "height"}, PublicColumn: "bmi", Label: "BMI", LogicalType: "decimal", ResultUnit: derivedUnit},
-		{EmissionID: "patient-id", OutputID: "same-id", AuthoredColumns: []string{"patient_id"}, PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string"},
+		{EmissionID: "patient-id", OutputID: "same-id", AuthoredColumns: []string{"patient_id"}, PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string", SourceResourceType: "Patient", SourcePath: "id"},
 	}
 	encoder, err := newPreviewResponseEncoder(receipt, "same-id", columns, 4096)
 	if err != nil {
@@ -68,6 +68,9 @@ func TestPreviewResponseEncoderProducesAtomicContract(t *testing.T) {
 	}
 	if decoded.Columns[0].Shape != "scalar" || !decoded.Columns[0].Nullable {
 		t.Fatalf("preview shape/nullability = %q/%t, want scalar/true", decoded.Columns[0].Shape, decoded.Columns[0].Nullable)
+	}
+	if decoded.Columns[2].SourceResourceType != "Patient" || decoded.Columns[2].SourcePath != "id" {
+		t.Fatalf("base ID source = %s.%s, want Patient.id", decoded.Columns[2].SourceResourceType, decoded.Columns[2].SourcePath)
 	}
 	if got := decoded.Columns[0].ResultUnit; got == nil || got.System != aggregateUnit.System || got.Code != aggregateUnit.Code {
 		t.Fatalf("aggregate result unit = %#v, want %#v", got, aggregateUnit)

@@ -177,7 +177,7 @@ export const useGetExplorerAuthoringExplorersQuery = (args: ExplorerAuthoringPro
 
 export const useGetExplorerBuilderStateV2Query = (args: ExplorerAuthoringStateArgs): QueryResult<Awaited<ReturnType<LoomClient['getBuilder']>>> => {
   const client = useLoomClient();
-  return useQuery((signal, options) => client.getBuilder(args, { signal, reload: options?.reload }), [client, args.project, args.explorerId, args.authResourcePath]);
+  return useQuery((signal, options) => client.getBuilder(args, { signal, reload: options?.reload }), [client, args.project, args.explorerId, args.authResourcePath], Boolean(args.explorerId));
 };
 
 export const useResolveConfiguredColumnContextsQuery = (
@@ -279,7 +279,7 @@ export const useResolvePopulationSelectionQuery = (
 
 export const useGetExplorerAuthoringCapabilityV2Query = (args: ExplorerAuthoringStateArgs): QueryResult<Awaited<ReturnType<LoomClient['getCapability']>>> => {
   const client = useLoomClient();
-  return useQuery((signal) => client.getCapability(args, signal), [client, args.project, args.explorerId]);
+  return useQuery((signal) => client.getCapability(args, signal), [client, args.project, args.explorerId, args.authResourcePath], Boolean(args.explorerId));
 };
 
 export const useApplyExplorerBuilderCommandsV2Mutation = () => {

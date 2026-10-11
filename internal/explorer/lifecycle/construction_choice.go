@@ -36,13 +36,34 @@ func (s *Service) prepareConstructionChoice(ctx context.Context, project, explor
 			return nil, malformed("commands", "outputId does not identify a valid row-rooted table", nil)
 		}
 		identity := identities[index]
+		choiceEntries := semanticEntries
+		if command.ConstructionChoice.FrameID != "" {
+			frame, found := frameDefinitionForID(document, command.ConstructionChoice.FrameID)
+			if !found || !reflect.DeepEqual(identity.Route, frame.Route) {
+				return nil, invalidConstructionChoice("the semantic category does not match its saved frame source or route")
+			}
+			semanticIdentity, ok := identity.Source.(capability.SemanticBindingChoiceSource)
+			if !ok {
+				return nil, invalidConstructionChoice("the semantic category does not match its saved frame source or route")
+			}
+			key := semanticChoiceKey(semanticIdentity.ConceptID, semanticIdentity.BindingID)
+			entry, found := semanticEntries[key]
+			if !found {
+				return nil, invalidConstructionChoice("the semantic category is unavailable in its saved frame source")
+			}
+			projected, _, ok := semanticEntryForFrameFamily(entry, frame.Source)
+			if !ok {
+				return nil, invalidConstructionChoice("the semantic category no longer matches its saved frame source")
+			}
+			choiceEntries = map[string]catalog.SemanticInventoryEntry{key: projected}
+		}
 		var resolution authoringv2.ResolvedConstructionChoice
 		var title string
 		switch source := identity.Source.(type) {
 		case capability.FieldChoiceSource:
 			resolution, title, err = resolveFieldConstructionChoice(ctx, authorized, snapshot, catalogSnapshot, document.RootResourceType, *command.ConstructionChoice, identity, source)
 		case capability.SemanticBindingChoiceSource:
-			resolution, title, err = resolveSemanticConstructionChoice(ctx, authorized, snapshot, catalogSnapshot, explorerID, document.RootResourceType, identity.SemanticContextToken, identity.BuildID, buildID, semanticEntries, *command.ConstructionChoice, identity, source)
+			resolution, title, err = resolveSemanticConstructionChoice(ctx, authorized, snapshot, catalogSnapshot, explorerID, document.RootResourceType, identity.SemanticContextToken, identity.BuildID, buildID, choiceEntries, *command.ConstructionChoice, identity, source)
 		default:
 			return nil, unprocessable("commands", "INVALID_CONSTRUCTION_CHOICE", "construction choice source kind is unsupported", nil)
 		}
@@ -70,17 +91,8 @@ func frameForConstructionChoice(
 	identity capability.ConstructionChoiceIdentity,
 	entries map[string]catalog.SemanticInventoryEntry,
 ) (authoringv2.FrameDefinition, bool) {
-	if document == nil {
-		return authoringv2.FrameDefinition{}, false
-	}
-	var frame *authoringv2.FrameDefinition
-	for index := range document.Frames {
-		if document.Frames[index].ID == frameID {
-			frame = &document.Frames[index]
-			break
-		}
-	}
-	if frame == nil {
+	frame, found := frameDefinitionForID(document, frameID)
+	if !found {
 		return authoringv2.FrameDefinition{}, false
 	}
 	semanticIdentity, ok := identity.Source.(capability.SemanticBindingChoiceSource)
@@ -91,11 +103,22 @@ func frameForConstructionChoice(
 	if !found {
 		return authoringv2.FrameDefinition{}, false
 	}
-	plan := authoringv2.ResolveSemanticSelectionPlan(entry.Observation)
-	if !semanticEntryMatchesFrame(entry, entry.Observation, plan, *frame) {
+	if !semanticEntryMatchesFrame(entry, frame) {
 		return authoringv2.FrameDefinition{}, false
 	}
-	return *frame, true
+	return frame, true
+}
+
+func frameDefinitionForID(document *authoringv2.Document, frameID string) (authoringv2.FrameDefinition, bool) {
+	if document == nil || strings.TrimSpace(frameID) == "" {
+		return authoringv2.FrameDefinition{}, false
+	}
+	for _, frame := range document.Frames {
+		if frame.ID == frameID {
+			return frame, true
+		}
+	}
+	return authoringv2.FrameDefinition{}, false
 }
 
 func (s *Service) resolveConstructionChoiceSemantics(ctx context.Context, project string, authorized AuthorizedCapability, identities []capability.ConstructionChoiceIdentity) (map[string]catalog.SemanticInventoryEntry, string, error) {

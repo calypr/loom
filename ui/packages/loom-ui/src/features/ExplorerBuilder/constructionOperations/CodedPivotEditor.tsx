@@ -1,16 +1,25 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { LoomClient } from '../../../api';
+import { useQuery } from '../../../react';
 import type {
   Construction,
   ConstructionProposalRequest,
   ConstructionStep,
   FrameSourceOption,
+  SemanticInventoryBrowseResponse,
   SemanticInventoryItem,
 } from '../../../types';
 import { constructionSchema } from '../../../types';
 import { semanticConceptLabel } from '../catalogItems';
 
 type CandidateIntent = Pick<ConstructionProposalRequest, 'candidateConstruction' | 'changedStepId'>;
+type CodedValuePage = {
+  readonly entries: ReadonlyArray<SemanticInventoryItem>;
+  readonly nextCursor?: string;
+  readonly state: SemanticInventoryBrowseResponse['state'];
+  readonly sourceAvailability: SemanticInventoryBrowseResponse['sourceAvailability'];
+  readonly error?: string;
+};
 type Category = {
   readonly key: string;
   readonly system: string;
@@ -20,30 +29,7 @@ type Category = {
   readonly name: string;
   readonly label: string;
 };
-
-const categoryKey = (system: string, code: string) => `${system}\u0000${code}`;
-const newId = (prefix: string) => `${prefix}_${globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
-const columnName = (label: string, used: ReadonlySet<string>) => {
-  const base = label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'coded_value';
-  let name = base;
-  for (let suffix = 2; used.has(name); suffix += 1) name = `${base}_${suffix}`;
-  return name;
-};
-
-export const CodedPivotEditor = ({
-  client,
-  project,
-  explorerId,
-  authResourcePath,
-  snapshotToken,
-  outputId,
-  rowRoot,
-  construction,
-  editingStep,
-  disabled,
-  unavailableReason,
-  onCandidateChange,
-}: {
+type CodedPivotEditorProps = {
   readonly client: Pick<LoomClient, 'browseFrameSourceOptions' | 'browseSemanticInventory'>;
   readonly project: string;
   readonly explorerId: string;
@@ -56,7 +42,34 @@ export const CodedPivotEditor = ({
   readonly disabled: boolean;
   readonly unavailableReason?: string;
   readonly onCandidateChange: (intent: CandidateIntent | undefined) => void;
-}) => {
+};
+
+const categoryKey = (system: string, code: string) => `${system}\u0000${code}`;
+const isAvailableCodedValue = (item: SemanticInventoryItem) =>
+  Boolean(item.code) && !item.codingVersion && Boolean(item.constructionChoice) &&
+  (item.readiness.status === 'READY' || item.readiness.status === 'READY_WITH_WARNING');
+const newId = (prefix: string) => `${prefix}_${globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
+const columnName = (label: string, used: ReadonlySet<string>) => {
+  const base = label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'coded_value';
+  let name = base;
+  for (let suffix = 2; used.has(name); suffix += 1) name = `${base}_${suffix}`;
+  return name;
+};
+
+const CodedPivotEditorBody = ({
+  client,
+  project,
+  explorerId,
+  authResourcePath,
+  snapshotToken,
+  outputId,
+  rowRoot,
+  construction,
+  editingStep,
+  disabled,
+  unavailableReason,
+  onCandidateChange,
+}: CodedPivotEditorProps) => {
   const saved = editingStep?.operation.kind === 'CODED_PIVOT' ? editingStep.operation.codedPivot : undefined;
   const [stepId] = useState(() => editingStep?.id ?? newId('coded-pivot'));
   const [sourceQuery, setSourceQuery] = useState('');
@@ -68,10 +81,7 @@ export const CodedPivotEditor = ({
   const [source, setSource] = useState<FrameSourceOption>();
   const [categoryQuery, setCategoryQuery] = useState('');
   const [categoryCursor, setCategoryCursor] = useState<string>();
-  const [categoryNextCursor, setCategoryNextCursor] = useState<string>();
-  const [inventory, setInventory] = useState<ReadonlyArray<SemanticInventoryItem>>([]);
-  const [categoriesLoading, setCategoriesLoading] = useState(false);
-  const [categoryError, setCategoryError] = useState<string>();
+  const [categorySeed, setCategorySeed] = useState<ReadonlyArray<SemanticInventoryItem>>([]);
   const [selected, setSelected] = useState<ReadonlyArray<Category>>(() => saved?.categories.map((category) => {
     const output = editingStep?.outputs.find((column) => column.id === category.outputColumnId);
     const system = category.system ?? '';
@@ -108,31 +118,96 @@ export const CodedPivotEditor = ({
     return () => controller.abort();
   }, [client, project, explorerId, authResourcePath, snapshotToken, outputId, rowRoot, sourceQuery, sourceCursor]);
 
-  useEffect(() => {
-    if (!source) { setInventory([]); return; }
-    const controller = new AbortController();
-    setCategoriesLoading(true);
-    setCategoryError(undefined);
-    void client.browseSemanticInventory({
+  const categorySourceChoiceId = source?.choiceId;
+  const categoryPage = useQuery(async (signal) => {
+    if (!categorySourceChoiceId) return undefined;
+    const page = await client.browseSemanticInventory({
       project, explorerId, authResourcePath, snapshotToken, outputId, rowRoot,
-      sourceChoiceId: source.choiceId,
+      sourceChoiceId: categorySourceChoiceId,
       ...(categoryQuery ? { query: categoryQuery } : {}),
       ...(categoryCursor ? { cursor: categoryCursor } : {}), limit: 50,
-    }, controller.signal).then((response) => {
-      if (!controller.signal.aborted) {
-        setInventory((current) => categoryCursor ? [...current, ...response.entries] : response.entries);
-        setCategoryNextCursor(response.nextCursor);
+    }, signal);
+    return {
+      ...page,
+      entries: [...(categoryCursor ? categorySeed : []), ...page.entries],
+    };
+  }, [client, project, explorerId, authResourcePath, snapshotToken, outputId, rowRoot,
+    categorySourceChoiceId, categoryQuery, categoryCursor, categorySeed], Boolean(categorySourceChoiceId));
+  const categoryBasePage = categoryPage.data;
+  const categoryNeedsContinuation = Boolean(categoryBasePage?.nextCursor
+    && categoryBasePage.entries.filter(isAvailableCodedValue).length < 50);
+  const categoryContinuation = useQuery<CodedValuePage>(async (signal) => {
+    if (!categoryBasePage || !categorySourceChoiceId) {
+      return { entries: [], state: 'unknown', sourceAvailability: 'unknown' };
+    }
+    const basePage = categoryBasePage;
+    const sourceChoiceId = categorySourceChoiceId;
+    const entries = [...basePage.entries];
+    let cursor = basePage.nextCursor;
+    let state = basePage.state;
+    let sourceAvailability = basePage.sourceAvailability;
+    const seenCursors = new Set<string>();
+    while (cursor && entries.filter(isAvailableCodedValue).length < 50) {
+      if (signal.aborted) throw new DOMException('The inventory request was aborted.', 'AbortError');
+      if (seenCursors.has(cursor)) {
+        return {
+          entries, state, sourceAvailability,
+          error: 'The coded-value catalog repeated a page cursor.',
+        } satisfies CodedValuePage;
       }
-    }).catch((error: unknown) => {
-      if (!controller.signal.aborted) setCategoryError(error instanceof Error ? error.message : 'Coded values could not be loaded.');
-    }).finally(() => { if (!controller.signal.aborted) setCategoriesLoading(false); });
-    return () => controller.abort();
-  }, [client, project, explorerId, authResourcePath, snapshotToken, outputId, rowRoot, source?.choiceId, categoryQuery, categoryCursor]);
-
+      seenCursors.add(cursor);
+      let page: SemanticInventoryBrowseResponse;
+      try {
+        page = await client.browseSemanticInventory({
+          project, explorerId, authResourcePath, snapshotToken, outputId, rowRoot,
+          sourceChoiceId,
+          ...(categoryQuery ? { query: categoryQuery } : {}), cursor, limit: 50,
+        }, signal);
+      } catch (error) {
+        if (signal.aborted) throw error;
+        return {
+          entries, state, sourceAvailability,
+          error: error instanceof Error ? error.message : 'Coded values could not be loaded.',
+        } satisfies CodedValuePage;
+      }
+      if (signal.aborted) throw new DOMException('The inventory request was aborted.', 'AbortError');
+      entries.push(...page.entries);
+      state = page.state;
+      sourceAvailability = page.sourceAvailability;
+      if (page.nextCursor && seenCursors.has(page.nextCursor)) {
+        return {
+          entries, state, sourceAvailability,
+          error: 'The coded-value catalog repeated a page cursor.',
+        } satisfies CodedValuePage;
+      }
+      cursor = page.nextCursor;
+    }
+    return {
+      entries, state, sourceAvailability,
+      ...(cursor ? { nextCursor: cursor } : {}),
+    } satisfies CodedValuePage;
+  }, [client, project, explorerId, authResourcePath, snapshotToken, outputId, rowRoot,
+    categorySourceChoiceId, categoryQuery, categoryBasePage], categoryNeedsContinuation);
+  const categoryInventory = categoryContinuation.data ?? categoryBasePage;
+  const inventory = categoryInventory?.entries ?? categorySeed;
+  const inventoryState = categoryInventory?.state;
+  const inventorySourceAvailability = categoryInventory?.sourceAvailability;
+  const categoryNextCursor = categoryContinuation.data
+    ? categoryContinuation.data.nextCursor
+    : categoryBasePage?.nextCursor;
+  const categoriesLoading = categoryPage.isLoading
+    || categoryNeedsContinuation && categoryContinuation.isLoading;
+  const categoryError = categoryPage.error instanceof Error
+    ? categoryPage.error.message
+    : categoryPage.error ? 'Coded values could not be loaded.'
+      : categoryContinuation.data?.error
+        ?? (categoryContinuation.error instanceof Error ? categoryContinuation.error.message
+          : categoryContinuation.error ? 'Coded values could not be loaded.' : undefined);
   const available = useMemo(() => inventory.filter((item) =>
-    item.code && !item.codingVersion && item.constructionChoice &&
-    (item.readiness.status === 'READY' || item.readiness.status === 'READY_WITH_WARNING'),
+    isAvailableCodedValue(item),
   ), [inventory]);
+  const displayedInventory = useMemo(() => [...inventory].sort((left, right) =>
+    Number(isAvailableCodedValue(right)) - Number(isAvailableCodedValue(left))), [inventory]);
   const visibleSources = source && !sources.some((option) => option.choiceId === source.choiceId)
     ? [source, ...sources]
     : sources;
@@ -174,8 +249,7 @@ export const CodedPivotEditor = ({
     if (next.choiceId !== source?.choiceId) setSelected([]);
     setCategoryQuery('');
     setCategoryCursor(undefined);
-    setCategoryNextCursor(undefined);
-    setInventory([]);
+    setCategorySeed([]);
   };
   const toggleCategory = (item: SemanticInventoryItem) => {
     const key = categoryKey(item.system, item.code);
@@ -229,14 +303,14 @@ export const CodedPivotEditor = ({
           <input type="search" value={categoryQuery} onChange={(event) => {
             setCategoryQuery(event.target.value);
             setCategoryCursor(undefined);
-            setCategoryNextCursor(undefined);
+            setCategorySeed([]);
           }}
             disabled={disabled} placeholder="Search coded values" className="mt-1 block w-full rounded border border-slate-300 px-3 py-2" />
         </label>
         {categoriesLoading ? <p role="status" className="text-sm text-slate-600">Finding coded values…</p> : null}
         {categoryError ? <p role="alert" className="text-sm text-red-700">{categoryError}</p> : null}
         <div className="grid max-h-72 gap-1 overflow-y-auto sm:grid-cols-2">
-          {inventory.map((item) => {
+          {displayedInventory.map((item) => {
             const key = categoryKey(item.system, item.code);
             const canSelect = available.includes(item);
             return <label key={key} className={`flex items-start gap-2 rounded border border-slate-200 px-2 py-1.5 text-sm ${canSelect ? 'hover:bg-slate-50' : 'opacity-60'}`}>
@@ -250,9 +324,16 @@ export const CodedPivotEditor = ({
             </label>;
           })}
         </div>
-        {categoryNextCursor ? <button type="button" disabled={categoriesLoading} onClick={() => setCategoryCursor(categoryNextCursor)}
+        {categoryNextCursor ? <button type="button" disabled={categoriesLoading} onClick={() => {
+          setCategorySeed(inventory);
+          setCategoryCursor(categoryNextCursor);
+        }}
           className="rounded border border-slate-300 px-2 py-1 text-sm text-blue-800 disabled:opacity-50">More coded values</button> : null}
-        {!categoriesLoading && !categoryError && inventory.length === 0 ? <p className="text-sm text-slate-600">No coded values match this search.</p> : null}
+        {!categoriesLoading && !categoryError && inventory.length === 0 ? <p role={inventoryState !== 'complete' || inventorySourceAvailability !== 'verified' ? 'status' : undefined}
+          className="text-sm text-slate-600">{inventoryState !== 'complete' || inventorySourceAvailability !== 'verified'
+            ? 'Coded-value availability has not been confirmed for this source.'
+            : categoryQuery ? 'No coded values match this search.'
+              : 'No coded values are available for this source.'}</p> : null}
         <p className="text-sm font-medium text-slate-800">{selected.length} of 50 columns selected</p>
         {selected.length > 0 ? <ul className="flex flex-wrap gap-1">{selected.map((category) =>
           <li key={category.outputColumnId} title={`${category.system} · ${category.code}`}
@@ -279,4 +360,16 @@ export const CodedPivotEditor = ({
       </> : null}
     </section>
   );
+};
+
+export const CodedPivotEditor = (props: CodedPivotEditorProps) => {
+  const scopeKey = JSON.stringify([
+    props.project,
+    props.explorerId,
+    props.authResourcePath ?? null,
+    props.snapshotToken,
+    props.outputId,
+    props.rowRoot,
+  ]);
+  return <CodedPivotEditorBody key={scopeKey} {...props} />;
 };

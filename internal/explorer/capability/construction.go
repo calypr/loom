@@ -97,30 +97,32 @@ func (FieldChoiceSource) constructionChoiceSource() {}
 // SemanticBindingChoiceSource preserves the observed FHIR owner and terminology
 // identity. Display text is deliberately excluded from computational identity.
 type SemanticBindingChoiceSource struct {
-	Kind               ConstructionChoiceSourceKind `json:"kind"`
-	ConceptID          string                       `json:"conceptId"`
-	BindingID          string                       `json:"bindingId"`
-	CandidateID        string                       `json:"candidateId"`
-	NodeID             string                       `json:"nodeId"`
-	ResourceType       string                       `json:"resourceType"`
-	SourcePath         string                       `json:"sourcePath"`
-	SourceCanonical    string                       `json:"sourceCanonical,omitempty"`
-	SourceProfile      string                       `json:"sourceProfile,omitempty"`
-	FieldPath          string                       `json:"fieldPath"`
-	OwningScope        string                       `json:"owningScope,omitempty"`
-	ExtensionURLPath   []string                     `json:"extensionUrlPath,omitempty"`
-	KeySelector        string                       `json:"keySelector,omitempty"`
-	System             string                       `json:"system,omitempty"`
-	Version            string                       `json:"version,omitempty"`
-	Code               string                       `json:"code,omitempty"`
-	ValueSelector      string                       `json:"valueSelector"`
-	ChoiceArm          string                       `json:"choiceArm,omitempty"`
-	LogicalType        string                       `json:"logicalType"`
-	RuleHint           string                       `json:"ruleHint"`
-	RuleVersion        string                       `json:"ruleVersion"`
-	SchemaVersion      int                          `json:"schemaVersion"`
-	Cardinality        string                       `json:"cardinality"`
-	RepeatedBoundaries []RepeatedBoundary           `json:"repeatedBoundaries,omitempty"`
+	Kind                  ConstructionChoiceSourceKind `json:"kind"`
+	ConceptID             string                       `json:"conceptId"`
+	BindingID             string                       `json:"bindingId"`
+	CandidateID           string                       `json:"candidateId"`
+	NodeID                string                       `json:"nodeId"`
+	ResourceType          string                       `json:"resourceType"`
+	SourcePath            string                       `json:"sourcePath"`
+	SourceCanonical       string                       `json:"sourceCanonical,omitempty"`
+	SourceProfile         string                       `json:"sourceProfile,omitempty"`
+	FieldPath             string                       `json:"fieldPath"`
+	OwningScope           string                       `json:"owningScope,omitempty"`
+	ExtensionURLPath      []string                     `json:"extensionUrlPath,omitempty"`
+	KeySelector           string                       `json:"keySelector,omitempty"`
+	System                string                       `json:"system,omitempty"`
+	Version               string                       `json:"version,omitempty"`
+	Code                  string                       `json:"code,omitempty"`
+	ValueSelector         string                       `json:"valueSelector"`
+	ValueFallbacks        []string                     `json:"valueFallbacks,omitempty"`
+	FallbackOnBlankString bool                         `json:"fallbackOnBlankString,omitempty"`
+	ChoiceArm             string                       `json:"choiceArm,omitempty"`
+	LogicalType           string                       `json:"logicalType"`
+	RuleHint              string                       `json:"ruleHint"`
+	RuleVersion           string                       `json:"ruleVersion"`
+	SchemaVersion         int                          `json:"schemaVersion"`
+	Cardinality           string                       `json:"cardinality"`
+	RepeatedBoundaries    []RepeatedBoundary           `json:"repeatedBoundaries,omitempty"`
 }
 
 func (SemanticBindingChoiceSource) constructionChoiceSource() {}
@@ -129,18 +131,20 @@ func (SemanticBindingChoiceSource) constructionChoiceSource() {}
 // binding, independent of any one observed code. It is persisted with a frame
 // so later category choices can be checked against the same binding.
 type SemanticFrameFamily struct {
-	BindingID       string   `json:"bindingId"`
-	ResourceType    string   `json:"resourceType"`
-	SourcePath      string   `json:"sourcePath"`
-	SourceCanonical string   `json:"sourceCanonical,omitempty"`
-	SourceProfile   string   `json:"sourceProfile,omitempty"`
-	OwningScope     string   `json:"owningScope"`
-	KeyPath         string   `json:"keyPath"`
-	ValuePath       string   `json:"valuePath"`
-	ChoiceArms      []string `json:"choiceArms,omitempty"`
-	LogicalType     string   `json:"logicalType"`
-	RuleVersion     string   `json:"ruleVersion"`
-	SchemaVersion   int      `json:"schemaVersion"`
+	BindingID             string   `json:"bindingId"`
+	ResourceType          string   `json:"resourceType"`
+	SourcePath            string   `json:"sourcePath"`
+	SourceCanonical       string   `json:"sourceCanonical,omitempty"`
+	SourceProfile         string   `json:"sourceProfile,omitempty"`
+	OwningScope           string   `json:"owningScope"`
+	KeyPath               string   `json:"keyPath"`
+	ValuePath             string   `json:"valuePath"`
+	ValueFallbacks        []string `json:"valueFallbacks,omitempty"`
+	FallbackOnBlankString bool     `json:"fallbackOnBlankString,omitempty"`
+	ChoiceArms            []string `json:"choiceArms,omitempty"`
+	LogicalType           string   `json:"logicalType"`
+	RuleVersion           string   `json:"ruleVersion"`
+	SchemaVersion         int      `json:"schemaVersion"`
 }
 
 // SemanticFrameChoiceSource is a server-issued frame-family choice. The
@@ -519,6 +523,9 @@ func NewSemanticConstructionChoiceForRoute(snapshotToken, semanticContextToken, 
 	if !IsSupportedConstructionSourceType(source.LogicalType) {
 		return ConstructionChoice{}, fmt.Errorf("semantic source field %s.%s has unsupported logical type %q", source.ResourceType, source.FieldPath, strings.TrimSpace(source.LogicalType))
 	}
+	if err := validateSemanticFallback(source.LogicalType, source.ValueFallbacks, source.FallbackOnBlankString); err != nil {
+		return ConstructionChoice{}, err
+	}
 	resolvedValuePath := canonicalPath(source.FieldPath)
 	selectorPath := canonicalOwnedSemanticPath(source.OwningScope, source.ValueSelector)
 	candidatePath := canonicalPath(candidate.FieldPath)
@@ -532,6 +539,7 @@ func NewSemanticConstructionChoiceForRoute(snapshotToken, semanticContextToken, 
 	source.NodeID = candidate.NodeID
 	source.FieldPath = resolvedValuePath
 	source.ValueSelector = selectorPath
+	source.ValueFallbacks = append([]string(nil), source.ValueFallbacks...)
 	source.ExtensionURLPath = append([]string(nil), source.ExtensionURLPath...)
 	source.Cardinality = candidate.Cardinality
 	source.RepeatedBoundaries = append([]RepeatedBoundary(nil), candidate.RepeatedBoundaries...)
@@ -576,6 +584,9 @@ func NewSemanticFrameConstructionChoice(
 		strings.TrimSpace(source.FieldPath) == "" || strings.TrimSpace(candidate.ID) == "" {
 		return ConstructionChoice{}, fmt.Errorf("snapshot, semantic context, build, frame family, and exact candidate identity are required")
 	}
+	if err := validateSemanticFallback(source.Family.LogicalType, source.Family.ValueFallbacks, source.Family.FallbackOnBlankString); err != nil {
+		return ConstructionChoice{}, err
+	}
 	if err := validateConstructionRoute(route); err != nil {
 		return ConstructionChoice{}, err
 	}
@@ -602,11 +613,12 @@ func NewSemanticFrameConstructionChoice(
 		ChoiceID: choiceID, Source: source, Route: cloneConstructionRoute(route),
 		Presentation: ConstructionChoicePresentation{
 			Summary: source.Family.ResourceType + " coded values",
-			Facts: []ConstructionChoiceFact{
+			Facts: nonEmptyConstructionFacts(append([]ConstructionChoiceFact{
 				{Label: "Value type", Value: source.Family.LogicalType},
+				{Label: "Value cardinality", Value: cardinalityPresentation(candidate.Cardinality)},
 				{Label: "Paired source", Value: source.Family.SourcePath},
 				{Label: "Route", Value: semanticFrameRouteSummary(route, source.Family.ResourceType)},
-			},
+			}, semanticFallbackFacts(source.Family.ValueFallbacks, source.Family.FallbackOnBlankString)...)),
 		},
 		Options: constructionOptionsForRoute(candidate, route),
 	}, nil
@@ -894,8 +906,36 @@ func semanticChoicePresentation(source SemanticBindingChoiceSource, candidate Ca
 		{Label: "Source", Value: strings.TrimSpace(source.SourcePath)},
 		{Label: "Owner", Value: strings.TrimSpace(source.OwningScope)},
 		{Label: "Choice arm", Value: strings.TrimSpace(source.ChoiceArm)},
+		{Label: "Value cardinality", Value: cardinalityPresentation(source.Cardinality)},
 	}
+	facts = append(facts, semanticFallbackFacts(source.ValueFallbacks, source.FallbackOnBlankString)...)
 	return ConstructionChoicePresentation{Summary: summary, Facts: nonEmptyConstructionFacts(facts)}
+}
+
+func semanticFallbackFacts(fallbacks []string, fallbackOnBlankString bool) []ConstructionChoiceFact {
+	if len(fallbacks) == 0 {
+		return nil
+	}
+	rule := "Use the fallback when the primary value is absent"
+	if fallbackOnBlankString {
+		rule = "Use the fallback when the primary string is blank"
+	}
+	return []ConstructionChoiceFact{
+		{Label: "Fallback value", Value: strings.Join(fallbacks, ", ")},
+		{Label: "Fallback rule", Value: rule},
+	}
+}
+
+func validateSemanticFallback(logicalType string, fallbacks []string, fallbackOnBlankString bool) error {
+	for index, fallback := range fallbacks {
+		if strings.TrimSpace(fallback) == "" {
+			return fmt.Errorf("semantic fallback selector %d is empty", index)
+		}
+	}
+	if fallbackOnBlankString && (logicalType != "string" || len(fallbacks) == 0) {
+		return fmt.Errorf("blank-string semantic fallback requires string values and at least one fallback selector")
+	}
+	return nil
 }
 
 func cardinalityPresentation(cardinality string) string {

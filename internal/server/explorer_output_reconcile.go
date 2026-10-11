@@ -145,7 +145,22 @@ func reconcileFinalOutputMetadataWithCombineInputs(
 			return explorercompilation.WorkspaceResult{}, fmt.Errorf("translated presentation %q is missing", recipeOutput.Name)
 		}
 		constructed := authoredColumns[recipeOutput.Name]
-		lineage, err := resolveAuthoredOutputLineage(constructed, emittedByOutput[recipeOutput.Name])
+		explicitGroupOutputs := make(map[string]explorer.EmittedColumn)
+		inheritedExplicitGroupNames := make(map[string]struct{})
+		for _, schemaColumn := range compiledOutput.OutputSchema {
+			if schemaColumn.Internal || schemaColumn.Identity {
+				continue
+			}
+			groupEmission, isExplicitGroupOutput, err := explicitGroupOutputEmission(documents[recipeOutput.Name], recipeOutput.Name, schemaColumn)
+			if err != nil {
+				return explorercompilation.WorkspaceResult{}, fmt.Errorf("reconcile explicit group output %q column %q: %w", recipeOutput.Name, schemaColumn.Name, err)
+			}
+			if isExplicitGroupOutput {
+				explicitGroupOutputs[schemaColumn.Name] = groupEmission
+				inheritedExplicitGroupNames[schemaColumn.Name] = struct{}{}
+			}
+		}
+		lineage, err := resolveAuthoredOutputLineage(constructed, emittedByOutput[recipeOutput.Name], inheritedExplicitGroupNames)
 		if err != nil {
 			return explorercompilation.WorkspaceResult{}, fmt.Errorf("resolve authored lineage for output %q: %w", recipeOutput.Name, err)
 		}
@@ -182,14 +197,13 @@ func reconcileFinalOutputMetadataWithCombineInputs(
 
 			metadata, authored := constructed[schemaColumn.Name]
 			emitted, translatedEmission := emittedByOutput[recipeOutput.Name][schemaColumn.Name]
-			groupEmission, explicitGroupOutput, err := explicitGroupOutputEmission(documents[recipeOutput.Name], recipeOutput.Name, schemaColumn)
-			if err != nil {
-				return explorercompilation.WorkspaceResult{}, fmt.Errorf("reconcile explicit group output %q column %q: %w", recipeOutput.Name, schemaColumn.Name, err)
-			}
+			groupEmission, explicitGroupOutput := explicitGroupOutputs[schemaColumn.Name]
 			stageShadow := authored && translatedEmission && metadata.TypedStageOutput
 			if explicitGroupOutput {
-				if authored || translatedEmission {
-					return explorercompilation.WorkspaceResult{}, fmt.Errorf("explicit group output %q column %q conflicts with a source or construction output", recipeOutput.Name, schemaColumn.Name)
+				preservesInheritedGroupIdentity := authored && metadata.PreservesSourceIdentity && metadata.PriorStageSelfInput &&
+					len(metadata.InputColumns) == 1 && metadata.InputColumns[0] == schemaColumn.Name
+				if (authored && !preservesInheritedGroupIdentity) || translatedEmission {
+					return explorercompilation.WorkspaceResult{}, fmt.Errorf("explicit group output %q column %q conflicts with a source or non-identity construction output", recipeOutput.Name, schemaColumn.Name)
 				}
 				emitted = groupEmission
 				if _, collision := emittedIDs[recipeOutput.Name][emitted.EmissionID]; collision {
@@ -885,8 +899,10 @@ func authoredConstructionOutputsWithCombineInputs(
 				Lossless: false, Shape: "array", StructuralSuitability: "requires-review",
 				LossReasons: []string{"RELATED_SOURCE_AUTHORIZED_MATCHES_ONLY"},
 			}
-			if related.Form != capability.ConstructionChoiceAll {
+			if related.Form != capability.ConstructionChoiceAll || related.RowValuePolicy == authoringv2.ConstructionRowValueOne {
 				quality.Shape = ""
+			}
+			if related.Form != capability.ConstructionChoiceAll {
 				quality.LossReasons = []string{"RELATED_SOURCE_DISTINCT_RECORD_REDUCTION"}
 			}
 			if err := addOutput(related.OutputColumnID, step.ID, nil, quality); err != nil {
@@ -1151,10 +1167,13 @@ func isSupportedConstructedScalarKind(kind expression.ValueKind) bool {
 	}
 }
 
-func resolveAuthoredOutputLineage(constructed map[string]authoredOutputColumn, emitted map[string]explorer.EmittedColumn) (map[string][]string, error) {
+func resolveAuthoredOutputLineage(constructed map[string]authoredOutputColumn, emitted map[string]explorer.EmittedColumn, sourceFreeGenerated map[string]struct{}) (map[string][]string, error) {
 	states := make(map[string]uint8, len(constructed))
 	resolved := make(map[string][]string, len(constructed))
 	baseLineage := func(column string) ([]string, error) {
+		if _, generated := sourceFreeGenerated[column]; generated {
+			return []string{}, nil
+		}
 		emission, ok := emitted[column]
 		if !ok {
 			return nil, fmt.Errorf("missing dependency %q", column)

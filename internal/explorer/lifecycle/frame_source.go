@@ -257,6 +257,10 @@ func (s *Service) frameSourceOptionForRoute(
 	if err != nil {
 		return FrameSourceOption{}, false
 	}
+	provenCandidate, ok := semanticCandidateWithFallback(snapshot, family.Entry.Observation, provenCandidate)
+	if !ok {
+		return FrameSourceOption{}, false
+	}
 	frameSource := capability.SemanticFrameChoiceSource{
 		Kind: capability.ConstructionChoiceSourceSemanticFrame, AnchorConceptID: family.Entry.ConceptID,
 		Family: family.Family, CandidateID: provenCandidate.ID, NodeID: provenCandidate.NodeID,
@@ -341,6 +345,10 @@ func (s *Service) prepareFrameSourceCommand(
 	provenCandidate, err := proveConstructionCandidate(ctx, authorized, document.RootResourceType, family.Candidate, resolvedRoute)
 	if err != nil {
 		return nil, invalidFrameSource("the frame source route and value no longer compile")
+	}
+	provenCandidate, ok = semanticCandidateWithFallback(authorized.Snapshot, family.Entry.Observation, provenCandidate)
+	if !ok {
+		return nil, invalidFrameSource("the frame source fallback selectors no longer match compiler-proved candidates")
 	}
 	contextToken, err := semanticInventoryContextToken(authorized.Snapshot, explorerID, document.RootResourceType, identity.BuildID)
 	if err != nil {
@@ -452,6 +460,10 @@ func (s *Service) reauthorizeFrameSourceChoice(
 	if err != nil {
 		return frameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source candidate no longer compiles")
 	}
+	proven, ok = semanticCandidateWithFallback(authorized.Snapshot, family.Entry.Observation, proven)
+	if !ok {
+		return frameSourceFamilyCandidate{}, nil, invalidFrameSource("the coded source fallback selectors no longer have exact compiler-proved candidates")
+	}
 	contextToken, err := semanticInventoryContextToken(authorized.Snapshot, explorerID, rowRoot, identity.BuildID)
 	if err != nil {
 		return frameSourceFamilyCandidate{}, nil, err
@@ -493,6 +505,7 @@ func frameSourceFamilies(snapshot capability.Snapshot, entries []catalog.Semanti
 			SourcePath: observation.Source.Path, SourceCanonical: observation.Source.Canonical,
 			SourceProfile: observation.Source.Profile, OwningScope: binding.OwnerPath,
 			KeyPath: binding.KeyPath, ValuePath: binding.ValuePath,
+			ValueFallbacks: append([]string(nil), binding.ValueFallback...), FallbackOnBlankString: binding.FallbackOnBlankString,
 			ChoiceArms: append([]string(nil), binding.ChoiceArms...), LogicalType: binding.LogicalType,
 			RuleVersion: observation.RuleVersion, SchemaVersion: observation.SchemaVersion,
 		}

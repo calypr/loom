@@ -164,8 +164,31 @@ func canonicalizeGroupPublicationIdentity(output lower.CompiledRecipeOutput, row
 		return nil
 	}
 	identity := output.RowIdentity
-	if identity == nil || identity.Grain != spec.RowGrainGroups || len(identity.Fields) != 2 ||
-		identity.Fields[0] != "group_revision_id" || identity.Fields[1] != "group_id" {
+	if identity == nil || identity.Grain != spec.RowGrainGroups {
+		return fmt.Errorf("output %q has an unsupported group identity schema", output.Name)
+	}
+	if len(identity.Fields) == 1 && identity.Fields[0] == "__loom_row_id" {
+		generatedIdentitySchema := 0
+		for _, column := range output.OutputSchema {
+			if column.Name != "__loom_row_id" {
+				continue
+			}
+			if column.ID != "__loom_row_id" || !column.Internal || !column.Identity ||
+				column.Kind != "string" || column.Cardinality != "required_one" {
+				return fmt.Errorf("output %q has an unsupported group identity schema", output.Name)
+			}
+			generatedIdentitySchema++
+		}
+		if generatedIdentitySchema != 1 {
+			return fmt.Errorf("output %q has an unsupported group identity schema", output.Name)
+		}
+		rowID, ok := row["__loom_row_id"].(string)
+		if !ok || strings.TrimSpace(rowID) == "" {
+			return fmt.Errorf("output %q has a malformed generated group identity", output.Name)
+		}
+		return nil
+	}
+	if len(identity.Fields) != 2 || identity.Fields[0] != "group_revision_id" || identity.Fields[1] != "group_id" {
 		return fmt.Errorf("output %q has an unsupported group identity schema", output.Name)
 	}
 	parts, ok := row["__loom_row_id"].(map[string]any)

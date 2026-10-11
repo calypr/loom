@@ -3,10 +3,15 @@ package arango
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -213,6 +218,201 @@ func TestSemanticInventoryPersistsAndPagesAcrossAuthorizedPaths(t *testing.T) {
 	replayed := collectSemanticInventoryPages(t, ctx, store, options)
 	assertInventoryEntries(t, replayed, expectedCombined, "replay")
 	assertCodePopulation(t, replayed, "shared-000", 2)
+}
+
+func TestSemanticInventoryFallbackPolicySurvivesMaterializationAndReadback(t *testing.T) {
+	if os.Getenv("LOOM_C01_ARANGO_INTEGRATION") == "" {
+		t.Skip("set LOOM_C01_ARANGO_INTEGRATION=1 to run semantic inventory Arango proof")
+	}
+	endpoint := strings.TrimSpace(os.Getenv("LOOM_C01_ARANGO_URL"))
+	database := strings.TrimSpace(os.Getenv("LOOM_C01_ARANGO_DATABASE"))
+	if endpoint == "" || database == "" {
+		t.Fatal("LOOM_C01_ARANGO_URL and an isolated LOOM_C01_ARANGO_DATABASE are required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	client, err := arangostore.Open(ctx, endpoint, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(context.Background())
+	store, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PrepareSemanticInventoryBackfill(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	project := "c01-fallback-" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	generation := strings.ReplaceAll(uuid.NewString(), "-", "")
+	build := catalog.NewSemanticInventoryBuild(project, generation, "")
+	build.SourceKind = catalog.SemanticInventorySourceRetained
+	build.SourceAvailability = catalog.SemanticInventorySourceAvailabilityVerified
+	if err := store.BeginSemanticInventoryBuild(ctx, build); err != nil {
+		t.Fatal(err)
+	}
+
+	witnessIDs := []string{
+		"26c7500c-f54f-5229-b5a7-a6757614bc21",
+		"64704041-c4da-5375-aac0-88f951f78344",
+	}
+	emitter := catalog.NewSemanticInventoryEmitter(project, generation)
+	contributions := make([]catalog.SemanticInventoryContribution, 0, len(witnessIDs))
+	for _, id := range witnessIDs {
+		payload := map[string]any{
+			"resourceType": "Observation",
+			"id":           id,
+			"code": map[string]any{"coding": []any{map[string]any{
+				"system": "http://snomed.info/sct", "code": "1222593009", "display": "American Joint Committee on Cancer pathological stage group allowable value",
+			}}},
+			"valueCodeableConcept": map[string]any{"coding": []any{map[string]any{
+				"system": "http://snomed.info/sct", "code": "1222593009", "display": "Stage I",
+			}}},
+		}
+		emitter.ObservePayload(payload, "Observation", "scope-a", "retained:Observation/"+id, func(contribution catalog.SemanticInventoryContribution) {
+			contributions = append(contributions, contribution)
+		})
+	}
+	if len(contributions) != len(witnessIDs) {
+		t.Fatalf("fallback witness contributions = %d, want %d", len(contributions), len(witnessIDs))
+	}
+	if got := semanticBindingIDForIntegrationTest(contributions[0].Observation); got != contributions[0].BindingID {
+		t.Fatalf("test binding identity does not match production emitter: got %q, emitted %q", got, contributions[0].BindingID)
+	}
+	orderedFallbacks := []string{"valueCodeableConcept.coding[].display", "valueCodeableConcept.text"}
+	orderedBindingID := ""
+	for _, contribution := range append([]catalog.SemanticInventoryContribution(nil), contributions...) {
+		ordered := contribution
+		ordered.SourceID += ":ordered-fallback-policy"
+		ordered.Key = "ordered-policy-" + uuid.NewString()
+		ordered.Observation.Value.FallbackSelectors = append([]string(nil), orderedFallbacks...)
+		ordered.BindingID = semanticBindingIDForIntegrationTest(ordered.Observation)
+		if orderedBindingID == "" {
+			orderedBindingID = ordered.BindingID
+		} else if ordered.BindingID != orderedBindingID {
+			t.Fatalf("same ordered fallback policy produced binding IDs %q and %q", orderedBindingID, ordered.BindingID)
+		}
+		contributions = append(contributions, ordered)
+	}
+	legacy := catalog.SemanticInventoryContribution{
+		Key: "legacy-primary-only", Project: project, DatasetGeneration: generation,
+		AuthResourcePath: "scope-a", ResourceType: "Observation", BuildID: build.BuildID,
+		SourceKind: catalog.SemanticInventorySourceRetained, SourceID: "retained:Observation/legacy-primary-only",
+		ConceptID: "legacy-primary-only-concept", BindingID: "legacy-primary-only-binding",
+		Observation: catalog.SemanticObservation{
+			SchemaVersion: catalog.SemanticObservationSchemaVersion,
+			Source:        catalog.SemanticObservationSource{Type: "Observation", Path: "valueQuantity.value"},
+			Key:           catalog.SemanticObservationKey{Selector: "code.coding[]", System: "urn:legacy", Code: "primary-only"},
+			Value:         catalog.SemanticObservationValue{Selector: "valueQuantity.value", Type: "decimal"},
+			LogicalType:   "decimal", Population: 1, Completeness: catalog.SemanticComplete,
+			Status: "SUPPORTED", RuleHint: "OBSERVATION_CODE_VALUE", RuleVersion: "4",
+		},
+	}
+	contributions = append(contributions, legacy)
+	if err := store.WriteSemanticInventoryContributions(ctx, contributions, 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CompleteSemanticInventoryBuild(ctx, build, int64(len(contributions)), "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	unrestricted := false
+	options := catalog.SemanticInventoryPageOptions{
+		Project: project, DatasetGeneration: generation,
+		AuthResourcePathsUnrestricted: &unrestricted, AuthResourcePaths: []string{"scope-a"}, Limit: 10,
+	}
+	entries := collectSemanticInventoryPages(t, ctx, store, options)
+	if len(entries) != 3 {
+		t.Fatalf("materialized semantic entries = %d, want two coded fallback policies and one primary-only row: %#v", len(entries), entries)
+	}
+	var fallbackEntry, orderedEntry, legacyEntry catalog.SemanticInventoryEntry
+	for _, entry := range entries {
+		switch {
+		case entry.BindingID == contributions[0].BindingID:
+			fallbackEntry = entry
+		case entry.BindingID == orderedBindingID:
+			orderedEntry = entry
+		case entry.BindingID == legacy.BindingID:
+			legacyEntry = entry
+		}
+	}
+	if fallbackEntry.ConceptID == "" || fallbackEntry.Observation.Value.Selector != "valueCodeableConcept.text" ||
+		!reflect.DeepEqual(fallbackEntry.Observation.Value.FallbackSelectors, []string{"valueCodeableConcept.coding[].display"}) ||
+		!fallbackEntry.Observation.Value.FallbackOnBlankString || fallbackEntry.Observation.Population != 2 {
+		t.Fatalf("materialized fallback policy = %#v", fallbackEntry)
+	}
+	if orderedEntry.ConceptID != fallbackEntry.ConceptID || orderedEntry.Observation.Population != 2 ||
+		!reflect.DeepEqual(orderedEntry.Observation.Value.FallbackSelectors, orderedFallbacks) || !orderedEntry.Observation.Value.FallbackOnBlankString {
+		t.Fatalf("materialized ordered fallback policy = %#v", orderedEntry)
+	}
+	if legacyEntry.ConceptID == "" || legacyEntry.Observation.Value.Selector != "valueQuantity.value" ||
+		legacyEntry.Observation.Value.FallbackSelectors != nil || legacyEntry.Observation.Value.FallbackOnBlankString {
+		t.Fatalf("materialized legacy primary-only defaults = %#v", legacyEntry)
+	}
+
+	references := []catalog.SemanticInventoryReference{
+		{ConceptID: fallbackEntry.ConceptID, BindingID: fallbackEntry.BindingID},
+		{ConceptID: orderedEntry.ConceptID, BindingID: orderedEntry.BindingID},
+		{ConceptID: legacyEntry.ConceptID, BindingID: legacyEntry.BindingID},
+	}
+	resolved, err := store.ResolveSemanticInventorySelections(ctx, catalog.SemanticInventoryResolveOptions{
+		Project: project, DatasetGeneration: generation,
+		AuthResourcePathsUnrestricted: &unrestricted, AuthResourcePaths: []string{"scope-a"}, References: references,
+	})
+	if err != nil || len(resolved.Entries) != 3 {
+		t.Fatalf("resolved semantic entries = %d err=%v, want both fallback policies and legacy row", len(resolved.Entries), err)
+	}
+	if got := resolved.Entries[0].Observation.Value; got.Selector != "valueCodeableConcept.text" ||
+		!reflect.DeepEqual(got.FallbackSelectors, []string{"valueCodeableConcept.coding[].display"}) || !got.FallbackOnBlankString {
+		t.Fatalf("resolved fallback policy = %#v", got)
+	}
+	resolvedByBinding := make(map[string]catalog.SemanticInventoryEntry, len(resolved.Entries))
+	for _, entry := range resolved.Entries {
+		resolvedByBinding[entry.BindingID] = entry
+	}
+	if got := resolvedByBinding[fallbackEntry.BindingID].Observation.Value; got.Selector != "valueCodeableConcept.text" ||
+		!reflect.DeepEqual(got.FallbackSelectors, []string{"valueCodeableConcept.coding[].display"}) || !got.FallbackOnBlankString {
+		t.Fatalf("resolved fallback policy = %#v", got)
+	}
+	if got := resolvedByBinding[orderedEntry.BindingID].Observation.Value; !reflect.DeepEqual(got.FallbackSelectors, orderedFallbacks) || !got.FallbackOnBlankString {
+		t.Fatalf("resolved ordered fallback policy = %#v", got)
+	}
+	if got := resolvedByBinding[legacyEntry.BindingID].Observation.Value; got.Selector != "valueQuantity.value" || got.FallbackSelectors != nil || got.FallbackOnBlankString {
+		t.Fatalf("resolved legacy primary-only defaults = %#v", got)
+	}
+}
+
+// This mirrors the binding-v2 digest input and length-prefix encoding, then
+// verifies itself against a contribution from the real semantic emitter
+// before creating a second ordered-policy identity for the storage test.
+func semanticBindingIDForIntegrationTest(observation catalog.SemanticObservation) string {
+	parts := []string{
+		"semantic-binding/v2",
+		observation.Source.Type,
+		observation.Source.Profile,
+		observation.Source.Path,
+		observation.Source.Canonical,
+		observation.OwningScope,
+		observation.Key.Selector,
+		observation.Value.Selector,
+		observation.Value.Type,
+		strings.Join(observation.Value.FallbackSelectors, "\x1f"),
+		strconv.FormatBool(observation.Value.FallbackOnBlankString),
+		observation.ChoiceArm,
+		observation.LogicalType,
+		observation.RuleHint,
+		observation.RuleVersion,
+	}
+	parts = append(parts, observation.ExtensionURLPath...)
+	hash := sha256.New()
+	for _, part := range parts {
+		var length [8]byte
+		binary.BigEndian.PutUint64(length[:], uint64(len(part)))
+		_, _ = hash.Write(length[:])
+		_, _ = hash.Write([]byte(part))
+	}
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 func TestSemanticInventorySelectionResolverAggregatesAuthorizedIndexedRows(t *testing.T) {

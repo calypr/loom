@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useLoomClient } from '../../../react';
+import React, { useMemo, useState } from 'react';
+import { useLoomClient, useQuery } from '../../../react';
 import type { FrameDefinition, FrameSourceOption, SemanticInventoryItem } from '../../../types';
 import { catalogChoiceIntent, catalogItemAvailability, type CatalogChoiceIntent, type CatalogItem } from '../catalogItems';
 
@@ -76,33 +76,46 @@ const CategoryPicker = ({
   const client = useLoomClient();
   const [searchInput, setSearchInput] = useState('');
   const [query, setQuery] = useState('');
-  const [cursor, setCursor] = useState<string>();
-  const [state, setState] = useState<LoadState<{ entries: ReadonlyArray<SemanticInventoryItem>; nextCursor?: string }>>({ kind: 'loading' });
+  const [cursorState, setCursorState] = useState<{ readonly searchKey: string; readonly cursor: string }>();
+  const [loadedPages, setLoadedPages] = useState<{
+    readonly searchKey: string;
+    readonly value: { readonly entries: ReadonlyArray<SemanticInventoryItem>; readonly nextCursor?: string };
+  }>();
   const [selected, setSelected] = useState<ReadonlyMap<string, SemanticInventoryItem>>(() => new Map());
   const [adding, setAdding] = useState(false);
   const [message, setMessage] = useState<string>();
-
-  useEffect(() => {
-    const controller = new AbortController();
-    setState({ kind: 'loading' });
-    void client.browseSemanticInventory({
+  const searchKey = JSON.stringify([
+    project, explorerId, authResourcePath ?? '', snapshotToken, outputId, rowRoot,
+    frameIdentity(frame), query,
+  ]);
+  const currentCursor = cursorState?.searchKey === searchKey ? cursorState.cursor : undefined;
+  const categoryQuery = useQuery(async (signal) => {
+    const response = await client.browseSemanticInventory({
       project, explorerId, authResourcePath, snapshotToken, outputId, rowRoot,
-      frameId: frame.id, query, cursor, limit: 50,
+      frameId: frame.id, query, cursor: currentCursor, limit: 50,
       requestId: `frame-categories-${window.crypto.randomUUID()}`,
-    }, controller.signal).then((response) => {
-      if (controller.signal.aborted) return;
-      if (response.frameId !== frame.id || response.frameSource?.id !== frame.id) {
-        throw new Error('Loom returned categories for a different framing source.');
-      }
-      if (response.state !== 'complete') {
-        throw new Error(`The coded-value inventory is ${response.state}. Try again when it is complete.`);
-      }
-      setState({ kind: 'ready', value: { entries: response.entries, nextCursor: response.nextCursor } });
-    }).catch((error: unknown) => {
-      if (!controller.signal.aborted) setState({ kind: 'error', message: errorMessage(error) });
-    });
-    return () => controller.abort();
-  }, [authResourcePath, client, cursor, explorerId, frame.id, outputId, project, query, rowRoot, snapshotToken]);
+    }, signal);
+    if (response.frameId !== frame.id || response.frameSource?.id !== frame.id) {
+      throw new Error('Loom returned categories for a different framing source.');
+    }
+    if (response.state !== 'complete') {
+      throw new Error(`The coded-value inventory is ${response.state}. Try again when it is complete.`);
+    }
+    return { entries: response.entries, nextCursor: response.nextCursor };
+  }, [authResourcePath, client, currentCursor, explorerId, frame.id, frameIdentity(frame), outputId, project, query, rowRoot, snapshotToken]);
+  const previousPage = loadedPages?.searchKey === searchKey ? loadedPages.value : undefined;
+  const state: LoadState<{ entries: ReadonlyArray<SemanticInventoryItem>; nextCursor?: string }> = categoryQuery.error
+    ? { kind: 'error', message: errorMessage(categoryQuery.error) }
+    : categoryQuery.data
+      ? { kind: 'ready', value: {
+        entries: currentCursor && previousPage ? [...previousPage.entries, ...categoryQuery.data.entries] : categoryQuery.data.entries,
+        nextCursor: categoryQuery.data.nextCursor,
+      } }
+      : categoryQuery.isLoading && currentCursor && previousPage
+        ? { kind: 'ready', value: previousPage }
+        : categoryQuery.isLoading
+          ? { kind: 'loading' }
+          : { kind: 'loading' };
 
   const selectedEntries = useMemo(() => [...selected.values()], [selected]);
   const addColumns = async () => {
@@ -140,7 +153,16 @@ const CategoryPicker = ({
         </div>
         <span className="text-xs text-slate-600">{matchSummary(frame)}</span>
       </div>
-      <form className="mt-3 flex gap-2" onSubmit={(event) => { event.preventDefault(); setCursor(undefined); setQuery(searchInput.trim()); }}>
+      <form className="mt-3 flex gap-2" onSubmit={(event) => {
+        event.preventDefault();
+        const nextQuery = searchInput.trim();
+        const nextKey = JSON.stringify([
+          project, explorerId, authResourcePath ?? '', snapshotToken, outputId, rowRoot, frameIdentity(frame), nextQuery,
+        ]);
+        setLoadedPages({ searchKey: nextKey, value: { entries: [] } });
+        setCursorState(undefined);
+        setQuery(nextQuery);
+      }}>
         <input aria-label={`Search coded values in ${frame.title}`} type="search" value={searchInput}
           onChange={(event) => setSearchInput(event.currentTarget.value)} placeholder="Find a code or label"
           className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1.5 text-sm" />
@@ -175,7 +197,11 @@ const CategoryPicker = ({
             })}
           </div>
           <div className="mt-2 flex justify-end">
-            <button type="button" disabled={!state.value.nextCursor} onClick={() => setCursor(state.value.nextCursor)}
+            <button type="button" disabled={!state.value.nextCursor} onClick={() => {
+              if (!state.value.nextCursor) return;
+              setLoadedPages({ searchKey, value: state.value });
+              setCursorState({ searchKey, cursor: state.value.nextCursor });
+            }}
               className="text-xs font-medium text-blue-800 disabled:opacity-40">More coded values</button>
           </div>
         </>
@@ -211,54 +237,66 @@ export const FrameSourcePanel = ({
   const client = useLoomClient();
   const [queryInput, setQueryInput] = useState('');
   const [query, setQuery] = useState('');
-  const [cursor, setCursor] = useState<string>();
-  const [state, setState] = useState<LoadState<{ sources: ReadonlyArray<FrameSourceOption>; nextCursor?: string }>>({ kind: 'loading' });
+  const [cursorState, setCursorState] = useState<{ readonly searchKey: string; readonly cursor: string }>();
   const [editingFrame, setEditingFrame] = useState<string>();
   const [openFrame, setOpenFrame] = useState<string>();
   const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
-  const previousFrameIds = useRef(new Set(frames.map((frame) => frame.id)));
+  const [pendingNewFrame, setPendingNewFrame] = useState<{
+    readonly scopeKey: string;
+    readonly sourceIdentity: string;
+    readonly previousFrameIds: ReadonlySet<string>;
+  }>();
+  const [loadedSourcePages, setLoadedSourcePages] = useState<{
+    readonly searchKey: string;
+    readonly value: { readonly sources: ReadonlyArray<FrameSourceOption>; readonly nextCursor?: string };
+  }>();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>();
   const [showAllSources, setShowAllSources] = useState(false);
   const [selectedForms, setSelectedForms] = useState<ReadonlyMap<string, FrameDefinition['form']>>(() => new Map());
   const [selectedRoutes, setSelectedRoutes] = useState<ReadonlyMap<string, string>>(() => new Map());
-  const [loadingMore, setLoadingMore] = useState(false);
   const [pendingImpact, setPendingImpact] = useState<
     | { readonly kind: 'remove'; readonly frameId: string }
     | { readonly kind: 'replace'; readonly frameId: string; readonly source: FrameSourceOption; readonly form: FrameDefinition['form'] }
   >();
 
-  useEffect(() => {
-    const added = frames.find((frame) => !previousFrameIds.current.has(frame.id));
-    if (added) setOpenFrame(added.id);
-    previousFrameIds.current = new Set(frames.map((frame) => frame.id));
-  }, [frames]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    if (cursor) setLoadingMore(true);
-    else setState({ kind: 'loading' });
-    void client.browseFrameSourceOptions({
+  const sourceSearchKey = JSON.stringify([
+    project, explorerId, authResourcePath ?? '', snapshotToken, outputId, rowRoot, query,
+  ]);
+  const cursor = cursorState?.searchKey === sourceSearchKey ? cursorState.cursor : undefined;
+  const sourcePickerEnabled = sourcePickerOpen && Boolean(snapshotToken && outputId && rowRoot);
+  const sourceQuery = useQuery(async (signal) => {
+    const response = await client.browseFrameSourceOptions({
       project, explorerId, authResourcePath, snapshotToken, outputId, query, cursor, limit: 20,
       requestId: `frame-source-options-${window.crypto.randomUUID()}`,
-    }, controller.signal).then((response) => {
-      if (controller.signal.aborted) return;
-      if (response.outputId !== outputId || response.snapshotToken !== snapshotToken) {
-        throw new Error('Loom returned framing choices for another table or dataset.');
-      }
-      setState((current) => ({ kind: 'ready', value: {
-        sources: cursor && current.kind === 'ready' ? [...current.value.sources, ...response.sources] : response.sources,
-        nextCursor: response.nextCursor,
-      } }));
-      setLoadingMore(false);
-    }).catch((error: unknown) => {
-      if (!controller.signal.aborted) {
-        setState({ kind: 'error', message: errorMessage(error) });
-        setLoadingMore(false);
-      }
-    });
-    return () => controller.abort();
-  }, [authResourcePath, client, cursor, explorerId, outputId, project, query, snapshotToken]);
+    }, signal);
+    if (response.outputId !== outputId || response.snapshotToken !== snapshotToken) {
+      throw new Error('Loom returned framing choices for another table or dataset.');
+    }
+    return { sources: response.sources, nextCursor: response.nextCursor };
+  }, [authResourcePath, client, cursor, explorerId, outputId, project, query, rowRoot, snapshotToken], sourcePickerEnabled);
+  const priorSourcePage = loadedSourcePages?.searchKey === sourceSearchKey ? loadedSourcePages.value : undefined;
+  const state: LoadState<{ sources: ReadonlyArray<FrameSourceOption>; nextCursor?: string }> = !sourcePickerEnabled
+    ? { kind: 'loading' }
+    : sourceQuery.error
+      ? { kind: 'error', message: errorMessage(sourceQuery.error) }
+      : sourceQuery.data
+        ? { kind: 'ready', value: {
+          sources: cursor && priorSourcePage ? [...priorSourcePage.sources, ...sourceQuery.data.sources] : sourceQuery.data.sources,
+          nextCursor: sourceQuery.data.nextCursor,
+        } }
+        : sourceQuery.isLoading && cursor && priorSourcePage
+          ? { kind: 'ready', value: priorSourcePage }
+          : sourceQuery.isLoading
+            ? { kind: 'loading' }
+            : { kind: 'loading' };
+  const loadingMore = cursor !== undefined && sourceQuery.isLoading;
+  const frameScopeKey = JSON.stringify([project, explorerId, authResourcePath ?? '', snapshotToken, outputId]);
+  const automaticOpenFrame = pendingNewFrame?.scopeKey === frameScopeKey
+    ? frames.find((frame) => !pendingNewFrame.previousFrameIds.has(frame.id) &&
+      frameIdentity(frame) === pendingNewFrame.sourceIdentity)?.id
+    : undefined;
+  const activeOpenFrame = openFrame ?? automaticOpenFrame;
 
   const saveSource = async (source: FrameSourceOption, form: FrameDefinition['form'], frameId?: string) => {
     setBusy(true);
@@ -266,6 +304,14 @@ export const FrameSourcePanel = ({
     try {
       const applied = frameId ? await onReplace(frameId, source, form) : await onSet(source, form);
       if (applied) {
+        if (!frameId) {
+          setPendingNewFrame({
+            scopeKey: frameScopeKey,
+            sourceIdentity: sourceIdentity(source),
+            previousFrameIds: new Set(frames.map((frame) => frame.id)),
+          });
+          setOpenFrame(undefined);
+        }
         setEditingFrame(undefined);
         setSourcePickerOpen(false);
         setPendingImpact(undefined);
@@ -292,6 +338,7 @@ export const FrameSourcePanel = ({
     setMessage(undefined);
     try {
       if (await onRemove(frameId)) {
+        setPendingNewFrame(undefined);
         setPendingImpact(undefined);
         setOpenFrame(undefined);
         setMessage('Framing source removed.');
@@ -349,9 +396,13 @@ export const FrameSourcePanel = ({
               <p className="text-xs text-slate-600">{routeLabel(frame)} · {matchSummary(frame)}</p>
             </div>
             <div className="flex gap-2 text-xs">
-              <button type="button" disabled={disabled || busy} onClick={() => { setOpenFrame(openFrame === frame.id ? undefined : frame.id); setEditingFrame(undefined); }}
-                className="font-semibold text-blue-800">{openFrame === frame.id ? 'Close values' : 'Choose values'}</button>
-              <button type="button" disabled={disabled || busy} onClick={() => { setEditingFrame(frame.id); setOpenFrame(undefined); setSourcePickerOpen(true); }}
+              <button type="button" disabled={disabled || busy} onClick={() => {
+                setPendingNewFrame(undefined);
+                setOpenFrame(activeOpenFrame === frame.id ? undefined : frame.id);
+                setEditingFrame(undefined);
+              }}
+                className="font-semibold text-blue-800">{activeOpenFrame === frame.id ? 'Close values' : 'Choose values'}</button>
+              <button type="button" disabled={disabled || busy} onClick={() => { setPendingNewFrame(undefined); setEditingFrame(frame.id); setOpenFrame(undefined); setSourcePickerOpen(true); }}
                 className="font-semibold text-blue-800">Change source</button>
               <button type="button" disabled={disabled || busy} onClick={() => {
                 if (columns.some((column) => column.frameId === frame.id)) setPendingImpact({ kind: 'remove', frameId: frame.id });
@@ -379,14 +430,21 @@ export const FrameSourcePanel = ({
                 aria-label={`Remove ${column.label} column`} className="shrink-0 font-semibold text-red-800 disabled:opacity-40">Remove column</button>
             </div>
           ))}
-          {openFrame === frame.id ? <CategoryPicker frame={frame} project={project} explorerId={explorerId}
+          {activeOpenFrame === frame.id ? <CategoryPicker frame={frame} project={project} explorerId={explorerId}
             authResourcePath={authResourcePath} snapshotToken={snapshotToken} outputId={outputId} rowRoot={rowRoot}
             disabled={disabled || busy} onAddSelected={onAddSelected} /> : null}
         </div>
       ))}
       {sourcePickerOpen ? <div className="mt-2 border-t border-slate-100 pt-2">
         {editingFrame ? <p className="mt-1 text-xs text-slate-600">Choose the same source with a different match rule to change how repeated values are handled.</p> : null}
-        <form className="mt-3 flex gap-2" onSubmit={(event) => { event.preventDefault(); setCursor(undefined); setQuery(queryInput.trim()); }}>
+        <form className="mt-3 flex gap-2" onSubmit={(event) => {
+          event.preventDefault();
+          const nextQuery = queryInput.trim();
+          const nextKey = JSON.stringify([project, explorerId, authResourcePath ?? '', snapshotToken, outputId, rowRoot, nextQuery]);
+          setLoadedSourcePages({ searchKey: nextKey, value: { sources: [] } });
+          setCursorState(undefined);
+          setQuery(nextQuery);
+        }}>
           <input type="search" aria-label="Search framing sources" value={queryInput} onChange={(event) => setQueryInput(event.currentTarget.value)}
             placeholder="Search a code, record type, or source" className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1.5 text-sm" />
           <button type="submit" className="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">Search</button>
@@ -443,7 +501,11 @@ export const FrameSourcePanel = ({
             </div>
             {sourceGroups.length > 4 ? <button type="button" onClick={() => setShowAllSources((current) => !current)}
               className="mt-2 text-xs font-semibold text-blue-800">{showAllSources ? 'Show fewer families' : `Show ${sourceGroups.length - 4} more families`}</button> : null}
-            {state.value.nextCursor ? <button type="button" disabled={loadingMore} onClick={() => setCursor(state.value.nextCursor)}
+            {state.value.nextCursor ? <button type="button" disabled={loadingMore} onClick={() => {
+              if (!state.value.nextCursor) return;
+              setLoadedSourcePages({ searchKey: sourceSearchKey, value: state.value });
+              setCursorState({ searchKey: sourceSearchKey, cursor: state.value.nextCursor });
+            }}
               className="mt-2 text-xs font-semibold text-blue-800 disabled:opacity-40">{loadingMore ? 'Loading more paths…' : 'More sources and paths'}</button> : null}
           </>
         ) : null}

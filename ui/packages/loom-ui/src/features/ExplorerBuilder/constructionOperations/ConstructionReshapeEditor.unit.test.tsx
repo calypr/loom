@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   type ConstructionReshapeEditorProps,
@@ -464,7 +464,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.queryByRole('button', { name: 'Add a paired coded concept' })).not.toBeInTheDocument();
   });
 
-  it('adds a direct coded concept to One row per as an owned helper and carries mixed fields with ONE', async () => {
+  it('shows a directly scoped coded value without search when the global first page is unrelated', async () => {
     const codedStage = {
       ...sourceStage,
       columns: [sourceColumns[0]],
@@ -485,10 +485,34 @@ describe('ConstructionReshapeEditor', () => {
       valueSelector: 'type', valueType: 'string', owningScope: 'Observation', occurrences: 10,
       examplesTruncated: false, observedUnitsTruncated: false,
       readiness: { status: 'READY', code: 'READY', message: 'Ready' },
-      constructionChoice: { choiceId: 'signed-category', source: { kind: 'SEMANTIC' } },
+      constructionChoice: { choiceId: 'signed-category', route: [], source: {
+        kind: 'SEMANTIC', conceptId: 'specimen-type', bindingId: 'observation-type', resourceType: 'Observation',
+        sourcePath: 'type.coding', system: 'https://example.test/codes', code: 'specimen_type',
+      } },
     };
-    const browseFrameSourceOptions = vi.fn().mockResolvedValue({ sources: [source] });
-    const browseSemanticInventory = vi.fn().mockResolvedValue({ entries: [item] });
+    const unrelatedItem = {
+      ...item,
+      conceptId: 'unrelated-concept',
+      bindingId: 'other-binding',
+      sourcePath: 'other.coding',
+      code: 'unrelated',
+      display: 'Unrelated coded value',
+    };
+    const unapprovedScopedItem = {
+      ...item,
+      conceptId: 'unapproved-concept',
+      code: 'unapproved',
+      display: 'Unapproved coded value',
+      constructionChoice: undefined,
+    };
+    const browseFrameSourceOptions = vi.fn().mockResolvedValue({ snapshotToken: 'snapshot', outputId: 'table', sources: [source], complete: true, truncated: false });
+    // An unscoped catalog page starts with another binding; coded choices should use the signed family instead.
+    const browseSemanticInventory = vi.fn((request: { readonly sourceChoiceId?: string; readonly cursor?: string }) => {
+      const scope = { state: 'complete', contextToken: 'coded-context', buildId: 'coded-build', sourceAvailability: 'unproven' };
+      if (!request.sourceChoiceId) return Promise.resolve({ ...scope, entries: [unrelatedItem], nextCursor: 'next-coded-page' });
+      if (request.cursor) return Promise.resolve({ ...scope, entries: [item, unapprovedScopedItem] });
+      return Promise.resolve({ ...scope, entries: [], nextCursor: 'next-coded-page' });
+    });
     const codedPivotContext = {
       client: { browseFrameSourceOptions, browseSemanticInventory },
       project: 'project', explorerId: 'explorer', snapshotToken: 'snapshot', outputId: 'table', rowRoot: 'Observation',
@@ -499,6 +523,32 @@ describe('ConstructionReshapeEditor', () => {
     });
 
     const codedChoice = await screen.findByRole('checkbox', { name: 'Group by coded value: Specimen type' });
+    expect(browseSemanticInventory.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      project: 'project', explorerId: 'explorer', snapshotToken: 'snapshot', rowRoot: 'Observation', limit: 1,
+    }));
+    expect(browseSemanticInventory.mock.calls[0]?.[0]).not.toHaveProperty('sourceChoiceId');
+    const familyRequests = browseSemanticInventory.mock.calls
+      .map(([request]) => request)
+      .filter((request) => request.sourceChoiceId);
+    expect(familyRequests).toHaveLength(2);
+    expect(familyRequests).toEqual([
+      expect.objectContaining({
+        project: 'project', explorerId: 'explorer', snapshotToken: 'snapshot', outputId: 'table', rowRoot: 'Observation',
+        sourceChoiceId: 'signed-family', limit: 50,
+      }),
+      expect.objectContaining({
+        project: 'project', explorerId: 'explorer', snapshotToken: 'snapshot', outputId: 'table', rowRoot: 'Observation',
+        sourceChoiceId: 'signed-family', cursor: 'next-coded-page', limit: 50,
+      }),
+    ]);
+    expect(familyRequests[0]).not.toHaveProperty('query');
+    expect(familyRequests[0]).not.toHaveProperty('frameId');
+    expect(screen.getByRole('region', { name: 'Coded value choices by direct source field' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Coded values from Observation type' })).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Group by coded value: Unapproved coded value' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Group by coded value: Unrelated coded value' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Search coded values')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'More coded values' })).not.toBeInTheDocument();
     expect(screen.queryByText('Need a coded-value column first?')).not.toBeInTheDocument();
     fireEvent.click(screen.getByLabelText('Group by Site'));
     fireEvent.click(codedChoice);
@@ -511,12 +561,380 @@ describe('ConstructionReshapeEditor', () => {
     });
     const [helper, group] = onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps ?? [];
     expect(helper?.ownerStepId).toBe(group?.id);
-    expect(helper?.operation.codedPivot.categories).toEqual([expect.objectContaining({ choiceId: 'signed-category' })]);
+    expect(helper?.operation.codedPivot).toMatchObject({
+      sourceChoiceId: 'signed-family',
+      categories: [expect.objectContaining({ choiceId: 'signed-category' })],
+    });
     expect(helper?.rowValues).toEqual([expect.objectContaining({ inputColumnId: 'site-id', outputColumnId: expect.not.stringMatching(/^site-id$/), policy: 'ONE' })]);
     expect(group?.inputs).toEqual([{ kind: 'STEP_OUTPUT', stepId: helper?.id }]);
     expect(group?.operation.group.keys).toHaveLength(2);
     expect(group?.operation.group.keys).toEqual(expect.arrayContaining([expect.objectContaining({ inputColumnId: helper?.rowValues?.[0].outputColumnId })]));
-    expect(browseSemanticInventory).toHaveBeenCalledWith(expect.not.objectContaining({ sourceChoiceId: expect.anything() }), expect.any(AbortSignal));
+    expect(browseSemanticInventory.mock.calls.filter(([request]) => request.sourceChoiceId)
+      .every(([request]) => request.sourceChoiceId === 'signed-family')).toBe(true);
+  });
+
+  it.each([
+    {
+      name: 'missing current build',
+      response: { buildId: '', state: 'unknown' as const, sourceAvailability: 'unknown' as const },
+      status: 'No current coded-value catalog is available.',
+    },
+    {
+      name: 'running current build',
+      response: { buildId: 'coded-build', state: 'running' as const, sourceAvailability: 'unknown' as const },
+      status: 'The coded-value catalog is running. Choices will appear when it is complete.',
+    },
+  ])('keeps raw Group and COUNT_ROWS available with $name', async ({ response, status }) => {
+    const codedStage = {
+      ...sourceStage,
+      capabilities: [...sourceStage.capabilities, { kind: 'CODED_PIVOT' as const, supported: true }],
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const browseFrameSourceOptions = vi.fn();
+    const browseSemanticInventory = vi.fn().mockResolvedValue({
+      ...response, contextToken: 'coded-context', entries: [],
+    });
+    const codedPivotContext = {
+      client: { browseFrameSourceOptions, browseSemanticInventory },
+      project: 'project', explorerId: 'explorer', snapshotToken: 'snapshot', outputId: 'table', rowRoot: 'Observation',
+    } as unknown as NonNullable<ConstructionReshapeEditorProps['codedPivotContext']>;
+    const onCandidateChange = vi.fn();
+    renderEditor({
+      capabilities: capabilitiesFor([codedStage], codedStage), initialKind: 'group', codedPivotContext, onCandidateChange,
+    });
+
+    expect(await screen.findByText(status)).toBeInTheDocument();
+    expect(browseSemanticInventory).toHaveBeenCalledWith(
+      expect.objectContaining({ project: 'project', explorerId: 'explorer', snapshotToken: 'snapshot', rowRoot: 'Observation', limit: 1 }),
+      expect.any(AbortSignal),
+    );
+    expect(browseFrameSourceOptions).not.toHaveBeenCalled();
+    expect(controlValue('Summary 1')).toBe('COUNT_ROWS');
+
+    fireEvent.click(screen.getByLabelText('Group by Site'));
+    expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
+      kind: 'GROUP', group: { aggregates: [{ operation: 'COUNT_ROWS' }] },
+    });
+    expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps.at(-1)?.operation.kind).not.toBe('CODED_PIVOT');
+    expect(browseFrameSourceOptions).not.toHaveBeenCalled();
+  });
+
+  it('polls a running coded inventory until choices are available, then stops polling', async () => {
+    const codedStage = {
+      ...sourceStage,
+      columns: [sourceColumns[0]],
+      capabilities: sourceStage.capabilities.map((capability) => capability.kind === 'GROUP'
+        ? { ...capability, supported: false, reason: 'No scalar table key yet.' }
+        : capability).concat([{ kind: 'CODED_PIVOT' as const, supported: true }]),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const source = {
+      choiceId: 'signed-family', title: 'Observation type', description: 'Direct source coded values',
+      resourceType: 'Observation', sourcePath: 'type.coding', bindingId: 'observation-type',
+      owningScope: 'Observation', keyPath: 'type.coding', valuePath: 'type', logicalType: 'string',
+      exampleConcept: 'specimen_type', observedOccurrences: 10, route: [],
+      forms: [{ form: 'VALUE', zeroPolicy: 'NULL', manyPolicy: 'INVALID_MULTIPLE_VALUES', decision: 'one value' }], defaultForm: 'VALUE',
+    };
+    const item = {
+      conceptId: 'specimen-type', bindingId: 'observation-type', resourceType: 'Observation', sourcePath: 'type.coding',
+      system: 'https://example.test/codes', code: 'specimen_type', codingVersion: '', display: 'Specimen type',
+      valueSelector: 'type', valueType: 'string', owningScope: 'Observation', occurrences: 10,
+      examplesTruncated: false, observedUnitsTruncated: false,
+      readiness: { status: 'READY', code: 'READY', message: 'Ready' },
+      constructionChoice: { choiceId: 'signed-category', route: [], source: {
+        kind: 'SEMANTIC', conceptId: 'specimen-type', bindingId: 'observation-type', resourceType: 'Observation',
+        sourcePath: 'type.coding', system: 'https://example.test/codes', code: 'specimen_type',
+      } },
+    };
+    const browseFrameSourceOptions = vi.fn().mockResolvedValue({
+      snapshotToken: 'snapshot', outputId: 'table', sources: [source], complete: true, truncated: false,
+    });
+    let readinessRequests = 0;
+    const browseSemanticInventory = vi.fn((request: { readonly sourceChoiceId?: string }) => {
+      if (!request.sourceChoiceId) {
+        readinessRequests += 1;
+        return Promise.resolve({
+          state: readinessRequests === 1 ? 'running' as const : 'complete' as const,
+          contextToken: 'coded-context', buildId: 'coded-build', sourceAvailability: 'verified' as const, entries: [],
+        });
+      }
+      return Promise.resolve({
+        state: 'complete' as const, contextToken: 'coded-context', buildId: 'coded-build',
+        sourceAvailability: 'verified' as const, entries: [item],
+      });
+    });
+    const codedPivotContext = {
+      client: { browseFrameSourceOptions, browseSemanticInventory },
+      project: 'project', explorerId: 'explorer', snapshotToken: 'snapshot', outputId: 'table', rowRoot: 'Observation',
+    } as unknown as NonNullable<ConstructionReshapeEditorProps['codedPivotContext']>;
+
+    vi.useFakeTimers();
+    try {
+      renderEditor({ capabilities: capabilitiesFor([codedStage], codedStage), initialKind: 'group', codedPivotContext });
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+
+      expect(screen.getByText('The coded-value catalog is running. Choices will appear when it is complete.')).toBeInTheDocument();
+      expect(readinessRequests).toBe(1);
+      expect(browseFrameSourceOptions).not.toHaveBeenCalled();
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+      expect(screen.getByRole('checkbox', { name: 'Group by coded value: Specimen type' })).toBeInTheDocument();
+      expect(readinessRequests).toBe(2);
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+      expect(readinessRequests).toBe(2);
+    } finally {
+      cleanup();
+      vi.useRealTimers();
+    }
+  });
+
+  it('browses coded source fields after a complete build even when global availability is unproven', async () => {
+    const codedStage = {
+      ...sourceStage,
+      capabilities: [...sourceStage.capabilities, { kind: 'CODED_PIVOT' as const, supported: true }],
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    let releaseReadiness!: (response: {
+      readonly contextToken: string;
+      readonly buildId: string;
+      readonly state: 'complete';
+      readonly sourceAvailability: 'unproven';
+      readonly entries: [];
+    }) => void;
+    const readiness = new Promise<{
+      readonly contextToken: string;
+      readonly buildId: string;
+      readonly state: 'complete';
+      readonly sourceAvailability: 'unproven';
+      readonly entries: [];
+    }>((resolve) => { releaseReadiness = resolve; });
+    const source = {
+      choiceId: 'signed-family', title: 'Observation type', description: 'Direct source coded values',
+      resourceType: 'Observation', sourcePath: 'type.coding', bindingId: 'observation-type',
+      owningScope: 'Observation', keyPath: 'type.coding', valuePath: 'type', logicalType: 'string',
+      exampleConcept: 'specimen_type', observedOccurrences: 10, route: [],
+      forms: [{ form: 'VALUE', zeroPolicy: 'NULL', manyPolicy: 'INVALID_MULTIPLE_VALUES', decision: 'one value' }], defaultForm: 'VALUE',
+    };
+    const browseFrameSourceOptions = vi.fn().mockResolvedValue({
+      snapshotToken: 'snapshot', outputId: 'table', sources: [source], complete: true, truncated: false,
+    });
+    const browseSemanticInventory = vi.fn((request: { readonly sourceChoiceId?: string }) => request.sourceChoiceId
+      ? Promise.resolve({
+        contextToken: 'coded-context', buildId: 'coded-build', state: 'complete' as const,
+        sourceAvailability: 'unproven' as const, entries: [],
+      })
+      : readiness);
+    const codedPivotContext = {
+      client: { browseFrameSourceOptions, browseSemanticInventory },
+      project: 'project', explorerId: 'explorer', snapshotToken: 'snapshot', outputId: 'table', rowRoot: 'Observation',
+    } as unknown as NonNullable<ConstructionReshapeEditorProps['codedPivotContext']>;
+    renderEditor({ capabilities: capabilitiesFor([codedStage], codedStage), initialKind: 'group', codedPivotContext });
+
+    expect(screen.getByText('Checking coded-value availability…')).toBeInTheDocument();
+    expect(controlValue('Summary 1')).toBe('COUNT_ROWS');
+    expect(browseFrameSourceOptions).not.toHaveBeenCalled();
+
+    releaseReadiness({
+      contextToken: 'coded-context', buildId: 'coded-build', state: 'complete', sourceAvailability: 'unproven', entries: [],
+    });
+    await waitFor(() => expect(browseFrameSourceOptions).toHaveBeenCalledWith(
+      expect.objectContaining({ project: 'project', snapshotToken: 'snapshot', outputId: 'table', resourceType: 'Observation' }),
+      expect.any(AbortSignal),
+    ));
+  });
+
+  it('surfaces readiness request errors instead of discovering source options anyway', async () => {
+    const codedStage = {
+      ...sourceStage,
+      capabilities: [...sourceStage.capabilities, { kind: 'CODED_PIVOT' as const, supported: true }],
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const browseFrameSourceOptions = vi.fn();
+    const browseSemanticInventory = vi.fn().mockRejectedValue(new Error('409 Semantic inventory unavailable'));
+    const codedPivotContext = {
+      client: { browseFrameSourceOptions, browseSemanticInventory },
+      project: 'project', explorerId: 'explorer', snapshotToken: 'snapshot', outputId: 'table', rowRoot: 'Observation',
+    } as unknown as NonNullable<ConstructionReshapeEditorProps['codedPivotContext']>;
+    renderEditor({ capabilities: capabilitiesFor([codedStage], codedStage), initialKind: 'group', codedPivotContext });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('409 Semantic inventory unavailable');
+    expect(controlValue('Summary 1')).toBe('COUNT_ROWS');
+    expect(browseFrameSourceOptions).not.toHaveBeenCalled();
+  });
+
+  it('loads a direct family before an unrelated later source page settles', async () => {
+    const codedStage = {
+      ...sourceStage,
+      columns: [sourceColumns[0]],
+      capabilities: sourceStage.capabilities.map((capability) => capability.kind === 'GROUP'
+        ? { ...capability, supported: false, reason: 'No scalar table key yet.' }
+        : capability).concat([{ kind: 'CODED_PIVOT' as const, supported: true }]),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const source = {
+      choiceId: 'signed-height-family', title: 'Height', description: 'Direct source coded values',
+      resourceType: 'Observation', sourcePath: 'height.coding', bindingId: 'observation-height',
+      owningScope: 'Observation', keyPath: 'height.coding', valuePath: 'height', logicalType: 'string',
+      exampleConcept: 'height', observedOccurrences: 10, route: [],
+      forms: [{ form: 'VALUE', zeroPolicy: 'NULL', manyPolicy: 'INVALID_MULTIPLE_VALUES', decision: 'one value' }], defaultForm: 'VALUE',
+    };
+    const item = {
+      conceptId: 'height', bindingId: 'observation-height', resourceType: 'Observation', sourcePath: 'height.coding',
+      system: 'https://example.test/height', code: 'height', codingVersion: '', display: 'Height',
+      valueSelector: 'height', valueType: 'decimal', owningScope: 'Observation', occurrences: 10,
+      examplesTruncated: false, observedUnitsTruncated: false,
+      readiness: { status: 'READY', code: 'READY', message: 'Ready' },
+      constructionChoice: { choiceId: 'signed-height', route: [], source: {
+        kind: 'SEMANTIC', conceptId: 'height', bindingId: 'observation-height', resourceType: 'Observation',
+        sourcePath: 'height.coding', system: 'https://example.test/height', code: 'height',
+      } },
+    };
+    const laterRouteSource = {
+      ...source,
+      choiceId: 'signed-related-height-family',
+      title: 'Related Height',
+      bindingId: 'related-height',
+      sourcePath: 'related.height.coding',
+      route: [{ edgeId: 'patient-observation', fromNodeId: 'patient-node', toNodeId: 'observation-node',
+        fromResourceType: 'Patient', toResourceType: 'Observation', relationship: 'observations',
+        storageDirection: 'OUTBOUND', matchMode: 'OPTIONAL' }],
+    };
+    let resolveLaterPage!: (response: {
+      readonly snapshotToken: string;
+      readonly outputId: string;
+      readonly sources: ReadonlyArray<typeof laterRouteSource>;
+      readonly complete: boolean;
+      readonly truncated: boolean;
+    }) => void;
+    let laterPageSettled = false;
+    const laterPage = new Promise<{
+      readonly snapshotToken: string;
+      readonly outputId: string;
+      readonly sources: ReadonlyArray<typeof laterRouteSource>;
+      readonly complete: boolean;
+      readonly truncated: boolean;
+    }>((resolve) => { resolveLaterPage = (response) => { laterPageSettled = true; resolve(response); }; });
+    const browseFrameSourceOptions = vi.fn((request: { readonly cursor?: string }) => request.cursor
+      ? laterPage
+      : Promise.resolve({ snapshotToken: 'snapshot', outputId: 'table', sources: [source], complete: false, truncated: false, nextCursor: 'later-route-page' }));
+    const browseSemanticInventory = vi.fn((request: { readonly sourceChoiceId?: string }) => Promise.resolve({
+      state: 'complete', contextToken: 'coded-context', buildId: 'coded-build', sourceAvailability: 'unproven',
+      entries: request.sourceChoiceId === 'signed-height-family' ? [item] : [],
+    }));
+    const codedPivotContext = {
+      client: { browseFrameSourceOptions, browseSemanticInventory },
+      project: 'project', explorerId: 'explorer', snapshotToken: 'snapshot', outputId: 'table', rowRoot: 'Observation',
+    } as unknown as NonNullable<ConstructionReshapeEditorProps['codedPivotContext']>;
+    renderEditor({ capabilities: capabilitiesFor([codedStage], codedStage), initialKind: 'group', codedPivotContext });
+
+    const heightChoice = await screen.findByRole('checkbox', { name: 'Group by coded value: Height' });
+    await waitFor(() => expect(browseFrameSourceOptions).toHaveBeenCalledWith(
+      expect.objectContaining({ cursor: 'later-route-page', snapshotToken: 'snapshot', outputId: 'table', resourceType: 'Observation' }),
+      expect.any(AbortSignal),
+    ));
+    expect(browseSemanticInventory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        project: 'project', explorerId: 'explorer', snapshotToken: 'snapshot', outputId: 'table', rowRoot: 'Observation',
+        sourceChoiceId: 'signed-height-family', limit: 50,
+      }),
+      expect.any(AbortSignal),
+    );
+    expect(heightChoice).toBeEnabled();
+    expect(laterPageSettled).toBe(false);
+
+    resolveLaterPage({
+      snapshotToken: 'snapshot', outputId: 'table', sources: [laterRouteSource], complete: true, truncated: false,
+    });
+    await waitFor(() => expect(screen.queryByText('Loading coded values…')).not.toBeInTheDocument());
+    expect(screen.getAllByTestId('construction-group-coded-option')).toHaveLength(1);
+    expect(screen.getByRole('region', { name: 'Coded values from Height' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Coded values from Related Height' })).not.toBeInTheDocument();
+  });
+
+  it('hides coded grouping when Patient has no legal direct coded families', async () => {
+    const codedStage = {
+      ...sourceStage,
+      columns: [sourceColumns[0]],
+      capabilities: sourceStage.capabilities.map((capability) => capability.kind === 'GROUP'
+        ? { ...capability, supported: false, reason: 'No scalar table key yet.' }
+        : capability).concat([{ kind: 'CODED_PIVOT' as const, supported: true }]),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const browseFrameSourceOptions = vi.fn().mockResolvedValue({ snapshotToken: 'snapshot', outputId: 'table', sources: [], complete: true, truncated: false });
+    const browseSemanticInventory = vi.fn().mockResolvedValue({
+      contextToken: 'coded-context', buildId: 'coded-build', state: 'complete', sourceAvailability: 'verified', entries: [],
+    });
+    const codedPivotContext = {
+      client: { browseFrameSourceOptions, browseSemanticInventory },
+      project: 'project', explorerId: 'explorer', snapshotToken: 'snapshot', outputId: 'table', rowRoot: 'Patient',
+    } as unknown as NonNullable<ConstructionReshapeEditorProps['codedPivotContext']>;
+    renderEditor({
+      capabilities: capabilitiesFor([codedStage], codedStage), initialKind: 'group', codedPivotContext,
+    });
+
+    await waitFor(() => expect(screen.queryByTestId('construction-group-coded-values')).not.toBeInTheDocument());
+    expect(browseFrameSourceOptions).toHaveBeenCalledWith(expect.objectContaining({ resourceType: 'Patient', limit: 50 }), expect.any(AbortSignal));
+    expect(browseSemanticInventory).toHaveBeenCalledTimes(1);
+    expect(browseSemanticInventory.mock.calls[0]?.[0]).not.toHaveProperty('sourceChoiceId');
+    expect(screen.queryByLabelText('Search coded values')).not.toBeInTheDocument();
+  });
+
+  it('fills a short direct-family page until scrollable, then loads another page on scroll', async () => {
+    const codedStage = {
+      ...sourceStage,
+      columns: [sourceColumns[0]],
+      capabilities: sourceStage.capabilities.map((capability) => capability.kind === 'GROUP'
+        ? { ...capability, supported: false, reason: 'No scalar table key yet.' }
+        : capability).concat([{ kind: 'CODED_PIVOT' as const, supported: true }]),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const source = {
+      choiceId: 'signed-family', title: 'Observation type', description: 'Direct source coded values',
+      resourceType: 'Observation', sourcePath: 'type.coding', bindingId: 'observation-type',
+      owningScope: 'Observation', keyPath: 'type.coding', valuePath: 'type', logicalType: 'string',
+      exampleConcept: 'specimen_type', observedOccurrences: 10, route: [],
+      forms: [{ form: 'VALUE', zeroPolicy: 'NULL', manyPolicy: 'INVALID_MULTIPLE_VALUES', decision: 'one value' }], defaultForm: 'VALUE',
+    };
+    const entries = Array.from({ length: 12 }, (_, index) => ({
+      conceptId: `specimen-${index}`, bindingId: 'observation-type', resourceType: 'Observation', sourcePath: 'type.coding',
+      system: 'https://example.test/codes', code: `specimen_${index}`, codingVersion: '', display: `Specimen ${index}`,
+      valueSelector: 'type', valueType: 'string', owningScope: 'Observation', occurrences: 10,
+      examplesTruncated: false, observedUnitsTruncated: false,
+      readiness: { status: 'READY', code: 'READY', message: 'Ready' },
+      constructionChoice: { choiceId: `signed-category-${index}`, route: [], source: {
+        kind: 'SEMANTIC', conceptId: `specimen-${index}`, bindingId: 'observation-type', resourceType: 'Observation',
+        sourcePath: 'type.coding', system: 'https://example.test/codes', code: `specimen_${index}`,
+      } },
+    }));
+    const browseFrameSourceOptions = vi.fn().mockResolvedValue({ snapshotToken: 'snapshot', outputId: 'table', sources: [source], complete: true, truncated: false });
+    const browseSemanticInventory = vi.fn((request: { readonly sourceChoiceId?: string; readonly cursor?: string }) => {
+      const pageIndex = request.cursor ? Number(request.cursor.slice('coded-page-'.length)) : 0;
+      const pageEntries = [entries.slice(0, 8), [entries[0], entries[8]], [entries[9]], entries.slice(10, 12)];
+      return Promise.resolve({
+        state: 'complete', contextToken: 'coded-context', buildId: 'coded-build', sourceAvailability: 'verified',
+        entries: pageEntries[pageIndex] ?? [],
+        ...(pageIndex < 3 ? { nextCursor: `coded-page-${pageIndex + 1}` } : {}),
+      });
+    });
+    const codedPivotContext = {
+      client: { browseFrameSourceOptions, browseSemanticInventory },
+      project: 'project', explorerId: 'explorer', snapshotToken: 'snapshot', outputId: 'table', rowRoot: 'Observation',
+    } as unknown as NonNullable<ConstructionReshapeEditorProps['codedPivotContext']>;
+    renderEditor({ capabilities: capabilitiesFor([codedStage], codedStage), initialKind: 'group', codedPivotContext });
+
+    await waitFor(() => expect(screen.getAllByTestId('construction-group-coded-option')).toHaveLength(10));
+    const familyRequests = browseSemanticInventory.mock.calls.filter(([request]) => request.sourceChoiceId);
+    expect(familyRequests).toHaveLength(3);
+    expect(familyRequests.map(([request]) => request.cursor)).toEqual([
+      undefined, 'coded-page-1', 'coded-page-2',
+    ]);
+    const choices = screen.getByRole('region', { name: 'Coded value choices by direct source field' });
+    Object.defineProperties(choices, {
+      clientHeight: { configurable: true, value: 224 },
+      scrollHeight: { configurable: true, value: 424 },
+      scrollTop: { configurable: true, value: 200 },
+    });
+    expect(choices.scrollHeight).toBeGreaterThan(choices.clientHeight);
+    fireEvent.scroll(choices);
+
+    expect(await screen.findByRole('checkbox', { name: 'Group by coded value: Specimen 10' })).toBeInTheDocument();
+    expect(browseSemanticInventory.mock.calls.filter(([request]) => request.sourceChoiceId)).toHaveLength(4);
+    expect(browseSemanticInventory.mock.calls.find(([request]) => request.cursor === 'coded-page-3')?.[0])
+      .toMatchObject({ sourceChoiceId: 'signed-family', cursor: 'coded-page-3', limit: 50 });
   });
 
   it('reopens a GROUP-owned coded helper from its direct source and keeps helper outputs stable on edit', async () => {
@@ -573,7 +991,7 @@ describe('ConstructionReshapeEditor', () => {
       ],
     };
     const savedConstruction = { version: 1, steps: [helper, group] };
-    const browseFrameSourceOptions = vi.fn().mockResolvedValue({ sources: [{
+    const browseFrameSourceOptions = vi.fn().mockResolvedValue({ snapshotToken: 'snapshot', outputId: 'table', sources: [{
       choiceId: 'signed-family', title: 'Observation type', description: 'Direct source coded values',
       resourceType: 'Observation', sourcePath: 'type.coding', bindingId: 'observation-type',
       owningScope: 'Observation', keyPath: 'type.coding', valuePath: 'type', logicalType: 'string',
@@ -581,12 +999,31 @@ describe('ConstructionReshapeEditor', () => {
       forms: [{ form: 'VALUE', zeroPolicy: 'NULL', manyPolicy: 'INVALID_MULTIPLE_VALUES', decision: 'one value' }], defaultForm: 'VALUE',
     }] });
     const inventoryEntries = [
-      { conceptId: 'specimen', bindingId: 'observation-type', resourceType: 'Observation', sourcePath: 'type.coding', system: 'urn:example', code: 'specimen_type', codingVersion: '', display: 'Specimen type', valueSelector: 'type', valueType: 'string', owningScope: 'Observation', occurrences: 10, examplesTruncated: false, observedUnitsTruncated: false, readiness: { status: 'READY', code: 'READY', message: 'Ready' }, constructionChoice: { choiceId: 'signed-specimen', source: { kind: 'SEMANTIC' } } },
-      { conceptId: 'disease', bindingId: 'observation-type', resourceType: 'Observation', sourcePath: 'type.coding', system: 'urn:example', code: 'primary_disease_type', codingVersion: '', display: 'Primary disease type', valueSelector: 'type', valueType: 'string', owningScope: 'Observation', occurrences: 6, examplesTruncated: false, observedUnitsTruncated: false, readiness: { status: 'READY', code: 'READY', message: 'Ready' }, constructionChoice: { choiceId: 'signed-disease', source: { kind: 'SEMANTIC' } } },
+      {
+        conceptId: 'specimen', bindingId: 'observation-type', resourceType: 'Observation', sourcePath: 'type.coding',
+        system: 'urn:example', code: 'specimen_type', codingVersion: '', display: 'Specimen type', valueSelector: 'type',
+        valueType: 'string', owningScope: 'Observation', occurrences: 10, examplesTruncated: false, observedUnitsTruncated: false,
+        readiness: { status: 'READY', code: 'READY', message: 'Ready' },
+        constructionChoice: { choiceId: 'signed-specimen', route: [], source: {
+          kind: 'SEMANTIC', conceptId: 'specimen', bindingId: 'observation-type', resourceType: 'Observation',
+          sourcePath: 'type.coding', system: 'urn:example', code: 'specimen_type',
+        } },
+      },
+      {
+        conceptId: 'disease', bindingId: 'observation-type', resourceType: 'Observation', sourcePath: 'type.coding',
+        system: 'urn:example', code: 'primary_disease_type', codingVersion: '', display: 'Primary disease type', valueSelector: 'type',
+        valueType: 'string', owningScope: 'Observation', occurrences: 6, examplesTruncated: false, observedUnitsTruncated: false,
+        readiness: { status: 'READY', code: 'READY', message: 'Ready' },
+        constructionChoice: { choiceId: 'signed-disease', route: [], source: {
+          kind: 'SEMANTIC', conceptId: 'disease', bindingId: 'observation-type', resourceType: 'Observation',
+          sourcePath: 'type.coding', system: 'urn:example', code: 'primary_disease_type',
+        } },
+      },
     ];
     const browseSemanticInventory = vi.fn((request: { readonly sourceChoiceId?: string; readonly query?: string }) => Promise.resolve({
-      // The saved category is outside the first page and can only be reauthorized by exact family-scoped lookup.
-      entries: request.sourceChoiceId ? [inventoryEntries[0]] : [inventoryEntries[1]],
+      // The saved category is reauthorized by exact family-scoped lookup.
+      state: 'complete', contextToken: 'coded-context', buildId: 'coded-build', sourceAvailability: 'unproven',
+      entries: request.query ? [inventoryEntries[0]] : inventoryEntries,
     }));
     const codedPivotContext = {
       client: { browseFrameSourceOptions, browseSemanticInventory },
@@ -630,6 +1067,7 @@ describe('ConstructionReshapeEditor', () => {
 
     rendered.view.unmount();
     browseSemanticInventory.mockImplementation((request) => Promise.resolve({
+      state: 'complete', contextToken: 'coded-context', buildId: 'coded-build', sourceAvailability: 'verified',
       entries: request.sourceChoiceId ? [] : [inventoryEntries[1]],
     }));
     const unavailableEditor = renderEditor({
@@ -642,7 +1080,49 @@ describe('ConstructionReshapeEditor', () => {
     expect(await screen.findByText('This coded value is no longer available. Remove it to continue.')).toBeInTheDocument();
     const unavailableChoice = screen.getByRole('checkbox', { name: 'Group by coded value: Specimen type' });
     expect(unavailableChoice).toHaveProperty('checked', true);
-    fireEvent.click(unavailableChoice);
+
+    const unverifiedBrowseFrameSourceOptions = vi.fn().mockResolvedValue({
+      snapshotToken: 'snapshot', outputId: 'table', sources: [{
+        choiceId: 'signed-family', title: 'Observation type', description: 'Direct source coded values',
+        resourceType: 'Observation', sourcePath: 'type.coding', bindingId: 'observation-type',
+        owningScope: 'Observation', keyPath: 'type.coding', valuePath: 'type', logicalType: 'string',
+        exampleConcept: 'specimen_type', observedOccurrences: 10, route: [],
+        forms: [{ form: 'VALUE', zeroPolicy: 'NULL', manyPolicy: 'INVALID_MULTIPLE_VALUES', decision: 'one value' }],
+        defaultForm: 'VALUE',
+      }], complete: true, truncated: false,
+    });
+    const unverifiedBrowseSemanticInventory = vi.fn((request: {
+      readonly sourceChoiceId?: string;
+      readonly query?: string;
+    }) => Promise.resolve({
+      state: 'complete', contextToken: 'coded-context', buildId: 'coded-build', sourceAvailability: 'unproven', entries: [],
+    }));
+    const unverifiedContext = {
+      client: { browseFrameSourceOptions: unverifiedBrowseFrameSourceOptions, browseSemanticInventory: unverifiedBrowseSemanticInventory },
+      project: 'project', explorerId: 'explorer', snapshotToken: 'snapshot', outputId: 'table', rowRoot: 'Observation',
+    } as unknown as NonNullable<ConstructionReshapeEditorProps['codedPivotContext']>;
+    unavailableEditor.view.rerender(<ConstructionReshapeEditor construction={savedConstruction}
+      capabilities={capabilitiesFor([directStage, helperStage], helperStage)} editingStep={group}
+      codedPivotContext={unverifiedContext} disabled={false} onCandidateChange={onCandidateChange} onEditStep={vi.fn()} />);
+
+    await waitFor(() => expect(unverifiedBrowseFrameSourceOptions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        project: 'project', explorerId: 'explorer', snapshotToken: 'snapshot', outputId: 'table', resourceType: 'Observation',
+      }),
+      expect.any(AbortSignal),
+    ));
+    await waitFor(() => expect(unverifiedBrowseSemanticInventory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        project: 'project', explorerId: 'explorer', snapshotToken: 'snapshot', outputId: 'table', rowRoot: 'Observation',
+        sourceChoiceId: 'signed-family', query: 'specimen_type', limit: 50,
+      }),
+      expect.any(AbortSignal),
+    ));
+    expect(screen.queryByText('Coded-value availability has not been verified for the current catalog.')).not.toBeInTheDocument();
+    expect(await screen.findByText('This coded value is no longer available. Remove it to continue.')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Group by coded value: Specimen type' })).toHaveProperty('checked', true);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Group by coded value: Specimen type' }));
     expect(screen.queryByText('This coded value is no longer available. Remove it to continue.')).not.toBeInTheDocument();
     unavailableEditor.view.unmount();
   });

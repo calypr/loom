@@ -81,6 +81,22 @@ func (r *physicalPlanRenderer) renderCall(expression ir.PhysicalExpression) (str
 			return "", err
 		}
 		return "SORTED_UNIQUE(FLATTEN(" + args[0] + "))", nil
+	case "distinct_present_one":
+		if err := require(1); err != nil {
+			return "", err
+		}
+		typeName, err := aqlTableScalarType(call.TargetKind)
+		if err != nil {
+			return "", fmt.Errorf("distinct_present_one target kind: %w", err)
+		}
+		typeBind := r.newInternalBindKeyWithValue("related_source_row_value_type", typeName)
+		frame := r.newInternalVariable("related_source_row_value_frame")
+		item := r.newInternalVariable("related_source_row_value_item")
+		values := r.newInternalVariable("related_source_row_value_values")
+		return fmt.Sprintf(
+			`FIRST(FOR %s IN [true] LET %s = SORTED_UNIQUE((FOR %s IN FLATTEN(%s) FILTER %s != null FILTER ASSERT(TYPENAME(%s) == @%s, "CONSTRUCTION_ROW_VALUE_TYPE_MISMATCH") RETURN %s)) FILTER ASSERT(LENGTH(%s) <= 1, "CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES") RETURN (LENGTH(%s) == 0 ? null : FIRST(%s)))`,
+			frame, values, item, args[0], item, item, typeBind, item, values, values, values,
+		), nil
 	case "concat":
 		if len(args) == 0 {
 			return "", fmt.Errorf("concat requires at least one argument")

@@ -50,7 +50,8 @@ func LowerCorrelatedBinding(resourceType string, binding fhirschema.CorrelatedBi
 		Source: source, ResourceType: resourceType, OwnerResource: checked.OwnerResource, OwnerSelector: checked.OwnerSelector, KeyResource: checked.KeyResource,
 		KeySelector: checked.KeySelector, SystemSelector: checked.SystemSelector, CodeSelector: checked.CodeSelector,
 		ValueSelector: checked.ValueSelector, ValueFallbacks: append([]spec.Selector(nil), checked.ValueFallbacks...),
-		ChoiceArms: choiceArms, ChoiceSelectors: choiceSelectors, LogicalType: checked.LogicalType, ValuePrimitive: string(checked.ValuePrimitive),
+		FallbackOnBlankString: checked.FallbackOnBlankString,
+		ChoiceArms:            choiceArms, ChoiceSelectors: choiceSelectors, LogicalType: checked.LogicalType, ValuePrimitive: string(checked.ValuePrimitive),
 		SystemBindKey: systemBindKey, CodeBindKey: codeBindKey,
 	}
 	if checked.UnitSelector != nil {
@@ -100,7 +101,7 @@ func LowerExtensionBinding(resourceType string, binding fhirschema.ExtensionBind
 	}
 	return ir.PhysicalCorrelation{
 		Source: source, ResourceType: resourceType, OwnerResource: checked.OwnerResource, OwnerSelector: checked.OwnerSelector,
-		ValueSelector: checked.ValueSelector, ValueFallbacks: append([]spec.Selector(nil), checked.ValueFallbacks...),
+		ValueSelector: checked.ValueSelector, ValueFallbacks: append([]spec.Selector(nil), checked.ValueFallbacks...), FallbackOnBlankString: checked.FallbackOnBlankString,
 		ChoiceArms: choiceArms, ChoiceSelectors: choiceSelectors, LogicalType: checked.LogicalType, ValuePrimitive: string(checked.ValuePrimitive),
 		ExtensionURLSelectors: append([]spec.Selector(nil), checked.URLSelectors...), ExtensionURLBindKeys: append([]string(nil), urlBindKeys...),
 	}, nil

@@ -153,6 +153,7 @@ func (d Document) AnalyzeConstructionCandidate(candidateConstruction Constructio
 	impact := ConstructionImpact{ChangedStepID: changedStepID, RemovedStepIDs: make([]string, 0, len(remove)), AffectedStepIDs: make([]string, 0)}
 	expectedIndex := 0
 	firstChanged := len(base.Construction.Steps)
+	appendedRelatedSourceStart := -1
 	for oldIndex, oldStep := range base.Construction.Steps {
 		if remove[oldStep.ID] {
 			impact.RemovedStepIDs = append(impact.RemovedStepIDs, oldStep.ID)
@@ -192,11 +193,16 @@ func (d Document) AnalyzeConstructionCandidate(candidateConstruction Constructio
 		for expectedIndex < len(candidateSteps) && isNewOwnedReshapeInput(candidateSteps[expectedIndex], changedStepID, base.Construction.Steps) {
 			expectedIndex++
 		}
-		if expectedIndex != len(candidateSteps)-1 || candidateSteps[expectedIndex].ID != changedStepID {
+		if expectedIndex == len(candidateSteps)-1 && candidateSteps[expectedIndex].ID == changedStepID {
+			firstChanged = len(base.Construction.Steps)
+			expectedIndex++
+		} else if start, ok := appendedRelatedSourceSuffixStart(base.Construction.Steps, candidateSteps, expectedIndex, changedStepID); ok {
+			appendedRelatedSourceStart = start
+			firstChanged = start
+			expectedIndex = len(candidateSteps)
+		} else {
 			return d, ConstructionImpact{}, fmt.Errorf("new changed step %q must be appended at the end", changedStepID)
 		}
-		firstChanged = len(base.Construction.Steps)
-		expectedIndex++
 	}
 	if expectedIndex != len(candidateSteps) {
 		return d, ConstructionImpact{}, fmt.Errorf("candidate includes an unrequested new step")
@@ -220,6 +226,9 @@ func (d Document) AnalyzeConstructionCandidate(candidateConstruction Constructio
 	start := len(result.Construction.Steps)
 	if changedStepID != "" {
 		start = candidateIDs[changedStepID]
+	}
+	if appendedRelatedSourceStart >= 0 && appendedRelatedSourceStart < start {
+		start = appendedRelatedSourceStart
 	}
 	for index, step := range result.Construction.Steps {
 		if isNewOwnedReshapeInput(step, changedStepID, base.Construction.Steps) && index < start {
@@ -268,6 +277,44 @@ func (d Document) AnalyzeConstructionCandidate(candidateConstruction Constructio
 		}
 	}
 	return result, impact, nil
+}
+
+func appendedRelatedSourceSuffixStart(existing, candidate []ConstructionStep, start int, changedStepID string) (int, bool) {
+	if start != len(existing) || start >= len(candidate) || len(candidate)-start < 2 ||
+		candidate[len(candidate)-1].ID != changedStepID || !reflect.DeepEqual(candidate[:start], existing) {
+		return 0, false
+	}
+
+	first := candidate[start]
+	if first.Operation.Kind != ConstructionOperationRelatedSource || first.Operation.RelatedSource == nil || first.OwnerStepID != "" {
+		return 0, false
+	}
+	anchorColumnID := first.Operation.RelatedSource.AnchorColumnID
+	route := first.Operation.RelatedSource.Route
+	previousStepID := ""
+	if start > 0 {
+		previousStepID = candidate[start-1].ID
+	}
+	for index := start; index < len(candidate); index++ {
+		step := candidate[index]
+		related := step.Operation.RelatedSource
+		if step.Operation.Kind != ConstructionOperationRelatedSource || related == nil || step.OwnerStepID != "" ||
+			related.AnchorColumnID != anchorColumnID || !reflect.DeepEqual(related.Route, route) {
+			return 0, false
+		}
+		if len(step.Inputs) != 1 {
+			return 0, false
+		}
+		if previousStepID == "" {
+			if step.Inputs[0] != (ConstructionInputRef{Kind: ConstructionInputSourceProjection}) {
+				return 0, false
+			}
+		} else if step.Inputs[0] != (ConstructionInputRef{Kind: ConstructionInputStepOutput, StepID: previousStepID}) {
+			return 0, false
+		}
+		previousStepID = step.ID
+	}
+	return start, true
 }
 
 // ProposeStepRemoval removes only the selected step and the downstream steps

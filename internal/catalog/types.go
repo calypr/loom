@@ -265,8 +265,10 @@ type SemanticObservationKey struct {
 }
 
 type SemanticObservationValue struct {
-	Selector string `json:"selector,omitempty"`
-	Type     string `json:"type,omitempty"`
+	Selector              string   `json:"selector,omitempty"`
+	Type                  string   `json:"type,omitempty"`
+	FallbackSelectors     []string `json:"fallback_selectors,omitempty"`
+	FallbackOnBlankString bool     `json:"fallback_on_blank_string,omitempty"`
 }
 
 // ExtensionValueObservation preserves the correlation between an Extension

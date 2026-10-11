@@ -23,6 +23,31 @@ func TestValidateCorrelatedBindingKeepsCodingWithinComponent(t *testing.T) {
 	}
 }
 
+func TestValidateCorrelatedBindingOptsIntoBlankStringFallbackOnlyWhenDeclared(t *testing.T) {
+	binding := CorrelatedBinding{
+		KeyPath: "code.coding[]", SystemPath: "system", CodePath: "code",
+		ValuePath: "valueCodeableConcept.text", ValueFallback: []string{"valueCodeableConcept.coding[].display"},
+		FallbackOnBlankString: true, ChoiceArms: []string{"valueCodeableConcept"}, LogicalType: "string",
+	}
+	checked, err := ValidateCorrelatedBinding("Observation", binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !checked.FallbackOnBlankString || len(checked.ValueFallbacks) != 1 || checked.ValueFallbacks[0].CanonicalPath() != "valueCodeableConcept.coding[].display" {
+		t.Fatalf("checked CodeableConcept fallback = %#v", checked)
+	}
+	binding.ValueFallback = nil
+	if _, err := ValidateCorrelatedBinding("Observation", binding); err == nil {
+		t.Fatal("blank-string fallback without a fallback selector was accepted")
+	}
+	binding.FallbackOnBlankString = false
+	binding.ValueFallback = []string{"valueCodeableConcept.coding[].display"}
+	checked, err = ValidateCorrelatedBinding("Observation", binding)
+	if err != nil || checked.FallbackOnBlankString {
+		t.Fatalf("default correlated binding = %#v, %v; want opt-in disabled", checked, err)
+	}
+}
+
 func TestValidateCorrelatedBindingUsesGeneratedChoiceMetadataForAnyOwner(t *testing.T) {
 	binding := CorrelatedBinding{
 		OwnerPath:  "dosageInstruction[].doseAndRate[]",
@@ -121,6 +146,25 @@ func TestValidateExtensionBindingKeepsNestedURLAncestry(t *testing.T) {
 		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left"}, ValuePath: "valueString", LogicalType: "string",
 	}); err == nil {
 		t.Fatal("missing ancestor URL unexpectedly accepted")
+	}
+}
+
+func TestValidateExtensionBindingCarriesOptInBlankStringFallback(t *testing.T) {
+	binding := ExtensionBinding{
+		OwnerPath: "extension[]", URLPath: []string{"urn:leaf"},
+		ValuePath: "valueCodeableConcept.text", ValueFallback: []string{"valueCodeableConcept.coding[].display"},
+		FallbackOnBlankString: true, ChoiceArms: []string{"valueCodeableConcept"}, LogicalType: "string",
+	}
+	checked, err := ValidateExtensionBinding("Observation", binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !checked.FallbackOnBlankString || len(checked.ValueFallbacks) != 1 || checked.ValueFallbacks[0].CanonicalPath() != "valueCodeableConcept.coding[].display" {
+		t.Fatalf("checked Extension fallback = %#v", checked)
+	}
+	binding.ValueFallback = nil
+	if _, err := ValidateExtensionBinding("Observation", binding); err == nil {
+		t.Fatal("Extension blank-string fallback without a fallback selector was accepted")
 	}
 }
 

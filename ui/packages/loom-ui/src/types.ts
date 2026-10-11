@@ -1215,6 +1215,8 @@ export const frameDefinitionSchema = z.object({
     owningScope: z.string(),
     keyPath: z.string(),
     valuePath: z.string(),
+    valueFallbacks: z.array(opaqueIdSchema).optional(),
+    fallbackOnBlankString: z.boolean().optional(),
     choiceArms: z.array(z.string()).optional(),
     logicalType: z.string(),
     ruleVersion: z.string(),
@@ -1291,6 +1293,8 @@ const relatedExpandContributorSourceSchema = relatedFieldSourceSchema.extend({
   }
 });
 
+const constructionRowValuePolicySchema = z.enum(['ALL', 'ONE']);
+
 const relatedSourceSchema = z.object({
   anchorColumnId: opaqueIdSchema,
   choiceId: z.string().min(1),
@@ -1302,6 +1306,7 @@ const relatedSourceSchema = z.object({
     predicate: contributorPredicateSchema.optional(),
   }).strict(),
   form: z.enum(['ALL', 'COUNT', 'PRESENCE']),
+  rowValuePolicy: constructionRowValuePolicySchema.optional(),
   outputColumnId: opaqueIdSchema,
 }).strict();
 
@@ -1500,7 +1505,6 @@ const constructionOperationSchema = z.discriminatedUnion('kind', [
 ]);
 export type ConstructionOperation = z.infer<typeof constructionOperationSchema>;
 
-const constructionRowValuePolicySchema = z.enum(['ALL', 'ONE']);
 const constructionStepSchema = z.object({
   rowValues: z.array(z.object({ inputColumnId: opaqueIdSchema, outputColumnId: opaqueIdSchema, policy: constructionRowValuePolicySchema }).strict()).optional(),
   id: opaqueIdSchema,
@@ -2000,6 +2004,8 @@ export const semanticBindingChoiceSourceSchema = z
     version: z.string().optional(),
     code: z.string().optional(),
     valueSelector: opaqueIdSchema,
+    valueFallbacks: z.array(opaqueIdSchema).optional(),
+    fallbackOnBlankString: z.boolean().optional(),
     choiceArm: z.string().optional(),
     logicalType: opaqueIdSchema,
     ruleHint: z.string().optional(),

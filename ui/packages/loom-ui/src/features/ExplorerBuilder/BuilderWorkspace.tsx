@@ -39,7 +39,7 @@ import type {
   RowChangeAssessment,
   RowChangeUnresolvedReference,
 } from '../../types';
-import { BuilderToolbar } from './components/BuilderToolbar';
+import { BuilderToolbar, NewExplorerControl } from './components/BuilderToolbar';
 import {
   DatasetReviewPanel,
   type DatasetReviewTarget,
@@ -397,10 +397,19 @@ const BuilderWorkspaceContent = ({
   const authResourcePath = organization
     ? `/programs/${organization}/projects/${project}`
     : undefined;
-  const requestedExplorerId = explorerId || 'default';
-  const [selectedExplorerId, setSelectedExplorerId] =
-    useState(requestedExplorerId);
-  const ownerKey = builderOwnerKeyFor(projectId, authResourcePath, selectedExplorerId);
+  const [selectedExplorerId, setSelectedExplorerId] = useState(explorerId || '');
+  const explorers = useGetExplorerAuthoringExplorersQuery({
+    project: projectId,
+    authResourcePath,
+  });
+  const effectiveExplorerId =
+    selectedExplorerId && selectedExplorerId !== 'default'
+      ? selectedExplorerId
+      : explorers.data?.find((candidate) => candidate.explorerId === 'default')
+          ?.explorerId ??
+        explorers.data?.[0]?.explorerId ??
+        '';
+  const ownerKey = builderOwnerKeyFor(projectId, authResourcePath, effectiveExplorerId);
   const selectedTableStorageKey = `loom.builder.selected-table:${ownerKey}`;
   const rememberedOutputId = useMemo(() => {
     try {
@@ -409,21 +418,15 @@ const BuilderWorkspaceContent = ({
       return undefined;
     }
   }, [selectedTableStorageKey]);
-  const explorers = useGetExplorerAuthoringExplorersQuery({
+  const explorerQueryEnabled = Boolean(effectiveExplorerId);
+  const builderQueryArgs = {
     project: projectId,
+    explorerId: effectiveExplorerId,
     authResourcePath,
-  });
-  const builder = useGetExplorerBuilderStateV2Query({
-    project: projectId,
-    explorerId: selectedExplorerId,
-    authResourcePath,
-  });
+  };
+  const builder = useGetExplorerBuilderStateV2Query(builderQueryArgs);
   const refetchBuilder = builder.refetch;
-  const capabilities = useGetExplorerAuthoringCapabilityV2Query({
-    project: projectId,
-    explorerId: selectedExplorerId,
-    authResourcePath,
-  });
+  const capabilities = useGetExplorerAuthoringCapabilityV2Query(builderQueryArgs);
   const [createExplorer, createStatus] = useCreateExplorerAuthoringMutation();
   const [deleteExplorer, deleteStatus] = useDeleteExplorerAuthoringMutation();
   const [applyBuilderCommands] = useApplyExplorerBuilderCommandsV2Mutation();
@@ -436,7 +439,10 @@ const BuilderWorkspaceContent = ({
     usePreviewExplorerAuthoringV2Mutation();
   const [publishBuilder] = usePublishExplorerAuthoringV2Mutation();
   const builderDataKey = builder.data
-    ? builderDataKeyFor(builderOwnerKeyFor(projectId, authResourcePath, selectedExplorerId), builder.data)
+    ? builderDataKeyFor(
+        builderOwnerKeyFor(projectId, authResourcePath, effectiveExplorerId),
+        builder.data,
+      )
     : '';
   const builderDataRef = useRef(builder.data);
   builderDataRef.current = builder.data;
@@ -457,7 +463,7 @@ const BuilderWorkspaceContent = ({
       : builder.data
         ? stateFromBuilder(builder.data, {
             project: projectId,
-            explorerId: selectedExplorerId,
+            explorerId: effectiveExplorerId,
             selectedOutputId: localState?.key.startsWith(`${ownerKey}:`) ? localState.value.selectedOutputId : rememberedOutputId,
           })
         : emptyBuilderState(projectId);
@@ -470,7 +476,7 @@ const BuilderWorkspaceContent = ({
             : builderDataRef.current
               ? stateFromBuilder(builderDataRef.current, {
                   project: projectId,
-                  explorerId: selectedExplorerId,
+                  explorerId: effectiveExplorerId,
                   selectedOutputId: current?.key.startsWith(`${ownerKey}:`) ? current.value.selectedOutputId : rememberedOutputId,
                 })
               : emptyBuilderState(projectId);
@@ -480,7 +486,7 @@ const BuilderWorkspaceContent = ({
         };
       });
     },
-    [authResourcePath, builderDataKey, ownerKey, projectId, rememberedOutputId, selectedExplorerId],
+    [authResourcePath, builderDataKey, effectiveExplorerId, ownerKey, projectId, rememberedOutputId],
   );
   const rememberSelectedTable = useCallback((outputId: string) => {
     try {
@@ -658,7 +664,7 @@ const BuilderWorkspaceContent = ({
   const interpretationContextArgs = interpretationContextKey
     ? {
       project: projectId,
-      explorerId: selectedExplorerId,
+      explorerId: effectiveExplorerId,
       authResourcePath,
       snapshotToken: state.catalog.snapshotToken,
       expectedDraftVersion: state.draftVersion,
@@ -707,9 +713,12 @@ const BuilderWorkspaceContent = ({
 
   const syncBuilderData = useCallback(
     (value: ExplorerBuilderState, mode: 'hydrate' | 'catalog') => {
-      const nextKey = builderDataKeyFor(builderOwnerKeyFor(projectId, authResourcePath, selectedExplorerId), value);
+      const nextKey = builderDataKeyFor(
+        builderOwnerKeyFor(projectId, authResourcePath, effectiveExplorerId),
+        value,
+      );
       setRestorableDraft({
-        ownerKey: builderOwnerKeyFor(projectId, authResourcePath, selectedExplorerId),
+        ownerKey: builderOwnerKeyFor(projectId, authResourcePath, effectiveExplorerId),
         revisionId: value.previousDraftRevisionId,
       });
       serverDraft.current = {
@@ -722,7 +731,7 @@ const BuilderWorkspaceContent = ({
           mode === 'hydrate'
             ? stateFromBuilder(value, {
                 project: projectId,
-                explorerId: selectedExplorerId,
+                explorerId: effectiveExplorerId,
                 selectedOutputId: current?.key.startsWith(`${ownerKey}:`) ? current.value.selectedOutputId : rememberedOutputId,
               })
             : builderAuthoringReducer(
@@ -734,7 +743,7 @@ const BuilderWorkspaceContent = ({
         return { key: nextKey, value: nextValue };
       });
     },
-    [builderDataKey, ownerKey, projectId, rememberedOutputId, selectedExplorerId],
+    [builderDataKey, effectiveExplorerId, ownerKey, projectId, rememberedOutputId],
   );
 
   const incomplete = state.tables.some(
@@ -1336,7 +1345,10 @@ const BuilderWorkspaceContent = ({
   const addSourceRouteContext = selectedAddSource?.sourceNodeId !== undefined && selectedAddSource.sourceNodeId === selectedRouteContext?.nodeId
     ? selectedRouteContext
     : undefined;
-  const buildRelatedSourceCandidate = (selection: CatalogChoiceIntent) => {
+  const buildRelatedSourceCandidate = (
+    selection: CatalogChoiceIntent,
+    previous?: { readonly construction: Construction; readonly step: ConstructionStep },
+  ) => {
     if (!table) throw new Error('Choose a table before adding features.');
     const relatedSource = selection.relatedSource;
     if (!relatedSource) throw new Error('Choose a related field first.');
@@ -1393,15 +1405,22 @@ const BuilderWorkspaceContent = ({
       .replace(/[^A-Za-z0-9_]/g, '_')
       .replace(/_+/g, '_')
       .replace(/^([0-9])/, '_$1');
-    const usedNames = new Set(selectedStage.columns.map((column) => column.name.toLowerCase()));
+    const previousColumns = previous?.step.outputs ?? selectedStage.columns.map((column) => ({
+      id: column.id,
+      name: column.name,
+      label: column.label,
+      ...(column.type === undefined ? {} : { type: column.type }),
+    }));
+    const usedNames = new Set(previousColumns.map((column) => column.name.toLowerCase()));
     let outputName = baseName;
     for (let suffix = 2; usedNames.has(outputName.toLowerCase()); suffix += 1) {
       outputName = `${baseName}_${suffix}`;
     }
+    const previousStepId = previous?.step.id ?? (selectedStage.operation ? selectedStage.id : undefined);
     const step = {
       id: stepId,
-      inputs: [selectedStage.operation
-        ? { kind: 'STEP_OUTPUT' as const, stepId: selectedStage.id }
+      inputs: [previousStepId
+        ? { kind: 'STEP_OUTPUT' as const, stepId: previousStepId }
         : { kind: 'SOURCE_PROJECTION' as const }],
       operation: {
         kind: 'RELATED_SOURCE',
@@ -1433,12 +1452,7 @@ const BuilderWorkspaceContent = ({
         },
       },
       outputs: [
-        ...selectedStage.columns.map((column) => ({
-          id: column.id,
-          name: column.name,
-          label: column.label,
-          ...(column.type === undefined ? {} : { type: column.type }),
-        })),
+        ...previousColumns,
         {
           id: outputColumnId,
           name: outputName,
@@ -1449,14 +1463,16 @@ const BuilderWorkspaceContent = ({
         },
       ],
     } satisfies ConstructionStep;
+    const currentConstruction = previous?.construction ?? baseConstruction;
     return {
       intent: {
         candidateConstruction: {
-          ...baseConstruction,
-          steps: [...baseConstruction.steps, step],
+          ...currentConstruction,
+          steps: [...currentConstruction.steps, step],
         },
         changedStepId: step.id,
       },
+      step,
       outputColumnName: outputName,
     };
   };
@@ -1592,10 +1608,23 @@ const BuilderWorkspaceContent = ({
     if (!table) throw new Error('Choose a table before adding features.');
     const relatedSelections = selections.filter((selection) => selection.relatedSource);
     if (relatedSelections.length > 0) {
-      if (relatedSelections.length !== 1 || selections.length !== 1) {
-        throw new Error('Add one related field at a time so Loom can preview its exact route.');
+      if (relatedSelections.length !== selections.length) {
+        throw new Error('Add related fields together only when every selected field follows the same exact route.');
       }
-      const candidate = buildRelatedSourceCandidate(relatedSelections[0]!);
+      const firstRelatedSource = relatedSelections[0]?.relatedSource;
+      if (!firstRelatedSource || relatedSelections.some((selection) =>
+        !selection.relatedSource ||
+        !sameConstructionRoute(selection.relatedSource.choice.route, firstRelatedSource.choice.route)
+      )) {
+        throw new Error('Add related fields together only when every selected field follows the same exact route.');
+      }
+      let candidate = buildRelatedSourceCandidate(relatedSelections[0]!);
+      for (const selection of relatedSelections.slice(1)) {
+        candidate = buildRelatedSourceCandidate(selection, {
+          construction: candidate.intent.candidateConstruction,
+          step: candidate.step,
+        });
+      }
       await constructionLifecycle.proposeCandidateAndWait(candidate.intent);
       return 'preview-ready' as const;
     }
@@ -2056,7 +2085,7 @@ const BuilderWorkspaceContent = ({
         authResourcePath,
         name: title,
         title,
-        sourceExplorerId: fromCurrent ? state.explorerId : undefined,
+        ...(fromCurrent ? { sourceExplorerId: state.explorerId } : {}),
       }).unwrap();
       selectExplorer(created.explorerId);
       if (!onExplorerChange) void explorers.refetch();
@@ -2070,16 +2099,16 @@ const BuilderWorkspaceContent = ({
   const deleteCurrentExplorer = async () => {
     if (!capabilities.data?.features.deleteExplorer) return;
     const current = (explorers.data ?? []).find(
-      (explorer) => explorer.explorerId === selectedExplorerId,
+      (explorer) => explorer.explorerId === effectiveExplorerId,
     );
     const fallback =
       (explorers.data ?? []).find(
         (explorer) =>
-          explorer.explorerId !== selectedExplorerId &&
+          explorer.explorerId !== effectiveExplorerId &&
           explorer.explorerId === 'default',
       ) ??
       (explorers.data ?? []).find(
-        (explorer) => explorer.explorerId !== selectedExplorerId,
+        (explorer) => explorer.explorerId !== effectiveExplorerId,
       );
     if (!current || !fallback) return;
     if (
@@ -2091,9 +2120,9 @@ const BuilderWorkspaceContent = ({
     try {
       await deleteExplorer({
         project: projectId,
-        explorerId: selectedExplorerId,
+        explorerId: effectiveExplorerId,
         authResourcePath,
-        requestId: `delete-explorer-${selectedExplorerId}`,
+        requestId: `delete-explorer-${effectiveExplorerId}`,
       }).unwrap();
       compileGeneration.current += 1;
       activeCompile.current?.abort();
@@ -2665,10 +2694,53 @@ const BuilderWorkspaceContent = ({
     }
   };
 
-  if (explorers.isLoading || builder.isLoading) {
+  const emptyExplorerProject = !effectiveExplorerId &&
+    !explorers.isLoading &&
+    !explorers.error &&
+    explorers.data?.length === 0;
+
+  if (
+    explorers.isLoading ||
+    (explorerQueryEnabled && builder.isLoading)
+  ) {
     return (
       <main className="p-6" role="status">
         Loading the selected Explorer configuration…
+      </main>
+    );
+  }
+  if (emptyExplorerProject) {
+    return (
+      <main className="min-h-full p-6">
+        <section
+          aria-labelledby="empty-explorer-project-title"
+          className="mx-auto max-w-xl rounded-lg border border-slate-200 bg-white p-6 shadow-sm"
+        >
+          <h1
+            id="empty-explorer-project-title"
+            className="text-lg font-semibold text-slate-900"
+          >
+            Create your first Explorer
+          </h1>
+          <p className="mt-2 text-sm text-slate-600">
+            This project does not have an Explorer yet. Create one to start
+            building its first table.
+          </p>
+          {message ? (
+            <p role="alert" className="mt-3 text-sm text-red-700">
+              {message}
+            </p>
+          ) : null}
+          <div className="mt-4">
+            <NewExplorerControl
+              mode="blank-only"
+              busy={createStatus.isLoading}
+              onCreateExplorer={(title, fromCurrent) =>
+                void createCustomExplorer(title, fromCurrent)
+              }
+            />
+          </div>
+        </section>
       </main>
     );
   }
@@ -2680,7 +2752,7 @@ const BuilderWorkspaceContent = ({
           type="button"
           onClick={() => {
             void explorers.refetch();
-            void refetchBuilder();
+            if (explorerQueryEnabled) void refetchBuilder();
           }}
         >
           Try again
@@ -2692,7 +2764,7 @@ const BuilderWorkspaceContent = ({
   const toolbar = (
     <BuilderToolbar
       explorers={explorers.data ?? []}
-      selectedExplorerId={selectedExplorerId}
+      selectedExplorerId={effectiveExplorerId}
       onExplorerChange={selectExplorer}
       onCreateExplorer={(title, fromCurrent) =>
         void createCustomExplorer(title, fromCurrent)
@@ -2700,7 +2772,7 @@ const BuilderWorkspaceContent = ({
       deleteSupported={capabilities.data?.features.deleteExplorer ?? false}
       deleteDisabled={
         !(explorers.data ?? []).some(
-          (explorer) => explorer.explorerId !== selectedExplorerId,
+          (explorer) => explorer.explorerId !== effectiveExplorerId,
         )
       }
       onDeleteExplorer={() => void deleteCurrentExplorer()}

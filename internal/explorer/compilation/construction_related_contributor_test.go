@@ -54,3 +54,33 @@ func TestRecipeConstructionMapsRepeatedRelatedContributorContract(t *testing.T) 
 		t.Fatalf("mapped repeated CODE ANY predicate = %#v", predicate)
 	}
 }
+
+func TestRecipeConstructionMapsRelatedSourceRowValuePolicy(t *testing.T) {
+	authored := authoringv2.ConstructionOperation{
+		Kind: authoringv2.ConstructionOperationRelatedSource,
+		RelatedSource: &authoringv2.ConstructionRelatedSource{
+			AnchorColumnID: "__loom_row_id", ChoiceID: "observation-status-choice", SourceOccurrenceID: "observation-node",
+			Source: authoringv2.ConstructionRelatedFieldSource{
+				Kind: capability.ConstructionChoiceSourceField, CandidateID: "observation-status", NodeID: "observation-node",
+				ResourceType: "Observation", Path: "status", Cardinality: "optional_one", LogicalType: "string",
+			},
+			Route: []capability.ConstructionRouteStep{{
+				EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+				FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+				StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+			}},
+			ContributorRule: authoringv2.ConstructionRelatedContributorRule{Policy: authoringv2.ConstructionRelatedAllMatches},
+			Form:            capability.ConstructionChoiceAll, RowValuePolicy: authoringv2.ConstructionRowValueOne,
+			OutputColumnID: "related-status",
+		},
+	}
+	mapped, err := recipeConstructionOperation(authored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mapped.RelatedSource == nil || mapped.RelatedSource.Form != "ALL" ||
+		mapped.RelatedSource.RowValuePolicy != recipe.ConstructionRowValueOne ||
+		mapped.RelatedSource.ContributorPolicy != "ALL_MATCHES" {
+		t.Fatalf("mapped related-source policy = %#v", mapped.RelatedSource)
+	}
+}
