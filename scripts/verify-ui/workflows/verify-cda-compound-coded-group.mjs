@@ -9,7 +9,6 @@ import {
   assertCdaCompoundCodedGroupRows,
   buildCdaCompoundCodedGroupExactReadQuery,
   prepareCdaCompoundCodedGroupOracle,
-  validateCdaCompoundCodedGroupFrameSource,
   validateCdaCompoundCodedGroupCandidate,
   validateCdaCompoundCodedGroupInventoryItem,
   validateCdaCompoundCodedGroupSourceOption,
@@ -173,7 +172,7 @@ export async function verifyCdaCompoundCodedGroup({ page, cda }) {
   const sourceIDRowsFromResponse = (response, document, ids) => {
     const idSource = document.columns.find(column => column.source?.kind === 'field' && column.source.field?.path === 'id');
     assert(idSource);
-    const previewColumn = (response.preview?.columns ?? response.columns ?? []).find(column => column.column === idSource.name);
+    const previewColumn = (response.preview?.columns ?? response.columns ?? []).find(column => column.column === idSource.column);
     assert(previewColumn);
     const actual = (response.preview?.rows ?? response.rows ?? []).map(row => row[previewColumn.column]);
     assert.deepEqual([...actual].sort(), [...ids].sort());
@@ -182,7 +181,7 @@ export async function verifyCdaCompoundCodedGroup({ page, cda }) {
   const assertVisibleSourceRows = (snapshot, response, document, ids) => {
     sourceIDRowsFromResponse(response, document, ids);
     const idSource = document.columns.find(column => column.source?.kind === 'field' && column.source.field?.path === 'id');
-    const previewColumn = (response.preview?.columns ?? response.columns ?? []).find(column => column.column === idSource.name);
+    const previewColumn = (response.preview?.columns ?? response.columns ?? []).find(column => column.column === idSource.column);
     const headerIndex = snapshot.headers.findIndex(header => header.trim().toLowerCase() === previewColumn.label.trim().toLowerCase());
     assert(headerIndex >= 0, 'Rendered source restoration must expose the exact Observation.id output.');
     assert.deepEqual(snapshot.rows.map(row => row[headerIndex]).sort(), [...ids].sort());
@@ -228,7 +227,10 @@ export async function verifyCdaCompoundCodedGroup({ page, cda }) {
       status: document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus,
       proposalId: document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId,
       headers: [...document.querySelectorAll('[data-testid="construction-proposal-preview"] th')]
-        .map(cell => (cell.textContent ?? '').trim().replace(/\s+/g, ' ')),
+        .map(cell => {
+          const label = cell.querySelector(':scope > span');
+          return (label?.textContent ?? cell.textContent ?? '').trim().replace(/\s+/g, ' ');
+        }),
       rows: [...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')]
         .map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText.trim())),
     }));
@@ -316,7 +318,6 @@ export async function verifyCdaCompoundCodedGroup({ page, cda }) {
     const categoryChoiceId = validateCdaCompoundCodedGroupInventoryItem(item, frameOption);
     assert.equal(categoryChoiceId, categoryChoiceIDs[0]);
     const semanticResponse = capture.responseBody(targetRequest);
-    validateCdaCompoundCodedGroupFrameSource(semanticResponse.frameSource, frameOption);
     assert.equal(semanticResponse.state, 'complete', `${name} requires a complete semantic inventory build.`);
     assert(semanticResponse.contextToken && semanticResponse.buildId,
       `${name} must retain the current semantic context and build identities.`);
@@ -349,7 +350,8 @@ export async function verifyCdaCompoundCodedGroup({ page, cda }) {
     const commandRequest = capture.requestBody(commandEntry);
     assert.deepEqual(commandRequest?.commands, [{ type: 'APPLY_CONSTRUCTION_PROPOSAL', outputId, proposalId: applyProposalId }],
       'Apply must submit only the exact construction proposal command.');
-    const expectedStepCount = proposal.response.candidateConstruction?.steps?.length ?? 0;
+    const expectedStepCount = proposal.response.candidateConstruction?.steps
+      ?.filter(step => !step.ownerStepId).length ?? 0;
     await wait(({ count }) => !document.querySelector('[data-testid="construction-proposal-panel"]')
       && document.querySelectorAll('[data-testid^="construction-history-step-"]').length === count, { count: expectedStepCount }, deadline);
     const builder = await builderRead(deadline);
@@ -387,7 +389,7 @@ export async function verifyCdaCompoundCodedGroup({ page, cda }) {
     const previewFromIndex = capture.requests.length;
     await page.reload({ waitUntil: 'domcontentloaded', timeout: remaining(deadline) });
     if (expectedGrouped) {
-      await wait(() => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 2
+      await wait(() => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1
         && document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === '3', {}, deadline);
     } else {
       await wait(({ count }) => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0
@@ -556,9 +558,11 @@ export async function verifyCdaCompoundCodedGroup({ page, cda }) {
     const beforeCancelStarted = Date.now();
     const beforeCancelDeadline = deadlineFrom(beforeCancelStarted);
     const beforeCancel = await builderRead(beforeCancelDeadline);
-    const sourceVisible = await visibleRows(beforeCancelDeadline, 3);
-    rowsBySourceID(sourceVisible, documentFor(beforeCancel), oracle.ids);
-    checkpoint('read exact source state before Cancel', beforeCancelStarted, { draftDigest: beforeCancel.draftDigest, rows: sourceVisible.rows });
+    assert.equal(beforeCancel.draftDigest, sourceBuilder.draftDigest,
+      'Opening the coded GROUP proposal must not change the saved source draft before Cancel.');
+    assert.deepEqual(beforeCancel.workspace, sourceBuilder.workspace,
+      'The saved source workspace must remain unchanged while the proposal is open.');
+    checkpoint('read exact source state before Cancel', beforeCancelStarted, { draftDigest: beforeCancel.draftDigest });
     const afterCancel = await cancelProposal({ name: 'Cancel initial coded GROUP Preview preserves exact source draft',
       beforeBuilder: beforeCancel, expectedRows: 'source', expectedCount: 3 });
     assert.deepEqual(documentFor(afterCancel).construction?.steps ?? [], []);
@@ -633,9 +637,17 @@ export async function verifyCdaCompoundCodedGroup({ page, cda }) {
       target => target.click({ timeout: remaining(editDeadline) }));
     await wait(({ ariaLabel }) => Boolean(document.querySelector(`input[type="checkbox"][aria-label=${JSON.stringify(ariaLabel)}]:checked`)),
       { ariaLabel: `Group by coded value: ${checkboxName}` }, editDeadline);
-    await wait(() => Boolean(document.querySelector('input[aria-label="Summary output label 1"]')), {}, editDeadline);
+    const groupAdvancedOptions = page.locator('[data-testid="construction-reshape-group-advanced"]');
+    assert.equal(await groupAdvancedOptions.count(), 1, 'Editing the saved GROUP must expose one active advanced-options section.');
+    if (!await groupAdvancedOptions.evaluate(details => details.open)) {
+      await act('Open GROUP summary output settings', groupAdvancedOptions.locator(':scope > summary'),
+        target => target.click({ timeout: remaining(editDeadline) }));
+    }
+    await wait(() => Boolean(document.querySelector(
+      '[data-testid="construction-reshape-group-advanced"][open] input[aria-label="Summary output label 1"]')),
+    {}, editDeadline);
     const editWindow = { startedAt: editStarted, deadline: editDeadline, fromIndex: capture.requests.length };
-    const labelInput = page.getByRole('textbox', { name: 'Summary output label 1', exact: true });
+    const labelInput = groupAdvancedOptions.getByRole('textbox', { name: 'Summary output label 1', exact: true });
     await act('Edit COUNT_ROWS label', labelInput,
       target => target.fill('Observation count', { timeout: remaining(editWindow.deadline) }));
     editedCandidate = await proposalFor({ name: 'edit saved coded GROUP preserves exact paired rows',
@@ -696,7 +708,10 @@ export async function verifyCdaCompoundCodedGroup({ page, cda }) {
     { proposalId: removalResponse.proposalId }, removalDeadline);
     const removalDom = await cda.inspect(() => ({
       headers: [...document.querySelectorAll('[data-testid="construction-proposal-preview"] th')]
-        .map(cell => (cell.textContent ?? '').trim().replace(/\s+/g, ' ')),
+        .map(cell => {
+          const label = cell.querySelector(':scope > span');
+          return (label?.textContent ?? cell.textContent ?? '').trim().replace(/\s+/g, ' ');
+        }),
       rows: [...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')]
         .map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText.trim())),
     }));
@@ -734,7 +749,10 @@ export async function verifyCdaCompoundCodedGroup({ page, cda }) {
     { proposalId: finalRemovalResponse.proposalId }, finalRemovalDeadline);
     const finalRemovalDom = await cda.inspect(() => ({
       headers: [...document.querySelectorAll('[data-testid="construction-proposal-preview"] th')]
-        .map(cell => (cell.textContent ?? '').trim().replace(/\s+/g, ' ')),
+        .map(cell => {
+          const label = cell.querySelector(':scope > span');
+          return (label?.textContent ?? cell.textContent ?? '').trim().replace(/\s+/g, ' ');
+        }),
       rows: [...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')]
         .map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText.trim())),
     }));

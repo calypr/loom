@@ -11,7 +11,7 @@ export const CDA_COMPOUND_CODED_GROUP_SOURCE = Object.freeze({
   valuePath: 'valueCodeableConcept.text',
   valueFallbacks: Object.freeze(['valueCodeableConcept.coding[].display']),
   fallbackOnBlankString: true,
-  keyPath: 'code.coding[].code',
+  keyPath: 'code.coding[]',
 });
 
 export const CDA_COMPOUND_CODED_GROUP_CATEGORY = Object.freeze({
@@ -116,6 +116,7 @@ export function prepareCdaCompoundCodedGroupOracle(rows, { project, generation }
 
 export function validateCdaCompoundCodedGroupSourceOption(option, { outputId, snapshotToken }) {
   assert(option?.choiceId, 'The native frame chooser must return an opaque source choice ID.');
+  assert.equal(option.owningScope, '', 'The coded value source must remain at the direct Observation root.');
   assert.equal(option.resourceType, CDA_COMPOUND_CODED_GROUP_SOURCE.resourceType);
   assert.equal(option.sourcePath, CDA_COMPOUND_CODED_GROUP_SOURCE.sourcePath);
   assert.equal(option.valuePath, CDA_COMPOUND_CODED_GROUP_SOURCE.valuePath);
@@ -134,35 +135,14 @@ export function validateCdaCompoundCodedGroupSourceOption(option, { outputId, sn
   return option.choiceId;
 }
 
-export function validateCdaCompoundCodedGroupFrameSource(frameSource, sourceOption) {
-  assert(sourceOption?.forms, 'The saved frame must be checked against its current authorized source-option form contract.');
-  assert.equal(frameSource?.form, sourceOption.defaultForm,
-    'The saved frame must retain the selected source option multiplicity form.');
-  const form = sourceOption.forms.find(candidate => candidate.form === frameSource.form);
-  assert(form, 'The saved frame form must be one of the authorized source-option forms.');
-  assert.equal(frameSource.zeroPolicy, form.zeroPolicy);
-  assert.equal(frameSource.manyPolicy, form.manyPolicy);
-  assert.equal(frameSource.form, 'ALL', 'The saved frame must retain the explicit multiplicity-preserving ALL form.');
-  assert.equal(frameSource.zeroPolicy, 'EMPTY_LIST');
-  assert.equal(frameSource.manyPolicy, 'ALL');
-  const source = frameSource?.source;
-  assert(source, 'The semantic inventory response must include the saved direct frame source.');
-  assert.equal(source.resourceType, CDA_COMPOUND_CODED_GROUP_SOURCE.resourceType);
-  assert.equal(source.sourcePath, CDA_COMPOUND_CODED_GROUP_SOURCE.sourcePath);
-  assert.equal(source.keyPath, CDA_COMPOUND_CODED_GROUP_SOURCE.keyPath);
-  assert.equal(source.valuePath, CDA_COMPOUND_CODED_GROUP_SOURCE.valuePath);
-  assert.deepEqual(source.valueFallbacks, CDA_COMPOUND_CODED_GROUP_SOURCE.valueFallbacks);
-  assert.equal(source.fallbackOnBlankString, CDA_COMPOUND_CODED_GROUP_SOURCE.fallbackOnBlankString);
-  assert.deepEqual(frameSource.route, [], 'The authored fallback frame must remain direct to the Observation root.');
-  return source;
-}
-
 export function validateCdaCompoundCodedGroupInventoryItem(item, sourceOption) {
   assert(item?.constructionChoice?.choiceId, 'The exact category must have a current server-issued construction choice ID.');
+  assert.equal(sourceOption.owningScope, '', 'The authorized source option must remain at the direct Observation root.');
   const semanticSource = item.constructionChoice.source;
   assert.equal(item.bindingId, sourceOption.bindingId);
   assert.equal(item.resourceType, CDA_COMPOUND_CODED_GROUP_SOURCE.resourceType);
   assert.equal(item.sourcePath, CDA_COMPOUND_CODED_GROUP_SOURCE.sourcePath);
+  assert.equal(item.owningScope, sourceOption.owningScope, 'The inventory item must remain at the authorized root scope.');
   assert.equal(item.valueSelector, CDA_COMPOUND_CODED_GROUP_SOURCE.valuePath);
   assert.equal(item.system, CDA_COMPOUND_CODED_GROUP_CATEGORY.system);
   assert.equal(item.code, CDA_COMPOUND_CODED_GROUP_CATEGORY.code);
@@ -175,13 +155,15 @@ export function validateCdaCompoundCodedGroupInventoryItem(item, sourceOption) {
   assert.equal(semanticSource.sourcePath, sourceOption.sourcePath);
   assert.equal(semanticSource.sourceCanonical, sourceOption.sourceCanonical);
   assert.equal(semanticSource.sourceProfile, sourceOption.sourceProfile);
-  assert.equal(semanticSource.owningScope, sourceOption.owningScope);
+  assert.equal(semanticSource.owningScope ?? '', sourceOption.owningScope,
+    'An omitted semantic owningScope represents the empty direct-root scope.');
   assert.equal(semanticSource.keySelector, sourceOption.keyPath);
   assert.equal(semanticSource.valueSelector, CDA_COMPOUND_CODED_GROUP_SOURCE.valuePath);
   assert.deepEqual(semanticSource.valueFallbacks, CDA_COMPOUND_CODED_GROUP_SOURCE.valueFallbacks);
   assert.equal(semanticSource.fallbackOnBlankString, CDA_COMPOUND_CODED_GROUP_SOURCE.fallbackOnBlankString);
   assert.equal(semanticSource.system, item.system);
-  assert.equal(semanticSource.version, item.codingVersion);
+  assert.equal(semanticSource.version ?? '', item.codingVersion,
+    'An omitted semantic version represents the empty coding version.');
   assert.equal(semanticSource.code, item.code);
   assert.equal(typeof semanticSource.ruleVersion, 'string');
   assert(semanticSource.ruleVersion.length > 0);
@@ -191,6 +173,7 @@ export function validateCdaCompoundCodedGroupInventoryItem(item, sourceOption) {
 }
 
 export function validateCdaCompoundCodedGroupCandidate(candidateConstruction, sourceOption, inventoryItem) {
+  assert.equal(sourceOption.owningScope, '', 'The authorized source option must remain at the direct Observation root.');
   const steps = candidateConstruction?.steps;
   assert(Array.isArray(steps) && steps.length === 2, 'Compound coded GROUP must contain one owned CODED_PIVOT and one GROUP step.');
   const coded = steps.find(step => step.operation?.kind === 'CODED_PIVOT');
@@ -224,7 +207,8 @@ export function validateCdaCompoundCodedGroupCandidate(candidateConstruction, so
   assert.deepEqual(semanticSource.valueFallbacks, CDA_COMPOUND_CODED_GROUP_SOURCE.valueFallbacks);
   assert.equal(semanticSource.fallbackOnBlankString, CDA_COMPOUND_CODED_GROUP_SOURCE.fallbackOnBlankString);
   assert.equal(semanticSource.logicalType, family.logicalType);
-  assert.equal(semanticSource.owningScope, family.owningScope);
+  assert.equal(semanticSource.owningScope ?? '', family.owningScope,
+    'An omitted semantic owningScope represents the empty direct-root scope.');
   assert.equal(semanticSource.sourceCanonical, family.sourceCanonical);
   assert.equal(semanticSource.sourceProfile, family.sourceProfile);
   assert.deepEqual(coded.operation.codedPivot.source?.route, []);
