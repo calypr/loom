@@ -1774,6 +1774,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     ]));
     expect(configuredContextCall).toBeDefined();
     await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
+    expect(reconcile.mock.calls[0]?.[0]).toMatchObject({ outputId: 'specimens' });
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
     fireEvent.click(reviewButton);
     expect(await screen.findByText('Compiler result matches the saved draft.')).toBeTruthy();
@@ -1872,6 +1873,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       snapshotToken: 'snapshot-1',
       draftVersion: 1,
       draftDigest: 'sha256:draft-1',
+      outputId: 'specimens',
     });
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
     expect(preview.mock.calls[0]?.[0]).toMatchObject({
@@ -2925,6 +2927,78 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
     await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(publish).toHaveBeenCalledTimes(1));
+  });
+
+  it('reconciles the selected table for automatic preview, then fully reconciles before Review and Publish', async () => {
+    const patientDocument = {
+      ...workspace.documents[0],
+      output: { id: 'patients', title: 'Patients' },
+      rootResourceType: 'Patient',
+      route: { occurrenceId: 'base', resourceType: 'Patient' },
+      columns: [{ ...column, column: 'patient_identifier', label: 'Patient identifier' }],
+    };
+    const multiTableWorkspace = {
+      ...workspace,
+      documents: [workspace.documents[0], patientDocument],
+      tabs: [
+        ...workspace.tabs,
+        { id: 'patients-tab', title: 'Patients', outputId: 'patients', order: 1, visible: true },
+      ],
+    };
+    const hydrated = { ...builderState, workspace: multiTableWorkspace };
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: hydrated,
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    const selectedReceipt = {
+      ...receipt,
+      receiptId: 'receipt-selected',
+      builder: multiTableWorkspace,
+      outputs: [receipt.outputs[0]],
+    };
+    const fullReceipt = {
+      ...receipt,
+      receiptId: 'receipt-full-workspace',
+      builder: multiTableWorkspace,
+      outputs: [
+        ...receipt.outputs,
+        { outputId: 'patients', columns: [{ ...receipt.outputs[0].columns[0], column: 'patient_identifier' }] },
+      ],
+    };
+    reconcile.mockImplementation((args: { readonly outputId?: string }) =>
+      resolvedRequest(args.outputId ? selectedReceipt : fullReceipt),
+    );
+    preview.mockReturnValueOnce(resolvedRequest({
+      apiVersion,
+      kind: 'ExplorerBuilderPreview',
+      rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
+      receiptId: selectedReceipt.receiptId,
+      outputId: 'specimens',
+      columns: selectedReceipt.outputs[0].columns,
+      rows: [],
+      rowCount: 0,
+      diagnostics: [],
+    }));
+
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+
+    await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
+    expect(reconcile.mock.calls[0]?.[0]).toMatchObject({ outputId: 'specimens' });
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByRole('button', { name: 'Review dataset' }));
+    await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
+    expect(reconcile.mock.calls[1]?.[0]).not.toHaveProperty('outputId');
+    expect(await screen.findByRole('region', { name: 'Dataset review' })).toBeInTheDocument();
+    expect(screen.getByRole('article', { name: 'Patients review' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close review' }));
+
+    const publishButton = await screen.findByRole('button', { name: 'Publish' });
+    await waitFor(() => expect(publishButton).toBeEnabled());
+    fireEvent.click(publishButton);
+
+    await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(publish).toHaveBeenCalledWith(expect.objectContaining({ receiptId: fullReceipt.receiptId })));
   });
 
   it('resets publish status when switching projects with the same Explorer ID', async () => {

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -24,11 +25,12 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 		[]capability.Node{
 			{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true, RowGrain: "RESOURCE", Populated: true},
 			{ID: "n_encounter", ResourceType: "Encounter", RowRootEligible: true, RowGrain: "RESOURCE", Populated: true},
+			{ID: "n_report", ResourceType: "DiagnosticReport", RowRootEligible: true, RowGrain: "RESOURCE", Populated: true},
 		},
 		[]capability.Edge{
 			{ID: "patient-encounter", FromNodeID: "n_patient", ToNodeID: "n_encounter", Label: "encounters", SourceResourceType: "Patient", TargetResourceType: "Encounter", ObservedEdgeCount: 1},
 			{ID: "encounter-patient", FromNodeID: "n_encounter", ToNodeID: "n_patient", Label: "patient", SourceResourceType: "Encounter", TargetResourceType: "Patient", ObservedEdgeCount: 1},
-		}, nil, nil)
+		}, []capability.Candidate{{ID: "c_report_id", NodeID: "n_report", ResourceType: "DiagnosticReport", FieldPath: "id", Label: "Report ID", LogicalType: "string", Cardinality: "OPTIONAL_ONE", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SupportedOperations: []capability.Operation{capability.OperationSelect}}}, nil)
 	workspace := authoringv2.Workspace{
 		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Patients"},
 		Documents: []authoringv2.Document{{
@@ -85,8 +87,26 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 	if err := json.Unmarshal([]byte(assessed.Body), &assessment); err != nil {
 		t.Fatal(err)
 	}
-	if assessment.Status != loomapi.RowChangeAssessmentResponseStatusREADY || assessment.Proposal == nil || assessment.CandidateReceiptId == nil || *assessment.CandidateReceiptId == "" || len(assessment.PreservedFeatureKeys) != 1 || assessment.PreservedFeatureKeys[0] != "patient_id" {
+	assertRowChangeWireArrays(t, []byte(assessed.Body), true)
+	if assessment.Status != loomapi.RowChangeAssessmentResponseStatusREADY || assessment.Mode != authoringv2.RowChangeModePreserve || assessment.Proposal == nil || assessment.CandidateReceiptId == nil || *assessment.CandidateReceiptId == "" || len(assessment.PreservedFeatureKeys) != 1 || assessment.PreservedFeatureKeys[0] != "patient_id" {
 		t.Fatalf("assessment=%#v", assessment)
+	}
+	unknownMode := fmt.Sprintf(`{"mode":"MERGE","snapshotToken":%q,"draftVersion":1,"draftDigest":%q,"outputId":"patients","rootNodeId":"n_encounter"}`, snapshot.Token, digest)
+	unknownModeResponse := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/patients/authoring/v2/row-change", unknownMode)
+	if unknownModeResponse.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("unknown row-change mode status=%d body=%s", unknownModeResponse.StatusCode, unknownModeResponse.Body)
+	}
+	blockedReplacementBody := fmt.Sprintf(`{"mode":"REPLACE","snapshotToken":%q,"draftVersion":1,"draftDigest":%q,"outputId":"patients","rootNodeId":"n_encounter"}`, snapshot.Token, digest)
+	blockedReplacementResponse := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/patients/authoring/v2/row-change", blockedReplacementBody)
+	if blockedReplacementResponse.StatusCode != http.StatusOK {
+		t.Fatalf("blocked replacement assessment status=%d body=%s", blockedReplacementResponse.StatusCode, blockedReplacementResponse.Body)
+	}
+	var blockedReplacement loomapi.RowChangeAssessmentResponse
+	if err := json.Unmarshal([]byte(blockedReplacementResponse.Body), &blockedReplacement); err != nil {
+		t.Fatal(err)
+	}
+	if blockedReplacement.Status != loomapi.RowChangeAssessmentResponseStatusBLOCKED || blockedReplacement.Mode != authoringv2.RowChangeModeReplace {
+		t.Fatalf("blocked replacement assessment omitted mode: %#v", blockedReplacement)
 	}
 	previewBody := fmt.Sprintf(`{"receiptId":%q,"outputId":"patients"}`, *assessment.CandidateReceiptId)
 	previewed := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/patients/authoring/v2/preview", previewBody)
@@ -118,8 +138,82 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 		t.Fatalf("applied response=%#v", response)
 	}
 
+	replacementDigest, err := response.Workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacementBody := fmt.Sprintf(`{"mode":"REPLACE","snapshotToken":%q,"draftVersion":2,"draftDigest":%q,"outputId":"patients","rootNodeId":"n_report"}`, snapshot.Token, replacementDigest)
+	replacementAssessed := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/patients/authoring/v2/row-change", replacementBody)
+	if replacementAssessed.StatusCode != http.StatusOK {
+		t.Fatalf("replacement assessment status=%d body=%s", replacementAssessed.StatusCode, replacementAssessed.Body)
+	}
+	var replacementAssessment loomapi.RowChangeAssessmentResponse
+	if err := json.Unmarshal([]byte(replacementAssessed.Body), &replacementAssessment); err != nil {
+		t.Fatal(err)
+	}
+	assertRowChangeWireArrays(t, []byte(replacementAssessed.Body), false)
+	if replacementAssessment.Mode != authoringv2.RowChangeModeReplace || replacementAssessment.Proposal == nil || replacementAssessment.Proposal.Mode != authoringv2.RowChangeModeReplace ||
+		len(replacementAssessment.RemovedFeatureKeys) == 0 || replacementAssessment.Proposal.CatalogDigest == "" || replacementAssessment.Proposal.CatalogGeneration == "" {
+		t.Fatalf("replacement assessment=%#v", replacementAssessment)
+	}
+	replacementPreviewBody := fmt.Sprintf(`{"receiptId":%q,"outputId":"patients"}`, *replacementAssessment.CandidateReceiptId)
+	replacementPreviewed := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/patients/authoring/v2/preview", replacementPreviewBody)
+	if replacementPreviewed.StatusCode != http.StatusOK {
+		t.Fatalf("replacement candidate preview status=%d body=%s", replacementPreviewed.StatusCode, replacementPreviewed.Body)
+	}
+	replacementProposal, err := json.Marshal(replacementAssessment.Proposal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacementCommandBody := fmt.Sprintf(`{"commandId":"apply-row-replacement","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":2,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_TABLE_ROOT_REBASE","outputId":"patients","rowChange":%s}]}`, authoringv2.CurrentSemanticsVersion, snapshot.Token, replacementDigest, replacementProposal)
+	replacementApplied := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/patients/authoring/v2/commands", replacementCommandBody)
+	if replacementApplied.StatusCode != http.StatusOK {
+		t.Fatalf("replacement apply status=%d body=%s", replacementApplied.StatusCode, replacementApplied.Body)
+	}
+	var replacementResponse authoringv2.ApplyCommandsResponse
+	if err := json.Unmarshal([]byte(replacementApplied.Body), &replacementResponse); err != nil {
+		t.Fatal(err)
+	}
+	if replacementResponse.DraftVersion != 3 || replacementResponse.Workspace.Documents[0].Output.ID != "patients" || replacementResponse.Workspace.Documents[0].RootResourceType != "DiagnosticReport" ||
+		len(replacementResponse.Workspace.Documents[0].Columns) != 1 || replacementResponse.Workspace.Documents[0].Columns[0].Column != "id" || replacementResponse.Workspace.Tabs[0].ID != "patients" {
+		t.Fatalf("replacement applied response=%#v", replacementResponse)
+	}
+
 	stale := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/patients/authoring/v2/row-change", assessmentBody)
 	if stale.StatusCode != http.StatusConflict {
 		t.Fatalf("stale assessment status=%d body=%s", stale.StatusCode, stale.Body)
+	}
+}
+
+func assertRowChangeWireArrays(t *testing.T, body []byte, expectEmptyEffects bool) {
+	t.Helper()
+	var assessment map[string]json.RawMessage
+	if err := json.Unmarshal(body, &assessment); err != nil {
+		t.Fatalf("decode assessment wire body: %v", err)
+	}
+	assertWireArray(t, assessment, "removedFeatureKeys", expectEmptyEffects)
+	assertWireArray(t, assessment, "workspaceOutputConsumers", true)
+	assertWireArray(t, assessment, "sharedFilterBindings", true)
+
+	var proposal map[string]json.RawMessage
+	if err := json.Unmarshal(assessment["proposal"], &proposal); err != nil {
+		t.Fatalf("decode proposal wire body: %v", err)
+	}
+	assertWireArray(t, proposal, "removedFeatureKeys", expectEmptyEffects)
+	assertWireArray(t, proposal, "workspaceOutputConsumers", true)
+	assertWireArray(t, proposal, "sharedFilterBindings", true)
+}
+
+func assertWireArray(t *testing.T, object map[string]json.RawMessage, key string, expectEmpty bool) {
+	t.Helper()
+	raw, ok := object[key]
+	if !ok || len(bytes.TrimSpace(raw)) < 2 || bytes.TrimSpace(raw)[0] != '[' || bytes.TrimSpace(raw)[len(bytes.TrimSpace(raw))-1] != ']' {
+		t.Fatalf("wire field %q must be a JSON array, got %s", key, raw)
+	}
+	if expectEmpty && !bytes.Equal(bytes.TrimSpace(raw), []byte("[]")) {
+		t.Fatalf("wire field %q must be an empty JSON array, got %s", key, raw)
+	}
+	if !expectEmpty && bytes.Equal(bytes.TrimSpace(raw), []byte("[]")) {
+		t.Fatalf("wire field %q must be a nonempty JSON array, got %s", key, raw)
 	}
 }

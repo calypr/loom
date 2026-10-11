@@ -165,6 +165,13 @@ const previewPresentationCommand = (
   };
 };
 
+const receiptContainsOutputIds = (
+  receipt: ExplorerBuilderCompileResult | undefined,
+  outputIds: ReadonlyArray<string>,
+): boolean => receipt !== undefined && outputIds.every((outputId) =>
+  receipt.outputs.some((output) => output.outputId === outputId),
+);
+
 const isRelatedFieldStep = (step: ConstructionStep): step is RelatedFieldStep =>
   step.operation.kind === 'RELATED_FIELD';
 
@@ -2101,6 +2108,7 @@ const BuilderWorkspaceContent = ({
   };
   const reconcileCurrent = useCallback(async (
     owner?: AutomaticPreviewExecution,
+    outputId?: string,
   ): Promise<ExplorerBuilderCompileResult | undefined> => {
     const submitted = latestState.current;
     if (
@@ -2127,6 +2135,7 @@ const BuilderWorkspaceContent = ({
         snapshotToken,
         draftVersion,
         draftDigest,
+        ...(outputId ? { outputId } : {}),
         requestId: `builder-${generation}-${attempt}`,
       });
       activeCompile.current = request;
@@ -2265,7 +2274,7 @@ const BuilderWorkspaceContent = ({
               limit,
               receiptRefreshes: activeRequest.receiptRefreshes + 1,
             };
-            const refreshedReceipt = await reconcileCurrent(owner);
+            const refreshedReceipt = await reconcileCurrent(owner, activeRequest.outputId);
             if (owner?.cancelled || generation !== previewGeneration.current) return undefined;
             if (!refreshedReceipt) return undefined;
             activeReceipt = refreshedReceipt;
@@ -2286,7 +2295,7 @@ const BuilderWorkspaceContent = ({
               catalog: refreshed.data.catalog,
             });
             syncBuilderData(refreshed.data, 'catalog');
-            const refreshedReceipt = await reconcileCurrent(owner);
+            const refreshedReceipt = await reconcileCurrent(owner, activeRequest.outputId);
             if (owner?.cancelled || generation !== previewGeneration.current) return undefined;
             if (!refreshedReceipt) return undefined;
             activeReceipt = refreshedReceipt;
@@ -2512,9 +2521,10 @@ const BuilderWorkspaceContent = ({
         if (!identityIsCurrent()) return undefined;
         const current = latestState.current;
         const receipt = !options?.reload && current.receipt && current.reconciliation === 'resolved' &&
-          current.receipt.snapshotToken === identity.snapshotToken
+          current.receipt.snapshotToken === identity.snapshotToken &&
+          current.receipt.outputs.some((output) => output.outputId === identity.outputId)
           ? current.receipt
-          : await reconcileCurrent(execution);
+          : await reconcileCurrent(execution, identity.outputId);
         if (execution.cancelled || !receipt || !identityIsCurrent()) return undefined;
         const candidate = appliedChoicePreview.current;
         appliedChoicePreview.current = undefined;
@@ -2628,8 +2638,12 @@ const BuilderWorkspaceContent = ({
     if (publishDisabled || publishing) return;
     setPublishing(true);
     try {
+      const receiptCoversEveryTable = state.receipt !== undefined &&
+        state.tables.every((candidate) => state.receipt?.outputs.some(
+          (output) => output.outputId === candidate.outputId,
+        ));
       const receipt =
-        state.receipt && state.reconciliation === 'resolved'
+        state.receipt && state.reconciliation === 'resolved' && receiptCoversEveryTable
           ? state.receipt
           : await reconcileCurrent();
       if (!receipt) return;
@@ -2701,6 +2715,11 @@ const BuilderWorkspaceContent = ({
       onReview={() => {
         const open = !reviewOpen;
         setReviewOpen(open);
+        const current = latestState.current;
+        if (open && (!receiptContainsOutputIds(current.receipt, current.tables.map((table) => table.outputId)) ||
+          current.reconciliation !== 'resolved')) {
+          void reconcileCurrent();
+        }
       }}
       reviewExpanded={reviewOpen}
       onPublish={() => void publish()}
@@ -3701,8 +3720,12 @@ const BuilderWorkspaceContent = ({
         <DatasetReviewPanel
           tables={state.tables}
           catalog={state.catalog}
-          receipt={state.receipt}
-          preview={state.preview}
+          receipt={receiptContainsOutputIds(state.receipt, state.tables.map((candidate) => candidate.outputId))
+            ? state.receipt
+            : undefined}
+          preview={receiptContainsOutputIds(state.receipt, state.tables.map((candidate) => candidate.outputId))
+            ? state.preview
+            : undefined}
           diagnostics={state.diagnostics}
           reconciliation={state.reconciliation}
           onFocus={focusDatasetReviewTarget}
@@ -3882,14 +3905,16 @@ const BuilderWorkspaceContent = ({
                     draftVersion={state.draftVersion}
                     draftDigest={state.draftDigest}
                     table={table}
+                    workspaceTables={state.tables}
                     currentRowMeaning={rowMeaning}
                     startingCollectionSummary={startingCollectionSummary}
-                    renderRootSettings={(onRootChange) => (
+                    renderRootSettings={(onRootChange, onReplaceRoot) => (
                       <RowDefinitionPanel
                         catalog={state.catalog}
                         table={table}
                         disabled={rowChangeStatus.isLoading || pendingCommands > 0 || state.reconciliation === 'pending'}
                         onChange={onRootChange}
+                        onReplace={onReplaceRoot}
                       />
                     )}
                     startingCollectionSettings={(
@@ -3978,6 +4003,11 @@ const BuilderWorkspaceContent = ({
                     onRemoveConstructionStep={removeConstructionStep}
                     onApply={(proposalId) => applyCommands([{
                       type: 'APPLY_ROW_DEFINITION_PROPOSAL', outputId: table.outputId, proposalId,
+                    }])}
+                    onApplyRootReplacement={(assessment) => applyCommands([{
+                      type: 'APPLY_TABLE_ROOT_REBASE',
+                      outputId: table.outputId,
+                      rowChange: assessment.proposal,
                     }])}
                   />
                 )}

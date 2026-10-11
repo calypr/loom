@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createLoomClient, populationMappingResponseSchema } from './api';
+import { canonicalProject, createLoomClient, populationMappingResponseSchema } from './api';
 import { cellTraceResponseSchema } from './cellTrace';
 import {
   EXPLORER_AUTHORING_SEMANTICS_VERSION,
@@ -32,6 +32,30 @@ const constructionCapabilitiesResponse = {
 } as const;
 
 describe('Loom project paths', () => {
+  it('canonicalizes legacy program-project IDs consistently with the API boundary', () => {
+    expect(canonicalProject('loom_dev_verify_run-1234')).toBe('loom_dev_verify_run/1234');
+    expect(canonicalProject('HTAN-study-with-dashes')).toBe('HTAN/study-with-dashes');
+    expect(canonicalProject('study/project-with-dashes')).toBe('study/project-with-dashes');
+    expect(canonicalProject('project-a')).toBe('project-a');
+  });
+
+  it('uses the canonical legacy project identity in authoring endpoint paths', async () => {
+    const endpoint = '/api/v1/projects/loom_dev_verify_run%252F1234/explorers/explorer-a/authoring/v2/construction-capabilities';
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValue(new Response(JSON.stringify(constructionCapabilitiesResponse), { status: 200 }));
+    const client = createLoomClient({ fetch });
+
+    await client.getConstructionCapabilities({
+      project: 'loom_dev_verify_run-1234', explorerId: 'explorer-a', snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 7, expectedDraftDigest: 'draft-7', outputId: 'patients', stageId: 'source_projection',
+      requestId: 'canonical-project-path-test',
+    });
+
+    expect(fetch).toHaveBeenCalledWith(endpoint, expect.objectContaining({
+      headers: expect.objectContaining({ 'X-Request-ID': 'canonical-project-path-test' }),
+    }));
+  });
+
   it('accepts a removal-only construction proposal without a changed step', () => {
     const parsed = constructionProposalRequestSchema.parse({
       snapshotToken: 'snapshot-1',
@@ -1088,6 +1112,43 @@ describe('Loom project paths', () => {
     );
   });
 
+  it('keeps replacement mode on a blocked row-change assessment', async () => {
+    const response = {
+      snapshotToken: 'snapshot-1',
+      draftVersion: 4,
+      draftDigest: 'digest-4',
+      mode: 'REPLACE',
+      status: 'BLOCKED',
+      currentRootResourceType: 'Patient',
+      candidateRootResourceType: 'ResearchStudy',
+      preservedFeatureKeys: [],
+      unresolved: [{ kind: 'column', id: 'id', code: 'ROW_ROOT_ID_FIELD_UNAVAILABLE', message: 'The selected root has no usable ID field.' }],
+      diagnostics: [],
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } }),
+    );
+    const client = createLoomClient({ fetch });
+
+    await expect(client.assessRowChange({
+      project: 'NCPI_ACCEPTANCE',
+      explorerId: 'default',
+      mode: 'REPLACE',
+      snapshotToken: 'snapshot-1',
+      draftVersion: 4,
+      draftDigest: 'digest-4',
+      outputId: 'patients',
+      rootNodeId: 'n_research_study',
+    })).resolves.toEqual(response);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/projects/NCPI_ACCEPTANCE/explorers/default/authoring/v2/row-change',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ mode: 'REPLACE', snapshotToken: 'snapshot-1', draftVersion: 4, draftDigest: 'digest-4', outputId: 'patients', rootNodeId: 'n_research_study' }),
+      }),
+    );
+  });
+
   it('sends Calypr authorization scope only on durable Explorer mutations', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       new Response(JSON.stringify({ error: { code: 'TEST_STOP', message: 'stop after transport' } }), {
@@ -1132,6 +1193,11 @@ describe('Loom project paths', () => {
       `/api/v1/projects/HTAN_INT%252FBForePC/explorers/test/authoring/v2/reconcile?${encodedScope}`,
       `/api/v1/projects/HTAN_INT%252FBForePC/explorers/test/authoring/v2/publish?${encodedScope}`,
     ]);
+    expect(JSON.parse(String(fetch.mock.calls[2]?.[1]?.body))).toEqual({
+      snapshotToken: 'snapshot-1',
+      draftVersion: 1,
+      draftDigest: 'digest-1',
+    });
     expect(urls.slice(4)).toEqual([
       '/api/v1/projects/HTAN_INT%252FBForePC/explorers/test/authoring/v2/suggestions',
       '/api/v1/projects/HTAN_INT%252FBForePC/explorers/test/authoring/v2/row-change',
@@ -1183,6 +1249,32 @@ describe('Loom project paths', () => {
       snapshotToken: 'snapshot-1',
       expectedDraftVersion: 1,
       commands: [],
+    });
+  });
+
+  it('sends an explicit output scope only when Builder reconcile requests one', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ error: { code: 'TEST_STOP', message: 'stop after transport' } }), {
+        status: 403,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const client = createLoomClient({ fetch });
+
+    await client.reconcile({
+      project: 'NCPI_ACCEPTANCE',
+      explorerId: 'default',
+      snapshotToken: 'snapshot-2',
+      draftVersion: 2,
+      draftDigest: 'digest-2',
+      outputId: 'patients',
+    }).catch(() => undefined);
+
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
+      snapshotToken: 'snapshot-2',
+      draftVersion: 2,
+      draftDigest: 'digest-2',
+      outputId: 'patients',
     });
   });
 

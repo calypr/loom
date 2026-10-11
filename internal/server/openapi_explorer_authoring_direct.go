@@ -385,7 +385,7 @@ func (h *explorerHTTPHandlers) assessAuthoringRowChangeDirect(ctx context.Contex
 		routeRebase = converted
 	}
 	value, err := h.application.AssessRowChange(ctx, lifecycle.AssessRowChangeRequest{
-		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
+		Project: project, ExplorerID: explorerID, Mode: optionalString(body.Mode), SnapshotToken: body.SnapshotToken,
 		DraftVersion: body.DraftVersion, DraftDigest: body.DraftDigest, OutputID: body.OutputId,
 		RootNodeID: body.RootNodeId, RootOccurrenceID: rootOccurrenceID, RouteRebase: routeRebase,
 	})
@@ -417,11 +417,11 @@ func (h *explorerHTTPHandlers) reconcileAuthoringDirect(ctx context.Context, pro
 	if body == nil {
 		return result, malformedRouteError("reconcile", errors.New("request body is required"))
 	}
-	receipt, err := h.application.Reconcile(ctx, lifecycle.ReconcileRequest{Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken, DraftVersion: body.DraftVersion, DraftDigest: body.DraftDigest})
+	reconciled, err := h.application.ReconcileWithWorkspace(ctx, lifecycle.ReconcileRequest{Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken, DraftVersion: body.DraftVersion, DraftDigest: body.DraftDigest, OutputID: optionalString(body.OutputId)})
 	if err != nil {
 		return result, err
 	}
-	return v2ReceiptResponse(receipt, authoringv2.Workspace{}), nil
+	return v2ReceiptResponse(reconciled.Receipt, reconciled.Workspace), nil
 }
 
 func (h *explorerHTTPHandlers) previewAuthoringDirect(ctx context.Context, project, explorerID string, body *loomapi.PreviewExplorerJSONRequestBody) (loomapi.PreviewResponse, error) {

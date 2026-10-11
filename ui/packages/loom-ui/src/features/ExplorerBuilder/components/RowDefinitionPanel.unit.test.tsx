@@ -119,4 +119,34 @@ describe('RowDefinitionPanel', () => {
     expect(screen.queryByRole('combobox', { name: 'Choose starting record type' })).toBeNull();
     expect(screen.queryByRole('region', { name: 'Starting record type' })).toBeNull();
   });
+
+  it('offers disconnected eligible roots through the explicit replacement choice', () => {
+    const disconnectedCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      nodes: [
+        { nodeId: 'patient-node', resourceType: 'Patient', rowRootEligible: true, populated: true, documentCount: 4 },
+        { nodeId: 'research-study-node', resourceType: 'ResearchStudy', rowRootEligible: true, populated: true, documentCount: 2 },
+        { nodeId: 'unpopulated-node', resourceType: 'Medication', rowRootEligible: true, populated: false, documentCount: 0 },
+      ],
+      edges: [],
+    };
+    const patientTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        rootResourceType: 'Patient',
+        route: { occurrenceId: 'base', resourceType: 'Patient' },
+      },
+    };
+    const onReplace = vi.fn();
+    render(<RowDefinitionPanel catalog={disconnectedCatalog} table={patientTable} disabled={false} onChange={vi.fn()} onReplace={onReplace} />);
+
+    expect(screen.queryByRole('combobox', { name: 'Choose starting record type' })).toBeNull();
+    const replacementSelect = screen.getByRole('combobox', { name: 'Choose replacement starting type' });
+    expect(within(replacementSelect).getByRole('option', { name: 'ResearchStudy' })).toBeTruthy();
+    expect(within(replacementSelect).getByRole('option', { name: 'Medication' })).toBeTruthy();
+    fireEvent.change(replacementSelect, { target: { value: 'research-study-node' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Replace current setup' }));
+    expect(onReplace).toHaveBeenCalledWith('research-study-node');
+  });
 });

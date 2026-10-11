@@ -76,6 +76,7 @@ import {
   type ExplicitGroupRevisionSummary,
   type ExplorerRuntimeV1,
   type RowChangeAssessment,
+  type RowChangeMode,
   type SemanticInventoryBrowseResponse,
   type FrameSourceOptionsResponse,
   type ExplorerBuilderRowLineageResponse,
@@ -146,6 +147,7 @@ export interface ApplyExplorerBuilderCommandsArgs extends ExplorerAuthoringState
 }
 
 export interface AssessExplorerRowChangeArgs extends ExplorerAuthoringStateArgs {
+  readonly mode?: RowChangeMode;
   readonly snapshotToken: string;
   readonly draftVersion: number;
   readonly draftDigest: string;
@@ -163,6 +165,7 @@ export interface ReconcileExplorerBuilderArgs extends ExplorerAuthoringStateArgs
   readonly snapshotToken: string;
   readonly draftVersion: number;
   readonly draftDigest: string;
+  readonly outputId?: string;
   readonly requestId?: string;
 }
 
@@ -844,6 +847,19 @@ export const canonicalProject = (project: string): string => {
     // Leave malformed URL input for the server to reject with its contract.
   }
   value = value.replace(/^\/+|\/+$/g, '');
+  if (value.includes('/')) {
+    const separator = value.indexOf('/');
+    const program = value.slice(0, separator);
+    const projectName = value.slice(separator + 1);
+    return program && projectName ? `${program}/${projectName}` : value;
+  }
+  const separator = value.indexOf('-');
+  if (separator > 0 && separator < value.length - 1) {
+    const program = value.slice(0, separator);
+    if (program !== program.toLowerCase() || program.includes('_')) {
+      return `${program}/${value.slice(separator + 1)}`;
+    }
+  }
   return value;
 };
 
@@ -1273,6 +1289,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
   };
   const assessRowChange = (args: AssessExplorerRowChangeArgs, signal?: AbortSignal) =>
     request(authoringPath(args, '/row-change'), withJson({
+      ...(args.mode ? { mode: args.mode } : {}),
       snapshotToken: args.snapshotToken,
       draftVersion: args.draftVersion,
       draftDigest: args.draftDigest,
@@ -1282,7 +1299,12 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       ...(args.routeRebase ? { routeRebase: args.routeRebase } : {}),
     }, signal, args.requestId)).then((value) => rowChangeAssessmentSchema.parse(value));
   const reconcile = (args: ReconcileExplorerBuilderArgs, signal?: AbortSignal) =>
-    request(durableAuthoringPath(args, '/reconcile'), withJson({ snapshotToken: args.snapshotToken, draftVersion: args.draftVersion, draftDigest: args.draftDigest }, signal, args.requestId)).then(assertExplorerBuilderCompileResult);
+    request(durableAuthoringPath(args, '/reconcile'), withJson({
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.draftVersion,
+      draftDigest: args.draftDigest,
+      ...(args.outputId ? { outputId: args.outputId } : {}),
+    }, signal, args.requestId)).then(assertExplorerBuilderCompileResult);
   const suggestions = (args: ExplorerCandidateSuggestionsArgs, signal?: AbortSignal) =>
     request(authoringPath(args, '/suggestions'), withJson({ snapshotToken: args.snapshotToken, nodeId: args.nodeId, ...(args.query ? { query: args.query } : {}) }, signal, args.requestId)).then((value) => explorerBuilderSuggestionsResultSchema.parse(value));
   const searchSchemaFields = (args: SearchSchemaFieldsArgs, signal?: AbortSignal) =>

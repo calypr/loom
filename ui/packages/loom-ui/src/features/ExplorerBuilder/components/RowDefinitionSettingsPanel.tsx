@@ -2,12 +2,14 @@ import React, { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { LoomClient } from '../../../api';
 import type {
   ConstructionStep,
+  ExplorerBuilderPreviewResult,
   ExplicitGroupRevisionSummary,
   RowDefinitionChoicesResponse,
   RowDefinitionProposal,
   RowDefinitionSelection,
+  RowChangeAssessment,
 } from '../../../types';
-import type { DraftTable } from '../authoring/model';
+import { routeNode, type DraftTable } from '../authoring/model';
 import type { RootChangeSelection } from '../authoring/rootChangeSelection';
 import type { SelectionRevision } from '../../../selection';
 import type { ConstructionHistoryStep } from '../constructionWorkspace/ConstructionWorkspace';
@@ -88,6 +90,201 @@ type ProposalState =
   | { readonly kind: 'stale'; readonly selection: RowDefinitionSelection }
   | { readonly kind: 'failed'; readonly selection: RowDefinitionSelection; readonly message: string }
   | { readonly kind: 'applying'; readonly selection: RowDefinitionSelection };
+
+export type ReadyReplacementAssessment = Extract<RowChangeAssessment, { readonly status: 'READY' }> & {
+  readonly mode: 'REPLACE';
+  readonly proposal: Extract<RowChangeAssessment, { readonly status: 'READY' }>['proposal'] & { readonly mode: 'REPLACE' };
+};
+type ReplacementState =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'assessing'; readonly rootNodeId: string }
+  | { readonly kind: 'loading-preview'; readonly assessment: ReadyReplacementAssessment }
+  | {
+      readonly kind: 'ready';
+      readonly assessment: ReadyReplacementAssessment;
+      readonly preview: ExplorerBuilderPreviewResult;
+      readonly idColumn: ExplorerBuilderPreviewResult['columns'][number];
+    }
+  | { readonly kind: 'blocked'; readonly assessment: Extract<RowChangeAssessment, { readonly status: 'BLOCKED' }> }
+  | { readonly kind: 'stale'; readonly rootNodeId: string }
+  | { readonly kind: 'failed'; readonly message: string }
+  | { readonly kind: 'applying'; readonly assessment: ReadyReplacementAssessment };
+
+const replacementEffectKeys = ['removedFeatureKeys', 'workspaceOutputConsumers', 'sharedFilterBindings'] as const;
+
+const isReadyReplacementAssessment = (
+  assessment: RowChangeAssessment,
+  table: DraftTable,
+  snapshotToken: string,
+  draftVersion: number,
+  draftDigest: string,
+): assessment is ReadyReplacementAssessment => {
+  if (assessment.status !== 'READY' || assessment.mode !== 'REPLACE' ||
+      assessment.proposal.mode !== 'REPLACE' || !assessment.candidateReceiptId ||
+      assessment.proposal.outputId !== table.outputId ||
+      assessment.snapshotToken !== snapshotToken || assessment.draftVersion !== draftVersion ||
+      assessment.draftDigest !== draftDigest || assessment.proposal.rootOccurrenceId !== 'base') {
+    return false;
+  }
+  return replacementEffectKeys.every((key) => {
+    const responseEffects = assessment[key];
+    const proposalEffects = assessment.proposal[key];
+    return Array.isArray(responseEffects) && Array.isArray(proposalEffects) &&
+      JSON.stringify(responseEffects) === JSON.stringify(proposalEffects);
+  });
+};
+
+const isCurrentReplacement = (
+  assessment: ReadyReplacementAssessment,
+  table: DraftTable,
+  snapshotToken: string,
+  draftVersion: number,
+  draftDigest: string,
+): boolean => assessment.mode === 'REPLACE' && assessment.proposal.mode === 'REPLACE' &&
+  assessment.proposal.outputId === table.outputId && assessment.snapshotToken === snapshotToken &&
+  assessment.draftVersion === draftVersion && assessment.draftDigest === draftDigest;
+
+const columnLabel = (table: DraftTable | undefined, columnId: string): string =>
+  table?.document.columns.find((column) => column.columnId === columnId)?.label ??
+  table?.document.columns.find((column) => column.column === columnId)?.label ?? columnId;
+
+type ReplacementConsumerPresentation = {
+  readonly key: string;
+  readonly title: string;
+  readonly detail: string;
+};
+
+export const replacementConsumerPresentations = (
+  workspaceTables: ReadonlyArray<DraftTable>,
+  replacementOutputId: string,
+  references: NonNullable<RowChangeAssessment['workspaceOutputConsumers']>,
+): ReadonlyArray<ReplacementConsumerPresentation> => references.map((reference) => {
+  const consumer = workspaceTables.find((candidate) => candidate.outputId === reference.outputId);
+  const step = consumer?.document.construction?.steps.find((candidate) => candidate.id === reference.stepId);
+  const input = step?.inputs[reference.inputIndex];
+  const targetInput = input?.kind === 'WORKSPACE_OUTPUT' && input.outputId === replacementOutputId;
+  const title = consumer?.title ?? 'Another table';
+  const fallbackDetail = step?.operation.kind === 'COMBINE'
+    ? step.operation.combine.kind === 'KEY_JOIN' ? 'Uses this table in a join'
+      : step.operation.combine.kind === 'APPEND' ? 'Uses this table in an append'
+        : 'Uses this table in a membership check'
+    : 'Uses this table in a construction step';
+  if (!targetInput || !step || step.operation.kind !== 'COMBINE') {
+    return { key: `${reference.outputId}:${reference.stepId}:${reference.inputIndex}`, title, detail: fallbackDetail };
+  }
+
+  const columnIds = new Set<string>();
+  for (const projection of step.operation.combine.projections) {
+    if (projection.inputIndex === reference.inputIndex) columnIds.add(projection.inputColumnId);
+  }
+  for (const key of step.operation.combine.keys ?? []) {
+    const keyColumnId = reference.inputIndex === 0
+      ? key.leftColumnId
+      : reference.inputIndex === 1 ? key.rightColumnId : undefined;
+    if (keyColumnId) columnIds.add(keyColumnId);
+  }
+  if (columnIds.size === 0) return { key: `${reference.outputId}:${reference.stepId}:${reference.inputIndex}`, title, detail: fallbackDetail };
+  const labels = [...columnIds].map((columnId) => columnLabel(
+    workspaceTables.find((candidate) => candidate.outputId === replacementOutputId), columnId,
+  ));
+  const operationLabel = step.operation.combine.kind === 'KEY_JOIN'
+    ? 'Join fields'
+    : step.operation.combine.kind === 'APPEND' ? 'Append fields' : 'Membership fields';
+  return {
+    key: `${reference.outputId}:${reference.stepId}:${reference.inputIndex}`,
+    title,
+    detail: `${operationLabel}: ${labels.join(', ')}`,
+  };
+});
+
+const sharedFilterPresentation = (
+  workspaceTables: ReadonlyArray<DraftTable>,
+  reference: NonNullable<RowChangeAssessment['sharedFilterBindings']>[number],
+): string => {
+  const table = workspaceTables.find((candidate) => candidate.outputId === reference.outputId);
+  const label = table?.document.columns.find((column) => column.column === reference.column)?.label ?? 'field';
+  return `${reference.name} · ${table?.title ?? 'another table'} · ${label}`;
+};
+
+const removedSetupPresentations = (
+  table: DraftTable,
+  selection: SelectionRevision | undefined,
+  constructionHistory: ReadonlyArray<ConstructionHistoryStep>,
+  featureKeys: ReadonlyArray<string>,
+): ReadonlyArray<{ readonly key: string; readonly label: string }> => {
+  const historyByStepId = new Map(constructionHistory.map((step) => [step.id, step] as const));
+  return featureKeys.map((featureKey) => {
+    let label: string;
+    if (featureKey.startsWith('root:')) {
+      label = `Starting record type — ${featureKey.slice('root:'.length)}`;
+    } else if (featureKey.startsWith('rowLabel:')) {
+      label = `Row label — ${featureKey.slice('rowLabel:'.length)}`;
+    } else if (featureKey.startsWith('route:')) {
+      const route = routeNode(table.document.route, featureKey.slice('route:'.length));
+      label = route
+        ? `Related record path — ${route.relationship ?? route.resourceType}`
+        : 'Related record path';
+    } else if (featureKey.startsWith('rows:')) {
+      const rowKind = featureKey.slice('rows:'.length);
+      label = rowKind === 'GROUPS'
+        ? 'Row definition — grouped rows'
+        : rowKind === 'EXPANDED' ? 'Row definition — one row per list value' : 'Row definition';
+    } else if (featureKey.startsWith('column:')) {
+      const columnName = featureKey.slice('column:'.length);
+      const column = table.document.columns.find((candidate) => candidate.column === columnName);
+      label = column ? `Field — ${column.label}` : 'Field';
+    } else if (featureKey.startsWith('population:')) {
+      const revisionId = featureKey.slice('population:'.length);
+      label = selection?.id === revisionId
+        ? `Starting collection — ${selection.memberCount} ${selection.resourceType} records`
+        : 'Starting collection';
+    } else if (featureKey.startsWith('populationRoute:')) {
+      const routeStep = table.document.population?.route
+        .map((step, index) => ({ step, index }))
+        .find(({ step, index }) => featureKey === `populationRoute:${index}:${step.resourceType}:${step.relationship}`);
+      label = routeStep
+        ? `Starting collection path ${routeStep.index + 1} — ${routeStep.step.resourceType} via ${routeStep.step.relationship}`
+        : 'Starting collection path';
+    } else if (featureKey.startsWith('frame:')) {
+      const frameId = featureKey.slice('frame:'.length);
+      const frame = table.document.frames?.find((candidate) => candidate.id === frameId);
+      label = frame ? `Record detail frame — ${frame.title}` : 'Record detail frame';
+    } else if (featureKey.startsWith('tableShape:reshape:')) {
+      const kind = featureKey.slice('tableShape:reshape:'.length);
+      label = kind === 'PIVOT' ? 'Table shape — pivoted rows'
+        : kind === 'UNPIVOT' ? 'Table shape — unpivoted rows' : 'Table shape — reshaped rows';
+    } else if (featureKey.startsWith('tableShape:derived:')) {
+      label = 'Table shape — derived columns';
+    } else if (featureKey === 'tableShape') {
+      label = 'Table shape';
+    } else if (featureKey.startsWith('construction:')) {
+      const stepId = featureKey.slice('construction:'.length);
+      label = historyByStepId.has(stepId)
+        ? `Construction step — ${historyByStepId.get(stepId)!.title}`
+        : 'Construction step';
+    } else if (featureKey.startsWith('fixedFilter:')) {
+      const columnName = featureKey.slice('fixedFilter:'.length);
+      const column = table.document.columns.find((candidate) => candidate.column === columnName);
+      label = column ? `Fixed filter — ${column.label}` : 'Fixed filter';
+    } else if (featureKey.startsWith('action:')) {
+      const action = table.document.actions?.find((candidate) =>
+        featureKey === `action:${candidate.type}:${candidate.title}`,
+      );
+      label = action ? `Saved action — ${action.title}` : 'Saved action';
+    } else if (featureKey === 'construction') {
+      label = 'Construction setup';
+    } else {
+      label = 'Other saved setup';
+    }
+    return { key: featureKey, label };
+  });
+};
+
+const displayPreviewCell = (value: unknown): string => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return JSON.stringify(value);
+};
 
 const selectionOptions = (choices: RowDefinitionChoicesResponse): ReadonlyArray<SelectionOption> => {
   const options: SelectionOption[] = [{
@@ -183,6 +380,7 @@ export const RowDefinitionSettingsPanel = ({
   startingCollectionSettings,
   selection,
   constructionHistory = [],
+  workspaceTables,
   disabled,
   onApply,
   relatedRows,
@@ -191,10 +389,12 @@ export const RowDefinitionSettingsPanel = ({
   onChooseReshape,
   sourceCollectionAction,
   onChangeRootSelection,
+  onApplyRootReplacement,
   onEditConstructionStep,
   onRemoveConstructionStep,
 }: {
-  readonly client: Pick<LoomClient, 'listRowDefinitionChoices' | 'proposeRowDefinition' | 'getSelection' | 'createExplicitGroupRevision'>;
+  readonly client: Pick<LoomClient, 'listRowDefinitionChoices' | 'proposeRowDefinition' | 'getSelection' | 'createExplicitGroupRevision'> &
+    Partial<Pick<LoomClient, 'assessRowChange' | 'preview'>>;
   readonly project: string;
   readonly explorerId: string;
   readonly authResourcePath?: string;
@@ -202,9 +402,13 @@ export const RowDefinitionSettingsPanel = ({
   readonly draftVersion: number;
   readonly draftDigest: string;
   readonly table: DraftTable;
+  readonly workspaceTables: ReadonlyArray<DraftTable>;
   readonly currentRowMeaning: string;
   readonly startingCollectionSummary: string;
-  readonly renderRootSettings: (onRootChange: (selection: RootChangeSelection) => void) => ReactNode;
+  readonly renderRootSettings: (
+    onRootChange: (selection: RootChangeSelection) => void,
+    onReplaceRoot: (rootNodeId: string) => void,
+  ) => ReactNode;
   readonly startingCollectionSettings: ReactNode;
   readonly selection?: SelectionRevision;
   readonly constructionHistory?: ReadonlyArray<ConstructionHistoryStep>;
@@ -225,16 +429,20 @@ export const RowDefinitionSettingsPanel = ({
   readonly onChooseReshape: (kind: 'group' | 'source-group' | 'coded-group' | 'expand' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot') => void;
   readonly sourceCollectionAction?: ReactNode;
   readonly onChangeRootSelection: (selection: RootChangeSelection) => void;
+  readonly onApplyRootReplacement: (assessment: ReadyReplacementAssessment) => Promise<boolean>;
   readonly onEditConstructionStep?: (stepId: string) => void;
   readonly onRemoveConstructionStep?: (stepId: string) => void;
 }) => {
   const [settings, setSettings] = useState<SettingsState>({ kind: 'closed' });
   const [proposalState, setProposalState] = useState<ProposalState>({ kind: 'none' });
+  const [replacementState, setReplacementState] = useState<ReplacementState>({ kind: 'idle' });
   const [groupAuthoringOpen, setGroupAuthoringOpen] = useState(false);
   const settingsRequestEpoch = useRef(0);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const proposalController = useRef<AbortController | undefined>(undefined);
   const proposalRequestEpoch = useRef(0);
+  const replacementController = useRef<AbortController | undefined>(undefined);
+  const replacementRequestEpoch = useRef(0);
 
   const settingsOpen = settings.kind !== 'closed';
 
@@ -246,11 +454,30 @@ export const RowDefinitionSettingsPanel = ({
     proposalRequestEpoch.current += 1;
   };
 
+  const cancelReplacementRequest = () => {
+    replacementController.current?.abort();
+    replacementController.current = undefined;
+    replacementRequestEpoch.current += 1;
+  };
+
   useEffect(() => () => {
     if (previewTimer.current) clearTimeout(previewTimer.current);
     proposalController.current?.abort();
     proposalRequestEpoch.current += 1;
+    replacementController.current?.abort();
+    replacementRequestEpoch.current += 1;
   }, [table.outputId, snapshotToken, draftVersion, draftDigest]);
+
+  useEffect(() => {
+    setReplacementState((current) => {
+      if (current.kind === 'assessing') return { kind: 'stale', rootNodeId: current.rootNodeId };
+      if ((current.kind === 'loading-preview' || current.kind === 'ready' || current.kind === 'applying') &&
+          !isCurrentReplacement(current.assessment, table, snapshotToken, draftVersion, draftDigest)) {
+        return { kind: 'stale', rootNodeId: current.assessment.proposal.rootNodeId };
+      }
+      return current;
+    });
+  }, [table, snapshotToken, draftVersion, draftDigest]);
 
   useEffect(() => {
     setProposalState((current) => {
@@ -341,6 +568,97 @@ export const RowDefinitionSettingsPanel = ({
     }
   };
 
+  const assessReplacement = async (rootNodeId: string) => {
+    cancelPendingPreview();
+    cancelReplacementRequest();
+    const assessRowChange = client.assessRowChange;
+    const loadPreview = client.preview;
+    if (!assessRowChange || !loadPreview) {
+      setReplacementState({ kind: 'failed', message: 'Replacement review is unavailable in this Builder session. The saved draft was not changed.' });
+      return;
+    }
+    const requestEpoch = replacementRequestEpoch.current;
+    const controller = new AbortController();
+    replacementController.current = controller;
+    setReplacementState({ kind: 'assessing', rootNodeId });
+    try {
+      const assessment = await assessRowChange({
+        project, explorerId, authResourcePath, mode: 'REPLACE', snapshotToken,
+        draftVersion, draftDigest, outputId: table.outputId, rootNodeId,
+      }, controller.signal);
+      if (controller.signal.aborted || requestEpoch !== replacementRequestEpoch.current) return;
+      if (assessment.snapshotToken !== snapshotToken || assessment.draftVersion !== draftVersion ||
+          assessment.draftDigest !== draftDigest) {
+        setReplacementState({ kind: 'stale', rootNodeId });
+        return;
+      }
+      if (assessment.status === 'BLOCKED') {
+        setReplacementState({ kind: 'blocked', assessment });
+        return;
+      }
+      if (!isReadyReplacementAssessment(assessment, table, snapshotToken, draftVersion, draftDigest) ||
+          assessment.proposal.rootNodeId !== rootNodeId) {
+        setReplacementState({ kind: 'failed', message: 'Loom returned an incomplete or mismatched replacement review. The saved draft was not changed.' });
+        return;
+      }
+      const candidateReceiptId = assessment.candidateReceiptId;
+      if (!candidateReceiptId) {
+        setReplacementState({ kind: 'failed', message: 'Loom did not provide a replacement preview receipt. The saved draft was not changed.' });
+        return;
+      }
+      setReplacementState({ kind: 'loading-preview', assessment });
+      const preview = await loadPreview({
+        project, explorerId, authResourcePath, receiptId: candidateReceiptId,
+        outputId: assessment.proposal.outputId,
+      }, controller.signal);
+      if (controller.signal.aborted || requestEpoch !== replacementRequestEpoch.current) return;
+      if (preview.receiptId !== candidateReceiptId || preview.outputId !== table.outputId) {
+        setReplacementState({ kind: 'failed', message: 'Loom returned a preview for a different replacement receipt or table. The saved draft was not changed.' });
+        return;
+      }
+      const idColumns = preview.columns.filter((column) => column.column === 'id');
+      if (idColumns.length !== 1) {
+        setReplacementState({ kind: 'failed', message: 'The replacement preview does not contain exactly one default id column. The saved draft was not changed.' });
+        return;
+      }
+      const idColumn = idColumns[0];
+      if (idColumn.sourcePath !== 'id' || idColumn.sourceResourceType !== assessment.candidateRootResourceType) {
+        setReplacementState({ kind: 'failed', message: 'The replacement preview does not identify the base record id field. The saved draft was not changed.' });
+        return;
+      }
+      setReplacementState({ kind: 'ready', assessment, preview, idColumn });
+    } catch (error) {
+      if (controller.signal.aborted || requestEpoch !== replacementRequestEpoch.current) return;
+      setReplacementState({
+        kind: 'failed',
+        message: requestFailureMessage(error, 'Loom could not review this replacement. The saved draft was not changed.'),
+      });
+    } finally {
+      if (replacementController.current === controller) replacementController.current = undefined;
+    }
+  };
+
+  const cancelReplacementReview = () => {
+    cancelReplacementRequest();
+    setReplacementState({ kind: 'idle' });
+  };
+
+  const applyReplacement = async () => {
+    if (replacementState.kind !== 'ready') return;
+    if (!isCurrentReplacement(replacementState.assessment, table, snapshotToken, draftVersion, draftDigest)) {
+      setReplacementState({ kind: 'stale', rootNodeId: replacementState.assessment.proposal.rootNodeId });
+      return;
+    }
+    const assessment = replacementState.assessment;
+    setReplacementState({ kind: 'applying', assessment });
+    if (await onApplyRootReplacement(assessment)) {
+      setReplacementState({ kind: 'idle' });
+      setSettings({ kind: 'closed' });
+    } else {
+      setReplacementState({ kind: 'stale', rootNodeId: assessment.proposal.rootNodeId });
+    }
+  };
+
   const schedulePreview = (selection: RowDefinitionSelection) => {
     cancelPendingPreview();
     setProposalState({ kind: 'none' });
@@ -369,6 +687,8 @@ export const RowDefinitionSettingsPanel = ({
 
   const cancel = () => {
     cancelPendingPreview();
+    cancelReplacementRequest();
+    setReplacementState({ kind: 'idle' });
     settingsRequestEpoch.current += 1;
     setSettings({ kind: 'closed' });
     setProposalState({ kind: 'none' });
@@ -393,6 +713,19 @@ export const RowDefinitionSettingsPanel = ({
 
   const currentProposal = proposalState.kind === 'fresh' ? proposalState.proposal : undefined;
   const comparison = currentProposal?.comparison;
+  const replacementAssessment = replacementState.kind === 'loading-preview' ||
+    replacementState.kind === 'ready' || replacementState.kind === 'applying'
+    ? replacementState.assessment
+    : undefined;
+  const replacementConsumers = replacementAssessment
+    ? replacementConsumerPresentations(workspaceTables, table.outputId, replacementAssessment.workspaceOutputConsumers ?? [])
+    : [];
+  const replacementRemovedSetup = replacementAssessment
+    ? removedSetupPresentations(table, selection, constructionHistory, replacementAssessment.removedFeatureKeys ?? [])
+    : [];
+  const replacementIsCurrent = replacementAssessment
+    ? isCurrentReplacement(replacementAssessment, table, snapshotToken, draftVersion, draftDigest)
+    : false;
   const selectedOption = settings.kind === 'editing'
     ? settings.options.find((option) => option.value === settings.selectionId)
     : undefined;
@@ -446,7 +779,7 @@ export const RowDefinitionSettingsPanel = ({
                 {renderRootSettings((selection) => {
                   cancel();
                   onChangeRootSelection(selection);
-                })}
+                }, (rootNodeId) => void assessReplacement(rootNodeId))}
                 <p className="mt-3 text-sm text-slate-600">Choose a different starting record type or decide what one row should describe. Preview row changes before applying them.</p>
               </div>
               <button type="button" className="shrink-0 whitespace-nowrap rounded-md border border-slate-300 px-3 py-1.5 text-sm" onClick={cancel}>Back to table</button>
@@ -686,6 +1019,107 @@ export const RowDefinitionSettingsPanel = ({
               </section>
             </div>
           </div>
+        </div>
+      ) : null}
+      {replacementState.kind !== 'idle' ? (
+        <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-950/40 p-4 sm:p-8">
+          <section role="dialog" aria-modal="true" aria-labelledby="root-replacement-title" className="mx-auto max-w-3xl rounded-xl bg-white p-5 shadow-xl sm:p-7">
+            <h2 id="root-replacement-title" className="text-xl font-semibold text-slate-900">Replace this table’s current setup?</h2>
+            <p className="mt-2 text-sm text-slate-700">This replaces the current setup for {table.title}. The table, output, and tab keep their identity. Review the candidate and its effects before applying.</p>
+            {replacementState.kind === 'assessing' ? <p role="status" className="mt-4 text-sm text-slate-700">Checking the replacement and preparing its preview…</p> : null}
+            {replacementState.kind === 'loading-preview' ? <p role="status" className="mt-4 text-sm text-slate-700">Loading the receipt-bound replacement preview…</p> : null}
+            {replacementState.kind === 'blocked' ? (
+              <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+                <h3 className="font-semibold">This record type cannot replace the setup yet</h3>
+                {replacementState.assessment.diagnostics.map((diagnostic, index) => (
+                  <p key={`${diagnostic.code}:${index}`} className="mt-1">{diagnostic.message}</p>
+                ))}
+              </div>
+            ) : null}
+            {replacementState.kind === 'failed' ? <p role="alert" className="mt-4 text-sm text-red-800">{replacementState.message}</p> : null}
+            {replacementState.kind === 'stale' || (replacementAssessment && !replacementIsCurrent) ? (
+              <p role="alert" className="mt-4 text-sm text-amber-900">This replacement review is out of date. Choose the starting type again.</p>
+            ) : null}
+            {replacementAssessment ? (
+              <section aria-label="Replacement consequences" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-slate-800">
+                <h3 className="font-semibold text-slate-900">What will change</h3>
+                <dl className="mt-2 grid gap-2 sm:grid-cols-[10rem_1fr]">
+                  <dt className="font-medium">Table</dt>
+                  <dd>{table.title} · same output and tab</dd>
+                  <dt className="font-medium">Starting record</dt>
+                  <dd>{replacementAssessment.candidateRootResourceType}</dd>
+                  <dt className="font-medium">Rows</dt>
+                  <dd>One row per source record · {replacementState.kind === 'ready' ? `${replacementState.preview.rowCount} preview rows` : 'preview pending'}</dd>
+                  {replacementState.kind === 'ready' ? (
+                    <>
+                      <dt className="font-medium">Default ID column</dt>
+                      <dd>{replacementState.idColumn.label} · id (base value)</dd>
+                    </>
+                  ) : null}
+                </dl>
+                <div className="mt-3">
+                  <h4 className="font-medium">Removed setup</h4>
+                  {replacementRemovedSetup.length > 0 ? (
+                    <ul className="mt-1 list-disc pl-5" aria-label="Removed setup features">
+                      {replacementRemovedSetup.map((feature) => <li key={feature.key}>{feature.label}</li>)}
+                    </ul>
+                  ) : <p className="mt-1">No saved feature keys will be removed.</p>}
+                </div>
+                <div className="mt-3">
+                  <h4 className="font-medium">Current-draft tables to repair</h4>
+                  {replacementConsumers.length > 0 ? (
+                    <ul className="mt-1 list-disc pl-5" aria-label="Affected current-draft consumers">
+                      {replacementConsumers.map((consumer) => <li key={consumer.key}><span className="font-medium">{consumer.title}</span> · {consumer.detail}</li>)}
+                    </ul>
+                  ) : <p className="mt-1">No current-draft table inputs use this output.</p>}
+                </div>
+                <div className="mt-3">
+                  <h4 className="font-medium">Shared filters to update</h4>
+                  {(replacementAssessment.sharedFilterBindings ?? []).length > 0 ? (
+                    <ul className="mt-1 list-disc pl-5" aria-label="Pruned shared-filter bindings">
+                      {(replacementAssessment.sharedFilterBindings ?? []).map((binding) => (
+                        <li key={`${binding.name}:${binding.outputId}:${binding.column}:${binding.bindingIndex}`}>
+                          {sharedFilterPresentation(workspaceTables, binding)}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : <p className="mt-1">No shared-filter bindings will be removed.</p>}
+                </div>
+              </section>
+            ) : null}
+            {replacementState.kind === 'ready' ? (
+              <section className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <h3 className="font-semibold text-slate-900">Candidate preview</h3>
+                <div className="mt-2 max-h-72 overflow-auto">
+                  <table data-testid="construction-proposal-preview" className="min-w-full border-collapse text-left text-xs">
+                    <thead><tr>{replacementState.preview.columns.map((column) => <th key={column.column} className="border border-slate-300 bg-slate-100 px-2 py-1 font-semibold">{column.label}</th>)}</tr></thead>
+                    <tbody>
+                      {replacementState.preview.rows?.map((row, rowIndex) => (
+                        <tr key={rowIndex}>{replacementState.preview.columns.map((column) => <td key={column.column} className="border border-slate-300 px-2 py-1">{displayPreviewCell(row[column.column])}</td>)}</tr>
+                      ))}
+                      {replacementState.preview.rows?.length === 0 ? (
+                        <tr><td className="border border-slate-300 px-2 py-2" colSpan={replacementState.preview.columns.length}>No sample rows are available.</td></tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            ) : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" className="rounded-md border border-slate-300 px-3 py-2" onClick={cancelReplacementReview}>Cancel</button>
+              {replacementState.kind === 'ready' ? (
+                <button
+                  type="button"
+                  className="rounded-md bg-amber-800 px-3 py-2 font-semibold text-white disabled:opacity-50"
+                  disabled={disabled || !replacementIsCurrent}
+                  onClick={() => void applyReplacement()}
+                >
+                  Change starting record type
+                </button>
+              ) : null}
+              {replacementState.kind === 'applying' ? <span role="status" className="self-center text-sm text-slate-700">Applying replacement…</span> : null}
+            </div>
+          </section>
         </div>
       ) : null}
     </>

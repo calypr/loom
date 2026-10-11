@@ -77,6 +77,17 @@ describe('ConstructionProposalPreview', () => {
     expect(screen.getByText('Showing all 1 row in this proposal.')).toBeInTheDocument();
   });
 
+  it('exposes its ready candidate as a native table beneath the receipt-bound preview root', () => {
+    render(<ConstructionProposalPreview preview={preview(false)} />);
+    const candidate = screen.getByTestId('construction-proposal-preview');
+    const table = candidate.querySelector('table');
+    expect(candidate.dataset.previewStatus).toBe('ready');
+    expect(candidate.dataset.previewReceiptId).toBe('receipt-1');
+    expect(candidate.dataset.previewOutputId).toBe('patients');
+    expect(table).toBe(screen.getByRole('table'));
+    expect(table?.querySelector('tr td')?.textContent).toBe('patient-1');
+  });
+
   it('explains when only displayed construction groups were validated', () => {
     render(<ConstructionProposalPreview preview={preview(false, true)} />);
     expect(screen.getByText('Only displayed groups were checked in this preview. Publishing runs Pivot rules over the full source.')).toBeInTheDocument();

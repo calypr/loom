@@ -37,20 +37,18 @@ func firstNonEmpty(values ...string) string {
 func pointerTo[T any](value T) *T { return &value }
 
 func v2ReceiptResponse(receipt *explorer.CompilationReceipt, workspace authoringv2.Workspace) loomapi.CompileResponse {
-	if receipt != nil && len(receipt.NormalizedBundle) != 0 {
+	if len(workspace.Documents) == 0 && receipt != nil && len(receipt.NormalizedBundle) != 0 {
 		if normalized, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle); err == nil {
 			workspace = normalized
 		}
 	}
-	outputs := make([]loomapi.ReceiptOutput, 0, len(workspace.Documents))
-	for _, document := range workspace.Documents {
-		rowGrain := ""
-		for _, output := range receipt.Bundle.Outputs {
-			if output.Name == document.Output.ID {
-				rowGrain = output.RowGrain
-				break
-			}
+	outputs := make([]loomapi.ReceiptOutput, 0, len(receipt.Bundle.Outputs))
+	for _, compiledOutput := range receipt.Bundle.Outputs {
+		document, found := semanticWorkspaceDocument(workspace, compiledOutput.Name)
+		if !found {
+			continue
 		}
+		rowGrain := compiledOutput.RowGrain
 		columns := make([]loomapi.ContractColumn, 0)
 		for _, column := range receipt.EmittedColumns {
 			if column.OutputID != document.Output.ID {

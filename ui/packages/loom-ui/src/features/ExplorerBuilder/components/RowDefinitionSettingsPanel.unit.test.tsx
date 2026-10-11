@@ -3,12 +3,12 @@ import React from 'react';
 import type { ReactNode } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { RowDefinitionChoicesResponse, RowDefinitionProposal } from '../../../types';
+import type { ExplorerBuilderPreviewResult, RowChangeAssessment, RowDefinitionChoicesResponse, RowDefinitionProposal } from '../../../types';
 import type { SelectionRevision } from '../../../selection';
 import type { DraftTable } from '../authoring/model';
 import type { RootChangeSelection } from '../authoring/rootChangeSelection';
 import type { ConstructionHistoryStep } from '../constructionWorkspace/ConstructionWorkspace';
-import { RowDefinitionSettingsPanel } from './RowDefinitionSettingsPanel';
+import { RowDefinitionSettingsPanel, type ReadyReplacementAssessment } from './RowDefinitionSettingsPanel';
 
 const choices: RowDefinitionChoicesResponse = {
   snapshotToken: 'snapshot-1',
@@ -70,6 +70,136 @@ const table: DraftTable = {
   },
 };
 
+const patientWorkspaceTable: DraftTable = {
+  ...table,
+  document: {
+    ...table.document,
+    columns: [
+      { columnId: 'patient-id', column: 'patient_id', label: 'Patient identifier', occurrenceId: 'base', source: { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } } },
+      { columnId: 'patient-name', column: 'patient_name', label: 'Patient name', occurrenceId: 'base', source: { kind: 'field', field: { path: 'name', projectionMode: 'VALUE' } } },
+    ],
+  },
+};
+
+const reportWorkspaceTable: DraftTable = {
+  outputId: 'reports',
+  tabId: 'reports',
+  title: 'Reports',
+  document: {
+    ...table.document,
+    output: { id: 'reports', title: 'Reports' },
+    rootResourceType: 'ResearchStudy',
+    route: { occurrenceId: 'base', resourceType: 'ResearchStudy' },
+    construction: {
+      version: 1,
+      steps: [{
+        id: 'join-step',
+        inputs: [
+          { kind: 'WORKSPACE_OUTPUT', outputId: 'patients' },
+          { kind: 'WORKSPACE_OUTPUT', outputId: 'lab-rows' },
+        ],
+        operation: { kind: 'COMBINE', combine: {
+          kind: 'KEY_JOIN',
+          keys: [{ leftColumnId: 'patient-id', rightColumnId: 'lab-patient-id' }],
+          projections: [
+            { outputColumnId: 'report-patient-id', inputIndex: 0, inputColumnId: 'patient-id' },
+            { outputColumnId: 'report-patient-name', inputIndex: 0, inputColumnId: 'patient-name' },
+            { outputColumnId: 'report-lab-id', inputIndex: 1, inputColumnId: 'lab-patient-id' },
+          ],
+        } },
+        outputs: [
+          { id: 'report-patient-id', name: 'patient_id', label: 'Patient identifier' },
+          { id: 'report-patient-name', name: 'patient_name', label: 'Patient name' },
+          { id: 'report-lab-id', name: 'lab_patient_id', label: 'Lab patient identifier' },
+        ],
+      }],
+    },
+  },
+};
+
+const reportConstruction = reportWorkspaceTable.document.construction!;
+const reportJoinStep = reportConstruction.steps[0]!;
+const nonCombineConsumerTable: DraftTable = {
+  ...reportWorkspaceTable,
+  document: {
+    ...reportWorkspaceTable.document,
+    construction: {
+      ...reportConstruction,
+      steps: [{
+        ...reportJoinStep,
+        operation: { kind: 'FILTER', filter: { columnId: 'patient-id', operator: 'EXISTS' } },
+      }],
+    },
+  },
+};
+const noColumnJoinConsumerTable: DraftTable = {
+  ...reportWorkspaceTable,
+  outputId: 'empty-join',
+  tabId: 'empty-join',
+  title: 'Empty join',
+  document: {
+    ...reportWorkspaceTable.document,
+    output: { id: 'empty-join', title: 'Empty join' },
+    construction: {
+      ...reportConstruction,
+      steps: [{
+        ...reportJoinStep,
+        operation: { kind: 'COMBINE', combine: {
+          kind: 'KEY_JOIN',
+          projections: [{ outputColumnId: 'report-lab-id', inputIndex: 1, inputColumnId: 'lab-patient-id' }],
+        } },
+      }],
+    },
+  },
+};
+
+const replacementAssessment: RowChangeAssessment = {
+  status: 'READY',
+  mode: 'REPLACE',
+  snapshotToken: 'snapshot-1',
+  draftVersion: 4,
+  draftDigest: 'draft-digest-4',
+  currentRootResourceType: 'Patient',
+  candidateRootResourceType: 'ResearchStudy',
+  preservedFeatureKeys: [],
+  removedFeatureKeys: ['root:Patient', 'column:patient_id'],
+  workspaceOutputConsumers: [{ outputId: 'reports', stepId: 'join-step', inputIndex: 0 }],
+  sharedFilterBindings: [{ name: 'active-patients', outputId: 'patients', column: 'patient_id', bindingIndex: 1 }],
+  diagnostics: [],
+  proposal: {
+    mode: 'REPLACE',
+    outputId: 'patients',
+    rootNodeId: 'research-study-node',
+    rootOccurrenceId: 'base',
+    sourceDocumentDigest: 'source-document-digest',
+    routeRebase: [],
+    preservedFeatureKeys: [],
+    catalogSnapshotToken: 'snapshot-1',
+    catalogGeneration: 'generation-1',
+    catalogDigest: 'catalog-digest-1',
+    removedFeatureKeys: ['root:Patient', 'column:patient_id'],
+    workspaceOutputConsumers: [{ outputId: 'reports', stepId: 'join-step', inputIndex: 0 }],
+    sharedFilterBindings: [{ name: 'active-patients', outputId: 'patients', column: 'patient_id', bindingIndex: 1 }],
+  },
+  candidateReceiptId: 'replacement-receipt-1',
+  unresolved: [],
+};
+
+const replacementPreview: ExplorerBuilderPreviewResult = {
+  apiVersion: 'loom.calypr.org/explorer-authoring/v2',
+  kind: 'ExplorerBuilderPreview',
+  receiptId: 'replacement-receipt-1',
+  outputId: 'patients',
+  columns: [
+    { column: 'resource_type', label: 'Resource type', logicalType: 'string', filterable: true, chartable: false },
+    { column: 'id', label: 'ResearchStudy ID', logicalType: 'string', filterable: true, chartable: false, sourceResourceType: 'ResearchStudy', sourcePath: 'id' },
+  ],
+  rows: [{ resource_type: 'ResearchStudy', id: 'study-1' }],
+  rowLineageCapability: { status: 'AVAILABLE' },
+  rowCount: 1,
+  diagnostics: [],
+};
+
 const tableWithGroupStep: DraftTable = {
   ...table,
   document: {
@@ -112,10 +242,49 @@ const sourceSelection: SelectionRevision = {
   createdAt: '2026-09-20T00:00:00.000Z',
 };
 
+const replacementConsequenceTable: DraftTable = {
+  ...patientWorkspaceTable,
+  document: {
+    ...patientWorkspaceTable.document,
+    output: { id: 'patients', title: 'Patients', rowLabel: 'Patient summary' },
+    route: {
+      occurrenceId: 'base',
+      resourceType: 'Patient',
+      children: [{ occurrenceId: 'patient-observations', resourceType: 'Observation', relationship: 'observations' }],
+    },
+    rows: {
+      kind: 'EXPANDED',
+      expanded: { occurrenceId: 'patient-observations', scopePath: 'value', emptyCollectionPolicy: 'EXCLUDE' },
+    },
+    population: {
+      selectionRevisionId: 'selection-source-1',
+      route: [{ resourceType: 'Observation', relationship: 'observations' }],
+    },
+    frames: [{
+      id: 'patient-frame',
+      title: 'Patient details',
+      description: 'Patient detail view',
+      source: {
+        bindingId: 'patient-frame-binding', resourceType: 'Patient', sourcePath: 'name', owningScope: 'base',
+        keyPath: 'id', valuePath: 'name', logicalType: 'string', ruleVersion: 'v1', schemaVersion: 1,
+      },
+      route: [], form: 'VALUE', zeroPolicy: 'NULL', manyPolicy: 'INVALID_MULTIPLE_VALUES',
+    }],
+    construction: tableWithGroupStep.document.construction,
+    fixedFilters: [{ column: 'patient_id', values: ['active'] }],
+    actions: [{ type: 'download', title: 'Export patients' }],
+  },
+};
+
+const replacementShapeTable: DraftTable = {
+  ...patientWorkspaceTable,
+  document: { ...patientWorkspaceTable.document, tableShape: { reshape: { kind: 'PIVOT' } } },
+};
+
 const relatedRowProps = {
   currentRowMeaning: 'One row per source record',
   startingCollectionSummary: 'Starting collection: All authorized Patient records',
-  renderRootSettings: (onRootChange: (selection: RootChangeSelection) => void) => (
+  renderRootSettings: (onRootChange: (selection: RootChangeSelection) => void, onReplaceRoot: (rootNodeId: string) => void) => (
     <section aria-label="Starting record type">
       <h4>Starting record type</h4>
       <label>
@@ -129,6 +298,7 @@ const relatedRowProps = {
           <option value="patient-observation">Observation via observations</option>
         </select>
       </label>
+      <button type="button" onClick={() => onReplaceRoot('research-study-node')}>Replace current setup</button>
     </section>
   ),
   startingCollectionSettings: <section aria-label="Starting collection">Collection controls</section>,
@@ -163,25 +333,35 @@ const renderSettings = (overrides: {
   sourceGroupAlternative?: boolean;
   onChangeRootSelection?: (selection: RootChangeSelection) => void;
   tableValue?: DraftTable;
+  selection?: SelectionRevision;
   constructionHistory?: ReadonlyArray<ConstructionHistoryStep>;
   onEditConstructionStep?: (stepId: string) => void;
   onRemoveConstructionStep?: (stepId: string) => void;
   sourceCollectionAction?: ReactNode;
   currentRowMeaning?: string;
+  renderRootSettings?: typeof relatedRowProps.renderRootSettings;
+  workspaceTables?: ReadonlyArray<DraftTable>;
+  replacementAssessment?: RowChangeAssessment;
+  replacementPreview?: ExplorerBuilderPreviewResult;
+  onApplyRootReplacement?: (assessment: ReadyReplacementAssessment) => Promise<boolean>;
 } = {}) => {
   const listRowDefinitionChoices = vi.fn().mockResolvedValue(overrides.choicesValue ?? choices);
   const proposeRowDefinition = vi.fn().mockResolvedValue(overrides.proposalValue ?? proposal);
   const getSelection = vi.fn().mockResolvedValue(selectionPage);
   const createExplicitGroupRevision = vi.fn();
+  const assessRowChange = vi.fn().mockResolvedValue(overrides.replacementAssessment ?? replacementAssessment);
+  const preview = vi.fn().mockResolvedValue(overrides.replacementPreview ?? replacementPreview);
   const onApply = vi.fn().mockResolvedValue(true);
   const onChooseRelatedRows = vi.fn();
   const onChooseReshape = vi.fn();
   const onChangeRootSelection = overrides.onChangeRootSelection ?? vi.fn();
+  const onApplyRootReplacement = overrides.onApplyRootReplacement ?? vi.fn().mockResolvedValue(true);
   const onEditConstructionStep = overrides.onEditConstructionStep ?? vi.fn();
   const onRemoveConstructionStep = overrides.onRemoveConstructionStep ?? vi.fn();
   const view = render(
     <RowDefinitionSettingsPanel
       {...relatedRowProps}
+      renderRootSettings={overrides.renderRootSettings ?? relatedRowProps.renderRootSettings}
       currentRowMeaning={overrides.currentRowMeaning ?? relatedRowProps.currentRowMeaning}
       onChangeRootSelection={onChangeRootSelection}
       relatedRows={{ supported: overrides.relatedRowsSupported ?? false, reason: 'No executable route' }}
@@ -195,26 +375,188 @@ const renderSettings = (overrides: {
       onChooseRelatedRows={onChooseRelatedRows}
       onChooseReshape={onChooseReshape}
       sourceCollectionAction={overrides.sourceCollectionAction}
-      client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision }}
+      client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision, assessRowChange, preview }}
       project="project-a"
       explorerId="explorer-a"
       snapshotToken="snapshot-1"
       draftVersion={overrides.draftVersion ?? 4}
       draftDigest={overrides.draftDigest ?? 'draft-digest-4'}
       table={overrides.tableValue ?? table}
+      workspaceTables={overrides.workspaceTables ?? [table]}
       constructionHistory={overrides.constructionHistory ?? []}
+      selection={overrides.selection}
       disabled={false}
       onApply={onApply}
+      onApplyRootReplacement={onApplyRootReplacement}
       onEditConstructionStep={onEditConstructionStep}
       onRemoveConstructionStep={onRemoveConstructionStep}
     />,
   );
-  return { ...view, listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision, onApply, onChooseRelatedRows, onChooseReshape, onChangeRootSelection, onEditConstructionStep, onRemoveConstructionStep };
+  return { ...view, listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision, assessRowChange, preview, onApply, onApplyRootReplacement, onChooseRelatedRows, onChooseReshape, onChangeRootSelection, onEditConstructionStep, onRemoveConstructionStep };
 };
 
 afterEach(cleanup);
 
 describe('RowDefinitionSettingsPanel', () => {
+  it('previews exact replacement consequences for the same table and cancels without applying', async () => {
+    const { assessRowChange, preview, onApplyRootReplacement } = renderSettings({
+      tableValue: patientWorkspaceTable,
+      workspaceTables: [patientWorkspaceTable, reportWorkspaceTable],
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    fireEvent.click(screen.getByRole('button', { name: 'Replace current setup' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Replace this table’s current setup?' });
+    const previewTable = await within(dialog).findByTestId('construction-proposal-preview');
+    expect(previewTable.tagName).toBe('TABLE');
+    expect(dialog.querySelector('table[data-testid="construction-proposal-preview"]')).toBe(previewTable);
+    expect(previewTable.querySelector('table')).toBeNull();
+    expect(assessRowChange).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'REPLACE', outputId: 'patients', rootNodeId: 'research-study-node',
+      snapshotToken: 'snapshot-1', draftVersion: 4, draftDigest: 'draft-digest-4',
+    }), expect.any(AbortSignal));
+    expect(preview).toHaveBeenCalledWith(expect.objectContaining({
+      receiptId: 'replacement-receipt-1', outputId: 'patients',
+    }), expect.any(AbortSignal));
+
+    const consequences = within(dialog).getByRole('region', { name: 'Replacement consequences' });
+    expect(consequences).toHaveTextContent('Patients · same output and tab');
+    expect(consequences).toHaveTextContent('ResearchStudy');
+    expect(consequences).toHaveTextContent('1 preview rows');
+    expect(consequences).toHaveTextContent('ResearchStudy ID · id (base value)');
+    expect(consequences).toHaveTextContent('Starting record type — Patient');
+    expect(consequences).toHaveTextContent('Field — Patient identifier');
+    expect(consequences).not.toHaveTextContent('root:Patient');
+    expect(consequences).not.toHaveTextContent('column:patient_id');
+    expect(consequences).toHaveTextContent('Reports · Join fields: Patient identifier, Patient name');
+    expect(consequences).not.toHaveTextContent('Lab patient identifier');
+    expect(consequences).toHaveTextContent('active-patients · Patients · Patient identifier');
+    expect(within(previewTable).getByRole('columnheader', { name: 'ResearchStudy ID' })).toBeTruthy();
+    expect(within(previewTable).getByText('study-1')).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'Change starting record type' })).toBeEnabled();
+    expect(within(dialog).queryByRole('checkbox')).toBeNull();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog', { name: 'Replace this table’s current setup?' })).toBeNull();
+    expect(onApplyRootReplacement).not.toHaveBeenCalled();
+  });
+
+  it('translates backend removal keys into readable setup consequences', async () => {
+    const featureKeys = [
+      'root:Patient',
+      'rowLabel:Patient summary',
+      'route:patient-observations',
+      'rows:EXPANDED',
+      'column:patient_id',
+      'population:selection-source-1',
+      'populationRoute:0:Observation:observations',
+      'frame:patient-frame',
+      'construction:group-step',
+      'fixedFilter:patient_id',
+      'action:download:Export patients',
+    ];
+    const assessmentWithEffects: RowChangeAssessment = {
+      ...replacementAssessment,
+      removedFeatureKeys: featureKeys,
+      proposal: { ...replacementAssessment.proposal, removedFeatureKeys: featureKeys },
+    };
+    renderSettings({
+      tableValue: replacementConsequenceTable,
+      workspaceTables: [replacementConsequenceTable],
+      constructionHistory: [groupStepHistory],
+      selection: sourceSelection,
+      replacementAssessment: assessmentWithEffects,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    fireEvent.click(screen.getByRole('button', { name: 'Replace current setup' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Replace this table’s current setup?' });
+    const consequences = within(dialog).getByRole('region', { name: 'Replacement consequences' });
+    for (const expected of [
+      'Starting record type — Patient',
+      'Row label — Patient summary',
+      'Related record path — observations',
+      'Row definition — one row per list value',
+      'Field — Patient identifier',
+      'Starting collection — 3 Patient records',
+      'Starting collection path 1 — Observation via observations',
+      'Record detail frame — Patient details',
+      'Construction step — Group',
+      'Fixed filter — Patient identifier',
+      'Saved action — Export patients',
+    ]) {
+      expect(consequences).toHaveTextContent(expected);
+    }
+    for (const featureKey of featureKeys) expect(consequences).not.toHaveTextContent(featureKey);
+  });
+
+  it('keeps consumer IDs out of the review when its table, operation, or referenced columns are unavailable', async () => {
+    const consumers = [
+      { outputId: 'opaque-missing-consumer', stepId: 'opaque-missing-step', inputIndex: 4 },
+      { outputId: 'reports', stepId: 'join-step', inputIndex: 0 },
+      { outputId: 'empty-join', stepId: 'join-step', inputIndex: 0 },
+    ];
+    const assessmentWithConsumers: RowChangeAssessment = {
+      ...replacementAssessment,
+      workspaceOutputConsumers: consumers,
+      proposal: { ...replacementAssessment.proposal, workspaceOutputConsumers: consumers },
+    };
+    renderSettings({
+      tableValue: patientWorkspaceTable,
+      workspaceTables: [nonCombineConsumerTable, noColumnJoinConsumerTable],
+      replacementAssessment: assessmentWithConsumers,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    fireEvent.click(screen.getByRole('button', { name: 'Replace current setup' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Replace this table’s current setup?' });
+    const consequences = within(dialog).getByRole('region', { name: 'Replacement consequences' });
+    const consumersList = within(consequences).getByRole('list', { name: 'Affected current-draft consumers' });
+    expect(consumersList).toHaveTextContent('Another table · Uses this table in a construction step');
+    expect(consumersList).toHaveTextContent('Reports · Uses this table in a construction step');
+    expect(consumersList).toHaveTextContent('Empty join · Uses this table in a join');
+    for (const opaqueId of ['opaque-missing-consumer', 'opaque-missing-step', 'join-step']) {
+      expect(consumersList).not.toHaveTextContent(opaqueId);
+    }
+  });
+
+  it('describes reshaped and derived table-shape consequences without exposing their keys', async () => {
+    const featureKeys = ['tableShape:reshape:PIVOT', 'tableShape:derived:derived-patient-age'];
+    const assessmentWithEffects: RowChangeAssessment = {
+      ...replacementAssessment,
+      removedFeatureKeys: featureKeys,
+      proposal: { ...replacementAssessment.proposal, removedFeatureKeys: featureKeys },
+    };
+    renderSettings({ tableValue: replacementShapeTable, replacementAssessment: assessmentWithEffects });
+    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    fireEvent.click(screen.getByRole('button', { name: 'Replace current setup' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Replace this table’s current setup?' });
+    const consequences = within(dialog).getByRole('region', { name: 'Replacement consequences' });
+    expect(consequences).toHaveTextContent('Table shape — pivoted rows');
+    expect(consequences).toHaveTextContent('Table shape — derived columns');
+    for (const featureKey of featureKeys) expect(consequences).not.toHaveTextContent(featureKey);
+  });
+
+  it('applies the exact ready replacement assessment after the review is complete', async () => {
+    const { onApplyRootReplacement } = renderSettings({
+      workspaceTables: [patientWorkspaceTable, reportWorkspaceTable],
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    fireEvent.click(screen.getByRole('button', { name: 'Replace current setup' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Replace this table’s current setup?' });
+    const applyButton = await within(dialog).findByRole('button', { name: 'Change starting record type' });
+    fireEvent.click(applyButton);
+    await waitFor(() => expect(onApplyRootReplacement).toHaveBeenCalledTimes(1));
+    expect(onApplyRootReplacement).toHaveBeenCalledWith(replacementAssessment);
+    expect(screen.queryByRole('dialog', { name: 'Replace this table’s current setup?' })).toBeNull();
+  });
+
   it('offers source collection expansion directly in the row change menu', async () => {
     const { onChooseReshape } = renderSettings({
       sourceCollectionAction: (
@@ -640,9 +982,11 @@ describe('RowDefinitionSettingsPanel', () => {
         draftVersion={4}
         draftDigest="draft-digest-4"
         table={table}
+        workspaceTables={[table]}
         selection={sourceSelection}
         disabled={false}
         onApply={onApply}
+        onApplyRootReplacement={vi.fn().mockResolvedValue(true)}
       />,
     );
 
@@ -697,9 +1041,11 @@ describe('RowDefinitionSettingsPanel', () => {
         draftVersion={4}
         draftDigest="draft-digest-4"
         table={table}
+        workspaceTables={[table]}
         selection={sourceSelection}
         disabled={false}
         onApply={onApply}
+        onApplyRootReplacement={vi.fn().mockResolvedValue(true)}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
@@ -738,7 +1084,7 @@ describe('RowDefinitionSettingsPanel', () => {
         {...relatedRowProps}
         client={{ listRowDefinitionChoices, proposeRowDefinition: vi.fn().mockResolvedValue(proposal), getSelection, createExplicitGroupRevision }}
         project="project-a" explorerId="explorer-a" snapshotToken="snapshot-1" draftVersion={4} draftDigest="draft-digest-4"
-        table={table} selection={sourceSelection} disabled={false} onApply={vi.fn().mockResolvedValue(true)}
+        table={table} workspaceTables={[table]} selection={sourceSelection} disabled={false} onApply={vi.fn().mockResolvedValue(true)} onApplyRootReplacement={vi.fn().mockResolvedValue(true)}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
@@ -784,7 +1130,7 @@ describe('RowDefinitionSettingsPanel', () => {
         {...relatedRowProps}
         client={{ listRowDefinitionChoices, proposeRowDefinition: vi.fn().mockResolvedValue(proposal), getSelection: vi.fn().mockResolvedValue(selectionPage), createExplicitGroupRevision }}
         project="project-a" explorerId="explorer-a" snapshotToken="snapshot-1" draftVersion={4} draftDigest="draft-digest-4"
-        table={table} selection={sourceSelection} disabled={false} onApply={vi.fn().mockResolvedValue(true)}
+        table={table} workspaceTables={[table]} selection={sourceSelection} disabled={false} onApply={vi.fn().mockResolvedValue(true)} onApplyRootReplacement={vi.fn().mockResolvedValue(true)}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
@@ -806,7 +1152,8 @@ describe('RowDefinitionSettingsPanel', () => {
     const props = {
       client: { listRowDefinitionChoices, proposeRowDefinition, getSelection: vi.fn(), createExplicitGroupRevision: vi.fn() },
       project: 'project-a', explorerId: 'explorer-a', snapshotToken: 'snapshot-1',
-      draftVersion: 4, draftDigest: 'draft-digest-4', table, disabled: false, onApply,
+      draftVersion: 4, draftDigest: 'draft-digest-4', table, workspaceTables: [table], disabled: false, onApply,
+      onApplyRootReplacement: vi.fn().mockResolvedValue(true),
       ...relatedRowProps,
     };
     const view = render(<RowDefinitionSettingsPanel {...props} />);
@@ -865,8 +1212,10 @@ describe('RowDefinitionSettingsPanel', () => {
         draftVersion={4}
         draftDigest="draft-digest-4"
         table={table}
+        workspaceTables={[table]}
         disabled={false}
         onApply={onApply}
+        onApplyRootReplacement={vi.fn().mockResolvedValue(true)}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));

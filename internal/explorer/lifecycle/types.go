@@ -240,9 +240,16 @@ type ReconcileRequest struct {
 	SnapshotToken string
 	DraftVersion  int64
 	DraftDigest   string
+	OutputID      string
+}
+
+type ReconcileResult struct {
+	Receipt   *explorer.CompilationReceipt
+	Workspace authoringv2.Workspace
 }
 
 type AssessRowChangeRequest struct {
+	Mode             string
 	Project          string
 	ExplorerID       string
 	SnapshotToken    string

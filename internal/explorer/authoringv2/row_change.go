@@ -11,11 +11,13 @@ import (
 )
 
 const (
-	RowChangeReady     = "READY"
-	RowChangeBlocked   = "BLOCKED"
-	RowChangeNoChange  = "NO_CHANGE"
-	RowReferenceRoute  = "route"
-	RowReferenceColumn = "column"
+	RowChangeReady        = "READY"
+	RowChangeBlocked      = "BLOCKED"
+	RowChangeNoChange     = "NO_CHANGE"
+	RowChangeModePreserve = "PRESERVE"
+	RowChangeModeReplace  = "REPLACE"
+	RowReferenceRoute     = "route"
+	RowReferenceColumn    = "column"
 )
 
 const rowChangeRouteTokenPrefix = "row-change-route:v1:"
@@ -36,6 +38,7 @@ type rowChangeCandidateRoute struct {
 // RowChangeRequest identifies a candidate row root and any deliberate choices
 // needed to make the route rebase unambiguous.
 type RowChangeRequest struct {
+	Mode             string              `json:"mode,omitempty"`
 	OutputID         string              `json:"outputId"`
 	RootNodeID       string              `json:"rootNodeId"`
 	RootOccurrenceID string              `json:"rootOccurrenceId,omitempty"`
@@ -51,12 +54,32 @@ type RouteRebaseChoice struct {
 }
 
 type RowChangeProposal struct {
-	OutputID             string              `json:"outputId"`
-	RootNodeID           string              `json:"rootNodeId"`
-	RootOccurrenceID     string              `json:"rootOccurrenceId"`
-	SourceDocumentDigest string              `json:"sourceDocumentDigest"`
-	RouteRebase          []RouteRebaseChoice `json:"routeRebase"`
-	PreservedFeatureKeys []string            `json:"preservedFeatureKeys"`
+	Mode                     string                    `json:"mode,omitempty"`
+	OutputID                 string                    `json:"outputId"`
+	RootNodeID               string                    `json:"rootNodeId"`
+	RootOccurrenceID         string                    `json:"rootOccurrenceId"`
+	SourceDocumentDigest     string                    `json:"sourceDocumentDigest"`
+	RouteRebase              []RouteRebaseChoice       `json:"routeRebase"`
+	PreservedFeatureKeys     []string                  `json:"preservedFeatureKeys"`
+	CatalogSnapshotToken     string                    `json:"catalogSnapshotToken,omitempty"`
+	CatalogGeneration        string                    `json:"catalogGeneration,omitempty"`
+	CatalogDigest            string                    `json:"catalogDigest,omitempty"`
+	RemovedFeatureKeys       []string                  `json:"removedFeatureKeys"`
+	WorkspaceOutputConsumers []WorkspaceOutputConsumer `json:"workspaceOutputConsumers"`
+	SharedFilterBindings     []SharedFilterBindingRef  `json:"sharedFilterBindings"`
+}
+
+type WorkspaceOutputConsumer struct {
+	OutputID   string `json:"outputId"`
+	StepID     string `json:"stepId"`
+	InputIndex int    `json:"inputIndex"`
+}
+
+type SharedFilterBindingRef struct {
+	Name         string `json:"name"`
+	OutputID     string `json:"outputId"`
+	Column       string `json:"column"`
+	BindingIndex int    `json:"bindingIndex"`
 }
 
 type RowChangeUnresolvedReference struct {
@@ -68,11 +91,15 @@ type RowChangeUnresolvedReference struct {
 }
 
 type RowChangeAssessment struct {
+	Mode                      string                         `json:"mode,omitempty"`
 	Status                    string                         `json:"status"`
 	CurrentRootResourceType   string                         `json:"currentRootResourceType"`
 	CandidateRootResourceType string                         `json:"candidateRootResourceType"`
 	Proposal                  *RowChangeProposal             `json:"proposal,omitempty"`
 	PreservedFeatureKeys      []string                       `json:"preservedFeatureKeys"`
+	RemovedFeatureKeys        []string                       `json:"removedFeatureKeys"`
+	WorkspaceOutputConsumers  []WorkspaceOutputConsumer      `json:"workspaceOutputConsumers"`
+	SharedFilterBindings      []SharedFilterBindingRef       `json:"sharedFilterBindings"`
 	Unresolved                []RowChangeUnresolvedReference `json:"unresolved"`
 }
 
@@ -80,6 +107,12 @@ type RowChangeAssessment struct {
 // or derives a preserving catalog route to an eligible root absent from the
 // authored route, provided each relationship can be inverted.
 func AssessRowChange(workspace Workspace, catalog CatalogSnapshot, request RowChangeRequest) (RowChangeAssessment, error) {
+	if request.Mode == RowChangeModeReplace {
+		return AssessRowReplacement(workspace, catalog, request)
+	}
+	if request.Mode != "" && request.Mode != RowChangeModePreserve {
+		return RowChangeAssessment{}, fmt.Errorf("row-change mode %q is unsupported", request.Mode)
+	}
 	documentIndex := documentIndex(&workspace, request.OutputID)
 	node, nodeOK := catalogNode(catalog, request.RootNodeID)
 	if documentIndex < 0 || !nodeOK || !node.RowRootEligible {
@@ -87,10 +120,14 @@ func AssessRowChange(workspace Workspace, catalog CatalogSnapshot, request RowCh
 	}
 	document := workspace.Documents[documentIndex]
 	assessment := RowChangeAssessment{
+		Mode:                      RowChangeModePreserve,
 		Status:                    RowChangeBlocked,
 		CurrentRootResourceType:   document.RootResourceType,
 		CandidateRootResourceType: node.ResourceType,
 		PreservedFeatureKeys:      documentFeatureKeys(document),
+		RemovedFeatureKeys:        []string{},
+		WorkspaceOutputConsumers:  []WorkspaceOutputConsumer{},
+		SharedFilterBindings:      []SharedFilterBindingRef{},
 		Unresolved:                []RowChangeUnresolvedReference{},
 	}
 	rootNodeID, routeNodeIDs, resolved := resolveDocumentRouteNodeIDs(document.Route, catalog)
@@ -212,12 +249,15 @@ func AssessRowChange(workspace Workspace, catalog CatalogSnapshot, request RowCh
 		proposalRootOccurrenceID = derived.Token
 	}
 	proposal := RowChangeProposal{
-		OutputID:             request.OutputID,
-		RootNodeID:           request.RootNodeID,
-		RootOccurrenceID:     proposalRootOccurrenceID,
-		SourceDocumentDigest: documentDigest(sourceDocument),
-		RouteRebase:          routeRebase,
-		PreservedFeatureKeys: append([]string(nil), assessment.PreservedFeatureKeys...),
+		OutputID:                 request.OutputID,
+		RootNodeID:               request.RootNodeID,
+		RootOccurrenceID:         proposalRootOccurrenceID,
+		SourceDocumentDigest:     documentDigest(sourceDocument),
+		RouteRebase:              routeRebase,
+		PreservedFeatureKeys:     append([]string(nil), assessment.PreservedFeatureKeys...),
+		RemovedFeatureKeys:       []string{},
+		WorkspaceOutputConsumers: []WorkspaceOutputConsumer{},
+		SharedFilterBindings:     []SharedFilterBindingRef{},
 	}
 	if _, err := applyRowChange(sourceDocument, catalog, proposal); err != nil {
 		assessment.Unresolved = append(assessment.Unresolved, RowChangeUnresolvedReference{
@@ -228,6 +268,240 @@ func AssessRowChange(workspace Workspace, catalog CatalogSnapshot, request RowCh
 	assessment.Status = RowChangeReady
 	assessment.Proposal = &proposal
 	return assessment, nil
+}
+
+// AssessRowReplacement creates a destructive, same-output replacement proposal
+// independently of preserve-route reachability.
+func AssessRowReplacement(workspace Workspace, catalog CatalogSnapshot, request RowChangeRequest) (RowChangeAssessment, error) {
+	index := documentIndex(&workspace, request.OutputID)
+	node, found := catalogNode(catalog, request.RootNodeID)
+	if index < 0 || !found || !node.RowRootEligible {
+		return RowChangeAssessment{}, fmt.Errorf("output or eligible root node was not found")
+	}
+	document := workspace.Documents[index]
+	eligible := 0
+	for _, candidate := range catalog.Nodes {
+		if candidate.RowRootEligible && candidate.ResourceType == node.ResourceType {
+			eligible++
+		}
+	}
+	if eligible != 1 {
+		return blockedReplacement(document, node, RowReferenceRoute, request.RootNodeID, "ROW_ROOT_RESOURCE_TYPE_AMBIGUOUS", "replacement requires exactly one eligible catalog node for the selected resource type"), nil
+	}
+	idCandidate, idErr := replacementIDCandidate(catalog, node)
+	if idErr != nil {
+		return blockedReplacement(document, node, RowReferenceColumn, request.RootNodeID, "ROW_ROOT_ID_FIELD_UNAVAILABLE", idErr.Error()), nil
+	}
+	if document.RootResourceType == node.ResourceType {
+		rootNodeID, _, resolved := resolveDocumentRouteNodeIDs(document.Route, catalog)
+		if resolved && rootNodeID == request.RootNodeID {
+			return RowChangeAssessment{Status: RowChangeNoChange, Mode: RowChangeModeReplace, CurrentRootResourceType: document.RootResourceType, CandidateRootResourceType: node.ResourceType, PreservedFeatureKeys: []string{}, RemovedFeatureKeys: []string{}, WorkspaceOutputConsumers: []WorkspaceOutputConsumer{}, SharedFilterBindings: []SharedFilterBindingRef{}, Unresolved: []RowChangeUnresolvedReference{}}, nil
+		}
+	}
+	digest, err := catalog.Digest()
+	if err != nil {
+		return RowChangeAssessment{}, fmt.Errorf("digest replacement catalog snapshot: %w", err)
+	}
+	removed := replacementRemovedFeatureKeys(document)
+	consumers := workspaceOutputConsumers(workspace, request.OutputID)
+	bindings := sharedFilterBindingsForOutput(workspace, request.OutputID)
+	candidate := replacementDocument(document, node, *idCandidate)
+	if err := candidate.Validate(); err != nil {
+		return blockedReplacement(document, node, RowReferenceColumn, "id", "ROW_ROOT_ID_FIELD_UNAVAILABLE", err.Error()), nil
+	}
+	if err := validateEditableSource(candidate, catalog, RootOccurrenceID, candidate.Columns[0].Source); err != nil {
+		return blockedReplacement(document, node, RowReferenceColumn, "id", "ROW_ROOT_ID_FIELD_UNAVAILABLE", err.Error()), nil
+	}
+	proposal := RowChangeProposal{Mode: RowChangeModeReplace, OutputID: request.OutputID, RootNodeID: request.RootNodeID, RootOccurrenceID: RootOccurrenceID,
+		SourceDocumentDigest: documentDigest(document), CatalogSnapshotToken: catalog.SnapshotToken, CatalogGeneration: catalog.SourceGeneration, CatalogDigest: digest,
+		RouteRebase: []RouteRebaseChoice{}, PreservedFeatureKeys: []string{}, RemovedFeatureKeys: append([]string{}, removed...), WorkspaceOutputConsumers: append([]WorkspaceOutputConsumer{}, consumers...), SharedFilterBindings: append([]SharedFilterBindingRef{}, bindings...)}
+	return RowChangeAssessment{Status: RowChangeReady, CurrentRootResourceType: document.RootResourceType, CandidateRootResourceType: node.ResourceType, Proposal: &proposal,
+		Mode: RowChangeModeReplace, PreservedFeatureKeys: []string{}, RemovedFeatureKeys: removed, WorkspaceOutputConsumers: consumers, SharedFilterBindings: bindings, Unresolved: []RowChangeUnresolvedReference{}}, nil
+}
+
+// ApplyRowReplacement re-derives the proposal against the current workspace and
+// exact authorized catalog snapshot before returning an immutable candidate.
+func ApplyRowReplacement(workspace Workspace, catalog CatalogSnapshot, proposal RowChangeProposal) (Workspace, error) {
+	if proposal.Mode != RowChangeModeReplace {
+		return Workspace{}, fmt.Errorf("row replacement proposal has unsupported mode %q", proposal.Mode)
+	}
+	assessment, err := AssessRowReplacement(workspace, catalog, RowChangeRequest{Mode: RowChangeModeReplace, OutputID: proposal.OutputID, RootNodeID: proposal.RootNodeID})
+	if err != nil {
+		return Workspace{}, err
+	}
+	if assessment.Status != RowChangeReady || assessment.Proposal == nil || !rowChangeProposalEqual(*assessment.Proposal, proposal) {
+		return Workspace{}, fmt.Errorf("ROW_REPLACEMENT_PROPOSAL_STALE: the table, catalog, or current-draft references changed after replacement assessment")
+	}
+	node, _ := catalogNode(catalog, proposal.RootNodeID)
+	idCandidate, err := replacementIDCandidate(catalog, node)
+	if err != nil {
+		return Workspace{}, err
+	}
+	workspace, err = cloneWorkspace(workspace)
+	if err != nil {
+		return Workspace{}, err
+	}
+	index := documentIndex(&workspace, proposal.OutputID)
+	workspace.Documents[index] = replacementDocument(workspace.Documents[index], node, *idCandidate)
+	for name, bindings := range workspace.SharedFilters {
+		kept := make([]SharedFilterBinding, 0, len(bindings))
+		for _, binding := range bindings {
+			if binding.OutputID != proposal.OutputID {
+				kept = append(kept, binding)
+			}
+		}
+		if len(kept) == 0 {
+			delete(workspace.SharedFilters, name)
+		} else {
+			workspace.SharedFilters[name] = kept
+		}
+	}
+	return workspace, nil
+}
+
+func replacementDocument(document Document, node CatalogNode, idCandidate CatalogCandidate) Document {
+	label := strings.TrimSpace(idCandidate.Label)
+	if label == "" {
+		label = "ID"
+	}
+	visible := true
+	order := 0
+	return Document{Kind: document.Kind, Output: Output{ID: document.Output.ID, Title: document.Output.Title}, RootResourceType: node.ResourceType,
+		Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: node.ResourceType}, Rows: RecordsRowDefinition(),
+		Columns: []Column{{ColumnID: "id", Column: "id", Label: label, LogicalType: idCandidate.LogicalType, OccurrenceID: RootOccurrenceID,
+			Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: strings.TrimPrefix(strings.TrimSpace(idCandidate.FieldPath), "root."), ProjectionMode: "VALUE"}},
+			Table:  &TablePresentation{Visible: &visible, Order: &order}}},
+	}
+}
+
+func blockedReplacement(document Document, node CatalogNode, kind, id, code, message string) RowChangeAssessment {
+	return RowChangeAssessment{Status: RowChangeBlocked, CurrentRootResourceType: document.RootResourceType, CandidateRootResourceType: node.ResourceType,
+		Mode: RowChangeModeReplace, PreservedFeatureKeys: []string{}, RemovedFeatureKeys: []string{}, WorkspaceOutputConsumers: []WorkspaceOutputConsumer{}, SharedFilterBindings: []SharedFilterBindingRef{}, Unresolved: []RowChangeUnresolvedReference{{Kind: kind, ID: id, Code: code, Message: message}}}
+}
+
+func replacementIDCandidate(catalog CatalogSnapshot, node CatalogNode) (*CatalogCandidate, error) {
+	var selected *CatalogCandidate
+	for index := range catalog.Candidates {
+		candidate := &catalog.Candidates[index]
+		if candidate.NodeID != node.ID || strings.TrimPrefix(strings.TrimSpace(candidate.FieldPath), "root.") != "id" {
+			continue
+		}
+		if selected != nil {
+			return nil, fmt.Errorf("the selected root has several catalog candidates for its id field")
+		}
+		selected = candidate
+	}
+	cardinality := ""
+	if selected != nil {
+		cardinality = strings.ToLower(strings.TrimSpace(selected.Cardinality))
+	}
+	if selected == nil || (!strings.EqualFold(selected.LogicalType, "string") && !strings.EqualFold(selected.LogicalType, "id")) ||
+		(cardinality != "optional_one" && cardinality != "required_one") || selected.Repeated || len(selected.RepeatedBoundaries) != 0 || !contains(selected.ProjectionModes, "VALUE") || selected.ConstructionChoice == nil {
+		return nil, fmt.Errorf("the selected root does not expose a direct scalar id VALUE projection in the current catalog")
+	}
+	return selected, nil
+}
+
+func replacementRemovedFeatureKeys(document Document) []string {
+	keys := []string{"root:" + document.RootResourceType}
+	if strings.TrimSpace(document.Output.RowLabel) != "" {
+		keys = append(keys, "rowLabel:"+document.Output.RowLabel)
+	}
+	var visit func(RouteNode)
+	visit = func(route RouteNode) {
+		if route.OccurrenceID != RootOccurrenceID {
+			keys = append(keys, "route:"+route.OccurrenceID)
+		}
+		for _, child := range route.Children {
+			visit(child)
+		}
+	}
+	visit(document.Route)
+	if document.Rows.Kind != RowDefinitionRecords {
+		keys = append(keys, "rows:"+string(document.Rows.Kind))
+	}
+	for _, column := range document.Columns {
+		keys = append(keys, "column:"+column.Column)
+	}
+	if document.Population != nil {
+		keys = append(keys, "population:"+document.Population.SelectionRevisionID)
+		for index, step := range document.Population.Route {
+			keys = append(keys, fmt.Sprintf("populationRoute:%d:%s:%s", index, step.ResourceType, step.Relationship))
+		}
+	}
+	for _, frame := range document.Frames {
+		keys = append(keys, "frame:"+frame.ID)
+	}
+	if document.TableShape != nil {
+		if document.TableShape.Reshape != nil {
+			keys = append(keys, "tableShape:reshape:"+document.TableShape.Reshape.Kind)
+		}
+		for _, derived := range document.TableShape.Derived {
+			keys = append(keys, "tableShape:derived:"+string(derived.ConstructionID))
+		}
+		if document.TableShape.Reshape == nil && len(document.TableShape.Derived) == 0 {
+			keys = append(keys, "tableShape")
+		}
+	}
+	if document.Construction != nil {
+		for _, step := range document.Construction.Steps {
+			keys = append(keys, "construction:"+step.ID)
+		}
+		if len(document.Construction.Steps) == 0 {
+			keys = append(keys, "construction")
+		}
+	}
+	for _, filter := range document.FixedFilters {
+		keys = append(keys, "fixedFilter:"+filter.Column)
+	}
+	for _, action := range document.Actions {
+		keys = append(keys, "action:"+action.Type+":"+action.Title)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func workspaceOutputConsumers(workspace Workspace, outputID string) []WorkspaceOutputConsumer {
+	consumers := []WorkspaceOutputConsumer{}
+	for _, document := range workspace.Documents {
+		if document.Output.ID == outputID || document.Construction == nil {
+			continue
+		}
+		for _, step := range document.Construction.Steps {
+			for inputIndex, input := range step.Inputs {
+				if input.Kind == ConstructionInputWorkspaceOutput && input.OutputID == outputID {
+					consumers = append(consumers, WorkspaceOutputConsumer{OutputID: document.Output.ID, StepID: step.ID, InputIndex: inputIndex})
+				}
+			}
+		}
+	}
+	sort.Slice(consumers, func(i, j int) bool {
+		if consumers[i].OutputID != consumers[j].OutputID {
+			return consumers[i].OutputID < consumers[j].OutputID
+		}
+		if consumers[i].StepID != consumers[j].StepID {
+			return consumers[i].StepID < consumers[j].StepID
+		}
+		return consumers[i].InputIndex < consumers[j].InputIndex
+	})
+	return consumers
+}
+
+func sharedFilterBindingsForOutput(workspace Workspace, outputID string) []SharedFilterBindingRef {
+	refs := []SharedFilterBindingRef{}
+	names := make([]string, 0, len(workspace.SharedFilters))
+	for name := range workspace.SharedFilters {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		for index, binding := range workspace.SharedFilters[name] {
+			if binding.OutputID == outputID {
+				refs = append(refs, SharedFilterBindingRef{Name: name, OutputID: binding.OutputID, Column: binding.Column, BindingIndex: index})
+			}
+		}
+	}
+	return refs
 }
 
 func ApplyRowChange(document Document, catalog CatalogSnapshot, proposal RowChangeProposal) (Document, error) {
@@ -928,8 +1202,20 @@ func (p RowChangeProposal) validate() error {
 	if strings.TrimSpace(p.OutputID) == "" || strings.TrimSpace(p.RootNodeID) == "" || strings.TrimSpace(p.RootOccurrenceID) == "" || strings.TrimSpace(p.SourceDocumentDigest) == "" {
 		return fmt.Errorf("rowChange requires outputId, rootNodeId, rootOccurrenceId, and sourceDocumentDigest")
 	}
-	if len(p.RouteRebase) == 0 {
-		return fmt.Errorf("rowChange.routeRebase is required")
+	switch p.Mode {
+	case "", RowChangeModePreserve:
+		if len(p.RouteRebase) == 0 {
+			return fmt.Errorf("rowChange.routeRebase is required")
+		}
+	case RowChangeModeReplace:
+		if p.RootOccurrenceID != RootOccurrenceID || p.CatalogSnapshotToken == "" || p.CatalogGeneration == "" || p.CatalogDigest == "" {
+			return fmt.Errorf("replacement rowChange requires base occurrence and exact catalog snapshot identity")
+		}
+		if len(p.RouteRebase) != 0 || len(p.PreservedFeatureKeys) != 0 {
+			return fmt.Errorf("replacement rowChange cannot include preserved route choices or feature keys")
+		}
+	default:
+		return fmt.Errorf("rowChange mode %q is unsupported", p.Mode)
 	}
 	return nil
 }

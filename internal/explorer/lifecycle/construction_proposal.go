@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -321,34 +322,9 @@ func constructionWorkspaceInputs(base constructionBase, targetOutputID string) (
 	if len(base.receipt.CompiledOutputSchemas) == 0 {
 		return nil, conflict("construction-capabilities", "WORKSPACE_OUTPUT_SCHEMA_UNAVAILABLE", "the current compilation receipt has no finalized workspace output schemas", nil, nil)
 	}
-	blocked := map[string]struct{}{targetOutputID: {}}
-	changed := true
-	for changed {
-		changed = false
-		for _, document := range base.workspace.Documents {
-			if _, alreadyBlocked := blocked[document.Output.ID]; alreadyBlocked || document.Construction == nil {
-				continue
-			}
-			dependsOnBlocked := false
-			for _, step := range document.Construction.Steps {
-				for _, input := range step.Inputs {
-					if input.Kind != authoringv2.ConstructionInputWorkspaceOutput {
-						continue
-					}
-					if _, dependencyBlocked := blocked[input.OutputID]; dependencyBlocked {
-						dependsOnBlocked = true
-						break
-					}
-				}
-				if dependsOnBlocked {
-					break
-				}
-			}
-			if dependsOnBlocked {
-				blocked[document.Output.ID] = struct{}{}
-				changed = true
-			}
-		}
+	blocked, err := workspaceOutputConsumerClosure(base.workspace, targetOutputID)
+	if err != nil {
+		return nil, conflict("construction-capabilities", "WORKSPACE_OUTPUT_SCHEMA_UNAVAILABLE", "the selected output is missing from the current workspace", nil, err)
 	}
 	for _, document := range base.workspace.Documents {
 		if _, excluded := blocked[document.Output.ID]; excluded {
@@ -380,6 +356,95 @@ func constructionWorkspaceInputs(base constructionBase, targetOutputID string) (
 		inputs = append(inputs, ConstructionWorkspaceInput{OutputID: document.Output.ID, Title: title, Columns: columns})
 	}
 	return inputs, nil
+}
+
+// constructionCapabilitiesWorkspace keeps the selected output, all of its
+// inputs, and independent sibling outputs in the capability receipt. Current
+// draft consumers of the selected output are omitted because their authored
+// projections may be stale after a source replacement; the saved workspace is
+// retained separately for CAS validation and the full-workspace Publish path.
+func constructionCapabilitiesWorkspace(workspace authoringv2.Workspace, targetOutputID string) (authoringv2.Workspace, error) {
+	if constructionDocumentIndex(workspace, targetOutputID) < 0 {
+		return authoringv2.Workspace{}, fmt.Errorf("selected output %q is missing or duplicated", targetOutputID)
+	}
+	blocked, err := workspaceOutputConsumerClosure(workspace, targetOutputID)
+	if err != nil {
+		return authoringv2.Workspace{}, err
+	}
+	projected := workspace
+	projected.Documents = make([]authoringv2.Document, 0, len(workspace.Documents))
+	outputIDs := make(map[string]struct{}, len(workspace.Documents))
+	for _, document := range workspace.Documents {
+		if document.Output.ID != targetOutputID {
+			if _, isConsumer := blocked[document.Output.ID]; isConsumer {
+				continue
+			}
+		}
+		projected.Documents = append(projected.Documents, document)
+		outputIDs[document.Output.ID] = struct{}{}
+	}
+	tabs := append([]authoringv2.Tab(nil), workspace.Tabs...)
+	sort.SliceStable(tabs, func(i, j int) bool { return tabs[i].Order < tabs[j].Order })
+	projected.Tabs = make([]authoringv2.Tab, 0, len(projected.Documents))
+	for _, tab := range tabs {
+		if _, included := outputIDs[tab.OutputID]; !included {
+			continue
+		}
+		tab.Order = len(projected.Tabs)
+		projected.Tabs = append(projected.Tabs, tab)
+	}
+	if workspace.SharedFilters != nil {
+		projected.SharedFilters = make(map[string][]authoringv2.SharedFilterBinding, len(workspace.SharedFilters))
+		for name, bindings := range workspace.SharedFilters {
+			for _, binding := range bindings {
+				if _, included := outputIDs[binding.OutputID]; included {
+					projected.SharedFilters[name] = append(projected.SharedFilters[name], binding)
+				}
+			}
+			if len(projected.SharedFilters[name]) == 0 {
+				delete(projected.SharedFilters, name)
+			}
+		}
+	}
+	return projected, nil
+}
+
+// workspaceOutputConsumerClosure includes the selected output and each
+// transitive current-draft output that consumes it.
+func workspaceOutputConsumerClosure(workspace authoringv2.Workspace, targetOutputID string) (map[string]struct{}, error) {
+	if constructionDocumentIndex(workspace, targetOutputID) < 0 {
+		return nil, fmt.Errorf("selected output %q is missing or duplicated", targetOutputID)
+	}
+	blocked := map[string]struct{}{targetOutputID: {}}
+	changed := true
+	for changed {
+		changed = false
+		for _, document := range workspace.Documents {
+			if _, alreadyBlocked := blocked[document.Output.ID]; alreadyBlocked || document.Construction == nil {
+				continue
+			}
+			dependsOnBlocked := false
+			for _, step := range document.Construction.Steps {
+				for _, input := range step.Inputs {
+					if input.Kind != authoringv2.ConstructionInputWorkspaceOutput {
+						continue
+					}
+					if _, dependencyBlocked := blocked[input.OutputID]; dependencyBlocked {
+						dependsOnBlocked = true
+						break
+					}
+				}
+				if dependsOnBlocked {
+					break
+				}
+			}
+			if dependsOnBlocked {
+				blocked[document.Output.ID] = struct{}{}
+				changed = true
+			}
+		}
+	}
+	return blocked, nil
 }
 
 func constructionCombineCompatibilityKeys(logicalType, cardinality string, nullable bool) (joinKey, appendKey string) {
@@ -1244,6 +1309,14 @@ func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID,
 	if upgraded.Construction == nil {
 		return constructionBase{}, conflict("construction-capabilities", "INVALID_CONSTRUCTION_BASE", "the source projection has no construction contract", nil, nil)
 	}
+	workspace.Documents[documentIndex] = upgraded
+	workspace = workspace.NormalizePresentationOrders()
+	if err := (authoringv2.BuilderState{
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind,
+		Workspace: &workspace, Catalog: catalogSnapshot,
+	}).Validate(); err != nil {
+		return constructionBase{}, unprocessable("intent", workspaceValidationCode(err), err.Error(), err)
+	}
 	if len(upgraded.Columns) == 0 && len(upgraded.Construction.Steps) == 0 {
 		if s.config.ConstructionSourceStage == nil {
 			return constructionBase{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "compiler-resolved source-stage discovery is not configured", nil)
@@ -1262,15 +1335,18 @@ func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID,
 			if s.config.CompileReceipt == nil {
 				return constructionBase{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "authorized construction compilation is not configured", nil)
 			}
-			workspace.Documents[documentIndex] = upgraded
+			compileWorkspace, err := constructionCapabilitiesWorkspace(workspace, outputID)
+			if err != nil {
+				return constructionBase{}, conflict("construction-capabilities", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be projected for selected-output capabilities", nil, err)
+			}
 			receipt, err := s.compile(ctx, compileRequest{
-				Project: project, ExplorerID: explorerID, Workspace: workspace, SnapshotToken: snapshotToken,
+				Project: project, ExplorerID: explorerID, Workspace: compileWorkspace, SnapshotToken: snapshotToken,
 				RequestID: "construction-capabilities",
 			})
 			if err != nil {
 				return constructionBase{}, err
 			}
-			if _, err := s.verifyProposalReceipt(ctx, "construction-capabilities", receipt, project, explorerID, snapshotToken, snapshot, &workspace); err != nil {
+			if _, err := s.verifyProposalReceipt(ctx, "construction-capabilities", receipt, project, explorerID, snapshotToken, snapshot, &compileWorkspace); err != nil {
 				return constructionBase{}, err
 			}
 			if err := validateReceiptOutputContract(receipt, outputID); err != nil {
@@ -1291,15 +1367,18 @@ func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID,
 	if s.config.CompileReceipt == nil {
 		return constructionBase{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "authorized construction compilation is not configured", nil)
 	}
-	workspace.Documents[documentIndex] = upgraded
+	compileWorkspace, err := constructionCapabilitiesWorkspace(workspace, outputID)
+	if err != nil {
+		return constructionBase{}, conflict("construction-capabilities", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be projected for selected-output capabilities", nil, err)
+	}
 	receipt, err := s.compile(ctx, compileRequest{
-		Project: project, ExplorerID: explorerID, Workspace: workspace, SnapshotToken: snapshotToken,
+		Project: project, ExplorerID: explorerID, Workspace: compileWorkspace, SnapshotToken: snapshotToken,
 		RequestID: "construction-capabilities",
 	})
 	if err != nil {
 		return constructionBase{}, err
 	}
-	if _, err := s.verifyProposalReceipt(ctx, "construction-capabilities", receipt, project, explorerID, snapshotToken, snapshot, &workspace); err != nil {
+	if _, err := s.verifyProposalReceipt(ctx, "construction-capabilities", receipt, project, explorerID, snapshotToken, snapshot, &compileWorkspace); err != nil {
 		return constructionBase{}, err
 	}
 	if err := validateReceiptOutputContract(receipt, outputID); err != nil {

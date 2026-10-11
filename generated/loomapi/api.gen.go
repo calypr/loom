@@ -4182,6 +4182,7 @@ type ArtifactPrepareRequest struct {
 type AssessRowChangeRequest struct {
 	DraftDigest      string               `json:"draftDigest"`
 	DraftVersion     int64                `json:"draftVersion"`
+	Mode             *string              `json:"mode,omitempty"`
 	OutputId         string               `json:"outputId"`
 	RootNodeId       string               `json:"rootNodeId"`
 	RootOccurrenceId *string              `json:"rootOccurrenceId,omitempty"`
@@ -6372,9 +6373,10 @@ type RecipeExecutionResponse struct {
 
 // ReconcileRequest defines model for ReconcileRequest.
 type ReconcileRequest struct {
-	DraftDigest   string `json:"draftDigest"`
-	DraftVersion  int64  `json:"draftVersion"`
-	SnapshotToken string `json:"snapshotToken"`
+	DraftDigest   string  `json:"draftDigest"`
+	DraftVersion  int64   `json:"draftVersion"`
+	OutputId      *string `json:"outputId,omitempty"`
+	SnapshotToken string  `json:"snapshotToken"`
 }
 
 // RelatedExpandChoiceSearchRequest defines model for RelatedExpandChoiceSearchRequest.
@@ -6602,7 +6604,11 @@ type RowChangeAssessmentResponse struct {
 	Diagnostics               []Diagnostic                      `json:"diagnostics"`
 	DraftDigest               string                            `json:"draftDigest"`
 	DraftVersion              int64                             `json:"draftVersion"`
+	Mode                      string                            `json:"mode,omitempty"`
 	PreservedFeatureKeys      []string                          `json:"preservedFeatureKeys"`
+	RemovedFeatureKeys        []string                          `json:"removedFeatureKeys"`
+	WorkspaceOutputConsumers  []WorkspaceOutputConsumer         `json:"workspaceOutputConsumers"`
+	SharedFilterBindings      []SharedFilterBindingRef          `json:"sharedFilterBindings"`
 	Proposal                  *RowChangeProposal                `json:"proposal,omitempty"`
 	SnapshotToken             string                            `json:"snapshotToken"`
 	Status                    RowChangeAssessmentResponseStatus `json:"status"`
@@ -6614,12 +6620,35 @@ type RowChangeAssessmentResponseStatus string
 
 // RowChangeProposal defines model for RowChangeProposal.
 type RowChangeProposal struct {
-	OutputId             string              `json:"outputId"`
-	PreservedFeatureKeys []string            `json:"preservedFeatureKeys"`
-	RootNodeId           string              `json:"rootNodeId"`
-	RootOccurrenceId     string              `json:"rootOccurrenceId"`
-	RouteRebase          []RouteRebaseChoice `json:"routeRebase"`
-	SourceDocumentDigest string              `json:"sourceDocumentDigest"`
+	Mode                     string                    `json:"mode,omitempty"`
+	CatalogDigest            string                    `json:"catalogDigest,omitempty"`
+	CatalogGeneration        string                    `json:"catalogGeneration,omitempty"`
+	CatalogSnapshotToken     string                    `json:"catalogSnapshotToken,omitempty"`
+	OutputId                 string                    `json:"outputId"`
+	PreservedFeatureKeys     []string                  `json:"preservedFeatureKeys"`
+	RemovedFeatureKeys       []string                  `json:"removedFeatureKeys"`
+	RootNodeId               string                    `json:"rootNodeId"`
+	RootOccurrenceId         string                    `json:"rootOccurrenceId"`
+	RouteRebase              []RouteRebaseChoice       `json:"routeRebase"`
+	SourceDocumentDigest     string                    `json:"sourceDocumentDigest"`
+	WorkspaceOutputConsumers []WorkspaceOutputConsumer `json:"workspaceOutputConsumers"`
+	SharedFilterBindings     []SharedFilterBindingRef  `json:"sharedFilterBindings"`
+}
+
+// WorkspaceOutputConsumer identifies a current-draft construction input that
+// consumes the output being replaced.
+type WorkspaceOutputConsumer struct {
+	InputIndex int    `json:"inputIndex"`
+	OutputId   string `json:"outputId"`
+	StepId     string `json:"stepId"`
+}
+
+// SharedFilterBindingRef identifies a current-draft shared-filter binding.
+type SharedFilterBindingRef struct {
+	BindingIndex int    `json:"bindingIndex"`
+	Column       string `json:"column"`
+	Name         string `json:"name"`
+	OutputId     string `json:"outputId"`
 }
 
 // RowChangeUnresolvedReference defines model for RowChangeUnresolvedReference.

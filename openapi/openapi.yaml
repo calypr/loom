@@ -811,7 +811,7 @@ paths:
               $ref: '#/components/schemas/ReconcileRequest'
       responses:
         '200':
-          description: Immutable receipt compiled from the exact persisted draft.
+          description: Immutable receipt compiled from the exact persisted draft or selected output dependency closure; the builder workspace remains the full persisted draft.
           content:
             application/json:
               schema:
@@ -2792,24 +2792,54 @@ components:
     RowChangeProposal:
       type: object
       additionalProperties: false
-      required: [outputId, rootNodeId, rootOccurrenceId, sourceDocumentDigest, routeRebase, preservedFeatureKeys]
+      required: [outputId, rootNodeId, rootOccurrenceId, sourceDocumentDigest, routeRebase, preservedFeatureKeys, removedFeatureKeys, workspaceOutputConsumers, sharedFilterBindings]
       properties:
+        mode: {type: string, enum: [PRESERVE, REPLACE]}
         outputId: {type: string, minLength: 1}
         rootNodeId: {type: string, minLength: 1}
         rootOccurrenceId: {type: string, minLength: 1}
         sourceDocumentDigest: {type: string, minLength: 1}
         routeRebase:
           type: array
-          minItems: 1
           items: {$ref: '#/components/schemas/RouteRebaseChoice'}
         preservedFeatureKeys:
           type: array
           items: {type: string, minLength: 1}
+        catalogSnapshotToken: {type: string, minLength: 1}
+        catalogGeneration: {type: string, minLength: 1}
+        catalogDigest: {type: string, minLength: 1}
+        removedFeatureKeys:
+          type: array
+          items: {type: string, minLength: 1}
+        workspaceOutputConsumers:
+          type: array
+          items: {$ref: '#/components/schemas/WorkspaceOutputConsumer'}
+        sharedFilterBindings:
+          type: array
+          items: {$ref: '#/components/schemas/SharedFilterBindingRef'}
+    WorkspaceOutputConsumer:
+      type: object
+      additionalProperties: false
+      required: [outputId, stepId, inputIndex]
+      properties:
+        outputId: {type: string, minLength: 1}
+        stepId: {type: string, minLength: 1}
+        inputIndex: {type: integer, minimum: 0}
+    SharedFilterBindingRef:
+      type: object
+      additionalProperties: false
+      required: [name, outputId, column, bindingIndex]
+      properties:
+        name: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        column: {type: string, minLength: 1}
+        bindingIndex: {type: integer, minimum: 0}
     AssessRowChangeRequest:
       type: object
       additionalProperties: false
       required: [snapshotToken, draftVersion, draftDigest, outputId, rootNodeId]
       properties:
+        mode: {type: string, enum: [PRESERVE, REPLACE]}
         snapshotToken: {type: string, minLength: 1}
         draftVersion: {type: integer, format: int64, minimum: 1}
         draftDigest: {type: string, minLength: 1}
@@ -2834,8 +2864,9 @@ components:
     RowChangeAssessmentResponse:
       type: object
       additionalProperties: false
-      required: [snapshotToken, draftVersion, draftDigest, status, currentRootResourceType, candidateRootResourceType, preservedFeatureKeys, unresolved, diagnostics]
+      required: [snapshotToken, draftVersion, draftDigest, status, currentRootResourceType, candidateRootResourceType, preservedFeatureKeys, removedFeatureKeys, workspaceOutputConsumers, sharedFilterBindings, unresolved, diagnostics]
       properties:
+        mode: {type: string, enum: [PRESERVE, REPLACE]}
         snapshotToken: {type: string, minLength: 1}
         draftVersion: {type: integer, format: int64, minimum: 1}
         draftDigest: {type: string, minLength: 1}
@@ -2850,6 +2881,15 @@ components:
         preservedFeatureKeys:
           type: array
           items: {type: string, minLength: 1}
+        removedFeatureKeys:
+          type: array
+          items: {type: string, minLength: 1}
+        workspaceOutputConsumers:
+          type: array
+          items: {$ref: '#/components/schemas/WorkspaceOutputConsumer'}
+        sharedFilterBindings:
+          type: array
+          items: {$ref: '#/components/schemas/SharedFilterBindingRef'}
         unresolved:
           type: array
           items: {$ref: '#/components/schemas/RowChangeUnresolvedReference'}
@@ -2903,6 +2943,7 @@ components:
         snapshotToken: {type: string, minLength: 1}
         draftVersion: {type: integer, format: int64, minimum: 1}
         draftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1, description: Reconcile only this output and its transitive current-draft workspace-output dependencies.}
     BuilderState:
       type: object
       additionalProperties: false

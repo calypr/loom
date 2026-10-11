@@ -26,6 +26,7 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	constructionChoiceCommand := request.Commands[0].Type == authoringv2.CommandApplyConstructionChoice
 	frameSourceCommand := request.Commands[0].Type == authoringv2.CommandSetFrameSource || request.Commands[0].Type == authoringv2.CommandReplaceFrameSource
 	rowDefinitionProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyRowDefinitionProposal
+	rowChangeReplacementCommand := request.Commands[0].Type == authoringv2.CommandApplyTableRootRebase && request.Commands[0].RowChange != nil && request.Commands[0].RowChange.Mode == authoringv2.RowChangeModeReplace
 	var rowDefinitionCandidate *explorer.CompilationReceipt
 	tableShapeProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyTableShapeProposal
 	var tableShapeCandidate *explorer.CompilationReceipt
@@ -40,6 +41,7 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	}
 	var constructionCandidate *explorer.CompilationReceipt
 	var populationMemberCandidate *explorer.CompilationReceipt
+	var rowChangeReplacementCandidate *explorer.CompilationReceipt
 	constructionIdentities := make([]capability.ConstructionChoiceIdentity, len(request.Commands))
 	var frameSourceIdentity capability.ConstructionChoiceIdentity
 	if frameSourceCommand {
@@ -97,7 +99,7 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	var snapshot capability.Snapshot
 	var authorized AuthorizedCapability
 	var err error
-	if semanticCommand || constructionChoiceCommand || populationRouteCommand || constructionProposalCommand || populationMemberProposalCommand || restoreDraftRevisionCommand || frameSourceCommand || rowValuePolicyCommand {
+	if semanticCommand || constructionChoiceCommand || populationRouteCommand || constructionProposalCommand || populationMemberProposalCommand || restoreDraftRevisionCommand || frameSourceCommand || rowValuePolicyCommand || rowChangeReplacementCommand {
 		if s.config.Capability.ForCompilation == nil {
 			return nil, unavailable("commands", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 		}
@@ -179,6 +181,39 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 			}
 			return s.prepareFrameSourceCommand(ctx, project, explorerID, authorized, workspace, catalog, commands[0], frameSourceIdentity)
 		}
+	} else if rowChangeReplacementCommand {
+		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+			if len(commands) != 1 || commands[0].RowChange == nil {
+				return nil, malformed("commands", "row replacement must be the only command", nil)
+			}
+			proposal := *commands[0].RowChange
+			if proposal.CatalogSnapshotToken != request.SnapshotToken || proposal.CatalogGeneration != snapshot.Identity.Generation {
+				return nil, conflict("commands", "STALE_CATALOG_SNAPSHOT", "the row replacement belongs to a different catalog snapshot", nil, nil)
+			}
+			catalogDigest, digestErr := catalog.Digest()
+			if digestErr != nil || catalogDigest != proposal.CatalogDigest {
+				return nil, conflict("commands", "STALE_CATALOG_SNAPSHOT", "the row replacement catalog changed after assessment", nil, digestErr)
+			}
+			candidate, _, applyErr := authoringv2.ApplyCommands(workspace, catalog, "row-change-replacement-preview", commands)
+			if applyErr != nil {
+				return nil, unprocessable("commands", "INVALID_ROW_CHANGE", applyErr.Error(), applyErr)
+			}
+			receiptWorkspace, projectionErr := rowChangeReceiptWorkspace(candidate, proposal.OutputID)
+			if projectionErr != nil {
+				return nil, unprocessable("commands", "INVALID_ROW_CHANGE", projectionErr.Error(), projectionErr)
+			}
+			rowChangeReplacementCandidate, err = s.compile(ctx, compileRequest{Project: project, ExplorerID: explorerID, Workspace: receiptWorkspace, SnapshotToken: request.SnapshotToken, RequestID: "row-change-replacement-apply-candidate"})
+			if err != nil {
+				return nil, err
+			}
+			if err := verifyPreviewReceiptIntent(rowChangeReplacementCandidate, receiptWorkspace); err != nil {
+				return nil, conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the candidate receipt does not represent the requested row replacement", nil, err)
+			}
+			if !receiptHasOutput(rowChangeReplacementCandidate.Bundle, proposal.OutputID) || validateReceiptOutputContract(rowChangeReplacementCandidate, proposal.OutputID) != nil {
+				return nil, conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the row replacement candidate receipt does not contain the requested output", nil, nil)
+			}
+			return commands, nil
+		}
 	}
 	response, err := s.store.ApplyWorkspaceCommandsChecked(ctx, project, explorerID, catalog, request, actor, prepare, func(workspace authoringv2.Workspace) error {
 		if _, validationErr := s.resolveWorkspacePopulations(ctx, project, workspace, snapshot, snapshot.Identity.AuthorizationScopeDigest); validationErr != nil {
@@ -205,6 +240,9 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 			}
 			return previewPopulationMemberRemovalProposal(ctx, s, project, explorerID, populationMemberCandidate)
 		}
+		if rowChangeReplacementCommand {
+			return checkRowChangeReplacementResult(workspace, rowChangeReplacementCandidate, request.Commands[0].RowChange.OutputID)
+		}
 		if rowValuePolicyCommand {
 			return s.validateRowValuePolicyCandidate(ctx, project, explorerID, request, workspace, snapshot, authorized, request.Commands[0])
 		}
@@ -224,6 +262,21 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	default:
 		return response, nil
 	}
+}
+
+func checkRowChangeReplacementResult(workspace authoringv2.Workspace, receipt *explorer.CompilationReceipt, outputID string) error {
+	if receipt == nil || !receiptHasOutput(receipt.Bundle, outputID) || validateReceiptOutputContract(receipt, outputID) != nil {
+		return conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the applied row replacement does not match its candidate receipt", nil, nil)
+	}
+	for _, document := range workspace.Documents {
+		if document.Output.ID == outputID {
+			if document.Route.OccurrenceID != authoringv2.RootOccurrenceID || document.RootResourceType != document.Route.ResourceType || len(document.Columns) != 1 || document.Columns[0].Column != "id" {
+				return conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the applied row replacement changed the candidate output shape", nil, nil)
+			}
+			return nil
+		}
+	}
+	return conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the applied row replacement removed its output", nil, nil)
 }
 
 func (s *Service) prepareSemanticSelections(ctx context.Context, project, explorerID string, authorized AuthorizedCapability, workspace authoringv2.Workspace, catalogSnapshot authoringv2.CatalogSnapshot, commands []authoringv2.Command) ([]authoringv2.Command, error) {
@@ -461,21 +514,132 @@ func sameConstructionProposalBinding(left, right *explorer.ConstructionProposalB
 }
 
 func (s *Service) Reconcile(ctx context.Context, request ReconcileRequest) (*explorer.CompilationReceipt, error) {
-	if strings.TrimSpace(request.SnapshotToken) == "" || request.DraftVersion < 0 {
-		return nil, malformed("reconcile", "snapshotToken, draftVersion, and draftDigest are required", nil)
-	}
-	owner, err := s.store.Get(ctx, request.Project, request.ExplorerID)
+	result, err := s.ReconcileWithWorkspace(ctx, request)
 	if err != nil {
 		return nil, err
 	}
+	return result.Receipt, nil
+}
+
+// ReconcileWithWorkspace compiles either the complete saved workspace or one
+// output and its current-draft dependency closure, while returning the full
+// CAS-validated workspace for Builder clients.
+func (s *Service) ReconcileWithWorkspace(ctx context.Context, request ReconcileRequest) (ReconcileResult, error) {
+	if strings.TrimSpace(request.SnapshotToken) == "" || request.DraftVersion < 0 {
+		return ReconcileResult{}, malformed("reconcile", "snapshotToken, draftVersion, and draftDigest are required", nil)
+	}
+	owner, err := s.store.Get(ctx, request.Project, request.ExplorerID)
+	if err != nil {
+		return ReconcileResult{}, err
+	}
 	if owner.DraftVersion != request.DraftVersion || owner.DraftDigest != request.DraftDigest {
-		return nil, conflict("reconcile", "DRAFT_CONFLICT", "the Explorer draft changed; reload before reconciling", nil, explorer.ErrDraftConflict)
+		return ReconcileResult{}, conflict("reconcile", "DRAFT_CONFLICT", "the Explorer draft changed; reload before reconciling", nil, explorer.ErrDraftConflict)
 	}
 	workspace, err := authoringv2.DecodeWorkspace(owner.DraftConfig)
 	if err != nil {
-		return nil, conflict("reconcile", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be reconciled", nil, err)
+		return ReconcileResult{}, conflict("reconcile", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be reconciled", nil, err)
 	}
-	return s.compile(ctx, compileRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: request.SnapshotToken})
+	if request.OutputID == "" {
+		receipt, compileErr := s.compile(ctx, compileRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: request.SnapshotToken})
+		if compileErr != nil {
+			return ReconcileResult{}, compileErr
+		}
+		return ReconcileResult{Receipt: receipt, Workspace: workspace}, nil
+	}
+	if strings.TrimSpace(request.OutputID) != request.OutputID {
+		return ReconcileResult{}, malformed("reconcile", "outputId must not contain surrounding whitespace", nil)
+	}
+	authorized, snapshot, err := s.resolveCompilationCapability(ctx, request.Project, request.SnapshotToken)
+	if err != nil || snapshot.ValidateToken(request.SnapshotToken) != nil {
+		return ReconcileResult{}, conflict("reconcile", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
+	}
+	if authorized.Scope.Mode != "" {
+		if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
+			return ReconcileResult{}, conflict("reconcile", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
+		}
+	}
+	if err := (authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, Workspace: &workspace, Catalog: s.catalog(snapshot, request.ExplorerID)}).Validate(); err != nil {
+		return ReconcileResult{}, unprocessable("reconcile", workspaceValidationCode(err), err.Error(), err)
+	}
+	scoped, err := workspaceOutputClosure(workspace, request.OutputID)
+	if err != nil {
+		return ReconcileResult{}, unprocessable("reconcile", "INVALID_OUTPUT_SCOPE", err.Error(), err)
+	}
+	receipt, err := s.compile(ctx, compileRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: scoped, SnapshotToken: request.SnapshotToken})
+	if err != nil {
+		return ReconcileResult{}, err
+	}
+	return ReconcileResult{Receipt: receipt, Workspace: workspace}, nil
+}
+
+func workspaceOutputClosure(workspace authoringv2.Workspace, outputID string) (authoringv2.Workspace, error) {
+	order, err := workspace.OutputDependencyOrder()
+	if err != nil {
+		return authoringv2.Workspace{}, err
+	}
+	indexes := make(map[string]int, len(workspace.Documents))
+	for index, document := range workspace.Documents {
+		indexes[document.Output.ID] = index
+	}
+	target, found := indexes[outputID]
+	if !found {
+		return authoringv2.Workspace{}, fmt.Errorf("output %q was not found in the current workspace", outputID)
+	}
+	include := map[int]struct{}{}
+	var visit func(int)
+	visit = func(index int) {
+		if _, exists := include[index]; exists {
+			return
+		}
+		include[index] = struct{}{}
+		document := workspace.Documents[index]
+		if document.Construction == nil {
+			return
+		}
+		for _, step := range document.Construction.Steps {
+			for _, input := range step.Inputs {
+				if input.Kind == authoringv2.ConstructionInputWorkspaceOutput {
+					visit(indexes[input.OutputID])
+				}
+			}
+		}
+	}
+	visit(target)
+	projected := workspace
+	projected.Documents = make([]authoringv2.Document, 0, len(include))
+	for _, index := range order {
+		if _, exists := include[index]; exists {
+			projected.Documents = append(projected.Documents, workspace.Documents[index])
+		}
+	}
+	outputIDs := make(map[string]struct{}, len(include))
+	for _, document := range projected.Documents {
+		outputIDs[document.Output.ID] = struct{}{}
+	}
+	tabs := make([]authoringv2.Tab, 0, len(include))
+	for _, tab := range workspace.Tabs {
+		if _, exists := outputIDs[tab.OutputID]; exists {
+			tab.Order = len(tabs)
+			tabs = append(tabs, tab)
+		}
+	}
+	projected.Tabs = tabs
+	if workspace.SharedFilters == nil {
+		projected.SharedFilters = nil
+	} else {
+		projected.SharedFilters = make(map[string][]authoringv2.SharedFilterBinding, len(workspace.SharedFilters))
+		for name, bindings := range workspace.SharedFilters {
+			for _, binding := range bindings {
+				if _, exists := outputIDs[binding.OutputID]; exists {
+					projected.SharedFilters[name] = append(projected.SharedFilters[name], binding)
+				}
+			}
+			if len(projected.SharedFilters[name]) == 0 {
+				delete(projected.SharedFilters, name)
+			}
+		}
+	}
+	return projected, nil
 }
 
 func (s *Service) catalog(snapshot capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {

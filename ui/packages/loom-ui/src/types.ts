@@ -2446,23 +2446,66 @@ export const routeRebaseChoiceSchema = z
     edgeId: opaqueIdSchema,
   })
   .strict();
+const rowChangeModeSchema = z.enum(['PRESERVE', 'REPLACE']);
+export type RowChangeMode = z.infer<typeof rowChangeModeSchema>;
+const workspaceOutputConsumerSchema = z.object({
+  outputId: opaqueIdSchema,
+  stepId: opaqueIdSchema,
+  inputIndex: z.number().int().nonnegative(),
+}).strict();
+const sharedFilterBindingRefSchema = z.object({
+  name: opaqueIdSchema,
+  outputId: opaqueIdSchema,
+  column: opaqueIdSchema,
+  bindingIndex: z.number().int().nonnegative(),
+}).strict();
 export const rowChangeProposalSchema = z
   .object({
+    mode: rowChangeModeSchema.optional(),
     outputId: opaqueIdSchema,
     rootNodeId: opaqueIdSchema,
     rootOccurrenceId: opaqueIdSchema,
     sourceDocumentDigest: opaqueIdSchema,
-    routeRebase: z.array(routeRebaseChoiceSchema).min(1),
+    routeRebase: z.array(routeRebaseChoiceSchema),
     preservedFeatureKeys: z.array(opaqueIdSchema),
+    catalogSnapshotToken: opaqueIdSchema.optional(),
+    catalogGeneration: opaqueIdSchema.optional(),
+    catalogDigest: opaqueIdSchema.optional(),
+    removedFeatureKeys: z.array(opaqueIdSchema).optional(),
+    workspaceOutputConsumers: z.array(workspaceOutputConsumerSchema).optional(),
+    sharedFilterBindings: z.array(sharedFilterBindingRefSchema).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((proposal, context) => {
+    if (proposal.mode === 'REPLACE') {
+      if (proposal.rootOccurrenceId !== 'base') {
+        context.addIssue({ code: 'custom', path: ['rootOccurrenceId'], message: 'Replacement must use the base occurrence.' });
+      }
+      if (proposal.routeRebase.length !== 0 || proposal.preservedFeatureKeys.length !== 0) {
+        context.addIssue({ code: 'custom', path: ['routeRebase'], message: 'Replacement cannot claim preserved route or features.' });
+      }
+      for (const key of ['catalogSnapshotToken', 'catalogGeneration', 'catalogDigest'] as const) {
+        if (!proposal[key]) context.addIssue({ code: 'custom', path: [key], message: 'Replacement must bind the exact catalog snapshot.' });
+      }
+      for (const key of ['removedFeatureKeys', 'workspaceOutputConsumers', 'sharedFilterBindings'] as const) {
+        if (!proposal[key]) context.addIssue({ code: 'custom', path: [key], message: 'Replacement must report its effects.' });
+      }
+    } else if (proposal.routeRebase.length === 0) {
+      context.addIssue({ code: 'custom', path: ['routeRebase'], message: 'A preserving row change requires a route rebase.' });
+    }
+  });
+export type RowChangeProposal = z.infer<typeof rowChangeProposalSchema>;
 const rowChangeAssessmentBaseSchema = z.object({
+  mode: rowChangeModeSchema.optional(),
   snapshotToken: opaqueIdSchema,
   draftVersion: z.number().int().positive(),
   draftDigest: opaqueIdSchema,
   currentRootResourceType: opaqueIdSchema,
   candidateRootResourceType: opaqueIdSchema,
   preservedFeatureKeys: z.array(opaqueIdSchema),
+  removedFeatureKeys: z.array(opaqueIdSchema).optional(),
+  workspaceOutputConsumers: z.array(workspaceOutputConsumerSchema).optional(),
+  sharedFilterBindings: z.array(sharedFilterBindingRefSchema).optional(),
   diagnostics: z.array(explorerAuthoringDiagnosticSchema),
 });
 export const rowChangeUnresolvedReferenceSchema = z
@@ -2492,7 +2535,22 @@ export const rowChangeAssessmentSchema = z.discriminatedUnion('status', [
     status: z.literal('NO_CHANGE'),
     unresolved: z.array(rowChangeUnresolvedReferenceSchema).length(0),
   }).strict(),
-]);
+]).superRefine((assessment, context) => {
+  if (assessment.status !== 'READY' || assessment.mode !== 'REPLACE') return;
+  if (assessment.proposal.mode !== 'REPLACE') {
+    context.addIssue({ code: 'custom', path: ['proposal', 'mode'], message: 'Replacement assessment must contain a replacement proposal.' });
+  }
+  if (!assessment.candidateReceiptId) {
+    context.addIssue({ code: 'custom', path: ['candidateReceiptId'], message: 'Replacement assessment must include its candidate preview receipt.' });
+  }
+  for (const key of ['removedFeatureKeys', 'workspaceOutputConsumers', 'sharedFilterBindings'] as const) {
+    const responseEffects = assessment[key];
+    const proposalEffects = assessment.proposal[key];
+    if (!responseEffects || !proposalEffects || JSON.stringify(responseEffects) !== JSON.stringify(proposalEffects)) {
+      context.addIssue({ code: 'custom', path: [key], message: 'Replacement assessment effects must match the reviewed proposal.' });
+    }
+  }
+});
 export type RowChangeAssessment = z.infer<typeof rowChangeAssessmentSchema>;
 
 export const semanticSelectionIntentSchema = z

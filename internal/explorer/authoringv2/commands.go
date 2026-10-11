@@ -550,7 +550,7 @@ func (r ApplyCommandsRequest) Validate() error {
 		if command.Type == CommandSetFrameSource || command.Type == CommandReplaceFrameSource || command.Type == CommandRemoveFrameSource {
 			frameSourceCommandCount++
 		}
-		if command.Type == CommandApplyRowDefinitionProposal || command.Type == CommandApplyTableShapeProposal || command.Type == CommandApplyConstructionProposal || command.Type == CommandApplyPopulationMemberProposal {
+		if command.Type == CommandApplyRowDefinitionProposal || command.Type == CommandApplyTableShapeProposal || command.Type == CommandApplyConstructionProposal || command.Type == CommandApplyPopulationMemberProposal || command.Type == CommandApplyTableRootRebase && command.RowChange != nil && command.RowChange.Mode == RowChangeModeReplace {
 			proposalCommandCount++
 		}
 		if command.Type == CommandRestoreDraftRevision {
@@ -961,6 +961,16 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		return result, nil
 	case CommandApplyTableRootRebase:
 		proposal := *command.RowChange
+		if proposal.Mode == RowChangeModeReplace {
+			replaced, err := ApplyRowReplacement(*workspace, catalog, proposal)
+			if err != nil {
+				return result, err
+			}
+			*workspace = replaced
+			result.OutputID = proposal.OutputID
+			result.OccurrenceID = RootOccurrenceID
+			return result, nil
+		}
 		document := documentIndex(workspace, proposal.OutputID)
 		if document < 0 {
 			return result, fmt.Errorf("output %q was not found", proposal.OutputID)

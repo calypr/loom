@@ -1,10 +1,13 @@
 package authoringv2
 
 import (
+	"encoding/json"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 func rowChangeWorkspace() Workspace {
@@ -743,5 +746,252 @@ func TestApplyRowChangeRejectsStaleProposalWithoutPartialMutation(t *testing.T) 
 	}
 	if string(after) != string(before) {
 		t.Fatalf("failed batch mutated input\nbefore=%s\nafter=%s", before, after)
+	}
+}
+func replacementCatalog() CatalogSnapshot {
+	catalog := rowChangeCatalog()
+	catalog.Nodes = append(catalog.Nodes, CatalogNode{ID: "report", ResourceType: "DiagnosticReport", RowRootEligible: true})
+	catalog.Candidates = append(catalog.Candidates, CatalogCandidate{
+		ID: "report-id", NodeID: "report", FieldPath: "id", Cardinality: "optional_one",
+		Label: "Report ID", LogicalType: "string", ProjectionModes: []string{"VALUE"},
+		DefaultProjectionMode: "VALUE",
+		ConstructionChoice:    testFieldConstructionChoice(catalog.SnapshotToken, "report-id", "report", "DiagnosticReport", "id", "optional_one", capability.ProjectionScalar),
+	})
+	return catalog
+}
+
+func TestAssessAndApplyRowReplacementForDisconnectedRoot(t *testing.T) {
+	workspace := rowChangeWorkspace()
+	workspace.Documents[0].Construction = &Construction{Version: ConstructionVersion, Steps: []ConstructionStep{}}
+	for index := range workspace.Documents[0].Columns {
+		workspace.Documents[0].Columns[index].ColumnID = workspace.Documents[0].Columns[index].Column
+	}
+	catalog := replacementCatalog()
+	before, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	assessment, err := AssessRowReplacement(workspace, catalog, RowChangeRequest{OutputID: "patients", RootNodeID: "report"})
+	if err != nil || assessment.Status != RowChangeReady || assessment.Proposal == nil {
+		t.Fatalf("replacement assessment=%#v err=%v", assessment, err)
+	}
+	if len(assessment.WorkspaceOutputConsumers) != 0 || assessment.CandidateRootResourceType != "DiagnosticReport" {
+		t.Fatalf("replacement assessment references=%#v", assessment)
+	}
+	for _, key := range []string{"root:Patient", "route:encounter", "column:patient_id", "column:encounter_id", "population:selection-patients", "construction", "fixedFilter:patient_id", "action:download:Download"} {
+		if !contains(assessment.RemovedFeatureKeys, key) {
+			t.Fatalf("removed feature %q missing from preview: %#v", key, assessment.RemovedFeatureKeys)
+		}
+	}
+	if after, _ := workspace.CanonicalJSON(); string(after) != string(before) {
+		t.Fatalf("assessment changed workspace\nbefore=%s\nafter=%s", before, after)
+	}
+
+	replaced, err := ApplyRowReplacement(workspace, catalog, *assessment.Proposal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := replaced.Documents[0]
+	if got.Output.ID != "patients" || got.Output.Title != "Patients" || got.RootResourceType != "DiagnosticReport" || got.Route.OccurrenceID != RootOccurrenceID || got.Route.ResourceType != "DiagnosticReport" || len(got.Route.Children) != 0 {
+		t.Fatalf("replacement identity/root = output %#v route %#v", got.Output, got.Route)
+	}
+	if got.Rows.Kind != RowDefinitionRecords || got.Population != nil || got.Construction != nil || got.TableShape != nil || len(got.Frames) != 0 || len(got.FixedFilters) != 0 || len(got.Actions) != 0 || len(got.Columns) != 1 {
+		t.Fatalf("replacement retained old intent: %#v", got)
+	}
+	column := got.Columns[0]
+	if column.Column != "id" || column.Label != "Report ID" || column.LogicalType != "string" || column.OccurrenceID != RootOccurrenceID || column.Source.Kind != SourceField || column.Source.Field == nil || column.Source.Field.Path != "id" || column.Source.Field.ProjectionMode != "VALUE" {
+		t.Fatalf("replacement id column = %#v", column)
+	}
+	if got.Output != workspace.Documents[0].Output || !reflect.DeepEqual(replaced.Tabs, workspace.Tabs) {
+		t.Fatalf("replacement changed output/tab identity: output=%#v tabs=%#v", got.Output, replaced.Tabs)
+	}
+	encodedCandidate, err := replaced.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decodedCandidate, err := DecodeWorkspace(encodedCandidate)
+	if err != nil || !reflect.DeepEqual(decodedCandidate, replaced) {
+		t.Fatalf("replacement candidate round trip changed: got %#v err=%v", decodedCandidate, err)
+	}
+
+	shapeWorkspace := rowChangeWorkspace()
+	integer := int64(2)
+	shapeWorkspace.Documents[0].TableShape = &TableShape{Derived: []DerivedConstruction{{
+		ConstructionID: "double_id", Output: ColumnOutput{Column: "double_id", Label: "Double ID"}, Operation: "ADD",
+		Left:               ArithmeticOperand{Kind: "COLUMN", Column: "patient_id"},
+		Right:              ArithmeticOperand{Kind: "LITERAL", Literal: &TableScalar{Kind: TableScalarInteger, Integer: &integer}},
+		MissingInputPolicy: "PROPAGATE_NULL",
+	}}}
+	shapeAssessment, err := AssessRowReplacement(shapeWorkspace, catalog, RowChangeRequest{OutputID: "patients", RootNodeID: "report"})
+	if err != nil || shapeAssessment.Proposal == nil {
+		t.Fatalf("table-shape replacement assessment=%#v err=%v", shapeAssessment, err)
+	}
+	shapeCandidate, err := ApplyRowReplacement(shapeWorkspace, catalog, *shapeAssessment.Proposal)
+	if err != nil || shapeCandidate.Documents[0].TableShape != nil {
+		t.Fatalf("table shape survived replacement: candidate=%#v err=%v", shapeCandidate.Documents[0].TableShape, err)
+	}
+}
+
+func TestAssessAndApplyRowReplacementReportsExactCurrentDraftReferences(t *testing.T) {
+	workspace := dependencyWorkspace(rowChangeWorkspace().Documents[0], workspaceOutputCombineDocument("combined", "patients"))
+	workspace.SharedFilters = map[string][]SharedFilterBinding{
+		"patient-filter":  {{OutputID: "patients", Column: "patient_id"}},
+		"combined-filter": {{OutputID: "combined", Column: "patient_id"}},
+	}
+	catalog := replacementCatalog()
+	assessment, err := AssessRowReplacement(workspace, catalog, RowChangeRequest{OutputID: "patients", RootNodeID: "report"})
+	if err != nil || assessment.Status != RowChangeReady || assessment.Proposal == nil {
+		t.Fatalf("replacement assessment=%#v err=%v", assessment, err)
+	}
+	if !reflect.DeepEqual(assessment.WorkspaceOutputConsumers, []WorkspaceOutputConsumer{{OutputID: "combined", StepID: "join_labs", InputIndex: 0}}) {
+		t.Fatalf("workspace-output consumers=%#v", assessment.WorkspaceOutputConsumers)
+	}
+	if !reflect.DeepEqual(assessment.SharedFilterBindings, []SharedFilterBindingRef{{Name: "patient-filter", OutputID: "patients", Column: "patient_id", BindingIndex: 0}}) {
+		t.Fatalf("shared-filter bindings=%#v", assessment.SharedFilterBindings)
+	}
+	if len(workspace.SharedFilters["patient-filter"]) != 1 {
+		t.Fatalf("assessment cleaned shared filters before apply: %#v", workspace.SharedFilters)
+	}
+	consumerBefore := workspace.Documents[1]
+	applied, err := ApplyRowReplacement(workspace, catalog, *assessment.Proposal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(applied.Documents[1], consumerBefore) {
+		t.Fatalf("replacement mutated current-draft consumer: got %#v want %#v", applied.Documents[1], consumerBefore)
+	}
+	if got := applied.Documents[1].Construction.Steps[0].Inputs[1]; got.Kind != ConstructionInputTableRevision || got.RevisionID != "labs-r9" || got.OutputID != "labs" {
+		t.Fatalf("pinned TABLE_REVISION reference changed: %#v", got)
+	}
+	if len(applied.SharedFilters["patient-filter"]) != 0 {
+		t.Fatalf("shared filter binding survived replacement: %#v", applied.SharedFilters)
+	}
+	if len(applied.SharedFilters["combined-filter"]) != 1 || applied.SharedFilters["combined-filter"][0].OutputID != "combined" {
+		t.Fatalf("unrelated shared filter binding changed: %#v", applied.SharedFilters)
+	}
+}
+
+func TestRowReplacementProposalRoundTripsAndRejectsStaleInputs(t *testing.T) {
+	workspace := rowChangeWorkspace()
+	catalog := replacementCatalog()
+	assessment, err := AssessRowReplacement(workspace, catalog, RowChangeRequest{OutputID: "patients", RootNodeID: "report"})
+	if err != nil || assessment.Proposal == nil {
+		t.Fatalf("assessment=%#v err=%v", assessment, err)
+	}
+	proposalJSON, err := json.Marshal(assessment.Proposal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded RowChangeProposal
+	if err := json.Unmarshal(proposalJSON, &decoded); err != nil || !rowChangeProposalEqual(*assessment.Proposal, decoded) {
+		t.Fatalf("proposal round trip changed: got %#v err=%v", decoded, err)
+	}
+	if _, err := ApplyRowReplacement(workspace, catalog, decoded); err != nil {
+		t.Fatalf("round-tripped proposal rejected: %v", err)
+	}
+
+	changedDocument, err := cloneWorkspace(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedDocument.Documents[0].Output.Title = "Changed"
+	if _, err := ApplyRowReplacement(changedDocument, catalog, decoded); err == nil || !strings.Contains(err.Error(), "ROW_REPLACEMENT_PROPOSAL_STALE") {
+		t.Fatalf("stale document error=%v", err)
+	}
+	changedCatalog := catalog
+	changedCatalog.SourceGeneration = "next-generation"
+	if _, err := ApplyRowReplacement(workspace, changedCatalog, decoded); err == nil || !strings.Contains(err.Error(), "ROW_REPLACEMENT_PROPOSAL_STALE") {
+		t.Fatalf("stale catalog error=%v", err)
+	}
+}
+
+func TestRowReplacementReadyEffectsSerializeAsArraysWithoutReferences(t *testing.T) {
+	workspace := rowChangeWorkspace()
+	catalog := replacementCatalog()
+	assessment, err := AssessRowReplacement(workspace, catalog, RowChangeRequest{OutputID: "patients", RootNodeID: "report"})
+	if err != nil || assessment.Status != RowChangeReady || assessment.Proposal == nil {
+		t.Fatalf("replacement assessment=%#v err=%v", assessment, err)
+	}
+	if len(assessment.WorkspaceOutputConsumers) != 0 || len(assessment.SharedFilterBindings) != 0 {
+		t.Fatalf("test workspace unexpectedly has replacement references: consumers=%#v bindings=%#v", assessment.WorkspaceOutputConsumers, assessment.SharedFilterBindings)
+	}
+
+	assertJSONArray := func(data []byte, field string, wantEmpty bool) {
+		t.Helper()
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(data, &object); err != nil {
+			t.Fatalf("decode serialized object: %v", err)
+		}
+		raw, ok := object[field]
+		if !ok {
+			t.Fatalf("serialized object omits %q: %s", field, data)
+		}
+		var values []json.RawMessage
+		if err := json.Unmarshal(raw, &values); err != nil || values == nil {
+			t.Fatalf("%q must be a JSON array, got %s (decode error %v)", field, raw, err)
+		}
+		if wantEmpty && len(values) != 0 {
+			t.Fatalf("%q must be empty, got %s", field, raw)
+		}
+		if !wantEmpty && len(values) == 0 {
+			t.Fatalf("%q must report removed replacement features, got %s", field, raw)
+		}
+	}
+
+	assessmentJSON, err := json.Marshal(assessment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertJSONArray(assessmentJSON, "removedFeatureKeys", false)
+	assertJSONArray(assessmentJSON, "workspaceOutputConsumers", true)
+	assertJSONArray(assessmentJSON, "sharedFilterBindings", true)
+
+	proposalJSON, err := json.Marshal(assessment.Proposal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertJSONArray(proposalJSON, "removedFeatureKeys", false)
+	assertJSONArray(proposalJSON, "workspaceOutputConsumers", true)
+	assertJSONArray(proposalJSON, "sharedFilterBindings", true)
+	assertJSONArray(proposalJSON, "routeRebase", true)
+	assertJSONArray(proposalJSON, "preservedFeatureKeys", true)
+}
+
+func TestRowChangePreserveStillSerializesPreservationSemantics(t *testing.T) {
+	workspace := rowChangeWorkspace()
+	catalog := rowChangeCatalog()
+	assessment, err := AssessRowChange(workspace, catalog, RowChangeRequest{OutputID: "patients", RootNodeID: "encounter"})
+	if err != nil || assessment.Status != RowChangeReady || assessment.Mode != RowChangeModePreserve || assessment.Proposal == nil {
+		t.Fatalf("preserving assessment=%#v err=%v", assessment, err)
+	}
+	if assessment.Proposal.Mode != "" || len(assessment.Proposal.RouteRebase) == 0 || len(assessment.Proposal.PreservedFeatureKeys) == 0 {
+		t.Fatalf("preserving proposal lost its route or retained features: %#v", assessment.Proposal)
+	}
+	if len(assessment.Proposal.RemovedFeatureKeys) != 0 || len(assessment.Proposal.WorkspaceOutputConsumers) != 0 || len(assessment.Proposal.SharedFilterBindings) != 0 {
+		t.Fatalf("preserving proposal reported replacement effects: %#v", assessment.Proposal)
+	}
+}
+
+func TestRowReplacementRequiresUniqueRootIdentityAndAuthorizedScalarID(t *testing.T) {
+	workspace := rowChangeWorkspace()
+	catalog := replacementCatalog()
+	catalog.Nodes = append(catalog.Nodes, CatalogNode{ID: "report-copy", ResourceType: "DiagnosticReport", RowRootEligible: true})
+	assessment, err := AssessRowReplacement(workspace, catalog, RowChangeRequest{OutputID: "patients", RootNodeID: "report"})
+	if err != nil || assessment.Status != RowChangeBlocked || len(assessment.Unresolved) != 1 || assessment.Unresolved[0].Code != "ROW_ROOT_RESOURCE_TYPE_AMBIGUOUS" {
+		t.Fatalf("duplicate root assessment=%#v err=%v", assessment, err)
+	}
+
+	catalog = replacementCatalog()
+	catalog.Candidates = catalog.Candidates[:len(catalog.Candidates)-1]
+	assessment, err = AssessRowReplacement(workspace, catalog, RowChangeRequest{OutputID: "patients", RootNodeID: "report"})
+	if err != nil || assessment.Status != RowChangeBlocked || len(assessment.Unresolved) != 1 || assessment.Unresolved[0].Code != "ROW_ROOT_ID_FIELD_UNAVAILABLE" {
+		t.Fatalf("missing id candidate assessment=%#v err=%v", assessment, err)
+	}
+
+	catalog = replacementCatalog()
+	catalog.Candidates[len(catalog.Candidates)-1].ProjectionModes = []string{"FIRST"}
+	assessment, err = AssessRowReplacement(workspace, catalog, RowChangeRequest{OutputID: "patients", RootNodeID: "report"})
+	if err != nil || assessment.Status != RowChangeBlocked || len(assessment.Unresolved) != 1 || assessment.Unresolved[0].Code != "ROW_ROOT_ID_FIELD_UNAVAILABLE" {
+		t.Fatalf("invalid id projection assessment=%#v err=%v", assessment, err)
 	}
 }

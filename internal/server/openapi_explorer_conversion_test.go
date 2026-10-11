@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -15,6 +16,7 @@ func TestV2ReceiptResponsePreservesResultUnitsAndOmitsAbsentUnit(t *testing.T) {
 	derivedUnit := &unit.UnitIdentity{System: system, Code: "kg/m2"}
 	receipt := &explorer.CompilationReceipt{
 		ID: "receipt-a",
+		Bundle: recipe.Bundle{Outputs: []recipe.Output{{Name: "patients", RowGrain: "RESOURCE"}}},
 		EmittedColumns: []explorer.EmittedColumn{
 			{OutputID: "patients", PublicColumn: "mean_weight", Label: "Mean weight", LogicalType: "decimal", ResultUnit: aggregateUnit},
 			{OutputID: "patients", PublicColumn: "bmi", Label: "BMI", LogicalType: "decimal", ResultUnit: derivedUnit},
