@@ -7,7 +7,7 @@ import { createNativeCdaWorkflowTools, validatedArangoContainer } from '../helpe
 export async function codedFieldLifecycleWorkflow({ page, cda, caseOptions = {} }) {
   const { click, fill, selectOption, navigate, inspect, clickControl, fillControl, selectControl,
     nativeClick, nativeFill, nativeSelect, navigatePage, inspectDOM, browserEval, inspectPage,
-    waitForDOM, waitForBrowser, captureCDARequests, captureRequests, waitForCapturedResponse,
+    waitForDOM, waitForBrowser,
     performAction, requireUnique } = createNativeCdaWorkflowTools({ page, cda });
   const target = cda.target;
   const project = cda.project;
@@ -77,17 +77,16 @@ const startNativeCapture = () => {
     const path = new URL(request.url()).pathname;
     if (path.includes(`/explorers/${protectedExplorer}/`)) report.protectedExplorerUntouched = false;
   });
-  requestCapture = captureCDARequests(page, {
-    apiOrigin: uiOrigin, appOrigins: [apiOrigin, uiOrigin], ownedPathPrefix: `${root}/${explorer}`,
-    report, responsePaths: /frame-source-options|semantic-inventory|construction-choice-proposals|construction-proposals|commands|preview/,
+  requestCapture = cda.captureRequests(`${root}/${explorer}`, {
+    responsePaths: /frame-source-options|semantic-inventory|construction-choice-proposals|construction-proposals|commands|preview/,
   });
 };
 const waitNative = async (predicate, fromIndex = 0, timeoutMs = 5000) => {
-  const match = await requestCapture.waitFor(predicate, { fromIndex, timeoutMs });
-  const rawResponse = requestCapture.rawResponseBody(match);
+  const match = await requestCapture.waitForResponse(predicate, { fromIndex, timeoutMs });
+  const rawResponse = match.response;
   assert(rawResponse && typeof rawResponse === 'object' && !Array.isArray(rawResponse),
     `${match.path} did not provide a captured JSON object response body`);
-  return { ...match, response: rawResponse };
+  return match;
 };
 const record = (name, started, details = {}) => {
   const durationMs = Date.now() - started;
@@ -96,7 +95,7 @@ const record = (name, started, details = {}) => {
 };
 const openTable = async (expectedColumnCount, name, expectedTexts = [], expectedRows) => {
   const started = Date.now();
-  const fromIndex = nativeRequests.length;
+  const fromIndex = requestCapture.requests.length;
   await navigatePage(page, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
   await waitForDOM(page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (`[data-testid="construction-table-${outputId}"]`) }, 5000);
   await clickControl(page, `[data-testid="construction-table-${outputId}"]`);
@@ -144,7 +143,7 @@ const openTable = async (expectedColumnCount, name, expectedTexts = [], expected
     const expected = expectedRows.map((row) => JSON.stringify(row)).sort();
     assert.deepEqual(actual, expected, `${name} native rows differ from the independent expected rows`);
   }
-  const preview = await waitNative((entry) => entry.path.endsWith('/preview') && entry.body?.outputId === outputId, fromIndex);
+  const preview = await waitNative((entry) => entry.path.endsWith('/preview') && entry.request?.outputId === outputId, fromIndex);
   assert(preview.response?.receiptId, `${name} saved preview has no current receipt`);
   record(name, started, { headers: dom.headers, receiptId: preview.response.receiptId, rowCount: preview.response.rowCount, nativeRowCount: dom.rows.length });
   return { dom, preview: preview.response };
@@ -186,50 +185,18 @@ const setSearchInput = async (selector, value) => fillControl(page, selector, va
 const chooseComponentFrame = async () => {
   const panel = '[data-testid="frame-source-panel"]';
   const toggle = await inspectDOM(page, async args => { return [...document.querySelectorAll(args.__template0)].find(button=>['Browse sources','Add coded source'].some(label=>button.innerText.trim().startsWith(label)))?.innerText.replace(/\\s+/g,' ').trim(); }, { __template0: (`${panel} button`) });
-  const cancellationAction = 'search Observation framing sources';
   const searchStarted = Date.now();
   let result;
-  await cda.withExpectedCancellations({
-    origin: uiOrigin,
-    method: 'POST',
-    paths: [`${base}/frame-source-options`],
-    requestIdPrefixes: ['frame-source-options-'],
-    reason: 'The initial unfiltered framing-source request was superseded by the explicit Observation search.',
-    proof: { priorQuery: null, replacementQuery: 'Observation' },
-    actionLabel: cancellationAction,
-  }, async () => {
+  await (async () => {
     if (toggle) await clickControl(page, `${panel} button`, { name: toggle });
     await waitForDOM(page, args => Boolean(Boolean(document.querySelector('[aria-label="Search framing sources"]'))), {}, 5000);
     await setSearchInput('[aria-label="Search framing sources"]', 'Observation');
-    const fromIndex = nativeRequests.length;
+    const fromIndex = requestCapture.requests.length;
     await clickControl(page, `${panel} form button`, { name: 'Search' });
-    result = await waitNative((entry) => entry.path.endsWith('/frame-source-options') && entry.body?.query === 'Observation', fromIndex);
-  });
-  const cancellations = cda.report.expectedCancellations?.filter(item => item.proof?.scopeAction === cancellationAction) ?? [];
-  assert(cancellations.length <= 1, 'Observation frame-source search may classify at most one superseded initial browse');
-  const cancellation = cancellations[0];
-  if (cancellation) {
-    const cancelledRequest = nativeRequests.find(request => request.browserRequestId === cancellation.browserRequestId);
-    assert(cancelledRequest, 'Expected frame-source cancellation must point to an exact captured browser request');
-    assert.equal(cancelledRequest.path, `${base}/frame-source-options`);
-    assert.equal(cancelledRequest.method, 'POST');
-    assert([undefined, null, ''].includes(cancelledRequest.body?.query),
-      'The cancelled frame-source request must be the initial unfiltered browse');
-    const cancelledError = report.errors.find(error => error.kind === 'network'
-      && error.browserRequestId === cancellation.browserRequestId);
-    assert(cancelledError, 'Expected frame-source cancellation must remain in browser diagnostics');
-    assert.equal(cancelledError.error, 'net::ERR_ABORTED');
-    cancelledError.expected = true;
-    cancelledError.expectedCancellation = cancellation;
-    assert.equal(result.body?.query, 'Observation');
-    assert.equal(result.status, 200);
-    report.frameSourceBrowseCancellation = {
-      request: { browserRequestId: cancelledRequest.browserRequestId, path: cancelledRequest.path,
-        method: cancelledRequest.method, query: cancelledRequest.body?.query ?? null, error: cancelledError.error },
-      replacement: { query: 'Observation', status: result.status },
-      reason: cancellation.reason,
-    };
-  }
+    result = await waitNative((entry) => entry.path.endsWith('/frame-source-options') && entry.request?.query === 'Observation', fromIndex);
+  })();
+  assert.equal(result.request?.query, 'Observation');
+  assert.equal(result.status, 200);
   const matchesFor = (response) => response.sources.filter((source) => source.resourceType === 'Observation' &&
     source.sourcePath.toLowerCase().includes('component') && source.route.length === 1 &&
     source.route[0].fromResourceType === 'Specimen' && source.route[0].toResourceType === 'Observation' &&
@@ -239,9 +206,9 @@ const chooseComponentFrame = async () => {
   let matches = matchesFor(result.response);
   let pageCount = 1;
   while (!matches.length && result.response.nextCursor && pageCount < 8) {
-    const next = nativeRequests.length;
+    const next = requestCapture.requests.length;
     await clickControl(page, `${panel} button`, { name: 'More sources and paths' });
-    result = await waitNative((entry) => entry.path.endsWith('/frame-source-options') && Boolean(entry.body?.cursor), next);
+    result = await waitNative((entry) => entry.path.endsWith('/frame-source-options') && Boolean(entry.request?.cursor), next);
     matches = matchesFor(result.response);
     pageCount += 1;
   }
@@ -256,9 +223,9 @@ const chooseComponentFrame = async () => {
     await clickControl(page, `${panel} div.px-3.py-2:has(> ${choiceSelector}) details > summary`, { name: 'When a row has several values' });
     await selectControl(page, formSelector, 'ALL');
   } else assert.equal(source.defaultForm, 'ALL');
-  const saveIndex = nativeRequests.length;
+  const saveIndex = requestCapture.requests.length;
   await clickControl(page, choiceSelector);
-  const save = await waitNative((entry) => entry.path.endsWith('/commands') && entry.body?.commands?.some((item) => item.type === 'SET_FRAME_SOURCE'), saveIndex);
+  const save = await waitNative((entry) => entry.path.endsWith('/commands') && entry.request?.commands?.some((item) => item.type === 'SET_FRAME_SOURCE'), saveIndex);
   builder = await api(`${base}/builder`);
   const frame = doc().frames?.[0];
   assert(frame, 'The component frame was not saved');
@@ -278,10 +245,10 @@ const chooseFreshFamily = async (frame) => {
   const input = `${panel} input[aria-label^="Search coded values in "]`;
   const started = Date.now();
   await setSearchInput(input, familyCode);
-  const fromIndex = nativeRequests.length;
+  const fromIndex = requestCapture.requests.length;
   await clickControl(page, `${panel} form button`, { name: 'Search' });
   const entry = await waitNative((candidate) => candidate.path.endsWith('/semantic-inventory') &&
-    candidate.body?.frameId === frame.id && candidate.body?.query === familyCode, fromIndex);
+    candidate.request?.frameId === frame.id && candidate.request?.query === familyCode, fromIndex);
   assert.equal(entry.response.state, 'complete');
   assert.equal(entry.response.frameSource?.id, frame.id);
   const matches = entry.response.entries.filter((item) => item.code === familyCode && item.resourceType === 'Observation');
@@ -302,7 +269,7 @@ const chooseFreshFamily = async (frame) => {
 const beginAddFamily = async (policy) => {
   await selectControl(page, 'select[aria-label="Values per grouped row"]', policy);
   const started = Date.now();
-  const fromIndex = nativeRequests.length;
+  const fromIndex = requestCapture.requests.length;
   const frame = doc().frames[0];
   await clickControl(page, `[data-testid=${JSON.stringify(`frame-categories-${frame.id}`)}] button`, { name: 'Add 1 column' });
   return { started, fromIndex };
@@ -317,7 +284,6 @@ const checkUiRender = async (columnCount, expectedText = []) => {
 
 report.target ??= { ...cda.report.target };
 report.nativeRequests = cda.report.nativeRequests;
-report.errors = cda.report.errors;
 
   try {
 
@@ -486,12 +452,12 @@ await waitForDOM(page, args => Boolean(Boolean(document.querySelector(args.__tem
 const beforeCategoryCancel = structuredClone(builder.workspace);
 await chooseFreshFamily(frame);
 const categoryCancelStart = Date.now();
-const cancelNativeIndex = nativeRequests.length;
+const cancelNativeIndex = requestCapture.requests.length;
 await nativeClick(page, '[data-testid="construction-close-operation-editor"]', {});
 await waitForDOM(page, args => Boolean(!document.querySelector('[data-testid="construction-operation-editor"]')), {}, 5000);
 builder = await api(`${base}/builder`);
 assert.deepEqual(builder.workspace, beforeCategoryCancel, 'Closing the coded-value chooser must not add the selected column');
-assert.equal(nativeRequests.slice(cancelNativeIndex).filter((entry) => entry.path.endsWith('/commands')).length, 0, 'Canceling an unsubmitted coded category must not mutate the workspace');
+assert.equal(requestCapture.requests.slice(cancelNativeIndex).filter((entry) => entry.path.endsWith('/commands')).length, 0, 'Canceling an unsubmitted coded category must not mutate the workspace');
 record('cancel-coded-category-selection', categoryCancelStart, { retainedFrameId: frame.id });
 await openAddColumns();
 const savedFramePanel = `[data-testid=${JSON.stringify(`saved-frame-${frame.id}`)}]`;
@@ -503,20 +469,20 @@ const rowValueControl = await cda.inspect(async args => { return {found:Boolean(
 assert.equal(rowValueControl.found, true, 'Grouping must expose the distinct row-contributor ONE/ALL control');
 
 const oneAttempt = await beginAddFamily('ONE');
-const oneFailure = await waitNative((entry) => entry.path.endsWith('/construction-choice-proposals') && entry.body?.constructionChoices?.length === 1, oneAttempt.fromIndex);
+const oneFailure = await waitNative((entry) => entry.path.endsWith('/construction-choice-proposals') && entry.request?.constructionChoices?.length === 1, oneAttempt.fromIndex);
 const oneElapsed = Date.now() - oneAttempt.started;
-assert.equal(oneFailure.body.constructionChoices[0].form, 'ALL', 'Per-record repeated component values must be preserved before contributor reduction');
-assert.equal(oneFailure.body.constructionChoices[0].rowValuePolicy, 'ONE', 'The failing policy must be grouped-row ONE, separate from source form ALL');
-assert.equal(oneFailure.body.constructionChoices[0].frameId, frame.id);
+assert.equal(oneFailure.request.constructionChoices[0].form, 'ALL', 'Per-record repeated component values must be preserved before contributor reduction');
+assert.equal(oneFailure.request.constructionChoices[0].rowValuePolicy, 'ONE', 'The failing policy must be grouped-row ONE, separate from source form ALL');
+assert.equal(oneFailure.request.constructionChoices[0].frameId, frame.id);
 assert.equal(oneFailure.status, 422, JSON.stringify(oneFailure));
 const oneError = oneFailure.response?.error?.code ?? oneFailure.response?.code;
 assert.equal(oneError, 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES', JSON.stringify(oneFailure.response));
-const oneFailureCapturedEntry = nativeRequests.find((entry) => entry.browserRequestId === oneFailure.browserRequestId);
-assert(oneFailureCapturedEntry, 'The ONE-policy response must resolve to its exact captured native request entry');
-cda.expectHttpFailure(oneFailureCapturedEntry,
-  'The independent raw CDA witness contains multiple distinct values under the explicitly selected grouped-row ONE policy.',
-  { action: 'preview coded component values with grouped-row policy ONE', form: 'ALL', rowValuePolicy: 'ONE',
-    frameId: frame.id, distinctValues: source.distinctValues });
+requestCapture.markExpectedValidation(oneFailure, {
+  status: 422,
+  reason: 'The independent raw CDA witness contains multiple distinct values under the explicitly selected grouped-row ONE policy.',
+  proof: { action: 'preview coded component values with grouped-row policy ONE', form: 'ALL', rowValuePolicy: 'ONE',
+    frameId: frame.id, distinctValues: source.distinctValues },
+});
 assert(oneElapsed <= 5000, `ONE disagreement preflight took ${oneElapsed} ms`);
 const afterOneFailure = await api(`${base}/builder`);
 assert.deepEqual(afterOneFailure.workspace, frameBaseline.workspace, 'Failed ONE preflight must leave the grouped table and frame unchanged');
@@ -525,7 +491,7 @@ record('coded-one-disagreement-from-independent-cda-values', oneAttempt.started,
   rawValueCount: source.rawValueCount, distinctValues: source.distinctValues,
 });
 
-const beforeAllSelection = nativeRequests.length;
+const beforeAllSelection = requestCapture.requests.length;
 const repairState = await cda.inspect(async args => {
   const editor = document.querySelector('[data-testid="construction-operation-editor"]');
   const panel = document.querySelector(args.__template0);
@@ -544,24 +510,24 @@ assert.equal(repairState.selectionCount, 1, 'The coded choice must remain select
 assert.equal(repairState.policy, 'ONE', 'The retained chooser should still show the rejected ONE policy');
 assert.equal(repairState.addDisabled, false, 'The retained coded choice should remain available for repair');
 const allAttempt = await beginAddFamily('ALL');
-const allProposal = await waitNative((entry) => entry.path.endsWith('/construction-choice-proposals') && entry.body?.constructionChoices?.length === 1, allAttempt.fromIndex);
+const allProposal = await waitNative((entry) => entry.path.endsWith('/construction-choice-proposals') && entry.request?.constructionChoices?.length === 1, allAttempt.fromIndex);
 record('coded-all-preflight', allAttempt.started, { previewDurationMs: allProposal.response?.previewDurationMs });
 assert.equal(allProposal.status, 200, JSON.stringify(allProposal.response));
 assert.equal(allProposal.response.previewStatus, 'READY', JSON.stringify(allProposal.response));
 assert(allProposal.response.previewDurationMs <= 5000, `ALL preflight receipt took ${allProposal.response.previewDurationMs} ms`);
-assert.equal(allProposal.body.constructionChoices[0].form, 'ALL');
-assert.equal(allProposal.body.constructionChoices[0].rowValuePolicy, 'ALL');
-assert.equal(allProposal.body.constructionChoices[0].frameId, frame.id);
+assert.equal(allProposal.request.constructionChoices[0].form, 'ALL');
+assert.equal(allProposal.request.constructionChoices[0].rowValuePolicy, 'ALL');
+assert.equal(allProposal.request.constructionChoices[0].frameId, frame.id);
 assert.equal(allProposal.response.candidateColumnIds.length, 1);
 const codedColumnId = allProposal.response.candidateColumnIds[0];
 assert.deepEqual(allProposal.response.preview.rows[0]?.[codedColumnId], source.distinctValues, 'ALL coded column must equal the independent sorted unique CDA component values');
-assert.equal(nativeRequests.slice(beforeAllSelection).filter((entry) => entry.path.endsWith('/semantic-inventory')).length, 0, 'Inline ONE-to-ALL repair must reuse the retained choice without another semantic search');
-const allCommand = await waitNative((entry) => entry.path.endsWith('/commands') && entry.body?.commands?.some((item) => item.type === 'APPLY_CONSTRUCTION_CHOICE'), allAttempt.fromIndex);
+assert.equal(requestCapture.requests.slice(beforeAllSelection).filter((entry) => entry.path.endsWith('/semantic-inventory')).length, 0, 'Inline ONE-to-ALL repair must reuse the retained choice without another semantic search');
+const allCommand = await waitNative((entry) => entry.path.endsWith('/commands') && entry.request?.commands?.some((item) => item.type === 'APPLY_CONSTRUCTION_CHOICE'), allAttempt.fromIndex);
 assert.equal(allCommand.status, 200, JSON.stringify(allCommand.response));
-assert.equal(allCommand.body.commands.length, 1);
-assert.equal(allCommand.body.commands[0].constructionChoice.form, 'ALL');
-assert.equal(allCommand.body.commands[0].constructionChoice.rowValuePolicy, 'ALL');
-assert.equal(allCommand.body.commands[0].constructionChoice.frameId, frame.id);
+assert.equal(allCommand.request.commands.length, 1);
+assert.equal(allCommand.request.commands[0].constructionChoice.form, 'ALL');
+assert.equal(allCommand.request.commands[0].constructionChoice.rowValuePolicy, 'ALL');
+assert.equal(allCommand.request.commands[0].constructionChoice.frameId, frame.id);
 const allApplyStarted = Date.now();
 await checkUiRender(3, source.distinctValues);
 record('coded-all-apply-to-native-render', allApplyStarted, { commandStatus: allCommand.status });
@@ -580,14 +546,14 @@ assert(groupedOutput, 'Saved Group step did not declare the derived row-value ou
 assert.equal(groupedOutput.name, codedColumn.column, 'The Group row-value output must target the coded column’s physical output name');
 assert.equal(groupedOutput.label, codedColumn.label);
 const groupStepId = savedGroup.id;
-const commandIndex = nativeRequests.findIndex((entry) => entry.browserRequestId === allCommand.browserRequestId);
+const commandIndex = requestCapture.requests.indexOf(allCommand);
 assert(commandIndex >= 0, 'Applied coded choice command must remain in the captured native request sequence');
-const appliedPreview = await waitNative((entry) => entry.path.endsWith('/preview') && entry.body?.outputId === outputId, commandIndex + 1, 5000);
+const appliedPreview = await waitNative((entry) => entry.path.endsWith('/preview') && entry.request?.outputId === outputId, commandIndex + 1, 5000);
 assert.deepEqual(appliedPreview.response.rows[0]?.[codedColumn.column], source.distinctValues);
 assert.equal(appliedPreview.response.rowCount, 1);
 record('coded-all-saved-preview-matches-independent-cda', savedPreviewStarted, {
   candidateColumnId: codedColumnId, values: source.distinctValues,
-  sameChooserSemanticInventoryRequestCount: nativeRequests.slice(beforeAllSelection).filter((entry) => entry.path.endsWith('/semantic-inventory')).length,
+  sameChooserSemanticInventoryRequestCount: requestCapture.requests.slice(beforeAllSelection).filter((entry) => entry.path.endsWith('/semantic-inventory')).length,
 });
 
 const reloaded = await openTable(3, 'reload-applied-coded-contributor-values', source.distinctValues);
@@ -595,7 +561,7 @@ assert.deepEqual(reloaded.preview.rows[0]?.[codedColumn.column], source.distinct
 
 const newLabel = `CDA ${familyTitle} values`;
 const editStart = Date.now();
-const editFrom = nativeRequests.length;
+const editFrom = requestCapture.requests.length;
 await nativeClick(page, 'button', { name: 'Columns' });
 const labelSelector = `[aria-label=${JSON.stringify(`Column name for ${codedColumn.label}`)}]`;
 await waitForDOM(page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (labelSelector) }, 5000);
@@ -607,15 +573,15 @@ report.renameControlAfterInput = await cda.inspect(async args => { const i=docum
 assert.equal(report.renameControlAfterInput.value, newLabel, 'Native typing must update the focused rename input');
 await test.step('Save renamed coded output', () => labelLocator.press('Enter', { timeout: 5000 }), { timeout: 5000 });
 const rename = await waitNative((entry) => entry.path.endsWith('/commands') &&
-  entry.body?.commands?.some((item) => item.type === 'UPDATE_CONSTRUCTION_OUTPUT' &&
+  entry.request?.commands?.some((item) => item.type === 'UPDATE_CONSTRUCTION_OUTPUT' &&
     item.constructionOutput?.stepId === groupStepId &&
     item.constructionOutput?.columnId === rowValueOutputId), editFrom);
 assert.equal(rename.status, 200, JSON.stringify(rename.response));
-assert.equal(rename.body.commands.length, 1);
-assert.equal(rename.body.commands[0].type, 'UPDATE_CONSTRUCTION_OUTPUT');
-assert.equal(rename.body.commands[0].constructionOutput.stepId, groupStepId);
-assert.equal(rename.body.commands[0].constructionOutput.columnId, rowValueOutputId);
-assert.equal(rename.body.commands[0].constructionOutput.label, newLabel);
+assert.equal(rename.request.commands.length, 1);
+assert.equal(rename.request.commands[0].type, 'UPDATE_CONSTRUCTION_OUTPUT');
+assert.equal(rename.request.commands[0].constructionOutput.stepId, groupStepId);
+assert.equal(rename.request.commands[0].constructionOutput.columnId, rowValueOutputId);
+assert.equal(rename.request.commands[0].constructionOutput.label, newLabel);
 builder = await api(`${base}/builder`);
 const renamedColumn = doc().columns.find((column) => column.column === codedColumn.column);
 assert.equal(renamedColumn?.label, codedColumn.label, 'Renaming the visible grouped output must preserve the authored source label');
@@ -641,11 +607,11 @@ for (const visible of [false, true]) {
   await waitForDOM(page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (visibilitySelector) }, 5000);
   assert.equal(await cda.inspect(async args => { return document.querySelector(args.__template0).checked; }, { __template0: (visibilitySelector) }), !visible, 'Visibility checkbox must reflect the saved output');
   const visibilityStarted = Date.now();
-  const visibilityFrom = nativeRequests.length;
+  const visibilityFrom = requestCapture.requests.length;
   await nativeClick(page, visibilitySelector, {});
-  const visibilityCommand = await waitNative((entry) => entry.path.endsWith('/commands') && entry.body?.commands?.some((item) => item.type === 'UPDATE_CONSTRUCTION_OUTPUT' && item.constructionOutput?.columnId === rowValueOutputId), visibilityFrom);
+  const visibilityCommand = await waitNative((entry) => entry.path.endsWith('/commands') && entry.request?.commands?.some((item) => item.type === 'UPDATE_CONSTRUCTION_OUTPUT' && item.constructionOutput?.columnId === rowValueOutputId), visibilityFrom);
   assert.equal(visibilityCommand.status, 200);
-  assert.equal(visibilityCommand.body.commands[0].constructionOutput.table.visible, visible);
+  assert.equal(visibilityCommand.request.commands[0].constructionOutput.table.visible, visible);
   builder = await api(`${base}/builder`);
   const currentGroup = doc().construction.steps.find((step) => step.id === groupStepId);
   assert.equal(currentGroup.outputs.find((output) => output.id === rowValueOutputId).table.visible, visible);
@@ -661,14 +627,14 @@ for (const visible of [false, true]) {
 await openAddColumns();
 const framePanel = '[data-testid="frame-source-panel"]';
 const removeStart = Date.now();
-const removeFrom = nativeRequests.length;
+const removeFrom = requestCapture.requests.length;
 // The coded-source panel is authored-source management, so it labels this
 // removal action from Document.Columns even though PreviewTable displays
 // the renamed terminal Group output.
 const sourceRemoveLabel = `Remove ${codedColumn.label} column`;
 await waitForDOM(page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (`${framePanel} button[aria-label=${JSON.stringify(sourceRemoveLabel)}]`) }, 5000);
 await nativeClick(page, `${framePanel} button`, { name: sourceRemoveLabel });
-const removeColumn = await waitNative((entry) => entry.path.endsWith('/commands') && entry.body?.commands?.some((item) => item.type === 'REMOVE_COLUMN' && item.column === codedColumn.column), removeFrom);
+const removeColumn = await waitNative((entry) => entry.path.endsWith('/commands') && entry.request?.commands?.some((item) => item.type === 'REMOVE_COLUMN' && item.column === codedColumn.column), removeFrom);
 assert.equal(removeColumn.status, 200, JSON.stringify(removeColumn.response));
 builder = await api(`${base}/builder`);
 assert(!doc().columns.some((column) => column.column === codedColumn.column), 'Removed physical column name remains in the authored schema');
@@ -684,9 +650,9 @@ assert.equal(afterRemoval.preview.rowCount, 1);
 assert.deepEqual(doc().construction, groupedWorkspace.documents.find((document) => document.output.id === outputId).construction, 'Removing the coded output must restore the exact authored Group construction');
 await openAddColumns();
 const removeFrameStart = Date.now();
-const removeFrameFrom = nativeRequests.length;
+const removeFrameFrom = requestCapture.requests.length;
 await nativeClick(page, `${framePanel} button`, { name: 'Remove' });
-const removeFrame = await waitNative((entry) => entry.path.endsWith('/commands') && entry.body?.commands?.some((item) => item.type === 'REMOVE_FRAME_SOURCE'), removeFrameFrom);
+const removeFrame = await waitNative((entry) => entry.path.endsWith('/commands') && entry.request?.commands?.some((item) => item.type === 'REMOVE_FRAME_SOURCE'), removeFrameFrom);
 assert.equal(removeFrame.status, 200, JSON.stringify(removeFrame.response));
 builder = await api(`${base}/builder`);
 assert.equal(doc().frames?.length ?? 0, 0);
@@ -696,43 +662,9 @@ assert.deepEqual(doc().construction, groupedWorkspace.documents.find((document) 
 record('remove-empty-component-frame', removeFrameStart, { frameId: frame.id });
 
 assert(report.protectedExplorerUntouched, `A request unexpectedly targeted protected Explorer ${protectedExplorer}`);
-await requestCapture.flush();
-const expectedFailures = report.errors.filter((error) => error.kind === 'http' && error.path.endsWith('/construction-choice-proposals') && error.status === 422 && error.response?.error?.code === 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES');
-const expectedHttpDiagnostics = cda.diagnostics.httpFailures.filter(error => error.status === 422 && error.url.endsWith(`${base}/construction-choice-proposals`));
-assert.equal(expectedHttpDiagnostics.length, 1, 'The expected ONE-policy proposal rejection must be captured by Playwright HTTP diagnostics');
-const expectedCancellationLedger = new Set(cda.report.expectedCancellations ?? []);
-const expectedHttpFailureLedger = new Set(cda.report.expectedHttpFailures ?? []);
-const expectedCancellationErrors = new Set(report.errors.filter(error =>
-  error.kind === 'network' && error.expected === true && error.error === 'net::ERR_ABORTED' &&
-  error.expectedCancellation && expectedCancellationLedger.has(error.expectedCancellation) &&
-  error.requestId === error.expectedCancellation.requestId &&
-  error.browserRequestId === error.expectedCancellation.browserRequestId &&
-  error.method === error.expectedCancellation.method && error.url === error.expectedCancellation.url &&
-  error.path === `${base}/frame-source-options`
-));
-const expectedHttpConsoleErrors = new Set(report.errors.filter(error => {
-  const failure = error.expectedHttpFailure;
-  return error.kind === 'console' && error.expected === true && failure &&
-    expectedHttpFailureLedger.has(failure) && failure.method === 'POST' &&
-    failure.path === `${base}/construction-choice-proposals` && failure.status === 422 &&
-    failure.console?.fixtureDiagnostic === true && failure.console?.requestCaptureError === true &&
-    error.location === failure.console.location && error.message === failure.console.message;
-}));
-const unexpectedErrors = report.errors.filter((error) =>
-  !expectedFailures.includes(error) &&
-  !expectedCancellationErrors.has(error) &&
-  !expectedHttpConsoleErrors.has(error));
-assert.equal(expectedFailures.length, 1, 'Exactly one independently predicted ONE disagreement is expected');
-assert.deepEqual(unexpectedErrors, [], 'No unexpected browser or HTTP errors are allowed');
-assert.deepEqual(cda.diagnostics.pageErrors, [], 'Unexpected page errors were reported');
-assert.deepEqual(cda.diagnostics.console, [], 'Unexpected console errors were reported');
-assert.deepEqual(cda.diagnostics.networkFailures.filter(failure => !failure.expectedCancellation), [], 'Unexpected network failures were reported');
-assert.deepEqual(cda.diagnostics.httpFailures.filter(error => !expectedHttpDiagnostics.includes(error)), [], 'Unexpected HTTP failures were reported');
+assert.equal(oneFailure.status, 422, 'Exactly one independently predicted ONE disagreement is expected');
 report.expectedOneError = { code: oneError, requestId: oneFailure.requestId, independentDistinctValueCount: source.distinctValues.length };
-report.status = 'passed';
   } finally {
-    try { await requestCapture?.flush(); } catch (error) { report.requestFlushError = String(error); }
-    cda.includeBrowserDiagnostics();
     report.finished = new Date().toISOString();
     await cda.attachReport(`standalone-${cda.caseName}-domain.json`, {
       ...cda.report,

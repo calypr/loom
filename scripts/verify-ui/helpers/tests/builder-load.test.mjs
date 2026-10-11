@@ -1,8 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isLoadedBuilderSnapshot } from '../../workflows/builder-load.mjs';
+import { isLoadedBuilderSnapshot, ownedRead } from '../../workflows/builder-load.mjs';
 import { summarizeLifecycleEvidence } from '../coverage-status.mjs';
 import { scenarioCaseFor } from '../../registry.mjs';
+
+test('Builder read fault targets use the canonical project route for list and state requests', () => {
+  const target = { fixtureProject: 'loom_dev_verify_mv42n2lv-f5143a0', bootstrapExplorerId: 'loom-dev-bootstrap' };
+  const expectedCollection = '/api/v1/projects/loom_dev_verify_mv42n2lv%252Ff5143a0/explorers';
+  assert.deepEqual(ownedRead(target, 'list'), { method: 'GET', path: expectedCollection });
+  assert.deepEqual(ownedRead(target, 'state'), {
+    method: 'GET', path: `${expectedCollection}/loom-dev-bootstrap/authoring/v2/builder`,
+  });
+});
 
 test('Builder readiness accepts the selected empty workspace or a populated ready preview', () => {
   assert.equal(isLoadedBuilderSnapshot({

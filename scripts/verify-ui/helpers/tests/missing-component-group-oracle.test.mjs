@@ -1,11 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { includeBrowserDiagnostics } from '../cda-playwright.mjs';
 import { classifyEvidence, summarizeLifecycleEvidence } from '../coverage-status.mjs';
 import { coverageDrift, hasLifecycleContract, lifecycleAcceptanceDrift, registry, scenarioCaseFor } from '../../registry.mjs';
 import {
-  assertNoUnexpectedCdaDiagnostics,
   assertCountRowsGroupLabelEditIdentity,
   assertCountRowsGroupLabelEditProposal,
   assertBuilderDraftAdvanced,
@@ -515,24 +513,4 @@ test('GROUP-removal Cancel requires the saved workspace and exact rendered previ
     afterPreview: changedPreview,
     expectedRows: rows,
   }), /GROUP removal Cancel did not restore the raw-oracle preview/);
-});
-
-test('the no-error gate consumes the official live diagnostic projection and rejects late fixture errors', () => {
-  const report = { network: [], errors: [], incidentalErrors: [] };
-  const cleanDiagnostics = { console: [], pageErrors: [], networkFailures: [], httpFailures: [], assetFailures: [] };
-  includeBrowserDiagnostics(cleanDiagnostics, report);
-  assert.deepEqual(assertNoUnexpectedCdaDiagnostics(report), { networkEntries: 0, errorEntries: 0 });
-
-  const failingReport = { network: [], errors: [], incidentalErrors: [] };
-  const failingDiagnostics = {
-    console: [{ text: 'Unexpected console error', location: 'builder.tsx:1:1' }],
-    pageErrors: [], networkFailures: [],
-    httpFailures: [{ url: 'http://127.0.0.1:30008/api/failure', status: 500, body: { message: 'failure' } }],
-    assetFailures: [],
-  };
-  failingReport.network.push({ kind: 'http', method: 'GET', url: 'http://127.0.0.1:30008/api/failure', status: 500 });
-  includeBrowserDiagnostics(failingDiagnostics, failingReport);
-  assert.equal(failingReport.errors.filter(error => error.kind === 'console').length, 1);
-  assert.equal(failingReport.errors.filter(error => error.kind === 'http').length, 1);
-  assert.throws(() => assertNoUnexpectedCdaDiagnostics(failingReport), /unexpected network failure/);
 });

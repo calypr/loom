@@ -25,9 +25,8 @@ const selectOption = (_page, selector, value, options) => cda.selectOption(selec
 const waitForBrowser = (_page, predicate, argsOrTimeout = [], timeout) => Array.isArray(argsOrTimeout)
   ? cda.wait(predicate, argsOrTimeout, timeout ?? 5000)
   : cda.wait(predicate, [], argsOrTimeout);
-const waitForCapturedResponse = (_page, tracker, predicate, timeout) => cda.waitForCapturedResponse(tracker, predicate, timeout);
+const waitForCapturedResponse = (_page, tracker, predicate, timeout, fromIndex = 0) => tracker.waitForResponse(predicate, { fromIndex, timeoutMs: timeout });
 const captureRequests = (_page, _report, ownedPathPrefix, options = {}) => cda.captureRequests(ownedPathPrefix, options);
-const includeBrowserDiagnostics = () => cda.includeBrowserDiagnostics();
 let builder, outputId, browserEvents, fatal;
 const api = async (path, body) => {
   const response = await fetch(apiOrigin + path, {
@@ -46,13 +45,14 @@ const command = async commands => {
 };
 const doc = state => state.workspace.documents.find(d => d.output.id === outputId);
 const proposal = async (name, start, expectedRows, expectedFilter) => {
-  const matchesRequest = request => !expectedFilter || request.body?.candidateConstruction?.steps?.some(step =>
+  const matchesRequest = request => !expectedFilter || request.request?.candidateConstruction?.steps?.some(step =>
     step.operation?.kind === 'FILTER' && step.operation.filter.operator === expectedFilter.operator &&
     JSON.stringify(step.operation.filter.values) === JSON.stringify(expectedFilter.values));
   const predicate = request => request.path === base + '/construction-proposals' &&
     request.startedAt >= start && request.response && matchesRequest(request);
-  const response = report.nativeRequests.findLast(predicate) ??
-    await waitForCapturedResponse(page, browserEvents, predicate, Math.max(1, start + 5000 - Date.now()));
+  const fromIndex = browserEvents.requests.findIndex(request => request.startedAt >= start);
+  const response = browserEvents.requests.findLast(predicate) ??
+    await waitForCapturedResponse(page, browserEvents, predicate, Math.max(1, start + 5000 - Date.now()), Math.max(0, fromIndex));
   if(response.status===200 && response.response.proposalId) {
     await waitForBrowser(page, ([__arg0]) => Boolean(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId===__arg0), [response.response.proposalId]);
   }
@@ -74,8 +74,9 @@ const apply = async expectedRows => {
   await click(page, '[data-testid="construction-apply-proposal"]');
   await waitForBrowser(page, () => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')), []);
   const previewPredicate = request => request.path === base + '/preview' && request.startedAt >= start && request.status === 200;
-  report.nativeRequests.findLast(previewPredicate) ??
-    await waitForCapturedResponse(page, browserEvents, previewPredicate, Math.max(1, start + 5000 - Date.now()));
+  const fromIndex = browserEvents.requests.findIndex(request => request.startedAt >= start);
+  browserEvents.requests.findLast(previewPredicate) ??
+    await waitForCapturedResponse(page, browserEvents, previewPredicate, Math.max(1, start + 5000 - Date.now()), Math.max(0, fromIndex));
   await rendered(expectedRows);
   recordRender('apply-to-render', start);
   builder = await api(base + '/builder');
@@ -305,7 +306,7 @@ try {
     await configureFilter('confirmed-excluded-group-filter-edit-preview', 105, filterStep.id);
     await apply([]);
     await open([]);
-    const preview = report.nativeRequests.findLast(request => request.path === base + '/preview' && request.status === 200 && request.response)?.response;
+    const preview = browserEvents.requests.findLast(request => request.path === base + '/preview' && request.status === 200 && request.response)?.response;
     assert(preview?.receiptId);
     const notFoundResponse = await fetch(apiOrigin + base + '/row-lineage', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -405,7 +406,6 @@ try {
     return authored;
   });
   assert.deepEqual(restoredColumns, baselineColumns, 'Removing Group must restore authored source columns and bindings');
-  includeBrowserDiagnostics();
   assert.deepEqual(report.errors, []);
   report.status = 'passed';
 } catch (error) {
@@ -413,11 +413,10 @@ try {
   report.status = 'failed'; report.error = String(error.stack ?? error);
   report.failureUI = await browserEval(page, () => document.body.innerText).catch(String);
 } finally {
-  await browserEvents?.flush();
   report.finished = new Date().toISOString();
   await cda.attachReport('row-sources-domain-report.json', report);
 }
 
-if (fatal || report.status === 'failed') throw fatal ?? new Error(report.error ?? 'Row-source lifecycle failed');
+if (fatal) throw fatal;
 return report;
 }

@@ -5,6 +5,38 @@ import { constructionCandidateWireEquivalent } from './builder-combine-draft-hel
 export const MAX_CDA_MEMBERSHIP_SCAN = 2_000;
 export const CDA_SOURCE_GROUP_PREVIEW_LIMIT = 25;
 
+export function membershipCompiledGroupKeyEvidence({ step, previewColumns, expectedLabel }) {
+  const fail = reason => ({ ok: false, reason, groupKeyOutput: null, compiledColumn: null });
+  const group = step?.operation?.group;
+  const outputColumnId = group?.keys?.length === 1 ? group.keys[0]?.outputColumnId : null;
+  if (step?.operation?.kind !== 'GROUP' || typeof outputColumnId !== 'string' || !outputColumnId) {
+    return fail('GROUP step must bind exactly one stable key output ID');
+  }
+
+  const outputMatches = Array.isArray(step.outputs)
+    ? step.outputs.filter(output => output?.id === outputColumnId)
+    : [];
+  if (outputMatches.length !== 1) return fail('GROUP key output ID must resolve to one authored output');
+  const groupKeyOutput = outputMatches[0];
+  if (typeof groupKeyOutput.name !== 'string' || !groupKeyOutput.name || groupKeyOutput.label !== expectedLabel) {
+    return fail('GROUP key output must expose the exact authored name and label');
+  }
+
+  const compiledMatches = Array.isArray(previewColumns)
+    ? previewColumns.filter(column => column?.column === groupKeyOutput.name)
+    : [];
+  if (compiledMatches.length !== 1) return fail('compiled preview must resolve the authored output name exactly once');
+  const compiledColumn = compiledMatches[0];
+  const ok = compiledColumn.label === expectedLabel && compiledColumn.logicalType === 'string' &&
+    compiledColumn.nullable === true && compiledColumn.shape === 'scalar';
+  return {
+    ok,
+    reason: ok ? undefined : 'compiled GROUP key must retain the exact label and scalar nullable string schema',
+    groupKeyOutput,
+    compiledColumn,
+  };
+}
+
 export function cdaSourceGroupCandidateResponseEquivalent({ request, response, selectedChoice }) {
   const requestCandidate = request?.candidateConstruction;
   const responseCandidate = response?.candidateConstruction;

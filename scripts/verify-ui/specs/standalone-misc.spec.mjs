@@ -11,7 +11,7 @@ import { verifyRowDefinitionUI } from '../workflows/verify-row-definition-ui.mjs
 import { verifyRowRebaseUI } from '../workflows/verify-row-rebase-ui.mjs';
 import { verifyUpstreamEdits } from '../workflows/verify-upstream-edits.mjs';
 import { verifyContributorExistsBrowser } from '../../../ui/packages/loom-ui/scripts/verify-cda-contributor-exists-browser.mjs';
-import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
+import { createCDARequestView } from '../helpers/cda-playwright-requests.mjs';
 import { sanitizePayload } from '../helpers/playwright-browser.mjs';
 
 const project = process.env.LOOM_CDA_PROJECT ?? 'loom_dev_cda_fhir';
@@ -63,14 +63,6 @@ basicTest.describe('Native standalone compound coded grouping: basic', () => {
     const apiOrigin = target.apiUrl;
     const uiOrigin = target.uiUrl;
     const ownedTarget = { ...target, arangoContainer: `${target.composeProject}-arangodb-1` };
-    let activeAction;
-    const diagnostics = () => ({
-      console: (report.errors ?? []).filter(entry => entry.kind === 'console').map(entry => ({ text: entry.message, location: entry.location })),
-      pageErrors: (report.errors ?? []).filter(entry => entry.kind === 'runtime').map(entry => ({ message: entry.message })),
-      networkFailures: (report.errors ?? []).filter(entry => entry.kind === 'network'),
-      httpFailures: (report.errors ?? []).filter(entry => entry.kind === 'http'),
-      assetFailures: report.assetFailures ?? [],
-    });
     const cda = {
       apiOrigin,
       uiOrigin,
@@ -78,35 +70,16 @@ basicTest.describe('Native standalone compound coded grouping: basic', () => {
       generation: target.fixtureGeneration,
       target: ownedTarget,
       report,
-      get diagnostics() { return diagnostics(); },
       wait: (predicate, args = {}, timeout = 5000) => page.waitForFunction(predicate, args, { timeout: Math.min(timeout, 5000) }),
       inspect: (callback, args = {}) => page.evaluate(callback, args),
       navigate: url => page.goto(url, { waitUntil: 'load', timeout: 5000 }),
       action: async (label, locator, perform, options) => {
-        activeAction = label;
-        try { return await workflow.action(label, locator, () => perform(locator), options); }
-        finally { activeAction = undefined; }
+        return workflow.action(label, locator, () => perform(locator), options);
       },
-      captureRequests: (ownedPathPrefix, options = {}) => {
-        const tracker = captureCDARequests(page, {
-          apiOrigin,
-          browserRequestOrigin: uiOrigin,
-          appOrigins: [apiOrigin, uiOrigin],
-          ownedPathPrefix,
-          report,
-          currentAction: () => activeAction,
-          ...options,
-        });
-        return {
-          ...tracker,
-          async flush() {
-            while (tracker.pendingReads.size) await Promise.allSettled([...tracker.pendingReads]);
-            return report.nativeRequests;
-          },
-        };
-      },
-      waitForCapturedResponse: (tracker, predicate, timeout) => tracker.waitFor(predicate, { timeoutMs: timeout }),
-      includeBrowserDiagnostics: async () => {},
+      captureRequests: (ownedPathPrefix, options = {}) => createCDARequestView(workflow.networkObserver, {
+        browserRequestOrigin: options.browserRequestOrigin ?? uiOrigin,
+        ownedPathPrefix,
+      }),
       attachReport: async (name, value) => testInfo.attach(name, {
         body: Buffer.from(`${JSON.stringify(sanitizePayload(value), null, 2)}\n`),
         contentType: 'application/json',
@@ -122,7 +95,7 @@ for (const { mode, caseName } of [
 ]) {
   cdaCase(caseName, `Native standalone compound coded grouping: ${mode}`, () => {
     cdaTest('selects, edits, removes, and reloads the coded group', async ({ page, cda }) => {
-      await verifyCompoundCodedGroup({ page, cda, mode });
+      await verifyCompoundCodedGroup({ page, cda, check: mode === 'single' ? cda.check : undefined, mode });
     });
   }, mode === 'single' ? { cdaScenarioID: 'cda-workspace-combine' } : {});
 }

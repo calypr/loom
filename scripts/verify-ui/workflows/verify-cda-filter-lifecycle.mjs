@@ -86,11 +86,11 @@ export async function filterLifecycleWorkflow({ page, cda }) {
     state.clicks.push('Choose equals condition');
     await cda.wait( () => Boolean(document.querySelector('[data-testid="construction-filter-editor"] input[aria-label="Value"]:not(:disabled)')), {}, 5000);
     const started = Date.now();
-    const requestStart = state.nativeRequests.length;
+    const requestStart = requestCapture.requests.length;
     await cda.fill( '[data-testid="construction-filter-editor"] input[aria-label="Value"]', value);
     state.clicks.push(label);
     const [request] = await Promise.all([
-      requestCapture.waitFor(entry => entry.method === 'POST' && entry.path.endsWith('/construction-proposals'), { fromIndex: requestStart, timeoutMs: 5000 }),
+      requestCapture.waitForResponse(entry => entry.method === 'POST' && entry.path.endsWith('/construction-proposals'), { fromIndex: requestStart, timeoutMs: 5000 }),
       cda.wait( ({ value: expectedValue }) => document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status') === 'ready' && document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.includes(expectedValue), { value }, 5000),
     ]);
     const proposed = await cda.inspect( () => { const panel = document.querySelector('[data-testid="construction-proposal-preview"]'); return { rows: [...panel.querySelectorAll('tbody tr')].map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText.trim())), applyDisabled: document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled }; });
@@ -163,10 +163,10 @@ export async function filterLifecycleWorkflow({ page, cda }) {
     await cda.click( '[data-testid^="construction-history-step-"]');
     state.clicks.push('Select edited Filter rows step');
     await cda.wait( () => Boolean(document.querySelector('[data-testid^="construction-remove-step-"]')), {}, 5000);
-    const removeStart = state.nativeRequests.length;
+    const removeStart = requestCapture.requests.length;
     await cda.click( '[data-testid^="construction-remove-step-"]');
     state.clicks.push('Remove Filter rows step');
-    await requestCapture.waitFor(entry => entry.method === 'POST' && entry.path.endsWith('/construction-proposals'), { fromIndex: removeStart, timeoutMs: 5000 });
+    await requestCapture.waitForResponse(entry => entry.method === 'POST' && entry.path.endsWith('/construction-proposals'), { fromIndex: removeStart, timeoutMs: 5000 });
     await cda.wait( () => document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status') === 'ready', {}, 5000);
     await cda.click( '[data-testid="construction-apply-proposal"]');
     state.clicks.push('Apply step removal');
@@ -176,9 +176,7 @@ export async function filterLifecycleWorkflow({ page, cda }) {
     const restored = await preview('restored');
     assert(restored.rows.length >= 2, 'Removing the filter did not restore multiple Patient rows');
     assert.deepEqual(new Set(rawPatients(restored.rows.map(row => row[0]), generation)), new Set(restored.rows.map(row => row[0])));
-    await requestCapture.flush();
     assert(state.nativeRequests.every(response => response.status < 400), 'Browser received an authoring API error');
-    cda.includeBrowserDiagnostics();
     assert.deepEqual(state.errors, [], 'Unexpected owned API/browser failures occurred');
     assert.deepEqual(cda.diagnostics.console, [], 'Unexpected browser console errors');
     assert.deepEqual(cda.diagnostics.pageErrors, [], 'Unexpected browser page errors');
@@ -207,10 +205,8 @@ export async function filterLifecycleWorkflow({ page, cda }) {
         cleanupError = error;
       }
     }
-    if (requestCapture) await requestCapture.flush();
     state.responses.push(...state.nativeRequests.map(response => ({ path: response.path, status: response.status })));
     state.diagnostics = cda.diagnostics;
-    cda.includeBrowserDiagnostics();
     await cda.attachReport('filter-lifecycle', state);
   }
   if (fatal && cleanupError) throw new AggregateError([fatal, cleanupError], 'Filter workflow and cleanup both failed');

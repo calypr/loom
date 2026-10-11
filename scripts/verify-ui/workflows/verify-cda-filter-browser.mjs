@@ -7,7 +7,6 @@ import {
   validateCdaCompositeScalarFieldCandidate,
   validateCdaCompositeGroupCandidate,
 } from '../helpers/cda-composite-group-filter-oracle.mjs';
-import { navigateAfterOwnedConstructionCapabilities } from '../helpers/cda-playwright-requests.mjs';
 
 export function buildFilterBrowserOracleQuery({ project, generation, numeric = false, booleanCase = false }) {
   assert.equal(typeof project, 'string', 'The raw filter oracle requires a project identity');
@@ -162,13 +161,13 @@ export async function filterBrowserWorkflow({ page, cda }) {
     construction: document.construction ?? { version: 1, steps: [] },
   });
   const proposal = async (name, start, expectedRows, expectedFilter) => {
-    const matchesFilter = request => !expectedFilter || request.body?.candidateConstruction?.steps?.some(step =>
+    const matchesFilter = request => !expectedFilter || request.request?.candidateConstruction?.steps?.some(step =>
       step.operation?.kind === 'FILTER' && step.operation.filter.operator === expectedFilter.operator &&
       JSON.stringify(step.operation.filter.values) === JSON.stringify(expectedFilter.values));
     const predicate = request => request.path === base + '/construction-proposals' &&
       request.startedAt >= start && request.response && matchesFilter(request);
     const response = report.nativeRequests.findLast(predicate) ??
-      await cda.waitForCapturedResponse(browserEvents, predicate, Math.max(1, start + 5000 - Date.now()));
+      await browserEvents.waitForResponse(predicate, { timeoutMs: Math.max(1, start + 5000 - Date.now()) });
     if(response.status===200 && response.response.proposalId) {
       await cda.wait(([__arg0]) => Boolean(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId===__arg0), [response.response.proposalId]);
     }
@@ -203,7 +202,7 @@ export async function filterBrowserWorkflow({ page, cda }) {
     await cda.wait(() => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')), []);
     const previewPredicate = request => request.path === base + '/preview' && request.startedAt >= start && request.status === 200;
     report.nativeRequests.findLast(previewPredicate) ??
-      await cda.waitForCapturedResponse(browserEvents, previewPredicate, Math.max(1, start + 5000 - Date.now()));
+      await browserEvents.waitForResponse(previewPredicate, { timeoutMs: Math.max(1, start + 5000 - Date.now()) });
     const actualRows = await rendered(expectedRows);
     lastRenderedRows = actualRows;
     assert(lastProposedState, 'Apply must follow a checked construction proposal');
@@ -224,30 +223,7 @@ export async function filterBrowserWorkflow({ page, cda }) {
     const expectedConstruction = doc(builder)?.construction;
     assert(expectedDigest, 'Reload must start from a persisted Builder digest');
     const destination = `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`;
-    if (compositeGroupShape) {
-      const navigation = await navigateAfterOwnedConstructionCapabilities(
-        cda,
-        browserEvents,
-        () => report.nativeRequests,
-        `${base}/construction-capabilities`,
-        Math.max(1, start + 5000 - Date.now()),
-        () => cda.navigate(destination),
-      );
-      if (navigation.settledEntries.length) {
-        (report.preNavigationCapabilitySettlements ??= []).push({
-          observedAt: new Date().toISOString(),
-          requests: navigation.settledEntries.map(entry => ({
-            requestId: entry.requestId,
-            browserRequestId: entry.browserRequestId,
-            status: entry.status,
-            startedAt: entry.startedAt,
-            completedAt: entry.completedAt,
-          })),
-        });
-      }
-    } else {
-      await cda.navigate(destination);
-    }
+    await cda.navigate(destination);
     await cda.wait(([__arg0]) => Boolean(document.querySelector('[data-testid="construction-table-'+String(__arg0)+'"]')), [outputId]);
     await cda.click(`[data-testid="construction-table-${outputId}"]`);
     await cda.wait(() => Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false), []);
@@ -976,7 +952,6 @@ export async function filterBrowserWorkflow({ page, cda }) {
     }
     recordFilterLifecycleChecks(cda, lifecycle, { includeRestoration: !compositeGroupShape });
     recordFilterPerformanceCheck(cda, report.cases, cda.report.actions);
-    cda.includeBrowserDiagnostics();
     assert.deepEqual(report.errors, []);
     report.status = 'passed';
   } catch (error) {
@@ -984,9 +959,7 @@ export async function filterBrowserWorkflow({ page, cda }) {
     report.status = 'failed'; report.error = String(error.stack ?? error); fatal = error;
     report.failureUI = await cda.inspect(() => document.body.innerText).catch(String);
   } finally {
-    await browserEvents?.flush();
     report.finished = new Date().toISOString();
-    cda.includeBrowserDiagnostics();
     await cda.attachReport('filter-browser', report);
   }
   if (fatal) throw fatal;

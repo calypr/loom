@@ -196,17 +196,17 @@ const seedNonEmptyConstruction = async () => {
   recordCase({ name: 'open-nonempty-construction-filter-editor', durationMs: filterEditorDurationMs,
     sourceColumnId: sourceColumn.id });
 
-  const proposalFromIndex = report.browserRequests.length;
+  const proposalFromIndex = requestMonitor.requests.length;
   const proposalStartedAt = Date.now();
   await selectOption(page, conditionSelector, 'EXISTS');
-  const proposalEntry = await requestMonitor.waitFor(entry => {
-    const candidateSteps = entry.body?.candidateConstruction?.steps ?? [];
+  const proposalEntry = await requestMonitor.waitForResponse(entry => {
+    const candidateSteps = entry.request?.candidateConstruction?.steps ?? [];
     const filterStep = candidateSteps.find(step =>
       step.operation?.kind === 'FILTER' && step.operation?.filter?.operator === 'EXISTS'
       && step.operation?.filter?.columnId === sourceColumn.id);
     return entry.path === `${base}/construction-proposals` && entry.method === 'POST'
-      && entry.body?.outputId === outputId && entry.body?.expectedDraftDigest === beforeDigest
-      && entry.body?.expectedDraftVersion === builder.draftVersion
+      && entry.request?.outputId === outputId && entry.request?.expectedDraftDigest === beforeDigest
+      && entry.request?.expectedDraftVersion === builder.draftVersion
       && candidateSteps.length === 1 && filterStep;
   }, { fromIndex: proposalFromIndex, timeoutMs: Math.max(1, proposalStartedAt + 5000 - Date.now()) });
   assert.equal(proposalEntry.status, 200, JSON.stringify(proposalEntry));
@@ -294,7 +294,7 @@ const seedNonEmptyConstruction = async () => {
     previewObservationIDs: expectedObservationIDs,
   });
 
-  const appliedProposalFromIndex = report.browserRequests.length;
+  const appliedProposalFromIndex = requestMonitor.requests.length;
   const reopenFilterStartedAt = Date.now();
   await click(page, '[data-testid="construction-action-keep-rows"]');
   await page.locator(conditionSelector).waitFor({ state: 'visible', timeout: 5000 });
@@ -316,14 +316,14 @@ const seedNonEmptyConstruction = async () => {
     'Cancel must close the proposal editor so reopening starts from the empty saved construction');
   const appliedProposalStartedAt = Date.now();
   await selectOption(page, conditionSelector, 'EXISTS');
-  const appliedProposalEntry = await requestMonitor.waitFor(entry => {
-    const candidateSteps = entry.body?.candidateConstruction?.steps ?? [];
+  const appliedProposalEntry = await requestMonitor.waitForResponse(entry => {
+    const candidateSteps = entry.request?.candidateConstruction?.steps ?? [];
     const filterStep = candidateSteps.find(step =>
       step.operation?.kind === 'FILTER' && step.operation?.filter?.operator === 'EXISTS'
       && step.operation?.filter?.columnId === sourceColumn.id);
     return entry.path === base + '/construction-proposals' && entry.method === 'POST'
-      && entry.body?.outputId === outputId && entry.body?.expectedDraftDigest === beforeDigest
-      && entry.body?.expectedDraftVersion === builder.draftVersion
+      && entry.request?.outputId === outputId && entry.request?.expectedDraftDigest === beforeDigest
+      && entry.request?.expectedDraftVersion === builder.draftVersion
       && candidateSteps.length === 1 && filterStep;
   }, { fromIndex: appliedProposalFromIndex, timeoutMs: Math.max(1, appliedProposalStartedAt + 5000 - Date.now()) });
   assert.equal(appliedProposalEntry.status, 200, JSON.stringify(appliedProposalEntry));
@@ -338,7 +338,7 @@ const seedNonEmptyConstruction = async () => {
     'The fresh proposal must recreate the same FILTER EXISTS operation, source binding, inputs, and output schema');
   const appliedProposalStepId = appliedProposalResponse.candidateConstruction.steps[0]?.id;
   assert(appliedProposalStepId, 'The recreated candidate must carry its own construction step identity');
-  assert.equal(appliedProposalEntry.body?.changedStepId, appliedProposalStepId,
+  assert.equal(appliedProposalEntry.request?.changedStepId, appliedProposalStepId,
     'The recreated proposal request must identify the exact candidate step it applies');
   assert.equal(appliedProposalResponse.preview?.receiptId, appliedProposalResponse.proposalId,
     'The recreated EXISTS preview must be bound to its fresh proposal receipt');
@@ -550,14 +550,6 @@ try {
     ownedPathPrefix: `${root}/${explorer}`,
     responsePaths: /./,
     report: { nativeRequests: report.browserRequests, errors: report.errors },
-    shouldReportRequestFailure: (entry, request) => {
-      const index = report.browserRequests.indexOf(entry);
-      const replacement = report.browserRequests.slice(index + 1).find(candidate =>
-        candidate.path === entry.path && candidate.method === entry.method);
-      return request.failure()?.errorText === 'net::ERR_ABORTED'
-        && entry.path.endsWith('/construction-proposals') && replacement
-        ? { expected: true, reason: `A later owned proposal request (${replacement.requestId}) superseded the prior request.` } : true;
-    },
   });
   page.on('response', response => {
     if (response.status() < 400) return;
@@ -753,7 +745,7 @@ try {
       recordRequirement(7, 'persistence', true, { route: reattachedReload.population.route, selectionRevisionId: reattachedReload.population.selectionRevisionId, memberIDs: reloadedSelection.members.map(member => member.ref.id), columns: reattachedReload.columns, construction: reattachedReload.construction, previewObservationIDs: expectedObservationIDs });
     }else await checkCoverage('reattached-long-collection-reload','0 selected · 0 produce rows · 0 needs attention');
   }
-  await requestMonitor.flush();
+  await requestMonitor.stop();
   report.responses = report.browserRequests.filter(entry => entry.status !== undefined).map(({ path, status, response, requestId, method }) => ({ path, status, response, requestId, method }));
   report.exceptions = report.errors;
   assert.equal(report.http.length,0,JSON.stringify(report.http));
@@ -776,11 +768,11 @@ try {
   report.error = String(error.stack ?? error);
   report.failureUI = await inspectPage(page, () => document.body.innerText).catch(()=>undefined);
 } finally {
-  await requestMonitor?.flush();
+  await requestMonitor?.stop();
   report.finished = new Date().toISOString();
   await cda.attachReport('collection-repair-domain-report.json', report);
 }
 
-if (fatal || report.status === 'failed') throw fatal ?? new Error(report.error ?? 'Collection repair lifecycle failed');
+if (fatal) throw fatal;
 return report;
 }

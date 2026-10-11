@@ -1,0 +1,2 @@
+{"resourceType":"Patient","id":"basic-nested-patient-001","gender":"female"}
+{"resourceType":"Patient","id":"basic-nested-patient-002","gender":"male"}

@@ -13,7 +13,6 @@ import {
   captureCDARequests,
   matchesExpectedEmptyCollectionValidation,
   matchesExpectedEmptyCollectionValidationConsole,
-  navigateAfterOwnedConstructionCapabilities,
 } from '../helpers/cda-playwright-requests.mjs';
 import { waitForCondition } from '../helpers/playwright-observations.mjs';
 import { CDA_ACTION_TO_RENDER_BUDGET_MS, summarizeCdaActionToRenderTimings } from '../helpers/cda-action-to-render-budget.mjs';
@@ -22,7 +21,6 @@ import {
   assertCountRowsGroupLabelEditIdentity,
   assertCountRowsGroupLabelEditProposal,
   assertBuilderDraftAdvanced,
-  assertNoUnexpectedCdaDiagnostics,
   assertGroupRemovalCancelRestoration,
   selectMissingComponentGroupOracle,
 } from '../helpers/missing-component-group-oracle.mjs';
@@ -70,7 +68,7 @@ let sourceFreeze;
 let frozenApiBuild;
 let requestMonitor;
 let expectedEmptyValidationBinding;
-const protocolResponse = entry => requestMonitor.rawResponseBody(entry);
+const protocolResponse = entry => entry.response;
 const inspectPage = (page, body) => page.evaluate(`(()=>{${body}})()`);
 const waitForBrowser = (page, condition, timeout = 5000) => waitForCondition(page, condition, Math.min(5000, timeout));
 const resolveActionLocator = async (page, selector, identity = {}) => {
@@ -117,7 +115,6 @@ const selectOption = async (page, selector, value, timeout = 5000) => {
   report.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs, startedAt: Date.now() - elapsedMs };
   return elapsedMs;
 };
-let browserPending = new Set();
 
 const q = value => JSON.stringify(value);
 const recordAssertion = (name, evidence) => report.assertions.push({ name, status: 'passed', evidence });
@@ -169,10 +166,6 @@ const rowsReady = count => {
   return { kind: 'rows', selector: tableSelector, count, allowEmptyParent: true };
 };
 const domText = () => inspectPage(nativePage, 'return document.body.innerText;');
-const laterSamePathRequest = entry => {
-  const index = report.browserRequests.indexOf(entry);
-  return report.browserRequests.slice(index + 1).find(candidate => candidate.path === entry.path && candidate.method === entry.method);
-};
 const responseEvidence = value => {
   if (value === undefined) return undefined;
   const source = typeof value === 'string' ? value : String(value);
@@ -265,15 +258,7 @@ const monitorBrowser = () => {
     appOrigins: [values['api-origin'], values['ui-origin']],
     ownedPathPrefix: `${root}/${encodeURIComponent(explorer)}`,
     report: { nativeRequests: report.browserRequests, errors: report.errors },
-    shouldReportRequestFailure: (entry, request) => {
-      const replacement = laterSamePathRequest(entry);
-      return request.failure()?.errorText === 'net::ERR_ABORTED'
-        && ['/row-definition-proposals', '/construction-proposals'].some(path => entry.path.endsWith(path))
-        && replacement
-        ? { expected: true, reason: `A later same-path owned draft request (${replacement.requestId}) superseded this proposal.` } : true;
-    },
   });
-  browserPending = requestMonitor.pendingReads;
   nativePage.on('response', response => {
     const url = new URL(response.url());
     if (url.origin !== new URL(values['ui-origin']).origin || response.status() < 400) return;
@@ -287,7 +272,7 @@ const monitorBrowser = () => {
   });
   nativePage.on('requestfailed', request => {
     const url = new URL(request.url());
-    if (url.origin !== new URL(values['ui-origin']).origin || request.failure()?.errorText === 'net::ERR_ABORTED') return;
+    if (url.origin !== new URL(values['ui-origin']).origin) return;
     if (request.resourceType() === 'script') report.browserErrors.modules.push({ url: sanitizeText(request.url()), error: sanitizeText(request.failure()?.errorText) });
   });
 };
@@ -306,26 +291,7 @@ const measure = async (name, action) => {
 };
 const tableURL = () => values['ui-origin'] + '/?project=' + encodeURIComponent(values.project) + '&explorer=' + encodeURIComponent(explorer) + '&mode=builder';
 const openTable = async (expectedRows, name) => measure(name, async startedAt => {
-  const navigation = await navigateAfterOwnedConstructionCapabilities(
-    cda,
-    requestMonitor,
-    () => report.browserRequests,
-    base + '/construction-capabilities',
-    Math.max(1, startedAt + CDA_ACTION_TO_RENDER_BUDGET_MS - Date.now()),
-    () => cda.navigate(tableURL()),
-  );
-  if (navigation.settledEntries.length) {
-    (report.preNavigationCapabilitySettlements ??= []).push({
-      observedAt: new Date().toISOString(),
-      requests: navigation.settledEntries.map(entry => ({
-        requestId: entry.requestId,
-        browserRequestId: entry.browserRequestId,
-        status: entry.status,
-        startedAt: entry.startedAt,
-        completedAt: entry.completedAt,
-      })),
-    });
-  }
+  await cda.navigate(tableURL());
   const table = '[data-testid="construction-table-' + outputId + '"]';
   await fastWait(startedAt, { kind: 'present', selector: table }, 'Explorer table discovery');
   await click(nativePage, table);
@@ -336,16 +302,15 @@ const openRowSettings = async () => measure('row-definition-choice-discovery', a
   await fastWait(startedAt, { kind: 'enabled', selector: shapeSelect }, 'Row definition choice discovery');
 });
 const rowProposalRequest = selection => report.browserRequests.findLast(entry =>
-  entry.path.endsWith('/row-definition-proposals') && entry.body?.selection?.kind === selection.kind &&
-  (selection.kind !== 'EXPANDED' || (entry.body.selection.expanded?.rowChoiceId === selection.expanded.rowChoiceId &&
-    entry.body.selection.expanded?.emptyCollectionPolicy === selection.expanded.emptyCollectionPolicy)));
+  entry.path.endsWith('/row-definition-proposals') && entry.request?.selection?.kind === selection.kind &&
+  (selection.kind !== 'EXPANDED' || (entry.request.selection.expanded?.rowChoiceId === selection.expanded.rowChoiceId &&
+    entry.request.selection.expanded?.emptyCollectionPolicy === selection.expanded.emptyCollectionPolicy)));
 const awaitRequestBody = async (entry, startedAt) => {
   assert(entry, 'Native row proposal request was not captured');
   if (entry.status === undefined) {
-    await nativePage.waitForResponse(response => requestMonitor.byRequest.get(response.request()) === entry,
-      { timeout: Math.max(1, 5000 - (Date.now() - startedAt)) });
+    await requestMonitor.waitForResponse(candidate => candidate === entry,
+      { fromIndex: 0, timeoutMs: Math.max(1, 5000 - (Date.now() - startedAt)) });
   }
-  await requestMonitor.flush();
   assert(entry && protocolResponse(entry) !== undefined, 'Native row proposal response was not captured: ' + JSON.stringify(entry));
 };
 const selectAndPreview = async (policy, expectedRows, emptyError = false) => measure('row-definition-preview-' + policy, async startedAt => {
@@ -373,7 +338,6 @@ const selectAndPreview = async (policy, expectedRows, emptyError = false) => mea
     ] }
     : { kind: 'text-includes', selector: '[aria-label="Row definition preview"]', text: '→ ' + expectedRows + ' rows' };
   await fastWait(startedAt, terminal, emptyError ? 'Expected empty-collection validation' : 'Automatic row definition preview');
-  await Promise.all([...browserPending]);
   const selection = { kind: 'EXPANDED', expanded: { rowChoiceId: report.choice.choiceId, emptyCollectionPolicy: policy } };
   const request = rowProposalRequest(selection);
   await awaitRequestBody(request, startedAt);
@@ -389,7 +353,6 @@ const selectAndPreview = async (policy, expectedRows, emptyError = false) => mea
 const selectRecordsPreview = expectedRows => measure('row-definition-preview-records', async startedAt => {
   await selectOption(nativePage, shapeSelect, 'records');
   await fastWait(startedAt, { kind: 'text-includes', selector: '[aria-label="Row definition preview"]', text: '→ ' + expectedRows + ' rows' }, 'Source-record row preview');
-  await Promise.all([...browserPending]);
   const request = rowProposalRequest({ kind: 'RECORDS' });
   await awaitRequestBody(request, startedAt);
   const response = protocolResponse(request);
@@ -554,7 +517,7 @@ const assertSourceColumnBindings = (actualColumns, expectedColumns, sourceReceip
   }
 };
 const assertGroupProposal = (request, expected, inputColumn) => {
-  const step = request.body?.candidateConstruction?.steps?.find(item => item.operation?.kind === 'GROUP');
+  const step = request.request?.candidateConstruction?.steps?.find(item => item.operation?.kind === 'GROUP');
   assert(step, 'Native proposal did not author a GROUP step');
   assert.equal(step.operation.group.keys.length, 1, 'Source-expanded regression must group only by Observation ID');
   assert.equal(inputColumn.capabilityColumn.name, inputColumn.authoredName, 'GROUP input capability is not bound to the exact authored source field');
@@ -669,7 +632,7 @@ const verifyGroupedTable = async (expected, name, expectedCountLabel, verifyProt
   };
 };
 const verifyGroupLabelEditProposal = async ({ request, beforeStep, expectedRows, expectedLabel, name }) => {
-  const candidateStep = request.body?.candidateConstruction?.steps?.find(step => step.id === beforeStep.id);
+  const candidateStep = request.request?.candidateConstruction?.steps?.find(step => step.id === beforeStep.id);
   assert(candidateStep, `${name}: proposal omitted the exact saved GROUP step`);
   const preview = protocolResponse(request)?.preview;
   const summary = assertCountRowsGroupLabelEditProposal({
@@ -755,16 +718,16 @@ const verifyEmptyError = async request => {
 
   const officialMatches = cda.nativeRequests.filter(entry => entry.path === expectedEmptyValidationBinding.path &&
     entry.method === 'POST' && entry.status === request.status &&
-    entry.body?.snapshotToken === expectedEmptyValidationBinding.snapshotToken &&
-    entry.body?.expectedDraftVersion === expectedEmptyValidationBinding.expectedDraftVersion &&
-    entry.body?.expectedDraftDigest === expectedEmptyValidationBinding.expectedDraftDigest &&
-    entry.body?.outputId === expectedEmptyValidationBinding.outputId &&
-    entry.body?.selection?.kind === 'EXPANDED' &&
-    entry.body?.selection?.expanded?.rowChoiceId === expectedEmptyValidationBinding.rowChoiceId &&
-    entry.body?.selection?.expanded?.emptyCollectionPolicy === 'ERROR');
+    entry.request?.snapshotToken === expectedEmptyValidationBinding.snapshotToken &&
+    entry.request?.expectedDraftVersion === expectedEmptyValidationBinding.expectedDraftVersion &&
+    entry.request?.expectedDraftDigest === expectedEmptyValidationBinding.expectedDraftDigest &&
+    entry.request?.outputId === expectedEmptyValidationBinding.outputId &&
+    entry.request?.selection?.kind === 'EXPANDED' &&
+    entry.request?.selection?.expanded?.rowChoiceId === expectedEmptyValidationBinding.rowChoiceId &&
+    entry.request?.selection?.expanded?.emptyCollectionPolicy === 'ERROR');
   assert.equal(officialMatches.length, 1, 'Expected validation must bind to exactly one official native request capture');
   const officialEntry = officialMatches[0];
-  await cda.waitForCapturedResponse(officialRequestCapture, candidate => candidate === officialEntry, 5000);
+  await officialRequestCapture.waitForResponse(candidate => candidate === officialEntry, { timeoutMs: 5000 });
   assert(matchesExpectedEmptyCollectionValidation(officialEntry, expectedEmptyValidationBinding),
     'Official native capture did not retain the exact EMPTY_COLLECTION_ERROR response body');
   const rawOracle = report.oracle?.selected?.filter(resource => resource.emptyComponentKind)
@@ -817,13 +780,13 @@ const verifyEmptyError = async request => {
   recordAssertion('ERROR policy gives understandable empty-only validation and keeps repair choices enabled', report.expectedEmptyError);
 };
 const finish = async () => {
-  await officialRequestCapture.flush();
+  await requestMonitor?.stop();
   report.finished = new Date().toISOString();
-  if (report.status !== 'invalidated') {
-    const blockingGaps = report.gaps.filter(gap => gap.blocking !== false);
+  const blockingGaps = report.gaps.filter(gap => gap.blocking !== false);
+  if (!(report.invalidations?.length) && !report.sourceFingerprint?.invalidatesRun && !report.sourceFreeze?.invalidatesRun && !report.apiBuildFreeze?.invalidatesRun) {
     report.status = report.failures.length ? 'failed' : blockingGaps.length ? 'unverified' : report.assertions.length ? 'passed' : 'untested';
   }
-  if (report.status === 'unverified') {
+  if (blockingGaps.length) {
     report.skipReason = report.fixtureUnavailable?.reason ?? report.gaps
       .filter(gap => gap.blocking !== false).map(gap => `${gap.assertion}: ${gap.reason}`).join('; ');
   }
@@ -836,7 +799,7 @@ const finish = async () => {
     const dimension = assertion.name === actionToRenderPerformanceCheck ? 'performance' : 'correctness';
     cda.check(dimension, assertion.name, assertion.status === 'passed', assertion.evidence ?? {});
   }
-  if (report.status === 'failed' || report.status === 'invalidated') {
+  if (report.failures.length || report.invalidations?.length || report.sourceFingerprint?.invalidatesRun || report.sourceFreeze?.invalidatesRun || report.apiBuildFreeze?.invalidatesRun) {
     throw new Error(`${missingGroupOnly ? 'Missing-component GROUP' : 'Repeated-empty'} workflow ${report.status}: ${JSON.stringify(report.failures ?? report.invalidations)}`);
   }
 };
@@ -1178,10 +1141,6 @@ const main = async () => {
     : 'removing GROUP restores exact raw component[] rows and preserved empty owners after reload', report.groupRemovalReload);
 
   if (missingGroupOnly) {
-    await Promise.all([...browserPending]);
-    await cda.flushHttpDiagnostics({ timeoutMs: 5000 });
-    cda.includeBrowserDiagnostics();
-    const fixtureDiagnostics = assertNoUnexpectedCdaDiagnostics(cda.report);
     report.browserErrors = {
       exceptions: cda.diagnostics.pageErrors,
       console: cda.diagnostics.console,
@@ -1193,14 +1152,14 @@ const main = async () => {
     assert.deepEqual(report.browserErrors.exceptions, [], 'Browser raised JavaScript exceptions');
     assert.deepEqual(report.browserErrors.console, [], 'Browser logged console errors');
     assert.deepEqual(report.browserErrors.modules, [], 'Browser failed to load a module');
-    assert.deepEqual(report.browserErrors.http.filter(error => error.expected !== true), [], 'Browser received unexpected 4xx/5xx responses');
-    assert.deepEqual(report.errors.filter(error => error.expected !== true), [], 'Playwright request capture reported an owned API, runtime, or console failure');
+    assert.deepEqual(report.browserErrors.http.filter(error => error.expectedHttpFailure !== true), [], 'Browser received unexpected 4xx/5xx responses');
+    assert.deepEqual(report.errors.filter(error => error.expectedHttpFailure !== true), [], 'Playwright request capture reported an owned API, runtime, or console failure');
     const timing = actionToRenderEvidence();
     assert(timing.passed, 'A native action-to-render checkpoint or action exceeded its five-second budget');
     report.performance = timing.evidence;
     recordAssertion(actionToRenderPerformanceCheck, timing.evidence);
     recordAssertion('no unexpected browser, module, console, or HTTP errors', {
-      workflow: report.browserErrors, fixture: fixtureDiagnostics,
+      workflow: report.browserErrors,
     });
     return;
   }
@@ -1222,12 +1181,16 @@ const main = async () => {
   await openRowSettings();
   const errorProposal = await selectAndPreview('ERROR', undefined, true);
   await verifyEmptyError(errorProposal);
+  let repair;
   await measure('repair-policy-after-error', async startedAt => {
+    const fromIndex = requestMonitor.requests.length;
     await selectOption(nativePage, policySelect, 'expanded:' + report.choice.choiceId + ':PRESERVE_PARENT');
     await fastWait(startedAt, { kind: 'text-includes', selector: '[aria-label="Row definition preview"]', text: '→ ' + emptyResources.length + ' rows' }, 'Actionable empty-collection policy repair');
-    await Promise.all([...browserPending]);
+    repair = await requestMonitor.waitForResponse(entry => entry.path.endsWith('/row-definition-proposals') &&
+      entry.method === 'POST' && entry.request?.selection?.expanded?.rowChoiceId === report.choice.choiceId &&
+      entry.request.selection.expanded?.emptyCollectionPolicy === 'PRESERVE_PARENT' && entry.status === 200,
+    { fromIndex, timeoutMs: Math.max(1, startedAt + 5000 - Date.now()) });
   });
-  const repair = rowProposalRequest({ kind: 'EXPANDED', expanded: { rowChoiceId: report.choice.choiceId, emptyCollectionPolicy: 'PRESERVE_PARENT' } });
   assert.equal(repair?.status, 200, 'Changing from ERROR to PRESERVE_PARENT must produce a valid preview');
   await cancelRowDefinition(0);
   builder = (await api(base + '/builder')).body;
@@ -1260,12 +1223,11 @@ const main = async () => {
   report.restoration = { rowKind: document().rows.kind, population: document().population, ids: report.oracle.expectedRecordIDs };
   recordAssertion('edit and reload restore RECORDS with exact selection and source field bindings', report.restoration);
 
-  await Promise.all([...browserPending]);
   assert.deepEqual(report.browserErrors.exceptions, [], 'Browser raised JavaScript exceptions');
   assert.deepEqual(report.browserErrors.console, [], 'Browser logged console errors');
   assert.deepEqual(report.browserErrors.modules, [], 'Browser failed to load a module');
-  assert.deepEqual(report.browserErrors.http.filter(error => error.expected !== true), [], 'Browser received unexpected 4xx/5xx responses');
-  assert.deepEqual(report.errors.filter(error => error.expected !== true), [], 'Playwright request capture reported an owned API, runtime, or console failure');
+  assert.deepEqual(report.browserErrors.http.filter(error => error.expectedHttpFailure !== true), [], 'Browser received unexpected 4xx/5xx responses');
+  assert.deepEqual(report.errors.filter(error => error.expectedHttpFailure !== true), [], 'Playwright request capture reported an owned API, runtime, or console failure');
   const timing = actionToRenderEvidence();
   cda.check('performance', actionToRenderPerformanceCheck, timing.passed, timing.evidence);
   report.performance = timing.evidence;
@@ -1302,7 +1264,6 @@ try {
   try { if (nativePage) report.failureDOM = await domText(); } catch { /* Browser may not have opened. */ }
   try { if (outputId) report.failureBuilder = (await api(base + '/builder')).body; } catch (readError) { report.builderReadError = String(readError); }
 } finally {
-  try { await Promise.all([...browserPending]); } catch { /* Network response reads remain in the report. */ }
   const sourceFreezeFinishedAt = new Date().toISOString();
   try {
     const after = sourceFingerprint(sourceFreezeRoot);
@@ -1365,7 +1326,7 @@ try {
     report.apiBuildFreeze = { ...report.apiBuildFreeze, unchanged: false, invalidatesRun: true, productFailure: false, finishedAt: apiBuildFinishedAt };
   }
   report.finished = new Date().toISOString();
-  if (report.status !== 'invalidated') {
+  if (!(report.invalidations?.length) && !report.sourceFingerprint?.invalidatesRun && !report.sourceFreeze?.invalidatesRun && !report.apiBuildFreeze?.invalidatesRun) {
     report.status = report.failures.length ? 'failed' : report.gaps.length ? 'unverified' : report.assertions.length ? 'passed' : 'untested';
   }
   await finish();

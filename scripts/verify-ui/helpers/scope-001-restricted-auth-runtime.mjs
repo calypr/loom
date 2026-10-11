@@ -24,3 +24,4 @@ export function assertScope001RestrictedAuthRuntime({ apiContainer, dockerTop = 
     'Restricted auth target must not start arango-fhir-server with --no-auth.');
   return { apiContainer, executable: API_EXECUTABLE, configArgumentVerified: true, noAuthArgumentAbsent: true };
 }
+

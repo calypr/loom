@@ -17,6 +17,10 @@ const makeContext = ({ caseName = 'medication-positive-fixture', generation = 'c
     report,
     action: async () => {},
     check: () => true,
+    captureRequests: () => ({ requests: [] }),
+    requestBody: async entry => entry?.request,
+    responseBody: async entry => entry?.response,
+    expectTransportFailure: () => ({ requestIndex: 0 }),
   };
   const page = {};
   const testInfo = { attach: async () => {} };
@@ -36,13 +40,15 @@ test('positive Medication adapter maps the owned basic fixture to the existing n
   assert.strictEqual(cda.report, input.report);
   assert.strictEqual(cda.report.network, input.report.network);
   assert.equal(cda.diagnostics, undefined, 'the adapter must use the generic runner network as diagnostic authority');
-  assert.equal(cda.includeBrowserDiagnostics, undefined);
   assert.strictEqual(cda.check, input.workflow.check);
   assert.deepEqual(cda.report.nativeRequests, []);
   assert.deepEqual(cda.report.apiRequests, []);
-  for (const name of ['click', 'fill', 'selectOption', 'navigate', 'inspect', 'wait', 'captureRequests', 'attachReport']) {
+  for (const name of ['click', 'fill', 'selectOption', 'navigate', 'inspect', 'wait', 'captureRequests',
+    'requestBody', 'responseBody', 'expectTransportFailure', 'attachReport']) {
     assert.equal(typeof cda[name], 'function', `missing native workflow wrapper ${name}`);
   }
+  assert.deepEqual(cda.captureRequests('builder').requests, []);
+  assert.deepEqual(cda.expectTransportFailure({ id: 'request' }, { reason: 'fault', action: 'abort' }), { requestIndex: 0 });
 });
 
 test('positive Medication adapter rejects the existing real-CDA case and any other generation', () => {

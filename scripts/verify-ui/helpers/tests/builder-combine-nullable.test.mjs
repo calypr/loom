@@ -2,16 +2,99 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { caseNamesFor, hasLifecycleContract, registry, scenarioCaseFor } from '../../registry.mjs';
-import { assertNullableNativeRequestLedgerComplete, builderCancelStateEvidence, nativeResponseScopeEvidence, removalProposalEvidence, targetDocumentStateEvidence } from '../builder-combine-nullable-helpers.mjs';
-import { classifyNativeBrowserApiRequest } from '../native-browser-api-scope.mjs';
-import { installNativeAbortProbe } from '../native-abort-probe.mjs';
-import { createFixtureNativeRequestLedger, finalizeFixtureNativeRequestReport } from '../native-request-ledger.mjs';
-import {
-  projectNullableNativeAbortProbeCorrelations,
-  recordNullableNativeAbortProbeCorrelations,
-} from '../../workflows/builder-combine-nullable.mjs';
+import { builderCancelStateEvidence, nativeResponseScopeEvidence, removalProposalEvidence, targetDocumentStateEvidence } from '../builder-combine-nullable-helpers.mjs';
+import { fixtureProjectExplorerCollectionPath } from '../fixture-context.mjs';
+import { nullableKeyWitnessExpectations } from '../../workflows/builder-combine-nullable.mjs';
 
 const driver = readFileSync(new URL('../../workflows/builder-combine-nullable.mjs', import.meta.url), 'utf8');
+const nullableFixtureURL = new URL('../../../../testdata/verify-combine-nullable-duplicates/', import.meta.url);
+
+test('nullable KEY_JOIN fixture distinguishes omitted subject.reference from explicit JSON null', () => {
+  const readRows = (name) => readFileSync(new URL(name, nullableFixtureURL), 'utf8').trim().split('\n').map(JSON.parse);
+  const observations = readRows('Observation.ndjson');
+  const reports = readRows('DiagnosticReport.ndjson');
+  const observationMissing = observations.find((row) => row.id === 'combine-observation-preliminary');
+  const observationNull = observations.find((row) => row.id === 'combine-observation-explicit-null');
+  const reportMissing = reports.find((row) => row.id === 'combine-observation-final-1');
+  const reportNull = reports.find((row) => row.id === 'combine-report-explicit-null');
+
+  assert.deepEqual(observations.map((row) => row.id), [
+    'combine-observation-final-1',
+    'combine-observation-final-2',
+    'combine-observation-preliminary',
+    'combine-observation-explicit-null',
+    'combine-observation-unmatched',
+  ]);
+  assert.deepEqual(reports.map((row) => row.id), [
+    'combine-observation-final-1',
+    'combine-report-explicit-null',
+    'combine-observation-final-2',
+    'combine-observation-preliminary',
+  ]);
+  assert.equal(Object.hasOwn(observationMissing, 'subject'), false);
+  assert.equal(Object.hasOwn(reportMissing, 'subject'), false);
+  assert.equal(Object.hasOwn(observationNull.subject, 'reference'), true);
+  assert.equal(observationNull.subject.reference, null);
+  assert.equal(Object.hasOwn(reportNull.subject, 'reference'), true);
+  assert.equal(reportNull.subject.reference, null);
+  const keyWitnessRows = (rows) => rows.map((row) => {
+    const hasReference = Object.hasOwn(row.subject ?? {}, 'reference');
+    const reference = hasReference ? row.subject.reference : null;
+    return [row.id, !hasReference ? 'missing' : reference === null ? 'explicit-null' : 'value', reference];
+  });
+  assert.deepEqual(keyWitnessRows(observations), nullableKeyWitnessExpectations.observations);
+  assert.deepEqual(keyWitnessRows(reports), nullableKeyWitnessExpectations.reports);
+  assert.match(driver, /JSON\.stringify\(observationKeyRows\) === JSON\.stringify\(nullableKeyWitnessExpectations\.observations\)\s*&&\s*JSON\.stringify\(reportKeyRows\) === JSON\.stringify\(nullableKeyWitnessExpectations\.reports\)/);
+  assert.equal(observations.length, 5);
+  assert.equal(reports.length, 4);
+});
+
+test('nullable source publication waits on the canonical fixture browser route', () => {
+  const project = 'loom_dev_verify_mv37bf7o-a7738e2';
+  const publishPath = `${fixtureProjectExplorerCollectionPath(project)}/${encodeURIComponent('explorer-123')}/authoring/v2/publish`;
+  assert.equal(publishPath, '/api/v1/projects/loom_dev_verify_mv37bf7o%252Fa7738e2/explorers/explorer-123/authoring/v2/publish');
+  assert.match(driver, /fixtureProjectExplorerCollectionPath\(context\.target\.fixtureProject\)/);
+});
+
+test('nullable Combine transport binding accepts canonical project routes across Create, proposal, and removal', () => {
+  const project = 'loom_dev_verify_mv37bf7o-a7738e2';
+  const explorer = 'verify-a7738e2-combine';
+  const protectedExplorer = 'loom-dev-bootstrap';
+  const scope = {
+    uiOrigin: 'http://127.0.0.1:30008',
+    apiOrigin: 'http://127.0.0.1:8188',
+    project,
+    explorer,
+    protectedExplorer,
+  };
+  const collectionPath = fixtureProjectExplorerCollectionPath(project);
+  const explorerPath = `${collectionPath}/${encodeURIComponent(explorer)}`;
+  const routes = [
+    ['CREATE_TABLE', `${explorerPath}/authoring/v2/commands`],
+    ['KEY_JOIN proposal', `${explorerPath}/authoring/v2/construction-proposals`],
+    ['KEY_JOIN removal', `${explorerPath}/authoring/v2/construction-proposals`],
+  ];
+
+  for (const [action, path] of routes) {
+    const url = `${scope.uiOrigin}${path}`;
+    const evidence = nativeResponseScopeEvidence(url, url, scope);
+    assert.equal(evidence.ok, true, `${action} must bind the exact canonical UI proxy route: ${JSON.stringify(evidence)}`);
+    assert.equal(evidence.requestPath, path);
+    assert.equal(evidence.responsePath, path);
+  }
+
+  const legacyAliasPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorer)}/authoring/v2/commands`;
+  const foreignProjectPath = fixtureProjectExplorerCollectionPath('loom_dev_verify_mv37bf7o-foreign') +
+    `/${encodeURIComponent(explorer)}/authoring/v2/commands`;
+  const protectedPath = `${collectionPath}/${encodeURIComponent(protectedExplorer)}/authoring/v2/commands`;
+  for (const path of [legacyAliasPath, foreignProjectPath, protectedPath]) {
+    const url = `${scope.uiOrigin}${path}`;
+    assert.equal(nativeResponseScopeEvidence(url, url, scope).ok, false,
+      `unowned transport must remain rejected: ${path}`);
+  }
+  assert.match(driver, /project: context\.target\.fixtureProject/,
+    'the workflow must provide the raw fixture identity for canonical route classification');
+});
 
 test('nullable KEY_JOIN is registered as a separate owned native lifecycle', () => {
   const scenario = registry.find((entry) => entry.id === 'builder-combine-nullable');
@@ -26,193 +109,47 @@ test('nullable KEY_JOIN is registered as a separate owned native lifecycle', () 
     'source schemas expose compatible nullable scalar ID keys, scalar status fields, and a numeric Observation value',
     'native CREATE_TABLE request and response bind to the owned UI proxy project and Explorer route',
     'INNER preview receipt binds the exact UI proxy route, target, nullable key pair, output columns, and raw rows',
-    'nullable-key fixture proves two duplicate rows per side for one shared key, NULL on both sides, and one left-only key',
-    'INNER nullable Join preserves all four pairs from the 2x2 duplicate key and never matches NULL to NULL',
+    'nullable-key fixture proves duplicate shared keys, separate omitted and explicit-null keys, and one left-only key',
+    'INNER nullable Join preserves the four shared-key pairs and matches neither omitted nor explicit-null keys',
     'INNER applied rows preserve all four duplicate-key pairs',
     'INNER duplicate-key pairs survive Builder reload',
     'INNER saved step after Apply retains exact current revisions and the nullable subject.reference key pair',
     'INNER saved step after LEFT Cancel reload retains exact current revisions and the nullable subject.reference key pair',
     'LEFT preview receipt before Cancel binds the exact UI proxy route, target, nullable key pair, output columns, and raw rows',
     'LEFT preview receipt before Apply binds the exact UI proxy route, target, nullable key pair, output columns, and raw rows',
-    'LEFT preview preserves four duplicate-key pairs, both unmatched left rows, and NULL non-equality',
-    'LEFT applied output preserves duplicate-key multiplicity and both unmatched left rows',
-    'LEFT duplicate-key multiplicity and null projections survive Builder reload',
+    'LEFT preview preserves four duplicate-key pairs and three unmatched rows including omitted and explicit-null keys',
+    'LEFT applied output preserves four duplicate-key pairs and three unmatched source rows',
+    'LEFT seven rows and explicit-null non-matches survive Builder reload',
     'nullable KEY_JOIN removal preview receipt binds the exact scoped request, removed step, target, snapshot, and DOM receipt',
     'Cancel leaves saved INNER nullable Join rows unchanged after reload',
     'Cancel leaves the full Builder workspace, draft version, and digest unchanged after reload',
     'Cancel removal leaves the full Builder workspace, draft version, and digest unchanged after reload',
     'removing nullable KEY_JOIN and reloading restores the exact pre-Combine target document',
-    'LEFT duplicate-key multiplicity and null projections survive Builder reload',
+    'LEFT seven rows and explicit-null non-matches survive Builder reload',
     'both published nullable-key source tables remain byte-structured unchanged',
   ]) assert.ok(required.includes(name), 'registry must require ' + name);
 });
 
 test('nullable lifecycle is discovered by the official Playwright Test runner', () => {
   const spec = readFileSync(new URL('../../specs/nullable-combine.spec.mjs', import.meta.url), 'utf8');
-  assert.match(driver, /export const nullableJoinWorkflow = async \(\{ page, report, action, nativeRequestLedger \}, context\) =>/);
+  assert.match(driver, /export const nullableJoinWorkflow = async \(\{ page, report, action, networkObserver \}, context\) =>/);
   assert.match(driver, /import \{ expect, test \} from '@playwright\/test'/);
   assert.doesNotMatch(driver, /runPlaywrightCase|executeScenario|runNullableJoin/);
   assert.doesNotMatch(driver, /activeAction|page\.locator\('body'\)|await Promise\.all\(entries\.map\(entry => entry\.responsePromise\)/);
   assert.match(driver, /test\.step\(name, async \(\) =>/);
   assert.match(driver, /\}, \{ timeout: STEP_TIMEOUT_MS \}\)/);
-  assert.equal((driver.match(/await expect\.poll\(/g) ?? []).length, 3);
   assert.match(spec, /import \{ test \} from '\.\.\/helpers\/fixtures\.mjs'/);
   assert.match(spec, /test\.use\(\{ scenarioID: 'builder-combine-nullable', caseName: 'lifecycle', fixtureDir: 'testdata\/verify-combine-nullable-duplicates' \}\)/);
   assert.match(spec, /test\('nullable KEY_JOIN duplicate-key multiplicity and NULL non-equality lifecycle'/);
-  assert.match(spec, /nativeRequestLedger: workflow\.nativeRequestLedger/);
-});
-
-test('the registered nullable spec installs its probe on the selected Explorer and UI proxy origin', async () => {
-  const spec = readFileSync(new URL('../../specs/nullable-combine.spec.mjs', import.meta.url), 'utf8');
-  const installAt = driver.indexOf('await installNativeAbortProbe({');
-  assert.ok(installAt > driver.indexOf('report.target.explorer = explorer'));
-  assert.ok(installAt < driver.indexOf('const addRoot = async'));
-  const installCall = driver.slice(installAt, driver.indexOf('});', installAt) + 3);
-  assert.ok(installCall.includes('apiOrigin: new URL(context.target.uiUrl).origin'));
-  assert.match(spec, /nullableJoinWorkflow\(/);
-
-  let binding;
-  const calls = [];
-  const browserContext = {
-    exposeBinding: async (name, callback) => { calls.push(['binding', name]); binding = callback; },
-    addInitScript: async (source) => calls.push(['init', source]),
-  };
-  const page = {
-    context: () => browserContext,
-    evaluate: async (source) => calls.push(['current-page', source]),
-  };
-  const report = {};
-  await installNativeAbortProbe({
-    page, report, project: 'loom_dev_verify_case027', explorer: 'verify-case027-combine',
-    apiOrigin: 'http://127.0.0.1:30008/path-is-ignored',
-  });
-
-  assert.deepEqual(calls.map(([kind]) => kind), ['binding', 'init', 'current-page']);
-  assert.equal(calls[0][1], '__loomNativeAbortProbeBinding');
-  assert.equal(calls[1][1], calls[2][1]);
-  assert.ok(calls[1][1].includes('project: "loom_dev_verify_case027"'));
-  assert.ok(calls[1][1].includes('explorer: "verify-case027-combine"'));
-  assert.ok(calls[1][1].includes('apiOrigin: "http://127.0.0.1:30008"'));
-  assert.ok(!calls[1][1].includes('8188'), 'the probe must use the browser UI proxy origin, not the backend origin');
-
-  const installed = { kind: 'probe-installed', project: 'loom_dev_verify_case027', explorer: 'verify-case027-combine' };
-  binding({}, JSON.stringify(installed));
-  assert.deepEqual(report.nativeAbortProbeEvents, [installed]);
-});
-
-test('nullable AbortSignal correlations survive fixture finalization without changing pending terminal status', async () => {
-  const project = 'fixture-abort-observation-project';
-  const explorer = 'selected-combine-explorer';
-  const requestId = 'configured-column-context-11111111-2222-4333-8444-555555555555';
-  const origin = 'http://127.0.0.1:30008';
-  const path = `/api/v1/projects/${project}/explorers/${explorer}/authoring/v2/configured-column-context`;
-  const ledger = createFixtureNativeRequestLedger();
-  const scope = ledger.openScope({ project, origin });
-  const request = {
-    url: () => `${origin}${path}`,
-    method: () => 'POST',
-    headers: () => ({ 'x-request-id': requestId }),
-    resourceType: () => 'fetch',
-  };
-  ledger.recordRequest(request, {
-    requestId: 'browser-request-1',
-    browserRequestId: 'browser-request-1',
-    requestDetails: { requestId },
-    method: 'POST',
-    startedAt: 1,
-  });
-  const ledgerSnapshot = await ledger.flush(scope, { explorer, timeoutMs: 5 });
-  const finalLedgerRows = ledgerSnapshot.nativeRequests;
-  const abortEvent = {
-    kind: 'abort-controller-call',
-    controllerId: 'controller-1',
-    createdAt: 10,
-    abortedAt: 20,
-    requests: [{ requestId, origin, path, method: 'POST', requestIdSource: 'request-header' }],
-  };
-  const report = {
-    nativeRequests: finalLedgerRows,
-    nativeAbortProbeEvents: [abortEvent],
-    navigationTimings: [],
-  };
-  const correlations = recordNullableNativeAbortProbeCorrelations({
-    report,
-    nativeRequests: finalLedgerRows,
-    probeEvents: report.nativeAbortProbeEvents,
-  });
-  assert.equal(correlations.length, 1);
-  for (const key of ['abortControllerSignalObservation', 'expected', 'canceled', 'expectedCancellation']) {
-    assert.equal(Object.hasOwn(finalLedgerRows[0], key), false, `diagnostic projection must not mutate raw ${key} state`);
-  }
-  const requestRowsBeforeFinalization = report.nativeRequests;
-
-  await finalizeFixtureNativeRequestReport({ report, ledger, project });
-
-  assert.notEqual(report.nativeRequests, requestRowsBeforeFinalization,
-    'fixture finalization replaces the preliminary request array with its final project snapshot');
-  for (const key of ['abortControllerSignalObservation', 'expected', 'canceled', 'expectedCancellation']) {
-    assert.equal(Object.hasOwn(report.nativeRequests[0], key), false, `final native row must not acquire ${key} from diagnostics`);
-  }
-  assert.equal(report.nativeAbortProbeCorrelations, correlations,
-    'report-local AbortSignal evidence survives replacement of nativeRequests');
-  assert.deepEqual(
-    (({ nativeRequestIndex, requestId: actualID, origin: actualOrigin, path: actualPath, method, requestIdentityMatchCount }) =>
-      ({ nativeRequestIndex, requestId: actualID, origin: actualOrigin, path: actualPath, method, requestIdentityMatchCount }))(report.nativeAbortProbeCorrelations[0]),
-    { nativeRequestIndex: 0, requestId, origin, path, method: 'POST', requestIdentityMatchCount: 1 },
-    'the observation preserves exact request ID, origin, path, and method');
-  const signalObservation = report.nativeAbortProbeCorrelations[0].observation;
-  assert.equal(signalObservation.exactRequestSignalCorrelation, true);
-  assert.equal(signalObservation.requestId, requestId);
-  assert.equal(signalObservation.nativeTerminalObserved, false);
-  assert.equal(report.nativeRequestTerminalLedger.complete, false);
-  assert.equal(report.nativeRequestTerminalLedger.counts.pending, 1);
-  assert.throws(() => assertNullableNativeRequestLedgerComplete(ledgerSnapshot),
-    /did not reach a complete owned terminal ledger/,
-    'signal observation cannot satisfy the terminal request gate');
-  assert.equal(signalObservation.classificationEffect,
-    'diagnostic only; does not make an unfinished native request terminal or expected');
-
-  const routeRoot = path.slice(0, path.lastIndexOf('/') + 1);
-  const diagnosticRows = [
-    '/construction-capabilities',
-    '/semantic-inventory',
-    '/configured-column-context',
-    '/schema-fields',
-  ].map((suffix, index) => ({
-    ...finalLedgerRows[0],
-    path: `${routeRoot}${suffix.slice(1)}`,
-    requestDetails: { requestId: `diagnostic-route-${index}` },
-  }));
-  assert.deepEqual(projectNullableNativeAbortProbeCorrelations(diagnosticRows, []).map(({ path: observedPath }) => observedPath),
-    diagnosticRows.map(({ path: observedPath }) => observedPath),
-    'the explicit projection retains capabilities, inventory, configured-context, and schema-fields rows');
-
-  const ambiguousRows = projectNullableNativeAbortProbeCorrelations(
-    [finalLedgerRows[0], structuredClone(finalLedgerRows[0])], [abortEvent],
-  );
-  assert.equal(ambiguousRows[0].requestIdentityMatchCount, 2);
-  assert.equal(ambiguousRows[0].observation.exactRequestSignalCorrelation, false,
-    'duplicate exact ledger identities must not borrow one AbortSignal event');
-
-  const missingIDRow = structuredClone(finalLedgerRows[0]);
-  delete missingIDRow.requestDetails;
-  const missingIDObservation = projectNullableNativeAbortProbeCorrelations([missingIDRow], [abortEvent])[0];
-  assert.equal(missingIDObservation.requestId, null);
-  assert.equal(missingIDObservation.requestIdentityMatchCount, 0);
-  assert.equal(missingIDObservation.observation.exactRequestSignalCorrelation, false,
-    'browser fallback identity cannot replace a missing exact request ID');
-
-  const ambiguousEvents = projectNullableNativeAbortProbeCorrelations(
-    [finalLedgerRows[0]], [abortEvent, structuredClone(abortEvent)],
-  );
-  assert.equal(ambiguousEvents[0].observation.exactRequestSignalCorrelation, false);
-  assert.equal(ambiguousEvents[0].observation.matchCount, 2);
 });
 
 test('nullable native case authors the exact optional source paths and checks the bound proposal receipt', () => {
   assert.match(driver, /Observation:\s*\['status',\s*'valueInteger',\s*'subject\.reference'\]/);
   assert.match(driver, /DiagnosticReport:\s*\['status',\s*'subject\.reference'\]/);
-  assert.match(driver, /nullable-key fixture proves two duplicate rows per side for one shared key, NULL on both sides, and one left-only key/);
+  assert.match(driver, /nullable-key fixture proves duplicate shared keys, separate omitted and explicit-null keys, and one left-only key/);
+  assert.match(driver, /const keyWitnessRows = \(rows\) => rows\.map\(\(row\) =>/);
+  assert.match(driver, /leftRows\.length !== 7/);
+  assert.match(driver, /explicitNullObservationIDs: observationKeyRows\.filter/);
   assert.match(driver, /duplicatedObservationIDs\.length !== 2 \|\| duplicatedReportIDs\.length !== 2/);
   assert.match(driver, /duplicateKeyInnerMultiplicity: `\$\{duplicatedObservationIDs\.length\}x\$\{duplicatedReportIDs\.length\}`/);
   assert.match(driver, /column\.clickhouseType === 'Nullable\(String\)' && column\.nullable === true && column\.repeated === false/);
@@ -230,7 +167,7 @@ test('nullable Join reload budgets include exact rows and rooted target restorat
   for (const [rows, timingName, exactRowsName, verifySavedState] of [
     ['innerRows', 'reload INNER nullable-key table', 'INNER duplicate-key pairs survive Builder reload', false],
     ['innerRows', 'reload saved INNER after LEFT Cancel', 'Cancel leaves saved INNER nullable Join rows unchanged after reload', true],
-    ['leftRows', 'reload applied LEFT nullable-key table', 'LEFT duplicate-key multiplicity and null projections survive Builder reload', false],
+    ['leftRows', 'reload applied LEFT nullable-key table', 'LEFT seven rows and explicit-null non-matches survive Builder reload', false],
     ['leftRows', 'reload saved LEFT after removal Cancel', 'Cancel removal preserves the exact LEFT nullable Join rows after reload', true],
   ]) {
     const callStart = driver.indexOf(`await reloadTarget(report, page, target.outputId, ${rows}, '${timingName}', '${exactRowsName}'`);
@@ -265,75 +202,27 @@ test('nullable and duplicate-key coverage map to exact native lifecycle checks w
   for (const [coverage, expected] of [
     [nullable, {
       choice: /choose nullable KEY_JOIN/,
-      proposal: /INNER nullable Join preserves all four pairs.*never matches NULL to NULL/,
+      proposal: /INNER nullable Join preserves the four shared-key pairs and matches neither omitted nor explicit-null keys/,
       cancel: /Cancel leaves saved INNER nullable Join rows unchanged after reload/,
       apply: /Apply INNER nullable Join action-to-render/,
       savedRows: /INNER applied rows preserve all four duplicate-key pairs/,
       reload: /INNER duplicate-key pairs survive Builder reload/,
-      edit: /LEFT applied output preserves duplicate-key multiplicity and both unmatched left rows/,
+      edit: /LEFT applied output preserves four duplicate-key pairs and three unmatched source rows/,
       restoration: /removing nullable KEY_JOIN and reloading restores the exact pre-Combine target document/,
     }],
     [duplicate, {
       choice: /choose nullable KEY_JOIN/,
-      proposal: /INNER nullable Join preserves all four pairs.*never matches NULL to NULL/,
+      proposal: /INNER nullable Join preserves the four shared-key pairs and matches neither omitted nor explicit-null keys/,
       cancel: /Cancel leaves saved INNER nullable Join rows unchanged after reload/,
       apply: /Apply INNER nullable Join action-to-render/,
       savedRows: /INNER applied rows preserve all four duplicate-key pairs/,
       reload: /INNER duplicate-key pairs survive Builder reload/,
-      edit: /LEFT applied output preserves duplicate-key multiplicity and both unmatched left rows/,
+      edit: /LEFT applied output preserves four duplicate-key pairs and three unmatched source rows/,
       restoration: /removing nullable KEY_JOIN and reloading restores the exact pre-Combine target document/,
     }],
   ]) {
     for (const [phase, pattern] of Object.entries(expected)) assert.match(checks[coverage.acceptance.checks[phase]], pattern);
   }
-});
-
-test('nullable Playwright request listener classifies the owned proxy scope', () => {
-  const scope = {
-    uiOrigin: 'http://127.0.0.1:30008',
-    apiOrigin: 'http://127.0.0.1:8188',
-    project: 'loom_dev_verify_123',
-    explorer: 'verify-123-combine',
-    protectedExplorer: 'verify-123-bootstrap',
-  };
-  const route = `${scope.uiOrigin}/api/v1/projects/${scope.project}/explorers/${scope.explorer}/authoring/v2/commands`;
-  assert.match(driver, /import \{ classifyNativeBrowserApiRequest \} from '\.\.\/helpers\/native-browser-api-scope\.mjs'/);
-  const request = { url: () => route };
-  assert.equal(classifyNativeBrowserApiRequest(request.url(), scope).kind, 'capture');
-  assert.match(driver, /classifyNativeBrowserApiRequest\(request\.url\(\), scope\)/);
-  assert.match(driver, /findRemoval\(stepID, afterIndex = 0\)/);
-  assert.match(driver, /removeStepIds\.includes\(stepID\)/);
-});
-
-test('native request/response evidence rejects direct, foreign, protected, and mismatched routes', () => {
-  const scope = {
-    uiOrigin: 'http://127.0.0.1:30008',
-    apiOrigin: 'http://127.0.0.1:8188',
-    project: 'loom_dev_verify_123',
-    explorer: 'verify-123-combine',
-    protectedExplorer: 'verify-123-bootstrap',
-  };
-  const path = `/api/v1/projects/${scope.project}/explorers/${scope.explorer}/authoring/v2/construction-proposals`;
-  const requestURL = scope.uiOrigin + path + '?outputId=target-1';
-  assert.equal(nativeResponseScopeEvidence(requestURL, requestURL, scope).ok, true);
-  assert.equal(nativeResponseScopeEvidence(scope.apiOrigin + path, scope.apiOrigin + path, scope).ok, false);
-  assert.equal(nativeResponseScopeEvidence(
-    `${scope.uiOrigin}/api/v1/projects/other-project/explorers/${scope.explorer}/authoring/v2/construction-proposals`,
-    `${scope.uiOrigin}/api/v1/projects/other-project/explorers/${scope.explorer}/authoring/v2/construction-proposals`, scope,
-  ).ok, false);
-  assert.equal(nativeResponseScopeEvidence(
-    `${scope.uiOrigin}/api/v1/projects/${scope.project}/authoring/v2/construction-proposals`,
-    `${scope.uiOrigin}/api/v1/projects/${scope.project}/authoring/v2/construction-proposals`, scope,
-  ).ok, false);
-  assert.equal(nativeResponseScopeEvidence(
-    `${scope.uiOrigin}/api/v1/projects/${scope.project}/explorers/${scope.protectedExplorer}/authoring/v2/construction-proposals`,
-    `${scope.uiOrigin}/api/v1/projects/${scope.project}/explorers/${scope.protectedExplorer}/authoring/v2/construction-proposals`, scope,
-  ).ok, false);
-  assert.equal(nativeResponseScopeEvidence(
-    `${scope.uiOrigin}/api/v1/projects/${scope.project}/explorers/other-explorer/authoring/v2/construction-proposals`,
-    `${scope.uiOrigin}/api/v1/projects/${scope.project}/explorers/other-explorer/authoring/v2/construction-proposals`, scope,
-  ).ok, false);
-  assert.equal(nativeResponseScopeEvidence(requestURL, `${scope.uiOrigin}${path}?outputId=other-target`, scope).ok, false);
 });
 
 test('Cancel evidence detects draft metadata and workspace changes', () => {

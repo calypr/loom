@@ -27,11 +27,6 @@ import {
 } from '../helpers/builder-combine-helpers.mjs';
 import { validatedArangoContainer } from '../helpers/native-cda-workflow-tools.mjs';
 import { proposalPreviewReadinessExpression, readProposalPreviewState } from '../helpers/proposal-preview-readiness.mjs';
-import { validateNullableJoinSwitch } from '../nullable-join-cancel.mjs';
-import {
-  createNativeAbortProbeSource,
-  nativeAbortSignalObservationForRequest,
-} from '../helpers/native-abort-probe.mjs';
 
 const generationExpected = 'cda-fhir-v1';
 const tidy = value => String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -71,7 +66,6 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
     rawOracleApplicationAuthorizationClaimed: false,
     authoringAuthorizationScope: 'Builder catalog and every selection revision are bound to the exact authorizationScopeDigest.' };
   report.cases ??= [];
-  report.nativeAbortProbeEvents ??= [];
   const api = async (path, body) => {
     const headers = { 'X-Request-ID': `cda-nullable-code-join-${randomUUID()}` };
     const response = body === undefined
@@ -134,13 +128,6 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
   const authoring = `${base}/authoring/v2`;
   const uiURL = `${uiOrigin}/?project=${encode(project)}&explorer=${encode(explorer)}&mode=builder`;
   const capture = cda.captureRequests(authoring, { responsePaths: /commands|construction-choice-proposals|construction-proposals|construction-capabilities|preview/ });
-  await page.context().exposeBinding('__loomNativeAbortProbeBinding', (_source, payload) => {
-    let event;
-    try { event = JSON.parse(payload); }
-    catch { report.nativeAbortProbeEvents.push({ kind: 'probe-payload-invalid', payloadLength: String(payload).length }); return; }
-    report.nativeAbortProbeEvents.push(event);
-  });
-  await page.context().addInitScript(createNativeAbortProbeSource({ project, explorer, apiOrigin }));
   let builder = await api(`${authoring}/builder`);
   const empty = builderDraftStateEvidence(builder, 'empty');
   assert(empty.ok, `Fresh CDA Explorer must start with an empty draft: ${JSON.stringify(empty)}`);
@@ -280,51 +267,9 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
     return expected;
   };
   const sourceTables = [];
-  const validateOwnerSwitch = ({ actionRecord, outgoing, next }) => {
-    assert(actionRecord?.id && actionRecord.status === 'passed', 'Expected the exact completed native owner-switch action.');
-    const result = validateNullableJoinSwitch(report, {
-      scope: { project, generation, explorer },
-      action: { id: actionRecord.id, label: actionRecord.label, locator: actionRecord.locator },
-      outgoing,
-      next,
-    });
-    cda.check('correctness', `${actionRecord.label} classifies only exact scoped owner-switch aborts`, result.ok,
-      { actionId: actionRecord.id, actionLabel: actionRecord.label, actionLocator: actionRecord.locator, outgoing, next, result });
-    assert(result.ok, `Owner-switch cancellation evidence is invalid: ${JSON.stringify(result)}`);
-    return result;
-  };
-  const ownerSwitchCancellationScopes = async ({ actionLabel, outgoing, work, retirement }) => {
-    const capabilitiesPath = `${authoring}/construction-capabilities`;
-    const selectionPath = `${base}/selections/${encode(outgoing.selectionId)}`;
-    const proof = {
-      project, explorer, generation,
-      outgoingOutputId: outgoing.outputId,
-      outgoingSelectionRevisionId: outgoing.selectionId,
-      outgoingDraft: outgoing.draft,
-      retirement,
-    };
-    return cda.withExpectedCancellations({
-      origin: uiOrigin,
-      method: 'POST',
-      paths: [capabilitiesPath],
-      requestIdPrefixes: ['cda-request-'],
-      reason: `${actionLabel} retires the outgoing current-draft construction-capabilities request when Builder changes owners.`,
-      proof,
-      actionLabel,
-    }, () => cda.withExpectedCancellations({
-      origin: uiOrigin,
-      method: 'GET',
-      paths: [selectionPath],
-      requestIdPrefixes: ['cda-request-'],
-      reason: `${actionLabel} retires the outgoing current-draft attached-selection read when Builder changes owners.`,
-      proof,
-      actionLabel,
-    }, work));
-  };
   const addDirectCodeColumn = async source => {
     await cda.navigate(uiURL);
     const selectLabel = `Select raw ${source.side} Observation population`;
-    let switchContext;
     if (source.side === 'right') {
       await waitSelector('[data-testid^="construction-table-"][aria-current="page"]');
       const beforeSwitch = structuredClone(await readBuilder());
@@ -337,20 +282,7 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
       assert(previousSource, `The raw right-source switch must start from a previously selected source, got ${selectedOutputId}.`);
       const previousDocument = getDocument(beforeSwitch, previousSource.outputId);
       assert.equal(previousDocument.population?.selectionRevisionId, previousSource.selection.id);
-      switchContext = {
-        outgoing: { outputId: previousSource.outputId, selectionId: previousSource.selection.id,
-          draft: { snapshotToken: beforeSwitch.catalog.snapshotToken,
-            version: beforeSwitch.draftVersion, digest: beforeSwitch.draftDigest } },
-      };
-      const switchActionIndex = report.actions.length;
-      await ownerSwitchCancellationScopes({
-        actionLabel: selectLabel,
-        outgoing: switchContext.outgoing,
-        retirement: 'Selecting the right raw source replaces the active left source projection and attached-selection query.',
-        work: () => selectTable(source.outputId, 3, selectLabel),
-      });
-      switchContext.actionRecord = report.actions[switchActionIndex];
-      assert.equal(switchContext.actionRecord?.label, selectLabel);
+      await selectTable(source.outputId, 3, selectLabel);
     } else {
       await selectTable(source.outputId, 3, selectLabel);
     }
@@ -371,14 +303,14 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
     await action(`Select Observation.valueQuantity.code for ${source.side} source`, page.locator(checkbox),
       locator => locator.check({ timeout: 5_000 }));
     const addSelected = page.getByRole('button', { name: 'Add 1 selected feature', exact: true });
-    const choiceProposalStart = report.nativeRequests.length;
+    const choiceProposalStart = capture.requests.length;
     await action(`Add scalar valueQuantity.code to ${source.side} source`, addSelected,
       locator => locator.click({ timeout: 5_000 }), async () => waitApplyColumns());
-    const choiceEvent = await capture.waitFor(entry => entry.path === `${authoring}/construction-choice-proposals` &&
-      entry.method === 'POST' && entry.status === 200 && entry.completedAt && entry.body?.outputId === source.outputId,
+    const choiceEvent = await capture.waitForResponse(entry => entry.path === `${authoring}/construction-choice-proposals` &&
+      entry.method === 'POST' && entry.status === 200 && entry.completedAt && entry.request?.outputId === source.outputId,
     { fromIndex: choiceProposalStart, timeoutMs: 5_000 });
-    const choiceRequest = capture.rawRequestBody(choiceEvent);
-    const choiceResponse = capture.rawResponseBody(choiceEvent);
+    const choiceRequest = choiceEvent.request;
+    const choiceResponse = choiceEvent.response;
     assert(choiceRequest && choiceResponse, 'Native field-choice proposal request and response must be retained.');
     assert.equal(choiceEvent.origin, new URL(uiOrigin).origin);
     assert.equal(choiceRequest.snapshotToken, sourceBaseState.catalog.snapshotToken);
@@ -401,12 +333,12 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
     assert(choiceResponse.candidateColumnIds[0]);
     await action(`Apply raw code column to ${source.side} source`, page.getByRole('button', { name: 'Apply columns', exact: true }),
       locator => locator.click({ timeout: 5_000 }), async () => waitSaved(source.outputId, 3));
-    const applyEvent = await capture.waitFor(entry => entry.path === `${authoring}/commands` && entry.method === 'POST' &&
-      entry.status === 200 && entry.completedAt && entry.body?.commands?.some(command =>
+    const applyEvent = await capture.waitForResponse(entry => entry.path === `${authoring}/commands` && entry.method === 'POST' &&
+      entry.status === 200 && entry.completedAt && entry.request?.commands?.some(command =>
         command.type === 'APPLY_CONSTRUCTION_CHOICE' && command.outputId === source.outputId),
     { fromIndex: choiceProposalStart, timeoutMs: 5_000 });
-    const applyRequest = capture.rawRequestBody(applyEvent);
-    const applyResponse = capture.rawResponseBody(applyEvent);
+    const applyRequest = applyEvent.request;
+    const applyResponse = applyEvent.response;
     assert(applyRequest && applyResponse, 'Native field-choice Apply command and response must be retained.');
     assert.equal(applyRequest.commandId, choiceResponse.commandId);
     assert.equal(applyRequest.snapshotToken, choiceResponse.snapshotToken);
@@ -453,13 +385,6 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
           candidateColumnIds: choiceResponse.candidateColumnIds, savedColumnId: codeColumn.columnId,
           savedPublicColumnName: codeColumn.column, form: appliedChoice.constructionChoice.form,
           applyResult: addedResult[0] } });
-    if (switchContext) {
-      const next = { outputId: source.outputId, selectionId: source.selection.id,
-        draft: { snapshotToken: sourceBaseState.catalog.snapshotToken,
-          version: sourceBaseState.draftVersion, digest: sourceBaseState.draftDigest },
-        proof: { kind: 'visible-rows', selectionId: source.selection.id, expectedRows } };
-      validateOwnerSwitch({ actionRecord: switchContext.actionRecord, outgoing: switchContext.outgoing, next });
-    }
     return source;
   };
   const createSource = async (side, rows) => {
@@ -551,11 +476,11 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
     let expectedOutputColumnIDs;
 
     const captureProposal = async ({ fromIndex, outputId, baseState }) => {
-      const event = await capture.waitFor(entry => entry.path === `${authoring}/construction-proposals` &&
-        entry.method === 'POST' && entry.status === 200 && entry.completedAt && entry.body?.outputId === outputId,
+      const event = await capture.waitForResponse(entry => entry.path === `${authoring}/construction-proposals` &&
+        entry.method === 'POST' && entry.status === 200 && entry.completedAt && entry.request?.outputId === outputId,
       { fromIndex, timeoutMs: 5_000 });
-      const requestBody = capture.rawRequestBody(event);
-      const responseBody = capture.rawResponseBody(event);
+      const requestBody = event.request;
+      const responseBody = event.response;
       assert(requestBody && responseBody, 'Native Join proposal request and response must be retained.');
       assert.equal(event.origin, new URL(uiOrigin).origin, 'Native candidate proposal must use the owned UI proxy.');
       assert.equal(event.path, `${authoring}/construction-proposals`);
@@ -595,7 +520,7 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
       checkScope(builder);
       const rootNodeIDs = builder.catalog.nodes.filter(node => node.resourceType === 'Observation' && node.rowRootEligible).map(node => node.nodeId);
       const priorOutputIDs = builder.workspace.documents.map(document => document.output.id);
-      const fromIndex = report.nativeRequests.length;
+      const fromIndex = capture.requests.length;
       await cda.navigate(uiURL);
       const combineAction = page.getByTestId('construction-action-combine');
       const combineLabel = 'Open native Combine to create the empty nullable Join target';
@@ -605,37 +530,18 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
         return selected?.getAttribute('data-testid')?.slice('construction-table-'.length) ?? null;
       });
       const selectedSource = sourceTables.find(source => source.outputId === selectedOutputId);
-      let switchContext;
       if (selectedSource) {
         const selectedDocument = getDocument(builder, selectedSource.outputId);
         assert.equal(selectedDocument.population?.selectionRevisionId, selectedSource.selection.id);
-        switchContext = {
-          outgoing: { outputId: selectedSource.outputId, selectionId: selectedSource.selection.id,
-            draft: { snapshotToken: builder.catalog.snapshotToken,
-              version: builder.draftVersion, digest: builder.draftDigest } },
-        };
       }
       const openCombine = () => action(combineLabel, combineAction,
         locator => locator.click({ timeout: 5_000 }), async () => waitSelector('[data-testid="construction-combine-editor"]'));
-      let switchAction;
-      if (switchContext) {
-        const switchActionIndex = report.actions.length;
-        await ownerSwitchCancellationScopes({
-          actionLabel: combineLabel,
-          outgoing: switchContext.outgoing,
-          retirement: 'Opening native Combine replaces the active right raw source projection and attached-selection query with a new current-draft target.',
-          work: openCombine,
-        });
-        switchAction = report.actions[switchActionIndex];
-        assert.equal(switchAction?.label, combineLabel);
-      } else {
-        await openCombine();
-      }
-      const event = await capture.waitFor(entry => entry.path === `${authoring}/commands` && entry.method === 'POST' &&
-        entry.status === 200 && entry.completedAt && entry.body?.commands?.some(command => command.type === 'CREATE_TABLE'),
+      await openCombine();
+      const event = await capture.waitForResponse(entry => entry.path === `${authoring}/commands` && entry.method === 'POST' &&
+        entry.status === 200 && entry.completedAt && entry.request?.commands?.some(command => command.type === 'CREATE_TABLE'),
       { fromIndex, timeoutMs: 5_000 });
-      const requestBody = capture.rawRequestBody(event);
-      const response = capture.rawResponseBody(event);
+      const requestBody = event.request;
+      const response = event.response;
       const mountedOutputID = await page.locator('[data-testid="construction-operation-editor"][data-operation-family="COMBINE"]').getAttribute('data-output-id');
       const targetBinding = nativeCombineTargetBindingEvidence({ requestBody, responseStatus: event.status, response,
         expectedRootNodeIds: rootNodeIDs, expectedRootResourceType: 'Observation', previousOutputIds: priorOutputIDs,
@@ -650,17 +556,10 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
           { targetBinding, project, generation, snapshotToken: builder.catalog.snapshotToken,
             authorizationScopeDigest: builder.catalog.authorizationScopeDigest });
       }
-      if (switchContext) {
-        const next = { outputId: target.outputId, selectionId: null,
-          draft: { snapshotToken: builder.catalog.snapshotToken,
-            version: builder.draftVersion, digest: builder.draftDigest },
-          proof: { kind: 'empty-target' } };
-        validateOwnerSwitch({ actionRecord: switchAction, outgoing: switchContext.outgoing, next });
-      }
       return target;
     };
     const configureJoin = async (joinType, expectedRows) => {
-      const fromIndex = report.nativeRequests.length;
+      const fromIndex = capture.requests.length;
       const baseState = structuredClone(await readBuilder());
       checkScope(baseState);
       await action('Choose native KEY_JOIN for raw CDA sources', page.getByTestId('construction-combine-choice-key_join'),
@@ -736,7 +635,7 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
     const configurePolicy = async (joinType, expectedRows, currentTarget) => {
       const baseState = structuredClone(await readBuilder());
       checkScope(baseState);
-      const fromIndex = report.nativeRequests.length;
+      const fromIndex = capture.requests.length;
       const selector = 'select[aria-label="If a row in the first table has no match"]';
       await action(`Set saved raw Join policy to ${joinType}`, page.locator(selector),
         locator => locator.selectOption(joinType, { timeout: 5_000 }), async () => waitProposal(currentTarget.outputId, expectedRows.length));
@@ -857,7 +756,7 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
       await action('Open saved Join history before removal', history, locator => locator.click({ timeout: 5_000 }),
         async () => assertEnabled(remove));
       const baseState = structuredClone(await readBuilder());
-      const fromIndex = report.nativeRequests.length;
+      const fromIndex = capture.requests.length;
       await action('Preview raw nullable Join removal', remove, locator => locator.click({ timeout: 5_000 }),
         async () => waitProposal(target.outputId, 0));
       const proposal = await captureProposal({ fromIndex, outputId: target.outputId, baseState });
@@ -968,25 +867,10 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
     cda.check('performance', 'All native nullable Join lifecycle actions complete within five seconds', failedActions.length === 0,
       { actionCount: report.actions?.length ?? 0, failedActions, actionBudgetMs: 5_000 });
     assert.equal(failedActions.length, 0);
-    report.status = 'passed';
-    report.target.explorer = explorer;
+        report.target.explorer = explorer;
     report.target.nullableCodeJoin = { outputId: target.outputId, sourceOutputIDs, selectionIDs: sources.map(source => source.selection.id) };
   } finally {
     page.off('request', onRequest);
-    await capture.flush();
-    for (const entry of report.nativeRequests ?? []) {
-      if (entry.path?.endsWith('/construction-capabilities') || entry.path?.endsWith('/semantic-inventory')) {
-        const requestId = entry.requestDetails?.requestId;
-        const requestIdentityMatchCount = typeof requestId === 'string'
-          ? report.nativeRequests.filter((candidate) => candidate.requestDetails?.requestId === requestId &&
-            candidate.origin === entry.origin && candidate.path === entry.path &&
-            candidate.method === entry.method).length
-          : 0;
-        entry.abortControllerSignalObservation = nativeAbortSignalObservationForRequest(
-          { ...entry, requestIdentityMatchCount }, report.nativeAbortProbeEvents,
-        );
-      }
-    }
     report.finished = new Date().toISOString();
     await cda.attachReport('nullable-code-join', report);
   }

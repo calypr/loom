@@ -87,15 +87,15 @@ const command = async commands => {
 };
 const waitNative = async (suffix, startedAt, predicate = () => true) => {
   try {
-    return await requestCapture.waitFor(entry => pathOf(entry).endsWith(suffix) &&
-      entry.startedAt >= startedAt && predicate(entry), { timeout: Math.max(1, startedAt + 5000 - Date.now()) });
+    return await requestCapture.waitForResponse(entry => pathOf(entry).endsWith(suffix) &&
+      entry.startedAt >= startedAt && predicate(entry), { timeoutMs: Math.max(1, startedAt + 5000 - Date.now()) });
   } catch {
     assert.fail(`Native ${suffix} request did not complete with a readable response within five seconds`);
   }
 };
 const waitRowProposal = async (startedAt, expectedRevisionID, expectedPolicy) => {
   const request = await waitNative('/row-definition-proposals', startedAt, entry => {
-    const choice = entry.body?.selection?.explicitGroup;
+    const choice = entry.request?.selection?.explicitGroup;
     return choice?.revisionId === expectedRevisionID && choice?.unassignedMemberPolicy === expectedPolicy;
   });
   assert.equal(request.status, 200, JSON.stringify(request));
@@ -116,9 +116,9 @@ const waitSavedPreview = async startedAt => {
   const deadline = startedAt + 5000;
   let response;
   try {
-    response = await requestCapture.waitFor(entry => entry.startedAt >= startedAt && entry.status === 200 &&
+    response = await requestCapture.waitForResponse(entry => entry.startedAt >= startedAt && entry.status === 200 &&
       (pathOf(entry).endsWith('/preview') || pathOf(entry).endsWith('/commands')),
-    { timeout: Math.max(1, deadline - Date.now()) });
+    { timeoutMs: Math.max(1, deadline - Date.now()) });
   } catch {
     assert.fail('Saved preview or accepted proposal did not render within five seconds');
   }
@@ -204,7 +204,7 @@ const createCohortNatively = async (memberIDs, memberKeyByID, revisionName) => {
   assert.equal(revision.groups.length, 1);
   assert.equal(revision.groups[0].label, groupLabel);
   assert.equal(revision.groups[0].memberCount, memberIDs.length);
-  const submitted = createRequest.body.groups;
+  const submitted = createRequest.request.groups;
   assert.equal(submitted.length, 1);
   assert.equal(submitted[0].label, groupLabel);
   assert.deepEqual(sorted(submitted[0].memberIds), sorted(memberIDs.map(id => memberKeyByID.get(id))));
@@ -266,7 +266,7 @@ const inspectFirstRow = async (name, expectedIDs) => {
   const body = native.response;
   assert.equal(body.status, 'COMPLETE', JSON.stringify(body));
   assert.equal(body.outputId, outputId);
-  assert.equal(body.rowId, native.body.rowId);
+  assert.equal(body.rowId, native.request.rowId);
   const expectedRefs = sorted(expectedIDs.map(id => `${resourceType}/${id}`));
   const contributors = sorted(body.contributors.map(item => `${item.resourceType}/${item.resourceId}`));
   assert.deepEqual(contributors, expectedRefs, `${name} lineage must match the independently scoped raw FHIR IDs`);
@@ -400,11 +400,11 @@ try {
   await waitUI(`document.querySelector(${JSON.stringify(filterEditor + ' input[aria-label="Value"]:not(:disabled)')})`);
   await replaceInput(`${filterEditor} input[aria-label="Value"]`, groupLabel);
   const tableBeforeFilter = await waitTable(1);
-  const filteredProposal = await waitConstructionProposal(start, entry => entry.body?.candidateConstruction?.steps?.some(step =>
+  const filteredProposal = await waitConstructionProposal(start, entry => entry.request?.candidateConstruction?.steps?.some(step =>
     step.operation?.kind === 'FILTER' && step.operation.filter.operator === 'EQUALS' &&
     step.operation.filter.values?.some(value => value.kind === 'STRING' && value.string === groupLabel)));
   assert.deepEqual(filteredProposal.result.rows, tableBeforeFilter.rows, 'The downstream group-label filter must retain the exact cohort/member-field output row');
-  const nativeFilterStep = filteredProposal.request.body.candidateConstruction.steps.find(step => step.operation?.kind === 'FILTER');
+  const nativeFilterStep = filteredProposal.request.request.candidateConstruction.steps.find(step => step.operation?.kind === 'FILTER');
   assert(nativeFilterStep, 'The native downstream filter request must include its authored step');
   recordRender('preview-downstream-group-filter', start);
   start = Date.now();
@@ -513,15 +513,15 @@ try {
     const collectionChangeStart = Date.now();
     await clickUI('[aria-label="Starting collection"] button', { name: 'Remove from collection' });
     const populationCommand = await waitNative('/commands', collectionChangeStart, entry =>
-      entry.status === 200 && entry.body?.commands?.some(command => command.type === 'SET_TABLE_POPULATION'));
-    const populationChange = populationCommand.body.commands.find(command => command.type === 'SET_TABLE_POPULATION');
-    const nativeSelectionCreate = report.nativeRequests.findLast(entry => pathOf(entry).endsWith('/selections') &&
+      entry.status === 200 && entry.request?.commands?.some(command => command.type === 'SET_TABLE_POPULATION'));
+    const populationChange = populationCommand.request.commands.find(command => command.type === 'SET_TABLE_POPULATION');
+    const nativeSelectionCreate = requestCapture.requests.findLast(entry => pathOf(entry).endsWith('/selections') &&
       entry.startedAt >= collectionChangeStart && entry.method === 'POST');
     assert(nativeSelectionCreate, 'Removing a native uncovered record must create a derived source collection revision');
-    assert.equal(nativeSelectionCreate.body?.source?.kind, 'selectionRevision');
-    assert.equal(nativeSelectionCreate.body?.source?.selectionRevision?.selectionRevisionId, selection.id,
+    assert.equal(nativeSelectionCreate.request?.source?.kind, 'selectionRevision');
+    assert.equal(nativeSelectionCreate.request?.source?.selectionRevision?.selectionRevisionId, selection.id,
       'The source collection revision must derive from the exact two-member pinned selection');
-    assert.deepEqual(nativeSelectionCreate.body?.exclusions?.map(ref => ref.id), [excludedSourceID],
+    assert.deepEqual(nativeSelectionCreate.request?.exclusions?.map(ref => ref.id), [excludedSourceID],
       'Native collection removal must exclude exactly the independently identified unaccounted-for Specimen');
     const variantID = populationChange.selectionRevisionId;
     assert(variantID && variantID !== selection.id, 'The authored table must attach a new immutable source collection revision');
@@ -619,7 +619,7 @@ try {
   start = Date.now();
   await clickUI(`[data-testid="construction-remove-step-${savedFilter.id}"]`);
   const removeFilter = await waitConstructionProposal(start);
-  assert(JSON.stringify(removeFilter.request.body).includes(savedFilter.id), 'Filter-removal proposal must name the saved downstream step');
+  assert(JSON.stringify(removeFilter.request.request).includes(savedFilter.id), 'Filter-removal proposal must name the saved downstream step');
   assert.deepEqual(removeFilter.result.rows, table.rows, 'Removing the filter must restore the exact saved one-member row');
   const removePreview = removeFilter.result.rows[0];
   assert(removePreview.includes(groupLabel));
@@ -653,7 +653,7 @@ try {
   const recordsSelector = await openRows();
   const recordsStart = Date.now();
   await selectUI(recordsSelector, 'records');
-  const recordsProposal = await waitNative('/row-definition-proposals', recordsStart, entry => entry.body?.selection?.kind === 'RECORDS');
+  const recordsProposal = await waitNative('/row-definition-proposals', recordsStart, entry => entry.request?.selection?.kind === 'RECORDS');
   assert.equal(recordsProposal.status, 200, JSON.stringify(recordsProposal.response));
   await waitUI(`[...document.querySelectorAll('[aria-label="Row definition settings"] button')].some(button=>button.innerText==='Apply row definition'&&!button.disabled)`);
   recordRender('preview-remove-cohort-row-definition', recordsStart);
@@ -686,7 +686,6 @@ try {
       elapsedMs: Date.now() - report.activeAction.startedAt };
     delete report.activeAction;
   }
-  await requestCapture.flush();
   await cda.attachReport('cohort-membership-revision-evidence.json', report);
 }
 }

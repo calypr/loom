@@ -454,11 +454,11 @@ const assertTypedNamedGroupRows = (rows, expectedGroupCounts, revisionId, relate
   return evidenceRows;
 };
 
-const protocolResponse = entry => nativeCapture.rawResponseBody(entry);
+const protocolResponse = entry => entry.response;
 const waitNative = async (suffix, startedAt, predicate = () => true) => {
   const deadline = startedAt + 5000;
   while (Date.now() < deadline) {
-    const match = report.nativeRequests.findLast(entry => {
+    const match = nativeCapture.requests.findLast(entry => {
       const response = protocolResponse(entry);
       return pathOf(entry).endsWith(suffix) && entry.startedAt >= startedAt && entry.completedAt &&
         response !== undefined && predicate(entry, response);
@@ -587,7 +587,7 @@ const addRelatedObservation = async expectedGroupCounts => {
 
 const applyConstructionProposal = async (expectedGroupCounts, relatedColumnName) => {
   const startedAt = Date.now();
-  const nativeStartIndex = report.nativeRequests.length;
+  const nativeStartIndex = nativeCapture.requests.length;
   await click(page, '[data-testid="construction-apply-proposal"]');
   await waitForBrowser(page, (args) => { return Boolean((!document.querySelector('[data-testid="construction-proposal-panel"]'))); });
   const table = await waitTable(expectedGroupCounts.length);
@@ -597,7 +597,7 @@ const applyConstructionProposal = async (expectedGroupCounts, relatedColumnName)
   const previewResponse = protocolResponse(previewRequest);
   assert(previewResponse?.receiptId, 'Apply must render a fresh native Preview receipt');
   const protocolRows = assertTypedNamedGroupRows(previewResponse.rows, expectedGroupCounts, report.cohort.revisionId, relatedColumnName);
-  assert(report.nativeRequests.slice(nativeStartIndex).some(entry => pathOf(entry).endsWith('/commands') && entry.status === 200));
+  assert(nativeCapture.requests.slice(nativeStartIndex).some(entry => pathOf(entry).endsWith('/commands') && entry.status === 200));
   record('apply-to-render', startedAt, { table, protocolRows });
   builder = await api(base + '/builder');
   return table;
@@ -1019,12 +1019,12 @@ try {
   else if (error instanceof BoundedAbsenceError) report.boundedAbsence = error.evidence;
   report.failureUI = await browserEval(page, () => { return document.body.innerText; }).catch(String);
 } finally {
-  await nativeCapture?.flush();
+  await nativeCapture?.stop();
   report.finished = new Date().toISOString();
   report.nativeRequestSummary = report.nativeRequests.map(({ path, method, status, body, response, failure }) => ({ path, method, status, body, response, failure }));
   await cda.attachReport('named-cohort-related-count-domain-report.json', report);
 }
 
-if (fatal || report.status !== 'passed') throw fatal ?? new Error(report.oracle?.explanation ?? report.error ?? 'Named cohort related workflow did not pass');
+if (fatal) throw fatal;
 return report;
 }

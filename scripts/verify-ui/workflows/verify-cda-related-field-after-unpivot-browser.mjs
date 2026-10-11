@@ -154,8 +154,8 @@ const selectUI = (selector, value) => {
   report.lastAction = { label: `Select ${value}`, locator: locator.toString(), targetLocator: locator, startedAt: Date.now() };
   return cda.action(`Select ${value}`, locator, target => target.selectOption(value, { timeout: 5000 }), { timeout: 5000, budget: 5000 });
 };
-const requestBody = entry => requestCapture.rawRequestBody(entry) ?? entry.body;
-const responseBody = entry => requestCapture.rawResponseBody(entry) ?? entry.response;
+const requestBody = entry => entry.request ?? entry.request;
+const responseBody = entry => entry.response ?? entry.response;
 const endpointOf = entry => entry.path?.slice(base.length) ?? '';
 
 const rawOracleFailure = (message, result, phase) => {
@@ -352,9 +352,9 @@ const nativeView = entry => ({
 });
 
 const waitNative = async (endpoint, startedAt, predicate = () => true, timeoutMs = 5000) => {
-  const entry = await requestCapture.waitFor(candidate => candidate.path === base + endpoint
+  const entry = await requestCapture.waitForResponse(candidate => candidate.path === base + endpoint
     && candidate.startedAt >= startedAt
-    && predicate(nativeView(candidate)), { timeout: timeoutMs });
+    && predicate(nativeView(candidate)), { timeoutMs: timeoutMs });
   return nativeView(entry);
 };
 
@@ -1293,7 +1293,7 @@ try {
       previewRows[0][patientIDLabel]?.[0] === source.patient.id,
     { restoredConstruction: doc().construction, restoredColumns: doc().columns, rows: previewRows, patientID: source.patient.id });
 
-  await requestCapture.flush();
+  await requestCapture.stop();
   for (const failure of cda.diagnostics.networkFailures) report.errors.push({ kind: 'browser-network', ...failure });
   for (const failure of cda.diagnostics.httpFailures) report.errors.push({ kind: 'browser-http', ...failure });
   recordLifecycleCheck(
@@ -1337,7 +1337,7 @@ if (page) await captureFailure(error, {
   }
   report.__nativeFailure = true;
 } finally {
-  await requestCapture?.flush().catch(() => undefined);
+  await requestCapture?.stop().catch(() => undefined);
   report.nativeRequests = report.nativeRequests.map(entry => {
     const view = nativeView(entry);
     return {

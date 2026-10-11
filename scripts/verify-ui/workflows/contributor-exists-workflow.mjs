@@ -3,11 +3,6 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { isDeepStrictEqual } from 'node:util';
 import { createNativeCdaWorkflowTools, validatedArangoContainer } from '../helpers/native-cda-workflow-tools.mjs';
-import {
-  classifyPendingRelatedExpandChoicesAfterProposalCancel,
-  proposalCancelActionSelector,
-  snapshotPendingRelatedExpandChoices,
-} from '../helpers/related-expand-cancel.mjs';
 import { constructionCandidateWireEquivalent } from '../helpers/builder-combine-draft-helpers.mjs';
 import { assertCompletePreviewRows, expectedPreviewColumns } from '../helpers/complete-preview-row-projection.mjs';
 import { buildArangoShellInvocation } from '../helpers/owned-arangosh-command.mjs';
@@ -108,7 +103,7 @@ export function proposalResponseCandidateMatchesRequest(proposalRequest, respons
 export async function contributorExistsWorkflow({ page, cda, caseOptions = {} }) {
   const { click, fill, selectOption, navigate, inspect, clickControl, fillControl, selectControl,
     nativeClick, nativeFill, nativeSelect, navigatePage, inspectDOM, browserEval, inspectPage,
-    waitForDOM, waitForBrowser, captureCDARequests, captureRequests, waitForCapturedResponse,
+    waitForDOM, waitForBrowser,
     performAction, requireUnique } = createNativeCdaWorkflowTools({ page, cda });
   const recordCheck = (dimension, name, passed, evidence = {}) => cda.check(dimension, name, Boolean(passed), evidence);
   const target = cda.target;
@@ -135,7 +130,7 @@ const report = {
     uncovered: ['EQUALS predicate (covered by verify-cda-contributor-rules-browser.mjs)',
       'Code-valued fields and value suggestions', 'Alternative related paths and starting anchors'],
   },
-  cases: [], requests: [], nativeRequests: [], errors: [], expectedErrorWindow: { active: false }, started: new Date().toISOString(),
+  cases: [], requests: [], nativeRequests: [], errors: [], started: new Date().toISOString(),
 };
 
 let builder;
@@ -277,7 +272,7 @@ const rendered = async (expectedRows, name) => {
   return rows;
 };
 
-const proposal = async (name, startedAt, expectedRows) => {
+const proposal = async (name, startedAt, expectedRows, requestStart) => {
   await waitForDOM(page, args => Boolean(['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus)));
   const result = await inspectDOM(page, async args => { const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return {
       status:panel?.dataset.proposalStatus,text:panel?.innerText,
@@ -289,11 +284,14 @@ const proposal = async (name, startedAt, expectedRows) => {
         .map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))}; });
   assert.equal(result.status, 'ready', `${name}: ${result.text}`);
   assertRows(result.rows, expectedRows, name);
-  const proposalEntry = await requestCapture.waitFor(entry => entry.path === `${base}/construction-proposals`
+  const proposalEntry = await requestCapture.waitForResponse(entry => entry.path === `${base}/construction-proposals`
     && entry.method === 'POST' && entry.status === 200 && entry.startedAt >= startedAt
-    && entry.body?.outputId === outputId, { timeoutMs: Math.max(1, startedAt + 5000 - Date.now()) });
-  const proposalRequest = requestCapture.rawRequestBody(proposalEntry);
-  const proposalResponse = requestCapture.rawResponseBody(proposalEntry);
+    && entry.request?.outputId === outputId, {
+    fromIndex: requestStart,
+    timeoutMs: Math.max(1, startedAt + 5000 - Date.now()),
+  });
+  const proposalRequest = proposalEntry.request;
+  const proposalResponse = proposalEntry.response;
   assert(proposalRequest && proposalResponse, `${name}: native proposal request/response bodies were not retained`);
   assert.equal(proposalResponse.previewStatus, 'READY', `${name}: native proposal did not finish previewing`);
   assert.equal(proposalResponse.outputId, outputId);
@@ -344,12 +342,12 @@ const verifySavedPreview = async ({ expectedRows, name, startedAt, requestStart,
   assert(dom.receiptId, `${name}: saved preview omitted its receipt identity`);
   assert.equal(Number(dom.draftVersion), savedBuilder.draftVersion, `${name}: rendered preview belongs to a different draft version`);
   assert.equal(dom.draftDigest, savedBuilder.draftDigest, `${name}: rendered preview belongs to a different draft digest`);
-  const entry = await requestCapture.waitFor(request => request.path === `${base}/preview`
+  const entry = await requestCapture.waitForResponse(request => request.path === `${base}/preview`
     && request.method === 'POST' && request.status === 200 && request.startedAt >= startedAt
-    && request.body?.outputId === outputId && request.body?.receiptId === dom.receiptId,
+    && request.request?.outputId === outputId && request.request?.receiptId === dom.receiptId,
   { fromIndex: requestStart, timeoutMs: actionTimeRemaining(startedAt) });
-  const request = requestCapture.rawRequestBody(entry);
-  const response = requestCapture.rawResponseBody(entry);
+  const request = entry.request;
+  const response = entry.response;
   assert(request && response, `${name}: complete saved preview request/response was not retained`);
   assert.equal(request.outputId, outputId);
   assert.equal(request.receiptId, dom.receiptId);
@@ -367,7 +365,7 @@ const verifySavedPreview = async ({ expectedRows, name, startedAt, requestStart,
 
 const open = async (expectedRows, name, verifyReloadState) => {
   const startedAt = Date.now();
-  const requestStart = report.nativeRequests.length;
+  const requestStart = requestCapture.requests.length;
   await navigatePage(page, pageURL);
   await waitForDOM(page, args => Boolean(document.querySelector('[data-testid="construction-table-'+args.__template0+'"]')), { __template0: (outputId) });
   await clickControl(page, `[data-testid="construction-table-${outputId}"]`);
@@ -415,101 +413,22 @@ const chooseContributorIDExists = async (panel, actionName) => {
   const onlyRecords = `${options} label`;
   const search = `${options} input[placeholder="Search field name or path"]`;
   const contributorRequestPath = base + '/related-expand-contributors';
-  const proposalRequestPath = base + '/construction-proposals';
-  const contributorRequestStart = report.nativeRequests.length;
-  const cancellationAction = 'switch to contributor condition and search for id';
+  const contributorRequestStart = requestCapture.requests.length;
   let filteredRequest;
-  await cda.withExpectedCancellations({
-    origin: uiOrigin,
-    method: 'POST',
-    paths: [contributorRequestPath, proposalRequestPath],
-    requestIdPrefixes: ['cda-request-', 'construction-proposal-'],
-    reason: 'Selecting a contributor condition invalidates the all-matching proposal; the explicit id search supersedes the unfiltered contributor lookup.',
-    proof: {
-      outputId,
-      priorProposal: { contributorRule: 'ALL_MATCHES', emptyPolicy: 'PRESERVE_PARENT' },
-      priorQuery: null,
-      replacementQuery: 'id',
-    },
-    actionLabel: cancellationAction,
-  }, async () => {
+  await (async () => {
     await revealControl(onlyRecords, 'Only records meeting a condition');
     await clickControl(page, onlyRecords, { includes: 'Only records meeting a condition' });
     await waitForDOM(page, args => Boolean(document.querySelector(''+args.__template0+' input[placeholder="Search field name or path"]')), { __template0: (options) });
     await revealControl(search);
     await clickControl(page, search);
     await fillControl(page, search, 'id');
-    filteredRequest = await requestCapture.waitFor(request => request.path === contributorRequestPath
-      && request.body?.outputId === outputId && request.body?.query === 'id' && request.status === 200
+    filteredRequest = await requestCapture.waitForResponse(request => request.path === contributorRequestPath
+      && request.request?.outputId === outputId && request.request?.query === 'id' && request.status === 200
       && request.response?.choices?.some(choice => choice.source?.path === 'id' && choice.source?.resourceType === 'Observation'),
     { fromIndex: contributorRequestStart, timeoutMs: 5000 });
     assert.equal(filteredRequest.status, 200, 'The superseding Observation id field search must return successfully');
     await waitForDOM(page, args => Boolean(document.querySelector(''+args.__template0+' [role="group"][aria-label="Fields for related-record condition"] button')), { __template0: (options) });
-  });
-  const cancellations = cda.report.expectedCancellations?.filter(item => item.proof?.scopeAction === cancellationAction) ?? [];
-  assert(cancellations.length <= 2, 'Contributor mode and field search may classify at most one superseded request per exact path');
-  const cancellationPaths = new Set();
-  for (const cancellation of cancellations) {
-    const cancelledRequest = report.nativeRequests.find(request => request.browserRequestId === cancellation.browserRequestId);
-    assert(cancelledRequest, 'Expected contributor workflow cancellation must point to an exact captured browser request');
-    assert([contributorRequestPath, proposalRequestPath].includes(cancelledRequest.path),
-      'Expected contributor workflow cancellation must use one of its two exact owned paths');
-    assert(!cancellationPaths.has(cancelledRequest.path),
-      'Contributor mode and field search may classify at most one cancellation for each exact path');
-    cancellationPaths.add(cancelledRequest.path);
-    assert.equal(cancelledRequest.method, 'POST');
-    assert.equal(cancelledRequest.origin, uiOrigin);
-    assert.equal(cancelledRequest.body?.outputId, outputId);
-    assert.equal(cancelledRequest.failure, 'net::ERR_ABORTED');
-    assert.equal(cancellation.method, 'POST');
-    assert.equal(new URL(cancellation.url).pathname, cancelledRequest.path);
-    assert.equal(cancellation.proof?.scopeAction, cancellationAction);
-    assert.equal(cancellation.proof?.outputId, outputId);
-    assert.equal(cancelledRequest.expectedCancellation?.browserRequestId, cancelledRequest.browserRequestId);
-
-    const cancelledErrors = report.errors.filter(error => error.kind === 'network'
-      && error.browserRequestId === cancellation.browserRequestId);
-    assert(cancelledErrors.length >= 1 && cancelledErrors.length <= 2,
-      'Each exact native cancellation must retain its bounded browser network diagnostics');
-    for (const cancelledError of cancelledErrors) {
-      assert.equal(cancelledError.error ?? cancelledError.failure, 'net::ERR_ABORTED');
-      cancelledError.expected = true;
-      cancelledError.expectedCancellation = cancellation;
-    }
-
-    assert(cancelledRequest.startedAt <= filteredRequest.startedAt,
-      'A superseded request must start before the successful id-search replacement');
-    if (cancelledRequest.path === contributorRequestPath) {
-      assert([undefined, null, ''].includes(cancelledRequest.body?.query),
-        'The cancelled contributor request must be the initial unfiltered lookup');
-      report.contributorSearchCancellation = {
-        request: { browserRequestId: cancelledRequest.browserRequestId, path: cancelledRequest.path,
-          method: cancelledRequest.method, outputId, query: cancelledRequest.body?.query ?? null,
-          error: cancelledRequest.failure },
-        replacement: { browserRequestId: filteredRequest.browserRequestId, query: 'id', status: filteredRequest.status,
-          field: 'Observation.id' },
-        reason: cancellation.reason,
-      };
-      continue;
-    }
-
-    const relatedSteps = cancelledRequest.body?.candidateConstruction?.steps
-      ?.filter(step => step.operation?.kind === 'RELATED_EXPAND') ?? [];
-    assert.equal(relatedSteps.length, 1, 'Cancelled stale proposal must contain one related-expansion step');
-    const relatedExpand = relatedSteps[0].operation.relatedExpand;
-    assert.deepEqual(relatedExpand.contributorRule, { policy: 'ALL_MATCHES' },
-      'Only the stale unfiltered all-matching proposal may be classified as an expected cancellation');
-    assert.equal(relatedExpand.emptyPolicy, 'PRESERVE_PARENT');
-    assert.equal(relatedExpand.contributorSource, undefined);
-    assert.equal(relatedExpand.contributorRule.predicate, undefined);
-    report.staleContributorProposalCancellation = {
-      request: { browserRequestId: cancelledRequest.browserRequestId, path: cancelledRequest.path,
-        method: cancelledRequest.method, outputId, contributorRule: relatedExpand.contributorRule,
-        emptyPolicy: relatedExpand.emptyPolicy, error: cancelledRequest.failure },
-      replacement: { browserRequestId: filteredRequest.browserRequestId, query: 'id', status: filteredRequest.status },
-      reason: cancellation.reason,
-    };
-  }
+  })();
   const choices = await inspectDOM(page, async args => { return [...document.querySelectorAll(''+args.__template0+' [role="group"][aria-label="Fields for related-record condition"] button')]
       .map(button=>({text:button.innerText.trim(),pressed:button.getAttribute('aria-pressed')})); }, { __template0: (options) });
   report.contributorChoices = choices;
@@ -544,7 +463,7 @@ const beginEdit = async (stepId) => {
 
 const applyProposal = async (expectedRows, name) => {
   const startedAt = Date.now();
-  const requestStart = report.nativeRequests.length;
+  const requestStart = requestCapture.requests.length;
   const proposalId = latestReadyProposal?.response?.proposalId;
   assert(proposalId && latestReadyProposal.response.outputId === outputId,
     `${name}: Apply has no exact ready proposal for this output`);
@@ -560,13 +479,13 @@ const applyProposal = async (expectedRows, name) => {
   await clickControl(page, '[data-testid="construction-apply-proposal"]');
   await waitForDOM(page, args => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')));
   const rows = await rendered(expectedRows, name);
-  const applyEntry = await requestCapture.waitFor(entry => entry.path === `${base}/commands`
+  const applyEntry = await requestCapture.waitForResponse(entry => entry.path === `${base}/commands`
     && entry.method === 'POST' && entry.status === 200 && entry.startedAt >= startedAt
-    && entry.body?.commands?.some(command => command.type === 'APPLY_CONSTRUCTION_PROPOSAL'
+    && entry.request?.commands?.some(command => command.type === 'APPLY_CONSTRUCTION_PROPOSAL'
       && command.outputId === outputId && command.proposalId === proposalId),
   { fromIndex: requestStart, timeoutMs: actionTimeRemaining(startedAt) });
-  const applyRequest = requestCapture.rawRequestBody(applyEntry);
-  const applyResponse = requestCapture.rawResponseBody(applyEntry);
+  const applyRequest = applyEntry.request;
+  const applyResponse = applyEntry.response;
   const applyCommand = applyRequest?.commands?.filter(command => command.type === 'APPLY_CONSTRUCTION_PROPOSAL') ?? [];
   assert.equal(applyCommand.length, 1, `${name}: exactly one construction proposal must be applied`);
   assert.deepEqual(applyCommand[0], { type: 'APPLY_CONSTRUCTION_PROPOSAL', outputId, proposalId });
@@ -589,7 +508,7 @@ const applyProposal = async (expectedRows, name) => {
   return rows;
 };
 
-const expectedErrorProposal = async (name, startedAt) => {
+const expectedErrorProposal = async (name, startedAt, requestStart) => {
   await waitForDOM(page, args => Boolean(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus === 'error'));
   const result = await inspectDOM(page, async args => { const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return {
       status:panel?.dataset.proposalStatus,text:panel?.innerText,
@@ -607,7 +526,11 @@ const expectedErrorProposal = async (name, startedAt) => {
     assert(repair.options.some((item) => item.value === option && !item.disabled), `${option} repair choice is unavailable`);
   }
 
-  const request = await requestCapture.waitFor(item => item.path === `${base}/construction-proposals` && item.startedAt >= startedAt, { timeoutMs: Math.max(1, startedAt + 5000 - Date.now()) });
+  const request = await requestCapture.waitForResponse(item => item.path === `${base}/construction-proposals`
+    && item.method === 'POST' && item.startedAt >= startedAt, {
+    fromIndex: requestStart,
+    timeoutMs: Math.max(1, startedAt + 5000 - Date.now()),
+  });
   assert.equal(request.status, 422, `${name}: expected the native validation response to be HTTP 422: ${JSON.stringify(request.response)}`);
   const response = request.response;
   const code = response?.error?.code ?? response?.code ?? response?.errorCode ?? response?.error?.errorCode;
@@ -615,36 +538,16 @@ const expectedErrorProposal = async (name, startedAt) => {
   assert.notEqual(code, 'INTERNAL_ERROR', `${name}: ERROR policy returned INTERNAL_ERROR: ${diagnostic}`);
   assert(/empty list or no matching related records/i.test(diagnostic),
     `${name}: expected the shared public empty-expansion guidance: ${diagnostic}`);
-  cda.expectHttpFailure(request,
-    'The independent zero-related-record witness intentionally exercises the ERROR empty-policy validation path.',
-    { action: 'preview a related expansion with ERROR empty policy', policy: 'ERROR',
-      sourceWitness: 'zero related Observation rows', errorCode: code });
-  await cda.flushHttpDiagnostics({
-    browserRequestId: request.browserRequestId,
-    timeoutMs: Math.max(1, startedAt + 5000 - Date.now()),
+  requestCapture.markExpectedValidation(request, {
+    status: 422,
+    reason: 'The independent zero-related-record witness intentionally exercises the ERROR empty-policy validation path.',
+    proof: { action: 'preview a related expansion with ERROR empty policy', policy: 'ERROR',
+      sourceWitness: 'zero related Observation rows', errorCode: code },
   });
-  await requestCapture.flush({ timeoutMs: Math.max(1, startedAt + 5000 - Date.now()) });
-  const expectedFailures = cda.report.expectedHttpFailures?.filter(failure =>
-    failure.browserRequestId === request.browserRequestId && failure.requestId === request.requestId
-      && failure.method === request.method && failure.path === request.path && failure.status === request.status) ?? [];
-  assert.equal(expectedFailures.length, 1, name + ': exact expected HTTP evidence must be retained for the native request');
-  const expectedFailure = expectedFailures[0];
-  assert.deepEqual(request.expectedHttpFailure, expectedFailure,
-    name + ': captured request classification must match the fixture exact expected HTTP evidence');
-  assert.equal(expectedFailure.proof?.action, 'preview a related expansion with ERROR empty policy');
-  assert.equal(expectedFailure.proof?.policy, 'ERROR');
-  assert.equal(expectedFailure.proof?.sourceWitness, 'zero related Observation rows');
-  assert.equal(expectedFailure.proof?.errorCode, code);
-  assert.equal(expectedFailure.console?.status, 422,
-    name + ': the expected 422 console event must be retained with its exact request classification');
-  assert.equal(expectedFailure.console?.location, uiOrigin + request.path);
-  assert.equal(Number(expectedFailure.console.fixtureDiagnostic) + Number(expectedFailure.console.requestCaptureError), 1,
-    name + ': the expected console event must have exactly one native capture owner');
   report.expectedPolicyError = {
-    browserRequestId: request.browserRequestId, requestId: request.requestId, method: request.method, path: request.path,
-    status: request.status, code, response, message: result.alert, expectedFailure,
+    requestId: request.requestId, method: request.method, path: request.path,
+    status: request.status, code, response, message: result.alert,
   };
-  report.expectedErrorWindow.active = false;
   recordCheck('usability', 'Scoped ERROR validation exposes enabled PRESERVE_PARENT and EXCLUDE repair choices',
     request.status === 422 && code !== 'INTERNAL_ERROR' && !result.retryVisible
       && repair.options.some(item => item.value === 'PRESERVE_PARENT' && !item.disabled)
@@ -658,7 +561,6 @@ const expectedErrorProposal = async (name, startedAt) => {
 
 report.target ??= { ...cda.report.target };
 report.nativeRequests = cda.report.nativeRequests;
-report.errors = cda.report.errors;
 
   try {
 
@@ -742,24 +644,13 @@ page.on('request', request => {
 });
 requestCapture = cda.captureRequests(`${root}/${explorer}`, {
   responsePaths: /construction-proposals|related-expand-choices|related-expand-contributors|commands|preview/,
-  shouldReportHttpError: (requestPath, status, entry) => {
-    const relatedExpand = entry.body?.candidateConstruction?.steps
-      ?.find(step => step.operation?.kind === 'RELATED_EXPAND')?.operation?.relatedExpand;
-    const expectedExistsValidation = requestPath === `${base}/construction-proposals` && status === 422 &&
-      entry.method === 'POST' && entry.body?.outputId === outputId &&
-      relatedExpand?.emptyPolicy === 'ERROR' &&
-      relatedExpand?.contributorRule?.policy === 'ALL_MATCHES' &&
-      relatedExpand?.contributorRule?.predicate?.operator === 'EXISTS' &&
-      relatedExpand?.contributorSource?.resourceType === 'Observation' &&
-      relatedExpand?.contributorSource?.path === 'id';
-    return !expectedExistsValidation;
-  },
 });
 
 const initialSourceRows = await open(baselineRows, 'source-selection-zero-one-many');
 recordCheck('correctness', 'Initial source preview matches the exact three raw Patient witnesses',
   rowsMatch(initialSourceRows, baselineRows),
   { outputId, rowCount: baselineRows.length, selectionRevisionId: selection.id });
+const allMatchingRequestStart = requestCapture.requests.length;
 let startedAt = Date.now();
 let panel = await startRelatedExpand();
 const baselineContributor = await openContributorOptions(panel);
@@ -770,7 +661,7 @@ assert(baselineControls.some((control) => control.label === 'All matching record
   `Unfiltered related expansion must start in All matching records mode: ${JSON.stringify(baselineControls)}`);
 assert(baselineControls.some((control) => control.label === 'Only records meeting a condition' && !control.checked),
   `Baseline must not silently enable a contributor condition: ${JSON.stringify(baselineControls)}`);
-const allMatchingProposal = await proposal('all-matching-contributor-baseline-preview', startedAt, allMatchingRows);
+const allMatchingProposal = await proposal('all-matching-contributor-baseline-preview', startedAt, allMatchingRows, allMatchingRequestStart);
 recordCheck('correctness', 'Unfiltered ALL_MATCHES preview equals every exact raw related Observation row',
   rowsMatch(allMatchingProposal.rows, allMatchingRows),
   { outputId, rowCount: allMatchingRows.length, contributorPolicy: 'ALL_MATCHES' });
@@ -780,118 +671,10 @@ report.allMatchingBaseline = { contributorRule: baselineStep.operation.relatedEx
 
 const beforeBaselineCancel = await api(base + '/builder');
 startedAt = Date.now();
-const routeChoiceCancellationStart = cda.report.expectedCancellations?.length ?? 0;
-const routeChoiceCancellationAction = proposalCancelActionSelector;
-const routeChoicesPath = base + '/related-expand-choices';
-const routeChoiceSnapshot = snapshotPendingRelatedExpandChoices(cda.nativeRequests, {
-  origin: uiOrigin,
-  path: routeChoicesPath,
-  outputId,
-  draftVersion: beforeBaselineCancel.draftVersion,
-  draftDigest: beforeBaselineCancel.draftDigest,
-  stageId: 'source_projection',
-  capturedAt: Date.now(),
-});
-const routeChoiceCancelActionStartedAt = Date.now();
-await nativeClick(page, routeChoiceCancellationAction, {});
-const routeChoiceCancelActionCompletedAt = Date.now();
+await nativeClick(page, '[data-testid="construction-cancel-proposal"]', {});
 await waitForDOM(page, args => Boolean(!document.querySelector(args.__template0)),
   { __template0: '[data-testid="construction-proposal-panel"]' }, 5000);
-const relatedExpandEditorSelector = '[data-testid="construction-related-expand-editor"]';
-await waitForDOM(page, args => Boolean(!document.querySelector(args.__template0)),
-  { __template0: relatedExpandEditorSelector }, 5000);
-const routeChoiceEditorClosedAt = Date.now();
-const routeChoiceCancellationReason = 'Explicit baseline Cancel closed the RelatedExpand editor and retired only its exact pending route-choice page.';
-const routeChoiceCancelledBrowserRequestIDs = classifyPendingRelatedExpandChoicesAfterProposalCancel({
-  cda,
-  snapshot: routeChoiceSnapshot,
-  action: {
-    label: routeChoiceCancellationAction,
-    startedAt: routeChoiceCancelActionStartedAt,
-    completedAt: routeChoiceCancelActionCompletedAt,
-  },
-  editorClosed: true,
-  editorClosedAt: routeChoiceEditorClosedAt,
-  reason: routeChoiceCancellationReason,
-});
-assert(routeChoiceCancelledBrowserRequestIDs.length <= 1,
-  'Cancel may retire at most one active related-choice page because route pagination awaits one page at a time');
 const cancelledBaselineRows = await rendered(baselineRows, 'cancel-all-matching-preview');
-const routeChoiceCancellations = (cda.report.expectedCancellations ?? []).slice(routeChoiceCancellationStart);
-assert(routeChoiceCancellations.length <= 1,
-  'Cancel may retire at most one active related-choice page because route pagination awaits one page at a time');
-assert.deepEqual(routeChoiceCancellations.map(item => item.browserRequestId).sort(),
-  [...routeChoiceCancelledBrowserRequestIDs].sort(),
-  'Only exact requests from the pre-Cancel pending snapshot may enter the expected-cancellation ledger');
-const verifyRouteChoiceCancellation = cancellation => {
-  const requests = report.nativeRequests.filter(request => request.browserRequestId === cancellation.browserRequestId);
-  assert.equal(requests.length, 1, 'Cancellation must identify one captured native request');
-  const [retiredRequest] = requests;
-  const body = retiredRequest.body;
-  assert.deepEqual([retiredRequest.path, retiredRequest.origin, retiredRequest.method], [routeChoicesPath, uiOrigin, 'POST']);
-  assert.equal(retiredRequest.requestId, cancellation.requestId);
-  assert.match(retiredRequest.requestId, /^related-expand-choices-/);
-  assert.deepEqual([body?.outputId, body?.stageId, body?.anchorColumnId, body?.targetResourceType, body?.limit], [outputId, 'source_projection', '_key', 'Observation', 50]);
-  assert(body?.snapshotToken && Number.isInteger(body.expectedDraftVersion) && body.expectedDraftDigest);
-  assert.deepEqual([body.snapshotToken, body.expectedDraftVersion, body.expectedDraftDigest], [
-    beforeBaselineCancel.catalog.snapshotToken,
-    beforeBaselineCancel.draftVersion,
-    beforeBaselineCancel.draftDigest,
-  ], 'The retired route page must use the exact baseline snapshot and saved draft CAS');
-  assert(typeof body.cursor === 'string' && body.cursor.length > 0);
-  assert.equal(retiredRequest.failure, 'net::ERR_ABORTED');
-  assert.deepEqual([cancellation.method, new URL(cancellation.url).origin, new URL(cancellation.url).pathname], ['POST', uiOrigin, routeChoicesPath]);
-  assert.equal(cancellation.proof?.action, routeChoiceCancellationAction);
-  assert.deepEqual(cancellation.proof?.identity, {
-    origin: uiOrigin,
-    path: routeChoicesPath,
-    outputId,
-    draftVersion: beforeBaselineCancel.draftVersion,
-    draftDigest: beforeBaselineCancel.draftDigest,
-    stageId: 'source_projection',
-  });
-  assert.equal(cancellation.proof?.preCancelSnapshotAt, routeChoiceSnapshot.capturedAt);
-  assert.deepEqual(cancellation.proof?.actionWindow, {
-    startedAt: routeChoiceCancelActionStartedAt,
-    completedAt: routeChoiceCancelActionCompletedAt,
-    editorClosedAt: routeChoiceEditorClosedAt,
-  });
-  assert.equal(cancellation.proof?.editorClosed, true);
-  const sameQuery = request => ['outputId', 'stageId', 'anchorColumnId', 'targetResourceType', 'snapshotToken', 'expectedDraftVersion', 'expectedDraftDigest'].every(key => request.body?.[key] === body[key]);
-  const previousPage = report.nativeRequests.filter(request => request.path === routeChoicesPath && request.method === 'POST'
-    && request.startedAt < retiredRequest.startedAt && request.status === 200 && sameQuery(request)
-    && typeof request.body?.cursor === 'string' && request.body.cursor.length > 0).at(-1);
-  assert(previousPage, 'Retirement must follow a successful page for the same output, stage, anchor, target, draft, and snapshot');
-  assert(previousPage.body.limit === body.limit && previousPage.body.cursor !== body.cursor);
-  const nativeNetwork = (cda.report.network ?? []).filter(entry => entry.kind === 'network' && entry.browserRequestId === retiredRequest.browserRequestId);
-  assert.equal(nativeNetwork.length, 1, 'The exact route-choice abort must stay in native browser network diagnostics');
-  assert.deepEqual([nativeNetwork[0].errorText, nativeNetwork[0].expected], ['net::ERR_ABORTED', true]);
-  assert.equal(nativeNetwork[0].expectedCancellation?.browserRequestId, retiredRequest.browserRequestId,
-    'The native network ledger must retain the exact helper-classified request identity');
-  const requestErrors = report.errors.filter(error => error.kind === 'network' && error.browserRequestId === retiredRequest.browserRequestId);
-  assert(requestErrors.length >= 1 && requestErrors.length <= 2, 'Retain bounded diagnostics for the exact route-choice abort');
-  for (const error of requestErrors) {
-    assert.equal(error.error ?? error.failure, 'net::ERR_ABORTED');
-    error.expected = true;
-    error.expectedCancellation = cancellation;
-  }
-  return {
-    request: { requestId: retiredRequest.requestId, browserRequestId: retiredRequest.browserRequestId,
-      path: retiredRequest.path, method: retiredRequest.method, outputId, stageId: body.stageId,
-      anchorColumnId: body.anchorColumnId, targetResourceType: body.targetResourceType,
-      snapshotToken: body.snapshotToken, expectedDraftVersion: body.expectedDraftVersion,
-      expectedDraftDigest: body.expectedDraftDigest, limit: body.limit, cursor: body.cursor, error: retiredRequest.failure },
-    previousPage: { requestId: previousPage.requestId, browserRequestId: previousPage.browserRequestId,
-      status: previousPage.status, cursor: previousPage.body.cursor },
-    action: cancellation.proof.action,
-    actionWindow: cancellation.proof.actionWindow,
-    preCancelSnapshotAt: cancellation.proof.preCancelSnapshotAt,
-    editorClosed: cancellation.proof.editorClosed,
-    reason: cancellation.reason,
-  };
-};
-const routeChoiceCancellationEvidence = routeChoiceCancellations.map(verifyRouteChoiceCancellation);
-if (routeChoiceCancellationEvidence.length) report.routeChoiceCancellationOnCancel = routeChoiceCancellationEvidence[0];
 builder = await api(base + '/builder');
 assert.deepEqual(builder.workspace, beforeBaselineCancel.workspace, 'Cancel must leave the saved workspace unchanged');
 assert.deepEqual(documentForOutput(builder), original, 'Cancel must preserve the exact source table');
@@ -909,13 +692,14 @@ recordCheck('usability', 'Native Contributor controls select the exact Observati
   { condition: selectedContributor.condition, field: selectedContributor.field });
 const policySelector = '[data-testid="construction-related-expand-editor"] select[aria-label="If a current row has no matches"]';
 startedAt = Date.now();
-report.expectedErrorWindow = { active: true, startedAt, policy: 'ERROR' };
+const expectedValidationFromIndex = requestCapture.requests.length;
 await nativeSelect(page, policySelector, 'ERROR');
-await expectedErrorProposal('exists-error-policy-repair', startedAt);
+await expectedErrorProposal('exists-error-policy-repair', startedAt, expectedValidationFromIndex);
 
 startedAt = Date.now();
+const preserveRequestStart = requestCapture.requests.length;
 await nativeSelect(page, policySelector, 'PRESERVE_PARENT');
-const preserveProposal = await proposal('exists-preserve-parent-repair-preview', startedAt, existsPreserveRows);
+const preserveProposal = await proposal('exists-preserve-parent-repair-preview', startedAt, existsPreserveRows, preserveRequestStart);
 const preserveApplyRows = await applyProposal(existsPreserveRows, 'apply-exists-preserve-parent-to-render');
 let relatedStep = documentForOutput(builder).construction.steps.find((step) => step.operation.kind === 'RELATED_EXPAND');
 assert(relatedStep, 'Applied EXISTS Contributor rule is missing from saved construction');
@@ -978,8 +762,9 @@ relatedStep = documentForOutput(beforeEdit).construction.steps.find((step) => st
 await beginEdit(relatedStep.id);
 assert.equal(await cda.inspect(async args => { return document.querySelector(args.__template0)?.value; }, { __template0: (policySelector) }), 'PRESERVE_PARENT');
 startedAt = Date.now();
+const excludeRequestStart = requestCapture.requests.length;
 await nativeSelect(page, policySelector, 'EXCLUDE');
-const excludeProposal = await proposal('edit-exists-policy-exclude-preview', startedAt, existsExcludeRows);
+const excludeProposal = await proposal('edit-exists-policy-exclude-preview', startedAt, existsExcludeRows, excludeRequestStart);
 const excludeApplyRows = await applyProposal(existsExcludeRows, 'apply-exists-exclude-to-render');
 relatedStep = documentForOutput(builder).construction.steps.find((step) => step.operation.kind === 'RELATED_EXPAND');
 assertStableSourceProjection(builder, original, canonicalSourceColumnId, 'edited EXISTS EXCLUDE Apply');
@@ -1032,8 +817,9 @@ relatedStep = documentForOutput(beforeRemoval).construction.steps.find((step) =>
 const remove = async () => {
   await nativeClick(page, `[data-testid="construction-history-step-${relatedStep.id}"]`, {});
   startedAt = Date.now();
+  const removeRequestStart = requestCapture.requests.length;
   await nativeClick(page, `[data-testid="construction-remove-step-${relatedStep.id}"]`, {});
-  await proposal('remove-exists-contributor-preview', startedAt, baselineRows);
+  await proposal('remove-exists-contributor-preview', startedAt, baselineRows, removeRequestStart);
 };
 await remove();
 startedAt = Date.now();
@@ -1080,67 +866,20 @@ const restoredSourceRows = await open(baselineRows, 'reload-restored-source-tabl
       && isDeepStrictEqual(restoredDocument.population, original.population),
     { outputId, rowCount: baselineRows.length, sourceColumnCount: restoredDocument.columns.length });
 });
-await Promise.all([
-  requestCapture.flush({ timeoutMs: 5_000 }),
-  cda.flushHttpDiagnostics({ timeoutMs: 5_000 }),
-]);
-assert.deepEqual(report.errors.filter((failure) => !failure.expected), [], 'Unexpected browser errors were reported');
-const expectedFailureEvidence = cda.report.expectedHttpFailures ?? [];
-assert.equal(expectedFailureEvidence.length, 1, 'Exactly one native HTTP response may carry expected-validation evidence');
-assert.deepEqual(expectedFailureEvidence[0], report.expectedPolicyError.expectedFailure,
-  'The expected HTTP ledger must retain the exact request and console evidence verified during the workflow');
-assert.equal(expectedFailureEvidence[0].browserRequestId, report.expectedPolicyError.browserRequestId);
-assert.equal(expectedFailureEvidence[0].requestId, report.expectedPolicyError.requestId);
-assert.equal(expectedFailureEvidence[0].method, 'POST');
-assert.equal(expectedFailureEvidence[0].path, base + '/construction-proposals');
-assert.equal(expectedFailureEvidence[0].status, 422);
-const expectedHTTP = cda.diagnostics.httpFailures.filter(failure =>
-  failure.browserRequestId === report.expectedPolicyError.browserRequestId);
-assert.equal(expectedHTTP.length, 1, 'The exact expected construction proposal request must remain in Playwright HTTP diagnostics');
-assert.equal(expectedHTTP[0].status, report.expectedPolicyError.status);
-assert.equal(expectedHTTP[0].url, uiOrigin + report.expectedPolicyError.path);
-assert.deepEqual(cda.diagnostics.httpFailures.filter(failure => !expectedHTTP.includes(failure)), [],
-  'Unexpected app-origin HTTP failures were reported');
-assert.deepEqual(cda.diagnostics.pageErrors, [], 'Unexpected page errors were reported');
-assert.deepEqual(cda.diagnostics.console, [], 'Unexpected console errors were reported');
-assert.deepEqual(cda.diagnostics.networkFailures.filter(failure => !failure.expectedCancellation), [], 'Unexpected network failures were reported');
-const requestBoundHttpErrors = report.errors.filter(failure =>
-  failure.kind === 'http' && failure.browserRequestId === report.expectedPolicyError.browserRequestId);
-assert(requestBoundHttpErrors.length <= 1,
-  'The exact expected ERROR-policy response may produce at most one generic browser HTTP diagnostic');
-for (const failure of requestBoundHttpErrors) {
-  assert.equal(failure.expected, true, 'Any generic HTTP diagnostic for the exact expected request must retain its classification');
-  assert.deepEqual(failure.expectedHttpFailure, report.expectedPolicyError.expectedFailure);
-}
-assert.equal(report.errors.filter(failure => failure.kind === 'http').length, requestBoundHttpErrors.length,
-  'Unmatched HTTP diagnostics must remain fatal');
-report.expectedErrorWindow.active = false;
+assert.deepEqual(report.errors, [], 'Browser must never request the protected Explorer');
 recordCheck('correctness', 'Only the scoped ERROR validation and proven cancellation are expected; unrelated diagnostics remain fatal',
-  report.errors.every(failure => failure.expected === true || failure.expectedCancellation === true)
-    && cda.diagnostics.pageErrors.length === 0 && cda.diagnostics.console.length === 0
-    && cda.diagnostics.networkFailures.every(failure => failure.expectedCancellation),
-  { expectedHttpFailures: expectedFailureEvidence.length,
-    expectedCancellations: cda.report.expectedCancellations?.length ?? 0,
-    unexpectedErrors: report.errors.filter(failure => !failure.expected && !failure.expectedCancellation).length });
+  report.expectedPolicyError.status === 422,
+  { expectedValidationStatus: report.expectedPolicyError.status });
 const timedActions = report.cases.filter(item => Number.isFinite(item.durationMs));
 const maximumActionMs = Math.max(...timedActions.map(item => item.durationMs));
 recordCheck('performance', 'All Contributor EXISTS lifecycle actions finish within five seconds',
   timedActions.length > 0 && timedActions.every(item => item.durationMs <= 5000),
   { actionCount: timedActions.length, maxActionMs: maximumActionMs, budgetMs: 5000 });
-report.status = 'passed';
   } finally {
-    let requestFlushError;
-    try { await requestCapture?.flush({ timeoutMs: 5000 }); } catch (error) {
-      report.status = 'failed';
-      report.requestFlushError = String(error);
-      requestFlushError = error;
-    }
-    cda.includeBrowserDiagnostics();
     report.finished = new Date().toISOString();
     await cda.attachReport(`standalone-${cda.caseName}-domain.json`, {
       ...cda.report,
       domain: report,
     });
-    if (requestFlushError) throw requestFlushError;
   }
 }

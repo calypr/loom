@@ -6,7 +6,6 @@ import test from 'node:test';
 import {
   builderAuthoringSuggestionsWorkflow,
   captureSuggestionUiState,
-  classifySuggestionDiagnostics,
   isOwnedRootSuggestionRequest,
   releaseSuggestionRouteAfterGate,
   sanitizedSuggestionRequestBinding,
@@ -23,100 +22,6 @@ const target = {
 const explorer = 'explorer-new';
 const suggestionsURL = `${target.uiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}` +
   `/explorers/${encodeURIComponent(explorer)}/authoring/v2/suggestions`;
-
-const injectedSuggestionFailure = () => ({
-  kind: 'network',
-  method: 'POST',
-  url: suggestionsURL,
-  rawURL: suggestionsURL,
-  errorText: 'net::ERR_FAILED',
-  injectedFault: true,
-  injectedAction: 'abort',
-  injectedRequestId: 'suggestions-run-1',
-  playwrightRequestId: 'playwright-request-9',
-  requestDetails: { requestId: 'suggestions-run-1' },
-});
-
-test('suggestion abort classifier suppresses one exact correlated console diagnostic only', () => {
-  const failure = injectedSuggestionFailure();
-  const exactAbortConsole = {
-    kind: 'console-error',
-    text: 'Failed to load resource: net::ERR_FAILED',
-    location: suggestionsURL,
-    rawLocation: suggestionsURL,
-  };
-  const samePathUnrelatedConsole = {
-    kind: 'console-error',
-    text: 'Unrelated renderer error',
-    location: suggestionsURL,
-    rawLocation: suggestionsURL,
-  };
-  const wrongPathSameMessage = {
-    kind: 'console-error',
-    text: 'Failed to load resource: net::ERR_FAILED',
-    location: `${target.uiUrl}/api/v1/projects/other/explorers/${explorer}/authoring/v2/suggestions`,
-    rawLocation: `${target.uiUrl}/api/v1/projects/other/explorers/${explorer}/authoring/v2/suggestions`,
-  };
-  const unmatchedAbort = {
-    kind: 'network', method: 'POST', url: suggestionsURL, rawURL: suggestionsURL,
-    errorText: 'net::ERR_ABORTED', requestDetails: { requestId: 'unmatched' },
-  };
-  const report = {
-    target: { explorer },
-    network: [failure, exactAbortConsole, samePathUnrelatedConsole, wrongPathSameMessage,
-      unmatchedAbort],
-  };
-
-  const result = classifySuggestionDiagnostics(report, target, failure);
-
-  assert.equal(result.expectedAbortConsoleError, exactAbortConsole);
-  assert.equal(exactAbortConsole.kind, 'network');
-  assert.equal(exactAbortConsole.observedAs, 'console-error');
-  assert.equal(exactAbortConsole.injectedRequestId, failure.injectedRequestId);
-  assert.deepEqual(result.unexpected, [samePathUnrelatedConsole, wrongPathSameMessage,
-    unmatchedAbort]);
-});
-
-test('suggestion abort classifier fails closed when the exact console diagnostic is duplicated', () => {
-  const failure = injectedSuggestionFailure();
-  const exact = () => ({
-    kind: 'console-error',
-    text: 'Failed to load resource: net::ERR_FAILED',
-    location: suggestionsURL,
-    rawLocation: suggestionsURL,
-  });
-  const first = exact();
-  const duplicate = exact();
-  const report = { target: { explorer }, network: [failure, first, duplicate] };
-
-  const result = classifySuggestionDiagnostics(report, target, failure);
-
-  assert.equal(result.expectedAbortConsoleError, undefined);
-  assert.deepEqual(result.unexpected, [first, duplicate]);
-});
-
-test('suggestion abort classifier refuses console attribution when another failed request shares the URL', () => {
-  const failure = injectedSuggestionFailure();
-  const exactAbortConsole = {
-    kind: 'console-error',
-    text: 'Failed to load resource: net::ERR_FAILED',
-    location: suggestionsURL,
-    rawLocation: suggestionsURL,
-  };
-  const competingRequest = {
-    ...injectedSuggestionFailure(),
-    injectedRequestId: 'other-request',
-    playwrightRequestId: 'playwright-request-other',
-    requestDetails: { requestId: 'other-request' },
-  };
-  const report = { target: { explorer }, network: [failure, competingRequest, exactAbortConsole] };
-
-  const result = classifySuggestionDiagnostics(report, target, failure);
-
-  assert.equal(result.expectedAbortConsoleError, undefined);
-  assert.deepEqual(result.competingSameRequestURLFailures, [competingRequest]);
-  assert.deepEqual(result.unexpected, [competingRequest, exactAbortConsole]);
-});
 
 test('suggestion fault ownership is limited to the active root request and abort waits for the root-table gate', async () => {
   const request = {
@@ -141,14 +46,24 @@ test('suggestion fault ownership is limited to the active root request and abort
   let releaseAction;
   const actionCompleted = new Promise(resolve => { releaseAction = resolve; });
   const events = [];
-  const route = { abort: async reason => { events.push(`abort:${reason}`); } };
-  const pendingAbort = releaseSuggestionRouteAfterGate(route, actionCompleted);
+  const exactRequest = {};
+  const route = {
+    request: () => exactRequest,
+    abort: async reason => { events.push(`abort:${reason}`); },
+  };
+  const pendingAbort = releaseSuggestionRouteAfterGate(route, actionCompleted, 5000, {}, undefined,
+    (request, details) => {
+      assert.equal(request, exactRequest);
+      assert.deepEqual(details, { reason: 'injected lazy suggestion retry failure', action: 'abort' });
+      events.push('register exact transport failure');
+    });
   await Promise.resolve();
   assert.deepEqual(events, []);
   events.push('choose Patient rows and settle the exact preview');
   releaseAction(true);
   assert.equal(await pendingAbort, true);
-  assert.deepEqual(events, ['choose Patient rows and settle the exact preview', 'abort:failed']);
+  assert.deepEqual(events, ['choose Patient rows and settle the exact preview',
+    'register exact transport failure', 'abort:failed']);
 });
 
 test('wrong root binding is ignored and a missing root-table action continues the held route within bounds', async () => {
@@ -367,7 +282,7 @@ test('production suggestions workflow gates the lazy abort on the root action an
     if (waiterIndex === -1) return;
     responseWaiters.splice(waiterIndex, 1)[0].resolve(value);
   };
-  const routeFor = (req, { body = {}, onAbort } = {}) => ({
+  const routeFor = (req, { body = {} } = {}) => ({
     request: () => req,
     fetch: async () => response(req, body),
     fulfill: async ({ response: original }) => emitResponse(original),
@@ -375,33 +290,26 @@ test('production suggestions workflow gates the lazy abort on the root action an
     abort: async reason => {
       routeEvents.push(`abort:${reason}`);
       uiPhase = 'after-failure';
-      return onAbort?.();
     },
   });
   const dispatch = async req => {
     const url = new URL(req.url());
     const match = registeredRoutes.find(([matcher]) => matcher(url));
     assert(match, `No production route matched ${url.href}`);
-    await match[1](routeFor(req, {
-      body: { catalog: { candidates: [{ id: 'candidate-1' }] } },
-      onAbort: () => report.network.push({
-        kind: 'network', method: req.method(), url: req.url(), rawURL: req.url(),
-        errorText: 'net::ERR_FAILED', injectedFault: true, injectedAction: 'abort',
-        playwrightRequestId: 'playwright-lazy-1',
-        requestDetails: { requestId: req.headers()['x-request-id'] },
-      }),
-    }));
+    await match[1](routeFor(req, { body: { catalog: { candidates: [{ id: 'candidate-1' }] } } }));
   };
   const suggestionURL = `${target.uiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}` +
     '/explorers/explorer-new/authoring/v2/suggestions';
   const builderURL = `${target.uiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}` +
     '/explorers/explorer-new/authoring/v2/builder';
+  let lazyRequest;
   const startLazyRequest = () => {
     if (lazyRoutePromise) return;
-    lazyRoutePromise = dispatch(request({
+    lazyRequest = request({
       method: 'POST', url: suggestionURL, requestId: 'suggestions-base',
       body: { nodeId: 'Patient', snapshotToken: 'snapshot-1' },
-    }));
+    });
+    lazyRoutePromise = dispatch(lazyRequest);
   };
   const locator = label => ({
     count: async () => 1,
@@ -461,11 +369,17 @@ test('production suggestions workflow gates the lazy abort on the root action an
       startLazyRequest();
     }
   };
+  const transportFailures = [];
 
   await assert.rejects(
     builderAuthoringSuggestionsWorkflow({
       page, report, action,
       check: (dimension, name, passed) => report.checks.push({ dimension, name, passed }),
+      expectTransportFailure: (ownedRequest, details) => {
+        assert.equal(ownedRequest, lazyRequest, 'only the exact injected lazy route request is expected to fail');
+        transportFailures.push(details);
+        routeEvents.push('register exact transport failure');
+      },
     }, {
       target: workflowTarget,
       runID: 'workflow-binding-regression',
@@ -473,8 +387,8 @@ test('production suggestions workflow gates the lazy abort on the root action an
     error => error === missingAlert,
   );
   assert.equal(failedAlertWaits, 1);
-  assert.equal(report.network.length, 1);
-  assert.deepEqual(routeEvents, ['abort:failed']);
+  assert.deepEqual(transportFailures, [{ reason: 'injected lazy suggestion retry failure', action: 'abort' }]);
+  assert.deepEqual(routeEvents, ['register exact transport failure', 'abort:failed']);
   assert.equal(actionNames.includes('open Add columns'), false,
     'the lazy root request is gated before any later Add columns or Raw FHIR actions');
   const chronology = report.target.suggestionsFaultChronology;
@@ -512,14 +426,9 @@ test('production suggestions workflow gates the lazy abort on the root action an
   assert.equal(chronology.lazy.abortAction, 'failed');
   assert.equal(chronology.lazy.routeReleased, true);
   assert.equal(chronology.lazy.routeReleasedAtMs >= chronology.lazy.abortStartedAtMs, true);
-  assert.equal(chronology.lazy.failureRecordCaptured, true, JSON.stringify({
-    lazyRequestId: chronology.lazy.requestId,
-    network: report.network,
-  }));
   assert.equal(chronology.lazy.requestOccurrenceId, 'base');
   assert.equal(chronology.lazy.uiAtRequest.explorerId, 'explorer-new');
   assert.equal(chronology.lazy.uiAtRequest.explorerMatchesRequest, true);
-  assert.equal(chronology.lazy.catchOutcome.requestFailureObserved, true);
   assert.equal(chronology.lazy.catchOutcome.failureAlertVisible, false);
   assert.equal(chronology.lazy.catchOutcome.appErrorCodeFromVisibleAlert, null);
   assert.equal(chronology.lazy.catchOutcome.requestIdentity.occurrenceIdFromRequestId, 'base');
@@ -533,8 +442,6 @@ test('production suggestions workflow gates the lazy abort on the root action an
   assert.deepEqual(chronology.lazy.catchOutcome, {
     observedAtMs: chronology.lazy.catchOutcome.observedAtMs,
     sequence: chronology.lazy.catchOutcome.sequence,
-    requestFailureObserved: true,
-    requestErrorText: 'net::ERR_FAILED',
     failureAlertVisible: false,
     failureAlertText: null,
     appErrorCodeFromVisibleAlert: null,

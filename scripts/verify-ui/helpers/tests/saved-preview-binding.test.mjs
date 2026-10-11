@@ -9,9 +9,25 @@ import {
 
 const stalePreview = {
   path: '/preview', status: 200, completedAt: 10,
-  body: { receiptId: 'receipt-before-repair', outputId: 'output-a' },
+  request: { receiptId: 'receipt-before-repair', outputId: 'output-a' },
   response: { receiptId: 'receipt-before-repair', outputId: 'output-a' },
 };
+
+test('saved Preview selection reads the retained native request and response shape', () => {
+  const nativePreview = {
+    path: '/preview', method: 'POST', status: 200, completedAt: 10,
+    request: { receiptId: 'receipt-native', outputId: 'output-a' },
+    response: { receiptId: 'receipt-native', outputId: 'output-a', rows: [{ __loom_row_id: 'row-native' }] },
+  };
+  const selected = selectSavedPreviewRequest([nativePreview], {
+    startIndex: 0, path: '/preview', receiptId: 'receipt-native', outputId: 'output-a',
+  });
+  assert.equal(selected, nativePreview);
+  assert.deepEqual(selected.response.rows, [{ __loom_row_id: 'row-native' }]);
+  assert.equal(selectSavedPreviewRequest([{ ...nativePreview, request: undefined }], {
+    startIndex: 0, path: '/preview', receiptId: 'receipt-native', outputId: 'output-a',
+  }), undefined, 'An entry without the retained native request field must be rejected.');
+});
 
 test('saved preview selection rejects a successful receipt from before the action window', () => {
   assert.equal(selectSavedPreviewRequest([stalePreview], {
@@ -42,7 +58,7 @@ const savedState = (receiptId = 'receipt-a') => ({
 
 const savedRequest = (receiptId = 'receipt-a', outputId = 'output-a', path = '/preview') => ({
   path, status: 200, completedAt: 10,
-  body: { receiptId, outputId },
+  request: { receiptId, outputId },
   response: { receiptId, outputId, rows: [{ __loom_row_id: 'expand-row-1' }] },
 });
 
@@ -60,7 +76,7 @@ test('Cancel restores a cached saved Preview when the visible before receipt bel
   const saved = savedRequest('saved-receipt');
   const proposal = {
     path: '/construction-proposals', status: 200, completedAt: 11,
-    body: { outputId: 'output-a' },
+    request: { outputId: 'output-a' },
     response: {
       proposalId: 'proposal-receipt',
       preview: { receiptId: 'proposal-receipt', outputId: 'output-a', rows: [{ __loom_row_id: 'proposal-row' }] },
@@ -134,7 +150,7 @@ test('Cancel refuses stale drafts, wrong outputs, and proposal-embedded preview 
 
   const proposalOnlyResponse = {
     path: '/construction-proposals', status: 200, completedAt: 12,
-    body: { outputId: 'output-a' },
+    request: { outputId: 'output-a' },
     response: { preview: { receiptId: 'receipt-a', outputId: 'output-a', rows: [{ __loom_row_id: 'row-a' }] } },
   };
   assert.equal(selectCanceledSavedPreviewRequest([proposalOnlyResponse], {
@@ -161,15 +177,15 @@ const acceptedChoiceEvents = () => {
   };
   const requests = [
     { path: '/api/explorers/e/authoring/v2/construction-choice-proposals', method: 'POST', status: 200, startedAt: 1, responseReceivedAt: 8, completedAt: 10,
-      body: { commandId, snapshotToken, expectedDraftVersion: 3, expectedDraftDigest: 'source-draft-digest', outputId,
+      request: { commandId, snapshotToken, expectedDraftVersion: 3, expectedDraftDigest: 'source-draft-digest', outputId,
         constructionChoices: [{ choiceId: 'choice-subject-reference', form: 'VALUE' }] }, response: proposalResponse },
     { path: '/api/explorers/e/authoring/v2/commands', method: 'POST', status: 200, startedAt: 11, responseReceivedAt: 15, completedAt: 20,
-      body: { commandId, snapshotToken, expectedDraftVersion: 3, expectedDraftDigest: 'source-draft-digest', outputId,
+      request: { commandId, snapshotToken, expectedDraftVersion: 3, expectedDraftDigest: 'source-draft-digest', outputId,
         commands: [{ type: 'APPLY_CONSTRUCTION_CHOICE', outputId, constructionChoice: { choiceId: 'choice-subject-reference', form: 'VALUE' } }] },
       response: { commandId, draftVersion: 4, draftDigest: 'applied-draft-digest',
         results: [{ type: 'COLUMN_ADDED', outputId, column: 'col-subject-reference' }], workspace } },
     { path: '/api/explorers/e/authoring/v2/reconcile', method: 'POST', status: 200, startedAt: 21, responseReceivedAt: 25, completedAt: 30,
-      body: { snapshotToken, draftVersion: 4, draftDigest: 'applied-draft-digest' },
+      request: { snapshotToken, draftVersion: 4, draftDigest: 'applied-draft-digest' },
       response: { snapshotToken, receiptId, intentDigest: candidateWorkspaceDigest, outputs: [{ outputId }] } },
   ];
   const before = { snapshotToken, draftVersion: 3, draftDigest: 'source-draft-digest', outputId };
@@ -231,8 +247,8 @@ test('accepted choice Preview rejects unaccepted, unfinished, stale, and mismatc
   assert.equal(invalid((_requests, paths) => { paths.after.draftDigest = 'stale-draft'; paths.after.preview.draftDigest = 'stale-draft'; }), undefined, 'current draft must match the Apply successor');
   assert.equal(invalid(requests => { requests[2].response.intentDigest = 'wrong-candidate'; }), undefined, 'reconcile must accept the proposal workspace digest');
   assert.equal(invalid(requests => { requests[2].response.outputs = [{ outputId: 'another-output' }]; }), undefined, 'reconcile must contain the exact output');
-  assert.equal(invalid(requests => { requests[0].body.constructionChoices[0].choiceId = 'another-choice'; }), undefined, 'proposal response must echo the submitted choice identity');
-  assert.equal(invalid(requests => { requests[1].body.commands[0].constructionChoice.choiceId = 'another-choice'; }), undefined, 'Apply must accept the proposed choice identity');
+  assert.equal(invalid(requests => { requests[0].request.constructionChoices[0].choiceId = 'another-choice'; }), undefined, 'proposal response must echo the submitted choice identity');
+  assert.equal(invalid(requests => { requests[1].request.commands[0].constructionChoice.choiceId = 'another-choice'; }), undefined, 'Apply must accept the proposed choice identity');
   assert.equal(invalid(requests => { requests[1].startedAt = requests[0].responseReceivedAt - 1; }), undefined, 'Apply must follow the proposal response event');
   assert.equal(invalid(requests => { requests[2].startedAt = requests[1].responseReceivedAt - 1; }), undefined, 'reconcile must follow the Apply response event');
   assert.equal(invalid((_requests, paths) => { paths.after.workspace.documents[0].columns = [{ column: 'col-observation-id' }]; }), undefined, 'the current workspace must include the proposed column');

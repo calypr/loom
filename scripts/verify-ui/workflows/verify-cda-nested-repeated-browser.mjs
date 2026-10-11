@@ -63,6 +63,7 @@ const root = `/api/v1/projects/${encodeURIComponent(values.project)}/explorers`;
 const base = `${root}/${encodeURIComponent(explorer)}/authoring/v2`;
 let builder;
 let outputId;
+let networkObserver;
 const officialRequestCapture = cda.captureRequests(`${root}/${encodeURIComponent(explorer)}`);
 const inspectPage = (page, body) => page.evaluate(`(()=>{${body}})()`);
 const waitForBrowser = (page, condition, timeout = 5000) => waitForCondition(page, condition, Math.min(5000, timeout));
@@ -108,7 +109,6 @@ const selectOption = async (page, selector, value, timeout = 5000) => {
   return elapsedMs;
 };
 const navigate = (_page, url) => cda.navigate(url);
-let browserPending = new Set();
 
 const recordAssertion = (name, evidence) => report.assertions.push({ name, status: 'passed', evidence });
 const api = async (path, body, allowFailure = false) => {
@@ -195,26 +195,14 @@ const responseEvidence = text => {
   const source = typeof text === 'string' ? text : String(text);
   try { return JSON.parse(source); } catch { return source.slice(0, 32768); }
 };
-const laterSamePathRequest = entry => {
-  const index = report.browserRequests.indexOf(entry);
-  return report.browserRequests.slice(index + 1).find(candidate => candidate.path === entry.path && candidate.method === entry.method);
-};
 
 const monitorBrowser = () => {
-  const monitor = captureCDARequests(page, {
+  networkObserver = captureCDARequests(page, {
     apiOrigin: values['ui-origin'],
     appOrigins: [values['api-origin'], values['ui-origin']],
     ownedPathPrefix: `${root}/${encodeURIComponent(explorer)}`,
     report: { nativeRequests: report.browserRequests, errors: report.errors },
-    shouldReportRequestFailure: (entry, request) => {
-      const replacement = laterSamePathRequest(entry);
-      return request.failure()?.errorText === 'net::ERR_ABORTED'
-        && ['/row-definition-proposals', '/construction-proposals', '/construction-choice-proposals'].some(path => entry.path.endsWith(path))
-        && replacement
-        ? { expected: true, reason: `A later same-path owned draft request (${replacement.requestId}) superseded this proposal.` } : true;
-    },
   });
-  browserPending = monitor.pendingReads;
   page.on('response', response => {
     const url = new URL(response.url());
     if (url.origin !== new URL(values['ui-origin']).origin || response.status() < 400) return;
@@ -224,10 +212,10 @@ const monitorBrowser = () => {
   });
   page.on('requestfailed', request => {
     const url = new URL(request.url());
-    if (url.origin !== new URL(values['ui-origin']).origin || request.failure()?.errorText === 'net::ERR_ABORTED') return;
+    if (url.origin !== new URL(values['ui-origin']).origin) return;
     if (request.resourceType() === 'script') report.browserErrors.modules.push({ url: sanitizeText(request.url()), error: sanitizeText(request.failure()?.errorText) });
   });
-  return monitor;
+  return networkObserver;
 };
 
 const remaining = startedAt => Math.max(100, 5000 - (Date.now() - startedAt));
@@ -258,6 +246,7 @@ const openRowSettings = async () => measure('row-definition-choice-discovery', a
 });
 
 const selectAndPreview = async ({ kind, policy, expectedRows }) => measure(`row-definition-${kind.toLowerCase()}-preview`, async startedAt => {
+  const fromIndex = networkObserver.requests.length;
   const shapeSelect = 'select[aria-label="What should each row represent?"]';
   await selectOption(page, shapeSelect, kind === 'RECORDS' ? 'records' : `expanded:${report.choice.choiceId}`);
   if (policy) {
@@ -276,13 +265,14 @@ const selectAndPreview = async ({ kind, policy, expectedRows }) => measure(`row-
   ] }, 'Automatic row definition preview');
   const proposalError = await inspectPage(page, `return document.querySelector('[aria-label="Row definition settings"] [role="alert"]')?.innerText;`);
   assert(!proposalError, `Row-definition preview failed: ${proposalError}`);
-  await Promise.all([...browserPending]);
-  const request = report.browserRequests.findLast(entry => entry.path.endsWith('/row-definition-proposals') &&
-    entry.body?.selection?.kind === kind && (kind !== 'EXPANDED' || entry.body.selection.expanded?.rowChoiceId === report.choice.choiceId));
-  assert(request, `Native ${kind} row selection did not send the expected proposal request`);
+  const request = await networkObserver.waitForResponse(entry => entry.path.endsWith('/row-definition-proposals') &&
+    entry.method === 'POST' && entry.request?.selection?.kind === kind &&
+    (kind !== 'EXPANDED' || (entry.request.selection.expanded?.rowChoiceId === report.choice.choiceId &&
+      entry.request.selection.expanded?.emptyCollectionPolicy === policy)),
+  { fromIndex, timeoutMs: Math.max(1, startedAt + 5000 - Date.now()) });
   assert.equal(request.status, 200, `Row definition proposal response: ${JSON.stringify(request.response)}`);
   if (kind === 'EXPANDED') {
-    assert.equal(request.body.selection.expanded.emptyCollectionPolicy, policy);
+    assert.equal(request.request.selection.expanded.emptyCollectionPolicy, policy);
     assert.equal(request.response?.mode, 'EXPANDED');
     assert.equal(request.response?.comparison?.candidate?.rowCount, expectedRows);
   }
@@ -336,6 +326,7 @@ const addFieldAndPreview = async () => {
   assert.equal(offered?.disabled, false, 'The sibling component[].valueString field must be natively addable after expansion');
 
   const propose = async actionName => measure(actionName, async startedAt => {
+    const fromIndex = networkObserver.requests.length;
     const checked = await inspectPage(page, `return document.querySelector(${JSON.stringify(checkbox)})?.checked;`);
     if (!checked) await click(page, checkbox);
     await click(page, '[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
@@ -345,10 +336,12 @@ const addFieldAndPreview = async () => {
     await fastWait(startedAt, { kind: 'status-in', selector: '[data-testid="construction-choice-proposal-panel"]', statuses: ['ready', 'error'] }, 'Native component field preview');
     const status = await inspectPage(page, `return document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus;`);
     assert.equal(status, 'ready', await inspectPage(page, `return document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.innerText;`));
-    await Promise.all([...browserPending]);
+    const proposal = await networkObserver.waitForResponse(entry => entry.path.endsWith('/construction-choice-proposals') &&
+      entry.method === 'POST' && entry.status === 200,
+    { fromIndex, timeoutMs: Math.max(1, startedAt + 5000 - Date.now()) });
     const preview = await fieldPreviewRows();
     const pairEvidence = verifyPairs(preview);
-    report.fieldProposalPreview = { ...pairEvidence, proposal: report.browserRequests.findLast(entry => /construction.*proposals/.test(entry.path) && entry.status === 200)?.response };
+    report.fieldProposalPreview = { ...pairEvidence, proposal: proposal.response };
   });
 
   await propose('native-component-field-preview');
@@ -471,7 +464,7 @@ const verifySourceRestoration = () => {
   for (const key of ['output', 'rootResourceType', 'route', 'population', 'rows', 'columns']) {
     assert.deepEqual(restored[key], report.baselineDocument[key], `Restoration must preserve the original ${key}`);
   }
-  const preview = report.browserRequests.findLast(entry => entry.path.endsWith('/preview') && entry.status === 200)?.response;
+  const preview = networkObserver.requests.findLast(entry => entry.path.endsWith('/preview') && entry.status === 200)?.response;
   assert(preview?.rows, 'Final source-record reload must have a native preview');
   const idColumn = preview.columns.find(column => column.label === 'Observation ID')?.column;
   assert(idColumn, 'Restored source records need their original ID binding');
@@ -480,22 +473,22 @@ const verifySourceRestoration = () => {
 };
 
 const finish = async () => {
-  await officialRequestCapture.flush();
+  await networkObserver?.stop();
   report.finished = new Date().toISOString();
-  if (report.status !== 'invalidated') {
+  if (!(report.invalidations?.length) && !report.sourceFingerprint?.invalidatesRun && !report.sourceFreeze?.invalidatesRun && !report.apiBuildFreeze?.invalidatesRun) {
     const blockingGaps = report.gaps.filter(gap => gap.blocking !== false);
     report.status = report.failures.length ? 'failed'
       : blockingGaps.length ? 'unverified'
         : report.assertions.length && report.assertions.every(assertion => assertion.status === 'passed') ? 'passed'
           : 'untested';
-    if (report.status === 'unverified') {
+    if (blockingGaps.length) {
       report.skipReason = report.fixtureUnavailable?.reason ?? blockingGaps.map(gap => `${gap.assertion}: ${gap.reason}`).join('; ');
     }
   }
   cda.report.standaloneCdaRows = report;
   await cda.attachReport('standalone-cda-nested-repeated.json', report);
   for (const assertion of report.assertions) cda.check('correctness', assertion.name, assertion.status === 'passed', assertion.evidence ?? {});
-  if (report.status === 'failed' || report.status === 'invalidated') {
+  if (report.failures.length || report.invalidations?.length || report.sourceFingerprint?.invalidatesRun || report.sourceFreeze?.invalidatesRun || report.apiBuildFreeze?.invalidatesRun) {
     throw new Error(`Nested repeated-row workflow ${report.status}: ${JSON.stringify(report.failures ?? report.invalidations)}`);
   }
 };
@@ -557,7 +550,7 @@ try {
 
     const initialRowCount = sourceRecords.length;
     const expandedRowCount = report.oracle.expectedRows.length;
-    monitorBrowser();
+    networkObserver = monitorBrowser();
     await openTable(initialRowCount, 'fresh-explorer-load-to-render');
     await saveDOM('initial-source-record-rows');
 
@@ -592,14 +585,14 @@ try {
     assert.equal(document().rows.expanded.scopePath, 'component[].code.coding[]');
     assert.equal(document().rows.expanded.emptyCollectionPolicy, 'PRESERVE_PARENT');
     report.appliedRowDefinition = document().rows;
-    const appliedRowRequest = report.browserRequests.findLast(entry => entry.path.endsWith('/commands') &&
-      entry.body?.commands?.some(item => item.type === 'APPLY_ROW_DEFINITION_PROPOSAL'));
+    const appliedRowRequest = networkObserver.requests.findLast(entry => entry.path.endsWith('/commands') &&
+      entry.request?.commands?.some(item => item.type === 'APPLY_ROW_DEFINITION_PROPOSAL'));
     assert(appliedRowRequest, 'Apply row definition must go through the native Builder command');
-    const appliedProposal = report.browserRequests.findLast(entry => entry.path.endsWith('/row-definition-proposals') &&
-      entry.body?.selection?.kind === 'EXPANDED' && entry.body.selection.expanded?.rowChoiceId === componentChoice.choiceId);
-    assert.equal(appliedProposal?.body?.selection?.expanded?.rowChoiceId, componentChoice.choiceId,
+    const appliedProposal = networkObserver.requests.findLast(entry => entry.path.endsWith('/row-definition-proposals') &&
+      entry.request?.selection?.kind === 'EXPANDED' && entry.request.selection.expanded?.rowChoiceId === componentChoice.choiceId);
+    assert.equal(appliedProposal?.request?.selection?.expanded?.rowChoiceId, componentChoice.choiceId,
       'Native row proposal must carry the canonical component[] rowChoiceId');
-    assert.equal(appliedProposal?.body?.selection?.expanded?.emptyCollectionPolicy, 'PRESERVE_PARENT');
+    assert.equal(appliedProposal?.request?.selection?.expanded?.emptyCollectionPolicy, 'PRESERVE_PARENT');
     await saveDOM('component-expansion-applied');
     recordAssertion('native row-definition Apply persists exact component[].code.coding[] scope and policy', {
       rowChoiceId: componentChoice.choiceId, scopePath: document().rows.expanded.scopePath,
@@ -617,8 +610,7 @@ try {
     });
 
     await removeFieldAndRestoreRows(fieldColumn);
-    await Promise.all([...browserPending]);
-    verifyStableItemIdentities();
+      verifyStableItemIdentities();
     verifySourceRestoration();
     assert.deepEqual(report.browserErrors.exceptions, [], 'Browser raised JavaScript exceptions');
     assert.deepEqual(report.browserErrors.console, [], 'Browser logged console errors');
@@ -633,7 +625,6 @@ try {
   try { report.failureDOM = await domText(); } catch { /* Browser may not have opened. */ }
   try { report.failureBuilder = (await api(`${base}/builder`)).body; } catch (readError) { report.builderReadError = String(readError); }
 } finally {
-  try { await Promise.all([...browserPending]); } catch { /* Response reads are also captured above. */ }
   try {
     report.sourceFreeze = { ...report.sourceFreeze, ...(await sourceFreeze.assertUnchanged()) };
     const after = sourceFingerprint(sourceRoot);

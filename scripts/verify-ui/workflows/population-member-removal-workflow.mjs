@@ -2,8 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { assertExactPreviewMultiset, assertPopulationMemberRemovalApplyCommand, assertPopulationMemberRemovalProposal, shouldCapturePopulationMemberNativeResponse } from '../helpers/population-member-removal-proposal.mjs';
-import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
+import { assertExactPreviewMultiset, assertPopulationMemberRemovalProposal } from '../helpers/population-member-removal-proposal.mjs';
 import { captureSourceFreeze } from '../helpers/source-freeze.mjs';
 import { sourceFingerprint } from '../helpers/source-fingerprint.mjs';
 import { captureApiBuildFreeze, checkContainerApiBuildStamp, ApiBuildFreezeError } from '../helpers/api-build-freeze.mjs';
@@ -177,7 +176,6 @@ let baseSelection;
 let sourceFreeze;
 let frozenApiBuild;
 let apiBuildCheckStarted = false;
-const networkRequests = report.nativeRequests;
 const mark = name => { report.assertions.push({ name, status: 'passed' }); check('correctness', name, true, { workflow: 'population-member-removal' }); };
 const api = async (path, body) => {
   const requestId = randomUUID();
@@ -230,7 +228,6 @@ const click = async (selector, options = {}, timeout = 5000) => {
   const locator = locatorFor(selector, options);
   await action(`click ${label}`, locator, () => locator.click({ timeout }), { timeout, budget: Math.min(timeout, 5000) });
 };
-const requestEntry = (path, startedAt) => report.nativeRequests.findLast(request => shouldCapturePopulationMemberNativeResponse(request, { project, explorer }) && request.path === path && request.startedAt >= startedAt && request.completedAt && request.response);
 const visibleRows = async () => inspect(() => [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim())).filter(row => row.length));
 const assertRendered = async expectedRows => {
   await waitFor(() => !document.body.innerText.includes('Loading your table…'), null, 30000);
@@ -252,18 +249,17 @@ const openBuilder = async expectedRows => {
   }, { version: String(builder.draftVersion), digest: builder.draftDigest }, 30000);
   await assertRendered(expectedRows);
 };
-const waitForMemberProposal = async (startAt, { expectedRows, expected }) => {
+const waitForMemberProposal = async (fromIndex, startAt, { expectedRows, expected }) => {
   const path = `${authoring}/population-member-proposals`;
   await waitFor(({ project, explorer }) => {
     const panel = document.querySelector('[data-testid="population-member-removal-proposal"]');
     return panel?.dataset.proposalId && panel.dataset.previewStatus === 'READY'
       && panel.dataset.baseSelectionRevisionId && panel.dataset.candidateSelectionRevisionId;
   }, { project, explorer }, 5000);
-  await requestMonitor.flush();
-  const entry = requestEntry(path, startAt);
-  assert(entry, 'Ready member proposal must have a captured native request and response');
+  const entry = await requestMonitor.waitForResponse(request => request.path === path && request.method === 'POST' && request.status === 200,
+    { fromIndex, timeoutMs: Math.max(1, startAt + 5000 - Date.now()) });
   assert.equal(entry.status, 200, `Member removal proposal failed: ${JSON.stringify(entry.response)}`);
-  const value = requestMonitor.rawResponseBody(entry) ?? entry.response;
+  const value = entry.response;
   const candidate = assertPopulationMemberRemovalProposal(value, expected);
   assert.equal(value.previewStatus, 'READY');
   assert(value.preview && value.preview.receiptId === value.proposalId && value.preview.outputId === outputId, 'Proposal must carry the candidate receipt preview for this exact table');
@@ -403,48 +399,16 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   report.oracle.baseSelection = selectionPage.revision;
 
   report.browserTarget = { uiOrigin, project, explorer };
-  requestMonitor = captureCDARequests(page, {
-    apiOrigin: uiOrigin,
-    appOrigins: [apiOrigin, uiOrigin],
-    ownedPathPrefix: `${explorerRoot}/${encodeURIComponent(explorer)}`,
-    responsePaths: /./,
-    report: { nativeRequests: report.nativeRequests, errors: report.errors },
-  });
-  page.on('request', request => {
-    const entry = requestMonitor.byRequest.get(request);
-    if (!entry) return;
-    const scope = /^\/api\/v1\/projects\/([^/]+)\/explorers\/([^/]+)(?:\/|$)/.exec(entry.path);
-    if (scope) { entry.scopeProject = decodeURIComponent(scope[1]); entry.scopeExplorer = decodeURIComponent(scope[2]); }
-  });
-  page.on('response', response => {
-    if (response.status() < 400) return;
-    const url = new URL(response.url());
-    if (![new URL(apiOrigin).origin, new URL(uiOrigin).origin].includes(url.origin)) return;
-    const failure = { path: url.pathname, status: response.status() };
-    if (response.status() === 404 && url.pathname.endsWith('/favicon.ico')) report.incidentalErrors.push({ ...failure, reason: 'The local UI does not serve a favicon asset.' });
-    else if (!requestMonitor.byRequest.has(response.request())) report.errors.push({ kind: url.pathname.startsWith('/api/') ? 'http' : 'asset-http', ...failure });
-  });
-  page.on('requestfailed', request => {
-    const url = new URL(request.url());
-    if (![new URL(apiOrigin).origin, new URL(uiOrigin).origin].includes(url.origin) || requestMonitor.byRequest.has(request)) return;
-    report.errors.push({ kind: 'network', path: url.pathname, method: request.method(), error: sanitizeText(request.failure()?.errorText) });
-  });
+  requestMonitor = context.captureRequests(`${explorerRoot}/${encodeURIComponent(explorer)}`, { responsePaths: /./ });
+  report.nativeRequests = requestMonitor.requests;
 
-  const drainNativeNetwork = async () => {
-    await requestMonitor.flush();
-    assert.deepEqual(report.errors, [], 'Native browser path must not issue unexpected failed requests or console/runtime errors');
-    assert.deepEqual(report.nativeRequests.filter(request => !request.completedAt || (request.status === undefined && !request.failure)), [],
-      'Every owned browser request must complete or retain an explicit network failure');
-  };
-
-  const expectProposalForConstruction = async (startedAt, expectedRows) => {
+  const expectProposalForConstruction = async (fromIndex, startedAt, expectedRows) => {
     await waitFor(() => ['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus)
       || ['ready','error'].includes(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus), null, 60000);
-    await requestMonitor.flush();
-    const entry = report.nativeRequests.findLast(request => shouldCapturePopulationMemberNativeResponse(request, { project, explorer }) && /\/construction-(?:choice-)?proposals$/.test(request.path) && request.startedAt >= startedAt && request.completedAt && request.response);
-    assert(entry, 'Visible construction proposal omitted its captured owned response');
+    const entry = await requestMonitor.waitForResponse(request => /\/construction-(?:choice-)?proposals$/.test(request.path) && request.method === 'POST' && request.status === 200,
+      { fromIndex, timeoutMs: Math.max(1, startedAt + 5000 - Date.now()) });
     assert.equal(entry.status, 200, JSON.stringify(entry.response));
-    const response = requestMonitor.rawResponseBody(entry) ?? entry.response;
+    const response = entry.response;
     assert.equal(response.previewStatus, 'READY', JSON.stringify(entry.response));
     const preview = response.preview;
     const rows = preview.rows.map(row => preview.columns.map(column => row[column.column] == null ? '—' : String(row[column.column])));
@@ -462,6 +426,7 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   };
 
   await openBuilder(baselineSourceRows);
+  const groupProposalFromIndex = requestMonitor.requests.length;
   let started = Date.now();
   await click('[data-testid="construction-rows-settings-trigger"]');
   await page.locator('[data-testid="construction-action-group-rows"]').waitFor({ state: 'visible', timeout: 30000 });
@@ -469,7 +434,7 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   const groupKeySelector = `input[aria-label=${JSON.stringify(`Group by ${sourceKeyColumn.label}`)}]`;
   await page.locator(groupKeySelector).waitFor({ state: 'visible', timeout: 30000 });
   await click(groupKeySelector);
-  await expectProposalForConstruction(started, groupPreviewRows);
+  await expectProposalForConstruction(groupProposalFromIndex, started, groupPreviewRows);
   await applyConstruction(groupPreviewRows);
 
   const openRelatedFieldChooser = async () => {
@@ -500,11 +465,12 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
     await page.locator(pathSelector).waitFor({ state: 'visible', timeout: 30000 });
     await click(pathSelector);
     await click('[role="dialog"] input[aria-label="Specimen ID: Count matching records"]');
+    const proposalFromIndex = requestMonitor.requests.length;
     const proposalStarted = Date.now();
     await click('[role="dialog"] button', { name: 'Add 1 column' });
     await waitFor(() => ['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus) || ['ready','error'].includes(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus), null, 60000);
     const panel = await inspect(() => document.querySelector('[data-testid="construction-choice-proposal-panel"]') ? 'construction-choice-proposal-panel' : 'construction-proposal-panel');
-    const entry = await expectProposalForConstruction(proposalStarted, baselineRows);
+    const entry = await expectProposalForConstruction(proposalFromIndex, proposalStarted, baselineRows);
     await applyConstruction(baselineRows, panel);
     return entry;
   };
@@ -577,16 +543,17 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   assert.equal(builder.draftDigest, originalDigest);
 
   const clickRemoval = async () => {
+    const fromIndex = requestMonitor.requests.length;
     const start = Date.now();
     await click('[data-testid="population-member-list"] button', { name: removeName });
-    return waitForMemberProposal(start, { expectedRows: candidateRows, expected: expectedBaseBinding });
+    return waitForMemberProposal(fromIndex, start, { expectedRows: candidateRows, expected: expectedBaseBinding });
   };
   const firstProposal = await clickRemoval();
-  assert.deepEqual(firstProposal.entry.body.removedMember, expectedBaseBinding.removedMember);
-  assert.equal(firstProposal.entry.body.baseSelectionRevisionId, baseHeader.id);
-  assert.equal(firstProposal.entry.body.outputId, outputId);
-  assert.equal(firstProposal.entry.body.expectedDraftVersion, originalVersion);
-  assert.equal(firstProposal.entry.body.expectedDraftDigest, originalDigest);
+  assert.deepEqual(firstProposal.entry.request.removedMember, expectedBaseBinding.removedMember);
+  assert.equal(firstProposal.entry.request.baseSelectionRevisionId, baseHeader.id);
+  assert.equal(firstProposal.entry.request.outputId, outputId);
+  assert.equal(firstProposal.entry.request.expectedDraftVersion, originalVersion);
+  assert.equal(firstProposal.entry.request.expectedDraftDigest, originalDigest);
   mark(requiredChecks[3]);
   const firstProposalID = firstProposal.value.proposalId;
   const firstCandidateID = firstProposal.candidate.id;
@@ -599,7 +566,7 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   const afterCancel = await refreshBuilder();
   const cancelDurationMs = Date.now() - cancelStarted;
   assertMappedCheckpointWithinBudget('cancel-click-to-exact-baseline-rows', cancelDurationMs, `Cancel-to-unchanged-render took ${cancelDurationMs}ms`);
-  assert.equal(networkRequests.filter(request => request.path === `${authoring}/commands` &&
+  assert.equal(requestMonitor.requests.filter(request => request.path === `${authoring}/commands` &&
     request.startedAt >= cancelStarted && request.startedAt <= Date.now()).length, 0,
   'Cancel must not issue an authoring command');
   assert.equal(afterCancel.draftVersion, originalVersion, 'Cancel must not advance the draft version');
@@ -612,9 +579,9 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   const secondProposal = await clickRemoval();
   assert.notEqual(secondProposal.entry.requestId, firstProposal.entry.requestId, 'Reopening must issue a fresh native proposal request');
   assert(secondProposal.entry.startedAt > firstProposal.entry.startedAt, 'Reopened proposal must belong to the current member-removal intent');
-  assert.equal(secondProposal.entry.body.expectedDraftVersion, originalVersion);
-  assert.equal(secondProposal.entry.body.expectedDraftDigest, originalDigest);
-  assert.equal(secondProposal.entry.body.baseSelectionRevisionId, baseHeader.id);
+  assert.equal(secondProposal.entry.request.expectedDraftVersion, originalVersion);
+  assert.equal(secondProposal.entry.request.expectedDraftDigest, originalDigest);
+  assert.equal(secondProposal.entry.request.baseSelectionRevisionId, baseHeader.id);
   report.cases.push({ name: 'reopen-uses-fresh-request-and-exact-base-cas', durationMs: secondProposal.entry.completedAt - secondProposal.entry.startedAt, proposalId: secondProposal.value.proposalId, candidateSelectionId: secondProposal.candidate.id });
   mark(requiredChecks[5]);
   const applyStarted = Date.now();
@@ -622,7 +589,6 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   await waitFor(() => !document.querySelector('[data-testid="population-member-removal-proposal"]') && !document.querySelector('[data-testid="population-member-removal-proposal-panel"]'), null, 30000);
   await waitFor(digest => { const p=document.querySelector('[data-testid="construction-preview"]'); return p?.dataset.previewStatus === 'ready' && p.dataset.currentDraftDigest !== digest; }, originalDigest, 30000);
   await assertRendered(candidateRows);
-  await requestMonitor.flush();
   const applyDomEnded = Date.now();
   assertMappedCheckpointWithinBudget('apply-click-to-exact-candidate-rows', applyDomEnded - applyStarted,
     `Apply click-to-updated-preview DOM took ${applyDomEnded - applyStarted}ms`);
@@ -635,12 +601,17 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   assert.deepEqual(appliedDocument.population.route, savedDocument.population.route, 'Apply must preserve the exact authenticated route');
   assert.deepEqual(appliedDocument.construction, savedDocument.construction, 'Apply must preserve GROUP and RELATED_SOURCE identities and bindings');
   assert.deepEqual(appliedDocument.columns, savedDocument.columns, 'Apply must preserve all stable output columns');
-  const applyEntry = assertPopulationMemberRemovalApplyCommand(networkRequests, {
-    path: `${authoring}/commands`, startedAt: applyStarted, endedAt: applyDomEnded,
-    snapshotToken: expectedBaseBinding.snapshotToken, draftVersion: originalVersion, draftDigest: originalDigest,
-    outputId, proposalId: secondProposal.value.proposalId, scopeProject: project, scopeExplorer: explorer,
-  });
-  assert.deepEqual(applyEntry.body.commands, [{ type: 'APPLY_POPULATION_MEMBER_PROPOSAL', outputId, proposalId: secondProposal.value.proposalId }], 'Apply must send only the purpose-bound member-removal command');
+  const applyRequests = requestMonitor.requests.filter(request => request.path === `${authoring}/commands` &&
+    request.startedAt >= applyStarted && request.startedAt <= applyDomEnded);
+  assert.equal(applyRequests.length, 1, 'Apply window must contain one scoped authoring command request');
+  const applyEntry = applyRequests[0];
+  assert.equal(applyEntry.method, 'POST');
+  assert.equal(applyEntry.status, 200);
+  assert(Number.isFinite(applyEntry.completedAt) && applyEntry.completedAt <= applyDomEnded);
+  assert.equal(applyEntry.request.snapshotToken, expectedBaseBinding.snapshotToken);
+  assert.equal(applyEntry.request.expectedDraftVersion, originalVersion);
+  assert.equal(applyEntry.request.expectedDraftDigest, originalDigest);
+  assert.deepEqual(applyEntry.request.commands, [{ type: 'APPLY_POPULATION_MEMBER_PROPOSAL', outputId, proposalId: secondProposal.value.proposalId }], 'Apply must send only the purpose-bound member-removal command');
   mark(requiredChecks[6]);
   report.cases.push({
     name: mappedGroupCountChange ? 'apply-exact-proposal-to-changed-nonempty-group' : 'apply-exact-proposal-to-empty-related-source',
@@ -666,6 +637,7 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   report.afterApply = { selection: candidatePage.revision, pageMembers: candidatePage.members, rawBase: await rawMembership(baseSelection.id), rawCandidate: await rawMembership(secondProposal.candidate.id) };
 
   const reloadStarted = Date.now();
+  const reloadPreviewFromIndex = requestMonitor.requests.length;
   await openBuilder(candidateRows);
   const reloadDurationMs = Date.now() - reloadStarted;
   assertMappedCheckpointWithinBudget('reload-to-exact-candidate-rows', reloadDurationMs, `Reload-to-render took ${reloadDurationMs}ms`);
@@ -682,7 +654,9 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   assert.equal(visible.outputId, outputId);
   assert.equal(visible.draftVersion, String(reloaded.draftVersion));
   assert.equal(visible.draftDigest, reloaded.draftDigest);
-  const finalPreviewRequest = report.nativeRequests.findLast(request => request.path === `${authoring}/preview` && request.body?.receiptId === visible.receiptId && request.status === 200 && request.completedAt);
+  const finalPreviewRequest = await requestMonitor.waitForResponse(request => request.path === `${authoring}/preview`
+    && request.request?.receiptId === visible.receiptId && request.status === 200,
+  { fromIndex: reloadPreviewFromIndex, timeoutMs: 5000 });
   assert(finalPreviewRequest, 'Reload must issue a successful saved-preview request for the exact receipt visible in the UI');
   const reread = await api(`${authoring}/preview`, { receiptId: visible.receiptId, outputId, limit: 100 });
   assert.equal(reread.receiptId, visible.receiptId);
@@ -723,11 +697,6 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   mark(mappedGroupCountChange
     ? requiredChecks[9]
     : 'Undo restores the original population and its exact attached selection');
-  await drainNativeNetwork();
-  report.networkRequests = report.nativeRequests.map(({ requestId, browserRequestId, path, method, startedAt, completedAt, status, failure, expectedCancellation }) => ({ requestId, browserRequestId, path, method, startedAt, completedAt, status, failure, expectedCancellation }));
-  report.networkFailures = report.nativeRequests.filter(request => request.failure).map(({ requestId, path, method, failure }) => ({ requestId, path, method, failure }));
-  assert.deepEqual(report.errors, [], 'Native browser path must not issue unexpected failed requests or console/runtime errors');
-  assert.deepEqual(report.requests.filter(request => request.status >= 400), [], 'No direct product API request may fail in the removal lifecycle');
   assert(report.cases.some(testCase => testCase.name === 'mapped-member-auto-impact-preview' && testCase.durationMs <= 5000));
   assert(report.cases.some(testCase => testCase.name === (mappedGroupCountChange
     ? 'apply-exact-proposal-to-changed-nonempty-group'
@@ -740,7 +709,6 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
     });
   }
   mark(populationMemberRemovalTimingCheck(requiredChecks));
-  report.status = 'passed';
   };
 
   let primaryError;
@@ -748,30 +716,25 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
     await run();
   } catch (error) {
     primaryError = error;
-    report.status = error instanceof ApiBuildFreezeError ? 'invalidated' : 'failed';
     report.error = String(error?.stack ?? error);
     if (error instanceof ApiBuildFreezeError) report.apiBuildFreeze = { ...report.apiBuildFreeze, invalidatesRun: true, productFailure: false, error: String(error), reason: error.reason };
   } finally {
-    if (requestMonitor) {
-      try { await requestMonitor.flush(); } catch (error) { report.responseDrainError = String(error); }
-    }
-    report.networkRequests ??= report.nativeRequests.map(({ requestId, browserRequestId, path, method, startedAt, completedAt, status, failure, expectedCancellation }) => ({ requestId, browserRequestId, path, method, startedAt, completedAt, status, failure, expectedCancellation }));
-    report.networkFailures ??= report.nativeRequests.filter(request => request.failure).map(({ requestId, path, method, failure }) => ({ requestId, path, method, failure }));
+    report.nativeRequests = requestMonitor?.requests ?? [];
     const invalidations = [];
     if (sourceFreeze) {
       try { report.sourceFreeze = { ...report.sourceFreeze, ...await sourceFreeze.assertUnchanged() }; }
-      catch (error) { report.status = 'invalidated'; report.sourceFreeze = { ...report.sourceFreeze, invalidatesRun: true, productFailure: false, changedPaths: error.changedPaths }; invalidations.push(error); }
+      catch (error) { report.sourceFreeze = { ...report.sourceFreeze, invalidatesRun: true, productFailure: false, changedPaths: error.changedPaths }; invalidations.push(error); }
     }
     if (apiBuildCheckStarted && frozenApiBuild) {
       try { report.apiBuildFreeze = { ...report.apiBuildFreeze, ...await frozenApiBuild.assertUnchanged() }; }
-      catch (error) { report.status = 'invalidated'; report.apiBuildFreeze = { ...report.apiBuildFreeze, invalidatesRun: true, productFailure: false, error: String(error) }; invalidations.push(error); }
+      catch (error) { report.apiBuildFreeze = { ...report.apiBuildFreeze, invalidatesRun: true, productFailure: false, error: String(error) }; invalidations.push(error); }
     }
     if (report.sourceFingerprint) {
       report.sourceFingerprint.after = sourceFingerprint(sourceRoot);
       report.sourceFingerprint.unchanged = report.sourceFingerprint.before.sha256 === report.sourceFingerprint.after.sha256 && report.sourceFingerprint.before.files === report.sourceFingerprint.after.files;
       report.sourceFingerprint.invalidatesRun = !report.sourceFingerprint.unchanged;
       report.sourceFingerprint.productFailure = false;
-      if (!report.sourceFingerprint.unchanged) { report.status = 'invalidated'; invalidations.push(new Error('Watched source fingerprint changed during native browser lifecycle.')); }
+      if (!report.sourceFingerprint.unchanged) { invalidations.push(new Error('Watched source fingerprint changed during native browser lifecycle.')); }
     }
     report.finished = new Date().toISOString();
     if (invalidations.length && !primaryError) primaryError = invalidations[0];

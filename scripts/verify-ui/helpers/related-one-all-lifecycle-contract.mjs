@@ -79,6 +79,13 @@ export const statusOneAllTimingCheckpoints = Object.freeze([
 export const zeroObservationLifecycleCheckNames = Object.freeze(ZERO_OBSERVATION_CHECKS.map(([, name]) => name));
 export const statusOneAllLifecycleCheckNames = Object.freeze(STATUS_ONE_ALL_CHECKS.map(([, name]) => name));
 
+export function zeroObservationSelectionRevisionMatches(roundtrip) {
+  const selectionRevisionId = roundtrip?.selectionRevisionId;
+  const independentlyReadRevisionId = roundtrip?.selectionSeed?.selectionRevisionId;
+  return typeof selectionRevisionId === 'string' && selectionRevisionId.length > 0 &&
+    typeof independentlyReadRevisionId === 'string' && selectionRevisionId === independentlyReadRevisionId;
+}
+
 export function zeroObservationLifecycleChecks(report) {
   const scope = report.oracle?.exactMembershipScope;
   const expansion = report.zeroObservationExpansion;

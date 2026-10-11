@@ -41,20 +41,33 @@ export async function classifyGroupOneExpectedONEFailure({
     assert.equal(entry.status, 422, `${source} ONE failure must have exact HTTP 422 status`);
     assert.equal(entry.response?.error?.code, 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES',
       `${source} ONE failure must carry the typed multiple-values diagnostic`);
-    assert.equal(entry.body?.outputId, outputId, `${source} ONE failure must target the exact saved Group output`);
-    assert.equal(entry.body?.expectedDraftVersion, expectedDraftVersion, `${source} ONE failure must use the current draft version`);
-    assert.equal(entry.body?.expectedDraftDigest, expectedDraftDigest, `${source} ONE failure must use the current draft digest`);
-    assert.equal(entry.body?.snapshotToken, expectedSnapshotToken, `${source} ONE failure must use the current catalog snapshot`);
-    assert.equal(entry.body?.constructionChoices?.length, 1, `${source} ONE failure must submit one selected field`);
-    assert.equal(entry.body.constructionChoices[0].rowValuePolicy, 'ONE', `${source} ONE failure must be the exact scalar policy`);
-    assert.equal(entry.body.constructionChoices[0].title, 'Specimen ID', `${source} ONE failure must target Specimen.id`);
+    assert.equal(entry.request?.outputId, outputId, `${source} ONE failure must target the exact saved Group output`);
+    assert.equal(entry.request?.expectedDraftVersion, expectedDraftVersion, `${source} ONE failure must use the current draft version`);
+    assert.equal(entry.request?.expectedDraftDigest, expectedDraftDigest, `${source} ONE failure must use the current draft digest`);
+    assert.equal(entry.request?.snapshotToken, expectedSnapshotToken, `${source} ONE failure must use the current catalog snapshot`);
+    assert.equal(entry.request?.constructionChoices?.length, 1, `${source} ONE failure must submit one selected field`);
+    assert.equal(entry.request.constructionChoices[0].rowValuePolicy, 'ONE', `${source} ONE failure must be the exact scalar policy`);
+    assert.equal(entry.request.constructionChoices[0].title, 'Specimen ID', `${source} ONE failure must target Specimen.id`);
   }
-  assert.equal(fixtureEntry.requestId, workflowEntry.requestId, 'Both capture views must identify the same captured request');
-  assert.equal(fixtureEntry.browserRequestId, workflowEntry.browserRequestId, 'Both capture views must identify the same browser request');
-  assert.equal(typeof fixtureEntry.requestId, 'string', 'ONE failure must have a concrete request identity');
-  assert(fixtureEntry.requestId, 'ONE failure request identity must not be empty');
-  assert.equal(typeof fixtureEntry.browserRequestId, 'string', 'ONE failure must have a concrete browser request identity');
-  assert(fixtureEntry.browserRequestId, 'ONE failure browser identity must not be empty');
+  const fixtureCommandId = fixtureEntry.request?.commandId;
+  const workflowCommandId = workflowEntry.request?.commandId;
+  assert.equal(typeof fixtureCommandId, 'string', 'ONE failure must retain its submitted command ID');
+  assert(fixtureCommandId, 'ONE failure command ID must not be empty');
+  assert.equal(fixtureCommandId, workflowCommandId, 'Both capture views must observe the same submitted command');
+  const fixtureServerRequestId = fixtureEntry.response?.error?.requestId;
+  const workflowServerRequestId = workflowEntry.response?.error?.requestId;
+  assert.equal(typeof fixtureServerRequestId, 'string', 'ONE response must retain the server diagnostic request ID');
+  assert(fixtureServerRequestId, 'ONE server diagnostic request ID must not be empty');
+  assert.equal(fixtureServerRequestId, workflowServerRequestId,
+    'Both capture views must observe the same server diagnostic request');
+  for (const [source, entry] of [['fixture', fixtureEntry], ['workflow', workflowEntry]]) {
+    assert.equal(entry.response?.error?.diagnostic?.requestId, fixtureServerRequestId,
+      `${source} ONE error and diagnostic must identify the same server request`);
+    assert((entry.response?.diagnostics ?? []).some(diagnostic =>
+      diagnostic.code === 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES' && diagnostic.requestId === fixtureServerRequestId),
+    `${source} ONE response must include its exact scoped diagnostic request`);
+  }
+  assert.deepEqual(fixtureEntry.request, workflowEntry.request, 'Both capture views must retain the same canonical request DTO');
   return classify(fixtureEntry);
 }
 
@@ -213,6 +226,8 @@ try {
   assert.equal(creationRequest?.body?.name, requestedExplorerName);
   const createdScope = createdExplorerScope(project, createdExplorer);
   explorer = createdScope.explorerId;
+  cda.target.explorer = explorer;
+  cda.report.explorer = explorer;
   explorerRoot = createdScope.explorerRoot;
   base = createdScope.authoringBase;
   report.explorer = explorer;
@@ -345,13 +360,13 @@ try {
   assert.deepEqual((await api(base+'/builder')).workspace,beforeField.workspace);
   recordRender('one-disagreement-diagnostic',start);
   const expectedPath = `${base}/construction-choice-proposals`;
-  const fixtureFailure = await cda.waitForCapturedResponse(fixtureCapture, request => request.method === 'POST' && request.path === expectedPath && request.status >= 400, 5000);
-  await nativeCapture.flush();
-  const disagreement = report.nativeRequests.filter(request => request.method === 'POST' && request.path === expectedPath && request.status >= 400);
+  const fixtureFailure = await fixtureCapture.waitForResponse(request => request.method === 'POST' && request.path === expectedPath && request.status >= 400, { timeoutMs: 5000 });
+  await nativeCapture.stop();
+  const disagreement = nativeCapture.requests.filter(request => request.method === 'POST' && request.path === expectedPath && request.status >= 400);
   assert.equal(fixtureFailure.response.error.code, 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES');
   assert.equal(disagreement.length, 1, JSON.stringify(report.nativeRequests));
   const [expectedFailure] = disagreement;
-  assert(expectedFailure.requestId && expectedFailure.browserRequestId, 'Expected choice failure must have an exact browser request identity');
+  assert(expectedFailure.browserRequestId, 'Expected choice failure must have its workflow-observer request identity');
   assert.equal(expectedFailure.status, 422);
   assert.equal(expectedFailure.response.error.code, 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES');
   recordCheck('correctness', 'ONE reports the multiple-values 422 and leaves the saved Group unchanged', true, {
@@ -382,20 +397,31 @@ try {
     classify: entry => cda.expectHttpFailure(entry, expectedFailureReason, expectedFailureProof),
   });
   const failureErrors = report.errors.filter(error => error.kind === 'http' &&
-    error.requestId === expectedFailure.requestId && error.browserRequestId === expectedFailure.browserRequestId &&
-    error.method === expectedFailure.method && error.path === expectedFailure.path && error.status === expectedFailure.status);
+    error.browserRequestId === expectedFailure.browserRequestId &&
+    error.method === expectedFailure.method && error.url === expectedFailure.url && error.status === expectedFailure.status);
   assert.equal(failureErrors.length, 1, 'The exact workflow-capture 422 must be recorded once before classification');
   const consoleErrors = report.errors.filter(error => error.kind === 'console' &&
     error.location === `${uiOrigin}${expectedPath}` &&
     /status of 422 \(Unprocessable Entity\)/.test(error.message));
-  assert.equal(consoleErrors.length, 1, 'The exact workflow-capture 422 console diagnostic must be recorded once');
-  report.expectedFailures ??= [];
-  report.expectedFailures.push({ requestId: expectedFailure.requestId, browserRequestId: expectedFailure.browserRequestId,
-    method: expectedFailure.method, path: expectedFailure.path, status: expectedFailure.status,
-    code: expectedFailure.response.error.code, reason: expectedFailureReason,
-    fixtureClassification,
+  assert(consoleErrors.length <= 1, 'The exact workflow-capture 422 may have at most one console echo');
+  const workflowClassification = nativeCapture.markExpectedValidation(expectedFailure, {
+    status: 422,
+    reason: expectedFailureReason,
+    proof: expectedFailureProof,
   });
-  for (const error of [...failureErrors, ...consoleErrors]) report.errors.splice(report.errors.indexOf(error), 1);
+  report.expectedFailures ??= [];
+  report.expectedFailures.push({ clientRequestId: expectedFailure.requestId ?? null,
+    commandId: expectedFailure.request.commandId, serverRequestId: expectedFailure.response.error.requestId,
+    browserRequestId: expectedFailure.browserRequestId, method: expectedFailure.method,
+    path: expectedFailure.path, status: expectedFailure.status,
+    code: expectedFailure.response.error.code, reason: expectedFailureReason,
+    fixtureClassification, workflowClassification,
+  });
+  for (const error of consoleErrors) {
+    const errorIndex = report.errors.indexOf(error);
+    assert(errorIndex >= 0, 'The exact expected 422 console echo must still be reported before classification');
+    report.errors.splice(errorIndex, 1);
+  }
   const contributorIDs=source.sources.map(member=>member.id).sort();
   const withField=[[...grouped[0],contributorIDs.join('; ')]];
   // Repair the existing selection instead of forcing the user to select it again.
@@ -460,7 +486,7 @@ try {
     expectedRows: grouped,
     restoredConstruction,
   });
-  await nativeCapture.flush();
+  await nativeCapture.stop();
   assert.deepEqual(report.errors,[]);
   const expectedRenderCheckpoints = [
     'initial-specimen-load-to-render',

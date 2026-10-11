@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { sanitizePayload } from '../playwright-browser.mjs';
 import {
   startingCollectionNativePreviewReceiptEvidence,
   startingCollectionPreviewMatchesExpected,
@@ -14,9 +15,9 @@ import {
 const expected = {
   path: '/api/v1/projects/p/explorers/e/authoring/v2/reconcile',
   previewPath: '/api/v1/projects/p/explorers/e/authoring/v2/preview',
-  snapshotToken: 'snapshot-1',
+  snapshotToken: `sha256:${'1'.repeat(64)}`,
   generation: 'generation-1',
-  authorizationScopeDigest: 'scope-1',
+  authorizationScopeDigest: 'a'.repeat(64),
   draftVersion: 3,
   draftDigest: 'digest-3',
   outputId: 'output-1',
@@ -63,7 +64,7 @@ test('binds a reconcile receipt to the exact saved draft CAS and output', () => 
   const evidence = startingCollectionReconcileReceiptEvidence({
     request: reconcileRequest,
     requestBody: reconcileBody,
-    response: reconcileResponse,
+    response: sanitizePayload(reconcileResponse),
     expected,
   });
   assert.deepEqual(evidence, { ok: true, failures: [], receiptId });
@@ -83,6 +84,7 @@ test('rejects stale CAS and a receipt that does not identify the exact output', 
   for (const [requestBody, response] of [
     [{ ...reconcileBody, draftVersion: 2 }, reconcileResponse],
     [{ ...reconcileBody, draftDigest: 'stale-digest' }, reconcileResponse],
+    [reconcileBody, sanitizePayload({ ...reconcileResponse, authorizationScopeDigest: 'b'.repeat(64) })],
     [reconcileBody, { ...reconcileResponse, outputs: [{ outputId: 'other-output' }] }],
     [reconcileBody, { ...reconcileResponse, outputs: [{ outputId: expected.outputId }, { outputId: expected.outputId }] }],
     [reconcileBody, { ...reconcileResponse, generation: 'other-generation' }],
@@ -147,12 +149,4 @@ test('requires the rendered preview receipt and visible draft identity to agree'
     preview: { ...preview, draftDigest: 'stale-digest' },
     expected: { ...expected, receiptId },
   }).ok, false);
-});
-
-test('indexes the next preview in the harness-owned native request ledger', async () => {
-  const source = await readFile(new URL('../../workflows/verify-cda-starting-collection-handoff.mjs', import.meta.url), 'utf8');
-  assert.match(source,
-    /fromIndex:\s*cda\.report\.nativeRequests\.indexOf\(reconcileRequest\)\s*\+\s*1/);
-  assert.doesNotMatch(source,
-    /fromIndex:\s*report\.nativeRequests\.indexOf\(reconcileRequest\)/);
 });

@@ -12,6 +12,7 @@ import {
 } from '../cda-group-numeric-filter-oracle.mjs';
 import { chooseCdaGroupPivotJoinWitness } from '../cda-group-pivot-join-oracle.mjs';
 import { getScenario, scenarioCaseFor } from '../../registry.mjs';
+import { unexpectedNumericFilterNetworkDiagnostics } from '../../workflows/verify-cda-group-numeric-filter-browser.mjs';
 
 const project = 'loom_dev_cda_fhir';
 const generation = 'cda-fhir-v1';
@@ -53,6 +54,36 @@ test('numeric COUNT_ROWS Filter oracle rejects invalid scope, threshold, and non
   assert.throws(() => prepareCdaGroupNumericFilterOracle(witness, { project, generation, operator: 'EQUALS' }), /Unsupported/);
 });
 
+test('numeric Group final diagnostics exempt a canceled read but keep canceled writes and HTTP 500 fatal', () => {
+  const canceledRead = {
+    kind: 'network', errorText: 'net::ERR_ABORTED', canceled: true,
+    readCancellationDiagnostic: true, isMutation: false,
+  };
+  const canceledPost = {
+    kind: 'network', errorText: 'net::ERR_ABORTED', canceled: true,
+    readCancellationDiagnostic: false, isMutation: true,
+  };
+  const mislabeledCanceledPost = {
+    kind: 'network', errorText: 'net::ERR_ABORTED', canceled: true,
+    readCancellationDiagnostic: true, isMutation: true,
+  };
+  const serverError = { kind: 'http', status: 500 };
+
+  assert.deepEqual(
+    unexpectedNumericFilterNetworkDiagnostics([canceledRead, canceledPost, mislabeledCanceledPost, serverError]),
+    [canceledPost, mislabeledCanceledPost, serverError],
+  );
+
+  const workflowSource = readFileSync(new URL('../../workflows/verify-cda-group-numeric-filter-browser.mjs', import.meta.url), 'utf8');
+  assert.match(workflowSource, /unexpectedNumericFilterNetworkDiagnostics\(report\.network \?\? \[\]\)/);
+  assert.match(workflowSource, /unexpectedNumericFilterNetworkDiagnostics\(cda\.diagnostics\.networkFailures\)/);
+  assert.match(workflowSource, /reportErrors\.length === 0/);
+  assert.match(workflowSource, /observerFailures\.length === 0/);
+  assert.match(workflowSource, /cda\.diagnostics\.httpFailures\.length === 0/);
+  assert.match(workflowSource, /cda\.diagnostics\.pageErrors\.length === 0/);
+  assert.match(workflowSource, /cda\.diagnostics\.console\.length === 0/);
+});
+
 test('numeric Filter reuses the terminal exact Group-stage capability captured before the editor opens', async () => {
   const { waitForSourceCapabilities } = await import('../../workflows/verify-cda-authored-expand-browser.mjs');
   const snapshotToken = 'sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7';
@@ -91,7 +122,7 @@ test('numeric Filter reuses the terminal exact Group-stage capability captured b
   const entries = [stale, exact];
   let observedFromIndex;
   const capture = {
-    waitFor(predicate, { fromIndex, timeoutMs }) {
+    waitForResponse(predicate, { fromIndex, timeoutMs }) {
       observedFromIndex = fromIndex;
       assert(timeoutMs > 0);
       const match = entries.slice(fromIndex).find(entry => Number.isFinite(entry.completedAt) && predicate(entry));

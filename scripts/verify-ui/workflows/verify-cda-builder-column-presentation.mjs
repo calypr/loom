@@ -120,7 +120,7 @@ async function openAdvancedGraph(page, tracker) {
   const details = page.getByTestId('construction-source-setup');
   await requireUnique(details, 'Advanced source setup');
   if (await details.getAttribute('open') === null) {
-    const summary = details.locator('summary');
+    const summary = details.locator(':scope > summary');
     await measuredAction(tracker, 'open Advanced source setup', summary, target => target.click({ timeout: 5000 }),
       () => page.getByRole('button', { name: 'Advanced graph', exact: true }).waitFor({ state: 'visible', timeout: 5000 }));
   }

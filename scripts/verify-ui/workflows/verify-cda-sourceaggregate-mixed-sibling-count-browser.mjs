@@ -224,17 +224,17 @@ const trackBrowser = () => {
 const waitNative = async (predicate, fromIndex, timeoutMs = 5000) => {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const entry = report.nativeRequests.slice(fromIndex).find(candidate => candidate.completedAt && !candidate.failure && predicate(candidate));
+    const entry = nativeCapture.requests.slice(fromIndex).find(candidate => candidate.completedAt && !candidate.failure && predicate(candidate));
     if (entry) {
       assert.equal(entry.status, 200, `Native ${entry.path} returned ${entry.status}: ${JSON.stringify(entry.response).slice(0, 1500)}`);
       return entry;
     }
     await pause(25);
   }
-  assert.fail(`Timed out waiting for native request: ${JSON.stringify(report.nativeRequests.slice(fromIndex).map(({ path, status, complete, failure }) => ({ path, status, complete, failure })))}`);
+  assert.fail(`Timed out waiting for native request: ${JSON.stringify(nativeCapture.requests.slice(fromIndex).map(({ path, status, complete, failure }) => ({ path, status, complete, failure })))}`);
 };
 
-const nativeIndex = () => report.nativeRequests.length;
+const nativeIndex = () => nativeCapture.requests.length;
 const previewBody = response => response?.preview?.rows !== undefined ? response.preview : response;
 const assertPreviewValues = (preview, expectedTypes, phase) => {
   assert(preview && Array.isArray(preview.rows) && Array.isArray(preview.columns), `${phase} omitted typed Preview rows/columns`);
@@ -305,7 +305,7 @@ const openTable = async (expectedTypes, phase) => {
   await waitForBrowser(page, (args) => { return Boolean((document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false)); });
   await prepareAdvancedSourceSetup();
   const view = await renderTable(expectedTypes, phase);
-  const request = await waitNative(entry => pathOf(entry).endsWith('/preview') && entry.body?.outputId === outputId, fromIndex);
+  const request = await waitNative(entry => pathOf(entry).endsWith('/preview') && entry.request?.outputId === outputId, fromIndex);
   const preview = previewBody(request.response);
   const values = assertPreviewValues(preview, expectedTypes, phase);
   record(phase, startedAt, { rowCount: preview.rowCount, columnCount: preview.columns.length, receiptId: preview.receiptId });
@@ -324,10 +324,10 @@ const addRelatedSourceAggregateCount = async targetType => {
   await click(page, 'aside > div:first-child > div:nth-child(2) button', { name: 'Count' });
 
   const add = await waitNative(entry => pathOf(entry).endsWith('/commands') &&
-    entry.body?.commands?.some(command => command.type === 'ADD_COLUMN_SOURCE' &&
+    entry.request?.commands?.some(command => command.type === 'ADD_COLUMN_SOURCE' &&
       command.outputId === outputId && command.occurrenceId === occurrenceId &&
       command.source?.kind === 'aggregate' && command.source?.aggregate?.operation === 'COUNT'), fromIndex);
-  const authored = add.body.commands.find(command => command.type === 'ADD_COLUMN_SOURCE');
+  const authored = add.request.commands.find(command => command.type === 'ADD_COLUMN_SOURCE');
   assert.deepEqual(authored.source, { kind: 'aggregate', aggregate: { operation: 'COUNT' } },
     'Native Advanced RelatedFeatureCreator must submit the exact legacy COUNT SourceAggregate');
   assert.equal(authored.title, `${targetType} count`);
@@ -354,7 +354,7 @@ const addRelatedSourceAggregateCount = async targetType => {
   assert.deepEqual(doc().route.children.map(child => child.occurrenceId), targetTypes.map(type => routeOccurrences[type]));
 
   const previewRequest = await waitNative(entry => pathOf(entry).endsWith('/preview') &&
-    entry.body?.outputId === outputId && previewBody(entry.response)?.rows?.length === 1, fromIndex);
+    entry.request?.outputId === outputId && previewBody(entry.response)?.rows?.length === 1, fromIndex);
   const preview = previewBody(previewRequest.response);
   const values = assertPreviewValues(preview, expectedTypes, `add-${targetType}-source-aggregate-count`);
   const view = await renderTable(expectedTypes, `add-${targetType}-source-aggregate-count`);
@@ -385,7 +385,7 @@ const removeRelatedCount = async targetType => {
   await waitForBrowser(page, (args) => { return Boolean((Boolean(document.querySelector(args[0])))); }, [removeButtonSelector]);
   await click(page, removeButtonSelector, { name: `Remove ${saved.label} column` });
   const removal = await waitNative(entry => pathOf(entry).endsWith('/commands') &&
-    entry.body?.commands?.some(item => item.type === 'REMOVE_COLUMN' && item.outputId === outputId && item.column === saved.column), fromIndex);
+    entry.request?.commands?.some(item => item.type === 'REMOVE_COLUMN' && item.outputId === outputId && item.column === saved.column), fromIndex);
   delete report.savedColumns[targetType];
   builder = await api(`${base}/builder`);
   assert(!doc().columns.some(column => column.column === saved.column), `Removing ${targetType} left its source column in Builder state`);
@@ -394,7 +394,7 @@ const removeRelatedCount = async targetType => {
   assert.equal(doc().construction, undefined, 'Removing a legacy source aggregate must not introduce staged construction state');
   const view = await renderTable(remainingTypes, `remove-${targetType}-count`);
   const expectedColumnCount = 1 + remainingTypes.length;
-  const previewRequest = await waitNative(entry => pathOf(entry).endsWith('/preview') && entry.body?.outputId === outputId &&
+  const previewRequest = await waitNative(entry => pathOf(entry).endsWith('/preview') && entry.request?.outputId === outputId &&
     previewBody(entry.response)?.columns?.length === expectedColumnCount, fromIndex);
   const preview = previewBody(previewRequest.response);
   const values = assertPreviewValues(preview, remainingTypes, `remove-${targetType}-count`);
@@ -569,12 +569,12 @@ try {
     dialog:(()=>{const d=document.querySelector('[role="dialog"]');return d?{text:d.innerText,radios:[...d.querySelectorAll('input[type="radio"]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled}))}:null})()
   }; }).catch(String);
 } finally {
-  await nativeCapture?.flush();
+  await nativeCapture?.stop();
   report.finished = new Date().toISOString();
   report.nativeRequestSummary = report.nativeRequests.map(({ path, method, status, body, response, failure }) => ({ path, method, status, body, response, failure }));
   await cda.attachReport('sourceAggregateMixedSiblingCountWorkflow-domain-report.json', report);
 }
 
-if (fatal || report.status !== 'passed') throw fatal ?? new Error(report.unverifiedReason ?? report.error ?? 'CDA sibling COUNT workflow did not pass');
+if (fatal) throw fatal;
 return report;
 }

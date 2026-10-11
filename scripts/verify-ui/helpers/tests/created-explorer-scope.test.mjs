@@ -1,7 +1,36 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { createdExplorerScope } from '../created-explorer-scope.mjs';
 import { classifyNativeBrowserApiRequest } from '../native-browser-api-scope.mjs';
+
+test('population coverage browser waits use the canonical created-project route scope', async () => {
+  const project = 'loom_dev_verify_mv39vfc5/3dbf068';
+  const explorerId = 'verify-c5-3dbf068-population-coverage';
+  const scope = createdExplorerScope(project, { project, explorerId });
+  const expectedRoot = '/api/v1/projects/loom_dev_verify_mv39vfc5%252F3dbf068/explorers/verify-c5-3dbf068-population-coverage';
+
+  assert.equal(scope.browserExplorerRoot, expectedRoot,
+    'browser requests must use the observed canonical double-encoded project path');
+  assert.deepEqual([
+    `${scope.browserAuthoringBase}/commands`,
+    `${scope.browserAuthoringBase}/reconcile`,
+    `${scope.browserAuthoringBase}/population-mapping`,
+  ], [
+    `${expectedRoot}/authoring/v2/commands`,
+    `${expectedRoot}/authoring/v2/reconcile`,
+    `${expectedRoot}/authoring/v2/population-mapping`,
+  ]);
+
+  const workflow = await readFile(new URL('../../workflows/population-coverage.mjs', import.meta.url), 'utf8');
+  assert.match(workflow, /createdExplorerScope\(selectionProject, createdExplorer\)\.browserAuthoringBase/,
+    'the workflow must derive browser waits from the server-created Explorer scope');
+  assert.match(workflow, /const commandPath = `\$\{browserAuthoringBase\}\/commands`/);
+  assert.match(workflow, /const reconcilePath = `\$\{browserAuthoringBase\}\/reconcile`/);
+  assert.match(workflow, /const mappingPath = `\$\{browserAuthoringBase\}\/population-mapping`/);
+  assert.match(workflow, /const apiRoot = `\/api\/v1\/projects\/\$\{encodeURIComponent\(target\.fixtureProject\)\}/,
+    'direct API fetches must retain their existing API root');
+});
 
 test('created Explorer scope uses the observed truncated related ONE/ALL ID', () => {
   const requestedName = 'related-one-all-1791518358629-4d3b31ef-6980-450f-b4fe-703140335258';

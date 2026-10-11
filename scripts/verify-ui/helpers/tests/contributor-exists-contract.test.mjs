@@ -161,61 +161,58 @@ test('registered contributor EXISTS lifecycle emits its named checks and keeps r
     'reload validation must share the caller scope and finish before the timed action closes');
   const applyStart = workflow.indexOf('const applyProposal = async');
   const applyDeadline = workflow.indexOf('recordAction(name, startedAt, { rowCount: rows.length, proposalId, receiptId: savedPreview.receiptId });', applyStart);
-  assert(applyDeadline > workflow.indexOf('const applyResponse = requestCapture.rawResponseBody(applyEntry);', applyStart)
+  assert(applyDeadline > workflow.indexOf('const applyResponse = requestCapture.responseBody(applyEntry);', applyStart)
     && applyDeadline > workflow.indexOf("builder = await api(base + '/builder');", applyStart)
     && applyDeadline > workflow.indexOf('await verifySavedPreview({ expectedRows, name, startedAt, requestStart, savedBuilder: builder });', applyStart),
     'Apply action timing must include exact Apply response, saved Builder CAS, and complete saved preview');
   const baselineCancel = workflow.indexOf("recordAction('cancel-all-matching-preview'");
   assert(baselineCancel > workflow.indexOf("recordCheck('persistence', 'Cancel preserves the exact source document", baselineCancel - 1200),
     'baseline Cancel timing must include the saved-workspace and raw-row checks');
-  assert.match(workflow, /import \{[\s\S]*?classifyPendingRelatedExpandChoicesAfterProposalCancel,[\s\S]*?proposalCancelActionSelector,[\s\S]*?snapshotPendingRelatedExpandChoices,[\s\S]*?\} from '\.\.\/helpers\/related-expand-cancel\.mjs'/,
-    'baseline Cancel must use the strict exact-request cancellation helper');
+  assert(!workflow.includes("related-expand-cancel.mjs")
+    && !workflow.includes('snapshotPendingRelatedExpandChoices')
+    && !workflow.includes('classifyPendingRelatedExpandChoicesAfterProposalCancel')
+    && !workflow.includes('routeChoiceCancellations')
+    && !workflow.includes('withExpectedCancellations')
+    && !workflow.includes('expectedCancellations')
+    && !workflow.includes('expectedCancellation'),
+  'routine related-choice Cancel must not depend on a cancellation ledger');
   const baselineCancelStart = workflow.indexOf("const beforeBaselineCancel = await api(base + '/builder');");
   const baselineCancelEnd = workflow.indexOf("panel = await startRelatedExpand();", baselineCancelStart);
   const baselineCancelSource = workflow.slice(baselineCancelStart, baselineCancelEnd);
   assert(baselineCancelStart >= 0 && baselineCancelEnd > baselineCancelStart);
-  assert(!baselineCancelSource.includes('withExpectedCancellations'),
-    'baseline Cancel must not arm a broad path-wide cancellation scope');
-  assert(baselineCancelSource.indexOf('snapshotPendingRelatedExpandChoices(') < baselineCancelSource.indexOf('await nativeClick(page, routeChoiceCancellationAction'),
-    'the exact pending request snapshot must precede the explicit Cancel');
-  assert(baselineCancelSource.indexOf('await waitForDOM(page, args => Boolean(!document.querySelector(args.__template0))')
-    < baselineCancelSource.indexOf('classifyPendingRelatedExpandChoicesAfterProposalCancel('),
-    'the proposal/editor close waits must finish before classifying the abort');
-  assert(baselineCancelSource.indexOf("{ __template0: relatedExpandEditorSelector }")
-    < baselineCancelSource.indexOf('classifyPendingRelatedExpandChoicesAfterProposalCancel('),
-    'classification must follow observation that the RelatedExpand editor itself is unmounted');
-  assert.match(baselineCancelSource, /routeChoiceCancellations\.map\(item => item\.browserRequestId\)\.sort\(\),[\s\S]*?routeChoiceCancelledBrowserRequestIDs/,
-    'the expected-cancellation ledger must equal requests returned from the exact pending snapshot');
-  assert.match(baselineCancelSource, /draftVersion: beforeBaselineCancel\.draftVersion,[\s\S]*?draftDigest: beforeBaselineCancel\.draftDigest,[\s\S]*?stageId: 'source_projection'/,
-    'the pre-Cancel snapshot must bind the exact saved draft and selected input stage');
+  assert(baselineCancelSource.includes("await nativeClick(page, '[data-testid=\"construction-cancel-proposal\"]', {});")
+    && baselineCancelSource.includes("await waitForDOM(page, args => Boolean(!document.querySelector(args.__template0)),\n  { __template0: '[data-testid=\"construction-proposal-panel\"]' }, 5000);")
+  , 'baseline Cancel must use the visible action and wait for the proposal panel to close');
+  assert.match(baselineCancelSource, /assert\.deepEqual\(builder\.workspace, beforeBaselineCancel\.workspace,[\s\S]*?assert\.deepEqual\(documentForOutput\(builder\), original,[\s\S]*?rowsMatch\(cancelledBaselineRows, baselineRows\)/,
+    'baseline Cancel must preserve the saved workspace and exact rendered source rows');
   const applySource = workflow.slice(applyProposalStart, workflow.indexOf('const expectedErrorProposal = async', applyProposalStart));
   assert(!applySource.includes('withExpectedCancellations')
     && !applySource.includes('classifyPendingRelatedExpandChoicesAfterProposalCancel'),
     'normal Apply and saved-preview verification must not inherit the Cancel exception');
-  assert.match(workflow, /networkFailures\.filter\(failure => !failure\.expectedCancellation\)/,
-    'unclassified Apply-time network failures must remain fatal');
   const removalCancel = workflow.indexOf("recordAction('cancel-exists-remove-to-render'");
   assert(removalCancel > workflow.indexOf("recordCheck('persistence', 'Cancel removal preserves saved EXCLUDE rows", removalCancel - 1200),
     'removal Cancel timing must include the saved-workspace and raw-row checks');
   const expectedErrorCheck = workflow.indexOf("recordCheck('usability', 'Scoped ERROR validation exposes enabled PRESERVE_PARENT and EXCLUDE repair choices'");
   const expectedErrorStart = workflow.indexOf('const expectedErrorProposal = async');
   const expectedErrorDeadline = workflow.indexOf('const durationMs = Date.now() - startedAt;', expectedErrorCheck);
-  assert(expectedErrorDeadline > workflow.indexOf('await cda.flushHttpDiagnostics({', expectedErrorStart)
-    && expectedErrorDeadline > workflow.indexOf('await requestCapture.flush({', expectedErrorStart)
-    && expectedErrorDeadline > expectedErrorCheck,
-    'ERROR timing must include the fixture and request-capture drains plus HTTP evidence');
-  const finalDrain = workflow.lastIndexOf('await Promise.all([');
-  const finalDiagnosticsDrain = workflow.lastIndexOf('cda.flushHttpDiagnostics({ timeoutMs: 5_000 })');
-  const finalTrackerDrain = workflow.lastIndexOf('requestCapture.flush({ timeoutMs: 5_000 })');
-  const finalUnexpectedErrors = workflow.lastIndexOf("assert.deepEqual(report.errors.filter((failure) => !failure.expected)");
-  assert(finalDrain >= 0 && finalDiagnosticsDrain > finalDrain && finalTrackerDrain > finalDrain
-    && finalUnexpectedErrors > Math.max(finalDiagnosticsDrain, finalTrackerDrain),
-    'final diagnostics assertions must follow the concurrent bounded fixture and tracker drains');
+  const exactErrorCapture = workflow.indexOf('const request = await requestCapture.waitForResponse(', expectedErrorStart);
+  const exactErrorStatus = workflow.indexOf('assert.equal(request.status, 422', exactErrorCapture);
+  const exactErrorBody = workflow.indexOf('const response = request.response;', exactErrorCapture);
+  assert(expectedErrorStart >= 0 && exactErrorCapture > expectedErrorStart
+    && exactErrorStatus > exactErrorCapture && exactErrorBody > exactErrorStatus
+    && expectedErrorDeadline > exactErrorBody && expectedErrorDeadline > expectedErrorCheck,
+    'ERROR timing must include the exact awaited 422 body and visible repair checks');
+  assert.match(workflow, /requestCapture\.markExpectedValidation\(request,\s*\{\s*status: 422,\s*reason: 'The independent zero-related-record witness intentionally exercises the ERROR empty-policy validation path\.'/,
+    'the exact waited 422 response must carry the independent zero-related-record proof');
+  assert(!workflow.includes('cda.expectHttpFailure'),
+    'expected validation must not add a second report-ledger classification');
+  assert(workflow.includes("report.expectedPolicyError.status === 422"),
+    'the native report must retain the exact expected validation status');
   const finallyStart = workflow.lastIndexOf('  } finally {');
   const finallySource = workflow.slice(finallyStart);
-  assert(finallyStart >= 0 && /report\.status = 'failed'/.test(finallySource)
-    && /if \(requestFlushError\) throw requestFlushError/.test(finallySource),
-    'a final request-capture drain failure must mark the report failed and remain fatal');
+  assert(finallyStart >= 0 && finallySource.includes('await cda.attachReport(')
+    && !finallySource.includes('requestCapture.flush'),
+  'fixture teardown owns direct capture cleanup while the workflow always attaches its report');
 });
 
 test('complete preview requires exact authored columns and every expected row key', () => {

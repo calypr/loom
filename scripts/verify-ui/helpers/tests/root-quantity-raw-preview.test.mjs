@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { assertBoundedPreviewCount, assertPreviewRowsMatchRawObservations, assertReloadPreviewContext } from '../root-quantity-raw-preview.mjs';
+import { authoringRequestsFromNative } from '../../workflows/root-quantity-pivot-workflow.mjs';
 
 test('bounded native preview count remains distinct from the full raw source total', () => {
   const preview = { rowCount: 25, rows: Array.from({ length: 25 }, (_, index) => ({ id: `obs-${index}` })) };
@@ -54,22 +55,20 @@ test('reloaded preview uses its own fresh bounded sample and exact reload receip
   const basePath = '/api/v1/projects/cda/explorers/root-quantity/authoring/v2';
   const snapshotToken = 'sha256:current-snapshot';
   const draftDigest = 'sha256:current-draft';
-  const requests = [
+  const nativeRequests = [
     {
-      endpoint: 'reconcile',
-      pathname: `${basePath}/reconcile`,
-      status: 200,
-      body: { snapshotToken, draftVersion: 8, draftDigest },
+      path: `${basePath}/reconcile`, origin: 'http://127.0.0.1:8188', method: 'POST',
+      startedAt: 1, completedAt: 2, status: 200,
+      request: { snapshotToken, draftVersion: 8, draftDigest },
       response: {
         receiptId: 'reload-receipt', snapshotToken, generation: 'cda-v1',
         outputs: [{ outputId: 'out-root' }],
       },
     },
     {
-      endpoint: 'preview',
-      pathname: `${basePath}/preview`,
-      status: 200,
-      body: { receiptId: 'reload-receipt', outputId: 'out-root', limit: 25 },
+      path: `${basePath}/preview`, origin: 'http://127.0.0.1:8188', method: 'POST',
+      startedAt: 3, completedAt: 4, status: 200,
+      request: { receiptId: 'reload-receipt', outputId: 'out-root', limit: 25 },
       response: {
         receiptId: 'reload-receipt', outputId: 'out-root', rowCount: 1,
         columns: [{ column: 'id' }, { column: 'code' }, { column: 'quantity' }],
@@ -77,6 +76,9 @@ test('reloaded preview uses its own fresh bounded sample and exact reload receip
       },
     },
   ];
+  const requests = authoringRequestsFromNative(nativeRequests);
+  assert(requests.every(entry => !Object.hasOwn(entry, 'body')),
+    'the shared observer adapter exposes decoded request payloads only as request');
   const fresh = assertReloadPreviewContext({
     requests, requestOffset: 0, basePath, outputId: 'out-root', generation: 'cda-v1',
     snapshotToken, draftVersion: 8, draftDigest,

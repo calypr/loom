@@ -332,6 +332,101 @@ export const viewerChartsWorkflow = async ({ page, report, action, check }, cont
         chart: gender.chart, table: gender.table });
     report.target.viewerCharts = { outputId, column: genderColumn, receiptId: null, revisionId: null };
 
+    const useGenderAsChart = page.getByRole('checkbox', { name: 'Use Gender as chart', exact: true });
+    const chartOffCommand = page.waitForResponse(response => {
+      if (!isOwnedResponse(response, {
+        origin: uiOrigin,
+        method: 'POST',
+        path: authoringPath(project, explorer, 'commands'),
+      })) return false;
+      const command = requestBody(response.request())?.commands?.find(candidate =>
+        candidate.type === 'UPDATE_COLUMN' && candidate.outputId === outputId &&
+        candidate.column === genderColumn);
+      return Boolean(command?.columnValue && !Object.hasOwn(command.columnValue, 'chart'));
+    }, { timeout: 5_000 });
+    await action('turn off the configured Gender chart', useGenderAsChart, () => useGenderAsChart.click(), {
+      timeout: 5_000,
+      budget: 5_000,
+      after: async () => {
+        const response = await chartOffCommand;
+        assert(response.status() >= 200 && response.status() < 300,
+          'Gender chart removal returned HTTP ' + response.status());
+        await expect(useGenderAsChart).not.toBeChecked({ timeout: 5_000 });
+        await expect(displayGender).toBeChecked({ timeout: 5_000 });
+        await waitForBuilderRenderedGrid(page, {
+          tableSelector: '[data-testid="preview-table-scroll"] [role="table"]',
+          expectedRows: expectedPreviewRows(oracle),
+        });
+      },
+      requiredCheck: 'native configured Gender chart toggle off preserves exact Patient Preview rows within five seconds',
+    });
+    const chartDisabled = await readBuilder({ page, target, project, explorer });
+    const chartDisabledDocument = chartDisabled.workspace?.documents?.find(candidate =>
+      candidate.output?.id === outputId);
+    const chartDisabledGender = chartDisabledDocument?.columns?.find(column =>
+      column.column === genderColumn && fieldPathFor(column) === 'gender');
+    assert(chartDisabledGender, 'chart toggle-off must retain the exact Patient.gender column');
+    assert.deepEqual(chartDisabledGender.source, gender.source,
+      'chart toggle-off must preserve the exact Patient.gender source binding');
+    check('persistence', 'saved Builder clears only the Gender chart binding and retains its output and source column',
+      chartDisabledDocument?.output?.id === outputId &&
+        chartDisabledDocument.rootResourceType === 'Patient' &&
+        chartDisabledGender.column === genderColumn &&
+        chartDisabledGender.occurrenceId === gender.occurrenceId &&
+        chartDisabledGender.table?.visible === true &&
+        chartDisabledGender.chart === undefined,
+      { outputId, column: chartDisabledGender.column, source: chartDisabledGender.source,
+        occurrenceId: chartDisabledGender.occurrenceId, table: chartDisabledGender.table,
+        chart: chartDisabledGender.chart });
+
+    const chartOnCommand = page.waitForResponse(response => {
+      if (!isOwnedResponse(response, {
+        origin: uiOrigin,
+        method: 'POST',
+        path: authoringPath(project, explorer, 'commands'),
+      })) return false;
+      const command = requestBody(response.request())?.commands?.find(candidate =>
+        candidate.type === 'UPDATE_COLUMN' && candidate.outputId === outputId &&
+        candidate.column === genderColumn);
+      return command?.columnValue?.chart?.type === 'bar' &&
+        command.columnValue.chart.title === 'Gender';
+    }, { timeout: 5_000 });
+    await action('restore the configured Gender chart', useGenderAsChart, () => useGenderAsChart.click(), {
+      timeout: 5_000,
+      budget: 5_000,
+      after: async () => {
+        const response = await chartOnCommand;
+        assert(response.status() >= 200 && response.status() < 300,
+          'Gender chart restoration returned HTTP ' + response.status());
+        await expect(useGenderAsChart).toBeChecked({ timeout: 5_000 });
+        await expect(displayGender).toBeChecked({ timeout: 5_000 });
+        await waitForBuilderRenderedGrid(page, {
+          tableSelector: '[data-testid="preview-table-scroll"] [role="table"]',
+          expectedRows: expectedPreviewRows(oracle),
+        });
+      },
+      requiredCheck: 'native configured Gender chart toggle on restores exact Patient Preview rows within five seconds',
+    });
+    const chartEnabled = await readBuilder({ page, target, project, explorer });
+    const chartEnabledDocument = chartEnabled.workspace?.documents?.find(candidate =>
+      candidate.output?.id === outputId);
+    const chartEnabledGender = chartEnabledDocument?.columns?.find(column =>
+      column.column === genderColumn && fieldPathFor(column) === 'gender');
+    assert(chartEnabledGender, 'chart toggle-on must restore the exact Patient.gender column');
+    assert.deepEqual(chartEnabledGender.source, gender.source,
+      'chart toggle-on must preserve the exact Patient.gender source binding');
+    assert.deepEqual(chartEnabledGender.chart, { type: 'bar', title: 'Gender', order: 0 },
+      'chart toggle-on must restore the normalized bar settings');
+    check('persistence', 'saved Builder restores the exact Gender bar binding on the same output and source column',
+      chartEnabledDocument?.output?.id === outputId &&
+        chartEnabledDocument.rootResourceType === 'Patient' &&
+        chartEnabledGender.column === genderColumn &&
+        chartEnabledGender.occurrenceId === gender.occurrenceId &&
+        chartEnabledGender.table?.visible === true,
+      { outputId, column: chartEnabledGender.column, source: chartEnabledGender.source,
+        occurrenceId: chartEnabledGender.occurrenceId, table: chartEnabledGender.table,
+        chart: chartEnabledGender.chart });
+
     const removeGender = page.getByRole('button', { name: 'Remove Gender', exact: true });
     await action('remove the Gender chart field', removeGender, () => removeGender.click(), {
       timeout: 5_000,

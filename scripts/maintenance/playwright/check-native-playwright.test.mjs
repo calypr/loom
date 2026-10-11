@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { findRemovedNativePlaywrightApiReferences } from './removed-native-playwright-apis.mjs';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const requireUI = createRequire(join(repositoryRoot, 'ui/packages/loom-ui/package.json'));
@@ -108,4 +109,79 @@ test('unresolved shorthand is caught and known Node globals stay exempt', () => 
   assert.equal(unresolvedName(globalDiagnostic.message), 'setImmediate');
   assert.ok(nodeGlobals.has(unresolvedName(globalDiagnostic.message)));
   assert.match(checkerSource, /nodeGlobals\.has\(missingName\)/);
+});
+
+test('native Playwright source gate rejects imports, fixture members, and removed request drains', () => {
+  assert.match(checkerSource, /findRemovedNativePlaywrightApiReferences\(source, ts\)/);
+  assert.match(checkerSource, /scripts\/verify-ui\/helpers\/tests/);
+  const source = `import { installNativeAbortProbe } from '../helpers/native-abort-probe.mjs';
+cda.includeBrowserDiagnostics();
+await cda.waitForCapturedResponse(predicate);
+await cda.flushHttpDiagnostics();
+const ledger = workflow.nativeRequestLedger;
+await tracker.flush();
+await requestCapture.waitFor(predicate);
+void tracker.pendingReads;
+void observer.byRequest.entries();
+await drainPendingResponseReads();
+await captureOwnedPreviewLifecycle();`;
+  const issues = findRemovedNativePlaywrightApiReferences(source, ts);
+  assert.deepEqual([...new Set(issues.map(({ line }) => line))], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+  assert.ok(issues.some(issue => issue.name.startsWith('deleted helper module') && issue.line === 1));
+  assert.ok(issues.some(issue => issue.name === 'removed CDA fixture member' && issue.line === 2));
+  assert.ok(issues.some(issue => issue.reference === 'tracker.flush' && issue.line === 6));
+});
+
+test('native source gate permits the shared observer and specific response accessors', () => {
+  const source = `import { captureCDARequests, findCompletedNativeResponse } from '../helpers/cda-playwright-requests.mjs';
+const capture = cda.captureRequests('/api/v1/projects/p/explorers/e');
+await capture.waitForResponse(entry => entry.status === 200, { fromIndex: 0, timeoutMs: 5000 });
+await page.waitForResponse(response => response.ok());
+const request = await capture.requestBody(entry);
+const response = await capture.responseBody(entry);
+observer.markExpectedValidation(entry, { status: 422, reason, proof });
+observer.markExpectedTransportFailure(request, { reason, action: 'abort' });
+const body = response.body ?? document.body;
+void captureCDARequests;
+void findCompletedNativeResponse;`;
+  assert.deepEqual(findRemovedNativePlaywrightApiReferences(source, ts), []);
+  assert.deepEqual(findRemovedNativePlaywrightApiReferences(`
+// cda.includeBrowserDiagnostics() was removed.
+const note = 'nativeRequestLedger';
+`, ts), [], 'comments and string data are not executable API references');
+});
+
+test('native source gate catches fixture-view stops after assignments and local wrappers', () => {
+  const source = `const fromHelper = captureCDARequests(page, options);
+fromHelper.stop();
+const fromFixture = cda.captureRequests('/api/v1/projects/p/explorers/e');
+fromFixture.stop();
+const fromAdapter = createCDARequestView(observer, options);
+fromAdapter.stop();
+const observer = createPlaywrightNetworkObserver(page, options);
+observer.stop();
+async function installGroupJoinNativeCapture() {
+  return cda.captureRequests('/api/v1/projects/p/explorers/e');
+}
+let fromGroupJoin;
+fromGroupJoin = await installGroupJoinNativeCapture();
+fromGroupJoin.stop();
+let fromLaterAssignment;
+fromLaterAssignment = await cda.captureRequests('/api/v1/projects/p/explorers/e');
+fromLaterAssignment.stop();
+let browserRequestCapture;
+browserRequestCapture = isFixture ? context.networkObserver : context.captureRequests('/api/v1/projects/p/explorers/e');
+browserRequestCapture.stop();`;
+  const issues = findRemovedNativePlaywrightApiReferences(source, ts);
+  assert.deepEqual(issues.map(issue => issue.reference), [
+    'fromFixture.stop()',
+    'fromAdapter.stop()',
+    'fromGroupJoin.stop()',
+    'fromLaterAssignment.stop()',
+    'browserRequestCapture.stop()',
+  ]);
+  assert.equal(issues.some(issue => issue.reference === 'fromHelper.stop()'), false,
+    'the directly owned captureCDARequests observer can be stopped by its caller');
+  assert.equal(issues.some(issue => issue.reference === 'observer.stop()'), false,
+    'the directly created observer can be stopped by its caller');
 });

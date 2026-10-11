@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { expectedRelatedSourceOneValidation, selectedRelatedSourceProposal } from '../related-source-capture.mjs';
+import test from 'node:test';
+import { expectedRelatedSourceOneValidation, matchesExpectedRelatedSourceOneValidationCapture, selectedRelatedSourceProposal } from '../related-source-capture.mjs';
 
 const expected = {
   outputId: 'output-cda', candidateId: 'observation-id-candidate', nodeId: 'observation-node',
@@ -65,6 +66,22 @@ const verifyExactClassifier = (entry, scope) => {
 }
 
 verifyExactClassifier(requestFixture, expected);
+
+test('expected ONE validation joins the two observer captures by their shared non-empty request ID', () => {
+  const nativeEntry = { ...requestFixture, method: 'POST', requestId: 'construction-proposal-request-123' };
+  const officialEntry = {
+    path: requestFixture.path,
+    method: 'POST',
+    status: 422,
+    requestId: 'construction-proposal-request-123',
+    request: structuredClone(nativeEntry.request),
+    response: structuredClone(nativeEntry.response),
+  };
+  assert.equal(matchesExpectedRelatedSourceOneValidationCapture(officialEntry, nativeEntry), true);
+  assert.equal(matchesExpectedRelatedSourceOneValidationCapture({ ...officialEntry, requestId: 'other-request' }, nativeEntry), false);
+  assert.equal(matchesExpectedRelatedSourceOneValidationCapture({ ...officialEntry, request: { ...officialEntry.request, outputId: 'other-output' } }, nativeEntry), false);
+  assert.equal(matchesExpectedRelatedSourceOneValidationCapture(officialEntry, { ...nativeEntry, requestId: undefined }), false);
+});
 
 if (process.argv[2]) {
   const report = JSON.parse(await readFile(process.argv[2], 'utf8'));

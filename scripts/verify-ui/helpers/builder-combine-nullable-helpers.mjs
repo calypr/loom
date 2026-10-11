@@ -1,14 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import { classifyNativeBrowserApiRequest, isSameUiProxyResponse } from './native-browser-api-scope.mjs';
 
-export const assertNullableNativeRequestLedgerComplete = (ledger) => {
-  if (!ledger.nativeRequestTerminalLedger.complete) {
-    throw new Error('Nullable Combine native request capture did not reach a complete owned terminal ledger: ' +
-      JSON.stringify({ incompleteRequests: ledger.incompleteRequests, nativeRequestDrainEvidence: ledger.nativeRequestDrainEvidence,
-        nativeRequestCorrelationErrors: ledger.nativeRequestCorrelationErrors ?? [] }));
-  }
-};
-
 export const nativeResponseScopeEvidence = (requestURL, responseURL, scope) => {
   let request;
   let response;

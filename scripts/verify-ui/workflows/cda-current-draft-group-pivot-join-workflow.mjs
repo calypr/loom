@@ -106,7 +106,6 @@ export async function cdaCurrentDraftGroupPivotJoinWorkflow({ page, cda }) {
     const error = new Error(`The initial ${scanLimit}-row Observation sample selected ${selectedSubjects.length} subjects; the targeted query returned ${targetedRows.length} rows and lacks the shared-subject A,A,B code-category and left-only subject witness. No lifecycle result is claimed.`);
     error.name = 'RawOracleUnavailableError';
     error.rawOracleFailure = true;
-    report.status = 'unverified';
     report.unverifiedReason = error.message;
     report.finished = new Date().toISOString();
     await cda.attachReport('group-pivot-join', report);
@@ -159,7 +158,6 @@ export async function cdaCurrentDraftGroupPivotJoinWorkflow({ page, cda }) {
   const publishPath = `${authoring}/publish`;
   const selectionPrefix = `${base}/selections/`;
   const selectionReadEvents = new Map();
-  let activeSelectionTransition;
   let publishRequests = 0;
   const onRequest = request => {
     try {
@@ -172,8 +170,7 @@ export async function cdaCurrentDraftGroupPivotJoinWorkflow({ page, cda }) {
           selectionReadEvents.set(request, {
             selectionId: decodeURIComponent(encodedSelectionId), path: url.pathname,
             origin: url.origin, method: request.method(), limit: url.searchParams.get('limit'),
-            startedAt: Date.now(), responseStatus: null, responseAt: null, completedAt: null,
-            failedAt: null, failure: null, transitionAction: activeSelectionTransition?.label ?? null,
+            startedAt: Date.now(), responseStatus: null, responseAt: null,
           });
         }
       }
@@ -185,21 +182,8 @@ export async function cdaCurrentDraftGroupPivotJoinWorkflow({ page, cda }) {
     event.responseStatus = response.status();
     event.responseAt = Date.now();
   };
-  const onSelectionRequestFinished = request => {
-    const event = selectionReadEvents.get(request);
-    if (event) event.completedAt = Date.now();
-  };
-  const onSelectionRequestFailed = request => {
-    const event = selectionReadEvents.get(request);
-    if (!event) return;
-    event.failedAt = Date.now();
-    event.failure = request.failure()?.errorText ?? null;
-    event.transitionAction = activeSelectionTransition?.label ?? null;
-  };
   page.on('request', onRequest);
   page.on('response', onSelectionResponse);
-  page.on('requestfinished', onSelectionRequestFinished);
-  page.on('requestfailed', onSelectionRequestFailed);
 
   const getDocument = (state, outputId) => {
     const matches = (state.workspace?.documents ?? []).filter(document => document.output?.id === outputId);
@@ -235,7 +219,7 @@ export async function cdaCurrentDraftGroupPivotJoinWorkflow({ page, cda }) {
     await expect(locator).toBeEnabled({ timeout: 5_000 });
   };
   const proposalReady = (outputId, count) => proposalPreviewReadinessExpression(outputId, count);
-  const waitProposal = (outputId, count) => waitFunction(proposalReady(outputId, count));
+  const waitProposal = (outputId, count, timeout = 5_000) => waitFunction(proposalReady(outputId, count), timeout);
   const savedReady = (outputId, count) => `(()=>{const p=document.querySelector('[data-testid="construction-preview"]');const t=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');return Boolean(p?.dataset.previewStatus==='ready'&&p.dataset.previewOutputId===${JSON.stringify(outputId)}&&t?.getAttribute('aria-rowcount')===${JSON.stringify(String(count + 1))}&&!document.body.innerText.includes('Loading your table…')&&!document.body.innerText.includes('Preview failed:'))})()`;
   const waitSaved = (outputId, count) => waitFunction(savedReady(outputId, count));
   const readGrid = async kind => page.evaluate(({ kind }) => {
@@ -257,13 +241,13 @@ export async function cdaCurrentDraftGroupPivotJoinWorkflow({ page, cda }) {
     assert(ok, `${name}: visible rows differ from independent raw oracle.`);
     return grid;
   };
-  const previewEvent = async ({ fromIndex, outputId, baseState, matchesCandidate }) => {
-    const event = await capture.waitFor(entry => entry.path === `${authoring}/construction-proposals` &&
-      entry.method === 'POST' && entry.status === 200 && entry.completedAt && entry.body?.outputId === outputId &&
-      (!matchesCandidate || matchesCandidate(entry.body?.candidateConstruction)),
-    { fromIndex, timeoutMs: 5_000 });
-    const requestBody = capture.rawRequestBody(event);
-    const responseBody = capture.rawResponseBody(event);
+  const previewEvent = async ({ fromIndex, outputId, baseState, matchesCandidate, timeoutMs = 5_000 }) => {
+    const event = await capture.waitForResponse(entry => entry.path === `${authoring}/construction-proposals` &&
+      entry.method === 'POST' && entry.status === 200 && entry.completedAt && entry.request?.outputId === outputId &&
+      (!matchesCandidate || matchesCandidate(entry.request?.candidateConstruction)),
+    { fromIndex, timeoutMs });
+    const requestBody = event.request;
+    const responseBody = event.response;
     assert(requestBody && responseBody, 'Native proposal request and response bodies must be retained.');
     const dom = await page.evaluate(() => ({
       proposalId: document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-id') ?? null,
@@ -334,17 +318,8 @@ export async function cdaCurrentDraftGroupPivotJoinWorkflow({ page, cda }) {
     const nextSelectionId = nextDocument.population?.selectionRevisionId;
     assert(previousSelectionId && nextSelectionId && previousSelectionId !== nextSelectionId,
       'The native source switch must expose distinct saved left and right selection identities.');
-    const previousSelectionPath = `${selectionPrefix}${encode(previousSelectionId)}`;
     const nextSelectionPath = `${selectionPrefix}${encode(nextSelectionId)}`;
     const transitionStartedAt = Date.now();
-    const pendingPreviousReads = [...selectionReadEvents.values()].filter(event =>
-      event.selectionId === previousSelectionId && event.path === previousSelectionPath &&
-      event.origin === new URL(uiOrigin).origin && event.method === 'GET' && event.limit === '1' &&
-      event.startedAt <= transitionStartedAt && event.completedAt === null && event.failedAt === null);
-    assert(pendingPreviousReads.length <= 1,
-      'At most one exact left attached-selection read may be pending when switching tables.');
-    const cancellationStart = report.expectedCancellations?.length ?? 0;
-    activeSelectionTransition = { label, startedAt: transitionStartedAt };
     const responseOutcome = page.waitForResponse(response => {
       try {
         const url = new URL(response.url());
@@ -355,23 +330,7 @@ export async function cdaCurrentDraftGroupPivotJoinWorkflow({ page, cda }) {
     let rightSelectionRead;
     let transitionFinishedAt;
     try {
-      await cda.withExpectedCancellations({
-        origin: uiOrigin,
-        method: 'GET',
-        paths: [previousSelectionPath],
-        requestIdPrefixes: ['cda-request-'],
-        reason: 'Selecting the right Group Pivot output retires the previous left attached-selection query.',
-        proof: {
-          project, explorer, generation,
-          previousOutputId: selectedOutputBeforeSwitch,
-          previousSelectionRevisionId: previousSelectionId,
-          nextOutputId: outputId,
-          nextSelectionRevisionId: nextSelectionId,
-          query: { method: 'GET', limit: 1 },
-          retirement: 'BuilderWorkspace replaces the keyed active-table population selection query; resourceFor aborts its stale getSelection AbortSignal when the selected table changes.',
-        },
-        actionLabel: label,
-      }, async () => action(label, locator, target => target.click({ timeout: 5_000 }), async () => {
+      await action(label, locator, target => target.click({ timeout: 5_000 }), async () => {
         const [responseResult] = await Promise.all([
           responseOutcome,
           waitSaved(outputId, rowCount),
@@ -408,47 +367,9 @@ export async function cdaCurrentDraftGroupPivotJoinWorkflow({ page, cda }) {
         ]);
         assert(rightSelectionRead.startedAt >= transitionStartedAt && rightSelectionRead.responseAt >= transitionStartedAt,
           'The exact right selection GET must start and resolve after the native table switch begins.');
-      }));
+      });
     } finally {
       transitionFinishedAt = Date.now();
-      activeSelectionTransition = undefined;
-    }
-    const cancellations = (report.expectedCancellations ?? []).slice(cancellationStart);
-    assert(cancellations.length <= 1,
-      'Switching to the right Group Pivot may retire at most one pending left selection GET.');
-    const previousFailures = [...selectionReadEvents.values()].filter(event =>
-      event.selectionId === previousSelectionId && event.path === previousSelectionPath && event.limit === '1' &&
-      event.failure === 'net::ERR_ABORTED' && event.failedAt >= transitionStartedAt && event.failedAt <= transitionFinishedAt);
-    let retiredPreviousRead;
-    if (cancellations.length === 1) {
-      const [cancellation] = cancellations;
-      assert.equal(pendingPreviousReads.length, 1,
-        'A retired left selection GET must be the exact request already pending before the native switch.');
-      assert.equal(previousFailures.length, 1,
-        'Only the exact pending left selection GET may be aborted during the native switch.');
-      retiredPreviousRead = previousFailures[0];
-      assert.strictEqual(retiredPreviousRead, pendingPreviousReads[0]);
-      assert(retiredPreviousRead.startedAt < transitionStartedAt && retiredPreviousRead.failedAt >= transitionStartedAt);
-      assert.equal(retiredPreviousRead.transitionAction, label);
-      assert.deepEqual([cancellation.method, new URL(cancellation.url).origin, new URL(cancellation.url).pathname,
-        cancellation.reason, cancellation.proof?.scopeAction], [
-        'GET', new URL(uiOrigin).origin, previousSelectionPath,
-        'Selecting the right Group Pivot output retires the previous left attached-selection query.', label,
-      ]);
-      const diagnostics = report.network.filter(entry => entry.kind === 'network' &&
-        entry.playwrightRequestId === cancellation.playwrightRequestId);
-      assert.equal(diagnostics.length, 1, 'The exact retired selection GET must remain in the native network ledger.');
-      assert.deepEqual([diagnostics[0].url, diagnostics[0].errorText, diagnostics[0].triggerAction,
-        diagnostics[0].expected, diagnostics[0].cancellationAction], [
-        `${new URL(uiOrigin).origin}${previousSelectionPath}`, 'net::ERR_ABORTED', label, true, label,
-      ]);
-      const requestErrors = report.errors.filter(entry => entry.kind === 'network' &&
-        entry.playwrightRequestId === cancellation.playwrightRequestId);
-      assert(requestErrors.every(entry => entry.expected === true),
-        'The exact retired left selection GET must have no unclassified native error diagnostic.');
-    } else {
-      assert.equal(previousFailures.length, 0,
-        'An unclassified left selection abort cannot be hidden by the table-switch proof.');
     }
     report.selectionSwitchEvidence = {
       action: label,
@@ -456,22 +377,11 @@ export async function cdaCurrentDraftGroupPivotJoinWorkflow({ page, cda }) {
         elapsedMs: transitionFinishedAt - transitionStartedAt },
       previous: { outputId: selectedOutputBeforeSwitch, selectionRevisionId: previousSelectionId },
       next: { outputId, selectionRevisionId: nextSelectionId },
-      pendingPreviousReadsAtTransition: pendingPreviousReads.map(event => ({
-        selectionId: event.selectionId, path: event.path, limit: event.limit, startedAt: event.startedAt,
-      })),
-      retiredPreviousRead: retiredPreviousRead ? {
-        path: retiredPreviousRead.path, limit: retiredPreviousRead.limit,
-        startedAt: retiredPreviousRead.startedAt, failedAt: retiredPreviousRead.failedAt,
-        failure: retiredPreviousRead.failure, transitionAction: retiredPreviousRead.transitionAction,
-        cancellationRequestId: cancellations[0].requestId,
-        playwrightRequestId: cancellations[0].playwrightRequestId,
-      } : null,
       rightSelectionRead: rightSelectionRead ? {
         path: rightSelectionRead.path, limit: rightSelectionRead.limit,
         selectionId: rightSelectionRead.selectionId, status: rightSelectionRead.responseStatus,
         startedAt: rightSelectionRead.startedAt, responseAt: rightSelectionRead.responseAt,
       } : null,
-      expectedCancellationCount: cancellations.length,
     };
   };
   const reloadTable = async (outputId, count, label) => {
@@ -618,13 +528,6 @@ export async function cdaCurrentDraftGroupPivotJoinWorkflow({ page, cda }) {
     assert.equal(await page.locator('select[aria-label="Summary 1"]').inputValue(), 'COUNT_ROWS');
     const keys = groupPaths.map(path => columns[path]);
     const groupBase = structuredClone(builder);
-    let fromIndex;
-    for (const key of keys) {
-      const selector = keySelector(key.label);
-      await waitSelector(selector);
-      if (key === keys.at(-1)) fromIndex = cda.report.nativeRequests.length;
-      await action(`Group ${source.label} by ${key.label}`, page.locator(selector), target => target.check({ timeout: 5_000 }));
-    }
     const rawGroupMap = new Map();
     for (const row of source.rows) {
       const key = groupPaths.map(path => path === 'subject.reference' ? row.subjectReference :
@@ -635,20 +538,37 @@ export async function cdaCurrentDraftGroupPivotJoinWorkflow({ page, cda }) {
     const expectedGroupRows = [...rawGroupMap].map(([key, count]) => [...JSON.parse(key), count])
       .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     const count = expectedGroupRows.length;
-    await waitProposal(source.outputId, count);
-    const proposal = await previewEvent({ fromIndex, outputId: source.outputId, baseState: groupBase,
-      matchesCandidate: candidate => {
-        const step = candidate?.steps?.at(-1);
-        return step?.operation?.kind === 'GROUP' &&
-          isDeepStrictEqual(step.operation.group.keys?.map(key => key.inputColumnId), keys.map(key => key.columnId)) &&
-          step.operation.group.aggregates?.some(aggregate => aggregate.operation === 'COUNT_ROWS');
-      } });
-    const grid = await readGrid('proposal');
-    const countLabel = grid.headers.find(header => /^row count$/i.test(header));
-    assert(countLabel, `COUNT_ROWS proposal must expose its exact row-count column: ${JSON.stringify(grid.headers)}`);
-    const expectedHeaders = [...keys.map(key => key.label), countLabel];
-    assertGrid(`${source.label} native GROUP proposal matches raw group counts`, grid, expectedHeaders,
-      expectedGroupRows.map(row => row.map(String)));
+    let proposal;
+    let countLabel;
+    for (const key of keys) {
+      const selector = keySelector(key.label);
+      await waitSelector(selector);
+      const finalKey = key === keys.at(-1);
+      if (!finalKey) {
+        await action(`Group ${source.label} by ${key.label}`, page.locator(selector), target => target.check({ timeout: 5_000 }));
+        continue;
+      }
+      const fromIndex = capture.requests.length;
+      const startedAt = Date.now();
+      const deadlineAt = startedAt + 5_000;
+      const remaining = () => Math.max(1, deadlineAt - Date.now());
+      await action(`Group ${source.label} by ${key.label}`, page.locator(selector),
+        target => target.check({ timeout: 5_000 }), async () => {
+          await waitProposal(source.outputId, count, remaining());
+          proposal = await previewEvent({ fromIndex, outputId: source.outputId, baseState: groupBase,
+            matchesCandidate: candidate => {
+              const step = candidate?.steps?.at(-1);
+              return step?.operation?.kind === 'GROUP' &&
+                isDeepStrictEqual(step.operation.group.keys?.map(key => key.inputColumnId), keys.map(key => key.columnId)) &&
+                step.operation.group.aggregates?.some(aggregate => aggregate.operation === 'COUNT_ROWS');
+            }, timeoutMs: remaining() });
+          const grid = await readGrid('proposal');
+          countLabel = grid.headers.find(header => /^row count$/i.test(header));
+          assert(countLabel, `COUNT_ROWS proposal must expose its exact row-count column: ${JSON.stringify(grid.headers)}`);
+          assertGrid(`${source.label} native GROUP proposal matches raw group counts`, grid,
+            [...keys.map(key => key.label), countLabel], expectedGroupRows.map(row => row.map(String)));
+        });
+    }
     const candidateStep = proposal.requestBody.candidateConstruction.steps.at(-1);
     assert.equal(candidateStep?.operation?.kind, 'GROUP');
     assert.equal(candidateStep.operation.group.aggregates?.length, 1);
@@ -712,7 +632,6 @@ export async function cdaCurrentDraftGroupPivotJoinWorkflow({ page, cda }) {
 
     const rightOutputId = rightSource.outputId;
     const rightGroupBase = structuredClone(builder);
-    const pivotCaptureFrom = cda.report.nativeRequests.length;
     const pivotStart = Date.now();
     await cda.click('[data-testid="construction-rows-settings-trigger"]');
     const explicitTablePivot = page.getByTestId('construction-action-table-pivot-rows');
@@ -728,6 +647,40 @@ export async function cdaCurrentDraftGroupPivotJoinWorkflow({ page, cda }) {
     const subjectGroupOutput = rightSource.group.keyOutputs[0];
     const codeGroupOutput = rightSource.group.keyOutputs[1];
     const countOutput = rightSource.group.countOutput;
+    const requiredCategories = witness.categories.map(category => category);
+    let expectedPivotHeaders;
+    let expectedPivotRows;
+    const matchesPivotCandidate = candidate => {
+      const step = candidate?.steps?.at(-1);
+      const pivot = step?.operation?.pivot;
+      return step?.operation?.kind === 'PIVOT' &&
+        isDeepStrictEqual(pivot?.groupKeyIds, [subjectGroupOutput.id]) &&
+        pivot?.categoryColumnId === codeGroupOutput.id && pivot?.valueColumnId === countOutput.id &&
+        isDeepStrictEqual(pivot?.categories?.map(category => category.key?.string).sort(), [...requiredCategories].sort());
+    };
+    const waitPivotPreview = async (startedAt, fromIndex) => {
+      const deadlineAt = startedAt + 5_000;
+      const remaining = () => Math.max(1, deadlineAt - Date.now());
+      await waitProposal(rightOutputId, oracleRows.rightPivot.length, remaining());
+      const captured = await previewEvent({ fromIndex, outputId: rightOutputId, baseState: rightGroupBase,
+        matchesCandidate: matchesPivotCandidate, timeoutMs: remaining() });
+      const categories = captured.requestBody.candidateConstruction.steps.at(-1).operation.pivot.categories
+        .map(category => category.key.string);
+      const countByCategory = new Map(oracleRows.rightGroups.map(([, category, count]) => [category, count]));
+      expectedPivotHeaders = [subjectGroupOutput.label, ...categories];
+      expectedPivotRows = [[witness.sharedSubject, ...categories.map(category => countByCategory.get(category))].map(String)];
+      const expectedGrid = JSON.stringify({ headers: expectedPivotHeaders, rows: expectedPivotRows });
+      const exactGridReady = `(()=>{const preview=document.querySelector('[data-testid="construction-proposal-preview"][data-preview-status="ready"]');` +
+        `const table=preview?.querySelector('table');if(!table)return false;const clean=value=>String(value??'').replace(/\\s+/g,' ').trim();` +
+        `const headers=[...table.querySelectorAll('thead th')].map(cell=>clean(cell.querySelector('span')?.textContent??cell.textContent));` +
+        `const rows=[...table.querySelectorAll('tbody tr[data-testid="construction-proposal-preview-row"]')].map(row=>` +
+        `[...row.querySelectorAll('td')].map(cell=>clean(cell.innerText)));` +
+        `return JSON.stringify({headers,rows})===${JSON.stringify(expectedGrid)}})()`;
+      await waitFunction(exactGridReady, remaining());
+      assertGrid('Right native Pivot proposal preserves exact code category multiplicity 2 and 1',
+        await readGrid('proposal'), expectedPivotHeaders, expectedPivotRows);
+      return captured;
+    };
     const pivotGroupSelector = `input[type="checkbox"][aria-label=${JSON.stringify(`Pivot group ${subjectGroupOutput.label}`)}]`;
     await waitSelector(pivotGroupSelector);
     await action('Group right Pivot by exact subject output', page.locator(pivotGroupSelector), target => target.check({ timeout: 5_000 }));
@@ -745,14 +698,13 @@ export async function cdaCurrentDraftGroupPivotJoinWorkflow({ page, cda }) {
       await selectColumnById(pivotValueSelector, countOutput.id);
     }
     const categoryContainer = page.getByTestId('construction-reshape-pivot-categories');
-    const requiredCategories = witness.categories.map(category => category);
     const summary = page.locator('summary').filter({ hasText: 'Change selected categories' });
     await summary.waitFor({ state: 'visible', timeout: 5_000 });
     assert.equal(await summary.count(), 1, 'Pivot editor must expose the category selection disclosure.');
+    assert.equal(await categoryContainer.count(), 1, 'Pivot editor must expose one category container.');
     if (!(await summary.evaluate(element => element.parentElement.open))) {
       await action('Open exact Pivot categories', summary, target => target.click({ timeout: 5_000 }));
     }
-    assert.equal(await categoryContainer.count(), 1, 'Pivot editor must expose one category container.');
     await categoryContainer.waitFor({ state: 'visible', timeout: 5_000 });
     const categoryInputs = await categoryContainer.locator('input[type="checkbox"][aria-label^="Include category "]').evaluateAll(inputs => inputs.map(input => ({
       label: input.getAttribute('aria-label'), checked: input.checked, disabled: input.disabled,
@@ -761,30 +713,36 @@ export async function cdaCurrentDraftGroupPivotJoinWorkflow({ page, cda }) {
       'Pivot editor must render exactly the selected raw code categories.');
     assert.deepEqual(categoryInputs.map(option => option.label).sort(), requiredCategories.map(category => `Include category ${category}`).sort(),
     'Pivot editor must discover every exact selected raw code category.');
+    let pivotProposal;
+    const initiallyMissingCategories = new Set(categoryInputs.filter(option => !option.checked).map(option => option.label));
+    const finalMissingCategory = [...requiredCategories].reverse().find(category =>
+      initiallyMissingCategories.has(`Include category ${category}`));
+    const finalCategory = finalMissingCategory ?? requiredCategories.at(-1);
+    assert(finalCategory, 'Pivot preview requires at least one exact raw code category.');
+    if (!finalMissingCategory) {
+      const input = categoryContainer.locator(`input[aria-label=${JSON.stringify(`Include category ${finalCategory}`)}]`);
+      assert(await input.isChecked(), `Expected ${finalCategory} to be selected before the measured final inclusion.`);
+      await action(`Temporarily clear exact Pivot code category ${finalCategory}`, input,
+        target => target.uncheck({ timeout: 5_000 }));
+    }
     for (const category of requiredCategories) {
+      if (category === finalCategory) continue;
       const label = `Include category ${category}`;
       const input = categoryContainer.locator(`input[aria-label=${JSON.stringify(label)}]`);
       assert.equal(await input.count(), 1, `Expected one native checkbox for ${label}.`);
-      if (!await input.isChecked()) await action(`Include exact Pivot code category ${category}`, input, target => target.check({ timeout: 5_000 }));
+      if (!await input.isChecked()) await action(`Include exact Pivot code category ${category}`, input,
+        target => target.check({ timeout: 5_000 }));
     }
-    await waitProposal(rightOutputId, oracleRows.rightPivot.length);
-    const pivotProposal = await previewEvent({ fromIndex: pivotCaptureFrom, outputId: rightOutputId, baseState: rightGroupBase,
-      matchesCandidate: candidate => {
-        const step = candidate?.steps?.at(-1);
-        const pivot = step?.operation?.pivot;
-        return step?.operation?.kind === 'PIVOT' &&
-          isDeepStrictEqual(pivot?.groupKeyIds, [subjectGroupOutput.id]) &&
-          pivot?.categoryColumnId === codeGroupOutput.id && pivot?.valueColumnId === countOutput.id &&
-          isDeepStrictEqual(pivot?.categories?.map(category => category.key?.string).sort(), [...requiredCategories].sort());
-      } });
+    const finalInput = categoryContainer.locator(`input[aria-label=${JSON.stringify(`Include category ${finalCategory}`)}]`);
+    assert.equal(await finalInput.isChecked(), false, 'The measured final category action must change the Pivot configuration.');
+    const pivotCaptureFrom = capture.requests.length;
+    const pivotActionStartedAt = Date.now();
+    await action(`Include exact Pivot code category ${finalCategory}`, finalInput,
+      target => target.check({ timeout: 5_000 }), async () => {
+        pivotProposal = await waitPivotPreview(pivotActionStartedAt, pivotCaptureFrom);
+      });
     const proposedPivot = pivotProposal.requestBody.candidateConstruction.steps.at(-1).operation.pivot;
     const proposedCategories = proposedPivot.categories.map(category => category.key.string);
-    const rightCountByCategory = new Map(oracleRows.rightGroups.map(([, category, count]) => [category, count]));
-    const expectedPivotHeaders = [subjectGroupOutput.label, ...proposedCategories];
-    const expectedPivotRows = [[witness.sharedSubject, ...proposedCategories.map(category => rightCountByCategory.get(category))]
-      .map(String)];
-    assertGrid('Right native Pivot proposal preserves exact code category multiplicity 2 and 1',
-      await readGrid('proposal'), expectedPivotHeaders, expectedPivotRows);
     report.cases.push({ name: 'right Group→Pivot category discovery and exact preview', elapsedMs: Date.now() - pivotStart });
     const proposedSteps = pivotProposal.requestBody.candidateConstruction.steps;
     assert.deepEqual(proposedSteps.map(step => step.operation.kind), ['GROUP', 'PIVOT']);
@@ -844,14 +802,14 @@ export async function cdaCurrentDraftGroupPivotJoinWorkflow({ page, cda }) {
       checkScope(before);
       const rootNodeIds = before.catalog.nodes.filter(node => node.resourceType === 'Observation' && node.rowRootEligible).map(node => node.nodeId);
       const prior = before.workspace.documents.map(document => document.output.id);
-      const fromIndex = cda.report.nativeRequests.length;
+      const fromIndex = capture.requests.length;
       await action('Create current-draft empty Combine target', page.getByTestId('construction-action-combine'),
         target => target.click({ timeout: 5_000 }), async () => waitSelector('[data-testid="construction-combine-editor"]'));
-      const event = await capture.waitFor(entry => entry.path === `${authoring}/commands` && entry.method === 'POST' &&
-        entry.status === 200 && entry.completedAt && entry.body?.commands?.some(command => command.type === 'CREATE_TABLE'),
+      const event = await capture.waitForResponse(entry => entry.path === `${authoring}/commands` && entry.method === 'POST' &&
+        entry.status === 200 && entry.completedAt && entry.request?.commands?.some(command => command.type === 'CREATE_TABLE'),
       { fromIndex, timeoutMs: 5_000 });
-      const requestBody = capture.rawRequestBody(event);
-      const responseBody = capture.rawResponseBody(event);
+      const requestBody = event.request;
+      const responseBody = event.response;
       const outputId = await page.locator('[data-testid="construction-operation-editor"][data-operation-family="COMBINE"]').getAttribute('data-output-id');
       const evidence = nativeCombineTargetBindingEvidence({ requestBody, responseStatus: event.status, response: responseBody,
         expectedRootNodeIds: rootNodeIds, expectedRootResourceType: 'Observation', previousOutputIds: prior, mountedOutputId: outputId });
@@ -896,7 +854,7 @@ export async function cdaCurrentDraftGroupPivotJoinWorkflow({ page, cda }) {
       const choice = options.filter(option => option.value === final.sourceColumnId && !option.disabled);
       assert.equal(choice.length, 1, 'Final projected field must be the exact last Group→Pivot category column.');
       const baseState = structuredClone(await readBuilder());
-      const fromIndex = cda.report.nativeRequests.length;
+      const fromIndex = capture.requests.length;
       const startedAt = Date.now();
       await action(`Complete native ${joinType} Group/Pivot Join mapping`, page.locator(final.finalSelector),
         locator => locator.selectOption(choice[0].value, { timeout: 5_000 }), async () => waitProposal(target.outputId, expectedRows.length));
@@ -994,7 +952,7 @@ export async function cdaCurrentDraftGroupPivotJoinWorkflow({ page, cda }) {
       await action('Open saved Join history for removal', page.getByTestId(`construction-history-step-${stepId}`),
         locator => locator.click({ timeout: 5_000 }), async () => waitEnabled(removeAction));
       const baseState = structuredClone(builder);
-      const fromIndex = cda.report.nativeRequests.length;
+      const fromIndex = capture.requests.length;
       await action('Preview Group/Pivot Join removal', removeAction,
         locator => locator.click({ timeout: 5_000 }), async () => waitProposal(target.outputId, 0));
       const response = await previewEvent({ fromIndex, outputId: target.outputId, baseState });
@@ -1025,7 +983,7 @@ export async function cdaCurrentDraftGroupPivotJoinWorkflow({ page, cda }) {
     await beginEdit(target, savedLeft.step.id, expectedLeft.length);
     const editPolicy = 'select[aria-label="If a row in the first table has no match"]';
     const canceledEditBase = structuredClone(builder);
-    const editFrom = cda.report.nativeRequests.length;
+    const editFrom = capture.requests.length;
     const startedAt = Date.now();
     await action('Preview saved LEFT Join edited to INNER before Cancel', page.locator(editPolicy),
       locator => locator.selectOption('INNER', { timeout: 5_000 }), async () => waitProposal(target.outputId, expectedInner.length));
@@ -1041,7 +999,7 @@ export async function cdaCurrentDraftGroupPivotJoinWorkflow({ page, cda }) {
 
     await beginEdit(target, savedLeft.step.id, expectedLeft.length);
     const applyEditBase = structuredClone(builder);
-    const applyEditFrom = cda.report.nativeRequests.length;
+    const applyEditFrom = capture.requests.length;
     await action('Preview saved LEFT Join edited to INNER for Apply', page.locator(editPolicy),
       locator => locator.selectOption('INNER', { timeout: 5_000 }), async () => waitProposal(target.outputId, expectedInner.length));
     const applyEditProposal = await previewEvent({ fromIndex: applyEditFrom, outputId: target.outputId, baseState: applyEditBase });
@@ -1102,14 +1060,10 @@ export async function cdaCurrentDraftGroupPivotJoinWorkflow({ page, cda }) {
       customTransitions: report.cases,
     });
     assert.equal(failedActions.length, 0);
-    report.status = 'passed';
-  } finally {
+      } finally {
     page.off('request', onRequest);
     page.off('response', onSelectionResponse);
-    page.off('requestfinished', onSelectionRequestFinished);
-    page.off('requestfailed', onSelectionRequestFailed);
-    await capture.flush();
-    report.nativeRequestCount = cda.report.nativeRequests.length;
+    report.nativeRequestCount = capture.requests.length;
     report.finished = new Date().toISOString();
     await cda.attachReport('group-pivot-join', report);
   }

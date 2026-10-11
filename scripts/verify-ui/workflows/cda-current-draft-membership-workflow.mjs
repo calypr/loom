@@ -3,11 +3,16 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { isDeepStrictEqual } from 'node:util';
 import {
+  currentPublishedRevisionForOutput,
+  findColumn,
+  isPublishedMembershipIDColumn,
   membershipGroupCapabilityKeyEvidence,
   membershipOutputNullabilityEvidence,
   nativeCombineTargetBindingEvidence,
   rootedEmptyTargetAppliedExpression,
   rootedEmptyTargetRestorationEvidence,
+  sameSourceDocuments,
+  snapshotSourceDocument,
 } from '../helpers/builder-combine-helpers.mjs';
 import {
   builderDraftStateEvidence,
@@ -22,12 +27,13 @@ import {
   cdaSourceGroupCandidateResponseEquivalent,
   cdaMembershipObservationQuery,
   compareCdaSourceGroupPreview,
+  membershipCompiledGroupKeyEvidence,
   prepareCdaMembershipOracle,
-  proveCdaSourceGroupSupersededChoiceCancellation,
 } from '../helpers/cda-current-draft-membership-oracle.mjs';
 import { buildArangoShellInvocation } from '../helpers/owned-arangosh-command.mjs';
 
 const ACTION_CHECK = 'all native CDA Membership lifecycle actions complete within five seconds';
+const PUBLISHED_ACTION_CHECK = 'all native published-source CDA Membership lifecycle actions complete within five seconds';
 const MAX_ACTION_MS = 5_000;
 const TABLE_SELECTOR = '[data-testid="preview-table-scroll"] [role="table"]';
 const normalizeText = value => String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -89,7 +95,10 @@ export function exactRootedMembershipRemovalPreview({ requestExact, response, pr
     proposalPreview.tableCount === 0);
 }
 
-export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
+export async function cdaCurrentDraftMembershipWorkflow({ page, cda, sourceMode = 'current-draft' }) {
+  assert(['current-draft', 'published'].includes(sourceMode), `Unsupported CDA Membership source mode: ${sourceMode}`);
+  const usesPublishedSources = sourceMode === 'published';
+  const actionCheck = usesPublishedSources ? PUBLISHED_ACTION_CHECK : ACTION_CHECK;
   const { request, report, target } = cda;
   const project = cda.project;
   const generation = cda.generation;
@@ -139,7 +148,7 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
       timeout: MAX_ACTION_MS,
       budget: MAX_ACTION_MS,
       after,
-      requiredCheck: ACTION_CHECK,
+      requiredCheck: actionCheck,
     });
     const elapsedMs = Date.now() - startedAt;
     const evidence = { label, elapsedMs, withinBudget: elapsedMs <= MAX_ACTION_MS };
@@ -217,7 +226,6 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
     }
     assert.notEqual(previous.selection.id, source.selection.id,
       'Distinct Membership sources must retain distinct immutable selections');
-    const previousPath = `${apiRoot(project, explorer)}/selections/${encoded(previous.selection.id)}`;
     const nextPath = `${apiRoot(project, explorer)}/selections/${encoded(source.selection.id)}`;
     const selectedOutputBeforeSwitch = await page.evaluate(() => {
       const selected = document.querySelector('[data-testid^="construction-table-"][aria-current="page"]');
@@ -225,37 +233,14 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
     });
     assert.equal(selectedOutputBeforeSwitch, previous.outputId,
       'Only the active prior Membership source may be retired by a source switch');
-    const fromIndex = report.nativeRequests.length;
-    const cancellationStart = report.expectedCancellations?.length ?? 0;
+    const fromIndex = capture.requests.length;
     const transitionStartedAt = Date.now();
-    const pendingPreviousReads = [...capture.byRequest.entries()].filter(([, entry]) =>
-      entry.path === previousPath && entry.method === 'GET' && entry.startedAt <= transitionStartedAt &&
-      entry.completedAt == null && !entry.failure);
-    const responseOutcome = capture.waitFor(entry => entry.path === nextPath && entry.method === 'GET' &&
-      entry.status === 200 && entry.completedAt, { fromIndex, timeoutMs: MAX_ACTION_MS })
-      .then(entry => ({ entry }), error => ({ error }));
-    const reason = `Selecting ${source.title} retires the previous Membership source selection read.`;
+    const responseOutcome = capture.waitForResponse(entry => entry.path === nextPath && entry.method === 'GET' &&
+      entry.status === 200, { fromIndex, timeoutMs: MAX_ACTION_MS });
     let nextSelectionEvent;
-    await cda.withExpectedCancellations({
-      origin: uiOrigin,
-      method: 'GET',
-      paths: [previousPath],
-      requestIdPrefixes: ['cda-request-'],
-      reason,
-      proof: {
-        project, explorer, generation,
-        previousOutputId: previous.outputId,
-        previousSelectionRevisionId: previous.selection.id,
-        nextOutputId: source.outputId,
-        nextSelectionRevisionId: source.selection.id,
-        transition: 'source-to-source switch retires the old attached-selection GET through the Builder selectionRevisionId AbortController cleanup',
-      },
-      actionLabel: label,
-    }, async () => selectTable(source.outputId, rowCount, label, async () => {
-      const outcome = await responseOutcome;
-      if (outcome.error) throw new Error(`Exact next Membership selection read did not resolve during ${label}: ${normalizeText(outcome.error.message).slice(0, 800)}`);
-      nextSelectionEvent = outcome.entry;
-      const pageBody = capture.rawResponseBody(nextSelectionEvent);
+    await selectTable(source.outputId, rowCount, label, async () => {
+      nextSelectionEvent = await responseOutcome;
+      const pageBody = nextSelectionEvent.response;
       assert.deepEqual({
         id: pageBody?.revision?.id,
         project: pageBody?.revision?.project,
@@ -271,42 +256,8 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
         membershipDigest: source.selection.membershipDigest,
         memberCount: source.selection.memberCount, complete: true,
       }, 'The active source switch must load the exact project/generation/scope/membership revision');
-    }));
+    });
     const transitionFinishedAt = Date.now();
-    const cancellations = (report.expectedCancellations ?? []).slice(cancellationStart);
-    assert(cancellations.length <= 1, 'A source-to-source Membership switch may retire at most one old selection GET');
-    const previousFailures = [...capture.byRequest.entries()].filter(([, entry]) =>
-      entry.path === previousPath && entry.method === 'GET' && entry.failure === 'net::ERR_ABORTED' &&
-      entry.completedAt >= transitionStartedAt && entry.completedAt <= transitionFinishedAt);
-    let retiredPreviousRead;
-    if (cancellations.length === 1) {
-      const [cancellation] = cancellations;
-      assert.equal(pendingPreviousReads.length, 1, 'A retired source selection GET must be pending before its table switch');
-      assert.equal(previousFailures.length, 1, 'Only one exact previous source selection GET may abort in this switch');
-      retiredPreviousRead = previousFailures[0][1];
-      assert.strictEqual(previousFailures[0][0], pendingPreviousReads[0][0], 'The abort must be the exact previous request pending before the switch');
-      assert(retiredPreviousRead.startedAt < transitionStartedAt && retiredPreviousRead.completedAt >= transitionStartedAt);
-      assert.deepEqual([cancellation.method, new URL(cancellation.url).origin, new URL(cancellation.url).pathname,
-        cancellation.reason, cancellation.proof?.previousOutputId, cancellation.proof?.previousSelectionRevisionId,
-        cancellation.proof?.nextOutputId, cancellation.proof?.nextSelectionRevisionId, cancellation.proof?.scopeAction], [
-        'GET', new URL(uiOrigin).origin, previousPath, reason, previous.outputId, previous.selection.id,
-        source.outputId, source.selection.id, label,
-      ]);
-      assert.equal(retiredPreviousRead.browserRequestId, cancellation.browserRequestId);
-      const diagnostics = report.network.filter(entry => entry.kind === 'network' &&
-        entry.browserRequestId === cancellation.browserRequestId);
-      assert.equal(diagnostics.length, 1, 'The exact retired request must remain in the native network ledger');
-      assert.deepEqual([diagnostics[0].url, diagnostics[0].errorText, diagnostics[0].triggerAction,
-        diagnostics[0].expected, diagnostics[0].cancellationAction], [
-        `${new URL(uiOrigin).origin}${previousPath}`, 'net::ERR_ABORTED', label, true, label,
-      ]);
-      const requestErrors = report.errors.filter(entry => entry.kind === 'network' &&
-        (entry.browserRequestId === cancellation.browserRequestId || entry.playwrightRequestId === cancellation.playwrightRequestId));
-      assert(requestErrors.length > 0 && requestErrors.every(entry => entry.expected === true),
-        'The exact retired source GET must have no unclassified native error diagnostic');
-    } else {
-      assert.equal(previousFailures.length, 0, 'An unclassified previous-source cancellation cannot be hidden by the switch proof');
-    }
     const grid = await readGrid('saved');
     const expectedHeaders = source.group ? [source.group.keyLabel, source.group.countLabel] : [source.idLabel];
     const expectedRows = source.group ? source.group.expectedRows : source.ids.map(id => [id]);
@@ -317,13 +268,9 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
       previous: { outputId: previous.outputId, selectionRevisionId: previous.selection.id },
       selectedOutputBeforeSwitch,
       next: { outputId: source.outputId, selectionRevisionId: source.selection.id },
-      pendingPreviousReads: pendingPreviousReads.map(([, entry]) => ({ path: entry.path, startedAt: entry.startedAt })),
-      retiredPreviousRead: retiredPreviousRead ? { browserRequestId: retiredPreviousRead.browserRequestId,
-        path: retiredPreviousRead.path, startedAt: retiredPreviousRead.startedAt,
-        completedAt: retiredPreviousRead.completedAt, failure: retiredPreviousRead.failure } : null,
-      nextSelectionRead: { browserRequestId: nextSelectionEvent.browserRequestId, path: nextSelectionEvent.path,
+      nextSelectionRead: { path: nextSelectionEvent.path,
         status: nextSelectionEvent.status, startedAt: nextSelectionEvent.startedAt,
-        completedAt: nextSelectionEvent.completedAt, revision: capture.rawResponseBody(nextSelectionEvent)?.revision },
+        completedAt: nextSelectionEvent.completedAt, revision: nextSelectionEvent.response?.revision },
     });
     report.selectionSwitches = selectionSwitches;
     activeSourceForSelection = source;
@@ -436,7 +383,7 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
     const expectedGroups = source.ids.map(id => [id, '1']);
     const groupBase = await readBuilder();
     assertScope(groupBase);
-    const fromIndex = report.nativeRequests.length;
+    const fromIndex = capture.requests.length;
     const previewExpression = proposalPreviewReadinessExpression(source.outputId, expectedGroups.length);
     await action(`Group ${source.title} by its root ID with COUNT_ROWS`, groupCheckbox,
       locator => locator.check({ timeout: MAX_ACTION_MS }), async () => waitFunction(previewExpression));
@@ -453,14 +400,21 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
     assert.equal(proposal.headers.length, 2, 'Native COUNT_ROWS preview must expose only its selected key and aggregate');
     assertRows(`${source.title} COUNT_ROWS GROUP preview matches the exact raw IDs`, groupedGrid,
       [source.idLabel, proposal.headers[countIndexes[0]]], expectedGroups);
+    let compiledKeyNullable;
     {
-      const event = await capture.waitFor(entry => entry.path === `${explorerBase}/authoring/v2/construction-proposals` &&
-        entry.method === 'POST' && entry.status === 200 && entry.completedAt && entry.body?.outputId === source.outputId,
+      const event = await capture.waitForResponse(entry => entry.path === `${explorerBase}/authoring/v2/construction-proposals` &&
+        entry.method === 'POST' && entry.status === 200 && entry.completedAt && entry.request?.outputId === source.outputId,
       { fromIndex, timeoutMs: MAX_ACTION_MS });
-      const body = capture.rawRequestBody(event);
-      const response = capture.rawResponseBody(event);
+      const body = event.request;
+      const response = event.response;
       const step = body?.candidateConstruction?.steps?.at(-1);
       const group = step?.operation?.group;
+      const compiledKeyEvidence = membershipCompiledGroupKeyEvidence({
+        step, previewColumns: response?.preview?.columns, expectedLabel: source.idLabel,
+      });
+      const compiledKeyColumn = compiledKeyEvidence.compiledColumn;
+      const compiledKeySchema = compiledKeyEvidence.ok;
+      compiledKeyNullable = compiledKeySchema ? compiledKeyColumn.nullable : undefined;
       const checks = {
         ownedRequest: event.origin === new URL(uiOrigin).origin && event.path === `${explorerBase}/authoring/v2/construction-proposals`,
         exactScope: body?.snapshotToken === groupBase.catalog?.snapshotToken && response?.snapshotToken === groupBase.catalog?.snapshotToken,
@@ -472,9 +426,12 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
         countRows: group?.aggregates?.length === 1 && group.aggregates[0]?.operation === 'COUNT_ROWS',
         exactCandidateResponse: constructionCandidateWireEquivalent(body?.candidateConstruction, response?.candidateConstruction),
         ready: response?.previewStatus === 'READY' && response?.preview?.outputId === source.outputId,
+        compiledKeySchema,
       };
       const ok = Object.values(checks).every(Boolean);
-      check('correctness', `${source.title} GROUP proposal binds the exact root ID and draft CAS`, ok, { checks, requestId: event.requestId, stepId: step?.id });
+      check('correctness', `${source.title} GROUP proposal binds the exact root ID and draft CAS`, ok, {
+        checks, compiledKeyEvidence, requestId: event.requestId, stepId: step?.id,
+      });
       assert(ok, `${source.title} native GROUP proposal lost the exact ID binding or draft CAS`);
     }
     const apply = page.getByTestId('construction-apply-proposal');
@@ -512,6 +469,8 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
       keyInputColumnId: key.inputColumnId,
       keyColumnId: keyOutput.id,
       keyLabel: keyOutput.label,
+      keyOutput: structuredClone(keyOutput),
+      compiledNullable: compiledKeyNullable,
       countColumnId: countOutput.id,
       countLabel: countOutput.label,
       expectedRows: expectedGroups,
@@ -523,6 +482,19 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
         groupStepId: source.group.stepId, groupKeyColumnId: source.group.keyColumnId,
       });
   };
+  const membershipKeyColumnId = source => usesPublishedSources
+    ? source.revisionKeyColumn?.id
+    : source.group.keyColumnId;
+  const sourceInputEvidence = (inputs, sources, sourceDocuments) => {
+    if (!usesPublishedSources) {
+      return currentDraftSourceEvidence({ inputs, expectedOutputIDs: sources.map(source => source.outputId), sourceDocuments });
+    }
+    const expected = sources.map(source => [source.revision.tableId, source.revision.revisionId, source.outputId]);
+    const actual = (inputs ?? []).map(input => [input.tableId, input.revisionId, input.outputId]);
+    const kinds = (inputs ?? []).map(input => input.kind);
+    return { ok: isDeepStrictEqual(actual, expected) && kinds.length === sources.length &&
+      kinds.every(kind => kind === 'TABLE_REVISION'), expected, actual, kinds };
+  };
   const selectInputByOutput = async (selector, outputId, label) => {
     const value = workspaceOutputOption(outputId);
     const options = await page.locator(selector).evaluate(select => [...select.options].map(option => ({
@@ -532,13 +504,126 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
     assert.equal(matches.length, 1, `Native Membership input must offer exact current-draft output ${outputId}: ${JSON.stringify(options)}`);
     await selectOptionByValue(selector, value, label);
   };
+  const publishedRevisionOption = revision => JSON.stringify([revision.tableId, revision.revisionId, revision.outputId]);
+  const publishedInputOptions = async selector => page.locator(selector).evaluate(select => [...select.options].map(option => ({
+    value: option.value, group: option.parentElement?.label ?? '', disabled: option.disabled,
+  })));
+  const publishedOptionsReady = sources => {
+    const expectedValues = sources.map(source => publishedRevisionOption(source.revision));
+    return `(()=>{const expected=${JSON.stringify(expectedValues)};return [1,2].every(index=>{const select=document.querySelector('select[aria-label="Input table '+index+'"]');if(!select)return false;const values=[...select.options].filter(option=>option.parentElement?.label==='Published versions'&&!option.disabled).map(option=>option.value);return expected.every(value=>values.filter(candidate=>candidate===value).length===1)})})()`;
+  };
+  const selectMembershipInput = async (selector, source, label) => {
+    if (!usesPublishedSources) return selectInputByOutput(selector, source.outputId, label);
+    const value = publishedRevisionOption(source.revision);
+    const options = await publishedInputOptions(selector);
+    const matches = options.filter(option => option.value === value && option.group === 'Published versions' && !option.disabled);
+    assert.equal(matches.length, 1, `Native Membership input must offer the exact current TABLE_REVISION ${value}: ${JSON.stringify(options)}`);
+    await selectOptionByValue(selector, value, label);
+  };
+  const readCurrentPublishedRevisions = async sources => {
+    const state = await readBuilder();
+    assertScope(state);
+    const entries = [];
+    let cursor;
+    do {
+      const response = await api(`${explorerBase}/authoring/v2/construction-inputs`, {
+        snapshotToken: state.catalog.snapshotToken,
+        expectedDraftVersion: state.draftVersion,
+        expectedDraftDigest: state.draftDigest,
+        ...(cursor ? { cursor } : {}),
+        limit: 100,
+      });
+      assert.equal(response.snapshotToken, state.catalog.snapshotToken);
+      assert.equal(response.draftVersion, state.draftVersion);
+      assert.equal(response.draftDigest, state.draftDigest);
+      assert.equal(response.datasetGeneration, generation);
+      assert(Array.isArray(response.entries), 'Published-source catalog page must expose its exact input entries');
+      entries.push(...response.entries);
+      cursor = response.nextCursor || undefined;
+    } while (cursor);
+    const revisions = sources.map(source => currentPublishedRevisionForOutput(entries, source.outputId));
+    const keyColumns = revisions.map((revision, index) => {
+      const key = findColumn(revision, 'Observation', 'id');
+      assert(isPublishedMembershipIDColumn(key),
+        `${sources[index].title} published GROUP output must expose its scalar Observation ID key: ${JSON.stringify(key)}`);
+      const savedKey = sources[index].group.keyOutput;
+      const compiledNullable = sources[index].group.compiledNullable;
+      assert.equal(typeof compiledNullable, 'boolean',
+        `${sources[index].title} compiled GROUP preview must expose boolean key nullability`);
+      assert.equal(key.label, sources[index].group.keyLabel,
+        `${sources[index].title} published key label must retain the exact saved GROUP key label`);
+      assert(membershipOutputNullabilityEvidence(key, compiledNullable).ok,
+        `${sources[index].title} published key nullability must match its independently compiled GROUP preview`);
+      assert.deepEqual({ name: key.name, label: key.label, type: key.type, nullable: key.nullable, repeated: key.repeated }, {
+        name: savedKey.name,
+        label: savedKey.label,
+        type: savedKey.type,
+        nullable: compiledNullable,
+        repeated: false,
+      }, `${sources[index].title} published key metadata must match its compiled GROUP preview`);
+      return key;
+    });
+    const exactCurrentSources = revisions.length === 2 && new Set(revisions.map(revision => revision.outputId)).size === 2 &&
+      revisions.every((revision, index) => revision.outputId === sources[index].outputId && revision.isCurrent === true) &&
+      new Set(revisions.map(revision => `${revision.tableId}/${revision.revisionId}`)).size === 2;
+    check('correctness', 'published catalog resolves both exact current GROUP revisions and scalar Observation ID keys',
+      exactCurrentSources, { revisions: revisions.map((revision, index) => ({
+        tableId: revision.tableId, revisionId: revision.revisionId, outputId: revision.outputId,
+        isCurrent: revision.isCurrent, keyColumn: keyColumns[index],
+      })) });
+    assert(exactCurrentSources, 'Published Membership sources must resolve two distinct current GROUP revisions');
+    revisions.forEach((revision, index) => {
+      sources[index].revision = revision;
+      sources[index].revisionKeyColumn = keyColumns[index];
+    });
+    return { state, entries, revisions, keyColumns };
+  };
+  const publishGroupedSources = async sources => {
+    const publishPath = `${explorerBase}/authoring/v2/publish`;
+    const publishResponse = page.waitForResponse(response => response.request().method() === 'POST' &&
+      new URL(response.url()).origin === new URL(uiOrigin).origin && new URL(response.url()).pathname === publishPath,
+    { timeout: MAX_ACTION_MS });
+    const publishButton = page.getByRole('button', { name: 'Publish', exact: true });
+    await action('Publish the two exact CDA GROUP source tables through Builder', publishButton,
+      locator => locator.click({ timeout: MAX_ACTION_MS }), async () => {
+        const response = await publishResponse;
+        assert(response.status() >= 200 && response.status() < 300,
+          `Native publication returned HTTP ${response.status()}`);
+      });
+    const response = await publishResponse;
+    const publishExact = response.status() >= 200 && response.status() < 300 && publishRequests === 1;
+    check('correctness', 'native Builder publication succeeds exactly once for both grouped CDA sources', publishExact, {
+      status: response.status(), path: publishPath, publishRequests, sourceOutputIDs: sources.map(source => source.outputId),
+    });
+    assert(publishExact, 'Native Builder must publish both grouped CDA source tables exactly once');
+    const published = await readCurrentPublishedRevisions(sources);
+    const documents = published.state.workspace?.documents ?? [];
+    const sourceSnapshotsMatch = sources.every(source => {
+      const matches = documents.filter(document => document.output?.id === source.outputId);
+      return matches.length === 1 && sameSourceDocuments(snapshotSourceDocument(matches[0]), source.baselineDocument);
+    });
+    check('persistence', 'publishing preserves both exact saved GROUP source documents', sourceSnapshotsMatch, {
+      sourceOutputIDs: sources.map(source => source.outputId),
+      sourceSnapshotsMatch: sources.map(source => documents.filter(document => document.output?.id === source.outputId)
+        .map(document => sameSourceDocuments(snapshotSourceDocument(document), source.baselineDocument))),
+    });
+    assert(sourceSnapshotsMatch, 'Publishing changed one of the saved CDA GROUP source documents');
+    report.publishedSourceInputs = published.revisions.map((revision, index) => ({
+      sourceOutputId: sources[index].outputId,
+      tableId: revision.tableId,
+      revisionId: revision.revisionId,
+      isCurrent: revision.isCurrent,
+      keyColumn: published.keyColumns[index],
+    }));
+    return published;
+  };
   const inspectMembershipCapabilities = async (fromIndex, builder, targetOutputId, sources) => {
     const path = `${explorerBase}/authoring/v2/construction-capabilities`;
-    const event = await capture.waitFor(entry => entry.path === path && entry.method === 'POST' && entry.status === 200 &&
-      entry.completedAt && entry.body?.outputId === targetOutputId && entry.response?.outputId === targetOutputId,
+    const event = await capture.waitForResponse(entry => entry.path === path && entry.method === 'POST' && entry.status === 200 &&
+      entry.completedAt && entry.request?.outputId === targetOutputId && entry.response?.outputId === targetOutputId,
     { fromIndex, timeoutMs: MAX_ACTION_MS });
-    const body = capture.rawRequestBody(event);
-    const response = capture.rawResponseBody(event);
+    const body = event.request;
+    const response = event.response;
     const inputs = response?.workspaceInputs ?? [];
     const perSource = sources.map(source => {
       const matchingInputs = inputs.filter(input => input.outputId === source.outputId);
@@ -574,11 +659,15 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
   const configureMembership = async (sources, targetOutputId, expectedIDs, mode, baseBuilder, phase, expectedStepId) => {
     await waitSelector('select[aria-label="Input table 1"]');
     await waitSelector('select[aria-label="Input table 2"]');
-    await selectInputByOutput('select[aria-label="Input table 1"]', sources[0].outputId, 'Bind left exact current-draft GROUP source');
-    await selectInputByOutput('select[aria-label="Input table 2"]', sources[1].outputId, 'Bind right exact current-draft GROUP source');
-    await selectOptionByValue('select[aria-label="Matching pair 1 first field"]', sources[0].group.keyColumnId,
+    await selectMembershipInput('select[aria-label="Input table 1"]', sources[0], usesPublishedSources
+      ? 'Bind left exact published GROUP revision' : 'Bind left exact current-draft GROUP source');
+    await selectMembershipInput('select[aria-label="Input table 2"]', sources[1], usesPublishedSources
+      ? 'Bind right exact published GROUP revision' : 'Bind right exact current-draft GROUP source');
+    const leftKeyColumnID = membershipKeyColumnId(sources[0]);
+    const rightKeyColumnID = membershipKeyColumnId(sources[1]);
+    await selectOptionByValue('select[aria-label="Matching pair 1 first field"]', leftKeyColumnID,
       'Choose left native GROUP ID key');
-    await selectOptionByValue('select[aria-label="Matching pair 1 second field"]', sources[1].group.keyColumnId,
+    await selectOptionByValue('select[aria-label="Matching pair 1 second field"]', rightKeyColumnID,
       'Choose right native GROUP ID key');
     const modeSelector = 'select[aria-label="Which rows should stay?"]';
     await selectOptionByValue(modeSelector, mode, `Choose native MEMBERSHIP ${mode} policy`);
@@ -593,40 +682,39 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
       locator => locator.fill('Observation ID', { timeout: MAX_ACTION_MS }), async () => waitFunction(`document.querySelector('input[aria-label="Output field 1 label"]')?.value==='Observation ID'`));
     const projectionSelector = 'select[aria-label="Output field 1 source field in input 1"]';
     const projectionOptions = await page.locator(projectionSelector).evaluate(select => [...select.options].map(option => ({ value: option.value, disabled: option.disabled })));
-    const projectionMatches = projectionOptions.filter(option => !option.disabled && option.value === sources[0].group.keyColumnId);
+    const projectionMatches = projectionOptions.filter(option => !option.disabled && option.value === leftKeyColumnID);
     assert.equal(projectionMatches.length, 1, `Membership must project the exact left grouped ID only: ${JSON.stringify(projectionOptions)}`);
-    const fromIndex = report.nativeRequests.length;
+    const fromIndex = capture.requests.length;
     const expectedRows = expectedIDs.map(id => [id]);
     await action(`Complete native ${mode} Membership mapping and render exact preview`, page.locator(projectionSelector),
       locator => locator.selectOption(projectionMatches[0].value, { timeout: MAX_ACTION_MS }), async () => waitFunction(proposalReady(targetOutputId, expectedRows.length)));
     const grid = await readGrid('proposal');
     assertRows(`${phase} Membership preview equals the exact independent raw ID oracle`, grid, ['Observation ID'], expectedRows);
     const proposalPath = `${explorerBase}/authoring/v2/construction-proposals`;
-    const event = await capture.waitFor(entry => entry.path === proposalPath && entry.method === 'POST' && entry.status === 200 &&
-      entry.completedAt && entry.body?.outputId === targetOutputId,
+    const event = await capture.waitForResponse(entry => entry.path === proposalPath && entry.method === 'POST' && entry.status === 200 &&
+      entry.completedAt && entry.request?.outputId === targetOutputId,
     { fromIndex, timeoutMs: MAX_ACTION_MS });
-    const body = capture.rawRequestBody(event);
-    const response = capture.rawResponseBody(event);
+    const body = event.request;
+    const response = event.response;
     const step = body?.candidateConstruction?.steps?.at(-1);
     const operation = step?.operation?.combine;
-    const expectedInputs = sources.map(source => source.outputId);
-    const actualInputs = (step?.inputs ?? []).map(input => input.outputId);
     const output = step?.outputs?.[0];
-    const expectedKey = { leftColumnId: sources[0].group.keyColumnId, rightColumnId: sources[1].group.keyColumnId };
+    const expectedKey = { leftColumnId: leftKeyColumnID, rightColumnId: rightKeyColumnID };
+    const inputEvidence = sourceInputEvidence(step?.inputs, sources, baseBuilder.workspace?.documents);
+    const actualInputs = usesPublishedSources
+      ? inputEvidence.actual
+      : (step?.inputs ?? []).map(input => input.outputId);
     const checks = {
       ownedRequest: event.origin === new URL(uiOrigin).origin && event.path === proposalPath,
       exactOutput: body?.outputId === targetOutputId && response?.outputId === targetOutputId,
       exactSnapshot: body?.snapshotToken === baseBuilder.catalog?.snapshotToken && response?.snapshotToken === body.snapshotToken,
       exactDraftCAS: body?.expectedDraftVersion === baseBuilder.draftVersion && body?.expectedDraftDigest === baseBuilder.draftDigest &&
         response?.draftVersion === body.expectedDraftVersion && response?.draftDigest === body.expectedDraftDigest,
-      exactCurrentDraftInputs: isDeepStrictEqual(actualInputs, expectedInputs) &&
-        (step?.inputs ?? []).every(input => input.kind === 'WORKSPACE_OUTPUT' && !input.tableId && !input.revisionId) &&
-        currentDraftSourceEvidence({ inputs: step?.inputs, expectedOutputIDs: expectedInputs,
-          sourceDocuments: baseBuilder.workspace?.documents }).ok,
+      [usesPublishedSources ? 'exactPublishedInputs' : 'exactCurrentDraftInputs']: inputEvidence.ok,
       exactMembershipKindAndMode: step?.operation?.kind === 'COMBINE' && operation?.kind === 'MEMBERSHIP' && operation.membershipMode === mode,
       exactNullableIDKeyPair: operation?.keys?.length === 1 && isDeepStrictEqual(operation.keys[0], expectedKey),
       leftOnlyProjection: operation?.projections?.length === 1 && operation.projections[0]?.inputIndex === 0 &&
-        operation.projections[0]?.inputColumnId === sources[0].group.keyColumnId && operation.projections[0]?.outputColumnId === output?.id,
+        operation.projections[0]?.inputColumnId === leftKeyColumnID && operation.projections[0]?.outputColumnId === output?.id,
       stepIdentityRetained: !expectedStepId || step?.id === expectedStepId,
       responseMatchesCandidate: constructionCandidateWireEquivalent(body?.candidateConstruction, response?.candidateConstruction),
       previewReady: response?.previewStatus === 'READY' && response?.preview?.outputId === targetOutputId &&
@@ -635,12 +723,16 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
       status200: event.status === 200,
     };
     const ok = Object.values(checks).every(Boolean);
-    check('correctness', `${phase} Membership proposal binds exact nullable GROUP ID keys and current draft CAS`, ok, {
-      checks, requestId: event.requestId, outputId: targetOutputId, inputOutputIDs: actualInputs,
-      keyIDs: operation?.keys ?? [], mode: operation?.membershipMode,
+    const proposalBindingCheck = usesPublishedSources
+      ? `${phase} Membership proposal binds exact published GROUP revisions, nullable ID keys, and draft CAS`
+      : `${phase} Membership proposal binds exact nullable GROUP ID keys and current draft CAS`;
+    check('correctness', proposalBindingCheck, ok, {
+      checks, requestId: event.requestId, outputId: targetOutputId,
+      ...(usesPublishedSources ? { inputBindings: inputEvidence } : { inputOutputIDs: actualInputs }),
+      inputKinds: (step?.inputs ?? []).map(input => input.kind), keyIDs: operation?.keys ?? [], mode: operation?.membershipMode,
       projection: operation?.projections ?? [], stepId: step?.id,
     });
-    assert(ok, `${mode} Membership proposal changed its exact current-draft bindings: ${JSON.stringify(checks)}`);
+    assert(ok, `${mode} Membership proposal changed its exact ${usesPublishedSources ? 'published-source' : 'current-draft'} bindings: ${JSON.stringify(checks)}`);
     return { event, body, response, step, operation, output, expectedRows };
   };
   const applyProposal = async (label, targetOutputId, rowCount) => {
@@ -661,15 +753,15 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
     const history = page.getByTestId(`construction-history-step-${stepId}`);
     await action('Select exact saved Membership step before removal', history,
       locator => locator.click({ timeout: MAX_ACTION_MS }), async () => waitFunction(`Boolean(document.querySelector(${queryString(`[data-testid="construction-remove-step-${stepId}"]:not(:disabled)`)}))`));
-    const fromIndex = report.nativeRequests.length;
+    const fromIndex = capture.requests.length;
     await action(`${phase}: propose removal of the exact saved Membership step`, page.getByTestId(`construction-remove-step-${stepId}`),
       locator => locator.click({ timeout: MAX_ACTION_MS }), async () => waitFunction(proposalReady(targetOutputId, 0)));
     const path = `${explorerBase}/authoring/v2/construction-proposals`;
-    const event = await capture.waitFor(entry => entry.path === path && entry.method === 'POST' && entry.status === 200 &&
-      entry.completedAt && entry.body?.outputId === targetOutputId && Array.isArray(entry.body?.removeStepIds),
+    const event = await capture.waitForResponse(entry => entry.path === path && entry.method === 'POST' && entry.status === 200 &&
+      entry.completedAt && entry.request?.outputId === targetOutputId && Array.isArray(entry.request?.removeStepIds),
     { fromIndex, timeoutMs: MAX_ACTION_MS });
-    const body = capture.rawRequestBody(event);
-    const response = capture.rawResponseBody(event);
+    const body = event.request;
+    const response = event.response;
     const preview = response?.preview;
     const rootSourceIDs = Array.isArray(preview?.rowSources) ? preview.rowSources.map(source => source?.id) : [];
     const validRootSources = rootSourceIDs.length === 25 && new Set(rootSourceIDs).size === 25 &&
@@ -740,7 +832,7 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
       report.target.membershipRawOracle);
 
     const explorerName = `cda-membership-${randomUUID()}`;
-    const explorerTitle = `CDA current-draft Membership ${randomUUID().slice(0, 8)}`;
+    const explorerTitle = `CDA ${usesPublishedSources ? 'published-source' : 'current-draft'} Membership ${randomUUID().slice(0, 8)}`;
     const createdExplorer = await api(`/api/v1/projects/${encoded(project)}/explorers`, { name: explorerName, title: explorerTitle });
     explorer = createdExplorer.explorerId ?? createdExplorer.id ?? createdExplorer.explorer?.id ?? explorerName;
     assert.equal(explorer, explorerName, 'Fresh CDA Explorer creation must preserve its exact unique ID');
@@ -748,7 +840,7 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
     const explorerList = await api(`/api/v1/projects/${encoded(project)}/explorers`);
     const explorerItems = Array.isArray(explorerList) ? explorerList : explorerList.explorers ?? explorerList.value ?? [];
     const matchingExplorers = explorerItems.filter(item => (item.explorerId ?? item.id ?? item.name) === explorer);
-    assert.equal(matchingExplorers.length, 1, 'Fresh current-draft Membership Explorer must resolve exactly once');
+    assert.equal(matchingExplorers.length, 1, 'Fresh CDA Membership Explorer must resolve exactly once');
     assert.deepEqual([matchingExplorers[0].project, matchingExplorers[0].title, matchingExplorers[0].management], [project, explorerTitle, 'INTERACTIVE']);
     let builder = await readBuilder();
     const empty = builderDraftStateEvidence(builder, 'empty');
@@ -765,7 +857,9 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
     assert(freshScope, 'Fresh CDA Membership Explorer is outside the exact source/generation/scope contract');
     report.target.explorer = explorer;
     report.target.membershipSourceIDs = [oracle.leftIDs, oracle.rightIDs];
-    capture = cda.captureRequests(explorerBase, { responsePaths: /commands|construction-capabilities|construction-proposals|selections/ });
+    capture = cda.captureRequests(explorerBase, { responsePaths: usesPublishedSources
+      ? /commands|construction-capabilities|construction-inputs|construction-proposals|publish|selections/
+      : /commands|construction-capabilities|construction-proposals|selections/ });
 
     const left = await createSource('CDA Membership left raw ID source', oracle.leftIDs);
     const right = await createSource('CDA Membership right raw ID source', oracle.rightIDs);
@@ -788,11 +882,14 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
       document.construction.steps[0]?.operation?.kind === 'GROUP' &&
       document.construction.steps[0]?.operation?.group?.keys?.[0]?.inputColumnId === sources[index].idColumnId &&
       document.construction.steps[0]?.operation?.group?.aggregates?.[0]?.operation === 'COUNT_ROWS');
-    check('persistence', 'two current-draft GROUP sources preserve exact ID populations and stable source column bindings', exactGroups, {
+    check('persistence', usesPublishedSources
+      ? 'two GROUP sources preserve exact ID populations and stable source column bindings before publication'
+      : 'two current-draft GROUP sources preserve exact ID populations and stable source column bindings', exactGroups, {
       sources: sources.map(source => ({ outputId: source.outputId, selectionId: source.selection.id, groupStepId: source.group.stepId,
         rootIDColumnId: source.idColumnId, groupKeyColumnId: source.group.keyColumnId, expectedRows: source.group.expectedRows })),
     });
     assert(exactGroups, 'CDA Membership GROUP sources changed their immutable population or root ID binding');
+    if (usesPublishedSources) await publishGroupedSources(sources);
     assert.equal(selectionSwitches.length, 1, 'Selecting the second raw source must prove one exact source-to-source selection transition');
 
     const openNativeTarget = async targetPurpose => {
@@ -802,14 +899,14 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
       assertScope(before);
       const rootNodeIDs = (before.catalog?.nodes ?? []).filter(node => node.resourceType === 'Observation' && node.rowRootEligible).map(node => node.nodeId);
       const priorIDs = (before.workspace?.documents ?? []).map(document => document.output.id);
-      const fromIndex = report.nativeRequests.length;
+      const fromIndex = capture.requests.length;
       await action('Create a separate empty native Membership target', page.getByTestId('construction-action-combine'),
         locator => locator.click({ timeout: MAX_ACTION_MS }), async () => waitSelector('[data-testid="construction-combine-editor"]'));
-      const event = await capture.waitFor(entry => entry.path === `${explorerBase}/authoring/v2/commands` && entry.method === 'POST' &&
-        entry.status === 200 && entry.completedAt && entry.body?.commands?.some(item => item.type === 'CREATE_TABLE'),
+      const event = await capture.waitForResponse(entry => entry.path === `${explorerBase}/authoring/v2/commands` && entry.method === 'POST' &&
+        entry.status === 200 && entry.completedAt && entry.request?.commands?.some(item => item.type === 'CREATE_TABLE'),
       { fromIndex, timeoutMs: MAX_ACTION_MS });
-      const body = capture.rawRequestBody(event);
-      const response = capture.rawResponseBody(event);
+      const body = event.request;
+      const response = event.response;
       const mountedOutputId = await page.locator('[data-testid="construction-operation-editor"][data-operation-family="COMBINE"]').getAttribute('data-output-id');
       const evidence = nativeCombineTargetBindingEvidence({ requestBody: body, responseStatus: event.status, response,
         expectedRootNodeIds: rootNodeIDs, expectedRootResourceType: 'Observation', previousOutputIds: priorIDs, mountedOutputId });
@@ -823,14 +920,36 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
       assert.equal(document.columns?.length, 0);
       assert.equal(document.construction?.steps?.length ?? 0, 0);
       await action('Choose native MEMBERSHIP combination', page.getByTestId('construction-combine-choice-membership'),
-        locator => locator.click({ timeout: MAX_ACTION_MS }), async () => waitSelector('select[aria-label="Input table 1"]'));
+        locator => locator.click({ timeout: MAX_ACTION_MS }), async () => {
+          if (usesPublishedSources) await waitFunction(publishedOptionsReady(sources));
+          else await waitSelector('select[aria-label="Input table 1"]');
+        });
       await waitSelector('select[aria-label="Input table 2"]');
-      const capabilities = await inspectMembershipCapabilities(0, after, evidence.outputId, sources);
-      sources.forEach((source, index) => {
-        source.group.compiledNullable = capabilities.perSource[index]?.nullable;
-      });
-      check('correctness', `${targetPurpose} offers nullable scalar Observation ID GROUP keys to native Membership`, capabilities.ok, capabilities);
-      assert(capabilities.ok, `Native MEMBERSHIP did not expose both nullable scalar ID GROUP keys: ${JSON.stringify(capabilities)}`);
+      let capabilities = null;
+      if (usesPublishedSources) {
+        const selectors = ['select[aria-label="Input table 1"]', 'select[aria-label="Input table 2"]'];
+        const optionsByInput = await Promise.all(selectors.map(publishedInputOptions));
+        const expectedValues = sources.map(source => publishedRevisionOption(source.revision));
+        const publishedOptionsExact = optionsByInput.every(options => expectedValues.every(value =>
+          options.filter(option => option.value === value && option.group === 'Published versions' && !option.disabled).length === 1));
+        const keysExact = sources.every(source => isPublishedMembershipIDColumn(source.revisionKeyColumn) &&
+          source.revisionKeyColumn.nullable === true && source.group.compiledNullable === true);
+        check('correctness', `${targetPurpose} native Membership offers both exact current published GROUP revisions`, publishedOptionsExact, {
+          sourceOutputIDs: sources.map(source => source.outputId), expectedValues, optionsByInput,
+        });
+        assert(publishedOptionsExact, 'Native Membership must offer each exact current published GROUP revision once per input');
+        check('correctness', `${targetPurpose} offers nullable scalar Observation ID published GROUP keys to native Membership`, keysExact, {
+          keys: sources.map(source => source.revisionKeyColumn),
+        });
+        assert(keysExact, 'Native Membership published inputs must retain both nullable scalar Observation ID keys');
+      } else {
+        capabilities = await inspectMembershipCapabilities(0, after, evidence.outputId, sources);
+        sources.forEach((source, index) => {
+          source.group.compiledNullable = capabilities.perSource[index]?.nullable;
+        });
+        check('correctness', `${targetPurpose} offers nullable scalar Observation ID GROUP keys to native Membership`, capabilities.ok, capabilities);
+        assert(capabilities.ok, `Native MEMBERSHIP did not expose both nullable scalar ID GROUP keys: ${JSON.stringify(capabilities)}`);
+      }
       return { outputId: evidence.outputId, rootResourceType: 'Observation', baselineDocument: structuredClone(document), baseBuilder: after, capabilities };
     };
 
@@ -873,7 +992,7 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
     let targetDocument = getDocument(builder, target.outputId);
     let step = targetDocument.construction?.steps?.at(-1);
     let operation = step?.operation?.combine;
-    const includeSources = currentDraftSourceEvidence({ inputs: step?.inputs, expectedOutputIDs: sources.map(source => source.outputId), sourceDocuments: builder.workspace?.documents, publishedOutputIDs: [] });
+    const includeSources = sourceInputEvidence(step?.inputs, sources, builder.workspace?.documents);
     const proposalStepID = includeCandidate?.step?.id;
     const proposalOutputIDs = (includeCandidate?.step?.outputs ?? []).map(output => output.id);
     const projectedOutput = step?.outputs?.find(output => output.id === operation?.projections?.[0]?.outputColumnId);
@@ -882,12 +1001,14 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
     const includePersisted = targetDocument.construction?.steps?.length === 1 && step?.operation?.kind === 'COMBINE' &&
       step?.id === proposalStepID && isDeepStrictEqual((step?.outputs ?? []).map(output => output.id), proposalOutputIDs) &&
       operation?.kind === 'MEMBERSHIP' && operation.membershipMode === 'INCLUDE' && operation.keys?.length === 1 &&
-      operation.keys[0]?.leftColumnId === left.group.keyColumnId && operation.keys[0]?.rightColumnId === right.group.keyColumnId &&
+      operation.keys[0]?.leftColumnId === membershipKeyColumnId(left) && operation.keys[0]?.rightColumnId === membershipKeyColumnId(right) &&
       operation.projections?.length === 1 && operation.projections[0]?.inputIndex === 0 &&
-      operation.projections[0]?.inputColumnId === left.group.keyColumnId && includeSources.ok && outputNullabilityPreserved;
-    check('persistence', 'applied INCLUDE Membership saves exact ID GROUP inputs, keys, and left-only projection', includePersisted, {
+      operation.projections[0]?.inputColumnId === membershipKeyColumnId(left) && includeSources.ok && outputNullabilityPreserved;
+    check('persistence', usesPublishedSources
+      ? 'applied INCLUDE Membership saves exact published GROUP revisions, keys, and left-only projection'
+      : 'applied INCLUDE Membership saves exact ID GROUP inputs, keys, and left-only projection', includePersisted, {
       stepId: step?.id, combine: operation, includeSources, projectedOutput,
-      leftGroupCapabilityNullable: left.group.compiledNullable, outputNullability,
+      leftGroupCapabilityNullable: left.group.compiledNullable, outputNullability, sourceBindings: includeSources,
     });
     assert(includePersisted, 'Saved INCLUDE Membership changed its exact Group source bindings');
     const stepId = step.id;
@@ -917,16 +1038,16 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
     const excludeRows = oracle.excludeIDs.map(id => [id]);
     const proposeExcludeEdit = async (baseBuilder, phase) => {
       const modeSelector = 'select[aria-label="Which rows should stay?"]';
-      const editFromIndex = report.nativeRequests.length;
+      const editFromIndex = capture.requests.length;
       await selectOptionByValue(modeSelector, 'EXCLUDE', `${phase}: edit saved Membership from INCLUDE to EXCLUDE`,
         async () => waitFunction(proposalReady(target.outputId, excludeRows.length)));
       assertRows(`${phase} EXCLUDE edit keeps exactly the left-only raw Observation ID`,
         await readGrid('proposal'), ['Observation ID'], excludeRows);
-      const event = await capture.waitFor(entry => entry.path === `${explorerBase}/authoring/v2/construction-proposals` &&
-        entry.method === 'POST' && entry.status === 200 && entry.completedAt && entry.body?.outputId === target.outputId,
+      const event = await capture.waitForResponse(entry => entry.path === `${explorerBase}/authoring/v2/construction-proposals` &&
+        entry.method === 'POST' && entry.status === 200 && entry.completedAt && entry.request?.outputId === target.outputId,
       { fromIndex: editFromIndex, timeoutMs: MAX_ACTION_MS });
-      const body = capture.rawRequestBody(event);
-      const response = capture.rawResponseBody(event);
+      const body = event.request;
+      const response = event.response;
       const candidateStep = body?.candidateConstruction?.steps?.at(-1);
       const candidateOperation = candidateStep?.operation?.combine;
       const editExact = candidateOperation?.membershipMode === 'EXCLUDE' && candidateStep?.id === stepId &&
@@ -1011,10 +1132,10 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
 
     const beforeRemoveApply = await readBuilder();
     const removalProposal = await proposeRemove(target.outputId, stepId, 'applied', beforeRemoveApply);
-    const removalProposalResponse = capture.rawResponseBody(removalProposal);
+    const removalProposalResponse = removalProposal.response;
     assert(removalProposalResponse?.proposalId && removalProposalResponse?.candidateWorkspaceDigest,
       'Applied Membership removal must retain its exact proposal receipt and next draft digest');
-    const applyFromIndex = report.nativeRequests.length;
+    const applyFromIndex = capture.requests.length;
     const applyActionStartedAt = Date.now();
     let appliedRemovalCapabilityEvidence;
     let sourceGroupButton;
@@ -1037,19 +1158,19 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
         const capabilitiesPath = `${explorerBase}/authoring/v2/construction-capabilities`;
         const capabilitiesTimeoutMs = MAX_ACTION_MS - (Date.now() - applyActionStartedAt);
         assert(capabilitiesTimeoutMs > 0, 'Membership removal exhausted its action-to-render budget before capabilities completed');
-        const capabilitiesEvent = await capture.waitFor(entry => {
-          const response = capture.rawResponseBody(entry);
+        const capabilitiesEvent = await capture.waitForResponse(entry => {
+          const response = entry.response;
           return entry.origin === new URL(uiOrigin).origin && entry.path === capabilitiesPath && entry.method === 'POST' &&
             Number.isFinite(entry.completedAt) && entry.status === 200 && entry.failure === undefined &&
-            entry.responseReadError === undefined && response !== null && typeof response === 'object' &&
-            entry.body?.snapshotToken === liveBuilder.catalog?.snapshotToken &&
-            entry.body?.expectedDraftVersion === liveBuilder.draftVersion &&
-            entry.body?.expectedDraftDigest === liveBuilder.draftDigest && entry.body?.outputId === target.outputId &&
-            entry.body?.stageId === 'source_projection';
+            response !== null && typeof response === 'object' &&
+            entry.request?.snapshotToken === liveBuilder.catalog?.snapshotToken &&
+            entry.request?.expectedDraftVersion === liveBuilder.draftVersion &&
+            entry.request?.expectedDraftDigest === liveBuilder.draftDigest && entry.request?.outputId === target.outputId &&
+            entry.request?.stageId === 'source_projection';
         },
         { fromIndex: applyFromIndex, timeoutMs: capabilitiesTimeoutMs });
-        const capabilitiesBody = capture.rawRequestBody(capabilitiesEvent);
-        const capabilitiesResponse = capture.rawResponseBody(capabilitiesEvent);
+        const capabilitiesBody = capabilitiesEvent.request;
+        const capabilitiesResponse = capabilitiesEvent.response;
         assert.equal(capabilitiesEvent.status, 200,
           'Restored Membership target capabilities must complete with HTTP 200');
         assert(capabilitiesEvent.completedAt && capabilitiesResponse && typeof capabilitiesResponse === 'object',
@@ -1105,7 +1226,6 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
           'Restored empty target must label the compound source-backed grouping choice');
         appliedRemovalCapabilityEvidence = {
           requestId: capabilitiesEvent.requestId,
-          browserRequestId: capabilitiesEvent.browserRequestId,
           status: capabilitiesEvent.status,
           completedAt: capabilitiesEvent.completedAt,
           liveDraftVersion: liveBuilder.draftVersion,
@@ -1119,7 +1239,7 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
               label: sourceGroupChoice.label, logicalType: sourceGroupChoice.logicalType } },
         };
       });
-    const sourceGroupFromIndex = report.nativeRequests.length;
+    const sourceGroupFromIndex = capture.requests.length;
     const sourceGroupProposalPath = `${explorerBase}/authoring/v2/construction-proposals`;
     const initialSourceGroupRequestOutcome = page.waitForRequest(request => {
       let body;
@@ -1139,7 +1259,7 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
     assert(initialSourceGroupProposalEvent, 'The automatic initial source GROUP request must have a retained native capture');
     const sourceGroupBuilder = await readBuilder();
     assertScope(sourceGroupBuilder);
-    const initialSourceGroupRequestBody = capture.rawRequestBody(initialSourceGroupProposalEvent);
+    const initialSourceGroupRequestBody = initialSourceGroupProposalEvent.request;
     const initialSourceGroupStep = initialSourceGroupRequestBody?.candidateConstruction?.steps?.at(-1);
     const initialSourceColumnId = initialSourceGroupRequestBody?.groupSources?.[0]?.columnId;
     assert(typeof initialSourceColumnId === 'string' && initialSourceColumnId.length > 0,
@@ -1166,32 +1286,25 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
     const sourceGroupPreviewLimit = 25;
     const sourceGroupActionLabel = 'Group the restored target by its populated raw Observation status field';
     const sourceGroupTransitionStartedAt = Date.now();
-    const cancellationStart = report.expectedCancellations?.length ?? 0;
     let sourceGroupProposalEvent;
-    let initialSourceGroupCompletedEvent;
     await selectOptionByValue('[data-testid="construction-source-group-field"]', sourceGroupChoice.choiceId,
       sourceGroupActionLabel, async () => {
         await waitFunction(proposalReady(target.outputId));
         const timeoutMs = MAX_ACTION_MS - (Date.now() - sourceGroupTransitionStartedAt);
         assert(timeoutMs > 0, 'Selecting the raw status GROUP field exhausted its action-to-preview budget');
-        [sourceGroupProposalEvent, initialSourceGroupCompletedEvent] = await Promise.all([
-          capture.waitFor(entry => {
-            const body = capture.rawRequestBody(entry);
-            const group = body?.candidateConstruction?.steps?.at(-1)?.operation?.group;
-            return entry.origin === new URL(uiOrigin).origin && entry.path === sourceGroupProposalPath &&
-              entry.method === 'POST' && entry.status === 200 && Number.isFinite(entry.completedAt) &&
-              body?.outputId === target.outputId && body?.snapshotToken === sourceGroupBuilder.catalog?.snapshotToken &&
-              body?.expectedDraftVersion === sourceGroupBuilder.draftVersion && body?.expectedDraftDigest === sourceGroupBuilder.draftDigest &&
-              body?.groupSources?.length === 1 && body.groupSources[0]?.rowChoiceId === sourceGroupChoice.choiceId &&
-              group?.keys?.length === 1 && group.keys[0]?.inputColumnId === body.groupSources[0]?.columnId &&
-              group?.aggregates?.length === 1 && group.aggregates[0]?.operation === 'COUNT_ROWS';
-          }, { fromIndex: sourceGroupFromIndex, timeoutMs }),
-          capture.waitFor(entry => entry.browserRequestId === initialSourceGroupProposalEvent.browserRequestId &&
-            Number.isFinite(entry.completedAt), { fromIndex: sourceGroupFromIndex, timeoutMs }),
-        ]);
+        sourceGroupProposalEvent = await capture.waitForResponse(entry => {
+          const body = entry.request;
+          const group = body?.candidateConstruction?.steps?.at(-1)?.operation?.group;
+          return entry.path === sourceGroupProposalPath && entry.method === 'POST' && entry.status === 200 &&
+            body?.outputId === target.outputId && body?.snapshotToken === sourceGroupBuilder.catalog?.snapshotToken &&
+            body?.expectedDraftVersion === sourceGroupBuilder.draftVersion && body?.expectedDraftDigest === sourceGroupBuilder.draftDigest &&
+            body?.groupSources?.length === 1 && body.groupSources[0]?.rowChoiceId === sourceGroupChoice.choiceId &&
+            group?.keys?.length === 1 && group.keys[0]?.inputColumnId === body.groupSources[0]?.columnId &&
+            group?.aggregates?.length === 1 && group.aggregates[0]?.operation === 'COUNT_ROWS';
+        }, { fromIndex: sourceGroupFromIndex, timeoutMs });
       });
-    const sourceGroupRequest = capture.rawRequestBody(sourceGroupProposalEvent);
-    const sourceGroupResponse = capture.rawResponseBody(sourceGroupProposalEvent);
+    const sourceGroupRequest = sourceGroupProposalEvent.request;
+    const sourceGroupResponse = sourceGroupProposalEvent.response;
     const sourceGroupStep = sourceGroupRequest?.candidateConstruction?.steps?.at(-1);
     const sourceGroupResponseExact = sourceGroupResponse?.snapshotToken === sourceGroupBuilder.catalog?.snapshotToken &&
       sourceGroupResponse?.draftVersion === sourceGroupBuilder.draftVersion &&
@@ -1205,48 +1318,8 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
     assert(sourceGroupResponseExact && sourceGroupResponse?.previewStatus === 'READY',
       'Source-backed Group proposal must complete an exact native preview response');
 
-    if (initialSourceGroupCompletedEvent.failure === 'net::ERR_ABORTED') {
-      const matchingFailureDiagnostics = (report.network ?? []).filter(entry =>
-        entry.browserRequestId === initialSourceGroupCompletedEvent.browserRequestId && entry.errorText === 'net::ERR_ABORTED');
-      assert.equal(matchingFailureDiagnostics.length, 1,
-        'The superseded source GROUP proposal must have exactly one matching native CDA failure diagnostic');
-      const cancellationEvidence = proveCdaSourceGroupSupersededChoiceCancellation({
-        supersededEvent: initialSourceGroupCompletedEvent,
-        supersededBody: initialSourceGroupRequestBody,
-        failureDiagnostic: matchingFailureDiagnostics[0],
-        replacementEvent: sourceGroupProposalEvent,
-        replacementBody: sourceGroupRequest,
-        replacementResponse: sourceGroupResponse,
-        project, explorer, generation,
-        uiOrigin,
-        outputId: target.outputId,
-        snapshotToken: sourceGroupBuilder.catalog?.snapshotToken,
-        draftVersion: sourceGroupBuilder.draftVersion,
-        draftDigest: sourceGroupBuilder.draftDigest,
-        supersededChoice: initialSourceGroupChoice,
-        replacementChoice: sourceGroupChoice,
-        actionLabel: sourceGroupActionLabel,
-        actionStartedAt: sourceGroupTransitionStartedAt,
-      });
-      assert(cancellationEvidence.ok, `Superseded source GROUP proposal lacks exact native cancellation proof: ${cancellationEvidence.reason}`);
-      const cancellation = cda.expectCapturedCancellation(initialSourceGroupCompletedEvent,
-        cancellationEvidence.proof.reason, cancellationEvidence.proof);
-      assert.equal(cancellation.requestId, initialSourceGroupCompletedEvent.requestId,
-        'Expected cancellation must classify the exact superseded source GROUP request ID');
-    } else {
-      assert.equal(initialSourceGroupCompletedEvent.failure, undefined,
-        'The automatic source GROUP proposal may complete or be aborted, but any other native failure is unexpected');
-      assert.equal(initialSourceGroupCompletedEvent.status, 200,
-        'A completed automatic source GROUP preview must have HTTP 200');
-      assert.equal(cdaSourceGroupCandidateResponseEquivalent({
-        request: initialSourceGroupRequestBody,
-        response: capture.rawResponseBody(initialSourceGroupCompletedEvent),
-        selectedChoice: initialSourceGroupChoice,
-      }), true, 'A completed automatic source GROUP preview must exactly match its first populated choice');
-    }
-    const sourceGroupCancellations = (report.expectedCancellations ?? []).slice(cancellationStart);
-    assert.equal(sourceGroupCancellations.length, initialSourceGroupCompletedEvent.failure === 'net::ERR_ABORTED' ? 1 : 0,
-      'Only the exact automatic source GROUP proposal may be classified as canceled in this field-selection transition');
+    assert.equal(sourceGroupProposalEvent.status, 200,
+      'The selected source GROUP preview must return a successful response');
     const sourceGroupGrid = await readGrid('proposal');
     const sourceGroupPreview = sourceGroupResponse.preview;
     assert(Array.isArray(sourceGroupPreview?.columns) && sourceGroupPreview.columns.length === 2 &&
@@ -1410,21 +1483,38 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
     assert(groupsRemain, 'Removing Membership changed one of its upstream GROUP source outputs');
     const allInputs = builder.workspace?.documents?.flatMap(document => document.construction?.steps?.flatMap(savedStep => savedStep.inputs ?? []) ?? []) ?? [];
     const hasPinnedRevision = allInputs.some(input => input.kind === 'TABLE_REVISION' || input.revisionId || input.tableId);
-    const noPublishOrPinned = publishRequests === 0 && !hasPinnedRevision;
-    check('correctness', 'CDA Membership lifecycle makes no Publish request or pinned table revision reference', noPublishOrPinned, {
-      publishRequests, inputKinds: allInputs.map(input => input.kind), hasPinnedRevision,
-      nativePublishRequests: report.nativeRequests.filter(entry => entry.path.endsWith('/authoring/v2/publish')).length,
-    });
-    assert(noPublishOrPinned, 'CDA Membership lifecycle published or bound a pinned table revision');
+    if (usesPublishedSources) {
+      const expectedRevisionTriples = sources.map(source => [source.revision.tableId, source.revision.revisionId, source.outputId]);
+      const finalPublishedState = await readCurrentPublishedRevisions(sources);
+      const finalRevisionTriples = finalPublishedState.revisions.map(revision => [revision.tableId, revision.revisionId, revision.outputId]);
+      const publishedRevisionsRemainCurrent = isDeepStrictEqual(finalRevisionTriples, expectedRevisionTriples) &&
+        finalPublishedState.revisions.every(revision => revision.isCurrent === true);
+      const publicationAndRemovalExact = publishRequests === 1 && publishedRevisionsRemainCurrent && !hasPinnedRevision;
+      check('correctness', 'CDA Membership publishes both exact GROUP revisions once and clears target pins after removal', publicationAndRemovalExact, {
+        publishRequests, expectedRevisionTriples, finalRevisionTriples,
+        finalRevisionsCurrent: finalPublishedState.revisions.map(revision => revision.isCurrent),
+        inputKinds: allInputs.map(input => input.kind), hasPinnedRevision,
+        nativePublishRequests: report.nativeRequests.filter(entry => entry.path.endsWith('/authoring/v2/publish')).length,
+      });
+      assert(publicationAndRemovalExact, 'CDA Membership publication or final target pin cleanup changed its exact revision bindings');
+    } else {
+      const noPublishOrPinned = publishRequests === 0 && !hasPinnedRevision;
+      check('correctness', 'CDA Membership lifecycle makes no Publish request or pinned table revision reference', noPublishOrPinned, {
+        publishRequests, inputKinds: allInputs.map(input => input.kind), hasPinnedRevision,
+        nativePublishRequests: report.nativeRequests.filter(entry => entry.path.endsWith('/authoring/v2/publish')).length,
+      });
+      assert(noPublishOrPinned, 'CDA Membership lifecycle published or bound a pinned table revision');
+    }
     assert.equal(selectionSwitches.length, 2, 'The Membership lifecycle must prove both exact source-to-source selection switches');
     const maxActionMs = Math.max(0, ...actionDurations.map(item => item.elapsedMs));
     const allActionsWithinBudget = actionDurations.length > 0 && actionDurations.every(item => item.elapsedMs <= MAX_ACTION_MS) && maxActionMs <= MAX_ACTION_MS;
-    check('performance', 'all native CDA Membership lifecycle actions complete within five seconds', allActionsWithinBudget, {
+    check('performance', actionCheck, allActionsWithinBudget, {
       actionCount: actionDurations.length, maxActionMs, actions: actionDurations,
     });
     assert(allActionsWithinBudget, 'One or more native Membership lifecycle actions exceeded five seconds');
     report.membershipLifecycle = {
       rawOracle: report.target.membershipRawOracle,
+      ...(usesPublishedSources ? { sourceMode } : {}),
       sourceOutputIDs: sources.map(source => source.outputId),
       selectionRevisionIDs: sources.map(source => source.selection.id),
       groupStepIDs: sources.map(source => source.group.stepId),
@@ -1434,7 +1524,11 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
       actionCount: actionDurations.length,
       maxActionMs,
       selectionSwitches,
-      stages: ['raw-oracle', 'exact-selections', 'two-native-GROUP-sources', 'INCLUDE-cancel-reload', 'INCLUDE-apply-reload',
+      stages: usesPublishedSources
+        ? ['raw-oracle', 'exact-selections', 'two-native-GROUP-sources', 'native-Publish-and-current-revisions',
+          'INCLUDE-cancel-reload', 'INCLUDE-apply-reload', 'EXCLUDE-preview-cancel-reload',
+          'EXCLUDE-reopen-apply-reload', 'removal-cancel-reload', 'removal-apply-reload']
+        : ['raw-oracle', 'exact-selections', 'two-native-GROUP-sources', 'INCLUDE-cancel-reload', 'INCLUDE-apply-reload',
         'EXCLUDE-preview-cancel-reload', 'EXCLUDE-reopen-apply-reload', 'removal-cancel-reload', 'removal-apply-reload'],
     };
   } finally {

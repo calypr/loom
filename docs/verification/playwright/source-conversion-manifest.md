@@ -1,12 +1,12 @@
 # Standalone Playwright source conversion ledger
 
 Source conversion status is separate from browser execution status.
-Source set: 85 root inventory rows plus 1 additional package-local source (87 records); 3 root sources intentionally deleted; 75 root verify files and 1 package-local verify file remain (76 current files total).
-Browser inventory: 74 root standalone entrypoints; 1 package-local entrypoint; 33 registered Playwright cases.
-Mapped sources: 74; retained API/helper sources: 10; pending source mappings/dispositions: 0.
-Native case map: 76 source rows / 155 source-to-case rows (155 distinct source-case keys); 77 source rows record legacy browser ownership removed.
+Source set: 85 root inventory rows plus 1 additional package-local source (88 records); 3 root sources intentionally deleted; 76 root verify files and 1 package-local verify file remain (77 current files total).
+Browser inventory: 74 root standalone entrypoints; 1 package-local entrypoint; 34 registered Playwright cases.
+Mapped sources: 75; retained API/helper sources: 10; pending source mappings/dispositions: 0.
+Native case map: 77 source rows / 156 source-to-case rows (156 distinct source-case keys); 78 source rows record legacy browser ownership removed.
 Native spec accounting: 28 current spec files; 23 mapped to legacy sources or registry cases; 5 explicitly classified harness specs; 0 orphan specs.
-Runtime evidence: not-run; official Playwright --list discovery: 168 tests in 28 files (discovery only; lifecycle not run).
+Runtime evidence: not-run; official Playwright --list discovery: 169 tests in 28 files (discovery only; lifecycle not run).
 Embedded Loom dev launch sites: 9; mappings open: 0.
 Additional non-verify browser sources: 1; launch sites: 1; mappings open: 0; legacy helper owners still active: 0.
 
@@ -88,6 +88,7 @@ Additional non-verify browser sources: 1; launch sites: 1; mappings open: 0; leg
 | `scripts/verify-ui/workflows/verify-cda-root-settings.mjs` | native-standalone-cda-other | native-spec-mapped-source | 1 | True | not-run | scripts/verify-ui/specs/standalone-cda-other.spec.mjs | Exported the existing owned CDA verification into the official Playwright fixture workflow; kept its domain checks and source oracles. |
 | `scripts/verify-ui/workflows/verify-cda-row-sources-browser.mjs` | native-standalone-cda-other | native-spec-mapped-source | 1 | True | not-run | scripts/verify-ui/specs/standalone-cda-other.spec.mjs | Listed as a standalone browser verifier in the official runner inventory. |
 | `scripts/verify-ui/workflows/verify-cda-sourceaggregate-mixed-sibling-count-browser.mjs` | native-standalone-cda-other | native-spec-mapped-source | 1 | True | not-run | scripts/verify-ui/specs/standalone-cda-other.spec.mjs | Listed as a standalone browser verifier in the official runner inventory. |
+| `scripts/verify-ui/workflows/verify-cda-starting-collection-handoff.mjs` | native-standalone-cda-other | native-spec-mapped-source | 1 | True | not-run | scripts/verify-ui/specs/standalone-cda-other.spec.mjs | New native CDA lifecycle uses the official standalone Other spec and preserves raw membership, host handoff, route application, preview, and reload assertions. |
 | `scripts/verify-ui/workflows/verify-cda-table-management-browser.mjs` | native-standalone-cda-other | native-spec-mapped-source | 1 | True | not-run | scripts/verify-ui/specs/standalone-cda-other.spec.mjs | Listed as a standalone browser verifier in the official runner inventory. |
 | `scripts/verify-ui/workflows/verify-cda-unpivot.mjs` | native-standalone-reshape | native-spec-mapped-source | 1 | True | not-run | scripts/verify-ui/specs/standalone-reshape.spec.mjs | Imported as an official-fixture Playwright workflow; source-level browser launch/close/page ownership and executable CLI were removed while the original assertions/oracle body was preserved. |
 | `scripts/verify-ui/workflows/verify-compound-coded-group.mjs` | native-standalone-misc | native-spec-mapped-source | 3 | True | not-run | scripts/verify-ui/specs/standalone-misc.spec.mjs | Mapped from the native misc case handoff; each case keeps its original exported workflow and Playwright Test registration. |
@@ -155,6 +156,7 @@ Additional non-verify browser sources: 1; launch sites: 1; mappings open: 0; leg
 - `viewer-query/output` → `scripts/verify-ui/specs/viewer-query.spec.mjs`; lifecycle unverified
 - `standalone-misc/compound-coded-group-basic` → `scripts/verify-ui/specs/standalone-misc.spec.mjs`; lifecycle unverified
 - `cda-collection-repair-partial/partial-long-route-repair-and-reload` → `scripts/verify-ui/specs/standalone-cda-other.spec.mjs`; lifecycle unverified
+- `cda-starting-collection-handoff/initial-selection-handoff-route-preview-apply-reload` → `scripts/verify-ui/specs/standalone-cda-other.spec.mjs`; lifecycle unverified
 - `standalone-reshape-related-source-after-pivot/related-source-after-pivot` → `scripts/verify-ui/specs/standalone-reshape.spec.mjs`; lifecycle unverified
 - `cda-workspace-combine/group-join` → `scripts/verify-ui/specs/cda-current-draft-group-join.spec.mjs`; lifecycle unverified
 - `cda-workspace-combine/group-pivot-join` → `scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs`; lifecycle unverified

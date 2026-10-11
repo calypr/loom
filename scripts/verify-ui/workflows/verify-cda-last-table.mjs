@@ -19,9 +19,6 @@ const base = `${root}/${encodeURIComponent(explorer)}/authoring/v2`;
 const report = Object.assign(cda.report, { status: 'running', explorer, project, target: { ...cda.report.target, apiOrigin, uiOrigin, apiContainer, composeProject }, requests: [], nativeChecks: [], errors: [] });
 let fatal;
 let state;
-let browserEvents;
-const classifiedInventoryCancellations = [];
-const semanticInventoryPath = `${base}/semantic-inventory`;
 
 const performAction = async (_tracker, label, locator, perform, options = {}) => cda.action(
   label, locator, target => perform(target, { timeout: options.timeout ?? 5000 }), options);
@@ -88,39 +85,6 @@ try {
   await command([{ type: 'ADD_COLUMN', outputId, occurrenceId: 'base', candidateId: field.candidateId, projectionMode: 'VALUE', initialPresentation: 'TABLE', title: 'Specimen ID' }]);
   const nativeBaseline = structuredClone(state.workspace);
 
-  browserEvents = cda.captureRequests(base);
-  page.on('requestfailed', request => {
-    let url;
-    try { url = new URL(request.url()); } catch { return; }
-    if (url.origin !== new URL(uiOrigin).origin || url.pathname !== semanticInventoryPath
-      || request.method() !== 'POST' || request.failure()?.errorText !== 'net::ERR_ABORTED') return;
-    const captured = browserEvents.byRequest.get(request);
-    if (!captured) {
-      report.errors.push({ kind: 'unmatched-semantic-inventory-cancellation', path: url.pathname });
-      return;
-    }
-    const requestId = request.headers()['x-request-id'] ?? null;
-    try {
-      const expectedCancellation = cda.expectCanceledRequest(request,
-        'A superseded semantic inventory read was canceled during the last-table lifecycle.', {
-          phase: 'last-table delete, Undo, or reload',
-          path: url.pathname,
-          method: request.method(),
-          requestId,
-          capturedRequestId: captured.requestId,
-          browserRequestId: captured.browserRequestId,
-        });
-      classifiedInventoryCancellations.push({ request: captured, requestId, expectedCancellation });
-    } catch (error) {
-      report.errors.push({
-        kind: 'unclassified-semantic-inventory-cancellation',
-        path: url.pathname,
-        requestId: captured.requestId,
-        browserRequestId: captured.browserRequestId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  });
   report.browserLifecycle = 'official Playwright fixture page';
   await page.setViewportSize({ width: 1440, height: 1000 });
   const uiURL = `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`;
@@ -260,41 +224,9 @@ try {
   const fullReloadedRows = await captureFullPreviewWindow('reload-preview');
   assert.deepEqual(assertVisibleRowsMatchOracle({ rows: fullReloadedRows, sourceIds: specimenOracle.ids, ariaRowCount: reloadedRowCount }), fullInitialRows,
     'Reload must retain all 25 independent source identities');
-  await browserEvents.flush();
-  const inventoryRequests = report.nativeRequests.filter(request => request.path === `${base}/semantic-inventory` && request.method === 'POST');
-  const recoveredInventoryCancellation = classifiedInventoryCancellations.flatMap(({ request, requestId, expectedCancellation }) => {
-    const diagnostic = cda.diagnostics.networkFailures.find(failure =>
-      failure.browserRequestId === request.browserRequestId
-        && failure.requestId === requestId
-        && failure.method === request.method
-        && failure.url === `${request.origin}${request.path}`
-        && failure.errorText === 'net::ERR_ABORTED'
-        && failure.expectedCancellation?.browserRequestId === request.browserRequestId
-        && failure.expectedCancellation?.requestId === (failure.requestId ?? failure.playwrightRequestId)
-        && expectedCancellation.browserRequestId === request.browserRequestId
-        && expectedCancellation.requestId === (failure.requestId ?? failure.playwrightRequestId));
-    const response = inventoryRequests.find(candidate => candidate.status === 200
-      && candidate.method === request.method
-      && candidate.path === request.path
-      && candidate.startedAt > request.startedAt
-      && candidate.browserRequestId !== request.browserRequestId);
-    return diagnostic && response ? [{ requestId: diagnostic.requestId ?? expectedCancellation.requestId,
-      capturedRequestId: request.requestId, browserRequestId: request.browserRequestId,
-      diagnostic, recoveryRequestId: response.requestId, recoveryBrowserRequestId: response.browserRequestId }] : [];
-  });
-  assert.equal(recoveredInventoryCancellation.length, classifiedInventoryCancellations.length,
-    'Every classified semantic inventory cancellation must match its exact native failure diagnostic and a later successful read');
-  assert(recoveredInventoryCancellation.length <= 1, 'More than one semantic inventory request was canceled');
-  report.recoveredInventoryCancellation = recoveredInventoryCancellation;
-  const isRecoveredInventoryCancellation = failure => recoveredInventoryCancellation.some(request =>
-    request.browserRequestId === failure.browserRequestId
-      && request.requestId === (failure.requestId ?? failure.playwrightRequestId)
-      && request.diagnostic === failure
-      && failure.expectedCancellation?.browserRequestId === request.browserRequestId
-      && failure.expectedCancellation?.requestId === (failure.requestId ?? failure.playwrightRequestId));
   report.incidentalAssets = cda.diagnostics.assetFailures;
   report.errors = [...cda.diagnostics.console, ...cda.diagnostics.pageErrors, ...cda.diagnostics.httpFailures,
-    ...cda.diagnostics.networkFailures.filter(failure => !isRecoveredInventoryCancellation(failure))];
+    ...cda.diagnostics.networkFailures];
   assert.deepEqual(report.errors, []);
   report.scope = 'API deletion/revision restore plus native last-table deletion, Undo, and reload';
   report.status = 'passed';
@@ -312,25 +244,10 @@ try {
   };
   report.diagnostics = cda.diagnostics;
 } finally {
-  if (report.status !== 'failed') {
-    report.incidentalAssets = cda.diagnostics.assetFailures;
-    report.errors = [...cda.diagnostics.console, ...cda.diagnostics.pageErrors, ...cda.diagnostics.httpFailures,
-      ...cda.diagnostics.networkFailures.filter(failure => !report.recoveredInventoryCancellation?.some(request =>
-        request.browserRequestId === failure.browserRequestId
-          && request.requestId === (failure.requestId ?? failure.playwrightRequestId)
-          && request.diagnostic === failure
-          && failure.expectedCancellation?.browserRequestId === request.browserRequestId
-          && failure.expectedCancellation?.requestId === (failure.requestId ?? failure.playwrightRequestId)))];
-    if (report.errors.length) {
-      report.status = 'failed';
-      report.error = `Unexpected browser diagnostics: ${JSON.stringify(report.errors)}`;
-    }
-  }
-  await browserEvents?.flush();
   await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
   await cda.attachReport('last-table-domain-report.json', report);
 }
 
-if (fatal || report.status === 'failed') throw fatal ?? new Error(report.error ?? 'Last-table lifecycle failed');
+if (fatal) throw fatal;
 return report;
 }

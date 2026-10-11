@@ -159,6 +159,9 @@ export const isMembershipStringKeyColumn = (column) =>
   ['String', 'Nullable(String)'].includes(column?.clickhouseType) &&
   column.nullable === (column.clickhouseType === 'Nullable(String)') && column.repeated === false;
 
+export const isPublishedMembershipIDColumn = (column) =>
+  column?.type === 'string' && column.semanticPath === 'id' && isMembershipStringKeyColumn(column);
+
 export const isMembershipWorkspaceKeyColumn = (column) =>
   column?.logicalType === 'string' &&
   ['required_one', 'optional_one'].includes(column.cardinality) &&

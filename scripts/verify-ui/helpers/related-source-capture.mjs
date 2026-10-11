@@ -44,3 +44,15 @@ export const expectedRelatedSourceOneValidation = (entry, expected) => {
   return entry?.status === 422 && code === 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES' &&
     selectedRelatedSourceProposal(entry, expected)?.rowValuePolicy === 'ONE';
 };
+const relatedSourceValidationCode = entry => entry?.response?.error?.code ?? entry?.response?.code ??
+  entry?.response?.diagnostics?.find(item => String(item?.severity).toUpperCase() === 'ERROR')?.code;
+
+export const matchesExpectedRelatedSourceOneValidationCapture = (captured, expected) =>
+  typeof expected?.requestId === 'string' && expected.requestId.trim().length > 0 &&
+  expected.method === 'POST' && expected.status === 422 &&
+  expected.path?.endsWith('/construction-proposals') &&
+  relatedSourceValidationCode(expected) === 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES' &&
+  captured?.path === expected.path && captured.method === expected.method &&
+  captured.requestId === expected.requestId && captured.status === 422 &&
+  relatedSourceValidationCode(captured) === 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES' &&
+  JSON.stringify(captured.request ?? null) === JSON.stringify(expected.request ?? null);

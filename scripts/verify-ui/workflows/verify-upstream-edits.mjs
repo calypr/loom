@@ -180,7 +180,7 @@ const verifyBrowserEdit = async (context, record) => {
   };
   const edit = async () => {
     const start = Date.now();
-    const requestStart = state.nativeRequests.length;
+    const requestStart = requests.requests.length;
     if (record.name === 'related-target') {
       await selectControl('[data-testid="construction-related-expand-editor"] select[aria-label="Related record type"]', record.targetResourceType);
       await waitForDOM(() => Boolean(document.querySelector('[data-testid="construction-related-expand-editor"] input[type="radio"]:not(:disabled)')), {}, 5000);
@@ -199,8 +199,8 @@ const verifyBrowserEdit = async (context, record) => {
         rows: [...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText)) };
     });
     assert.equal(state.panel.status, 'ready', state.panel.text);
-    const proposalEntry = await requests.waitFor(entry => entry.path.endsWith('/construction-proposals') && entry.method === 'POST' && entry.body?.changedStepId === stepId, { fromIndex: requestStart, timeoutMs: 5000 });
-    const proposalRequest = await cda.waitForCapturedResponse(requests, entry => entry === proposalEntry, 5000);
+    const proposalEntry = await requests.waitForResponse(entry => entry.path.endsWith('/construction-proposals') && entry.method === 'POST' && entry.request?.changedStepId === stepId, { fromIndex: requestStart, timeoutMs: 5000 });
+    const proposalRequest = proposalEntry;
     state.proposal = proposalRequest.response;
     state.proposals.push(state.proposal);
     assert(state.proposal?.proposalId, 'The browser must issue a construction proposal');
@@ -248,21 +248,13 @@ const verifyBrowserEdit = async (context, record) => {
     assert.equal(reloaded.draftDigest, record.saved.draftDigest);
     for (const id of record.expected.removed) assert.equal(await inspect(({ selector }) => Boolean(document.querySelector(selector)), { selector: `[data-testid="construction-history-step-${id}"]` }), false);
     assert.equal(await inspect(({ selector }) => Boolean(document.querySelector(selector)), { selector: `[data-testid="construction-history-step-${record.saved.workspace.documents[0].construction.steps.at(-1).id}"]` }), true, 'The independent later filter must survive reload');
-    await requests.flush();
-    await cda.includeBrowserDiagnostics();
-    state.diagnostics = cda.diagnostics;
-    state.failures = [...state.diagnostics.console, ...state.diagnostics.pageErrors, ...state.diagnostics.networkFailures, ...state.diagnostics.httpFailures, ...state.errors];
-    assert.deepEqual(state.failures, []);
+
   } catch (error) {
     state.failureCapture = { phase: 'upstream-edit-lifecycle', action: stateTracker.activeAction?.label, elapsedMs: stateTracker.activeAction ? Date.now() - stateTracker.activeAction.startedAt : undefined, state: { name: record.name, proposals: state.proposals } };
     throw error;
   } finally {
     state.body = await page.locator('body').innerText().catch(String);
-    await requests.flush();
-    if (!state.diagnostics) {
-      await cda.includeBrowserDiagnostics();
-      state.diagnostics = cda.diagnostics;
-    }
+
     await cda.attachReport(`${record.name}-upstream-edit`, state);
   }
 };

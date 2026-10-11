@@ -9,6 +9,7 @@ import {
   replacementAssessmentEffectsMatch,
   replacementAssessmentMatches,
   replacementProposalMatches,
+  replacementRowOperationRemovalMatches,
   explicitResourceRefs,
   workspaceColumnConsumerEvidence,
   workspaceTabIdentitySnapshot,
@@ -85,6 +86,33 @@ test('replacement assessment, proposal, effects, and Apply retain the exact serv
   assert.deepEqual(replacementApplyCommandMatches(request, proposal), {
     ok: true, failures: [], command: request.commands[0],
   });
+});
+
+test('replacement effects name the exact saved FILTER row operation that Apply removes', () => {
+  const document = {
+    construction: { steps: [
+      { id: 'patient-birthDate-filter', operation: { kind: 'FILTER', filter: { columnId: 'birth-date' } } },
+    ] },
+  };
+  const proposal = {
+    removedFeatureKeys: [
+      'root:Patient',
+      'column:birthDate',
+      'construction:patient-birthDate-filter',
+      'population:selection-patients-001-002',
+    ],
+  };
+  assert.deepEqual(replacementRowOperationRemovalMatches(document, proposal), {
+    ok: true,
+    expected: ['construction:patient-birthDate-filter'],
+    removed: ['construction:patient-birthDate-filter'],
+    failures: [],
+  });
+  assert.equal(replacementRowOperationRemovalMatches(document, {
+    removedFeatureKeys: ['root:Patient', 'construction:another-step'],
+  }).ok, false, 'A different or missing saved operation must fail the replacement consequence check.');
+  assert.equal(replacementRowOperationRemovalMatches({ construction: { steps: [] } }, proposal).ok, false,
+    'The check must not pass vacuously when no row operation was saved before replacement.');
 });
 
 test('proposal catalog digest is non-empty and compared to the prior proposal, not schema digest', () => {

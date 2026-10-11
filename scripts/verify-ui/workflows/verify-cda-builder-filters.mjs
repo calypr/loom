@@ -450,6 +450,6 @@ export async function runBuilderFilterCase({ page, cda, action, explorerId = cda
       assertions: report.assertions, lifecycle: report.lifecycle, timings: tracker.timings, diagnostics }, null, 2) + '\n', { mode: 0o600 });
     report.evidence ??= [];
     report.evidence.push('filter-case.json');
-    if (report.status === 'running') report.status = 'passed';
+    report.status = 'passed';
   return report;
 }

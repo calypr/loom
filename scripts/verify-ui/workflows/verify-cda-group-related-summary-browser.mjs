@@ -108,13 +108,13 @@ const doc = state => state.workspace.documents.find(d => d.output.id === outputI
 const proposal = async (name, start, expectedRows) => {
   const deadline = start + 5000;
   let response;
-  while (!(response = report.nativeRequests.findLast(request =>
+  while (!(response = nativeCapture.requests.findLast(request =>
     /\/construction-(?:choice-)?proposals$/.test(request.path) &&
-    request.startedAt >= start && request.completedAt && nativeCapture.rawResponseBody(request)))) {
+    request.startedAt >= start && request.completedAt && request.response))) {
     assert(Date.now() < deadline, `${name} did not complete a fresh proposal within five seconds`);
     await new Promise(resolve => setTimeout(resolve, 50));
   }
-  const protocolResponse = nativeCapture.rawResponseBody(response);
+  const protocolResponse = response.response;
   if (response.status === 200 && protocolResponse.proposalId) {
     await waitForBrowser(page, (args) => { return Boolean((document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId === args[0])); }, [protocolResponse.proposalId]);
   }
@@ -140,7 +140,7 @@ const apply = async (expectedRows, columnCount) => {
   await waitForBrowser(page, (args) => { return Boolean((!document.querySelector('[data-testid="construction-proposal-panel"]'))); });
   await waitForBrowser(page, (args) => { return Boolean((!document.body.innerText.includes('Loading your table…'))); });
   const deadline=start+5000;
-  while(!report.nativeRequests.some(request=>request.path===base+'/preview'&&request.startedAt>=start&&request.completedAt&&request.status===200)) {
+  while(!nativeCapture.requests.some(request=>request.path===base+'/preview'&&request.startedAt>=start&&request.completedAt&&request.status===200)) {
     assert(Date.now()<deadline,'Apply did not complete a fresh saved preview within five seconds');
     await new Promise(resolve=>setTimeout(resolve,50));
   }
@@ -188,16 +188,16 @@ const assertSavedPreviewRows = async (expectedRows, { requestStart, expectedBuil
   assert.equal(activePreview.draftVersion,String(expectedBuilder.draftVersion),`${phase} preview version must match the current Builder draft`);
   assert.equal(activePreview.draftDigest,expectedBuilder.draftDigest,`${phase} preview digest must match the current Builder draft`);
   let request;
-  while(!(request=report.nativeRequests.slice(requestStart).find(entry => {
-    const response = nativeCapture.rawResponseBody(entry);
+  while(!(request=nativeCapture.requests.slice(requestStart).find(entry => {
+    const response = entry.response;
     return entry.path===base+'/preview' && entry.status===200 && entry.completedAt &&
-      entry.body?.receiptId===activePreview.receiptId && entry.body?.outputId===outputId &&
+      entry.request?.receiptId===activePreview.receiptId && entry.request?.outputId===outputId &&
       response?.receiptId===activePreview.receiptId && response?.outputId===outputId;
   }))){
     assert(Date.now()<deadline,`${phase} did not complete a current-draft native saved preview within five seconds`);
     await new Promise(resolve=>setTimeout(resolve,50));
   }
-  const nativePreviewResponse=nativeCapture.rawResponseBody(request);
+  const nativePreviewResponse=request.response;
   assert.equal(nativePreviewResponse.receiptId,activePreview.receiptId,`${phase} native response must be the receipt visible in the current preview`);
   assert.equal(nativePreviewResponse.outputId,outputId,`${phase} native response must be bound to the current output`);
   const preview=await api(base+'/preview',{receiptId:activePreview.receiptId,outputId,limit:100});
@@ -208,7 +208,7 @@ const assertSavedPreviewRows = async (expectedRows, { requestStart, expectedBuil
   const values=preview.rows.map(row=>preview.columns.map(column=>row[column.column]==null?'—':String(row[column.column])));
   assert.deepEqual(values.map(row=>JSON.stringify(row)).sort(),expectedRows.map(row=>JSON.stringify(row)).sort(),'Every receipt-bound saved row must match the independent project/generation raw oracle');
   report.unmappedRepairPreviewBindings??=[];
-  report.unmappedRepairPreviewBindings.push({phase,requestStart,receiptId:activePreview.receiptId,outputId,selectionRevisionId:currentDocument.population.selectionRevisionId,snapshotToken:expectedBuilder.catalog.snapshotToken,generation:expectedBuilder.catalog.generation,authorizationScopeDigest:expectedBuilder.catalog.authorizationScopeDigest,draftVersion:expectedBuilder.draftVersion,draftDigest:expectedBuilder.draftDigest,nativeRequestIndex:report.nativeRequests.indexOf(request)});
+  report.unmappedRepairPreviewBindings.push({phase,requestStart,receiptId:activePreview.receiptId,outputId,selectionRevisionId:currentDocument.population.selectionRevisionId,snapshotToken:expectedBuilder.catalog.snapshotToken,generation:expectedBuilder.catalog.generation,authorizationScopeDigest:expectedBuilder.catalog.authorizationScopeDigest,draftVersion:expectedBuilder.draftVersion,draftDigest:expectedBuilder.draftDigest,nativeRequestIndex:nativeCapture.requests.indexOf(request)});
   return preview;
 };
 const runUnmappedMemberRepair = async () => {
@@ -326,7 +326,7 @@ const runUnmappedMemberRepair = async () => {
   const savedPopulation=beforeRepair.population;
   const beforeRepairBuilder=builder;
   const beforeRevision=initialSelection.id;
-  const baselinePreviewRequestStart=report.nativeRequests.length;
+  const baselinePreviewRequestStart=nativeCapture.requests.length;
   await open(expectedRelated,3);
   builder=await api(base+'/builder');
   const baselineReceiptPreview=await assertSavedPreviewRows(expectedRelated,{requestStart:baselinePreviewRequestStart,expectedBuilder:builder,phase:'before-unmapped-repair'});
@@ -377,7 +377,7 @@ const runUnmappedMemberRepair = async () => {
   const revisedRawMembership=rawQuery(`FOR member IN loom_explorer_selection_members FILTER member.selectionId==${JSON.stringify(revisedSelectionID)} AND member.project==${JSON.stringify(project)} AND member.generation==${JSON.stringify(source.generation)} AND member.resourceType=="Specimen" SORT member.id RETURN {project:member.project,generation:member.generation,resourceType:member.resourceType,id:member.id}`);
   assert.deepEqual(revisedRawMembership,[mappedRef],'Independent Arango membership must contain only the selected mapped Specimen');
   report.unmappedRepair={initialSelectionRevisionId:beforeRevision,selectionRevisionId:revisedSelectionID,sourceMembershipBefore:initialRawMembership,sourceMembershipAfter:revisedRawMembership,coverage,constructionPreserved:true,columnsPreserved:true,routePreserved:true,expectedRows:expectedRelated,baselineReceiptPreview,changedContributingMembershipTested:false};
-  const reloadedPreviewRequestStart=report.nativeRequests.length;
+  const reloadedPreviewRequestStart=nativeCapture.requests.length;
   await open(expectedRelated,3);
   builder=await api(base+'/builder');
   const reloaded=doc(builder);
@@ -462,7 +462,7 @@ try {
     if (url.pathname.startsWith(`${root}/${protectedExplorer}/`)) report.protectedExplorerUntouched = false;
     const entry = nativeCapture.byRequest.get(request);
     if (entry && /related-expand-choices|construction-choice-proposals|construction-proposals/.test(url.pathname)) {
-      networkRequests.set(request, entry.body);
+      networkRequests.set(request, entry.request);
     }
     if (entry?.authorizationHeaderPresent) report.errors.push({kind:'unexpected-auth-header',path:entry.path});
   });
@@ -646,11 +646,11 @@ try {
     await click(page,'input[aria-label="Patient <-[subject]- Observation"]');
     await proposal('onward-from-grouped-related-identity',start,onwardRows);
     await apply(onwardRows);
-    const acceptedOnwardPreview=report.nativeRequests.filter(request=>request.path===base+'/preview'&&request.status===200&&request.completedAt).at(-1);
+    const acceptedOnwardPreview=nativeCapture.requests.filter(request=>request.path===base+'/preview'&&request.status===200&&request.completedAt).at(-1);
     assert(acceptedOnwardPreview?.body?.receiptId);
     const acceptedCompletePreview=await api(base+'/preview',{receiptId:acceptedOnwardPreview.body.receiptId,outputId,limit:100});
     await open(onwardRows);
-    const lastSavedPreview=report.nativeRequests.filter(request=>request.path===base+'/preview'&&request.status===200&&request.completedAt).at(-1);
+    const lastSavedPreview=nativeCapture.requests.filter(request=>request.path===base+'/preview'&&request.status===200&&request.completedAt).at(-1);
     assert(lastSavedPreview?.body?.receiptId,'A native saved preview must supply the exact receipt for the full identity check');
     const completePreview=await api(base+'/preview',{receiptId:lastSavedPreview.body.receiptId,outputId,limit:100});
     assert.equal(completePreview.rows.length,onwardRows.length,'The full saved result must contain each distinct terminal once');
@@ -955,7 +955,7 @@ try {
   throw error;
 } finally {
   await Promise.all([...failedResponses]);
-  await nativeCapture?.flush();
+  await nativeCapture?.stop();
   report.finished = new Date().toISOString();
   await cda.attachReport('group-related-summary', report);
 }

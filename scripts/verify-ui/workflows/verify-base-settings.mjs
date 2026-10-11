@@ -130,34 +130,12 @@ const selections = (discovery, group) => [
 const verifyBrowser = async (ctx, item, record) => {
   const directory = join(values.evidence, record.id);
   await mkdir(directory, { recursive: true });
-  const state = { exceptions: [], http: [], incidental: [], responses: [], previews: [], errors: [], nativeRequests: cda.report.nativeRequests };
+  const state = { responses: [], previews: [], nativeRequests: cda.report.nativeRequests };
   const requests = requestTracker;
-  const caseErrors = { console: [], pageErrors: [], networkFailures: [], httpFailures: [] };
-  const onConsole = message => { if (message.type() === 'error') caseErrors.console.push(message.text()); };
-  const onPageError = error => caseErrors.pageErrors.push(error.message);
-  const onRequestFailed = request => caseErrors.networkFailures.push({ url: request.url(), error: request.failure()?.errorText });
-  const onResponse = response => {
-    const path = new URL(response.url()).pathname;
-    if (response.status() >= 400 && !(record.expectedValidation && response.status() === 422 && path.endsWith('/row-definition-proposals'))) {
-      caseErrors.httpFailures.push({ status: response.status(), url: response.url() });
-    }
-  };
-  page.on('console', onConsole); page.on('pageerror', onPageError); page.on('requestfailed', onRequestFailed); page.on('response', onResponse);
   const inspect = (fn, args) => cda.inspect(fn, args);
   const waitFor = (fn, args = {}, timeout = 5000) => cda.wait(fn, args, timeout);
   const click = (selector, identity = {}) => cda.click(selector, identity);
   const select = (selector, value) => cda.selectOption(selector, value);
-  const assertBrowserClean = () => {
-    assert.deepEqual(caseErrors.console, [], 'Unexpected browser console errors');
-    assert.deepEqual(caseErrors.pageErrors, [], 'Unexpected page errors');
-    assert.deepEqual(caseErrors.networkFailures, [], 'Unexpected app network failures');
-    const unexpectedHTTP = caseErrors.httpFailures.filter(failure => {
-      const expectedValidation = record.expectedValidation && failure.status === 422 && failure.url.endsWith('/row-definition-proposals');
-      return !expectedValidation;
-    });
-    assert.deepEqual(unexpectedHTTP, [], 'Unexpected app HTTP failures');
-    assert.deepEqual(state.errors, [], 'Unexpected API request failures');
-  };
   const table = `[data-testid="construction-table-${ctx.builder.workspace.documents[0].output.id}"]`;
   const url = `${values['ui-origin']}/?project=${encodeURIComponent(values.project)}&explorer=${ctx.explorer}&mode=builder`;
   const open = async () => {
@@ -178,7 +156,7 @@ const verifyBrowser = async (ctx, item, record) => {
       assert.equal(await inspect(() => [...document.querySelectorAll('button')].some(button => button.innerText === 'Create groups from this selection')), false);
     }
     const configure = async (target = item) => {
-      const requestStart = state.nativeRequests.length;
+      const requestStart = requests.requests.length;
       const started = Date.now();
       await select(shapeSelect, target.shape);
       if (target.policy) {
@@ -186,16 +164,15 @@ const verifyBrowser = async (ctx, item, record) => {
         await select('select[aria-label="Unmatched record policy"]', target.policy);
       }
       const [request] = await Promise.all([
-        requests.waitFor(entry => entry.path.endsWith('/row-definition-proposals') && entry.method === 'POST' && JSON.stringify(entry.body?.selection) === JSON.stringify(target.selection), { fromIndex: requestStart, timeoutMs: 5000 }),
+        requests.waitForResponse(entry => entry.path.endsWith('/row-definition-proposals') && entry.method === 'POST' && JSON.stringify(entry.request?.selection) === JSON.stringify(target.selection), { fromIndex: requestStart, timeoutMs: 5000 }),
         waitFor(() => !document.body.innerText.includes('Compiling and comparing row membership') && (document.querySelector('[aria-label="Row definition preview"]') || document.querySelector('[role="alert"]')), {}, 5000),
       ]);
-      await requests.flush();
+
       state.durationMs = Date.now() - started;
       state.previews.push({ selection: target.selection, durationMs: state.durationMs });
       assert(state.durationMs <= 5000, `The selected policy did not render a proposal within five seconds: ${state.durationMs} ms`);
       assert.equal(request.status, target.selection.expanded?.emptyCollectionPolicy === 'ERROR' || target.selection.explicitGroup?.unassignedMemberPolicy === 'ERROR' ? 422 : 200);
-      assert.equal(state.errors.length, 0, JSON.stringify(state.errors));
-      state.response = { selection: request.body.selection, proposal: request.response, status: request.status };
+      state.response = { selection: request.request.selection, proposal: request.response, status: request.status };
       state.responses.push(state.response);
       state.proposal = state.response.proposal;
     };
@@ -204,6 +181,15 @@ const verifyBrowser = async (ctx, item, record) => {
       assert.equal(state.response.status, 422);
       assert.equal(state.proposal.error?.code, record.expectedErrorCode);
       assert.equal(state.proposal.proposalId, undefined);
+      const validationEntry = requests.requests.findLast(entry => entry.status === 422
+        && entry.path.endsWith('/row-definition-proposals')
+        && JSON.stringify(entry.request?.selection) === JSON.stringify(item.selection));
+      assert(validationEntry, 'The expected ERROR response must remain bound to its exact captured selection');
+      requests.markExpectedValidation(validationEntry, {
+        status: 422,
+        reason: 'The ERROR row policy intentionally rejects the independently verified incomplete membership.',
+        proof: { selection: item.selection, expectedErrorCode: record.expectedErrorCode },
+      });
       assert.equal(await inspect(() => [...document.querySelectorAll('button')].some(button => button.innerText === 'Apply row definition')), false);
       assert.equal((await api(ctx.base + '/builder')).body.draftDigest, ctx.builder.draftDigest);
       assert.equal(await inspect(() => document.querySelector('select[aria-label="Unmatched record policy"]').disabled), false);
@@ -224,7 +210,6 @@ const verifyBrowser = async (ctx, item, record) => {
       state.rendered = await inspect(() => document.body.innerText);
       assert.equal(Number(state.rendered.match(/Total rows\n([^\n]+)/)?.[1]), record.repairRows);
       state.repair = 'EXCLUDE applied and persisted';
-      assertBrowserClean();
       record.browser = { status: 'validation-and-repair-passed', durationMs: state.durationMs };
       return;
     }
@@ -249,16 +234,12 @@ const verifyBrowser = async (ctx, item, record) => {
     assert.equal((await api(ctx.base + '/builder')).body.draftDigest, digest);
     state.rendered = await inspect(() => document.body.innerText);
     assert.equal(Number(state.rendered.match(/Total rows\n([^\n]+)/)?.[1]), record.expectedRows, 'The reloaded table must render the raw-source row count');
-    assertBrowserClean();
     record.browser = { status: 'passed', durationMs: state.durationMs };
   } catch (error) {
     throw error;
   } finally {
-    await requests.flush();
+
     state.body = await page.locator('body').innerText().catch(() => undefined);
-    state.exceptions = [...caseErrors.console, ...caseErrors.pageErrors];
-    state.http = [...caseErrors.httpFailures, ...caseErrors.networkFailures, ...state.errors];
-    page.off('console', onConsole); page.off('pageerror', onPageError); page.off('requestfailed', onRequestFailed); page.off('response', onResponse);
     await writeFile(join(directory, 'browser.json'), JSON.stringify(state, null, 2));
   }
 };

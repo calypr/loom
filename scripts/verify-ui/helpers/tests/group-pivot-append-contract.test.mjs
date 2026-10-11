@@ -12,7 +12,6 @@ import { lifecycleAcceptanceDrift, registry, scenarioCaseFor } from '../../regis
 
 const workflow = readFileSync(new URL('../../workflows/builder-combine-draft.mjs', import.meta.url), 'utf8');
 const evidence = readFileSync(new URL('../append-option-evidence.mjs', import.meta.url), 'utf8');
-const fixtures = readFileSync(new URL('../fixtures.mjs', import.meta.url), 'utf8');
 const spec = readFileSync(new URL('../../specs/draft-combine.spec.mjs', import.meta.url), 'utf8');
 const scenario = registry.find((entry) => entry.id === 'builder-combine-draft');
 const contract = scenarioCaseFor('builder-combine-draft', 'group-pivot-append');
@@ -25,16 +24,9 @@ test('Group→Pivot APPEND binds exact restoration checks and compares complete 
   assert.match(spec, /caseName:\s*'group-pivot-append'/);
   assert.match(spec, /await groupPivotAppendWorkflow\(/);
   assert.equal(checks.length, 31);
-  assert.match(appendWorkflow, /const previewLifecycle = captureOwnedPreviewLifecycle\(page, context\.target, run\.explorer, \{ diagnostic: true \}\)/);
   assert.match(appendWorkflow, /startCombineTarget\([\s\S]*?beforeTarget\)/);
   assert.match(appendWorkflow, /startCombineTarget\([\s\S]*?retryBase\)/);
-  assert.match(appendWorkflow, /const lifecycle = await previewLifecycle\.stop\(\)/);
-  assert.match(appendWorkflow, /markExpectedOwnedPreviewAborts\(/);
   assert.match(workflow, /createCommandCAS:[\s\S]*?expectedDraftVersion/);
-  assert.match(appendWorkflow, /report\.target\.nativeCandidateRequests = \[\]/);
-  assert.match(appendWorkflow, /successorRequests: report\.target\.nativeCandidateRequests/);
-  assert.match(appendWorkflow, /targetBindings:\s*\[report\.target\.canceledCombineTarget, report\.target\.combineTarget\]/);
-  assert.match(fixtures, /pathname\.endsWith\('\/authoring\/v2\/preview'\)[\s\S]*?receiptId: previewReceiptId/);
 
   assert.ok(checks.includes('removing Combine and reloading restores its rooted empty target'));
   assert.equal(checks.includes('removing Combine and reloading restores its rooted empty output'), false);
@@ -66,7 +58,7 @@ test('Group→Pivot APPEND binds exact restoration checks and compares complete 
   assert.match(workflow, /draftVersion: builder\.draftVersion/);
   assert.match(workflow, /draftDigest: builder\.draftDigest/);
   assert.match(workflow, /stageId: 'source_projection'/);
-  assert.match(workflow, /capabilityCapture\.waitFor\(\(entry\) => entry\.body\?\.outputId === target\.outputId &&[\s\S]*?entry\.body\?\.expectedDraftVersion === builder\.draftVersion[\s\S]*?entry\.body\?\.expectedDraftDigest === builder\.draftDigest[\s\S]*?entry\.response\?\.outputId === target\.outputId/);
+  assert.match(workflow, /capabilityCapture\.waitForResponse\(\(entry\) => entry\.request\?\.outputId === target\.outputId &&[\s\S]*?entry\.request\?\.expectedDraftVersion === builder\.draftVersion[\s\S]*?entry\.request\?\.expectedDraftDigest === builder\.draftDigest[\s\S]*?entry\.response\?\.outputId === target\.outputId/);
   assert.match(workflow, /matchAppendChoiceControls\(\{ controls, expectedInputs, expectedOutputs, emptyMapping: APPEND_EMPTY_MAPPING \}\)/);
   assert.match(workflow, /mappings\.observationGroupKey/);
   assert.match(workflow, /mappings\.reportPivotIdentity/);
@@ -257,7 +249,7 @@ test('Group→Pivot APPEND derives native option identity and nullability from t
   const event = {
     url: 'http://127.0.0.1:30008' + binding.requestPath,
     status: 200,
-    body: {
+    request: {
       outputId: targetOutputId,
       snapshotToken,
       expectedDraftVersion: 10,

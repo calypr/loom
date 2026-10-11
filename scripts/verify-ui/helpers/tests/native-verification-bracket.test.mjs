@@ -232,11 +232,10 @@ function fakeRunner({ scenarioID, caseName, rootDir, browserExit = 0, browserRep
       playwrightArgs.push(args);
       const outputDirectory = option(args, '--output');
       const reportPath = env.PLAYWRIGHT_JSON_OUTPUT_FILE;
-      if (browserReport !== 'missing' || playwrightReportOverride) {
-        const officialStatus = browserExit === 0 ? 'expected' : 'unexpected';
-        const resultStatus = browserExit === 0 ? 'passed' : 'failed';
-        const domainPath = join(outputDirectory, browserReport === 'cda' ? 'cda-report.json' : 'loom-verification-report.json');
-        if (browserReport !== 'missing') {
+      const officialStatus = browserExit === 0 ? 'expected' : 'unexpected';
+      const resultStatus = browserExit === 0 ? 'passed' : 'failed';
+      const domainPath = join(outputDirectory, browserReport === 'cda' ? 'cda-report.json' : 'loom-verification-report.json');
+      if (browserReport !== 'missing') {
           const assertions = browserReport === 'failed'
             ? checks.map((name, index) => ({ name, status: index === 0 ? 'failed' : 'passed' }))
             : checks.map((name) => ({ name, status: 'passed' }));
@@ -270,8 +269,8 @@ function fakeRunner({ scenarioID, caseName, rootDir, browserExit = 0, browserRep
             ? { ...baseDomainReport, ...domainReportOverride, target: { ...baseDomainReport.target, ...domainReportOverride.target } }
             : baseDomainReport;
           writeJson(domainPath, domainReport);
-        }
-        writeJson(reportPath, playwrightReportOverride ?? {
+      }
+      writeJson(reportPath, playwrightReportOverride ?? {
           errors: [],
           suites: [{
             title: specFile,
@@ -306,8 +305,7 @@ function fakeRunner({ scenarioID, caseName, rootDir, browserExit = 0, browserRep
               }],
             }],
           }],
-        });
-      }
+      });
       return { exitCode: browserExit, stdoutText: '', stderrText: '' };
     }
 
@@ -542,7 +540,7 @@ test('retained CDA report shape exposes its recorded render checkpoints', () => 
   assert.equal(summary.checkpoints.at(-1).evidencePath, 'assertions[].evidence.actions[].durationMs');
 });
 
-test('COUNT lifecycle summary derives declared dimensions from the retained qzzOck timings', async (t) => {
+test('COUNT report keeps its declared dimension fields and retained render timings', async (t) => {
   const parent = evidenceParent();
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   const scenarioID = 'standalone-reshape-related-source-after-pivot';
@@ -594,13 +592,14 @@ test('COUNT lifecycle summary derives declared dimensions from the retained qzzO
     '19262bd541a31ae09a0134c9b02e04476ff8b04121edfde59253536deffb309c');
   assert.equal(retainedPostPivotCountTimings.cases.length, 26);
   assert.equal(summary.status, 'passed', JSON.stringify({ lifecycle: summary.lifecycle, integrity: summary.integrity, notes: summary.notes }, null, 2));
-  assert.equal(summary.lifecycle.dimensions.persistence, 'passed');
-  assert.equal(summary.lifecycle.dimensions.performance, 'passed');
+  assert.equal(summary.lifecycle.dimensions.persistence, 'untested');
+  assert.equal(summary.lifecycle.dimensions.performance, 'untested');
   assert.equal(summary.lifecycle.renderCheckpointCount, 26);
   assert.equal(summary.lifecycle.maximumRenderCheckpointLatencyMs, 1417);
-  assert.deepEqual(summary.lifecycle.dimensionEvidence.persistence.checks.map(({ status }) => status),
-    ['passed', 'passed', 'passed', 'passed']);
-  assert.equal(summary.lifecycle.dimensionEvidence.performance.evidencePaths[0],
+  assert.equal(summary.lifecycle.passedCheckCount, contract.requiredChecks.length);
+  assert.equal(summary.lifecycle.failedCheckNames.length, 0);
+  assert.equal(summary.lifecycle.missingCheckNames.length, 0);
+  assert.equal(summary.lifecycle.renderCheckpoints[0].evidencePath,
     'assertions[].evidence.workflowCheckpoints[].durationMs');
   assert.equal(JSON.parse(readFileSync(summary.evidence.summary, 'utf8')).lifecycle.renderCheckpointCount, 26);
 });
@@ -749,7 +748,7 @@ test('retained basic report shape exposes registered render timings without clai
   assert.ok(summary.checkpoints.every((checkpoint) => checks.includes(checkpoint.checkName)));
 });
 
-test('CDA report shape closes only when all registered lifecycle checks and the after bracket pass', async (t) => {
+test('CDA report details remain diagnostic while the native Playwright result and after bracket close', async (t) => {
   const parent = evidenceParent();
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   const fake = fakeRunner({
@@ -770,7 +769,8 @@ test('CDA report shape closes only when all registered lifecycle checks and the 
   });
 
   assert.equal(summary.status, 'passed', JSON.stringify({ notes: summary.notes, lifecycle: summary.lifecycle, integrity: summary.integrity, commands: summary.commands }, null, 2));
-  assert.equal(summary.lifecycle.status, 'passed');
+  assert.equal(summary.lifecycle.reportStatus, 'passed');
+  assert.equal(summary.reviewPacket.browserTestPassed, true);
   assert.equal(summary.lifecycle.passedCheckCount, scenarioCaseFor('root-quantity-pivot', 'full-population-lifecycle').requiredChecks.length);
   assert.equal(summary.integrity.status, 'PASS');
   assert.deepEqual(fake.commands.slice(-2), ['captureAfter', 'healthAfter']);
@@ -1158,7 +1158,7 @@ test('retained GAP-003 request IDs and unfinished reasons reach the review packe
   ]);
 });
 
-test('native request drain evidence remains visible after an earlier assertion failure', async (t) => {
+test('pending request report diagnostics remain visible beside the native Playwright result', async (t) => {
   const parent = evidenceParent();
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   const scenarioID = 'root-quantity-pivot';
@@ -1233,11 +1233,13 @@ test('native request drain evidence remains visible after an earlier assertion f
     commandRunner: fake.commandRunner,
   });
 
-  assert.equal(summary.status, 'failed', JSON.stringify({
+  assert.equal(summary.status, 'passed', JSON.stringify({
     lifecycle: summary.lifecycle,
     integrity: summary.integrity,
     notes: summary.notes,
   }, null, 2));
+  assert.equal(summary.lifecycle.reportStatus, 'failed');
+  assert.equal(summary.reviewPacket.browserTestPassed, true);
   assert.equal(summary.reviewPacket.firstFailureReason, 'Error: Earlier assertion failed before native request drain.');
   assert.deepEqual(summary.reviewPacket.pendingOwnedRequests, [{
     endpoint: 'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-capabilities',
@@ -1247,7 +1249,7 @@ test('native request drain evidence remains visible after an earlier assertion f
   }]);
 });
 
-test('drain evidence admits only exact-identity unregistered native requests', async (t) => {
+test('pending request report diagnostics admit only exact-identity unregistered native requests', async (t) => {
   const parent = evidenceParent();
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   const scenarioID = 'standalone-reshape-coded-pivot';
@@ -1321,7 +1323,8 @@ test('drain evidence admits only exact-identity unregistered native requests', a
   };
 
   const summary = await runSummary({ project, generation, explorer }, requests, [drain]);
-  assert.equal(summary.status, 'failed', 'the fatal domain verification gate remains fatal');
+  assert.equal(summary.status, 'passed', 'the passing native Playwright result remains authoritative');
+  assert.equal(summary.lifecycle.reportStatus, 'failed');
   assert.equal(summary.reviewPacket.firstFailureReason, 'Error: Earlier assertion failed before native request drain.');
   assert.deepEqual(summary.reviewPacket.pendingOwnedRequests, [{
     endpoint: 'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-capabilities',
@@ -1339,6 +1342,7 @@ test('drain evidence admits only exact-identity unregistered native requests', a
     ...drain,
     unresolvedRequests: [{ index: 0, requestId: wrongTargetRequest.requestId, path: wrongTargetRequest.path }],
   }]);
+  assert.equal(mismatchedTarget.status, 'passed');
   assert.equal(mismatchedTarget.reviewPacket.firstFailureReason, 'Error: Earlier assertion failed before native request drain.');
   assert.deepEqual(mismatchedTarget.reviewPacket.pendingOwnedRequests, [],
     'an exact request-to-report match cannot override the case registry project/generation identity');
@@ -1417,7 +1421,7 @@ test('basic fixture report shape is accepted from its Playwright attachment', as
   });
 
   assert.equal(summary.status, 'passed', JSON.stringify({ notes: summary.notes, lifecycle: summary.lifecycle, integrity: summary.integrity, commands: summary.commands }, null, 2));
-  assert.equal(summary.lifecycle.status, 'passed');
+  assert.equal(summary.lifecycle.reportStatus, 'passed');
   assert.equal(summary.lifecycle.requiredCheckCount,
     scenarioCaseFor('builder-combine-draft', 'group-pivot-append').requiredChecks.length);
   assert.equal(summary.integrity.status, 'PASS');
@@ -1426,7 +1430,7 @@ test('basic fixture report shape is accepted from its Playwright attachment', as
   assert.deepEqual(summary.reviewPacket.pendingOwnedRequests, []);
 });
 
-test('conflicting scenario identity aliases cannot pass an attached report', async (t) => {
+test('conflicting scenario identity aliases remain report diagnostics', async (t) => {
   const parent = evidenceParent();
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   const fake = fakeRunner({
@@ -1446,11 +1450,12 @@ test('conflicting scenario identity aliases cannot pass an attached report', asy
     commandRunner: fake.commandRunner,
   });
 
-  assert.equal(summary.lifecycle.status, 'unverified');
-  assert.equal(summary.status, 'unverified');
+  assert.equal(summary.lifecycle.reportIdentityAliasesConsistent, false);
+  assert.equal(summary.lifecycle.reportIdentityMatchesSelection, false);
+  assert.equal(summary.status, 'passed');
 });
 
-test('a report with duplicated required-check names cannot pass a unique registry contract', async (t) => {
+test('a report with duplicated required-check names remains diagnostic when Playwright passes', async (t) => {
   const contract = scenarioCaseFor('root-quantity-pivot', 'full-population-lifecycle');
   assert.equal(new Set(contract.requiredChecks).size, contract.requiredChecks.length);
   const duplicatedReportedChecks = [...contract.requiredChecks];
@@ -1475,11 +1480,11 @@ test('a report with duplicated required-check names cannot pass a unique registr
   });
 
   assert.equal(summary.lifecycle.requiredCheckListMatchesRegistry, false);
-  assert.equal(summary.lifecycle.status, 'unverified');
-  assert.equal(summary.status, 'unverified');
+  assert.equal(summary.lifecycle.reportStatus, 'passed');
+  assert.equal(summary.status, 'passed');
 });
 
-test('a report with the wrong registry required-check list cannot pass', async (t) => {
+test('a report with the wrong registry required-check list does not replace the Playwright result', async (t) => {
   const parent = evidenceParent();
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   const fake = fakeRunner({
@@ -1499,9 +1504,9 @@ test('a report with the wrong registry required-check list cannot pass', async (
     commandRunner: fake.commandRunner,
   });
 
-  assert.equal(summary.lifecycle.status, 'unverified');
+  assert.equal(summary.lifecycle.reportStatus, 'passed');
   assert.equal(summary.lifecycle.requiredCheckListMatchesRegistry, false);
-  assert.equal(summary.status, 'unverified');
+  assert.equal(summary.status, 'passed');
 });
 
 test('a flaky Playwright result does not count as a passed lifecycle', async (t) => {
@@ -1526,7 +1531,8 @@ test('a flaky Playwright result does not count as a passed lifecycle', async (t)
     commandRunner: fake.commandRunner,
   });
 
-  assert.equal(summary.lifecycle.status, 'failed');
+  assert.equal(summary.lifecycle.reportStatus, 'passed');
+  assert.equal(summary.reviewPacket.browserTestPassed, false);
   assert.equal(summary.status, 'failed');
 });
 
@@ -1555,7 +1561,47 @@ test('a retried or repeated Playwright result cannot count as a clean pass', asy
       commandRunner: fake.commandRunner,
     });
 
-    assert.equal(summary.lifecycle.status, 'failed', variant.label);
+    assert.equal(summary.lifecycle.reportStatus, 'passed', variant.label);
+    assert.equal(summary.reviewPacket.browserTestPassed, false, variant.label);
+    assert.equal(summary.status, 'failed', variant.label);
+  }
+});
+
+test('a skipped or absent official selected result cannot pass from a diagnostic report', async (t) => {
+  const variants = [
+    {
+      label: 'skipped native test',
+      browserReport: 'cda',
+      officialTestStatus: 'skipped',
+      officialTestOutcome: 'skipped',
+      officialTestResultStatuses: ['skipped'],
+    },
+    {
+      label: 'missing selected native test',
+      browserReport: 'missing',
+      playwrightReportOverride: { errors: [], suites: [] },
+    },
+  ];
+  for (const variant of variants) {
+    const parent = evidenceParent();
+    t.after(() => rmSync(parent, { recursive: true, force: true }));
+    const fake = fakeRunner({
+      scenarioID: 'root-quantity-pivot',
+      caseName: 'full-population-lifecycle',
+      rootDir: root,
+      ...variant,
+    });
+    const summary = await runNativeVerificationBracket({
+      scenarioID: 'root-quantity-pivot',
+      caseName: 'full-population-lifecycle',
+      grep: 'lifecycle',
+      evidenceParent: parent,
+      root,
+      env: fake.env,
+      commandRunner: fake.commandRunner,
+    });
+
+    assert.equal(summary.reviewPacket.browserTestPassed, false, variant.label);
     assert.equal(summary.status, 'failed', variant.label);
   }
 });
@@ -1586,7 +1632,7 @@ test('after capture and health run after a failing browser command', async (t) =
   assert.equal(summary.status, 'failed');
 });
 
-test('missing domain report remains unverified after the bracket closes', async (t) => {
+test('missing domain report is diagnostic when the official Playwright result passes', async (t) => {
   const parent = evidenceParent();
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   const fake = fakeRunner({
@@ -1605,8 +1651,10 @@ test('missing domain report remains unverified after the bracket closes', async 
     commandRunner: fake.commandRunner,
   });
 
-  assert.equal(summary.status, 'unverified');
-  assert.equal(summary.lifecycle.status, 'unverified');
+  assert.equal(summary.status, 'passed');
+  assert.equal(summary.lifecycle.reportStatus, null);
+  assert.equal(summary.reviewPacket.browserTestPassed, true);
+  assert.match(summary.lifecycle.reason, /No domain verification report/);
   assert.equal(summary.reviewPacket.firstFailureReason, null);
   assert.equal(summary.reviewPacket.failedAction, null);
   assert.equal(summary.reviewPacket.lastCompletedAction, null);
@@ -1716,8 +1764,8 @@ test('selected Playwright setup failure appears in the summary and CLI without a
   });
 
   assert.equal(exitCode, 1);
-  assert.equal(runSummary.status, 'unverified');
-  assert.equal(runSummary.lifecycle.status, 'unverified');
+  assert.equal(runSummary.status, 'failed');
+  assert.equal(runSummary.lifecycle.reportStatus, null);
   assert.equal(runSummary.integrity.status, 'PASS');
   assert.equal(runSummary.commands.playwright.exitCode, 1);
   assert.equal(runSummary.failureCategory, 'browser');
@@ -2089,6 +2137,7 @@ test('valid browser preparation selects exactly one native test before focused c
   }, null, 2));
   assert.equal(summary.selection.exact, true);
   assert.equal(summary.focusedChecks.status, 'passed');
+  assert.equal(fake.playwrightArgs?.[0]?.[8], 'verify-ui/specs/cda-current-draft-membership.spec.mjs');
   assert.equal(calls[0], 'selectionList');
   assert.deepEqual(calls.slice(1, focusedCount + 1), Array(focusedCount).fill('focused'));
   assert.deepEqual(calls.slice(focusedCount + 1), [
@@ -3151,6 +3200,7 @@ test('main aborts its owned child on SIGINT, writes an interrupted summary, and 
       sourceRoot: process.env.LOOM_CDA_SOURCE_ROOT,
     };
     const commandRunner = async (_command, args, processOptions) => {
+      if (args[0] === '--test') return { exitCode: 0, stdoutText: '', stderrText: '' };
       if (args[0] === 'scripts/node_modules/@playwright/test/cli.js') {
         if (args.includes('--list')) {
           return {
@@ -3288,7 +3338,7 @@ test('main aborts its owned child on SIGINT, writes an interrupted summary, and 
     assert.equal(summary.commands.captureAfter.exitCode, 0, 'after-capture must run after browser cancellation');
     assert.equal(summary.commands.healthAfter.exitCode, 0, 'after-health must run after browser cancellation');
     assert.equal(summary.status, 'unverified', 'an interrupted browser case cannot claim lifecycle success');
-    assert.equal(summary.lifecycle.status, 'unverified');
+    assert.equal(summary.lifecycle.reportStatus, null);
     await new Promise((resolveWait) => setTimeout(resolveWait, 400));
     assert.equal(existsSync(sentinelPath), false, 'the owned child must not write its delayed sentinel');
   } finally {
@@ -3336,7 +3386,7 @@ test('abort during after-capture retains a passed lifecycle but leaves the final
   const summary = await summaryPromise;
 
   assert.equal(summary.commands.playwright.exitCode, 0);
-  assert.equal(summary.lifecycle.status, 'passed', 'the successful browser lifecycle evidence must remain intact');
+  assert.equal(summary.lifecycle.reportStatus, 'passed', 'the report remains available as diagnostic evidence');
   assert.ok(summary.evidence.domainReport, 'the successful browser report must remain attached');
   assert.equal(summary.commands.captureAfter.exitCode, 0);
   assert.equal(summary.commands.healthAfter.exitCode, 0);
@@ -3346,11 +3396,11 @@ test('abort during after-capture retains a passed lifecycle but leaves the final
   assert.equal(summary.interrupted, true);
   assert.match(summary.workflowError, /Run was interrupted by SIGINT or an abort request/);
   assert.equal(summary.reviewPacket.status, 'unverified');
-  assert.equal(summary.reviewPacket.lifecycleStatus, 'passed');
+  assert.equal(summary.reviewPacket.domainReportStatus, 'passed');
   assert.equal(summary.reviewPacket.integrityStatus, 'PASS');
   const saved = JSON.parse(readFileSync(summary.evidence.summary, 'utf8'));
   assert.equal(saved.status, 'unverified');
-  assert.equal(saved.lifecycle.status, 'passed');
+  assert.equal(saved.lifecycle.reportStatus, 'passed');
   assert.equal(saved.integrity.status, 'PASS');
   assert.equal(saved.failureCategory, 'interrupted');
 });

@@ -1,0 +1,69 @@
+{
+  "status": "closed",
+  "phase": "after-failed-run-before-edits",
+  "runner": {
+    "handle": 14660,
+    "exitCode": 1,
+    "expected": 0,
+    "unexpected": 1,
+    "skipped": 0,
+    "flaky": 0,
+    "durationMs": 11214,
+    "caseStatus": "failed",
+    "verificationStatus": "failed",
+    "failureClass": "harness-syntax-error",
+    "firstFailure": "page.waitForFunction predicate SyntaxError: missing ) after argument list in editSavedStep at scripts/verify-ui/builder-combine-draft.mjs:823 (through waitFor line 96 / recordBrowserTiming line 142)",
+    "missingRequiredChecks": [
+      "upstream COUNT_DISTINCT GROUP edit matches independent per-status raw values",
+      "source GROUP edit advances the same authorized workspace CAS",
+      "source edit invalidates and recompiles dependent Combine against the same draft output",
+      "dependent LEFT Join recomputes exact values after source aggregate edit",
+      "reopened Combine reads the edited source GROUP schema by stable output ID",
+      "open saved Group editor after source columns resolve action-to-render within budget",
+      "open saved Combine editor after draft input schemas resolve action-to-render within budget",
+      "edited saved Join changes to INNER with exact recomputed fixture rows",
+      "edited Join values and INNER policy survive reload",
+      "Canceling Combine removal preserves its saved step, full workspace, and draft CAS after reload",
+      "removing Combine and reloading restores its rooted empty target",
+      "Join lifecycle made no Publish request or pinned revision reference"
+    ],
+    "artifacts": "/private/tmp/loom-native-parallel-wave38/draft-combine-current-draft-join"
+  },
+  "source": {
+    "fingerprint": {
+      "sha256": "feadc63615a9b1acf1d54f58d44f666ccc1a1bc7c9ee5c5cf1c7230f3246eab0",
+      "files": 1495
+    },
+    "manifestUnchanged": true
+  },
+  "docs": {
+    "fingerprint": {
+      "sha256": "d6c7198261fb4f33755b672087375999283fe1261045db11b9a6506c23f5becb",
+      "files": 113
+    },
+    "manifestUnchanged": true
+  },
+  "api": {
+    "buildIdentity": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8",
+    "unchanged": true,
+    "sourceFingerprintUnchanged": true
+  },
+  "ownedMounts": {
+    "status": "PASS",
+    "targetUnchanged": true
+  },
+  "health": {
+    "before": {
+      "status": "PASS",
+      "samples": 3,
+      "apiBuildIdentity": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8"
+    },
+    "after": {
+      "status": "PASS",
+      "samples": 3,
+      "apiBuildIdentity": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8"
+    }
+  },
+  "editAllowedAfterThisRecord": true,
+  "closureChecksPass": true
+}

@@ -49,6 +49,52 @@ includes focused checks and gaps, failure context, source fingerprint, API
 build identity, command timings, and log paths; it links logs instead of
 embedding them.
 
+The exact selected native Playwright result and source/API integrity determine
+the outcome. A missing or ambiguous selection and a skipped test cannot pass.
+Native fixture assertions fail incomplete outcomes, unexpected HTTP errors,
+uncaught exceptions, non-cancellation transport errors, and failed or canceled
+writes. Read cancellations are diagnostic when required current outcomes still
+succeed. Report generation and response-body capture failures are recorded
+separately; report statuses, check totals, and request inventories are not
+additional pass gates.
+
+## Run selected native cases in one batch
+
+A batch shares one precheck, before and after captures, and before and after
+health checks across an explicit selection. Save a schema-versioned manifest,
+for example:
+
+```json
+{
+  "schemaVersion": 1,
+  "cases": [
+    { "scenario": "builder-controls", "case": "first-table", "target": { "mode": "environment" } },
+    { "scenario": "builder-load", "case": "list", "target": { "mode": "environment" } }
+  ]
+}
+```
+
+Run it with:
+
+```sh
+node scripts/run-native-verification-bracket.mjs --batch /tmp/native-cases.json --concurrency 2
+```
+
+Use environment targets for cases without a registered target identity and
+config targets for cases with one: `{ "mode": "environment" }` or
+`{ "mode": "config", "path": "..." }`. All entries must resolve to the
+same capture identity, including project and generation, source root, runtime
+endpoints, containers, and mapped target environment. Incompatible targets
+must run in separate batches. The manifest selects registered cases; it is not
+a second work queue and accepts no arbitrary test arguments. Concurrency
+defaults to 1 and accepts 1 through 3. Only cases marked in the registry for
+fresh fixture projects can overlap; other cases run alone. Those marked
+fixtures create and validate their own projects. A failed case does not
+suppress later ready cases, while shared evidence failure prevents a passing
+batch verdict.
+The batch summary points to each case summary and the single shared bracket.
+The existing single-case commands above remain available.
+
 For diagnosis, the low-level components are
 `owned-stack-verification.mjs` (`--mode precheck|health`) and
 `capture-owned-verification.mjs` (`--phase before|after`). Before capture also
@@ -56,10 +102,34 @@ requires the precheck artifact; both phases write four distinct source, docs,
 API, and mount artifacts. The normal browser workflow is the combined runner
 above.
 
-`summary.durationMs` measures the full bracket process, and each
-`commands[*].durationMs` measures a child process. They do not measure human
-environment setup, diagnosis, implementation, review, or integration; record
-those phases separately or mark them unknown.
+For a single case, `summary.durationMs` measures that bracket invocation. A
+batch summary measures the full shared batch interval; case summaries retain
+their Playwright command durations. To report observed intervals and optional
+human phase spans, pass each summary explicitly:
+
+```sh
+node scripts/verification-timing.mjs report \
+  --summary /tmp/native-batch/batch-summary.json \
+  --summary /tmp/native-batch/case-1/summary.json \
+  --summary /tmp/native-batch/case-2/summary.json \
+  --spans /tmp/verification-spans
+```
+
+Replace these example paths with the `summary` and `cases[*].summaryPath`
+values from the batch command output.
+
+The report uses batch summaries for the shared window and case summaries for
+browser command durations. Record a phase with `start`, then copy its returned
+span ID into `finish`:
+
+```sh
+node scripts/verification-timing.mjs start --spans /tmp/verification-spans --owner "reviewer" --case-id "issue-123" --phase review
+node scripts/verification-timing.mjs finish --spans /tmp/verification-spans --span-id "copy-span-id-here"
+```
+
+It does not discover files recursively or infer human time from gaps. Without
+recorded phase spans, diagnosis, implementation, review, and integration
+remain unattributed.
 
 After partial staging from a dirty worktree, verify the exact staged or
 committed snapshot; a dirty-worktree pass does not prove the delivered artifact.

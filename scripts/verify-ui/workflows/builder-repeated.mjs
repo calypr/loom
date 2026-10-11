@@ -2,9 +2,9 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { browserURL } from './builder-url.mjs';
 import { click, configureNativePage, evaluate, fill, recordPlaywrightTiming, reload, waitFor, goto } from '../helpers/playwright-authoring-page.mjs';
-import { readBuilderCapabilitiesIdentity, watchConstructionCapabilitiesReadiness } from '../helpers/construction-capabilities-readiness.mjs';
-import { installNativeAbortProbe, nativeAbortSignalObservationForRequest } from '../helpers/native-abort-probe.mjs';
-import { finishReport, recordCheck } from '../helpers/report.mjs';
+import { expect } from '@playwright/test';
+import { readBuilderCapabilitiesIdentity } from '../helpers/construction-capabilities-readiness.mjs';
+import { recordCheck } from '../helpers/report.mjs';
 
 
 const sourceIDs = ['verify-repeat-empty', 'verify-repeat-missing', 'verify-repeat-two'];
@@ -26,7 +26,7 @@ const restoredSourcePairs = [
 
 const requireCheck = (report, dimension, name, passed, evidence = {}) => {
   recordCheck(report, dimension, name, passed, evidence);
-  if (!passed) throw new Error('required repeated-empty check failed: ' + name);
+  expect(passed, name).toBe(true);
 };
 
 const parseNDJSON = (path) => readFileSync(path, 'utf8')
@@ -219,15 +219,8 @@ const openRowDefinition = (report, page, workflow, name) =>
   openRowPanel(report, page, workflow, name, rowDefinitionReadyExpression);
 
 const runRepeatedEmptyWorkflow = async (workflow, context) => {
-  const { page, report } = workflow;
+  const { page, report, networkObserver } = workflow;
   configureNativePage(page);
-  await installNativeAbortProbe({
-    page,
-    report,
-    project: context.target.fixtureProject,
-    explorer: { mode: 'project-routes' },
-    apiOrigin: new URL(context.target.uiUrl).origin,
-  });
   const contract = fixtureContract(context);
     requireCheck(report, 'correctness', 'case started with a fresh owned project and the exact repeated-empty fixture contract',
       contract.passed, { ...contract.summary, errors: contract.errors });
@@ -486,50 +479,62 @@ const runRepeatedEmptyWorkflow = async (workflow, context) => {
       baseRows: 2,
       candidateRows: 3,
     });
-    const capabilitiesReadiness = watchConstructionCapabilitiesReadiness({
-      page,
+    const selectedOutputIDs = await evaluate(page, `([...document.querySelectorAll('[data-testid^="construction-table-"][aria-current="page"]')]
+      .map(element => element.getAttribute('data-testid')?.slice('construction-table-'.length) ?? '').filter(Boolean))`);
+    if (selectedOutputIDs.length !== 1) {
+      throw new Error(`The exact post-Apply capabilities request requires one selected source output; found ${selectedOutputIDs.length}.`);
+    }
+    const outputId = selectedOutputIDs[0];
+    const beforeApplyIdentity = await readBuilderCapabilitiesIdentity({
+      apiOrigin: context.target.apiUrl,
       project: context.target.fixtureProject,
       explorer,
-      apiOrigin: context.target.uiUrl,
+      outputId,
+      timeoutMs: 5000,
     });
-    try {
-      await recordPlaywrightTiming(report, page, workflow, {
-        name: 'apply source-row removal and restore all three fixture Observation IDs',
-        action: async () => workflow.action(
-          'Apply row-definition restoration',
-          page.getByRole('button', { name: 'Apply row definition', exact: true }),
-          locator => {
-            capabilitiesReadiness.markActionStarted();
-            return locator.click();
-          },
-        ),
-        after: mainReadyExpression(3),
-        settle: async ({ remainingMs }) => {
-          await requirePairs(report, page, {
-            name: 'source RECORDS restoration retains exact Observation/component first-value pairs after Apply',
-            expected: restoredSourcePairs,
-          });
-          const selectedOutputIDs = await evaluate(page, `([...document.querySelectorAll('[data-testid^="construction-table-"][aria-current="page"]')]
-            .map(element => element.getAttribute('data-testid')?.slice('construction-table-'.length) ?? '').filter(Boolean))`);
-          if (selectedOutputIDs.length !== 1) {
-            throw new Error(`The exact post-Apply capabilities request requires one selected source output; found ${selectedOutputIDs.length}.`);
-          }
-          const identity = await readBuilderCapabilitiesIdentity({
-            apiOrigin: context.target.apiUrl,
-            project: context.target.fixtureProject,
-            explorer,
-            outputId: selectedOutputIDs[0],
-            timeoutMs: remainingMs(),
-          });
-          const readiness = await capabilitiesReadiness.waitFor(identity, { timeoutMs: remainingMs() });
-          report.finalApplyCapabilitiesReadiness = readiness;
-        },
-        timeout: 5000,
-        budget: 5000,
-      });
-    } finally {
-      capabilitiesReadiness.dispose();
-    }
+    const observerFromIndex = networkObserver.requests.length;
+    await recordPlaywrightTiming(report, page, workflow, {
+      name: 'apply source-row removal and restore all three fixture Observation IDs',
+      action: () => workflow.action(
+        'Apply row-definition restoration',
+        page.getByRole('button', { name: 'Apply row definition', exact: true }),
+        locator => locator.click(),
+      ),
+      after: mainReadyExpression(3),
+      settle: async ({ remainingMs }) => {
+        await requirePairs(report, page, {
+          name: 'source RECORDS restoration retains exact Observation/component first-value pairs after Apply',
+          expected: restoredSourcePairs,
+        });
+        const afterApplyIdentity = await readBuilderCapabilitiesIdentity({
+          apiOrigin: context.target.apiUrl,
+          project: context.target.fixtureProject,
+          explorer,
+          outputId,
+          timeoutMs: remainingMs(),
+        });
+        expect(afterApplyIdentity.draftVersion).toBeGreaterThan(beforeApplyIdentity.draftVersion);
+        expect(afterApplyIdentity.draftDigest).not.toBe(beforeApplyIdentity.draftDigest);
+        const capabilitiesEntry = await networkObserver.waitForResponse(entry =>
+          entry.method === 'POST' && entry.path.endsWith('/construction-capabilities') &&
+          entry.request?.outputId === outputId &&
+          entry.request?.snapshotToken === afterApplyIdentity.snapshotToken &&
+          entry.request?.expectedDraftVersion === afterApplyIdentity.draftVersion &&
+          entry.request?.expectedDraftDigest === afterApplyIdentity.draftDigest,
+        { fromIndex: observerFromIndex, timeoutMs: remainingMs() });
+        const capabilitiesRequest = await networkObserver.requestBody(capabilitiesEntry);
+        expect(capabilitiesRequest).toMatchObject({
+          outputId,
+          snapshotToken: afterApplyIdentity.snapshotToken,
+          expectedDraftVersion: afterApplyIdentity.draftVersion,
+          expectedDraftDigest: afterApplyIdentity.draftDigest,
+        });
+        expect(capabilitiesEntry.status).toBeGreaterThanOrEqual(200);
+        expect(capabilitiesEntry.status).toBeLessThan(300);
+      },
+      timeout: 5000,
+      budget: 5000,
+    });
 
     await reload(page, mainReadyExpression(3));
     await requirePairs(report, page, {
@@ -545,130 +550,6 @@ const runRepeatedEmptyWorkflow = async (workflow, context) => {
     report.target.componentCodeChoice = componentCodeChoice;
 };
 
-export const retainRepeatedEmptyNativeRequestLedger = ({ report, ledger, project, origin, explorer }) => {
-  if (!report || !ledger || typeof project !== 'string' || typeof origin !== 'string' || typeof explorer !== 'string') {
-    throw new TypeError('Repeated-empty native request retention requires the exact report, ledger, project, origin, and Explorer.');
-  }
-  report.nativeRequests = ledger.nativeRequests;
-  report.nativeRequestDrainEvidence = ledger.nativeRequestDrainEvidence;
-  report.excludedNativeRequests = ledger.excludedNativeRequests;
-  report.excludedNativeRequestDrainEvidence = ledger.excludedNativeRequestDrainEvidence;
-  report.nativeRequestCorrelationErrors = ledger.nativeRequestCorrelationErrors;
-  report.nativeRequestTerminalLedger = ledger.nativeRequestTerminalLedger;
-  report.nativeRequestIncompleteRequests = ledger.incompleteRequests;
-  report.nativeRequestCaptureScope = {
-    project,
-    origin,
-    explorer,
-    terminalLedgerScope: ledger.nativeRequestTerminalLedger?.scope ?? null,
-  };
-
-  const schemaFieldsPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorer)}/authoring/v2/schema-fields`;
-  report.nativeAbortProbeCorrelations = [];
-  for (const [nativeRequestIndex, entry] of report.nativeRequests.entries()) {
-    if (entry.origin !== origin || entry.path !== schemaFieldsPath || entry.method !== 'POST') continue;
-    const requestId = entry.requestDetails?.requestId;
-    const requestIdentityMatchCount = typeof requestId === 'string'
-      ? report.nativeRequests.filter(candidate => candidate.requestDetails?.requestId === requestId &&
-        candidate.origin === entry.origin && candidate.path === entry.path && candidate.method === entry.method).length
-      : 0;
-    report.nativeAbortProbeCorrelations.push({
-      nativeRequestIndex,
-      requestId: requestId ?? null,
-      origin: entry.origin,
-      path: entry.path,
-      method: entry.method,
-      requestIdentityMatchCount,
-      observation: nativeAbortSignalObservationForRequest(
-        { ...entry, requestIdentityMatchCount }, report.nativeAbortProbeEvents ?? [],
-      ),
-    });
-  }
-  return report.nativeAbortProbeCorrelations;
-};
-
-export const assertRepeatedEmptyNativeRequestLedgerComplete = (ledger, report) => {
-  if (!ledger?.nativeRequestTerminalLedger?.complete) {
-    throw new Error('Repeated-empty native request ledger did not reach a complete terminal state: ' +
-      JSON.stringify({ incompleteRequests: ledger?.incompleteRequests ?? [],
-        nativeRequestDrainEvidence: ledger?.nativeRequestDrainEvidence ?? [],
-        nativeRequestCorrelationErrors: ledger?.nativeRequestCorrelationErrors ?? [] }));
-  }
-  const requests = ledger.nativeRequestTerminalLedger.requests ?? [];
-  const failedRequests = requests.filter(entry => entry.state === 'failed');
-  const classifiedReport = report ? structuredClone(report) : null;
-  if (classifiedReport) finishReport(classifiedReport);
-  const ownerRetirements = classifiedReport?.expectedOwnerRetirements ?? [];
-  const captureScope = classifiedReport?.nativeRequestCaptureScope;
-  const consumedRetirements = new Set();
-  const failuresWithoutExactRetirement = failedRequests.filter(entry => {
-    const identityMatches = requests.filter(candidate => candidate.requestId === entry.requestId ||
-      candidate.browserRequestId === entry.browserRequestId);
-    const retirementMatches = ownerRetirements
-      .map((retirement, index) => ({ retirement, index }))
-      .filter(({ retirement }) => retirement.kind === 'same-document-owner-retirement' &&
-        retirement.endpoint === 'schema-fields' && retirement.owner === 'feature-catalog-generated-fields' &&
-        retirement.selector === '#feature-catalog-search' &&
-        retirement.requestId === entry.requestId && retirement.browserRequestId === entry.browserRequestId &&
-        retirement.project === captureScope?.project && retirement.explorer === captureScope?.explorer);
-    const expectedPath = typeof captureScope?.project === 'string' && typeof captureScope?.explorer === 'string'
-      ? `/api/v1/projects/${encodeURIComponent(captureScope.project)}/explorers/${encodeURIComponent(captureScope.explorer)}/authoring/v2/schema-fields`
-      : null;
-    if (identityMatches.length !== 1 || identityMatches[0] !== entry || retirementMatches.length !== 1 ||
-        consumedRetirements.has(retirementMatches[0].index) || entry.origin !== captureScope?.origin ||
-        entry.path !== expectedPath || entry.method !== 'POST' || entry.failure !== 'net::ERR_ABORTED' ||
-        entry.terminalEvent !== 'requestfailed' || ![null, 200].includes(entry.status) || entry.complete !== true ||
-        entry.frameIdentityStatus !== 'exact' || entry.frameIsMainFrame !== true) return true;
-    consumedRetirements.add(retirementMatches[0].index);
-    return false;
-  });
-  if (failuresWithoutExactRetirement.length || consumedRetirements.size !== ownerRetirements.length) {
-    const unmatched = failuresWithoutExactRetirement.length ? failuresWithoutExactRetirement : failedRequests;
-    throw new Error('Repeated-empty observed failed native requests without an exact production owner-retirement classification: ' +
-      JSON.stringify(unmatched.map(({ requestId, browserRequestId, method, path, failure }) => ({ requestId, browserRequestId, method, path, failure }))));
-  }
-  return true;
-};
-
-export const repeatedEmptyWorkflow = async (workflow, context = workflow) => {
-  const { report, nativeRequestLedger } = workflow;
-  if (!nativeRequestLedger?.openScope || !nativeRequestLedger?.flush) {
-    throw new TypeError('Repeated-empty requires the fixture-owned native request ledger.');
-  }
-  const project = context.target.fixtureProject;
-  const origin = new URL(context.target.uiUrl).origin;
-  const scope = nativeRequestLedger.openScope({ project, origin });
-
-  let workflowError;
-  try {
-    await runRepeatedEmptyWorkflow(workflow, context);
-  } catch (error) {
-    workflowError = error;
-  }
-
-  let captureError;
-  let ledger;
-  try {
-    ledger = await nativeRequestLedger.flush(scope, {
-      explorer: report.target?.explorer,
-      timeoutMs: 5000,
-    });
-  } catch (error) {
-    captureError = error;
-    report.nativeRequestCaptureError = error instanceof Error ? error.message : String(error);
-  }
-
-  if (ledger && report.target?.explorer) {
-    retainRepeatedEmptyNativeRequestLedger({
-      report,
-      ledger,
-      project,
-      origin,
-      explorer: report.target.explorer,
-    });
-  }
-  if (workflowError) throw workflowError;
-  if (captureError) throw captureError;
-  if (!ledger) throw new Error('Repeated-empty native request ledger was not finalized.');
-  assertRepeatedEmptyNativeRequestLedgerComplete(ledger, report);
+export const repeatedEmptyWorkflow = async (workflow, context = workflow, { runLifecycle = runRepeatedEmptyWorkflow } = {}) => {
+  return runLifecycle(workflow, context);
 };

@@ -2,12 +2,11 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { createNativeCdaWorkflowTools, validatedArangoContainer } from '../helpers/native-cda-workflow-tools.mjs';
-import { proveSupersededCapabilitiesAbort } from '../helpers/superseded-capabilities-abort.mjs';
 
 export async function sourceFieldsWorkflow({ page, cda, caseOptions = {} }) {
   const { click, fill, selectOption, navigate, inspect, clickControl, fillControl, selectControl,
     nativeClick, nativeFill, nativeSelect, navigatePage, inspectDOM, browserEval, inspectPage,
-    waitForDOM, waitForBrowser, captureCDARequests, captureRequests, waitForCapturedResponse,
+    waitForDOM, waitForBrowser,
     performAction, requireUnique } = createNativeCdaWorkflowTools({ page, cda });
   const target = cda.target;
   const project = cda.project;
@@ -25,7 +24,6 @@ const projectRoot = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
 const root = `${projectRoot}/${encodeURIComponent(explorer)}`;
 const base = `${root}/authoring/v2`;
 const apiCalls = [];
-let nativeRequests = [];
 const report = {
   started: new Date().toISOString(),
   explorer,
@@ -35,7 +33,7 @@ const report = {
   assertions: [],
   gaps: [{ assertion: 'related semantic sources and authored EXPAND', status: 'not-covered', reason: 'This verifier covers direct same-resource field projections only; related semantic selection and authored list expansion remain separate behavior classes.' }],
   apiCalls,
-  nativeRequests,
+  nativeRequests: [],
   errors: [],
   timings: [],
   evidencePaths: [],
@@ -50,7 +48,10 @@ let selection;
 let originalWorkspace;
 let sourceRecords = [];
 
-const recordAssertion = (name, evidenceValue) => report.assertions.push({ name, status: 'passed', evidence: evidenceValue });
+const recordAssertion = (dimension, name, evidenceValue) => {
+  cda.check(dimension, name, true, evidenceValue);
+  report.assertions.push({ name, status: 'passed', evidence: evidenceValue });
+};
 const recordTiming = (name, startedAt, evidenceValue = {}) => report.timings.push({ name, durationMs: Date.now() - startedAt, ...evidenceValue });
 
 const responseValue = (raw) => {
@@ -141,7 +142,6 @@ const boundedRawOracle = () => {
 
 const trackBrowser = () => {
   const tracker = cda.captureRequests(root);
-  nativeRequests = report.nativeRequests;
   page.on('request', request => {
     if (new URL(request.url()).pathname.includes(protectedExplorer)) report.errors.push({ kind: 'protected-explorer-request', path: new URL(request.url()).pathname });
   });
@@ -150,18 +150,14 @@ const trackBrowser = () => {
 
 const waitNative = async (predicate, fromIndex = 0, timeoutMs = 10000) => {
   const match = entry => entry.status !== undefined && entry.completedAt && entry.response !== undefined && !entry.failure && predicate(entry);
-  const existing = nativeRequests.slice(fromIndex).findLast(match);
-  const entry = existing ?? await waitForCapturedResponse(page, browserEvents, candidate =>
-    nativeRequests.indexOf(candidate) >= fromIndex && match(candidate), timeoutMs);
+  const existing = browserEvents.requests.slice(fromIndex).findLast(match);
+  const entry = existing ?? await browserEvents.waitForResponse(candidate =>
+    match(candidate), { fromIndex, timeoutMs });
   assert.equal(entry.status, 200, `Native ${entry.path} returned ${entry.status}: ${JSON.stringify(entry.response).slice(0, 1200)}`);
   return entry;
 };
 
-const flushNativeReads = async () => {
-  await browserEvents?.flush();
-};
-
-const nativeIndex = () => nativeRequests.length;
+const nativeIndex = () => browserEvents.requests.length;
 const nativePreviewBody = (response) => response?.preview?.rows !== undefined ? response.preview : response;
 
 const assertPreview = (preview, expectedDocument, expectedPaths, phase) => {
@@ -249,7 +245,7 @@ const openTable = async (expectedRows, expectedColumns, phase) => {
   await waitForBrowser(page, ([__arg0]) => Boolean(Boolean(document.querySelector(__arg0))), [`[data-testid="construction-table-${outputId}"]`]);
   await click(page, `[data-testid="construction-table-${outputId}"]`);
   const view = await rendered(expectedRows, expectedColumns, phase);
-  const native = await waitNative((entry) => entry.path.endsWith('/preview') && entry.body?.outputId === outputId, fromIndex);
+  const native = await waitNative((entry) => entry.path.endsWith('/preview') && entry.request?.outputId === outputId, fromIndex);
   const preview = nativePreviewBody(native.response);
   assert.equal(preview.rowCount, expectedRows, `${phase} native preview row count differs from CDA witness count`);
   recordTiming(phase, startedAt, { rows: expectedRows, columns: expectedColumns, receiptId: preview.receiptId });
@@ -330,11 +326,11 @@ const addNativeFields = async (candidateByPath, cancelProposal) => {
   }
 
   await waitForBrowser(page, () => Boolean(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus==='ready'), []);
-  const nativeProposal = await waitNative((entry) => entry.path.endsWith('/construction-choice-proposals') && entry.body?.constructionChoices?.length === 2, fromIndex);
+  const nativeProposal = await waitNative((entry) => entry.path.endsWith('/construction-choice-proposals') && entry.request?.constructionChoices?.length === 2, fromIndex);
   const proposal = nativeProposal.response;
   assert.equal(proposal.previewStatus, 'READY', 'Native field preflight must carry a successful preview receipt');
   assert.equal(proposal.outputId, outputId);
-  assert.deepEqual(proposal.constructionChoices, nativeProposal.body.constructionChoices, 'Native response must confirm the exact selected field choices');
+  assert.deepEqual(proposal.constructionChoices, nativeProposal.request.constructionChoices, 'Native response must confirm the exact selected field choices');
   assert.equal(proposal.candidateColumnIds.length, 2, 'Native field preflight must assign two candidate output IDs');
   assert.equal(proposal.previewDurationMs <= 5000, true, `Native field preflight took ${proposal.previewDurationMs} ms`);
   const expectedForms = new Map(proposal.constructionChoices.map((choice, index) => {
@@ -355,7 +351,7 @@ const addNativeFields = async (candidateByPath, cancelProposal) => {
     assert.deepEqual(row[expectedForms.get('component[].valueString').columnId], source.componentValues, `Native preflight component list differs for ${source.id}`);
     assert(Array.isArray(row[expectedForms.get('component[].valueString').columnId]));
   }
-  recordAssertion('native Add columns resolved a direct scalar VALUE and repeated ALL field batch against raw CDA', {
+  recordAssertion('correctness', 'native Add columns resolved a direct scalar VALUE and repeated ALL field batch against raw CDA', {
     choices: [...expectedForms.entries()].map(([path, choice]) => ({ path, ...choice })),
     previewReceiptId: proposal.preview.receiptId,
     rowCount: proposal.preview.rows.length,
@@ -363,28 +359,28 @@ const addNativeFields = async (candidateByPath, cancelProposal) => {
 
   if (cancelProposal) {
     const workspaceBeforeCancel = structuredClone(builder.workspace);
-    const commandCountBeforeCancel = nativeRequests.slice(fromIndex).filter((entry) => entry.path.endsWith('/commands')).length;
+    const commandCountBeforeCancel = browserEvents.requests.slice(fromIndex).filter((entry) => entry.path.endsWith('/commands')).length;
     await click(page, '[data-testid="construction-choice-proposal-panel"] button', { name: 'Cancel' });
     await waitForBrowser(page, () => Boolean(!document.querySelector('[data-testid="construction-choice-proposal-panel"]')), []);
     builder = await api(`${base}/builder`);
     assert.deepEqual(builder.workspace, workspaceBeforeCancel, 'Canceling the native proposed fields must preserve the saved workspace');
-    assert.equal(nativeRequests.slice(fromIndex).filter((entry) => entry.path.endsWith('/commands')).length, commandCountBeforeCancel,
+    assert.equal(browserEvents.requests.slice(fromIndex).filter((entry) => entry.path.endsWith('/commands')).length, commandCountBeforeCancel,
       'Canceling native field preflight must not send a save command');
-    recordAssertion('native proposal Cancel leaves the draft and source population unchanged', { draftDigest: builder.draftDigest, commandCountAfterCancel: commandCountBeforeCancel });
+    recordAssertion('persistence', 'native proposal Cancel leaves the draft and source population unchanged', { draftDigest: builder.draftDigest, commandCountAfterCancel: commandCountBeforeCancel });
     recordTiming('native Add columns proposal cancellation', actionStartedAt, { choices: 2, savedCommandCount: commandCountBeforeCancel });
     return expectedForms;
   }
 
   await click(page, '[data-testid="construction-choice-proposal-panel"] button', { name: 'Apply columns' });
   const applyCommand = await waitNative((entry) => entry.path.endsWith('/commands') &&
-    entry.body?.commands?.length === 2 && entry.body.commands.every((item) => item.type === 'APPLY_CONSTRUCTION_CHOICE'), fromIndex);
-  assert.equal(applyCommand.body.commandId, proposal.commandId, 'Native Add columns save must consume the preflight command identity');
+    entry.request?.commands?.length === 2 && entry.request.commands.every((item) => item.type === 'APPLY_CONSTRUCTION_CHOICE'), fromIndex);
+  assert.equal(applyCommand.request.commandId, proposal.commandId, 'Native Add columns save must consume the preflight command identity');
   const choiceIdentity = (choice) => Object.fromEntries(['choiceId', 'form', 'frameId', 'rowValuePolicy']
     .filter((key) => choice?.[key] !== undefined).map((key) => [key, choice[key]]));
-  assert.deepEqual(applyCommand.body.commands.map((item) => choiceIdentity(item.constructionChoice)),
+  assert.deepEqual(applyCommand.request.commands.map((item) => choiceIdentity(item.constructionChoice)),
     proposal.constructionChoices.map(choiceIdentity),
     'Native save must preserve each preflight choice identity, form, frame, and row-value policy');
-  assert.deepEqual(applyCommand.body.commands.map((item) => item.title ?? null),
+  assert.deepEqual(applyCommand.request.commands.map((item) => item.title ?? null),
     proposal.constructionChoices.map((choice) => choice.title ?? null),
     'Native save must preserve field presentation titles separately from choice identity');
   builder = await api(`${base}/builder`);
@@ -397,7 +393,6 @@ const saveDOM = async name => cda.attachReport(`${name}.json`, await cda.inspect
 
 report.target ??= { ...cda.report.target };
 report.nativeRequests = cda.report.nativeRequests;
-report.errors = cda.report.errors;
 
   try {
 sourceRecords = boundedRawOracle();
@@ -408,7 +403,7 @@ if (sourceRecords.length < 2) {
   assert(sourceRecords.length <= 3);
   assert(sourceRecords.every((record) => record.resourceType === 'Observation' && record.generation === generation));
   report.oracle.expectedTypes = { id: 'string', status: 'string', 'component[].valueString': 'array<string>' };
-  recordAssertion('bounded independent raw CDA oracle selected unique populated Observation witnesses', {
+  recordAssertion('correctness', 'bounded independent raw CDA oracle selected unique populated Observation witnesses', {
     limit: 1000,
     selected: sourceRecords.map(({ id, status, componentValues }) => ({ id, status, componentValues })),
     maxSelectedIds: 3,
@@ -482,7 +477,7 @@ if (sourceRecords.length < 2) {
   const baselineDOM = await cda.inspect(() => { return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),cells:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]')].map(cell=>cell.innerText.trim())}; }, {});
   assert.equal(initial.native.status, 200);
   assert.deepEqual([...baselineDOM.cells].sort(), sourceRecords.map((record) => record.id).sort(), 'Native base table must render the exact selected Observation IDs');
-  recordAssertion('native base table rendered the independently selected Observation membership', { receiptId: initial.preview.receiptId, ids: baselineDOM.cells });
+  recordAssertion('correctness', 'native base table rendered the independently selected Observation membership', { receiptId: initial.preview.receiptId, ids: baselineDOM.cells });
 
   const candidateByPath = new Map([
     ['status', statusCandidate],
@@ -508,7 +503,7 @@ if (sourceRecords.length < 2) {
   assert.equal(statusColumn.label, forms.get('status').title, 'Saved scalar presentation label must match the native field choice title');
   assert.equal(repeatedColumn.label, forms.get('component[].valueString').title, 'Saved repeated presentation label must match the native field choice title');
   report.savedBindings = { status: statusBinding, repeated: repeatedBinding, sourcePopulation: savedDocument.population, rowDefinition: savedDocument.rows };
-  recordAssertion('saved Builder state binds both direct fields to the base Observation and retains source membership', report.savedBindings);
+  recordAssertion('persistence', 'saved Builder state binds both direct fields to the base Observation and retains source membership', report.savedBindings);
 
   const beforeRename = {
     status: structuredClone(statusColumn.source.field),
@@ -526,7 +521,7 @@ if (sourceRecords.length < 2) {
   await nativeFill(page, renameSelector, renameTo, {});
   await performAction(page, 'Commit renamed repeated source field label', renameInput,
     (target, options) => target.press('Enter', options));
-  const renameCommand = await waitNative((entry) => entry.path.endsWith('/commands') && entry.body?.commands?.some((item) => item.type === 'UPDATE_COLUMN'), renameStart);
+  const renameCommand = await waitNative((entry) => entry.path.endsWith('/commands') && entry.request?.commands?.some((item) => item.type === 'UPDATE_COLUMN'), renameStart);
   builder = await api(`${base}/builder`);
   savedDocument = document();
   const renamedRepeated = fieldColumn(builder, 'component[].valueString');
@@ -534,8 +529,8 @@ if (sourceRecords.length < 2) {
   assert.equal(columnIdOf(renamedRepeated), beforeRename.repeatedColumnId, 'Presentation edits must preserve the repeated output column ID');
   assert.deepEqual(renamedRepeated.source.field, beforeRename.repeated, 'Presentation edits must preserve the exact repeated source binding');
   assert.deepEqual(fieldColumn(builder, 'status').source.field, beforeRename.status, 'Editing one presentation must preserve the scalar source binding');
-  assert(renameCommand.body.commands.some((item) => item.type === 'UPDATE_COLUMN' && item.column === beforeRename.repeatedColumnId), 'Native edit must update the selected authored column');
-  recordAssertion('native presentation edit changes the label while preserving column and field binding identities', {
+  assert(renameCommand.request.commands.some((item) => item.type === 'UPDATE_COLUMN' && item.column === beforeRename.repeatedColumnId), 'Native edit must update the selected authored column');
+  recordAssertion('persistence', 'native presentation edit changes the label while preserving column and field binding identities', {
     label: renamedRepeated.label, columnId: columnIdOf(renamedRepeated), field: renamedRepeated.source.field,
   });
   recordTiming('native presentation edit', renameStartedAt, { columnId: columnIdOf(renamedRepeated), label: renameTo, commandStatus: renameCommand.status });
@@ -565,7 +560,7 @@ if (sourceRecords.length < 2) {
   assert.equal(loadedStatus.source.field.path, 'status');
   assert.equal(loadedRepeated.label, renameTo);
   assert.equal(loadedRepeated.source.field.projectionMode, 'ALL');
-  recordAssertion('reload renders exact raw scalar/list values and retains saved types, source IDs, and population', {
+  recordAssertion('persistence', 'reload renders exact raw scalar/list values and retains saved types, source IDs, and population', {
     ...savedValueEvidence,
     statusType: typeof sourceRecords[0].status,
     repeatedType: 'array<string>',
@@ -586,7 +581,7 @@ if (sourceRecords.length < 2) {
     if (!columnsMenuOpen) await nativeClick(page, 'button', { name: 'Columns' });
     await waitForBrowser(page, () => Boolean(Boolean(document.querySelector('[aria-label="Table columns"]'))), [], 5000);
     await nativeClick(page, '[aria-label="Table columns"] button', { name: `Remove ${currentColumn.label} column` });
-    const removeCommand = await waitNative((entry) => entry.path.endsWith('/commands') && entry.body?.commands?.some((item) => item.type === 'REMOVE_COLUMN' && item.column === currentColumnId), fromIndex);
+    const removeCommand = await waitNative((entry) => entry.path.endsWith('/commands') && entry.request?.commands?.some((item) => item.type === 'REMOVE_COLUMN' && item.column === currentColumnId), fromIndex);
     assert.equal(removeCommand.status, 200);
     builder = await api(`${base}/builder`);
     const afterRemove = document();
@@ -611,7 +606,7 @@ if (sourceRecords.length < 2) {
   assertPreview(restored.preview, restoredDocumentAfterReload, [], 'Restored source population reload');
   const restoredIds = await cda.inspect(() => { return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]')].map(cell=>cell.innerText.trim()); }, {});
   assert.deepEqual(restoredIds.sort(), sourceRecords.map((record) => record.id).sort(), 'Restored native table must retain exact Observation membership after reload');
-  recordAssertion('native removal and reload restore the original ID field, direct RECORDS rows, and exact CDA population', {
+  recordAssertion('persistence', 'native removal and reload restore the original ID field, direct RECORDS rows, and exact CDA population', {
     outputId,
     rootColumnId,
     selectionRevisionId: selection.id,
@@ -620,34 +615,7 @@ if (sourceRecords.length < 2) {
   });
   await saveDOM('restored-original-population-after-remove-reload');
 
-  cda.includeBrowserDiagnostics();
-  const expectedCapabilityCancellations = nativeRequests.flatMap((entry) => {
-    const proof = proveSupersededCapabilitiesAbort(nativeRequests, entry);
-    return proof ? [proof] : [];
-  });
-  const cancellationReason = 'A concrete same-Explorer column mutation changed the draft identity while this capabilities read was pending, and the matching replacement read succeeded.';
-  for (const cancellation of expectedCapabilityCancellations) {
-    const matchingRequests = nativeRequests.filter((entry) =>
-      entry.browserRequestId === cancellation.request.browserRequestId);
-    assert.equal(matchingRequests.length, 1, 'A proven capabilities cancellation must bind to exactly one captured native request.');
-    cda.expectCapturedCancellation(matchingRequests[0], cancellationReason, cancellation);
-  }
-  const cancellationByRequestID = new Map(expectedCapabilityCancellations.map((entry) => [entry.request.browserRequestId, entry]));
-  const expectedCancellationDiagnostics = report.errors.flatMap((error, errorIndex) => {
-    const errorText = error.error ?? error.failure;
-    const requestId = error.browserRequestId ?? error.requestId ?? error.playwrightRequestId;
-    if (error.kind !== 'network' || errorText !== 'net::ERR_ABORTED' || !requestId) return [];
-    const cancellation = cancellationByRequestID.get(requestId);
-    if (!cancellation) return [];
-    assert.equal(error.expected, true, 'Every preserved diagnostic copy of a proven cancellation must be marked expected.');
-    assert.equal(error.expectedCancellation?.browserRequestId, cancellation.request.browserRequestId);
-    return [{ errorIndex, error: { ...error }, cancelledRequestId: cancellation.request.browserRequestId }];
-  });
-  report.expectedCapabilityCancellations = expectedCapabilityCancellations;
-  report.expectedCapabilityCancellationDiagnostics = expectedCancellationDiagnostics;
-  const unexpectedBrowserErrors = report.errors.filter((error) => !error.expected && !error.expectedCancellation);
-  assert.deepEqual(unexpectedBrowserErrors, [], `Browser reported unexpected errors: ${JSON.stringify(unexpectedBrowserErrors)}`);
-  assert(nativeRequests.every((entry) => !entry.path.includes(protectedExplorer)), 'Browser must never request the protected Explorer');
+  assert(!report.errors.some(error => error.kind === 'protected-explorer-request'), 'Browser must never request the protected Explorer');
   report.final = {
     status: 'passed',
     outputId,
@@ -655,12 +623,10 @@ if (sourceRecords.length < 2) {
     selectedIds: sourceRecords.map((record) => record.id),
     addedFields: [statusBinding, repeatedBinding],
     restoredPopulation: { selectionRevisionId: selection.id, rowCount: sourceRecords.length, columnCount: restoredDocumentAfterReload.columns.length },
-    nativeRequestCount: nativeRequests.length,
+    nativeRequestCount: browserEvents.requests.length,
   };
 }
   } finally {
-    try { await browserEvents?.flush(); } catch (error) { report.requestFlushError = String(error); }
-    cda.includeBrowserDiagnostics();
     report.finished = new Date().toISOString();
     await cda.attachReport(`standalone-${cda.caseName}-domain.json`, {
       ...cda.report,

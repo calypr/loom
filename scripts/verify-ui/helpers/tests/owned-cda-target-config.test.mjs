@@ -25,6 +25,7 @@ async function createConfigFixture(overrides = {}) {
     uiOrigin: 'http://127.0.0.1:30008',
     apiContainer: 'loom-dev-local-1234-loom-api-1',
     arangoContainer: 'loom-dev-local-1234-arangodb-1',
+    arangoDatabase: 'loom_dev',
     clickhouseContainer: 'loom-dev-local-1234-clickhouse-1',
     noAuth: true,
     ...overrides,
@@ -61,6 +62,7 @@ test('loads one explicit config and derives the canonical owned environment from
     uiPort: '30008',
     apiContainer: fixture.config.apiContainer,
     arangoContainer: fixture.config.arangoContainer,
+    arangoDatabase: fixture.config.arangoDatabase,
     clickhouseContainer: fixture.config.clickhouseContainer,
     noAuth: true,
   });
@@ -68,11 +70,31 @@ test('loads one explicit config and derives the canonical owned environment from
   assert.equal(loaded.environment.LOOM_CDA_GENERATION, expectedIdentity.generation);
   assert.equal(loaded.environment.LOOM_CDA_API_PORT, '8188');
   assert.equal(loaded.environment.LOOM_CDA_UI_PORT, '30008');
+  assert.equal(loaded.environment.LOOM_ARANGO_DATABASE, 'loom_dev');
   assert.equal(loaded.environment.LOOM_DEV_PROJECT, expectedIdentity.project);
+  assert.equal(loaded.environment.LOOM_DEV_API_PORT, '8188');
+  assert.equal(loaded.environment.LOOM_DEV_UI_PORT, '30008');
   assert.equal(loaded.environment.LOOM_CDA_NO_AUTH, '1');
   assert.equal(Object.hasOwn(loaded, 'credentials'), false);
   assert.equal(loaded.validationScope, 'configuration-only');
   assert.equal(loaded.runtimeDatasetIdentity, 'not-checked');
+});
+
+test('keeps legacy owned target configs valid when the optional Arango database is absent', async (t) => {
+  const fixture = await createConfigFixture();
+  t.after(fixture.cleanup);
+  delete fixture.config.arangoDatabase;
+  await writeFile(fixture.targetPath, JSON.stringify(fixture.config), { mode: 0o600 });
+
+  const loaded = await loadOwnedCdaTargetConfig({
+    targetPath: fixture.targetPath,
+    repositoryRoot: fixture.repositoryRoot,
+    expectedIdentity,
+    env: {},
+  });
+
+  assert.equal(Object.hasOwn(loaded.target, 'arangoDatabase'), false);
+  assert.equal(Object.hasOwn(loaded.environment, 'LOOM_ARANGO_DATABASE'), false);
 });
 
 test('requires the selected case registry identity instead of trusting config values', async (t) => {
@@ -105,7 +127,10 @@ test('rejects conflicting CDA and legacy dev environment overrides without echoi
     ['LOOM_CDA_PROJECT', 'wrong_project_secret'],
     ['LOOM_CDA_GENERATION', 'wrong_generation_secret'],
     ['LOOM_DEV_PROJECT', 'wrong_dev_project_secret'],
+    ['LOOM_DEV_API_PORT', '9999'],
+    ['LOOM_DEV_UI_PORT', '9998'],
     ['LOOM_CDA_API_ORIGIN', 'http://127.0.0.1:9999'],
+    ['LOOM_ARANGO_DATABASE', 'loom_dev.'],
   ]) {
     await assert.rejects(loadOwnedCdaTargetConfig({
       targetPath: fixture.targetPath,

@@ -3,9 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { browserEval, click as clickPage, navigate as navigatePage, selectOption as selectPageOption, waitForBrowser, captureRequests, includeBrowserDiagnostics } from '../helpers/cda-playwright.mjs';
+import { browserEval, click as clickPage, navigate as navigatePage, selectOption as selectPageOption, waitForBrowser, captureRequests } from '../helpers/cda-playwright.mjs';
 import { CDA_ACTION_TO_RENDER_BUDGET_MS, summarizeCdaActionToRenderTimings } from '../helpers/cda-action-to-render-budget.mjs';
-import { navigateAfterOwnedConstructionCapabilities } from '../helpers/cda-playwright-requests.mjs';
 import { fixtureUnavailableOutcome } from '../helpers/cda-fixture-outcomes.mjs';
 
 export async function repeatedRowsWorkflow({ page, cda }) {
@@ -176,26 +175,7 @@ const measure = async (name, action) => {
 
 const openTable = async (expectedRows, name) => measure(name, async startedAt => {
   const url = `${values['ui-origin']}/?project=${encodeURIComponent(values.project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`;
-  const navigation = await navigateAfterOwnedConstructionCapabilities(
-    cda,
-    browserEvents,
-    () => report.browserRequests,
-    `${base}/construction-capabilities`,
-    Math.max(1, startedAt + CDA_ACTION_TO_RENDER_BUDGET_MS - Date.now()),
-    () => navigate(page, url),
-  );
-  if (navigation.settledEntries.length) {
-    (report.preNavigationCapabilitySettlements ??= []).push({
-      observedAt: new Date().toISOString(),
-      requests: navigation.settledEntries.map(entry => ({
-        requestId: entry.requestId,
-        browserRequestId: entry.browserRequestId,
-        status: entry.status,
-        startedAt: entry.startedAt,
-        completedAt: entry.completedAt,
-      })),
-    });
-  }
+  await navigate(page, url);
   await fastWait(startedAt, ([id]) => Boolean(document.querySelector(`[data-testid="construction-table-${id}"]`)), [outputId], 'Explorer table discovery');
   await click(page, `[data-testid="construction-table-${outputId}"]`);
   await fastWait(startedAt, rowsReady, [expectedRows], 'CDA table render');
@@ -207,6 +187,7 @@ const openRowSettings = async () => measure('row-definition-choice-discovery', a
 });
 
 const selectAndPreview = async ({ kind, policy, expectedRows }) => measure(`row-definition-${kind.toLowerCase()}-preview`, async startedAt => {
+  const requestStart = browserEvents.requests.length;
   const shapeSelect = 'select[aria-label="What should each row represent?"]';
   await selectOption(page, shapeSelect, kind === 'RECORDS' ? 'records' : `expanded:${report.choice.choiceId}`);
   if (policy) {
@@ -221,13 +202,11 @@ const selectAndPreview = async ({ kind, policy, expectedRows }) => measure(`row-
   [expectedRows], 'Automatic row definition preview');
   const proposalError = await browserEval(page, () => { return document.querySelector('[aria-label="Row definition settings"] [role="alert"]')?.innerText; });
   assert(!proposalError, `Row-definition preview failed: ${proposalError}`);
-  await browserEvents.flush();
-  const request = report.browserRequests.findLast(entry => entry.path.endsWith('/row-definition-proposals') &&
-    entry.body?.selection?.kind === kind && (kind !== 'EXPANDED' || entry.body.selection.expanded?.rowChoiceId === report.choice.choiceId));
+  const request = await browserEvents.waitForResponse(entry => entry.path.endsWith('/row-definition-proposals') && entry.method === 'POST' && entry.status === 200, { fromIndex: requestStart, timeoutMs: Math.max(1, 5000 - (Date.now() - startedAt)) });
   assert(request, `Native ${kind} row selection did not send the expected proposal request`);
   assert.equal(request.status, 200, `Row definition proposal response: ${JSON.stringify(request.response)}`);
   if (kind === 'EXPANDED') {
-    assert.equal(request.body.selection.expanded.emptyCollectionPolicy, policy);
+    assert.equal(request.request.selection.expanded.emptyCollectionPolicy, policy);
     assert.equal(request.response?.mode, 'EXPANDED');
     assert.equal(request.response?.comparison?.candidate?.rowCount, expectedRows);
   }
@@ -281,6 +260,7 @@ const addFieldAndPreview = async () => {
   assert.equal(offered?.disabled, false, 'The sibling component[].valueString field must be natively addable after expansion');
 
   const propose = async actionName => measure(actionName, async startedAt => {
+    const requestStart = browserEvents.requests.length;
     const checked = await browserEval(page, ([__arg0]) => { return document.querySelector(__arg0)?.checked; }, [checkbox]);
     if (!checked) await click(page, checkbox);
     await click(page, '[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
@@ -290,10 +270,10 @@ const addFieldAndPreview = async () => {
     await fastWait(startedAt, () => ['ready','error'].includes(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus), [], 'Native component field preview');
     const status = await browserEval(page, () => { return document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus; });
     assert.equal(status, 'ready', await browserEval(page, () => { return document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.innerText; }));
-    await browserEvents.flush();
+    const proposalRequest = await browserEvents.waitForResponse(entry => /construction.*proposals/.test(entry.path) && entry.method === 'POST' && entry.status === 200, { fromIndex: requestStart, timeoutMs: Math.max(1, 5000 - (Date.now() - startedAt)) });
     const preview = await fieldPreviewRows();
     const pairEvidence = verifyPairs(preview);
-    report.fieldProposalPreview = { ...pairEvidence, proposal: report.browserRequests.findLast(entry => /construction.*proposals/.test(entry.path) && entry.status === 200)?.response };
+    report.fieldProposalPreview = { ...pairEvidence, proposal: proposalRequest.response };
   });
 
   await propose('native-component-field-preview');
@@ -429,16 +409,15 @@ const verifySourceRestoration = () => {
 };
 
 const finish = async () => {
-  await officialRequestCapture.flush();
   report.finished = new Date().toISOString();
-  if (report.status !== 'invalidated') {
-    const blockingGaps = report.gaps.filter(gap => gap.blocking !== false);
+  const blockingGaps = report.gaps.filter(gap => gap.blocking !== false);
+  if (!(report.invalidations?.length) && !report.sourceFingerprint?.invalidatesRun && !report.sourceFreeze?.invalidatesRun && !report.apiBuildFreeze?.invalidatesRun) {
     report.status = report.failures.length ? 'failed'
       : blockingGaps.length ? 'unverified'
         : report.assertions.length && report.assertions.every(assertion => assertion.status === 'passed') ? 'passed'
           : 'untested';
   }
-  if (report.status === 'unverified') {
+  if (blockingGaps.length) {
     report.skipReason = report.fixtureUnavailable?.reason ?? report.gaps
       .filter(gap => gap.blocking !== false).map(gap => `${gap.assertion}: ${gap.reason}`).join('; ');
   }
@@ -448,7 +427,7 @@ const finish = async () => {
     const dimension = assertion.name === actionToRenderPerformanceCheck ? 'performance' : 'correctness';
     cda.check(dimension, assertion.name, assertion.status === 'passed', assertion.evidence ?? {});
   }
-  if (report.status === 'failed' || report.status === 'invalidated') {
+  if (report.failures.length || report.invalidations?.length || report.sourceFingerprint?.invalidatesRun || report.sourceFreeze?.invalidatesRun || report.apiBuildFreeze?.invalidatesRun) {
     throw new Error(`Repeated component rows ${report.status}: ${JSON.stringify(report.failures ?? report.invalidations)}`);
   }
 };
@@ -560,13 +539,13 @@ try {
     assert.equal(document().rows.expanded.emptyCollectionPolicy, 'PRESERVE_PARENT');
     report.appliedRowDefinition = document().rows;
     const appliedRowRequest = report.browserRequests.findLast(entry => entry.path.endsWith('/commands') &&
-      entry.body?.commands?.some(item => item.type === 'APPLY_ROW_DEFINITION_PROPOSAL'));
+      entry.request?.commands?.some(item => item.type === 'APPLY_ROW_DEFINITION_PROPOSAL'));
     assert(appliedRowRequest, 'Apply row definition must go through the native Builder command');
     const appliedProposal = report.browserRequests.findLast(entry => entry.path.endsWith('/row-definition-proposals') &&
-      entry.body?.selection?.kind === 'EXPANDED' && entry.body.selection.expanded?.rowChoiceId === componentChoice.choiceId);
-    assert.equal(appliedProposal?.body?.selection?.expanded?.rowChoiceId, componentChoice.choiceId,
+      entry.request?.selection?.kind === 'EXPANDED' && entry.request.selection.expanded?.rowChoiceId === componentChoice.choiceId);
+    assert.equal(appliedProposal?.request?.selection?.expanded?.rowChoiceId, componentChoice.choiceId,
       'Native row proposal must carry the canonical component[] rowChoiceId');
-    assert.equal(appliedProposal?.body?.selection?.expanded?.emptyCollectionPolicy, 'PRESERVE_PARENT');
+    assert.equal(appliedProposal?.request?.selection?.expanded?.emptyCollectionPolicy, 'PRESERVE_PARENT');
     await saveDOM('component-expansion-applied');
     recordAssertion('native row-definition Apply persists exact component[] scope and policy', {
       rowChoiceId: componentChoice.choiceId, scopePath: document().rows.expanded.scopePath,
@@ -584,8 +563,6 @@ try {
     });
 
     await removeFieldAndRestoreRows(fieldColumn);
-    await browserEvents.flush();
-    includeBrowserDiagnostics(cda.diagnostics, report);
     for (const error of report.errors) {
       if (error.kind === 'runtime') report.browserErrors.exceptions.push(error);
       else if (error.kind === 'console') report.browserErrors.console.push(error.message);
@@ -611,7 +588,7 @@ try {
   try { report.failureDOM = await domText(); } catch { /* Browser may not have opened. */ }
   try { report.failureBuilder = (await api(`${base}/builder`)).body; } catch (readError) { report.builderReadError = String(readError); }
 } finally {
-  try { await browserEvents.flush(); } catch { /* Response reads are also captured above. */ }
+  try { await browserEvents.stop(); } catch { /* Response reads are also captured above. */ }
   await finish();
 }
 return report;

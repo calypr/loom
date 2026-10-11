@@ -1,0 +1,1 @@
+{"resourceType":"Observation","id":"scope-foreign-observation-001","status":"final","effectiveDateTime":"2026-01-03T00:00:00Z","subject":{"reference":"Patient/scope-foreign-patient-001"},"code":{"coding":[{"system":"https://example.test/scope","code":"foreign-project","display":"Foreign project witness"}]},"valueString":"foreign project witness"}

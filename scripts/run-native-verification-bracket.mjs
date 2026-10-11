@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { finished } from 'node:stream/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -9,14 +9,10 @@ import { performance } from 'node:perf_hooks';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { coverageDrift, registry, scenarioCaseFor, unmappedLifecycleCoverage } from './verify-ui/registry.mjs';
-import { assertCapturedTargetMatches, parseCapturedBuildIdentity } from './verify-ui/helpers/owned-stack-health.mjs';
+import { assertCapturedTargetMatches, assertFreshApiBuildPrecheck, parseCapturedBuildIdentity } from './verify-ui/helpers/owned-stack-health.mjs';
 import { sourceFingerprintChangedPaths } from './verify-ui/helpers/source-fingerprint.mjs';
 import { classifyNetworkRecord } from './verify-ui/helpers/report.mjs';
-import {
-  classifyEvidence,
-  summarizeLifecycleEvidence,
-  summarizeRenderCheckpoints,
-} from './verify-ui/helpers/coverage-status.mjs';
+import { summarizeRenderCheckpoints } from './verify-ui/helpers/coverage-status.mjs';
 import { planFocusedCheckGroups } from './verify-ui/helpers/focused-check-groups.mjs';
 
 const repositoryRoot = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
@@ -39,6 +35,7 @@ const lifecycleDimensionNames = ['usability', 'correctness', 'persistence', 'per
 
 const usage = [
   'Usage:',
+  '  node scripts/run-native-verification-bracket.mjs --batch <manifest.json> [--evidence-parent <dir>] [--concurrency 1..3]',
   '  node scripts/run-native-verification-bracket.mjs --scenario <id> --case <name> --target <config-path> [--grep <native-test-regex>]',
   '  node scripts/run-native-verification-bracket.mjs --scenario <id> --case <name> --target-from-environment --grep <native-test-regex>',
   '  node scripts/run-native-verification-bracket.mjs --scenario <id> --case <name> --checks-only [--target <config-path>]',
@@ -63,6 +60,142 @@ function argValue(args, name) {
 function requiredEnvironmentError(env) {
   const missing = requiredCaptureEnvironment.filter((name) => !String(env[name] ?? '').trim());
   return missing.length ? 'Missing required owned environment names: ' + missing.join(', ') : null;
+}
+
+const mappedTargetEnvironmentNames = [
+  ...requiredCaptureEnvironment,
+  'LOOM_CDA_GENERATION', 'LOOM_CDA_DATASET_DIR', 'LOOM_CDA_NO_AUTH',
+  'LOOM_CDA_API_PORT', 'LOOM_CDA_UI_PORT', 'LOOM_DEV_SOURCE_ROOT',
+  'LOOM_DEV_COMPOSE_PROJECT', 'LOOM_DEV_PROJECT', 'LOOM_DEV_GENERATION',
+  'LOOM_DEV_API_URL', 'LOOM_DEV_UI_URL', 'LOOM_DEV_API_PORT', 'LOOM_DEV_UI_PORT',
+  'LOOM_ARANGO_DATABASE', 'LOOM_CDA_UI_CONTAINER',
+];
+async function bindCaseTarget({ contract, targetPath, targetFromEnvironment, targetLoader, root, env }) {
+  if (targetPath) {
+    assert(contract.expectedIdentity,
+      'This case has no registered target identity. Use --target-from-environment only when its case oracle validates scope.');
+    const loadedTarget = await targetLoader({
+      targetPath,
+      repositoryRoot: root,
+      env,
+      expectedIdentity: contract.expectedIdentity,
+    });
+    return {
+      targetPath: loadedTarget.configPath ?? targetPath,
+      targetObject: loadedTarget.target ?? null,
+      mappedTargetEnvironment: loadedTarget.environment ?? {},
+      env: { ...env, ...loadedTarget.environment },
+      targetValidation: {
+        scope: loadedTarget.validationScope ?? 'configuration-only',
+        registryBinding: 'bound',
+        runtimeDatasetIdentity: loadedTarget.runtimeDatasetIdentity ?? 'not-checked',
+        configPath: loadedTarget.configPath ?? targetPath,
+        project: loadedTarget.target?.project ?? contract.expectedIdentity.project,
+        generation: loadedTarget.target?.generation ?? contract.expectedIdentity.generation,
+      },
+    };
+  }
+
+  assert(targetFromEnvironment, 'Choose an explicit target mode.');
+  assert(!contract.expectedIdentity,
+    'This case has a registered target identity and must use --target <config-path>.');
+  return {
+    targetPath: null,
+    targetObject: null,
+    mappedTargetEnvironment: {},
+    env: { ...env },
+    targetValidation: {
+      scope: 'environment-only',
+      registryBinding: 'unbound',
+      runtimeDatasetIdentity: 'not-checked',
+      configPath: null,
+      project: null,
+      generation: null,
+    },
+  };
+}
+
+function parseBatchManifest(path) {
+  const manifest = readJson(resolve(path));
+  assert(manifest && typeof manifest === 'object' && !Array.isArray(manifest), 'Batch manifest must be a JSON object.');
+  const unknownManifestFields = Object.keys(manifest).filter((field) => !['schemaVersion', 'cases'].includes(field));
+  assert.equal(unknownManifestFields.length, 0, 'Unsupported batch manifest fields: ' + unknownManifestFields.join(', ') + '.');
+  assert.equal(manifest.schemaVersion, 1, 'Batch manifest schemaVersion must be 1.');
+  assert(Array.isArray(manifest.cases) && manifest.cases.length > 0, 'Batch manifest cases must be a non-empty array.');
+  const seen = new Set();
+  return manifest.cases.map((entry, index) => {
+    assert(entry && typeof entry === 'object' && !Array.isArray(entry), 'Batch case ' + index + ' must be an object.');
+    const unknownCaseFields = Object.keys(entry).filter((field) => !['scenario', 'case', 'target'].includes(field));
+    assert.equal(unknownCaseFields.length, 0, 'Unsupported batch case fields: ' + unknownCaseFields.join(', ') + '.');
+    assert(typeof entry.scenario === 'string' && entry.scenario.trim(), 'Batch case ' + index + ' requires a scenario.');
+    assert(typeof entry.case === 'string' && entry.case.trim(), 'Batch case ' + index + ' requires a case.');
+    assert(entry.scenario === entry.scenario.trim() && entry.case === entry.case.trim(),
+      'Batch scenario and case names must not contain surrounding whitespace.');
+    const caseKey = entry.scenario + '\u0000' + entry.case;
+    assert(!seen.has(caseKey), 'Batch manifest contains a duplicate scenario/case: ' + entry.scenario + '/' + entry.case + '.');
+    seen.add(caseKey);
+    const target = entry.target;
+    assert(target && typeof target === 'object' && !Array.isArray(target),
+      'Batch case ' + entry.scenario + '/' + entry.case + ' requires a target object.');
+    if (target.mode === 'environment') {
+      const unknownTargetFields = Object.keys(target).filter((field) => field !== 'mode');
+      assert.equal(unknownTargetFields.length, 0, 'Unsupported environment target fields: ' + unknownTargetFields.join(', ') + '.');
+    } else if (target.mode === 'config') {
+      const unknownTargetFields = Object.keys(target).filter((field) => !['mode', 'path'].includes(field));
+      assert.equal(unknownTargetFields.length, 0, 'Unsupported config target fields: ' + unknownTargetFields.join(', ') + '.');
+      assert(typeof target.path === 'string' && target.path.trim(),
+        'Config target for ' + entry.scenario + '/' + entry.case + ' requires a path.');
+      assert(target.path === target.path.trim(), 'Config target path must not contain surrounding whitespace.');
+    } else {
+      throw new Error('Batch target mode must be "environment" or "config".');
+    }
+    return { scenario: entry.scenario, case: entry.case, target };
+  });
+}
+
+function validateBatchCaseSelection(scenarioID, caseName, registeredScenarios = registry) {
+  const scenario = registeredScenarios.find((candidate) => candidate.id === scenarioID);
+  assert(scenario, 'Unknown registered scenario: ' + scenarioID);
+  return { scenario, contract: scenarioCaseFor(scenario, caseName) };
+}
+
+function resolvedTargetIdentity(caseInput, canonicalRoot) {
+  const env = caseInput.env;
+  const sourceRoot = String(env.LOOM_CDA_SOURCE_ROOT ?? '').trim();
+  const target = caseInput.targetObject ?? {};
+  return {
+    target: {
+      sourceRoot: target.sourceRoot ?? env.LOOM_CDA_SOURCE_ROOT ?? null,
+      datasetDir: target.datasetDir ?? env.LOOM_CDA_DATASET_DIR ?? null,
+      composeProject: target.composeProject ?? env.LOOM_CDA_COMPOSE_PROJECT ?? null,
+      project: target.project ?? env.LOOM_CDA_PROJECT ?? null,
+      generation: target.generation ?? env.LOOM_CDA_GENERATION ?? null,
+      apiOrigin: target.apiOrigin ?? env.LOOM_CDA_API_ORIGIN ?? null,
+      apiPort: target.apiPort ?? env.LOOM_CDA_API_PORT ?? null,
+      uiOrigin: target.uiOrigin ?? env.LOOM_CDA_UI_ORIGIN ?? null,
+      uiPort: target.uiPort ?? env.LOOM_CDA_UI_PORT ?? null,
+      apiContainer: target.apiContainer ?? env.LOOM_CDA_API_CONTAINER ?? null,
+      uiContainer: env.LOOM_CDA_UI_CONTAINER ?? null,
+      arangoContainer: target.arangoContainer ?? env.LOOM_CDA_ARANGO_CONTAINER ?? null,
+      arangoDatabase: env.LOOM_ARANGO_DATABASE ?? target.arangoDatabase ?? null,
+      clickhouseContainer: target.clickhouseContainer ?? env.LOOM_CDA_CLICKHOUSE_CONTAINER ?? null,
+      noAuth: env.LOOM_CDA_NO_AUTH ?? (typeof target.noAuth === 'boolean' ? (target.noAuth ? '1' : '0') : null),
+    },
+    environment: Object.fromEntries(mappedTargetEnvironmentNames.map((name) => [name, env[name] ?? null])),
+    sourceRoot: sourceRoot ? realpathSync(resolve(sourceRoot)) : null,
+    repositoryRoot: canonicalRoot,
+  };
+}
+
+function writeJsonAtomically(path, value) {
+  const temporaryPath = path + '.' + process.pid + '.' + Math.random().toString(16).slice(2) + '.tmp';
+  try {
+    writeFileSync(temporaryPath, JSON.stringify(value, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
+    renameSync(temporaryPath, path);
+  } catch (error) {
+    try { unlinkSync(temporaryPath); } catch { /* The temporary file may not have been created. */ }
+    throw error;
+  }
 }
 
 function createEvidenceDirectory(root, evidenceParent, scenarioID, caseName) {
@@ -259,13 +392,38 @@ function parseCli(argv) {
       'target-from-environment': { type: 'boolean' },
       grep: { type: 'string' },
       'checks-only': { type: 'boolean' },
+      batch: { type: 'string' },
       'evidence-parent': { type: 'string' },
+      concurrency: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
     allowPositionals: false,
     strict: true,
   });
   if (parsed.values.help) return { help: true };
+  if (parsed.values.batch !== undefined) {
+    assert(parsed.values.batch.trim(), 'Provide a manifest path for --batch.');
+    assert(parsed.values['evidence-parent'] === undefined || parsed.values['evidence-parent'].trim(),
+      '--evidence-parent requires a directory.');
+    const concurrencyText = parsed.values.concurrency ?? '1';
+    assert(/^\d+$/.test(concurrencyText), '--concurrency must be an integer from 1 through 3.');
+    const concurrency = Number(concurrencyText);
+    assert(Number.isInteger(concurrency) && concurrency >= 1 && concurrency <= 3,
+      '--concurrency must be an integer from 1 through 3.');
+    const singleCaseOptions = [
+      'scenario', 'case', 'target', 'target-from-environment', 'grep', 'checks-only',
+    ];
+    const conflicts = singleCaseOptions.filter((name) => Object.hasOwn(parsed.values, name));
+    assert.equal(conflicts.length, 0, '--batch cannot be combined with ' + conflicts.map((name) => '--' + name).join(', ') + '.');
+    return {
+      batchPath: parsed.values.batch.trim(),
+      evidenceParent: parsed.values['evidence-parent'],
+      maxConcurrency: concurrency,
+    };
+  }
+  assert(parsed.values.concurrency === undefined, '--concurrency is only available with --batch.');
+  assert(parsed.values['evidence-parent'] === undefined || parsed.values['evidence-parent'].trim(),
+    '--evidence-parent requires a directory.');
   assert(parsed.values.scenario?.trim(), 'Provide --scenario.');
   assert(parsed.values.case?.trim(), 'Provide --case.');
   const checksOnly = parsed.values['checks-only'] === true;
@@ -693,22 +851,21 @@ function registryValidationSummary(entries = registry) {
 }
 
 function summarizeLifecycle(report, expectedScenarioID, expectedCaseName) {
-  if (!report) return { status: 'unverified', reason: 'No domain verification report was attached or found.' };
+  if (!report) return { reportStatus: null, reason: 'No domain verification report was attached or found.' };
   const identity = reportIdentity(report);
-  if (!identity.valid || identity.scenario !== expectedScenarioID || identity.caseName !== expectedCaseName) {
-    return {
-      status: 'unverified',
-      reason: 'Domain report scenario/case does not match the selected registry case.',
-      reportIdentity: { scenario: identity.scenario ?? null, caseName: identity.caseName ?? null },
-    };
-  }
-
   const custom = report.target?.kind === 'read-only-custom';
   let caseContract;
   try {
     caseContract = scenarioCaseFor(expectedScenarioID, expectedCaseName, custom);
   } catch (error) {
-    return { status: 'unverified', reason: 'Could not resolve registered required checks: ' + String(error?.message ?? error) };
+    return {
+      reportStatus: report.status ?? null,
+      reason: 'Could not resolve registered required checks: ' + String(error?.message ?? error),
+      reportIdentity: { scenario: identity.scenario ?? null, caseName: identity.caseName ?? null },
+      reportIdentityMatchesSelection: identity.valid
+        && identity.scenario === expectedScenarioID
+        && identity.caseName === expectedCaseName,
+    };
   }
   const requiredChecks = caseContract.requiredChecks;
   const assertions = Array.isArray(report.assertions) ? report.assertions : [];
@@ -721,33 +878,26 @@ function summarizeLifecycle(report, expectedScenarioID, expectedCaseName) {
     && reportedNames.length === requiredChecks.length
     && reportedNames.every((name, index) => name === requiredChecks[index])
     && new Set(reportedNames).size === requiredChecks.length;
-  const lifecycleEvidence = summarizeLifecycleEvidence(report, caseContract);
-  const evidenceStatus = classifyEvidence(report, requiredChecks, caseContract, lifecycleEvidence);
   const missingReported = Array.isArray(report.missingRequiredChecks) ? report.missingRequiredChecks : null;
-  const passed = report.status === 'passed'
-    && evidenceStatus === 'passed'
-    && exactCheckList
-    && missingReported !== null
-    && missingReported.length === 0
-    && passedNames.length === requiredChecks.length
-    && failedNames.length === 0
-    && missingNames.length === 0;
   const actionDurations = (Array.isArray(report.actions) ? report.actions : [])
     .map((action) => action?.elapsedMs)
     .filter((value) => Number.isFinite(value) && value >= 0);
   const summarizedDimensions = compactDimensions(report.dimensions);
-  Object.assign(summarizedDimensions, lifecycleEvidence.dimensions);
-  const renderCheckpoints = caseContract.lifecycleEvidence?.performance
-    ? lifecycleEvidence.renderCheckpoints
-    : summarizeRenderCheckpoints(report, {
-      performanceCheckNames: caseContract.performanceCheckName ? [caseContract.performanceCheckName] : [],
-      requiredCheckNames: requiredChecks,
-    });
+  const renderCheckpoints = summarizeRenderCheckpoints(report, {
+    performanceCheckNames: caseContract.performanceCheckName ? [caseContract.performanceCheckName] : [],
+    requiredCheckNames: requiredChecks,
+  });
   return {
-    status: passed ? 'passed' : report.status === 'failed' || evidenceStatus === 'failed' ? 'failed' : 'unverified',
     reportStatus: report.status ?? null,
-    evidenceStatus,
+    attachmentCount: 1,
     reportIdentity: { scenario: identity.scenario, caseName: identity.caseName },
+    reportIdentityMatchesSelection: identity.valid
+      && identity.scenario === expectedScenarioID
+      && identity.caseName === expectedCaseName,
+    reportIdentityAliasesConsistent: identity.valid,
+    ...(!identity.valid || identity.scenario !== expectedScenarioID || identity.caseName !== expectedCaseName
+      ? { reason: 'Domain report identity does not match the selected registry case.' }
+      : {}),
     requiredCheckCount: requiredChecks.length,
     passedCheckCount: passedNames.length,
     failedCheckNames: failedNames,
@@ -755,7 +905,6 @@ function summarizeLifecycle(report, expectedScenarioID, expectedCaseName) {
     requiredCheckListMatchesRegistry: exactCheckList,
     missingRequiredCheckCount: missingReported?.length ?? null,
     dimensions: summarizedDimensions,
-    dimensionEvidence: lifecycleEvidence.dimensionEvidence,
     actionCount: Array.isArray(report.actions) ? report.actions.length : null,
     maximumMeasuredActionLatencyMs: actionDurations.length ? Math.max(...actionDurations) : null,
     renderCheckpointStatus: renderCheckpoints.status,
@@ -933,7 +1082,7 @@ function expectedCommandPaths(runDirectory) {
   };
 }
 
-export async function runNativeVerificationBracket({
+async function prepareNativeVerificationCase({
   scenarioID,
   caseName,
   grep,
@@ -946,6 +1095,7 @@ export async function runNativeVerificationBracket({
   commandRunner = runProcess,
   signal,
   registryValidation: providedRegistryValidation = null,
+  deferSummaryWrite = false,
 } = {}) {
   const registryValidation = providedRegistryValidation ?? registryValidationSummary(registry);
   assert(typeof scenarioID === 'string' && scenarioID.trim(), 'Provide --scenario.');
@@ -959,6 +1109,7 @@ export async function runNativeVerificationBracket({
   const specAbsolute = resolve(canonicalRoot, specPath);
   assert(isWithin(canonicalRoot, specAbsolute), 'Registered Playwright spec must be inside the repository root.');
   assert(existsSync(specAbsolute), 'Registered Playwright spec is missing: ' + specPath);
+  const playwrightSpecPath = relative(join(canonicalRoot, 'scripts'), specAbsolute);
   const resolvedGrep = typeof grep === 'string' && grep.trim() ? grep.trim() : contract.playwrightGrep;
   if (!checksOnly || targetPath) assert(typeof resolvedGrep === 'string' && resolvedGrep.trim(),
     'Case has no registered default Playwright selection; provide --grep.');
@@ -1006,19 +1157,14 @@ export async function runNativeVerificationBracket({
     focusedCheckCoverage: focusedPlans.length ? 'registered' : 'browser-only',
     focusedChecks: { status: focusedPlans.length ? 'pending' : 'browser-only', groups: [] },
     integrity: { status: 'UNVERIFIED', dimensions: {} },
-    lifecycle: { status: 'unverified', reason: 'Browser case has not produced a domain report.' },
+    lifecycle: { reportStatus: null, reason: 'Browser case has not produced a domain report.' },
     failureCategory: null,
     notes: [],
   };
+  Object.defineProperty(summary, '_startedMonotonic', { value: started, configurable: true });
   const logsDirectory = join(runDirectory, 'logs');
   mkdirSync(logsDirectory, { recursive: true, mode: 0o700 });
-  let shouldCloseBracket = false;
   let browserAttempted = false;
-  let beforeArtifacts = {};
-  let afterArtifacts = {};
-  let precheckRecord = null;
-  let healthBefore = null;
-  let healthAfter = null;
   let selection = null;
   let browserStage = null;
   let domainReportPath = null;
@@ -1075,34 +1221,6 @@ export async function runNativeVerificationBracket({
       stderrText: String(result?.stderrText ?? result?.stderr ?? ''),
     };
   };
-  const captureArgs = (phase) => [
-    'scripts/capture-owned-verification.mjs', '--phase', phase,
-    ...(phase === 'before' ? ['--precheck-input', paths.precheck] : []),
-    '--source-output', phase === 'before' ? paths.sourceBefore : paths.sourceAfter,
-    '--docs-output', phase === 'before' ? paths.docsBefore : paths.docsAfter,
-    '--api-output', phase === 'before' ? paths.apiBefore : paths.apiAfter,
-    '--mount-output', phase === 'before' ? paths.mountsBefore : paths.mountsAfter,
-  ];
-  const runAfterClosure = async () => {
-    let captureStage;
-    try {
-      captureStage = await exec('captureAfter', captureArgs('after'), {}, { signal: null });
-    } catch (error) {
-      summary.notes.push('After capture failed: ' + String(error?.message ?? error).slice(0, 300));
-    }
-    let healthStage;
-    try {
-      healthStage = await exec('healthAfter', [
-        'scripts/owned-stack-verification.mjs', '--mode', 'health',
-        '--output', paths.healthAfter, '--identity', paths.apiBefore,
-      ], {}, { signal: null });
-    } catch (error) {
-      summary.notes.push('After health failed: ' + String(error?.message ?? error).slice(0, 300));
-    }
-    if (captureStage?.exitCode !== 0) summary.notes.push('After capture did not exit successfully.');
-    if (healthStage?.exitCode !== 0) summary.notes.push('After health did not exit successfully.');
-  };
-
   const writeEarlySummary = (status, failureCategory, firstFailureReason = null) => {
     summary.status = status;
     summary.failureCategory = failureCategory;
@@ -1125,11 +1243,12 @@ export async function runNativeVerificationBracket({
       playwrightJson: null,
       summary: summary.evidence.summary,
     };
-    writeFileSync(summary.evidence.summary, JSON.stringify(summary, null, 2) + '\n', { mode: 0o600 });
+    if (!deferSummaryWrite) writeFileSync(summary.evidence.summary, JSON.stringify(summary, null, 2) + '\n', { mode: 0o600 });
     return summary;
   };
 
   let browserPreparationError = null;
+  let browserPreparationFatal = false;
   if (!checksOnly || targetPath) {
     try {
       const sourceRootEnv = env.LOOM_CDA_SOURCE_ROOT;
@@ -1138,14 +1257,15 @@ export async function runNativeVerificationBracket({
         'LOOM_CDA_SOURCE_ROOT must resolve to the repository containing this runner.');
       const missingEnv = requiredEnvironmentError(env);
       if (missingEnv) throw new Error(missingEnv);
-
       const playwrightCli = join(canonicalRoot, 'scripts/node_modules/@playwright/test/cli.js');
-      assert(existsSync(playwrightCli), 'Install the existing scripts workspace dependencies before running Playwright.');
+      if (commandRunner === runProcess) {
+        assert(existsSync(playwrightCli), 'Install the existing scripts workspace dependencies before running Playwright.');
+      }
       const selectionArgs = [
         'scripts/node_modules/@playwright/test/cli.js',
         'test', '--config', 'scripts/playwright.config.mjs',
         '--workers', '1', '--retries', '0',
-        specPath, '--grep', resolvedGrep, '--list',
+        playwrightSpecPath, '--grep', resolvedGrep, '--list',
       ];
       const selectionStage = await exec('selectionList', selectionArgs);
       stageSuccess(selectionStage, 'Official Playwright --list');
@@ -1154,6 +1274,14 @@ export async function runNativeVerificationBracket({
       if (!selection.exact) throw new Error(selection.reason);
     } catch (error) {
       browserPreparationError = error;
+      browserPreparationFatal = !env.LOOM_CDA_SOURCE_ROOT?.trim()
+        || (env.LOOM_CDA_SOURCE_ROOT?.trim()
+          && (() => {
+            try { return realpathSync(resolve(env.LOOM_CDA_SOURCE_ROOT)) !== canonicalRoot; } catch { return true; }
+          })());
+      summary.workflowError = String(error?.message ?? error).slice(0, 500);
+      summary.failureCategory = 'preparation';
+      if (browserPreparationFatal) summary.notes.push(summary.workflowError);
       summary.focusedChecks = focusedPlans.length
         ? {
           status: 'not-run',
@@ -1217,51 +1345,52 @@ export async function runNativeVerificationBracket({
       ? 'Focused check inputs changed while the group was running: ' + failedFocusedCheck.id + '.'
       : focusedCheckFailureReason(failedFocusedCheck);
     summary.notes.push(reason);
-    return writeEarlySummary('failed', 'focused-check', reason);
+    return { summary: writeEarlySummary('failed', 'focused-check', reason), context: null };
   }
   if (checksOnly) {
     if (browserPreparationError) {
       const reason = String(browserPreparationError?.message ?? browserPreparationError);
-      return writeEarlySummary('unverified', 'preparation', reason);
+      return { summary: writeEarlySummary('unverified', 'preparation', reason), context: null };
     }
     if (!focusedPlans.length) {
       const reason = 'This registered case is browser-only; it has no focused prerequisite group.';
       summary.notes.push(reason);
-      return writeEarlySummary('browser-only', 'no-focused-checks', reason);
+      return { summary: writeEarlySummary('browser-only', 'no-focused-checks', reason), context: null };
     }
-    return writeEarlySummary('checks-passed', null);
+    return { summary: writeEarlySummary('checks-passed', null), context: null };
   }
+  return {
+    summary,
+    context: {
+      summary,
+      paths,
+      canonicalRoot,
+      scenario,
+      scenarioID,
+      caseName,
+      contract,
+      playwrightSpecPath,
+      resolvedGrep,
+      selection,
+      browserPreparationError,
+      browserPreparationFatal,
+      exec,
+      signal,
+    },
+  };
+}
 
+async function executePreparedNativeCase(context) {
+  const {
+    summary, paths, canonicalRoot, scenario, scenarioID, caseName, contract,
+    playwrightSpecPath, resolvedGrep, selection, browserPreparationError, exec, signal,
+  } = context;
+  let browserAttempted = false;
+  let browserStage = null;
+  let workflowFailure = null;
+  if (summary.focusedChecks?.status === 'failed') return { summary, schedulingFailure: false };
   try {
     if (browserPreparationError) throw browserPreparationError;
-    shouldCloseBracket = true;
-    const precheckStage = await exec('precheck', [
-      'scripts/owned-stack-verification.mjs', '--mode', 'precheck', '--output', paths.precheck,
-    ]);
-    stageSuccess(precheckStage, 'API build precheck');
-    precheckRecord = loadJsonIfPresent(paths.precheck);
-    assert(precheckRecord, 'API build precheck artifact is missing or invalid.');
-
-    const beforeCaptureStage = await exec('captureBefore', captureArgs('before'));
-    stageSuccess(beforeCaptureStage, 'Before capture');
-    beforeArtifacts = {
-      source: loadJsonIfPresent(paths.sourceBefore),
-      docs: loadJsonIfPresent(paths.docsBefore),
-      api: loadJsonIfPresent(paths.apiBefore),
-      mounts: loadJsonIfPresent(paths.mountsBefore),
-    };
-    assert(Object.values(beforeArtifacts).every(Boolean), 'Before capture did not produce all four evidence artifacts.');
-
-    const beforeHealthStage = await exec('healthBefore', [
-      'scripts/owned-stack-verification.mjs', '--mode', 'health',
-      '--output', paths.healthBefore, '--identity', paths.apiBefore,
-    ]);
-    stageSuccess(beforeHealthStage, 'Before health');
-    healthBefore = loadJsonIfPresent(paths.healthBefore);
-    assert(healthBefore, 'Before health artifact is missing or invalid.');
-    assert.equal(healthBefore.status, 'PASS', 'Before health did not pass.');
-    assert.equal(healthBefore.samples?.length, 3, 'Before health did not record three samples.');
-
     browserAttempted = true;
     const playwrightEnvPath = paths.playwrightReportPath;
     browserStage = await exec('playwright', [
@@ -1269,7 +1398,7 @@ export async function runNativeVerificationBracket({
       'test', '--config', 'scripts/playwright.config.mjs',
       '--workers', '1', '--retries', '0',
       '--output', paths.playwrightOutputPath, '--reporter=json',
-      specPath, '--grep', resolvedGrep,
+      playwrightSpecPath, '--grep', resolvedGrep,
     ], { PLAYWRIGHT_JSON_OUTPUT_FILE: playwrightEnvPath }, { timeoutMs: BROWSER_STAGE_TIMEOUT_MS });
     if (browserStage.aborted) {
       workflowFailure = 'Browser stage was aborted by SIGINT or cancellation.';
@@ -1283,29 +1412,9 @@ export async function runNativeVerificationBracket({
     workflowFailure = String(error?.message ?? error);
     summary.notes.push(workflowFailure.slice(0, 500));
     if (!summary.failureCategory) summary.failureCategory = browserAttempted ? 'browser-or-harness' : 'preparation';
-  } finally {
-    if (shouldCloseBracket) await runAfterClosure();
   }
 
-  afterArtifacts = {
-    source: loadJsonIfPresent(paths.sourceAfter),
-    docs: loadJsonIfPresent(paths.docsAfter),
-    api: loadJsonIfPresent(paths.apiAfter),
-    mounts: loadJsonIfPresent(paths.mountsAfter),
-  };
-  healthAfter = loadJsonIfPresent(paths.healthAfter);
-  const allCommandsSucceeded = Object.values(summary.commands).every((command) => command.exitCode === 0);
-  if (shouldCloseBracket) {
-    summary.integrity = compareCaptureArtifacts({
-      before: beforeArtifacts,
-      after: afterArtifacts,
-      precheck: precheckRecord,
-      healthBefore,
-      healthAfter,
-      expectedRoot: canonicalRoot,
-    });
-  }
-
+  summary.integrity = { status: 'UNVERIFIED', dimensions: {} };
   const officialJson = loadJsonIfPresent(paths.playwrightReportPath);
   let attachmentData = { matchedTest: null, candidates: [] };
   if (officialJson) {
@@ -1315,75 +1424,45 @@ export async function runNativeVerificationBracket({
       summary.notes.push('Could not inspect the official Playwright report: ' + String(error?.message ?? error).slice(0, 300));
     }
   }
-  const matchedCandidates = attachmentData.candidates.filter((candidate) => {
-    const identity = reportIdentity(candidate.data);
-    return identity.valid && identity.scenario === scenarioID && identity.caseName === caseName;
-  });
   let domainReportData = null;
-  if (matchedCandidates.length === 1) {
-    domainReportData = matchedCandidates[0].data;
-    domainReportPath = matchedCandidates[0].path;
-    summary.evidence.domainReport = domainReportPath;
+  summary.lifecycle.attachmentCount = attachmentData.candidates.length;
+  if (attachmentData.candidates.length === 1) {
+    domainReportData = attachmentData.candidates[0].data;
+    summary.evidence.domainReport = attachmentData.candidates[0].path;
     summary.lifecycle = summarizeLifecycle(domainReportData, scenarioID, caseName);
-    if (summary.lifecycle.status === 'passed' && !testPassed(attachmentData.matchedTest?.test)) {
-      summary.lifecycle.status = 'failed';
-      summary.lifecycle.reason = 'Official Playwright result did not pass.';
-    }
-    if (summary.lifecycle.status === 'failed' && !summary.failureCategory) summary.failureCategory = 'lifecycle';
-  } else if (matchedCandidates.length > 1) {
-    summary.lifecycle = { status: 'unverified', reason: 'More than one matching domain report was found.' };
+  } else if (attachmentData.candidates.length > 1) {
+    summary.lifecycle = {
+      reportStatus: null,
+      attachmentCount: attachmentData.candidates.length,
+      reason: 'More than one domain report was attached to the selected Playwright result.',
+    };
   } else if (!officialJson) {
-    summary.lifecycle = { status: 'unverified', reason: 'Official Playwright JSON report is missing.' };
+    summary.lifecycle = { reportStatus: null, attachmentCount: 0, reason: 'Official Playwright JSON report is missing.' };
   } else if (!attachmentData.matchedTest) {
-    summary.lifecycle = { status: 'unverified', reason: 'Official JSON report does not contain the exact selected test result.' };
-  } else if (attachmentData.candidates.length) {
-    summary.lifecycle = { status: 'unverified', reason: 'Domain report scenario/case does not match the selected registry case.' };
+    summary.lifecycle = { reportStatus: null, attachmentCount: 0, reason: 'Official JSON report does not contain the exact selected test result.' };
   } else {
-    summary.lifecycle = { status: 'unverified', reason: 'No domain verification report was attached or found.' };
+    summary.lifecycle = { reportStatus: null, attachmentCount: 0, reason: 'No domain verification report was attached or found.' };
   }
-
-  const browserPassed = browserStage?.exitCode === 0 && testPassed(attachmentData.matchedTest?.test);
-  const afterEvidenceComplete = shouldCloseBracket
-    && summary.commands.captureAfter?.exitCode === 0
-    && summary.commands.healthAfter?.exitCode === 0
-    && summary.integrity.status !== 'UNVERIFIED';
-  if (signal?.aborted) {
-    summary.status = 'unverified';
-    summary.failureCategory = 'interrupted';
-  } else if (!browserAttempted || !afterEvidenceComplete || summary.lifecycle.status === 'unverified') {
-    summary.status = 'unverified';
-  } else if (!browserPassed || summary.lifecycle.status === 'failed' || summary.integrity.status === 'FAIL' || !allCommandsSucceeded) {
-    summary.status = 'failed';
-  } else if (summary.lifecycle.status === 'passed' && summary.integrity.status === 'PASS') {
-    summary.status = 'passed';
-  } else {
-    summary.status = 'unverified';
-  }
-  if (!summary.failureCategory) {
-    if (summary.integrity.status === 'FAIL') summary.failureCategory = 'integrity';
-    else if (summary.status === 'unverified' && !browserAttempted) summary.failureCategory = 'preparation';
-    else if (summary.status === 'unverified' && !afterEvidenceComplete) summary.failureCategory = 'after-evidence';
-    else if (summary.status === 'unverified' && summary.lifecycle.status === 'unverified') summary.failureCategory = 'missing-or-mismatched-report';
-    else if (summary.status === 'unverified') summary.failureCategory = 'unverified-evidence';
-  }
-
-  summary.finishedAt = new Date().toISOString();
-  summary.durationMs = Math.round(performance.now() - started);
   if (signal?.aborted) {
     summary.interrupted = true;
     workflowFailure ??= 'Run was interrupted by SIGINT or an abort request.';
-    summary.notes.push('Run was interrupted by SIGINT or an abort request.');
+    if (!summary.notes.some((note) => /interrupted by SIGINT or an abort request/.test(note))) {
+      summary.notes.push('Run was interrupted by SIGINT or an abort request.');
+    }
   }
   summary.workflowError = workflowFailure;
   const failedAction = summarizeFailedAction(domainReportData);
   summary.reviewPacket = {
-    status: summary.status,
+    status: 'pending-shared-closure',
     scenario: scenarioID,
     case: caseName,
     listedTest: selection?.cases?.[0] ?? null,
     browserExitCode: browserStage?.exitCode ?? null,
-    lifecycleStatus: summary.lifecycle.status,
-    integrityStatus: summary.integrity.status,
+    browserTestPassed: testPassed(attachmentData.matchedTest?.test),
+    domainReportStatus: summary.lifecycle.reportStatus ?? null,
+    domainReportReason: summary.lifecycle.reason ?? null,
+    domainReportIdentityMatchesSelection: summary.lifecycle.reportIdentityMatchesSelection ?? null,
+    integrityStatus: 'UNVERIFIED',
     firstFailureReason: summarizeFirstFailureReason(domainReportData, workflowFailure, attachmentData.matchedTest?.test),
     failureContext: summarizeFailureContext(domainReportData),
     failedAction,
@@ -1403,19 +1482,937 @@ export async function runNativeVerificationBracket({
     playwrightJson: summary.evidence.playwrightReport,
     summary: summary.evidence.summary,
   };
-  writeFileSync(summary.evidence.summary, JSON.stringify(summary, null, 2) + '\n', { mode: 0o600 });
+  const browserCommand = summary.commands.playwright;
+  const schedulingFailure = Boolean(browserCommand?.timedOut || browserCommand?.spawnError || browserCommand?.aborted);
+  return { summary, schedulingFailure };
+}
+
+function createSharedVerificationBracket({
+  root,
+  runDirectory,
+  env,
+  commandRunner,
+  signal,
+  batchId,
+}) {
+  const canonicalRoot = realpathSync(resolve(root));
+  const paths = expectedCommandPaths(runDirectory);
+  const logsDirectory = join(runDirectory, 'logs');
+  mkdirSync(logsDirectory, { recursive: true, mode: 0o700 });
+  const started = performance.now();
+  const shared = {
+    batchId,
+    runDirectory,
+    paths,
+    commands: {},
+    notes: [],
+    beforeReady: false,
+    beforeFailure: null,
+    integrity: { status: 'UNVERIFIED', dimensions: {} },
+    started: false,
+    startedAt: null,
+    finishedAt: null,
+    durationMs: null,
+  };
+  const baseEnv = { ...env };
+  const exec = async (name, args, { timeoutMs = PREPARATION_STAGE_TIMEOUT_MS, signal: commandSignal = signal } = {}) => {
+    const stdoutPath = join(logsDirectory, name + '.stdout.log');
+    const stderrPath = join(logsDirectory, name + '.stderr.log');
+    const runStarted = performance.now();
+    let result;
+    try {
+      result = commandSignal?.aborted
+        ? { exitCode: null, aborted: true, error: 'Process start aborted.' }
+        : await commandRunner(process.execPath, args, {
+          cwd: canonicalRoot,
+          env: baseEnv,
+          stdoutPath,
+          stderrPath,
+          timeoutMs,
+          outputPreviewLimit: 1024 * 1024,
+          ...(commandSignal ? { signal: commandSignal } : {}),
+        });
+    } catch (error) {
+      result = { exitCode: null, error: String(error?.message ?? error) };
+    }
+    saveInjectedLogs(result ?? {}, stdoutPath, stderrPath);
+    const stage = {
+      executable: process.execPath,
+      arguments: args,
+      cwd: canonicalRoot,
+      timeoutMs,
+      exitCode: Number.isInteger(result?.exitCode) ? result.exitCode : null,
+      ...(result?.signal ? { signal: result.signal } : {}),
+      ...(result?.timedOut ? { timedOut: true } : {}),
+      ...(result?.aborted ? { aborted: true } : {}),
+      durationMs: Math.round(Number.isFinite(result?.durationMs) ? result.durationMs : performance.now() - runStarted),
+      stdoutPath,
+      stderrPath,
+      ...(result?.error ? { spawnError: String(result.error).slice(0, 400) } : {}),
+    };
+    shared.commands[name] = stage;
+    return {
+      ...result,
+      exitCode: stage.exitCode,
+      timeoutMs: stage.timeoutMs,
+      timedOut: Boolean(stage.timedOut),
+      stdoutText: String(result?.stdoutText ?? result?.stdout ?? ''),
+      stderrText: String(result?.stderrText ?? result?.stderr ?? ''),
+    };
+  };
+  const captureArgs = (phase) => [
+    'scripts/capture-owned-verification.mjs', '--phase', phase,
+    ...(phase === 'before' ? ['--precheck-input', paths.precheck] : []),
+    '--source-output', phase === 'before' ? paths.sourceBefore : paths.sourceAfter,
+    '--docs-output', phase === 'before' ? paths.docsBefore : paths.docsAfter,
+    '--api-output', phase === 'before' ? paths.apiBefore : paths.apiAfter,
+    '--mount-output', phase === 'before' ? paths.mountsBefore : paths.mountsAfter,
+  ];
+  const runAfterClosure = async () => {
+    let captureStage;
+    try { captureStage = await exec('captureAfter', captureArgs('after'), { signal: null }); }
+    catch (error) { shared.notes.push('After capture failed: ' + String(error?.message ?? error).slice(0, 300)); }
+    let healthStage;
+    try {
+      healthStage = await exec('healthAfter', [
+        'scripts/owned-stack-verification.mjs', '--mode', 'health',
+        '--output', paths.healthAfter, '--identity', paths.apiBefore,
+      ], { signal: null });
+    } catch (error) { shared.notes.push('After health failed: ' + String(error?.message ?? error).slice(0, 300)); }
+    if (captureStage?.exitCode !== 0) shared.notes.push('After capture did not exit successfully.');
+    if (healthStage?.exitCode !== 0) shared.notes.push('After health did not exit successfully.');
+  };
+
+  let precheckRecord = null;
+  let beforeArtifacts = {};
+  let healthBefore = null;
+  let healthAfter = null;
+  let closed = false;
+  shared.open = async () => {
+    try {
+      const missingEnvironment = requiredEnvironmentError(env);
+      if (missingEnvironment) throw new Error(missingEnvironment);
+      assert.equal(realpathSync(resolve(env.LOOM_CDA_SOURCE_ROOT)), canonicalRoot,
+        'LOOM_CDA_SOURCE_ROOT must resolve to the repository containing this runner.');
+      if (signal?.aborted) throw new Error('Run was interrupted before the shared before gate started.');
+
+      shared.started = true;
+      shared.startedAt = new Date().toISOString();
+      shared.startedMonotonic = performance.now();
+      const precheckStage = await exec('precheck', [
+        'scripts/owned-stack-verification.mjs', '--mode', 'precheck', '--output', paths.precheck,
+      ]);
+      stageSuccess(precheckStage, 'API build precheck');
+      precheckRecord = loadJsonIfPresent(paths.precheck);
+      assert(precheckRecord, 'API build precheck artifact is missing or invalid.');
+
+      const beforeCaptureStage = await exec('captureBefore', captureArgs('before'));
+      stageSuccess(beforeCaptureStage, 'Before capture');
+      beforeArtifacts = {
+        source: loadJsonIfPresent(paths.sourceBefore),
+        docs: loadJsonIfPresent(paths.docsBefore),
+        api: loadJsonIfPresent(paths.apiBefore),
+        mounts: loadJsonIfPresent(paths.mountsBefore),
+      };
+      assert(Object.values(beforeArtifacts).every(Boolean), 'Before capture did not produce all four evidence artifacts.');
+      assert.equal(beforeArtifacts.source.phase, 'before', 'Source capture phase must be before.');
+      assert.equal(beforeArtifacts.docs.phase, 'before', 'Docs capture phase must be before.');
+      assert.equal(beforeArtifacts.api.phase, 'before', 'API capture phase must be before.');
+      assert.equal(beforeArtifacts.mounts.phase, 'before', 'Mount capture phase must be before.');
+      assert.equal(beforeArtifacts.source.root, canonicalRoot, 'Source capture must describe the repository root.');
+      assert.equal(beforeArtifacts.docs.root, canonicalRoot, 'Docs capture must describe the repository root.');
+      assert.equal(beforeArtifacts.api.target?.sourceRoot, canonicalRoot, 'API capture target must describe the repository root.');
+      assert.equal(beforeArtifacts.mounts.status, 'PASS', 'Before owned mounts must pass.');
+
+      const apiOrigin = new URL(env.LOOM_CDA_API_ORIGIN);
+      const uiOrigin = new URL(env.LOOM_CDA_UI_ORIGIN);
+      assert.equal(String(beforeArtifacts.api.target?.apiPort), apiOrigin.port,
+        'API capture port must match LOOM_CDA_API_ORIGIN.');
+      assert.equal(String(beforeArtifacts.api.target?.uiPort), uiOrigin.port,
+        'API capture port must match LOOM_CDA_UI_ORIGIN.');
+      const expectedCaptureTarget = {
+        project: env.LOOM_CDA_PROJECT,
+        generation: env.LOOM_CDA_GENERATION ?? beforeArtifacts.api.target?.generation,
+        composeProject: env.LOOM_CDA_COMPOSE_PROJECT,
+        apiContainer: env.LOOM_CDA_API_CONTAINER,
+        uiContainer: beforeArtifacts.api.target.uiContainer,
+        arangoContainer: env.LOOM_CDA_ARANGO_CONTAINER,
+        clickhouseContainer: env.LOOM_CDA_CLICKHOUSE_CONTAINER,
+        apiPort: beforeArtifacts.api.target.apiPort,
+        uiPort: beforeArtifacts.api.target.uiPort,
+        sourceRoot: canonicalRoot,
+      };
+      assertCapturedTargetMatches(beforeArtifacts.api.target, expectedCaptureTarget);
+      assertCapturedTargetMatches(beforeArtifacts.api.target, beforeArtifacts.mounts.target);
+      assertFreshApiBuildPrecheck(precheckRecord, {
+        targetContainer: env.LOOM_CDA_API_CONTAINER,
+        apiBuildIdentity: beforeArtifacts.api.apiBuildIdentity,
+      });
+
+      const beforeHealthStage = await exec('healthBefore', [
+        'scripts/owned-stack-verification.mjs', '--mode', 'health',
+        '--output', paths.healthBefore, '--identity', paths.apiBefore,
+      ]);
+      stageSuccess(beforeHealthStage, 'Before health');
+      healthBefore = loadJsonIfPresent(paths.healthBefore);
+      assert(healthBefore, 'Before health artifact is missing or invalid.');
+      assert.equal(healthBefore.status, 'PASS', 'Before health did not pass.');
+      assert.equal(healthBefore.samples?.length, 3, 'Before health did not record three samples.');
+      assert.equal(healthDimension(healthBefore, beforeArtifacts.api.apiBuildIdentity).status, 'PASS',
+        'Before health must prove the captured API/UI identity.');
+      shared.beforeReady = true;
+    } catch (error) {
+      shared.beforeFailure = String(error?.message ?? error).slice(0, 500);
+      shared.notes.push(shared.beforeFailure);
+    }
+    return shared;
+  };
+  shared.close = async () => {
+    if (closed) return shared;
+    closed = true;
+    if (!shared.started) {
+      shared.status = 'NOT_RUN';
+      return shared;
+    }
+    await runAfterClosure();
+    const afterArtifacts = {
+      source: loadJsonIfPresent(paths.sourceAfter),
+      docs: loadJsonIfPresent(paths.docsAfter),
+      api: loadJsonIfPresent(paths.apiAfter),
+      mounts: loadJsonIfPresent(paths.mountsAfter),
+    };
+    healthAfter = loadJsonIfPresent(paths.healthAfter);
+    shared.integrity = compareCaptureArtifacts({
+      before: beforeArtifacts,
+      after: afterArtifacts,
+      precheck: precheckRecord,
+      healthBefore,
+      healthAfter,
+      expectedRoot: canonicalRoot,
+    });
+    const closureComplete = shared.commands.captureAfter?.exitCode === 0
+      && shared.commands.healthAfter?.exitCode === 0
+      && shared.integrity.status !== 'UNVERIFIED';
+    shared.status = shared.integrity.status === 'FAIL' ? 'FAIL'
+      : shared.beforeReady && closureComplete ? 'PASS' : 'UNVERIFIED';
+    shared.finishedAt = new Date().toISOString();
+    shared.durationMs = Math.round(performance.now() - shared.startedMonotonic);
+    return shared;
+  };
+  return shared;
+}
+
+function finalizeNativeCase(summary, shared, {
+  batchSummaryPath,
+  batchId,
+  interrupted,
+  concurrent = false,
+  caseIsolation = null,
+}) {
+  if (summary.mode === 'checks-only') {
+    summary.nativeStatus = 'not-run';
+    summary.durationScope = 'checks-only-preparation';
+    summary.finishedAt = new Date().toISOString();
+    summary.durationMs = Math.round(performance.now() - summary._startedMonotonic);
+    summary.reviewPacket.status = summary.status;
+    delete summary._startedMonotonic;
+    return summary;
+  }
+
+  const sharedEvidence = {
+    batchSummary: batchSummaryPath,
+    precheck: shared.paths.precheck,
+    sourceBefore: shared.paths.sourceBefore,
+    docsBefore: shared.paths.docsBefore,
+    apiBefore: shared.paths.apiBefore,
+    mountsBefore: shared.paths.mountsBefore,
+    healthBefore: shared.paths.healthBefore,
+    sourceAfter: shared.paths.sourceAfter,
+    docsAfter: shared.paths.docsAfter,
+    apiAfter: shared.paths.apiAfter,
+    mountsAfter: shared.paths.mountsAfter,
+    healthAfter: shared.paths.healthAfter,
+  };
+  Object.assign(summary.evidence, {
+    precheck: shared.paths.precheck,
+    sourceBefore: shared.paths.sourceBefore,
+    docsBefore: shared.paths.docsBefore,
+    apiBefore: shared.paths.apiBefore,
+    mountsBefore: shared.paths.mountsBefore,
+    healthBefore: shared.paths.healthBefore,
+    sourceAfter: shared.paths.sourceAfter,
+    docsAfter: shared.paths.docsAfter,
+    apiAfter: shared.paths.apiAfter,
+    mountsAfter: shared.paths.mountsAfter,
+    healthAfter: shared.paths.healthAfter,
+    sharedBracket: sharedEvidence,
+  });
+  summary.commands = { ...summary.commands, ...shared.commands };
+  summary.integrity = shared.integrity;
+  summary.sharedBracket = {
+    batchId,
+    status: shared.status,
+    summary: batchSummaryPath,
+    evidence: sharedEvidence,
+    commands: Object.fromEntries(Object.entries(shared.commands).map(([name, stage]) => [name, {
+      exitCode: stage.exitCode,
+      timedOut: Boolean(stage.timedOut),
+      stdoutPath: stage.stdoutPath,
+      stderrPath: stage.stderrPath,
+    }])),
+  };
+  const nativeNotRun = summary.nativeStatus === 'not-run';
+  summary.nativeStatus = nativeNotRun || summary.commands.playwright === undefined ? 'not-run'
+    : summary.reviewPacket?.browserTestPassed === true
+    && summary.commands.playwright?.exitCode === 0
+    ? 'passed'
+    : 'failed';
+  const caseCommandFailures = Object.entries(summary.commands)
+    .filter(([name]) => !['precheck', 'captureBefore', 'healthBefore', 'captureAfter', 'healthAfter'].includes(name))
+    .some(([, stage]) => stage.exitCode !== 0 || stage.timedOut || stage.aborted);
+  const browserAttempted = summary.commands.playwright !== undefined;
+  const browserPassed = browserAttempted
+    && summary.commands.playwright.exitCode === 0
+    && summary.reviewPacket?.browserTestPassed === true;
+  const afterEvidenceComplete = shared.commands.captureAfter?.exitCode === 0
+    && shared.commands.healthAfter?.exitCode === 0
+    && shared.integrity.status !== 'UNVERIFIED';
+
+  if (interrupted) {
+    summary.workflowError ??= 'Run was interrupted by SIGINT or an abort request.';
+  } else if (!browserAttempted && !summary.workflowError && shared.beforeFailure && shared.status !== 'NOT_RUN') {
+    summary.workflowError = shared.beforeFailure;
+  }
+  if (interrupted) {
+    summary.status = 'unverified';
+    summary.failureCategory = 'interrupted';
+    summary.interrupted = true;
+  } else if (summary.focusedChecks?.status === 'failed') {
+    summary.status = 'failed';
+    summary.failureCategory = 'focused-check';
+  } else if (!browserAttempted || !afterEvidenceComplete || !shared.beforeReady) {
+    summary.status = 'unverified';
+  } else if (!browserPassed || shared.integrity.status === 'FAIL' || caseCommandFailures) {
+    summary.status = 'failed';
+  } else if (shared.integrity.status === 'PASS') {
+    summary.status = 'passed';
+  } else {
+    summary.status = 'unverified';
+  }
+  if (!summary.failureCategory || summary.failureCategory === 'after-evidence') {
+    if (interrupted) summary.failureCategory = 'interrupted';
+    else if (shared.integrity.status === 'FAIL') summary.failureCategory = 'integrity';
+    else if (browserAttempted && !browserPassed) summary.failureCategory = 'browser-result';
+    else if (summary.status === 'unverified' && !browserAttempted) summary.failureCategory = 'preparation';
+    else if (summary.status === 'unverified' && !afterEvidenceComplete) summary.failureCategory = 'after-evidence';
+    else if (summary.status === 'unverified') summary.failureCategory = 'unverified-evidence';
+  }
+  summary.reviewPacket ??= {};
+  summary.reviewPacket.status = summary.status;
+  summary.reviewPacket.integrityStatus = shared.integrity.status;
+  summary.reviewPacket.firstFailureReason ??= summary.workflowError ?? null;
+  summary.reviewPacket.failedAction ??= null;
+  summary.reviewPacket.lastCompletedAction ??= null;
+  summary.reviewPacket.pendingOwnedRequests ??= [];
+  summary.reviewPacket.domainReportStatus ??= summary.lifecycle?.reportStatus ?? null;
+  summary.reviewPacket.domainReportReason ??= summary.lifecycle?.reason ?? null;
+  if (!summary.reviewPacket.browserTestPassed) summary.reviewPacket.browserTestPassed = false;
+  if (concurrent) {
+    summary.timingInterpretation = 'concurrent-latency-provisional';
+    summary.caseIsolation = caseIsolation;
+  } else {
+    summary.timingInterpretation = 'serial';
+    if (caseIsolation) summary.caseIsolation = caseIsolation;
+  }
+  summary.finishedAt = new Date().toISOString();
+  summary.durationMs = Math.round(performance.now() - summary._startedMonotonic);
+  summary.durationScope = 'case-preparation-through-shared-closure';
+  summary.batchId = batchId;
+  summary.reviewPacket.status = summary.status;
+  summary.reviewPacket.integrityStatus = shared.integrity.status;
   return summary;
+}
+
+function skippedBatchCase({ caseInput, reason, canonicalRoot, evidenceParent, batchId, batchSummaryPath, shared, interrupted }) {
+  const runDirectory = createEvidenceDirectory(canonicalRoot, evidenceParent, caseInput.scenarioID, caseInput.caseName);
+  const paths = expectedCommandPaths(runDirectory);
+  const summary = {
+    schemaVersion: 1,
+    status: 'unverified',
+    nativeStatus: 'not-run',
+    startedAt: new Date().toISOString(),
+    finishedAt: new Date().toISOString(),
+    scenario: caseInput.scenarioID,
+    case: caseInput.caseName,
+    mode: 'browser',
+    targetIdentity: null,
+    targetConfigPath: caseInput.targetPath ?? null,
+    targetValidation: caseInput.targetValidation ?? null,
+    registryValidation: null,
+    runDirectory,
+    commands: { ...shared.commands },
+    evidence: {
+      summary: join(runDirectory, 'summary.json'),
+      playwrightReport: paths.playwrightReportPath,
+      domainReport: null,
+      ...Object.fromEntries([
+        ['precheck', shared.paths.precheck], ['sourceBefore', shared.paths.sourceBefore],
+        ['docsBefore', shared.paths.docsBefore], ['apiBefore', shared.paths.apiBefore],
+        ['mountsBefore', shared.paths.mountsBefore], ['healthBefore', shared.paths.healthBefore],
+        ['sourceAfter', shared.paths.sourceAfter], ['docsAfter', shared.paths.docsAfter],
+        ['apiAfter', shared.paths.apiAfter], ['mountsAfter', shared.paths.mountsAfter],
+        ['healthAfter', shared.paths.healthAfter],
+      ]),
+      sharedBracket: { batchSummary: batchSummaryPath, batchId },
+    },
+    selection: null,
+    focusedCheckCoverage: 'not-run',
+    focusedChecks: { status: 'not-run', groups: [] },
+    integrity: shared.integrity,
+    lifecycle: { reportStatus: null, reason: 'Browser case was not started.' },
+    failureCategory: interrupted ? 'interrupted' : 'shared-bracket',
+    notes: [reason],
+    interrupted: Boolean(interrupted),
+    workflowError: reason,
+    reviewPacket: {
+      status: 'unverified',
+      scenario: caseInput.scenarioID,
+      case: caseInput.caseName,
+      firstFailureReason: reason,
+      pendingOwnedRequests: [],
+      report: null,
+      playwrightJson: null,
+      summary: join(runDirectory, 'summary.json'),
+    },
+    batchId,
+  };
+  Object.defineProperty(summary, '_startedMonotonic', { value: performance.now(), configurable: true });
+  return summary;
+}
+
+async function defaultTargetLoader(input) {
+  const { loadOwnedCdaTargetConfig } = await import('./verify-ui/helpers/owned-cda-target-config.mjs');
+  return loadOwnedCdaTargetConfig(input);
+}
+
+function caseSummaryEntry(summary, caseIsolation) {
+  return {
+    scenario: summary.scenario,
+    case: summary.case,
+    status: summary.status,
+    nativeStatus: summary.nativeStatus,
+    integrityStatus: summary.integrity?.status ?? 'UNVERIFIED',
+    failureCategory: summary.failureCategory,
+    runDirectory: summary.runDirectory,
+    summaryPath: summary.evidence.summary,
+    durationMs: summary.durationMs ?? null,
+    playwrightDurationMs: summary.commands?.playwright?.durationMs ?? null,
+    startedAt: summary.startedAt ?? null,
+    finishedAt: summary.finishedAt ?? null,
+    durationScope: summary.durationScope ?? 'case-preparation-through-shared-closure',
+    timingInterpretation: summary.timingInterpretation ?? 'serial',
+    caseIsolation: caseIsolation ?? null,
+  };
+}
+
+async function runNativeVerificationEngine({
+  resolvedCases,
+  root = repositoryRoot,
+  evidenceParent,
+  commandRunner = runProcess,
+  signal,
+  registryValidation,
+  maxConcurrency = 1,
+  atomicWriteJson = writeJsonAtomically,
+} = {}) {
+  assert(Array.isArray(resolvedCases) && resolvedCases.length > 0, 'Provide at least one registered case to verify.');
+  assert(Number.isInteger(maxConcurrency) && maxConcurrency >= 1 && maxConcurrency <= 3,
+    'Batch maxConcurrency must be an integer from 1 through 3.');
+  const canonicalRoot = realpathSync(resolve(root));
+  assert(resolvedCases.every((caseInput) => caseInput?.contract && caseInput?.env && caseInput?.targetValidation),
+    'The internal verification engine requires resolved case targets.');
+  assert(!resolvedCases.some((caseInput) => caseInput.checksOnly) || resolvedCases.length === 1,
+    'Checks-only runs accept exactly one case.');
+
+  const targetIdentities = resolvedCases.map((caseInput) => resolvedTargetIdentity(caseInput, canonicalRoot));
+  const identityJSON = JSON.stringify(targetIdentities[0]);
+  assert(targetIdentities.every((identity) => JSON.stringify(identity) === identityJSON),
+    'Batch cases resolve to mixed capture targets; split them into separate batches.');
+  for (const caseInput of resolvedCases) {
+    assert(['fresh-fixture-project', undefined].includes(caseInput.contract.parallelIsolation),
+      'Unsupported registry parallel-isolation value for ' + caseInput.scenarioID + '/' + caseInput.caseName + '.');
+  }
+
+  const startedAt = new Date().toISOString();
+  const started = performance.now();
+  const runDirectory = createEvidenceDirectory(canonicalRoot, evidenceParent, 'batch', String(Date.now()));
+  const batchId = basename(runDirectory);
+  const paths = expectedCommandPaths(runDirectory);
+  const batchSummaryPath = join(runDirectory, 'batch-summary.json');
+  const batchSummary = {
+    schemaVersion: 1,
+    status: 'unverified',
+    batchId,
+    startedAt,
+    runDirectory,
+    summaryPath: batchSummaryPath,
+    caseCount: resolvedCases.length,
+    targetIdentity: targetIdentities[0],
+    targetValidation: resolvedCases[0].targetValidation,
+    concurrency: {
+      limit: maxConcurrency,
+      maxObserved: 0,
+      eligibleCaseCount: resolvedCases.filter((caseInput) => caseInput.contract.parallelIsolation === 'fresh-fixture-project').length,
+    },
+    sharedBracket: {
+      status: 'pending',
+      firstFailureReason: null,
+      startedAt: null,
+      finishedAt: null,
+      durationMs: null,
+      integrity: { status: 'UNVERIFIED', dimensions: {} },
+      evidence: {
+        precheck: paths.precheck,
+        sourceBefore: paths.sourceBefore,
+        docsBefore: paths.docsBefore,
+        apiBefore: paths.apiBefore,
+        mountsBefore: paths.mountsBefore,
+        healthBefore: paths.healthBefore,
+        sourceAfter: paths.sourceAfter,
+        docsAfter: paths.docsAfter,
+        apiAfter: paths.apiAfter,
+        mountsAfter: paths.mountsAfter,
+        healthAfter: paths.healthAfter,
+      },
+      commands: {},
+    },
+    cases: [],
+    notes: [],
+  };
+  const writeBatch = async () => atomicWriteJson(batchSummaryPath, batchSummary);
+  try {
+    await writeBatch();
+  } catch (error) {
+    batchSummary.failureCategory = 'evidence-write';
+    batchSummary.notes.push('Could not write the initial batch summary: ' + String(error?.message ?? error).slice(0, 300));
+    batchSummary.finishedAt = new Date().toISOString();
+    batchSummary.durationMs = Math.round(performance.now() - started);
+    const unavailableShared = {
+      batchId, runDirectory, paths, commands: {}, notes: [], beforeReady: false,
+      beforeFailure: 'Batch summary could not be written before runtime work.',
+      integrity: { status: 'UNVERIFIED', dimensions: {} }, status: 'UNVERIFIED', started: false,
+    };
+    const skipped = resolvedCases.map((caseInput) => finalizeNativeCase(skippedBatchCase({
+      caseInput,
+      reason: unavailableShared.beforeFailure,
+      canonicalRoot,
+      evidenceParent,
+      batchId,
+      batchSummaryPath,
+      shared: unavailableShared,
+      interrupted: Boolean(signal?.aborted),
+    }), unavailableShared, {
+      batchSummaryPath, batchId, interrupted: Boolean(signal?.aborted),
+      caseIsolation: caseInput.contract.parallelIsolation ?? null,
+    }));
+    batchSummary.sharedBracket.status = 'UNVERIFIED';
+    batchSummary.sharedBracket.firstFailureReason = unavailableShared.beforeFailure;
+    batchSummary.cases = skipped.map((summary) => caseSummaryEntry(summary, summary.caseIsolation));
+    Object.defineProperty(batchSummary, 'caseSummaries', { value: skipped, configurable: true });
+    return batchSummary;
+  }
+
+  const checkOnly = resolvedCases[0].checksOnly === true;
+  const preparedCases = [];
+  for (const caseInput of resolvedCases) {
+    try {
+      const prepared = await prepareNativeVerificationCase({
+        ...caseInput,
+        root: canonicalRoot,
+        env: caseInput.env,
+        commandRunner,
+        signal,
+        registryValidation,
+        deferSummaryWrite: true,
+      });
+      preparedCases.push(prepared);
+    } catch (error) {
+      if (caseInput.checksOnly) throw error;
+      preparedCases.push({
+        summary: null,
+        context: null,
+        error: String(error?.message ?? error).slice(0, 400),
+      });
+    }
+  }
+
+  let shared;
+  const fatalPreparation = preparedCases.some((prepared) => prepared.context?.browserPreparationFatal);
+  const readyIndices = preparedCases.map((prepared, index) =>
+    prepared.context
+      && !prepared.context.browserPreparationError
+      && prepared.summary?.focusedChecks?.status !== 'failed'
+      ? index : -1).filter((index) => index >= 0);
+  batchSummary.concurrency.eligibleCaseCount = readyIndices.filter((index) =>
+    resolvedCases[index].contract.parallelIsolation === 'fresh-fixture-project').length;
+  if (checkOnly) {
+    shared = {
+      batchId,
+      runDirectory,
+      paths,
+      commands: {},
+      notes: [],
+      beforeReady: true,
+      beforeFailure: null,
+      integrity: { status: 'UNVERIFIED', dimensions: {} },
+      status: 'NOT_RUN',
+      started: false,
+    };
+    batchSummary.sharedBracket.status = 'NOT_RUN';
+    batchSummary.sharedBracket.firstFailureReason = null;
+  } else if (fatalPreparation || readyIndices.length === 0) {
+    const failure = preparedCases.find((prepared) => prepared.context?.browserPreparationFatal);
+    const noReadyReason = failure?.summary?.workflowError
+      ?? 'No prepared native case was ready to run; shared verification commands were not started.';
+    shared = {
+      batchId,
+      runDirectory,
+      paths,
+      commands: {},
+      notes: [noReadyReason],
+      beforeReady: false,
+      beforeFailure: noReadyReason,
+      integrity: { status: 'UNVERIFIED', dimensions: {} },
+      status: 'NOT_RUN',
+      started: false,
+    };
+    batchSummary.sharedBracket.status = 'NOT_RUN';
+    batchSummary.sharedBracket.firstFailureReason = shared.beforeFailure;
+  } else {
+    shared = createSharedVerificationBracket({
+      root: canonicalRoot,
+      runDirectory,
+      env: resolvedCases[0].env,
+      commandRunner,
+      signal,
+      batchId,
+    });
+    let activeCaseExecutions = 0;
+    const executeReadyCase = async (caseIndex) => {
+      activeCaseExecutions += 1;
+      batchSummary.concurrency.maxObserved = Math.max(batchSummary.concurrency.maxObserved, activeCaseExecutions);
+      try {
+        return await executePreparedNativeCase(preparedCases[caseIndex].context);
+      } catch (error) {
+        const summary = preparedCases[caseIndex].summary;
+        summary.failureCategory ??= 'browser-or-harness';
+        summary.workflowError = String(error?.message ?? error).slice(0, 400);
+        summary.notes.push(summary.workflowError);
+        return { summary, schedulingFailure: false };
+      } finally {
+        activeCaseExecutions -= 1;
+      }
+    };
+    try {
+      await shared.open();
+      if (shared.beforeReady) {
+        let cursor = 0;
+        while (cursor < readyIndices.length && !signal?.aborted) {
+          const index = readyIndices[cursor];
+          const current = resolvedCases[index];
+          if (maxConcurrency > 1 && current.contract.parallelIsolation === 'fresh-fixture-project') {
+            const wave = [];
+            while (cursor < readyIndices.length && wave.length < maxConcurrency && !signal?.aborted) {
+              const nextIndex = readyIndices[cursor];
+              if (resolvedCases[nextIndex].contract.parallelIsolation !== 'fresh-fixture-project') break;
+              wave.push(nextIndex);
+              cursor += 1;
+            }
+            const results = await Promise.allSettled(wave.map((waveIndex) => executeReadyCase(waveIndex)));
+            wave.forEach((waveIndex, offset) => {
+              const result = results[offset];
+              if (result.status === 'fulfilled') preparedCases[waveIndex].summary = result.value.summary;
+              else {
+                preparedCases[waveIndex].summary.failureCategory = 'browser-or-harness';
+                preparedCases[waveIndex].summary.workflowError = String(result.reason?.message ?? result.reason).slice(0, 400);
+                preparedCases[waveIndex].summary.notes.push(preparedCases[waveIndex].summary.workflowError);
+              }
+              preparedCases[waveIndex].concurrent = wave.length > 1;
+            });
+          } else {
+            cursor += 1;
+            const result = await executeReadyCase(index);
+            preparedCases[index].summary = result.summary;
+          }
+        }
+      }
+    } catch (error) {
+      shared.beforeFailure ??= String(error?.message ?? error).slice(0, 500);
+      shared.notes.push(shared.beforeFailure);
+    } finally {
+      await shared.close();
+    }
+    batchSummary.sharedBracket.status = shared.status;
+    batchSummary.sharedBracket.firstFailureReason = shared.beforeFailure;
+    batchSummary.sharedBracket.integrity = shared.integrity;
+    batchSummary.sharedBracket.commands = shared.commands;
+    batchSummary.sharedBracket.startedAt = shared.startedAt ?? null;
+    batchSummary.sharedBracket.finishedAt = shared.finishedAt ?? null;
+    batchSummary.sharedBracket.durationMs = shared.durationMs ?? null;
+    batchSummary.notes.push(...shared.notes);
+  }
+
+  const caseSummaries = new Array(resolvedCases.length);
+  for (let index = 0; index < resolvedCases.length; index += 1) {
+    const prepared = preparedCases[index];
+    if (prepared.summary) {
+      caseSummaries[index] = prepared.summary;
+    } else {
+      const reason = signal?.aborted
+        ? 'Case preparation stopped by interruption.'
+        : prepared.error ?? (shared.beforeReady
+          ? 'Case preparation did not produce a verification context.'
+          : shared.beforeFailure ?? 'Shared before gate did not pass; native cases were not started.');
+      caseSummaries[index] = skippedBatchCase({
+        caseInput: resolvedCases[index],
+        reason,
+        canonicalRoot,
+        evidenceParent,
+        batchId,
+        batchSummaryPath,
+        shared,
+        interrupted: Boolean(signal?.aborted),
+      });
+    }
+  }
+
+  for (let index = 0; index < caseSummaries.length; index += 1) {
+    const summary = finalizeNativeCase(caseSummaries[index], shared, {
+      batchSummaryPath,
+      batchId,
+      interrupted: Boolean(signal?.aborted || caseSummaries[index].interrupted),
+      concurrent: preparedCases[index].concurrent === true,
+      caseIsolation: resolvedCases[index].contract.parallelIsolation ?? null,
+    });
+    try {
+      await atomicWriteJson(summary.evidence.summary, summary);
+    } catch (error) {
+      summary.status = 'unverified';
+      summary.failureCategory = 'evidence-write';
+      summary.notes.push('Could not write the case summary: ' + String(error?.message ?? error).slice(0, 300));
+      summary.reviewPacket.status = 'unverified';
+      batchSummary.notes.push('Could not write summary for ' + summary.scenario + '/' + summary.case + '.');
+    }
+  }
+
+  batchSummary.cases = caseSummaries.map((summary, index) => caseSummaryEntry(
+    summary,
+    resolvedCases[index].contract.parallelIsolation ?? null,
+  ));
+  const allCasesPassed = caseSummaries.length > 0 && caseSummaries.every((summary) => summary.status === 'passed');
+  if (checkOnly) {
+    batchSummary.status = caseSummaries[0]?.status === 'checks-passed' ? 'passed'
+      : caseSummaries[0]?.status === 'failed' ? 'failed' : 'unverified';
+    batchSummary.nativeStatus = caseSummaries[0]?.nativeStatus ?? 'unverified';
+    batchSummary.integrityStatus = 'NOT_RUN';
+  } else if (signal?.aborted) {
+    batchSummary.status = 'unverified';
+  } else if (shared.status === 'FAIL' || caseSummaries.some((summary) => summary.status === 'failed')) {
+    batchSummary.status = 'failed';
+  } else if (shared.status === 'UNVERIFIED' || !shared.beforeReady) {
+    batchSummary.status = 'unverified';
+  } else {
+    batchSummary.status = allCasesPassed ? 'passed' : 'unverified';
+  }
+  if (signal?.aborted) {
+    batchSummary.interrupted = true;
+    batchSummary.failureCategory = 'interrupted';
+    batchSummary.notes.push('Run was interrupted by SIGINT or an abort request.');
+  }
+  if (caseSummaries.some((summary) => summary.failureCategory === 'evidence-write')) {
+    batchSummary.status = 'unverified';
+    batchSummary.failureCategory = 'evidence-write';
+  }
+  batchSummary.finishedAt = new Date().toISOString();
+  batchSummary.durationMs = Math.round(performance.now() - started);
+  batchSummary.durationScope = 'batch-invocation-through-shared-closure';
+  if (!checkOnly) batchSummary.integrityStatus = shared.integrity.status;
+  if (!checkOnly) {
+    const nativeStatuses = caseSummaries.map((summary) => summary.nativeStatus).filter((status) => status !== 'not-run');
+    batchSummary.nativeStatus = nativeStatuses.length === 0 ? 'not-run'
+      : nativeStatuses.every((status) => status === 'passed') ? 'passed'
+        : nativeStatuses.some((status) => status === 'failed') ? 'failed' : 'unverified';
+  }
+  try {
+    await writeBatch();
+  } catch (error) {
+    batchSummary.status = 'unverified';
+    batchSummary.failureCategory = 'evidence-write';
+    batchSummary.notes.push('Could not write the final batch summary: ' + String(error?.message ?? error).slice(0, 300));
+    for (const summary of caseSummaries) {
+      summary.status = 'unverified';
+      summary.failureCategory = 'evidence-write';
+      summary.reviewPacket.status = 'unverified';
+      summary.notes.push('Batch summary write failed; the batch verdict is unverified.');
+      try { await atomicWriteJson(summary.evidence.summary, summary); } catch { /* Preserve the last safe summary if rewriting also fails. */ }
+    }
+    batchSummary.cases = caseSummaries.map((summary, index) => caseSummaryEntry(
+      summary,
+      resolvedCases[index].contract.parallelIsolation ?? null,
+    ));
+  }
+  Object.defineProperty(batchSummary, 'caseSummaries', { value: caseSummaries, configurable: true });
+  return batchSummary;
+}
+
+async function resolveBatchCases(cases, { root, env, targetLoader, registryValidation }) {
+  assert(Array.isArray(cases) && cases.length > 0, 'Batch manifest cases must be a non-empty array.');
+  const seen = new Set();
+  const resolvedCases = [];
+  for (let index = 0; index < cases.length; index += 1) {
+    const input = cases[index];
+    assert(input && typeof input === 'object' && !Array.isArray(input), 'Batch case ' + index + ' must be an object.');
+    const unknownFields = Object.keys(input).filter((field) => !['scenario', 'case', 'target'].includes(field));
+    assert.equal(unknownFields.length, 0, 'Unsupported batch case fields: ' + unknownFields.join(', ') + '.');
+    const scenarioID = input.scenario;
+    const caseName = input.case;
+    assert(typeof scenarioID === 'string' && scenarioID.trim(), 'Batch case ' + index + ' requires a scenario.');
+    assert(typeof caseName === 'string' && caseName.trim(), 'Batch case ' + index + ' requires a case.');
+    assert(scenarioID === scenarioID.trim() && caseName === caseName.trim(),
+      'Batch scenario and case names must not contain surrounding whitespace.');
+    const caseKey = scenarioID + '\u0000' + caseName;
+    assert(!seen.has(caseKey), 'Batch contains a duplicate scenario/case: ' + scenarioID + '/' + caseName + '.');
+    seen.add(caseKey);
+    const { contract } = validateBatchCaseSelection(scenarioID, caseName);
+    const target = input.target;
+    assert(target && typeof target === 'object' && !Array.isArray(target),
+      'Batch case ' + scenarioID + '/' + caseName + ' requires a target object.');
+    let targetPath = null;
+    let targetFromEnvironment = false;
+    if (target.mode === 'environment') {
+      const unknownTargetFields = Object.keys(target).filter((field) => field !== 'mode');
+      assert.equal(unknownTargetFields.length, 0, 'Unsupported environment target fields: ' + unknownTargetFields.join(', ') + '.');
+      targetFromEnvironment = true;
+    } else if (target.mode === 'config') {
+      const unknownTargetFields = Object.keys(target).filter((field) => !['mode', 'path'].includes(field));
+      assert.equal(unknownTargetFields.length, 0, 'Unsupported config target fields: ' + unknownTargetFields.join(', ') + '.');
+      assert(typeof target.path === 'string' && target.path.trim() && target.path === target.path.trim(),
+        'Config target for ' + scenarioID + '/' + caseName + ' requires a path without surrounding whitespace.');
+      targetPath = target.path;
+    } else {
+      throw new Error('Batch target mode must be "environment" or "config".');
+    }
+    const bound = await bindCaseTarget({
+      contract,
+      targetPath,
+      targetFromEnvironment,
+      targetLoader,
+      root,
+      env,
+    });
+    resolvedCases.push({
+      ...bound,
+      scenarioID,
+      caseName,
+      checksOnly: false,
+      contract,
+      env: bound.env,
+      registryValidation,
+    });
+  }
+  return resolvedCases;
+}
+
+export async function runNativeVerificationBatch({
+  cases,
+  root = repositoryRoot,
+  env = process.env,
+  evidenceParent,
+  commandRunner = runProcess,
+  signal,
+  targetLoader = defaultTargetLoader,
+  registryValidation: providedRegistryValidation = null,
+  maxConcurrency = 1,
+  atomicWriteJson = writeJsonAtomically,
+} = {}) {
+  assert(Number.isInteger(maxConcurrency) && maxConcurrency >= 1 && maxConcurrency <= 3,
+    'Batch maxConcurrency must be an integer from 1 through 3.');
+  const canonicalRoot = realpathSync(resolve(root));
+  const registryValidation = providedRegistryValidation ?? registryValidationSummary(registry);
+  const resolvedCases = await resolveBatchCases(cases, {
+    root: canonicalRoot,
+    env,
+    targetLoader,
+    registryValidation,
+  });
+  return runNativeVerificationEngine({
+    resolvedCases,
+    root: canonicalRoot,
+    evidenceParent,
+    commandRunner,
+    signal,
+    registryValidation,
+    maxConcurrency,
+    atomicWriteJson,
+  });
+}
+
+export async function runNativeVerificationBracket(options = {}) {
+  const root = realpathSync(resolve(options.root ?? repositoryRoot));
+  const scenarioID = options.scenarioID;
+  const caseName = options.caseName;
+  assert(typeof scenarioID === 'string' && scenarioID.trim(), 'Provide --scenario.');
+  assert(typeof caseName === 'string' && caseName.trim(), 'Provide --case.');
+  const scenario = registry.find((candidate) => candidate.id === scenarioID);
+  assert(scenario, 'Unknown registered scenario: ' + scenarioID);
+  const contract = scenarioCaseFor(scenario, caseName);
+  const env = options.env ?? process.env;
+  const targetPath = options.targetPath ?? options.targetValidation?.configPath ?? null;
+  const targetValidation = options.targetValidation ?? {
+    scope: 'environment-only',
+    registryBinding: 'unbound',
+    runtimeDatasetIdentity: 'not-checked',
+    configPath: null,
+    project: null,
+    generation: null,
+  };
+  const resolvedCases = [{
+    scenarioID,
+    caseName,
+    grep: options.grep,
+    checksOnly: options.checksOnly === true,
+    targetPath,
+    targetObject: options.targetObject ?? null,
+    mappedTargetEnvironment: options.mappedTargetEnvironment ?? {},
+    env,
+    targetValidation,
+    contract,
+    registryValidation: options.registryValidation ?? registryValidationSummary(registry),
+  }];
+  const batch = await runNativeVerificationEngine({
+    resolvedCases,
+    root,
+    evidenceParent: options.evidenceParent,
+    commandRunner: options.commandRunner ?? runProcess,
+    signal: options.signal,
+    registryValidation: options.registryValidation ?? registryValidationSummary(registry),
+    maxConcurrency: 1,
+    atomicWriteJson: options.atomicWriteJson ?? writeJsonAtomically,
+  });
+  return batch.caseSummaries[0];
 }
 
 export async function main(argv, {
   runBracket = runNativeVerificationBracket,
+  runBatch = runNativeVerificationBatch,
   write = console.log,
   env = process.env,
   registryForValidation = registry,
-  targetLoader = async (input) => {
-    const { loadOwnedCdaTargetConfig } = await import('./verify-ui/helpers/owned-cda-target-config.mjs');
-    return loadOwnedCdaTargetConfig(input);
-  },
+  targetLoader = defaultTargetLoader,
+  commandRunner = runProcess,
+  atomicWriteJson = writeJsonAtomically,
+  signal: providedSignal,
+  root = repositoryRoot,
 } = {}) {
   const options = parseCli(argv);
   if (options.help) {
@@ -1423,55 +2420,81 @@ export async function main(argv, {
     return 0;
   }
   const registryValidation = registryValidationSummary(registryForValidation);
+  const canonicalRoot = realpathSync(resolve(root));
+  const interruptController = providedSignal ? null : new AbortController();
+  const signal = providedSignal ?? interruptController.signal;
+  const handleInterrupt = () => interruptController?.abort();
+  if (options.batchPath) {
+    let batchSummary;
+    try {
+      const cases = parseBatchManifest(options.batchPath);
+      for (const entry of cases) {
+        validateBatchCaseSelection(entry.scenario, entry.case, registryForValidation);
+      }
+      if (interruptController) process.on('SIGINT', handleInterrupt);
+      batchSummary = await runBatch({
+        cases,
+        root: canonicalRoot,
+        env,
+        evidenceParent: options.evidenceParent,
+        commandRunner,
+        signal,
+        targetLoader,
+        registryValidation,
+        maxConcurrency: options.maxConcurrency,
+        atomicWriteJson,
+      });
+    } finally {
+      if (interruptController) process.off('SIGINT', handleInterrupt);
+    }
+    write(JSON.stringify({
+      status: batchSummary.status,
+      nativeStatus: batchSummary.nativeStatus ?? null,
+      integrityStatus: batchSummary.integrityStatus ?? batchSummary.sharedBracket?.integrity?.status ?? 'UNVERIFIED',
+      failureCategory: batchSummary.failureCategory ?? null,
+      batchId: batchSummary.batchId,
+      runDirectory: batchSummary.runDirectory,
+      summary: batchSummary.summaryPath,
+      durationMs: batchSummary.durationMs ?? null,
+      durationScope: batchSummary.durationScope ?? null,
+      concurrency: batchSummary.concurrency ?? null,
+      sharedBracket: batchSummary.sharedBracket ?? null,
+      cases: batchSummary.cases ?? [],
+      notes: batchSummary.notes ?? [],
+    }, null, 2));
+    return signal?.aborted ? 130 : batchSummary.status === 'passed' ? 0 : 1;
+  }
   if (!options.checksOnly || options.targetPath) {
     const scenario = registry.find((candidate) => candidate.id === options.scenarioID);
     assert(scenario, 'Unknown registered scenario: ' + options.scenarioID);
     const contract = scenarioCaseFor(scenario, options.caseName);
-    if (options.targetPath) {
-      assert(contract.expectedIdentity,
-        'This case has no registered target identity. Use --target-from-environment only when its case oracle validates scope.');
-      const loadedTarget = await targetLoader({
-        targetPath: options.targetPath,
-        repositoryRoot,
-        env,
-        expectedIdentity: contract.expectedIdentity,
-      });
-      options.env = { ...env, ...loadedTarget.environment };
-      options.targetValidation = {
-        scope: loadedTarget.validationScope ?? 'configuration-only',
-        registryBinding: 'bound',
-        runtimeDatasetIdentity: loadedTarget.runtimeDatasetIdentity ?? 'not-checked',
-        configPath: loadedTarget.configPath ?? options.targetPath,
-        project: loadedTarget.target?.project ?? contract.expectedIdentity.project,
-        generation: loadedTarget.target?.generation ?? contract.expectedIdentity.generation,
-      };
-    } else {
-      assert(options.targetFromEnvironment, 'Choose an explicit target mode.');
-      assert(!contract.expectedIdentity,
-        'This case has a registered target identity and must use --target <config-path>.');
-      options.env = { ...env };
-      options.targetValidation = {
-        scope: 'environment-only',
-        registryBinding: 'unbound',
-        runtimeDatasetIdentity: 'not-checked',
-        configPath: null,
-        project: null,
-        generation: null,
-      };
-    }
+    const bound = await bindCaseTarget({
+      contract,
+      targetPath: options.targetPath,
+      targetFromEnvironment: options.targetFromEnvironment,
+      targetLoader,
+      root: canonicalRoot,
+      env,
+    });
+    Object.assign(options, bound, {
+      targetValidation: bound.targetValidation,
+      registryValidation,
+    });
   }
-  const interruptController = new AbortController();
-  const handleInterrupt = () => interruptController.abort();
-  process.on('SIGINT', handleInterrupt);
-  options.signal = interruptController.signal;
+  options.root = canonicalRoot;
+  options.env ??= env;
+  options.signal = signal;
   options.registryValidation = registryValidation;
+  options.commandRunner = commandRunner;
+  options.atomicWriteJson = atomicWriteJson;
   let summary;
+  if (interruptController) process.on('SIGINT', handleInterrupt);
   try {
     summary = await runBracket(options);
   } finally {
-    process.off('SIGINT', handleInterrupt);
+    if (interruptController) process.off('SIGINT', handleInterrupt);
   }
-  if (interruptController.signal.aborted) {
+  if (signal?.aborted) {
     summary.interrupted = true;
     summary.notes ??= [];
     if (!summary.notes.some((note) => /interrupted by SIGINT or an abort request/.test(note))) {
@@ -1559,6 +2582,8 @@ export async function main(argv, {
     apiBuildIdentity,
     targetValidation: summary.targetValidation,
     registryValidation: summary.registryValidation,
+    browserTestPassed: summary.reviewPacket.browserTestPassed,
+    domainReportStatus: summary.reviewPacket.domainReportStatus,
     focusedCheckCoverage: summary.focusedCheckCoverage,
     focusedChecks,
     replayArgv,
@@ -1577,7 +2602,7 @@ export async function main(argv, {
     lastCompletedAction: summary.reviewPacket.lastCompletedAction,
     pendingOwnedRequests: summary.reviewPacket.pendingOwnedRequests,
   }, null, 2));
-  return interruptController.signal.aborted ? 130
+  return signal?.aborted ? 130
     : summary.status === 'passed' || summary.status === 'checks-passed' ? 0 : 1;
 }
 

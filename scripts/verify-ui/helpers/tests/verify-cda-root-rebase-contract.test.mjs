@@ -21,7 +21,9 @@ test('CDA root rebase is registered to its explicit-query native case and focuse
   assert.deepEqual(contract.focusedChecks[0].command, [
     'node-test',
     'scripts/verify-ui/helpers/tests/verify-cda-root-rebase-contract.test.mjs',
+    'scripts/verify-ui/helpers/tests/root-rebase-preservation.test.mjs',
   ]);
+  assert(contract.focusedChecks[0].sourceFiles.includes('scripts/verify-ui/helpers/root-rebase-preservation.mjs'));
   const describe = spec.slice(spec.indexOf("test.describe('CDA root rebase lifecycle'"), spec.indexOf("test.describe('CDA legacy collection'"));
   assert.match(describe, /cdaScenarioID:\s*'cda-root-rebase'/);
   assert.match(describe, /cdaCaseName:\s*'preserve-patient-values-through-observation-and-restore'/);

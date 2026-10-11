@@ -57,7 +57,7 @@ try {
   const duplicateRequestStarted = Date.now();
   await userClick('[data-testid="construction-duplicate-table"]', 'Duplicate Specimen table');
   const duplicatePredicate = request => request.path === `${requestPrefix}/commands` && request.startedAt >= duplicateRequestStarted;
-  report.nativeRequests.findLast(duplicatePredicate) ?? await cda.waitForCapturedResponse(browserEvents, duplicatePredicate, 5000);
+  browserEvents.requests.findLast(duplicatePredicate) ?? await browserEvents.waitForResponse(duplicatePredicate, { timeoutMs: 5000 });
   await cda.wait(([count]) => document.querySelectorAll('[data-testid^="construction-table-"]').length > count, [originalIds.length], 5000);
   report.afterDuplicate = await cda.inspect(() => ({ text: document.body.innerText.slice(0, 1800), alerts: [...document.querySelectorAll('[role="alert"]')].map(item => item.innerText) }));
   duplicateId = (await tableIds()).find(id => !originalIds.includes(id));
@@ -151,13 +151,12 @@ try {
   await selectDuplicate();
   assert.equal(await cda.inspect(() => document.querySelectorAll('[data-testid^="saved-frame-"]').length), 0, 'Framing source remained after reload');
   assert.equal(await cda.inspect(() => [...document.querySelectorAll('[data-testid^="construction-column-"]')].filter(button => button.innerText.includes('days_to_collection')).length), 0, 'Framed column remained after source removal');
-  await browserEvents.flush();
-  report.responses = report.nativeRequests.filter(response => response.status !== undefined).map(response => ({
+  report.responses = browserEvents.requests.filter(response => response.status !== undefined).map(response => ({
     requestId: response.requestId, path: response.path, status: response.status,
     elapsedMs: (response.completedAt ?? response.responseReceivedAt ?? Date.now()) - response.startedAt,
   }));
-  report.commandRequests = report.nativeRequests.filter(request => request.path.endsWith('/commands'));
-  report.failedResponses = report.nativeRequests.filter(response => response.status >= 400).map(response => ({ ...response, code: response.response?.error?.code }));
+  report.commandRequests = browserEvents.requests.filter(request => request.path.endsWith('/commands'));
+  report.failedResponses = browserEvents.requests.filter(response => response.status >= 400).map(response => ({ ...response, code: response.response?.error?.code }));
   assert(report.failedResponses.every(response => response.status === 409 && response.path.endsWith('/construction-capabilities') &&
     (response.code === 'STALE_DRAFT_VERSION' || response.code === 'STALE_DRAFT_DIGEST')),
   `Unexpected Builder error response: ${JSON.stringify(report.failedResponses)}`);
@@ -189,7 +188,6 @@ try {
       report.cleanupError = String(error);
     }
   }
-  cda.includeBrowserDiagnostics();
   report.browserDiagnostics = cda.diagnostics;
   report.screenshots = screenshots;
   await cda.attachReport('framing-lifecycle-domain-report.json');

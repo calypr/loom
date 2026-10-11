@@ -485,8 +485,8 @@ const verifyCanceledSavedExpand = async ({ startIndex, before, preCancelPreview,
       path: entry.path,
       status: entry.status,
       completedAt: entry.completedAt ?? null,
-      requestReceiptId: entry.body?.receiptId ?? null,
-      requestOutputId: entry.body?.outputId ?? null,
+      requestReceiptId: entry.request?.receiptId ?? null,
+      requestOutputId: entry.request?.outputId ?? null,
       responseReceiptId: entry.response?.receiptId ?? null,
       responseOutputId: entry.response?.outputId ?? null,
     }));
@@ -495,8 +495,8 @@ const verifyCanceledSavedExpand = async ({ startIndex, before, preCancelPreview,
     path: savedPreview.request.path,
     status: savedPreview.request.status,
     completedAt: savedPreview.request.completedAt ?? null,
-    requestReceiptId: savedPreview.request.body?.receiptId ?? null,
-    requestOutputId: savedPreview.request.body?.outputId ?? null,
+    requestReceiptId: savedPreview.request.request?.receiptId ?? null,
+    requestOutputId: savedPreview.request.request?.outputId ?? null,
     responseReceiptId: savedPreview.request.response?.receiptId ?? null,
     responseOutputId: savedPreview.request.response?.outputId ?? null,
   } : null;
@@ -578,9 +578,9 @@ const proposeExpandRemoval = async (phase) => {
   assert(durationMs <= 5000, `${phase} took ${durationMs}ms`);
   const visible = await verifyOriginalRows(await previewRows(), `${phase} source restoration proposal`);
   const request = report.browserRequests.findLast((entry) =>
-    entry.path.endsWith('/construction-proposals') && entry.body?.removeStepIds?.includes(appliedStep.id));
+    entry.path.endsWith('/construction-proposals') && entry.request?.removeStepIds?.includes(appliedStep.id));
   assert(request, `${phase} must propose deletion of the saved EXPAND step`);
-  assert(!request.body.candidateConstruction.steps.some((step) => step.id === appliedStep.id),
+  assert(!request.request.candidateConstruction.steps.some((step) => step.id === appliedStep.id),
     `${phase} candidate must omit the saved EXPAND step`);
   const response = await waitForCapturedResponse(request);
   assert.equal(response.preview?.rowCount, sourceRecords.length, `${phase} must restore one source row per Observation`);
@@ -595,9 +595,10 @@ const monitorBrowser = () => {
 const waitForCapturedResponse = async (entry) => {
   assert(entry, 'Expected browser protocol request was not captured');
   if (entry.status === undefined) {
-    await requestMonitor.waitFor(candidate => candidate === entry, { timeoutMs: 5000 });
+    const fromIndex = requestMonitor.requests.indexOf(entry);
+    assert(fromIndex >= 0, 'Expected browser request must belong to the local request monitor');
+    await requestMonitor.waitForResponse(candidate => candidate === entry, { fromIndex, timeoutMs: 5000 });
   }
-  await requestMonitor.flush();
   assert.equal(entry.status, 200, `Browser request failed: ${entry.path} ${JSON.stringify(entry.response)}`);
   assert.equal(entry.responseReadError, undefined, `Could not read the browser response body: ${entry.responseReadError}`);
   return entry.response;
@@ -605,11 +606,11 @@ const waitForCapturedResponse = async (entry) => {
 
 const latestExpandProposal = (expectedLabel) => report.browserRequests.findLast((entry) =>
   entry.path.endsWith('/construction-proposals') &&
-  entry.body?.candidateConstruction?.steps?.some((step) => step.operation?.kind === 'EXPAND' &&
+  entry.request?.candidateConstruction?.steps?.some((step) => step.operation?.kind === 'EXPAND' &&
     (!expectedLabel || step.outputs.some((column) => column.id === step.operation.expand.outputColumnId && column.label === expectedLabel))));
 
 const latestCommand = (type) => report.browserRequests.findLast((entry) =>
-  entry.path.endsWith('/commands') && entry.body?.commands?.some((commandValue) => commandValue.type === type));
+  entry.path.endsWith('/commands') && entry.request?.commands?.some((commandValue) => commandValue.type === type));
 
 const waitForProposal = async (startedAt, outputLabel) => {
   const selector = '[data-testid="construction-proposal-panel"]';
@@ -681,7 +682,7 @@ const openSavedExpandEditor = async (phase) => measure(phase, async (startedAt) 
 const assertExpandRequest = async (expectedLabel, expectedInputColumnId, expectedStepId) => {
   const entry = latestExpandProposal(expectedLabel);
   assert(entry, 'Native EXPAND editor did not send a construction proposal');
-  const request = entry.body;
+  const request = entry.request;
   const step = request.candidateConstruction.steps.findLast((candidate) => candidate.operation?.kind === 'EXPAND');
   assert(step, 'Construction proposal must contain an EXPAND operation');
   assert.equal(step.operation.expand.inputColumnId, expectedInputColumnId, `EXPAND must bind the projected ${codeFieldPath} list`);
@@ -846,7 +847,7 @@ try {
       rowCount: authoredIdentityMapping.length, mapping: authoredIdentityMapping,
     });
     await saveDOM('expand-confirmed-preview');
-    const applyPreviewRequestIndex = report.browserRequests.length;
+    const applyPreviewRequestIndex = requestMonitor.requests.length;
     await measure('native-EXPAND-apply', async (startedAt) => {
       await click(page, '[data-testid="construction-apply-proposal"]');
       await fastWait(startedAt, { kind: 'all', conditions: [
@@ -890,7 +891,7 @@ try {
       step: appliedStep, preview: report.appliedPreview,
     });
 
-    const appliedReloadRequestIndex = report.browserRequests.length;
+    const appliedReloadRequestIndex = requestMonitor.requests.length;
     await openTable(report.oracle.expectedRows.length, 'reload-applied-expand');
     report.reloadPreview = verifyExpandedRows(await previewRows(), expandedItemLabel, 'Reloaded native nested EXPAND table');
     const appliedReloadProtocol = await nativePreviewAfter(appliedReloadRequestIndex, 'Reloaded native EXPAND');
@@ -948,7 +949,7 @@ try {
     await saveDOM('expand-edit-cancel-preview');
 
     const editPreCancelPreview = await readSavedPreviewBinding();
-    const editCancelRequestStart = report.browserRequests.length;
+    const editCancelRequestStart = requestMonitor.requests.length;
     await measure('native-EXPAND-edit-cancel-restoration', async (startedAt) => {
       await click(page, '[data-testid="construction-cancel-proposal"]');
       await fastWait(startedAt, { kind: 'all', conditions: [
@@ -987,7 +988,7 @@ try {
     assert.deepEqual(report.rowIdentityMappings.editedProposal, authoredIdentityMapping,
       'Changing only the output label must preserve native __loom_row_id by Observation/ordinal tuple');
     await saveDOM('expand-edit-preview');
-    const editApplyPreviewRequestIndex = report.browserRequests.length;
+    const editApplyPreviewRequestIndex = requestMonitor.requests.length;
     await measure('native-EXPAND-edit-apply', async (startedAt) => {
       await click(page, '[data-testid="construction-apply-proposal"]');
       await fastWait(startedAt, { kind: 'all', conditions: [
@@ -1018,7 +1019,7 @@ try {
     await saveDOM('expand-edit-applied');
     recordAssertion('Editing changes the item label while preserving the operation and output identities', { step: appliedStep, preview: report.editAppliedPreview });
 
-    const editedReloadRequestIndex = report.browserRequests.length;
+    const editedReloadRequestIndex = requestMonitor.requests.length;
     await openTable(report.oracle.expectedRows.length, 'reload-edited-expand');
     report.editReloadPreview = verifyExpandedRows(await previewRows(), 'Edited component value', 'Reloaded edited EXPAND table');
     const editedReloadProtocol = await nativePreviewAfter(editedReloadRequestIndex, 'Reloaded edited EXPAND');
@@ -1046,7 +1047,7 @@ try {
     await saveDOM('expand-removal-cancel-preview');
 
     const removalPreCancelPreview = await readSavedPreviewBinding();
-    const removalCancelRequestStart = report.browserRequests.length;
+    const removalCancelRequestStart = requestMonitor.requests.length;
     await measure('native-EXPAND-removal-cancel-restoration', async (startedAt) => {
       await click(page, '[data-testid="construction-cancel-proposal"]');
       await fastWait(startedAt, { kind: 'all', conditions: [
@@ -1072,7 +1073,7 @@ try {
     report.removalPreview = appliedRemoval.visible;
     const removalRequest = appliedRemoval.request;
     await saveDOM('expand-remove-preview-restored-records');
-    const removalApplyRequestIndex = report.browserRequests.length;
+    const removalApplyRequestIndex = requestMonitor.requests.length;
     let removalApplySourceIdentity;
     await measure('native-EXPAND-remove-apply-restoration', async (startedAt) => {
       await click(page, '[data-testid="construction-apply-proposal"]');
@@ -1130,7 +1131,7 @@ try {
     };
     assert.deepEqual(removalReloadSourceIdentity, removalApplySourceIdentity,
       'Pre-reload capabilities must match the exact saved source identity');
-    const removalReloadRequestIndex = report.browserRequests.length;
+    const removalReloadRequestIndex = requestMonitor.requests.length;
     await openTable(sourceRecords.length, 'reload-after-expand-removal', async (startedAt) => {
       const capabilities = await waitForSourceCapabilities(requestMonitor, {
         fromIndex: removalReloadRequestIndex,
@@ -1169,7 +1170,6 @@ try {
         sourceCapabilities: report.removalReloadCapabilities,
       });
 
-    await requestMonitor.flush();
     assert.deepEqual(report.browserErrors.protocol, [], 'Browser reported a failed network protocol request');
     assert.deepEqual(report.browserErrors.exceptions, [], 'Browser raised JavaScript exceptions');
     assert.deepEqual(report.browserErrors.console, [], 'Browser logged console errors');
@@ -1207,7 +1207,6 @@ try {
   try { report.failureBuilder = (await api(`${base}/builder`)).body; } catch (readError) { report.builderReadError = String(readError); }
   throw error;
 } finally {
-  await requestMonitor.flush();
   await finish();
 }
 }

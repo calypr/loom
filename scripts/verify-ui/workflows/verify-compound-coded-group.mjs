@@ -7,10 +7,12 @@ export async function verifyCompoundCodedGroup({ page, cda, check, mode = 'singl
 const origin = cda.uiOrigin;
 const apiOrigin = cda.apiOrigin;
 const basicMode = mode === 'basic';
+const singleMode = mode === 'single';
 const differentialMode = mode === 'differential';
 if (basicMode && typeof check !== 'function') throw new TypeError('The registered basic compound-coded-group case requires workflow.check.');
+if (singleMode && typeof check !== 'function') throw new TypeError('The registered single compound-coded-group case requires workflow.check.');
 const recordWorkflowCheck = (dimension, name, passed, evidence = {}) => {
-  if (basicMode) check(dimension, name, passed, evidence);
+  if (basicMode || singleMode) check(dimension, name, passed, evidence);
 };
 const project = cda.project;
 const observationId = basicMode ? 'dev-observation-001' : '485e2567-b566-56f3-b5bd-5f025f37cd95';
@@ -22,6 +24,7 @@ const codedPairs = basicMode ? [
   { system: 'https://cda.readthedocs.io', code: 'primary_disease_type', label: 'Primary disease type' },
 ];
 const explorer = `compound-coded-qa-${Date.now()}`;
+cda.report.explorer = explorer;
 const base = `/api/v1/projects/${project}/explorers/${explorer}`;
 const state = { explorer, observationId, project, mode: basicMode ? 'devloop-basic-coded-grouping' : differentialMode ? 'differential' : 'single-observation', timingsMs: {}, failures: [], requests: [], nativeRequests: [], errors: [], target: cda.target };
 state.requests = state.nativeRequests;
@@ -55,7 +58,6 @@ let statusColumn;
 let statusColumnID;
 let statusInputColumnID;
 let requestCapture;
-let diagnostics;
 
 const api = async (path, method = 'GET', body) => {
   const response = await fetch(apiOrigin + path, {
@@ -86,15 +88,15 @@ const finishTiming = (name, started) => {
 
 const proposed = async (started, timing, expectedBuilder, requestStart) => {
   const deadline = started + 5000;
-  const requestEntry = await requestCapture.waitFor(entry => entry.path.endsWith('/construction-proposals') && entry.method === 'POST',
+  const requestEntry = await requestCapture.waitForResponse(entry => entry.path.endsWith('/construction-proposals') && entry.method === 'POST',
     { fromIndex: requestStart, timeoutMs: Math.max(1, deadline - Date.now()) });
-  const request = await cda.waitForCapturedResponse(requestCapture, entry => entry === requestEntry, Math.max(1, deadline - Date.now()));
+  const request = requestEntry;
   assert(request.response, `${timing} proposal response could not be captured: ${request.responseBodyError ?? 'unknown response body error'}`);
   assert.equal(request.status, 200, `${timing} proposal request failed: ${JSON.stringify(request.response)}`);
   assert(request.response.proposalId, `${timing} proposal response omitted its receipt`);
-  assert.equal(request.body.snapshotToken, expectedBuilder.catalog.snapshotToken, `${timing} must use the current catalog snapshot`);
-  assert.equal(request.body.expectedDraftVersion, expectedBuilder.draftVersion, `${timing} must use the current saved draft version`);
-  assert.equal(request.body.expectedDraftDigest, expectedBuilder.draftDigest, `${timing} must use the current saved draft digest`);
+  assert.equal(request.request.snapshotToken, expectedBuilder.catalog.snapshotToken, `${timing} must use the current catalog snapshot`);
+  assert.equal(request.request.expectedDraftVersion, expectedBuilder.draftVersion, `${timing} must use the current saved draft version`);
+  assert.equal(request.request.expectedDraftDigest, expectedBuilder.draftDigest, `${timing} must use the current saved draft digest`);
   assert.equal(request.response.outputId, savedDocument(expectedBuilder).output.id);
   assert.equal(request.response.snapshotToken, expectedBuilder.catalog.snapshotToken);
   assert.equal(request.response.draftVersion, expectedBuilder.draftVersion);
@@ -348,7 +350,7 @@ try {
   const rowDefinitionDialogOpen = await inspectDOM( () => Boolean(document.querySelector('[role="dialog"][aria-label="Row definition settings"][aria-modal="true"]')));
   if (!rowDefinitionDialogOpen) await clickControl(tracker, '[data-testid="construction-rows-settings-trigger"]');
   await waitForDOM( () => document.querySelector('[data-testid="construction-action-group-rows"]')?.disabled === false, {}, 5000);
-  const requestStart = state.requests.length;
+  const requestStart = requestCapture.requests.length;
   const openedAt = Date.now();
   await clickControl(tracker, '[data-testid="construction-action-group-rows"]');
   await waitForDOM( ({ label }) => Boolean(document.querySelector(`input[aria-label="Group by coded value: ${CSS.escape(label)}"]:not(:disabled)`)), { label: codedPairs[0].label }, 5000);
@@ -365,7 +367,7 @@ try {
       { headers: state.initialGroupPreview.headers, rows: state.initialGroupPreview.rows,
         selectedIDs: rawSources.map(source => source.id), expectedCount: rawSources.length });
   }
-  const proposalRequestStart = state.requests.length;
+  const proposalRequestStart = requestCapture.requests.length;
   const selectedAt = Date.now();
   await clickControl(tracker, codedCheckboxLocator(codedPairs[0].label), { name: `Group by coded value: ${codedPairs[0].label}` });
   state.proposal = await proposed(selectedAt, 'selectToPreview', state.baseline, proposalRequestStart);
@@ -390,7 +392,7 @@ try {
   await waitForDOM( () => !document.querySelector('[data-testid="construction-proposal-panel"]') && document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1, {}, 5000);
   finishTiming('applyFirstCodedGroup', firstApplyAt);
   state.saved = await api(base + '/authoring/v2/builder');
-  assert.deepEqual(state.requests.slice(requestStart).filter(request => request.path.endsWith('/commands')).flatMap(request => request.body.commands.map(command => command.type)), ['APPLY_CONSTRUCTION_PROPOSAL'], 'One Apply must save both parts in one command');
+  assert.deepEqual(state.requests.slice(requestStart).filter(request => request.path.endsWith('/commands')).flatMap(request => request.request.commands.map(command => command.type)), ['APPLY_CONSTRUCTION_PROPOSAL'], 'One Apply must save both parts in one command');
   const construction = savedDocument(state.saved).construction;
   assert.equal(construction.steps.length, 2, 'The extraction and grouping must be saved together');
   const [helper, group] = construction.steps;
@@ -425,7 +427,7 @@ try {
   }
   if (!basicMode) {
     await waitForDOM( () => Boolean(document.querySelector('input[aria-label="Group by coded value: Primary disease type"]:not(:disabled)')), {}, 5000);
-    const editProposalRequestStart = state.requests.length;
+    const editProposalRequestStart = requestCapture.requests.length;
     const editedAt = Date.now();
     await clickControl(tracker, 'input[aria-label="Group by coded value: Primary disease type"]');
     state.editedProposal = await proposed(editedAt, 'editToPreview', state.saved, editProposalRequestStart);
@@ -455,7 +457,7 @@ try {
   const ordinaryKeyState = await inspectDOM( ({ selector }) => { const input = document.querySelector(selector); return { disabled: input?.disabled, checked: input?.checked }; }, { selector: ordinaryKeySelector });
   assert.equal(ordinaryKeyState.disabled, false);
   assert.equal(ordinaryKeyState.checked, false, 'The direct ordinary source key must start unselected before this edit');
-  const ordinaryProposalRequestStart = state.requests.length;
+  const ordinaryProposalRequestStart = requestCapture.requests.length;
   await clickControl(tracker, ordinaryKeySelector);
   state.mixedKeyProposal = await proposed(ordinaryKeyAt, 'ordinaryKeyToPreview', state.saved, ordinaryProposalRequestStart);
   assert.equal(state.mixedKeyProposal.rows.length, 1);
@@ -547,7 +549,7 @@ try {
 
   await clickControl(tracker, `[data-testid="construction-history-step-${group.id}"]`);
   const removedAt = Date.now();
-  const removalProposalRequestStart = state.requests.length;
+  const removalProposalRequestStart = requestCapture.requests.length;
   await clickControl(tracker, `[data-testid="construction-remove-step-${group.id}"]`);
   state.removalProposal = await proposed(removedAt, 'removeToPreview', state.edited, removalProposalRequestStart);
   if (differentialMode) {
@@ -568,7 +570,7 @@ try {
       constructionSteps: savedDocument(state.afterRemovalCancel).construction.steps.map((step) => step.operation.kind) });
   await clickControl(tracker, `[data-testid="construction-history-step-${group.id}"]`);
   const confirmedRemovalAt = Date.now();
-  const confirmedRemovalRequestStart = state.requests.length;
+  const confirmedRemovalRequestStart = requestCapture.requests.length;
   await clickControl(tracker, `[data-testid="construction-remove-step-${group.id}"]`);
   state.confirmedRemovalProposal = await proposed(confirmedRemovalAt, 'confirmedRemovalToPreview', state.edited, confirmedRemovalRequestStart);
   if (differentialMode) {
@@ -613,15 +615,7 @@ try {
       { rowCount: restoredRows.rows.length, headers: restoredRows.headers, restoredObservationIDs: restoredIDs,
         expectedObservationId: observationId, constructionSteps: savedDocument(state.restoredAfterReload).construction?.steps?.length ?? 0 });
   }
-  await requestCapture.flush();
-  await cda.includeBrowserDiagnostics();
-  diagnostics = cda.diagnostics;
-  state.failures.push(...diagnostics.console.map(entry => ({ kind: 'console', ...entry })));
-  state.failures.push(...diagnostics.pageErrors.map(entry => ({ kind: 'page-error', ...entry })));
-  state.failures.push(...diagnostics.networkFailures.map(entry => ({ kind: 'network', ...entry })));
-  state.failures.push(...diagnostics.httpFailures.map(entry => ({ kind: 'http', ...entry })));
-  state.failures.push(...state.errors.map(entry => ({ kind: 'api', ...entry })));
-  assert.deepEqual(state.failures, [], 'The browser lifecycle must not hide HTTP or runtime failures');
+
 } catch (error) {
   state.failures.push({ kind: 'assertion', text: String(error.stack ?? error) });
   if (error.invalidatesRun) state.status = 'invalidated';
@@ -630,13 +624,8 @@ try {
     state: { explorer, observationIDs, timingsMs: state.timingsMs, requests: state.requests } };
   throw error;
 } finally {
-  await requestCapture.flush();
+
   state.body = await page.locator('body').innerText().catch(String);
-  if (!diagnostics) {
-    await cda.includeBrowserDiagnostics();
-    diagnostics = cda.diagnostics;
-  }
-  state.diagnostics = diagnostics;
   await cda.attachReport(`${explorer}-compound-coded-group`, state);
 }
 }

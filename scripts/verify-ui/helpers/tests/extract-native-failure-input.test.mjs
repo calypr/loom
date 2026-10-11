@@ -176,6 +176,28 @@ function makeBracketInputs(t, { responseAvailable = false } = {}) {
   return { directory, paths, report, request, stateRequest, sourceFingerprint: fingerprint, summary };
 }
 
+function makeCurrentObserverInputs(t) {
+  const input = makeBracketInputs(t);
+  const useObserverShape = (entry, browserRequestId, requestId) => {
+    const fields = structuredClone(entry);
+    const request = fields.body;
+    delete fields.body;
+    delete fields.responseReceivedAt;
+    delete fields.completedAt;
+    return {
+      ...fields,
+      browserRequestId,
+      requestId,
+      request,
+    };
+  };
+  const stateRequest = useObserverShape(input.stateRequest, 'playwright-request-16', 'header-reconcile-16');
+  const request = useObserverShape(input.request, 'playwright-request-24', 'header-proposal-24');
+  const report = { ...input.report, nativeRequests: [stateRequest, request] };
+  writeJson(input.paths.report, report);
+  return { ...input, report, stateRequest, request };
+}
+
 function makeRetainedCdaInputs(t) {
   const directory = registerCleanup(t, mkdtempSync(join(tmpdir(), 'native-failure-cda-retained-')));
   const paths = Object.fromEntries(['report', 'playwright', 'summary', 'out']
@@ -284,6 +306,38 @@ test('native bracket summary hashes retained evidence at extraction and preserve
   assert.equal(fixture.requestEvidence.prerequisiteState.selectionMethod, 'not-selected');
   assert.match(fixture.requestEvidence.prerequisiteState.reason, /not inferred/);
   assert.equal(fixture.expectation.status, 'missing-independent-oracle');
+});
+
+test('extracts current observer request payloads by scalar browser and header IDs without terminal timestamps', t => {
+  const input = makeCurrentObserverInputs(t);
+  const inventory = listNativeFailureRequests({ summaryPath: input.paths.summary });
+
+  assert.equal(inventory.proposals.length, 1);
+  assert.equal(inventory.proposals[0].browserRequestId, 'playwright-request-24');
+  assert.equal(inventory.proposals[0].requestId, 'header-proposal-24');
+  assert.equal(inventory.proposals[0].stateMatches.length, 1);
+  assert.equal(inventory.proposals[0].stateMatches[0].browserRequestId, 'playwright-request-16');
+  assert.equal(inventory.proposals[0].stateMatches[0].requestId, 'header-reconcile-16');
+
+  const fixture = extract(input, { stateBrowserRequestId: 'playwright-request-16' });
+  const selected = fixture.requestEvidence.nativeRequest;
+  const state = fixture.requestEvidence.prerequisiteState;
+  assert.equal(fixture.requestSelection.browserRequestId, 'playwright-request-24');
+  assert.equal(fixture.requestSelection.requestId, 'header-proposal-24');
+  assert.equal(selected.request.expectedDraftVersion, 4);
+  assert.equal(selected.request.expectedDraftDigest, 'draft-digest-literal');
+  assert.equal(selected.request.outputId, 'out-observed');
+  assert.equal(Object.hasOwn(selected, 'body'), false);
+  assert.equal(state.browserRequestId, 'playwright-request-16');
+  assert.equal(state.requestId, 'header-reconcile-16');
+  assert.deepEqual(state.checkpoint, {
+    snapshotToken: 'snapshot-literal',
+    draftVersion: 4,
+    draftDigest: 'draft-digest-literal',
+    outputId: 'out-observed',
+  });
+  assert.equal(Object.hasOwn(state, 'responseReceivedAt'), false);
+  assert.equal(Object.hasOwn(state, 'completedAt'), false);
 });
 
 test('request inventory lists every validated preceding state for multiple proposals without selecting one', t => {
@@ -441,7 +495,7 @@ test('explicit prerequisite selection extracts the real retained DTO needed by t
   assert.equal(JSON.parse(readFileSync(cliOutput, 'utf8')).requestEvidence.prerequisiteState.status, 'retained');
 });
 
-test('selected prerequisite state rejects another owner, checkpoint, order, missing body, and missing terminal events', t => {
+test('selected prerequisite state rejects another owner, checkpoint, request order, and missing payload', t => {
   const rejectState = (mutate, expectedMessage) => {
     const input = makeBracketInputs(t);
     const report = structuredClone(input.report);
@@ -453,11 +507,9 @@ test('selected prerequisite state rejects another owner, checkpoint, order, miss
 
   rejectState(state => { state.path += '/unexpected'; }, /exact same-owner reconcile path/);
   rejectState(state => { state.body.draftDigest = 'another-digest'; }, /draftDigest differs/);
-  rejectState((state, proposal) => { state.completedAt = proposal.startedAt + 1; }, /must precede/);
+  rejectState((state, proposal) => { state.startedAt = proposal.startedAt + 1; }, /must precede/);
   rejectState(state => { delete state.body; }, /request body is missing/);
   rejectState(state => { delete state.startedAt; }, /start time is missing/);
-  rejectState(state => { delete state.responseReceivedAt; }, /response event is missing/);
-  rejectState(state => { delete state.completedAt; }, /completion event is missing/);
 });
 
 test('uses the real Membership raw oracle with literal expected values, while leaving derivation unverified', t => {

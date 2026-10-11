@@ -2,25 +2,25 @@
   "schemaVersion": 1,
   "kind": "official-playwright-static-discovery",
   "sourceRoot": ".",
-  "baseCommit": "4a8d22ce01e499bd40486167d9ddb6c6b7ee513c",
+  "baseCommit": "aa6fe038e5d12e9032f6c00617c524d002f276fa",
   "status": "discovery-only",
   "runtimeStatus": "not-run",
   "commandTemplate": "<repo>/scripts/node_modules/.bin/playwright test --config <configPath> --list --reporter=json",
-  "note": "Captured from 6 official Playwright --list --reporter=json outputs. These reports list registrations only and skip every test body; no lifecycle ran. The 6 session counts sum to 173 entries.",
-  "mainDiscoveryTestCount": 168,
+  "note": "Updated the main session's scripts/verify-ui/specs/standalone-cda-other.spec.mjs entry from an official full-file Playwright --list --reporter=json output. Other spec entries and sessions are preserved from the prior six-session discovery capture. These outputs list registrations only and skip every test body; no lifecycle ran. The six session counts sum to 174 entries.",
+  "mainDiscoveryTestCount": 169,
   "mainDiscoverySpecFileCount": 28,
   "dedicatedBenchmarkTestCount": 1,
   "dedicatedBenchmarkSpecFileCount": 1,
-  "totalDeclaredTestCount": 173,
+  "totalDeclaredTestCount": 174,
   "sessions": [
     {
       "sessionID": "main",
       "configPath": "scripts/playwright.config.mjs",
       "configSha256": "d16ccb10ccf63f8a711ae7f8c5b61d4bc44452172e9a309a06cab32ce30f69bc",
       "environment": {},
-      "testCount": 168,
+      "testCount": 169,
       "specFileCount": 28,
-      "discoveredCasesSha256": "f6d3d04f89ce0141fb6047097a4a243534c98c13144bbf4a5b6e786d465ea92c",
+      "discoveredCasesSha256": "3b88288db82fec73225a530d9ee5db42790ce26afaa257a7f9f533ce4a688a61",
       "specs": [
         {
           "path": "scripts/verify-ui/specs/append.spec.mjs",
@@ -855,173 +855,180 @@
         },
         {
           "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
+          "sha256": "62a4401eb5379c523bd381989067118840fd9ee2f8e0cc79abd3cf71ebd4420b",
           "cases": [
             {
               "title": "cancel each coded suggestion dialog without changing the draft",
               "id": "4d172c4a6a38586646e6-1b8cc3c7bc1bc1a3a191",
-              "line": 30,
+              "line": 31,
               "column": 3,
               "occurrence": 1
             },
             {
               "title": "publish a bounded Specimen output and verify its viewer rows",
               "id": "4d172c4a6a38586646e6-435a225baa46f3c120f3",
-              "line": 42,
+              "line": 43,
               "column": 3,
               "occurrence": 1
             },
             {
               "title": "change related-record eligibility and restore the source rows",
               "id": "4d172c4a6a38586646e6-638ce83a79557b718506",
-              "line": 54,
+              "line": 55,
               "column": 3,
               "occurrence": 1
             },
             {
               "title": "save and remove a related framed column",
               "id": "4d172c4a6a38586646e6-d18fbcc32897ca084460",
-              "line": 66,
+              "line": 67,
               "column": 3,
               "occurrence": 1
             },
             {
               "title": "preserve Condition diagnosis identifier multiplicity through add and remove",
               "id": "4d172c4a6a38586646e6-dba0cda85d490aafa4e3",
-              "line": 78,
+              "line": 79,
               "column": 3,
               "occurrence": 1
             },
             {
               "title": "create, edit, cancel, apply, and remove a typed CDA filter",
               "id": "4d172c4a6a38586646e6-621633bed352e7b48e57",
-              "line": 90,
+              "line": 91,
               "column": 3,
               "occurrence": 1
             },
             {
               "title": "preserve selected CDA membership while changing and restoring the row root",
               "id": "4d172c4a6a38586646e6-ec3d273225b48916026d",
-              "line": 102,
+              "line": 103,
               "column": 3,
               "occurrence": 1
             },
             {
               "title": "create, edit, apply, and remove a CDA Patient filter with raw-source checks",
               "id": "4d172c4a6a38586646e6-3e2150f1bcaa9d976f4b",
-              "line": 114,
+              "line": 115,
               "column": 3,
               "occurrence": 1
             },
             {
               "title": "rebase Patient rows through Observation and restore the original route and values",
               "id": "4d172c4a6a38586646e6-a8d71af32391fc504d89",
-              "line": 126,
+              "line": 127,
               "column": 3,
               "occurrence": 1
             },
             {
               "title": "read legacy selection coverage and prove the saved draft remains unchanged",
               "id": "4d172c4a6a38586646e6-65fa371682241e5b4aac",
-              "line": 138,
+              "line": 139,
               "column": 3,
               "occurrence": 1
             },
             {
               "title": "delete the only CDA table, restore it with Undo, and verify reload state",
               "id": "4d172c4a6a38586646e6-65f300352e5d3d8303e7",
-              "line": 150,
+              "line": 151,
               "column": 3,
               "occurrence": 1
             },
             {
               "title": "remove an unmapped selected resource, verify the saved route, and reload",
               "id": "4d172c4a6a38586646e6-5405fbd63533ae57b73b",
-              "line": 164,
+              "line": 165,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "hand off a starting collection, attach its route, preview, and reload",
+              "id": "4d172c4a6a38586646e6-b804e9202406b6fc6e56",
+              "line": 177,
               "column": 3,
               "occurrence": 1
             },
             {
               "title": "inspect grouped, coded, or related row sources across save, edit, removal, and reload",
               "id": "4d172c4a6a38586646e6-9ac425e567118bb8bb6a",
-              "line": 178,
+              "line": 191,
               "column": 3,
               "occurrence": 1
             },
             {
               "title": "create, rename, duplicate, reorder, delete, undo, and reload CDA tables",
               "id": "4d172c4a6a38586646e6-394d0b838808d379b0f2",
-              "line": 190,
+              "line": 203,
               "column": 3,
               "occurrence": 1
             },
             {
               "title": "cancel, save, reload, and remove three related COUNT siblings",
               "id": "4d172c4a6a38586646e6-e866f61c92abef04f071",
-              "line": 202,
+              "line": 215,
               "column": 3,
               "occurrence": 1
             },
             {
               "title": "save, reload, and remove three sibling SourceAggregate COUNT columns",
               "id": "4d172c4a6a38586646e6-a550ff29d8c7faeba737",
-              "line": 215,
+              "line": 228,
               "column": 3,
               "occurrence": 1
             },
             {
               "title": "expand exact Observation component tuples, publish, and verify ClickHouse Viewer rows",
               "id": "4d172c4a6a38586646e6-75849434acf9478f21e8",
-              "line": 229,
+              "line": 242,
               "column": 3,
               "occurrence": 1
             },
             {
               "title": "verify Patient.id values through the Specimen to Observation to Patient route",
               "id": "4d172c4a6a38586646e6-a56810c5eabe60021b7e",
-              "line": 242,
+              "line": 255,
               "column": 3,
               "occurrence": 1
             },
             {
               "title": "verify related Patient.id counts through the Specimen to Observation to Patient route",
               "id": "4d172c4a6a38586646e6-063c46cb757fab0d4288",
-              "line": 254,
+              "line": 267,
               "column": 3,
               "occurrence": 1
             },
             {
               "title": "author and restore an Observation Contributor ANY rule from the active Patient anchor",
               "id": "4d172c4a6a38586646e6-56187ce73ef28ce78130",
-              "line": 266,
+              "line": 279,
               "column": 3,
               "occurrence": 1
             },
             {
               "title": "author and restore the exact named-cohort COUNT contributor lifecycle",
               "id": "4d172c4a6a38586646e6-6dcaf3fb0700fc763f1d",
-              "line": 285,
+              "line": 298,
               "column": 5,
               "occurrence": 1
             },
             {
               "title": "author and restore the exact named-cohort COUNT contributor lifecycle",
               "id": "4d172c4a6a38586646e6-e3c5c26a58bdbb56db20",
-              "line": 285,
+              "line": 298,
               "column": 5,
               "occurrence": 2
             },
             {
               "title": "author and restore the exact named-cohort ALL contributor lifecycle",
               "id": "4d172c4a6a38586646e6-228ca6b8e39c791eede7",
-              "line": 285,
+              "line": 298,
               "column": 5,
               "occurrence": 1
             },
             {
               "title": "author and restore the exact named-cohort ALL contributor lifecycle",
               "id": "4d172c4a6a38586646e6-312fa1af77966ba86b32",
-              "line": 285,
+              "line": 298,
               "column": 5,
               "occurrence": 2
             }
@@ -1401,16 +1408,16 @@
       },
       "testCount": 1,
       "specFileCount": 1,
-      "discoveredCasesSha256": "6214cf0ee7a22fd53bf094c924afabecdcec288a04303b7c65f312bcf0efab12",
+      "discoveredCasesSha256": "288dac37b3071c41628879d193d328451bc5b801df4c3f4f86dd463975a92393",
       "specs": [
         {
           "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
+          "sha256": "62a4401eb5379c523bd381989067118840fd9ee2f8e0cc79abd3cf71ebd4420b",
           "cases": [
             {
               "title": "remove an unmapped selected resource, verify the saved route, and reload",
               "id": "4d172c4a6a38586646e6-5405fbd63533ae57b73b",
-              "line": 164,
+              "line": 165,
               "column": 3,
               "occurrence": 1
             }

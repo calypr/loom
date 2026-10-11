@@ -39,6 +39,29 @@ test('rejects protected Explorer traffic even when it arrives through the UI pro
   assert.equal(classifyNativeBrowserApiRequest(scope.uiOrigin + path, scope).reason, 'protected-explorer');
 });
 
+test('canonicalizes Basic fixture project aliases for owned browser proxy routes', () => {
+  const alias = 'loom_dev_verify_mv37bf7o-a7738e2';
+  const canonical = 'loom_dev_verify_mv37bf7o/a7738e2';
+  const explorer = 'verify-a7738e2-combine';
+  const expectedExplorerPath = '/api/v1/projects/loom_dev_verify_mv37bf7o%252Fa7738e2/explorers/verify-a7738e2-combine';
+  const path = `${expectedExplorerPath}/authoring/v2/commands`;
+
+  for (const project of [alias, canonical]) {
+    const aliasScope = { ...scope, project, explorer };
+    const route = `${scope.uiOrigin}${path}`;
+    assert.equal(classifyNativeBrowserApiRequest(route, aliasScope).kind, 'capture');
+    assert.equal(isSameUiProxyResponse(route, route, aliasScope), true);
+    assert.equal(classifyNativeBrowserApiRequest(
+      `${scope.uiOrigin}/api/v1/projects/${encodeURIComponent(alias)}/explorers/${explorer}/authoring/v2/commands`,
+      aliasScope,
+    ).reason, 'outside-project-explorer-scope');
+    assert.equal(classifyNativeBrowserApiRequest(
+      `${scope.uiOrigin}/api/v1/projects/loom_dev_verify_mv37bf7o%252Fforeign/explorers/${explorer}/authoring/v2/commands`,
+      aliasScope,
+    ).reason, 'outside-project-explorer-scope');
+  }
+});
+
 test('binds decoded API evidence to the exact UI-proxy request URL', () => {
   const request = `${scope.uiOrigin}${previewPath}?outputId=output-1`;
   assert(isSameUiProxyResponse(request, request, scope));

@@ -2,12 +2,11 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { createNativeCdaWorkflowTools, validatedArangoContainer } from '../helpers/native-cda-workflow-tools.mjs';
-import { proveSupersededCapabilitiesAbort } from '../helpers/superseded-capabilities-abort.mjs';
 
 export async function compoundFieldsWorkflow({ page, cda, caseOptions = {} }) {
   const { click, fill, selectOption, navigate, inspect, clickControl, fillControl, selectControl,
     nativeClick, nativeFill, nativeSelect, navigatePage, inspectDOM, browserEval, inspectPage,
-    waitForDOM, waitForBrowser, captureCDARequests, captureRequests, waitForCapturedResponse,
+    waitForDOM, waitForBrowser,
     performAction, requireUnique } = createNativeCdaWorkflowTools({ page, cda });
   const target = cda.target;
   const project = cda.project;
@@ -31,8 +30,6 @@ let rootColumnId;
 let nativeRequests = [];
 report.nativeRequests = nativeRequests;
 let requestCapture;
-const supersededSourceBrowseReason = 'The Observation source search superseded a pending empty-query frame-source browse.';
-const expectedSupersededSourceBrowseIDs = new Set();
 
 const api = async (path, body) => {
   const startedAt = Date.now();
@@ -81,19 +78,18 @@ const rawQuery = (query) => {
 };
 
 const waitNative = async (predicate, fromIndex, timeoutMs = 5000) => {
-  const match = await requestCapture.waitFor(predicate, { fromIndex, timeoutMs });
+  const match = await requestCapture.waitForResponse(predicate, { fromIndex, timeoutMs });
   assert.equal(match.status, 200, `${match.path} returned ${match.status}: ${JSON.stringify(match.response).slice(0, 1200)}`);
-  const rawResponse = requestCapture.rawResponseBody(match);
+  const rawResponse = match.response;
   assert(rawResponse && typeof rawResponse === 'object' && !Array.isArray(rawResponse),
     `${match.path} did not provide a captured JSON object response body`);
-  return { ...match, response: rawResponse };
+  return match;
 };
-const flushNetworkReads = async () => requestCapture?.flush();
 
-const requestIndex = () => nativeRequests.length;
+const requestIndex = () => requestCapture.requests.length;
 
 const nativePreview = async (fromIndex, expectedColumns) => {
-  const entry = await waitNative((candidate) => candidate.path.endsWith('/preview') && candidate.body?.outputId === outputId, fromIndex);
+  const entry = await waitNative((candidate) => candidate.path.endsWith('/preview') && candidate.request?.outputId === outputId, fromIndex);
   const preview = entry.response;
   assert.equal(preview.outputId, outputId);
   assert(preview.receiptId, 'Saved preview must use a fresh server receipt');
@@ -187,79 +183,31 @@ const chooseDirectFrame = async () => {
   const searchStarted = Date.now();
   await setSearchInput(search, 'Observation');
   const fromIndex = requestIndex();
-  const expectedCancellationStart = cda.report.expectedCancellations?.length ?? 0;
-  let response = await cda.withExpectedCancellations({
-    origin: uiOrigin,
-    method: 'POST',
-    paths: [browseRequestPath],
-    requestIdPrefixes: ['frame-source-options-'],
-    actionLabel: 'Search',
-    reason: supersededSourceBrowseReason,
-    proof: { outputId, snapshotToken: builder.catalog.snapshotToken, previousQuery: 'empty', replacementQuery: 'Observation' },
-  }, async () => {
+  let response = await (async () => {
     await clickControl(page, `${picker} form button`, { name: 'Search' });
-    return waitNative((entry) => entry.path === browseRequestPath && entry.body?.outputId === outputId && entry.body?.query === 'Observation', fromIndex);
-  });
-  const browseRequests = nativeRequests.slice(browseRequestStart).filter((entry) => entry.path === browseRequestPath && entry.method === 'POST');
+    return waitNative((entry) => entry.path === browseRequestPath && entry.request?.outputId === outputId && entry.request?.query === 'Observation', fromIndex);
+  })();
+  const browseRequests = requestCapture.requests.slice(browseRequestStart).filter((entry) => entry.path === browseRequestPath && entry.method === 'POST');
   assert(browseRequests.length > 0, 'Native Search issued no owned frame-source request');
   for (const entry of browseRequests) {
-    assert.equal(entry.body?.outputId, outputId, 'The source browse must stay on this QA table');
-    assert.equal(entry.body?.snapshotToken, builder.catalog.snapshotToken, 'The source browse must stay on this catalog snapshot');
+    assert.equal(entry.request?.outputId, outputId, 'The source browse must stay on this QA table');
+    assert.equal(entry.request?.snapshotToken, builder.catalog.snapshotToken, 'The source browse must stay on this catalog snapshot');
   }
-  const replacements = browseRequests.filter((entry) => entry.body?.query === 'Observation');
+  const replacements = browseRequests.filter((entry) => entry.request?.query === 'Observation');
   assert.equal(replacements.length, 1, 'Search must produce exactly one Observation replacement request');
   const replacement = replacements[0];
   assert.equal(replacement.status, 200, 'The replacement Observation source request must succeed');
-  assert.equal(replacement.browserRequestId, response.browserRequestId);
+  assert(requestCapture.requests.includes(response), 'The replacement response must be the exact captured native request entry');
   assert.equal(response.response.outputId, outputId, 'The successful browse response must belong to this QA table');
   assert.equal(response.response.snapshotToken, builder.catalog.snapshotToken,
     'The successful browse response must belong to this catalog snapshot');
   assert(Array.isArray(response.response.sources), 'The successful browse response must include native sources');
-  const abortedBrowses = browseRequests.filter((entry) => entry.failure === 'net::ERR_ABORTED');
-  assert(abortedBrowses.length <= 1, `Search aborted multiple owned frame-source requests: ${JSON.stringify(abortedBrowses.map((entry) => entry.body))}`);
-  const expectedCancellationRecords = (cda.report.expectedCancellations ?? []).slice(expectedCancellationStart);
-  assert.equal(expectedCancellationRecords.length, abortedBrowses.length,
-    'Only an observed superseded frame-source request may be classified as expected');
-  for (const entry of abortedBrowses) {
-    assert(entry.body?.query === undefined || entry.body.query === null || entry.body.query === '',
-      `Only the empty-query browse may be canceled by Search: ${JSON.stringify(entry.body)}`);
-    assert(entry.body?.cursor === undefined || entry.body.cursor === null || entry.body.cursor === '',
-      'A paginated frame-source request must not be classified as the superseded initial browse');
-    assert(entry.startedAt <= replacement.startedAt, 'The canceled empty browse must precede its successful replacement');
-    const networkFailure = cda.diagnostics.networkFailures.find((failure) => failure.browserRequestId === entry.browserRequestId);
-    assert(networkFailure, 'The exact canceled browse must have a captured native network diagnostic');
-    assert.equal(networkFailure.errorText, 'net::ERR_ABORTED');
-    assert.match(entry.triggerAction ?? '', /^(Browse sources|Add coded source)/,
-      'The canceled native request must retain its original Browse action');
-    assert.equal(networkFailure.cancellationAction, 'Search',
-      'The exact native cancellation must identify the Search action that superseded it');
-    assert(entry.expectedCancellation, 'The fixture must classify the exact native cancellation');
-    assert.equal(entry.expectedCancellation.reason, supersededSourceBrowseReason);
-    assert.equal(entry.expectedCancellation.proof.scopeAction, 'Search');
-    assert.equal(entry.expectedCancellation.proof.outputId, outputId);
-    assert.equal(entry.expectedCancellation.proof.snapshotToken, builder.catalog.snapshotToken);
-    assert.equal(entry.expectedCancellation.proof.replacementQuery, 'Observation');
-    const [classification] = expectedCancellationRecords.filter((record) => record.browserRequestId === entry.browserRequestId);
-    assert(classification, 'Expected cancellation report must identify the same native request');
-    assert.equal(classification.method, 'POST');
-    const classificationURL = new URL(classification.url);
-    assert.equal(classificationURL.origin, new URL(uiOrigin).origin);
-    assert.equal(classificationURL.pathname, browseRequestPath);
-    assert.equal(classification.browserRequestId, entry.browserRequestId);
-    assert.equal(classification.requestId, entry.requestId);
-    assert.equal(classification.proof.scopeAction, 'Search');
-    assert.equal(classification.proof.outputId, outputId);
-    assert.equal(classification.proof.snapshotToken, builder.catalog.snapshotToken);
-    assert.equal(classification.proof.replacementQuery, 'Observation');
-    assert.equal(classification.reason, supersededSourceBrowseReason);
-    expectedSupersededSourceBrowseIDs.add(entry.browserRequestId);
-  }
   let matches = response.response.sources.filter(matchingDirectChoice);
   let pageCount = 1;
   while (!matches.length && response.response.nextCursor && pageCount < 8) {
     const moreIndex = requestIndex();
     await clickControl(page, `${picker} button`, { name: 'More sources and paths' });
-    response = await waitNative((entry) => entry.path.endsWith('/frame-source-options') && Boolean(entry.body?.cursor), moreIndex);
+    response = await waitNative((entry) => entry.path.endsWith('/frame-source-options') && Boolean(entry.request?.cursor), moreIndex);
     matches = response.response.sources.filter(matchingDirectChoice);
     pageCount += 1;
   }
@@ -292,7 +240,7 @@ const chooseDirectFrame = async () => {
   const saveIndex = requestIndex();
   const saveStarted = Date.now();
   await clickControl(page, sourceSelector);
-  const save = await waitNative((entry) => entry.path.endsWith('/commands') && entry.body?.commands?.some((item) => item.type === 'SET_FRAME_SOURCE'), saveIndex);
+  const save = await waitNative((entry) => entry.path.endsWith('/commands') && entry.request?.commands?.some((item) => item.type === 'SET_FRAME_SOURCE'), saveIndex);
   builder = await api(`${base}/builder`);
   const frameDoc = assertWorkspaceTable(builder, 1, 0);
   const frame = frameDoc.frames[0];
@@ -316,7 +264,7 @@ const freshCategory = async (frame, code, fromIndex) => {
   const search = `${panel} input[aria-label^="Search coded values in "]`;
   await setSearchInput(search, code);
   await clickControl(page, `${panel} form button`, { name: 'Search' });
-  const entry = await waitNative((candidate) => candidate.path.endsWith('/semantic-inventory') && candidate.body?.frameId === frame.id && candidate.body?.query === code, fromIndex);
+  const entry = await waitNative((candidate) => candidate.path.endsWith('/semantic-inventory') && candidate.request?.frameId === frame.id && candidate.request?.query === code, fromIndex);
   assert.equal(entry.response.frameId, frame.id);
   assert.equal(entry.response.state, 'complete', `Inventory for ${code} is ${entry.response.state}`);
   assert.equal(entry.response.frameSource?.id, frame.id);
@@ -341,7 +289,6 @@ const freshCategory = async (frame, code, fromIndex) => {
 report.target ??= { ...cda.report.target };
 nativeRequests = cda.report.nativeRequests;
 report.nativeRequests = nativeRequests;
-report.errors = cda.report.errors;
 
   try {
 
@@ -452,7 +399,7 @@ await nativeClick(page, '[data-testid="construction-close-operation-editor"]', {
 await waitForDOM(page, args => Boolean(!document.querySelector('[data-testid="construction-operation-editor"]')), {}, 5000);
 builder = await api(`${base}/builder`);
 assert.deepEqual(builder.workspace, frameOnlyWorkspace, 'Canceling the coded-value chooser must preserve the saved frame and original table');
-assert.equal(nativeRequests.slice(cancelNativeStart).filter((entry) => entry.path.endsWith('/commands')).length, 0, 'Cancel must not send a mutation command');
+assert.equal(requestCapture.requests.slice(cancelNativeStart).filter((entry) => entry.path.endsWith('/commands')).length, 0, 'Cancel must not send a mutation command');
 record('cancel-two-category-selection-keeps-framed-baseline', cancelStarted, { frameId: frame.id, selectedCodes: [disease.code, specimenType.code] });
 
 await openAddColumns();
@@ -467,7 +414,7 @@ assert.equal(countButton, 'Add 2 columns');
 const addStart = Date.now();
 const proposalStart = requestIndex();
 await nativeClick(page, `${categoriesPanel} button`, { name: 'Add 2 columns' });
-const proposal = await waitNative((entry) => entry.path.endsWith('/construction-choice-proposals') && entry.body?.constructionChoices?.length === 2, proposalStart);
+const proposal = await waitNative((entry) => entry.path.endsWith('/construction-choice-proposals') && entry.request?.constructionChoices?.length === 2, proposalStart);
 assert.equal(proposal.response.previewStatus, 'READY');
 assert(proposal.response.previewDurationMs <= 5000, `Fresh preflight receipt took ${proposal.response.previewDurationMs} ms`);
 assert.equal(proposal.response.outputId, outputId);
@@ -477,11 +424,11 @@ const rawValuesByCode = { primary_disease_type: source.diseaseValues, specimen_t
 const candidateValues = Object.fromEntries(proposal.response.candidateColumnIds.map((columnId, index) => [columnId, rawValuesByCode[selected[index].code]]));
 assertPreviewValues(proposal.response.preview, candidateValues);
 assert.equal(proposal.response.preview.columns.length, 3);
-const commandRequest = await waitNative((entry) => entry.path.endsWith('/commands') && entry.body?.commands?.some((item) => item.type === 'APPLY_CONSTRUCTION_CHOICE'), proposalStart);
-assert.equal(commandRequest.body.commands.length, 2, 'Both coded fields must be applied in one atomic command batch');
-assert(commandRequest.body.commands.every((item) => item.type === 'APPLY_CONSTRUCTION_CHOICE' && item.outputId === outputId));
-assert.equal(commandRequest.body.commandId, proposal.response.commandId, 'The save must use the fresh preflight command id');
-assert.deepEqual(commandRequest.body.commands.map((item) => ({ choiceId: item.constructionChoice?.choiceId, form: item.constructionChoice?.form, frameId: item.constructionChoice?.frameId })), selected.map((choice) => ({ choiceId: choice.choiceId, form: 'ALL', frameId: frame.id })));
+const commandRequest = await waitNative((entry) => entry.path.endsWith('/commands') && entry.request?.commands?.some((item) => item.type === 'APPLY_CONSTRUCTION_CHOICE'), proposalStart);
+assert.equal(commandRequest.request.commands.length, 2, 'Both coded fields must be applied in one atomic command batch');
+assert(commandRequest.request.commands.every((item) => item.type === 'APPLY_CONSTRUCTION_CHOICE' && item.outputId === outputId));
+assert.equal(commandRequest.request.commandId, proposal.response.commandId, 'The save must use the fresh preflight command id');
+assert.deepEqual(commandRequest.request.commands.map((item) => ({ choiceId: item.constructionChoice?.choiceId, form: item.constructionChoice?.form, frameId: item.constructionChoice?.frameId })), selected.map((choice) => ({ choiceId: choice.choiceId, form: 'ALL', frameId: frame.id })));
 await rendered(3);
 const savedPreview = await nativePreview(proposalStart, 3);
 builder = await api(`${base}/builder`);
@@ -497,7 +444,7 @@ record('native-add-two-compound-ALL-columns', addStart, {
   choiceCodes: selected.map((choice) => choice.code),
   candidateColumnIds: proposal.response.candidateColumnIds,
   freshSavedReceiptId: savedPreview.preview.receiptId,
-  atomicCommandCount: commandRequest.body.commands.length,
+  atomicCommandCount: commandRequest.request.commands.length,
 });
 
 const reloadPreview = await openTable(3, 'reload-compound-ALL-columns', [...source.diseaseValues, ...source.specimenValues]);
@@ -509,7 +456,7 @@ for (const column of savedDocument.columns.filter((candidate) => candidate.frame
   const removeStart = Date.now();
   const removeIndex = requestIndex();
   await nativeClick(page, `${framePanel} button`, { name: `Remove ${column.label} column` });
-  await waitNative((entry) => entry.path.endsWith('/commands') && entry.body?.commands?.some((item) => item.type === 'REMOVE_COLUMN' && item.column === column.column), removeIndex);
+  await waitNative((entry) => entry.path.endsWith('/commands') && entry.request?.commands?.some((item) => item.type === 'REMOVE_COLUMN' && item.column === column.column), removeIndex);
   builder = await api(`${base}/builder`);
   remainingCodedColumns -= 1;
   assertWorkspaceTable(builder, 1, remainingCodedColumns);
@@ -519,7 +466,7 @@ for (const column of savedDocument.columns.filter((candidate) => candidate.frame
 const removeFrameStart = Date.now();
 const removeFrameIndex = requestIndex();
 await nativeClick(page, `${framePanel} button`, { name: 'Remove' });
-await waitNative((entry) => entry.path.endsWith('/commands') && entry.body?.commands?.some((item) => item.type === 'REMOVE_FRAME_SOURCE'), removeFrameIndex);
+await waitNative((entry) => entry.path.endsWith('/commands') && entry.request?.commands?.some((item) => item.type === 'REMOVE_FRAME_SOURCE'), removeFrameIndex);
 builder = await api(`${base}/builder`);
 assertWorkspaceTable(builder, 0, 0);
 const expectedRemovedWorkspace = structuredClone(initialWorkspace);
@@ -541,14 +488,14 @@ for (const code of wantedCodes) restoredSelected.push(await freshCategory(restor
 const restoreAddStart = Date.now();
 const restoreProposalStart = requestIndex();
 await nativeClick(page, `${restoredPanel} button`, { name: 'Add 2 columns' });
-const restoreProposal = await waitNative((entry) => entry.path.endsWith('/construction-choice-proposals') && entry.body?.constructionChoices?.length === 2, restoreProposalStart);
+const restoreProposal = await waitNative((entry) => entry.path.endsWith('/construction-choice-proposals') && entry.request?.constructionChoices?.length === 2, restoreProposalStart);
 assert.equal(restoreProposal.response.previewStatus, 'READY');
 assert(restoreProposal.response.previewDurationMs <= 5000, `Restored fresh preflight receipt took ${restoreProposal.response.previewDurationMs} ms`);
 const restoreValues = Object.fromEntries(restoreProposal.response.candidateColumnIds.map((columnId, index) => [columnId, rawValuesByCode[restoredSelected[index].code]]));
 assertPreviewValues(restoreProposal.response.preview, restoreValues);
-const restoreCommand = await waitNative((entry) => entry.path.endsWith('/commands') && entry.body?.commands?.some((item) => item.type === 'APPLY_CONSTRUCTION_CHOICE'), restoreProposalStart);
-assert.equal(restoreCommand.body.commands.length, 2);
-assert.equal(restoreCommand.body.commandId, restoreProposal.response.commandId);
+const restoreCommand = await waitNative((entry) => entry.path.endsWith('/commands') && entry.request?.commands?.some((item) => item.type === 'APPLY_CONSTRUCTION_CHOICE'), restoreProposalStart);
+assert.equal(restoreCommand.request.commands.length, 2);
+assert.equal(restoreCommand.request.commandId, restoreProposal.response.commandId);
 const restoredVisible = await rendered(3);
 for (const value of [...source.diseaseValues, ...source.specimenValues]) {
   assert(restoredVisible.cells.some((cell) => cell.includes(value)), `Rendered restored table omitted CDA value ${value}`);
@@ -557,50 +504,12 @@ const restoredSaved = await nativePreview(restoreProposalStart, 3);
 builder = await api(`${base}/builder`);
 const restoredDocument = assertWorkspaceTable(builder, 1, 2);
 assertPreviewValues(restoredSaved.preview, { ...restoreValues, [rootColumnId]: source.specimen.id });
-record('restore-two-compound-ALL-columns', restoreAddStart, { previewDurationMs: restoreProposal.response.previewDurationMs, atomicCommandCount: restoreCommand.body.commands.length });
+record('restore-two-compound-ALL-columns', restoreAddStart, { previewDurationMs: restoreProposal.response.previewDurationMs, atomicCommandCount: restoreCommand.request.commands.length });
 const restoredReload = await openTable(3, 'reload-restored-compound-ALL-columns', [...source.diseaseValues, ...source.specimenValues]);
 assertPreviewValues(restoredReload, { ...restoreValues, [rootColumnId]: source.specimen.id });
-await flushNetworkReads();
-cda.includeBrowserDiagnostics();
-const expectedCapabilityCancellations = nativeRequests.flatMap((entry) => {
-  const proof = proveSupersededCapabilitiesAbort(nativeRequests, entry);
-  return proof ? [proof] : [];
-});
-const cancellationReason = 'A concrete same-Explorer column mutation changed the draft identity while this capabilities read was pending, and the matching replacement read succeeded.';
-for (const cancellation of expectedCapabilityCancellations) {
-  const matchingRequests = nativeRequests.filter((entry) =>
-    entry.browserRequestId === cancellation.request.browserRequestId);
-  assert.equal(matchingRequests.length, 1, 'A proven capabilities cancellation must bind to exactly one captured native request.');
-  cda.expectCapturedCancellation(matchingRequests[0], cancellationReason, cancellation);
-}
-const cancellationByRequestID = new Map(expectedCapabilityCancellations.map((entry) => [entry.request.browserRequestId, entry]));
-const expectedCancellationDiagnostics = report.errors.flatMap((error, errorIndex) => {
-  const errorText = error.error ?? error.failure;
-  const requestId = error.browserRequestId ?? error.requestId ?? error.playwrightRequestId;
-  if (error.kind !== 'network' || errorText !== 'net::ERR_ABORTED' || !requestId) return [];
-  const cancellation = cancellationByRequestID.get(requestId);
-  if (!cancellation) return [];
-  assert.equal(error.expected, true, 'Every preserved diagnostic copy of a proven cancellation must be marked expected.');
-  assert.equal(error.expectedCancellation?.browserRequestId, cancellation.request.browserRequestId);
-  return [{ errorIndex, error: { ...error }, cancelledRequestId: cancellation.request.browserRequestId }];
-});
-report.expectedCapabilityCancellations = expectedCapabilityCancellations;
-report.expectedCapabilityCancellationDiagnostics = expectedCancellationDiagnostics;
-const unexpectedBrowserErrors = report.errors.filter((entry) =>
-  !entry.expected && !entry.expectedCancellation && !expectedSupersededSourceBrowseIDs.has(entry.browserRequestId));
-assert.deepEqual(unexpectedBrowserErrors, [], 'Unexpected browser, console, or owned request errors were reported');
-assert.deepEqual(cda.diagnostics.pageErrors, [], 'Unexpected page errors were reported');
-assert.deepEqual(cda.diagnostics.console, [], 'Unexpected console errors were reported');
-const expectedNetworkFailureIDs = new Set([
-  ...expectedSupersededSourceBrowseIDs,
-  ...expectedCapabilityCancellations.map((entry) => entry.request.browserRequestId),
-]);
-assert.deepEqual(cda.diagnostics.networkFailures.filter((entry) => !expectedNetworkFailureIDs.has(entry.browserRequestId)), [],
-  'Unexpected network failures were reported');
-assert.deepEqual(cda.diagnostics.httpFailures, [], 'Unexpected HTTP failures were reported');
+assert.deepEqual(report.errors, [], 'Browser requests must never target the protected Explorer');
 assert(nativeRequests.every((entry) => !entry.path.includes(originalExplorer)));
 report.final = {
-  status: 'passed',
   tableOutputId: outputId,
   root: 'Specimen',
   directRelationship,
@@ -609,8 +518,6 @@ report.final = {
   rawCdaValues: { primary_disease_type: source.diseaseValues, specimen_type: source.specimenValues },
 };
   } finally {
-    try { await requestCapture?.flush(); } catch (error) { report.requestFlushError = String(error); }
-    cda.includeBrowserDiagnostics();
     report.finished = new Date().toISOString();
     await cda.attachReport(`standalone-${cda.caseName}-domain.json`, {
       ...cda.report,

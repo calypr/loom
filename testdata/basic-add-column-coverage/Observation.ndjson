@@ -1,0 +1,3 @@
+{"resourceType":"Observation","id":"basic-add-column-coverage-present","status":"final","code":{"text":"Add Column coverage witness"},"valueQuantity":{"value":1,"unit":"day","system":"http://unitsofmeasure.org","code":"d"}}
+{"resourceType":"Observation","id":"basic-add-column-coverage-null","status":"final","code":{"text":"Add Column coverage witness"},"valueQuantity":{"value":1,"unit":"day","system":"http://unitsofmeasure.org","code":null}}
+{"resourceType":"Observation","id":"basic-add-column-coverage-missing","status":"final","code":{"text":"Add Column coverage witness"},"valueQuantity":{"value":1,"unit":"day","system":"http://unitsofmeasure.org"}}

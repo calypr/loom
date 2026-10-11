@@ -48,15 +48,15 @@ export async function rootSettingsWorkflow({ page, cda }) {
     await cda.click(table);
     await cda.wait(() => document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false);
     await cda.click('[data-testid="construction-rows-settings-trigger"]');
-    await cda.wait(() => document.querySelector('select[aria-label="Record type"]')?.disabled === false);
+    await cda.wait(() => document.querySelector('select[aria-label="Choose starting record type"]')?.disabled === false);
   };
   const proposeRoot = async resourceType => {
     await open();
-    const selector = 'select[aria-label="Record type"]';
+    const selector = 'select[aria-label="Choose starting record type"]';
     const options = await page.locator(selector).locator('option').evaluateAll(items => items.map(option => ({ value: option.value, label: option.text, disabled: option.disabled })));
     const target = options.find(o => o.value !== 'base' && o.label.startsWith(resourceType));
     assert(target && !target.disabled, `${resourceType} must be selectable`);
-    const responseStart = report.nativeRequests.length;
+    const responseStart = browserEvents.requests.length;
     const start = Date.now();
     const before = builder.draftDigest;
     await cda.selectOption(selector, target.value, { settledWhen: () => !document.querySelector('[aria-label="Row definition settings"]') });
@@ -68,8 +68,7 @@ export async function rootSettingsWorkflow({ page, cda }) {
     assert.equal(previewError, undefined, `Root change must produce a usable preview: ${previewError}`);
     const durationMs = Date.now() - start;
     assert(durationMs <= 5000, `Root preview took ${durationMs}ms`);
-    await browserEvents.flush();
-    const responseWindow = capturedResponses(report.nativeRequests.slice(responseStart));
+    const responseWindow = capturedResponses(browserEvents.requests.slice(responseStart));
     report.responses = capturedResponses();
     const assessment = responseWindow.find(r => r.path.endsWith('/row-change'))?.body;
     assert.equal(assessment?.status, 'READY');
@@ -85,7 +84,7 @@ export async function rootSettingsWorkflow({ page, cda }) {
     builder = await api(base + '/builder');
     assert.equal(builder.workspace.documents[0].rootResourceType, resourceType);
   };
-  const capturedResponses = (requests = report.nativeRequests) => requests
+  const capturedResponses = (requests = browserEvents.requests) => requests
     .filter(request => request.response && request.path.startsWith(base))
     .map(request => ({ path: request.path, status: request.status, body: request.response }));
   try {
@@ -126,14 +125,14 @@ export async function rootSettingsWorkflow({ page, cda }) {
     assert.deepEqual(builder.workspace.documents[0].columns.map(c=>c.column), original.columns.map(c=>c.column));
     assert.equal(builder.workspace.documents[0].population.selectionRevisionId, selection.id);
     await open();
-    assert.match(await cda.inspect(() => document.querySelector('select[aria-label="Record type"]').selectedOptions[0].text), /^Observation/);
+    assert.match(await cda.inspect(() => document.querySelector('select[aria-label="Choose starting record type"]').selectedOptions[0].text), /^Observation/);
     await cda.click('[aria-label="Row definition settings"] button', { name: 'Back to table' });
     const restoredPreview = await proposeRoot('Patient');
     assert.equal(restoredPreview.rowCount, 1);
     await applyRoot('Patient');
     assert.equal(builder.workspace.documents[0].population.selectionRevisionId, selection.id);
     await open();
-    assert.match(await cda.inspect(() => document.querySelector('select[aria-label="Record type"]').selectedOptions[0].text), /^Patient/);
+    assert.match(await cda.inspect(() => document.querySelector('select[aria-label="Choose starting record type"]').selectedOptions[0].text), /^Patient/);
     for (let cycle = 0; cycle < Number(process.env.LOOM_ROOT_REPEAT_CYCLES ?? 0); cycle++) {
       const expanded = await proposeRoot('Observation');
       assert.equal(expanded.rowCount, Math.min(25, report.oracle.observations.length));
@@ -183,16 +182,12 @@ export async function rootSettingsWorkflow({ page, cda }) {
     await checkCoverage('reattached-collection-reload-coverage');
     report.finalUI = await cda.inspect(() => document.body.innerText);
     assert(report.finalUI.includes(patientId), 'Reloaded table must render the original CDA Patient ID');
-    await browserEvents.flush();
     report.responses = capturedResponses();
-    cda.includeBrowserDiagnostics();
     assert.equal(report.errors.length, 0, JSON.stringify(report.errors));
     report.status = 'passed';
   } catch (error) {
     report.status = 'failed';
     report.error = String(error.stack ?? error);
-    if (browserEvents) await browserEvents.flush().catch(() => undefined);
-    cda.includeBrowserDiagnostics();
     report.responses = capturedResponses();
     report.failureUI = await cda.inspect(() => document.body.innerText).catch(() => undefined);
     fatal = error;

@@ -951,6 +951,38 @@ test('development session accepts a read-only external FHIR fixture directory', 
   }
 });
 
+test('development session requires Patient and Observation NDJSON inputs before seeding', () => {
+  const root = mkdtempSync(join(tmpdir(), 'loom-dev-required-fixture-source-'));
+  const fixture = join(root, 'fixture');
+  try {
+    writeFileSync(join(root, 'go.mod'), 'module fixture-contract\n');
+    mkdirSync(fixture, { recursive: true });
+    writeFileSync(join(fixture, 'Observation.ndjson'), '{\"resourceType\":\"Observation\",\"id\":\"support-check-observation\"}\n');
+    const env = {
+      LOOM_DEV_SOURCE_ROOT: root,
+      LOOM_DEV_FIXTURE_DIR: fixture,
+      LOOM_DEV_COMPOSE_PROJECT: 'loom-dev-required-fixture-test',
+      LOOM_DEV_PROJECT: 'loom_dev_required_fixture_test',
+      LOOM_DEV_API_PORT: '18182',
+      LOOM_DEV_UI_PORT: '38182',
+      LOOM_DEV_ARTIFACTS: join(root, '.artifacts'),
+    };
+
+    assert.throws(
+      () => createDevSession(env, root),
+      error => error.message === `missing development fixture file: ${join(fixture, 'Patient.ndjson')}`,
+      'the real development-session loader must reject an Observation-only fixture before seed startup',
+    );
+
+    writeFileSync(join(fixture, 'Patient.ndjson'), '{\"resourceType\":\"Patient\",\"id\":\"support-check-patient\"}\n');
+    const target = createDevSession(env, root);
+    assert.equal(target.fixtureDir, fixture,
+      'the fixture loader must accept the same directory once the required Patient source exists');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('external J01 manifest selects exact deterministic records and preserves source stats', async () => {
   const fixture = mkdtempSync(join(tmpdir(), 'loom-dev-j01-manifest-'));
   try {

@@ -195,20 +195,20 @@ export async function cdaPublishedUpstreamAppendWorkflow({ page, cda }) {
       draftDigest: current.draftDigest,
     };
     const matchesIdentity = entry => {
-      const body = requestCapture.rawRequestBody(entry);
+      const body = entry.request;
       return entry.path === expected.path && entry.origin === expected.origin && entry.method === 'POST' &&
         body?.snapshotToken === expected.snapshotToken &&
         body?.outputId === expected.outputId && body?.stageId === 'source_projection' &&
         body?.expectedDraftVersion === expected.draftVersion && body?.expectedDraftDigest === expected.draftDigest;
     };
-    const pendingOrCompletedAfterAction = report.nativeRequests.slice(fromIndex).find(matchesIdentity);
+    const pendingOrCompletedAfterAction = requestCapture.requests.slice(fromIndex).find(matchesIdentity);
     const cached = allowCached && !pendingOrCompletedAfterAction
-      ? [...report.nativeRequests.slice(0, fromIndex)].reverse().find(entry => entry.completedAt && matchesIdentity(entry))
+      ? [...requestCapture.requests.slice(0, fromIndex)].reverse().find(entry => entry.completedAt && matchesIdentity(entry))
       : undefined;
-    const event = cached ?? await requestCapture.waitFor(entry => matchesIdentity(entry) && entry.completedAt !== undefined,
+    const event = cached ?? await requestCapture.waitForResponse(entry => matchesIdentity(entry) && entry.completedAt !== undefined,
       { fromIndex, timeoutMs: ACTION_BUDGET_MS });
-    const requestBody = requestCapture.rawRequestBody(event);
-    const responseBody = requestCapture.rawResponseBody(event);
+    const requestBody = requestCapture.requestBody(event);
+    const responseBody = requestCapture.responseBody(event);
     const matched = matchesPublishedAppendSourceProjectionResponse(event, requestBody, responseBody, expected);
     const evidence = { outputId, browserRequestId: event.browserRequestId, requestId: event.requestId,
       status: event.status ?? null, failure: event.failure ?? null, stageId: requestBody?.stageId,
@@ -401,10 +401,10 @@ export async function cdaPublishedUpstreamAppendWorkflow({ page, cda }) {
       sources.push({ definition, outputId, selection, members, doc: snapshotSourceDocument(doc) });
     }
 
-    const firstSourceRequestIndex = report.nativeRequests.length;
+    const firstSourceRequestIndex = requestCapture.requests.length;
     await cda.navigate(`${uiOrigin}/?project=${encode(project)}&explorer=${encode(explorer)}&mode=builder`);
     for (const [sourceIndex, source] of sources.entries()) {
-      const sourceRequestIndex = sourceIndex === 0 ? firstSourceRequestIndex : report.nativeRequests.length;
+      const sourceRequestIndex = sourceIndex === 0 ? firstSourceRequestIndex : requestCapture.requests.length;
       await waitSelector(`[data-testid="construction-table-${source.outputId}"]`);
       await selectTable(source.outputId, source.members.length, `Open exact ${source.definition.title} source preview`, selected =>
         waitSourceProjectionCapabilities(source.outputId, sourceRequestIndex, { allowCached: !selected }));
@@ -470,23 +470,23 @@ export async function cdaPublishedUpstreamAppendWorkflow({ page, cda }) {
     page.on('request', onProposalRequest);
     page.on('response', onProposalResponse);
     const createTarget = async (label) => {
-      const sourceRequestIndex = report.nativeRequests.length;
+      const sourceRequestIndex = requestCapture.requests.length;
       await selectTable(sources[0].outputId, sources[0].members.length, `Select Observation source A for ${label}`, selected =>
         waitSourceProjectionCapabilities(sources[0].outputId, sourceRequestIndex, { allowCached: !selected }));
       const before = await readBuilder();
       const priorOutputIDs = before.workspace.documents.map(document => document.output.id);
-      const fromIndex = report.nativeRequests.length;
+      const fromIndex = requestCapture.requests.length;
       const combine = page.getByTestId('construction-action-combine');
       let evidence;
       await click(`Create rooted empty APPEND target for ${label}`, combine, async () => {
         await waitSelector('[data-testid="construction-combine-editor"]');
         await waitSelector('[data-testid="construction-combine-choice-append"]');
-        const createdEvent = await requestCapture.waitFor(entry => entry.path === `${explorerBase}/authoring/v2/commands` &&
+        const createdEvent = await requestCapture.waitForResponse(entry => entry.path === `${explorerBase}/authoring/v2/commands` &&
           entry.method === 'POST' && entry.status === 200 && entry.completedAt &&
-          requestCapture.rawRequestBody(entry)?.commands?.some(item => item.type === 'CREATE_TABLE'),
+          entry.request?.commands?.some(item => item.type === 'CREATE_TABLE'),
         { fromIndex, timeoutMs: ACTION_BUDGET_MS });
-        const body = requestCapture.rawRequestBody(createdEvent);
-        const response = requestCapture.rawResponseBody(createdEvent);
+        const body = requestCapture.requestBody(createdEvent);
+        const response = requestCapture.responseBody(createdEvent);
         const mountedOutputId = await page.locator('[data-testid="construction-operation-editor"][data-operation-family="COMBINE"]')
           .getAttribute('data-output-id');
         evidence = nativeCombineTargetBindingEvidence({ requestBody: body, responseStatus: createdEvent.status,
@@ -610,21 +610,21 @@ export async function cdaPublishedUpstreamAppendWorkflow({ page, cda }) {
       assert.equal(savedStep?.id, stepId, 'Removal must target the exact saved APPEND step');
       assert.equal(savedStep?.operation?.combine?.kind, 'APPEND');
       assert.equal(savedSteps.length, 1, 'This lifecycle target contains only the saved APPEND step');
-      const fromIndex = report.nativeRequests.length;
+      const fromIndex = requestCapture.requests.length;
       await click('Select saved APPEND step for removal', page.getByTestId(`construction-history-step-${stepId}`),
         async () => waitSelector(`[data-testid="construction-remove-step-${stepId}"]`));
       let removalEvent;
       await click('Preview published APPEND removal', page.getByTestId(`construction-remove-step-${stepId}`), async () => {
         await waitProposal(target.outputId, 0);
-        removalEvent = await requestCapture.waitFor(entry => {
-          const body = requestCapture.rawRequestBody(entry);
+        removalEvent = await requestCapture.waitForResponse(entry => {
+          const body = entry.request;
           return entry.path === proposalPath(explorer) && entry.method === 'POST' && entry.completedAt &&
             body?.outputId === target.outputId && body?.candidateConstruction?.version === 1 &&
             Array.isArray(body.candidateConstruction.steps) && body.candidateConstruction.steps.length === 0;
         }, { fromIndex, timeoutMs: ACTION_BUDGET_MS });
       });
-      const removalRequestBody = requestCapture.rawRequestBody(removalEvent);
-      const removalResponseBody = requestCapture.rawResponseBody(removalEvent);
+      const removalRequestBody = requestCapture.requestBody(removalEvent);
+      const removalResponseBody = requestCapture.responseBody(removalEvent);
       assert(removalRequestBody && removalResponseBody && !removalEvent.responseReadError,
         'Native APPEND removal request and response must be retained');
       const candidateConstruction = removalResponseBody.candidateConstruction;
@@ -678,26 +678,26 @@ export async function cdaPublishedUpstreamAppendWorkflow({ page, cda }) {
       assert.equal(applyBaseState.draftVersion, savedBaseline.baselineBuilder.draftVersion);
       assert.equal(applyBaseState.draftDigest, savedBaseline.baselineBuilder.draftDigest);
 
-      const applyFromIndex = report.nativeRequests.length;
+      const applyFromIndex = requestCapture.requests.length;
       let applyRemovalEvent;
       let applyResponseBody;
       const applyRemovalButton = page.getByTestId(`construction-remove-step-${stepId}`);
       const applyButton = page.getByTestId('construction-apply-proposal');
       await click('Re-preview published APPEND removal after Cancel', applyRemovalButton, async () => {
         await waitProposal(target.outputId, 0);
-        applyRemovalEvent = await requestCapture.waitFor(entry => {
-          const body = requestCapture.rawRequestBody(entry);
+        applyRemovalEvent = await requestCapture.waitForResponse(entry => {
+          const body = entry.request;
           return entry.path === proposalPath(explorer) && entry.method === 'POST' && entry.completedAt &&
             body?.outputId === target.outputId && body?.candidateConstruction?.version === 1 &&
             Array.isArray(body.candidateConstruction.steps) && body.candidateConstruction.steps.length === 0;
         }, { fromIndex: applyFromIndex, timeoutMs: ACTION_BUDGET_MS });
-        const applyRequestBody = requestCapture.rawRequestBody(applyRemovalEvent);
-        applyResponseBody = requestCapture.rawResponseBody(applyRemovalEvent);
+        const applyRequestBody = requestCapture.requestBody(applyRemovalEvent);
+        applyResponseBody = requestCapture.responseBody(applyRemovalEvent);
         assert(applyRequestBody && applyResponseBody && !applyRemovalEvent.responseReadError,
           'The fresh APPEND removal request and response must be retained');
         assert.notEqual(applyRemovalEvent.browserRequestId, removalEvent.browserRequestId,
           'Applying after Cancel must use a new native removal request');
-        assert(report.nativeRequests.slice(applyFromIndex).some(entry =>
+        assert(requestCapture.requests.slice(applyFromIndex).some(entry =>
           entry.browserRequestId === applyRemovalEvent.browserRequestId),
         'The fresh removal request must have started after Cancel');
         const applyCandidate = applyResponseBody.candidateConstruction;

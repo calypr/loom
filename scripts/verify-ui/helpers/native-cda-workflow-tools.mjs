@@ -81,8 +81,6 @@ export function createNativeCdaWorkflowTools({ page, cda }) {
   const nativeSelect = selectOption;
   const captureCDARequests = (_page, options = {}) => cda.captureRequests(options.ownedPathPrefix, options);
   const captureRequests = (_page, _report, ownedPathPrefix, options = {}) => cda.captureRequests(ownedPathPrefix, options);
-  const waitForCapturedResponse = (_page, tracker, predicate, timeout = ACTION_TIMEOUT_MS) =>
-    cda.waitForCapturedResponse(tracker, predicate, boundedTimeout(timeout));
   const performAction = async (_owner, label, locator, perform, options = {}) => {
     const started = Date.now();
     await expect(locator, `${label}: expected exactly one native control`).toHaveCount(1,
@@ -110,7 +108,6 @@ export function createNativeCdaWorkflowTools({ page, cda }) {
     waitForBrowser: wait,
     captureCDARequests,
     captureRequests,
-    waitForCapturedResponse,
     performAction,
     requireUnique,
   };

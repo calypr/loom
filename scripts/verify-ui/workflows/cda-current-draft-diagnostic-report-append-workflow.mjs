@@ -198,13 +198,13 @@ export async function cdaCurrentDraftDiagnosticReportAppendWorkflow({ page, cda 
   const assertCurrentDraftAppend = async (targetOutputId, expectedSources, expectedRows, fromIndex) => {
     const base = await readBuilder();
     checkScope(base);
-    const event = await requestCapture.waitFor(entry => entry.path === explorerPath('/authoring/v2/construction-proposals') &&
+    const event = await requestCapture.waitForResponse(entry => entry.path === explorerPath('/authoring/v2/construction-proposals') &&
       entry.method === 'POST' && entry.status === 200 && entry.completedAt &&
-      requestCapture.rawRequestBody(entry)?.outputId === targetOutputId &&
-      requestCapture.rawRequestBody(entry)?.candidateConstruction?.steps?.at(-1)?.operation?.combine?.kind === 'APPEND',
+      entry.request?.outputId === targetOutputId &&
+      entry.request?.candidateConstruction?.steps?.at(-1)?.operation?.combine?.kind === 'APPEND',
     { fromIndex, timeoutMs: ACTION_TIMEOUT_MS });
-    const body = requestCapture.rawRequestBody(event);
-    const response = requestCapture.rawResponseBody(event);
+    const body = event.request;
+    const response = event.response;
     const step = body?.candidateConstruction?.steps?.at(-1);
     const inputIDs = (step?.inputs ?? []).map(input => input.outputId);
     const sources = currentDraftSourceEvidence({ inputs: step?.inputs, expectedOutputIDs: expectedSources,
@@ -367,18 +367,18 @@ export async function cdaCurrentDraftDiagnosticReportAppendWorkflow({ page, cda 
       const summary = page.locator('select[aria-label="Summary 1"]');
       assert.equal(await summary.inputValue(), 'COUNT_ROWS', 'Native GROUP starts with COUNT_ROWS');
       const base = await readBuilder();
-      const requestFrom = report.nativeRequests.length;
+      const requestFrom = requestCapture.requests.length;
       await click(`Select ${source.definition.title} status GROUP key and render COUNT_ROWS`, groupKey,
         async () => waitProposal(source.outputId, 1));
       await checkProposalRows(source.outputId, [[oracle.status, '2']], [statusColumn.label, 'Row count'],
         `${source.definition.title} native GROUP status count matches exact raw witnesses`);
-      const event = await requestCapture.waitFor(entry => entry.path === explorerPath('/authoring/v2/construction-proposals') &&
+      const event = await requestCapture.waitForResponse(entry => entry.path === explorerPath('/authoring/v2/construction-proposals') &&
         entry.method === 'POST' && entry.status === 200 && entry.completedAt &&
-        requestCapture.rawRequestBody(entry)?.outputId === source.outputId &&
-        requestCapture.rawRequestBody(entry)?.candidateConstruction?.steps?.at(-1)?.operation?.kind === 'GROUP',
+        entry.request?.outputId === source.outputId &&
+        entry.request?.candidateConstruction?.steps?.at(-1)?.operation?.kind === 'GROUP',
       { fromIndex: requestFrom, timeoutMs: ACTION_TIMEOUT_MS });
-      const body = requestCapture.rawRequestBody(event);
-      const response = requestCapture.rawResponseBody(event);
+      const body = event.request;
+      const response = event.response;
       const step = body.candidateConstruction.steps.at(-1);
       const key = step.operation.group.keys.find(item => item.inputColumnId === statusColumn.id);
       const aggregate = step.operation.group.aggregates.find(item => item.operation === 'COUNT_ROWS');
@@ -429,14 +429,15 @@ export async function cdaCurrentDraftDiagnosticReportAppendWorkflow({ page, cda 
     const rootNodeIDs = builder.catalog.nodes.filter(node => node.resourceType === 'DiagnosticReport' && node.rowRootEligible)
       .map(node => node.nodeId);
     const combine = page.getByTestId('construction-action-combine');
+    const createFromIndex = requestCapture.requests.length;
     await click('Open native Combine and create an empty DiagnosticReport target', combine,
       async () => waitSelector('[data-testid="construction-combine-editor"]'));
-    const createEvent = await requestCapture.waitFor(entry => entry.path === explorerPath('/authoring/v2/commands') &&
+    const createEvent = await requestCapture.waitForResponse(entry => entry.path === explorerPath('/authoring/v2/commands') &&
       entry.method === 'POST' && entry.status === 200 && entry.completedAt &&
-      requestCapture.rawRequestBody(entry)?.commands?.some(item => item.type === 'CREATE_TABLE'),
-    { timeoutMs: ACTION_TIMEOUT_MS });
-    const createBody = requestCapture.rawRequestBody(createEvent);
-    const createResponse = requestCapture.rawResponseBody(createEvent);
+      entry.request?.commands?.some(item => item.type === 'CREATE_TABLE'),
+    { fromIndex: createFromIndex, timeoutMs: ACTION_TIMEOUT_MS });
+    const createBody = createEvent.request;
+    const createResponse = createEvent.response;
     const mountedOutputId = await page.locator('[data-testid="construction-operation-editor"][data-operation-family="COMBINE"]')
       .getAttribute('data-output-id');
     const targetEvidence = nativeCombineTargetBindingEvidence({ requestBody: createBody, responseStatus: createEvent.status,
@@ -496,7 +497,7 @@ export async function cdaCurrentDraftDiagnosticReportAppendWorkflow({ page, cda 
       const countTrigger = await addOutput(2, 'row_count', 'Row count', groupedSources.map(source => source.countLabel));
       const trigger = countTrigger;
       assert(trigger?.selector && trigger?.value, 'Final APPEND mapping must provide an automatic-preview trigger');
-      const index = report.nativeRequests.length;
+      const index = requestCapture.requests.length;
       await select('Complete native DiagnosticReport APPEND and render duplicate status rows',
         page.locator(trigger.selector), trigger.value,
         async () => waitProposal(targetOutputId, oracle.append.rows.length));
@@ -580,7 +581,7 @@ export async function cdaCurrentDraftDiagnosticReportAppendWorkflow({ page, cda 
       const distinctOptions = summaryOptions.filter(option => !option.disabled && option.value === 'COUNT_DISTINCT');
       assert.equal(distinctOptions.length, 1,
         `Saved GROUP editor must expose one COUNT_DISTINCT option: ${JSON.stringify(summaryOptions)}`);
-      const index = report.nativeRequests.length;
+      const index = requestCapture.requests.length;
       await select(`Change ${source.definition.title} aggregate to COUNT_DISTINCT`,
         page.locator(summarySelector), distinctOptions[0].value,
         async () => waitSelector('select[aria-label="Summary field 1"]'));
@@ -602,11 +603,11 @@ export async function cdaCurrentDraftDiagnosticReportAppendWorkflow({ page, cda 
       }
       assertRows('saved DiagnosticReport COUNT_DISTINCT Group edit previews one distinct status value',
         await readGrid('proposal'), [source.keyLabel, source.countLabel], [[oracle.status, '1']]);
-      const event = await requestCapture.waitFor(entry => {
+      const event = await requestCapture.waitForResponse(entry => {
         if (entry.path !== explorerPath('/authoring/v2/construction-proposals') || entry.method !== 'POST' ||
           entry.status !== 200 || !entry.completedAt) return false;
-        const body = requestCapture.rawRequestBody(entry);
-        const response = requestCapture.rawResponseBody(entry);
+        const body = entry.request;
+        const response = entry.response;
         const candidate = body?.candidateConstruction?.steps?.find(step => step.id === source.group.id);
         const aggregate = candidate?.operation?.group?.aggregates?.find(item => item.operation === 'COUNT_DISTINCT');
         const countOutput = candidate?.outputs?.find(output => output.id === source.countOutput.id);
@@ -621,8 +622,8 @@ export async function cdaCurrentDraftDiagnosticReportAppendWorkflow({ page, cda 
           aggregate?.inputColumnId === source.statusColumn.id && aggregate.outputColumnId === source.countOutput.id &&
           key?.inputColumnId === source.statusColumn.id && countOutput?.label === source.countLabel && ready;
       }, { fromIndex: index, timeoutMs: ACTION_TIMEOUT_MS });
-      const body = requestCapture.rawRequestBody(event);
-      const response = requestCapture.rawResponseBody(event);
+      const body = event.request;
+      const response = event.response;
       const candidate = body?.candidateConstruction?.steps?.find(step => step.id === source.group.id);
       const candidateAggregate = candidate?.operation?.group?.aggregates?.find(item => item.operation === 'COUNT_DISTINCT');
       const candidateKey = candidate?.operation?.group?.keys?.find(item => item.outputColumnId === source.keyOutput.id);
@@ -684,7 +685,7 @@ export async function cdaCurrentDraftDiagnosticReportAppendWorkflow({ page, cda 
         afterDigest: afterEditCancelReload.draftDigest, groupOperation: cancelAggregate?.operation,
         groupCountRows: '2', appendRows: oracle.append.rows, appendInputs: cancelInputs,
         priorAppendReceipt: priorTargetPreview.receiptId,
-        cancelProposalReceipt: cancelEditEvidence.event && requestCapture.rawResponseBody(cancelEditEvidence.event)?.proposalId });
+        cancelProposalReceipt: cancelEditEvidence.event && cancelEditEvidence.event.response?.proposalId });
     assert(cancelRowsAndCAS, 'Canceling the saved GROUP edit must preserve both current-draft tables and CAS');
 
     const appliedEdit = await prepareDistinctGroupEdit(firstSource);
@@ -718,7 +719,7 @@ export async function cdaCurrentDraftDiagnosticReportAppendWorkflow({ page, cda 
     assertRows('applied DiagnosticReport COUNT_DISTINCT Group result survives reload', await readGrid('saved'),
       [firstSource.keyLabel, firstSource.countLabel], [[oracle.status, '1']]);
 
-    const recomputeFromIndex = report.nativeRequests.length;
+    const recomputeFromIndex = requestCapture.requests.length;
     const targetPreviewAfterEdit = `(()=>{const selected=document.querySelector(${JSON.stringify(
       `[data-testid="construction-table-${targetOutputId}"][aria-current="page"]`)});const preview=document.querySelector('[data-testid="construction-preview"]');const table=document.querySelector(${JSON.stringify(TABLE_SELECTOR)});return Boolean(selected&&preview?.dataset.previewStatus==='ready'&&preview.dataset.previewOutputId===${JSON.stringify(targetOutputId)}&&preview.dataset.previewReceiptId!==${JSON.stringify(priorTargetPreview.receiptId)}&&Number(preview.dataset.currentDraftVersion)===${JSON.stringify(afterSourceEdit.draftVersion)}&&preview.dataset.currentDraftDigest===${JSON.stringify(afterSourceEdit.draftDigest)}&&table?.getAttribute('aria-rowcount')===${JSON.stringify(String(editedAppendRows.length + 1))}&&!document.body.innerText.includes('Loading your table…')&&!document.body.innerText.includes('Preview failed:'))})()`;
     await click('Select dependent APPEND after DiagnosticReport GROUP COUNT_DISTINCT edit', tableLocator(targetOutputId),
@@ -741,14 +742,14 @@ export async function cdaCurrentDraftDiagnosticReportAppendWorkflow({ page, cda 
     const recomputeProposal = await assertCurrentDraftAppend(targetOutputId, groupedSources.map(source => source.outputId),
       editedAppendRows, recomputeFromIndex);
     const recomputeProof = currentPreview && stableAppend && recomputeProposal.step.id === savedStep.id &&
-      recomputeProposal.body.expectedDraftVersion === afterSourceEdit.draftVersion &&
-      recomputeProposal.body.expectedDraftDigest === afterSourceEdit.draftDigest && scopeStable && selectionStable;
+      recomputeProposal.request.expectedDraftVersion === afterSourceEdit.draftVersion &&
+      recomputeProposal.request.expectedDraftDigest === afterSourceEdit.draftDigest && scopeStable && selectionStable;
     requireCheck('persistence', 'COUNT_DISTINCT edit recompiles dependent APPEND with stable inputs and exact current-draft receipt',
       recomputeProof, { outputId: targetOutputId, appendStepId: recomputedAppendStep?.id,
         expectedAppendStepId: savedStep.id, currentPreview: recomputedPreview, stableAppend,
         inputEvidence: recomputedInputs, requestId: recomputeProposal.event.requestId,
-        requestDraftVersion: recomputeProposal.body.expectedDraftVersion,
-        requestDraftDigest: recomputeProposal.body.expectedDraftDigest,
+        requestDraftVersion: recomputeProposal.request.expectedDraftVersion,
+        requestDraftDigest: recomputeProposal.request.expectedDraftDigest,
         currentDraftVersion: afterSourceEdit.draftVersion, currentDraftDigest: afterSourceEdit.draftDigest,
         scopeStable, selectionStable });
     assert(recomputeProof, 'Dependent APPEND must recompile against the edited GROUP and preserve current-draft input identity');
@@ -845,6 +846,5 @@ export async function cdaCurrentDraftDiagnosticReportAppendWorkflow({ page, cda 
     };
   } finally {
     page.removeListener('request', onRequest);
-    await requestCapture?.flush();
   }
 }

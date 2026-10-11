@@ -1,5 +1,15 @@
+import { createHash } from 'node:crypto';
+
 const maxBodyLength = 12_000;
 const sensitiveName = /authorization|cookie|password|passwd|token|secret|credential|session|api[_-]?key/i;
+const scopeDigestPattern = /^[a-f0-9]{64}$/;
+const scopeFingerprintPattern = /^scope-fingerprint:sha256:[a-f0-9]{64}$/;
+
+export function fingerprintAuthorizationScopeDigest(value) {
+  if (typeof value === 'string' && scopeFingerprintPattern.test(value)) return value;
+  if (typeof value !== 'string' || !scopeDigestPattern.test(value)) return undefined;
+  return `scope-fingerprint:sha256:${createHash('sha256').update(value).digest('hex')}`;
+}
 
 export function sanitizeText(value) {
   return String(value ?? '')
@@ -16,7 +26,12 @@ export function sanitizeText(value) {
 }
 
 export function sanitizePayload(value, key = '') {
-  if (key === 'snapshotToken' && typeof value === 'string' && /^sha256:[a-f0-9]{64}$/.test(value)) return value;
+  if ((key === 'snapshotToken' || key === 'catalogSnapshotToken') &&
+      typeof value === 'string' && /^sha256:[a-f0-9]{64}$/.test(value)) return value;
+  if (key === 'authorizationScopeDigest') {
+    const fingerprint = fingerprintAuthorizationScopeDigest(value);
+    return fingerprint ?? '[REDACTED]';
+  }
   if ((key === 'authorizationHeaderPresent' || key === 'snapshotTokenMatched') && typeof value === 'boolean') return value;
   if (sensitiveName.test(key)) return '[REDACTED]';
   if (typeof value === 'string') return sanitizeText(value);

@@ -33,7 +33,7 @@ export const assertVisibleCohortMemberIds = (visibleMemberCell, expectedMemberId
 export async function cohortFieldsWorkflow({ page, cda, caseOptions = {} }) {
   const { click, fill, selectOption, navigate, clickControl, fillControl, selectControl,
     nativeClick, nativeFill, nativeSelect, navigatePage, inspectDOM, browserEval, inspectPage,
-    waitForDOM, waitForBrowser, captureCDARequests, captureRequests, waitForCapturedResponse,
+    waitForDOM, waitForBrowser,
     performAction, requireUnique } = createNativeCdaWorkflowTools({ page, cda });
   const target = cda.target;
   const project = cda.project;
@@ -78,7 +78,7 @@ const waitUI = (condition, timeout = 5000) => page.waitForFunction(condition, un
 const navigateUI = url => page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
 const clickUI = (selector, options = {}) => clickControl(page, selector, options);
 const selectUI = (selector, value) => selectControl(page, selector, value);
-const requestBody = entry => requestCapture.rawRequestBody(entry) ?? entry.body;
+const requestBody = entry => entry.request;
 const evidenceSafe = (value, key = '') => {
   if (/authorization|cookie|password|passwd|token|secret|credential|session|api[_-]?key/i.test(key)) return '[REDACTED]';
   if (Array.isArray(value)) return value.map(item => evidenceSafe(item));
@@ -127,9 +127,9 @@ const recordActionToRenderCheckpoint = (name, startedAt) => {
   actionToRenderTimings.push(checkpoint);
   report.cases.push(checkpoint);
 };
-const waitForSavedPreview = async (startedAt, action) => requestCapture.waitFor(
-  entry => entry.path === base + '/preview' && entry.startedAt >= startedAt && entry.status === 200,
-  { timeout: Math.max(1, startedAt + 5000 - Date.now()), label: action },
+const waitForSavedPreview = async (fromIndex, startedAt, action) => requestCapture.waitForResponse(
+  entry => entry.path === base + '/preview' && entry.status === 200,
+  { fromIndex, timeoutMs: Math.max(1, startedAt + 5000 - Date.now()) },
 );
 const open = async expectedRows => {
   const start = Date.now();
@@ -150,7 +150,6 @@ const rendered = async expectedRows => {
 
 report.target ??= { ...cda.report.target };
 report.nativeRequests = cda.report.nativeRequests;
-report.errors = cda.report.errors;
 
   try {
 
@@ -216,7 +215,7 @@ if(authoredFilter){
   assert.equal(proposal.previewStatus,'READY');
   await command([{type:'APPLY_CONSTRUCTION_PROPOSAL',outputId,proposalId:proposal.proposalId}]);
 }
-requestCapture = captureCDARequests(page, { apiOrigin, browserRequestOrigin: uiOrigin, appOrigins: [apiOrigin, uiOrigin], ownedPathPrefix: base, report });
+requestCapture = cda.captureRequests(base, { responsePaths: /commands|construction-proposals|construction-choice-proposals|preview/ });
 await open(expectedMembers.map(s=>[s.id]));
 await nativeClick(page, '[data-testid="construction-rows-settings-trigger"]');
 await waitUI(`document.querySelector('select[aria-label="What should each row represent?"]')?.disabled===false`);
@@ -480,13 +479,13 @@ if(authoredExpand){
   };
   const waitNativeExpandProposal=async(fromIndex,phase)=>{
     const started=Date.now();
-    const request=await requestCapture.waitFor(entry => report.nativeRequests.indexOf(entry)>=fromIndex
-      && entry.path.split('?')[0]===base+'/construction-proposals'&&entry.method==='POST'
+    const request=await requestCapture.waitForResponse(entry =>
+      entry.path.split('?')[0]===base+'/construction-proposals'&&entry.method==='POST'
       && requestBody(entry)?.candidateConstruction?.steps?.some(step=>step.operation?.kind==='EXPAND')
-      && entry.completedAt&&entry.response, { timeout: Math.max(1, started+5000-Date.now()) });
+      && entry.completedAt&&entry.response, { fromIndex, timeoutMs: Math.max(1, started+5000-Date.now()) });
     assert(request?.response,`${phase} must be driven by a completed native construction-proposal request`);
     assert.equal(request.status,200,`${phase} native proposal must succeed: ${JSON.stringify(request.response)}`);
-    const step=request.body.candidateConstruction.steps.findLast(candidate=>candidate.operation?.kind==='EXPAND');
+    const step=request.request.candidateConstruction.steps.findLast(candidate=>candidate.operation?.kind==='EXPAND');
     assert.equal(step.operation.expand.inputColumnId,cohortExpandMemberColumn.columnId,`${phase} must bind the saved Specimen.id ALL member field`);
     assert.equal(step.operation.expand.emptyPolicy,'PRESERVE_PARENT');
     return {request,step};
@@ -496,7 +495,7 @@ if(authoredExpand){
     const action=await inspect(() => {const button=document.querySelector('[data-testid="construction-action-expand-rows"]');return {found:Boolean(button),disabled:button?.disabled,text:button?.innerText?.trim()};});
     assert.equal(action.found,true,`${phase}: native Rows EXPAND action is missing`);
     assert.equal(action.disabled,false,`${phase}: native Rows EXPAND action is disabled: ${JSON.stringify(action)}`);
-    const fromIndex=report.nativeRequests.length;
+    const fromIndex=requestCapture.requests.length;
     start=Date.now();
     await nativeClick(page, '[data-testid="construction-action-expand-rows"]');
     await waitUI(`Boolean(document.querySelector('[aria-label="Expand repeated values"]'))&&document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'&&document.querySelectorAll('[data-testid="construction-proposal-preview-row"]').length===2`);
@@ -598,7 +597,7 @@ if(authoredExpand){
   assert.equal(reopened.label,initialOutput.label);
   assert.equal(reopened.emptyPolicy,'PRESERVE_PARENT');
   const editedLabel='Expanded Specimen ID';
-  const editFrom=report.nativeRequests.length;
+  const editFrom=requestCapture.requests.length;
   start=Date.now();
   await test.step('Edit expanded item label', async () => { const label = page.getByRole('textbox', { name: 'Expanded item label', exact: true }); await expect(label).toBeEditable({ timeout: 5000 }); await label.fill(editedLabel, { timeout: 5000 }); }, { timeout: 5000 });
   await waitUI(`document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'&&document.querySelectorAll('[data-testid="construction-proposal-preview-row"]').length===2&&[...document.querySelectorAll('[data-testid="construction-proposal-preview"] thead th')].some(header=>(header.querySelector('span')?.innerText??header.innerText).trim().toLowerCase()===${JSON.stringify(editedLabel.toLowerCase())})`);
@@ -670,10 +669,11 @@ if(editCohortPolicy){
   await nativeClick(page, '[aria-label="Row definition settings"] button',{name:'Cancel'});
   assert.deepEqual((await api(base+'/builder')).workspace,beforePolicy.workspace,'Policy Cancel must retain fields, filter and anchor');
   await proposePolicy();
+  const policyApplyFromIndex=requestCapture.requests.length;
   start=Date.now();
   await nativeClick(page, '[aria-label="Row definition settings"] button',{name:'Apply row definition'});
   await waitUI(`!document.querySelector('[aria-label="Row definition settings"]')&&!document.body.innerText.includes('Loading your table…')`);
-  await waitForSavedPreview(start,'Applying the cohort policy');
+  await waitForSavedPreview(policyApplyFromIndex,start,'Applying the cohort policy');
   builder=await api(base+'/builder');
   const expectedDocument=structuredClone(doc(beforePolicy));
   expectedDocument.rows.groups.source.explicit.unassignedMemberPolicy='EXCLUDE';
@@ -692,11 +692,12 @@ if(collectionRoundTrip){
   await waitUI(`[...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use all authorized rows'&&!button.disabled)`);
   recordRender('cohort-collection-controls-ready',start);
   start=Date.now();
+  const clearCollectionFromIndex=requestCapture.requests.length;
   await nativeClick(page, 'section[aria-label="Starting collection"] button',{name:'Use all authorized rows'});
   await waitUI(`[...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use selected resources'&&!button.disabled)&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'&&!document.body.innerText.includes('Loading your table…')||document.body.innerText.includes('Preview failed:')`);
   const collectionError=await inspect(() => document.body.innerText.split(String.fromCharCode(10)).find(line=>line.startsWith('Preview failed:')));
   assert.equal(collectionError,undefined,'Clearing the collection must render the pinned cohort: '+collectionError);
-  await waitForSavedPreview(start,'Clearing the collection');
+  await waitForSavedPreview(clearCollectionFromIndex,start,'Clearing the collection');
   const clearedRow=await page.locator('[data-testid="preview-table-scroll"] [role="cell"]').evaluateAll(cells => cells.map(cell=>cell.innerText.trim()));
   assert.deepEqual(clearedRow,fullRow,'Pinned cohort membership and retained filters must survive the full CDA starting collection');
   recordRender('cohort-clear-collection',start);
@@ -708,9 +709,10 @@ if(collectionRoundTrip){
   await nativeClick(page, '[data-testid="construction-rows-settings-trigger"]');
   await waitUI(`[...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use selected resources'&&!button.disabled)`);
   start=Date.now();
+  const restoreCollectionFromIndex=requestCapture.requests.length;
   await nativeClick(page, 'section[aria-label="Starting collection"] button',{name:'Use selected resources'});
   await waitUI(`[...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use all authorized rows'&&!button.disabled)&&!document.body.innerText.includes('Loading your table…')`);
-  await waitForSavedPreview(start,'Restoring the collection');
+  await waitForSavedPreview(restoreCollectionFromIndex,start,'Restoring the collection');
   const attachedRow=await page.locator('[data-testid="preview-table-scroll"] [role="cell"]').evaluateAll(cells => cells.map(cell=>cell.innerText.trim()));
   assert.deepEqual(attachedRow,fullRow);
   recordRender('cohort-reattach-collection',start);
@@ -827,6 +829,7 @@ if(removeCohortAnchor){
     recordRender('cohort-anchor-remove-preview',start);
   };
   await previewRemoval();
+  const removeAnchorFromIndex=requestCapture.requests.length;
   start=Date.now();
   await nativeClick(page, '[data-testid="construction-cancel-proposal"]');
   await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
@@ -838,7 +841,7 @@ if(removeCohortAnchor){
   await waitUI(`(!document.querySelector('[data-testid="construction-proposal-panel"]')&&!document.body.innerText.includes('Loading your table…'))||document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='error'`);
   const anchorApplyError=await inspect(() => document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='error' ? document.body.innerText.slice(-6000) : undefined);
   assert.equal(anchorApplyError,undefined,'Removing the cohort insertion anchor must save the accepted preview: '+anchorApplyError);
-  await waitForSavedPreview(start,'Removing the cohort insertion anchor');
+  await waitForSavedPreview(removeAnchorFromIndex,start,'Removing the cohort insertion anchor');
   const cells=await page.locator('[data-testid="preview-table-scroll"] [role="cell"]').evaluateAll(cells => cells.map(cell=>cell.innerText.trim()));
   assert.deepEqual(cells,fullRow);
   recordRender('cohort-anchor-remove-apply',start);
@@ -875,14 +878,9 @@ assert.deepEqual(doc(builder),doc(beforeField), 'Removing the member field must 
 cda.check('persistence', 'member-field removal restores the exact saved cohort schema after reload',
   removedFieldRestoresSchema && removalReloadRestoresSchema,
   { outputId, cohortRevisionId: cohort.revisionId, selectionRevisionId: selection.id });
-await requestCapture.flush();
-for (const failure of cda.diagnostics.networkFailures) report.errors.push({ kind: 'browser-network', ...failure });
-for (const failure of cda.diagnostics.httpFailures) report.errors.push({ kind: 'browser-http', ...failure });
-assert.deepEqual(report.errors,[]);
-report.status = 'passed';
+
+
   } finally {
-    try { await requestCapture?.flush(); } catch (error) { report.requestFlushError = String(error); }
-    cda.includeBrowserDiagnostics();
     report.finished = new Date().toISOString();
     await cda.attachReport(`standalone-${cda.caseName}-domain.json`, {
       ...cda.report,

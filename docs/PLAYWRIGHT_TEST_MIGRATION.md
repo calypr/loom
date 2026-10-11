@@ -1,15 +1,45 @@
 # Official Playwright Test migration
 
-## October 5 migration checkpoint
+## October 5 static inventory at epoch 47
 
-The current registry contains 24 cases. Main Playwright static discovery lists
-160 tests in 23 spec files; the discovery snapshot declares 164 cases across
-five scoped sessions (the main suite, one separately configured benchmark, and
-three scoped one-case lists). The static native ownership and binding gate
-passes all 24 registered cases.
-These counts and gates establish discovery and static coverage only.
+The verified working tree has 26 registered cases, all with native spec
+mappings. Main-suite Playwright discovery lists 162 tests in 25 spec files,
+including `builder-authoring/legacy-v9-rows` and
+`cda-workspace-combine/group-join`. The native mapping gate reports all 26 registered cases mapped to native specs. The dedicated benchmark config
+lists 1 test in 1 file; each of the three configured related ONE/ALL variants
+lists 1 test in 1 file. These five invocations produce 166 session entries.
+The related variants share the conditional registration at
+`scripts/verify-ui/specs/standalone-cda-rows.spec.mjs:52` with the main default
+CDA-ID listing, using environment-specific titles and IDs. Session entries are
+not the registry acceptance-case count.
 
-Selected durable native runtime results:
+The epoch 47 discovery snapshot binds those listings to the current spec and
+config hashes. Its status remains `discovery-only`; `--list` did not run any
+test bodies. The legacy-v9 case has a separate Epoch37 Basic-fixture lifecycle
+recorded in the registry (12 required checks); Related/List Apply, Group
+edit/removal, and real-CDA follow-up remain unverified. The newly registered
+real-CDA Group-to-Group case is present in discovery but remains untested: Epoch46
+stopped at bounded raw-witness setup before creating an Explorer or exercising
+the UI. Static discovery does not change either lifecycle status.
+
+From the repository root, reproduce the current listings and gates with:
+
+```bash
+./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs --list --reporter=list
+./scripts/node_modules/.bin/playwright test --config scripts/measurements/construction-preview/construction-preview-bench.config.mjs --list --reporter=list
+LOOM_RELATED_ONE_ALL_MODE=basic LOOM_RELATED_ONE_ALL_FIELD=status ./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs scripts/verify-ui/specs/standalone-cda-rows.spec.mjs --list --reporter=list --grep 'preserves basic status behavior against raw related records'
+LOOM_RELATED_ONE_ALL_MODE=cda LOOM_RELATED_ONE_ALL_FIELD=status ./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs scripts/verify-ui/specs/standalone-cda-rows.spec.mjs --list --reporter=list --grep 'preserves cda status behavior against raw related records'
+LOOM_RELATED_ONE_ALL_MODE=cda LOOM_RELATED_ONE_ALL_FIELD=specimen-reference ./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs scripts/verify-ui/specs/standalone-cda-rows.spec.mjs --list --reporter=list --grep 'preserves cda specimen-reference behavior against raw related records'
+node scripts/maintenance/playwright/check-native-playwright.mjs
+node scripts/maintenance/playwright/check-standalone-playwright-ledger.mjs
+```
+
+The generated source-conversion ledger records 26 registry mappings, 162 main
+suite tests in 25 files, and runtime status `not-run`; it reports no pending
+mappings or orphan specs. The selected historical runtime reports below remain
+separate from this static inventory.
+
+Selected historical native runtime reports:
 
 - Epoch 6 `CDA compound fields` passed its native lifecycle with 47 recorded
 actions and unchanged source/API identities:
@@ -115,13 +145,13 @@ APIs remain. The worker's two existing dispatcher contract checks passed.
 Discovery verifies command selection, not browser lifecycle success. The
 source-mutating `verify-current` and `verify-full` cases must run alone.
 
-## Current mechanical checkpoint
+## Historical mechanical checkpoint (October 4)
 
-On October 4, native discovery lists 155 tests in 22 spec files, plus one
-benchmark case in its dedicated configuration. All 23
-registered cases have native spec mappings, and the static binding check finds
-no undefined names. These results prove discovery and static coverage only;
-most converted cases remain unrun. The first runtime results are recorded below.
+At that checkpoint, native discovery listed 155 tests in 22 spec files, plus one
+benchmark case in its dedicated configuration. All 23 registered cases had
+native spec mappings, and the static binding check found no undefined names.
+Those results proved discovery and static coverage only; most converted cases
+remained unrun. The first runtime results are recorded below.
 
 The ownership and static binding gate passes. The benchmark uses the native
 Test browser fixture; the old launcher and CDA browser session helper have
@@ -205,7 +235,7 @@ corrections preserve the original assertions. They are not product fixes.
 
 The Playwright Test migration precedes further Builder exploration. Finish the
 mechanical conversion of all browser verifiers, including the nine embedded
-`loom-dev.mjs` journeys and `construction_preview_bench.mjs`, into native
+`loom-dev.mjs` journeys and `measurements/construction-preview/construction_preview_bench.mjs`, into native
 `@playwright/test` cases and fixtures.
 Preserve independent source oracles, lifecycle assertions, owned data setup,
 and five-second user-action budgets. Migrate callers before deleting legacy

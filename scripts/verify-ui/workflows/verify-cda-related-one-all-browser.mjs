@@ -3,33 +3,39 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { sanitizeBody, sanitizePayload, sanitizeText } from '../helpers/playwright-browser.mjs';
-import {
-  findCompletedNativeResponse,
-  matchesNativeConstructionRemovalProposal,
-} from '../helpers/cda-playwright-requests.mjs';
-import { createPendingResponseReads } from '../helpers/pending-response-reads.mjs';
+import { sanitizeReportPayload, sanitizeText } from '../helpers/playwright-browser.mjs';
+import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
+import { matchesNativeConstructionRemovalProposal } from '../helpers/cda-playwright-requests.mjs';
 import { captureSourceFreeze } from '../helpers/source-freeze.mjs';
 import { sourceFingerprint } from '../helpers/source-fingerprint.mjs';
 import { createdExplorerScope } from '../helpers/created-explorer-scope.mjs';
 import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp } from '../helpers/api-build-freeze.mjs';
-import { expectedRelatedSourceOneValidation, relatedSourceProposalCandidate, selectedRelatedSourceProposal as matchSelectedRelatedSourceProposal } from '../helpers/related-source-capture.mjs';
-import { createNativeAbortProbeSource, nativeAbortProbeEvidenceForRequest, nativeAbortDomOwnerRules } from '../helpers/native-abort-probe.mjs';
+import { expectedRelatedSourceOneValidation, matchesExpectedRelatedSourceOneValidationCapture, relatedSourceProposalCandidate, selectedRelatedSourceProposal as matchSelectedRelatedSourceProposal } from '../helpers/related-source-capture.mjs';
 import { fixtureUnavailableOutcome } from '../helpers/cda-fixture-outcomes.mjs';
 import { hasSameQuantityValueMultiset, readBasicRelatedQuantityOneAllOracle } from '../helpers/basic-related-quantity-one-all-oracle.mjs';
+import { matchesRootRebaseAssessment } from '../helpers/root-rebase-preservation.mjs';
+import {
+  choosePatientLinkedObservationOption,
+  choosePatientObservationSubjectRestorationButton,
+  choosePatientSubjectObservationRepairButton,
+  directObservationRootPreservesPatientState,
+  matchesPlainPatientObservationAssessment,
+} from './verify-cda-plain-patient-root-selector.mjs';
 import {
   statusOneAllLifecycleChecks,
   zeroObservationLifecycleChecks,
+  zeroObservationSelectionRevisionMatches,
 } from '../helpers/related-one-all-lifecycle-contract.mjs';
 
 const ACTION_TIMEOUT_MS = 5_000;
+export const relatedOneAllResponsePaths = /builder|population-routes|construction-capabilities|semantic-inventory|construction-choices|related-expand-choices|construction-proposals|commands|reconcile|preview|row-change/;
 
 // Adapted from verify-cda-group-related-values-browser.mjs and
 // verify-cda-coded-field-lifecycle-browser.mjs. The raw CDA oracle is kept
 // separate from Explorer previews and bounds independent witnesses.
 export async function relatedOneAllWorkflow({
   page: nativePage, cda, mode: requestedMode, fieldMode: requestedFieldMode, witnessMode: requestedWitnessMode,
-  savedEmptyPolicyEdit: requestedSavedEmptyPolicyEdit,
+  savedEmptyPolicyEdit: requestedSavedEmptyPolicyEdit, zeroStartingRootRoundtrip = false,
 }) {
 const mode = requestedMode ?? process.env.LOOM_RELATED_ONE_ALL_MODE ?? 'cda';
 assert(['basic', 'cda'].includes(mode), 'LOOM_RELATED_ONE_ALL_MODE must be basic or cda');
@@ -49,6 +55,8 @@ assert(!zeroObservationMode || (mode === 'cda' && fieldMode === 'id'),
   'The zero Observation witness mode requires the CDA Observation.id workflow');
 assert(!savedEmptyPolicyEdit || zeroObservationMode,
   'The saved RelatedExpand empty-policy edit requires the exact zero Observation witness workflow');
+assert(!zeroStartingRootRoundtrip || (zeroObservationMode && !savedEmptyPolicyEdit),
+  'The starting-root roundtrip requires the bounded zero Observation witness and standalone policy mode');
 const statusFieldMode = fieldMode === 'status';
 const referenceFieldMode = fieldMode === 'specimen-reference';
 const quantityFieldMode = fieldMode === 'quantity';
@@ -101,7 +109,9 @@ const report = {
   mode: basicMode ? 'basic-fixture' : 'cda', fieldMode, witnessMode,
   ...(savedEmptyPolicyEdit ? { savedEmptyPolicyEdit: true } : {}),
   scenario: zeroObservationMode
-    ? savedEmptyPolicyEdit
+    ? zeroStartingRootRoundtrip
+      ? 'Exact selected zero-Observation Patient population changes to an Observation row root, cancels without saving, applies and reloads with zero rows and the Patient ID column, then restores and reloads the exact Patient row.'
+      : savedEmptyPolicyEdit
       ? 'Bounded exact project/generation Patient root with an independently reread empty incoming typed Observation.subject_Patient edge set; native ONE/ALL and label lifecycle are followed by a saved RelatedExpand PRESERVE_PARENT-to-EXCLUDE edit, Cancel, Apply/reload, and upstream restoration.'
       : 'Bounded exact project/generation Patient root with an independently reread empty incoming typed Observation.subject_Patient edge set; native ONE/ALL is checked through the current PRESERVE_PARENT expansion and full saved lifecycle.'
     : referenceFieldMode
@@ -114,15 +124,6 @@ const report = {
         : 'Patient-grouped CDA rows with the direct related Observation.status scalar source; a bounded multi-status witness predicts ONE rejection and same-chooser ALL repair.'
       : 'Patient-grouped CDA rows from one selected Specimen per witness, with related Observation ID values; a many-Observation witness must reproduce grouped-row ONE rejection and same-chooser ALL repair. Zero/one Observation witnesses are additional coverage when available.',
   started: new Date().toISOString(), cases: [], apiCalls: [], errors: [], nativeRequests: [],
-  nativeAbortProbeEvents: [],
-  frameNavigations: [], executionContextRetirements: [], expectedOwnerCancellations: [],
-  requestOwnershipEvidence: {
-    status: 'partial',
-    transport: 'Playwright Request object identity and public request/response/frame events',
-    proven: ['exact owned API Request-to-response correlation', 'response body and HTTP status association',
-      'same-document owner cancellation only when exact request signal, trusted Playwright action, and DOM detachment all correlate'],
-    gap: 'Playwright does not expose Chromium loader IDs or execution-context creation/destruction events; no navigation-time context retirement is inferred.',
-  },
   ...(statusFieldMode ? { statusSourceContract: { path: 'Observation.status', logicalType: 'string', cardinality: 'optional_one',
     catalogProjectionMode: 'VALUE', relatedSourceForm: 'ALL',
     note: 'FHIR code primitive is represented as string per Observation; the related source retains all matching records.' } } : {}),
@@ -149,72 +150,6 @@ let builder;
 let outputId;
 let frozenApiBuild;
 let apiBuildCheckStarted = false;
-const nativeByRequestId = new Map();
-let reportFinalized = false;
-const nativeRequestSummary = (request) => {
-  if (!request || typeof request !== 'object') return request;
-  const diagnosticKeys = [
-    'rowRoot', 'resourceType', 'outputId', 'sourceChoiceId', 'frameId', 'frameSourceId',
-    'query', 'cursor', 'limit', 'requestId', 'selectionRevisionId', 'expectedDraftVersion',
-    'changedStepId', 'removeStepIds',
-  ];
-  return Object.fromEntries(diagnosticKeys.filter((key) => Object.hasOwn(request, key)).map((key) => [key, request[key]]));
-};
-const nativeInitiatorSummary = (initiator) => initiator ? {
-  type: initiator.type,
-  url: initiator.url,
-  requestId: initiator.requestId,
-  stack: (initiator.stack?.callFrames ?? []).slice(0, 4).map((frame) => ({
-    functionName: frame.functionName,
-    url: frame.url,
-    lineNumber: frame.lineNumber,
-    columnNumber: frame.columnNumber,
-  })),
-} : undefined;
-const pendingNativeEvidence = (entry) => ({
-  requestId: entry.requestId,
-  requestCorrelationId: entry.requestCorrelationId,
-  method: entry.method,
-  path: entry.path,
-  ageMs: Date.now() - entry.startedAt,
-  frameId: entry.frameId,
-  loaderId: entry.loaderId,
-  scopeProject: entry.scopeProject,
-  scopeExplorer: entry.scopeExplorer,
-  owningFrameWasCurrentMainLoader: entry.owningFrameWasCurrentMainLoader,
-  owningFrameLoaderCommittedAt: entry.owningFrameLoaderCommittedAt,
-  initiatorExecutionContexts: entry.initiatorExecutionContexts,
-  resourceType: entry.resourceType,
-  initiator: entry.initiator,
-  request: nativeRequestSummary(entry.request),
-  requestTimestamp: entry.requestTimestamp,
-  requestWallTime: entry.requestWallTime,
-  status: entry.status,
-  responseTimestamp: entry.responseTimestamp,
-  responseReceivedAt: entry.responseReceivedAt,
-  networkTerminal: entry.networkTerminal,
-  bodyReadStatus: entry.bodyReadStatus,
-  loadingFailed: entry.loadingFailed,
-  ownerRetirement: entry.ownerRetirement,
-  ownershipEvidenceGap: entry.loadingFailed?.canceled && !entry.expectedOwnerCancellation
-    ? 'Playwright exposes request failure and Request identity but not Chromium loader or execution-context retirement IDs.' : undefined,
-  laterSamePayload: report.nativeRequests.filter((candidate) => candidate.requestId !== entry.requestId &&
-    candidate.path === entry.path && JSON.stringify(candidate.request ?? null) === JSON.stringify(entry.request ?? null) &&
-    candidate.startedAt >= entry.startedAt).slice(0, 5).map((candidate) => ({
-      requestId: candidate.requestId,
-      requestCorrelationId: candidate.requestCorrelationId,
-      startedAt: candidate.startedAt,
-      frameId: candidate.frameId,
-      loaderId: candidate.loaderId,
-      owningFrameWasCurrentMainLoader: candidate.owningFrameWasCurrentMainLoader,
-      initiatorExecutionContexts: candidate.initiatorExecutionContexts,
-      resourceType: candidate.resourceType,
-      status: candidate.status,
-      networkTerminal: candidate.networkTerminal,
-      bodyReadStatus: candidate.bodyReadStatus,
-      loadingFailed: candidate.loadingFailed,
-    })),
-});
 const api = async (path, body) => {
   const response = await fetch(apiOrigin + path, {
     method: body === undefined ? 'GET' : 'POST',
@@ -224,8 +159,8 @@ const api = async (path, body) => {
   });
   const value = await response.json();
   report.apiCalls.push({ path, status: response.status,
-    body: body === undefined ? undefined : parseSanitizedBody(JSON.stringify(body)),
-    response: parseSanitizedBody(JSON.stringify(value)) });
+    body: body === undefined ? undefined : sanitizeReportPayload(body),
+    response: sanitizeReportPayload(value) });
   assert(response.ok, JSON.stringify(value));
   return value;
 };
@@ -250,6 +185,16 @@ const command = async (commands) => {
   return builder;
 };
 const doc = (state = builder) => state.workspace.documents.find((document) => document.output.id === outputId);
+const expectedRelatedSource = () => ({
+  outputId,
+  candidateId: report.relatedFieldCandidate?.candidateId,
+  nodeId: report.relatedFieldCandidate?.nodeId,
+  choiceId: report.currentRelatedChoiceId,
+  snapshotToken: builder?.catalog?.snapshotToken,
+  resourceType: 'Observation',
+  path: relatedFieldPath,
+  routeTypes: expectedRelatedRouteTypes,
+});
 const assertStatusCandidate = (state) => {
   const resourceTypeByNode = new Map((state.catalog.nodes ?? []).map((node) => [node.nodeId, node.resourceType]));
   const candidates = state.catalog.candidates.filter((candidate) =>
@@ -375,310 +320,29 @@ const relatedDisplayValuesFor = (witness) => {
 };
 const readFixtureNDJSON = async (relativePath) => (await readFile(fileURLToPath(new URL(relativePath, import.meta.url)), 'utf8'))
   .split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
-const nativeByRequest = new Map();
-const nativeProtocolResponses = new WeakMap();
-const protocolResponse = entry => nativeProtocolResponses.get(entry);
-const nativeResponseReads = createPendingResponseReads();
-const nativeRequestWaiters = new Set();
-let nextNativeRequestId = 1;
-const notifyNativeRequestChange = () => {
-  for (const resolve of nativeRequestWaiters) resolve();
-  nativeRequestWaiters.clear();
-};
-const waitForNativeRequestChange = timeoutMs => new Promise(resolve => {
-  let done = false;
-  const finish = () => {
-    if (done) return;
-    done = true;
-    clearTimeout(timer);
-    nativeRequestWaiters.delete(finish);
-    resolve();
-  };
-  const timer = setTimeout(finish, timeoutMs);
-  nativeRequestWaiters.add(finish);
-});
-const appOrigins = new Set([apiOrigin, uiOrigin].map(value => new URL(value).origin));
-const uiApiOrigin = new URL(uiOrigin).origin;
-let ownedApiPath;
-const requestURL = request => {
-  try { return new URL(request.url()); } catch { return undefined; }
-};
-const isOwnedNativeRequest = request => {
-  const url = requestURL(request);
-  return Boolean(ownedApiPath && url && url.origin === uiApiOrigin && url.pathname.startsWith(ownedApiPath));
-};
-const parseSanitizedBody = value => {
-  const text = String(value ?? '');
-  if (text.length > 12_000) return { diagnosticBodyTruncated: true, length: text.length };
-  try { return sanitizePayload(JSON.parse(text)); } catch { return sanitizeBody(text); }
-};
-const selectedRelatedSourceEvidence = () => {
-  const candidate = report.relatedFieldCandidate;
-  const choiceId = report.currentRelatedChoiceId;
-  const choice = report.relatedChoiceAssertions.find(item => item.choiceId === choiceId);
-  return {
-    outputId, candidateId: candidate?.candidateId, nodeId: candidate?.nodeId,
-    choiceId, snapshotToken: choice?.choiceRequest?.snapshotToken,
-    resourceType: 'Observation', path: relatedFieldPath, routeTypes: expectedRelatedRouteTypes,
-  };
-};
-const selectedRelatedSourceProposal = entry => matchSelectedRelatedSourceProposal(entry, selectedRelatedSourceEvidence());
-const expectedHttpValidation = entry => expectedRelatedSourceOneValidation(entry, selectedRelatedSourceEvidence());
-const annotateExpectedOwnerCancellation = entry => {
-  if (entry.expectedOwnerCancellation || entry.bodyReadStatus !== 'failed' ||
-      entry.loadingFailed?.errorText !== 'net::ERR_ABORTED' || entry.loadingFailed?.canceled !== true ||
-      entry.status !== undefined || entry.responseReceivedAt !== undefined) return false;
-  const evidence = nativeAbortProbeEvidenceForRequest(entry, report.nativeAbortProbeEvents);
-  entry.abortControllerProbeEvidence = evidence;
-  const proven = evidence.find(candidate => {
-    const request = candidate.request;
-    const before = candidate.ownerDomAtFetch;
-    const after = candidate.ownerDomAtAbort;
-    const rule = nativeAbortDomOwnerRules.find(item => item.owner === before?.ruleOwner && item.endpoint === request?.endpoint);
-    return candidate.networkRequestId === entry.requestId &&
-      candidate.networkFailureObservedSeparately === true &&
-      Number.isFinite(candidate.networkFailureObservedAt) && candidate.controllerAbortedAt <= candidate.networkFailureObservedAt &&
-      candidate.signalWasAlreadyAborted === false && candidate.exactRequestSignalCorrelation === true &&
-      request?.requestId === entry.requestCorrelationId && request.path === entry.path && request.method === entry.method &&
-      rule && before?.status === 'unique' && before.connectedAtFetch === true && Boolean(before.anchorId) &&
-      after?.anchorId === before.anchorId && after.connectedAtAbort === false && after.detachedAtAbort === true &&
-      candidate.ownerRetirementAction?.isTrusted === true && candidate.ownerRetirementAction.type === 'click' &&
-      ['native-event-isTrusted-true', 'trusted-interaction-list-membership'].includes(candidate.ownerRetirementAction.trustEvidence);
-  });
-  if (!proven) return false;
-  const ownerRetirement = {
-    ownerRetired: true,
-    reason: 'same-document-owner-detached-after-trusted-Playwright-action-and-exact-AbortController-signal',
-    owner: proven.ownerDomAtFetch.ruleOwner,
-    endpoint: proven.request.endpoint,
-    requestCorrelationId: entry.requestCorrelationId,
-    requestId: entry.requestId,
-    componentAnchor: proven.ownerDomAtFetch.selector,
-    componentAnchorId: proven.ownerDomAtFetch.anchorId,
-    componentAnchorCapturedAt: proven.ownerDomAtFetch.capturedAt,
-    componentAnchorDetachedAtAbort: proven.controllerAbortedAt,
-    componentAbortControllerId: proven.controllerId,
-    componentAbortAt: proven.controllerAbortedAt,
-    trustedActionAt: proven.ownerRetirementAction.at,
-    trustedActionLabel: proven.ownerRetirementAction.closestButton?.accessibleLabel,
-    networkFailureAt: proven.networkFailureObservedAt,
-    evidence: 'Playwright requestfailed event plus page-side trusted-event/AbortController/DOM-owner evidence',
-  };
-  entry.ownerRetirement = ownerRetirement;
-  entry.expectedOwnerCancellation = { expected: true, reason: ownerRetirement.reason, ownerRetirement };
-  cda.expectCanceledRequest(nativeByRequestId.get(entry.requestId), ownerRetirement.reason, {
-    requestId: entry.requestId,
-    requestCorrelationId: entry.requestCorrelationId,
-    action: proven.ownerRetirementAction,
-    detachedOwner: ownerRetirement.owner,
-    probeEvidence: evidence,
-  });
-  report.expectedOwnerCancellations.push({
-    requestId: entry.requestId, requestCorrelationId: entry.requestCorrelationId, path: entry.path,
-    owner: ownerRetirement.owner, loadingFailed: entry.loadingFailed, ownerRetirement,
-    networkTerminal: entry.networkTerminal, bodyReadStatus: entry.bodyReadStatus, complete: entry.complete,
-  });
-  const error = report.errors.find(item => item.kind === 'native-request' && item.requestId === entry.requestId);
-  if (error) { error.expectedOwnerCancellation = true; error.ownerRetirement = ownerRetirement; }
-  return true;
-};
+let nativeCapture;
+let fatalError;
+let fixtureUnavailable;
+let browserAuthoringBase;
 const startNativeCapture = async () => {
-  await nativePage.context().exposeBinding('__loomNativeAbortProbeBinding', (_source, payload) => {
-    let event;
-    try { event = JSON.parse(payload); }
-    catch { report.nativeAbortProbeEvents.push({ kind: 'probe-payload-invalid', payloadLength: String(payload).length }); return; }
-    report.nativeAbortProbeEvents.push(event);
-    notifyNativeRequestChange();
-  });
-  await nativePage.context().addInitScript(createNativeAbortProbeSource({ project, explorer }));
-  nativePage.on('framenavigated', frame => {
-    if (frame !== nativePage.mainFrame()) return;
-    let url;
-    try { url = new URL(frame.url()); } catch { return; }
-    if (url.origin !== new URL(uiOrigin).origin) return;
-    report.frameNavigations.push({
-      frameId: 'playwright-main-frame', isMainFrame: true, at: Date.now(), path: url.pathname,
-      project: url.searchParams.get('project'), explorer: url.searchParams.get('explorer'), mode: url.searchParams.get('mode'),
-      identitySource: 'Playwright Frame.url; loader ID is not exposed by Playwright',
-    });
+  nativeCapture = captureCDARequests(nativePage, {
+    apiOrigin,
+    browserRequestOrigin: uiOrigin,
+    appOrigins: [uiOrigin],
+    ownedPathPrefix: browserAuthoringBase,
+    report,
+    responsePaths: relatedOneAllResponsePaths,
   });
   nativePage.on('request', request => {
-    const url = requestURL(request);
-    if (!url) return;
+    let url;
+    try { url = new URL(request.url()); } catch { return; }
     if (url.pathname.includes(`/explorers/${protectedExplorer}/`)) report.protectedExplorerUntouched = false;
-    const owned = isOwnedNativeRequest(request);
-    if (!owned) return;
-    const headers = request.headers();
-    let body;
-    try { if (request.postData() !== null) body = request.postDataJSON(); }
-    catch { body = parseSanitizedBody(request.postData() ?? ''); }
-    const browserRequestId = `playwright-${nextNativeRequestId++}`;
-    nativeByRequestId.set(browserRequestId, request);
-    const entry = {
-      requestId: browserRequestId,
-      browserRequestId,
-      method: request.method(),
-      url: `${url.origin}${url.pathname}`,
-      origin: url.origin,
-      path: url.pathname,
-      query: parseSanitizedBody(JSON.stringify(Object.fromEntries(url.searchParams))),
-      request: body,
-      requestCorrelationId: headers['x-request-id'],
-      scopeProject: project,
-      scopeExplorer: explorer,
-      resourceType: request.resourceType() === 'fetch' ? 'Fetch' : request.resourceType(),
-      startedAt: Date.now(),
-      status: undefined,
-      response: undefined,
-      responseReceivedAt: undefined,
-      networkTerminal: false,
-      bodyReadStatus: 'pending',
-      complete: false,
-      transport: 'Playwright Request object identity',
-    };
-    nativeByRequest.set(request, entry);
-    report.nativeRequests.push(entry);
-    notifyNativeRequestChange();
-  });
-  nativePage.on('response', response => {
-    const request = response.request();
-    const entry = nativeByRequest.get(request);
-    const url = requestURL(request);
-    if (!entry && (!url || !appOrigins.has(url.origin))) return;
-    const status = response.status();
-    if (!entry && status >= 400) {
-      const failure = { kind: 'http', status, path: url.pathname, origin: url.origin };
-      if (url.pathname.endsWith('/favicon.ico') && status === 404) report.assetFailures.push(failure);
-      else report.errors.push(failure);
-      return;
-    }
-    if (!entry) return;
-    entry.status = status;
-    entry.responseReceivedAt = Date.now();
-    entry.networkTerminal = true;
-    entry.bodyReadStatus = 'reading';
-    const read = (async () => {
-      try {
-        const body = await response.text();
-        try { nativeProtocolResponses.set(entry, JSON.parse(body)); } catch { /* Keep malformed response text only in the bounded diagnostic projection. */ }
-        entry.response = parseSanitizedBody(body);
-        entry.bodyReadStatus = 'decoded';
-        entry.complete = true;
-        if (status >= 400) {
-          const expectedValidation = expectedHttpValidation({ ...entry, response: protocolResponse(entry) });
-          report.errors.push({ kind: 'native-http', requestId: entry.requestId,
-            requestCorrelationId: entry.requestCorrelationId, path: entry.path, status,
-            response: entry.response, expectedValidation });
-        }
-      } catch (error) {
-        entry.bodyReadStatus = 'failed';
-        entry.bodyError = sanitizeText(error?.message ?? error);
-        report.errors.push({ kind: 'native-response-body', requestId: entry.requestId,
-          requestCorrelationId: entry.requestCorrelationId, path: entry.path, status, message: entry.bodyError });
-      } finally {
-        entry.completedAt = Date.now();
-        notifyNativeRequestChange();
-      }
-    })();
-    nativeResponseReads.track(read, {
-      phase: 'native-api-response-body',
-      browserRequestId: entry.browserRequestId,
-      requestId: entry.requestCorrelationId ?? entry.requestId,
-      requestCorrelationId: entry.requestCorrelationId,
-      method: entry.method,
-      path: entry.path,
-      status,
-    });
-  });
-  nativePage.on('requestfailed', request => {
-    const failure = request.failure()?.errorText ?? 'unknown request failure';
-    const entry = nativeByRequest.get(request);
-    if (entry) {
-      entry.networkTerminal = true;
-      entry.bodyReadStatus = 'failed';
-      entry.bodyError = `Playwright requestfailed: ${failure}`;
-      entry.loadingFailed = { errorText: failure, canceled: failure === 'net::ERR_ABORTED', at: Date.now(), clockBasis: 'playwright-requestfailed-wall-clock' };
-      entry.complete = true;
-      entry.completedAt = Date.now();
-      const error = { kind: 'native-request', requestId: entry.requestId,
-        requestCorrelationId: entry.requestCorrelationId, path: entry.path,
-        message: entry.bodyError, canceled: entry.loadingFailed.canceled };
-      report.errors.push(error);
-      annotateExpectedOwnerCancellation(entry);
-    } else {
-      const url = requestURL(request);
-      if (url && appOrigins.has(url.origin)) report.errors.push({ kind: request.resourceType() === 'script' ? 'module' : 'network',
-        path: url.pathname, method: request.method(), message: sanitizeText(failure) });
-    }
-    notifyNativeRequestChange();
   });
   nativePage.on('pageerror', error => report.errors.push({ kind: 'runtime', message: sanitizeText(error.message) }));
 };
-const settleNativeResponses = async (timeoutMs = 5000) => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      await nativeResponseReads.flush({
-        timeoutMs: Math.max(1, deadline - Date.now()),
-        label: 'native API response body reads',
-      });
-    } catch (error) {
-      for (const entry of report.nativeRequests) annotateExpectedOwnerCancellation(entry);
-      const pending = report.nativeRequests.filter(entry => !entry.networkTerminal || entry.bodyReadStatus === 'pending' || entry.bodyReadStatus === 'reading');
-      const responseReadError = sanitizeText(error?.message ?? error);
-      const timedOut = responseReadError.includes('Timed out flushing native API response body reads');
-      report.nativeResponseDrain = {
-        status: timedOut ? 'timed-out' : 'failed',
-        timeoutMs,
-        pending: pending.map(pendingNativeEvidence),
-        responseReadError,
-        expectedOwnerCancellations: report.expectedOwnerCancellations.map(({ requestId, requestCorrelationId, path, owner, loadingFailed }) =>
-          ({ requestId, requestCorrelationId, path, owner, loadingFailed })),
-      };
-      throw new Error(`${timedOut ? 'Timed out' : 'Failed'} draining native API responses: ${JSON.stringify(report.nativeResponseDrain)}`);
-    }
-    for (const entry of report.nativeRequests) annotateExpectedOwnerCancellation(entry);
-    const pending = report.nativeRequests.filter(entry => !entry.networkTerminal || entry.bodyReadStatus === 'pending' || entry.bodyReadStatus === 'reading');
-    if (pending.length === 0) {
-      const unexpectedIncomplete = report.nativeRequests.filter(entry => entry.bodyReadStatus !== 'decoded' && entry.expectedOwnerCancellation?.expected !== true);
-      if (unexpectedIncomplete.length) {
-        report.nativeResponseDrain = {
-          status: 'failed',
-          timeoutMs,
-          decodedBodies: report.nativeRequests.filter(entry => entry.bodyReadStatus === 'decoded').length,
-          failedBodies: unexpectedIncomplete.map(pendingNativeEvidence),
-          expectedOwnerCancellations: report.expectedOwnerCancellations.map(({ requestId, requestCorrelationId, path, owner, loadingFailed }) =>
-            ({ requestId, requestCorrelationId, path, owner, loadingFailed })),
-        };
-      }
-      assert.deepEqual(unexpectedIncomplete, [],
-        'Every captured native API response must decode or match exact trusted same-document owner retirement evidence');
-      report.nativeResponseDrain = {
-        status: 'complete',
-        decodedBodies: report.nativeRequests.filter(entry => entry.bodyReadStatus === 'decoded').length,
-        retiredIncompleteRequests: [],
-        expectedOwnerCancellations: report.expectedOwnerCancellations.map(({ requestId, requestCorrelationId, path, owner, loadingFailed }) =>
-          ({ requestId, requestCorrelationId, path, owner, loadingFailed })),
-        ownershipTransport: 'Playwright Request identity and public lifecycle events; no loader/context ownership inferred',
-      };
-      return;
-    }
-    await waitForNativeRequestChange(Math.max(1, Math.min(100, deadline - Date.now())));
-  }
-  const pending = report.nativeRequests.filter(entry => !entry.networkTerminal || entry.bodyReadStatus === 'pending' || entry.bodyReadStatus === 'reading');
-  report.nativeResponseDrain = { status: 'timed-out', timeoutMs, pending: pending.map(pendingNativeEvidence),
-    expectedOwnerCancellations: report.expectedOwnerCancellations.map(({ requestId, path, owner, loadingFailed }) => ({ requestId, path, owner, loadingFailed })) };
-  throw new Error(`Timed out draining native API responses: ${JSON.stringify(pending.map(pendingNativeEvidence))}`);
-};
-const waitNative = async (predicate, fromIndex = 0, timeoutMs = 5000) => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const match = findCompletedNativeResponse(report.nativeRequests, protocolResponse, predicate, fromIndex);
-    if (match) return match;
-    await waitForNativeRequestChange(Math.max(1, Math.min(100, deadline - Date.now())));
-  }
-  throw new Error(`Timed out waiting for native request: ${JSON.stringify(report.nativeRequests.slice(fromIndex).map(({ method, url, path, query, status, request, bodyReadStatus, bodyError }) => ({ method, url, path, query, status, request, bodyReadStatus, bodyError })))}`);
-};
+const responseOf = entry => entry?.response;
+const waitNative = (predicate, fromIndex = 0, timeoutMs = 5000) => nativeCapture.waitForResponse(
+  entry => predicate(entry, entry.response), { fromIndex, timeoutMs });
 const nativeRequestValue = (entry, key) => entry.request?.[key] ?? entry.query?.[key];
 const inspectPage = (page, inspect, argument) => page.evaluate(inspect, argument);
 const waitForObservable = (page, predicate, argumentOrTimeout, timeoutArgument = 5000) => {
@@ -793,9 +457,9 @@ const rendered = async (expectedRows) => {
   }
   return rows;
 };
-const openTable = async (expectedRows, name) => {
+const openTable = async (expectedRows, name, assertSettled = async () => {}) => {
   const started = Date.now();
-  const fromIndex = report.nativeRequests.length;
+  const fromIndex = nativeCapture.requests.length;
   await gotoPage(nativePage, `${uiOrigin}/?project=${encodeURIComponent(browserProject)}&explorer=${explorer}&mode=builder`);
   await waitForVisible(nativePage, `[data-testid="construction-table-${outputId}"]`, 5000);
   await clickNative(nativePage, `[data-testid="construction-table-${outputId}"]`);
@@ -803,15 +467,16 @@ const openTable = async (expectedRows, name) => {
   const preview = await waitNative((entry, response) => entry.path.endsWith('/preview') &&
     entry.request?.outputId === outputId && response !== undefined, fromIndex);
   assert.equal(preview.status, 200, `${name} native Preview must complete successfully: ${JSON.stringify(preview.response)}`);
-  const response = protocolResponse(preview);
+  const response = responseOf(preview);
   assert(response?.receiptId, `${name} native Preview has no current receipt`);
+  await assertSettled(response);
   record(name, started, { receiptId: response.receiptId, rowCount: response.rowCount });
   return response;
 };
 const proposal = async (name, started, expectedRows, fromIndex, matchesRequest = () => true) => {
   const adopted = await waitNative((entry, response) => entry.startedAt >= started && entry.path.endsWith('/construction-proposals') &&
     response?.proposalId && matchesRequest(entry, response), fromIndex, 5000);
-  const response = protocolResponse(adopted);
+  const response = responseOf(adopted);
   await waitForObservable(nativePage, ({ proposalId }) => {
     const panel=document.querySelector('[data-testid="construction-proposal-panel"]');
     return ['ready','error','needs-repair'].includes(panel?.dataset.proposalStatus) && panel?.dataset.proposalId === proposalId;
@@ -839,11 +504,11 @@ const applyProposal = async (expectedRows, name) => {
   record(name, started);
   builder = await api(`${base}/builder`);
 };
-const waitRelatedProposal = async (name, started, expectedRequestPolicy, fromIndex) => {
+const waitRelatedProposal = async (name, started, expectedRequestPolicy, fromIndex, assertSettled) => {
   const entry = await waitNative((candidate, response) => candidate.startedAt >= started && response !== undefined &&
-    selectedRelatedSourceProposal({ ...candidate, response }), fromIndex);
-  const response = protocolResponse(entry);
-  const match = selectedRelatedSourceProposal({ ...entry, response });
+    matchSelectedRelatedSourceProposal({ ...candidate, response }, expectedRelatedSource()), fromIndex);
+  const response = entry.response;
+  const match = matchSelectedRelatedSourceProposal({ ...entry, response }, expectedRelatedSource());
   assert(match, 'The native candidate must contain the exact selected Observation related source');
   assert.equal(match.related.form, 'ALL', 'RELATED_SOURCE must retain the all-matching Observation result form');
   assert.equal(match.related.contributorRule?.policy, 'ALL_MATCHES', 'RELATED_SOURCE must retain all matching records on the selected route');
@@ -865,6 +530,7 @@ const waitRelatedProposal = async (name, started, expectedRequestPolicy, fromInd
   if (referenceFieldMode) assert.deepEqual(match.related.route.map(({ fromResourceType, toResourceType, relationship, storageDirection }) =>
     ({ fromResourceType, toResourceType, relationship, storageDirection })), expectedReferenceRoute,
   'The nullable-reference repair must retain the exact Specimen→Patient→Observation subject route');
+  await assertSettled?.(entry, match);
   record(name, started, { status: entry.status, responseStatus: response?.previewStatus,
     previewDurationMs: response?.previewDurationMs, relatedSourceForm: match.related.form,
     requestedRowValuePolicy: expectedRequestPolicy, relatedSourceRowValuePolicy: match.related.rowValuePolicy ?? 'ALL',
@@ -872,7 +538,7 @@ const waitRelatedProposal = async (name, started, expectedRequestPolicy, fromInd
   return entry;
 };
 const waitAdoptedChoicePreview = async (entry, name) => {
-  const proposalId = protocolResponse(entry)?.proposalId;
+  const proposalId = entry.response?.proposalId;
   assert(proposalId, `${name} response has no construction proposal ID`);
   await waitForObservable(nativePage, ({ proposalId }) => {
     const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
@@ -897,7 +563,7 @@ const expand = async (hop, witnesses, expectedRows, sourcePopulationBaseline) =>
   const relationshipChoice = nativePage.locator(`${panel} input[aria-label=${JSON.stringify(label)}]`);
   await relationshipChoice.waitFor({ state: 'visible', timeout: 5000 });
   assert.equal(await relationshipChoice.count(), 1, 'The relationship choice must be unique');
-  const proposalFromIndex = report.nativeRequests.length;
+  const proposalFromIndex = nativeCapture.requests.length;
   const proposalStarted = Date.now();
   await clickNative(nativePage, `${panel} input[aria-label="${label}"]`);
   let rowsFromProposal = expectedRows;
@@ -906,7 +572,7 @@ const expand = async (hop, witnesses, expectedRows, sourcePopulationBaseline) =>
   if (zeroObservationMode) {
     const expansionEntry = await waitNative((entry, response) => entry.startedAt >= proposalStarted &&
       entry.path.endsWith('/construction-proposals') && response?.proposalId, proposalFromIndex);
-    const expansionResponse = protocolResponse(expansionEntry);
+    const expansionResponse = responseOf(expansionEntry);
     const expansionStep = expansionEntry.request?.candidateConstruction?.steps?.find((step) =>
       step.operation?.kind === 'RELATED_EXPAND' && step.operation.relatedExpand?.targetResourceType === 'Observation');
     assert(expansionStep, 'The direct Patient-root proposal must contain the selected Observation expansion');
@@ -956,7 +622,7 @@ const expand = async (hop, witnesses, expectedRows, sourcePopulationBaseline) =>
       unmatchedObservationOutputIsNull: preview.rows[0][expansionOutput.name] === null };
   }
   const value = await proposal(`expand-${hop.from}-${hop.to}-preview`, proposalStarted, rowsFromProposal, proposalFromIndex);
-  assert(report.nativeRequests.slice(proposalFromIndex).some((entry) => protocolResponse(entry)?.proposalId === value.proposalId), 'The displayed expansion preview must match its captured native proposal');
+  assert(nativeCapture.requests.slice(proposalFromIndex).some((entry) => entry.response?.proposalId === value.proposalId), 'The displayed expansion preview must match its captured native proposal');
   report.cases.at(-1).witnessCount = witnesses.length;
   await applyProposal(rowsFromProposal, `expand-${hop.from}-${hop.to}-apply-to-render`);
   if (zeroObservationMode) {
@@ -992,7 +658,7 @@ const openRelatedFieldChooser = async () => {
     await clickNative(nativePage, '[data-testid="feature-catalog-raw-fields"] > summary');
     await waitForObservable(nativePage, () => document.querySelector('[data-testid="feature-catalog-raw-fields"]')?.open === true, 5000);
   }
-  const choiceSearchFrom = report.nativeRequests.length;
+  const choiceSearchFrom = nativeCapture.requests.length;
   const fieldSelector = `input[aria-label=${JSON.stringify(`Select Observation.${relatedFieldPath}`)}]`;
   const fieldControl = nativePage.locator(fieldSelector);
   await fieldControl.waitFor({ state: 'visible', timeout: 5000 });
@@ -1042,7 +708,7 @@ const openRelatedFieldChooser = async () => {
   const catalogEntry = await waitNative((entry, response) => entry.path.endsWith('/construction-choices') &&
     candidateIds.has(entry.request?.source?.candidateId) &&
     response?.choices?.some(matchesSelectedRoute), choiceSearchFrom);
-  const catalogResponse = protocolResponse(catalogEntry);
+  const catalogResponse = responseOf(catalogEntry);
   assert.equal(catalogEntry.status, 200, JSON.stringify(catalogEntry.response));
   assert.equal(catalogEntry.request.outputId, outputId, 'The selected route must come from this owned output’s current catalog request');
   assert.equal(catalogEntry.request.snapshotToken, builder.catalog.snapshotToken, 'The selected route must come from the current pinned catalog snapshot');
@@ -1070,7 +736,7 @@ const openRelatedFieldChooser = async () => {
       ({ fromResourceType, toResourceType, relationship, storageDirection })),
     choiceRequest: { status: catalogEntry.status, outputId: catalogEntry.request.outputId,
       snapshotToken: catalogEntry.request.snapshotToken, truncated: catalogResponse.truncated,
-      complete: catalogResponse.complete } });
+      responseState: catalogResponse.state } });
   report.currentRelatedChoiceId = selectedChoice.choiceId;
   assert(report.relatedFieldCandidate?.candidateId && report.currentRelatedChoiceId,
     'The selected related field must be bound to its authorized candidate and signed route choice');
@@ -1099,7 +765,7 @@ const cancelColumnProposal = async () => {
 };
 const readPreviewTable = async (expectedRows, expectedColumns, name) => {
   const started = Date.now();
-  const nativeFrom = report.nativeRequests.length;
+  const nativeFrom = nativeCapture.requests.length;
   await gotoPage(nativePage, `${uiOrigin}/?project=${encodeURIComponent(browserProject)}&explorer=${explorer}&mode=builder`);
   await waitForVisible(nativePage, `[data-testid="construction-table-${outputId}"]`, 5000);
   await clickNative(nativePage, `[data-testid="construction-table-${outputId}"]`);
@@ -1121,7 +787,7 @@ const readPreviewTable = async (expectedRows, expectedColumns, name) => {
   const preview = await waitNative((entry, response) => entry.path.endsWith('/preview') &&
     entry.request?.outputId === outputId && response !== undefined, nativeFrom);
   assert.equal(preview.status, 200, `${name} native Preview must complete successfully: ${JSON.stringify(preview.response)}`);
-  const response = protocolResponse(preview);
+  const response = responseOf(preview);
   assert(response?.receiptId, `${name} native Preview has no current receipt`);
   record(name, started, { receiptId: response.receiptId, headers: dom.headers, nativeRowCount: response.rowCount, mountedRowCount: dom.rows.length });
   return response;
@@ -1807,7 +1473,6 @@ FOR s IN Specimen
   if (quantityFieldMode) browserProject = createdScope.project;
   explorer = createdScope.explorerId;
   base = createdScope.authoringBase;
-  ownedApiPath = `${base}/`;
   browserAuthoringBase = createdScope.browserAuthoringBase;
   report.explorer = explorer;
   report.explorerRoot = createdScope.explorerRoot;
@@ -1856,11 +1521,480 @@ FOR s IN Specimen
   }
 
   await startNativeCapture();
-  await openTable(sourceRows, 'reload-exact-available-cardinality-source-members');
+  const sourcePreview = await openTable(sourceRows, 'reload-exact-available-cardinality-source-members');
   const sourceBaseline = await api(`${base}/builder`);
   assert.equal(doc(sourceBaseline).population.selectionRevisionId, selection.id);
   assert.deepEqual(doc(sourceBaseline).columns.map((column) => column.label), [rootTitle]);
 
+  if (zeroStartingRootRoundtrip) {
+    const patientId = witnesses[0].patient.id;
+    const initialDocument = structuredClone(doc(sourceBaseline));
+    const initialWorkspace = structuredClone(sourceBaseline.workspace);
+    const initialDraftVersion = sourceBaseline.draftVersion;
+    const initialDraftDigest = sourceBaseline.draftDigest;
+    const visibleHeaders = ['PATIENT ID'];
+    assert.equal(initialDocument.rootResourceType, 'Patient');
+    assert.deepEqual(initialDocument.population.route, []);
+    assert.equal(initialDocument.population.selectionRevisionId, selection.id);
+    assert.equal(sourcePreview.rowCount, 1);
+
+    const selectionCollection = base.replace('/authoring/v2', '').replace(/\/$/, '') + '/selections';
+    const exactSelection = async () => {
+      const saved = await api(`${selectionCollection}/${encodeURIComponent(selection.id)}?limit=100`);
+      assert.equal(saved.revision?.id, selection.id);
+      assert.equal(saved.revision?.project, project);
+      assert.equal(saved.revision?.generation, generation);
+      assert.equal(saved.revision?.resourceType, 'Patient');
+      assert.equal(saved.revision?.scopeDigest, selection.scopeDigest);
+      assert.equal(saved.revision?.memberCount, 1);
+      const members = (saved.members ?? []).map(member => member.ref).map(ref => ({
+        project: ref?.project, generation: ref?.generation, resourceType: ref?.resourceType, id: ref?.id,
+      })).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+      assert.deepEqual(members, [{ project, generation, resourceType: 'Patient', id: patientId }],
+        'The immutable selected Patient collection must contain exactly the raw zero-Observation witness');
+      return saved;
+    };
+    const selectionAtStart = await exactSelection();
+    const rowHeadersAndRows = async () => inspectPage(nativePage, () => {
+      const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+      return {
+        ready: Boolean(table) && !document.body.innerText.includes('Loading your table…')
+          && !document.body.innerText.includes('Preview failed:'),
+        headers: [...(table?.querySelectorAll('[role="columnheader"]') ?? [])]
+          .map(cell => cell.innerText.trim().toUpperCase()),
+        rows: [...(table?.querySelectorAll('[role="row"]') ?? [])].slice(1)
+          .map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim())),
+        columnCount: table?.getAttribute('aria-colcount') ?? null,
+      };
+    });
+    const remaining = deadline => {
+      const value = deadline - Date.now();
+      assert(value > 0, 'The starting-root action exceeded its five-second action-to-render deadline');
+      return value;
+    };
+    const waitGrid = async (expectedRows, deadline) => {
+      await waitForObservable(nativePage, ({ headers, rows }) => {
+        const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+        if (!table || document.body.innerText.includes('Loading your table…')
+          || document.body.innerText.includes('Preview failed:')
+          || table.getAttribute('aria-colcount') !== String(headers.length)) return false;
+        const actualHeaders = [...table.querySelectorAll('[role="columnheader"]')]
+          .map(cell => cell.innerText.trim().toUpperCase());
+        const actualRows = [...table.querySelectorAll('[role="row"]')].slice(1)
+          .map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim()));
+        return JSON.stringify(actualHeaders) === JSON.stringify(headers)
+          && JSON.stringify(actualRows) === JSON.stringify(rows);
+      }, { headers: visibleHeaders, rows: expectedRows }, remaining(deadline));
+      const grid = await rowHeadersAndRows();
+      assert.deepEqual(grid.headers, visibleHeaders);
+      assert.deepEqual(grid.rows, expectedRows);
+      return grid;
+    };
+    const waitProposalPreview = async (assessmentEntry, expectedRows, deadline) => {
+      const receiptId = assessmentEntry.response?.candidateReceiptId;
+      assert.equal(typeof receiptId, 'string', 'A READY row assessment must name its exact candidate preview receipt');
+      await waitForObservable(nativePage, ({ receiptId, outputId, headers, rows, expectEmpty }) => {
+        const panel = document.querySelector('[data-testid="row-change-preview-panel"]');
+        const preview = panel?.querySelector('[data-testid="construction-proposal-preview"]');
+        const table = preview?.querySelector('table');
+        if (!panel || preview?.dataset.previewStatus !== 'ready'
+          || preview.dataset.previewReceiptId !== receiptId
+          || preview.dataset.previewOutputId !== outputId || !table) return false;
+        const actualHeaders = [...table.querySelectorAll('thead th')]
+          .map(cell => (cell.querySelector('span')?.textContent ?? cell.textContent ?? '').trim().toUpperCase());
+        const actualRows = [...panel.querySelectorAll('[data-testid="construction-proposal-preview-row"]')]
+          .map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText.trim()));
+        const emptyMessage = panel.innerText.includes('No rows matched this proposal.');
+        const apply = [...panel.querySelectorAll('button')]
+          .find(button => button.textContent?.trim() === 'Apply row change');
+        return Boolean(apply && !apply.disabled)
+          && JSON.stringify(actualHeaders) === JSON.stringify(headers)
+          && JSON.stringify(actualRows) === JSON.stringify(rows)
+          && emptyMessage === expectEmpty;
+      }, { receiptId, outputId, headers: visibleHeaders, rows: expectedRows, expectEmpty: expectedRows.length === 0 }, remaining(deadline));
+      const snapshot = await inspectPage(nativePage, () => {
+        const panel = document.querySelector('[data-testid="row-change-preview-panel"]');
+        const preview = panel?.querySelector('[data-testid="construction-proposal-preview"]');
+        const table = preview?.querySelector('table');
+        return {
+          receiptId: preview?.dataset.previewReceiptId ?? null,
+          outputId: preview?.dataset.previewOutputId ?? null,
+          headers: [...(table?.querySelectorAll('thead th') ?? [])]
+            .map(cell => (cell.querySelector('span')?.textContent ?? cell.textContent ?? '').trim().toUpperCase()),
+          rows: [...(panel?.querySelectorAll('[data-testid="construction-proposal-preview-row"]') ?? [])]
+            .map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText.trim())),
+          emptyMessage: panel?.innerText.includes('No rows matched this proposal.') ?? false,
+        };
+      });
+      assert.deepEqual(snapshot, {
+        receiptId, outputId, headers: visibleHeaders, rows: expectedRows,
+        emptyMessage: expectedRows.length === 0,
+      });
+      return snapshot;
+    };
+    const assessObservationRoot = async (currentDraft, label) => {
+      await cda.action(`Open row settings for ${label}`, nativePage.locator('[data-testid="construction-rows-settings-trigger"]'),
+        target => target.click({ timeout: ACTION_TIMEOUT_MS }), {
+          timeout: ACTION_TIMEOUT_MS, budget: ACTION_TIMEOUT_MS,
+          after: () => waitForObservable(nativePage,
+            () => Boolean(document.querySelector('[role="dialog"][aria-label="Row definition settings"] select[aria-label="Choose starting record type"]:not(:disabled)')),
+            ACTION_TIMEOUT_MS),
+        });
+      const select = nativePage.locator('[role="dialog"][aria-label="Row definition settings"] select[aria-label="Choose starting record type"]');
+      const options = await select.locator('option').evaluateAll(items => items.map(option => ({
+        value: option.value, label: option.textContent?.trim() ?? '', disabled: option.disabled,
+      })));
+      const observationChoice = choosePatientLinkedObservationOption(options);
+      const observationNodes = currentDraft.catalog.nodes.filter(node => node.resourceType === 'Observation'
+        && node.rowRootEligible && node.populated);
+      assert.equal(observationNodes.length, 1, 'The scoped catalog must expose exactly one populated eligible Observation row root');
+      const expected = {
+        outputId, snapshotToken: currentDraft.catalog.snapshotToken, draftVersion: currentDraft.draftVersion,
+        draftDigest: currentDraft.draftDigest, rootNodeId: observationNodes[0].nodeId,
+      };
+      const fromIndex = nativeCapture.requests.length;
+      let assessmentEntry;
+      const started = Date.now();
+      const deadline = started + ACTION_TIMEOUT_MS;
+      await cda.action(`Select Observation rows for ${label}`, select,
+        target => target.selectOption(observationChoice.value, { timeout: remaining(deadline) }), {
+          timeout: remaining(deadline), budget: ACTION_TIMEOUT_MS,
+          after: async () => {
+            assessmentEntry = await waitNative(entry =>
+              matchesPlainPatientObservationAssessment(entry, expected)
+                || matchesPlainPatientObservationAssessment(entry, expected, { status: 'BLOCKED' }),
+            fromIndex, remaining(deadline));
+            if (assessmentEntry.response.status === 'BLOCKED') {
+              await waitForObservable(nativePage,
+                () => Boolean(document.getElementById('row-change-repair-title')?.closest('section')),
+                remaining(deadline));
+            } else {
+              await waitProposalPreview(assessmentEntry, [], deadline);
+            }
+          },
+        });
+      record(`select-observation-root-${label}`, started, {
+        status: assessmentEntry.response.status, rootNodeId: assessmentEntry.request.rootNodeId,
+      });
+      assert.equal(assessmentEntry.request.rootNodeId, observationNodes[0].nodeId);
+      if (assessmentEntry.response.status === 'BLOCKED') {
+        const repairPanel = await inspectPage(nativePage, () => {
+          const panel = document.getElementById('row-change-repair-title')?.closest('section');
+          return { buttons: [...(panel?.querySelectorAll('button') ?? [])]
+            .map(button => ({ text: button.innerText.trim(), disabled: button.disabled })) };
+        });
+        const repair = choosePatientSubjectObservationRepairButton(repairPanel.buttons);
+        const repairFromIndex = nativeCapture.requests.length;
+        const repairStarted = Date.now();
+        const repairDeadline = repairStarted + ACTION_TIMEOUT_MS;
+        await cda.action(`Preserve the selected Patient route for ${label}`,
+          nativePage.getByRole('button', { name: repair.text, exact: true }),
+          target => target.click({ timeout: remaining(repairDeadline) }), {
+            timeout: remaining(repairDeadline), budget: ACTION_TIMEOUT_MS,
+            after: async () => {
+              assessmentEntry = await waitNative(entry => matchesPlainPatientObservationAssessment(entry, expected),
+                repairFromIndex, remaining(repairDeadline));
+              await waitProposalPreview(assessmentEntry, [], repairDeadline);
+            },
+          });
+        record(`repair-observation-root-${label}`, repairStarted, {
+          status: assessmentEntry.response.status, rootNodeId: assessmentEntry.request.rootNodeId,
+        });
+      }
+      assert.equal(assessmentEntry.response.status, 'READY');
+      assert.equal(assessmentEntry.request.rootNodeId, observationNodes[0].nodeId);
+      assert(!nativeCapture.requests.slice(fromIndex).some(entry => entry.path.endsWith('/commands')),
+        'Selecting Observation and resolving its route must not change the saved table before Apply');
+      return assessmentEntry;
+    };
+    const applyRootAssessment = async (assessmentEntry, expectedRows, label) => {
+      const fromIndex = nativeCapture.requests.length;
+      const started = Date.now();
+      const deadline = started + ACTION_TIMEOUT_MS;
+      let commandEntry;
+      let previewEntry;
+      await cda.action(`Apply ${label}`, nativePage.getByRole('button', { name: 'Apply row change', exact: true }),
+        target => target.click({ timeout: remaining(deadline) }), {
+          timeout: remaining(deadline), budget: ACTION_TIMEOUT_MS,
+          after: async () => {
+            commandEntry = await waitNative(entry => entry.path.endsWith('/commands')
+              && entry.request?.commands?.some(command => command.type === 'APPLY_TABLE_ROOT_REBASE'),
+            fromIndex, remaining(deadline));
+            assert.equal(commandEntry.status, 200, `${label} root change command failed: ${JSON.stringify(commandEntry.response)}`);
+            previewEntry = await waitNative(entry => entry.path.endsWith('/preview')
+              && entry.request?.outputId === outputId && entry.response !== undefined,
+            fromIndex, remaining(deadline));
+            assert.equal(previewEntry.status, 200, `${label} table preview failed: ${JSON.stringify(previewEntry.response)}`);
+            assert.equal(previewEntry.response.rowCount, expectedRows.length);
+            assert.equal(previewEntry.response.rows.length, expectedRows.length);
+            await waitGrid(expectedRows, deadline);
+          },
+        });
+      record(`apply-${label}`, started, {
+        commandId: commandEntry.request.commandId, responseStatus: commandEntry.status,
+        receiptId: previewEntry.response.receiptId, rowCount: previewEntry.response.rowCount,
+      });
+      return previewEntry.response;
+    };
+    const openRoundtripTable = async (name, expectedRows) => {
+      const fromIndex = nativeCapture.requests.length;
+      const tableStarted = Date.now();
+      const deadline = tableStarted + ACTION_TIMEOUT_MS;
+      let preview;
+      await gotoPage(nativePage, `${uiOrigin}/?project=${encodeURIComponent(browserProject)}&explorer=${explorer}&mode=builder`);
+      await waitForVisible(nativePage, `[data-testid="construction-table-${outputId}"]`, remaining(deadline));
+      await cda.action(`Select table for ${name}`, nativePage.locator(`[data-testid="construction-table-${outputId}"]`),
+        target => target.click({ timeout: remaining(deadline) }), {
+          timeout: remaining(deadline), budget: ACTION_TIMEOUT_MS,
+          after: async () => {
+            preview = await waitNative(entry => entry.path.endsWith('/preview')
+              && entry.request?.outputId === outputId && entry.response !== undefined,
+            fromIndex, remaining(deadline));
+            assert.equal(preview.status, 200, `${name} Preview failed: ${JSON.stringify(preview.response)}`);
+            assert.equal(preview.response.rowCount, expectedRows.length);
+            assert.equal(preview.response.rows.length, expectedRows.length);
+            await waitGrid(expectedRows, deadline);
+          },
+        });
+      record(name, tableStarted, { receiptId: preview.response.receiptId, rowCount: preview.response.rowCount });
+      return preview.response;
+    };
+    const assertPopulationAndSelection = async (document, expectedRoute) => {
+      assert.equal(document.population?.selectionRevisionId, selection.id);
+      assert.deepEqual(document.population?.route, expectedRoute);
+      const saved = await exactSelection();
+      assert.equal(saved.revision.id, selectionAtStart.revision.id);
+      assert.equal(saved.revision.scopeDigest, selectionAtStart.revision.scopeDigest);
+      return saved;
+    };
+
+    assert.equal(initialDocument.rootResourceType, 'Patient');
+    assert.equal(sourcePreview.rowCount, 1);
+    const initialGrid = await rowHeadersAndRows();
+    assert.deepEqual(initialGrid, { ready: true, headers: visibleHeaders, rows: sourceRows, columnCount: '1' });
+    assert.deepEqual(initialGrid.rows, [[patientId]], 'The initial Patient root must render the exact selected raw witness');
+    const observationAssessment = await assessObservationRoot(sourceBaseline, 'cancel-proposal');
+    assert.equal(observationAssessment.response.status, 'READY');
+    const previewPanel = await inspectPage(nativePage, () => ({
+      receiptId: document.querySelector('[data-testid="construction-proposal-preview"]')?.dataset.previewReceiptId,
+      headers: [...(document.querySelector('[data-testid="construction-proposal-preview"] table')?.querySelectorAll('thead th') ?? [])]
+        .map(cell => (cell.querySelector('span')?.textContent ?? cell.textContent ?? '').trim().toUpperCase()),
+      rows: [...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].length,
+      emptyMessage: document.querySelector('[data-testid="row-change-preview-panel"]')?.innerText.includes('No rows matched this proposal.') ?? false,
+    }));
+    const cancelFromIndex = nativeCapture.requests.length;
+    const cancelStarted = Date.now();
+    const cancelDeadline = cancelStarted + ACTION_TIMEOUT_MS;
+    await cda.action('Cancel Observation root preview', nativePage.getByRole('button', { name: 'Keep current rows', exact: true }),
+      target => target.click({ timeout: remaining(cancelDeadline) }), {
+        timeout: remaining(cancelDeadline), budget: ACTION_TIMEOUT_MS,
+        after: async () => {
+          await waitForObservable(nativePage, ({ headers, rows }) => {
+            const panel = document.querySelector('[data-testid="row-change-preview-panel"]');
+            const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+            if (panel || !table || document.body.innerText.includes('Loading your table…')) return false;
+            const actualHeaders = [...table.querySelectorAll('[role="columnheader"]')].map(cell => cell.innerText.trim().toUpperCase());
+            const actualRows = [...table.querySelectorAll('[role="row"]')].slice(1)
+              .map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim()));
+            return JSON.stringify(actualHeaders) === JSON.stringify(headers) && JSON.stringify(actualRows) === JSON.stringify(rows);
+          }, { headers: visibleHeaders, rows: sourceRows }, remaining(cancelDeadline));
+        },
+      });
+    record('cancel-zero-observation-root-proposal', cancelStarted, { candidateReceiptId: previewPanel.receiptId,
+      candidateHeaders: previewPanel.headers, candidateRowCount: previewPanel.rows, emptyMessage: previewPanel.emptyMessage });
+    assert.deepEqual(previewPanel, { receiptId: observationAssessment.response.candidateReceiptId,
+      headers: visibleHeaders, rows: 0, emptyMessage: true });
+    assert(!nativeCapture.requests.slice(cancelFromIndex).some(entry => entry.path.endsWith('/commands')),
+      'Canceling the root proposal must not save a Builder command');
+    builder = await api(`${base}/builder`);
+    assert.equal(builder.draftVersion, initialDraftVersion);
+    assert.equal(builder.draftDigest, initialDraftDigest);
+    assert.deepEqual(builder.workspace, initialWorkspace,
+      'Canceling the Observation root preview must leave the complete selected Patient workspace unchanged');
+    assert.deepEqual(doc().population.route, []);
+    await assertPopulationAndSelection(doc(), []);
+    const cancelEvidence = { workspaceUnchanged: true, draftVersion: builder.draftVersion,
+      draftDigest: builder.draftDigest, populationRoute: doc().population.route, selectionRevisionId: selection.id };
+
+    const cancelledReloadPreview = await openRoundtripTable('reload-patient-after-root-cancel', sourceRows);
+    builder = await api(`${base}/builder`);
+    assert.deepEqual(doc().construction, initialDocument.construction);
+    assert.deepEqual(doc().columns, initialDocument.columns);
+    assert.deepEqual(doc().population, initialDocument.population);
+    assert.equal(doc().rootResourceType, 'Patient');
+    assert.equal(cancelledReloadPreview.rows[0][initialDocument.columns[0].column], patientId);
+    await assertPopulationAndSelection(doc(), []);
+
+    const applyAssessment = await assessObservationRoot(builder, 'apply-observation-root');
+    const observationPreview = await applyRootAssessment(applyAssessment, [], 'observation-root-zero-rows');
+    builder = await api(`${base}/builder`);
+    const observationDocument = structuredClone(doc());
+    assert.equal(observationDocument.rootResourceType, 'Observation');
+    assert.equal(directObservationRootPreservesPatientState(initialDocument, observationDocument), true,
+      'Changing to Observation rows must retain the exact Patient ID column, construction, and selected collection');
+    assert.equal(observationDocument.columns.length, 1);
+    assert.equal(observationDocument.columns[0].label, 'Patient ID');
+    assert.equal(observationDocument.population.selectionRevisionId, selection.id);
+    assert.equal(observationDocument.population.route.length, 1);
+    const patientOccurrence = observationDocument.route?.children?.find(node => node.resourceType === 'Patient');
+    assert(patientOccurrence, 'Observation root must retain the Patient route occurrence used by its collection');
+    const patientEdge = sourceBaseline.catalog.edges.find(edge => edge.edgeId === patientOccurrence.catalogEdgeId);
+    assert(patientEdge && patientEdge.label === 'subject_Patient',
+      'Observation root must use the exact Patient subject edge from the scoped catalog');
+    const observationPopulationRoute = [{ resourceType: 'Patient', relationship: patientEdge.label,
+      catalogEdgeId: patientEdge.edgeId,
+      ...(typeof patientEdge.storageDirection === 'string' && patientEdge.storageDirection
+        ? { storageDirection: patientEdge.storageDirection } : {}) }];
+    assert.deepEqual(observationDocument.population.route, observationPopulationRoute);
+    assert.deepEqual(observationPreview.rows, []);
+    const observationRootEvidence = {
+      rootResourceType: observationDocument.rootResourceType,
+      selectionRevisionId: observationDocument.population.selectionRevisionId,
+      populationRoute: observationDocument.population.route.map(({ resourceType, relationship }) => ({ resourceType, relationship })),
+      headers: visibleHeaders, previewRowCount: observationPreview.rowCount, rows: [],
+    };
+    const observationReloadPreview = await openRoundtripTable('reload-observation-root-zero-rows', []);
+    builder = await api(`${base}/builder`);
+    const observationReloadDocument = doc();
+    assert.equal(observationReloadDocument.rootResourceType, 'Observation');
+    assert.deepEqual(observationReloadDocument.columns, observationDocument.columns);
+    assert.deepEqual(observationReloadDocument.construction, observationDocument.construction);
+    assert.deepEqual(observationReloadDocument.population, observationDocument.population);
+    assert.deepEqual(observationReloadPreview.rows, []);
+    await assertPopulationAndSelection(observationReloadDocument, observationPopulationRoute);
+    const observationReloadEvidence = {
+      rootResourceType: observationReloadDocument.rootResourceType,
+      selectionRevisionId: observationReloadDocument.population.selectionRevisionId,
+      populationRoute: observationReloadDocument.population.route.map(({ resourceType, relationship }) => ({ resourceType, relationship })),
+      headers: visibleHeaders, previewRowCount: observationReloadPreview.rowCount, rows: [],
+    };
+
+    await cda.action('Open row settings to restore Patient rows', nativePage.locator('[data-testid="construction-rows-settings-trigger"]'),
+      target => target.click({ timeout: ACTION_TIMEOUT_MS }), {
+        timeout: ACTION_TIMEOUT_MS, budget: ACTION_TIMEOUT_MS,
+        after: () => waitForObservable(nativePage,
+          () => Boolean(document.querySelector('[role="dialog"][aria-label="Row definition settings"] select[aria-label="Choose starting record type"]:not(:disabled)')),
+          ACTION_TIMEOUT_MS),
+      });
+    const patientSelect = nativePage.locator('[role="dialog"][aria-label="Row definition settings"] select[aria-label="Choose starting record type"]');
+    const patientOptions = await patientSelect.locator('option').evaluateAll(items => items.map(option => ({
+      value: option.value, label: option.textContent?.trim() ?? '', disabled: option.disabled,
+    })));
+    const patientChoices = patientOptions.filter(option => !option.disabled && /^Patient\b/i.test(option.label));
+    assert.equal(patientChoices.length, 1, 'The current Observation table must expose exactly one enabled Patient root choice');
+    const patientRouteOccurrence = observationReloadDocument.route?.children?.find(node => node.resourceType === 'Patient');
+    assert(patientRouteOccurrence?.occurrenceId, 'Observation root must contain a Patient occurrence for restoration assessment');
+    const restorationExpected = {
+      outputId, snapshotToken: builder.catalog.snapshotToken, draftVersion: builder.draftVersion,
+      draftDigest: builder.draftDigest, currentRootResourceType: 'Observation',
+      candidateRootResourceType: 'Patient', rootOccurrenceId: patientRouteOccurrence.occurrenceId,
+    };
+    const restoreFromIndex = nativeCapture.requests.length;
+    let restorationEntry;
+    const restoreStarted = Date.now();
+    const restoreDeadline = restoreStarted + ACTION_TIMEOUT_MS;
+    await cda.action('Select Patient root for restoration', patientSelect,
+      target => target.selectOption(patientChoices[0].value, { timeout: remaining(restoreDeadline) }), {
+        timeout: remaining(restoreDeadline), budget: ACTION_TIMEOUT_MS,
+        after: async () => {
+          restorationEntry = await waitNative(entry => matchesRootRebaseAssessment(entry, restorationExpected),
+          restoreFromIndex, remaining(restoreDeadline));
+          if (restorationEntry.response.status === 'BLOCKED') {
+            await waitForObservable(nativePage,
+              () => Boolean(document.getElementById('row-change-repair-title')?.closest('section')),
+              remaining(restoreDeadline));
+          } else {
+            await waitProposalPreview(restorationEntry, [[patientId]], restoreDeadline);
+          }
+        },
+      });
+    record('select-patient-root-for-restoration', restoreStarted, { status: restorationEntry.response.status });
+    if (restorationEntry.response.status === 'BLOCKED') {
+      const panel = await inspectPage(nativePage, () => {
+        const rootPanel = document.getElementById('row-change-repair-title')?.closest('section');
+        return { buttons: [...(rootPanel?.querySelectorAll('button') ?? [])]
+          .map(button => ({ text: button.innerText.trim(), disabled: button.disabled })) };
+      });
+      const repair = choosePatientObservationSubjectRestorationButton(panel.buttons);
+      const repairStart = nativeCapture.requests.length;
+      const repairStarted = Date.now();
+      const repairDeadline = repairStarted + ACTION_TIMEOUT_MS;
+      await cda.action('Restore Patient Subject population route', nativePage.getByRole('button', { name: repair.text, exact: true }),
+        target => target.click({ timeout: remaining(repairDeadline) }), {
+          timeout: remaining(repairDeadline), budget: ACTION_TIMEOUT_MS,
+          after: async () => {
+            restorationEntry = await waitNative(entry => matchesRootRebaseAssessment(entry, restorationExpected)
+              && entry.response.status === 'READY', repairStart, remaining(repairDeadline));
+            await waitProposalPreview(restorationEntry, [[patientId]], repairDeadline);
+          },
+        });
+      record('repair-patient-restoration-route', repairStarted, { status: restorationEntry.response.status });
+    }
+    assert.equal(restorationEntry.response.status, 'READY');
+    await applyRootAssessment(restorationEntry, [[patientId]], 'restore-patient-root-row');
+    builder = await api(`${base}/builder`);
+    const restoredDocument = structuredClone(doc());
+    assert.equal(restoredDocument.rootResourceType, 'Patient');
+    assert.deepEqual(restoredDocument.construction, initialDocument.construction);
+    assert.deepEqual(restoredDocument.columns, initialDocument.columns);
+    assert.deepEqual(restoredDocument.population, initialDocument.population);
+    assert.equal(restoredDocument.route?.occurrenceId, initialDocument.route?.occurrenceId);
+    assert.equal(restoredDocument.route?.resourceType, initialDocument.route?.resourceType);
+    await assertPopulationAndSelection(restoredDocument, []);
+    const restoredPatientEvidence = {
+      rootResourceType: restoredDocument.rootResourceType,
+      selectionRevisionId: restoredDocument.population.selectionRevisionId,
+      populationRoute: restoredDocument.population.route,
+      headers: visibleHeaders, previewRowCount: 1, rows: [[patientId]],
+    };
+    const restoredReloadPreview = await openRoundtripTable('reload-restored-patient-root-row', [[patientId]]);
+    builder = await api(`${base}/builder`);
+    const restoredReloadDocument = doc();
+    assert.equal(restoredReloadDocument.rootResourceType, 'Patient');
+    assert.deepEqual(restoredReloadDocument.construction, initialDocument.construction);
+    assert.deepEqual(restoredReloadDocument.columns, initialDocument.columns);
+    assert.deepEqual(restoredReloadDocument.population, initialDocument.population);
+    assert.equal(restoredReloadDocument.route?.occurrenceId, initialDocument.route?.occurrenceId);
+    assert.equal(restoredReloadDocument.route?.resourceType, initialDocument.route?.resourceType);
+    assert.equal(restoredReloadPreview.rows[0][initialDocument.columns[0].column], patientId);
+    await assertPopulationAndSelection(restoredReloadDocument, []);
+    const restoredReloadEvidence = {
+      rootResourceType: restoredReloadDocument.rootResourceType,
+      selectionRevisionId: restoredReloadDocument.population.selectionRevisionId,
+      populationRoute: restoredReloadDocument.population.route,
+      headers: visibleHeaders, previewRowCount: restoredReloadPreview.rowCount, rows: [[patientId]],
+    };
+    const [finalWitness] = rereadZeroObservationWitness();
+    assert(finalWitness, 'The bounded Patient witness must still exist after the starting-root roundtrip');
+    assert.equal(finalWitness.matchingObservationCount, 0);
+    assert.equal(finalWitness.patient.id, witnesses[0].patient.id);
+    assert.equal(finalWitness.patient._id, witnesses[0].patient._id);
+    report.oracle.finalScopedRereadMatched = true;
+    report.zeroObservationStartingRootRoundtrip = {
+      selectionRevisionId: selection.id,
+      initial: { rootResourceType: initialDocument.rootResourceType,
+        selectionRevisionId: initialDocument.population.selectionRevisionId,
+        populationRoute: initialDocument.population.route,
+        headers: initialGrid.headers, previewRowCount: sourcePreview.rowCount, rows: sourceRows },
+      cancel: cancelEvidence,
+      observationRoot: observationRootEvidence,
+      observationReload: observationReloadEvidence,
+      restoredPatient: restoredPatientEvidence,
+      restoredReload: restoredReloadEvidence,
+      selectionSeed: { project, generation, resourceType: 'Patient', patientId,
+        selectionRevisionId: selectionAtStart.revision.id, scopeDigest: selection.scopeDigest,
+        memberCount: selectionAtStart.revision.memberCount },
+      finalRawWitness: { patient: finalWitness.patient, matchingObservationCount: finalWitness.matchingObservationCount },
+    };
+    assert.deepEqual(nativeCapture.requests.filter(entry => entry.status >= 400), [],
+      'The zero-Observation root roundtrip must not produce unexpected native HTTP errors');
+    assert.deepEqual(report.errors.filter(error => error.expectedValidation !== true), [],
+      'The zero-Observation root roundtrip must not produce unexpected browser errors');
+    report.browserDiagnostics = cda.diagnostics;
+    assert(report.protectedExplorerUntouched, `A request unexpectedly targeted protected Explorer ${protectedExplorer}`);
+    report.relatedFieldLifecycle = 'passed';
+    report.status = 'passed';
+  } else {
   let pipelineRows = sourceRows;
   const chain = basicMode ? [] : zeroObservationMode
     ? [{ from: 'Patient', to: 'Observation', label: 'subject_Patient', field: 'subject', direction: 'INBOUND' }]
@@ -1896,7 +2030,7 @@ FOR s IN Specimen
     assert.equal(await groupKeyControl.count(), 1, 'The group key control must be unique');
     await groupKeyControl.waitFor({ state: 'attached', timeout: 5000 });
     assert.equal(await groupKeyControl.isEnabled(), true, 'The group key control must be enabled');
-    const fromIndex = report.nativeRequests.length;
+    const fromIndex = nativeCapture.requests.length;
     const started = Date.now();
     await clickNative(nativePage, `input[aria-label=${JSON.stringify(`Group by ${groupKeyLabel}`)}]`);
     return { started, fromIndex };
@@ -1928,13 +2062,68 @@ FOR s IN Specimen
   const beforeOne = await api(`${base}/builder`);
   assert.deepEqual(doc(beforeOne).construction, groupedBaseline.construction);
   assert.deepEqual(doc(beforeOne).population, groupedBaseline.population);
+  const assertReferenceAllProposalSettled = async (entry, name) => {
+    const response = entry.response;
+    assert.equal(entry.status, 200, `${name} must complete successfully: ${JSON.stringify(response)}`);
+    assert.equal(response?.previewStatus, 'READY', `${name} must render a ready proposal: ${JSON.stringify(response)}`);
+    const relatedProposal = relatedSourceProposalCandidate({ ...entry, response }, {
+      candidateId: report.relatedFieldCandidate?.candidateId, resourceType: 'Observation', path: relatedFieldPath,
+    });
+    assert(relatedProposal, `${name} must retain the exact raw-oracle Observation source`);
+    const output = relatedProposal.step.outputs.find((candidate) => candidate.id === relatedProposal.related.outputColumnId);
+    assert(output, `${name} must expose its related Observation output`);
+    assert.equal(response.preview?.rowCount, witnesses.length, `${name} must settle every grouped witness row`);
+    assert.equal(response.preview?.rows?.length, witnesses.length, `${name} must return every grouped witness row`);
+    const patientIDs = response.preview.rows.map((row) => row[groupKeyName]);
+    assert.equal(new Set(patientIDs).size, witnesses.length, `${name} must return distinct exact grouped identities`);
+    for (const witness of witnesses) {
+      const row = response.preview.rows.find((candidate) => candidate[groupKeyName] === witness.patient.id);
+      assert(row, `${name} omitted ${witness.category} from the independent raw oracle`);
+      const values = row[output.name];
+      assert.equal(values.length, witness.observationKeys.length, `${name} must preserve one value per Observation identity`);
+      assert.equal(values.filter((value) => value === null).length, 2, `${name} must preserve both null/missing values`);
+      assert.equal(new Set(values).size, 30, `${name} must retain duplicate null values from distinct Observation identities`);
+      assert.deepEqual(values, relatedValuesFor(witness), `${name} values differ from the independent raw oracle`);
+    }
+    await waitAdoptedChoicePreview(entry, name);
+  };
+  const assertReferenceOneRejectionSettled = async (entry) => {
+    const response = entry.response;
+    const errorCode = response?.error?.code ?? response?.code ??
+      response?.diagnostics?.find((diagnostic) => diagnostic.severity === 'ERROR')?.code;
+    assert.equal(entry.status, 422);
+    assert.equal(errorCode, 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES');
+    assert.notEqual(response?.previewStatus, 'READY');
+    assert(manyWitness.observationIds.length > 1);
+    assert(manyWitness.distinctObservationReferenceValues.length > 1);
+    assert.equal(manyWitness.nullObservationReferenceCount, 2);
+    assert.deepEqual((await api(`${base}/builder`)).workspace, beforeOne.workspace,
+      'The ONE rejection must leave the saved Group workspace unchanged before its deadline');
+    const routeSelector = `[aria-label=${JSON.stringify(patientObservationRouteLabel)}]`;
+    const formSelector = `[aria-label=${JSON.stringify(`${relatedChoiceLabel}: Keep all matching values`)}]`;
+    await waitForObservable(nativePage, ({ routeSelector, formSelector }) => {
+      const dialog = document.querySelector('[role="dialog"]');
+      const policy = dialog?.querySelector('select[aria-label="Values per grouped row"]');
+      return Boolean(dialog && policy?.value === 'ONE' && dialog.querySelector(routeSelector)?.checked && dialog.querySelector(formSelector)?.checked);
+    }, { routeSelector, formSelector }, 5000);
+    const retainedChooser = await inspectPage(nativePage, ({ routeSelector, formSelector }) => {
+      const dialog = document.querySelector('[role="dialog"]');
+      const policy = dialog?.querySelector('select[aria-label="Values per grouped row"]');
+      return { open: Boolean(dialog), policy: policy?.value, routeChecked: dialog?.querySelector(routeSelector)?.checked,
+        formChecked: dialog?.querySelector(formSelector)?.checked,
+        addEnabled: [...(dialog?.querySelectorAll('button') ?? [])].some(button => button.textContent.trim() === 'Add 1 column' && !button.disabled) };
+    }, { routeSelector, formSelector });
+    assert.deepEqual(retainedChooser, { open: true, policy: 'ONE', routeChecked: true, formChecked: true, addEnabled: true },
+      'The rejected ONE proposal must settle with the exact route and ALL form retained for repair');
+    report.oneChooserAfterRejection = { ...retainedChooser, savedGroupUnchanged: true };
+  };
   if (zeroObservationMode) {
     await selectRelatedPolicy('ONE');
     const oneStarted = Date.now();
-    const oneFromIndex = report.nativeRequests.length;
+    const oneFromIndex = nativeCapture.requests.length;
     await clickAddRelated();
     const oneProposal = await waitRelatedProposal('zero-observation-one-preview', oneStarted, 'ONE', oneFromIndex);
-    const oneResponse = protocolResponse(oneProposal);
+    const oneResponse = oneProposal.response;
     assert.equal(oneProposal.status, 200, JSON.stringify(oneProposal.response));
     assert.equal(oneResponse.previewStatus, 'READY', JSON.stringify(oneProposal.response));
     await waitAdoptedChoicePreview(oneProposal, 'Zero Observation ONE proposal');
@@ -1973,14 +2162,14 @@ FOR s IN Specimen
   } else if (basicMode && statusFieldMode) {
     await selectRelatedPolicy('ONE');
     const oneStarted = Date.now();
-    const oneFromIndex = report.nativeRequests.length;
+    const oneFromIndex = nativeCapture.requests.length;
     await clickAddRelated();
     const oneProposal = await waitRelatedProposal('basic-status-one-preview', oneStarted, 'ONE', oneFromIndex);
-    const oneProposalResponse = protocolResponse(oneProposal);
+    const oneProposalResponse = oneProposal.response;
     assert.equal(oneProposal.status, 200, JSON.stringify(oneProposal.response));
     assert.equal(oneProposalResponse.previewStatus, 'READY', JSON.stringify(oneProposal.response));
     const adoptedOneProposalId = await waitAdoptedChoicePreview(oneProposal, 'Basic status ONE proposal');
-    const oneRelatedStep = relatedSourceProposalCandidate({ ...oneProposal, response: protocolResponse(oneProposal) }, {
+    const oneRelatedStep = relatedSourceProposalCandidate({ ...oneProposal, response: oneProposal.response }, {
       candidateId: report.relatedFieldCandidate?.candidateId, resourceType: 'Observation', path: 'status',
     })?.step;
     assert(oneRelatedStep, 'The basic ONE preview must contain the selected status RELATED_SOURCE step');
@@ -2001,15 +2190,16 @@ FOR s IN Specimen
   } else {
     await selectRelatedPolicy('ONE');
     const oneStarted = Date.now();
-    const oneFromIndex = report.nativeRequests.length;
+    const oneFromIndex = nativeCapture.requests.length;
     await clickAddRelated();
-    const oneFailure = await waitRelatedProposal('related-observation-one-disagreement', oneStarted, 'ONE', oneFromIndex);
-    const oneFailureResponse = protocolResponse(oneFailure);
+    const oneFailure = await waitRelatedProposal('related-observation-one-disagreement', oneStarted, 'ONE', oneFromIndex,
+      referenceFieldMode ? assertReferenceOneRejectionSettled : undefined);
+    const oneFailureResponse = oneFailure.response;
     const oneError = oneFailureResponse?.error?.code ?? oneFailureResponse?.code ??
       oneFailureResponse?.diagnostics?.find((diagnostic) => diagnostic.severity === 'ERROR')?.code;
     assert.equal(oneFailure.status, 422, JSON.stringify(oneFailure));
     assert.equal(oneError, 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES', JSON.stringify(oneFailure.response));
-    assert.notEqual(protocolResponse(oneFailure)?.previewStatus, 'READY', 'Raw multiple-value witness must not pass grouped-row ONE');
+    assert.notEqual(oneFailure.response?.previewStatus, 'READY', 'Raw multiple-value witness must not pass grouped-row ONE');
     assert(manyWitness.observationIds.length > 1, 'The raw many witness must independently predict the ONE conflict');
     if (statusFieldMode) assert(manyWitness.distinctStatusValues.length > 1,
       'The status witness must independently prove distinct ONE values');
@@ -2025,46 +2215,51 @@ FOR s IN Specimen
       assert.equal(manyWitness.nullObservationReferenceCount, 2,
         'The source oracle must retain two null values while predicting ONE rejection from the 29 distinct present references');
     }
-    const afterOne = await api(`${base}/builder`);
-    assert.deepEqual(afterOne.workspace, beforeOne.workspace, 'Rejected ONE preflight must not mutate source membership, route, or Group');
+    if (!referenceFieldMode) {
+      const afterOne = await api(`${base}/builder`);
+      assert.deepEqual(afterOne.workspace, beforeOne.workspace, 'Rejected ONE preflight must not mutate source membership, route, or Group');
+    }
     report.oneRejection = { status: oneFailure.status, errorCode: oneError,
       manyObservationIds: manyWitness.observationIds,
       ...(statusFieldMode ? { distinctStatusValues: manyWitness.distinctStatusValues } : {}),
       ...(quantityFieldMode ? { distinctQuantityValues: manyWitness.distinctQuantityValues } : {}),
       ...(referenceFieldMode ? { distinctObservationReferenceValues: manyWitness.distinctObservationReferenceValues,
         nullObservationReferenceCount: manyWitness.nullObservationReferenceCount } : {}),
-      proposalId: protocolResponse(oneFailure)?.proposalId };
-    const routeSelector = `[aria-label=${JSON.stringify(patientObservationRouteLabel)}]`;
-    const formSelector = `[aria-label=${JSON.stringify(`${relatedChoiceLabel}: Keep all matching values`)}]`;
-    await waitForObservable(nativePage, ({ routeSelector, formSelector }) => {
-      const dialog = document.querySelector('[role="dialog"]');
-      const policy = dialog?.querySelector('select[aria-label="Values per grouped row"]');
-      return Boolean(dialog && policy?.value === 'ONE' && dialog.querySelector(routeSelector)?.checked && dialog.querySelector(formSelector)?.checked);
-    }, { routeSelector, formSelector }, 5000);
-    const retainedChooser = await inspectPage(nativePage, ({ routeSelector, formSelector }) => {
-      const dialog = document.querySelector('[role="dialog"]');
-      const policy = dialog?.querySelector('select[aria-label="Values per grouped row"]');
-      return { open: Boolean(dialog), policy: policy?.value, routeChecked: dialog?.querySelector(routeSelector)?.checked,
-        formChecked: dialog?.querySelector(formSelector)?.checked,
-        addEnabled: [...(dialog?.querySelectorAll('button') ?? [])].some(button => button.textContent.trim() === 'Add 1 column' && !button.disabled) };
-    }, { routeSelector, formSelector });
-    assert.deepEqual(retainedChooser, { open: true, policy: 'ONE', routeChecked: true, formChecked: true, addEnabled: true },
-      'ONE rejection must retain the same related-source chooser, exact route, form, and source selection for direct repair');
-    report.oneChooserAfterRejection = { ...retainedChooser, savedGroupUnchanged: true };
+      proposalId: oneFailure.response?.proposalId };
+    if (!referenceFieldMode) {
+      const routeSelector = `[aria-label=${JSON.stringify(patientObservationRouteLabel)}]`;
+      const formSelector = `[aria-label=${JSON.stringify(`${relatedChoiceLabel}: Keep all matching values`)}]`;
+      await waitForObservable(nativePage, ({ routeSelector, formSelector }) => {
+        const dialog = document.querySelector('[role="dialog"]');
+        const policy = dialog?.querySelector('select[aria-label="Values per grouped row"]');
+        return Boolean(dialog && policy?.value === 'ONE' && dialog.querySelector(routeSelector)?.checked && dialog.querySelector(formSelector)?.checked);
+      }, { routeSelector, formSelector }, 5000);
+      const retainedChooser = await inspectPage(nativePage, ({ routeSelector, formSelector }) => {
+        const dialog = document.querySelector('[role="dialog"]');
+        const policy = dialog?.querySelector('select[aria-label="Values per grouped row"]');
+        return { open: Boolean(dialog), policy: policy?.value, routeChecked: dialog?.querySelector(routeSelector)?.checked,
+          formChecked: dialog?.querySelector(formSelector)?.checked,
+          addEnabled: [...(dialog?.querySelectorAll('button') ?? [])].some(button => button.textContent.trim() === 'Add 1 column' && !button.disabled) };
+      }, { routeSelector, formSelector });
+      assert.deepEqual(retainedChooser, { open: true, policy: 'ONE', routeChecked: true, formChecked: true, addEnabled: true },
+        'ONE rejection must retain the same related-source chooser, exact route, form, and source selection for direct repair');
+      report.oneChooserAfterRejection = { ...retainedChooser, savedGroupUnchanged: true };
+    }
     await selectRelatedPolicy('ALL');
   }
   const allRepairStarted = Date.now();
-  const allRepairFromIndex = report.nativeRequests.length;
+  const allRepairFromIndex = nativeCapture.requests.length;
   await clickAddRelated();
-  const firstAll = await waitRelatedProposal('same-chooser-all-repair-preview', allRepairStarted, 'ALL', allRepairFromIndex);
-  const firstAllResponse = protocolResponse(firstAll);
+  const firstAll = await waitRelatedProposal('same-chooser-all-repair-preview', allRepairStarted, 'ALL', allRepairFromIndex,
+    referenceFieldMode ? entry => assertReferenceAllProposalSettled(entry, 'same-chooser-all-repair-preview') : undefined);
+  const firstAllResponse = firstAll.response;
   assert.equal(firstAll.status, 200, JSON.stringify(firstAll.response));
   assert.equal(firstAllResponse.previewStatus, 'READY', JSON.stringify(firstAll.response));
   assert(firstAllResponse.previewDurationMs <= 5000, `ALL preview took ${firstAllResponse.previewDurationMs} ms`);
   const firstAllReceiptId = await waitAdoptedChoicePreview(firstAll, 'Same-chooser ALL repair');
   let previewColumnId;
   {
-    const relatedProposal = relatedSourceProposalCandidate({ ...firstAll, response: protocolResponse(firstAll) }, {
+    const relatedProposal = relatedSourceProposalCandidate({ ...firstAll, response: firstAll.response }, {
       candidateId: report.relatedFieldCandidate?.candidateId, resourceType: 'Observation', path: relatedFieldPath,
     });
     assert(relatedProposal, 'Native ALL preview must propose the exact related Observation field');
@@ -2136,14 +2331,15 @@ FOR s IN Specimen
   await openRelatedFieldChooser();
   await selectRelatedPolicy('ALL');
   const allApplyStarted = Date.now();
-  const allApplyFromIndex = report.nativeRequests.length;
+  const allApplyFromIndex = nativeCapture.requests.length;
   await clickAddRelated();
-  const allProposal = await waitRelatedProposal('reopened-all-preview-before-apply', allApplyStarted, 'ALL', allApplyFromIndex);
+  const allProposal = await waitRelatedProposal('reopened-all-preview-before-apply', allApplyStarted, 'ALL', allApplyFromIndex,
+    referenceFieldMode ? entry => assertReferenceAllProposalSettled(entry, 'reopened-all-preview-before-apply') : undefined);
   assert.equal(allProposal.status, 200);
-  const allProposalResponse = protocolResponse(allProposal);
+  const allProposalResponse = allProposal.response;
   assert.equal(allProposalResponse.previewStatus, 'READY');
   {
-    const reopenedRelated = relatedSourceProposalCandidate({ ...allProposal, response: protocolResponse(allProposal) }, {
+    const reopenedRelated = relatedSourceProposalCandidate({ ...allProposal, response: allProposal.response }, {
       candidateId: report.relatedFieldCandidate?.candidateId, resourceType: 'Observation', path: relatedFieldPath,
     });
     assert(reopenedRelated, 'Reopened status ALL must retain the exact typed source and relationship route');
@@ -2161,7 +2357,6 @@ FOR s IN Specimen
   await waitForHidden(nativePage, '[data-testid="construction-proposal-panel"]', 5000);
   const addedRows = witnesses.map((witness) => [witness.patient.id, String(witness.expectedContributorRows), relatedDisplayValuesFor(witness)]).sort((a, b) => a[0].localeCompare(b[0]));
   await rendered(addedRows);
-  record('apply-related-all-to-native-table-render', applyStarted, { commandStatus: allCommand.status });
   builder = await api(`${base}/builder`);
   const addedDocument = doc();
   assert.deepEqual(addedDocument.population, groupedBaseline.population, 'ALL apply must preserve the exact source selection');
@@ -2187,6 +2382,32 @@ FOR s IN Specimen
   const output = savedRelatedStep.outputs.find((candidate) => candidate.id === related.outputColumnId);
   assert(output, `The saved related step omitted output ${related.outputColumnId}`);
   const relatedColumn = { column: output.name, columnId: output.id, label: output.label, logicalType: output.type };
+  const assertRelatedPreviewMatchesOracle = (preview, name) => {
+    assert.equal(preview.rowCount, witnesses.length, `${name} must preserve every grouped witness row`);
+    assert.equal(preview.rows.length, witnesses.length, `${name} must return every grouped witness row`);
+    const patientIDs = preview.rows.map((row) => row[groupKeyName]);
+    assert.deepEqual(patientIDs.slice().sort(), witnesses.map((witness) => witness.patient.id).sort(),
+      `${name} must return the exact independently selected Patient identities`);
+    for (const witness of witnesses) {
+      const row = preview.rows.find((candidate) => candidate[groupKeyName] === witness.patient.id);
+      assert(row, `${name} omitted ${witness.category} from the independent raw oracle`);
+      if (quantityFieldMode) {
+        assert(Array.isArray(row[relatedColumn.column]), name + ' must return numeric ALL values as an array');
+        assert(row[relatedColumn.column].every((value) => typeof value === 'number' && Number.isFinite(value)),
+          name + ' must preserve the decimal output as finite JSON numbers');
+      }
+      if (referenceFieldMode) {
+        assert.equal(row[relatedColumn.column].length, witness.observationKeys.length,
+          `${name} must contain one value per distinct Observation identity`);
+        assert.equal(row[relatedColumn.column].filter((value) => value === null).length, 2,
+          `${name} must preserve both null array entries`);
+        assert.equal(new Set(row[relatedColumn.column]).size, 30,
+          `${name} must retain the duplicate null from distinct Observation identities`);
+      }
+      if (quantityFieldMode) assert(hasSameQuantityValueMultiset(row[relatedColumn.column], relatedValuesFor(witness)), `${name} numeric multiset differs from the independent raw oracle`);
+      else assert.deepEqual(row[relatedColumn.column], relatedValuesFor(witness), `${name} values differ from the independent raw oracle`);
+    }
+  };
   const proposalOutput = allProposalResponse.preview?.columns.find((column) => column.column === relatedColumn.column);
   assert(proposalOutput, 'The accepted ALL proposal preview must contain the exact saved related output');
   assert.equal(relatedColumn.label, proposalOutput.label,
@@ -2208,19 +2429,19 @@ FOR s IN Specimen
   for (const sourceColumn of groupedBaseline.columns) {
     assert.deepEqual(addedDocument.columns.find((column) => column.columnId === sourceColumn.columnId), sourceColumn, `ALL apply changed source binding ${sourceColumn.label}`);
   }
-  const applyPreviewFrom = report.nativeRequests.indexOf(allCommand);
+  const applyPreviewFrom = nativeCapture.requests.indexOf(allCommand);
   const savedPreviewStarted = Date.now();
   const proposalPreview = allProposalResponse.preview;
   assert(proposalPreview, 'The accepted ALL proposal did not retain its candidate preview');
   assert.equal(allProposalResponse.candidateWorkspaceDigest, builder.draftDigest, 'The saved builder digest must equal the applied proposal digest');
   assert.equal(allProposalResponse.outputId, outputId);
-  const allCommandResponse = protocolResponse(allCommand);
+  const allCommandResponse = allCommand.response;
   assert.equal(allCommandResponse?.draftVersion, builder.draftVersion);
   assert.equal(allCommandResponse?.draftDigest, builder.draftDigest);
   const acceptedReconcile = await waitNative((entry) => entry.path.endsWith('/reconcile') &&
     entry.request?.draftVersion === builder.draftVersion && entry.request?.draftDigest === builder.draftDigest, applyPreviewFrom);
   assert.equal(acceptedReconcile.status, 200, JSON.stringify(acceptedReconcile.response));
-  const acceptedReconcileResponse = protocolResponse(acceptedReconcile);
+  const acceptedReconcileResponse = acceptedReconcile.response;
   assert.equal(acceptedReconcileResponse?.snapshotToken, allProposalResponse.snapshotToken);
   assert.equal(acceptedReconcileResponse?.intentDigest, builder.draftDigest);
   assert(acceptedReconcileResponse?.outputs?.some((output) => output.outputId === outputId), 'The saved reconcile receipt does not include the edited output');
@@ -2246,25 +2467,21 @@ FOR s IN Specimen
     draftVersion: String(builder.draftVersion),
     draftDigest: builder.draftDigest,
   }, 'The rendered table must be the active preview for the exact saved draft and accepted receipt');
-  const applyPreviewRequests = report.nativeRequests.slice(applyPreviewFrom).filter((entry) => entry.path.endsWith('/preview'));
+  const applyPreviewRequests = nativeCapture.requests.slice(applyPreviewFrom).filter((entry) => entry.path.endsWith('/preview'));
   for (const entry of applyPreviewRequests) {
     assert(nativeRequestValue(entry, 'outputId'), `Captured ${entry.method} ${entry.path} without outputId body/query: ${JSON.stringify(entry)}`);
-    const requestDeadline = Date.now() + 5000;
-    while (!entry.complete && Date.now() < requestDeadline) {
-      await waitForNativeRequestChange(Math.max(1, Math.min(100, requestDeadline - Date.now())));
-    }
-    assert(entry.complete, `Timed out waiting for captured preview response: ${JSON.stringify({ method: entry.method, url: entry.url, query: entry.query, request: entry.request })}`);
+    await nativeCapture.waitForResponse(candidate => candidate === entry, { fromIndex: 0, timeoutMs: 5000 });
   }
   const targetPreviewRequests = applyPreviewRequests.filter((entry) => nativeRequestValue(entry, 'outputId') === outputId);
   for (const entry of targetPreviewRequests) {
     assert.equal(nativeRequestValue(entry, 'receiptId'), acceptedReconcileResponse.receiptId, 'A post-Apply native preview must use the accepted saved receipt');
     assert.equal(entry.status, 200, JSON.stringify(entry.response));
-    const response = protocolResponse(entry);
+    const response = entry.response;
     assert.equal(response?.receiptId, acceptedReconcileResponse.receiptId);
     assert.equal(response?.outputId, outputId);
   }
   const previewSource = targetPreviewRequests.length === 0 ? 'direct-preview-for-accepted-saved-receipt' : 'post-apply-native-preview';
-  const savedPreview = protocolResponse(targetPreviewRequests.at(-1)) ?? await api(`${base}/preview`, {
+  const savedPreview = targetPreviewRequests.at(-1)?.response ?? await api(`${base}/preview`, {
     receiptId: acceptedReconcileResponse.receiptId, outputId, limit: 25,
   });
   assert.equal(savedPreview.receiptId, acceptedReconcileResponse.receiptId, 'Saved values must be read from the exact accepted receipt');
@@ -2287,44 +2504,23 @@ FOR s IN Specimen
       query: entry.query,
       request: entry.request,
       status: entry.status,
-      responseReceiptId: protocolResponse(entry)?.receiptId,
-      responseOutputId: protocolResponse(entry)?.outputId,
-      rowCount: protocolResponse(entry)?.rowCount,
-      complete: entry.complete,
+      responseReceiptId: entry.response?.receiptId,
+      responseOutputId: entry.response?.outputId,
+      rowCount: entry.response?.rowCount,
+      status: entry.status,
     })),
   };
   assert.equal(savedPreview.rowCount, witnesses.length);
-  for (const witness of witnesses) {
-    const row = savedPreview.rows.find((candidate) => candidate[groupKeyName] === witness.patient.id);
-    assert(row, `Saved native Preview omitted ${witness.category} witness`);
-    if (referenceFieldMode) {
-      assert.equal(row[relatedColumn.column].length, witness.observationKeys.length,
-        'Saved ALL preview must contain one value per distinct Observation identity');
-      assert.equal(row[relatedColumn.column].filter((value) => value === null).length, 2,
-        'Saved ALL preview must preserve both null array entries');
-      assert.equal(new Set(row[relatedColumn.column]).size, 30,
-        'Saved ALL preview must retain the duplicate null from two distinct Observation identities');
-    }
-    assert.deepEqual(row[relatedColumn.column], relatedValuesFor(witness), `${witness.category} saved values differ from the independent raw oracle`);
-  }
+  assertRelatedPreviewMatchesOracle(savedPreview, 'Saved native Preview');
+  record('apply-related-all-to-native-table-render', applyStarted, { commandStatus: allCommand.status });
   record('native-preview-matches-exact-related-field-oracle', savedPreviewStarted, {
     receiptId: savedPreview.receiptId,
     source: previewSource,
     postApplyPreviewRequestCount: targetPreviewRequests.length,
   });
 
-  const reloadedPreview = await openTable(addedRows, 'reload-related-all-available-cardinality-values');
-  for (const witness of witnesses) {
-    const row = reloadedPreview.rows.find((candidate) => candidate[groupKeyName] === witness.patient.id);
-    assert(row, `Reloaded Preview omitted ${witness.category} witness`);
-    if (referenceFieldMode) {
-      assert.equal(row[relatedColumn.column].filter((value) => value === null).length, 2,
-        'Reloaded ALL preview must preserve both null array entries');
-      assert.equal(new Set(row[relatedColumn.column]).size, 30,
-        'Reloaded ALL preview must retain the duplicate null from distinct Observation identities');
-    }
-    assert.deepEqual(row[relatedColumn.column], relatedValuesFor(witness));
-  }
+  const reloadedPreview = await openTable(addedRows, 'reload-related-all-available-cardinality-values',
+    preview => assertRelatedPreviewMatchesOracle(preview, 'Reloaded native Preview'));
   const reloadedBuilder = await api(`${base}/builder`);
   const reloadedDocument = doc(reloadedBuilder);
   const reloadedRelatedStep = reloadedDocument.construction.steps.find((step) => step.id === savedRelatedStep.id);
@@ -2383,7 +2579,7 @@ FOR s IN Specimen
   {
     const renamedLabel = quantityFieldMode ? 'Verified Observation value' : `Verified ${relatedOutputLabel}`;
     const editStarted = Date.now();
-    const editFrom = report.nativeRequests.length;
+    const editFrom = nativeCapture.requests.length;
     await clickNative(nativePage, 'button', { name: 'Columns' });
     const labelSelector = `[aria-label=${JSON.stringify(`Column name for ${relatedColumn.label}`)}]`;
     const renameInput = nativePage.locator(labelSelector);
@@ -2444,15 +2640,14 @@ FOR s IN Specimen
         'Current saved table rows and cell values must exactly match the raw CDA oracle after the label edit');
     }
     record('edit-related-field-output-label', editStarted, { priorLabel: relatedColumn.label, newLabel: renamedLabel, path: relatedFieldPath, rowCount: editedCurrentTable.rows.length });
-    const editedPreview = await openTable(addedRows, 'reload-edited-related-field-output-label');
-    const editedHeaders = await inspectPage(nativePage, () => [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')]
-      .map(cell => cell.textContent.trim()));
-    assert(editedHeaders.includes(renamedLabel), `Reloaded table header text did not retain the exact edited output label: ${JSON.stringify(editedHeaders)}`);
-    for (const witness of witnesses) {
-      const row = editedPreview.rows.find((candidate) => candidate[groupKeyName] === witness.patient.id);
-      assert(row, `Edited/reloaded Preview omitted ${witness.category} witness`);
-      assert.deepEqual(row[relatedColumn.column], relatedValuesFor(witness), 'Renaming the Group output changed its source values');
-    }
+    let editedHeaders;
+    const editedPreview = await openTable(addedRows, 'reload-edited-related-field-output-label', async preview => {
+      editedHeaders = await inspectPage(nativePage, () => [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')]
+        .map(cell => cell.textContent.trim()));
+      assert(editedHeaders.includes(renamedLabel),
+        `Reloaded table header text did not retain the exact edited output label: ${JSON.stringify(editedHeaders)}`);
+      assertRelatedPreviewMatchesOracle(preview, 'Edited and reloaded native Preview');
+    });
     const editedWitnessRow = editedPreview.rows.find((candidate) => candidate[groupKeyName] === witnesses[0].patient.id);
     report.relatedOutputEditEvidence = {
       labelChanged: editedOutput.label === renamedLabel && editedHeaders.includes(renamedLabel),
@@ -2483,7 +2678,7 @@ FOR s IN Specimen
     const beforeCancelConstruction = structuredClone(beforeCancelDocument.construction);
 
     const editStarted = Date.now();
-    const editFromIndex = report.nativeRequests.length;
+    const editFromIndex = nativeCapture.requests.length;
     await clickNative(nativePage, `[data-testid="construction-history-step-${preserveStep.id}"]`);
     await clickNative(nativePage, `[data-testid="construction-edit-step-${preserveStep.id}"]`);
     const policySelector = '[data-testid="construction-related-expand-editor"] select[aria-label="If a current row has no matches"]';
@@ -2493,11 +2688,11 @@ FOR s IN Specimen
     }, { selector: policySelector }, 5000);
     await selectNative(nativePage, policySelector, 'EXCLUDE');
     const excludePanel = await proposal('edit-saved-related-expand-exclude-cancel-preview', editStarted, [], editFromIndex);
-    const cancelProposal = report.nativeRequests.findLast((entry) => entry.startedAt >= editStarted && entry.complete &&
-      entry.path.endsWith('/construction-proposals') && protocolResponse(entry)?.proposalId === excludePanel.proposalId);
+    const cancelProposal = nativeCapture.requests.findLast((entry) => entry.startedAt >= editStarted && Number.isInteger(entry.status) &&
+      entry.path.endsWith('/construction-proposals') && entry.response?.proposalId === excludePanel.proposalId);
     assert(cancelProposal, 'The saved RelatedExpand EXCLUDE preview must match a captured native proposal request');
     assert.equal(cancelProposal.status, 200, JSON.stringify(cancelProposal.response));
-    const cancelProposalResponse = protocolResponse(cancelProposal);
+    const cancelProposalResponse = cancelProposal.response;
     assert.equal(cancelProposal.request?.outputId, outputId);
     assert.equal(cancelProposalResponse?.previewStatus, 'READY', JSON.stringify(cancelProposalResponse));
     assert.equal(cancelProposalResponse?.preview?.rowCount, 0,
@@ -2574,7 +2769,7 @@ FOR s IN Specimen
   }
 
   const removeStarted = Date.now();
-  const removeFromIndex = report.nativeRequests.length;
+  const removeFromIndex = nativeCapture.requests.length;
   let removeCommand;
   let removeApplyStarted = removeStarted;
   const stepId = savedRelatedStep.id;
@@ -2585,17 +2780,17 @@ FOR s IN Specimen
   await removeStepButton.waitFor({ state: 'visible', timeout: 5000 });
   assert.equal(await removeStepButton.count(), 1, 'The construction step removal control must be unique');
   assert.equal(await removeStepButton.isEnabled(), true, 'The construction step removal control must be enabled');
-  const removalProposalFromIndex = report.nativeRequests.length;
+  const removalProposalFromIndex = nativeCapture.requests.length;
   await clickNative(nativePage, `[data-testid="construction-remove-step-${stepId}"]`);
   const removalPreview = await proposal('remove-related-source-step-preview', removeStarted, groupedRows, removalProposalFromIndex);
-  const removalProposal = report.nativeRequests.findLast((entry) => entry.startedAt >= removeStarted && entry.complete &&
-    entry.path.endsWith('/construction-proposals') && protocolResponse(entry)?.proposalId === removalPreview.proposalId);
+  const removalProposal = nativeCapture.requests.findLast((entry) => entry.startedAt >= removeStarted && Number.isInteger(entry.status) &&
+    entry.path.endsWith('/construction-proposals') && entry.response?.proposalId === removalPreview.proposalId);
   assert(removalProposal, 'The visible related-step removal must match a captured native construction proposal');
   assert.equal(removalProposal.status, 200, JSON.stringify(removalProposal.response));
   assert.deepEqual(removalProposal.request?.removeStepIds, [stepId], 'The removal proposal must target only the saved RELATED_SOURCE step');
   assert.deepEqual(removalProposal.request?.candidateConstruction?.steps, groupedBaseline.construction.steps,
     'The removal proposal must restore the exact original Group construction');
-  assert.equal(protocolResponse(removalProposal)?.previewStatus, 'READY', JSON.stringify(removalProposal.response));
+  assert.equal(removalProposal.response?.previewStatus, 'READY', JSON.stringify(removalProposal.response));
   removeApplyStarted = Date.now();
   await clickNative(nativePage, '[data-testid="construction-apply-proposal"]');
   removeCommand = await waitNative((entry) => entry.path.endsWith('/commands') && entry.request?.commands?.some((item) =>
@@ -2611,15 +2806,21 @@ FOR s IN Specimen
   const restoredRows = groupedRows;
   await rendered(restoredRows);
   record('apply-remove-related-step-restores-native-group-table', removeApplyStarted, { commandStatus: removeCommand.status });
-  const restoredPreview = await openTable(restoredRows, 'reload-restored-available-witness-group-table');
-  assert.equal(restoredPreview.rowCount, witnesses.length);
-  assert(!restoredPreview.columns.some((column) => column.column === relatedColumn.column), 'Reloaded Group preview still contains the removed related value');
-  for (const witness of witnesses) {
-    const row = restoredPreview.rows.find((candidate) => candidate[groupKeyName] === witness.patient.id);
-    assert(row, `Reloaded Group preview omitted ${witness.category} witness`);
-    assert.equal(row.row_count, witness.expectedContributorRows, `${witness.category} grouped count differs from the raw CDA oracle`);
-    assert.equal(Object.hasOwn(row, relatedColumn.column), false, `${witness.category} restored row still contains the removed related value`);
-  }
+  const restoredPreview = await openTable(restoredRows, 'reload-restored-available-witness-group-table', preview => {
+    assert.equal(preview.rowCount, witnesses.length);
+    assert.equal(preview.rows.length, witnesses.length);
+    assert(!preview.columns.some((column) => column.column === relatedColumn.column),
+      'Reloaded Group preview still contains the removed related value');
+    const patientIDs = preview.rows.map((row) => row[groupKeyName]);
+    assert.deepEqual(patientIDs.slice().sort(), witnesses.map((witness) => witness.patient.id).sort(),
+      'Reload after related-source removal must restore the exact grouped Patient identities');
+    for (const witness of witnesses) {
+      const row = preview.rows.find((candidate) => candidate[groupKeyName] === witness.patient.id);
+      assert(row, `Reloaded Group preview omitted ${witness.category} witness`);
+      assert.equal(row.row_count, witness.expectedContributorRows, `${witness.category} grouped count differs from the raw CDA oracle`);
+      assert.equal(Object.hasOwn(row, relatedColumn.column), false, `${witness.category} restored row still contains the removed related value`);
+    }
+  });
   report.relatedSourceRestoration = {
     constructionMatchesBaseline: true,
     populationMatchesBaseline: true,
@@ -2648,7 +2849,7 @@ FOR s IN Specimen
     const beforeApplyConstruction = structuredClone(beforeApplyDocument.construction);
 
     const editStarted = Date.now();
-    const editFromIndex = report.nativeRequests.length;
+    const editFromIndex = nativeCapture.requests.length;
     await clickNative(nativePage, `[data-testid="construction-history-step-${preserveStep.id}"]`);
     await clickNative(nativePage, `[data-testid="construction-edit-step-${preserveStep.id}"]`);
     const policySelector = '[data-testid="construction-related-expand-editor"] select[aria-label="If a current row has no matches"]';
@@ -2658,11 +2859,11 @@ FOR s IN Specimen
     }, { selector: policySelector }, 5000);
     await selectNative(nativePage, policySelector, 'EXCLUDE');
     const excludePanel = await proposal('edit-saved-related-expand-exclude-apply-preview', editStarted, [], editFromIndex);
-    const applyProposalEntry = report.nativeRequests.findLast((entry) => entry.startedAt >= editStarted && entry.complete &&
-      entry.path.endsWith('/construction-proposals') && protocolResponse(entry)?.proposalId === excludePanel.proposalId);
+    const applyProposalEntry = nativeCapture.requests.findLast((entry) => entry.startedAt >= editStarted && Number.isInteger(entry.status) &&
+      entry.path.endsWith('/construction-proposals') && entry.response?.proposalId === excludePanel.proposalId);
     assert(applyProposalEntry, 'The saved RelatedExpand EXCLUDE Apply preview must match a captured native proposal request');
     assert.equal(applyProposalEntry.status, 200, JSON.stringify(applyProposalEntry.response));
-    const applyProposalResponse = protocolResponse(applyProposalEntry);
+    const applyProposalResponse = applyProposalEntry.response;
     assert.equal(applyProposalEntry.request?.outputId, outputId);
     assert.equal(applyProposalResponse?.previewStatus, 'READY', JSON.stringify(applyProposalResponse));
     assert.equal(applyProposalResponse?.preview?.rowCount, 0);
@@ -2748,7 +2949,7 @@ FOR s IN Specimen
     await removeButton.waitFor({ state: 'visible', timeout: 5000 });
     assert.equal(await removeButton.count(), 1, 'The saved RelatedExpand removal control must be unique');
     assert.equal(await removeButton.isEnabled(), true);
-    const removalFromIndex = report.nativeRequests.length;
+    const removalFromIndex = nativeCapture.requests.length;
     await clickNative(nativePage, `[data-testid="construction-remove-step-${preserveStep.id}"]`);
     const removalIdentity = {
       stepId: preserveStep.id,
@@ -2759,13 +2960,13 @@ FOR s IN Specimen
     };
     const removalPanel = await proposal('remove-saved-exclude-related-expand-restores-patient-preview', removeStarted, groupedRows,
       removalFromIndex, (entry, response) => matchesNativeConstructionRemovalProposal(entry, response, removalIdentity));
-    const removalProposalEntry = report.nativeRequests.findLast((entry) => entry.startedAt >= removeStarted && entry.complete &&
-      matchesNativeConstructionRemovalProposal(entry, protocolResponse(entry), removalIdentity) &&
-      protocolResponse(entry)?.proposalId === removalPanel.proposalId);
+    const removalProposalEntry = nativeCapture.requests.findLast((entry) => entry.startedAt >= removeStarted && Number.isInteger(entry.status) &&
+      matchesNativeConstructionRemovalProposal(entry, entry.response, removalIdentity) &&
+      entry.response?.proposalId === removalPanel.proposalId);
     assert(removalProposalEntry, 'Removing the saved EXCLUDE expansion must match a captured native proposal');
     assert.deepEqual(removalProposalEntry.request?.removeStepIds, [preserveStep.id],
       'The restoration proposal must target the exact saved RelatedExpand step');
-    const removalResponse = protocolResponse(removalProposalEntry);
+    const removalResponse = removalProposalEntry.response;
     assert.equal(removalResponse?.previewStatus, 'READY', JSON.stringify(removalResponse));
     assert.equal(removalResponse?.preview?.rowCount, 1,
       'Removing the upstream expansion must restore the exact selected Patient row in its proposal');
@@ -2891,27 +3092,35 @@ FOR s IN Specimen
       observationPairs: finalStatusPairs };
     report.oracle.finalScopedRereadMatched = true;
   }
-  await settleNativeResponses();
-  await officialRequestCapture.flush();
-  const expectedFailurePath = '/construction-proposals';
-  const expectedHttpFailures = report.nativeRequests.filter(entry =>
-    expectedHttpValidation({ ...entry, response: protocolResponse(entry) }));
+  const expectedHttpFailures = nativeCapture.requests.filter(entry =>
+    expectedRelatedSourceOneValidation(entry, expectedRelatedSource()));
   for (const expectedFailure of expectedHttpFailures) {
-    const fixtureEntry = cda.nativeRequests.findLast(entry => entry.path === expectedFailure.path &&
-      entry.requestId === expectedFailure.requestCorrelationId && entry.status === 422);
+    const expectedFailureIndex = nativeCapture.requests.indexOf(expectedFailure);
+    assert(expectedFailureIndex >= 0, 'Expected ONE validation must be present in the scoped native request capture');
+    const capturedFailure = await nativeCapture.waitForResponse(entry => entry === expectedFailure && entry.status === 422,
+      { fromIndex: expectedFailureIndex, timeoutMs: 5000 });
+    nativeCapture.markExpectedValidation(capturedFailure, {
+      status: 422,
+      reason: 'Independent raw CDA witness predicts grouped-row ONE has multiple values.',
+      proof: { outputId, fieldMode, witnessObservationIds: manyWitness.observationIds, errorCode: 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES' },
+    });
+    assert.equal(typeof expectedFailure.requestId, 'string',
+      'The expected ONE validation must expose the canonical request ID from its X-Request-ID header');
+    assert(expectedFailure.requestId.trim(), 'The expected ONE validation request ID must not be empty');
+    const fixtureEntry = await officialRequestCapture.waitForResponse(entry =>
+      matchesExpectedRelatedSourceOneValidationCapture(entry, expectedFailure), { timeoutMs: 5000 });
     assert(fixtureEntry, 'The official CDA fixture must capture the same exact expected ONE validation response');
-    await cda.waitForCapturedResponse(officialRequestCapture, entry => entry === fixtureEntry, 5000);
     cda.expectHttpFailure(fixtureEntry, 'The independent raw CDA witness predicts multiple related values for grouped-row ONE', {
       outputPath: expectedFailure.path,
       method: expectedFailure.method,
       status: expectedFailure.status,
-      requestId: expectedFailure.requestCorrelationId,
+      requestId: expectedFailure.requestId,
       errorCode: 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES',
       fieldMode,
       witnessObservationIds: manyWitness.observationIds,
     });
   }
-  const unexpectedHttp = report.nativeRequests.filter((entry) => entry.status >= 400 && !expectedHttpFailures.includes(entry));
+  const unexpectedHttp = nativeCapture.requests.filter((entry) => entry.status >= 400 && !expectedHttpFailures.includes(entry));
   const expectedOneFailureCount = (basicMode && !quantityFieldMode) || zeroObservationMode ? 0 : 1;
   assert.equal(expectedHttpFailures.length, expectedOneFailureCount, basicMode && !quantityFieldMode
     ? 'The exact single-Observation basic status witness must permit ONE'
@@ -2921,19 +3130,9 @@ FOR s IN Specimen
       ? 'The exact zero-Observation root must permit ONE with the nullable result defined by the source contract'
       : 'Exactly one raw-oracle-predicted ONE disagreement is expected');
   assert.deepEqual(unexpectedHttp, [], 'No unexpected browser HTTP errors are allowed');
-  assert.deepEqual(report.errors.filter((error) => error.expectedOwnerCancellation !== true && error.expectedValidation !== true), [],
+  assert.deepEqual(report.errors.filter(error => error.expectedValidation !== true), [],
     'No unexpected browser runtime, console, network, or module errors are allowed');
   report.browserDiagnostics = cda.diagnostics;
-  const unexpectedPlaywrightHttp = cda.diagnostics.httpFailures.filter((failure) =>
-    !(failure.status === 422 && failure.url.endsWith(expectedFailurePath) &&
-      failure.body?.includes('CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES')));
-  assert.deepEqual(unexpectedPlaywrightHttp, [], 'Playwright observed an unexpected application HTTP failure');
-  const unexpectedPlaywrightNetwork = cda.diagnostics.networkFailures.filter((failure) =>
-    !(failure.expected === true && typeof failure.browserRequestId === 'string' &&
-      failure.expectedCancellation?.browserRequestId === failure.browserRequestId));
-  assert.deepEqual(unexpectedPlaywrightNetwork, [], 'Playwright observed an unowned application request failure');
-  assert.deepEqual(cda.diagnostics.pageErrors, [], 'Playwright observed an unexpected page error');
-  assert.deepEqual(cda.diagnostics.console, [], 'Playwright observed an unexpected application console error');
   assert(report.protectedExplorerUntouched, `A request unexpectedly targeted protected Explorer ${protectedExplorer}`);
   report.relatedFieldLifecycle = 'passed';
   if ((quantityFieldMode || !basicMode) && !zeroObservationMode) report.repairStatus = 'passed';
@@ -2941,9 +3140,11 @@ FOR s IN Specimen
     report.optionalFixtureGaps = report.oracle.missingWitnessCategories;
   }
   report.status = 'passed';
+  }
 } catch (error) {
   const apiBuildInvalidation = error instanceof ApiBuildFreezeError || error?.invalidatesRun === true;
-  const fixtureUnavailable = error?.fixtureUnavailableOutcome;
+  fixtureUnavailable = error?.fixtureUnavailableOutcome;
+  fatalError = error;
   report.status = apiBuildInvalidation ? 'invalidated' : fixtureUnavailable ? 'unverified' : 'failed';
   if (apiBuildInvalidation) {
     report.productFailure = false;
@@ -3013,11 +3214,71 @@ FOR s IN Specimen
     report.status = 'invalidated';
   }
   report.finished = new Date().toISOString();
-  reportFinalized = true;
   cda.report.standaloneCdaRows = report;
+  await nativeCapture?.stop();
   await cda.attachReport('standalone-cda-related-one-all.json', report);
-  if (report.status === 'passed' || (report.status === 'unverified' && report.relatedFieldLifecycle === 'passed')) {
-    if (savedEmptyPolicyEdit) {
+  if (!fatalError || (fixtureUnavailable && report.relatedFieldLifecycle === 'passed')) {
+    if (zeroStartingRootRoundtrip) {
+      const roundtrip = report.zeroObservationStartingRootRoundtrip;
+      const timingNames = [
+        'select-observation-root-cancel-proposal', 'cancel-zero-observation-root-proposal',
+        'reload-patient-after-root-cancel', 'select-observation-root-apply-observation-root',
+        'apply-observation-root-zero-rows', 'reload-observation-root-zero-rows',
+        'select-patient-root-for-restoration', 'apply-restore-patient-root-row',
+        'reload-restored-patient-root-row',
+      ];
+      const durationByName = new Map(report.cases.map(({ name, durationMs }) => [name, durationMs]));
+      const timings = timingNames.map(name => ({ name, durationMs: durationByName.get(name), limitMs: ACTION_TIMEOUT_MS }));
+      const allWithinBudget = timings.every(({ durationMs }) => Number.isFinite(durationMs) && durationMs <= ACTION_TIMEOUT_MS);
+      cda.check('correctness',
+        'the exact scoped selected Patient witness has zero typed Observation subject edges and remains the immutable collection',
+        report.oracle?.finalScopedRereadMatched === true
+          && zeroObservationSelectionRevisionMatches(roundtrip)
+          && roundtrip?.selectionSeed?.patientId === report.oracle?.witnessSummary?.patientId
+          && roundtrip?.selectionSeed?.memberCount === 1,
+        { witness: roundtrip?.finalRawWitness, selection: roundtrip?.selectionSeed });
+      cda.check('correctness',
+        'the Patient root starts with its exact ID row and Cancel leaves the saved workspace unchanged',
+        roundtrip?.initial?.rootResourceType === 'Patient' && roundtrip?.initial?.rows?.length === 1
+          && roundtrip?.initial?.rows[0]?.[0] === report.oracle?.witnessSummary?.patientId
+          && roundtrip?.cancel?.workspaceUnchanged === true,
+        { initial: roundtrip?.initial, cancel: roundtrip?.cancel });
+      cda.check('correctness',
+        'Observation root preview and Apply retain the Patient ID column with exactly zero rows',
+        roundtrip?.observationRoot?.rootResourceType === 'Observation'
+          && roundtrip?.observationRoot?.headers?.includes('PATIENT ID')
+          && roundtrip?.observationRoot?.previewRowCount === 0 && roundtrip?.observationRoot?.rows?.length === 0,
+        { observationRoot: roundtrip?.observationRoot });
+      cda.check('persistence',
+        'reloading the Observation root preserves the exact selected Patient population route and zero rows',
+        roundtrip?.observationReload?.rootResourceType === 'Observation'
+          && roundtrip?.observationReload?.selectionRevisionId === roundtrip?.selectionRevisionId
+          && roundtrip?.observationReload?.populationRoute?.length === 1
+          && roundtrip?.observationReload?.rows?.length === 0,
+        { observationReload: roundtrip?.observationReload });
+      cda.check('correctness',
+        'restoring Patient returns to the exact original ID column, direct collection route, and Patient row',
+        roundtrip?.restoredPatient?.rootResourceType === 'Patient'
+          && roundtrip?.restoredPatient?.selectionRevisionId === roundtrip?.selectionRevisionId
+          && JSON.stringify(roundtrip?.restoredPatient?.populationRoute) === JSON.stringify([])
+          && JSON.stringify(roundtrip?.restoredPatient?.rows) === JSON.stringify([[report.oracle?.witnessSummary?.patientId]]),
+        { restoredPatient: roundtrip?.restoredPatient });
+      cda.check('persistence',
+        'reload preserves the restored Patient root and exact raw Patient row after the full roundtrip',
+        roundtrip?.restoredReload?.rootResourceType === 'Patient'
+          && roundtrip?.restoredReload?.selectionRevisionId === roundtrip?.selectionRevisionId
+          && JSON.stringify(roundtrip?.restoredReload?.rows) === JSON.stringify([[report.oracle?.witnessSummary?.patientId]])
+          && report.oracle?.finalScopedRereadMatched === true,
+        { restoredReload: roundtrip?.restoredReload, finalRawWitness: roundtrip?.finalRawWitness });
+      cda.check('performance', 'each root choice, Cancel, Apply, and reload reaches its exact rendered state within five seconds',
+        timings.length === timingNames.length && allWithinBudget,
+        { timings, expectedTimingCount: timingNames.length, limitMs: ACTION_TIMEOUT_MS });
+      cda.check('correctness', 'CDA watched source and API build stayed unchanged',
+        report.sourceFreeze?.unchanged === true && report.sourceFingerprint?.unchanged === true
+          && report.apiBuildFreeze?.unchanged === true,
+        { sourceFreezeUnchanged: report.sourceFreeze?.unchanged,
+          sourceFingerprintUnchanged: report.sourceFingerprint?.unchanged, apiBuildUnchanged: report.apiBuildFreeze?.unchanged });
+    } else if (savedEmptyPolicyEdit) {
       const timingNames = [
         'edit-saved-related-expand-exclude-cancel-preview',
         'cancel-saved-related-expand-exclude-preserves-parent-and-all-after-reload',
@@ -3126,7 +3387,7 @@ FOR s IN Specimen
           parentRowCount: report.oracle.witnessSummary?.rootCount,
           expectedOneValidationCount: 0,
         } : {}),
-        exactRawOracle: true, oneValidationCount: report.nativeRequests.filter(entry => entry.status === 422).length,
+        exactRawOracle: true, oneValidationCount: nativeCapture.requests.filter(entry => entry.status === 422).length,
       });
       if (zeroObservationMode) {
         for (const check of zeroObservationLifecycleChecks(report)) {
@@ -3198,9 +3459,10 @@ FOR s IN Specimen
       }
     }
   }
-  if (report.status === 'failed' || report.status === 'invalidated') {
-    throw new Error(`Related ONE/ALL workflow ${report.status}: ${report.error ?? JSON.stringify(report.apiBuildFreeze ?? report.sourceFreeze)}`);
-  }
+  if (fatalError && !fixtureUnavailable) throw fatalError;
+  assert.notEqual(report.apiBuildFreeze?.invalidatesRun, true, `API build changed during Related ONE/ALL: ${JSON.stringify(report.apiBuildFreeze)}`);
+  assert.notEqual(report.sourceFreeze?.invalidatesRun, true, `Watched source changed during Related ONE/ALL: ${JSON.stringify(report.sourceFreeze)}`);
+  assert.notEqual(report.sourceFingerprint?.invalidatesRun, true, `Watched source fingerprint changed during Related ONE/ALL: ${JSON.stringify(report.sourceFingerprint)}`);
 }
 return report;
 }

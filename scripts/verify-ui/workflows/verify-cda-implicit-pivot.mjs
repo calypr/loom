@@ -81,10 +81,8 @@ const recordAction = async (selector, label, identity = {}) => {
   report.actions.push({ label, ...state });
 };
 const responseSince = async (startIndex, predicate, timeout = 5000) => {
-  await browserEvents.flush();
-  const existing = report.nativeRequests.slice(startIndex).find(predicate);
-  return existing ?? cda.waitForCapturedResponse(browserEvents,
-    entry => report.nativeRequests.indexOf(entry) >= startIndex && predicate(entry), timeout);
+  const existing = browserEvents.requests.slice(startIndex).find(predicate);
+  return existing ?? browserEvents.waitForResponse(entry => browserEvents.requests.indexOf(entry) >= startIndex && predicate(entry), { timeoutMs: timeout });
 };
 const clickLastControl = async (prefix, label) => {
   const testIds = await cda.inspect( ([start]) => [...document.querySelectorAll(`[data-testid^="${start}"]`)]
@@ -135,7 +133,7 @@ try {
 
   const wait = (predicate, args = {}, timeout = 5000) => cda.wait(predicate, args ?? {}, Math.min(timeout, 5000));
   const apply = async expectedHistoryCount => {
-    const startIndex = report.nativeRequests.length;
+    const startIndex = browserEvents.requests.length;
     await recordAction('[data-testid="construction-apply-proposal"]', 'Apply construction proposal');
     await responseSince(startIndex, request => request.path.endsWith('/commands') && request.method === 'POST');
     await wait(() => !document.querySelector('[data-testid="construction-proposal-panel"]'));
@@ -224,7 +222,7 @@ try {
   }
   await cda.selectOption('select[aria-label="Pivot category field"]', category.value);
   const scanStarted = Date.now();
-  const categoryRequestStart = report.nativeRequests.length;
+  const categoryRequestStart = browserEvents.requests.length;
   await recordAction('button', 'Find category values', { name: 'Find category values' });
   await wait(() => Boolean(document.querySelector('[data-testid="construction-reshape-pivot-category-summary"]')));
   report.timingsMs.categories = Date.now() - scanStarted;
@@ -257,7 +255,7 @@ try {
   await recordAction('[data-testid="construction-reshape-pivot-advanced"] summary', 'Open advanced Pivot settings');
   await cda.selectOption('select[aria-label="Pivot missing cell policy"]', 'ERROR');
   const editStarted = Date.now();
-  const editRequestStart = report.nativeRequests.length;
+  const editRequestStart = browserEvents.requests.length;
   const editedResponse = await responseSince(editRequestStart, request => /construction-(?:choice-)?proposals/.test(request.path) && request.method === 'POST', 5000);
   assert.equal(editedResponse.status, 200, 'Editing Pivot settings must obtain a new successful proposal response.');
   await wait(() => ['ready', 'error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')));
@@ -268,7 +266,7 @@ try {
   await openTable();
   await clickLastControl('construction-history-step-', 'Select last construction step');
   await wait(() => Boolean(document.querySelector('[data-testid^="construction-remove-step-"]:not(:disabled)')));
-  const removeStarted = report.nativeRequests.length;
+  const removeStarted = browserEvents.requests.length;
   await clickLastControl('construction-remove-step-', 'Remove last construction step');
   await wait(() => document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status') === 'ready');
   const removeResponse = await responseSince(removeStarted, request => /construction-(?:choice-)?proposals/.test(request.path) && request.method === 'POST');
@@ -284,7 +282,6 @@ try {
   assert.equal(report.restored.historyCount, related ? 1 : 0);
   assert.deepEqual(report.restored.headers, related ? ['SPECIMEN ID', 'OBSERVATION FHIR RESOURCE ID'] : ['OBSERVATION ID']);
 
-  await browserEvents.flush();
   report.responses = capturedResponses();
   assert.equal(report.nativeRequests.filter(request => request.status >= 400).length, 0, JSON.stringify(report.nativeRequests));
   assert.equal(report.setupRequests.filter(request => request.status >= 400).length, 0, JSON.stringify(report.setupRequests));
@@ -295,7 +292,6 @@ try {
 } catch (error) {
   report.status = 'failed';
   report.error = String(error.stack ?? error);
-  if (browserEvents) await browserEvents.flush().catch(() => undefined);
 if (page) {
     includeFixtureDiagnostics(report);
     report.failureUI = await cda.inspect( () => document.body.innerText).catch(() => undefined);
@@ -327,7 +323,6 @@ if (page) {
     }
   }
   if (browserEvents) {
-    await browserEvents.flush().catch(() => undefined);
     report.responses = capturedResponses();
     includeFixtureDiagnostics(report);
   }

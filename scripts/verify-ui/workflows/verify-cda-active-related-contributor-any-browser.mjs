@@ -23,6 +23,7 @@ const categoryLimit = 8;
 const codingPerCategoryLimit = 8;
 const manyWitnessPatientLimit = 10;
 const manyCandidateLimit = 500;
+let fatal;
 const report = {
   explorer, project, generation, protectedExplorer, ownedExplorerId: explorer,
   protectedExplorerUntouched: true, browserExplorerRequests: [],
@@ -997,7 +998,7 @@ try {
   await open(patientRows, 'reload-restored-source-table');
   builder = await api(base + '/builder');
   assertStableSourceProjection(builder, original, canonicalSourceColumnId, 'reload after Contributor removal');
-  await nativeCapture?.flush();
+  await nativeCapture?.stop();
   assert(report.protectedExplorerUntouched, `A request unexpectedly targeted protected Explorer ${protectedExplorer}`);
   assert(report.browserExplorerRequests.every(({ path }) => path === root || path === `${root}/selections`
     || path.startsWith(`${root}/${explorer}/`)), 'Browser requests must remain within the fresh owned Explorer and global selection route');
@@ -1010,6 +1011,7 @@ try {
     report.status = 'passed';
   }
 } catch (error) {
+  fatal = error;
   report.status = error.code === 'BOUNDED_FIXTURE_UNAVAILABLE' ? 'unverified' : 'failed';
   report.error = String(error.stack ?? error);
   if (error.code === 'BOUNDED_FIXTURE_UNAVAILABLE') {
@@ -1031,9 +1033,6 @@ try {
   report.finished = new Date().toISOString();
   await cda.attachReport('active-related-contributor-any-report.json', report);
 }
-if (report.status !== 'passed') {
-  const detail = report.status === 'unverified' ? report.unverifiedReason : report.error;
-  throw new Error(`Active-related Contributor workflow ${report.status}: ${detail ?? 'see attached report'}`);
-}
+if (fatal) throw fatal;
 return report;
 }

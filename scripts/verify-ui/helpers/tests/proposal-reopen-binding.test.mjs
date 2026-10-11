@@ -26,9 +26,10 @@ const proposal = (requestIndex, startedAt) => {
       startedAt,
       completedAt: startedAt + 10,
       status: 200,
-      networkTerminal: true,
-      bodyReadStatus: 'decoded',
-      body: {
+      networkComplete: true,
+      responseCaptureComplete: true,
+      responseBodyCaptured: true,
+      request: {
         snapshotToken: state.catalog.snapshotToken,
         expectedDraftVersion: state.draftVersion,
         expectedDraftDigest: state.draftDigest,
@@ -59,7 +60,7 @@ test('rejects a stale capture even when its receipt and candidate content match'
 test('rejects a fresh request bound to a changed draft or mismatched preview receipt', () => {
   const previous = proposal(12, 100);
   const changedDraft = proposal(17, 250);
-  changedDraft.request.body.expectedDraftVersion += 1;
+  changedDraft.request.request.expectedDraftVersion += 1;
   assert.throws(() => assertReopenedProposalAfterCancel({
     previous, cancelledAt: 200, current: changedDraft, state, outputId, removeStepIds,
   }), /unchanged current draft version/);
@@ -69,4 +70,15 @@ test('rejects a fresh request bound to a changed draft or mismatched preview rec
   assert.throws(() => assertReopenedProposalAfterCancel({
     previous, cancelledAt: 200, current: mismatchedPreview, state, outputId, removeStepIds,
   }), /reopened preview receipt/);
+});
+
+test('requires the current native network and response-body capture to complete', () => {
+  const previous = proposal(12, 100);
+  for (const field of ['networkComplete', 'responseCaptureComplete', 'responseBodyCaptured']) {
+    const incomplete = proposal(17, 250);
+    incomplete.request[field] = false;
+    assert.throws(() => assertReopenedProposalAfterCancel({
+      previous, cancelledAt: 200, current: incomplete, state, outputId, removeStepIds,
+    }), /successful native response with its body captured/, `${field} must be true`);
+  }
 });

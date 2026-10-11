@@ -323,7 +323,7 @@ if (page) {
     if (!report.sourceFingerprint.unchanged) { report.priorStatus = report.status; report.status = 'invalidated'; report.__nativeFailure = true; }
   }
 
-  if (report.status === 'passed' && report.errors.length) {
+  if (report.errors.length) {
     const error = new Error(`Unexpected browser diagnostics: ${JSON.stringify(report.errors)}`);
     report.status = 'failed';
     report.error = String(error.stack);

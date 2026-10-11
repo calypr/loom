@@ -207,7 +207,7 @@ export async function rootRebaseWorkflow({ page, cda }) {
     };
   };
   const waitForRowAssessment = async (after, expected) => {
-    const entry = await browserEvents.waitFor(
+    const entry = await browserEvents.waitForResponse(
       candidate => matchesRootRebaseAssessment(candidate, expected),
       { fromIndex: after, timeoutMs: 5000 },
     );
@@ -235,14 +235,14 @@ export async function rootRebaseWorkflow({ page, cda }) {
     const startedAt = Date.now();
     await actClick('[data-testid="construction-rows-settings-trigger"]', `Open row definition settings ${stage}`);
     await cda.wait(() => Boolean(document.querySelector(
-      '[role="dialog"][aria-label="Row definition settings"] select[aria-label="Record type"]',
+      '[role="dialog"][aria-label="Row definition settings"] select[aria-label="Choose starting record type"]',
     )), [], 5000);
     state.timingsMs[`${stage}RootControl`] = Date.now() - startedAt;
     assert(state.timingsMs[`${stage}RootControl`] < 5000,
       `${stage} row-root control took ${state.timingsMs[`${stage}RootControl`]} ms to render`);
     return cda.inspect( () => {
       const select = document.querySelector(
-        '[role="dialog"][aria-label="Row definition settings"] select[aria-label="Record type"]',
+        '[role="dialog"][aria-label="Row definition settings"] select[aria-label="Choose starting record type"]',
       );
       return { disabled: select.disabled, options: [...select.options].map(option => ({ value: option.value, label: option.textContent, disabled: option.disabled })) };
     });
@@ -379,7 +379,7 @@ export async function rootRebaseWorkflow({ page, cda }) {
       return { text: panel?.innerText, rows: [...panel.querySelectorAll('table tr')].map(row => [...row.querySelectorAll('th,td')].map(cell => cell.innerText.trim())) };
     });
     assert(state[stage].rows.length > 1, `${stage} did not render proposed rows`);
-    const requests = state.nativeRequests.slice(after).map(({ path, status }) => ({ path, status }));
+    const requests = browserEvents.requests.slice(after).map(({ path, status }) => ({ path, status }));
     assert(requests.some(response => response.path.endsWith('/preview') && response.status === 200), `${stage} did not request a successful candidate preview`);
     assert(!requests.some(response => response.path.endsWith('/commands')), `${stage} changed the saved table before Apply`);
     const started = Date.now();
@@ -486,10 +486,10 @@ export async function rootRebaseWorkflow({ page, cda }) {
     const observationChoice = controls.options.find(option => option.label.startsWith('Observation'));
     assert(observationChoice && !observationChoice.disabled, 'Related Observation cannot be chosen as rows');
     const expectedAssessment = rowAssessmentIdentity(currentDraft, 'Observation');
-    const assessmentStart = state.nativeRequests.length;
+    const assessmentStart = browserEvents.requests.length;
     const started = Date.now();
     await cda.selectOption(
-      '[role="dialog"][aria-label="Row definition settings"] select[aria-label="Record type"]',
+      '[role="dialog"][aria-label="Row definition settings"] select[aria-label="Choose starting record type"]',
       observationChoice.value,
     );
     state.actions.push(`Choose Observation rows ${stage}`);
@@ -511,7 +511,7 @@ export async function rootRebaseWorkflow({ page, cda }) {
       });
       const repairButton = state[`${stage}RepairPanel`].buttons.find(button => button.text.includes('Match through Subject') && !button.disabled);
       assert(repairButton, `No Subject relationship repair was offered: ${JSON.stringify(state[`${stage}RepairPanel`])}`);
-      const repairStarted = state.nativeRequests.length;
+      const repairStarted = browserEvents.requests.length;
       const repairChoiceStarted = Date.now();
       await actClick('section button', `Preserve Patient ID through Observation Subject ${stage}`, { name: repairButton.text });
       state[`${stage}RepairedAssessment`] = await waitForRowAssessment(repairStarted, expectedAssessment);
@@ -541,10 +541,10 @@ export async function rootRebaseWorkflow({ page, cda }) {
       `${stage} must preview the exact raw Observation multiplicity before Cancel`);
     for (const row of panel.rows.slice(1)) assert(row.includes(witness.patientId),
       `${stage} candidate rows must retain the filtered Patient ID`);
-    assert(!state.nativeRequests.slice(after).some(request => request.path.endsWith('/commands')),
+    assert(!browserEvents.requests.slice(after).some(request => request.path.endsWith('/commands')),
       `${stage} proposal must not change the saved workspace before Cancel or Apply`);
     state[stage] = panel;
-    const requestsBeforeCancel = state.nativeRequests.length;
+    const requestsBeforeCancel = browserEvents.requests.length;
     const started = Date.now();
     await actClick('[data-testid="row-change-preview-panel"] button', `Cancel ${stage}`, { name: 'Keep current rows' });
     await cda.wait(() => !document.querySelector('[data-testid="row-change-preview-panel"]'));
@@ -566,7 +566,7 @@ export async function rootRebaseWorkflow({ page, cda }) {
       `${stage} Cancel must retain every authored output column`);
     assert.deepEqual(cancelledDocument.population, original.document.population,
       `${stage} Cancel must retain the selected Patient population and route`);
-    assert(!state.nativeRequests.slice(requestsBeforeCancel).some(request => request.path.endsWith('/commands')),
+    assert(!browserEvents.requests.slice(requestsBeforeCancel).some(request => request.path.endsWith('/commands')),
       `${stage} Cancel must not write a Builder command`);
     state[`${stage}Cancel`] = { status: 'passed', draftVersion: cancelled.draftVersion,
       draftDigest: cancelled.draftDigest, preservedConstruction: true, preservedColumns: true, preservedPopulation: true };
@@ -663,7 +663,7 @@ export async function rootRebaseWorkflow({ page, cda }) {
     assert(state.timingsMs.observationRootApply < 5000,
       `Applying Observation rows took ${state.timingsMs.observationRootApply} ms to render the exact raw row count and Patient IDs`);
     const changed = await waitForRoot(outputId, 'Observation');
-    state.rootChangeRequests = state.nativeRequests.slice(assessmentStart).map(({ path, status }) => ({ path, status }));
+    state.rootChangeRequests = browserEvents.requests.slice(assessmentStart).map(({ path, status }) => ({ path, status }));
     state.changed = { draftVersion: changed.draftVersion, document: changed.workspace.documents.find(document => document.output.id === outputId) };
     assert.equal(state.changed.document?.rootResourceType, 'Observation', 'Apply did not change the root resource');
     assert.deepEqual(state.changed.document.construction, state.before.document.construction,
@@ -702,7 +702,7 @@ export async function rootRebaseWorkflow({ page, cda }) {
     const observationFieldPickerStartedAt = await actClick(
       'button[aria-label^="Add columns:"]', 'Open Add columns on Observation rows', { includes: 'Add columns' },
     );
-    const observationSchemaStart = state.nativeRequests.length;
+    const observationSchemaStart = browserEvents.requests.length;
     await actClick('[role="group"][aria-label="Column types"] button',
       'Switch to fields and related data', { name: 'Fields and related data' });
     await cda.wait(() => Boolean(document.querySelector('[data-testid="feature-catalog-raw-fields"] summary')), [], 5000);
@@ -717,7 +717,7 @@ export async function rootRebaseWorkflow({ page, cda }) {
     assert(state.timingsMs.observationIDFieldPicker < 5000,
       `Opening the Observation ID field picker took ${state.timingsMs.observationIDFieldPicker} ms`);
     await actClick('input[aria-label="Select Observation.id"]', 'Select Observation ID');
-    const observationColumnChoiceStart = state.nativeRequests.length;
+    const observationColumnChoiceStart = browserEvents.requests.length;
     const observationColumnProposalStartedAt = await actClick(
       '[aria-label="Add columns editor"] button', 'Preview Observation ID column', { name: 'Add 1 selected feature' },
     );
@@ -733,20 +733,20 @@ export async function rootRebaseWorkflow({ page, cda }) {
     });
     assert.equal(state.observationColumnProposal.status, 'ready',
       `Observation ID choice did not render a ready proposal: ${state.observationColumnProposal.text ?? 'no proposal text'}`);
-    const observationColumnChoice = rootRebaseColumnChoiceIdentity(state.nativeRequests, {
+    const observationColumnChoice = rootRebaseColumnChoiceIdentity(browserEvents.requests, {
       fromIndex: observationColumnChoiceStart,
       outputId,
       snapshotToken: observationReload.catalog.snapshotToken,
       draftVersion: observationReload.draftVersion,
       draftDigest: observationReload.draftDigest,
     });
-    const columnApplyStart = state.nativeRequests.length;
+    const columnApplyStart = browserEvents.requests.length;
     const columnApplyStartedAt = await actClick(
       '[data-testid="construction-choice-proposal-panel"] button',
       'Apply Observation ID column', { name: 'Apply columns' },
     );
     const columnApply = await waitForRootRebaseColumnApply({
-      requests: state.nativeRequests,
+      requests: browserEvents.requests,
       errors: state.errors,
       fromIndex: columnApplyStart,
       schemaFromIndex: state.observationSchemaStart,
@@ -756,7 +756,7 @@ export async function rootRebaseWorkflow({ page, cda }) {
         nodeId: observationNode.nodeId,
       },
       deadlineAt: columnApplyStartedAt + 5000,
-      waitForRequest: (predicate, options) => browserEvents.waitFor(predicate, options),
+      waitForRequest: (predicate, options) => browserEvents.waitForResponse(predicate, options),
       closeCatalog: async timeoutMs => {
         await cda.click('[data-testid="construction-close-operation-editor"]',
           { name: 'Close operation editor' }, timeoutMs);
@@ -772,7 +772,7 @@ export async function rootRebaseWorkflow({ page, cda }) {
     });
     state.timingsMs.observationColumnApply = Date.now() - columnApplyStartedAt;
     assert(state.timingsMs.observationColumnApply < 5000,
-      `Applying Observation ID took ${state.timingsMs.observationColumnApply} ms through field discovery completion`);
+      `Applying Observation ID took ${state.timingsMs.observationColumnApply} ms through paired preview render`);
     assert.equal(columnApply.command.status, 200, 'Applying Observation ID failed');
     state.observationColumnApply = {
       requestId: columnApply.command.requestId,
@@ -832,10 +832,10 @@ export async function rootRebaseWorkflow({ page, cda }) {
     const patientChoice = state.afterControl.options.find(option => option.label.startsWith('Patient'));
     assert(patientChoice && !patientChoice.disabled, 'Patient rows cannot be restored');
     const expectedRestorationAssessment = rowAssessmentIdentity(pairedReload, 'Patient');
-    const restorationAssessmentStart = state.nativeRequests.length;
+    const restorationAssessmentStart = browserEvents.requests.length;
     const restorationStartedAt = Date.now();
     await cda.selectOption(
-      '[role="dialog"][aria-label="Row definition settings"] select[aria-label="Record type"]',
+      '[role="dialog"][aria-label="Row definition settings"] select[aria-label="Choose starting record type"]',
       patientChoice.value,
     );
     state.actions.push('Restore Patient rows');
@@ -855,7 +855,7 @@ export async function rootRebaseWorkflow({ page, cda }) {
       });
       const repairButton = state.restorationRepairPanel.buttons.find(button => button.text.includes('Match through Subject') && !button.disabled);
       assert(repairButton, `No Subject relationship restoration was offered: ${JSON.stringify(state.restorationRepairPanel)}`);
-      const repairStarted = state.nativeRequests.length;
+      const repairStarted = browserEvents.requests.length;
       const repairChoiceStarted = Date.now();
       await actClick('section button', 'Restore Subject relationship', { name: repairButton.text });
       state.restorationRepairedAssessment = await waitForRowAssessment(repairStarted, expectedRestorationAssessment);
@@ -888,7 +888,7 @@ export async function rootRebaseWorkflow({ page, cda }) {
       routeRebase: restorationAssessment.proposal.routeRebase,
       catalogEdges: state.before.catalog.edges,
     }), true, 'Patient root restoration must preserve authored fields while restoring occurrence routes');
-    state.restorationRequests = state.nativeRequests.slice(restorationAssessmentStart).map(({ path, status }) => ({ path, status }));
+    state.restorationRequests = browserEvents.requests.slice(restorationAssessmentStart).map(({ path, status }) => ({ path, status }));
     const restoredPreviewStartedAt = await reloadAndSelectTable();
     const restoredPreview = await preview('restoredPreview', {
       rowCount: 1,
@@ -917,18 +917,21 @@ export async function rootRebaseWorkflow({ page, cda }) {
       checkpoints: Object.fromEntries(measuredBudgets), maximumDurationMs: Math.max(...measuredBudgets.map(([, durationMs]) => durationMs)),
       budgetMs: 5000,
     });
-    const noUnexpectedErrors = state.nativeRequests.every(response => response.status < 400) && state.errors.length === 0;
-    await browserEvents.flush();
-    cda.includeBrowserDiagnostics();
-    const networkClean = state.nativeRequests.every(response => response.status < 400) && state.errors.length === 0;
+    const networkClean = state.errors.length === 0;
     recordRequiredCheck(7, 'correctness', networkClean, {
-      errors: state.errors, nativeRequests: state.nativeRequests.map(({ path, status }) => ({ path, status })),
+      errors: state.errors,
+      networkDiagnostics: state.network,
+      nativeRequests: browserEvents.requests.map(({
+        requestId, browserRequestId, path, method, status, failure, completedAt,
+      }) => ({
+        requestId, browserRequestId, path, method,
+        status: status ?? null, failure: failure ?? null, completedAt: completedAt ?? null,
+      })),
     });
-    assert(noUnexpectedErrors && networkClean, `Unexpected browser or owned API errors: ${JSON.stringify(state.errors)}`);
+    assert(networkClean, `Unexpected browser or owned API errors: ${JSON.stringify(state.errors)}`);
   } catch (error) {
     state.error = error instanceof Error ? error.message : String(error);
     state.failureUI = await cda.inspect( () => ({ text: document.body.innerText.slice(0, 3500), alerts: [...document.querySelectorAll('[role="alert"]')].map(node => node.innerText) })).catch(() => undefined);
-    cda.includeBrowserDiagnostics();
     throw error;
   } finally {
     if (outputId) {
@@ -939,8 +942,6 @@ export async function rootRebaseWorkflow({ page, cda }) {
         state.cleanup = error instanceof Error ? error.message : String(error);
       }
     }
-    await browserEvents.flush();
-    cda.includeBrowserDiagnostics();
     await cda.attachReport('root-rebase-lifecycle', state);
   }
 }

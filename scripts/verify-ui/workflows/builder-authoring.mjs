@@ -6,7 +6,6 @@ import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { assertCohortGroupProvenance, assertCohortPatientIDColumns } from '../helpers/cohort-identities.mjs';
 import { createBuilderAuthoringRequestEntries } from '../helpers/builder-authoring-request-entries.mjs';
-import { installNativeAbortProbe, nativeAbortSignalObservationForRequest } from '../helpers/native-abort-probe.mjs';
 import { configureNativePage } from '../helpers/playwright-authoring-page.mjs';
 
 
@@ -39,13 +38,6 @@ const readPatientOracle = async fixtureDir => {
 
 const performCohortRecodeLifecycle = async ({ page, report, check, action }, context) => {
   configureNativePage(page);
-  await installNativeAbortProbe({
-    page,
-    report,
-    project: context.target.fixtureProject,
-    explorer: { mode: 'project-routes' },
-    apiOrigin: new URL(context.target.uiUrl).origin,
-  });
   const oracleBefore = await readPatientOracle(context.target.fixtureDir);
   const sourceIDs = oracleBefore.sourceIDs;
   const title = `Verify ${context.runID.slice(-10)} cohort recode`;
@@ -848,56 +840,4 @@ const performCohortRecodeLifecycle = async ({ page, report, check, action }, con
   report.target.uncoveredAdjacentBehavior = 'Raw ALL→ONE rejection for distinct Patient IDs is not exercised in this basic fixture cycle; the CDA transformed-category driver retains its raw disagreement rejection assertion.';
 };
 
-export const cohortRecodeWorkflow = async (workflow, context) => {
-  const { report, nativeRequestLedger } = workflow;
-  if (!nativeRequestLedger?.openScope || !nativeRequestLedger?.flush) {
-    throw new TypeError('Cohort recode requires the fixture-owned native request ledger.');
-  }
-  const project = context.target.fixtureProject;
-  const origin = new URL(context.target.uiUrl).origin;
-  const scope = nativeRequestLedger.openScope({ project, origin });
-  let workflowError;
-  try {
-    await performCohortRecodeLifecycle(workflow, context);
-  } catch (error) {
-    workflowError = error;
-  }
-
-  let captureError;
-  let ledger;
-  try {
-    ledger = await nativeRequestLedger.flush(scope, { explorer: report.target?.explorer, timeoutMs: 5000 });
-  } catch (error) {
-    captureError = error;
-  }
-
-  if (ledger) {
-    report.nativeRequests = ledger.nativeRequests;
-    report.nativeRequestDrainEvidence = ledger.nativeRequestDrainEvidence;
-    report.excludedNativeRequests = ledger.excludedNativeRequests;
-    report.excludedNativeRequestDrainEvidence = ledger.excludedNativeRequestDrainEvidence;
-    report.nativeRequestCorrelationErrors = ledger.nativeRequestCorrelationErrors;
-    report.nativeRequestTerminalLedger = ledger.nativeRequestTerminalLedger;
-    report.nativeRequestCaptureScope = {
-      observedPathPrefix: `/api/v1/projects/${encodeURIComponent(project)}/explorers`,
-      selectedExplorer: report.target?.explorer ?? null,
-      terminalLedgerScope: ledger.nativeRequestTerminalLedger.scope,
-    };
-    report.nativeAbortSignalObservations = ledger.nativeRequests.flatMap(entry => {
-      if (!entry.path?.endsWith('/authoring/v2/schema-fields')) return [];
-      const requestId = entry.requestDetails?.requestId ?? null;
-      const requestIdentityMatchCount = typeof requestId === 'string'
-        ? ledger.nativeRequests.filter(candidate => candidate.requestDetails?.requestId === requestId
-          && candidate.origin === entry.origin && candidate.path === entry.path && candidate.method === entry.method).length
-        : 0;
-      const observation = nativeAbortSignalObservationForRequest(
-        { ...entry, requestIdentityMatchCount }, report.nativeAbortProbeEvents ?? [],
-      );
-      return [{ requestId, origin: entry.origin, path: entry.path, method: entry.method, requestIdentityMatchCount, observation }];
-    });
-  }
-
-  if (workflowError) throw workflowError;
-  if (captureError) throw captureError;
-  if (!ledger) throw new Error('Cohort recode native request ledger was not finalized.');
-};
+export const cohortRecodeWorkflow = async (workflow, context) => performCohortRecodeLifecycle(workflow, context);

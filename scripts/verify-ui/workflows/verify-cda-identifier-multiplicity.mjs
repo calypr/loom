@@ -85,9 +85,9 @@ try {
   report.proposal = await cda.inspect(() => [...document.querySelectorAll('h3')].find(heading => heading.innerText === 'Preview new columns')?.parentElement?.innerText);
   assert(report.proposal.includes('25 of 25 displayed rows contain a value'), 'Proposal did not render expected CDA coverage');
   assert(report.proposalMs < 5000, `Proposal took ${report.proposalMs} ms`);
-  const applyStart = report.nativeRequests.length;
+  const applyStart = requestCapture.requests.length;
   await action('Apply columns', page.getByRole('button', { name: 'Apply columns', exact: true }));
-  const applyRequest = await requestCapture.waitFor(entry => entry.method === 'POST' && entry.path.endsWith('/commands'), { fromIndex: applyStart, timeoutMs: 5000 });
+  const applyRequest = await requestCapture.waitForResponse(entry => entry.method === 'POST' && entry.path.endsWith('/commands'), { fromIndex: applyStart, timeoutMs: 5000 });
   assert.equal(applyRequest.status, 200, JSON.stringify(applyRequest));
   report.afterApplyInspection = await cda.inspect(() => ({ selected: [...document.querySelectorAll('[data-testid^="construction-table-"]')].filter(button => button.getAttribute('aria-pressed') === 'true').map(button => button.dataset.testid), columns: [...document.querySelectorAll('[data-testid^="construction-column-"]')].map(button => ({ testid: button.dataset.testid, text: button.innerText.trim(), visible: button.offsetParent !== null })), alerts: [...document.querySelectorAll('[role="alert"]')].map(item => item.innerText) }));
   await cda.wait(({ count }) => [...document.querySelectorAll('[data-testid^="construction-column-"]:not([data-testid="construction-column-selection"])')].filter(button => button.offsetParent !== null).length === count, { count: report.initialColumns.length + 1 }, 5000);
@@ -114,7 +114,6 @@ try {
   await selectDuplicate();
   report.restoredColumns = await visibleColumns();
   assert.deepEqual(report.restoredColumns, report.initialColumns, 'Identifier column remained after removal and reload');
-  await requestCapture.flush();
   report.responses.push(...report.nativeRequests.map(request => ({ path: request.path, status: request.status, elapsedMs: request.completedAt - request.startedAt })));
   assert(report.nativeRequests.every(response => response.status < 400), 'An authoring request failed');
   assert.deepEqual(report.errors, [], 'Unexpected owned API or browser request failures occurred');
@@ -143,8 +142,6 @@ try {
 
     }
   }
-  if (requestCapture) await requestCapture.flush();
-  cda.includeBrowserDiagnostics();
   report.diagnostics = cda.diagnostics;
   await cda.attachReport('identifier-multiplicity-domain-report.json');
 }

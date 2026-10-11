@@ -364,6 +364,13 @@ export const codedPivotPersistedSourceMatchesOption = (step, option) => {
     JSON.stringify(source.route) === JSON.stringify(option.route);
 };
 
+export const assertCodedPivotOwnedSuccessResponse = (entry, endpointLabel, body) => {
+  if (entry?.status !== 200) {
+    throw new Error(`Owned ${endpointLabel} response returned HTTP ${entry?.status ?? 'unknown'}: ${JSON.stringify(body)}`);
+  }
+  return body;
+};
+
 export const codedPivotSourceOptionsDiagnosticFor = (entry, request, response, {
   origin, project, generation, explorerId, outputId, snapshotToken, mode, domSnapshot,
 }) => {

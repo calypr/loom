@@ -6,6 +6,7 @@ import {
   statusOneAllTimingCheckpoints,
   zeroObservationLifecycleCheckNames,
   zeroObservationLifecycleChecks,
+  zeroObservationSelectionRevisionMatches,
   zeroObservationTimingCheckpoints,
 } from '../related-one-all-lifecycle-contract.mjs';
 
@@ -83,6 +84,23 @@ function statusOneAllReport() {
     cases: passedTimings(statusOneAllTimingCheckpoints),
   };
 }
+
+test('zero-root report mapping matches the independently reread selected-collection revision', () => {
+  const roundtrip = {
+    selectionRevisionId: 'selection-created',
+    selectionSeed: { selectionRevisionId: 'selection-created' },
+  };
+  assert.equal(zeroObservationSelectionRevisionMatches(roundtrip), true);
+  assert.equal(zeroObservationSelectionRevisionMatches({
+    ...roundtrip, selectionSeed: { selectionRevisionId: 'selection-other' },
+  }), false);
+  assert.equal(zeroObservationSelectionRevisionMatches({
+    ...roundtrip, selectionSeed: {},
+  }), false);
+  assert.equal(zeroObservationSelectionRevisionMatches({
+    selectionSeed: { selectionRevisionId: 'selection-created' },
+  }), false);
+});
 
 test('zero-match ONE/null and ALL/[] lifecycle checks reject fabricated values and missing restoration proof', () => {
   const report = zeroObservationReport();

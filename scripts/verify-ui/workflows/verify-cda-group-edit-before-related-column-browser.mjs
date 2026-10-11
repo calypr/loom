@@ -2,20 +2,21 @@ import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { assertExactMultiset } from '../helpers/group-related-multiset.mjs';
-import { classifyNativeBrowserApiRequest, isSameUiProxyResponse, nativeRequestsHaveOwnedTransportOutcomes } from '../helpers/native-browser-api-scope.mjs';
 import { assertReopenedProposalAfterCancel } from '../helpers/proposal-reopen-binding.mjs';
-import { selectSavedPreviewRequest } from '../helpers/saved-preview-binding.mjs';
 import { relatedSourceProposalCandidate } from '../helpers/related-source-capture.mjs';
 import { buildArangoShellInvocation } from '../helpers/owned-arangosh-command.mjs';
 import { assertCdaNoAuthRuntime } from '../helpers/cda-no-auth-runtime.mjs';
-import { classifyExpectedOwnedCancellation, nativeReadRequestMatchesExpectedScope } from '../helpers/native-request-ownership.mjs';
-import { createNativeAbortProbeSource, nativeAbortProbeEvidenceForRequest } from '../helpers/native-abort-probe.mjs';
 import { createdExplorerScope } from '../helpers/created-explorer-scope.mjs';
 import { relatedChoiceStageContext } from '../helpers/related-choice-stage-context.mjs';
+import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
 
 export const groupEditRawFieldsDisclosureSelector = '[data-testid="feature-catalog-raw-fields"]';
 export const groupEditRawFieldsSummarySelector = `${groupEditRawFieldsDisclosureSelector} > summary`;
 export const groupEditRenderBudgetMs = 5000;
+export const isProtectedExplorerRequestPath = (pathname, explorerRoot, explorerId) => {
+  const protectedPath = explorerRoot + '/' + encodeURIComponent(explorerId);
+  return pathname === protectedPath || pathname.startsWith(protectedPath + '/');
+};
 export const groupEditRenderCheckpointNames = Object.freeze([
   'selected-raw-Specimen-reload',
   'expand-Specimen-Patient',
@@ -128,218 +129,16 @@ const waitForControl = (_page, selector, { timeout = 5000, enabled = false, hidd
       (!requireEnabled || (!control.disabled && control.getAttribute('aria-disabled') !== 'true')));
   }, { selector, enabled, hidden }, timeout,
 );
-const browserTransportScope = { uiOrigin, apiOrigin, project, explorer, protectedExplorer };
 const report = {
   status: 'running', explorer, project, generation, protectedExplorer,
   scope: { apiOrigin, uiOrigin, browserApiTransport: 'same-origin UI /api proxy',
     rawOracle: 'project + dataset generation + explicit selected Specimen ID' },
-  evidence, target, ownedApiRuntimeProof: null, oracleQueryAttempts: [], cases: [], errors: [], browserTransportViolations: [], requests: [], nativeRequests: [],
-  nativeAbortProbeEvents: [], expectedOwnerCancellations: [], started: new Date().toISOString(),
+  evidence, target, ownedApiRuntimeProof: null, oracleQueryAttempts: [], cases: [], errors: [], requests: [], nativeRequests: [],
+  protectedExplorerUntouched: true,
+  started: new Date().toISOString(),
 };
 let builder, outputId, selection, source, selectedPopulationRoute;
-let activeRelatedChoiceContext;
-let activePairedSemanticSourceState;
-let activeCatalogChoiceSourceState;
-let activeBrowserOwner = 'workspace setup';
-let nativeDrainAttempted = false;
-const nativeById = new Map();
-const pendingNetworkReads = new Set();
 const oracleQueries = [];
-const expectedCancelReceipts = new Map();
-const cdpRequestsById = new Map();
-const cdpRequestsByCorrelationId = new Map();
-const nativeByCorrelationId = new Map();
-let nativeCdpSession;
-const registerProposalCancelOwner = (proposalId, owner) => {
-  assert(proposalId, `${owner} must bind to the active proposal receipt`);
-  const evidence = {
-    proposalId,
-    owner: 'ConstructionProposalPanel.Cancel → constructionLifecycle.cancel → invalidateProposalRequest',
-    transition: owner,
-    registeredAt: new Date().toISOString(),
-    requestIds: [],
-  };
-  expectedCancelReceipts.set(proposalId, evidence);
-  for (const entry of report.nativeRequests) {
-    if (entry.proposalId === proposalId || entry.body?.receiptId === proposalId) {
-      entry.proposalCancelReceipt = evidence;
-      if (!evidence.requestIds.includes(entry.requestId)) evidence.requestIds.push(entry.requestId);
-    }
-  }
-  return evidence;
-};
-const pause = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
-const headerValue = (headers, name) => {
-  const target = name.toLowerCase();
-  for (const [key, value] of Object.entries(headers ?? {})) {
-    if (key.toLowerCase() === target) return String(value);
-  }
-  return undefined;
-};
-const cdpInitiatorFrames = (stack) => {
-  const frames = [];
-  let current = stack;
-  while (current && frames.length < 24) {
-    for (const frame of current.callFrames ?? []) {
-      if (frames.length >= 24) break;
-      frames.push({ url: frame.url, functionName: frame.functionName });
-    }
-    current = current.parent;
-  }
-  return frames;
-};
-const cdpRequestsForCorrelationId = (requestCorrelationId) =>
-  cdpRequestsByCorrelationId.get(requestCorrelationId) ?? [];
-const syncCDPRequestEvidence = (entry) => {
-  if (!entry.requestCorrelationId) return false;
-  const matches = cdpRequestsForCorrelationId(entry.requestCorrelationId).filter((candidate) =>
-    candidate.path === entry.path && candidate.method === entry.method && candidate.origin === entry.origin);
-  entry.cdpRequestMatchCount = matches.length;
-  if (matches.length !== 1) return false;
-  const candidate = matches[0];
-  entry.cdpRequestId = candidate.requestId;
-  entry.requestTimestamp = candidate.requestTimestamp;
-  entry.requestWallTime = candidate.requestWallTime;
-  entry.resourceType = candidate.resourceType;
-  entry.frameId = candidate.frameId;
-  entry.loaderId = candidate.loaderId;
-  entry.initiator = candidate.initiator;
-  if (candidate.loadingFailed) entry.loadingFailed = candidate.loadingFailed;
-  return true;
-};
-const recordCDPRequest = (params) => {
-  let url;
-  try { url = new URL(params.request?.url); } catch { return; }
-  if (url.origin !== uiOrigin || !url.pathname.startsWith(`${base}/`)) return;
-  const requestCorrelationId = headerValue(params.request?.headers, 'x-request-id');
-  if (!requestCorrelationId) return;
-  const candidate = {
-    requestId: params.requestId,
-    requestCorrelationId,
-    origin: url.origin,
-    path: url.pathname,
-    method: String(params.request?.method ?? '').toUpperCase(),
-    requestTimestamp: params.timestamp,
-    requestWallTime: params.wallTime,
-    resourceType: params.type,
-    frameId: params.frameId,
-    loaderId: params.loaderId,
-    initiator: {
-      type: params.initiator?.type,
-      stack: cdpInitiatorFrames(params.initiator?.stack),
-    },
-  };
-  cdpRequestsById.set(candidate.requestId, candidate);
-  const requests = cdpRequestsByCorrelationId.get(requestCorrelationId) ?? [];
-  requests.push(candidate);
-  cdpRequestsByCorrelationId.set(requestCorrelationId, requests);
-  for (const entry of nativeByCorrelationId.get(requestCorrelationId) ?? []) syncCDPRequestEvidence(entry);
-};
-const recordCDPFailure = (params) => {
-  const candidate = cdpRequestsById.get(params.requestId);
-  if (!candidate) return;
-  candidate.loadingFailed = {
-    errorText: params.errorText ?? 'unknown',
-    canceled: params.canceled === true || params.errorText === 'net::ERR_ABORTED',
-    timestamp: params.timestamp,
-    blockedReason: params.blockedReason,
-    corsErrorStatus: params.corsErrorStatus,
-    at: Date.now(),
-  };
-  for (const entry of nativeByCorrelationId.get(candidate.requestCorrelationId) ?? []) syncCDPRequestEvidence(entry);
-};
-const expectedScopeForNativeRequest = (entry) => {
-  const captured = entry.requestStateAtStart;
-  if (!captured?.project || !captured?.explorer || !captured?.outputId || !captured?.snapshotToken) return undefined;
-  const context = {
-    project: captured.project,
-    explorer: captured.explorer,
-    origin: uiOrigin,
-    outputId: captured.outputId,
-    snapshotToken: captured.snapshotToken,
-  };
-  const endpoint = entry.path.startsWith(`${base}/`) ? entry.path.slice(`${base}/`.length) : '';
-  if (endpoint === 'population-routes') {
-    if (!captured.selectionRevisionId) return undefined;
-    context.selectionRevisionId = captured.selectionRevisionId;
-  }
-  if (endpoint === 'related-expand-choices') {
-    if (!captured.relatedExpansionContext || !Number.isInteger(captured.draftVersion) || !captured.draftDigest) return undefined;
-    Object.assign(context, {
-      expectedDraftVersion: captured.draftVersion,
-      expectedDraftDigest: captured.draftDigest,
-      ...captured.relatedExpansionContext,
-    });
-  }
-  if (endpoint === 'construction-choices') {
-    const sourceCandidates = captured.constructionChoiceSourceCandidates;
-    if (!Array.isArray(sourceCandidates) || sourceCandidates.length === 0) return undefined;
-    return sourceCandidates.map(({ source: expectedSource, evidence }) => ({
-      ...context, source: expectedSource, sourceEvidence: evidence,
-    }));
-  }
-  return [context];
-};
-const annotateExpectedOwnedCancellation = (entry) => {
-  if (entry.expectedOwnerCancellation?.expected === true || !entry.cancelled ||
-      entry.bodyReadStatus !== 'failed' || entry.loadingFailed?.errorText !== 'net::ERR_ABORTED' ||
-      entry.loadingFailed?.canceled !== true || entry.status !== undefined || entry.responseHeadersAt !== undefined) return false;
-  const expectedContexts = expectedScopeForNativeRequest(entry);
-  const expectedContext = expectedContexts?.find((candidate) =>
-    nativeReadRequestMatchesExpectedScope(entry, candidate));
-  if (!expectedContext) {
-    const endpoint = entry.path.startsWith(`${base}/`) ? entry.path.slice(`${base}/`.length) : '';
-    entry.expectedOwnerCancellationDecision = {
-      expected: false,
-      reason: endpoint === 'construction-choices' && !entry.requestStateAtStart?.constructionChoiceSourceCandidates?.length
-        ? 'independent current-owner construction-choice source was not captured before fetch'
-        : expectedContexts ? 'native request did not match captured current-scope and source context' : 'independent current request context unavailable',
-    };
-    return false;
-  }
-  if (!syncCDPRequestEvidence(entry)) {
-    entry.expectedOwnerCancellationDecision = { expected: false, reason: 'unique CDP request correlation unavailable' };
-    return false;
-  }
-  entry.abortControllerProbeEvidence = nativeAbortProbeEvidenceForRequest(entry, report.nativeAbortProbeEvents);
-  const classification = classifyExpectedOwnedCancellation(entry);
-  entry.expectedOwnerCancellationDecision = {
-    expected: classification.expected,
-    reason: classification.reason,
-    scopeMatched: true,
-    cdpRequestId: entry.cdpRequestId,
-  };
-  if (!classification.expected) return false;
-  entry.expectedOwnerCancellation = classification;
-  entry.cancelContext = {
-    owner: classification.ownerRetirement.owner,
-    endpoint: classification.ownerRetirement.endpoint,
-    requestId: entry.requestId,
-    requestCorrelationId: entry.requestCorrelationId,
-    transition: classification.ownerRetirement.componentRetirementAction,
-    trustedActionAt: classification.ownerRetirement.trustedActionAt,
-    componentAnchorId: classification.ownerRetirement.componentAnchorId,
-  };
-  report.expectedOwnerCancellations.push({
-    requestId: entry.requestId,
-    requestCorrelationId: entry.requestCorrelationId,
-    cdpRequestId: entry.cdpRequestId,
-    path: entry.path,
-    owner: classification.ownerRetirement.owner,
-      scope: { project: entry.scopeProject, explorer: entry.scopeExplorer, outputId: entry.body.outputId,
-        snapshotToken: entry.body.snapshotToken, selectionRevisionId: entry.body.selectionRevisionId,
-        expectedDraftVersion: entry.body.expectedDraftVersion, expectedDraftDigest: entry.body.expectedDraftDigest,
-      stageId: entry.body.stageId, anchorColumnId: entry.body.anchorColumnId,
-      targetResourceType: entry.body.targetResourceType,
-      source: expectedContext.source,
-      sourceEvidence: expectedContext.sourceEvidence },
-    ownerRetirement: classification.ownerRetirement,
-    probeEvidence: entry.abortControllerProbeEvidence,
-  });
-  const errorIndex = report.errors.findIndex((error) => error.kind === 'native-request' && error.requestId === entry.requestId);
-  if (errorIndex >= 0) report.errors.splice(errorIndex, 1);
-  return true;
-};
 const recordLifecycleCheck = (dimension, name, passed, checkEvidence = {}) =>
   cda.check(dimension, name, passed, checkEvidence);
 
@@ -360,97 +159,6 @@ const api = async (path, body) => {
 const identity = (state) => ({ snapshotToken: state.catalog.snapshotToken,
   expectedDraftVersion: state.draftVersion, expectedDraftDigest: state.draftDigest });
 const doc = (state = builder) => state.workspace.documents.find((item) => item.output.id === outputId);
-const semanticConceptLabel = (item) => {
-  const label = String(item?.display ?? '').trim() || String(item?.code ?? '').trim() || String(item?.sourcePath ?? '');
-  return /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/.test(label)
-    ? label.replaceAll('_', ' ').replace(/^./, (first) => first.toUpperCase())
-    : label;
-};
-// Mirrors PairedColumnSuggestions' eligible-entry, dedupe, authored-label, and route-limit query.
-const pairedColumnRouteSearchLimit = 8;
-const sameSemanticLabel = (left, right) =>
-  String(left).trim().normalize('NFKC').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').toLocaleLowerCase() ===
-  String(right).trim().normalize('NFKC').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').toLocaleLowerCase();
-const currentPairedSuggestionAuthoredLabels = () => {
-  if (!builder || !outputId || !builder.catalog?.snapshotToken) return undefined;
-  const currentDocument = doc(builder);
-  if (!currentDocument?.rootResourceType) return undefined;
-  const capabilitiesEntry = report.nativeRequests.findLast((entry) =>
-    entry.path === `${base}/construction-capabilities` && entry.method === 'POST' &&
-    entry.origin === uiOrigin && entry.scopeProject === project && entry.scopeExplorer === explorer &&
-    entry.status === 200 && entry.bodyReadStatus === 'decoded' &&
-    entry.body?.outputId === outputId && entry.body?.snapshotToken === builder.catalog.snapshotToken &&
-    entry.body?.expectedDraftVersion === builder.draftVersion &&
-    entry.body?.expectedDraftDigest === builder.draftDigest &&
-    entry.response?.stages?.at(-1)?.id === entry.body?.stageId &&
-    Array.isArray(entry.response?.stages?.at(-1)?.columns));
-  if (!capabilitiesEntry) return undefined;
-  const stageColumns = capabilitiesEntry.response.stages.at(-1).columns;
-  return [...stageColumns, ...(currentDocument.columns ?? [])]
-    .map((column) => column?.label)
-    .filter((label) => typeof label === 'string' && label.length > 0);
-};
-const pairedSuggestionSourcesFromInventory = (entry) => {
-  if (!entry || entry.path !== `${base}/semantic-inventory` || entry.method !== 'POST' ||
-      entry.origin !== uiOrigin || entry.scopeProject !== project || entry.scopeExplorer !== explorer ||
-      !entry.requestCorrelationId?.startsWith('paired-column-inventory-') ||
-      entry.status !== 200 || entry.bodyReadStatus !== 'decoded' ||
-      entry.body?.snapshotToken !== builder?.catalog?.snapshotToken ||
-      entry.body?.rowRoot !== doc(builder)?.rootResourceType ||
-      entry.requestStateAtStart?.project !== project || entry.requestStateAtStart?.explorer !== explorer ||
-      entry.requestStateAtStart?.outputId !== outputId ||
-      entry.requestStateAtStart?.snapshotToken !== builder?.catalog?.snapshotToken ||
-      entry.requestStateAtStart?.draftVersion !== builder?.draftVersion ||
-      entry.requestStateAtStart?.draftDigest !== builder?.draftDigest ||
-      entry.response?.state !== 'complete' ||
-      typeof entry.response?.contextToken !== 'string' || !entry.response.contextToken ||
-      typeof entry.response?.buildId !== 'string' || !entry.response.buildId ||
-      !Array.isArray(entry.response?.entries)) return undefined;
-  const authoredLabels = currentPairedSuggestionAuthoredLabels();
-  if (!authoredLabels) return undefined;
-  const seen = new Set();
-  const candidates = [];
-  for (const item of entry.response.entries) {
-    if (!String(item?.code ?? '').trim() || !semanticConceptLabel(item) ||
-        !['READY', 'READY_WITH_WARNING'].includes(item?.readiness?.status) ||
-        typeof item.conceptId !== 'string' || !item.conceptId ||
-        typeof item.bindingId !== 'string' || !item.bindingId) continue;
-    const identityKey = `${item.conceptId}\u0000${item.bindingId}`;
-    if (seen.has(identityKey)) continue;
-    seen.add(identityKey);
-    if (authoredLabels.some((label) => sameSemanticLabel(label, semanticConceptLabel(item)))) continue;
-    candidates.push({
-      source: {
-        kind: 'SEMANTIC', contextToken: entry.response.contextToken, buildId: entry.response.buildId,
-        conceptId: item.conceptId, bindingId: item.bindingId,
-      },
-      evidence: 'successful-current-semantic-inventory-entry-before-paired-choice-fetch',
-    });
-  }
-  return {
-    project, explorer, origin: uiOrigin, outputId,
-    snapshotToken: builder.catalog.snapshotToken,
-    draftVersion: builder.draftVersion, draftDigest: builder.draftDigest,
-    inventoryRequestId: entry.requestCorrelationId,
-    capturedAt: Date.now(),
-    sources: candidates.slice(0, pairedColumnRouteSearchLimit),
-  };
-};
-const sourceCandidatesAtRequestStart = (requestCorrelationId) => {
-  const currentMatches = (state) => state && state.project === project && state.explorer === explorer &&
-    state.origin === uiOrigin && state.outputId === outputId &&
-    state.snapshotToken === builder?.catalog?.snapshotToken &&
-    state.draftVersion === builder?.draftVersion && state.draftDigest === builder?.draftDigest &&
-    Array.isArray(state.sources);
-  const expectedOwnerSources = requestCorrelationId?.startsWith('paired-column-choices-')
-    ? activePairedSemanticSourceState
-    : requestCorrelationId?.startsWith('construction-choices-')
-      ? activeCatalogChoiceSourceState
-      : undefined;
-  return currentMatches(expectedOwnerSources)
-    ? expectedOwnerSources.sources.map((candidate) => structuredClone(candidate))
-    : [];
-};
 const recordAction = (name, startedAt, details = {}) =>
   recordGroupEditActionToRender(report, name, startedAt, details);
 const command = async (commands) => {
@@ -490,74 +198,6 @@ const rawQuery = (query) => {
   assert.equal(result.status, 0, `Raw CDA oracle process failed: ${JSON.stringify(attempt)}`);
   return JSON.parse(result.stdout.slice(result.stdout.indexOf('[')));
 };
-const waitNetwork = async () => {
-  const timeoutMs = 5000;
-  const reads = [...pendingNetworkReads];
-  if (reads.length === 0) return;
-  const completed = await Promise.race([
-    Promise.allSettled(reads).then(() => true),
-    pause(timeoutMs).then(() => false),
-  ]);
-  assert(completed, `Native response-body reads exceeded the ${timeoutMs} ms drain: ${JSON.stringify(report.nativeRequests.filter((entry) => entry.bodyReadStatus === 'pending' || entry.bodyReadStatus === 'reading').map(({ requestId, path, status, bodyReadStatus }) => ({ requestId, path, status, bodyReadStatus })))}`);
-};
-const drainNativeRequests = async () => {
-  const timeoutMs = 5000;
-  assert.equal(nativeDrainAttempted, false, 'Strict native request drain is bounded to one attempt');
-  nativeDrainAttempted = true;
-  const deadline = Date.now() + timeoutMs;
-  let quietSince;
-  let quietRequestCount = -1;
-  while (Date.now() < deadline) {
-    const remainingMs = deadline - Date.now();
-    await Promise.race([
-      Promise.allSettled([...pendingNetworkReads]),
-      pause(Math.max(1, Math.min(25, remainingMs))),
-    ]);
-    const pending = report.nativeRequests.filter((entry) => !entry.networkTerminal
-      || entry.bodyReadStatus === 'pending' || entry.bodyReadStatus === 'reading');
-    if (pending.length > 0) {
-      quietSince = undefined;
-      quietRequestCount = -1;
-      continue;
-    }
-    if (quietRequestCount !== report.nativeRequests.length) {
-      quietRequestCount = report.nativeRequests.length;
-      quietSince = Date.now();
-    } else if (Date.now() - quietSince >= 250) {
-      break;
-    }
-    await pause(25);
-  }
-  const pending = report.nativeRequests.filter((entry) => !entry.networkTerminal
-    || entry.bodyReadStatus === 'pending' || entry.bodyReadStatus === 'reading');
-  for (const entry of report.nativeRequests) annotateExpectedOwnedCancellation(entry);
-  const invalid = report.nativeRequests.filter((entry) => entry.bodyReadStatus !== 'decoded'
-    && entry.expectedOwnerCancellation?.expected !== true);
-  const unclassifiedAborts = report.nativeRequests.filter((entry) => entry.cancelled
-    && entry.expectedOwnerCancellation?.expected !== true);
-  report.nativeRequestDrain = {
-    status: 'checking',
-    terminalRequests: report.nativeRequests.length,
-    decodedResponses: report.nativeRequests.filter((entry) => entry.bodyReadStatus === 'decoded').length,
-    expectedProposalCancelOwners: [...expectedCancelReceipts.values()],
-    classifiedOwnedCancellations: report.expectedOwnerCancellations,
-    terminalFailures: invalid.map(({ requestId, path, status, owner, bodyReadStatus, bodyError, loadingFailure, cancelContext }) => ({
-      requestId, path, status, owner, bodyReadStatus, bodyError, loadingFailure,
-      cancelContext: cancelContext && { proposalId: cancelContext.proposalId, owner: cancelContext.owner, transition: cancelContext.transition },
-    })),
-    unclassifiedAborts: unclassifiedAborts.map(({ requestId, requestCorrelationId, cdpRequestId, path, method, owner,
-      startedAt, loadingFailure, loadingFailed, cdpRequestMatchCount, expectedOwnerCancellationDecision,
-      proposalCancelOwnerCandidate }) => ({ requestId, requestCorrelationId, cdpRequestId, path, method, owner,
-      startedAt, loadingFailure, loadingFailed, cdpRequestMatchCount, expectedOwnerCancellationDecision,
-      proposalCancelReceiptId: proposalCancelOwnerCandidate?.proposalId })),
-  };
-  assert.deepEqual(pending, [], `Native API drain left requests without a terminal event/body result: ${JSON.stringify(pending.map(({ requestId, path, method, owner, status, bodyReadStatus, startedAt }) => ({ requestId, path, method, owner, status, bodyReadStatus, startedAt })))}`);
-  assert.deepEqual(unclassifiedAborts, [], `Native API aborts lack exact AbortSignal, scope/CAS, and owner-retirement proof: ${JSON.stringify(report.nativeRequestDrain.unclassifiedAborts)}`);
-  assert.deepEqual(invalid, [], `Native API requests failed or had undecoded bodies (terminal aborts remain failures until an authoritative owner/retirement diagnostic proves them): ${JSON.stringify(report.nativeRequestDrain.terminalFailures)}`);
-  assert(quietSince && Date.now() - quietSince >= 250,
-    `Native API recorder did not reach 250 ms of bounded quiescence before the ${timeoutMs} ms deadline`);
-  report.nativeRequestDrain.status = 'complete';
-};
 const assertSourceBinding = (state, route) => {
   assert.equal(state.catalog.generation, source.generation);
   assert.equal(state.catalog.authorizationScopeDigest, selection.scopeDigest);
@@ -592,21 +232,17 @@ const expectedPreview = async (expectedRows, { requestStart, expectedBuilder, la
   assert.equal(active.draftVersion, String(expectedBuilder.draftVersion));
   assert.equal(active.draftDigest, expectedBuilder.draftDigest);
   assert(active.receiptId, `${label} must expose the current saved receipt`);
-  await waitNetwork();
-  const request = selectSavedPreviewRequest(report.nativeRequests, {
-    startIndex: requestStart, path: base + '/preview', receiptId: active.receiptId, outputId,
-  });
+  const request = await nativeCapture.waitForResponse(entry => entry.path === `${base}/preview` && entry.method === 'POST' && entry.status === 200 && entry.response?.receiptId === active.receiptId && entry.response?.outputId === outputId, { fromIndex: requestStart, timeoutMs: Math.max(1, deadline - Date.now()) });
   assert(request, `${label} needs a native receipt-bound Preview request and response`);
   assert.equal(request.response.receiptId, active.receiptId);
   assert.equal(request.response.outputId, outputId);
   assertPreviewValues(request.response, expectedRows, label);
   assert(Date.now() <= deadline, `${label} exceeded its five-second action budget`);
-  return { active, response: request.response, requestIndex: report.nativeRequests.indexOf(request) };
+  return { active, response: request.response, requestIndex: nativeCapture.requests.indexOf(request) };
 };
 const open = async (expectedRows, columnCount = expectedRows[0]?.length ?? 2, label = 'reload') => {
-  activeBrowserOwner = label;
   const startedAt = Date.now();
-  const requestStart = report.nativeRequests.length;
+  const requestStart = nativeCapture.requests.length;
   await navigate(page, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
   await waitForControl(page, `[data-testid="construction-table-${outputId}"]`);
   await click(page, `[data-testid="construction-table-${outputId}"]`);
@@ -640,20 +276,16 @@ const mountedRows = async (expectedRows, columnCount = expectedRows[0]?.length ?
     : normalizeRendered(String(value))));
   assertExactMultiset(renderedActual, renderedExpected, 'rendered preview');
 };
-const nativeByRequest = new WeakMap();
-let nextBrowserRequestId = 1;
+let nativeCapture;
 const installBrowserCapture = async () => {
-  await page.context().exposeBinding('__loomNativeAbortProbeBinding', (_source, payload) => {
-    let event;
-    try { event = JSON.parse(payload); }
-    catch { report.nativeAbortProbeEvents.push({ kind: 'probe-payload-invalid', payloadLength: String(payload).length }); return; }
-    report.nativeAbortProbeEvents.push(event);
+  nativeCapture = captureCDARequests(page, {
+    apiOrigin,
+    browserRequestOrigin: uiOrigin,
+    appOrigins: [uiOrigin],
+    ownedPathPrefix: base,
+    report,
+    responsePaths: /builder|population-routes|construction-capabilities|semantic-inventory|construction-choices|related-expand-choices|construction-proposals|commands|preview/,
   });
-  await page.context().addInitScript(createNativeAbortProbeSource({ project, explorer }));
-  nativeCdpSession = await page.context().newCDPSession(page);
-  nativeCdpSession.on('Network.requestWillBeSent', recordCDPRequest);
-  nativeCdpSession.on('Network.loadingFailed', recordCDPFailure);
-  await nativeCdpSession.send('Network.enable');
   page.on('pageerror', error => report.errors.push({ kind: 'runtime', text: error.message }));
   page.on('console', message => {
     if (message.type() !== 'error') return;
@@ -665,136 +297,27 @@ const installBrowserCapture = async () => {
     report.errors.push({ kind: 'console', text: message.text() });
   });
   page.on('request', request => {
-    const transport = classifyNativeBrowserApiRequest(request.url(), browserTransportScope);
-    if (transport.kind === 'ignore') return;
-    if (transport.kind !== 'capture') {
-      const violation = { reason: transport.reason, url: request.url(), owner: activeBrowserOwner };
-      report.browserTransportViolations.push(violation);
-      report.errors.push({ kind: 'browser-api-transport', ...violation });
-      return;
-    }
-    const url = transport.url;
-    let body;
-    let requestBodyParseError;
-    try { body = request.postData() ? JSON.parse(request.postData()) : undefined; }
-    catch (error) { body = request.postData(); requestBodyParseError = String(error); }
-    const headers = request.headers();
-    const requestCorrelationId = headers['x-request-id'];
-    if (url.pathname === `${base}/semantic-inventory` && requestCorrelationId?.startsWith('paired-column-inventory-')) {
-      activePairedSemanticSourceState = undefined;
-    }
-    const requestId = requestCorrelationId ?? `playwright-${nextBrowserRequestId++}`;
-    const entry = {
-      requestId, path: url.pathname, origin: url.origin, method: request.method(),
-      url: request.url(), owner: activeBrowserOwner,
-      transportScope: transport.scope, body, requestBodyParseError,
-      authorizationHeaderPresent: Object.keys(headers).some(key => key.toLowerCase() === 'authorization'),
-      requestCorrelationId,
-      scopeProject: project, scopeExplorer: explorer,
-      requestStateAtStart: { project, explorer, outputId, snapshotToken: builder?.catalog?.snapshotToken,
-        draftVersion: builder?.draftVersion, draftDigest: builder?.draftDigest,
-        selectionRevisionId: selection?.id,
-        relatedExpansionContext: activeRelatedChoiceContext ? { ...activeRelatedChoiceContext } : undefined,
-        constructionChoiceSourceCandidates: url.pathname === `${base}/construction-choices`
-          ? sourceCandidatesAtRequestStart(requestCorrelationId) : undefined },
-      request: body,
-      startedAt: Date.now(), status: undefined, completedAt: null, networkTerminal: false,
-      bodyReadStatus: 'pending', terminalState: 'pending', cancelled: false,
-    };
-    report.nativeRequests.push(entry);
-    nativeById.set(requestId, entry);
-    nativeByRequest.set(request, entry);
-    if (requestCorrelationId) {
-      const entries = nativeByCorrelationId.get(requestCorrelationId) ?? [];
-      entries.push(entry);
-      nativeByCorrelationId.set(requestCorrelationId, entries);
-      syncCDPRequestEvidence(entry);
-    }
-  });
-  page.on('response', response => {
-    const request = response.request();
-    const entry = nativeByRequest.get(request);
-    if (!entry) return;
-    entry.status = response.status();
-    const responseURL = new URL(response.url());
-    entry.responseBinding = {
-      url: response.url(), origin: responseURL.origin, path: responseURL.pathname,
-      matchesCapturedUiProxyRequest: isSameUiProxyResponse(entry.url, response.url(), browserTransportScope),
-    };
-    if (!entry.responseBinding.matchesCapturedUiProxyRequest) {
-      const violation = { reason: 'response-url-does-not-match-ui-proxy-request', requestId: entry.requestId, requestUrl: entry.url, responseUrl: response.url() };
-      report.browserTransportViolations.push(violation);
-      report.errors.push({ kind: 'browser-api-transport', ...violation });
-    }
-    entry.responseHeadersAt = Date.now();
-    if (response.status() >= 400) report.errors.push({ kind: 'http', path: entry.path, status: response.status() });
-    entry.bodyReadStatus = 'reading';
-    let read;
-    read = response.text().then(text => {
-      try { entry.response = JSON.parse(text); } catch { entry.response = text; }
-      entry.proposalId = entry.response?.proposalId ?? entry.body?.receiptId;
-      entry.bodyReadStatus = 'decoded';
-      if (entry.path === `${base}/semantic-inventory` &&
-          entry.requestCorrelationId?.startsWith('paired-column-inventory-')) {
-        activePairedSemanticSourceState = pairedSuggestionSourcesFromInventory(entry);
-      }
-    }).catch(error => {
-      entry.responseReadError = String(error);
-      entry.bodyReadStatus = 'failed';
-      entry.bodyError = entry.responseReadError;
-      report.errors.push({ kind: 'native-response-body', requestId: entry.requestId, path: entry.path, message: entry.bodyError });
-    }).finally(() => {
-      entry.completedAt = Date.now();
-      pendingNetworkReads.delete(read);
-    });
-    pendingNetworkReads.add(read);
-  });
-  page.on('requestfinished', request => {
-    const entry = nativeByRequest.get(request);
-    if (!entry) return;
-    entry.networkTerminal = true;
-    entry.terminalState = 'finished';
-    entry.completedAt ??= Date.now();
-  });
-  page.on('requestfailed', request => {
-    const entry = nativeByRequest.get(request);
-    if (!entry) return;
-    entry.networkTerminal = true;
-    entry.terminalState = 'failed';
-    const failure = request.failure();
-    entry.cancelled = /aborted|cancelled/i.test(failure?.errorText ?? '');
-    entry.loadingFailure = { errorText: failure?.errorText ?? 'unknown', canceled: entry.cancelled };
-    const proposalId = entry.proposalId ?? entry.body?.receiptId;
-    const expectedOwner = proposalId ? expectedCancelReceipts.get(proposalId) : undefined;
-    if (expectedOwner) entry.proposalCancelOwnerCandidate = expectedOwner;
-    entry.bodyReadStatus = 'failed';
-    entry.bodyError = `requestfailed: ${failure?.errorText ?? 'unknown'}`;
-    entry.completedAt = Date.now();
-    report.errors.push({ kind: 'native-request', requestId: entry.requestId, path: entry.path,
-      errorText: failure?.errorText ?? 'unknown', canceled: entry.cancelled, owner: entry.owner });
+    let url;
+    try { url = new URL(request.url()); } catch { return; }
+    if (isProtectedExplorerRequestPath(url.pathname, root, protectedExplorer)) report.protectedExplorerUntouched = false;
   });
 };
 const assertDraftRequest = (entry, state, label) => {
   assert(entry, `${label} must use the native Browser request`);
   assert.equal(entry.origin, uiOrigin, `${label} must use the configured local UI proxy`);
   assert(entry.path.startsWith(`${base}/`), `${label} must target the current project and owned Explorer`);
-  assert.equal(entry.responseBinding?.origin, uiOrigin, `${label} response must remain bound to the UI proxy origin`);
-  assert.equal(entry.responseBinding?.path, entry.path, `${label} response must remain bound to the captured API path`);
-  assert.equal(entry.responseBinding?.matchesCapturedUiProxyRequest, true,
-    `${label} response URL must bind to the exact captured same-origin UI proxy request`);
-  assert.equal(entry.authorizationHeaderPresent, false);
-  assert.equal(entry.body.snapshotToken, state.catalog.snapshotToken);
-  assert.equal(entry.body.expectedDraftVersion ?? entry.body.draftVersion, state.draftVersion);
-  assert.equal(entry.body.expectedDraftDigest ?? entry.body.draftDigest, state.draftDigest);
+  assert.equal(entry.request.snapshotToken, state.catalog.snapshotToken);
+  assert.equal(entry.request.expectedDraftVersion ?? entry.request.draftVersion, state.draftVersion);
+  assert.equal(entry.request.expectedDraftDigest ?? entry.request.draftDigest, state.draftDigest);
   assert.equal(entry.status, 200);
   assert(entry.response, `${label} response body must be captured`);
   if (entry.path.endsWith('/commands')) {
-    assert(entry.body.commands?.some((command) => command.outputId === outputId || command.output === outputId),
+    assert(entry.request.commands?.some((command) => command.outputId === outputId || command.output === outputId),
       `${label} native command must target the selected output`);
     assert(entry.response.workspace, `${label} must return the canonical applied workspace`);
     assert.equal(entry.response.draftVersion, state.draftVersion + 1, `${label} must advance exactly one draft revision`);
   } else {
-    assert.equal(entry.body.outputId, outputId);
+    assert.equal(entry.request.outputId, outputId);
     assert.equal(entry.response.outputId, outputId);
     assert.equal(entry.response.snapshotToken, state.catalog.snapshotToken);
     assert.equal(entry.response.draftVersion, state.draftVersion);
@@ -814,9 +337,7 @@ const browserProposal = async ({ requestStart, path, expectedRows, state, label,
         .map(row => [...row.querySelectorAll('td')].map(cell => ({ text: cell.innerText, title: cell.title }))) };
   }, { selector: panelSelector });
   assert.equal(panel.status, 'ready', panel.text);
-  const matching = () => report.nativeRequests.slice(requestStart).findLast((entry) => entry.path === path && entry.completedAt && entry.status === 200);
-  await waitNetwork();
-  const request = matching();
+  const request = await nativeCapture.waitForResponse(entry => entry.path === path && entry.method === 'POST' && entry.status === 200 && entry.response?.proposalId, { fromIndex: requestStart, timeoutMs: Math.max(1, startedAt + 5000 - Date.now()) });
   const response = assertDraftRequest(request, state, label);
   assert.equal(response.previewStatus, 'READY', `${label} proposal must compile a ready automatic preview`);
   assert.equal(response.preview?.receiptId, response.proposalId, `${label} candidate receipt must bind to its proposal`);
@@ -831,20 +352,18 @@ const browserProposal = async ({ requestStart, path, expectedRows, state, label,
   assert.equal(displayedRows.length, expectedRows.length, `${label} proposal panel must render the complete witness population`);
   assertExactMultiset(displayedRows, expectedDisplayedRows, `${label} proposal panel DOM`);
   recordAction(label, startedAt, { receiptId: response.proposalId, candidateWorkspaceDigest: response.candidateWorkspaceDigest });
-  return { request, requestIndex: report.nativeRequests.indexOf(request), response, panel };
+  return { request, requestIndex: nativeCapture.requests.indexOf(request), response, panel };
 };
-const findNative = (startIndex, path, predicate = () => true) => report.nativeRequests.slice(startIndex).findLast((entry) => entry.path === path && predicate(entry));
+const findNative = (startIndex, path, predicate = () => true) => nativeCapture.requests.slice(startIndex).findLast((entry) => entry.path === path && predicate(entry));
 const applyGroupProposal = async (proposal, savedBefore, expectedRows, label) => {
-  activeBrowserOwner = label;
   const startedAt = Date.now();
-  const requestStart = report.nativeRequests.length;
+  const requestStart = nativeCapture.requests.length;
   await click(page, '[data-testid="construction-apply-proposal"]');
   await waitForControl(page, '[data-testid="construction-proposal-panel"]', { timeout: 5000, hidden: true });
   await mountedRows(expectedRows, expectedRows[0]?.length ?? 2);
-  await waitNetwork();
-  const applyRequest = findNative(requestStart, base + '/commands', (entry) => entry.body?.commands?.some((item) => item.type === 'APPLY_CONSTRUCTION_PROPOSAL'));
+  const applyRequest = await nativeCapture.waitForResponse(entry => entry.path === `${base}/commands` && entry.method === 'POST' && entry.status === 200 && entry.request?.commands?.some(item => item.type === 'APPLY_CONSTRUCTION_PROPOSAL' && item.proposalId === proposal.proposalId), { fromIndex: requestStart, timeoutMs: 5000 });
   assertDraftRequest(applyRequest, savedBefore, label);
-  assert(applyRequest.body.commands.some((item) => item.proposalId === proposal.proposalId));
+  assert(applyRequest.request.commands.some((item) => item.proposalId === proposal.proposalId));
   builder = await api(base + '/builder');
   assert.equal(builder.draftVersion, proposal.draftVersion + 1);
   assert.equal(builder.draftDigest, proposal.candidateWorkspaceDigest);
@@ -852,11 +371,10 @@ const applyGroupProposal = async (proposal, savedBefore, expectedRows, label) =>
   return builder;
 };
 const editGroupAggregate = async (operation, expectedRows, state, label) => {
-  activeBrowserOwner = label;
   const groupStep = doc(state).construction.steps.find((step) => step.operation.kind === 'GROUP');
   assert(groupStep, 'Saved construction must contain the authored Group');
   const stepId = groupStep.id;
-  const startIndex = report.nativeRequests.length;
+  const startIndex = nativeCapture.requests.length;
   await click(page, `[data-testid="construction-history-step-${stepId}"]`);
   await click(page, `[data-testid="construction-edit-step-${stepId}"]`);
   await waitForControl(page, 'select[aria-label="Summary 1"]', { enabled: true });
@@ -964,7 +482,6 @@ FOR s IN (
   assert.notEqual(explorer, protectedExplorer, 'The server-assigned Explorer must remain isolated from the protected shared Explorer');
   explorerRoot = createdScope.explorerRoot;
   base = createdScope.authoringBase;
-  browserTransportScope.explorer = explorer;
   report.explorer = explorer;
   report.target = { ...report.target, explorer };
   report.explorerProvisioning = {
@@ -1002,7 +519,6 @@ FOR s IN (
   await command([{ type: 'SET_TABLE_POPULATION', outputId, selectionRevisionId: selection.id, routeChoiceId: direct.routeChoiceId }]);
   assertSourceBinding(builder, selectedPopulationRoute);
 
-  cda.captureRequests(explorerRoot);
   await installBrowserCapture();
   const sourceRows = [[source.id]];
   await open(sourceRows, 1, 'selected-raw-Specimen-reload');
@@ -1015,9 +531,8 @@ FOR s IN (
   ];
   let expectedExpandedRows = sourceRows;
   for (const hop of chain) {
-    activeBrowserOwner = `expand-${hop.from}-${hop.to}`;
-    activeRelatedChoiceContext = { ...relatedChoiceStageContext(doc(builder), hop.expectedStage), targetResourceType: hop.to };
-    assert(activeRelatedChoiceContext.anchorColumnId,
+    const relatedContext = { ...relatedChoiceStageContext(doc(builder), hop.expectedStage), targetResourceType: hop.to };
+    assert(relatedContext.anchorColumnId,
       `Current ${hop.from} related stage must expose a stable anchor column before opening its editor`);
     const next = [];
     for (const witness of witnesses) {
@@ -1032,7 +547,7 @@ FOR s IN (
     witnesses = next;
     expectedExpandedRows = witnesses.map((witness) => witness.values);
     report.oracle.chain.push({ hop, witnesses });
-    const startIndex = report.nativeRequests.length;
+    const startIndex = nativeCapture.requests.length;
     await click(page, '[data-testid="construction-rows-settings-trigger"]');
     await waitForControl(page, '[data-testid="construction-action-related-rows"]', { enabled: true });
     await click(page, '[data-testid="construction-action-related-rows"]');
@@ -1050,15 +565,13 @@ FOR s IN (
     await click(page, '[data-testid="construction-apply-proposal"]');
     await waitForControl(page, '[data-testid="construction-proposal-panel"]', { timeout: 5000, hidden: true });
     await mountedRows(expectedExpandedRows, expectedExpandedRows[0]?.length ?? 2);
-    await waitNetwork();
-    const applied = findNative(startIndex, base + '/commands', (entry) => entry.body?.commands?.some((item) => item.type === 'APPLY_CONSTRUCTION_PROPOSAL' && item.proposalId === proposalResponse.proposalId));
+    const applied = await nativeCapture.waitForResponse(entry => entry.path === `${base}/commands` && entry.method === 'POST' && entry.status === 200 && entry.request?.commands?.some(item => item.type === 'APPLY_CONSTRUCTION_PROPOSAL' && item.proposalId === proposalResponse.proposalId), { fromIndex: startIndex, timeoutMs: 5000 });
     assertDraftRequest(applied, builder, `apply expand-${hop.from}-${hop.to}`);
     builder = await api(base + '/builder');
     assert.equal(builder.draftDigest, proposalResponse.candidateWorkspaceDigest);
     recordAction(`apply-expand-${hop.from}-${hop.to}`, actionStart, { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest });
     assertSourceBinding(builder, selectedPopulationRoute);
   }
-  activeRelatedChoiceContext = undefined;
   assert(witnesses.length > 1, 'The chosen CDA Specimen must reach multiple Observations');
   const contributorIDs = [...new Set(witnesses.map((witness) => witness.values.at(-1)))].sort();
   assert(contributorIDs.length > 1);
@@ -1079,8 +592,7 @@ FOR s IN (
   const groupedRows = [[patient.id, witnesses.length]];
   const distinctRows = [[patient.id, contributorIDs.length]];
 
-  const groupStartIndex = report.nativeRequests.length;
-  activeBrowserOwner = 'group-by-Patient-FHIR-resource-ID-count-rows';
+  const groupStartIndex = nativeCapture.requests.length;
   await click(page, '[data-testid="construction-rows-settings-trigger"]');
   await click(page, '[data-testid="construction-action-group-rows"]');
   await waitForControl(page, 'input[aria-label="Group by Patient FHIR resource ID"]', { enabled: true });
@@ -1115,8 +627,7 @@ FOR s IN (
     { rows: countDistinctProposal.panel.rows, expectedRows: distinctRows,
       candidateGroup: countDistinctProposal.group, proposalId: countDistinctProposal.response.proposalId });
   const cancelStartedAt = Date.now();
-  activeBrowserOwner = 'cancel-Group-edit-before-column';
-  registerProposalCancelOwner(countDistinctProposal.response.proposalId, 'cancel the first upstream Group aggregate candidate');
+
   await click(page, '[data-testid="construction-cancel-proposal"]');
   await waitForControl(page, '[data-testid="construction-proposal-panel"]', { hidden: true });
   await mountedRows(groupedRows, 2);
@@ -1197,16 +708,6 @@ FOR s IN (
       selectedFieldEvidence.checked === true && selectedFieldEvidence.count === '1' &&
       selectedFieldEvidence.removeActionCount === 1
       ? statusCandidates[0] : undefined;
-    activeCatalogChoiceSourceState = uniqueSelectedField ? {
-      project, explorer, origin: uiOrigin, outputId,
-      snapshotToken: beforeFieldAdd.catalog.snapshotToken,
-      draftVersion: beforeFieldAdd.draftVersion, draftDigest: beforeFieldAdd.draftDigest,
-      capturedAt: Date.now(),
-      sources: [{
-        source: { kind: 'FIELD', candidateId: uniqueSelectedField.candidateId },
-        evidence: 'unique-current-builder-catalog-candidate-matched-to-checked-Observation.status-and-single-selected-feature',
-      }],
-    } : undefined;
     await click(page, '[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
     await waitForControl(page, '[role="dialog"]');
     const otherPaths = await browserEval(page, () => [...document.querySelectorAll('[role="dialog"] summary')]
@@ -1227,14 +728,13 @@ FOR s IN (
     assert.deepEqual(selected, { route: true, form: true, policy: 'ALL' }, 'Chooser must bind exact source route, ALL matches, and grouped-row ALL policy');
   };
   const proposeRelatedField = async (state, label) => {
-    activeBrowserOwner = label;
     const startedAt = Date.now();
     await prepareRelatedFieldChooser();
-    const requestStart = report.nativeRequests.length;
+    const requestStart = nativeCapture.requests.length;
     await click(page, '[role="dialog"] button', { name: 'Add 1 column' });
     const proposal = await browserProposal({ requestStart, path: base + '/construction-proposals',
       expectedRows: withFieldTyped, state, label, startedAt });
-    const match = relatedSourceProposalCandidate({ path: proposal.request.path, request: proposal.request.body }, {
+    const match = relatedSourceProposalCandidate({ path: proposal.request.path, request: proposal.request.request }, {
       resourceType: 'Observation', path: 'status',
     });
     assert(match, `${label} must use the current native RELATED_SOURCE construction proposal`);
@@ -1248,7 +748,7 @@ FOR s IN (
     assert.equal(match.related.route.length, 2);
     assert.deepEqual(match.related.route.map(({ fromResourceType, toResourceType }) => [fromResourceType, toResourceType]),
       [['Specimen', 'Patient'], ['Patient', 'Observation']]);
-    const candidateGroup = proposal.request.body.candidateConstruction.steps.find((step) => step.id === savedGroupStep.id);
+    const candidateGroup = proposal.request.request.candidateConstruction.steps.find((step) => step.id === savedGroupStep.id);
     assert(candidateGroup?.operation.kind === 'GROUP');
     assert.deepEqual(match.step.inputs, [{ kind: 'STEP_OUTPUT', stepId: savedGroupStep.id }],
       'The downstream RELATED_SOURCE must consume the edited Group step output');
@@ -1277,8 +777,7 @@ FOR s IN (
       preview: fieldProposal.response.preview, expectedStatuses: observationStatuses });
 
   const fieldCancelStartedAt = Date.now();
-  activeBrowserOwner = 'cancel-related-column-after-Group-edit';
-  registerProposalCancelOwner(fieldProposal.response.proposalId, 'cancel the first downstream RELATED_SOURCE candidate');
+
   await click(page, '[data-testid="construction-cancel-proposal"]');
   await waitForControl(page, '[data-testid="construction-proposal-panel"]', { timeout: 5000, hidden: true });
   await mountedRows(distinctRows, 2);
@@ -1305,15 +804,13 @@ FOR s IN (
   assert.equal(applyProposal.match.related.source.candidateId, statusCandidateId,
     'The reopened chooser must retain the exact selected catalog candidate');
   const fieldApplyStartedAt = Date.now();
-  activeBrowserOwner = 'apply-related-column-after-Group-edit';
-  const applyRequestStart = report.nativeRequests.length;
+  const applyRequestStart = nativeCapture.requests.length;
   await click(page, '[data-testid="construction-apply-proposal"]');
   await waitForControl(page, '[data-testid="construction-proposal-panel"]', { timeout: 5000, hidden: true });
   await mountedRows(withFieldTyped, 3);
-  await waitNetwork();
-  const choiceApply = findNative(applyRequestStart, base + '/commands', (entry) => entry.body?.commands?.some((item) => item.type === 'APPLY_CONSTRUCTION_PROPOSAL'));
+  const choiceApply = await nativeCapture.waitForResponse(entry => entry.path === `${base}/commands` && entry.method === 'POST' && entry.status === 200 && entry.request?.commands?.some(item => item.type === 'APPLY_CONSTRUCTION_PROPOSAL' && item.proposalId === applyProposal.response.proposalId), { fromIndex: applyRequestStart, timeoutMs: 5000 });
   assertDraftRequest(choiceApply, afterFieldCancel, 'apply related Observation.status column');
-  assert(choiceApply.body.commands.some((item) => item.proposalId === applyProposal.response.proposalId));
+  assert(choiceApply.request.commands.some((item) => item.proposalId === applyProposal.response.proposalId));
   builder = await api(base + '/builder');
   assert.equal(choiceApply.response.draftVersion, afterFieldCancel.draftVersion + 1);
   assert.equal(choiceApply.response.draftDigest, applyProposal.response.candidateWorkspaceDigest);
@@ -1364,8 +861,7 @@ FOR s IN (
   const countRowsProposal = await editGroupAggregate('COUNT_ROWS', withFieldTyped, builder,
     'edit-Group-back-to-count-rows-with-related-column');
   const restoreEditCancelStartedAt = Date.now();
-  activeBrowserOwner = 'cancel-Group-round-trip-edit';
-  registerProposalCancelOwner(countRowsProposal.response.proposalId, 'cancel the Group round-trip candidate while RELATED_SOURCE is saved');
+
   await click(page, '[data-testid="construction-cancel-proposal"]');
   await waitForControl(page, '[data-testid="construction-proposal-panel"]', { hidden: true });
   await mountedRows(withFieldTyped, 3);
@@ -1402,18 +898,17 @@ FOR s IN (
     { construction: doc(reloadedCountRows).construction, columns: doc(reloadedCountRows).columns });
 
   const proposeRelatedStepRemoval = async (state, label) => {
-    activeBrowserOwner = label;
     const step = doc(state).construction.steps.find((candidate) => candidate.id === relatedStep.id);
     assert(step?.operation.kind === 'RELATED_SOURCE');
     await click(page, `[data-testid="construction-history-step-${step.id}"]`);
     const removeSelector = `[data-testid="construction-remove-step-${step.id}"]:not(:disabled)`;
     await waitForControl(page, removeSelector, { timeout: 5000 });
-    const requestStart = report.nativeRequests.length;
+    const requestStart = nativeCapture.requests.length;
     const startedAt = Date.now();
     await click(page, `[data-testid="construction-remove-step-${step.id}"]`);
     const proposal = await browserProposal({ requestStart, path: base + '/construction-proposals',
       expectedRows: groupedRows, state, label, startedAt });
-    assert.deepEqual(proposal.request.body.removeStepIds, [relatedStep.id],
+    assert.deepEqual(proposal.request.request.removeStepIds, [relatedStep.id],
       'Removal must target only the newly added downstream RELATED_SOURCE step');
     assert.deepEqual(proposal.response.candidateConstruction.steps, groupDocumentBaseline.construction.steps,
       'The removal candidate must restore the exact original Group construction');
@@ -1422,8 +917,7 @@ FOR s IN (
   const beforeRemoveCancel = structuredClone(builder);
   const removePreview = await proposeRelatedStepRemoval(beforeRemoveCancel, 'automatic-remove-RELATED_SOURCE-preview-cancel-target');
   const removeCancelStartedAt = Date.now();
-  activeBrowserOwner = 'cancel-remove-RELATED_SOURCE';
-  registerProposalCancelOwner(removePreview.response.proposalId, 'cancel the downstream RELATED_SOURCE removal candidate');
+
   await click(page, '[data-testid="construction-cancel-proposal"]');
   await waitForControl(page, '[data-testid="construction-proposal-panel"]', { timeout: 5000, hidden: true });
   await mountedRows(withFieldTyped, 3);
@@ -1472,28 +966,12 @@ FOR s IN (
       JSON.stringify(doc(finalReload).construction) === JSON.stringify(groupDocumentBaseline.construction),
     { outputId, workspace: finalReload.workspace, construction: doc(finalReload).construction });
 
-  await drainNativeRequests();
-  const abortedReads = report.nativeRequests.filter((entry) => entry.cancelled);
-  const cancellationCoverage = abortedReads.length === 0
-    ? 'not-exercised-no-cancellation-observed'
-    : 'observed-and-classified';
-  recordLifecycleCheck('correctness',
-    'Strict drain classifies every observed cancellation with exact current scope, CAS, trusted owner action, and detached DOM proof; zero observed cancellations are marked not exercised',
-    abortedReads.every((entry) => entry.expectedOwnerCancellation?.expected === true) &&
-      report.nativeRequestDrain.unclassifiedAborts.length === 0,
-    { abortedReadCount: abortedReads.length, cancellationCoverage, classified: report.expectedOwnerCancellations,
-      unclassified: report.nativeRequestDrain.unclassifiedAborts });
-  assert.deepEqual(report.browserTransportViolations, [], 'Browser API requests and responses must remain on the scoped local UI proxy');
-  const nativeTransportOutcomesBound = nativeRequestsHaveOwnedTransportOutcomes(report.nativeRequests, uiOrigin);
-  assert(nativeTransportOutcomesBound,
-    'Every captured native request must have a response bound to the local no-auth UI proxy or an exact owned pre-response cancellation');
-  assert(!report.nativeRequests.some((entry) => entry.path.includes(protectedExplorer)), 'Protected shared Explorer must remain untouched');
+  assert.equal(report.protectedExplorerUntouched, true, 'Protected shared Explorer must remain untouched');
   assert.deepEqual(report.errors, [], 'The native lifecycle must have no HTTP, runtime, or console errors');
   recordLifecycleCheck('correctness',
     'No unexpected browser, authoring, transport, or native HTTP errors occur',
-    report.errors.length === 0 && report.browserTransportViolations.length === 0 && nativeTransportOutcomesBound,
-    { errors: report.errors, browserTransportViolations: report.browserTransportViolations,
-      nativeRequestCount: report.nativeRequests.length });
+    report.errors.length === 0 && report.protectedExplorerUntouched,
+    { errors: report.errors, protectedExplorerUntouched: report.protectedExplorerUntouched });
   const renderCheckpointSummary = groupEditRenderCheckpointSummary(report.cases);
   recordLifecycleCheck('performance',
     'All Group edit action-to-render checkpoints complete within five seconds',
@@ -1506,24 +984,10 @@ FOR s IN (
   report.failureUI = await cda.inspect(() => document.body.innerText).catch(String);
   throw error;
 } finally {
-  if (!nativeDrainAttempted) {
-    try { await drainNativeRequests(); }
-    catch (error) {
-      report.priorStatus = report.status;
-      report.status = 'failed';
-      report.error = [report.error, `Strict native request drain failed: ${String(error.stack ?? error)}`].filter(Boolean).join('\n');
-    }
-  }
-  if (nativeCdpSession) {
-    try { await nativeCdpSession.detach(); }
-    catch (error) {
-      report.status = 'failed';
-      report.error = [report.error, `Native CDP session detach failed: ${String(error.stack ?? error)}`].filter(Boolean).join('\n');
-    }
-  }
+  await nativeCapture?.stop();
   report.finished = new Date().toISOString();
   await cda.attachReport('group-edit-before-related-column', report);
 }
-if (report.status !== 'passed') throw new Error(report.error ?? `Workflow ended with ${report.status}`);
+
 return report;
 }

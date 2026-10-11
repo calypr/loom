@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import vm from 'node:vm';
 import { chromium } from '@playwright/test';
@@ -16,7 +15,12 @@ import {
 } from '../related-quantity-pivot-oracle.mjs';
 import { buildArangoShellInvocation } from '../owned-arangosh-command.mjs';
 import { waitForBrowser } from '../cda-playwright.mjs';
-import { constructionTableReady, selectPivotSourceChoice, selectSavedPreviewReconcile } from '../../workflows/verify-cda-quantity-pivot-native-drag-browser.mjs';
+import {
+  constructionTableReady,
+  selectPivotSourceChoice,
+  selectSavedPreviewReconcile,
+  waitForPivotCategoryDiscoveryResponse,
+} from '../../workflows/verify-cda-quantity-pivot-native-drag-browser.mjs';
 
 const rows = [
   { specimenId: 'specimen-a', patientId: 'patient-a', observationId: 'obs-1', patientPresent: true, observationPresent: true, textPresent: true, text: 'FINAL', codePresent: true, code: 'd', valuePresent: true, value: 1 },
@@ -45,26 +49,53 @@ const factoredFixtureRows = [
   { specimenId: 'Specimen/s4', patientId: null, observationId: null, patientPresent: false, observationPresent: false, textPresent: true, text: null, codePresent: true, code: null, valuePresent: true, value: null },
 ];
 
-test('saved preview correlation resolves the current reconcile among repeated request IDs', () => {
-  const fixture = JSON.parse(readFileSync(new URL('./fixtures/wave149-saved-preview-reconcile.json', import.meta.url), 'utf8'));
-  const { authoringRequests, outputId, state } = fixture;
-  const preview = authoringRequests.find(request => request.endpoint === 'preview');
-  const reconciles = authoringRequests.filter(request => request.endpoint === 'reconcile');
-  const stale = reconciles.find(request => request.requestDraftVersion === 3);
-  const current = reconciles.find(request => request.requestDraftVersion === 6 && request.requestDraftDigest === state.draftDigest);
-  const wrongDigest = reconciles.find(request => request.requestDraftDigest !== state.draftDigest && request.requestDraftVersion === state.draftVersion);
+test('saved preview correlation requires native request DTOs and resolves the current reconcile among reused IDs', () => {
+  const outputId = 'out_synthetic_saved_preview';
+  const snapshotToken = 'sha256:synthetic_snapshot';
+  const staleDigest = 'sha256:synthetic_stale_draft';
+  const currentDigest = 'sha256:synthetic_current_draft';
+  const currentReceipt = 'receipt_synthetic_current';
+  const stale = {
+    endpoint: 'reconcile', status: 200, requestId: 'builder-reused-id',
+    requestStartedAtMs: 100, responseFinishedAtMs: 150,
+    requestDraftVersion: 3, requestDraftDigest: staleDigest,
+    request: { snapshotToken, draftVersion: 3, draftDigest: staleDigest },
+    responseReceiptId: 'receipt_synthetic_stale',
+    response: { receiptId: 'receipt_synthetic_stale', builder: { documents: [{ output: { id: outputId } }] } },
+  };
+  const current = {
+    endpoint: 'reconcile', status: 200, requestId: 'builder-reused-id',
+    requestStartedAtMs: 200, responseFinishedAtMs: 300,
+    requestDraftVersion: 6, requestDraftDigest: currentDigest,
+    request: { snapshotToken, draftVersion: 6, draftDigest: currentDigest },
+    responseReceiptId: currentReceipt,
+    response: { receiptId: currentReceipt, builder: { documents: [{ output: { id: outputId } }] } },
+  };
+  const preview = {
+    endpoint: 'preview', status: 200, requestId: 'preview-synthetic-id',
+    requestStartedAtMs: 250, responseFinishedAtMs: 400,
+    requestOutputId: outputId, requestReceiptId: currentReceipt,
+    responseOutputId: outputId, responseReceiptId: currentReceipt,
+    reconcileRequestId: current.requestId,
+    reconciledDraftVersion: 6, reconciledDraftDigest: currentDigest,
+    request: { receiptId: currentReceipt, outputId, limit: 25 },
+    response: { receiptId: currentReceipt, outputId },
+  };
+  const state = { draftVersion: 6, draftDigest: currentDigest, catalog: { snapshotToken } };
+  const authoringRequests = [stale, current, preview];
 
-  assert.equal(reconciles.length, 3);
-  assert.equal(new Set(reconciles.map(request => request.requestId)).size, 1);
-  assert.notEqual(stale.responseReceiptId, preview.requestReceiptId);
-  assert.equal(current.responseReceiptId, preview.requestReceiptId);
   assert.equal(selectSavedPreviewReconcile(authoringRequests, preview, state, outputId), current);
 
+  const wrongDigest = {
+    ...current,
+    requestDraftDigest: 'sha256:synthetic_wrong_draft',
+    request: { ...current.request, draftDigest: 'sha256:synthetic_wrong_draft' },
+  };
   assert.throws(
     () => selectSavedPreviewReconcile([stale, wrongDigest, preview], preview, state, outputId),
     /exactly one successful reconcile.*found 0/,
   );
-  const wrongSnapshot = { ...current, body: { ...current.body, snapshotToken: 'sha256:wrong-snapshot' } };
+  const wrongSnapshot = { ...current, request: { ...current.request, snapshotToken: 'sha256:wrong-snapshot' } };
   assert.throws(
     () => selectSavedPreviewReconcile([wrongSnapshot, preview], preview, state, outputId),
     /exactly one successful reconcile.*found 0/,
@@ -82,6 +113,11 @@ test('saved preview correlation resolves the current reconcile among repeated re
   assert.throws(
     () => selectSavedPreviewReconcile([...authoringRequests, structuredClone(current)], preview, state, outputId),
     /exactly one successful reconcile.*found 2/,
+  );
+  const bodyOnlyPreview = { ...preview, request: undefined, body: preview.request };
+  assert.throws(
+    () => selectSavedPreviewReconcile([current, bodyOnlyPreview], bodyOnlyPreview, state, outputId),
+    /undefined/,
   );
   const wrongPreviewReceipt = { ...preview, responseReceiptId: 'receipt_wrong', response: { ...preview.response, receiptId: 'receipt_wrong' } };
   assert.throws(
@@ -175,6 +211,75 @@ test('native Pivot source selection verifies role-specific controlled rerenders'
       page, label: 'Pivot category field', path: 'Observation.valueQuantity.code',
       value: 'source:wrong-category-choice', role: 'category', selectOption, waitFor,
     }), /category output field Unrelated category field must identify Observation\.valueQuantity\.code/);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('full-population category discovery surfaces scoped failures and bounds missing responses', async () => {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  try {
+    const page = await browser.newPage();
+    const origin = 'https://owned-category.test';
+    const path = '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2/construction-category-discoveries';
+    const url = `${origin}${path}`;
+    await page.route(`${origin}/**`, async route => {
+      const request = route.request();
+      const requestURL = new URL(request.url());
+      if (requestURL.pathname === '/') {
+        await route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>owned</title>' });
+        return;
+      }
+      if (requestURL.pathname !== path) {
+        await route.fulfill({ status: 404, body: 'not found' });
+        return;
+      }
+      const body = request.postDataJSON();
+      if (body.requestId === 'request-pending') {
+        await new Promise(resolve => setTimeout(resolve, 250));
+        await route.abort().catch(() => undefined);
+        return;
+      }
+      await route.fulfill({
+        status: body.requestId === 'request-failed' ? 503 : 200,
+        contentType: 'application/json',
+        body: JSON.stringify(body.requestId === 'request-failed'
+          ? { code: 'CATEGORY_SCAN_TIMEOUT' }
+          : { outcome: 'COMPLETE' }),
+      });
+    });
+    await page.goto(`${origin}/`);
+    const expected = {
+      url,
+      outputId: 'output-a',
+      snapshotToken: 'snapshot-a',
+      categoryColumnId: 'category-a',
+      valueColumnId: 'value-a',
+      timeoutMs: 500,
+    };
+    const post = requestId => page.evaluate(async ({ url, body }) => {
+      const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      return response.status;
+    }, { url, body: { ...expected, requestId } });
+
+    const failedResponse = waitForPivotCategoryDiscoveryResponse(page, expected);
+    const failedOutcome = assert.rejects(failedResponse, /returned HTTP 503 \(requestId request-failed\)/);
+    assert.equal(await post('request-failed'), 503);
+    await failedOutcome;
+
+    const completedResponse = waitForPivotCategoryDiscoveryResponse(page, expected);
+    assert.equal(await post('request-complete'), 200);
+    assert.deepEqual(await completedResponse, {
+      status: 200,
+      requestId: 'request-complete',
+      categoryColumnId: expected.categoryColumnId,
+      valueColumnId: expected.valueColumnId,
+    });
+
+    const pending = waitForPivotCategoryDiscoveryResponse(page, { ...expected, timeoutMs: 100 });
+    const pendingRequest = post('request-pending').catch(() => undefined);
+    await assert.rejects(pending, /did not respond within 100ms/);
+    await pendingRequest;
   } finally {
     await browser.close();
   }

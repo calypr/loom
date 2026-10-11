@@ -8,6 +8,6 @@ test('nullable KEY_JOIN duplicate-key multiplicity and NULL non-equality lifecyc
     page,
     report: workflow.report,
     action: workflow.action,
-    nativeRequestLedger: workflow.nativeRequestLedger,
+    networkObserver: workflow.networkObserver,
   }, loomContext);
 });

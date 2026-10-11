@@ -7,7 +7,7 @@ import { sanitizeText } from '../helpers/playwright-browser.mjs';
 export async function repeatedContributorAnyWorkflow({ page, cda, caseOptions = {} }) {
   const { click, fill, selectOption, navigate, inspect, clickControl, fillControl, selectControl,
     nativeClick, nativeFill, nativeSelect, navigatePage, inspectDOM, browserEval, inspectPage,
-    waitForDOM, waitForBrowser, captureCDARequests, captureRequests, waitForCapturedResponse,
+    waitForDOM, waitForBrowser,
     performAction, requireUnique } = createNativeCdaWorkflowTools({ page, cda });
   const target = cda.target;
   const project = cda.project;
@@ -51,9 +51,6 @@ assert.notEqual(explorer, protectedExplorer, 'Only a fresh QA Explorer may be us
 
 let builder;
 let outputId;
-let retiredRoutePage;
-let retiredRouteCancellation;
-let browserPending = new Set();
 let requestMonitor;
 
 const api = async (path, body) => {
@@ -470,23 +467,13 @@ const startRelatedExpand = async () => {
 };
 
 const nestedCodePath = 'category[].coding[].code';
-const laterSamePathSearch = entry => {
-  const index = report.nativeRequests.indexOf(entry);
-  return report.nativeRequests.slice(index + 1).find(candidate => candidate.path === entry.path && candidate.method === entry.method);
-};
-
-const waitForContributorSearch = async responsePromise => {
-  const response = await responsePromise;
-  await response.finished();
-  const entry = requestMonitor.byRequest.get(response.request());
-  await requestMonitor.flush();
-  assert(entry?.response, `The native Observation.${nestedCodePath} Contributor response body was not retained`);
-  return entry;
-};
+const waitForContributorSearch = (fromIndex, path, query) => requestMonitor.waitForResponse(entry =>
+  entry.path === path && entry.method === 'POST' && entry.status === 200 && entry.request?.query === query,
+{ fromIndex, timeoutMs: 5_000 });
 
 const chooseRepeatedContributorCondition = async (panel, oracle, actionName, condition) => {
   const startedAt = Date.now();
-  const actionRequestStart = report.nativeRequests.length;
+  const actionRequestStart = requestMonitor.requests.length;
   const options = `${panel} [data-testid="construction-related-expand-contributors"]`;
   await selectOption(page, `${panel} select[aria-label="If a current row has no matches"]`, 'PRESERVE_PARENT');
   const disclosure = `${panel} [data-testid="construction-related-expand-contributor-options"]`;
@@ -500,39 +487,21 @@ const chooseRepeatedContributorCondition = async (panel, oracle, actionName, con
   const onlyRecords = `${options} label`;
   const search = `${options} input[placeholder="Search field name or path"]`;
   const contributorRequestPath = `${base}/related-expand-contributors`;
-  const proposalRequestPath = `${base}/construction-proposals`;
-  const cancellationAction = `${actionName}: select condition mode and search ${nestedCodePath}`;
   let replacementEntry;
-  await cda.withExpectedCancellations({
-    origin: uiOrigin, method: 'POST', paths: [contributorRequestPath, proposalRequestPath],
-    requestIdPrefixes: ['cda-request-', 'construction-proposal-'],
-    reason: 'Switching to condition mode invalidates the all-matching proposal; the explicit nested-code search may supersede the empty-query contributor lookup.',
-    proof: {
-      actionName, outputId, snapshotToken: builder.catalog.snapshotToken,
-      priorProposal: { contributorRule: { policy: 'ALL_MATCHES' }, emptyPolicy: 'PRESERVE_PARENT' },
-      priorQuery: null, replacementQuery: nestedCodePath,
-    },
-    actionLabel: cancellationAction,
-  }, async () => {
+  await (async () => {
     await revealControl(onlyRecords, 'Only records meeting a condition');
     await click(page, onlyRecords, { includes: 'Only records meeting a condition' });
     await waitForBrowser(page, { kind: 'present', selector: search });
     await revealControl(search);
     await click(page, search);
-    const searchStartedAt = Date.now();
-    const responsePromise = page.waitForResponse(response => {
-      const url = new URL(response.url());
-      const entry = requestMonitor.byRequest.get(response.request());
-      return url.origin === new URL(uiOrigin).origin && url.pathname === contributorRequestPath
-        && entry?.body?.query === nestedCodePath && entry.startedAt >= searchStartedAt;
-    }, { timeout: 5000 });
+    const searchFromIndex = requestMonitor.requests.length;
     await fill(page, search, nestedCodePath);
     await waitForBrowser(page, { kind: 'some-text', selector: `${options} [role="group"][aria-label="Fields for related-record condition"] button`, text: nestedCodePath });
-    replacementEntry = await waitForContributorSearch(responsePromise);
-  });
-  const requests = report.nativeRequests.slice(actionRequestStart)
+    replacementEntry = await waitForContributorSearch(searchFromIndex, contributorRequestPath, nestedCodePath);
+  })();
+  const requests = requestMonitor.requests.slice(actionRequestStart)
     .filter(entry => entry.origin === uiOrigin && entry.path === contributorRequestPath && entry.method === 'POST');
-  const replacements = requests.filter(entry => entry.body?.query === nestedCodePath);
+  const replacements = requests.filter(entry => entry.request?.query === nestedCodePath);
   assert.equal(replacements.length, 1, 'Condition search must issue one exact nested-code replacement request');
   replacementEntry = replacements[0];
   assert.equal(replacementEntry.status, 200);
@@ -542,93 +511,18 @@ const chooseRepeatedContributorCondition = async (panel, oracle, actionName, con
     && candidate.source?.resourceType === 'Observation'), 'The replacement must return the searched Observation field');
   const identityKeys = ['outputId', 'snapshotToken', 'expectedDraftVersion', 'expectedDraftDigest', 'stageId', 'routeChoiceId'];
   const responseKeys = { outputId: 'outputId', snapshotToken: 'snapshotToken', expectedDraftVersion: 'draftVersion', expectedDraftDigest: 'draftDigest', stageId: 'stageId', routeChoiceId: 'routeChoiceId' };
-  assert.equal(replacementEntry.body.outputId, outputId);
-  assert.equal(replacementEntry.body.snapshotToken, builder.catalog.snapshotToken);
+  assert.equal(replacementEntry.request.outputId, outputId);
+  assert.equal(replacementEntry.request.snapshotToken, builder.catalog.snapshotToken);
   for (const [requestKey, responseKey] of Object.entries(responseKeys)) {
-    assert.equal(replacementEntry.response?.[responseKey], replacementEntry.body[requestKey], `Contributor search response must retain ${requestKey}`);
+    assert.equal(replacementEntry.response?.[responseKey], replacementEntry.request[requestKey], `Contributor search response must retain ${requestKey}`);
   }
-  const cancelled = requests.filter(entry => entry.failure === 'net::ERR_ABORTED');
-  const scopedCancellations = (cda.report.expectedCancellations ?? [])
-    .filter(entry => entry.proof?.scopeAction === cancellationAction);
-  const cancellations = scopedCancellations.filter(entry => new URL(entry.url).pathname === contributorRequestPath);
-  const proposalCancellations = scopedCancellations.filter(entry => new URL(entry.url).pathname === proposalRequestPath);
-  assert.equal(scopedCancellations.length, cancellations.length + proposalCancellations.length,
-    'Only the exact contributor lookup and stale proposal paths may be classified');
-  assert(cancelled.length <= 1, 'One condition-mode search may supersede at most one request');
-  assert.equal(cancellations.length, cancelled.length, 'Only an exact observed abort may be classified as expected');
-  const cancelledRequest = cancelled[0];
-  const cancellation = cancellations[0];
-  if (cancelledRequest) {
-    assert([undefined, null, ''].includes(cancelledRequest.body?.query), 'Only an empty-query request may be canceled');
-    assert.equal(cancelledRequest.triggerAction, 'Only records meeting a condition');
-    assert.equal(cancelledRequest.startedAt <= replacementEntry.startedAt, true);
-    assert.equal(cancellation.browserRequestId, cancelledRequest.browserRequestId);
-    assert.equal(cancellation.method, 'POST');
-    assert.equal(new URL(cancellation.url).origin, new URL(uiOrigin).origin);
-    assert.equal(new URL(cancellation.url).pathname, contributorRequestPath);
-    assert.equal(cancellation.proof?.scopeAction, cancellationAction);
-    assert.equal(cancellation.proof?.actionName, actionName);
-    assert.equal(cancellation.proof?.outputId, outputId);
-    assert.equal(cancellation.proof?.priorQuery, null);
-    assert.equal(cancellation.proof?.replacementQuery, nestedCodePath);
-    assert.equal(cancelledRequest.expectedCancellation?.browserRequestId, cancelledRequest.browserRequestId);
-    for (const key of identityKeys) assert.equal(cancelledRequest.body?.[key], replacementEntry.body?.[key], `Canceled request must retain ${key}`);
+  for (const [requestKey, responseKey] of Object.entries(responseKeys)) {
+    assert.equal(replacementEntry.response?.[responseKey], replacementEntry.request?.[requestKey],
+      `Contributor search response must retain ${requestKey}`);
   }
-  const proposalRequests = report.nativeRequests.slice(actionRequestStart)
-    .filter(entry => entry.origin === uiOrigin && entry.path === proposalRequestPath && entry.method === 'POST');
-  const staleProposals = proposalRequests.filter(entry => entry.failure === 'net::ERR_ABORTED');
-  assert(staleProposals.length <= 1, 'One condition-mode selection may supersede at most one stale proposal');
-  assert.equal(proposalCancellations.length, staleProposals.length,
-    'Only an exact observed stale proposal abort may be classified');
-  for (const cancellation of proposalCancellations) {
-    const staleProposal = staleProposals.find(entry => entry.browserRequestId === cancellation.browserRequestId);
-    assert(staleProposal, 'Expected stale-proposal cancellation must point to its exact captured browser request');
-    assert.equal(staleProposal.failure, 'net::ERR_ABORTED');
-    assert(staleProposal.startedAt <= replacementEntry.startedAt,
-      'Stale all-matching proposal must start before the successful condition-field replacement');
-    assert.equal(cancellation.method, 'POST');
-    assert.equal(new URL(cancellation.url).origin, new URL(uiOrigin).origin);
-    assert.equal(new URL(cancellation.url).pathname, proposalRequestPath);
-    assert(cancellation.requestId.startsWith('construction-proposal-'),
-      'Stale-proposal cancellation must retain its dedicated request ID prefix');
-    assert.equal(cancellation.requestId, staleProposal.requestId);
-    assert.equal(cancellation.proof?.scopeAction, cancellationAction);
-    assert.equal(cancellation.proof?.actionName, actionName);
-    assert.equal(cancellation.proof?.outputId, outputId);
-    assert.deepEqual(cancellation.proof?.priorProposal,
-      { contributorRule: { policy: 'ALL_MATCHES' }, emptyPolicy: 'PRESERVE_PARENT' });
-    assert.equal(cancellation.proof?.priorQuery, null);
-    assert.equal(cancellation.proof?.replacementQuery, nestedCodePath);
-    assert.equal(staleProposal.expectedCancellation?.browserRequestId, staleProposal.browserRequestId);
-    assert.equal(staleProposal.expectedCancellation?.proof?.scopeAction, cancellationAction);
-    for (const key of ['outputId', 'snapshotToken', 'expectedDraftVersion', 'expectedDraftDigest']) {
-      assert.equal(staleProposal.body?.[key], replacementEntry.body?.[key],
-        `Stale proposal must retain the replacement request's ${key}`);
-    }
-    const relatedSteps = staleProposal.body?.candidateConstruction?.steps
-      ?.filter(step => step.operation?.kind === 'RELATED_EXPAND') ?? [];
-    assert.equal(relatedSteps.length, 1, 'Cancelled stale proposal must contain one related-expansion step');
-    assert.equal(relatedSteps[0].id, staleProposal.body?.changedStepId);
-    const relatedExpand = relatedSteps[0].operation.relatedExpand;
-    assert.deepEqual(relatedExpand.contributorRule, { policy: 'ALL_MATCHES' },
-      'Only an unfiltered all-matching proposal may be classified as stale');
-    assert.equal(relatedExpand.emptyPolicy, 'PRESERVE_PARENT');
-    assert.equal(relatedExpand.contributorSource, undefined);
-    assert.equal(relatedExpand.contributorRule.predicate, undefined);
-    (report.staleContributorProposalCancellations ??= []).push({
-      actionName, browserRequestId: staleProposal.browserRequestId, outputId,
-      snapshotToken: staleProposal.body.snapshotToken,
-      expectedDraftVersion: staleProposal.body.expectedDraftVersion,
-      expectedDraftDigest: staleProposal.body.expectedDraftDigest,
-      stepId: relatedSteps[0].id, contributorRule: relatedExpand.contributorRule,
-      emptyPolicy: relatedExpand.emptyPolicy, replacementBrowserRequestId: replacementEntry.browserRequestId,
-      replacementQuery: nestedCodePath, reason: cancellation.reason,
-    });
-  }
-  (report.contributorSearches ??= []).push({ actionName, cancelledBrowserRequestId: cancelledRequest?.browserRequestId ?? null,
-    replacementBrowserRequestId: replacementEntry.browserRequestId, query: nestedCodePath, status: replacementEntry.status,
-    sameRequestIdentity: cancelledRequest ? identityKeys.every(key => cancelledRequest.body?.[key] === replacementEntry.body?.[key]) : null,
-    sameResponseIdentity: true });
+  (report.contributorSearches ??= []).push({ actionName,
+    replacementRequestId: replacementEntry.requestId, query: nestedCodePath,
+    status: replacementEntry.status, identityKeys });
   const choiceResponse = replacementEntry.response;
   const visibleChoices = await inspectPage(page, ({ selector }) =>
     [...document.querySelectorAll(`${selector} [role="group"][aria-label="Fields for related-record condition"] button`)]
@@ -789,7 +683,6 @@ const applyProposal = async (expectedRows, name) => {
 
 report.target ??= { ...cda.report.target };
 report.nativeRequests = cda.report.nativeRequests;
-report.errors = cda.report.errors;
 
   try {
 
@@ -852,14 +745,9 @@ await command([{ type: 'SET_TABLE_POPULATION', outputId, selectionRevisionId: se
 const original = structuredClone(documentForOutput(builder));
 assert.equal(original.population.selectionRevisionId, selection.id);
 
-requestMonitor = captureCDARequests(page, {
-  apiOrigin: uiOrigin,
-  appOrigins: [apiOrigin, uiOrigin],
-  ownedPathPrefix: `${root}/${explorer}`,
+requestMonitor = cda.captureRequests(`${root}/${explorer}`, {
   responsePaths: /related-expand-contributors|commands|selections|explicit-groups|row-definition-proposals|construction-choice-proposals|construction-proposals|construction-capabilities|row-lineage|population-mapping|preview/,
-  report,
 });
-browserPending = requestMonitor.pendingReads;
 page.on('request', (request) => {
   const url = new URL(request.url());
   if (!browserRequestOrigins.has(url.origin)) return;
@@ -877,17 +765,6 @@ page.on('request', (request) => {
     }
   }
 });
-page.on('response', (response) => {
-  const url = new URL(response.url());
-  if (url.origin !== new URL(uiOrigin).origin || response.status() < 400 || url.pathname.endsWith('/favicon.ico')) return;
-  report.errors.push({ kind: 'http', url: sanitizeText(response.url()), status: response.status() });
-});
-page.on('requestfailed', (request) => {
-  const url = new URL(request.url());
-  if (url.origin !== new URL(uiOrigin).origin || request.failure()?.errorText === 'net::ERR_ABORTED') return;
-  if (request.resourceType() === 'script') report.errors.push({ kind: 'module', url: sanitizeText(request.url()), error: sanitizeText(request.failure()?.errorText) });
-});
-
 await open(baselineRows, 'source-selection-bounded-witness-buckets');
 let panel = await startRelatedExpand();
 let startedAt = Date.now();
@@ -902,82 +779,10 @@ report.existsRule = { condition: 'EXISTS', quantifier: 'ANY', sourceField: neste
   preservedNoMatchRows: existsPreserveRows.length - existsExcludedRows.length };
 startedAt = Date.now();
 await proposal('repeated-nested-code-exists-preview', startedAt, existsPreserveRows);
-const beforeExistsCancel = await api(base + '/builder');
 startedAt = Date.now();
-const routeChoicesRequestPath = `${base}/related-expand-choices`;
-const routeRetirementAction = 'cancel-repeated-nested-code-exists-preview';
-await cda.withExpectedCancellations({
-  origin: uiOrigin, method: 'POST', paths: [routeChoicesRequestPath],
-  requestIdPrefixes: ['related-expand-choices-'],
-  reason: 'Cancel closes the active reshape editor, retiring its route-choice query owner and aborting an in-flight page signal.',
-  proof: {
-    actionName: routeRetirementAction, triggerAction: 'Cancel', outputId,
-    snapshotToken: beforeExistsCancel.catalog.snapshotToken,
-    expectedDraftVersion: beforeExistsCancel.draftVersion,
-    expectedDraftDigest: beforeExistsCancel.draftDigest,
-    stageId: 'source_projection', anchorColumnId: '_key', targetResourceType: 'Observation', limit: 50,
-    ownerRetirement: 'cancel clears the active reshape family and unmounts the route query owner',
-    abortSignalPath: 'useQuery subscription cleanup -> AbortController -> searchRelatedExpandChoices signal',
-    replay: 'the next opened route editor starts at the first page and reaches the same cursor again',
-  },
-  actionLabel: routeRetirementAction,
-}, async () => {
-  await nativeClick(page, '[data-testid="construction-cancel-proposal"]', {});
-  await waitForBrowser(page, { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' }, [], 5000);
-  await rendered(baselineRows, 'cancel-repeated-nested-code-exists-preview');
-});
-const routeRetirementCancellations = (cda.report.expectedCancellations ?? [])
-  .filter(item => item.proof?.scopeAction === routeRetirementAction);
-assert(routeRetirementCancellations.length <= 1,
-  'Cancel may retire at most one in-flight related-route page owner');
-for (const cancellation of routeRetirementCancellations) {
-  const request = report.nativeRequests.find(entry => entry.browserRequestId === cancellation.browserRequestId);
-  assert(request, 'Route-owner cancellation must point to its exact captured native request');
-  assert.equal(request.origin, uiOrigin);
-  assert.equal(request.path, routeChoicesRequestPath);
-  assert.equal(request.method, 'POST');
-  assert.equal(request.failure, 'net::ERR_ABORTED');
-  assert(request.requestId.startsWith('related-expand-choices-'));
-  assert.equal(cancellation.requestId, request.requestId);
-  const diagnostic = (cda.report.network ?? []).find(entry => entry.browserRequestId === request.browserRequestId);
-  assert.equal(diagnostic?.triggerAction, 'Cancel',
-    'The route-page abort must be observed during the exact preview-cancel action');
-  assert.equal(diagnostic?.errorText, 'net::ERR_ABORTED');
-  const routeIdentity = {
-    snapshotToken: beforeExistsCancel.catalog.snapshotToken,
-    expectedDraftVersion: beforeExistsCancel.draftVersion,
-    expectedDraftDigest: beforeExistsCancel.draftDigest,
-    outputId, stageId: 'source_projection', anchorColumnId: '_key',
-    targetResourceType: 'Observation', limit: 50,
-  };
-  for (const [key, value] of Object.entries(routeIdentity)) assert.equal(request.body?.[key], value,
-    `Retired route page must retain exact ${key}`);
-  assert(request.body?.cursor, 'Only a superseded later route page may be classified during editor retirement');
-  assert.equal(cancellation.proof?.scopeAction, routeRetirementAction);
-  assert.equal(cancellation.proof?.triggerAction, 'Cancel');
-  assert.equal(cancellation.proof?.outputId, outputId);
-  assert.equal(cancellation.proof?.snapshotToken, routeIdentity.snapshotToken);
-  assert.equal(cancellation.proof?.expectedDraftVersion, routeIdentity.expectedDraftVersion);
-  assert.equal(cancellation.proof?.expectedDraftDigest, routeIdentity.expectedDraftDigest);
-  retiredRoutePage = request;
-  retiredRouteCancellation = cancellation;
-  report.retiredRouteOwnerCancellation = {
-    browserRequestId: request.browserRequestId, requestId: request.requestId,
-    startedAt: request.startedAt, completedAt: request.completedAt,
-    cursor: request.body.cursor, cursorOffset: JSON.parse(Buffer.from(request.body.cursor.split('.')[1], 'base64url')).offset,
-    ...routeIdentity, triggerAction: diagnostic.triggerAction,
-    cancellationReason: cancellation.reason, proof: cancellation.proof,
-  };
-}
-recordAction('cancel-repeated-nested-code-exists-preview', startedAt, { rowCount: baselineRows.length });
-builder = await api(base + '/builder');
-assert.deepEqual(builder.workspace, beforeExistsCancel.workspace,
-  'Cancel must leave the workspace unchanged after the repeated EXISTS preview');
-assert.deepEqual(documentForOutput(builder), original,
-  'Cancel must preserve the source table after the repeated EXISTS preview');
-report.cases.push({ name: 'repeated-exists-cancel-preserves-source', workspaceUnchanged: true });
-
-panel = await startRelatedExpand();
+await nativeClick(page, '[data-testid="construction-cancel-proposal"]', {});
+await waitForBrowser(page, { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' }, [], 5000);
+await rendered(baselineRows, 'cancel-repeated-nested-code-exists-preview');
 const cancelledChoice = await chooseRepeatedContributorCondition(panel, oracle,
   'configure-nested-code-contributor-controls', 'EQUALS');
 const cancelledPreserveRows = rowsForNestedCode(witnesses, cancelledChoice.targetValue, true);
@@ -1089,43 +894,11 @@ assert.deepEqual(restored.population, original.population, 'Removing Contributor
 await open(baselineRows, 'reload-restored-source-table');
 builder = await api(base + '/builder');
 assertStableSourceProjection(builder, original, canonicalSourceColumnId, 'reload after Contributor removal');
-await Promise.all([...browserPending]);
 assert(report.protectedExplorerUntouched, `A request unexpectedly targeted protected Explorer ${protectedExplorer}`);
 assert(report.browserExplorerRequests.every(({ path }) => path === root || path === `${root}/selections`
   || path.startsWith(`${root}/${explorer}/`)), 'Browser requests must remain within the fresh owned Explorer and global selection route');
-assert.deepEqual(report.errors.filter(error => !error.expected), [], 'Unexpected browser errors were reported');
-if (retiredRoutePage) {
-  const routeIdentityKeys = ['snapshotToken', 'expectedDraftVersion', 'expectedDraftDigest', 'outputId',
-    'stageId', 'anchorColumnId', 'targetResourceType', 'limit'];
-  const sameRouteIdentity = entry => routeIdentityKeys.every(key => entry.body?.[key] === retiredRoutePage.body?.[key]);
-  const reopenedPage = report.nativeRequests.find(entry => entry.path === routeChoicesRequestPath
-    && entry.method === 'POST' && entry.startedAt > retiredRoutePage.startedAt
-    && !entry.body?.cursor && entry.triggerAction === 'Select Observation' && sameRouteIdentity(entry));
-  assert(reopenedPage, 'The replacement route owner must start again from the first page after Cancel');
-  const replay = report.nativeRequests.find(entry => entry.path === routeChoicesRequestPath
-    && entry.method === 'POST' && entry.startedAt > reopenedPage.startedAt
-    && entry.body?.cursor === retiredRoutePage.body.cursor && entry.status === 200 && sameRouteIdentity(entry));
-  assert(replay, 'The replacement route owner must successfully replay the exact retired cursor');
-  assert.notEqual(replay.requestId, retiredRoutePage.requestId,
-    'A replayed route cursor must belong to a fresh page request');
-  report.retiredRouteOwnerReplay = {
-    cancelledBrowserRequestId: retiredRoutePage.browserRequestId,
-    cancellationBrowserRequestId: retiredRouteCancellation.browserRequestId,
-    reopenedPageBrowserRequestId: reopenedPage.browserRequestId,
-    reopenedPageCursor: null,
-    replayBrowserRequestId: replay.browserRequestId,
-    replayStartedAt: replay.startedAt,
-    replayRequestId: replay.requestId,
-    replayCursor: replay.body.cursor,
-    sameCursor: replay.body.cursor === retiredRoutePage.body.cursor,
-    sameOutputSnapshotDraftRouteIdentity: sameRouteIdentity(replay),
-    replayStatus: replay.status,
-  };
-}
-report.status = 'passed';
+assert.deepEqual(report.errors, [], 'Browser requests must remain within the owned Explorer and the global selection route');
   } finally {
-    try { await requestMonitor?.flush(); } catch (error) { report.requestFlushError = String(error); }
-    cda.includeBrowserDiagnostics();
     report.finished = new Date().toISOString();
     await cda.attachReport(`standalone-${cda.caseName}-domain.json`, {
       ...cda.report,

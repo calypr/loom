@@ -35,7 +35,6 @@ export async function runPreviewLimits({ page, cda, explorerId = cda.target.expl
     project: target.fixtureProject, generation: target.fixtureGeneration });
   Object.assign(report, {
     schemaVersion: 1,
-    scenario: 'cda-builder-preview-row-limits',
     case: 'Preview limits',
     status: 'running',
     target: { ...report.target, sourceRoot: target.sourceRoot,
@@ -67,7 +66,7 @@ export async function runPreviewLimits({ page, cda, explorerId = cda.target.expl
     builderURL.searchParams.set('explorer', explorerId);
     builderURL.searchParams.set('mode', 'builder');
     await page.goto(builderURL.toString(), { waitUntil: 'domcontentloaded', timeout: 5000 });
-    await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
+    await page.getByText('Dataset workspace', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
     const explorer = page.getByRole('combobox', { name: 'Explorer', exact: true });
     await requireUnique(explorer, 'Explorer');
     record(report, 'Builder is scoped to requested Explorer', await explorer.inputValue() === explorerId,
@@ -85,7 +84,7 @@ export async function runPreviewLimits({ page, cda, explorerId = cda.target.expl
     const table = page.getByTestId('preview-table-scroll').getByRole('table');
     await table.waitFor({ state: 'visible', timeout: 5000 });
     const headers = (await table.getByRole('columnheader').allTextContents()).map(value => value.trim());
-    assert.deepEqual(headers, ['SPECIMEN ID', 'SUBJECT.REFERENCE', 'COLLECTION.BODYSITE.REFERENCE.REFERENCE']);
+    assert.deepEqual(headers, ['Specimen ID', 'subject.reference', 'collection.bodySite.reference.reference']);
     const previewLimit = page.getByRole('combobox', { name: 'Preview row limit', exact: true });
     await requireUnique(previewLimit, 'Preview row limit');
     assert.equal(await previewLimit.inputValue(), '25', 'Preview limits case must begin with the 25-row setting');

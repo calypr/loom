@@ -1,0 +1,2 @@
+{"resourceType":"Patient","id":"basic-pivot-unpivot-patient-a","gender":"female"}
+{"resourceType":"Patient","id":"basic-pivot-unpivot-patient-b","gender":"male"}

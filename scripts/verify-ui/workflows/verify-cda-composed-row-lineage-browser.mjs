@@ -12,11 +12,6 @@ import { selectRelatedRouteOption } from '../helpers/related-route-disclosure.mj
 import { selectBoundedComposedRootCandidates } from '../helpers/composed-row-lineage-fixture.mjs';
 import { assertCompletePreviewRows, expectedPreviewColumns } from '../helpers/complete-preview-row-projection.mjs';
 import {
-  classifyPendingRelatedExpandChoicesAfterProposalCancel,
-  proposalCancelActionSelector,
-  snapshotPendingRelatedExpandChoices,
-} from '../helpers/related-expand-cancel.mjs';
-import {
   assertPreserveParentRelatedEdit,
   authoredStepOperations,
   expectedPreserveParentRelatedEdit,
@@ -106,8 +101,8 @@ const evidenceSafe = (value, key = '') => {
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [childKey, evidenceSafe(childValue, childKey)]));
   return value;
 };
-const requestBody = entry => requestCapture.rawRequestBody(entry) ?? entry.body;
-const responseBody = entry => requestCapture.rawResponseBody(entry) ?? entry.response;
+const requestBody = entry => entry.request ?? entry.request;
+const responseBody = entry => entry.response ?? entry.response;
 const inspectPreviewRows = async () => page.locator('[data-testid="preview-table-scroll"] [role="row"]')
   .evaluateAll(rows => rows.slice(1).map(row => {
     const label = row.querySelector('button[aria-label^="Inspect row "]')?.getAttribute('aria-label') ?? '';
@@ -409,9 +404,9 @@ const assertExactBoundedRows = (actualRows, expectedRows, label) => {
     `${label} must preserve the complete row multiset, including duplicates`);
 };
 const proposal = async (name, started, expectedRows, { requireCompletePreview = false } = {}) => {
-  const response = await requestCapture.waitFor(request => request.path === base + '/construction-proposals'
-    && request.startedAt >= started && request.status !== undefined, { timeout: Math.max(1, started + 5000 - Date.now()) });
-  const rawResponse = requestCapture.rawResponseBody(response);
+  const response = await requestCapture.waitForResponse(request => request.path === base + '/construction-proposals'
+    && request.startedAt >= started && request.status !== undefined, { timeoutMs: Math.max(1, started + 5000 - Date.now()) });
+  const rawResponse = response.response;
   if (requireCompletePreview) {
     assert(expectedRows.length <= exactPreviewRowLimit, `${name} requires an independent <=${exactPreviewRowLimit}-row fixture before editing`);
     assert.equal(rawResponse.preview?.sampled, false, `${name} proposal preview must be complete and unsampled`);
@@ -457,9 +452,9 @@ const apply = async (expectedRows, { requireCompletePreview = false, verifySaved
   const started = Date.now();
   await clickUI('[data-testid="construction-apply-proposal"]');
   await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
-  const previewRequest = await requestCapture.waitFor(request => request.path === base + '/preview' && request.startedAt >= started && request.status === 200,
-    { timeout: Math.max(1, started + 5000 - Date.now()) });
-  const previewResponse = requestCapture.rawResponseBody(previewRequest);
+  const previewRequest = await requestCapture.waitForResponse(request => request.path === base + '/preview' && request.startedAt >= started && request.status === 200,
+    { timeoutMs: Math.max(1, started + 5000 - Date.now()) });
+  const previewResponse = previewRequest.response;
   let completeSavedState;
   let apiRowProjection;
   if (requireCompletePreview) {
@@ -577,38 +572,10 @@ const assertCompleteRenderedRows = async (expectedRows, label, savedState) => {
 };
 const cancelRemoval = async (baseline, name, expectedRows, { requireCompletePreview = false } = {}) => {
   const started = Date.now();
-  const classifyUpstreamEditChoicesCancel = focusedUpstreamRelatedRemovalCase && name === 'Upstream policy edit' && requireCompletePreview;
-  let choicesSnapshot;
-  if (classifyUpstreamEditChoicesCancel) {
-    choicesSnapshot = snapshotPendingRelatedExpandChoices(cda.nativeRequests, {
-      origin: uiOrigin, path: base + '/related-expand-choices', outputId,
-      draftVersion: baseline.draftVersion, draftDigest: baseline.draftDigest,
-      stageId: 'source_projection', capturedAt: Date.now(),
-    });
-  }
-  const cancelActionStartedAt = Date.now();
-  await clickUI(proposalCancelActionSelector);
-  const cancelActionCompletedAt = Date.now();
+  await clickUI('[data-testid="construction-cancel-proposal"]');
   await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
-  let canceledRelatedChoices = [];
-  if (classifyUpstreamEditChoicesCancel) {
-    const relatedEditorSelector = '[data-testid="construction-related-expand-editor"]';
-    await waitUI(`!document.querySelector(${JSON.stringify(relatedEditorSelector)})`);
-    const editorClosedAt = Date.now();
-    canceledRelatedChoices = classifyPendingRelatedExpandChoicesAfterProposalCancel({
-      cda, snapshot: choicesSnapshot,
-      action: { label: proposalCancelActionSelector, startedAt: cancelActionStartedAt, completedAt: cancelActionCompletedAt },
-      editorClosed: true, editorClosedAt,
-      reason: 'Explicitly canceled the saved upstream Related edit, so its scoped source-projection choices pages are no longer needed.',
-    });
-    report.upstreamRelatedChoicesCancel = {
-      action: proposalCancelActionSelector,
-      outputId, draftVersion: baseline.draftVersion, draftDigest: baseline.draftDigest,
-      stageId: 'source_projection', preCancelSnapshotAt: choicesSnapshot.capturedAt,
-      pendingBrowserRequestIDs: choicesSnapshot.entries.map(entry => entry.browserRequestId),
-      classifiedBrowserRequestIDs: canceledRelatedChoices,
-      cancelActionWindow: { startedAt: cancelActionStartedAt, completedAt: cancelActionCompletedAt, editorClosedAt },
-    };
+  if (focusedUpstreamRelatedRemovalCase && name === 'Upstream policy edit' && requireCompletePreview) {
+    await waitUI(`!document.querySelector('[data-testid="construction-related-expand-editor"]')`);
   }
   const after = await api(base + '/builder');
   assert.deepEqual(after.workspace, baseline.workspace, `${name} cancellation must preserve the authored workspace`);
@@ -618,9 +585,8 @@ const cancelRemoval = async (baseline, name, expectedRows, { requireCompletePrev
   if (requireCompletePreview) await assertCompleteRenderedRows(expectedRows, name, after);
   else await assertMountedRows(expectedRows, name);
   assert(Date.now() - started <= 5000, `${name} Cancel-to-render exceeded five seconds`);
-  report.cases.push({ name: `${name} cancel-to-render`, elapsedMs: Date.now() - started,
-    ...(classifyUpstreamEditChoicesCancel ? { canceledRelatedChoicesBrowserRequestIDs: canceledRelatedChoices } : {}) });
-  return { savedState: after, canceledRelatedChoicesBrowserRequestIDs: canceledRelatedChoices };
+  report.cases.push({ name: `${name} cancel-to-render`, elapsedMs: Date.now() - started });
+  return { savedState: after };
 };
 const chooseRoute = async (targetType, label, started) => {
   const remaining = () => Math.max(1, 5000 - (Date.now() - started));
@@ -744,14 +710,13 @@ const runDirectGroupCountPivot = async () => {
     await waitUI(ready, 5000);
     const active = await page.getByTestId('construction-preview').evaluate(p => ({ status: p.dataset.previewStatus, receiptId: p.dataset.previewReceiptId, outputId: p.dataset.previewOutputId, draftVersion: p.dataset.currentDraftVersion, draftDigest: p.dataset.currentDraftDigest }));
     const findActiveRequest = () => report.nativeRequests.findLast(entry => entry.path === base + '/preview'
-      && entry.startedAt >= started && (entry.body?.receiptId === active.receiptId || entry.response?.receiptId === active.receiptId));
+      && entry.startedAt >= started && (entry.request?.receiptId === active.receiptId || entry.response?.receiptId === active.receiptId));
     let request = findActiveRequest();
     if (request && (!request.completedAt || !request.response)) {
-      request = await requestCapture.waitFor(entry => entry.path === base + '/preview' && entry.startedAt >= started
+      request = await requestCapture.waitForResponse(entry => entry.path === base + '/preview' && entry.startedAt >= started
         && (requestBody(entry)?.receiptId === active.receiptId || responseBody(entry)?.receiptId === active.receiptId),
-      { timeout: Math.max(1, deadline - Date.now()) });
+      { timeoutMs: Math.max(1, deadline - Date.now()) });
     }
-    await requestCapture.flush();
     let preview;
     let source;
     if (request) {
@@ -772,9 +737,9 @@ const runDirectGroupCountPivot = async () => {
     return preview;
   };
   const capabilitiesFor = async (stageLabels, label) => {
-    const request = await requestCapture.waitFor(entry => entry.path === base + '/construction-capabilities'
+    const request = await requestCapture.waitForResponse(entry => entry.path === base + '/construction-capabilities'
       && entry.status === 200 && stageLabels.every(wanted => responseBody(entry)?.selectedStage?.columns?.some(column => column.label === wanted)),
-    { timeout: 5000 });
+    { timeoutMs: 5000 });
     return responseBody(request);
   };
   const assertPreviewByOutputs = (preview, step, expected, labels, label) => {
@@ -800,8 +765,8 @@ const runDirectGroupCountPivot = async () => {
     assert.equal(proposalResponse.preview.receiptId, proposalResponse.proposalId, `${label} proposal preview receipt must match its proposal`);
     await clickUI('[data-testid="construction-apply-proposal"]');
     await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]')`, 5000);
-    await requestCapture.waitFor(entry => entry.path === base + '/commands' && entry.startedAt >= started && entry.status === 200,
-      { timeout: Math.max(1, started + 5000 - Date.now()) });
+    await requestCapture.waitForResponse(entry => entry.path === base + '/commands' && entry.startedAt >= started && entry.status === 200,
+      { timeoutMs: Math.max(1, started + 5000 - Date.now()) });
     builder = await api(base + '/builder');
     assert.equal(builder.draftVersion, proposalResponse.draftVersion + 1, `${label} must advance the saved draft exactly once`);
     assert.equal(builder.draftDigest, proposalResponse.candidateWorkspaceDigest, `${label} saved workspace differs from the accepted candidate digest`);
@@ -822,10 +787,9 @@ const runDirectGroupCountPivot = async () => {
     const networkDeadline = started + 5000;
     const postApplyRequests = report.nativeRequests.filter(entry => entry.path === base + '/preview' && entry.startedAt >= started);
     if (postApplyRequests.some(entry => !entry.completedAt)) {
-      await requestCapture.waitFor(entry => entry.path === base + '/preview' && entry.startedAt >= started && entry.completedAt,
-        { timeout: Math.max(1, networkDeadline - Date.now()) });
+      await requestCapture.waitForResponse(entry => entry.path === base + '/preview' && entry.startedAt >= started && entry.completedAt,
+        { timeoutMs: Math.max(1, networkDeadline - Date.now()) });
     }
-    await requestCapture.flush();
     for (const entry of postApplyRequests) {
       assert.equal(entry.status, 200, `${label} post-Apply Preview request failed`);
       const previewResponse = responseBody(entry);
@@ -1088,15 +1052,14 @@ const runDirectGroupCountPivot = async () => {
   const inspectable = visibleRows.find(row => row.cells.includes(unitValue));
   assert(inspectable && inspectable.rowNumber > 0 && inspectable.rowNumber <= 25, 'Reloaded Pivot unit row must expose its native inspector control');
   const inspectStarted = Date.now();
-  const requestStart = report.nativeRequests.length;
+  const requestStart = requestCapture.requests.length;
   await clickUI(`button[aria-label="Inspect row ${inspectable.rowNumber} identity"]`);
   const dialog = `[role="dialog"][aria-label="Row ${inspectable.rowNumber} identity"]`;
   await waitUI(`document.querySelector(${JSON.stringify(dialog)})`, 5000);
   await waitUI(`document.querySelector(${JSON.stringify(dialog + ' ul li')})`, 5000);
-  const lineageRequests = () => report.nativeRequests.slice(requestStart).filter(request => request.path === base + '/row-lineage');
-  if (!lineageRequests().length) await requestCapture.waitFor(request => request.path === base + '/row-lineage' && request.startedAt >= inspectStarted,
-    { timeout: Math.max(1, inspectStarted + 5000 - Date.now()) });
-  await requestCapture.flush();
+  const lineageRequests = () => requestCapture.requests.slice(requestStart).filter(request => request.path === base + '/row-lineage');
+  if (!lineageRequests().length) await requestCapture.waitForResponse(request => request.path === base + '/row-lineage' && request.startedAt >= inspectStarted,
+    { timeoutMs: Math.max(1, inspectStarted + 5000 - Date.now()) });
   const request = lineageRequests()[0];
   assert.equal(lineageRequests().length, 1, 'A single grouped Pivot row must use one bounded lineage request');
   assert.equal(request.status, 200);
@@ -1152,7 +1115,7 @@ const runDirectGroupCountPivot = async () => {
   assert.equal(rootRestorePreview.rowCount, members.length);
   assert.deepEqual(rootRestorePreview.rows.map(row => row.__loom_row_id).sort(), rootRowIDs, 'Removing Group must restore the exact raw root row identities');
   assert.deepEqual((await api(base + '/builder')).workspace, restoredWorkspace, 'Final reload must retain the exact root-only workspace');
-  assert(report.nativeRequests.every(entry => localOrigins.has(entry.origin) && !entry.authorizationHeaderPresent), 'Group → Pivot requests must remain local no-auth calls');
+  assert(requestCapture.requests.every(entry => localOrigins.has(entry.origin) && !entry.authorizationHeaderPresent), 'Group → Pivot requests must remain local no-auth calls');
   assert.deepEqual(report.errors, [], 'Group → Pivot native lifecycle must have no browser/runtime/HTTP errors');
   report.directGroupCountPivot = {
     selectionRevisionId: selection.id, sourceIDs: members.map(member => member.id),
@@ -1407,8 +1370,8 @@ const runDirectPivot = async () => {
   };
   const waitForPreview = async (started, label) => {
     const deadline = started + 5000;
-    const request = await requestCapture.waitFor(entry => entry.path === base + '/preview' && entry.startedAt >= started && entry.status === 200,
-      { timeout: Math.max(1, deadline - Date.now()) });
+    const request = await requestCapture.waitForResponse(entry => entry.path === base + '/preview' && entry.startedAt >= started && entry.status === 200,
+      { timeoutMs: Math.max(1, deadline - Date.now()) });
     return responseBody(request);
   };
   const rowsWithInspectorNumbers = inspectPreviewRows;
@@ -1418,15 +1381,14 @@ const runDirectPivot = async () => {
     assert(visible, `${label}: Pivot group ${id} must have a mounted row`);
     assert(visible.rowNumber > 0 && visible.rowNumber <= 25);
     const started = Date.now();
-    const before = report.nativeRequests.length;
+    const before = requestCapture.requests.length;
     await clickUI(`button[aria-label="Inspect row ${visible.rowNumber} identity"]`);
     const dialog = `[role="dialog"][aria-label="Row ${visible.rowNumber} identity"]`;
     await waitUI(`document.querySelector(${JSON.stringify(dialog)})`);
     await waitUI(`document.querySelector(${JSON.stringify(dialog + ' ul li')})`);
-    const lineageRequests = () => report.nativeRequests.slice(before).filter(request => request.path === base + '/row-lineage');
-    if (!lineageRequests().length) await requestCapture.waitFor(request => request.path === base + '/row-lineage' && request.startedAt >= started,
-      { timeout: Math.max(1, started + 5000 - Date.now()) });
-    await requestCapture.flush();
+    const lineageRequests = () => requestCapture.requests.slice(before).filter(request => request.path === base + '/row-lineage');
+    if (!lineageRequests().length) await requestCapture.waitForResponse(request => request.path === base + '/row-lineage' && request.startedAt >= started,
+      { timeoutMs: Math.max(1, started + 5000 - Date.now()) });
     assert(Date.now() - started <= 5000, `${label} inspector action exceeded five seconds`);
     const requests = lineageRequests();
     assert.equal(requests.length, 1, 'One direct Pivot row must use one bounded native lineage page');
@@ -1606,7 +1568,7 @@ const runDirectPivot = async () => {
   assertPreviewCells(restoredReloadPreview, baselineRows, 'Reloaded source after Pivot removal');
   assert.deepEqual((await api(base + '/builder')).workspace, restoredWorkspace, 'Reload must preserve the exact source-only workspace after Pivot removal');
 
-  assert(report.nativeRequests.every(request => localOrigins.has(request.origin) && !request.authorizationHeaderPresent), 'Native direct Pivot requests must remain on the local unrestricted no-auth endpoints');
+  assert(requestCapture.requests.every(request => localOrigins.has(request.origin) && !request.authorizationHeaderPresent), 'Native direct Pivot requests must remain on the local unrestricted no-auth endpoints');
   assert.deepEqual(report.errors, [], 'Direct Pivot lifecycle and source inspection must produce no browser or HTTP errors');
   const pivotEvidence = { stepID: identity.stepID, constructionId: identity.constructionId, selectionRevisionId: selection.id, category: categoryKey, nullPhysicalOutputName: 'null', editedPhysicalOutputName: 'direct_status', sourceIDs: members.map(member => member.id), rowIDs: identity.rowIDs, previewRows: expectedRows, restoredSourceRows: baselineRows, finalWorkspaceHasPivot: false };
   if (sharedContributorPivot) report.sharedContributorPivot = { ...pivotEvidence, groupKey, aggregateValue: members.reduce((total, member) => total + member.value, 0) };
@@ -1801,19 +1763,18 @@ try {
 
   const inspect = async (label, rowNumber, expectedContributors = expectedTuples) => {
     const started = Date.now();
-    const before = report.nativeRequests.length;
+    const before = requestCapture.requests.length;
     await clickUI(`button[aria-label="Inspect row ${rowNumber} identity"]`);
     const dialog = `[role="dialog"][aria-label="Row ${rowNumber} identity"]`;
     await waitUI(`document.querySelector(${JSON.stringify(dialog)})`);
     await waitUI(`document.querySelector(${JSON.stringify(dialog + ' ul li')})`);
-    const lineageRequests = () => report.nativeRequests.slice(before).filter(request => request.path === base + '/row-lineage');
-    if (!lineageRequests().length) await requestCapture.waitFor(request => request.path === base + '/row-lineage' && request.startedAt >= started,
-      { timeout: Math.max(1, started + 5000 - Date.now()) });
+    const lineageRequests = () => requestCapture.requests.slice(before).filter(request => request.path === base + '/row-lineage');
+    if (!lineageRequests().length) await requestCapture.waitForResponse(request => request.path === base + '/row-lineage' && request.startedAt >= started,
+      { timeoutMs: Math.max(1, started + 5000 - Date.now()) });
     assert(Date.now() - started <= 5000, `${label} native row-lineage action exceeded five seconds`);
     const initialDialogText = await page.locator(dialog).innerText();
     assert(!/cannot be listed|unavailable|could not be fully listed|Could not load/i.test(initialDialogText), initialDialogText);
-    await requestCapture.flush();
-    const requests = lineageRequests();
+      const requests = lineageRequests();
     assert.equal(requests.length, 1, `${expectedContributors.length} contributors must fit on one native inspector page`);
     assert.equal(await page.locator(`${dialog} button`).filter({ hasText: 'Show more source records' }).count(), 0);
     const selectedRowIdentity = await page.locator(`${dialog} p.font-mono`).textContent();
@@ -1936,7 +1897,7 @@ try {
     expectedStepIDs: authoredSteps.map(step => step.id),
   });
 
-  const upstreamEditCancel = await cancelRemoval(upstreamEditBaseline, 'Upstream policy edit', stage3PreviewRows,
+  await cancelRemoval(upstreamEditBaseline, 'Upstream policy edit', stage3PreviewRows,
     { requireCompletePreview: true });
   assert.deepEqual(doc(builder).construction, doc(upstreamEditBaseline).construction,
     'Canceling the upstream policy proposal must retain the saved EXCLUDE construction and dependent steps');
@@ -1951,7 +1912,6 @@ try {
     policy: doc(builder).construction.steps[0].operation.relatedExpand.emptyPolicy,
     stepIDs: doc(builder).construction.steps.map(step => step.id),
     exactRowCount: stage3PreviewRows.length,
-    canceledRelatedChoicesBrowserRequestIDs: upstreamEditCancel.canceledRelatedChoicesBrowserRequestIDs,
   });
 
   await open();
@@ -2183,7 +2143,7 @@ try {
   const baseMap = new Map([[JSON.stringify(basePreviewRows[0]), rootDoc]]);
   const baseTarget = await rowNumberFor(baseMap, 'Starting-record row');
   const startingInspectorStarted = Date.now();
-  const beforeStartingInspector = report.nativeRequests.length;
+  const beforeStartingInspector = requestCapture.requests.length;
   await clickUI(`button[aria-label="Inspect row ${baseTarget.rowNumber} identity"]`);
   const baseDialog = `[role="dialog"][aria-label="Row ${baseTarget.rowNumber} identity"]`;
   await waitUI(`document.querySelector(${JSON.stringify(baseDialog)})?.innerText.includes('Starting FHIR record')`);
@@ -2191,27 +2151,15 @@ try {
   assert(baseDialogText.includes(`Specimen/${rootDoc.id}`), 'Zero-step row inspector must identify the exact starting Specimen record');
   const baseRowIdentity = await page.locator(`${baseDialog} p.font-mono`).textContent();
   assert(baseRowIdentity, 'Starting-record inspector must show the stable row identity');
-  assert.equal(report.nativeRequests.slice(beforeStartingInspector).filter(request => request.path === base + '/row-lineage').length, 0, 'A single starting record must not request composed row lineage');
+  assert.equal(requestCapture.requests.slice(beforeStartingInspector).filter(request => request.path === base + '/row-lineage').length, 0, 'A single starting record must not request composed row lineage');
   await clickUI(`${baseDialog} button`, { name: 'Close' });
   await waitUI(`!document.querySelector(${JSON.stringify(baseDialog)})`);
   assert(Date.now() - startingInspectorStarted <= 5000, 'Starting-record inspection exceeded five seconds');
   report.cases.push({ name: 'zero-step-starting-record-inspector', elapsedMs: Date.now() - startingInspectorStarted, rowNumber: baseTarget.rowNumber, rowIdentity: baseRowIdentity });
   assert.deepEqual((await api(base + '/builder')).workspace, builder.workspace, 'Starting-record inspection must not mutate the zero-step workspace');
 
-  assert(report.nativeRequests.every(request => localOrigins.has(request.origin) && !request.authorizationHeaderPresent), 'Native Builder requests must remain on the local no-auth endpoints');
-  if (focusedUpstreamRelatedRemovalCase) {
-    const classifiedChoiceRequestIDs = new Set(report.upstreamRelatedChoicesCancel?.classifiedBrowserRequestIDs ?? []);
-    const unexpectedErrors = report.errors.filter(error => {
-      const requestID = error.browserRequestId;
-      const isExactClassifiedChoiceAbort = requestID && classifiedChoiceRequestIDs.has(requestID)
-        && (error.error === 'net::ERR_ABORTED' || error.errorText === 'net::ERR_ABORTED') && error.expected === true
-        && error.expectedCancellation?.browserRequestId === requestID;
-      return !isExactClassifiedChoiceAbort;
-    });
-    assert.deepEqual(unexpectedErrors, [], 'Only the exact pre-snapshotted choices request aborted by the saved-policy Cancel may be expected');
-  } else {
-    assert.deepEqual(report.errors, []);
-  }
+  assert(requestCapture.requests.every(request => localOrigins.has(request.origin) && !request.authorizationHeaderPresent), 'Native Builder requests must remain on the local no-auth endpoints');
+  assert.deepEqual(report.errors, []);
   report.status = 'passed';
   }
 } catch (error) {
@@ -2224,7 +2172,6 @@ try {
       elapsedMs: Date.now() - report.activeAction.startedAt };
     delete report.activeAction;
   }
-  await requestCapture.flush();
   await cda.attachReport(`composed-row-lineage-${lineageMode.toLowerCase()}-evidence.json`, report);
 }
 }

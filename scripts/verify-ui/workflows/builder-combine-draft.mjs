@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -31,11 +32,17 @@ import {
   workspaceOutputOption,
 } from '../helpers/builder-combine-draft-helpers.mjs';
 import {
+  currentPublishedRevisionForOutput,
+  findColumn,
+  isPublishedMembershipIDColumn,
   membershipGroupCapabilityKeyEvidence,
   membershipOutputNullabilityEvidence,
   nativeCombineTargetBindingEvidence,
+  rootedEmptyTargetAppliedExpression,
+  sameSourceDocuments,
+  snapshotSourceDocument,
 } from '../helpers/builder-combine-helpers.mjs';
-import { markExpectedOwnedPreviewAborts } from '../helpers/network-evidence.mjs';
+import { loadBasicPublishedMembershipOracle } from '../helpers/basic-published-membership-oracle.mjs';
 
 const expectedPatients = [{ id: 'combine-fixture-patient', gender: 'female' }];
 const expectedObservations = [
@@ -70,7 +77,6 @@ const expectedMembership = {
 };
 const proposalPanel = '[data-testid="construction-proposal-panel"]';
 const proposalPreview = '[data-testid="construction-proposal-preview"][data-preview-status="ready"]';
-let draftPostCaptureSequence = 0;
 const workspaceReady = "Boolean(document.querySelector('[data-testid=construction-workspace]'))";
 const selectedOutputReady = (outputId) => `Boolean(document.querySelector('[data-testid=construction-workspace]'))&&document.querySelector(${JSON.stringify('[data-testid="construction-table-' + outputId + '"]')})?.getAttribute('aria-current')==='page'`;
 const savedPreview = (rows) => `(()=>{const p=document.querySelector('[data-testid="construction-preview"]');const t=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');return Boolean(p?.dataset.previewStatus==='ready'&&t&&t.getAttribute('aria-rowcount')===${JSON.stringify(String(rows + 1))}&&!document.body.innerText.includes('Loading your table…')&&!document.body.innerText.includes('Preview failed:'))})()`;
@@ -82,39 +88,7 @@ const check = (report, dimension, name, passed, evidence = {}) => {
     throw new TypeError('Draft Combine checks need a named dimension and boolean result.');
   }
   recordCheck(report, dimension, name, passed, evidence);
-  if (!passed) throw new Error('required draft Combine check failed: ' + name + '; evidence=' + JSON.stringify(evidence).slice(0, 1600));
-};
-
-export const openDraftCombineNativeRequestScope = (nativeRequestLedger, target, label = 'Draft Combine') => {
-  if (!nativeRequestLedger?.openScope || typeof target?.fixtureProject !== 'string' ||
-      !target.fixtureProject.trim() || typeof target.uiUrl !== 'string') {
-    throw new TypeError(`${label} native request scope requires the fixture project, UI URL, and fixture request ledger.`);
-  }
-  return nativeRequestLedger.openScope({ project: target.fixtureProject, origin: new URL(target.uiUrl).origin });
-};
-
-export const flushDraftCombineNativeRequestScope = async ({
-  nativeRequestLedger, scope, explorer, report, timeoutMs = 5000, label = 'Draft Combine',
-} = {}) => {
-  if (!nativeRequestLedger?.flush || !scope || !report || typeof report !== 'object') {
-    throw new TypeError(`${label} native request flush requires its ledger scope and workflow report.`);
-  }
-  const snapshot = await nativeRequestLedger.flush(scope, { explorer, timeoutMs });
-  Object.assign(report, {
-    nativeRequests: snapshot.nativeRequests,
-    nativeRequestDrainEvidence: snapshot.nativeRequestDrainEvidence,
-    excludedNativeRequests: snapshot.excludedNativeRequests,
-    excludedNativeRequestDrainEvidence: snapshot.excludedNativeRequestDrainEvidence,
-    nativeRequestCorrelationErrors: snapshot.nativeRequestCorrelationErrors,
-    nativeRequestTerminalLedger: snapshot.nativeRequestTerminalLedger,
-  });
-  if (!snapshot.nativeRequestTerminalLedger.complete) {
-    const error = new Error(`${label} native request ledger did not reach a complete terminal state: ` +
-      JSON.stringify(snapshot.nativeRequestTerminalLedger));
-    error.nativeRequestSnapshot = snapshot;
-    throw error;
-  }
-  return snapshot;
+  expect(passed, name).toBe(true);
 };
 
 const parseNDJSON = (path) => readFileSync(path, 'utf8').split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
@@ -236,9 +210,13 @@ const recordBrowserTiming = async (report, page, { name, action, after, verify, 
       renderTimeoutMs: timeout, performanceBudgetMs: budget });
     report.timings[name] = elapsedMs;
     recordCheck(report, 'usability', name + ' completed', true, { elapsedMs });
-    if (after) recordCheck(report, 'performance', name + ' action-to-render within budget', elapsedMs <= budget,
-      { elapsedMs, budgetMs: budget, waitTimeoutMs: timeout });
     renderCompleted = true;
+    if (after) {
+      const withinBudget = elapsedMs <= budget;
+      recordCheck(report, 'performance', name + ' action-to-render within budget', withinBudget,
+        { elapsedMs, budgetMs: budget, waitTimeoutMs: timeout });
+      expect(withinBudget, name + ' action-to-render within budget').toBe(true);
+    }
     lastTimedAction = { id: actionId, name, startedAtEpochMs: started, finishedAtEpochMs,
       startedAtMs: Math.round(startedMonotonic), finishedAtMs: Math.round(finishedMonotonic) };
     if (report.activeAction?.id === actionId) delete report.activeAction;
@@ -284,288 +262,6 @@ const recordBrowserTiming = async (report, page, { name, action, after, verify, 
   }
 };
 
-export const captureOwnedPreviewLifecycle = (page, target, explorer, { diagnostic = false } = {}) => {
-  const apiBase = new URL(apiRoot({ target }, explorer), target.apiUrl);
-  const withPath = (suffix) => new URL(suffix, apiBase.href.endsWith('/') ? apiBase.href : apiBase.href + '/');
-  const expectedURL = withPath('preview');
-  const reconcileURL = withPath('reconcile');
-  const ownedOrigins = new Set([target.uiUrl, target.apiUrl].filter(Boolean).map((value) => new URL(value).origin));
-  const requests = new Map();
-  const requestRecords = [];
-  const events = [];
-  const pendingReads = new Map();
-  const maxEvents = diagnostic ? 768 : 256;
-  const diagnosticReadFlushTimeoutMs = 1000;
-  const startedAt = performance.now();
-  let nextRequest = 0;
-  let nextEvent = 0;
-  let nextRead = 0;
-  let droppedEvents = 0;
-  let droppedRequests = 0;
-  let flushExpired = false;
-  const append = (event, request, fields = {}) => {
-    const record = {
-      sequence: ++nextEvent,
-      event,
-      elapsedMs: Math.round(performance.now() - startedAt),
-      observedAtEpochMs: Date.now(),
-      actionPhase: activeTimedAction ?? 'outside timed action',
-      actionId: activeTimedActionId ?? null,
-      actionStartedAtEpochMs: activeTimedActionStartedAt ?? null,
-      lastTimedAction: lastTimedAction ?? null,
-      requestId: request.id,
-      outputId: request.outputId,
-      receiptId: request.receiptId,
-      ...fields,
-    };
-    if (events.length >= maxEvents) {
-      droppedEvents += 1;
-      if (event === 'failed') {
-        const replaceAt = events.findIndex((existing) => existing.event !== 'failed');
-        if (replaceAt >= 0) {
-          events.splice(replaceAt, 1);
-          events.push(record);
-        }
-      }
-      return;
-    }
-    events.push(record);
-  };
-  const requestAction = () => activeTimedAction ? {
-    id: activeTimedActionId,
-    name: activeTimedAction,
-    startedAtMonotonicMs: activeTimedActionStartedAtMonotonicMs,
-  } : lastTimedAction ? {
-    id: lastTimedAction.id,
-    name: lastTimedAction.name,
-    startedAtMonotonicMs: lastTimedAction.startedAtMs,
-    finishedAtMonotonicMs: lastTimedAction.finishedAtMs,
-  } : null;
-  const retain = (record) => {
-    if (requestRecords.length < 256) {
-      requestRecords.push(record);
-      record.retained = true;
-    } else {
-      droppedRequests += 1;
-      record.retained = false;
-    }
-  };
-  const requestIdentity = (request) => {
-    if (request.method() !== 'POST') return undefined;
-    let url;
-    try { url = new URL(request.url()); } catch { return undefined; }
-    if (!ownedOrigins.has(url.origin)) return undefined;
-    const kind = url.pathname === expectedURL.pathname ? 'preview' :
-      diagnostic && url.pathname === reconcileURL.pathname ? 'reconcile' : undefined;
-    if (!kind) return undefined;
-    let body;
-    try { body = request.postDataJSON(); } catch { body = undefined; }
-    const identity = {
-      id: `${kind}-request-${++nextRequest}`,
-      kind,
-      outputId: typeof body?.outputId === 'string' ? body.outputId : null,
-      receiptId: typeof body?.receiptId === 'string' ? body.receiptId : null,
-    };
-    let networkRequestId;
-    try {
-      const headers = request.headers();
-      networkRequestId = headers['x-request-id'] ?? body?.requestId ?? body?.requestID ?? null;
-    } catch {}
-    identity.record = {
-      ...identity,
-      networkRequestId: typeof networkRequestId === 'string' ? networkRequestId : null,
-      startedAtMonotonicMs: performance.now(),
-      actionAtStart: requestAction(),
-      ...(kind === 'reconcile' ? {
-        requestCAS: {
-          snapshotToken: body?.snapshotToken ?? null,
-          draftVersion: body?.draftVersion ?? null,
-          draftDigest: body?.draftDigest ?? null,
-        },
-      } : {}),
-    };
-    if (diagnostic) retain(identity.record);
-    return identity;
-  };
-  const track = (promise, record, kind) => {
-    const readId = ++nextRead;
-    pendingReads.set(readId, { promise, record, kind });
-    void promise.finally(() => pendingReads.delete(readId));
-  };
-  const captureFailureState = (record) => {
-    if (!diagnostic || record.retained === false) return;
-    track(new Promise((resolve) => setTimeout(resolve, 0)).then(async () => {
-      const selection = await page.evaluate(constructionWorkspaceSelectionSnapshot);
-      const preview = await page.evaluate(() => {
-        const element = document.querySelector('[data-testid="construction-preview"]');
-        return {
-          preview: element ? {
-            status: element.dataset.previewStatus ?? null,
-            outputId: element.dataset.previewOutputId || null,
-            receiptId: element.dataset.previewReceiptId || null,
-            stale: Boolean(document.querySelector('[data-testid="construction-preview-stale-notice"]')),
-          } : null,
-          userVisiblePreviewError: document.body?.innerText?.includes('Preview failed:') ?? false,
-        };
-      });
-      return {
-        requestOutputId: record.outputId,
-        selectedOutputId: selection.navigationPresent ? selection.navSelectedOutputId : null,
-        navigationPresent: selection.navigationPresent,
-        editor: {
-          present: selection.editorPresent,
-          visible: selection.editorVisible,
-          outputId: selection.editorOutputId,
-          headingTexts: selection.editorHeadingTexts,
-          visibleHeadingTexts: selection.visibleEditorHeadingTexts,
-        },
-        ...preview,
-      };
-    }).then((visible) => { if (!flushExpired) record.visibleAfterFailure = visible; }, (error) => {
-      if (!flushExpired) record.visibleAfterFailure = { captureError: String(error?.message ?? error).slice(0, 240) };
-    }), record, 'failure-visible-state');
-  };
-  const onRequest = (request) => {
-    const identity = requestIdentity(request);
-    if (!identity) return;
-    requests.set(request, identity);
-    append('request', identity, diagnostic ? {
-      kind: identity.kind,
-      startedAtMonotonicMs: identity.record.startedAtMonotonicMs,
-      actionAtStart: identity.record.actionAtStart,
-      ...(identity.record.requestCAS ? { requestCAS: identity.record.requestCAS } : {}),
-    } : {});
-  };
-  const onResponse = (response) => {
-    const identity = requests.get(response.request());
-    if (!identity) return;
-    const status = response.status();
-    append('response', identity, { status });
-    if (!diagnostic || identity.kind !== 'reconcile' || identity.record.retained === false) return;
-    const record = identity.record;
-    record.responseStatus = status;
-    record.responseAtMonotonicMs = performance.now();
-    track(Promise.resolve().then(() => response.json()).then((body) => {
-      if (flushExpired) return;
-      record.response = {
-        receiptId: typeof body?.receiptId === 'string' ? body.receiptId : null,
-        snapshotToken: typeof body?.snapshotToken === 'string' ? body.snapshotToken : null,
-        outputIds: Array.isArray(body?.outputs)
-          ? body.outputs.map((output) => output?.outputId).filter((value) => typeof value === 'string')
-          : [],
-      };
-      record.responseMatchesRequest = status >= 200 && status < 300 && Boolean(record.response.receiptId) &&
-        record.response.snapshotToken === record.requestCAS.snapshotToken;
-    }).catch((error) => {
-      if (!flushExpired) record.responseReadError = String(error?.message ?? error).slice(0, 240);
-    }), record, 'reconcile-response-body');
-  };
-  const onRequestFinished = (request) => {
-    const identity = requests.get(request);
-    if (!identity) return;
-    append('finished', identity);
-    if (diagnostic && identity.record.retained) identity.record.finishedAtMonotonicMs = performance.now();
-    requests.delete(request);
-  };
-  const onRequestFailed = (request) => {
-    const identity = requests.get(request);
-    if (!identity) return;
-    const errorText = String(request.failure()?.errorText ?? 'request failed').slice(0, 240);
-    append('failed', identity, { errorText });
-    if (diagnostic && identity.record.retained) {
-      identity.record.errorText = errorText;
-      identity.record.failedAtMonotonicMs = performance.now();
-      captureFailureState(identity.record);
-    }
-    requests.delete(request);
-  };
-  page.on('request', onRequest);
-  page.on('response', onResponse);
-  page.on('requestfinished', onRequestFinished);
-  page.on('requestfailed', onRequestFailed);
-  return {
-    stop: () => {
-      const stoppedAtMonotonicMs = performance.now();
-      page.off('request', onRequest);
-      page.off('response', onResponse);
-      page.off('requestfinished', onRequestFinished);
-      page.off('requestfailed', onRequestFailed);
-      if (!diagnostic) return { path: expectedURL.pathname, maxEvents, droppedEvents, events };
-      return (async () => {
-        const reads = [...pendingReads.entries()];
-        let timeoutHandle;
-        let timedOutReadRecords = [];
-        const readFlushTimedOut = await Promise.race([
-          Promise.all(reads.map(([, read]) => read.promise)).then(() => false),
-          new Promise((resolve) => {
-            timeoutHandle = setTimeout(() => {
-              flushExpired = true;
-              timedOutReadRecords = [...pendingReads.values()];
-              resolve(true);
-            }, diagnosticReadFlushTimeoutMs);
-          }),
-        ]);
-        if (timeoutHandle) clearTimeout(timeoutHandle);
-        const timedOutReads = readFlushTimedOut
-          ? timedOutReadRecords.map(({ record, kind }) => ({
-            requestId: record?.id ?? null,
-            kind,
-          }))
-          : [];
-        if (readFlushTimedOut) {
-          for (const { record, kind } of timedOutReadRecords) {
-            if (!record) continue;
-            record.evidenceReadTimedOut = true;
-            record.evidenceReadError = `${kind} did not finish within ${diagnosticReadFlushTimeoutMs}ms`;
-          }
-        }
-        const receipts = new Map();
-        for (const record of requestRecords.filter((entry) => entry.kind === 'reconcile' && entry.responseMatchesRequest)) {
-          const bindings = receipts.get(record.response.receiptId) ?? [];
-          bindings.push({ ...record.requestCAS, responseSnapshotToken: record.response.snapshotToken,
-            outputIds: record.response.outputIds, reconciledAtMonotonicMs: record.responseAtMonotonicMs });
-          receipts.set(record.response.receiptId, bindings);
-        }
-        for (const record of requestRecords.filter((entry) => entry.kind === 'preview')) {
-          const bindings = (receipts.get(record.receiptId) ?? []).filter((binding) =>
-            Number.isFinite(binding.reconciledAtMonotonicMs) && binding.reconciledAtMonotonicMs <= record.startedAtMonotonicMs);
-          record.receiptBinding = bindings.length === 1 ? bindings[0] : null;
-          record.receiptBindingMatchesOutput = Boolean(record.receiptBinding?.outputIds.includes(record.outputId));
-        }
-        const readErrors = requestRecords.flatMap((record) => {
-          const error = record.evidenceReadError ?? record.responseReadError ?? record.visibleAfterFailure?.captureError;
-          return error ? [{ requestId: record.id, kind: record.kind, error }] : [];
-        });
-        const incompleteEvidence = readFlushTimedOut || readErrors.length > 0 || requestRecords.some((record) =>
-          record.kind === 'reconcile' && record.finishedAtMonotonicMs !== undefined &&
-          record.responseStatus === undefined && record.errorText === undefined);
-        return {
-          path: expectedURL.pathname,
-          maxEvents,
-          droppedEvents,
-          events,
-          captureStartedAtMonotonicMs: startedAt,
-          captureStoppedAtMonotonicMs: stoppedAtMonotonicMs,
-          scope: {
-            projectId: target.fixtureProject,
-            fixtureGeneration: target.fixtureGeneration,
-            explorerId: explorer,
-            origins: [...ownedOrigins],
-            paths: { preview: expectedURL.pathname, reconcile: reconcileURL.pathname },
-          },
-          droppedRequests,
-          diagnosticReadFlushTimeoutMs,
-          pendingReadCountAtStop: reads.length,
-          timedOutReads,
-          readErrors,
-          incompleteEvidence,
-          requests: requestRecords,
-          abortedPreviews: requestRecords.filter((record) => record.kind === 'preview' && record.errorText === 'net::ERR_ABORTED'),
-        };
-      })();
-    },
-  };
-};
 const reload = async (page, expression) => {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await waitFor(page, expression, 30000);
@@ -617,7 +313,7 @@ const assertRows = (report, name, grid, columns, expectedRows, extra = {}) => {
 };
 
 const waitSaved = (page, rows) => waitFor(page, savedPreview(rows), 30000);
-const reloadAndSelectSavedTable = async (report, page, outputId, rows, name, verify) => {
+const reloadAndSelectSavedTable = async (report, page, outputId, rows, name, verify, selectionReady) => {
   let verification;
   await recordBrowserTiming(report, page, {
     name,
@@ -625,7 +321,7 @@ const reloadAndSelectSavedTable = async (report, page, outputId, rows, name, ver
       await reload(page, workspaceReady);
       await selectTable(page, outputId);
     },
-    after: rows === undefined ? selectedOutputReady(outputId) : savedPreviewOutput(rows, outputId),
+    after: rows === undefined ? (selectionReady ?? selectedOutputReady(outputId)) : savedPreviewOutput(rows, outputId),
     verify: async () => { if (verify) verification = await verify(); },
     timeout: 5000,
     budget: 5000,
@@ -985,61 +681,17 @@ const createGroupSource = async (context, page, report, explorer, {
   };
 };
 
-const capturePost = (page, pathSuffix) => {
-  const entries = [];
-  const byRequest = new Map();
-  const pendingReads = [];
-  const onRequest = (request) => {
-    if (request.method() !== 'POST') return;
-    let url;
-    try { url = new URL(request.url()); } catch { return; }
-    if (!url.pathname.endsWith(pathSuffix)) return;
-    let body;
-    try { body = request.postDataJSON(); } catch { return; }
-    const entry = {
-      captureId: `draft-post-${++draftPostCaptureSequence}`,
-      request, url: url.href, path: url.pathname, body, status: null, response: null,
-      startedAtMonotonicMs: performance.now(),
-      actionAtStartId: activeTimedActionId ?? null,
-      actionAtStartName: activeTimedAction ?? null,
-    };
-    entries.push(entry);
-    byRequest.set(request, entry);
-  };
-  const onResponse = (response) => {
-    const entry = byRequest.get(response.request());
-    if (!entry) return;
-    entry.status = response.status();
-    entry.responseAtMonotonicMs = performance.now();
-    const read = response.json().then(value => { entry.response = value; }, error => { entry.readError = String(error); });
-    pendingReads.push(read);
-  };
-  const onRequestFailed = (request) => {
-    const entry = byRequest.get(request);
-    if (entry) entry.readError = request.failure()?.errorText ?? 'request failed';
-  };
-  page.on('request', onRequest);
-  page.on('response', onResponse);
-  page.on('requestfailed', onRequestFailed);
+const capturePost = (networkObserver, pathSuffix) => {
+  const fromIndex = networkObserver.requests.length;
+  const matchesPath = (entry) => entry.method === 'POST' && entry.path.endsWith(pathSuffix);
   return {
-    entries,
-    stop: async () => {
-      page.off('request', onRequest);
-      page.off('response', onResponse);
-      page.off('requestfailed', onRequestFailed);
-      await Promise.all(pendingReads);
+    get requests() {
+      return networkObserver.requests.slice(fromIndex).filter(matchesPath);
     },
-    waitFor: async (predicate, timeoutMs = 10000) => {
-      const deadline = Date.now() + timeoutMs;
-      while (Date.now() < deadline) {
-        const found = entries.findLast((entry) => predicate(entry) && entry.response !== null);
-        if (found) return found;
-        const failed = entries.find((entry) => predicate(entry) && entry.readError);
-        if (failed) throw new Error('Could not capture scoped native response: ' + failed.readError);
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      }
-      throw new Error('Timed out capturing POST ' + pathSuffix + '; captured=' + JSON.stringify(entries.map((entry) => ({ path: entry.path, status: entry.status, outputId: entry.body?.outputId }))));
-    },
+    waitForResponse: (predicate, { timeoutMs = 10_000 } = {}) => networkObserver.waitForResponse(
+      entry => matchesPath(entry) && predicate(entry),
+      { fromIndex, timeoutMs },
+    ),
   };
 };
 
@@ -1049,10 +701,10 @@ const selectTable = async (page, outputId) => {
   await waitFor(page, 'document.querySelector(' + JSON.stringify(selector) + ')?.getAttribute("aria-current")==="page"', 10000);
 };
 
-const startCombineTarget = async (context, page, report, explorer, sourceOutputId, sourceBuilder) => {
+const startCombineTarget = async (context, page, report, networkObserver, explorer, sourceOutputId, sourceBuilder) => {
   await selectTable(page, sourceOutputId);
-  const commands = capturePost(page, '/authoring/v2/commands');
-  try {
+  const commands = capturePost(networkObserver, '/authoring/v2/commands');
+  {
     await recordBrowserTiming(report, page, {
       name: 'open native Combine and create a separate empty target',
       action: () => click(page, 'button[data-testid="construction-action-combine"]'),
@@ -1060,12 +712,15 @@ const startCombineTarget = async (context, page, report, explorer, sourceOutputI
       timeout: 5000,
       budget: 5000,
     });
-    const command = await commands.waitFor((entry) => entry.body?.commands?.some((item) => item.type === 'CREATE_TABLE'));
+    const command = await commands.waitForResponse(
+      (entry) => entry.request?.commands?.some((item) => item.type === 'CREATE_TABLE'),
+      { timeoutMs: 10_000 },
+    );
     const mountedOutputId = await evaluate(page, 'document.querySelector(\'[data-testid="construction-operation-editor"][data-operation-family="COMBINE"]\')?.getAttribute("data-output-id")??null');
     const rootNodeIds = (sourceBuilder.catalog?.nodes ?? []).filter((node) => node.resourceType === 'Observation' && node.rowRootEligible).map((node) => node.nodeId);
     const previousOutputIds = (sourceBuilder.workspace?.documents ?? []).map((document) => document.output?.id).filter(Boolean);
     const evidence = nativeCombineTargetBindingEvidence({
-      requestBody: command.body,
+      requestBody: command.request,
       responseStatus: command.status,
       response: command.response,
       expectedRootNodeIds: rootNodeIds,
@@ -1079,13 +734,11 @@ const startCombineTarget = async (context, page, report, explorer, sourceOutputI
       outputId: evidence.outputId,
       rootResourceType: 'Observation',
       createCommandCAS: {
-        snapshotToken: command.body?.snapshotToken ?? null,
-        draftVersion: command.body?.expectedDraftVersion ?? null,
-        draftDigest: command.body?.expectedDraftDigest ?? null,
+        snapshotToken: command.request?.snapshotToken ?? null,
+        draftVersion: command.request?.expectedDraftVersion ?? null,
+        draftDigest: command.request?.expectedDraftDigest ?? null,
       },
     };
-  } finally {
-    await commands.stop();
   }
 };
 
@@ -1166,7 +819,7 @@ const membershipKeyMetadataEvidence = ({ event, builder, context, explorer, targ
       outputUnique: matches.length === 1,
     };
   });
-  const body = event?.body ?? {};
+  const body = event?.request ?? {};
   const expectedBuilderURL = new URL(apiRoot(context, explorer) + '/builder', context.target.apiUrl);
   const expectedCapabilitiesPath = expectedBuilderURL.pathname.replace(/\/builder$/, '/construction-capabilities');
   const requestURL = event?.url ? new URL(event.url) : undefined;
@@ -1260,14 +913,14 @@ const assertDraftCandidate = async (report, page, capture, base, target, sources
   const expectedBuilderURL = new URL(report.target.scope.requestURL);
   const expectedProposalPath = expectedBuilderURL.pathname.replace(/\/builder$/, '/construction-proposals');
   const expectedProposalOrigin = new URL(report.target.uiUrl).origin;
-  const event = await capture.waitFor((entry) => {
-    if (entry.path !== expectedProposalPath || entry.status !== 200 || entry.response?.previewStatus !== 'READY' || entry.body?.outputId !== target.outputId || !entry.body?.candidateConstruction) return false;
-    const step = entry.body.candidateConstruction.steps?.at(-1);
+  const event = await capture.waitForResponse((entry) => {
+    if (entry.path !== expectedProposalPath || entry.request?.outputId !== target.outputId || !entry.request?.candidateConstruction) return false;
+    const step = entry.request.candidateConstruction.steps?.at(-1);
     if (step?.operation?.kind !== 'COMBINE' || step.operation.combine?.kind !== expectedKind) return false;
     const ids = (step.inputs ?? []).map((input) => input?.outputId);
     return ids.length === expectedOutputIDs.length && ids.every((id, index) => id === expectedOutputIDs[index]);
-  });
-  const steps = event.body.candidateConstruction.steps ?? [];
+  }, { timeoutMs: 10_000 });
+  const steps = event.request.candidateConstruction.steps ?? [];
   const step = steps.at(-1);
   const evidence = currentDraftSourceEvidence({
     inputs: step?.inputs,
@@ -1281,9 +934,9 @@ const assertDraftCandidate = async (report, page, capture, base, target, sources
     validatedUIProxyOriginMatches: requestOrigin === expectedProposalOrigin,
     generationMatches: base.catalog?.generation === report.target.scope.generation,
     authorizationScopeMatches: base.catalog?.authorizationScopeDigest === report.target.scope.authorizationScopeDigest,
-    snapshotTokenMatches: event.body.snapshotToken === base.catalog?.snapshotToken,
-    expectedDraftVersionMatches: event.body.expectedDraftVersion === base.draftVersion,
-    expectedDraftDigestMatches: event.body.expectedDraftDigest === base.draftDigest,
+    snapshotTokenMatches: event.request.snapshotToken === base.catalog?.snapshotToken,
+    expectedDraftVersionMatches: event.request.expectedDraftVersion === base.draftVersion,
+    expectedDraftDigestMatches: event.request.expectedDraftDigest === base.draftDigest,
   };
   const proposalOriginMatched = scopeChecks.validatedUIProxyOriginMatches;
   const scope = Object.values(scopeChecks).every(Boolean);
@@ -1299,7 +952,7 @@ const assertDraftCandidate = async (report, page, capture, base, target, sources
   domProposal.selectedOutputId = selectionEvidence.selectedOutputId;
   domProposal.selectionEvidence = selectionEvidence;
   const responsePreview = event.response?.preview;
-  const requestConstruction = event.body.candidateConstruction;
+  const requestConstruction = event.request.candidateConstruction;
   const responseConstruction = event.response?.candidateConstruction;
   const responseChecks = {
     proposalIdMatchesDOM: event.response?.proposalId === domProposal.proposalId,
@@ -1309,9 +962,9 @@ const assertDraftCandidate = async (report, page, capture, base, target, sources
     domSelectedOutputMatchesTarget: !requireSelectedPreview || selectionEvidence.ok,
     noUserVisiblePreviewError: !requireSelectedPreview || domProposal.userVisiblePreviewError === false,
     responseOutputMatchesTarget: event.response?.outputId === target.outputId,
-    snapshotTokenMatchesRequest: event.response?.snapshotToken === event.body.snapshotToken,
-    draftVersionMatchesRequest: event.response?.draftVersion === event.body.expectedDraftVersion,
-    draftDigestMatchesRequest: event.response?.draftDigest === event.body.expectedDraftDigest,
+    snapshotTokenMatchesRequest: event.response?.snapshotToken === event.request.snapshotToken,
+    draftVersionMatchesRequest: event.response?.draftVersion === event.request.expectedDraftVersion,
+    draftDigestMatchesRequest: event.response?.draftDigest === event.request.expectedDraftDigest,
     previewStatusReady: event.response?.previewStatus === 'READY',
     candidateConstructionMatchesRequest: constructionCandidateWireEquivalent(requestConstruction, responseConstruction),
   };
@@ -1321,11 +974,9 @@ const assertDraftCandidate = async (report, page, capture, base, target, sources
       path: event.path,
       url: event.url,
       status: event.status,
-      captureId: event.captureId,
-      startedAtMonotonicMs: event.startedAtMonotonicMs,
-      responseAtMonotonicMs: event.responseAtMonotonicMs,
-      actionAtStartId: event.actionAtStartId,
-      actionAtStartName: event.actionAtStartName,
+      requestIndex: event.index,
+      startedAtMonotonicMs: event.startedAt,
+      responseAtMonotonicMs: event.completedAt,
       project: report.target.scope.project,
       explorer: report.target.scope.explorer,
       generation: report.target.scope.generation,
@@ -1353,16 +1004,14 @@ const assertDraftCandidate = async (report, page, capture, base, target, sources
     path: event.path,
     url: event.url,
     status: event.status,
-    captureId: event.captureId,
-    outputId: event.body.outputId,
+    requestIndex: event.index,
+    outputId: event.request.outputId,
     inputRefs: evidence.actual,
-    snapshotToken: event.body.snapshotToken,
-    expectedDraftVersion: event.body.expectedDraftVersion,
-    expectedDraftDigest: event.body.expectedDraftDigest,
-    startedAtMonotonicMs: event.startedAtMonotonicMs,
-    responseAtMonotonicMs: event.responseAtMonotonicMs,
-    actionAtStartId: event.actionAtStartId,
-    actionAtStartName: event.actionAtStartName,
+    snapshotToken: event.request.snapshotToken,
+    expectedDraftVersion: event.request.expectedDraftVersion,
+    expectedDraftDigest: event.request.expectedDraftDigest,
+    startedAtMonotonicMs: event.startedAt,
+    responseAtMonotonicMs: event.completedAt,
     responseMatchesRequest: scope && responseBound && event.status === 200,
     currentDraftCASBound: scope && responseChecks.snapshotTokenMatchesRequest &&
       responseChecks.draftVersionMatchesRequest && responseChecks.draftDigestMatchesRequest,
@@ -1376,9 +1025,6 @@ const assertDraftCandidate = async (report, page, capture, base, target, sources
     userVisiblePreviewError: domProposal.userVisiblePreviewError,
   };
   report.target.nativeCandidateRequest = candidateRequestEvidence;
-  if (Array.isArray(report.target.nativeCandidateRequests)) {
-    report.target.nativeCandidateRequests.push(candidateRequestEvidence);
-  }
 };
 
 const readPreviewIdentity = async (page) => evaluate(page, `(()=>{const p=document.querySelector('[data-testid="construction-preview"]');return {status:p?.dataset.previewStatus??null,receipt:p?.dataset.previewReceiptId??null,outputId:p?.dataset.previewOutputId??null,draftVersion:p?.dataset.currentDraftVersion??null,draftDigest:p?.dataset.currentDraftDigest??null,stale:Boolean(document.querySelector('[data-testid="construction-preview-stale-notice"]'))}})()`);
@@ -1451,7 +1097,7 @@ const cancelStepRemovalAndPreserve = async (context, page, report, explorer, tar
   }
 };
 
-const removeStepAndRestoreTarget = async (context, page, report, explorer, target, stepId, verifyReload) => {
+const removeStepAndRestoreTarget = async (context, page, report, explorer, target, stepId, verifyReload, { exactEmptyAfterApply = false } = {}) => {
   await selectTable(page, target.outputId);
   await click(page, '[data-testid="construction-history-step-' + stepId + '"]');
   await waitFor(page, 'Boolean(document.querySelector(' + JSON.stringify('[data-testid="construction-remove-step-' + stepId + '"]:not(:disabled)') + '))', 10000);
@@ -1465,7 +1111,8 @@ const removeStepAndRestoreTarget = async (context, page, report, explorer, targe
   await recordBrowserTiming(report, page, {
     name: 'apply Combine removal to restore the empty target',
     action: () => click(page, '[data-testid="construction-apply-proposal"]'),
-    after: "!document.querySelector('[data-testid=\"construction-proposal-panel\"]')&&" + selectedOutputReady(target.outputId),
+    after: exactEmptyAfterApply ? rootedEmptyTargetAppliedExpression(target.outputId) + '&&' + publishedMembershipSelectedOutputReady('saved', target.outputId) :
+      "!document.querySelector('[data-testid=\"construction-proposal-panel\"]')&&" + selectedOutputReady(target.outputId),
     timeout: 5000,
     budget: 5000,
   });
@@ -1484,10 +1131,11 @@ const removeStepAndRestoreTarget = async (context, page, report, explorer, targe
     });
     return builder;
   };
+  const selectionReady = exactEmptyAfterApply ? publishedMembershipSelectedOutputReady('saved', target.outputId) : undefined;
   if (verifyReload) {
-    return reloadAndSelectSavedTable(report, page, target.outputId, undefined, 'reload removed Combine and select its exact rooted empty output', verifyRestoredTarget);
+    return reloadAndSelectSavedTable(report, page, target.outputId, undefined, 'reload removed Combine and select its exact rooted empty output', verifyRestoredTarget, selectionReady);
   }
-  await reloadAndSelectSavedTable(report, page, target.outputId, undefined, 'reload removed Combine and select its exact rooted empty output');
+  await reloadAndSelectSavedTable(report, page, target.outputId, undefined, 'reload removed Combine and select its exact rooted empty output', undefined, selectionReady);
   return verifyRestoredTarget();
 };
 
@@ -1504,7 +1152,7 @@ const createBlankExplorer = async (page, target, runID, label, report) => {
   return { explorer, title };
 };
 
-const beginOwnedWorkspace = async (context, page, report, label) => {
+const beginOwnedWorkspace = async (context, page, report, label, networkObserver) => {
   assert.equal(context.custom, false, 'Draft Combine requires the owned isolated fixture project.');
   assert.equal(context.seed?.fresh, true, 'Draft Combine requires a fresh verification project.');
   assert(context.target.fixtureDir && context.target.fixtureGeneration, 'The exact Combine fixture and generation are required.');
@@ -1526,19 +1174,19 @@ const beginOwnedWorkspace = async (context, page, report, label) => {
   check(report, 'correctness', 'draft Combine uses the exact project, generation, Builder snapshot, and authorization scope', scope.ok, scope);
   if (!scope.ok) throw new Error('Fresh Builder scope is not bound to the requested owned fixture.');
   report.target.scope = scope;
-  let publishRequests = 0;
-  const onPublishRequest = (request) => {
-    try { if (new URL(request.url()).pathname.endsWith('/authoring/v2/publish')) publishRequests += 1; } catch {}
+  const observerFromIndex = networkObserver.requests.length;
+  return {
+    explorer: explorerInfo.explorer,
+    raw,
+    publishCount: () => networkObserver.requests.slice(observerFromIndex)
+      .filter(entry => entry.method === 'POST' && entry.path.endsWith('/authoring/v2/publish')).length,
   };
-  page.on('request', onPublishRequest);
-  return { explorer: explorerInfo.explorer, raw, stopPublish: () => page.off('request', onPublishRequest), publishCount: () => publishRequests };
 };
 
-export const draftJoinWorkflow = async ({ page, report }, context) => {
-  const run = await beginOwnedWorkspace(context, page, report, 'join');
-  const previewLifecycle = captureOwnedPreviewLifecycle(page, context.target, run.explorer);
+export const draftJoinWorkflow = async ({ page, report, networkObserver }, context) => {
+  const run = await beginOwnedWorkspace(context, page, report, 'join', networkObserver);
   const sources = [];
-  try {
+  {
     sources.push(await createGroupSource(context, page, report, run.explorer, {
       resourceType: 'Observation', title: 'Observation status counts', fieldPath: 'status', rawRows: run.raw.observations,
     }));
@@ -1546,11 +1194,11 @@ export const draftJoinWorkflow = async ({ page, report }, context) => {
       resourceType: 'DiagnosticReport', title: 'Report status counts', fieldPath: 'status', rawRows: run.raw.reports,
     }));
     const beforeTarget = await readBuilder(context, run.explorer);
-    let target = await startCombineTarget(context, page, report, run.explorer, sources[0].outputId, beforeTarget);
+    let target = await startCombineTarget(context, page, report, networkObserver, run.explorer, sources[0].outputId, beforeTarget);
     report.target.combineTarget = target;
     const base = await readBuilder(context, run.explorer);
-    const capture = capturePost(page, '/construction-proposals');
-    try {
+    const capture = capturePost(networkObserver, '/construction-proposals');
+    {
       const expectedInner = joinGroupedCounts(groupCounts(run.raw.observations, 'status'), groupCounts(run.raw.reports, 'status'));
       const finalMapping = await configureJoin(page, sources, 'INNER');
       await renderFinalMapping(page, report, 'INNER grouped draft Join auto-preview action-to-render within five seconds', finalMapping, expectedInner.length, target.outputId);
@@ -1575,10 +1223,10 @@ export const draftJoinWorkflow = async ({ page, report }, context) => {
 
       report.target.canceledCombineTarget = target;
       const retryBase = await readBuilder(context, run.explorer);
-      target = await startCombineTarget(context, page, report, run.explorer, sources[0].outputId, retryBase);
+      target = await startCombineTarget(context, page, report, networkObserver, run.explorer, sources[0].outputId, retryBase);
       report.target.combineTarget = target;
-      const leftCapture = capturePost(page, '/construction-proposals');
-      try {
+      const leftCapture = capturePost(networkObserver, '/construction-proposals');
+      {
         const currentBase = await readBuilder(context, run.explorer);
         const expectedLeft = joinGroupedCounts(groupCounts(run.raw.observations, 'status'), groupCounts(run.raw.reports, 'status'), 'LEFT');
         const finalMapping = await configureJoin(page, sources, 'LEFT');
@@ -1589,7 +1237,7 @@ export const draftJoinWorkflow = async ({ page, report }, context) => {
           expectedLeft.map((row) => row.map((value) => value === '—' ? '—' : String(value))));
         await assertDraftCandidate(report, page, leftCapture, currentBase, target, sources, 'KEY_JOIN');
         await applyCurrentProposal(page, report, 'apply current-draft LEFT Join', expectedLeft.length, target.outputId);
-      } finally { await leftCapture.stop(); }
+      }
       let builder = await readBuilder(context, run.explorer);
       let targetDocument = documentByOutput(builder, target.outputId);
       let step = targetDocument.construction?.steps?.at(-1);
@@ -1648,8 +1296,8 @@ export const draftJoinWorkflow = async ({ page, report }, context) => {
       const revisedLabelOption = await evaluate(page, "(()=>[...document.querySelector('select[aria-label=\"Output field 2 source field in input 1\"]')?.options??[]].map(o=>o.textContent.trim()))()");
       check(report, 'correctness', 'reopened Combine reads the edited source GROUP schema by stable output ID', revisedLabelOption.some((label) => label.includes(distinctLabel)), { revisedLabelOption });
       const combineEditBase = await readBuilder(context, run.explorer);
-      const combineEditCapture = capturePost(page, '/construction-proposals');
-      try {
+      const combineEditCapture = capturePost(networkObserver, '/construction-proposals');
+      {
         const innerAfterSourceEdit = joinGroupedCounts(distinctRows, groupCounts(run.raw.reports, 'status')).map((row) => row.map(String));
         await recordBrowserTiming(report, page, {
           name: 'edit saved Join to INNER and render its exact recomputed rows',
@@ -1661,27 +1309,23 @@ export const draftJoinWorkflow = async ({ page, report }, context) => {
         assertRows(report, 'edited saved Join changes to INNER with exact recomputed fixture rows', await readGrid(page, 'proposal'), headers, innerAfterSourceEdit);
         await assertDraftCandidate(report, page, combineEditCapture, combineEditBase, target, sources, 'KEY_JOIN');
         await applyCurrentProposal(page, report, 'apply saved Join edit from LEFT to INNER', innerAfterSourceEdit.length, target.outputId);
-      } finally { await combineEditCapture.stop(); }
+      }
       const innerAfterSourceEdit = joinGroupedCounts(distinctRows, groupCounts(run.raw.reports, 'status'))
         .map((row) => row.map((value) => value === '—' ? '—' : String(value)));
       await reloadAndSelectSavedTable(report, page, target.outputId, innerAfterSourceEdit.length, 'reload edited INNER Join and render its exact output');
       assertRows(report, 'edited Join values and INNER policy survive reload', await readGrid(page), headers, innerAfterSourceEdit);
       await cancelStepRemovalAndPreserve(context, page, report, run.explorer, target, step.id, innerAfterSourceEdit.length);
       await removeStepAndRestoreTarget(context, page, report, run.explorer, target, step.id);
-    } finally { await capture.stop(); }
+    }
     const after = await readBuilder(context, run.explorer);
     check(report, 'correctness', 'Join lifecycle made no Publish request or pinned revision reference', run.publishCount() === 0 && sources.every((source) => !JSON.stringify(after.workspace.documents).includes('TABLE_REVISION')), {
       publishRequests: run.publishCount(), inputKinds: after.workspace.documents.flatMap((document) => document.construction?.steps?.flatMap((step) => step.inputs ?? []) ?? []).map((input) => input.kind),
     });
-  } finally {
-    report.previewRequestLifecycle = previewLifecycle.stop();
-    run.stopPublish();
   }
 };
 
-export const draftMembershipWorkflow = async ({ page, report }, context) => {
-  const run = await beginOwnedWorkspace(context, page, report, 'membership');
-  const previewLifecycle = captureOwnedPreviewLifecycle(page, context.target, run.explorer);
+export const draftMembershipWorkflow = async ({ page, report, networkObserver }, context) => {
+  const run = await beginOwnedWorkspace(context, page, report, 'membership', networkObserver);
   const sources = [];
   const expectedIncludeRows = expectedMembership.includeIDs.map((id) => [id]);
   const expectedExcludeRows = expectedMembership.excludeIDs.map((id) => [id]);
@@ -1708,22 +1352,20 @@ export const draftMembershipWorkflow = async ({ page, report }, context) => {
 
   const openTargetWithVerifiedKeys = async () => {
     const sourceBuilder = await readBuilder(context, run.explorer);
-    const capabilities = capturePost(page, '/construction-capabilities');
-    try {
-      const target = await startCombineTarget(context, page, report, run.explorer, sources[0].outputId, sourceBuilder);
+    const capabilities = capturePost(networkObserver, '/construction-capabilities');
+    {
+      const target = await startCombineTarget(context, page, report, networkObserver, run.explorer, sources[0].outputId, sourceBuilder);
       const builder = await readBuilder(context, run.explorer);
-      const event = await capabilities.waitFor((entry) => entry.body?.outputId === target.outputId &&
-        entry.response?.outputId === target.outputId && Array.isArray(entry.response?.workspaceInputs), 10000);
+      const event = await capabilities.waitForResponse((entry) => entry.request?.outputId === target.outputId &&
+        entry.response?.outputId === target.outputId && Array.isArray(entry.response?.workspaceInputs), { timeoutMs: 10000 });
       const evidence = membershipKeyMetadataEvidence({ event, builder, context, explorer: run.explorer, target, sources });
       check(report, 'correctness', 'MEMBERSHIP key choices use exact current-draft metadata with scalar String IDs and compiled nullability', evidence.ok, evidence);
       if (!evidence.ok) throw new Error('Current-draft MEMBERSHIP source keys are not editor-eligible scalar String columns with exact compiled nullability metadata.');
       return { target, builder, evidence };
-    } finally {
-      await capabilities.stop();
     }
   };
 
-  try {
+  {
     sources.push(await createGroupSource(context, page, report, run.explorer, {
       resourceType: 'Observation', title: 'Observation ID membership source', fieldPath: 'id', rawRows: run.raw.observations, groupByID: true, reuseRootIdentity: true,
     }));
@@ -1735,8 +1377,8 @@ export const draftMembershipWorkflow = async ({ page, report }, context) => {
     let { target } = openedTarget;
     report.target.combineTarget = target;
     const firstBase = await readBuilder(context, run.explorer);
-    const firstCapture = capturePost(page, '/construction-proposals');
-    try {
+    const firstCapture = capturePost(networkObserver, '/construction-proposals');
+    {
       const finalMapping = await configureMembership(page, sources);
       await renderFinalMapping(page, report, 'INCLUDE MEMBERSHIP automatic preview completes within five seconds', finalMapping, expectedIncludeRows.length, target.outputId);
       await waitProposal(page, expectedIncludeRows.length, target.outputId);
@@ -1761,25 +1403,23 @@ export const draftMembershipWorkflow = async ({ page, report }, context) => {
         targetStayedEmpty,
         targetOutputId: target.outputId,
       });
-    } finally {
-      await firstCapture.stop();
     }
 
     openedTarget = await openTargetWithVerifiedKeys();
     ({ target } = openedTarget);
     report.target.combineTarget = target;
     let base = await readBuilder(context, run.explorer);
-    const includeCapture = capturePost(page, '/construction-proposals');
+    const includeCapture = capturePost(networkObserver, '/construction-proposals');
     let includeMetadata;
-    try {
+    {
       const finalMapping = await configureMembership(page, sources);
       await renderFinalMapping(page, report, 'second INCLUDE MEMBERSHIP automatic preview completes within five seconds', finalMapping, expectedIncludeRows.length, target.outputId);
       await waitProposal(page, expectedIncludeRows.length, target.outputId);
       assertRows(report, 'INCLUDE preview rows match the exact independent raw membership oracle',
         await readGrid(page, 'proposal'), ['Observation ID'], expectedIncludeRows);
       await assertDraftCandidate(report, page, includeCapture, base, target, sources, 'MEMBERSHIP');
-      const metadataEvent = includeCapture.entries.findLast((entry) => entry.body?.candidateConstruction?.steps?.at(-1)?.operation?.combine?.kind === 'MEMBERSHIP');
-      includeMetadata = metadataEvent?.body?.candidateConstruction?.steps?.at(-1)?.operation?.combine;
+      const metadataEvent = includeCapture.requests.findLast((entry) => entry.request?.candidateConstruction?.steps?.at(-1)?.operation?.combine?.kind === 'MEMBERSHIP');
+      includeMetadata = metadataEvent?.request?.candidateConstruction?.steps?.at(-1)?.operation?.combine;
       const includeKeyIDs = [sources[0].groupKeyLabel, sources[1].groupKeyLabel];
       const includeKeyEvidence = {
         modeIsInclude: includeMetadata?.membershipMode === 'INCLUDE',
@@ -1793,8 +1433,6 @@ export const draftMembershipWorkflow = async ({ page, report }, context) => {
       };
       check(report, 'correctness', 'INCLUDE proposal retains left rows with one exact current-draft key pair', Object.values(includeKeyEvidence).every(Boolean), includeKeyEvidence);
       await applyCurrentProposal(page, report, 'Apply current-draft INCLUDE MEMBERSHIP', expectedIncludeRows.length, target.outputId);
-    } finally {
-      await includeCapture.stop();
     }
 
     base = await readBuilder(context, run.explorer);
@@ -1834,8 +1472,8 @@ export const draftMembershipWorkflow = async ({ page, report }, context) => {
 
     await editSavedStep(page, report, target.outputId, step.id, '[data-testid="construction-combine-editor"]');
     const editBase = await readBuilder(context, run.explorer);
-    const excludeCapture = capturePost(page, '/construction-proposals');
-    try {
+    const excludeCapture = capturePost(networkObserver, '/construction-proposals');
+    {
       await recordBrowserTiming(report, page, {
         name: 'edit saved MEMBERSHIP from INCLUDE to EXCLUDE and preview the exact unmatched row',
         action: () => setSelectValue(page, 'select[aria-label="Which rows should stay?"]', 'EXCLUDE'),
@@ -1846,8 +1484,8 @@ export const draftMembershipWorkflow = async ({ page, report }, context) => {
       assertRows(report, 'EXCLUDE preview changes to exactly the unmatched Observation ID',
         await readGrid(page, 'proposal'), ['Observation ID'], expectedExcludeRows);
       await assertDraftCandidate(report, page, excludeCapture, editBase, target, sources, 'MEMBERSHIP');
-      const excludeEvent = excludeCapture.entries.findLast((entry) => entry.body?.candidateConstruction?.steps?.at(-1)?.operation?.combine?.kind === 'MEMBERSHIP');
-      const excludeStep = excludeEvent?.body?.candidateConstruction?.steps?.at(-1);
+      const excludeEvent = excludeCapture.requests.findLast((entry) => entry.request?.candidateConstruction?.steps?.at(-1)?.operation?.combine?.kind === 'MEMBERSHIP');
+      const excludeStep = excludeEvent?.request?.candidateConstruction?.steps?.at(-1);
       const excludeOperation = excludeStep?.operation?.combine;
       const editEvidence = {
         modeIsExclude: excludeOperation?.membershipMode === 'EXCLUDE',
@@ -1858,8 +1496,6 @@ export const draftMembershipWorkflow = async ({ page, report }, context) => {
       };
       check(report, 'correctness', 'EXCLUDE edit changes membership policy while preserving exact inputs, keys, and output identity', Object.values(editEvidence).every(Boolean), editEvidence);
       await applyCurrentProposal(page, report, 'Apply saved MEMBERSHIP EXCLUDE edit', expectedExcludeRows.length, target.outputId);
-    } finally {
-      await excludeCapture.stop();
     }
 
     base = await readBuilder(context, run.explorer);
@@ -1902,33 +1538,638 @@ export const draftMembershipWorkflow = async ({ page, report }, context) => {
       publishRequests: run.publishCount(),
       inputKinds,
     });
-  } finally {
-    report.previewRequestLifecycle = previewLifecycle.stop();
-    run.stopPublish();
   }
 };
 
-export const draftAppendWorkflow = async ({ page, report, nativeRequestLedger }, context, { upstreamDeriveEdit = false } = {}) => {
-  const nativeRequestScope = upstreamDeriveEdit ? undefined : openDraftCombineNativeRequestScope(nativeRequestLedger, context.target, 'Draft APPEND');
+
+export const publishedMembershipSelectedOutputReady = (kind, outputId) => {
+  const expectedOutputId = JSON.stringify(outputId);
+  const editorSelector = JSON.stringify('[data-testid="construction-operation-editor"][data-output-id]');
+  const targetSelector = JSON.stringify('[data-testid="construction-table-' + outputId + '"]');
+  const editorSelection = 'operationEditors.length===1&&operationEditors[0].getAttribute("data-output-id")===' + expectedOutputId;
+  if (kind === 'proposal') {
+    return '(()=>{const operationEditors=document.querySelectorAll(' + editorSelector + ');return ' + editorSelection + '})()';
+  }
+  if (kind !== 'saved') throw new Error('Unknown published Membership output-selection mode: ' + kind);
+  return '(()=>{const operationEditors=document.querySelectorAll(' + editorSelector + ');' +
+    'if(operationEditors.length>0)return ' + editorSelection + ';' +
+    'const targetTabs=document.querySelectorAll(' + targetSelector + ');' +
+    'const activeTabs=document.querySelectorAll(\'[data-testid^="construction-table-"][aria-current="page"]\');' +
+    'return targetTabs.length===1&&activeTabs.length===1&&activeTabs[0]===targetTabs[0]&&targetTabs[0].getAttribute("aria-current")==="page"})()';
+};
+
+export const publishedMembershipRowsReady = (kind, outputId, rows, headers = ['Observation ID']) => {
+  const expected = JSON.stringify({ outputId, headers, rows });
+  return '(()=>{const expected=' + expected + ';' +
+    'const proposal=' + JSON.stringify(kind === 'proposal') + ';' +
+    'const preview=proposal?document.querySelectorAll(\'[data-testid="construction-proposal-preview"][data-preview-status="ready"]\'):' +
+      'document.querySelectorAll(\'[data-testid="construction-preview"][data-preview-status="ready"]\');' +
+    'const panel=preview.length===1?preview[0]:null;' +
+    'const table=proposal?panel?.querySelector("table"):document.querySelector(\'[data-testid="preview-table-scroll"] [role="table"]\');' +
+    'const tidy=x=>String(x??"").replace(/\\s+/g," ").trim();' +
+    'const actualHeaders=proposal?[...(table?.querySelectorAll("thead th")??[])].map(cell=>tidy(cell.querySelector("span")?.textContent??cell.textContent)):' +
+      '[...(table?.querySelectorAll(\'[role="columnheader"]\')??[])].map(cell=>tidy(cell.textContent));' +
+    'const actualRows=proposal?[...(table?.querySelectorAll(\'tbody tr[data-testid="construction-proposal-preview-row"]\')??[])].map(row=>[...row.querySelectorAll("td")].map(cell=>tidy(cell.innerText))):' +
+      '[...(table?.querySelectorAll(\'[role="row"]\')??[])].slice(1).map(row=>[...row.querySelectorAll(\'[role="cell"]\')].map(cell=>tidy(cell.innerText)));' +
+    'const sort=values=>values.map(row=>JSON.stringify(row)).sort();' +
+    'const selectedOutputMatches=' + publishedMembershipSelectedOutputReady(kind, outputId) + ';' +
+    'const proposalPanel=document.querySelector(\'[data-testid="construction-proposal-panel"]\');' +
+    'const proposalIdentity=!proposal||(Boolean(panel?.getAttribute("data-preview-receipt-id"))&&Boolean(proposalPanel?.getAttribute("data-proposal-id")));' +
+    'const exactTable=Boolean(table&&JSON.stringify(actualHeaders)===JSON.stringify(expected.headers)&&' +
+      'JSON.stringify(sort(actualRows))===JSON.stringify(sort(expected.rows)));' +
+    'const savedShape=proposal||table?.getAttribute("aria-rowcount")===String(expected.rows.length+1);' +
+    'const bodyText=document.body?.innerText??"";' +
+    'const savedWorkspaceEvidence=document.querySelectorAll(\'[data-testid="construction-operation-editor"][data-output-id]\').length===1||Boolean(document.querySelector(\'[data-testid="construction-history"]\'));' +
+    'return Boolean(preview.length===1&&panel?.getAttribute("data-preview-output-id")===expected.outputId&&proposalIdentity&&' +
+      'selectedOutputMatches&&exactTable&&savedShape&&' +
+      '(proposal||(!document.querySelector(\'[data-testid="construction-proposal-panel"]\')&&savedWorkspaceEvidence))&&' +
+      '!bodyText.includes("Loading your table…")&&!bodyText.includes("Preview failed:")&&!bodyText.includes("Preview did not complete for this draft:"))})()';
+};
+
+export const publishedMembershipReadinessDiagnosticInPage = ({ outputId, rows, headers = ['Observation ID'] }) => {
+  const expected = { outputId, headers, rows };
+  const readySelector = '[data-testid="construction-proposal-preview"][data-preview-status="ready"]';
+  const allPreviewNodes = [...document.querySelectorAll('[data-testid="construction-proposal-preview"]')];
+  const previewNodes = [...document.querySelectorAll(readySelector)];
+  const preview = previewNodes.length === 1 ? previewNodes[0] : null;
+  const table = preview?.querySelector('table') ?? null;
+  const tidy = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+  const actualHeaders = [...(table?.querySelectorAll('thead th') ?? [])]
+    .map((cell) => tidy(cell.querySelector('span')?.textContent ?? cell.textContent));
+  const actualRows = [...(table?.querySelectorAll('tbody tr[data-testid="construction-proposal-preview-row"]') ?? [])]
+    .map((row) => [...row.querySelectorAll('td')].map((cell) => tidy(cell.innerText)));
+  const sortRows = (values) => values.map((row) => JSON.stringify(row)).sort();
+  const selectedSelector = '[data-testid="construction-table-' + outputId + '"]';
+  const targetTabs = document.querySelectorAll(selectedSelector);
+  const selected = targetTabs.length === 1 ? targetTabs[0] : null;
+  const operationEditors = document.querySelectorAll('[data-testid="construction-operation-editor"][data-output-id]');
+  const operationEditor = operationEditors.length === 1 ? operationEditors[0] : null;
+  const targetOutputSelected = operationEditors.length === 1 &&
+    operationEditor?.getAttribute('data-output-id') === expected.outputId;
+  const proposalPanel = document.querySelector('[data-testid="construction-proposal-panel"]');
+  const bodyText = document.body?.innerText ?? '';
+  const checks = {
+    oneReadyProposalPreview: previewNodes.length === 1,
+    exactPreviewOutput: preview?.getAttribute('data-preview-output-id') === expected.outputId,
+    proposalReceiptPresent: Boolean(preview?.getAttribute('data-preview-receipt-id')),
+    proposalIdentityPresent: Boolean(proposalPanel?.getAttribute('data-proposal-id')),
+    targetOutputSelected,
+    exactHeaders: Boolean(table) && JSON.stringify(actualHeaders) === JSON.stringify(expected.headers),
+    exactRows: Boolean(table) && JSON.stringify(sortRows(actualRows)) === JSON.stringify(sortRows(expected.rows)),
+    bodyHasNoLoadingOrPreviewFailure: !bodyText.includes('Loading your table…') &&
+      !bodyText.includes('Preview failed:') && !bodyText.includes('Preview did not complete for this draft:'),
+  };
+  return {
+    predicate: Object.values(checks).every(Boolean),
+    checks,
+    expected,
+    observed: {
+      allProposalPreviewStatuses: allPreviewNodes.map((node) => node.getAttribute('data-preview-status')),
+      readyProposalPreviewCount: previewNodes.length,
+      previewOutputId: preview?.getAttribute('data-preview-output-id') ?? null,
+      previewReceiptId: preview?.getAttribute('data-preview-receipt-id') ?? null,
+      proposalId: proposalPanel?.getAttribute('data-proposal-id') ?? null,
+      selectedSelector,
+      selectedMatchCount: targetTabs.length,
+      activeTabCount: document.querySelectorAll('[data-testid^="construction-table-"][aria-current="page"]').length,
+      selectedAriaCurrent: selected?.getAttribute('aria-current') ?? null,
+      operationEditorCount: operationEditors.length,
+      operationEditorOutputId: operationEditor?.getAttribute('data-output-id') ?? null,
+      actualHeaders,
+      actualRows,
+      bodyLoading: bodyText.includes('Loading your table…'),
+      bodyPreviewFailed: bodyText.includes('Preview failed:'),
+      bodyPreviewIncomplete: bodyText.includes('Preview did not complete for this draft:'),
+    },
+  };
+};
+
+const publishedRevisionInputValue = (revision) => JSON.stringify([revision.tableId, revision.revisionId, revision.outputId]);
+
+export const publishedMembershipWorkflow = async ({ page, report, networkObserver }, context) => {
+  const oracle = loadBasicPublishedMembershipOracle(context.target.fixtureDir);
+  const run = await beginOwnedWorkspace(context, page, report, 'published-membership', networkObserver);
+  const oracleMatchesOwnedFixture = oracle.ok &&
+    JSON.stringify(oracle.observations.ids) === JSON.stringify(run.raw.observations.map((row) => row.id).sort()) &&
+    JSON.stringify(oracle.reports.ids) === JSON.stringify(run.raw.reports.map((row) => row.id).sort());
+  check(report, 'correctness', 'Basic published MEMBERSHIP uses the exact independent Observation and DiagnosticReport ID oracle', oracleMatchesOwnedFixture, {
+    scope: 'Basic testdata/verify-combine only; this lifecycle does not use the CDA fixture or custom authorization',
+    observationFixture: { path: oracle.observations.path, sha256: oracle.observations.sha256, ids: oracle.observations.ids },
+    reportFixture: { path: oracle.reports.path, sha256: oracle.reports.sha256, ids: oracle.reports.ids },
+    includeRows: oracle.includeRows,
+    excludeRows: oracle.excludeRows,
+  });
+  if (!oracleMatchesOwnedFixture) throw new Error('Basic published Membership fixture differs from the independent literal ID oracle.');
+
+  const sources = [];
+  sources.push(await createGroupSource(context, page, report, run.explorer, {
+    resourceType: 'Observation', title: 'Published Observation ID source', fieldPath: 'id',
+    rawRows: run.raw.observations, groupByID: true, reuseRootIdentity: true,
+  }));
+  sources.push(await createGroupSource(context, page, report, run.explorer, {
+    resourceType: 'DiagnosticReport', title: 'Published DiagnosticReport ID source', fieldPath: 'id',
+    rawRows: run.raw.reports, groupByID: true, reuseRootIdentity: true,
+  }));
+
+  const builderBeforePublish = await readBuilder(context, run.explorer);
+  const sourceDocumentsBefore = sources.map((source) => snapshotSourceDocument(documentByOutput(builderBeforePublish, source.outputId)));
+  const sourceBindings = sources.map((source, index) => {
+    const document = documentByOutput(builderBeforePublish, source.outputId);
+    const group = document.construction?.steps?.at(-1);
+    return {
+      outputId: document.output?.id,
+      outputTitle: document.output?.title,
+      expectedTitle: source.title,
+      rootResourceType: document.rootResourceType,
+      expectedRootResourceType: source.rootResourceType,
+      groupStepId: group?.id ?? null,
+      groupKind: group?.operation?.kind ?? null,
+      groupKeyColumnId: source.groupKeyOutputColumnId,
+      expectedIDs: index === 0 ? oracle.observations.ids : oracle.reports.ids,
+      uniqueOutput: Boolean(document.output?.id && sources.filter((candidate) => candidate.outputId === document.output.id).length === 1),
+    };
+  });
+  const sourceBindingsExact = builderBeforePublish.workspace?.documents?.length === 2 && sourceBindings.length === 2 && sourceBindings.every((source) =>
+    source.outputId && source.outputTitle === source.expectedTitle && source.rootResourceType === source.expectedRootResourceType &&
+    source.groupStepId && source.groupKind === 'GROUP' && source.groupKeyColumnId && source.uniqueOutput) &&
+    sourceBindings[0].rootResourceType === 'Observation' && sourceBindings[1].rootResourceType === 'DiagnosticReport';
+  check(report, 'persistence', 'native Basic ID GROUP sources retain their exact rooted output identities and titles before publication', sourceBindingsExact, sourceBindings);
+  if (!sourceBindingsExact) throw new Error('Native Basic published Membership source roots or output titles are not exact.');
+
+  let publishState;
+  await recordBrowserTiming(report, page, {
+    name: 'Publish both exact Basic GROUP sources through native Builder within five seconds',
+    action: () => click(page, 'button', { name: 'Publish' }),
+    after: "(()=>{const button=[...document.querySelectorAll('button')].find(item=>item.textContent.trim()==='Publish');const failed=document.body?.innerText?.includes('Publication failed;')??false;return Boolean(failed||(button&&button.getAttribute('aria-busy')==='false'&&button.disabled))})()",
+    timeout: 5000,
+    budget: 5000,
+  });
+  publishState = await evaluate(page, "(()=>{const button=[...document.querySelectorAll('button')].find(item=>item.textContent.trim()==='Publish');const body=document.body?.innerText??'';return {buttonPresent:Boolean(button),busy:button?.getAttribute('aria-busy')??null,disabled:button?.disabled??null,failure:body.match(/Publication failed;[^\\n]*/)?.[0]??null}})()");
+  const publishExact = publishState.buttonPresent && publishState.busy === 'false' && publishState.disabled === true && !publishState.failure;
+  check(report, 'correctness', 'native Builder publishes the two selected Basic GROUP source outputs successfully', publishExact, {
+    publishState,
+    sourceOutputIDs: sources.map((source) => source.outputId),
+  });
+  if (!publishExact) throw new Error('Native Builder did not complete publication for the exact Basic source outputs: ' + JSON.stringify(publishState));
+
+  const builderAfterPublish = await readBuilder(context, run.explorer);
+  const publishedDocuments = sources.map((source) => documentByOutput(builderAfterPublish, source.outputId));
+  const publicationPreservesSourceDocs = sources.length === sourceDocumentsBefore.length &&
+    sources.every((source, index) => sameSourceDocuments(publishedDocuments[index], sourceDocumentsBefore[index]));
+  check(report, 'persistence', 'publishing preserves both saved Basic source constructions and root/title bindings', publicationPreservesSourceDocs, {
+    sourceOutputIDs: sources.map((source) => source.outputId),
+    currentTitles: publishedDocuments.map((document) => document.output?.title ?? null),
+    sourceDocumentsUnchanged: publicationPreservesSourceDocs,
+  });
+
+  const catalogURL = apiRoot(context, run.explorer) + '/construction-inputs';
+  const publishedEntries = [];
+  let cursor;
+  do {
+    const response = await requestJSON(catalogURL, {
+      snapshotToken: builderAfterPublish.catalog.snapshotToken,
+      expectedDraftVersion: builderAfterPublish.draftVersion,
+      expectedDraftDigest: builderAfterPublish.draftDigest,
+      ...(cursor ? { cursor } : {}),
+      limit: 100,
+    });
+    assert.equal(response.snapshotToken, builderAfterPublish.catalog.snapshotToken);
+    assert.equal(response.draftVersion, builderAfterPublish.draftVersion);
+    assert.equal(response.draftDigest, builderAfterPublish.draftDigest);
+    assert.equal(response.datasetGeneration, context.target.fixtureGeneration);
+    publishedEntries.push(...response.entries);
+    cursor = response.nextCursor || undefined;
+  } while (cursor);
+
+  const revisions = sources.map((source) => currentPublishedRevisionForOutput(publishedEntries, source.outputId));
+  const revisionColumns = revisions.map((revision, index) => {
+    const resourceType = sources[index].rootResourceType;
+    const idColumn = findColumn(revision, resourceType, 'id');
+    return { idColumn, resourceType };
+  });
+  const revisionsExact = revisions.length === 2 && revisions.every((revision, index) =>
+    revision.kind === 'TABLE_REVISION' && revision.outputId === sources[index].outputId && revision.isCurrent === true &&
+    revision.tableId && revision.revisionId && revision.columns.some((column) => column.id === revisionColumns[index].idColumn.id) &&
+    revisionColumns[index].idColumn.label === sources[index].groupKeyLabel &&
+    isPublishedMembershipIDColumn(revisionColumns[index].idColumn));
+  check(report, 'correctness', 'published catalog exposes the exact current scalar String ID revision for each Basic source output', revisionsExact, {
+    revisions: revisions.map((revision, index) => ({
+      tableId: revision.tableId, revisionId: revision.revisionId, outputId: revision.outputId,
+      isCurrent: revision.isCurrent, rootResourceType: sources[index].rootResourceType,
+      idColumn: revisionColumns[index].idColumn,
+    })),
+  });
+  if (!revisionsExact) throw new Error('Published Basic source revisions do not expose the exact scalar String ID columns needed for MEMBERSHIP.');
+  report.target.publishedMembership = {
+    fixtureScope: 'Basic testdata/verify-combine; no CDA or custom fixture scope',
+    sourceOutputIDs: sources.map((source) => source.outputId),
+    revisions: revisions.map((revision) => ({ tableId: revision.tableId, revisionId: revision.revisionId, outputId: revision.outputId })),
+    fixtureOracle: {
+      observationSHA256: oracle.observations.sha256,
+      reportSHA256: oracle.reports.sha256,
+      includeRows: oracle.includeRows,
+      excludeRows: oracle.excludeRows,
+    },
+  };
+
+  let target = await startCombineTarget(context, page, report, networkObserver,
+    run.explorer, sources[0].outputId, builderAfterPublish);
+  const targetBase = await readBuilder(context, run.explorer);
+  const targetDocument = documentByOutput(targetBase, target.outputId);
+  const targetIdentityExact = target.rootResourceType === 'Observation' &&
+    targetDocument.rootResourceType === 'Observation' && targetDocument.output?.id === target.outputId &&
+    Boolean(targetDocument.output?.title) && targetDocument.columns.length === 0 &&
+    (targetDocument.construction?.steps?.length ?? 0) === 0;
+  check(report, 'persistence', 'native Combine creates a distinct empty Observation target with its exact saved output and root binding', targetIdentityExact, {
+    outputId: target.outputId,
+    outputTitle: targetDocument.output?.title ?? null,
+    rootResourceType: targetDocument.rootResourceType,
+    columns: targetDocument.columns,
+    steps: targetDocument.construction?.steps ?? [],
+  });
+  if (!targetIdentityExact) throw new Error('Native published-source Membership target is not the exact rooted empty Observation output.');
+
+  const exactRowsExpression = (kind, rows) => publishedMembershipRowsReady(kind, target.outputId, rows);
+  const exactEmptyTargetExpression = (outputId) => rootedEmptyTargetAppliedExpression(outputId) + '&&' +
+    publishedMembershipSelectedOutputReady('saved', outputId);
+  const selectTargetWithinBudget = async () => {
+    const selector = '[data-testid="construction-table-' + target.outputId + '"]';
+    if (!await evaluate(page, publishedMembershipSelectedOutputReady('saved', target.outputId))) {
+      const locator = await locate(page, selector);
+      await locator.click({ timeout: 5000 });
+    }
+    await waitFor(page, publishedMembershipSelectedOutputReady('saved', target.outputId), 5000);
+  };
+  const reloadTarget = async (name, rows) => {
+    await recordBrowserTiming(report, page, {
+      name,
+      action: async () => {
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 5000 });
+        await waitFor(page, workspaceReady, 5000);
+        await selectTargetWithinBudget();
+      },
+      after: rows === null ? exactEmptyTargetExpression(target.outputId) : exactRowsExpression('saved', rows),
+      timeout: 5000,
+      budget: 5000,
+    });
+    if (rows !== null) assertRows(report, name + ' shows the exact independent Basic Membership rows after reload',
+      await readGrid(page), ['Observation ID'], rows);
+  };
+  const timedSelect = async (name, selector, value, after) => {
+    await recordBrowserTiming(report, page, {
+      name,
+      action: () => setSelectValue(page, selector, value),
+      after: after ?? 'document.querySelector(' + JSON.stringify(selector) + ')?.value===' + JSON.stringify(value),
+      timeout: 5000,
+      budget: 5000,
+    });
+  };
+  const exactRevisionOptionAvailable = (selector, revision) => {
+    const value = publishedRevisionInputValue(revision);
+    return '(()=>{const select=document.querySelector(' + JSON.stringify(selector) + ');return Boolean(select&&[...select.options].some(option=>' +
+      'option.value===' + JSON.stringify(value) + '&&!option.disabled&&option.parentElement?.label==="Published versions"))})()';
+  };
+  const configurePublishedMembership = async (mode, expectedRows, name) => {
+    await recordBrowserTiming(report, page, {
+      name: name + ' selects native MEMBERSHIP and resolves both exact published revision choices within five seconds',
+      action: () => click(page, 'button[data-testid="construction-combine-choice-membership"]'),
+      after: "Boolean(document.querySelector('select[aria-label=\"Input table 1\"]'))&&Boolean(document.querySelector('select[aria-label=\"Input table 2\"]'))&&" +
+        exactRevisionOptionAvailable('select[aria-label="Input table 1"]', revisions[0]) + '&&' +
+        exactRevisionOptionAvailable('select[aria-label="Input table 2"]', revisions[1]),
+      timeout: 5000,
+      budget: 5000,
+    });
+    for (let index = 0; index < revisions.length; index += 1) {
+      const selector = 'select[aria-label="Input table ' + (index + 1) + '"]';
+      const value = publishedRevisionInputValue(revisions[index]);
+      const selectedRevision = 'document.querySelector(' + JSON.stringify(selector) + ')?.value===' + JSON.stringify(value);
+      const keyChoicesReady = '(()=>{const left=document.querySelector(\'select[aria-label="Matching pair 1 first field"]\');' +
+        'const right=document.querySelector(\'select[aria-label="Matching pair 1 second field"]\');return Boolean(left&&right&&' +
+        '[...left.options].some(option=>option.value===' + JSON.stringify(revisionColumns[0].idColumn.id) + '&&!option.disabled)&&' +
+        '[...right.options].some(option=>option.value===' + JSON.stringify(revisionColumns[1].idColumn.id) + '&&!option.disabled))})()';
+      await timedSelect(name + ' pins exact ' + sources[index].rootResourceType + ' TABLE_REVISION input ' + (index + 1), selector, value,
+        index === 1 ? selectedRevision + '&&' + keyChoicesReady : selectedRevision);
+    }
+    const leftKey = revisionColumns[0].idColumn;
+    const rightKey = revisionColumns[1].idColumn;
+    for (const [selector, column] of [
+      ['select[aria-label="Matching pair 1 first field"]', leftKey],
+      ['select[aria-label="Matching pair 1 second field"]', rightKey],
+    ]) {
+      const optionsReady = '(()=>{const select=document.querySelector(' + JSON.stringify(selector) + ');return Boolean(select&&[...select.options].some(option=>option.value===' +
+        JSON.stringify(column.id) + '&&!option.disabled))})()';
+      await waitFor(page, optionsReady, 5000);
+      await timedSelect(name + ' chooses exact published ' + column.label + ' key columnId', selector, column.id);
+    }
+    await timedSelect(name + ' selects explicit ' + mode + ' membership policy',
+      'select[aria-label="Which rows should stay?"]', mode);
+    await recordBrowserTiming(report, page, {
+      name: name + ' adds the exact left-ID output field',
+      action: () => click(page, 'button', { name: 'Add output field' }),
+      after: 'Boolean(document.querySelector(\'input[aria-label="Output field 1 name"]\'))&&Boolean(document.querySelector(\'input[aria-label="Output field 1 label"]\'))',
+      timeout: 5000,
+      budget: 5000,
+    });
+    await fill(page, 'input[aria-label="Output field 1 name"]', 'observation_id');
+    await fill(page, 'input[aria-label="Output field 1 label"]', 'Observation ID');
+    const mappingSelector = 'select[aria-label="Output field 1 source field in input 1"]';
+    const previewActionName = name + ' previews exact ' + mode + ' rows from the published Observation ID source within five seconds';
+    try {
+      await recordBrowserTiming(report, page, {
+        name: previewActionName,
+        action: () => setSelectValue(page, mappingSelector, leftKey.id),
+        after: exactRowsExpression('proposal', expectedRows),
+        timeout: 5000,
+        budget: 5000,
+      });
+    } catch (error) {
+      if (name === 'initial published-source INCLUDE' && report.actions.at(-1)?.name === previewActionName) {
+        const failedAction = report.actions.at(-1);
+        let timer;
+        try {
+          failedAction.failureDiagnostics = await Promise.race([
+            page.evaluate(publishedMembershipReadinessDiagnosticInPage, { outputId: target.outputId, rows: expectedRows }),
+            new Promise((resolve) => { timer = setTimeout(() => resolve({ captureTimedOut: true }), 1000); }),
+          ]);
+        } catch (diagnosticError) {
+          failedAction.failureDiagnostics = { captureError: diagnosticError instanceof Error ? diagnosticError.message : String(diagnosticError) };
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+      throw error;
+    }
+    assertRows(report, name + ' preview equals the literal independent ' + mode + ' Observation IDs',
+      await readGrid(page, 'proposal'), ['Observation ID'], expectedRows);
+    return { leftKey, rightKey, mappingSelector };
+  };
+  const candidateEvidence = async (base, keys, mode, name) => {
+    const selectors = {
+      input1: 'select[aria-label="Input table 1"]',
+      input2: 'select[aria-label="Input table 2"]',
+      leftKey: 'select[aria-label="Matching pair 1 first field"]',
+      rightKey: 'select[aria-label="Matching pair 1 second field"]',
+      policy: 'select[aria-label="Which rows should stay?"]',
+      outputName: 'input[aria-label="Output field 1 name"]',
+      outputLabel: 'input[aria-label="Output field 1 label"]',
+      outputMapping: 'select[aria-label="Output field 1 source field in input 1"]',
+    };
+    const controls = await evaluate(page, `(()=>{const read=(selector)=>document.querySelector(selector)?.value??null;return {input1:read(${JSON.stringify(selectors.input1)}),input2:read(${JSON.stringify(selectors.input2)}),leftKey:read(${JSON.stringify(selectors.leftKey)}),rightKey:read(${JSON.stringify(selectors.rightKey)}),policy:read(${JSON.stringify(selectors.policy)}),outputName:read(${JSON.stringify(selectors.outputName)}),outputLabel:read(${JSON.stringify(selectors.outputLabel)}),outputMapping:read(${JSON.stringify(selectors.outputMapping)})}})()`);
+    const dom = await evaluate(page, `(()=>{const preview=document.querySelector('[data-testid="construction-proposal-preview"]');const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return {status:preview?.getAttribute('data-preview-status')??null,outputId:preview?.getAttribute('data-preview-output-id')??null,receiptId:preview?.getAttribute('data-preview-receipt-id')??null,proposalId:panel?.getAttribute('data-proposal-id')??null,selectedOutput:${publishedMembershipSelectedOutputReady('proposal', target.outputId)},failed:document.body?.innerText?.includes('Preview failed:')??false}})()`);
+    const outputTitleBinding = bindUniqueConstructionOutputTitle(base.workspace?.documents, target.outputId);
+    const expectedInputs = revisions.map((revision) => publishedRevisionInputValue(revision));
+    const checks = {
+      exactPublishedRevisionChoices: controls.input1 === expectedInputs[0] && controls.input2 === expectedInputs[1],
+      exactIDKeyControls: controls.leftKey === keys.leftKey.id && controls.rightKey === keys.rightKey.id,
+      exactPolicyControl: controls.policy === mode,
+      exactLeftIDProjectionControl: controls.outputName === 'observation_id' && controls.outputLabel === 'Observation ID' &&
+        controls.outputMapping === keys.leftKey.id,
+      exactTargetOutputTitle: outputTitleBinding.ok,
+      readyProposalReceiptAndOutput: dom.status === 'ready' && dom.outputId === target.outputId && Boolean(dom.receiptId) && Boolean(dom.proposalId),
+      correctSelectedOutput: dom.selectedOutput && !dom.failed,
+    };
+    const ok = Object.values(checks).every(Boolean);
+    check(report, 'correctness', name + ' candidate selects exact published revisions, key columns, output projection, and target', ok, {
+      checks,
+      controls,
+      dom,
+      outputTitleBinding,
+      expectedInputValues: expectedInputs,
+    });
+    if (!ok) throw new Error(name + ' proposal did not preserve exact published revision and Observation ID bindings.');
+    return { leftKey: keys.leftKey, rightKey: keys.rightKey, outputName: controls.outputName, outputLabel: controls.outputLabel };
+  };
+
+  const initialProposalBase = await readBuilder(context, run.explorer);
+  const includeKeys = await configurePublishedMembership('INCLUDE', oracle.includeRows, 'initial published-source INCLUDE');
+  await candidateEvidence(initialProposalBase, includeKeys, 'INCLUDE', 'initial published INCLUDE');
+
+  const cancelBase = await readBuilder(context, run.explorer);
+  await recordBrowserTiming(report, page, {
+    name: 'Cancel initial published INCLUDE preview and restore the exact empty target within five seconds',
+    action: () => click(page, '[data-testid="construction-cancel-proposal"]'),
+    after: exactEmptyTargetExpression(target.outputId),
+    timeout: 5000,
+    budget: 5000,
+  });
+  await reloadTarget('reload canceled published INCLUDE and render the exact rooted empty target within five seconds', null);
+  const afterCancel = await readBuilder(context, run.explorer);
+  const cancelEvidence = canceledDraftEvidence(cancelBase, afterCancel);
+  const canceledTargetEmpty = documentByOutput(afterCancel, target.outputId).rootResourceType === 'Observation' &&
+    documentByOutput(afterCancel, target.outputId).columns.length === 0 &&
+    (documentByOutput(afterCancel, target.outputId).construction?.steps?.length ?? 0) === 0;
+  check(report, 'persistence', 'Cancel leaves published source revisions, the exact rooted target, and draft CAS unchanged after reload',
+    cancelEvidence.ok && canceledTargetEmpty, { cancelEvidence, canceledTargetEmpty, outputId: target.outputId });
+
+  const builderAfterCancel = await readBuilder(context, run.explorer);
+  const canceledTarget = documentByOutput(builderAfterCancel, target.outputId);
+  const applyTargetBase = await readBuilder(context, run.explorer);
+  const reopenedTarget = await startCombineTarget(context, page, report, networkObserver,
+    run.explorer, sources[0].outputId, applyTargetBase);
+  const reopenedBuilder = await readBuilder(context, run.explorer);
+  const reopenedDocument = documentByOutput(reopenedBuilder, reopenedTarget.outputId);
+  const targetReopenedDistinctly = reopenedTarget.outputId !== target.outputId &&
+    canceledTarget.rootResourceType === 'Observation' && canceledTarget.columns.length === 0 &&
+    (canceledTarget.construction?.steps?.length ?? 0) === 0 && reopenedDocument.rootResourceType === 'Observation' &&
+    reopenedDocument.columns.length === 0 && (reopenedDocument.construction?.steps?.length ?? 0) === 0;
+  check(report, 'persistence', 'reopening native Combine after Cancel uses a distinct empty rooted target and preserves the canceled target', targetReopenedDistinctly, {
+    canceledOutputId: target.outputId, reopenedOutputId: reopenedTarget.outputId, targetReopenedDistinctly,
+  });
+  if (!targetReopenedDistinctly) throw new Error('Cancel did not preserve the first target before native Combine created a new one.');
+  target = reopenedTarget;
+  report.target.combineTarget = target;
+  const activeTargetTitle = reopenedDocument.output?.title;
+  const applyBase = reopenedBuilder;
+  const appliedIncludeKeys = await configurePublishedMembership('INCLUDE', oracle.includeRows, 'applied published-source INCLUDE');
+  const appliedIncludeCandidate = await candidateEvidence(applyBase, appliedIncludeKeys, 'INCLUDE', 'applied published INCLUDE');
+  await recordBrowserTiming(report, page, {
+    name: 'Apply published INCLUDE and render all exact matched Observation IDs within five seconds',
+    action: () => click(page, '[data-testid="construction-apply-proposal"]'),
+    after: exactRowsExpression('saved', oracle.includeRows),
+    timeout: 5000,
+    budget: 5000,
+  });
+  assertRows(report, 'saved published INCLUDE output contains exactly the three matched Observation IDs',
+    await readGrid(page), ['Observation ID'], oracle.includeRows);
+
+  let builder = await readBuilder(context, run.explorer);
+  let targetDoc = documentByOutput(builder, target.outputId);
+  let step = targetDoc.construction?.steps?.at(-1);
+  const includeSaved = step?.operation?.kind === 'COMBINE' &&
+    step.operation.combine?.kind === 'MEMBERSHIP' && step.operation.combine.membershipMode === 'INCLUDE' &&
+    step.inputs?.length === 2 && step.inputs.every((input, index) => input.kind === 'TABLE_REVISION' &&
+      input.tableId === revisions[index].tableId && input.revisionId === revisions[index].revisionId && input.outputId === revisions[index].outputId) &&
+    step.operation.combine.keys?.length === 1 && step.operation.combine.keys[0]?.leftColumnId === appliedIncludeKeys.leftKey.id &&
+    step.operation.combine.keys[0]?.rightColumnId === appliedIncludeKeys.rightKey.id &&
+    step.operation.combine.projections?.length === 1 && step.operation.combine.projections[0]?.inputIndex === 0 &&
+    step.operation.combine.projections[0]?.inputColumnId === appliedIncludeKeys.leftKey.id &&
+    step.operation.combine.projections[0]?.outputColumnId === step.outputs?.[0]?.id &&
+    step.outputs?.length === 1 && step.outputs[0]?.name === appliedIncludeCandidate.outputName &&
+    step.outputs[0]?.label === appliedIncludeCandidate.outputLabel && step.outputs[0]?.type === 'string';
+  const includeSavedBindings = {
+    stepId: step?.id ?? null,
+    inputs: structuredClone(step?.inputs ?? []),
+    keys: structuredClone(step?.operation?.combine?.keys ?? []),
+    projections: structuredClone(step?.operation?.combine?.projections ?? []),
+    outputs: (step?.outputs ?? []).map((column) => ({ id: column.id, name: column.name, label: column.label, type: column.type })),
+  };
+  check(report, 'persistence', 'saved INCLUDE Membership pins both exact current Basic TABLE_REVISION inputs and stable output identity', includeSaved, {
+    stepId: step?.id ?? null,
+    mode: step?.operation?.combine?.membershipMode ?? null,
+    inputs: step?.inputs ?? [],
+    outputIDs: step?.outputs?.map((column) => column.id) ?? [],
+    expectedOutputName: appliedIncludeCandidate.outputName,
+  });
+  if (!includeSaved) throw new Error('Saved INCLUDE Membership did not retain the exact published revision, key, and output bindings.');
+  await reloadTarget('reload applied published INCLUDE and render all exact matched Observation IDs within five seconds', oracle.includeRows);
+  const reloadedIncludeBuilder = await readBuilder(context, run.explorer);
+  const reloadedIncludeDocument = documentByOutput(reloadedIncludeBuilder, target.outputId);
+  const reloadedIncludeStep = reloadedIncludeDocument.construction?.steps?.at(-1);
+  const includeBindingSurvivesReload = reloadedIncludeDocument.rootResourceType === 'Observation' &&
+    reloadedIncludeDocument.output?.title === activeTargetTitle && reloadedIncludeStep?.id === includeSavedBindings.stepId &&
+    reloadedIncludeStep.operation?.combine?.membershipMode === 'INCLUDE' &&
+    JSON.stringify(reloadedIncludeStep.inputs) === JSON.stringify(includeSavedBindings.inputs) &&
+    JSON.stringify(reloadedIncludeStep.operation?.combine?.keys) === JSON.stringify(includeSavedBindings.keys) &&
+    JSON.stringify(reloadedIncludeStep.operation?.combine?.projections) === JSON.stringify(includeSavedBindings.projections) &&
+    JSON.stringify(reloadedIncludeStep.outputs?.map((column) => ({ id: column.id, name: column.name, label: column.label, type: column.type }))) ===
+      JSON.stringify(includeSavedBindings.outputs);
+  check(report, 'persistence', 'reloaded INCLUDE retains the exact Basic target title, rooted output, published revision bindings, and output identity', includeBindingSurvivesReload, {
+    rootResourceType: reloadedIncludeDocument.rootResourceType,
+    outputTitle: reloadedIncludeDocument.output?.title ?? null,
+    stepId: reloadedIncludeStep?.id ?? null,
+    mode: reloadedIncludeStep?.operation?.combine?.membershipMode ?? null,
+    inputs: reloadedIncludeStep?.inputs ?? [],
+    outputIDs: reloadedIncludeStep?.outputs?.map((column) => column.id) ?? [],
+  });
+  step = reloadedIncludeStep;
+
+  await editSavedStep(page, report, target.outputId, step.id, '[data-testid="construction-combine-editor"]');
+  const editBase = await readBuilder(context, run.explorer);
+  await recordBrowserTiming(report, page, {
+    name: 'Edit published Membership from INCLUDE to EXCLUDE and settle on the exact unmatched Observation ID within five seconds',
+    action: () => setSelectValue(page, 'select[aria-label="Which rows should stay?"]', 'EXCLUDE'),
+    after: exactRowsExpression('proposal', oracle.excludeRows),
+    timeout: 5000,
+    budget: 5000,
+  });
+  assertRows(report, 'published EXCLUDE edit preview contains exactly the unmatched Observation ID',
+    await readGrid(page, 'proposal'), ['Observation ID'], oracle.excludeRows);
+  const excludeKeys = { leftKey: revisionColumns[0].idColumn, rightKey: revisionColumns[1].idColumn };
+  const excludeCandidate = await candidateEvidence(editBase, excludeKeys, 'EXCLUDE', 'edited published EXCLUDE');
+  const editPreservesInputs = JSON.stringify(excludeCandidate.leftKey) === JSON.stringify(appliedIncludeCandidate.leftKey) &&
+    JSON.stringify(excludeCandidate.rightKey) === JSON.stringify(appliedIncludeCandidate.rightKey) &&
+    excludeCandidate.outputName === appliedIncludeCandidate.outputName && excludeCandidate.outputLabel === appliedIncludeCandidate.outputLabel;
+  check(report, 'correctness', 'EXCLUDE edit changes only the policy while preserving both pinned revision inputs and output identity', editPreservesInputs, {
+    inputsPreserved: editPreservesInputs,
+    stepId: step.id,
+    originalStepId: step.id,
+    outputName: excludeCandidate.outputName,
+    outputLabel: excludeCandidate.outputLabel,
+    keys: [excludeCandidate.leftKey.id, excludeCandidate.rightKey.id],
+  });
+  await recordBrowserTiming(report, page, {
+    name: 'Apply published EXCLUDE edit and render the exact unmatched Observation ID within five seconds',
+    action: () => click(page, '[data-testid="construction-apply-proposal"]'),
+    after: exactRowsExpression('saved', oracle.excludeRows),
+    timeout: 5000,
+    budget: 5000,
+  });
+  assertRows(report, 'saved published EXCLUDE output contains exactly the unmatched Observation ID',
+    await readGrid(page), ['Observation ID'], oracle.excludeRows);
+
+  builder = await readBuilder(context, run.explorer);
+  targetDoc = documentByOutput(builder, target.outputId);
+  step = targetDoc.construction?.steps?.at(-1);
+  const excludeStep = step;
+  const excludeSaved = excludeStep?.id === includeSavedBindings.stepId && excludeStep?.operation?.kind === 'COMBINE' &&
+    excludeStep.operation.combine?.kind === 'MEMBERSHIP' && excludeStep.operation.combine.membershipMode === 'EXCLUDE' &&
+    JSON.stringify(excludeStep.inputs) === JSON.stringify(includeSavedBindings.inputs) &&
+    JSON.stringify(excludeStep.operation.combine.keys) === JSON.stringify(includeSavedBindings.keys) &&
+    JSON.stringify(excludeStep.operation.combine.projections) === JSON.stringify(includeSavedBindings.projections) &&
+    JSON.stringify(excludeStep.outputs?.map((column) => ({ id: column.id, name: column.name, label: column.label, type: column.type }))) ===
+      JSON.stringify(includeSavedBindings.outputs);
+  check(report, 'persistence', 'saved EXCLUDE edit retains both exact published revisions, stable step, and stable output identity', excludeSaved, {
+    stepId: excludeStep?.id ?? null,
+    mode: excludeStep?.operation?.combine?.membershipMode ?? null,
+    inputs: excludeStep?.inputs ?? [],
+    keys: excludeStep?.operation?.combine?.keys ?? [],
+    projections: excludeStep?.operation?.combine?.projections ?? [],
+    outputs: excludeStep?.outputs ?? [],
+  });
+  if (!excludeSaved) throw new Error('Saved EXCLUDE Membership did not preserve the exact INCLUDE revision, key, and output bindings.');
+  await reloadTarget('reload edited published EXCLUDE and render the exact unmatched Observation ID within five seconds', oracle.excludeRows);
+  const reloadedExcludeBuilder = await readBuilder(context, run.explorer);
+  const reloadedExcludeDocument = documentByOutput(reloadedExcludeBuilder, target.outputId);
+  const reloadedExcludeStep = reloadedExcludeDocument.construction?.steps?.at(-1);
+  const excludeBindingSurvivesReload = reloadedExcludeDocument.rootResourceType === 'Observation' &&
+    reloadedExcludeDocument.output?.title === activeTargetTitle && reloadedExcludeStep?.id === includeSavedBindings.stepId &&
+    reloadedExcludeStep.operation?.combine?.membershipMode === 'EXCLUDE' &&
+    JSON.stringify(reloadedExcludeStep.inputs) === JSON.stringify(includeSavedBindings.inputs) &&
+    JSON.stringify(reloadedExcludeStep.operation?.combine?.keys) === JSON.stringify(includeSavedBindings.keys) &&
+    JSON.stringify(reloadedExcludeStep.operation?.combine?.projections) === JSON.stringify(includeSavedBindings.projections) &&
+    JSON.stringify(reloadedExcludeStep.outputs?.map((column) => ({ id: column.id, name: column.name, label: column.label, type: column.type }))) ===
+      JSON.stringify(includeSavedBindings.outputs);
+  check(report, 'persistence', 'reloaded EXCLUDE retains the exact Basic target title, rooted output, published revision bindings, and output identity', excludeBindingSurvivesReload, {
+    rootResourceType: reloadedExcludeDocument.rootResourceType,
+    outputTitle: reloadedExcludeDocument.output?.title ?? null,
+    stepId: reloadedExcludeStep?.id ?? null,
+    mode: reloadedExcludeStep?.operation?.combine?.membershipMode ?? null,
+    inputs: reloadedExcludeStep?.inputs ?? [],
+    outputIDs: reloadedExcludeStep?.outputs?.map((column) => column.id) ?? [],
+  });
+  step = reloadedExcludeStep;
+
+  await removeStepAndRestoreTarget(context, page, report, run.explorer, target, step.id, async (afterRemoval) => {
+    const restored = documentByOutput(afterRemoval, target.outputId);
+    const sourceDocumentsAfter = sources.map((source) => documentByOutput(afterRemoval, source.outputId));
+    const sourcesUnchanged = sourceDocumentsAfter.length === sourceDocumentsBefore.length &&
+      sourceDocumentsAfter.every((document, index) => sameSourceDocuments(document, sourceDocumentsBefore[index]));
+    const rootVisible = await evaluate(page, exactEmptyTargetExpression(target.outputId));
+    const emptyTarget = restored.rootResourceType === 'Observation' && restored.output?.id === target.outputId &&
+      restored.columns.length === 0 && (restored.construction?.steps?.length ?? 0) === 0;
+    const noMembershipReferences = afterRemoval.workspace?.documents?.every((document) =>
+      (document.construction?.steps ?? []).every((savedStep) => (savedStep.inputs ?? []).every((input) => input.kind !== 'TABLE_REVISION')));
+    const sourceAndTargetRestored = sourcesUnchanged && rootVisible && emptyTarget && noMembershipReferences;
+    check(report, 'persistence', 'removing published Membership restores the exact rooted target and preserves both Basic source constructions after reload', sourceAndTargetRestored, {
+      outputId: target.outputId,
+      rootResourceType: restored.rootResourceType,
+      columns: restored.columns,
+      steps: restored.construction?.steps ?? [],
+      sourcesUnchanged,
+      rootVisible,
+      noMembershipReferences,
+      sourceOutputIDs: sources.map((source) => source.outputId),
+    });
+    return { ok: sourceAndTargetRestored, evidence: { sourcesUnchanged, rootVisible, noMembershipReferences, outputId: target.outputId } };
+  }, { exactEmptyAfterApply: true });
+  const finalBuilder = await readBuilder(context, run.explorer);
+  const allInputs = finalBuilder.workspace?.documents?.flatMap((document) =>
+    document.construction?.steps?.flatMap((savedStep) => savedStep.inputs ?? []) ?? []) ?? [];
+  const finalPublicationContract = revisionsExact && allInputs.every((input) => input.kind !== 'TABLE_REVISION');
+  check(report, 'correctness', 'Basic published MEMBERSHIP retains both exact published source outputs and removes every pinned input with the Combine step', finalPublicationContract, {
+    publishedSourceOutputIDs: revisions.map((revision) => revision.outputId),
+    remainingInputKinds: allInputs.map((input) => input.kind),
+    sourceOutputIDs: sources.map((source) => source.outputId),
+  });
+};
+
+export const draftAppendWorkflow = async ({ page, report, networkObserver }, context, { upstreamDeriveEdit = false } = {}) => {
   let run;
-  let previewLifecycle;
   const sources = [];
   let sourceDocumentsAfterEdit;
-  let workflowFailed = false;
-  try {
-    run = await beginOwnedWorkspace(context, page, report, 'append');
-    previewLifecycle = upstreamDeriveEdit ? captureOwnedPreviewLifecycle(page, context.target, run.explorer) : undefined;
+  {
+    run = await beginOwnedWorkspace(context, page, report, 'append', networkObserver);
     sources.push(await createGroupSource(context, page, report, run.explorer, { resourceType: 'Observation', title: 'Observation status counts', fieldPath: 'status', rawRows: run.raw.observations }));
     sources.push(await createGroupSource(context, page, report, run.explorer, { resourceType: 'DiagnosticReport', title: 'Report status counts', fieldPath: 'status', rawRows: run.raw.reports }));
     sources.push(await createGroupSource(context, page, report, run.explorer, {
       resourceType: 'Patient', title: 'Patient gender counts', fieldPath: 'gender', rawRows: run.raw.patients, deriveCountPlusOne: true,
     }));
     const beforeTarget = await readBuilder(context, run.explorer);
-    let target = await startCombineTarget(context, page, report, run.explorer, sources[0].outputId, beforeTarget);
+    let target = await startCombineTarget(context, page, report, networkObserver, run.explorer, sources[0].outputId, beforeTarget);
     report.target.combineTarget = target;
     const base = await readBuilder(context, run.explorer);
-    const capture = capturePost(page, '/construction-proposals');
-    try {
+    const capture = capturePost(networkObserver, '/construction-proposals');
+    {
       const observationGroups = groupCounts(run.raw.observations, 'status');
       const reportGroups = groupCounts(run.raw.reports, 'status');
       const patientGroups = groupCounts(run.raw.patients, 'gender');
@@ -1959,17 +2200,17 @@ export const draftAppendWorkflow = async ({ page, report, nativeRequestLedger },
       check(report, 'persistence', 'Cancel leaves the entire APPEND workspace and draft CAS unchanged', evidence.ok, evidence);
       report.target.canceledCombineTarget = target;
       const retryBase = await readBuilder(context, run.explorer);
-      target = await startCombineTarget(context, page, report, run.explorer, sources[0].outputId, retryBase);
+      target = await startCombineTarget(context, page, report, networkObserver, run.explorer, sources[0].outputId, retryBase);
       report.target.combineTarget = target;
-      const applyCapture = capturePost(page, '/construction-proposals');
-      try {
+      const applyCapture = capturePost(networkObserver, '/construction-proposals');
+      {
         const applyBase = await readBuilder(context, run.explorer);
         const finalMapping = await configureAppend(page, sources);
         await renderFinalMapping(page, report, 'three-sibling draft APPEND edit auto-preview action-to-render within five seconds', finalMapping, expected.length, target.outputId);
         await waitProposal(page, expected.length, target.outputId);
         await assertDraftCandidate(report, page, applyCapture, applyBase, target, sources, 'APPEND');
         await applyCurrentProposal(page, report, 'apply three-input current-draft APPEND', expected.length, target.outputId);
-      } finally { await applyCapture.stop(); }
+      }
       let builder = await readBuilder(context, run.explorer);
       const saved = documentByOutput(builder, target.outputId);
       const step = saved.construction?.steps?.at(-1);
@@ -2042,31 +2283,31 @@ export const draftAppendWorkflow = async ({ page, report, nativeRequestLedger },
           const expectedBuilderURL = new URL(report.target.scope.requestURL);
           const expectedProposalPath = expectedBuilderURL.pathname.replace(/\/builder$/, '/construction-proposals');
           const expectedProposalOrigin = new URL(report.target.uiUrl).origin;
-          const event = await capture.waitFor((entry) => {
-            const candidate = entry.body?.candidateConstruction;
+          const event = await capture.waitForResponse((entry) => {
+            const candidate = entry.request?.candidateConstruction;
             const derive = candidate?.steps?.find((candidateStep) => candidateStep.id === originalDeriveID);
             return entry.path === expectedProposalPath && new URL(entry.url).origin === expectedProposalOrigin &&
-              entry.body?.outputId === patientSource.outputId && entry.status === 200 &&
+              entry.request?.outputId === patientSource.outputId &&
               derive?.operation?.kind === 'DERIVE' && derive.operation.derive.right?.kind === 'LITERAL' &&
               derive.operation.derive.right.literal?.kind === 'INTEGER' && derive.operation.derive.right.literal.integer === expectedOffset &&
               derive.outputs?.some((output) => output.id === originalDerivedOutputID && output.name === expectedName && output.label === expectedLabel);
-          });
-          const candidate = event.body.candidateConstruction;
+          }, { timeoutMs: 10_000 });
+          const candidate = event.request.candidateConstruction;
           const derive = candidate.steps.find((candidateStep) => candidateStep.id === originalDeriveID);
           const candidateGroup = candidate.steps.find((candidateStep) => candidateStep.id === patientGroup.id);
           const domProposal = await evaluate(page, `(()=>({proposalId:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-id')??null,receiptId:document.querySelector('[data-testid="construction-proposal-preview"]')?.getAttribute('data-preview-receipt-id')??null,outputId:document.querySelector('[data-testid="construction-proposal-preview"]')?.getAttribute('data-preview-output-id')??null}))()`);
           const responsePreview = event.response?.preview;
           const sourceInRequestScope = base.catalog?.generation === report.target.scope.generation &&
             base.catalog?.authorizationScopeDigest === report.target.scope.authorizationScopeDigest &&
-            event.body.snapshotToken === base.catalog?.snapshotToken &&
-            Number(event.body.expectedDraftVersion) === base.draftVersion && event.body.expectedDraftDigest === base.draftDigest;
+            event.request.snapshotToken === base.catalog?.snapshotToken &&
+            Number(event.request.expectedDraftVersion) === base.draftVersion && event.request.expectedDraftDigest === base.draftDigest;
           const responseMatchesRequest = event.response?.proposalId === domProposal.proposalId &&
             responsePreview?.receiptId === domProposal.receiptId && responsePreview?.outputId === patientSource.outputId &&
             domProposal.outputId === patientSource.outputId && event.response?.outputId === patientSource.outputId &&
-            event.response?.snapshotToken === event.body.snapshotToken && event.response?.draftVersion === event.body.expectedDraftVersion &&
-            event.response?.draftDigest === event.body.expectedDraftDigest && event.response?.previewStatus === 'READY' &&
+            event.response?.snapshotToken === event.request.snapshotToken && event.response?.draftVersion === event.request.expectedDraftVersion &&
+            event.response?.draftDigest === event.request.expectedDraftDigest && event.response?.previewStatus === 'READY' &&
             constructionCandidateWireEquivalent(candidate, event.response?.candidateConstruction);
-          const bound = event.body.changedStepId === originalDeriveID && sourceInRequestScope &&
+          const bound = event.status === 200 && event.request.changedStepId === originalDeriveID && sourceInRequestScope &&
             isDeepStrictEqual(candidateGroup?.operation?.group, patientGroup.operation.group) &&
             isDeepStrictEqual(candidateGroup?.outputs?.map((output) => ({ id: output.id, name: output.name, label: output.label })),
               patientGroup.outputs.map((output) => ({ id: output.id, name: output.name, label: output.label }))) &&
@@ -2078,14 +2319,14 @@ export const draftAppendWorkflow = async ({ page, report, nativeRequestLedger },
             ? 'canceled DERIVE proposal targets its exact saved step, output, and current draft CAS'
             : 'applied DERIVE proposal targets its exact saved step, output, and current draft CAS', bound,
           { status: event.status, path: event.path, requestOrigin: new URL(event.url).origin, expectedProposalPath,
-            changedStepId: event.body.changedStepId, outputId: event.body.outputId,
-            expectedDraftVersion: event.body.expectedDraftVersion, expectedDraftDigest: event.body.expectedDraftDigest,
+            changedStepId: event.request.changedStepId, outputId: event.request.outputId,
+            expectedDraftVersion: event.request.expectedDraftVersion, expectedDraftDigest: event.request.expectedDraftDigest,
             deriveStepId: derive.id, derivedOutputId: derive.operation.derive.outputColumnId, expression: derive.operation.derive,
             sourceInRequestScope, responseMatchesRequest, responsePreview, domProposal, response: event.response });
         };
 
-        const cancelCapture = capturePost(page, '/construction-proposals');
-        try {
+        const cancelCapture = capturePost(networkObserver, '/construction-proposals');
+        {
           await proposeDerivedEdit('row_count_plus_two', 'Count plus two', 2,
             'preview canceled saved Group→DERIVE edit from count plus one to count plus two');
           await deriveProposalEvidence(cancelCapture, 2, 'row_count_plus_two', 'Count plus two', sourceBeforeEdit, 'cancel');
@@ -2096,7 +2337,7 @@ export const draftAppendWorkflow = async ({ page, report, nativeRequestLedger },
             timeout: 5000,
             budget: 5000,
           });
-        } finally { await cancelCapture.stop(); }
+        }
         await reloadAndSelectSavedTable(report, page, patientSource.outputId, originalPatientRows.length,
           'reload canceled upstream DERIVE edit and prove the original Patient source');
         assertRows(report, 'Cancel preserves original Group→DERIVE values after reload', await readGrid(page),
@@ -2112,13 +2353,13 @@ export const draftAppendWorkflow = async ({ page, report, nativeRequestLedger },
           { cancelEvidence, canceledDerive: canceledDerive ?? null, draftVersion: afterCanceledDerive.draftVersion });
 
         const applyBase = await readBuilder(context, run.explorer);
-        const applyCapture = capturePost(page, '/construction-proposals');
-        try {
+        const applyCapture = capturePost(networkObserver, '/construction-proposals');
+        {
           await proposeDerivedEdit('row_count_plus_two', 'Count plus two', 2,
             'preview applied saved Group→DERIVE edit from count plus one to count plus two');
           await deriveProposalEvidence(applyCapture, 2, 'row_count_plus_two', 'Count plus two', applyBase, 'apply');
           await applyCurrentProposal(page, report, 'Apply upstream Group→DERIVE edit with stable output identity', editedPatientRows.length, patientSource.outputId);
-        } finally { await applyCapture.stop(); }
+        }
         const afterSourceEdit = await readBuilder(context, run.explorer);
         sourceDocumentsAfterEdit = sources.map((source) => structuredClone(documentByOutput(afterSourceEdit, source.outputId)));
         const newScope = readScope(context, run.explorer, afterSourceEdit, report.target.scope, 'draft');
@@ -2196,7 +2437,7 @@ export const draftAppendWorkflow = async ({ page, report, nativeRequestLedger },
       }
       await cancelStepRemovalAndPreserve(context, page, report, run.explorer, target, step.id, expected.length);
       await removeStepAndRestoreTarget(context, page, report, run.explorer, target, step.id);
-    } finally { await capture.stop(); }
+    }
     const final = await readBuilder(context, run.explorer);
     const inputs = final.workspace.documents.flatMap((document) => document.construction?.steps?.flatMap((step) => step.inputs ?? []) ?? []);
     check(report, 'correctness', 'APPEND lifecycle never publishes or pins source revisions', run.publishCount() === 0 && inputs.every((input) => input.kind !== 'TABLE_REVISION'), { publishRequests: run.publishCount(), inputKinds: inputs.map((input) => input.kind) });
@@ -2221,33 +2462,14 @@ export const draftAppendWorkflow = async ({ page, report, nativeRequestLedger },
           sources[2].group.outputs.find((output) => sources[2].group.operation.group.aggregates.some((aggregate) => aggregate.outputColumnId === output.id))?.label,
           'Count plus two'], report.upstreamDeriveEdit.editedPatientRows);
     }
-  } catch (error) {
-    workflowFailed = true;
-    throw error;
-  } finally {
-    run?.stopPublish();
-    if (previewLifecycle) report.previewRequestLifecycle = previewLifecycle.stop();
-    if (nativeRequestScope) {
-      try {
-        await flushDraftCombineNativeRequestScope({ nativeRequestLedger, scope: nativeRequestScope, explorer: run?.explorer, report, label: 'Draft APPEND' });
-      } catch (error) {
-        report.nativeRequestFlushFailure = {
-          message: error instanceof Error ? error.message : String(error),
-          terminalLedger: error?.nativeRequestSnapshot?.nativeRequestTerminalLedger ?? report.nativeRequestTerminalLedger ?? null,
-        };
-        if (!workflowFailed) throw error;
-      }
-    }
   }
 };
 
-export const groupPivotJoinWorkflow = async ({ page, report, nativeRequestLedger }, context) => {
-  const nativeRequestScope = openDraftCombineNativeRequestScope(nativeRequestLedger, context.target, 'Draft Group/Pivot');
+export const groupPivotJoinWorkflow = async ({ page, report, networkObserver }, context) => {
   let run;
-  let workflowFailed = false;
   const sources = [];
-  try {
-    run = await beginOwnedWorkspace(context, page, report, 'group-pivot');
+  {
+    run = await beginOwnedWorkspace(context, page, report, 'group-pivot', networkObserver);
     sources.push(await createGroupSource(context, page, report, run.explorer, {
       resourceType: 'Observation', title: 'Observation ID source', fieldPath: 'status', rawRows: run.raw.observations, groupByID: true,
     }));
@@ -2255,17 +2477,17 @@ export const groupPivotJoinWorkflow = async ({ page, report, nativeRequestLedger
       resourceType: 'DiagnosticReport', title: 'Report grouped pivot source', fieldPath: 'status', rawRows: run.raw.reports, composed: true,
     }));
     const beforeTarget = await readBuilder(context, run.explorer);
-    let target = await startCombineTarget(context, page, report, run.explorer, sources[0].outputId, beforeTarget);
+    let target = await startCombineTarget(context, page, report, networkObserver, run.explorer, sources[0].outputId, beforeTarget);
     report.target.combineTarget = target;
     const base = await readBuilder(context, run.explorer);
-    const capture = capturePost(page, '/construction-proposals');
+    const capture = capturePost(networkObserver, '/construction-proposals');
     const categories = [...new Set(run.raw.reports.map((row) => String(row.status)))].sort();
     const observationGroups = groupCounts(run.raw.observations, 'id');
     const reportPivot = groupedPivotRows(run.raw.reports, 'id', 'status', categories);
     const expectedInner = joinGroupPivotRows(observationGroups, reportPivot).map((row) => row.map((value) => value === null ? '—' : String(value)));
     const expectedLeft = joinGroupPivotRows(observationGroups, reportPivot, 'LEFT').map((row) => row.map((value) => value === null ? '—' : String(value)));
     const headers = ['Observation ID', 'Observation rows', 'DiagnosticReport ID', ...categories.map((category) => 'Report ' + category)];
-    try {
+    {
       const finalMapping = await configureJoin(page, sources, 'INNER', 'group-pivot');
       await renderFinalMapping(page, report, 'mixed Group and Group→Pivot draft INNER Join auto-preview within five seconds', finalMapping, expectedInner.length, target.outputId);
       await waitProposal(page, expectedInner.length, target.outputId);
@@ -2285,18 +2507,18 @@ export const groupPivotJoinWorkflow = async ({ page, report, nativeRequestLedger
 
       report.target.canceledCombineTarget = target;
       const retryBase = await readBuilder(context, run.explorer);
-      target = await startCombineTarget(context, page, report, run.explorer, sources[0].outputId, retryBase);
+      target = await startCombineTarget(context, page, report, networkObserver, run.explorer, sources[0].outputId, retryBase);
       report.target.combineTarget = target;
       const applyBase = await readBuilder(context, run.explorer);
-      const applyCapture = capturePost(page, '/construction-proposals');
-      try {
+      const applyCapture = capturePost(networkObserver, '/construction-proposals');
+      {
         const leftMapping = await configureJoin(page, sources, 'LEFT', 'group-pivot');
         await renderFinalMapping(page, report, 'mixed Group/Pivot LEFT Join auto-preview within five seconds', leftMapping, expectedLeft.length, target.outputId);
         await waitProposal(page, expectedLeft.length, target.outputId);
         assertRows(report, 'LEFT mixed Join keeps the unmatched Observation identity with null Pivot values', await readGrid(page, 'proposal'), headers, expectedLeft);
         await assertDraftCandidate(report, page, applyCapture, applyBase, target, sources, 'KEY_JOIN');
         await applyCurrentProposal(page, report, 'apply mixed Group/Group→Pivot current-draft LEFT Join', expectedLeft.length, target.outputId);
-      } finally { await applyCapture.stop(); }
+      }
       let builder = await readBuilder(context, run.explorer);
       const targetDocument = documentByOutput(builder, target.outputId);
       const step = targetDocument.construction?.steps?.at(-1);
@@ -2307,8 +2529,8 @@ export const groupPivotJoinWorkflow = async ({ page, report, nativeRequestLedger
 
       await editSavedStep(page, report, target.outputId, step.id, '[data-testid="construction-combine-editor"]');
       const editBase = await readBuilder(context, run.explorer);
-      const editCapture = capturePost(page, '/construction-proposals');
-      try {
+      const editCapture = capturePost(networkObserver, '/construction-proposals');
+      {
         await recordBrowserTiming(report, page, {
           name: 'edit mixed Group/Pivot Join to INNER and render exact matching identities',
           action: () => setSelectValue(page, 'select[aria-label="If a row in the first table has no match"]', 'INNER'),
@@ -2319,7 +2541,7 @@ export const groupPivotJoinWorkflow = async ({ page, report, nativeRequestLedger
         assertRows(report, 'edited mixed Join INNER values match the independent raw fixture oracle', await readGrid(page, 'proposal'), headers, expectedInner);
         await assertDraftCandidate(report, page, editCapture, editBase, target, sources, 'KEY_JOIN');
         await applyCurrentProposal(page, report, 'apply mixed Group/Pivot Join edit to INNER', expectedInner.length, target.outputId);
-      } finally { await editCapture.stop(); }
+      }
       await reloadAndSelectSavedTable(report, page, target.outputId, expectedInner.length, 'reload edited mixed INNER Join and render exact values');
       assertRows(report, 'edited mixed INNER Join exact values survive reload', await readGrid(page), headers, expectedInner);
       await cancelStepRemovalAndPreserve(context, page, report, run.explorer, target, step.id, expectedInner.length);
@@ -2331,23 +2553,6 @@ export const groupPivotJoinWorkflow = async ({ page, report, nativeRequestLedger
         run.publishCount() === 0 && JSON.stringify(savedSourceShapes) === JSON.stringify([['GROUP'], ['GROUP', 'PIVOT']]) &&
           final.workspace.documents.every((document) => (document.construction?.steps ?? []).flatMap((item) => item.inputs ?? []).every((input) => input.kind !== 'TABLE_REVISION')),
         { publishRequests: run.publishCount(), sourceSteps: savedSourceShapes });
-    } finally { await capture.stop(); }
-  } catch (error) {
-    workflowFailed = true;
-    throw error;
-  } finally {
-    run?.stopPublish();
-    try {
-      await flushDraftCombineNativeRequestScope({
-        nativeRequestLedger, scope: nativeRequestScope, explorer: run?.explorer, report,
-        label: 'Draft Group/Pivot',
-      });
-    } catch (error) {
-      report.nativeRequestFlushFailure = {
-        message: error instanceof Error ? error.message : String(error),
-        terminalLedger: error?.nativeRequestSnapshot?.nativeRequestTerminalLedger ?? report.nativeRequestTerminalLedger ?? null,
-      };
-      if (!workflowFailed) throw error;
     }
   }
 };
@@ -2380,12 +2585,10 @@ const groupPivotAppendChoiceEvidence = async (page, sources, capabilityEvidence)
   return { ...matched, ok: Boolean(capabilityEvidence?.ok && matched.ok), capabilityEvidence };
 };
 
-export const groupPivotAppendWorkflow = async ({ page, report }, context) => {
-  const run = await beginOwnedWorkspace(context, page, report, 'group-pivot-append');
-  report.target.nativeCandidateRequests = [];
-  const previewLifecycle = captureOwnedPreviewLifecycle(page, context.target, run.explorer, { diagnostic: true });
+export const groupPivotAppendWorkflow = async ({ page, report, networkObserver }, context) => {
+  const run = await beginOwnedWorkspace(context, page, report, 'group-pivot-append', networkObserver);
   const sources = [];
-  try {
+  {
     sources.push(await createGroupSource(context, page, report, run.explorer, {
       resourceType: 'Observation', title: 'Observation ID source', fieldPath: 'status', rawRows: run.raw.observations, groupByID: true,
     }));
@@ -2414,18 +2617,18 @@ export const groupPivotAppendWorkflow = async ({ page, report }, context) => {
       { rawSourceRows: { observations: run.raw.observations.length, reports: run.raw.reports.length }, observationGroups, reportPivotRows, expectedMultiplicity, expectedRows });
 
     const beforeTarget = await readBuilder(context, run.explorer);
-    const capabilityCapture = capturePost(page, '/construction-capabilities');
+    const capabilityCapture = capturePost(networkObserver, '/construction-capabilities');
     let target;
     let base;
     let appendCapabilityEvidence;
-    try {
-      target = await startCombineTarget(context, page, report, run.explorer, sources[0].outputId, beforeTarget);
+    {
+      target = await startCombineTarget(context, page, report, networkObserver, run.explorer, sources[0].outputId, beforeTarget);
       const builder = await readBuilder(context, run.explorer);
-      const event = await capabilityCapture.waitFor((entry) => entry.body?.outputId === target.outputId &&
-        entry.body?.snapshotToken === builder.catalog?.snapshotToken &&
-        entry.body?.expectedDraftVersion === builder.draftVersion &&
-        entry.body?.expectedDraftDigest === builder.draftDigest &&
-        entry.body?.stageId === 'source_projection' && entry.response?.outputId === target.outputId, 10000);
+      const event = await capabilityCapture.waitForResponse((entry) => entry.request?.outputId === target.outputId &&
+        entry.request?.snapshotToken === builder.catalog?.snapshotToken &&
+        entry.request?.expectedDraftVersion === builder.draftVersion &&
+        entry.request?.expectedDraftDigest === builder.draftDigest &&
+        entry.request?.stageId === 'source_projection' && entry.response?.outputId === target.outputId, { timeoutMs: 10000 });
       const expectedBuilderURL = new URL(apiRoot(context, run.explorer) + '/builder', context.target.apiUrl);
       const expectedCapabilitiesURL = new URL(
         expectedBuilderURL.pathname.replace(/\/builder$/, '/construction-capabilities'),
@@ -2456,11 +2659,9 @@ export const groupPivotAppendWorkflow = async ({ page, report }, context) => {
         ],
       });
       base = builder;
-    } finally {
-      await capabilityCapture.stop();
     }
     report.target.combineTarget = target;
-    const capture = capturePost(page, '/construction-proposals');
+    const capture = capturePost(networkObserver, '/construction-proposals');
     let removalApplyBase;
     let final;
     const verifyAppendPreview = async (candidateCapture, candidateBase, candidateTarget, includeChoice = false) => {
@@ -2478,7 +2679,7 @@ export const groupPivotAppendWorkflow = async ({ page, report }, context) => {
         { expectedRowCount: expectedRows.length, actualRowCount: grid.rows.length, actualMultiplicity, expectedMultiplicity, rows: grid.rows });
       await assertDraftCandidate(report, page, candidateCapture, candidateBase, candidateTarget, sources, 'APPEND', { requireSelectedPreview: true });
     };
-    try {
+    {
       const finalMapping = await configureGroupPivotAppend(page, sources);
       await renderFinalMapping(page, report, 'Group→Pivot current-draft APPEND auto-preview within five seconds', finalMapping, expectedRows.length, target.outputId,
         () => verifyAppendPreview(capture, base, target, true));
@@ -2499,19 +2700,19 @@ export const groupPivotAppendWorkflow = async ({ page, report }, context) => {
 
       report.target.canceledCombineTarget = target;
       const retryBase = await readBuilder(context, run.explorer);
-      target = await startCombineTarget(context, page, report, run.explorer, sources[0].outputId, retryBase);
+      target = await startCombineTarget(context, page, report, networkObserver, run.explorer, sources[0].outputId, retryBase);
       report.target.combineTarget = target;
-      const applyCapture = capturePost(page, '/construction-proposals');
+      const applyCapture = capturePost(networkObserver, '/construction-proposals');
       let step;
       let applyBase;
-      try {
+      {
         applyBase = await readBuilder(context, run.explorer);
         const applyMapping = await configureGroupPivotAppend(page, sources);
         await renderFinalMapping(page, report, 'Group→Pivot current-draft APPEND apply preview within five seconds', applyMapping, expectedRows.length, target.outputId,
           () => verifyAppendPreview(applyCapture, applyBase, target));
         assertRows(report, 'Group→Pivot APPEND apply preview retains exact union rows and null padding', await readGrid(page, 'proposal'), headers, expectedRows);
         await applyCurrentProposal(page, report, 'Apply Group→Pivot current-draft APPEND', expectedRows.length, target.outputId);
-      } finally { await applyCapture.stop(); }
+      }
 
       let builder = await readBuilder(context, run.explorer);
       const saved = documentByOutput(builder, target.outputId);
@@ -2543,8 +2744,8 @@ export const groupPivotAppendWorkflow = async ({ page, report }, context) => {
       const editedHeaders = ['Unified source ID', ...headers.slice(1)];
       await editSavedStep(page, report, target.outputId, step.id, '[data-testid="construction-combine-editor"]');
       const cancelEditBase = await readBuilder(context, run.explorer);
-      const cancelEditCapture = capturePost(page, '/construction-proposals');
-      try {
+      const cancelEditCapture = capturePost(networkObserver, '/construction-proposals');
+      {
         await recordBrowserTiming(report, page, {
           name: 'preview cancellable Group→Pivot APPEND heading edit with exact union rows',
           action: () => fill(page, 'input[aria-label="Output field 1 label"]', 'Unified source ID'),
@@ -2561,7 +2762,7 @@ export const groupPivotAppendWorkflow = async ({ page, report }, context) => {
           timeout: 5000,
           budget: 5000,
         });
-      } finally { await cancelEditCapture.stop(); }
+      }
       await reloadAndSelectSavedTable(report, page, target.outputId, expectedRows.length, 'reload canceled Group→Pivot APPEND edit and render its original union', async () => {
         assertRows(report, 'Cancel preserves original Group→Pivot APPEND heading and values after reload', await readGrid(page), headers, expectedRows);
         const afterCanceledEdit = await readBuilder(context, run.explorer);
@@ -2578,8 +2779,8 @@ export const groupPivotAppendWorkflow = async ({ page, report }, context) => {
 
       await editSavedStep(page, report, target.outputId, originalStepId, '[data-testid="construction-combine-editor"]');
       const applyEditBase = await readBuilder(context, run.explorer);
-      const applyEditCapture = capturePost(page, '/construction-proposals');
-      try {
+      const applyEditCapture = capturePost(networkObserver, '/construction-proposals');
+      {
         await recordBrowserTiming(report, page, {
           name: 'edit Group→Pivot APPEND heading and preview all exact union rows for Apply',
           action: () => fill(page, 'input[aria-label="Output field 1 label"]', 'Unified source ID'),
@@ -2590,7 +2791,7 @@ export const groupPivotAppendWorkflow = async ({ page, report }, context) => {
         assertRows(report, 'edited Group→Pivot APPEND heading preserves all union values and null padding', await readGrid(page, 'proposal'), editedHeaders, expectedRows);
         await assertDraftCandidate(report, page, applyEditCapture, applyEditBase, target, sources, 'APPEND');
         await applyCurrentProposal(page, report, 'Apply Group→Pivot APPEND heading edit', expectedRows.length, target.outputId);
-      } finally { await applyEditCapture.stop(); }
+      }
       builder = await readBuilder(context, run.explorer);
       const editedStep = documentByOutput(builder, target.outputId).construction?.steps?.at(-1);
       const editCASAdvanced = builder.draftVersion > applyEditBase.draftVersion && builder.draftDigest !== applyEditBase.draftDigest;
@@ -2636,26 +2837,11 @@ export const groupPivotAppendWorkflow = async ({ page, report }, context) => {
         check(report, 'persistence', 'removing Group→Pivot APPEND advances the draft CAS, restores the rooted empty target, and preserves both source constructions', restored, evidence);
         return { ok: restored, evidence };
       });
-    } finally { await capture.stop(); }
+    }
 
     const inputs = final.workspace.documents.flatMap((document) => document.construction?.steps?.flatMap((savedStep) => savedStep.inputs ?? []) ?? []);
     check(report, 'correctness', 'Group→Pivot APPEND lifecycle never publishes or pins source revisions',
       run.publishCount() === 0 && inputs.every((input) => input.kind !== 'TABLE_REVISION'),
       { publishRequests: run.publishCount(), inputKinds: inputs.map((input) => input.kind) });
-  } finally {
-    const lifecycle = await previewLifecycle.stop();
-    report.previewRequestLifecycle = lifecycle;
-    report.expectedPreviewCancellationEvidence = markExpectedOwnedPreviewAborts({
-      network: report.network,
-      lifecycle,
-      actions: report.actions,
-      assertions: report.assertions,
-      sourceOutputId: sources[0]?.outputId,
-      successorRequests: report.target.nativeCandidateRequests,
-      targetBindings: [report.target.canceledCombineTarget, report.target.combineTarget]
-        .filter((candidate) => candidate?.outputId)
-        .map(({ outputId, createCommandCAS }) => ({ outputId, createCommandCAS })),
-    });
-    run.stopPublish();
   }
 };

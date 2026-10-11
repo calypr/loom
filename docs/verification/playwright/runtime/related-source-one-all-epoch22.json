@@ -391,7 +391,7 @@
     "docsUnchanged": true,
     "apiIdentityBefore": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
     "apiIdentityAfter": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
-    "apiUnchanged": false,
+    "apiUnchanged": true,
     "mountsBefore": "PASS",
     "mountsAfter": "PASS",
     "healthBefore": {
@@ -408,5 +408,28 @@
       "changedPaths": [],
       "apiBuildUnchanged": true
     }
+  },
+  "boundedZeroObservationScan": {
+    "epoch": 23,
+    "outcome": "bounded-no-witness-max-pages",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "pageSize": 2000,
+    "maxPages": 10,
+    "pagesCompleted": 10,
+    "specimensScanned": 20000,
+    "returnedSpecimensPerPage": 2000,
+    "cursorContinuityVerified": true,
+    "finalCursorId": "06e6d52b-ced2-531f-98d4-3c42d192a8a3",
+    "provisionalZeroCandidates": 0,
+    "exactCandidateRereads": 0,
+    "boundedAbsenceMeaning": "No zero witness found within at most 20,000 scoped Specimen IDs; this is bounded search, not global absence.",
+    "reportPath": "/private/tmp/loom-native-zero-witness-stage/epoch23-scan/report.json",
+    "reportSha256": "d30c71892379d46a3443bf0f50c7f3b46521543b3e70a856e7d72400fd3a39d5",
+    "progressLogPath": "/private/tmp/loom-native-zero-witness-stage/epoch23-scan/runner.log",
+    "scannerPath": "/private/tmp/loom-native-zero-witness-stage/scan-zero-observation-witness.mjs",
+    "scannerSha256": "70079d92178c5e3c38cd1e9e783ed798d01e08801ed447ab0219a3778affdf62",
+    "runnableCommand": "set -euo pipefail && source '/private/tmp/loom-native-parallel-wave23/environment.sh' && export LOOM_ARANGO_CONTAINER=\"$LOOM_CDA_ARANGO_CONTAINER\" LOOM_ARANGO_DATABASE=loom_dev LOOM_ZERO_WITNESS_REPORT='/private/tmp/loom-native-zero-witness-stage/epoch23-scan/report.json' && node '/private/tmp/loom-native-zero-witness-stage/scan-zero-observation-witness.mjs'",
+    "effectOnCoverage": "The existing one- and many-Observation ONE→ALL lifecycle passed in epoch 22. Zero-row related-source behavior remains unverified because no bounded zero witness was available; the supplemental scan did not execute the lifecycle."
   }
 }

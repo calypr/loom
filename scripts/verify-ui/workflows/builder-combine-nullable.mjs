@@ -5,10 +5,9 @@ import { performance } from 'node:perf_hooks';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { browserURL } from './builder-url.mjs';
+import { fixtureProjectExplorerCollectionPath } from '../helpers/fixture-context.mjs';
 import { recordCheck } from '../helpers/report.mjs';
-import { assertNullableNativeRequestLedgerComplete, builderCancelStateEvidence, nativeResponseScopeEvidence, removalProposalEvidence } from '../helpers/builder-combine-nullable-helpers.mjs';
-import { classifyNativeBrowserApiRequest } from '../helpers/native-browser-api-scope.mjs';
-import { installNativeAbortProbe, nativeAbortSignalObservationForRequest } from '../helpers/native-abort-probe.mjs';
+import { builderCancelStateEvidence, nativeResponseScopeEvidence, removalProposalEvidence } from '../helpers/builder-combine-nullable-helpers.mjs';
 import {
   builderRequestURL,
   builderResponseIdentity,
@@ -42,45 +41,7 @@ const check = (report, dimension, name, condition, evidence = {}) => {
     throw new TypeError('Nullable Combine checks require a known dimension, a string name, and a boolean condition.');
   }
   recordCheck(report, dimension, name, Boolean(condition), evidence);
-  if (!condition) throw new Error('required nullable KEY_JOIN check failed: ' + name + '; evidence=' + JSON.stringify(evidence).slice(0, 1400));
-};
-
-export const projectNullableNativeAbortProbeCorrelations = (nativeRequests, probeEvents = []) => {
-  if (!Array.isArray(nativeRequests)) throw new TypeError('Nullable abort correlations require final native ledger rows.');
-  const events = Array.isArray(probeEvents) ? probeEvents : [];
-  const diagnosticPathSuffixes = [
-    '/construction-capabilities',
-    '/semantic-inventory',
-    '/configured-column-context',
-    '/schema-fields',
-  ];
-  const correlations = [];
-  for (const [nativeRequestIndex, entry] of nativeRequests.entries()) {
-    if (typeof entry?.path !== 'string' || !diagnosticPathSuffixes.some((suffix) => entry.path.endsWith(suffix))) continue;
-    const requestId = entry.requestDetails?.requestId;
-    const requestIdentityMatchCount = typeof requestId === 'string'
-      ? nativeRequests.filter((candidate) => candidate?.requestDetails?.requestId === requestId &&
-        candidate.origin === entry.origin && candidate.path === entry.path && candidate.method === entry.method).length
-      : 0;
-    correlations.push({
-      nativeRequestIndex,
-      requestId: typeof requestId === 'string' ? requestId : null,
-      origin: entry.origin ?? null,
-      path: entry.path,
-      method: entry.method ?? null,
-      requestIdentityMatchCount,
-      observation: nativeAbortSignalObservationForRequest(
-        { ...entry, requestIdentityMatchCount }, events,
-      ),
-    });
-  }
-  return correlations;
-};
-
-export const recordNullableNativeAbortProbeCorrelations = ({ report, nativeRequests, probeEvents = [] }) => {
-  if (!report || typeof report !== 'object') throw new TypeError('Nullable abort correlation recording requires a report object.');
-  report.nativeAbortProbeCorrelations = projectNullableNativeAbortProbeCorrelations(nativeRequests, probeEvents);
-  return report.nativeAbortProbeCorrelations;
+  expect(condition, name).toBe(true);
 };
 
 const nativeApiScope = (context, explorer) => ({
@@ -207,71 +168,50 @@ const documentByOutput = (builder, outputId) => {
 const currentRevisionFor = currentPublishedRevisionForOutput;
 const publishedRef = (entry) => JSON.stringify([entry.tableId, entry.revisionId, entry.outputId]);
 
-const captureProposalRequests = (page, outputId, scope) => {
-  const entries = [];
-  const scopeRejections = [];
-  const byRequest = new Map();
-  const onRequest = request => {
-    let url;
-    try { url = new URL(request.url()); } catch { return; }
-    if (!url.pathname.endsWith('/construction-proposals') || request.method() !== 'POST') return;
-    let body;
-    try { body = request.postDataJSON(); } catch { return; }
-    if (body?.outputId !== outputId) return;
-    const requestScope = classifyNativeBrowserApiRequest(request.url(), scope);
-    const requestOwnedExplorer = requestScope.kind === 'capture' && requestScope.scope === 'owned-project-explorer';
-    const entry = { requestId: entries.length + 1, requestURL: request.url(), body, status: undefined, responseURL: undefined, response: undefined,
-      ...(!requestOwnedExplorer ? { scopeRejected: { kind: requestScope.kind, scope: requestScope.scope ?? null, reason: requestScope.reason ?? 'not-owned-explorer-route' } } : {}) };
-    if (entry.scopeRejected) scopeRejections.push({ requestURL: request.url(), ...entry.scopeRejected });
-    entries.push(entry);
-    byRequest.set(request, entry);
-  };
-  const onResponse = response => {
-    const entry = byRequest.get(response.request());
-    if (!entry) return;
-    entry.status = response.status();
-    entry.responseURL = response.url();
-    entry.responsePromise = response.json().then(value => { entry.response = value; }, error => { entry.responseReadError = String(error); });
-  };
-  page.on('request', onRequest);
-  page.on('response', onResponse);
+const captureProposalRequests = (networkObserver, outputId, scope) => {
+  const initialIndex = networkObserver.requests.length;
   return {
-    startIndex: () => entries.length,
-    stop: () => { page.off('request', onRequest); page.off('response', onResponse); },
-    async find(joinType, afterIndex = 0) {
-      const candidates = entries.slice(afterIndex).filter((entry) => {
-        const step = entry.body?.candidateConstruction?.steps?.at(-1);
-        return step?.operation?.combine?.kind === 'KEY_JOIN' && step.operation.combine.joinType === joinType;
-      });
-      const entry = candidates.at(-1);
-      if (!entry) throw new Error('No automatic ' + joinType + ' KEY_JOIN proposal was sent for this output; rejected scope traffic=' + JSON.stringify(scopeRejections));
-      await expect.poll(() => entry.response !== undefined || Boolean(entry.responseReadError), {
-        timeout: STEP_TIMEOUT_MS,
-        message: 'Timed out waiting for the exact ' + joinType + ' nullable Join proposal response.',
-      }).toBe(true);
-      if (entry.responseReadError) throw new Error('Could not read exact ' + joinType + ' proposal response: ' + entry.responseReadError);
-      if (entry.response === null) throw new Error('Could not read exact ' + joinType + ' proposal response: response body was null.');
-      entry.transportEvidence = nativeResponseScopeEvidence(entry.requestURL, entry.responseURL, scope);
-      if (entry.scopeRejected) entry.transportEvidence = { ...entry.transportEvidence, ok: false, requestScopeRejected: entry.scopeRejected };
-      return entry;
+    startIndex: () => networkObserver.requests.length,
+    stop() {},
+    async find(joinType, afterIndex = initialIndex) {
+      const observed = await networkObserver.waitForResponse(entry => {
+        const body = entry.request;
+        const step = body?.candidateConstruction?.steps?.at(-1);
+        return entry.method === 'POST' && entry.path.endsWith('/construction-proposals') &&
+          body?.outputId === outputId && step?.operation?.combine?.kind === 'KEY_JOIN' &&
+          step.operation.combine.joinType === joinType;
+      }, { fromIndex: afterIndex, timeoutMs: STEP_TIMEOUT_MS });
+      const body = await networkObserver.requestBody(observed);
+      const response = await networkObserver.responseBody(observed);
+      const responseURL = observed.url;
+      return {
+        requestId: observed.index + 1,
+        requestURL: observed.url,
+        body,
+        status: observed.status,
+        responseURL,
+        response,
+        transportEvidence: nativeResponseScopeEvidence(observed.url, responseURL, scope),
+      };
     },
-    async findRemoval(stepID, afterIndex = 0) {
-      const candidates = entries.slice(afterIndex).filter((entry) => {
-        const body = entry.body;
-        return body?.outputId === outputId && Array.isArray(body.removeStepIds) &&
+    async findRemoval(stepID, afterIndex = initialIndex) {
+      const observed = await networkObserver.waitForResponse(entry => {
+        const body = entry.request;
+        return entry.method === 'POST' && entry.path.endsWith('/construction-proposals') &&
+          body?.outputId === outputId && Array.isArray(body.removeStepIds) &&
           body.removeStepIds.includes(stepID) && body.candidateConstruction?.steps?.length === 0;
-      });
-      const entry = candidates.at(-1);
-      if (!entry) throw new Error('No scoped removal proposal was sent for step ' + stepID + '.');
-      await expect.poll(() => entry.response !== undefined || Boolean(entry.responseReadError), {
-        timeout: STEP_TIMEOUT_MS,
-        message: 'Timed out waiting for the exact nullable KEY_JOIN removal response.',
-      }).toBe(true);
-      if (entry.responseReadError) throw new Error('Could not read the exact removal proposal response: ' + entry.responseReadError);
-      if (entry.response === null) throw new Error('Could not read the exact removal proposal response: response body was null.');
-      entry.transportEvidence = nativeResponseScopeEvidence(entry.requestURL, entry.responseURL, scope);
-      if (entry.scopeRejected) entry.transportEvidence = { ...entry.transportEvidence, ok: false, requestScopeRejected: entry.scopeRejected };
-      return entry;
+      }, { fromIndex: afterIndex, timeoutMs: STEP_TIMEOUT_MS });
+      const body = await networkObserver.requestBody(observed);
+      const response = await networkObserver.responseBody(observed);
+      return {
+        requestId: observed.index + 1,
+        requestURL: observed.url,
+        body,
+        status: observed.status,
+        responseURL: observed.url,
+        response,
+        transportEvidence: nativeResponseScopeEvidence(observed.url, observed.url, scope),
+      };
     },
   };
 };
@@ -350,56 +290,34 @@ const openSavedEdit = (report, page, stepID, name) => recordBrowserTiming(report
   timeout: 5000,
 });
 
-const captureCreateTableCommand = (page, scope) => {
-  const entries = [];
-  const scopeRejections = [];
-  const byRequest = new Map();
-  const onRequest = request => {
-    let url;
-    try { url = new URL(request.url()); } catch { return; }
-    if (!url.pathname.endsWith('/authoring/v2/commands') || request.method() !== 'POST') return;
-    let body;
-    try { body = request.postDataJSON(); } catch { return; }
-    if (!body?.commands?.some((command) => command?.type === 'CREATE_TABLE')) return;
-    const requestScope = classifyNativeBrowserApiRequest(request.url(), scope);
-    const requestOwnedExplorer = requestScope.kind === 'capture' && requestScope.scope === 'owned-project-explorer';
-    const entry = { requestId: entries.length + 1, requestURL: request.url(), body, status: undefined, responseURL: undefined, response: undefined,
-      ...(!requestOwnedExplorer ? { scopeRejected: { kind: requestScope.kind, scope: requestScope.scope ?? null, reason: requestScope.reason ?? 'not-owned-explorer-route' } } : {}) };
-    if (entry.scopeRejected) scopeRejections.push({ requestURL: request.url(), ...entry.scopeRejected });
-    entries.push(entry);
-    byRequest.set(request, entry);
-  };
-  const onResponse = response => {
-    const entry = byRequest.get(response.request());
-    if (!entry) return;
-    entry.status = response.status();
-    entry.responseURL = response.url();
-    entry.responsePromise = response.json().then(value => { entry.response = value; }, error => { entry.responseReadError = String(error); });
-  };
-  page.on('request', onRequest);
-  page.on('response', onResponse);
+const captureCreateTableCommand = (networkObserver, scope) => {
+  const fromIndex = networkObserver.requests.length;
   return {
-    stop: () => { page.off('request', onRequest); page.off('response', onResponse); },
-    read: async () => {
-      let entry;
-      await expect.poll(() => {
-        const candidates = entries.filter((item) => item.body?.commands?.some((command) => command?.type === 'CREATE_TABLE'));
-        if (candidates.length > 1) throw new Error('Expected one native CREATE_TABLE request while opening Combine; found ' + candidates.length);
-        entry = candidates[0];
-        return Boolean(entry?.response || entry?.responseReadError);
-      }, { timeout: STEP_TIMEOUT_MS, message: 'Timed out capturing native CREATE_TABLE and returned workspace.' }).toBe(true);
-      if (entry.responseReadError) throw new Error('Could not read native Combine target creation response: ' + entry.responseReadError);
-      entry.transportEvidence = nativeResponseScopeEvidence(entry.requestURL, entry.responseURL, scope);
-      if (entry.scopeRejected) entry.transportEvidence = { ...entry.transportEvidence, ok: false, requestScopeRejected: entry.scopeRejected, scopeRejections };
-      return entry;
+    stop() {},
+    async read() {
+      const observed = await networkObserver.waitForResponse(entry =>
+        entry.method === 'POST' && entry.path.endsWith('/authoring/v2/commands') &&
+        entry.request?.commands?.some(command => command?.type === 'CREATE_TABLE'),
+      { fromIndex, timeoutMs: STEP_TIMEOUT_MS });
+      const body = await networkObserver.requestBody(observed);
+      const response = await networkObserver.responseBody(observed);
+      return {
+        requestId: observed.index + 1,
+        requestURL: observed.url,
+        body,
+        status: observed.status,
+        responseURL: observed.url,
+        response,
+        transportEvidence: nativeResponseScopeEvidence(observed.url, observed.url, scope),
+      };
     },
   };
 };
 
-const startCombineTarget = async (context, page, report, explorer, observationOutputId, sourceBuilder) => {
+const startCombineTarget = async (context, page, report, networkObserver, explorer, observationOutputId, sourceBuilder) => {
   await selectTarget(page, observationOutputId);
   const scope = nativeApiScope(context, explorer);
-  const capture = captureCreateTableCommand(page, scope);
+  const capture = captureCreateTableCommand(networkObserver, scope);
   try {
     await recordBrowserTiming(report, page, {
       name: 'open native Combine for nullable Join',
@@ -481,13 +399,30 @@ const expectedObservations = [
   { id: 'combine-observation-final-1', status: 'final', valueInteger: 10 },
   { id: 'combine-observation-final-2', status: 'final', valueInteger: 20 },
   { id: 'combine-observation-preliminary', status: 'preliminary', valueInteger: 30 },
+  { id: 'combine-observation-explicit-null', status: 'final', valueInteger: 35 },
   { id: 'combine-observation-unmatched', status: 'unknown', valueInteger: 40 },
 ];
 const expectedReports = [
   { id: 'combine-observation-final-1', status: 'final' },
+  { id: 'combine-report-explicit-null', status: 'final' },
   { id: 'combine-observation-final-2', status: 'final' },
   { id: 'combine-observation-preliminary', status: 'preliminary' },
 ];
+export const nullableKeyWitnessExpectations = {
+  observations: [
+    ['combine-observation-final-1', 'value', 'Patient/combine-null-key-match'],
+    ['combine-observation-final-2', 'value', 'Patient/combine-null-key-match'],
+    ['combine-observation-preliminary', 'missing', null],
+    ['combine-observation-explicit-null', 'explicit-null', null],
+    ['combine-observation-unmatched', 'value', 'Patient/combine-null-key-unmatched'],
+  ],
+  reports: [
+    ['combine-observation-final-1', 'missing', null],
+    ['combine-report-explicit-null', 'explicit-null', null],
+    ['combine-observation-final-2', 'value', 'Patient/combine-null-key-match'],
+    ['combine-observation-preliminary', 'value', 'Patient/combine-null-key-match'],
+  ],
+};
 const documentByRoot = (builder, resourceType) => {
   const matches = (builder.workspace?.documents ?? []).filter(document => document.rootResourceType === resourceType);
   if (matches.length !== 1) throw new Error('Expected exactly one ' + resourceType + ' source table; found ' + matches.length + '.');
@@ -513,14 +448,6 @@ const createAndPublishSources = async (context, page, report, _includePatient, r
   check(report, 'persistence', 'created a fresh Explorer distinct from the bootstrap',
     Boolean(explorer) && explorer !== context.target.bootstrapExplorerId,
     { explorer, bootstrapExplorerId: context.target.bootstrapExplorerId });
-  await installNativeAbortProbe({
-    page,
-    report,
-    project: context.target.fixtureProject,
-    explorer,
-    apiOrigin: new URL(context.target.uiUrl).origin,
-  });
-
   const addRoot = async (resourceType, tableTitle, rows) => {
     await fill(page, '#first-table-name', tableTitle);
     await recordBrowserTiming(report, page, { name: `create ${resourceType} source table with its direct identity`, action: () => click(page, 'button', { name: `Choose ${resourceType} rows` }), timeout: 5000,
@@ -554,7 +481,7 @@ const createAndPublishSources = async (context, page, report, _includePatient, r
   await waitFor(page, "Boolean(document.querySelector('#first-table-name'))", 10000);
   await addRoot('DiagnosticReport', 'Diagnostic reports', expectedReports.length);
   await addFields('DiagnosticReport', rawFieldsByResource.DiagnosticReport, expectedReports.length);
-  const publishPath = `/api/v1/projects/${encodeURIComponent(context.target.fixtureProject)}/explorers/${encodeURIComponent(explorer)}/authoring/v2/publish`;
+  const publishPath = `${fixtureProjectExplorerCollectionPath(context.target.fixtureProject)}/${encodeURIComponent(explorer)}/authoring/v2/publish`;
   const publication = page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).origin === new URL(context.target.uiUrl).origin && new URL(response.url()).pathname === publishPath, { timeout: 5000 });
   await recordBrowserTiming(report, page, { name: 'publish both exact source tables', action: () => click(page, 'button', { name: 'Publish' }), timeout: 5000,
     after: async () => { const response = await publication; if (!response.ok()) throw new Error('source table publication returned HTTP ' + response.status()); } });
@@ -597,31 +524,32 @@ const createAndPublishSources = async (context, page, report, _includePatient, r
 };
 const currentRevisionForOutput = (builder, outputId, entries) => currentPublishedRevisionForOutput(entries, outputId);
 
-const performNullableJoinLifecycle = async ({ page, report, action }, context) => {
+const performNullableJoinLifecycle = async ({ page, report, action, networkObserver }, context) => {
   assert.equal(context.custom, false, 'nullable Combine authoring requires an owned isolated fixture.');
   assert.equal(context.seed?.fresh, true, 'nullable Combine authoring requires a fresh verification project.');
   const rawObservations = fixtureRows(context.target.fixtureDir, 'Observation.ndjson');
   const rawReports = fixtureRows(context.target.fixtureDir, 'DiagnosticReport.ndjson');
-  check(report, 'correctness', 'fixture contains four Observations and three DiagnosticReports with non-empty resource IDs',
-    rawObservations.length === 4 && rawReports.length === 3 && rawObservations.every((row) => Boolean(row.id)) && rawReports.every((row) => Boolean(row.id)),
-    { observationIDs: rawObservations.map((row) => row.id), diagnosticReportIDs: rawReports.map((row) => row.id) });
-  const observationKeyRows = rawObservations.map((row) => [row.id, row.subject?.reference ?? null]);
-  const reportKeyRows = rawReports.map((row) => [row.id, row.subject?.reference ?? null]);
-  check(report, 'correctness', 'nullable-key fixture proves two duplicate rows per side for one shared key, NULL on both sides, and one left-only key',
-    JSON.stringify(observationKeyRows) === JSON.stringify([
-      ['combine-observation-final-1', 'Patient/combine-null-key-match'],
-      ['combine-observation-final-2', 'Patient/combine-null-key-match'],
-      ['combine-observation-preliminary', null],
-      ['combine-observation-unmatched', 'Patient/combine-null-key-unmatched'],
-    ]) && JSON.stringify(reportKeyRows) === JSON.stringify([
-      ['combine-observation-final-1', null],
-      ['combine-observation-final-2', 'Patient/combine-null-key-match'],
-      ['combine-observation-preliminary', 'Patient/combine-null-key-match'],
-    ]),
+  const fixtureObservationIDs = rawObservations.map((row) => row.id);
+  const fixtureReportIDs = rawReports.map((row) => row.id);
+  check(report, 'correctness', 'fixture contains the exact five Observation and four DiagnosticReport source identities',
+    JSON.stringify(fixtureObservationIDs) === JSON.stringify(expectedObservations.map((row) => row.id)) &&
+    JSON.stringify(fixtureReportIDs) === JSON.stringify(expectedReports.map((row) => row.id)),
+    { observationIDs: fixtureObservationIDs, expectedObservationIDs: expectedObservations.map((row) => row.id),
+      diagnosticReportIDs: fixtureReportIDs, expectedDiagnosticReportIDs: expectedReports.map((row) => row.id) });
+  const keyWitnessRows = (rows) => rows.map((row) => {
+    const hasReference = Object.hasOwn(row.subject ?? {}, 'reference');
+    const reference = hasReference ? row.subject.reference : null;
+    return [row.id, !hasReference ? 'missing' : reference === null ? 'explicit-null' : 'value', reference];
+  });
+  const observationKeyRows = keyWitnessRows(rawObservations);
+  const reportKeyRows = keyWitnessRows(rawReports);
+  check(report, 'correctness', 'nullable-key fixture proves duplicate shared keys, separate omitted and explicit-null keys, and one left-only key',
+    JSON.stringify(observationKeyRows) === JSON.stringify(nullableKeyWitnessExpectations.observations) &&
+    JSON.stringify(reportKeyRows) === JSON.stringify(nullableKeyWitnessExpectations.reports),
     { observations: observationKeyRows, reports: reportKeyRows });
   const duplicatedKey = 'Patient/combine-null-key-match';
-  const duplicatedObservationIDs = observationKeyRows.filter(([, key]) => key === duplicatedKey).map(([id]) => id);
-  const duplicatedReportIDs = reportKeyRows.filter(([, key]) => key === duplicatedKey).map(([id]) => id);
+  const duplicatedObservationIDs = observationKeyRows.filter(([, state, key]) => state === 'value' && key === duplicatedKey).map(([id]) => id);
+  const duplicatedReportIDs = reportKeyRows.filter(([, state, key]) => state === 'value' && key === duplicatedKey).map(([id]) => id);
 
   const prepared = await createAndPublishSources(context, page, report, false, {
     Observation: ['status', 'valueInteger', 'subject.reference'],
@@ -644,15 +572,17 @@ const performNullableJoinLifecycle = async ({ page, report, action }, context) =
   const leftPreviewRows = [
     ...innerRows,
     ['combine-observation-preliminary', null],
+    ['combine-observation-explicit-null', null],
     ['combine-observation-unmatched', null],
   ];
   const leftRows = [
     ...innerRows,
     ['combine-observation-preliminary', '—'],
+    ['combine-observation-explicit-null', '—'],
     ['combine-observation-unmatched', '—'],
   ];
-  if (duplicatedObservationIDs.length !== 2 || duplicatedReportIDs.length !== 2 || innerRows.length !== 4 || leftRows.length !== 6) {
-    throw new Error('Nullable duplicate-key fixture must produce a 2×2 INNER multiplicity and six LEFT rows.');
+  if (duplicatedObservationIDs.length !== 2 || duplicatedReportIDs.length !== 2 || innerRows.length !== 4 || leftRows.length !== 7) {
+    throw new Error('Nullable duplicate-key fixture must produce a 2×2 INNER multiplicity and seven LEFT rows.');
   }
   report.target.fixtureRawOracle = {
     key: 'Observation.subject.reference = DiagnosticReport.subject.reference under ordinary SQL NULL equality',
@@ -660,13 +590,17 @@ const performNullableJoinLifecycle = async ({ page, report, action }, context) =
     duplicatedObservationIDs,
     duplicatedReportIDs,
     duplicateKeyInnerMultiplicity: `${duplicatedObservationIDs.length}x${duplicatedReportIDs.length}`,
+    missingObservationIDs: observationKeyRows.filter(([, state]) => state === 'missing').map(([id]) => id),
+    explicitNullObservationIDs: observationKeyRows.filter(([, state]) => state === 'explicit-null').map(([id]) => id),
+    missingReportIDs: reportKeyRows.filter(([, state]) => state === 'missing').map(([id]) => id),
+    explicitNullReportIDs: reportKeyRows.filter(([, state]) => state === 'explicit-null').map(([id]) => id),
     innerRows,
     leftRows,
     nullMatchesNull: false,
     requiredResourceIDs: { observations: rawObservations.map((row) => row.id), reports: rawReports.map((row) => row.id) },
   };
 
-  const target = await startCombineTarget(context, page, report, explorer, docs.observation.output.id, api.builder);
+  const target = await startCombineTarget(context, page, report, networkObserver, explorer, docs.observation.output.id, api.builder);
   report.target.combineTarget = target;
   const builderAtTarget = await readBuilder(context, explorer);
   const preCombineTargetDocument = structuredClone(documentByOutput(builderAtTarget, target.outputId));
@@ -681,7 +615,7 @@ const performNullableJoinLifecycle = async ({ page, report, action }, context) =
     { observationRevision, reportRevision, expected: api.revisions, generation: context.target.fixtureGeneration });
   if (!pinnedCurrentInputs) throw new Error('Nullable Join source revisions changed or are out of scope.');
 
-  const proposalCapture = captureProposalRequests(page, target.outputId, nativeApiScope(context, explorer));
+  const proposalCapture = captureProposalRequests(networkObserver, target.outputId, nativeApiScope(context, explorer));
   try {
   await chooseOperation(report, page, [observationRevision, reportRevision]);
   await setSelectValue(page, 'select[aria-label="Matching pair 1 first field"]', observationKey.id);
@@ -700,7 +634,7 @@ const performNullableJoinLifecycle = async ({ page, report, action }, context) =
   });
   await checkProposalBinding(report, page, proposalCapture, 0, 'INNER', target.outputId,
     ['observation_id', 'report_id'], innerRows, [observationKey.id, reportKey.id]);
-  exactRows(report, 'INNER nullable Join preserves all four pairs from the 2x2 duplicate key and never matches NULL to NULL',
+  exactRows(report, 'INNER nullable Join preserves the four shared-key pairs and matches neither omitted nor explicit-null keys',
     await readGrid(page, 'proposal'), ['Observation ID', 'Report ID'], innerRows);
 
   await recordBrowserTiming(report, page, {
@@ -728,7 +662,7 @@ const performNullableJoinLifecycle = async ({ page, report, action }, context) =
   await checkProposalBinding(report, page, proposalCapture, leftCancelRequestStart, 'LEFT', target.outputId,
     ['observation_id', 'report_id'], leftPreviewRows, [observationKey.id, reportKey.id],
     'LEFT preview receipt before Cancel binds the exact UI proxy route, target, nullable key pair, output columns, and raw rows');
-  exactRows(report, 'LEFT preview preserves four duplicate-key pairs, both unmatched left rows, and NULL non-equality', await readGrid(page, 'proposal'), ['Observation ID', 'Report ID'], leftRows);
+  exactRows(report, 'LEFT preview preserves four duplicate-key pairs and three unmatched rows including omitted and explicit-null keys', await readGrid(page, 'proposal'), ['Observation ID', 'Report ID'], leftRows);
   await recordBrowserTiming(report, page, {
     name: 'Cancel LEFT nullable Join edit',
     action: () => click(page, '[data-testid="construction-cancel-proposal"]'),
@@ -754,7 +688,7 @@ const performNullableJoinLifecycle = async ({ page, report, action }, context) =
   await checkProposalBinding(report, page, proposalCapture, leftApplyRequestStart, 'LEFT', target.outputId,
     ['observation_id', 'report_id'], leftPreviewRows, [observationKey.id, reportKey.id],
     'LEFT preview receipt before Apply binds the exact UI proxy route, target, nullable key pair, output columns, and raw rows');
-  exactRows(report, 'LEFT preview before Apply preserves duplicate-key multiplicity and both unmatched-null rows', await readGrid(page, 'proposal'), ['Observation ID', 'Report ID'], leftRows);
+  exactRows(report, 'LEFT preview before Apply preserves four duplicate-key pairs and all three unmatched source rows', await readGrid(page, 'proposal'), ['Observation ID', 'Report ID'], leftRows);
   await recordBrowserTiming(report, page, {
     name: 'Apply LEFT nullable Join edit',
     action: () => click(page, '[data-testid="construction-apply-proposal"]'),
@@ -763,8 +697,8 @@ const performNullableJoinLifecycle = async ({ page, report, action }, context) =
   });
   const appliedLeft = await readBuilder(context, explorer);
   const leftSaved = assertSavedStep(report, appliedLeft, target, [observationRevision, reportRevision], observationKey.id, reportKey.id, 'LEFT', savedStepID);
-  exactRows(report, 'LEFT applied output preserves duplicate-key multiplicity and both unmatched left rows', await readGrid(page), ['Observation ID', 'Report ID'], leftRows);
-  await reloadTarget(report, page, target.outputId, leftRows, 'reload applied LEFT nullable-key table', 'LEFT duplicate-key multiplicity and null projections survive Builder reload');
+  exactRows(report, 'LEFT applied output preserves four duplicate-key pairs and three unmatched source rows', await readGrid(page), ['Observation ID', 'Report ID'], leftRows);
+  await reloadTarget(report, page, target.outputId, leftRows, 'reload applied LEFT nullable-key table', 'LEFT seven rows and explicit-null non-matches survive Builder reload');
 
   const beforeRemovalBuilder = await readBuilder(context, explorer);
   const firstRemovalStart = proposalCapture.startIndex();
@@ -838,64 +772,5 @@ const performNullableJoinLifecycle = async ({ page, report, action }, context) =
   } finally { proposalCapture.stop(); }
 };
 
-export const nullableJoinWorkflow = async ({ page, report, action, nativeRequestLedger }, context) => {
-  const workflow = { page, report, action };
-  const projectPath = `/api/v1/projects/${encodeURIComponent(context.target.fixtureProject)}/explorers`;
-  if (!nativeRequestLedger?.openScope || !nativeRequestLedger?.flush) {
-    throw new TypeError('Nullable Combine requires the fixture-owned native request ledger.');
-  }
-  const scope = nativeRequestLedger.openScope({
-    project: context.target.fixtureProject,
-    origin: new URL(context.target.uiUrl).origin,
-  });
-
-  let workflowError;
-  try {
-    await performNullableJoinLifecycle(workflow, context);
-  } catch (error) {
-    workflowError = error;
-  }
-
-  let captureError;
-  let ledger;
-  try {
-    ledger = await nativeRequestLedger.flush(scope, {
-      explorer: report.target?.explorer,
-      timeoutMs: 5000,
-    });
-  } catch (error) {
-    captureError = error;
-  }
-
-  if (ledger) {
-    report.nativeRequests = ledger.nativeRequests;
-    report.nativeRequestDrainEvidence = ledger.nativeRequestDrainEvidence;
-    report.excludedNativeRequests = ledger.excludedNativeRequests;
-    report.excludedNativeRequestDrainEvidence = ledger.excludedNativeRequestDrainEvidence;
-    report.nativeRequestCorrelationErrors = ledger.nativeRequestCorrelationErrors;
-    report.nativeRequestTerminalLedger = ledger.nativeRequestTerminalLedger;
-    recordNullableNativeAbortProbeCorrelations({
-      report,
-      nativeRequests: ledger.nativeRequests,
-      probeEvents: report.nativeAbortProbeEvents ?? [],
-    });
-    report.nativeRequestCaptureScope = {
-      observedPathPrefix: projectPath,
-      observedScope: 'all Explorer routes inside the fresh fixture project, including other Explorers seen by the prefix-wide flush',
-      terminalLedgerScope: ledger.nativeRequestTerminalLedger.scope,
-      excludedFromSelectedExplorerLedger: {
-        meaning: 'Other same-project Explorer requests are retained as diagnostic context but are not evidence about the selected Explorer lifecycle.',
-        requests: ledger.excludedNativeRequests.map(({ requestId, browserRequestId, method, path, status, failure, nativeEventChronology }) => ({
-          requestId, browserRequestId, method, path, status: status ?? null, failure: failure ?? null,
-          terminalEvent: (nativeEventChronology ?? []).find(({ event }) => event === 'requestfinished' || event === 'requestfailed')?.event ?? null,
-        })),
-        drainEvidence: ledger.excludedNativeRequestDrainEvidence,
-      },
-    };
-  }
-
-  if (workflowError) throw workflowError;
-  if (captureError) throw captureError;
-  if (!ledger) throw new Error('Nullable Combine native request ledger was not finalized.');
-  assertNullableNativeRequestLedgerComplete(ledger);
-};
+export const nullableJoinWorkflow = async ({ page, report, action, networkObserver }, context) =>
+  performNullableJoinLifecycle({ page, report, action, networkObserver }, context);

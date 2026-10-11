@@ -63,7 +63,7 @@ test.describe('CDA contributor rules', () => {
 });
 
 test.describe('CDA source fields', () => {
-  test.use({ cdaScenarioID: 'cda-native', cdaCaseName: 'source-fields', cdaRequireSourceFixture: true });
+  test.use({ cdaScenarioID: 'cda-source-fields', cdaCaseName: 'source-fields', cdaRequireSourceFixture: true });
   test('CDA source fields', async ({ page, cda }) => {
     test.setTimeout(300_000);
     await sourceFieldsWorkflow({ page, cda, caseOptions: {  } });

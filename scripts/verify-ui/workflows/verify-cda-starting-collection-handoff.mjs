@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { isDeepStrictEqual } from 'node:util';
+import { fingerprintAuthorizationScopeDigest } from '../helpers/playwright-browser.mjs';
 import { scenarioCaseFor } from '../registry.mjs';
 
 const CASE_ID = 'cda-starting-collection-handoff';
@@ -65,7 +66,11 @@ export const startingCollectionReconcileReceiptEvidence = ({ request, requestBod
   if (typeof response?.receiptId !== 'string' || response.receiptId.length === 0) failures.push('reconcile response has no receipt ID');
   if (response?.snapshotToken !== expected.snapshotToken) failures.push('reconcile receipt snapshot differs from the saved draft');
   if (response?.generation !== expected.generation) failures.push('reconcile receipt generation differs from the saved draft');
-  if (response?.authorizationScopeDigest !== expected.authorizationScopeDigest) failures.push('reconcile receipt authorization scope differs from the saved draft');
+  const receiptScopeFingerprint = fingerprintAuthorizationScopeDigest(response?.authorizationScopeDigest);
+  const expectedScopeFingerprint = fingerprintAuthorizationScopeDigest(expected.authorizationScopeDigest);
+  if (!expectedScopeFingerprint || receiptScopeFingerprint !== expectedScopeFingerprint) {
+    failures.push('reconcile receipt authorization scope differs from the saved draft');
+  }
   const matchingOutputs = Array.isArray(response?.outputs)
     ? response.outputs.filter(output => output?.outputId === expected.outputId).length
     : 0;
@@ -155,7 +160,7 @@ export async function waitForStartingCollectionConfigurationRequests({
   const waitForOwnedRequest = async (method, path, label, matchesRequest = () => true) => {
     const remainingMs = deadline - now();
     assert(remainingMs > 0, `Configure rows exceeded its ${timeoutMs} ms request-completion deadline before ${label}`);
-    const request = await browserEvents.waitFor(entry =>
+    const request = await browserEvents.waitForResponse(entry =>
       entry.method === method && entry.path === path && entry.startedAt >= startedAt &&
         entry.triggerAction === 'Configure rows' && matchesRequest(entry),
     { fromIndex, timeoutMs: remainingMs });
@@ -172,8 +177,8 @@ export async function waitForStartingCollectionConfigurationRequests({
   const firstRequest = await waitForOwnedRequest(phaseRequest.method, phaseRequest.path, phaseRequest.label,
     phaseRequest.matches);
   const populationRoutes = await waitForOwnedRequest('POST', populationRoutesPath, 'population-routes POST',
-    entry => entry.body?.selectionRevisionId === selectionId && entry.body?.outputId === outputId &&
-      entry.body?.snapshotToken === snapshotToken);
+    entry => entry.request?.selectionRevisionId === selectionId && entry.request?.outputId === outputId &&
+      entry.request?.snapshotToken === snapshotToken);
   return { phase, phaseRequest: firstRequest, populationRoutes, deadline };
 }
 
@@ -278,7 +283,7 @@ export async function startingCollectionHandoffWorkflow({ page, cda }) {
     await cda.click(outputSelector);
     await wait(() => document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false);
     const configureRowsStartedAt = Date.now();
-    const configureRowsRequestFromIndex = cda.report.nativeRequests.length;
+    const configureRowsRequestFromIndex = browserEvents.requests.length;
     const remainingConfigureRowsMs = () => {
       const remainingMs = configureRowsStartedAt + ACTION_BUDGET_MS - Date.now();
       assert(remainingMs > 0,
@@ -324,7 +329,7 @@ export async function startingCollectionHandoffWorkflow({ page, cda }) {
         status: request.status,
         startedAt: request.startedAt,
         completedAt: request.completedAt,
-        responseBodyCaptured: browserEvents.rawResponseBody(request) !== undefined,
+        responseBodyCaptured: request.response !== undefined,
       })),
     });
   };
@@ -426,15 +431,15 @@ export async function startingCollectionHandoffWorkflow({ page, cda }) {
     browserEvents = cda.captureRequests(explorerPath, {
       responsePaths: /selections|row-definition-choices|population-routes|commands|reconcile|preview/,
     });
-    const initialRequestIndex = cda.report.nativeRequests.length;
+    const initialRequestIndex = browserEvents.requests.length;
     const initialLoadStarted = Date.now();
     await cda.navigate(pageURL.toString());
     await wait(([selector]) => Boolean(document.querySelector(selector)), ['[data-testid="construction-workspace"]']);
     const selectionReadPath = `${explorerPath}/selections/${encodeURIComponent(selection.id)}`;
-    const initialSelectionRead = await browserEvents.waitFor(request =>
+    const initialSelectionRead = await browserEvents.waitForResponse(request =>
       request.method === 'GET' && request.path === selectionReadPath && request.status === 200,
     { fromIndex: initialRequestIndex, timeoutMs: ACTION_BUDGET_MS });
-    const initialSelectionResponse = browserEvents.rawResponseBody(initialSelectionRead);
+    const initialSelectionResponse = initialSelectionRead.response;
     assert.equal(initialSelectionResponse?.revision?.id, selection.id,
       'The standalone browser must fetch the exact handed-off immutable revision');
     assert.equal(initialSelectionResponse.revision.scopeDigest, selection.scopeDigest);
@@ -448,7 +453,7 @@ export async function startingCollectionHandoffWorkflow({ page, cda }) {
     await openStartingCollection(selection.id, outputSelector, 'unattached-handoff');
     const handoffLoadMs = Date.now() - initialLoadStarted;
     addCheckpoint('standalone URL handoff to visible starting collection', handoffLoadMs);
-    const initialSelectionReads = cda.report.nativeRequests.filter(request =>
+    const initialSelectionReads = browserEvents.requests.filter(request =>
       request.method === 'GET' && request.path === selectionReadPath && request.status === 200);
     assert(initialSelectionReads.length > 0, 'The standalone host must fetch the exact handed-off selection through the browser');
     recordRequirement(2, 'correctness', true, {
@@ -458,8 +463,8 @@ export async function startingCollectionHandoffWorkflow({ page, cda }) {
       browserReadStatus: initialSelectionReads.at(-1).status,
     });
 
-    const requestBody = request => browserEvents.rawRequestBody(request);
-    const responseBody = request => browserEvents.rawResponseBody(request);
+    const requestBody = request => request.request;
+    const responseBody = request => request.response;
     const waitForSavedPreviewBinding = async ({ fromIndex, expectedBuilder, phase }) => {
       const expected = {
         path: `${authoringPath}/reconcile`,
@@ -471,7 +476,7 @@ export async function startingCollectionHandoffWorkflow({ page, cda }) {
         savedWorkspace: expectedBuilder.workspace,
         outputId,
       };
-      const reconcileRequest = await browserEvents.waitFor(request =>
+      const reconcileRequest = await browserEvents.waitForResponse(request =>
         startingCollectionReconcileRequestMatchesSavedDraft({
           request,
           requestBody: requestBody(request),
@@ -487,13 +492,13 @@ export async function startingCollectionHandoffWorkflow({ page, cda }) {
       assert(receiptEvidence.ok,
         `${phase} reconcile receipt must belong to the exact saved draft: ${receiptEvidence.failures.join('; ')}`);
       const receiptId = receiptEvidence.receiptId;
-      const previewRequest = await browserEvents.waitFor(request =>
+      const previewRequest = await browserEvents.waitForResponse(request =>
         startingCollectionPreviewRequestMatchesReceipt({
           request,
           requestBody: requestBody(request),
           expected: { path: `${authoringPath}/preview`, receiptId, outputId },
         }),
-      { fromIndex: cda.report.nativeRequests.indexOf(reconcileRequest) + 1, timeoutMs: ACTION_BUDGET_MS });
+      { fromIndex: browserEvents.requests.indexOf(reconcileRequest) + 1, timeoutMs: ACTION_BUDGET_MS });
       const previewEvidence = startingCollectionNativePreviewReceiptEvidence({
         request: previewRequest,
         requestBody: requestBody(previewRequest),
@@ -515,7 +520,7 @@ export async function startingCollectionHandoffWorkflow({ page, cda }) {
       };
     });
     const routePath = `${authoringPath}/population-routes`;
-    const routeRequest = await browserEvents.waitFor(request => {
+    const routeRequest = await browserEvents.waitForResponse(request => {
       const body = requestBody(request);
       return request.method === 'POST' && request.path === routePath &&
         body?.outputId === outputId && body?.selectionRevisionId === selection.id &&
@@ -551,7 +556,7 @@ export async function startingCollectionHandoffWorkflow({ page, cda }) {
 
     const preAttach = await api(`${authoringPath}/builder`);
     const attachStarted = Date.now();
-    const attachRequestIndex = cda.report.nativeRequests.length;
+    const attachRequestIndex = browserEvents.requests.length;
     await cda.click('section[aria-label="Starting collection"] button', { name: 'Use selected resources' });
     await wait(([id]) => document.querySelector('section[aria-label="Starting collection"]')
       ?.getAttribute('data-attached-selection-revision-id') === id, [selection.id]);
@@ -568,14 +573,14 @@ export async function startingCollectionHandoffWorkflow({ page, cda }) {
     const appliedDraftDigest = builder.draftDigest;
     report.lifecycle.attachmentHasCancelAffordance = false;
     report.lifecycle.cancelReason = 'Use selected resources saves directly; this attachment action has no Cancel step.';
-    const attachCommand = await browserEvents.waitFor(request => {
-      const body = browserEvents.rawRequestBody(request);
+    const attachCommand = await browserEvents.waitForResponse(request => {
+      const body = request.request;
       return request.method === 'POST' && request.path === `${authoringPath}/commands` &&
         body?.commands?.some(command => command.type === 'SET_TABLE_POPULATION' &&
           command.selectionRevisionId === selection.id && command.outputId === outputId);
     }, { fromIndex: attachRequestIndex, timeoutMs: ACTION_BUDGET_MS });
     assert.equal(attachCommand.status, 200, 'The native population attachment must succeed');
-    const attachBody = browserEvents.rawRequestBody(attachCommand);
+    const attachBody = attachCommand.request;
     assert.equal(attachBody.expectedDraftVersion, preAttach.draftVersion);
     assert.equal(attachBody.expectedDraftDigest, preAttach.draftDigest);
     assert.equal(attachBody.snapshotToken, preAttach.catalog.snapshotToken);
@@ -645,9 +650,9 @@ export async function startingCollectionHandoffWorkflow({ page, cda }) {
     const savedSnapshotToken = builder.catalog.snapshotToken;
     const savedDraftVersion = builder.draftVersion;
     const savedDraftDigest = builder.draftDigest;
-    const selectionReadsBeforeReload = cda.report.nativeRequests.filter(request =>
+    const selectionReadsBeforeReload = browserEvents.requests.filter(request =>
       request.method === 'GET' && request.path === selectionReadPath && request.status === 200).length;
-    const reloadRequestIndex = cda.report.nativeRequests.length;
+    const reloadRequestIndex = browserEvents.requests.length;
     const reloadStarted = Date.now();
     await page.reload({ waitUntil: 'domcontentloaded', timeout: ACTION_BUDGET_MS });
     await wait(([selector]) => Boolean(document.querySelector(selector)), ['[data-testid="construction-workspace"]']);
@@ -687,7 +692,7 @@ export async function startingCollectionHandoffWorkflow({ page, cda }) {
     assert.equal(new URL(page.url()).searchParams.get('selection'), selection.id,
       'Reload must preserve the standalone selection handoff URL');
     await openStartingCollection(selection.id, outputSelector, 'saved-attachment-after-reload');
-    const reloadedSelectionRead = await browserEvents.waitFor(request =>
+    const reloadedSelectionRead = await browserEvents.waitForResponse(request =>
       request.method === 'GET' && request.path === selectionReadPath && request.status === 200,
     { fromIndex: reloadRequestIndex, timeoutMs: ACTION_BUDGET_MS });
     const reloadedSelectionResponse = responseBody(reloadedSelectionRead);
@@ -700,7 +705,7 @@ export async function startingCollectionHandoffWorkflow({ page, cda }) {
     assert.equal(reloadedSelectionResponse.members.length, 1, 'The browser handoff requests one member per page');
     assert.deepEqual(reloadedSelectionResponse.members[0].ref, selectedRefs.find(ref => ref.id === reloadedSelectionResponse.members[0].ref.id),
       'The browser page must contain an exact scoped member of the independently verified immutable selection');
-    const reloadedSelectionReads = cda.report.nativeRequests.filter(request =>
+    const reloadedSelectionReads = browserEvents.requests.filter(request =>
       request.method === 'GET' && request.path === selectionReadPath && request.status === 200);
     assert(reloadedSelectionReads.length > selectionReadsBeforeReload,
       'Reload must fetch the handed-off revision again through the standalone host');
@@ -745,8 +750,6 @@ export async function startingCollectionHandoffWorkflow({ page, cda }) {
       budgetMs: ACTION_BUDGET_MS,
       checkpoints: checkpointDurations,
     });
-    await browserEvents.flush();
-    cda.includeBrowserDiagnostics();
     assert.deepEqual(cda.diagnostics.pageErrors, [], 'Browser JavaScript exceptions occurred');
     assert.deepEqual(report.errors, [], 'Unexpected browser HTTP, runtime, console, or module errors occurred');
     recordRequirement(7, 'correctness', report.errors.length === 0 && cda.diagnostics.pageErrors.length === 0, {
@@ -765,9 +768,7 @@ export async function startingCollectionHandoffWorkflow({ page, cda }) {
       builder: outputId ? await api(`${authoringPath}/builder`).catch(apiError => ({ error: String(apiError) })) : undefined,
       bodyText: await cda.inspect(() => document.body.innerText.slice(-12_000)).catch(inspectError => `DOM capture failed: ${String(inspectError)}`),
     };
-    cda.includeBrowserDiagnostics();
   } finally {
-    await browserEvents?.flush().catch(() => undefined);
     report.lifecycle.checkpointDurations = checkpointDurations;
     report.lifecycle.nativeRequests = cda.report.nativeRequests.map(({ method, path, status, body, response }) => ({ method, path, status, body, response }));
     await cda.attachReport('starting-collection-handoff.json', report);

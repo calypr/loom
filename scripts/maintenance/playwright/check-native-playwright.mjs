@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { caseNamesFor, coverageDrift, registry, scenarioCaseFor } from '../../verify-ui/registry.mjs';
 import { validateRegisteredFocusedCheckPlans } from '../../verify-ui/helpers/focused-check-groups.mjs';
 import { createBrowserCallbackScopeChecker } from './browser-callback-scope.mjs';
+import { findRemovedNativePlaywrightApiReferences } from './removed-native-playwright-apis.mjs';
 
 const scriptsRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const root = resolve(scriptsRoot, '..');
@@ -33,6 +34,7 @@ for (const scenario of registry) {
 function* files(directory) {
   if (!existsSync(directory)) return;
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    // This sweep covers runtime workflow/spec/helper implementation; test files have their own focused node:test gate.
     if (entry.name === 'node_modules' || entry.name === '.artifacts' || entry.name === 'tests') continue;
     const path = join(directory, entry.name);
     if (entry.isDirectory()) yield* files(path);
@@ -40,7 +42,18 @@ function* files(directory) {
   }
 }
 
+function* testFiles(directory) {
+  if (!existsSync(directory)) return;
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (entry.name === 'node_modules' || entry.name === '.artifacts') continue;
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) yield* testFiles(path);
+    else if (entry.name.endsWith('.test.mjs')) yield path;
+  }
+}
+
 const checkedPaths = new Set();
+const removedApiPaths = new Set();
 const browserOwnerNames = 'launchBrowser|launchCdaBrowser|launchPlaywrightBrowser|launchPlaywrightEvidenceBrowser';
 const browserOwnership = new RegExp(
   `\\b(?:${browserOwnerNames})\\s*\\(|\\bimport\\s*\\{[^}]*\\b(?:${browserOwnerNames})\\b[^}]*\\}|` +
@@ -52,6 +65,7 @@ const browserOwnership = new RegExp(
 function checkBrowserSource(path) {
   if (checkedPaths.has(path)) return;
   checkedPaths.add(path);
+  removedApiPaths.add(path);
   const source = readFileSync(path, 'utf8');
   const relativePath = path.slice(root.length + 1);
   if (/\brunPlaywrightCase\b|\bexecuteScenario\b/.test(source)) {
@@ -78,10 +92,21 @@ for (const entry of readdirSync(join(root, 'scripts'))) {
 for (const path of files(join(root, 'ui/packages/loom-ui/scripts'))) {
   if (/^verify.*\.mjs$/.test(path.split('/').at(-1))) checkBrowserSource(path);
 }
+// Scan executable helper tests too; the gate's own synthetic source-contract test is under maintenance/playwright.
+for (const directory of ['scripts/verify-ui/helpers/tests', 'scripts/verify-ui/tests']) {
+  for (const path of testFiles(join(root, directory))) removedApiPaths.add(path);
+}
 
 try {
   const requireUI = createRequire(join(root, 'ui/packages/loom-ui/package.json'));
   const ts = requireUI('typescript');
+  for (const path of removedApiPaths) {
+    const source = readFileSync(path, 'utf8');
+    const relativePath = path.slice(root.length + 1);
+    for (const issue of findRemovedNativePlaywrightApiReferences(source, ts)) {
+      problems.push(`${relativePath}:${issue.line}: ${issue.name} reference ${JSON.stringify(issue.reference)} remains in native Playwright source.`);
+    }
+  }
   const program = ts.createProgram([...checkedPaths], {
     allowJs: true,
     checkJs: true,

@@ -14,8 +14,6 @@ import {
 } from '../helpers/builder-combine-draft-helpers.mjs';
 import { nativeCombineTargetBindingEvidence, rootedEmptyTargetRestorationEvidence } from '../helpers/builder-combine-helpers.mjs';
 import { proposalPreviewReadinessExpression } from '../helpers/proposal-preview-readiness.mjs';
-import { installNativeAbortProbe, nativeAbortSignalObservationForRequest } from '../helpers/native-abort-probe.mjs';
-import { createFixtureNativeRequestLedger } from '../helpers/native-request-ledger.mjs';
 
 const ACTION_CHECK = 'all native lifecycle actions complete within five seconds';
 const TABLE_SELECTOR = '[data-testid="preview-table-scroll"] [role="table"]';
@@ -94,7 +92,7 @@ export function prepareCdaGroupJoinOracle(rows) {
 
 export async function installGroupJoinNativeCapture({ page, cda, project, explorer, uiOrigin }) {
   assert(cda?.report?.target && typeof cda.captureRequests === 'function',
-    'Group/Join native capture needs the CDA report and shared request tracker');
+    'Group/Join native capture needs the CDA report and shared request observer');
   assert(typeof project === 'string' && project.length > 0, 'Group/Join native capture needs the exact project');
   assert(typeof explorer === 'string' && explorer.length > 0, 'Group/Join native capture needs the fresh Explorer');
   assert.equal(cda.report.target.project, project, 'Group/Join capture must use the exact reported CDA project');
@@ -103,159 +101,10 @@ export async function installGroupJoinNativeCapture({ page, cda, project, explor
   const ownedPathPrefix = `${explorerBase}/authoring/v2`;
   const origin = new URL(uiOrigin).origin;
   assert.equal(new URL(cda.report.target.uiUrl).origin, origin,
-    'Group/Join probe and native capture must use the exact owned UI origin');
-  await installNativeAbortProbe({ page, report: cda.report, project, explorer, apiOrigin: uiOrigin });
-
+    'Group/Join capture must use the exact owned UI origin');
   cda.report.explorer = explorer;
   cda.report.target.explorer = explorer;
-  cda.report.nativeRequestCaptureScope = {
-    project,
-    explorer,
-    selectedExplorer: explorer,
-    origin,
-    observedPathPrefix: ownedPathPrefix,
-  };
   return cda.captureRequests(ownedPathPrefix, { responsePaths: /commands|construction-proposals/ });
-}
-
-const terminalRequestEvents = new Set(['requestfinished', 'requestfailed']);
-
-const requestRouteIdentity = (request) => {
-  try {
-    const url = new URL(request.url());
-    return { origin: url.origin, path: url.pathname, method: request.method() };
-  } catch {
-    return null;
-  }
-};
-
-const exactTrackerRequestFor = (entry, request) => {
-  const route = requestRouteIdentity(request);
-  if (!route || route.origin !== entry.origin || route.path !== entry.path || route.method !== entry.method) return false;
-  let headers;
-  try { headers = request.headers(); }
-  catch { return false; }
-  const headerRequestId = headers?.['x-request-id'] ?? headers?.['X-Request-ID'];
-  return (headerRequestId ?? entry.browserRequestId) === entry.requestId;
-};
-
-const exactNetworkDiagnosticsFor = (report, entry) => (report.network ?? []).filter((record) => {
-  if (record?.kind !== 'network' || record.requestId !== entry.requestId ||
-      record.requestDetails?.requestId !== entry.requestId || record.browserRequestId !== entry.browserRequestId ||
-      record.method !== entry.method) return false;
-  try {
-    const url = new URL(record.rawURL ?? record.url);
-    return url.origin === entry.origin && url.pathname === entry.path;
-  } catch {
-    return false;
-  }
-});
-
-/** Project the CDA capture into the retained classifier shape without changing raw capture evidence. */
-export function projectGroupJoinNativeRequestEvidence({ report, tracker, page }) {
-  if (!report || !Array.isArray(report.nativeRequests) || !Array.isArray(report.nativeAbortProbeEvents) ||
-      !tracker?.byRequest || typeof tracker.byRequest.entries !== 'function' || !page || typeof page.mainFrame !== 'function') {
-    throw new TypeError('Group/Join native projection needs raw requests, probe events, the CDA tracker, and its Playwright page.');
-  }
-
-  const nativeRequests = report.nativeRequests;
-  const trackerEntries = [...tracker.byRequest.entries()];
-  const matchedObjectsFor = (entry) => trackerEntries
-    .filter(([request, captured]) => captured === entry && exactTrackerRequestFor(entry, request))
-    .map(([request]) => request);
-  const frameLedger = createFixtureNativeRequestLedger();
-  const terminalRows = nativeRequests.map((entry) => {
-    const requestObjects = matchedObjectsFor(entry);
-    const request = requestObjects.length === 1 ? requestObjects[0] : null;
-    const frameIdentity = request
-      ? frameLedger.frameIdentityForRequest(request, page, entry.ownerPageId ?? 'playwright-page-1')
-      : { pageId: entry.ownerPageId ?? null, frameId: null, frameIsMainFrame: null, frameIdentityStatus: 'unavailable' };
-    const diagnostics = exactNetworkDiagnosticsFor(report, entry);
-    const diagnostic = diagnostics.length === 1 ? diagnostics[0] : null;
-    const chronology = (entry.nativeEventChronology ?? []).map((event) => ({
-      ...event,
-      ...(event.event === 'response' && Number.isInteger(entry.status) ? { status: entry.status } : {}),
-      ...(event.event === 'requestfailed' && typeof entry.failure === 'string' ? { failure: entry.failure } : {}),
-    }));
-    const terminalEvent = [...chronology].reverse().find(event => terminalRequestEvents.has(event.event))?.event ?? null;
-    const state = terminalEvent === 'requestfinished' ? 'finished' : terminalEvent === 'requestfailed' ? 'failed' : 'pending';
-    const status = Number.isInteger(entry.status) ? entry.status : null;
-    const failure = typeof entry.failure === 'string' ? entry.failure : null;
-    return {
-      requestId: entry.requestId ?? null,
-      browserRequestId: entry.browserRequestId ?? null,
-      ...(diagnostic ? { playwrightRequestId: diagnostic.playwrightRequestId } : {}),
-      origin: entry.origin ?? null,
-      path: entry.path ?? null,
-      method: entry.method ?? null,
-      status,
-      failure,
-      terminalEvent,
-      state,
-      complete: state !== 'pending' && (Number.isInteger(status) || Boolean(failure)),
-      pageId: frameIdentity.pageId,
-      frameId: frameIdentity.frameId,
-      frameIsMainFrame: frameIdentity.frameIsMainFrame,
-      frameIdentityStatus: frameIdentity.frameIdentityStatus,
-      ...(diagnostic?.requestTimeline ? { requestTimeline: structuredClone(diagnostic.requestTimeline) } : {}),
-      nativeEventChronology: chronology,
-    };
-  });
-  const counts = {
-    total: terminalRows.length,
-    finished: terminalRows.filter(entry => entry.state === 'finished').length,
-    failed: terminalRows.filter(entry => entry.state === 'failed').length,
-    pending: terminalRows.filter(entry => entry.state === 'pending').length,
-  };
-  const terminalLedger = {
-    scope: 'exact Explorer CDA request capture',
-    project: report.target?.project ?? report.nativeRequestCaptureScope?.project ?? null,
-    explorer: report.target?.explorer ?? report.nativeRequestCaptureScope?.selectedExplorer ?? null,
-    complete: counts.pending === 0 && terminalRows.every(entry => entry.complete),
-    counts,
-    requests: terminalRows,
-  };
-
-  const schemaFieldsPath = `${report.nativeRequestCaptureScope?.observedPathPrefix ?? ''}/schema-fields`;
-  const correlations = [];
-  for (const [nativeRequestIndex, entry] of nativeRequests.entries()) {
-    if (entry.path !== schemaFieldsPath || entry.method !== 'POST') continue;
-    const requestObjects = matchedObjectsFor(entry);
-    const tupleMatches = nativeRequests.filter(candidate => candidate.requestId === entry.requestId &&
-      candidate.origin === entry.origin && candidate.path === entry.path && candidate.method === entry.method);
-    const requestIdentityMatchCount = tupleMatches.filter(candidate => matchedObjectsFor(candidate).length === 1).length;
-    const diagnostics = exactNetworkDiagnosticsFor(report, entry);
-    const diagnostic = diagnostics.length === 1 ? diagnostics[0] : null;
-    const requestId = typeof entry.requestId === 'string' ? entry.requestId : null;
-    const observation = nativeAbortSignalObservationForRequest({
-      ...entry,
-      requestCorrelationId: requestId,
-      requestIdentityMatchCount: requestObjects.length === 1 ? requestIdentityMatchCount : 0,
-    }, report.nativeAbortProbeEvents);
-    correlations.push({
-      nativeRequestIndex,
-      requestId,
-      browserRequestId: entry.browserRequestId ?? null,
-      ...(diagnostic ? { playwrightRequestId: diagnostic.playwrightRequestId } : {}),
-      origin: entry.origin ?? null,
-      path: entry.path,
-      method: entry.method ?? null,
-      requestIdentityMatchCount: requestObjects.length === 1 ? requestIdentityMatchCount : 0,
-      observation,
-    });
-  }
-
-  report.nativeRequestTerminalLedger = terminalLedger;
-  report.nativeAbortProbeCorrelations = correlations;
-  return { terminalLedger, correlations };
-}
-
-export function registerGroupJoinNativeRequestProjection({ cda, tracker, page }) {
-  if (!cda || typeof cda.registerAfterNativeRequestDrainProjection !== 'function') {
-    throw new TypeError('Group/Join native evidence requires the CDA post-drain report projection seam.');
-  }
-  return cda.registerAfterNativeRequestDrainProjection(() =>
-    projectGroupJoinNativeRequestEvidence({ report: cda.report, tracker, page }));
 }
 
 export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
@@ -294,7 +143,6 @@ export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
   const publishPathSuffix = '/authoring/v2/publish';
   const applicationOrigins = new Set([apiOrigin, uiOrigin].map(value => new URL(value).origin));
   const selectionReadEvents = new Map();
-  let activeSelectionTransition;
   const onRequest = browserRequest => {
     try {
       const url = new URL(browserRequest.url());
@@ -306,8 +154,7 @@ export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
         if (encodedSelectionId && !encodedSelectionId.includes('/')) {
           selectionReadEvents.set(browserRequest, {
             selectionId: decodeURIComponent(encodedSelectionId), path: url.pathname,
-            startedAt: Date.now(), responseStatus: null, responseAt: null, completedAt: null,
-            failedAt: null, failure: null, transitionAction: activeSelectionTransition?.label ?? null,
+            startedAt: Date.now(), responseStatus: null, responseAt: null,
           });
         }
       }
@@ -319,21 +166,8 @@ export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
     event.responseStatus = response.status();
     event.responseAt = Date.now();
   };
-  const onSelectionRequestFinished = browserRequest => {
-    const event = selectionReadEvents.get(browserRequest);
-    if (event) event.completedAt = Date.now();
-  };
-  const onSelectionRequestFailed = browserRequest => {
-    const event = selectionReadEvents.get(browserRequest);
-    if (!event) return;
-    event.failedAt = Date.now();
-    event.failure = browserRequest.failure()?.errorText ?? null;
-    event.transitionAction = activeSelectionTransition?.label ?? null;
-  };
   page.on('request', onRequest);
   page.on('response', onSelectionResponse);
-  page.on('requestfinished', onSelectionRequestFinished);
-  page.on('requestfailed', onSelectionRequestFailed);
 
   const requireCheck = (dimension, name, passed, evidence = {}) => cda.check(dimension, name, passed, evidence);
   const waitFunction = (predicate, timeout = 5_000) => page.waitForFunction(predicate, undefined, { timeout: Math.min(5_000, timeout) });
@@ -512,7 +346,6 @@ export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
     const openTableAction = `Open ${sourceLabel} exact population table`;
     if (previousSource) {
       const rightSelectionPath = `${apiRoot(project, explorer)}/selections/${encoded(selection.id)}`;
-      const previousSelectionPath = `${apiRoot(project, explorer)}/selections/${encoded(previousSource.selection.id)}`;
       assert.notEqual(previousSource.selection.id, selection.id, 'Independent Groups must retain distinct source selections');
       const responseOutcome = page.waitForResponse(response => {
         try {
@@ -521,7 +354,6 @@ export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
             url.pathname === rightSelectionPath;
         } catch { return false; }
       }, { timeout: 5_000 }).then(response => ({ response }), error => ({ error }));
-      const cancellationStart = report.expectedCancellations?.length ?? 0;
       const selectedOutputBeforeSwitch = await page.evaluate(() => {
         const selected = document.querySelector('[data-testid^="construction-table-"][aria-current="page"]');
         return selected?.getAttribute('data-testid')?.slice('construction-table-'.length) ?? null;
@@ -529,10 +361,6 @@ export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
       assert.equal(selectedOutputBeforeSwitch, previousSource.outputId,
         'The exact left source table must be selected before opening the right source table');
       const transitionStartedAt = Date.now();
-      const pendingPreviousReads = [...selectionReadEvents.values()].filter(event =>
-        event.selectionId === previousSource.selection.id && event.path === previousSelectionPath &&
-        event.startedAt <= transitionStartedAt && event.completedAt === null && event.failedAt === null);
-      activeSelectionTransition = { label: openTableAction, startedAt: transitionStartedAt };
       let rightSelectionIdentity;
       let rightRead;
       const resolveRightSelection = async () => {
@@ -566,58 +394,9 @@ export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
       };
       let transitionFinishedAt;
       try {
-        await cda.withExpectedCancellations({
-          origin: uiOrigin,
-          method: 'GET',
-          paths: [previousSelectionPath],
-          requestIdPrefixes: ['cda-request-'],
-          reason: 'Selecting the right source output retires the previous left attached-selection query.',
-          proof: {
-            project, explorer, generation,
-            previousOutputId: previousSource.outputId,
-            previousSelectionRevisionId: previousSource.selection.id,
-            nextOutputId: outputId,
-            nextSelectionRevisionId: selection.id,
-            retirement: 'BuilderWorkspace replaces the keyed attached-selection query when the selected output changes; its useQuery AbortSignal aborts the stale getSelection request.',
-          },
-          actionLabel: openTableAction,
-        }, async () => selectTable(outputId, rawRows.length, openTableAction, resolveRightSelection));
+        await selectTable(outputId, rawRows.length, openTableAction, resolveRightSelection);
       } finally {
         transitionFinishedAt = Date.now();
-        activeSelectionTransition = undefined;
-      }
-      const cancellations = (report.expectedCancellations ?? []).slice(cancellationStart);
-      assert(cancellations.length <= 1, 'Switching source tables may retire at most one pending left selection read');
-      const previousFailures = [...selectionReadEvents.values()].filter(event =>
-        event.selectionId === previousSource.selection.id && event.path === previousSelectionPath &&
-        event.failure === 'net::ERR_ABORTED' && event.failedAt >= transitionStartedAt && event.failedAt <= transitionFinishedAt);
-      let retiredPreviousRead;
-      if (cancellations.length === 1) {
-        const [cancellation] = cancellations;
-        assert.equal(pendingPreviousReads.length, 1, 'A retired left selection GET must already be outstanding before the native switch');
-        assert.equal(previousFailures.length, 1, 'Only one prior left selection GET may be aborted during the switch');
-        retiredPreviousRead = previousFailures[0];
-        assert.strictEqual(retiredPreviousRead, pendingPreviousReads[0], 'The aborted request must be the exact pending left selection GET captured before the switch');
-        assert(retiredPreviousRead.startedAt < transitionStartedAt && retiredPreviousRead.failedAt >= transitionStartedAt);
-        assert.equal(retiredPreviousRead.transitionAction, openTableAction);
-        assert.deepEqual([cancellation.method, new URL(cancellation.url).origin, new URL(cancellation.url).pathname,
-          cancellation.reason, cancellation.proof?.scopeAction], [
-          'GET', new URL(uiOrigin).origin, previousSelectionPath,
-          'Selecting the right source output retires the previous left attached-selection query.', openTableAction,
-        ]);
-        const diagnostics = report.network.filter(entry => entry.kind === 'network' &&
-          entry.playwrightRequestId === cancellation.playwrightRequestId);
-        assert.equal(diagnostics.length, 1, 'The exact retired request must remain in the native network ledger');
-        assert.deepEqual([diagnostics[0].url, diagnostics[0].errorText, diagnostics[0].triggerAction,
-          diagnostics[0].expected, diagnostics[0].cancellationAction], [
-          `${new URL(uiOrigin).origin}${previousSelectionPath}`, 'net::ERR_ABORTED', openTableAction, true, openTableAction,
-        ]);
-        const requestErrors = report.errors.filter(entry => entry.kind === 'network' &&
-          entry.playwrightRequestId === cancellation.playwrightRequestId);
-        assert(requestErrors.every(entry => entry.expected === true),
-          'The exact retired selection GET must have no unclassified native error diagnostic');
-      } else {
-        assert.equal(previousFailures.length, 0, 'An unclassified left selection abort cannot be hidden by the transition proof');
       }
       selectionSwitchEvidence = {
         action: openTableAction,
@@ -625,17 +404,9 @@ export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
         previous: { outputId: previousSource.outputId, selectionRevisionId: previousSource.selection.id },
         selectedOutputBeforeSwitch,
         next: { outputId, selectionRevisionId: selection.id },
-        pendingPreviousReadsAtTransition: pendingPreviousReads.map(event => ({ startedAt: event.startedAt, path: event.path })),
-        retiredPreviousRead: retiredPreviousRead ? {
-          path: retiredPreviousRead.path, startedAt: retiredPreviousRead.startedAt,
-          failedAt: retiredPreviousRead.failedAt, failure: retiredPreviousRead.failure,
-          transitionAction: retiredPreviousRead.transitionAction,
-          cancellationRequestId: cancellations[0].requestId,
-          playwrightRequestId: cancellations[0].playwrightRequestId,
-        } : null,
         rightSelectionRead: {
           path: rightRead.path, startedAt: rightRead.startedAt,
-          responseAt: rightRead.responseAt, completedAt: rightRead.completedAt,
+          responseAt: rightRead.responseAt,
           status: rightRead.responseStatus, identity: rightSelectionIdentity,
         },
       };
@@ -728,8 +499,6 @@ export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
     assert.deepEqual(groupRows, expectedGroupRows, `Native GROUP preview must equal exact selected raw ${GROUP_KEY_FIELD_PATH} counts`);
     const applyGroup = page.getByTestId('construction-apply-proposal');
     const applyGroupAction = `Apply ${sourceLabel} current-draft COUNT_ROWS GROUP`;
-    const frameSourcePath = `${explorerBase}/authoring/v2/frame-source-options`;
-    const snapshotToken = builder.catalog.snapshotToken;
     const groupEditor = page.getByTestId('construction-reshape-editor');
     assert(await groupEditor.isVisible(), 'The exact Group editor must be visible before Apply');
     assert(await groupKey.isChecked(), 'The Group editor must retain the exact selected key before Apply');
@@ -738,80 +507,12 @@ export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
     assert.equal(await activeOperationEditor.getAttribute('data-operation-family'), 'RESHAPE');
     assert.equal(await activeOperationEditor.getAttribute('data-output-id'), outputId,
       'The active Group editor must belong to the exact selected source output');
-    const pendingOptions = report.nativeRequests.map(entry => ({ entry, body: requestCapture.rawRequestBody(entry) }))
-      .filter(({ entry, body }) => entry.origin === new URL(uiOrigin).origin && entry.path === frameSourcePath &&
-        entry.method === 'POST' && !entry.completedAt && body?.snapshotToken === snapshotToken &&
-        body?.outputId === outputId && body?.resourceType === 'Observation' && body?.limit === 50);
-    assert(pendingOptions.length <= 1, 'At most one exact Group-options request may be retired by Apply');
-    const pendingOption = pendingOptions[0];
-    const cancellationsBeforeApply = report.expectedCancellations?.length ?? 0;
-    const applyStartedAt = Date.now();
-    const applyGroupProposal = () => action(applyGroupAction, applyGroup,
+    await action(applyGroupAction, applyGroup,
       locator => locator.click({ timeout: 5_000 }), async () => {
         await waitSaved(outputId, expectedGroups.length);
         await waitFunction(`!document.querySelector('[data-testid="construction-reshape-editor"]')`);
-        if (pendingOption) {
-          const completedOption = await cda.waitForCapturedResponse(requestCapture,
-            entry => entry.browserRequestId === pendingOption.entry.browserRequestId, 5_000);
-          assert.strictEqual(completedOption, pendingOption.entry,
-            'The exact pending Group-options request must finish or be classified as canceled during Apply');
-        }
       });
-    if (pendingOption) {
-      await cda.withExpectedCancellations({
-        origin: uiOrigin, method: 'POST', paths: [frameSourcePath], requestIdPrefixes: ['cda-request-'],
-        reason: 'Applying this Group closes its editor and retires the exact pending coded-value options query.',
-        proof: { outputId, snapshotToken, resourceType: 'Observation', limit: 50, groupKeyFieldPath: GROUP_KEY_FIELD_PATH },
-        actionLabel: applyGroupAction,
-      }, applyGroupProposal);
-    } else {
-      await applyGroupProposal();
-    }
-    const applyFinishedAt = Date.now();
     assert.equal(await groupEditor.count(), 0, 'Applying the Group must unmount its exact editor');
-    const groupOptionCancellations = (report.expectedCancellations ?? []).slice(cancellationsBeforeApply)
-      .filter(cancellation => cancellation.proof?.scopeAction === applyGroupAction);
-    assert(groupOptionCancellations.length <= 1, 'One Group Apply may retire at most one exact options request');
-    let frameSourceRetirementEvidence = {
-      outputId, snapshotToken, editorUnmounted: true, pendingBeforeApply: Boolean(pendingOption),
-      cancellationObserved: groupOptionCancellations.length === 1, exact: true,
-    };
-    if (groupOptionCancellations.length === 1) {
-      assert(pendingOption, 'A Group-options cancellation must match a request proven pending before Apply');
-      const [cancellation] = groupOptionCancellations;
-      const { entry, body } = pendingOption;
-      assert(entry.startedAt < applyStartedAt && entry.completedAt >= applyStartedAt && entry.completedAt <= applyFinishedAt);
-      assert.equal(entry.failure, 'net::ERR_ABORTED');
-      assert.equal(cancellation.browserRequestId, entry.browserRequestId);
-      assert.equal(cancellation.proof?.scopeAction, applyGroupAction);
-      assert.deepEqual({ snapshotToken: body.snapshotToken, outputId: body.outputId,
-        resourceType: body.resourceType, limit: body.limit },
-      { snapshotToken, outputId, resourceType: 'Observation', limit: 50 });
-      const diagnostics = report.network.filter(entry => entry.kind === 'network' &&
-        entry.browserRequestId === cancellation.browserRequestId);
-      assert.equal(diagnostics.length, 1);
-      assert.deepEqual([diagnostics[0].url, diagnostics[0].errorText, diagnostics[0].triggerAction,
-        diagnostics[0].expected, diagnostics[0].canceled, diagnostics[0].cancellationAction], [
-        `${new URL(uiOrigin).origin}${frameSourcePath}`, 'net::ERR_ABORTED', applyGroupAction, true, true, applyGroupAction,
-      ]);
-      const requestErrors = report.errors.filter(error => error.kind === 'network' &&
-        error.browserRequestId === cancellation.browserRequestId);
-      assert(requestErrors.every(error => error.expected === true));
-      frameSourceRetirementEvidence = {
-        ...frameSourceRetirementEvidence,
-        browserRequestId: entry.browserRequestId,
-        requestStartedAt: entry.startedAt,
-        requestFailedAt: entry.completedAt,
-        requestBody: { snapshotToken: body.snapshotToken, outputId: body.outputId,
-          resourceType: body.resourceType, limit: body.limit },
-      };
-    } else if (pendingOption) {
-      assert.equal(pendingOption.entry.status, 200,
-        'A pending Group-options request not retired by editor cleanup must finish successfully during Apply');
-      assert.equal(pendingOption.entry.failure, undefined);
-      assert(pendingOption.entry.completedAt >= applyStartedAt && pendingOption.entry.completedAt <= applyFinishedAt,
-        'A non-retired Group-options request must complete inside the timed Apply action');
-    }
 
     builder = await readBuilder();
     checkBuilderScope(builder);
@@ -854,7 +555,6 @@ export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
       exactSavedGroup: saved.construction?.steps?.length === 1 && savedGroup?.id === groupStep.id &&
         savedKey?.inputColumnId === groupKeyInputColumnId && savedKey?.outputColumnId === keyOutput.id &&
         savedAggregate?.operation === 'COUNT_ROWS' && savedAggregate?.outputColumnId === countOutput.id,
-      frameSourceRetirement: frameSourceRetirementEvidence,
       exactPopulation: saved.population?.selectionRevisionId === selection.id && (saved.population?.route?.length ?? 0) === 0,
       expectedRows: reloadedGroupRows,
       renderedRows: reloadedGrid.rows,
@@ -876,7 +576,6 @@ export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
       groupStepId: groupStep.id,
       expectedGroups: expectedGroupRows,
       groupOracleEvidence,
-      frameSourceRetirementEvidence,
       selectionSwitchEvidence,
       baselineDocument: structuredClone(getDocument(builder, outputId)),
     };
@@ -946,10 +645,10 @@ export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
   };
   const captureProposal = async ({ capture, fromIndex, targetOutputId, sources, baseState, joinType, expectedStepId }) => {
     const path = `${explorerBase}/authoring/v2/construction-proposals`;
-    const event = await capture.waitFor(entry => entry.path === path && entry.method === 'POST' &&
-      entry.status === 200 && entry.completedAt && entry.body?.outputId === targetOutputId, { fromIndex, timeoutMs: 5_000 });
-    const requestBody = capture.rawRequestBody(event);
-    const responseBody = capture.rawResponseBody(event);
+    const event = await capture.waitForResponse(entry => entry.path === path && entry.method === 'POST' &&
+      entry.status === 200 && entry.completedAt && entry.request?.outputId === targetOutputId, { fromIndex, timeoutMs: 5_000 });
+    const requestBody = event.request;
+    const responseBody = event.response;
     assert(requestBody && responseBody, 'Native proposal capture must retain the exact request and response bodies');
     const step = requestBody.candidateConstruction?.steps?.at(-1);
     const expectedInputIDs = sources.map(source => source.outputId);
@@ -1011,15 +710,15 @@ export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
     const rootNodeIds = beforeCreate.catalog.nodes.filter(node => node.resourceType === 'Observation' && node.rowRootEligible).map(node => node.nodeId);
     const existingIDs = (beforeCreate.workspace?.documents ?? []).map(document => document.output.id);
     const commands = requestCapture;
-    const fromIndex = report.nativeRequests.length;
+    const fromIndex = requestCapture.requests.length;
     const combineButton = page.getByTestId('construction-action-combine');
     await action('Create native empty Combine target', combineButton,
       locator => locator.click({ timeout: 5_000 }), async () => waitSelector('[data-testid="construction-combine-editor"]'));
-    const event = await commands.waitFor(entry => entry.path === `${explorerBase}/authoring/v2/commands` &&
-      entry.method === 'POST' && entry.status === 200 && entry.completedAt && entry.body?.commands?.some(command => command.type === 'CREATE_TABLE'),
+    const event = await commands.waitForResponse(entry => entry.path === `${explorerBase}/authoring/v2/commands` &&
+      entry.method === 'POST' && entry.status === 200 && entry.completedAt && entry.request?.commands?.some(command => command.type === 'CREATE_TABLE'),
       { fromIndex, timeoutMs: 5_000 });
-    const requestBody = commands.rawRequestBody(event);
-    const responseBody = commands.rawResponseBody(event);
+    const requestBody = event.request;
+    const responseBody = event.response;
     const outputId = await page.locator('[data-testid="construction-operation-editor"][data-operation-family="COMBINE"]').getAttribute('data-output-id');
     const targetEvidence = nativeCombineTargetBindingEvidence({
       requestBody, responseStatus: event.status, response: responseBody, expectedRootNodeIds: rootNodeIds,
@@ -1037,14 +736,14 @@ export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
       { outputId: target.outputId, rootResourceType: targetDocument.rootResourceType, documentCount: builder.workspace.documents.length });
     const baseState = structuredClone(builder);
     const proposalTracker = requestCapture;
-    let proposalFromIndex = report.nativeRequests.length;
+    let proposalFromIndex = requestCapture.requests.length;
     await cda.click('[data-testid="construction-combine-choice-key_join"]');
     await waitSelector('select[aria-label="Input table 1"]');
     const configuration = await configureJoin(sources, joinType, target.outputId, expectedRows);
     const finalValue = await optionValueById(configuration.finalMapping.selector, sources[1].countColumnId);
     const finalMapping = page.locator(configuration.finalMapping.selector);
     // Re-submit the final field as the timed auto-preview trigger after all other mappings are stable.
-    proposalFromIndex = report.nativeRequests.length;
+    proposalFromIndex = requestCapture.requests.length;
     await action(`Complete native ${joinType} Group Join mapping and render exact preview`, finalMapping,
       locator => locator.selectOption(finalValue, { timeout: 5_000 }), async () => waitProposal(target.outputId, expectedRows.length));
     const grid = await readGrid('proposal');
@@ -1224,9 +923,8 @@ export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
         selectionId: document.population?.selectionRevisionId,
         expectedSelectionId: source.selection.id,
         groupOracle: source.groupOracleEvidence,
-        frameSourceRetirement: source.frameSourceRetirementEvidence,
         exact: source.groupOracleEvidence.exactRenderedRows && source.groupOracleEvidence.exactSavedGroup &&
-          source.groupOracleEvidence.exactPopulation && source.groupOracleEvidence.frameSourceRetirement?.exact === true &&
+          source.groupOracleEvidence.exactPopulation &&
           document.construction?.steps?.length === 1 &&
           step?.id === source.groupStepId && key?.inputColumnId === source.groupKeyInputColumnId &&
           key?.outputColumnId === source.groupKeyColumnId && aggregate?.operation === 'COUNT_ROWS' &&
@@ -1285,7 +983,7 @@ export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
     const joinTypeSelector = 'select[aria-label="If a row in the first table has no match"]';
     const joinType = page.locator(joinTypeSelector);
     const editCapture = requestCapture;
-    const editFromIndex = report.nativeRequests.length;
+    const editFromIndex = requestCapture.requests.length;
     await action('Preview saved LEFT Join changed to INNER before Cancel', joinType,
       locator => locator.selectOption('INNER', { timeout: 5_000 }), async () => waitProposal(target.outputId, expectedInner.length));
     assertGrid('Saved Join INNER edit preview matches the independent raw oracle before Cancel', await readGrid('proposal'), headers,
@@ -1310,7 +1008,7 @@ export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
     builder = afterCancelEdit;
     await openSavedStep(target.outputId, savedJoin.id, '[data-testid="construction-combine-editor"]', expectedLeft.length);
     const innerApplyCapture = requestCapture;
-    const innerApplyFromIndex = report.nativeRequests.length;
+    const innerApplyFromIndex = requestCapture.requests.length;
     await action('Preview saved LEFT Join changed to INNER for Apply', page.locator(joinTypeSelector),
       locator => locator.selectOption('INNER', { timeout: 5_000 }), async () => waitProposal(target.outputId, expectedInner.length));
     assertGrid('Saved Join INNER Apply preview matches the independent raw oracle', await readGrid('proposal'), headers,
@@ -1350,17 +1048,17 @@ export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
     const distinctRows = expectedLeftDistinct.map(([groupKey, count]) => [groupKey, String(count)]);
     const distinctInput = page.locator('input[aria-label="Summary output label 1"]');
     const sourceProposalCapture = requestCapture;
-    const sourceProposalFromIndex = report.nativeRequests.length;
+    const sourceProposalFromIndex = requestCapture.requests.length;
     await action('Preview upstream COUNT_DISTINCT group-key Group edit', distinctInput,
       locator => locator.fill(distinctLabel, { timeout: 5_000 }), async () => waitFunction(`(()=>{const ready=${proposalReady(left.outputId, distinctRows.length)};const label=document.querySelector('input[aria-label="Summary output label 1"]');const headers=[...document.querySelectorAll(${querySelector(`${PROPOSAL_SELECTOR} thead th`)})].map(cell=>String(cell.querySelector('span')?.textContent??'').trim());return Boolean(ready&&label?.value===${querySelector(distinctLabel)}&&headers.includes(${querySelector(distinctLabel)}))})()`));
     const distinctGrid = await readGrid('proposal');
     assertGrid('COUNT_DISTINCT source Group preview equals the raw group-key cardinality oracle', distinctGrid,
       [left.groupKeyLabel, distinctLabel], distinctRows);
-    const sourceEvent = await sourceProposalCapture.waitFor(entry => entry.path === `${explorerBase}/authoring/v2/construction-proposals` &&
-      entry.method === 'POST' && entry.status === 200 && entry.completedAt && entry.body?.outputId === left.outputId,
+    const sourceEvent = await sourceProposalCapture.waitForResponse(entry => entry.path === `${explorerBase}/authoring/v2/construction-proposals` &&
+      entry.method === 'POST' && entry.status === 200 && entry.completedAt && entry.request?.outputId === left.outputId,
       { fromIndex: sourceProposalFromIndex, timeoutMs: 5_000 });
-    const sourceRequest = sourceProposalCapture.rawRequestBody(sourceEvent);
-    const sourceResponse = sourceProposalCapture.rawResponseBody(sourceEvent);
+    const sourceRequest = sourceEvent.request;
+    const sourceResponse = sourceEvent.response;
     const sourceCandidate = sourceRequest?.candidateConstruction?.steps?.find(step => step.id === sourceGroup.id);
     const sourceAggregate = sourceCandidate?.operation?.group?.aggregates?.[0];
     assert.equal(sourceRequest?.snapshotToken, builder.catalog.snapshotToken);
@@ -1476,15 +1174,7 @@ export async function cdaCurrentDraftGroupJoinWorkflow({ page, cda }) {
     });
     assert(noPublish && noPinnedSources, 'Current-draft Group and Join workflow must never Publish or pin TABLE_REVISION inputs');
   } finally {
-    try {
-      if (requestCapture?.byRequest) {
-        registerGroupJoinNativeRequestProjection({ cda, tracker: requestCapture, page });
-      }
-    } finally {
-      page.off('request', onRequest);
-      page.off('response', onSelectionResponse);
-      page.off('requestfinished', onSelectionRequestFinished);
-      page.off('requestfailed', onSelectionRequestFailed);
-    }
+    page.off('request', onRequest);
+    page.off('response', onSelectionResponse);
   }
 }

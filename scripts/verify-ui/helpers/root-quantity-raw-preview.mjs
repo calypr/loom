@@ -15,28 +15,28 @@ export const assertReloadPreviewContext = ({ requests, requestOffset, basePath, 
   const currentRequests = requests.slice(requestOffset);
   const previewRequest = currentRequests.findLast(entry => entry.endpoint === 'preview'
     && entry.pathname === `${basePath}/preview`
-    && entry.body?.outputId === outputId);
+    && entry.request?.outputId === outputId);
   assert(previewRequest, 'The final reload must issue an automatic preview for the exact restored output');
   assert.equal(previewRequest.status, 200, 'The final reload automatic preview must succeed');
-  assert.equal(previewRequest.body?.limit, 25, 'The final reload automatic preview must use the bounded 25-row window');
+  assert.equal(previewRequest.request?.limit, 25, 'The final reload automatic preview must use the bounded 25-row window');
   const preview = previewRequest.response;
   assert(preview && Array.isArray(preview.rows) && Array.isArray(preview.columns), 'The final reload automatic preview must return typed rows and columns');
-  assert.equal(previewRequest.body?.receiptId, preview.receiptId, 'The preview response must match the request receipt');
+  assert.equal(previewRequest.request?.receiptId, preview.receiptId, 'The preview response must match the request receipt');
   assert.equal(preview.outputId, outputId, 'The automatic preview must return the exact restored output');
   assert.equal(preview.rowCount, preview.rows.length, 'The automatic preview row count must describe its returned bounded rows');
-  assert(preview.rowCount > 0 && preview.rowCount <= previewRequest.body.limit, 'The automatic preview must stay within its bounded request limit');
+  assert(preview.rowCount > 0 && preview.rowCount <= previewRequest.request.limit, 'The automatic preview must stay within its bounded request limit');
 
   const reconciliation = currentRequests.findLast(entry => entry.endpoint === 'reconcile'
     && entry.pathname === `${basePath}/reconcile`
     && entry.response?.receiptId === preview.receiptId);
   assert(reconciliation, 'The automatic preview receipt must come from a reconciliation captured during this reload');
   assert.equal(reconciliation.status, 200, 'The reload reconciliation for the automatic preview must succeed');
-  assert.equal(reconciliation.body?.snapshotToken, snapshotToken, 'The reload reconciliation must use the exact current source snapshot');
-  assert.equal(reconciliation.body?.draftVersion, draftVersion, 'The reload reconciliation must use the exact current draft version');
-  assert.equal(reconciliation.body?.draftDigest, draftDigest, 'The reload reconciliation must use the exact current draft digest');
+  assert.equal(reconciliation.request?.snapshotToken, snapshotToken, 'The reload reconciliation must use the exact current source snapshot');
+  assert.equal(reconciliation.request?.draftVersion, draftVersion, 'The reload reconciliation must use the exact current draft version');
+  assert.equal(reconciliation.request?.draftDigest, draftDigest, 'The reload reconciliation must use the exact current draft digest');
   assert.equal(reconciliation.response?.snapshotToken, snapshotToken, 'The reload reconciliation response must retain the exact current source snapshot');
   assert.equal(reconciliation.response?.generation, generation, 'The reload reconciliation must retain the exact source generation');
-  assert.equal(reconciliation.response?.receiptId, previewRequest.body.receiptId, 'The preview must use the receipt issued for the exact reload reconciliation');
+  assert.equal(reconciliation.response?.receiptId, previewRequest.request.receiptId, 'The preview must use the receipt issued for the exact reload reconciliation');
   assert(reconciliation.response?.outputs?.some(output => output.outputId === outputId), 'The reload reconciliation must authorize the exact preview output');
   return { request: previewRequest, reconciliation, preview };
 };

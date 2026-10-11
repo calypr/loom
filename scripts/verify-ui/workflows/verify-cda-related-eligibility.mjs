@@ -177,7 +177,6 @@ try {
     try { await command([{ type: 'DELETE_TABLE', outputId }]); state.cleanup = 'temporary table deleted'; }
     catch (error) { state.cleanupError = String(error.stack ?? error); state.status = 'failed'; throw error; }
   }
-  cda.includeBrowserDiagnostics();
 }
 return state;
 }

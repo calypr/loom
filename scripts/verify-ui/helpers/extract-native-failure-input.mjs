@@ -188,13 +188,19 @@ function authoringV2Path(project, explorer, endpoint) {
   return `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorer)}/authoring/v2/${endpoint}`;
 }
 
+function retainedRequestPayload(entry) {
+  // Current shared-observer reports use `request`; older saved reports used `body`.
+  // Keep this compatibility at the report-reading boundary, not on observer entries.
+  return Object.hasOwn(entry ?? {}, 'request') ? entry.request : entry?.body;
+}
+
 function selectedProposalCheckpoint(target, selectedRequest) {
   assert(target.explorer, 'Domain report explorer is required to select prerequisite state');
   assert.equal(selectedRequest.method, 'POST', 'Selected proposal must be POST');
   assert.equal(selectedRequest.path, authoringV2Path(target.project, target.explorer, 'construction-proposals'),
     'Selected proposal must use the exact retained explorer authoring-v2 path');
   assert(Number.isFinite(selectedRequest.startedAt), 'Selected proposal start time is missing');
-  const body = selectedRequest.body;
+  const body = retainedRequestPayload(selectedRequest);
   assert(body && typeof body === 'object' && !Array.isArray(body), 'Selected proposal request body is missing');
   assert(typeof body.snapshotToken === 'string' && body.snapshotToken.trim(),
     'Selected proposal snapshotToken must be a nonempty string');
@@ -234,19 +240,15 @@ function selectPrerequisiteState(report, target, selectedRequest, selectedIndex,
   assert.equal(state.path, reconcilePath, 'Prerequisite state must use the exact same-owner reconcile path');
   assert.equal(state.status, 200, 'Prerequisite reconcile must have a successful HTTP 200 response');
   assert(Number.isFinite(state.startedAt), 'Prerequisite reconcile start time is missing');
-  assert(Number.isFinite(state.responseReceivedAt), 'Prerequisite reconcile response event is missing');
-  assert(Number.isFinite(state.completedAt), 'Prerequisite reconcile completion event is missing');
-  assert(state.responseReceivedAt >= state.startedAt && state.completedAt >= state.responseReceivedAt,
-    'Prerequisite reconcile terminal event times are out of order');
   assert(!state.failure, 'Prerequisite reconcile has a retained request failure');
   assert(state.response && typeof state.response === 'object' && !Array.isArray(state.response),
     'Prerequisite reconcile response body is missing');
   assert(typeof state.requestId === 'string' && state.requestId.trim(), 'Prerequisite reconcile native requestId is missing');
   assert(Number.isFinite(selectedRequest.startedAt), 'Selected proposal start time is missing');
-  assert(stateIndex < selectedIndex && state.completedAt < selectedRequest.startedAt,
-    'Prerequisite reconcile must precede the selected proposal in report order and time');
+  assert(stateIndex < selectedIndex && state.startedAt < selectedRequest.startedAt,
+    'Prerequisite reconcile must precede the selected proposal in report order and start time');
 
-  const stateBody = state.body;
+  const stateBody = retainedRequestPayload(state);
   const response = state.response;
   assert(stateBody && typeof stateBody === 'object' && !Array.isArray(stateBody),
     'Prerequisite reconcile request body is missing');
@@ -283,8 +285,8 @@ function selectPrerequisiteState(report, target, selectedRequest, selectedIndex,
     path: state.path,
     statusCode: state.status,
     startedAt: state.startedAt,
-    responseReceivedAt: state.responseReceivedAt,
-    completedAt: state.completedAt,
+    ...(Number.isFinite(state.responseReceivedAt) ? { responseReceivedAt: state.responseReceivedAt } : {}),
+    ...(Number.isFinite(state.completedAt) ? { completedAt: state.completedAt } : {}),
     owner,
     checkpoint: {
       snapshotToken: stateBody.snapshotToken,

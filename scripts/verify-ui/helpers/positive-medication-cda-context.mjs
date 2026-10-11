@@ -1,7 +1,6 @@
 import { basename } from 'node:path';
 import {
   browserEval,
-  captureRequests,
   click,
   fill,
   navigate,
@@ -9,7 +8,6 @@ import {
   scrollIntoView,
   selectOption,
   waitForBrowser,
-  waitForCapturedResponse,
 } from './cda-playwright.mjs';
 
 const CASE_NAME = 'medication-positive-fixture';
@@ -61,13 +59,10 @@ export const createPositiveMedicationCdaContext = ({ page, workflow, testInfo, p
     navigate: url => navigate(page, url, actions),
     inspect: (callback, args) => browserEval(page, callback, args),
     wait: (callback, args, timeout) => waitForBrowser(page, callback, args, timeout),
-    captureRequests: (pathPrefix, options = {}) => captureRequests(page, report, pathPrefix, {
-      apiOrigin,
-      uiOrigin,
-      currentAction: () => report.activeAction?.label ?? report.activeAction?.name,
-      ...options,
-    }),
-    waitForCapturedResponse: (tracker, predicate, timeout) => waitForCapturedResponse(page, tracker, predicate, timeout),
+    captureRequests: (pathPrefix, options = {}) => workflow.captureRequests(pathPrefix, options),
+    requestBody: entry => workflow.requestBody(entry),
+    responseBody: entry => workflow.responseBody(entry),
+    expectTransportFailure: (request, details) => workflow.expectTransportFailure(request, details),
     attachReport: (name, value = report) => testInfo.attach(name, {
       body: `${JSON.stringify(value, null, 2)}\n`,
       contentType: 'application/json',

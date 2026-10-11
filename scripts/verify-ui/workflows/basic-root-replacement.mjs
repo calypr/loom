@@ -11,6 +11,7 @@ import {
   replacementAssessmentEffectsMatch,
   replacementAssessmentMatches,
   replacementProposalMatches,
+  replacementRowOperationRemovalMatches,
   workspaceColumnConsumerEvidence,
   workspaceTabIdentitySnapshot,
 } from '../helpers/basic-root-replacement-contract.mjs';
@@ -497,6 +498,8 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
   assert.equal(idColumnFor(baselineDocument, 'Patient').source.field.projectionMode, 'VALUE');
   assert.equal(baselineDocument.columns.find(column => column.columnId === birthDateColumn.columnId)?.source.field.path, 'birthDate');
   const baselineFilters = (baselineDocument.construction?.steps ?? []).filter(step => step.operation?.kind === 'FILTER');
+  assert.equal(baselineDocument.construction?.steps?.length, 1,
+    'The source table must have exactly one saved row operation before replacement.');
   assert.equal(baselineFilters.length, 1, 'Source setup must contain the applied birthDate filter.');
   assert.equal(baselineFilters[0].operation.filter.columnId, birthDateColumn.columnId);
   assert.equal(baselineFilters[0].operation.filter.operator, 'GTE');
@@ -819,6 +822,13 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
           ...(initialReplacementSourceDigest ? { sourceDocumentDigest: initialReplacementSourceDigest } : {}),
         });
         assert.deepEqual(proposalCheck, { ok: true, failures: [] });
+        const rowOperationRemoval = replacementRowOperationRemovalMatches(baselineDocument, assessment.proposal);
+        assert.deepEqual(rowOperationRemoval, {
+          ok: true,
+          expected: [`construction:${baselineFilters[0].id}`],
+          removed: [`construction:${baselineFilters[0].id}`],
+          failures: [],
+        }, 'Replacement consequences must name the exact saved birthDate FILTER row operation for removal.');
         assert.deepEqual(replacementAssessmentEffectsMatch(assessment, assessment.proposal), { ok: true, failures: [] },
           'Assessment effects must be the same server-authored arrays retained by its proposal.');
         assert.deepEqual(assessment.workspaceOutputConsumers, expectedConsumerEffects,
@@ -846,6 +856,10 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
         assert(/column|field/i.test(reviewText), 'Replacement review must describe source-column loss.');
         assert(/filter/i.test(reviewText), 'Replacement review must describe source-filter loss.');
         assert(/population|collection/i.test(reviewText), 'Replacement review must describe the source-population change.');
+        const removedSetup = reviewPanel.getByRole('list', { name: 'Removed setup features', exact: true });
+        assert.deepEqual((await removedSetup.getByRole('listitem').allTextContents()).map(normalize)
+          .filter(label => label === 'Construction step — Filter rows'), ['Construction step — Filter rows'],
+        'The user-visible consequence list must identify the saved FILTER operation that replacement removes.');
         assert.equal(await reviewPanel.getByRole('heading', { name: 'Current-draft tables to repair', exact: true }).count(), 1,
           'Replacement review must group downstream effects under its human-readable repair heading.');
         assert(reviewText.includes(`${consumerTitle} · Join fields:`) && reviewText.includes(birthDateColumn.label),
@@ -880,7 +894,7 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
         assert.deepEqual(rowIDs(proposalGrid, 'ResearchStudy', candidateIDColumn.label), studyIDs,
           'Server-receipted replacement Preview must show exact literal ResearchStudy IDs.');
         assessmentResult = { assessment, requestCheck, proposalGrid, typedPreview, reviewText, previewRequest,
-          candidateIDColumn, replacementDialog, reviewPanel };
+          rowOperationRemoval, candidateIDColumn, replacementDialog, reviewPanel };
       },
     });
     assert(assessmentResult?.assessment, 'Native replacement review must retain the server assessment result.');
@@ -1023,7 +1037,16 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
     rowsKind: replacedDocument.rows.kind,
     idColumn: replacementIDColumn,
     populationCleared: replacedDocument.population === undefined,
-    oldFilterCleared: replacedDocument.construction?.steps?.length === 0,
+    oldFilterCleared: (replacedDocument.construction?.steps ?? []).length === 0,
+    removedRowOperation: {
+      kind: baselineFilters[0].operation.kind,
+      id: baselineFilters[0].id,
+      effectKey: secondReview.rowOperationRemoval.removed[0],
+      removedSetupLabel: 'Construction step — Filter rows',
+      clearedAfterApply: (replacedDocument.construction?.steps ?? []).length === 0,
+      replacementRowsKind: replacedDocument.rows.kind,
+      exactReplacementIDs: rowIDs(appliedPreview, 'ResearchStudy', secondReview.candidateIDColumn.label),
+    },
     exactVisibleIDs: rowIDs(appliedPreview, 'ResearchStudy', secondReview.candidateIDColumn.label),
     replacementApplyCount: replacementApplyRequestCount - replacementApplyCountBeforeCancel,
     consumerDocumentUnchanged: isDeepStrictEqual(documentForOutput(replacedBuilder, consumerOutputId), consumerDocument),

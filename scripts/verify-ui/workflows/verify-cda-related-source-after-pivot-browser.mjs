@@ -4,7 +4,6 @@ import { isDeepStrictEqual } from 'node:util';
 import { spawnSync } from 'node:child_process';
 import { assertVisibleRowsMatchOracle } from '../helpers/cda-row-oracle.mjs';
 import { proposalPreviewReadinessExpression } from '../helpers/proposal-preview-readiness.mjs';
-import { navigateAfterOwnedConstructionCapabilities } from '../helpers/cda-playwright-requests.mjs';
 import { choosePostPivotRelatedSourcePair, verifyPostPivotRelatedSourceWitness } from '../helpers/post-pivot-related-source-oracle.mjs';
 
 const generation = 'cda-fhir-v1';
@@ -22,27 +21,33 @@ export function isPostPivotRawOracleUnavailable(error) {
   return error?.name === 'RawOracleUnavailableError' && error.rawOracleFailure === true;
 }
 
+export function unexpectedRelatedSourceNetworkFailures(failures) {
+  return failures.filter(failure => failure?.readCancellationDiagnostic !== true);
+}
+
 export function buildRawQueryExecuteString(query, bindVars = {}) {
   return `print(JSON.stringify(db._query(${JSON.stringify(query)}, ${JSON.stringify(bindVars)}).toArray()));`.replaceAll('@', '\\u0040');
 }
 
-export function waitForCdaCapturedResponse(cda, tracker, predicate, timeout) {
-  return cda.waitForCapturedResponse(tracker, predicate, timeout);
+export function waitForCdaCapturedResponse(tracker, predicate, timeout, fromIndex = 0) {
+  return tracker.waitForResponse(predicate, { fromIndex, timeoutMs: timeout });
 }
 
 export function matchesSavedPreviewRequest(entry, { path, outputId, startedAt }) {
+  const request = entry?.request ?? entry?.body;
   return entry?.path === path
     && entry.method === 'POST'
-    && entry.body?.outputId === outputId
-    && scalar(entry.body?.receiptId)
+    && request?.outputId === outputId
+    && scalar(request?.receiptId)
     && entry.startedAt >= startedAt;
 }
 
 export function assertSavedPreviewIdentity(entry, preview, outputId) {
-  assert.equal(entry.body?.outputId, outputId, 'Saved preview request must belong to the selected output.');
-  assert(scalar(entry.body?.receiptId), 'Saved preview request must include its receipt identity.');
+  const request = entry?.request ?? entry?.body;
+  assert.equal(request?.outputId, outputId, 'Saved preview request must belong to the selected output.');
+  assert(scalar(request?.receiptId), 'Saved preview request must include its receipt identity.');
   assert.equal(preview.outputId, outputId, 'Saved preview response must belong to the selected output.');
-  assert.equal(preview.receiptId, entry.body.receiptId, 'Saved preview response must match the captured request receipt.');
+  assert.equal(preview.receiptId, request.receiptId, 'Saved preview response must match the captured request receipt.');
 }
 
 export function relatedRouteChoice(choices, expectedRouteLabel) {
@@ -292,8 +297,8 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }, o
   let builder;
   let outputId;
   let currentPreview;
-  const requestCaptureStartIndex = report.nativeRequests.length;
   const requestCapture = cda.captureRequests(base);
+  const requestCaptureStartIndex = requestCapture.requests.length;
   const doc = state => state.workspace.documents.find(document => document.output.id === outputId);
   const steps = state => doc(state)?.construction?.steps ?? [];
   const api = async (path, body) => {
@@ -391,34 +396,16 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }, o
   };
   const openTable = async (expectedRows, name) => {
     const startedAt = Date.now();
-    const navigation = await navigateAfterOwnedConstructionCapabilities(
-      cda,
-      requestCapture,
-      () => report.nativeRequests.slice(requestCaptureStartIndex),
-      `${base}/construction-capabilities`,
-      Math.max(1, startedAt + 5000 - Date.now()),
-      () => cda.navigate(tableURL),
-    );
-    if (navigation.settledEntries.length) {
-      (report.preNavigationCapabilitySettlements ??= []).push({
-        observedAt: new Date().toISOString(),
-        requests: navigation.settledEntries.map(entry => ({
-          requestId: entry.requestId,
-          browserRequestId: entry.browserRequestId,
-          status: entry.status,
-          startedAt: entry.startedAt,
-          completedAt: entry.completedAt,
-        })),
-      });
-    }
+    const requestStartIndex = requestCapture.requests.length;
+    await cda.navigate(tableURL);
     await wait(({ selector }) => Boolean(document.querySelector(selector)), { selector: `[data-testid="construction-table-${outputId}"]` });
     await click(`[data-testid="construction-table-${outputId}"]`);
     await wait(() => document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false);
-    const previewEntry = await waitForCdaCapturedResponse(cda, requestCapture, entry =>
+    const previewEntry = await waitForCdaCapturedResponse(requestCapture, entry =>
       matchesSavedPreviewRequest(entry, { path: `${base}/preview`, outputId, startedAt }),
-    Math.max(1, startedAt + 5000 - Date.now()));
+    Math.max(1, startedAt + 5000 - Date.now()), requestStartIndex);
     assert.equal(previewEntry.status, 200, `${name}: saved preview request status`);
-    const savedPreview = requestCapture.rawResponseBody(previewEntry) ?? previewEntry.response;
+    const savedPreview = previewEntry.response ?? previewEntry.response;
     assertSavedPreviewIdentity(previewEntry, savedPreview, outputId);
     assertProtocolRows(savedPreview, expectedRows, `${name} direct saved preview`);
     await readTable(expectedRows, name);
@@ -436,14 +423,15 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }, o
     });
     assert.equal(panel.status, 'ready', `${name}: ${panel.text}`);
     const remaining = Math.max(1, startedAt + 5000 - Date.now());
-    const entry = await waitForCdaCapturedResponse(cda, requestCapture, candidate =>
+    const requestStartIndex = Math.max(0, requestCapture.requests.findIndex(candidate => candidate.startedAt >= startedAt));
+    const entry = await waitForCdaCapturedResponse(requestCapture, candidate =>
       candidate.path === `${base}/construction-proposals`
       && candidate.method === 'POST'
-      && candidate.body?.outputId === outputId
+      && candidate.request?.outputId === outputId
       && candidate.startedAt >= startedAt
-      && candidate.response?.proposalId === panel.proposalId, remaining);
+      && candidate.response?.proposalId === panel.proposalId, remaining, requestStartIndex);
     assert.equal(entry.status, 200, `${name}: proposal request status`);
-    const response = requestCapture.rawResponseBody(entry) ?? entry.response;
+    const response = entry.response ?? entry.response;
     assert.equal(response.outputId, outputId, `${name}: proposal response output identity`);
     assert.equal(response.proposalId, panel.proposalId, `${name}: proposal and preview receipt ownership`);
     assert.equal(response.preview?.outputId, outputId, `${name}: proposal preview output identity`);
@@ -1231,16 +1219,13 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }, o
         });
     }
 
-    const unfinishedOwnedRequests = report.nativeRequests.slice(requestCaptureStartIndex)
-      .filter(entry => !Number.isFinite(entry.completedAt));
-    await Promise.all(unfinishedOwnedRequests.map(entry =>
-      waitForCdaCapturedResponse(cda, requestCapture, captured => captured === entry, 5000)));
-    await requestCapture.flush();
-    await new Promise(resolve => setImmediate(resolve));
-    const unexpectedDiagnostics = cda.report.errors.length + cda.diagnostics.networkFailures.length
+    const networkFailures = cda.diagnostics.networkFailures;
+    const unexpectedNetworkFailures = unexpectedRelatedSourceNetworkFailures(networkFailures);
+    const readCancellationDiagnostics = networkFailures.filter(failure => failure?.readCancellationDiagnostic === true);
+    const unexpectedDiagnostics = cda.report.errors.length + unexpectedNetworkFailures.length
       + cda.diagnostics.httpFailures.length + cda.diagnostics.pageErrors.length + cda.diagnostics.console.length;
     recordCheck('No unexpected native network, module, or browser errors occurred', unexpectedDiagnostics === 0, {
-      errors: cda.report.errors, networkFailures: cda.diagnostics.networkFailures,
+      errors: cda.report.errors, networkFailures, unexpectedNetworkFailures, readCancellationDiagnostics,
       httpFailures: cda.diagnostics.httpFailures, pageErrors: cda.diagnostics.pageErrors, console: cda.diagnostics.console,
     });
     const actionRecords = cda.report.actions ?? [];
@@ -1256,8 +1241,7 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }, o
     });
     report.status = 'passed';
   } finally {
-    await requestCapture.flush();
-    report.nativeRequestCount = cda.report.nativeRequests.length;
+    report.nativeRequestCount = requestCapture.requests.length;
     report.finished = new Date().toISOString();
     const caseName = splitGroupKey
       ? 'related-resource-type-after-pivot-group-split'

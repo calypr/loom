@@ -9,7 +9,7 @@ export const appendColumnOptionMapping = (column) => {
 };
 
 export const resolveAppendCapabilityColumns = ({ event, binding, sourceColumnRefs }) => {
-  const body = event?.body ?? {};
+  const body = event?.request ?? {};
   const response = event?.response ?? {};
   const workspaceInputs = Array.isArray(response.workspaceInputs) ? response.workspaceInputs : [];
   const expectedSourceOutputIds = binding?.sourceOutputIds ?? [];

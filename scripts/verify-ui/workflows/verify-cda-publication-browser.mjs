@@ -182,7 +182,7 @@ const captureNativeProtocol = () => {
 const waitForProtocolResponse = async (pathSuffix, timeoutMs) => {
   const predicate = entry => entry.path.endsWith(pathSuffix) && entry.response !== undefined;
   const existing = report.protocol.findLast(predicate);
-  return existing ?? cda.waitForCapturedResponse(browserEvents, predicate, timeoutMs);
+  return existing ?? browserEvents.waitForResponse(predicate, { timeoutMs: timeoutMs });
 };
 
 const previewSnapshot = async () => cda.inspect(() => { const panel=document.querySelector('[data-testid="construction-preview"]');const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');const headers=table?[...table.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText.trim()):[];const rows=table?[...table.querySelectorAll('[role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())):[];const idIndex=headers.findIndex(header=>header.toUpperCase()==='SPECIMEN ID');return {status:panel?.dataset.previewStatus,outputId:panel?.dataset.previewOutputId,currentDraftVersion:panel?.dataset.currentDraftVersion,currentDraftDigest:panel?.dataset.currentDraftDigest,receiptId:panel?.dataset.previewReceiptId,headers,rows,specimenIds:idIndex<0?[]:rows.map(row=>row[idIndex]).filter(Boolean),ariaRowCount:table?.getAttribute('aria-rowcount')}; });
@@ -316,8 +316,6 @@ const main = async () => {
   assert(report.timingsMs.independentClickHouseRead <= 5000, `Independent ClickHouse proof exceeded 5000 ms (${report.timingsMs.independentClickHouseRead} ms)`);
 
   await verifyViewerAndReload();
-  await browserEvents?.flush();
-  cda.includeBrowserDiagnostics();
   assert.equal(report.dialogs.length, 0, `Unexpected browser dialogs: ${JSON.stringify(report.dialogs)}`);
   assert.equal(report.errors.length, 0, `Unexpected browser protocol or runtime errors: ${JSON.stringify(report.errors)}`);
   report.status = 'pass';
@@ -325,7 +323,6 @@ const main = async () => {
 
 try {
   await main();
-  cda.includeBrowserDiagnostics();
   return report;
 } catch (error) {
   report.status = 'fail';

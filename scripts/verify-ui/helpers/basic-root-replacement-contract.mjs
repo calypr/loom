@@ -93,6 +93,22 @@ export const replacementAssessmentEffectsMatch = (assessment, proposal) => {
   return { ok: failures.length === 0, failures };
 };
 
+export const replacementRowOperationRemovalMatches = (document, proposal) => {
+  const steps = document?.construction?.steps;
+  const expected = Array.isArray(steps)
+    ? steps.map(step => `construction:${step.id}`).sort()
+    : [];
+  const removed = Array.isArray(proposal?.removedFeatureKeys)
+    ? proposal.removedFeatureKeys.filter(key => key.startsWith('construction:')).sort()
+    : [];
+  const failures = [];
+  if (expected.length === 0) failures.push('source table must have a persisted row operation');
+  if (!isDeepStrictEqual(removed, expected)) {
+    failures.push('replacement must list every saved row operation and no other construction step');
+  }
+  return { ok: failures.length === 0, expected, removed, failures };
+};
+
 export const replacementApplyCommandFromRequest = body => {
   const commands = Array.isArray(body?.commands) ? body.commands : [];
   const matches = commands.filter(command => command?.type === 'APPLY_TABLE_ROOT_REBASE' && command?.rowChange?.mode === 'REPLACE');

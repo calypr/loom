@@ -215,7 +215,6 @@ const setInput = async (selector, value, label) => {
 
 let requestMonitor;
 const refreshResponses = async () => {
-  await requestMonitor.flush();
   report.responses = report.nativeRequests.filter(response => response.status !== undefined).map(entry => ({
     requestId: entry.requestId, path: entry.path, status: entry.status,
     elapsedMs: (entry.responseReceivedAt ?? entry.completedAt ?? entry.startedAt) - entry.startedAt,

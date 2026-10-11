@@ -68,7 +68,7 @@ test('dedicated COMPOSED_RELATED upstream edit case binds verified lifecycle acc
   assert.match(workflow, /\} else \{\s*await apply\(basePreviewRows\);/);
   assert.match(workflow, /if \(focusedUpstreamRelatedRemovalCase\) \{\s*const savedCascadeRestoration/);
   assert.match(workflow, /\} else \{\s*await open\(\);\s*builder = await api\(base \+ '\/builder'\);\s*assert\.deepEqual\(doc\(builder\)\.construction, zeroStepConstruction/);
-  assert.match(workflow, /const upstreamEditCancel = await cancelRemoval\(upstreamEditBaseline, 'Upstream policy edit', stage3PreviewRows,[\s\S]*?\{ requireCompletePreview: true \}\)/);
+  assert.match(workflow, /await cancelRemoval\(upstreamEditBaseline, 'Upstream policy edit', stage3PreviewRows,\s*\{ requireCompletePreview: true \}\)/);
   assert.match(workflow, /expectedPreserveParentRelatedEdit\(doc\(upstreamEditBaseline\)\.construction, 0\)/);
   assert.match(workflow, /assertPreserveParentRelatedEdit\(upstreamEdit\.candidateConstruction, upstreamEditExpectation\)/);
   assert.match(workflow, /assertPreserveParentRelatedEdit\(confirmedUpstreamEdit\.candidateConstruction, upstreamEditExpectation\)/);
@@ -103,18 +103,18 @@ test('dedicated COMPOSED_RELATED upstream edit case binds verified lifecycle acc
   assert.match(completeApplySource, /activeCompletePreview\.draftVersion, String\(completeSavedState\.draftVersion\)/);
   assert.match(completeApplySource, /activeCompletePreview\.draftDigest, completeSavedState\.draftDigest/);
   assert.match(workflow, /import \{ assertCompletePreviewRows, expectedPreviewColumns \} from '\.\.\/helpers\/complete-preview-row-projection\.mjs'/);
-  assert.match(workflow, /import \{\s*classifyPendingRelatedExpandChoicesAfterProposalCancel,[\s\S]*?snapshotPendingRelatedExpandChoices,\s*\} from '\.\.\/helpers\/related-expand-cancel\.mjs'/);
   const cancelSource = workflow.slice(workflow.indexOf('const cancelRemoval = async'), workflow.indexOf('const chooseRoute ='));
+  assert.match(cancelSource, /await clickUI\('\[data-testid=\"construction-cancel-proposal\"\]'\)/,
+    'the saved-edit cancellation remains a native Builder Cancel action');
   assert.match(cancelSource, /focusedUpstreamRelatedRemovalCase && name === 'Upstream policy edit' && requireCompletePreview/,
-    'choice-request cancellation classification must be limited to the exact dedicated saved-edit Cancel');
-  assert.ok(cancelSource.indexOf('snapshotPendingRelatedExpandChoices(') < cancelSource.indexOf('await clickUI(proposalCancelActionSelector)'),
-    'the pending exact choices request must be snapshotted before the native Cancel action');
-  assert.ok(cancelSource.indexOf('await waitUI(`!document.querySelector($\{JSON\.stringify\(relatedEditorSelector\)\})`)') < cancelSource.indexOf('classifyPendingRelatedExpandChoicesAfterProposalCancel('),
-    'the editor must be proven closed before classifying an aborted choice read');
-  assert.match(cancelSource, /stageId: 'source_projection'/);
-  assert.match(cancelSource, /draftVersion: baseline\.draftVersion, draftDigest: baseline\.draftDigest/);
-  assert.match(workflow, /const isExactClassifiedChoiceAbort = requestID && classifiedChoiceRequestIDs\.has\(requestID\)[\s\S]*?error\.error === 'net::ERR_ABORTED' \|\| error\.errorText === 'net::ERR_ABORTED'[\s\S]*?error\.expected === true[\s\S]*?expectedCancellation\?\.browserRequestId === requestID/,
-    'only the exact helper-classified request may be removed from focused error accounting');
+    'the saved-edit Cancel must wait for its related editor to close');
+  assert.match(cancelSource, /await waitUI\(`!document.querySelector\('\[data-testid=\"construction-related-expand-editor\"\]'\)`\)/,
+    'the native Cancel must close the related editor before checking saved state');
+  assert.match(cancelSource, /const after = await api\(base \+ '\/builder'\)/);
+  assert.match(cancelSource, /assert\.deepEqual\(after\.workspace, baseline\.workspace/);
+  assert.match(cancelSource, /assert\.equal\(after\.draftVersion, baseline\.draftVersion/);
+  assert.match(cancelSource, /assert\.equal\(after\.draftDigest, baseline\.draftDigest/);
+  assert.match(cancelSource, /if \(requireCompletePreview\) await assertCompleteRenderedRows\(expectedRows, name, after\)/);
   assert.match(workflow, /verifySavedState: async saved => \{[\s\S]*?assertPreserveParentRelatedEdit\(doc\(saved\)\.construction, upstreamEditExpectation\)/);
   assert.match(workflow, /verifySavedState: async saved => \{[\s\S]*?assert\.deepEqual\(doc\(saved\)\.construction, zeroStepConstruction/);
   const applySource = workflow.slice(workflow.indexOf('const apply = async'), workflow.indexOf('const open = async'));

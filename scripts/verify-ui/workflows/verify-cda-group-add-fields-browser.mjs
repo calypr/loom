@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { assertVisibleRowsMatchOracle } from '../helpers/cda-row-oracle.mjs';
 import { createdExplorerScope } from '../helpers/created-explorer-scope.mjs';
-import { installNativeAbortProbe } from '../helpers/native-abort-probe.mjs';
 
 export const groupAddFieldsRawFieldsSummarySelector = '[data-testid="feature-catalog-raw-fields"] > summary';
 export const groupAddFieldsPreviewHeaders = ['Specimen ID', 'Row count', 'Resource Type'];
@@ -74,10 +73,10 @@ export function expectedGroupAddFieldsRows(groupedRows, rawResourceType) {
 
 export function matchesGroupAddFieldsRenameRequest(entry, expected) {
   if (entry?.method !== 'POST' || entry.path !== expected.commandPath ||
-      entry.body?.expectedDraftVersion !== expected.draftVersion ||
-      entry.body?.expectedDraftDigest !== expected.draftDigest ||
-      entry.body?.commands?.length !== 1) return false;
-  const [command] = entry.body.commands;
+      entry.request?.expectedDraftVersion !== expected.draftVersion ||
+      entry.request?.expectedDraftDigest !== expected.draftDigest ||
+      entry.request?.commands?.length !== 1) return false;
+  const [command] = entry.request.commands;
   return command.type === 'UPDATE_CONSTRUCTION_OUTPUT' &&
     command.outputId === expected.outputId &&
     command.constructionOutput?.stepId === expected.stepId &&
@@ -87,10 +86,10 @@ export function matchesGroupAddFieldsRenameRequest(entry, expected) {
 
 export function matchesGroupAddFieldsRemovalRequest(entry, expected) {
   if (entry?.method !== 'POST' || entry.path !== expected.commandPath ||
-      entry.body?.expectedDraftVersion !== expected.draftVersion ||
-      entry.body?.expectedDraftDigest !== expected.draftDigest ||
-      entry.body?.commands?.length !== 1) return false;
-  const [command] = entry.body.commands;
+      entry.request?.expectedDraftVersion !== expected.draftVersion ||
+      entry.request?.expectedDraftDigest !== expected.draftDigest ||
+      entry.request?.commands?.length !== 1) return false;
+  const [command] = entry.request.commands;
   return command.type === 'REMOVE_COLUMN' &&
     command.outputId === expected.outputId &&
     command.column === expected.sourceColumn;
@@ -333,13 +332,6 @@ FOR source IN (
   report.explorer = explorer;
   report.target = { ...report.target, explorer };
   if (cda.report.target) cda.report.target.explorer = explorer;
-  await installNativeAbortProbe({
-    page,
-    report: cda.report,
-    project,
-    explorer,
-    apiOrigin: new URL(uiOrigin).origin,
-  });
   report.explorerProvisioning = {
     requestedName: requestedExplorerName,
     createRequestId: creationRequest.requestId,
@@ -558,7 +550,7 @@ FOR source IN (
   const editedLabel = 'Specimen Resource Type';
   const renameBase = builder;
   const renameStartedAt = Date.now();
-  const renameRequestStart = report.nativeRequests.length;
+  const renameRequestStart = nativeCapture.requests.length;
   await click('button', { name: 'Columns' });
   const labelSelector = `[aria-label=${JSON.stringify(`Column name for ${savedFieldBinding.label}`)}]`;
   await waitForBrowser(({ selector }) => Boolean(document.querySelector(selector)), { selector: labelSelector }, 5000);
@@ -574,16 +566,15 @@ FOR source IN (
     label: editedLabel,
   };
   const renameDeadline = renameStartedAt + 5000;
-  const renameRequest = await nativeCapture.waitFor(entry => matchesGroupAddFieldsRenameRequest(entry, renameExpectation), {
+  const renameRequest = await nativeCapture.waitForResponse(entry => matchesGroupAddFieldsRenameRequest(entry, renameExpectation), {
     fromIndex: renameRequestStart, timeoutMs: Math.max(1, renameDeadline - Date.now()),
   });
-  const rename = await cda.waitForCapturedResponse(nativeCapture, entry => entry === renameRequest,
-    Math.max(1, renameDeadline - Date.now()));
+  const rename = await nativeCapture.waitForResponse(entry => entry === renameRequest, { timeoutMs: Math.max(1, renameDeadline - Date.now()) });
   assert.equal(rename.status, 200, JSON.stringify(rename.response));
-  const renameCommand = rename.body.commands[0];
+  const renameCommand = rename.request.commands[0];
   assert(renameCommand, 'The native rename command must target the exact Group row-value output');
-  assert.equal(rename.body.expectedDraftVersion, renameBase.draftVersion);
-  assert.equal(rename.body.expectedDraftDigest, renameBase.draftDigest);
+  assert.equal(rename.request.expectedDraftVersion, renameBase.draftVersion);
+  assert.equal(rename.request.expectedDraftDigest, renameBase.draftDigest);
   builder = await api(base + '/builder');
   const renamedSourceField = doc(builder).columns.find(column => column.columnId === savedFieldBinding.sourceColumnId);
   assert(renamedSourceField);
@@ -634,7 +625,7 @@ FOR source IN (
   const removeBase = builder;
   await click('button',{name:'Columns'});
   start=Date.now();
-  const removeRequestStart = report.nativeRequests.length;
+  const removeRequestStart = nativeCapture.requests.length;
   await click(`button[aria-label=${JSON.stringify(`Remove ${editedLabel} column`)}]`);
   const removeExpectation = {
     commandPath: `${base}/commands`,
@@ -644,19 +635,18 @@ FOR source IN (
     sourceColumn: savedFieldBinding.sourceColumn,
   };
   const removeDeadline = start + 5000;
-  const removeRequest = await nativeCapture.waitFor(entry => matchesGroupAddFieldsRemovalRequest(entry, removeExpectation), {
+  const removeRequest = await nativeCapture.waitForResponse(entry => matchesGroupAddFieldsRemovalRequest(entry, removeExpectation), {
     fromIndex: removeRequestStart, timeoutMs: Math.max(1, removeDeadline - Date.now()),
   });
-  const remove = await cda.waitForCapturedResponse(nativeCapture, entry => entry === removeRequest,
-    Math.max(1, removeDeadline - Date.now()));
+  const remove = await nativeCapture.waitForResponse(entry => entry === removeRequest, { timeoutMs: Math.max(1, removeDeadline - Date.now()) });
   assert.equal(remove.status, 200, JSON.stringify(remove.response));
-  const removeCommand = remove.body.commands[0];
+  const removeCommand = remove.request.commands[0];
   assert.equal(removeCommand.type, 'REMOVE_COLUMN');
   assert.equal(removeCommand.outputId, outputId);
   assert.equal(removeCommand.column, savedFieldBinding.sourceColumn,
     'Removing a Group row-value output must remove its exact authored source column');
-  assert.equal(remove.body.expectedDraftVersion, removeBase.draftVersion);
-  assert.equal(remove.body.expectedDraftDigest, removeBase.draftDigest);
+  assert.equal(remove.request.expectedDraftVersion, removeBase.draftVersion);
+  assert.equal(remove.request.expectedDraftDigest, removeBase.draftDigest);
   await rendered(grouped);
   recordRender('remove-group-source-field',start);
   builder=await api(base+'/builder');

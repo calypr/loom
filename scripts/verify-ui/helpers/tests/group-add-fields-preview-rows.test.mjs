@@ -4,7 +4,6 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { chromium } from 'playwright';
-import { flushNativeAbortProbeEvents } from '../native-abort-probe.mjs';
 import {
   expectedGroupAddFieldsRows,
   groupAddFieldsPreviewHeaders,
@@ -28,7 +27,7 @@ const renameExpected = {
 const renameRequest = {
   method: 'POST',
   path: commandPath,
-  body: {
+  request: {
     expectedDraftVersion: renameExpected.draftVersion,
     expectedDraftDigest: renameExpected.draftDigest,
     commands: [{
@@ -97,7 +96,7 @@ test('Group Add Fields correlates native rename and removal with distinct source
   const removalRequest = {
     method: 'POST',
     path: commandPath,
-    body: {
+    request: {
       expectedDraftVersion: removalExpected.draftVersion,
       expectedDraftDigest: removalExpected.draftDigest,
       commands: [{
@@ -272,13 +271,6 @@ test('Group Add Fields workflow installs exact abort diagnostics before its firs
         assert.equal(navigationURL.searchParams.get('explorer'), createdExplorer,
           'The actual workflow must use the server-assigned Explorer for its first navigation.');
         assert.equal(navigationURL.searchParams.get('mode'), 'builder');
-        assert.equal(await page.evaluate(() => globalThis.__loomNativeAbortProbeInstalled === true), true,
-          'The actual workflow must install the probe before invoking its navigation callback.');
-        await flushNativeAbortProbeEvents(page);
-        assert.deepEqual(report.nativeAbortProbeEvents.map(({ kind, project: eventProject, explorer, explorerScope }) =>
-          ({ kind, project: eventProject, explorer, explorerScope })), [{
-          kind: 'probe-installed', project, explorer: createdExplorer, explorerScope: 'exact',
-        }], 'The actual caller must retain one exact project/created-Explorer probe event before navigation.');
         throw navigationSentinel;
       },
       click: async () => {},
@@ -293,12 +285,7 @@ test('Group Add Fields workflow installs exact abort diagnostics before its firs
     await assert.rejects(runGroupAddFieldsBrowserWorkflow({ page, cda }), error => error === navigationSentinel);
     assert.equal(attachedReport.explorer, createdExplorer);
     assert.equal(attachedReport.nativeRequests, report.nativeRequests);
-    assert.deepEqual(report.nativeAbortProbeEvents.map(({ kind, project: eventProject, explorer, explorerScope }) =>
-      ({ kind, project: eventProject, explorer, explorerScope })), [{
-      kind: 'probe-installed', project, explorer: createdExplorer, explorerScope: 'exact',
-    }]);
-    assert.deepEqual(report.nativeRequests, [],
-      'Installing diagnostics does not synthesize native requestfinished or requestfailed terminal evidence.');
+    assert.deepEqual(report.nativeRequests, [], 'A failed required browser action must stop before native product requests are sent.');
   } finally {
     globalThis.fetch = originalFetch;
     if (originalPath === undefined) delete process.env.PATH;

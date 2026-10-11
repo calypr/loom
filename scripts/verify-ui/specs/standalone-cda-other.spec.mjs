@@ -12,6 +12,7 @@ import { identifierMultiplicityWorkflow } from '../workflows/verify-cda-identifi
 import { lastTableWorkflow } from '../workflows/verify-cda-last-table.mjs';
 import { collectionRepairWorkflow } from '../workflows/verify-cda-collection-repair.mjs';
 import { startingCollectionHandoffWorkflow } from '../workflows/verify-cda-starting-collection-handoff.mjs';
+import { cdaStartingCollectionReplacementWorkflow } from '../workflows/cda-starting-collection-replacement.mjs';
 import { zeroColumnRelatedMedicationWorkflow } from '../workflows/verify-cda-zero-column-related-medication.mjs';
 import { rowSourcesWorkflow } from '../workflows/verify-cda-row-sources-browser.mjs';
 import { tableManagementWorkflow } from '../workflows/verify-cda-table-management-browser.mjs';
@@ -201,6 +202,20 @@ test.describe('CDA starting collection handoff', () => {
 
   test('hand off a starting collection, attach its route, preview, and reload', async ({ page, cda }) => {
     await startingCollectionHandoffWorkflow({ page, cda });
+  });
+});
+
+test.describe('CDA cross-resource starting collection replacement', () => {
+  test.use({
+    cdaScenarioID: 'cda-starting-collection-replacement',
+    cdaCaseName: 'cross-resource-route-dependencies',
+    cdaRequireSourceFixture: true,
+    cdaUiRouting: 'explicit-query',
+  });
+
+  test('replace a dependent starting collection across Patient and Observation, then restore its route lifecycle', async ({ page, cda }) => {
+    test.setTimeout(300_000);
+    await cdaStartingCollectionReplacementWorkflow({ page, cda });
   });
 });
 

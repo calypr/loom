@@ -6,7 +6,7 @@ export const selectSavedPreviewRequest = (requests, { startIndex, path, receiptI
   if (![path, receiptId, outputId].every(value => typeof value === 'string' && value.length > 0)) return undefined;
   return requests.slice(startIndex).find(entry =>
     entry.path === path && entry.status === 200 && entry.completedAt &&
-    entry.body?.receiptId === receiptId && entry.body?.outputId === outputId &&
+    entry.request?.receiptId === receiptId && entry.request?.outputId === outputId &&
     entry.response?.receiptId === receiptId && entry.response?.outputId === outputId
   );
 };
@@ -61,18 +61,18 @@ export const selectAcceptedChoicePreviewBinding = (requests, {
 
   for (const proposal of requests.slice(startIndex)) {
     if (proposal.path !== proposalPath || proposal.method !== 'POST' || !completedSuccessfulResponse(proposal)) continue;
-    const proposalBody = proposal.body;
+    const proposalRequest = proposal.request;
     const proposalResponse = proposal.response;
     const choices = proposalResponse?.constructionChoices;
     const candidateColumns = proposalResponse?.candidateColumnIds;
     const preview = proposalResponse?.preview;
-    if (proposalBody?.commandId !== proposalResponse?.commandId ||
-      proposalBody?.snapshotToken !== before.snapshotToken || proposalBody?.expectedDraftVersion !== before.draftVersion ||
-      proposalBody?.expectedDraftDigest !== before.draftDigest || proposalBody?.outputId !== outputId ||
+    if (proposalRequest?.commandId !== proposalResponse?.commandId ||
+      proposalRequest?.snapshotToken !== before.snapshotToken || proposalRequest?.expectedDraftVersion !== before.draftVersion ||
+      proposalRequest?.expectedDraftDigest !== before.draftDigest || proposalRequest?.outputId !== outputId ||
       proposalResponse?.snapshotToken !== before.snapshotToken || proposalResponse?.draftVersion !== before.draftVersion ||
       proposalResponse?.draftDigest !== before.draftDigest || proposalResponse?.outputId !== outputId ||
       proposalResponse?.previewStatus !== 'READY' || !proposalResponse?.candidateWorkspaceDigest ||
-      !isDeepStrictEqual(proposalBody?.constructionChoices, choices) ||
+      !isDeepStrictEqual(proposalRequest?.constructionChoices, choices) ||
       !Number.isFinite(proposal.startedAt) || !Number.isFinite(proposal.responseReceivedAt) ||
       proposal.responseReceivedAt < proposal.startedAt || proposal.completedAt < proposal.responseReceivedAt ||
       !Array.isArray(choices) || choices.length === 0 ||
@@ -86,10 +86,10 @@ export const selectAcceptedChoicePreviewBinding = (requests, {
       if (entry.path !== commandPath || entry.method !== 'POST' || !completedSuccessfulResponse(entry) ||
         !Number.isFinite(entry.responseReceivedAt) || entry.responseReceivedAt < entry.startedAt ||
         entry.completedAt < entry.responseReceivedAt) return false;
-      const body = entry.body;
-      const commands = body?.commands;
-      return body?.commandId === proposalResponse.commandId && body?.snapshotToken === before.snapshotToken &&
-        body?.expectedDraftVersion === before.draftVersion && body?.expectedDraftDigest === before.draftDigest &&
+      const request = entry.request;
+      const commands = request?.commands;
+      return request?.commandId === proposalResponse.commandId && request?.snapshotToken === before.snapshotToken &&
+        request?.expectedDraftVersion === before.draftVersion && request?.expectedDraftDigest === before.draftDigest &&
         Array.isArray(commands) && choiceIds.every(choiceId => commands.some(command =>
           command?.type === 'APPLY_CONSTRUCTION_CHOICE' && command.outputId === outputId &&
           command.constructionChoice?.choiceId === choiceId));
@@ -109,8 +109,8 @@ export const selectAcceptedChoicePreviewBinding = (requests, {
         document.columns?.some(candidate => candidate.column === column)))) continue;
 
     const reconcile = requests.slice(startIndex).find(entry => entry.path === reconcilePath && entry.method === 'POST' &&
-      completedSuccessfulResponse(entry) && entry.body?.snapshotToken === before.snapshotToken &&
-      entry.body?.draftVersion === after.draftVersion && entry.body?.draftDigest === after.draftDigest &&
+      completedSuccessfulResponse(entry) && entry.request?.snapshotToken === before.snapshotToken &&
+      entry.request?.draftVersion === after.draftVersion && entry.request?.draftDigest === after.draftDigest &&
       Number.isFinite(entry.startedAt) && Number.isFinite(entry.responseReceivedAt) &&
       entry.startedAt >= apply.responseReceivedAt && entry.responseReceivedAt >= entry.startedAt &&
       entry.completedAt >= entry.responseReceivedAt &&

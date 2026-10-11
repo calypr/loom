@@ -75,6 +75,7 @@
   "scripts/verify-ui/workflows/verify-cda-root-settings.mjs": "9ffe9d8a85356680594fed08dd629a7f761b5f639030049e5be557b91be23f4c",
   "scripts/verify-ui/workflows/verify-cda-row-sources-browser.mjs": "03ef04602639916fd9b734bdd0a581d68ca15d0605bde45ba221c7abd0fd5a89",
   "scripts/verify-ui/workflows/verify-cda-sourceaggregate-mixed-sibling-count-browser.mjs": "32ae1c0b3708537d4cc9c52b48dab1399119c5499712596612c728462e0916be",
+  "scripts/verify-ui/workflows/verify-cda-starting-collection-handoff.mjs": "51c64ba283c4a84081be6a31f6dc33f1339059e44af88ce6aa0e9b93f282f3b5",
   "scripts/verify-ui/workflows/verify-cda-table-management-browser.mjs": "e6e8e50249f4979c618d24c90022d308cb0bd37db77ec5e1d88f03ce53e86870",
   "scripts/verify-ui/workflows/verify-cda-unpivot.mjs": "f10b1adedf536a00a44d10e4e37972d12f605a54b92f3a0d81370700b4854339",
   "scripts/verify-ui/workflows/verify-cda-zero-column-related-medication.mjs": {

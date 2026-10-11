@@ -48,7 +48,7 @@ const categoryA = 'Observation.valueQuantity.code';
 const categoryB = 'Observation.status';
 const valuePath = 'Observation.valueQuantity.value';
 const groupLabels = ['Specimen ID', 'Patient FHIR resource ID', 'Observation FHIR resource ID'];
-const report = { explorer, categories: { A: categoryA, B: categoryB }, cases: [], errors: [], authoringRequests: [], nativeRequests: [],
+const report = { explorer, categories: { A: categoryA, B: categoryB }, cases: [], errors: [], nativeRequests: [],
   sourceFingerprint: { before: sourceFingerprint(sourceRoot) }, apiBuildIdentity: apiBuildFreeze.initial, started: new Date().toISOString() };
 await mkdir(evidence, { recursive: true });
 let builder, outputId;
@@ -74,20 +74,22 @@ const selectNative = async (_page, selector, value) => {
   assert.equal(await locator.inputValue(), String(value), `Selected value must be applied to ${selector}`);
 };
 let browserRequestCapture;
-const syncAuthoringRequests = () => {
+const authoringRequests = () => {
   const endpoints = new Set(['commands', 'reconcile', 'preview', 'construction-proposals', 'construction-category-discoveries']);
-  report.authoringRequests.splice(0, report.authoringRequests.length, ...report.nativeRequests
+  return browserRequestCapture.requests
     .filter(request => endpoints.has(request.path.split('/').at(-1)))
     .map(request => ({ ...request, endpoint: request.path.split('/').at(-1), url: `${request.origin}${request.path}`, startedAtMs: request.startedAt,
       finishedAtMs: request.completedAt, responseFinishedAtMs: request.completedAt, durationMs: request.completedAt - request.startedAt,
-      requestDraftVersion: request.body?.expectedDraftVersion ?? request.body?.draftVersion, requestDraftDigest: request.body?.expectedDraftDigest ?? request.body?.draftDigest,
-      requestOutputId: request.body?.outputId, requestReceiptId: request.body?.receiptId,
+      requestDraftVersion: request.request?.expectedDraftVersion ?? request.request?.draftVersion, requestDraftDigest: request.request?.expectedDraftDigest ?? request.request?.draftDigest,
+      requestOutputId: request.request?.outputId, requestReceiptId: request.request?.receiptId,
       responseDraftVersion: request.response?.draftVersion, responseDraftDigest: request.response?.draftDigest,
       responseReceiptId: request.response?.receiptId, responseOutputId: request.response?.outputId,
       responseRowCount: request.response?.rowCount ?? request.response?.preview?.rowCount ?? request.response?.rows?.length,
-      ...(request.failure ? { loadingFailure: { errorText: request.failure, canceled: request.failure === 'net::ERR_ABORTED' } } : {}),
-    })));
+      ...(request.failure ? { loadingFailure: { errorText: request.failure, readCancellationDiagnostic: request.readCancellationDiagnostic === true } } : {}),
+    }));
 };
+const waitForAuthoringResponse = (endpoint, fromIndex, predicate = () => true, timeoutMs = 5000) =>
+  browserRequestCapture.waitForResponse(entry => entry.path.endsWith(`/${endpoint}`) && predicate(entry), { fromIndex, timeoutMs });
 const api = async (path, body) => {
   const response = await fetch(apiOrigin + path, {
     method: body ? 'POST' : 'GET',
@@ -108,15 +110,15 @@ const command = async commands => {
   builder = await api(base + '/builder');
 };
 const doc = state => state.workspace.documents.find(document => document.output.id === outputId);
-const drainResponses = async () => { await browserRequestCapture?.flush(); syncAuthoringRequests(); };
-const newestRequest = (endpoint, from = 0) => report.authoringRequests.slice(from).findLast(request => request.endpoint === endpoint);
-const browserCommandCount = () => report.authoringRequests.filter(request => request.endpoint === 'commands').length;
-const readyProposal = async (oldId, timeout = 5000) => {
+const newestRequest = (endpoint, fromIndex = 0) => authoringRequests().filter(request =>
+  request.endpoint === endpoint && browserRequestCapture.requests.findIndex(entry => entry.requestId === request.requestId) >= fromIndex).at(-1);
+const browserCommandCount = () => authoringRequests().filter(request => request.endpoint === 'commands').length;
+const readyProposal = async (oldId, fromIndex, timeout = 5000) => {
   await waitForObservable(page, ({ oldId }) => {
     const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
     return panel?.dataset.proposalStatus === 'ready' && Boolean(panel.dataset.proposalId) && panel.dataset.proposalId !== oldId;
   }, { oldId: oldId ?? '' }, timeout);
-  await drainResponses();
+  await waitForAuthoringResponse('construction-proposals', fromIndex, request => request.status === 200, timeout);
 };
 const typedKey = value => value == null ? { kind: 'NULL' } : { kind: 'STRING', string: value };
 const keyIdentity = key => JSON.stringify(key);
@@ -191,7 +193,7 @@ const assertProposalMatchesOracle = (request, path, name) => {
   return { request, response, preview, step, operation, categoryOutputs, expectedRows, columns: previewColumns };
 };
 const proposalToReady = async (name, start, requestIndex, oldProposalId, path) => {
-  await readyProposal(oldProposalId);
+  await readyProposal(oldProposalId, requestIndex);
   const durationMs = Date.now() - start;
   assert(durationMs <= 5000, `${name} took ${durationMs}ms; automatic discovery and preview must finish within 5s`);
   const proposalRequest = newestRequest('construction-proposals', requestIndex);
@@ -257,8 +259,11 @@ const openTable = async () => {
   await waitForObservable(page, () => Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false), 10000);
 };
 const applyAndWait = async (timeout = 5000) => {
+  const requestIndex = browserRequestCapture.requests.length;
   await clickNative(page, '[data-testid="construction-apply-proposal"]');
   await waitForObservable(page, () => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')), timeout);
+  const commandResponse = await waitForAuthoringResponse('commands', requestIndex, request => request.status === 200, timeout);
+  assert(commandResponse.response, 'Applying a Pivot proposal must complete its native command response');
 };
 const waitForRenderedRows = async (rowCount, timeout = 5000) => waitForObservable(page,
   ({ rowCount }) => document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === String(rowCount + 1)
@@ -358,7 +363,7 @@ return document.querySelector('select[aria-label="Preview row limit"]')?.value;
   report.baseline = { headers: fullBaseline.headers, rowCount: fullBaseline.rowCount, rows: fullBaseline.rows };
 
   await enterPivot();
-  let requestIndex = report.authoringRequests.length;
+  let requestIndex = browserRequestCapture.requests.length;
   const oldIdA = await inspectPage(page, () => {
 return document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId??'';
 });
@@ -366,7 +371,8 @@ return document.querySelector('[data-testid="construction-proposal-panel"]')?.da
   await chooseSource('Pivot category field', categoryA);
   await chooseSource('Pivot values field', valuePath);
   const pivotA = await proposalToReady('category-A-discovery-and-preview', start, requestIndex, oldIdA, categoryA);
-  const discoveryA = newestRequest('construction-category-discoveries', requestIndex);
+  const discoveryAEntry = await waitForAuthoringResponse('construction-category-discoveries', requestIndex, request => request.status === 200);
+  const discoveryA = authoringRequests().findLast(request => request.requestId === discoveryAEntry.requestId);
   assert.equal(discoveryA?.status, 200, 'Category A discovery request must succeed');
   assert.equal(discoveryA.response?.outcome, 'COMPLETE', 'Category A discovery must complete');
   assert.equal(discoveryA.response?.complete, true, 'Category A discovery must be complete');
@@ -375,11 +381,12 @@ return document.querySelector('[data-testid="construction-proposal-panel"]')?.da
   report.cases.push({ name: 'category-A-discovery-complete', complete: true, categoryCount: domainA.length });
 
   const oldIdB = pivotA.response.proposalId;
-  requestIndex = report.authoringRequests.length;
+  requestIndex = browserRequestCapture.requests.length;
   start = Date.now();
   await chooseSource('Pivot category field', categoryB);
   const pivotB = await proposalToReady('category-B-change-discovery-and-preview', start, requestIndex, oldIdB, categoryB);
-  const discoveryB = newestRequest('construction-category-discoveries', requestIndex);
+  const discoveryBEntry = await waitForAuthoringResponse('construction-category-discoveries', requestIndex, request => request.status === 200);
+  const discoveryB = authoringRequests().findLast(request => request.requestId === discoveryBEntry.requestId);
   assert.equal(discoveryB?.status, 200, 'Category B rediscovery request must succeed');
   assert.equal(discoveryB.response?.outcome, 'COMPLETE', 'Category B rediscovery must complete');
   assert.equal(discoveryB.response?.complete, true, 'Category B rediscovery must be complete');
@@ -393,17 +400,17 @@ return document.querySelector('[data-testid="construction-proposal-panel"]')?.da
     'Changing category source must preserve Observation.valueQuantity.value as the numeric Pivot value');
   report.cases.push({ name: 'category-A-outputs-removed', staleKeys: [...keysA], currentKeys: [...keysB] });
 
-  const commandsBeforeCancel = report.authoringRequests.filter(request => request.endpoint === 'commands').length;
+  const commandsBeforeCancel = browserCommandCount();
   const cancelStartedAt = Date.now();
   await clickNative(page, '[data-testid="construction-cancel-proposal"]');
   await waitForObservable(page, () => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')), 5000);
   builder = await api(base + '/builder');
   assert.deepEqual(builder.workspace, expandedWorkspace, 'Cancel must not mutate the saved pre-Pivot construction');
-  assert.equal(report.authoringRequests.filter(request => request.endpoint === 'commands').length, commandsBeforeCancel, 'Cancel must not send a draft command');
+  assert.equal(browserCommandCount(), commandsBeforeCancel, 'Cancel must not send a draft command');
   assert(Date.now() - cancelStartedAt <= 5000, 'Cancel must close within 5s');
   report.cases.push({ name: 'cancel-keeps-pre-pivot-draft', durationMs: Date.now() - cancelStartedAt });
 
-  requestIndex = report.authoringRequests.length;
+  requestIndex = browserRequestCapture.requests.length;
   await enterPivot();
   const oldIdConfirm = await inspectPage(page, () => {
 return document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId??'';
@@ -454,7 +461,7 @@ return [...document.querySelectorAll('input[aria-label^="Pivot output label"]')]
   const previousProposalId = await inspectPage(page, () => {
 return document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId??'';
 });
-  requestIndex = report.authoringRequests.length;
+  requestIndex = browserRequestCapture.requests.length;
   start = Date.now();
   const editSelector = `input[aria-label=${JSON.stringify(editTarget.label)}]`;
   const labelInput = page.locator(editSelector);
@@ -471,7 +478,6 @@ return document.querySelector('[data-testid="construction-proposal-panel"]')?.da
   await waitForRenderedRows(fixture.observations.length, Math.max(1, 5000 - (Date.now() - editApplyStartedAt)));
   const editApplyDurationMs = Date.now() - editApplyStartedAt;
   assert(editApplyDurationMs <= 5000, `Edited Pivot apply-to-render took ${editApplyDurationMs}ms`);
-  await drainResponses();
   assert.equal(browserCommandCount() - editApplyCommandCount, 1, 'Applying the edited Pivot must issue exactly one bounded draft command');
   report.cases.push({ name: 'edit-category-B-apply-to-render', durationMs: editApplyDurationMs, browserCommandDelta: browserCommandCount() - editApplyCommandCount });
   builder = await api(base + '/builder');
@@ -496,17 +502,17 @@ return document.querySelector('[data-testid="construction-proposal-panel"]')?.da
   const removeHistory = await historyPivot();
   await clickNative(page, `[data-testid=${JSON.stringify(removeHistory.testId)}]`);
   await waitForObservable(page, () => Boolean(Boolean(document.querySelector('[data-testid^="construction-remove-step-"]'))));
-  requestIndex = report.authoringRequests.length;
+  requestIndex = browserRequestCapture.requests.length;
   const removePreviewCommandCount = browserCommandCount();
   const removePreviewStartedAt = Date.now();
   await clickNative(page, '[data-testid^="construction-remove-step-"]');
   await waitForObservable(page, () => Boolean(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'), 5000);
-  await drainResponses();
+  const removalEntry = await waitForAuthoringResponse('construction-proposals', requestIndex, request => request.status === 200);
   const removePreviewDurationMs = Date.now() - removePreviewStartedAt;
   assert(removePreviewDurationMs <= 5000, `Pivot removal action-to-preview took ${removePreviewDurationMs}ms`);
   assert.equal(browserCommandCount(), removePreviewCommandCount, 'Opening the Pivot removal proposal must not issue a draft command');
   report.cases.push({ name: 'pivot-removal-action-to-preview', durationMs: removePreviewDurationMs, browserCommandDelta: 0 });
-  const removal = newestRequest('construction-proposals', requestIndex);
+  const removal = authoringRequests().findLast(request => request.requestId === removalEntry.requestId);
   assert.equal(removal?.status, 200, 'Removing Pivot must produce a valid restoration proposal');
   assert(!removal.response.candidateConstruction.steps.some(step => step.operation.kind === 'PIVOT'), 'Removal proposal must omit the Pivot step');
   const removeApplyCommandCount = browserCommandCount();
@@ -515,7 +521,6 @@ return document.querySelector('[data-testid="construction-proposal-panel"]')?.da
   await waitForRenderedRows(fixture.observations.length, Math.max(1, 5000 - (Date.now() - removeApplyStartedAt)));
   const removeApplyDurationMs = Date.now() - removeApplyStartedAt;
   assert(removeApplyDurationMs <= 5000, `Pivot removal apply-to-render took ${removeApplyDurationMs}ms`);
-  await drainResponses();
   assert.equal(browserCommandCount() - removeApplyCommandCount, 1, 'Applying Pivot removal must issue exactly one bounded draft command');
   report.cases.push({ name: 'pivot-removal-apply-to-render', durationMs: removeApplyDurationMs, browserCommandDelta: browserCommandCount() - removeApplyCommandCount });
   builder = await api(base + '/builder');
@@ -534,7 +539,6 @@ return document.querySelector('[data-testid="construction-proposal-panel"]')?.da
   report.cases.push({ name: 'pivot-removal-reload-to-render', durationMs: removeReloadDurationMs, browserCommandDelta: 0 });
   report.cases.push({ name: 'pivot-removal-restores-pre-pivot-table', durationMs: removeReloadDurationMs, rowCount: restoredSnapshot.rowCount, headers: restoredSnapshot.headers });
 
-  await drainResponses();
   assert.deepEqual(report.errors, [], 'Unexpected browser console, runtime, or HTTP errors must fail this verifier');
   report.status = 'passed';
 } catch (error) {
@@ -544,12 +548,10 @@ return document.querySelector('[data-testid="construction-proposal-panel"]')?.da
   await captureFailure(error, { phase: report.activeAction?.label ?? report.cases.at(-1)?.name,
     elapsedMs: report.activeAction ? Date.now() - report.activeAction.startedAt : undefined,
     action: report.activeAction, requestEvidence: report.nativeRequests.slice(-20), latestCase: report.cases.at(-1) });
-  await drainResponses();
 if (page) report.failureDOM = await inspectPage(page, () => {
 return (()=>{const p=document.querySelector('[data-testid="construction-reshape-pivot"]');const describe=selector=>{const select=document.querySelector(selector);return {selector,selected:select?.selectedOptions[0]?.textContent?.trim(),options:[...(select?.options??[])].map(option=>({label:option.textContent.trim(),value:option.value,disabled:option.disabled}))};};return {pivotVisible:Boolean(p),groupCheckboxes:[...(p?.querySelectorAll('input[aria-label^="Pivot group "]')??[])].map(input=>({selector:'input[aria-label='+JSON.stringify(input.getAttribute('aria-label'))+']',label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled})),groupSource:describe('select[aria-label="Add pivot group field"]'),category:describe('select[aria-label="Pivot category field"]'),value:describe('select[aria-label="Pivot values field"]'),proposal:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText};})()
 }).catch(captureError => ({ captureError: String(captureError) }));
 } finally {
-  await drainResponses();
   try {
     report.sourceFreeze = await sourceFreeze.assertUnchanged();
     report.sourceFingerprint.after = sourceFingerprint(sourceRoot);

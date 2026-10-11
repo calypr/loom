@@ -43,7 +43,7 @@ await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer: (cda.ta
   clickhouseContainer: (cda.target.clickhouseContainer ?? cda.env?.LOOM_CLICKHOUSE_CONTAINER) });
 const sourceFreeze = await captureSourceFreeze(sourceRoot);
 const apiBuildFreeze = await captureApiBuildFreeze(() => checkContainerApiBuildStamp((cda.target.apiContainer ?? cda.env?.LOOM_CDA_API_CONTAINER)));
-const report = { explorer, cases: [], errors: [], requests: [], authoringRequests: [], nativeRequests: [],
+const report = { explorer, cases: [], errors: [], requests: [], nativeRequests: [],
   sourceFingerprint: { before: sourceFingerprint(sourceRoot) }, apiBuildIdentity: apiBuildFreeze.initial, started: new Date().toISOString() };
 const inspectPage = (_page, inspect, argument) => cda.inspect(inspect, argument);
 const waitForObservable = (page, predicate, argumentOrTimeout, timeoutArgument = 5000) => {
@@ -60,38 +60,35 @@ const selectNative = async (_page, selector, value) => {
   assert.equal(await locator.inputValue(), String(value), `Selected value must be applied to ${selector}`);
 };
 let browserRequestCapture;
-const syncAuthoringRequests = () => {
+const authoringRequests = () => {
   const endpoints = new Set(['commands', 'reconcile', 'preview', 'construction-proposals', 'construction-category-discoveries']);
-  report.authoringRequests.splice(0, report.authoringRequests.length, ...report.nativeRequests
+  const requests = browserRequestCapture.requests
     .filter(request => endpoints.has(request.path.split('/').at(-1)))
     .map(request => ({ ...request, endpoint: request.path.split('/').at(-1), url: `${request.origin}${request.path}`, requestStartedAtMs: request.startedAt,
       responseFinishedAtMs: request.completedAt, durationMs: request.completedAt - request.startedAt,
-      requestDraftVersion: request.body?.expectedDraftVersion ?? request.body?.draftVersion, requestDraftDigest: request.body?.expectedDraftDigest ?? request.body?.draftDigest,
-      requestOutputId: request.body?.outputId, requestReceiptId: request.body?.receiptId,
+      requestDraftVersion: request.request?.expectedDraftVersion ?? request.request?.draftVersion, requestDraftDigest: request.request?.expectedDraftDigest ?? request.request?.draftDigest,
+      requestOutputId: request.request?.outputId, requestReceiptId: request.request?.receiptId,
       responseDraftVersion: request.response?.draftVersion, responseDraftDigest: request.response?.draftDigest,
       responseReceiptId: request.response?.receiptId, responseOutputId: request.response?.outputId,
       responseRowCount: request.response?.rowCount ?? request.response?.preview?.rowCount ?? request.response?.rows?.length,
-      ...(request.failure ? { loadingFailure: { errorText: request.failure, canceled: request.failure === 'net::ERR_ABORTED' } } : {}),
-    })));
-  report.browserCommands = report.authoringRequests.filter(request => request.endpoint === 'commands').map(request => ({
-    requestId: request.requestId, body: request.body, status: request.status, response: request.response,
-    requestStartedAtMs: request.requestStartedAtMs, responseFinishedAtMs: request.responseFinishedAtMs,
-  }));
-  correlateAuthoringRequests();
+      ...(request.failure ? { loadingFailure: { errorText: request.failure, readCancellationDiagnostic: request.readCancellationDiagnostic === true } } : {}),
+    }));
+  correlateAuthoringRequests(requests);
+  return requests;
 };
 await mkdir(evidence, { recursive: true });
 let builder, outputId;
 let editedPivotPresentation=false;
-const correlateAuthoringRequests = () => {
-  for (const reconcile of report.authoringRequests.filter(request => request.endpoint === 'reconcile' && request.responseReceiptId)) {
-    const command = [...report.authoringRequests].reverse().find(request =>
+const correlateAuthoringRequests = requests => {
+  for (const reconcile of requests.filter(request => request.endpoint === 'reconcile' && request.responseReceiptId)) {
+    const command = [...requests].reverse().find(request =>
       request.endpoint === 'commands' &&
       request.responseDraftVersion === reconcile.requestDraftVersion &&
       request.responseDraftDigest === reconcile.requestDraftDigest &&
       request.requestStartedAtMs <= reconcile.requestStartedAtMs,
     );
     if (command) reconcile.commandRequestId = command.requestId;
-    for (const preview of report.authoringRequests.filter(request =>
+    for (const preview of requests.filter(request =>
       request.endpoint === 'preview' && request.requestReceiptId === reconcile.responseReceiptId,
     )) {
       preview.reconcileRequestId = reconcile.requestId;
@@ -101,10 +98,9 @@ const correlateAuthoringRequests = () => {
     }
   }
 };
-const drainPendingResponseReads = async () => {
-  await browserRequestCapture?.flush();
-  syncAuthoringRequests();
-};
+const waitForAuthoringResponse = (endpoint, fromIndex, predicate = () => true, timeoutMs = 5000) =>
+  browserRequestCapture.waitForResponse(entry => entry.path.endsWith(`/${endpoint}`) && predicate(entry),
+    { fromIndex, timeoutMs });
 const captureFailureDOM = () => inspectPage(page, () => {
 return (() => {
   const proposal = document.querySelector('[data-testid="construction-proposal-panel"]');
@@ -287,11 +283,11 @@ const expectedPivotFor = (proposalRequest, preview, expectedDuplicatePolicy = 'E
   return { step, operation, columns: previewColumns, rows: expectedRows, duplicateBuckets, sourceRowCount: report.oracle.observationRows.length };
 
 };
-const assertPersistedPivotIdentity = async (proposalPreview, name) => {
-  await drainPendingResponseReads();
-  const saved = report.authoringRequests.findLast(request =>
-    request.endpoint === 'preview' && request.status === 200 &&
-    request.response?.outputId === outputId && request.response?.rowCount === proposalPreview.rowCount);
+const assertPersistedPivotIdentity = async (proposalPreview, name, fromIndex) => {
+  const completedPreview = await waitForAuthoringResponse('preview', fromIndex, request =>
+    request.status === 200 && request.response?.outputId === outputId && request.response?.rowCount === proposalPreview.rowCount);
+  const saved = authoringRequests().findLast(request =>
+    request.requestId === completedPreview.requestId);
   assert(saved, `${name}: the saved table must have a completed native preview`);
   const expectedIds = proposalPreview.rows.map(row => row.__loom_row_id).sort();
   const savedIds = saved.response.rows.map(row => row.__loom_row_id).sort();
@@ -435,11 +431,11 @@ try {
   await chooseSource('Add pivot group field','Observation.valueCodeableConcept.text');
   await chooseSource('Pivot category field','Observation.valueQuantity.code');
   const start=Date.now();
-  const requestIndex=report.authoringRequests.length;
+  const requestIndex=browserRequestCapture.requests.length;
   await chooseSource('Pivot values field','Observation.valueQuantity.value');
   await waitForObservable(page,() => Boolean(!document.body.innerText.includes('Finding categories') && (document.querySelector('[data-testid="construction-proposal-panel"]') || document.body.innerText.includes('exceeded') || document.body.innerText.includes('No categories'))),10000);
-  await drainPendingResponseReads();
-  const discovery=report.authoringRequests.slice(requestIndex).findLast(r=>r.endpoint==='construction-category-discoveries');
+  const discoveryEntry=await waitForAuthoringResponse('construction-category-discoveries',requestIndex);
+  const discovery=authoringRequests().findLast(request=>request.requestId===discoveryEntry.requestId);
   assert(discovery,'Native source pair must automatically discover categories');
   report.initialDiscovery=discovery;
   report.discoveryDOM=await captureFailureDOM();
@@ -447,7 +443,7 @@ try {
   assert.equal(discovery.status,200,'Quantity discovery must succeed');
   assert.equal(discovery.response.complete,true,'Category discovery must be complete');
   if(!fullPopulation){
-    assert.equal(discovery.body.groupKeyIds.length,1,'Initial quantity discovery must retain the native value-text group key');
+    assert.equal(discovery.request.groupKeyIds.length,1,'Initial quantity discovery must retain the native value-text group key');
     const expectedKeys=[...new Set(observations.map(o=>o?.quantity?.code==null?'NULL':JSON.stringify({kind:'STRING',string:o.quantity.code})))].sort();
     const actualKeys=discovery.response.categories.map(c=>c.key.kind==='NULL'?'NULL':JSON.stringify(c.key)).sort();
     assert.deepEqual(actualKeys,expectedKeys,'Complete categories must match every scoped related Observation, including missing values');
@@ -457,6 +453,7 @@ try {
     const groupLabels=['Specimen ID','Patient FHIR resource ID','Observation FHIR resource ID'];
     const groupKeysStart=Date.now();
     const pivotPreviewStart=Date.now();
+    const refreshedRequestIndex=browserRequestCapture.requests.length;
     for(const label of groupLabels){
       const selector=`input[aria-label=${JSON.stringify(`Pivot group ${label}`)}]`;
       const state=await inspectPage(page, ({ selector }) => { const i=document.querySelector(selector); return {found:Boolean(i),checked:i?.checked,disabled:i?.disabled}; }, { selector: selector });
@@ -465,8 +462,8 @@ try {
     }
     await waitForObservable(page,() => Boolean(Boolean(document.querySelector('[data-testid="construction-reshape-pivot"] input[aria-label="Pivot group Observation.valueCodeableConcept.text"]:checked'))));
     await waitForObservable(page,() => Boolean(Boolean(document.querySelector('[data-testid="construction-reshape-pivot-category-summary"]'))&&document.querySelector('[data-testid="construction-reshape-pivot-category-summary"]')?.innerText.includes('2 of 2 categories')),10000);
-    await drainPendingResponseReads();
-    const refreshedDiscovery=report.authoringRequests.slice(requestIndex).findLast(request=>request.endpoint==='construction-category-discoveries'&&request.body?.groupKeyIds?.length===4) ?? discovery;
+    const refreshedEntry=await waitForAuthoringResponse('construction-category-discoveries',refreshedRequestIndex,request=>request.request?.groupKeyIds?.length===4);
+    const refreshedDiscovery=authoringRequests().findLast(request=>request.requestId===refreshedEntry.requestId);
     // Existing ID group keys preserve the source/category pair, so reusing its complete discovery is valid.
     assert.equal(refreshedDiscovery.status,200,'Refreshed quantity discovery must succeed');
     assert.equal(refreshedDiscovery.response.complete,true,'Refreshed quantity discovery must be complete');
@@ -474,16 +471,16 @@ try {
     const refreshedExpectedKeys=[...new Set(observations.map(observation=>observation?.quantity?.code==null?'NULL':JSON.stringify({kind:'STRING',string:observation.quantity.code})))].sort();
     assert.deepEqual(refreshedKeys,refreshedExpectedKeys,'Changing row keys must preserve the independently witnessed category set');
     report.discovery=refreshedDiscovery;
-    report.oracle.categoryDiscoveryGroupKeyCounts=[discovery.body.groupKeyIds.length,refreshedDiscovery.body.groupKeyIds.length];
+    report.oracle.categoryDiscoveryGroupKeyCounts=[discovery.request.groupKeyIds.length,refreshedDiscovery.request.groupKeyIds.length];
     report.oracle.categoryDiscoveryReused=refreshedDiscovery===discovery;
     recordRender('quantity-category-state-after-row-keys',groupKeysStart);
     report.categoryCorrectness='bounded independent route oracle passed; category domain remains unchanged when existing ID keys are added';
     const prePivotWorkspace=expanded.workspace;
     assert.deepEqual((await api(base+'/builder')).workspace,prePivotWorkspace,'Category discovery and candidate previews must not mutate the saved draft');
     await waitForObservable(page,() => Boolean(['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus)),10000);
-    await drainPendingResponseReads();
-    recordRender('pivot-preview-to-ready',pivotPreviewStart);
-    const firstPivotProposal=report.authoringRequests.slice(requestIndex).findLast(request=>request.endpoint==='construction-proposals');
+      recordRender('pivot-preview-to-ready',pivotPreviewStart);
+    const firstPivotEntry=await waitForAuthoringResponse('construction-proposals',requestIndex,request=>request.status===200);
+    const firstPivotProposal=authoringRequests().findLast(request=>request.requestId===firstPivotEntry.requestId);
     assert.equal(firstPivotProposal?.status,200,'Native Pivot preview request must succeed');
     const firstPivotPreview=await proposalPreviewFor(firstPivotProposal);
     const expectedPivot=expectedPivotFor(firstPivotProposal,firstPivotPreview);
@@ -497,12 +494,12 @@ try {
 return [...document.querySelector('select[aria-label="Pivot duplicate policy"]').options].map(option=>({value:option.value,disabled:option.disabled}));
 });
     assert(duplicateOptions.some(option=>option.value==='SUM'&&!option.disabled),'Numeric Pivot values must expose the native SUM duplicate option');
-    const browserCommandCount=report.browserCommands?.length??0;
+    const browserCommandCount=authoringRequests().filter(request => request.endpoint === 'commands').length;
     const cancelStart=Date.now();
     await clickNative(page,'[data-testid="construction-cancel-proposal"]');
     await waitForObservable(page,() => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')),5000);
     assert.deepEqual((await api(base+'/builder')).workspace,prePivotWorkspace,'Cancel must leave the saved construction unchanged');
-    assert.equal(report.browserCommands?.length??0,browserCommandCount,'Cancel must not issue a draft command');
+    assert.equal(authoringRequests().filter(request => request.endpoint === 'commands').length,browserCommandCount,'Cancel must not issue a draft command');
     recordRender('pivot-preview-cancel-without-mutation',cancelStart);
     // Cancel closes the candidate editor. Reopen and configure through native controls.
     await clickNative(page,'[data-testid="construction-rows-settings-trigger"]');
@@ -517,13 +514,13 @@ return [...document.querySelector('select[aria-label="Pivot duplicate policy"]')
     await chooseSource('Pivot category field','Observation.valueQuantity.code');
     await chooseSource('Pivot values field','Observation.valueQuantity.value');
     await clickNative(page,'[data-testid="construction-reshape-pivot-advanced"] > summary');
-    const sumRequestIndex=report.authoringRequests.length;
+    const sumRequestIndex=browserRequestCapture.requests.length;
     const sumStart=Date.now();
     await selectNative(page,'select[aria-label="Pivot duplicate policy"]','SUM');
     await waitForObservable(page,() => Boolean(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'&&Boolean(document.querySelector('[data-testid="construction-proposal-panel"][data-proposal-id]')?.dataset.proposalId)),10000);
-    await drainPendingResponseReads();
-    recordRender('pivot-sum-policy-preview',sumStart);
-    const sumProposal=report.authoringRequests.slice(sumRequestIndex).findLast(request=>request.endpoint==='construction-proposals');
+      recordRender('pivot-sum-policy-preview',sumStart);
+    const sumProposalEntry=await waitForAuthoringResponse('construction-proposals',sumRequestIndex,request=>request.status===200);
+    const sumProposal=authoringRequests().findLast(request=>request.requestId===sumProposalEntry.requestId);
     assert.equal(sumProposal?.status,200,'Native numeric SUM duplicate policy must preview successfully');
     const sumPreview=await proposalPreviewFor(sumProposal);
     const sumExpected=expectedPivotFor(sumProposal,sumPreview,'SUM');
@@ -531,13 +528,13 @@ return [...document.querySelector('select[aria-label="Pivot duplicate policy"]')
     assert.equal(sumPreview.rowCount,sumExpected.sourceRowCount);
     await assertExactRows({name:'pivot-sum-policy-independent-values-and-ids',columns:sumExpected.columns,rows:sumExpected.rows,rowLimit:100,panel:true});
     const secondPreviewStart=Date.now();
-    const secondRequestIndex=report.authoringRequests.length;
+    const secondRequestIndex=browserRequestCapture.requests.length;
     const sumProposalId=sumProposal.response.proposalId;
     await selectNative(page,'select[aria-label="Pivot duplicate policy"]','ERROR');
     await waitForObservable(page, ({ previousId }) => { const panel=document.querySelector('[data-testid="construction-proposal-panel"]'); return panel?.dataset.proposalStatus === 'ready' && panel.dataset.proposalId !== previousId; }, { previousId: sumProposalId }, 10000);
-    await drainPendingResponseReads();
-    recordRender('pivot-repreview-after-cancel',secondPreviewStart);
-    const proposalAgain=report.authoringRequests.slice(secondRequestIndex).findLast(request=>request.endpoint==='construction-proposals');
+      recordRender('pivot-repreview-after-cancel',secondPreviewStart);
+    const proposalAgainEntry=await waitForAuthoringResponse('construction-proposals',secondRequestIndex,request=>request.status===200);
+    const proposalAgain=authoringRequests().findLast(request=>request.requestId===proposalAgainEntry.requestId);
     assert.equal(proposalAgain?.status,200,'Pivot must preview again after a canceled proposal');
     const appliedPreview=await proposalPreviewFor(proposalAgain);
     const appliedExpected=expectedPivotFor(proposalAgain,appliedPreview,'ERROR');
@@ -546,10 +543,11 @@ return [...document.querySelector('select[aria-label="Pivot duplicate policy"]')
     assert.equal(appliedPreview.rowCount,appliedExpected.sourceRowCount);
     await assertExactRows({name:'pivot-repreview-independent-values-and-ids',columns:appliedExpected.columns,rows:appliedExpected.rows,rowLimit:100,panel:true});
     const applyStart=Date.now();
+    const appliedPreviewRequestIndex=browserRequestCapture.requests.length;
     await clickNative(page,'[data-testid="construction-apply-proposal"]');
     await waitForObservable(page,() => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelectorAll('[data-testid^="construction-history-step-"]').length===3),10000);
     await assertExactRows({name:'pivot-apply-independent-values-and-ids',columns:appliedExpected.columns,rows:appliedExpected.rows,rowLimit:100});
-    await assertPersistedPivotIdentity(appliedPreview,'pivot-apply-stable-protocol-identities');
+    await assertPersistedPivotIdentity(appliedPreview,'pivot-apply-stable-protocol-identities',appliedPreviewRequestIndex);
     recordRender('pivot-apply-to-render',applyStart);
     builder=await api(base+'/builder');
     const appliedDocument=doc(builder);
@@ -558,12 +556,13 @@ return [...document.querySelector('select[aria-label="Pivot duplicate policy"]')
     assert.equal(savedPivot.operation.pivot.duplicatePolicy,'ERROR');
     report.lifecycle={duplicatePolicy:'ERROR',duplicateBuckets:appliedExpected.duplicateBuckets,sourceRows:appliedExpected.sourceRowCount,categoryKeys:refreshedKeys,nativeNumericDuplicatePolicies:duplicateOptions.filter(option=>!option.disabled).map(option=>option.value)};
     const reloadPivotStart=Date.now();
+    const reloadPreviewRequestIndex=browserRequestCapture.requests.length;
     await gotoPage(page,`${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
     await waitForObservable(page, () => Boolean(document.querySelector(`[data-testid="construction-table-${outputId}"]`)), 10000);
     await clickNative(page,`[data-testid="construction-table-${outputId}"]`);
     await waitForObservable(page,() => Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false),10000);
     await assertExactRows({name:'pivot-reload-independent-values-and-ids',columns:appliedExpected.columns,rows:appliedExpected.rows,rowLimit:100});
-    await assertPersistedPivotIdentity(appliedPreview,'pivot-reload-stable-protocol-identities');
+    await assertPersistedPivotIdentity(appliedPreview,'pivot-reload-stable-protocol-identities',reloadPreviewRequestIndex);
     recordRender('pivot-reload-to-render',reloadPivotStart);
     const history=await inspectPage(page,() => {
 return [...document.querySelectorAll('[data-testid^="construction-history-step-"]')].map(button=>({testId:button.getAttribute('data-testid'),text:button.innerText}));
@@ -583,36 +582,38 @@ const p=document.querySelector('[data-testid="construction-reshape-pivot"]');ret
     assert.deepEqual(new Set(restoredEditor.groups),new Set(['Pivot group Specimen ID','Pivot group Patient FHIR resource ID','Pivot group Observation FHIR resource ID','Pivot group Observation.valueCodeableConcept.text']));
     assert.equal(restoredEditor.duplicatePolicy,'ERROR');
     recordRender('pivot-edit-restores-saved-fields',editStart);
-    const editRequestIndex=report.authoringRequests.length;
+    const editRequestIndex=browserRequestCapture.requests.length;
     const previousEditProposalId=await inspectPage(page,() => {
 return document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId??'';
 });
     const editChangeStart=Date.now();
     await cda.action('fill Pivot output label d', page.getByLabel('Pivot output label d', { exact: true }), locator => locator.fill('Observed quantity d', { timeout: 5000 }), { timeout: 5000, budget: 5000, editable: true });
     await waitForObservable(page, ({ previousId }) => { const panel=document.querySelector('[data-testid="construction-proposal-panel"]'); return panel?.dataset.proposalStatus === 'ready' && panel.dataset.proposalId !== previousId; }, { previousId: previousEditProposalId }, 10000);
-    await drainPendingResponseReads();
-    recordRender('pivot-edit-preview-to-ready',editChangeStart);
-    const editProposal=report.authoringRequests.slice(editRequestIndex).findLast(request=>request.endpoint==='construction-proposals');
+      recordRender('pivot-edit-preview-to-ready',editChangeStart);
+    const editProposalEntry=await waitForAuthoringResponse('construction-proposals',editRequestIndex,request=>request.status===200);
+    const editProposal=authoringRequests().findLast(request=>request.requestId===editProposalEntry.requestId);
     assert.equal(editProposal?.status,200,'Edited Pivot must produce a native proposal');
     const editPreview=await proposalPreviewFor(editProposal);
     const editExpected=expectedPivotFor(editProposal,editPreview);
     assert.equal(editExpected.operation.duplicatePolicy,'ERROR');
     assert.equal(editExpected.duplicateBuckets,0);
     await assertExactRows({name:'pivot-edit-preview-independent-values-and-ids',columns:editExpected.columns,rows:editExpected.rows,rowLimit:100,panel:true});
+    const editedPreviewRequestIndex=browserRequestCapture.requests.length;
     await clickNative(page,'[data-testid="construction-apply-proposal"]');
     await waitForObservable(page,() => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelectorAll('[data-testid^="construction-history-step-"]').length===3),10000);
     await assertExactRows({name:'pivot-edit-apply-independent-values-and-ids',columns:editExpected.columns,rows:editExpected.rows,rowLimit:100});
-    await assertPersistedPivotIdentity(editPreview,'pivot-edit-apply-stable-protocol-identities');
+    await assertPersistedPivotIdentity(editPreview,'pivot-edit-apply-stable-protocol-identities',editedPreviewRequestIndex);
     builder=await api(base+'/builder');
     const editedPivot=doc(builder).construction.steps.find(step=>step.operation.kind==='PIVOT');
     assert.equal(editedPivot.outputs.find(column=>column.name===editExpected.columns.find(column=>column.label==='Observed quantity d')?.column)?.label,'Observed quantity d');
     const reloadEditedStart=Date.now();
+    const editedReloadPreviewRequestIndex=browserRequestCapture.requests.length;
     await gotoPage(page,`${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
     await waitForObservable(page, () => Boolean(document.querySelector(`[data-testid="construction-table-${outputId}"]`)), 10000);
     await clickNative(page,`[data-testid="construction-table-${outputId}"]`);
     await waitForObservable(page,() => Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false),10000);
     await assertExactRows({name:'pivot-edited-reload-independent-values-and-ids',columns:editExpected.columns,rows:editExpected.rows,rowLimit:100});
-    await assertPersistedPivotIdentity(editPreview,'pivot-edited-reload-stable-protocol-identities');
+    await assertPersistedPivotIdentity(editPreview,'pivot-edited-reload-stable-protocol-identities',editedReloadPreviewRequestIndex);
     recordRender('pivot-edited-reload-to-render',reloadEditedStart);
     const removeStart=Date.now();
     const editedHistory=await inspectPage(page,() => {
@@ -622,11 +623,11 @@ return [...document.querySelectorAll('[data-testid^="construction-history-step-"
     assert(editedPivotHistory,'Edited Pivot history control must remain available');
     await clickNative(page,`[data-testid=${JSON.stringify(editedPivotHistory.testId)}]`);
     await waitForObservable(page,() => Boolean(Boolean(document.querySelector('[data-testid^="construction-remove-step-"]'))),5000);
-    const removalRequestIndex=report.authoringRequests.length;
+    const removalRequestIndex=browserRequestCapture.requests.length;
     await clickNative(page,'[data-testid^="construction-remove-step-"]');
     await waitForObservable(page,() => Boolean(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'),10000);
-    await drainPendingResponseReads();
-    const removalProposal=report.authoringRequests.slice(removalRequestIndex).findLast(request=>request.endpoint==='construction-proposals');
+    const removalProposalEntry=await waitForAuthoringResponse('construction-proposals',removalRequestIndex,request=>request.status===200);
+    const removalProposal=authoringRequests().findLast(request=>request.requestId===removalProposalEntry.requestId);
     assert.equal(removalProposal?.status,200,'Pivot removal must produce a native proposal');
     const removalPreview=await proposalPreviewFor(removalProposal);
     const sourcePreviewColumns=outputColumnValues(removalPreview.columns);
@@ -671,31 +672,31 @@ return [...document.querySelectorAll('[data-testid^="construction-history-step-"
     report.gaps=['Full-population discovery regression verified; native Pivot Apply/edit/removal is covered separately by the bounded mode.'];
     report.status='passed';
   }
-  await drainPendingResponseReads();
-  report.expectedValidationErrors=report.errors.filter(error => {
-    const request=error.request;
-    const pivot=request?.body?.candidateConstruction?.steps?.find(step=>step.operation.kind==='PIVOT')?.operation.pivot;
-    return error.kind==='http' && error.status===422 && request?.endpoint==='construction-proposals' &&
-      request.response?.error?.code==='TABLE_PIVOT_CELL_CARDINALITY' &&
-      pivot?.duplicatePolicy==='ERROR' && pivot.groupKeyIds?.length===1 &&
-      error.observedAfter==='quantity-category-discovery-to-render';
-  });
-  assert.deepEqual(report.errors.filter(error=>!report.expectedValidationErrors.includes(error)),[],
-    'Unexpected HTTP, JavaScript or module errors must fail the Pivot regression');
+  report.expectedValidationEvidence=[];
+  const validationCandidates=browserRequestCapture.requests.filter(request=>
+    request.path.endsWith('/construction-proposals') && request.status===422);
+  for(const candidate of validationCandidates){
+    const validation=await waitForAuthoringResponse('construction-proposals',0,request=>request===candidate);
+    const pivot=validation.request?.candidateConstruction?.steps?.find(step=>step.operation.kind==='PIVOT')?.operation.pivot;
+    assert.equal(validation.response?.error?.code,'TABLE_PIVOT_CELL_CARDINALITY','Only the native quantity-cardinality validation is expected');
+    assert.equal(pivot?.duplicatePolicy,'ERROR','Expected cardinality validation must come from ERROR duplicate policy');
+    assert.equal(pivot?.groupKeyIds?.length,1,'Expected cardinality validation must preserve its single native group key');
+    browserRequestCapture.markExpectedValidation(validation,{status:422,
+      reason:'Full-population quantity Pivot exceeds the bounded category cell-cardinality limit.',
+      proof:{errorCode:validation.response.error.code,duplicatePolicy:pivot.duplicatePolicy,groupKeyCount:pivot.groupKeyIds.length}});
+    report.expectedValidationEvidence.push({requestId:validation.requestId,status:validation.status,errorCode:validation.response.error.code,
+      duplicatePolicy:pivot.duplicatePolicy,groupKeyCount:pivot.groupKeyIds.length});
+  }
+  assert.deepEqual(report.errors,[],'Unexpected HTTP, JavaScript or module errors must fail the Pivot regression');
 } catch (error) {
   report.status = 'failed'; report.error = String(error.stack ?? error); report.__nativeFailure = true;
   await captureFailure(error, { phase: report.activeAction?.label ?? report.cases.at(-1)?.name,
     elapsedMs: report.activeAction ? Date.now() - report.activeAction.startedAt : undefined,
     action: report.activeAction, requestEvidence: report.nativeRequests.slice(-20), latestCase: report.cases.at(-1) });
-  await drainPendingResponseReads();
   report.savedBuilderAtFailure=await api(base + '/builder').catch(error=>({readError:String(error)}));
   report.failureDOM = page ? await captureFailureDOM().catch(error=>({captureError:String(error)})) : undefined;
   report.failureUI = report.failureDOM?.bodyText;
-  await drainPendingResponseReads();
-  correlateAuthoringRequests();
-  report.pendingAuthoringRequests=report.authoringRequests.filter(request=>request.responseFinishedAtMs===undefined&&!request.loadingFailure).map(request=>({endpoint:request.endpoint,requestId:request.requestId,method:request.method,url:request.url,requestStartedAtMs:request.requestStartedAtMs,status:request.status,requestDraftVersion:request.requestDraftVersion,requestDraftDigest:request.requestDraftDigest,requestOutputId:request.requestOutputId,requestReceiptId:request.requestReceiptId}));
 } finally {
-  await drainPendingResponseReads();
   try {
     report.sourceFreeze = await sourceFreeze.assertUnchanged();
     report.sourceFingerprint.after = sourceFingerprint(sourceRoot);

@@ -9,28 +9,30 @@ import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startVerificationIdentity } from './cda-verification-identity.mjs';
 import { assertOwnedCdaTarget } from './owned-cda-target.mjs';
-import { assertOwnedDevSession, canonicalProjectID, createDevSession, createFreshVerificationFixture } from '../../loom-dev.mjs';
+import {
+  assertOwnedDevSession,
+  canonicalProjectID,
+  createDevSession,
+  createFreshVerificationFixture,
+} from '../../loom-dev.mjs';
 import {
   createCdaInspector,
-  captureRequests,
   click,
   fill,
-  includeBrowserDiagnostics,
   navigate,
   press,
   scrollIntoView,
   selectOption,
   waitForBrowser,
-  waitForCapturedResponse,
 } from './cda-playwright.mjs';
-import { applyInjectedFaultPolicy, matchExpectedHttpConsole, ownedFaultTarget, matchesOwnedFaultRequest } from './network-evidence.mjs';
+import { ownedFaultTarget, matchesOwnedFaultRequest } from './network-evidence.mjs';
 import { registry, scenarioCaseFor } from '../registry.mjs';
-import { classifyNetworkRecord, createReport, finishReport, recordCheck, runAfterNativeRequestDrain, writeReport } from './report.mjs';
-import { sanitizeBody, sanitizePayload, sanitizeText } from './playwright-browser.mjs';
+import { createReport, finishReport, recordCheck, writeReport } from './report.mjs';
+import { sanitizePayload, sanitizeText } from './playwright-browser.mjs';
 import { captureNativeFailureEvidence, MAX_NATIVE_FAILURE_CAPTURE_MS } from './native-failure-evidence.mjs';
-import { correlateRequestFailure } from './network-timing.mjs';
-import { createPendingResponseReads } from './pending-response-reads.mjs';
-import { flushNativeAbortProbeEvents } from './native-abort-probe.mjs';
+import { createPlaywrightNetworkObserver } from './playwright-network-observer.mjs';
+import { createCDARequestView } from './cda-playwright-requests.mjs';
+import { assertNoUnexpectedFixtureFailures } from './fixture-failure-assertions.mjs';
 
 const ACTION_TIMEOUT_MS = 5_000;
 const MAX_DIAGNOSTICS = 100;
@@ -98,6 +100,36 @@ function makeReport({ scenarioID, caseName, target, evidenceDirectory }) {
   });
 }
 
+const decodeOwnedRouteSegment = raw => {
+  let value = raw;
+  try {
+    for (let pass = 0; pass < 2 && value.includes('%'); pass += 1) {
+      const decoded = decodeURIComponent(value);
+      if (decoded === value) break;
+      value = decoded;
+    }
+    return value;
+  } catch {
+    return null;
+  }
+};
+
+export function isOwnedCdaScopedRequest(requestURL, target, ownedOrigins) {
+  try {
+    const url = new URL(requestURL);
+    if (!ownedOrigins.has(url.origin)) return false;
+    const route = url.pathname.match(/\/projects\/([^/]+)\/explorers\/([^/]+)/);
+    if (!route) return true;
+    const project = decodeOwnedRouteSegment(route[1]);
+    const explorer = decodeOwnedRouteSegment(route[2]);
+    return project !== null && explorer !== null
+      && canonicalProjectID(project) === canonicalProjectID(target.fixtureProject)
+      && (!target.explorer || explorer === target.explorer);
+  } catch {
+    return false;
+  }
+}
+
 export const finalizeCdaExplorerMetadata = (report, target) => {
   const explorer = [report?.explorer, report?.target?.explorer, target?.explorer]
     .find(value => typeof value === 'string' && value.trim()) ?? null;
@@ -106,155 +138,10 @@ export const finalizeCdaExplorerMetadata = (report, target) => {
   return explorer;
 };
 
-function requestDiagnostic(request) {
-  let body;
-  try { body = request.postDataJSON(); } catch { body = undefined; }
-  const input = body?.variables?.input ?? body ?? {};
-  const headers = request.headers();
-  return sanitizePayload({
-    requestId: headers['x-request-id'] ?? body?.requestId ?? body?.requestID ?? null,
-    draftVersion: input.expectedDraftVersion ?? input.draftVersion ?? null,
-    draftDigest: input.expectedDraftDigest ?? input.draftDigest ?? null,
-    outputId: input.outputId ?? null,
-    stageId: input.stageId ?? null,
-  });
-}
-
 function safeAttachmentPath(testInfo, name) {
   const basenameOnly = basename(String(name || 'cda-attachment.json'));
   const safeName = basenameOnly.replace(/[^a-zA-Z0-9_.-]/g, '_') || 'cda-attachment.json';
   return testInfo.outputPath('attachments', safeName);
-}
-
-export function gateFailure(report) {
-  const missing = report.runnerStatus === 'skipped' ? [] : report.missingRequiredChecks ?? [];
-  const failedAssertions = (report.assertions ?? []).filter(entry => entry.status === 'failed');
-  const unexpectedNetwork = (report.network ?? []).filter(entry =>
-    !entry.expectedHttpFailure && classifyNetworkRecord(entry) === 'unexpected-error');
-  const unfinishedNativeRequests = (report.nativeRequests ?? []).flatMap((entry, index) => {
-    const hasStatus = Number.isInteger(entry?.status) && entry.status >= 100 && entry.status <= 599;
-    const hasFailure = typeof entry?.failure === 'string' && entry.failure.trim().length > 0;
-    const hasTerminalEvent = (entry?.nativeEventChronology ?? []).some(({ event }) =>
-      event === 'requestfinished' || event === 'requestfailed');
-    if (Number.isFinite(entry?.completedAt) && (hasStatus || hasFailure) && hasTerminalEvent) return [];
-    return [{ index, requestId: entry?.requestId ?? null, path: entry?.path ?? null }];
-  });
-  const nativeRequestDrainEvidence = (report.nativeRequestDrainEvidence ?? [])
-    .filter(entry => entry?.status === 'timed-out');
-  const unexpectedErrors = (report.errors ?? []).filter(entry => {
-    if (entry.expected === true || entry.expectedCancellation || entry.expectedInjectedFault || entry.expectedHttpFailure) return false;
-    if (entry.kind === 'expected-injected' && entry.injectedFault === true) return false;
-    return true;
-  });
-  if (!missing.length && !failedAssertions.length && !unexpectedNetwork.length && !unfinishedNativeRequests.length &&
-    !nativeRequestDrainEvidence.length && !unexpectedErrors.length) return undefined;
-  return new Error(`CDA verification evidence is incomplete: ${JSON.stringify({
-    missingRequiredChecks: missing,
-    failedAssertions: failedAssertions.map(({ dimension, name, evidence }) => ({ dimension, name, evidence })),
-    unexpectedNetwork: unexpectedNetwork.map(({ kind, method, url, status, errorText, message }) => ({ kind, method, url, status, errorText, message })),
-    unfinishedNativeRequests,
-    nativeRequestDrainEvidence,
-    unexpectedErrors: unexpectedErrors.map(({ kind, method, url, status, message, error }) => ({ kind, method, url, status, message, error })),
-  })}`);
-}
-
-function markExpectedErrors(report) {
-  const expectedRequests = (report.network ?? []).filter(entry => entry.expected === true || entry.injectedFault === true);
-  const matchedConsoleErrors = new Set();
-  for (const evidence of expectedRequests) {
-    const matchesRequest = error => Boolean(
-      (evidence.browserRequestId && error.browserRequestId === evidence.browserRequestId) ||
-      (evidence.playwrightRequestId && error.playwrightRequestId === evidence.playwrightRequestId),
-    );
-    for (const error of report.errors ?? []) {
-      if (!matchesRequest(error)) continue;
-      error.expected = true;
-      if (evidence.injectedFault) error.expectedInjectedFault = {
-        requestId: evidence.injectedRequestId,
-        action: evidence.injectedAction,
-      };
-      if (evidence.expectedCancellation) error.expectedCancellation = evidence.expectedCancellation;
-    }
-    if (!evidence.injectedFault || evidence.observedAs !== 'console-error') continue;
-    const index = (report.errors ?? []).findIndex((error, candidateIndex) => !matchedConsoleErrors.has(candidateIndex) &&
-      error.kind === 'console' && error.message === evidence.text && error.location === evidence.location);
-    if (index >= 0) {
-      matchedConsoleErrors.add(index);
-      report.errors[index].expected = true;
-      report.errors[index].expectedInjectedFault = {
-        requestId: evidence.injectedRequestId,
-        action: evidence.injectedAction,
-      };
-    }
-  }
-}
-
-export function classifyExpectedCdaCancellation({ request, reason, proof, report, requestFailures, trackers }) {
-  if (!request || typeof request.url !== 'function') throw new TypeError('Expected cancellation needs the native Playwright Request object.');
-  if (typeof reason !== 'string' || !reason.trim()) throw new TypeError('Expected cancellation needs a concrete reason.');
-  if (!proof || typeof proof !== 'object') throw new TypeError('Expected cancellation needs request/action proof.');
-  const failure = requestFailures.get(request);
-  if (!failure) throw new Error('Expected cancellation must match an exact observed native request failure.');
-  if (failure.errorText !== 'net::ERR_ABORTED') throw new Error('Only a native net::ERR_ABORTED request can be marked as an expected cancellation.');
-
-  const capturedEntry = [...trackers].map(tracker => tracker.byRequest.get(request)).find(Boolean);
-  let cancellation;
-  if (failure.expected) {
-    if (failure.expectedCancellation?.reason !== reason) {
-      throw new Error('This exact native request already has a different cancellation classification.');
-    }
-    cancellation = failure.expectedCancellation;
-  } else {
-    cancellation = sanitizePayload({
-      requestId: failure.requestId ?? failure.playwrightRequestId,
-      playwrightRequestId: failure.playwrightRequestId,
-      browserRequestId: capturedEntry?.browserRequestId,
-      method: failure.method,
-      url: failure.url,
-      reason: safeText(reason),
-      proof,
-    });
-    failure.expected = true;
-    failure.canceled = true;
-    failure.cancellationReason = cancellation.reason;
-    failure.expectedCancellation = cancellation;
-    report.expectedCancellations ??= [];
-    report.expectedCancellations.push(cancellation);
-    if (capturedEntry) {
-      capturedEntry.expected = true;
-      capturedEntry.canceled = true;
-      capturedEntry.cancellationReason = cancellation.reason;
-      capturedEntry.expectedCancellation = cancellation;
-    }
-  }
-
-  if (capturedEntry?.browserRequestId) {
-    const sameCapturedRequest = entry => entry.kind === 'network' &&
-      entry.browserRequestId === capturedEntry.browserRequestId;
-    for (const diagnostic of report.network ?? []) {
-      if (!sameCapturedRequest(diagnostic)) continue;
-      diagnostic.expected = true;
-      diagnostic.canceled = true;
-      diagnostic.cancellationReason = cancellation.reason;
-      diagnostic.expectedCancellation = cancellation;
-    }
-    for (const capturedError of report.errors ?? []) {
-      if (!sameCapturedRequest(capturedError)) continue;
-      capturedError.expected = true;
-      capturedError.expectedCancellation = cancellation;
-    }
-  }
-  return cancellation;
-}
-
-function finishCdaReport(report) {
-  const completeNetwork = report.network;
-  report.network = completeNetwork.filter(entry => !entry.expectedHttpFailure);
-  try {
-    return finishReport(report);
-  } finally {
-    report.network = completeNetwork;
-  }
 }
 
 export const assertCdaExplicitUIRoute = (rawURL, target) => {
@@ -325,7 +212,7 @@ export const createCdaNavigator = ({ target, uiRouting = DEFAULT_CDA_UI_ROUTING,
   };
 };
 
-export { expect, finishCdaReport };
+export { expect };
 export const test = base.extend({
   cdaProject: [process.env.LOOM_CDA_PROJECT, { option: true }],
   cdaApiOrigin: [process.env.LOOM_CDA_API_ORIGIN, { option: true }],
@@ -486,9 +373,6 @@ export const test = base.extend({
     };
     report.fixtureTimings = { setupMs: Math.round(performance.now() - setupStarted) };
 
-    const diagnostics = { console: [], pageErrors: [], networkFailures: [], httpFailures: [], assetFailures: [] };
-    const responseReads = createPendingResponseReads();
-    const httpDiagnosticEntries = [];
     const workflowStartedAt = performance.now();
     const ownedOrigins = new Set([apiUrl, uiUrl].map(value => new URL(value).origin));
     const captureFailureEvidence = async details => {
@@ -509,90 +393,40 @@ export const test = base.extend({
         };
       }
     };
-    const trackers = new Set();
-    const afterNativeRequestDrainProjections = [];
-    let projectionRegistrationOpen = true;
     const faultAttempts = [];
     const faultHandlers = [];
-    const requestIDs = new WeakMap();
-    const requestMetadata = new WeakMap();
-    const requestFailures = new WeakMap();
-    const pendingRequests = new Set();
-    const cancellationScopes = [];
-    let requestSequence = 0;
     let navigationSequence = 0;
     let actionSequence = 0;
     const mainFrameNavigations = [];
     let droppedNavigationTimings = 0;
+    let droppedDiagnostics = 0;
     let activeAction;
     let activeLocator;
     let activeActionContext;
     let firstFailureActionContext;
-    const actionSnapshot = () => {
-      const context = activeActionContext ?? report.activeAction;
-      const label = context?.label;
-      return context?.id && label ? { id: context.id, label: safeText(label) } : null;
-    };
-    let retainedDiagnostics = 0;
-    let droppedDiagnostics = 0;
+    const scopedRequest = request => isOwnedCdaScopedRequest(request.url(), target, ownedOrigins);
+    const operationResponsePath = /(?:\/commands|\/authoring\/v2\/(?:publish|save)|\/reconcile|\/preview|\/construction-proposals|\/construction-choice-proposals|\/construction-capabilities|\/row-definition-proposals|\/row-definition-choices|\/table-shape-proposals|\/cell-trace|\/population-mapping|\/row-lineage|\/selections|\/explicit-groups|\/related-expand-choices)(?:\/|$)/;
+    const requestedResponsePaths = [];
+    const shouldCaptureResponsePath = pathname => operationResponsePath.test(pathname) || requestedResponsePaths.some(candidate => {
+      if (candidate instanceof RegExp) {
+        candidate.lastIndex = 0;
+        return candidate.test(pathname);
+      }
+      if (typeof candidate === 'function') return Boolean(candidate(pathname));
+      return typeof candidate === 'string' && candidate === pathname;
+    });
+    const observer = createPlaywrightNetworkObserver(page, {
+      scopeRequest: scopedRequest,
+      appOrigins: [...ownedOrigins],
+      responsePaths: shouldCaptureResponsePath,
+      report,
+    });
+    const diagnostics = observer.diagnostics;
     const addNetworkDiagnostic = entry => {
-      if (retainedDiagnostics < MAX_DIAGNOSTICS) {
-        report.network.push(entry);
-        retainedDiagnostics += 1;
-      } else {
-        droppedDiagnostics += 1;
-      }
-    };
-    const localRequest = request => {
-      try { return ownedOrigins.has(new URL(request.url()).origin); }
-      catch { return false; }
-    };
-    const playwrightRequestId = request => {
-      let id = requestIDs.get(request);
-      if (!id) {
-        id = `cda-request-${++requestSequence}`;
-        requestIDs.set(request, id);
-      }
-      return id;
-    };
-    const capturedEntryFor = request => {
-      for (const tracker of trackers) {
-        const entry = tracker.byRequest.get(request);
-        if (entry) return entry;
-      }
-      return undefined;
-    };
-    const matchesCancellationScope = (request, scope) => {
-      try {
-        const url = new URL(request.url());
-        const requestId = request.headers()['x-request-id'] ?? playwrightRequestId(request);
-        return Date.now() - scope.armedAt <= ACTION_TIMEOUT_MS && url.origin === scope.origin &&
-          request.method() === scope.method && scope.paths.includes(url.pathname) &&
-          scope.requestIdPrefixes.some(prefix => requestId.startsWith(prefix));
-      } catch {
-        return false;
-      }
-    };
-    const onRequest = request => {
-      const requestId = playwrightRequestId(request);
-      if (!localRequest(request)) return;
-      if (request.isNavigationRequest?.() && request.frame() === page.mainFrame()) {
-        const startedAt = performance.now();
-        const sequence = ++navigationSequence;
-        if (mainFrameNavigations.length < MAX_DIAGNOSTICS) {
-          mainFrameNavigations.push({ id: `navigation-${sequence}`, sequence, startedAt,
-            atMs: Math.round(startedAt - workflowStartedAt), url: safeURL(request.url()), phase: 'request-start' });
-        } else droppedNavigationTimings += 1;
-      }
-      const startedAt = performance.now();
-      requestMetadata.set(request, {
-        requestId, method: request.method(), resourceType: request.resourceType(), url: safeURL(request.url()),
-        requestDetails: requestDiagnostic(request), startedAt, startedMs: Math.round(startedAt - workflowStartedAt),
-        action: actionSnapshot(), navigationSequenceAtStart: navigationSequence,
-      });
-      pendingRequests.add(request);
-      for (const scope of cancellationScopes) {
-        if (scope.active && matchesCancellationScope(request, scope)) scope.requests.add(request);
+      if (report.network.length < MAX_DIAGNOSTICS) report.network.push(entry);
+      else droppedDiagnostics += 1;
+      if (entry.kind === 'exception') {
+        report.errors.push(entry);
       }
     };
     const onFrameNavigated = frame => {
@@ -609,180 +443,7 @@ export const test = base.extend({
       mainFrameNavigations.push({ id: `navigation-${sequence}`, sequence, startedAt,
         atMs: Math.round(startedAt - workflowStartedAt), url: safeURL(frame.url()), phase: 'commit' });
     };
-    const onRequestFinished = request => {
-      pendingRequests.delete(request);
-      for (const scope of cancellationScopes) scope.requests.delete(request);
-    };
-    const onConsole = message => {
-      if (message.type() !== 'error') return;
-      const location = message.location().url;
-      if (location && !localRequest({ url: () => location })) return;
-      if (location && new URL(location).pathname === '/favicon.ico' && /404(?: \(Not Found\))?/i.test(message.text())) {
-        const entry = { kind: 'asset-failure', url: safeURL(location), status: 404 };
-        diagnostics.assetFailures.push(entry);
-        report.assetFailures.push(entry);
-        return;
-      }
-      const entry = { kind: 'console-error', text: safeText(message.text()), location: safeURL(location), rawLocation: location };
-      const expectedConsoleMatches = report.nativeRequests
-        .filter(request => request.expectedHttpFailure && typeof request.expectedHttpFailure === 'object' &&
-          !request.fixtureExpectedHttpConsoleConsumed)
-        .map(capturedEntry => ({
-          capturedEntry,
-          match: matchExpectedHttpConsole({
-            capturedEntry,
-            nativeRequests: report.nativeRequests,
-            diagnostics: [entry],
-          }),
-        }))
-        .filter(candidate => candidate.match?.fixtureDiagnostic === entry);
-      if (expectedConsoleMatches.length === 1) {
-        const { capturedEntry, match } = expectedConsoleMatches[0];
-        const evidence = capturedEntry.expectedHttpFailure;
-        if (!evidence.console) {
-          evidence.console = {
-            status: match.status,
-            message: safeText(match.message),
-            location: safeURL(match.location),
-            fixtureDiagnostic: true,
-            requestCaptureError: false,
-          };
-          capturedEntry.fixtureExpectedHttpConsoleConsumed = true;
-          return;
-        }
-      }
-      diagnostics.console.push(entry);
-      addNetworkDiagnostic(entry);
-    };
-    const onPageError = error => {
-      const entry = { kind: 'exception', message: safeText(error.message), stack: safeText(error.stack) };
-      diagnostics.pageErrors.push(entry);
-      addNetworkDiagnostic(entry);
-    };
-    const onRequestFailed = request => {
-      if (!localRequest(request)) return;
-      const failedAt = performance.now();
-      const metadata = requestMetadata.get(request);
-      const requestScope = (() => {
-        try {
-          const match = new URL(request.url()).pathname.match(/\/projects\/([^/]+)\/explorers\/([^/]+)/);
-          return {
-            expectedProject: target.fixtureProject ?? target.project ?? null,
-            generation: target.fixtureGeneration ?? null,
-            configuredExplorer: report.target?.explorer ?? target.explorer ?? null,
-            requestProject: match ? decodeURIComponent(match[1]) : null,
-            requestExplorer: match ? decodeURIComponent(match[2]) : null,
-          };
-        } catch {
-          return { expectedProject: target.fixtureProject ?? target.project ?? null,
-            generation: target.fixtureGeneration ?? null,
-            configuredExplorer: report.target?.explorer ?? target.explorer ?? null,
-            requestProject: null, requestExplorer: null };
-        }
-      })();
-      const entry = {
-        kind: 'network', method: request.method(), url: metadata?.url ?? safeURL(request.url()),
-        resourceType: request.resourceType(), errorText: safeText(request.failure()?.errorText),
-        requestDetails: metadata?.requestDetails ?? requestDiagnostic(request),
-        requestScope: sanitizePayload(requestScope),
-        ...(metadata ? { requestTimeline: correlateRequestFailure({
-          requestStartedAt: metadata.startedAt, failedAt, workflowStartedAt, action: metadata.action,
-          navigationSequenceAtStart: metadata.navigationSequenceAtStart, navigations: mainFrameNavigations,
-        }) } : { failedAtMs: Math.round(failedAt - workflowStartedAt) }),
-        requestAction: metadata ? metadata.action : null,
-        failureAction: actionSnapshot(),
-        triggerAction: activeAction,
-        requestId: request.headers()['x-request-id'] ?? null,
-        playwrightRequestId: playwrightRequestId(request),
-        browserRequestId: capturedEntryFor(request)?.browserRequestId,
-        rawURL: request.url(),
-        expected: false,
-      };
-      diagnostics.networkFailures.push(entry);
-      requestFailures.set(request, entry);
-      addNetworkDiagnostic(entry);
-      for (const scope of cancellationScopes) {
-        if (!scope.active || !scope.requests.has(request) || entry.errorText !== 'net::ERR_ABORTED') continue;
-        entry.cancellationAction = safeText(scope.actionLabel);
-        expectCanceledRequest(request, scope.reason, {
-          ...scope.proof,
-          scopeAction: scope.actionLabel,
-          scopeRequest: requestDiagnostic(request),
-        });
-        scope.requests.delete(request);
-      }
-      pendingRequests.delete(request);
-    };
-    const onResponse = response => {
-      if (!localRequest(response.request()) || response.status() < 400) return;
-      const url = safeURL(response.url());
-      if (response.status() === 404 && new URL(response.url()).pathname === '/favicon.ico') {
-        const entry = { kind: 'asset-failure', url, status: response.status() };
-        diagnostics.assetFailures.push(entry);
-        if (!report.assetFailures.some(value => value.url === url && value.status === response.status())) report.assetFailures.push(entry);
-        return;
-      }
-      const entry = {
-        kind: 'network', status: response.status(), method: response.request().method(), url,
-        requestDetails: requestDiagnostic(response.request()),
-        requestId: response.request().headers()['x-request-id'] ?? null,
-        playwrightRequestId: playwrightRequestId(response.request()),
-        browserRequestId: capturedEntryFor(response.request())?.browserRequestId,
-        rawURL: response.url(),
-        responseBody: { captureState: 'pending' },
-      };
-      const browserRequestId = entry.browserRequestId;
-      const requestID = entry.playwrightRequestId;
-      addNetworkDiagnostic(entry);
-      httpDiagnosticEntries.push(entry);
-      const read = Promise.resolve().then(() => response.text()).then(body => {
-        entry.responseBody.captureState = 'completed';
-        entry.responseBody.body = sanitizeBody(body);
-        diagnostics.httpFailures.push({ url, status: response.status(), body: entry.responseBody.body,
-          browserRequestId, playwrightRequestId: requestID });
-      }, error => {
-        entry.responseBody.captureState = 'readfailed';
-        entry.responseBody.error = safeText(error?.message ?? error);
-        diagnostics.httpFailures.push({ url, status: response.status(), body: entry.responseBody,
-          browserRequestId, playwrightRequestId: requestID });
-        throw error;
-      });
-      responseReads.track(read, {
-        phase: 'fixture-http-response-body', browserRequestId, requestId: entry.requestId,
-        method: entry.method, path: new URL(response.url()).pathname, status: response.status(),
-      });
-    };
-    page.on('request', onRequest);
     page.on('framenavigated', onFrameNavigated);
-    page.on('requestfinished', onRequestFinished);
-    page.on('console', onConsole);
-    page.on('pageerror', onPageError);
-    page.on('requestfailed', onRequestFailed);
-    page.on('response', onResponse);
-
-    const flushHttpDiagnostics = async ({ browserRequestId, timeoutMs = 5_000 } = {}) => {
-      if (browserRequestId !== undefined && (typeof browserRequestId !== 'string' || !browserRequestId)) {
-        throw new TypeError('HTTP diagnostic flush browserRequestId must be a non-empty string.');
-      }
-      const matching = httpDiagnosticEntries.filter(entry =>
-        browserRequestId === undefined || entry.browserRequestId === browserRequestId);
-      if (browserRequestId !== undefined && matching.length === 0) {
-        throw new Error(`No fixture HTTP response diagnostic belongs to browser request ${browserRequestId}.`);
-      }
-      await responseReads.flush({
-        timeoutMs,
-        label: 'fixture HTTP diagnostic bodies',
-        filter: details => browserRequestId === undefined || details.browserRequestId === browserRequestId,
-      });
-      const incomplete = matching.filter(entry => entry.responseBody.captureState !== 'completed');
-      if (incomplete.length) {
-        const observed = incomplete.map(entry => ({ browserRequestId: entry.browserRequestId,
-          requestId: entry.requestId, method: entry.method, path: new URL(entry.rawURL).pathname,
-          status: entry.status, captureState: entry.responseBody.captureState }));
-        throw new Error(`Fixture HTTP diagnostic bodies did not complete: ${JSON.stringify(observed)}`);
-      }
-      return matching;
-    };
 
     let customDialogHandler;
     const onUnexpectedDialog = async dialog => {
@@ -912,7 +573,7 @@ export const test = base.extend({
       return success;
     };
     const step = (label, work, timeout = ACTION_TIMEOUT_MS) => base.step(label, work, { timeout });
-    const fault = async ({ method, path, matchesRequest, response }) => {
+    const fault = async ({ method, path, matchesRequest, response, reason }) => {
       const faultTarget = ownedFaultTarget(target, { method, path });
       const responseStatus = response == null ? null :
         (typeof response.status === 'function' ? response.status() : (response.status ?? 200));
@@ -938,151 +599,46 @@ export const test = base.extend({
         }
         attempt.matched = true;
         attempt.rawURL = request.url();
-        attempt.playwrightRequestId = playwrightRequestId(request);
+        attempt.browserRequestId = observer.byRequest.get(request)?.browserRequestId;
         evidence.matched = true;
         evidence.url = safeURL(attempt.rawURL);
-        evidence.request = sanitizePayload({ requestId: attempt.playwrightRequestId, method: request.method() });
-        if (response == null) await route.abort();
-        else await route.fulfill(response);
+        if (attempt.browserRequestId) evidence.browserRequestId = attempt.browserRequestId;
+        if (response == null) {
+          const observed = observer.byRequest.get(request);
+          if (observed && !observed.isMutation) observer.markExpectedTransportFailure(request, {
+            reason: reason ?? `Injected route failure for ${faultTarget.method} ${faultTarget.path}`,
+            action: 'abort',
+          });
+          await route.abort('failed');
+        } else {
+          await route.fulfill(response);
+        }
       };
       await page.route('**/*', handler);
       faultHandlers.push(handler);
       return { id: attempt.id, path: attempt.path, count: () => Number(attempt.matched), evidence };
     };
-    const expectCanceledRequest = (request, reason, proof) =>
-      classifyExpectedCdaCancellation({ request, reason, proof, report, requestFailures, trackers });
-    const expectCapturedCancellation = (capturedEntry, reason, proof) => {
-      if (!capturedEntry || !report.nativeRequests.includes(capturedEntry)) {
-        throw new TypeError('Expected cancellation must name an exact entry from this CDA fixture request capture.');
-      }
-      if (typeof capturedEntry.browserRequestId !== 'string' || !capturedEntry.browserRequestId ||
-        report.nativeRequests.filter(entry => entry.browserRequestId === capturedEntry.browserRequestId).length !== 1) {
-        throw new Error('Expected cancellation needs a unique native browser request ID.');
-      }
-      const nativeRequests = [...trackers].flatMap(tracker => [...tracker.byRequest.entries()]
-        .filter(([, entry]) => entry === capturedEntry)
-        .map(([request]) => request));
-      if (nativeRequests.length !== 1) {
-        throw new Error('Expected cancellation must resolve to exactly one retained native Playwright Request object.');
-      }
-      return expectCanceledRequest(nativeRequests[0], reason, proof);
-    };
+    const expectTransportFailure = (request, details) => observer.markExpectedTransportFailure(request, details);
     const expectHttpFailure = (capturedEntry, reason, proof, { status = 422 } = {}) => {
       if (status !== 400 && status !== 422) {
         throw new RangeError('Expected HTTP failures may classify only exact native status 400 or 422 responses.');
       }
-      if (!capturedEntry || !report.nativeRequests.includes(capturedEntry)) {
-        throw new TypeError('Expected HTTP failures must name an exact entry from this CDA fixture request capture.');
-      }
-      if (typeof capturedEntry.browserRequestId !== 'string' || !capturedEntry.browserRequestId) {
-        throw new Error('Expected HTTP failures need a concrete native browser request ID.');
-      }
-      if (capturedEntry.status !== status) {
-        throw new Error(`Expected HTTP ${status} classification did not match the captured native response status.`);
-      }
-      if (!capturedEntry.completedAt) {
-        throw new Error('Expected HTTP failures need a completed native response capture.');
-      }
-      if (capturedEntry.responseReadError || capturedEntry.response === undefined || capturedEntry.response?.bodyNotRead === true) {
-        throw new Error('Expected HTTP failures need the captured response body to exclude internal errors.');
-      }
-      if (/\bINTERNAL(?:_SERVER)?_ERROR\b|\binternal(?: server)? error\b/i.test(JSON.stringify(capturedEntry.response))) {
-        throw new Error('INTERNAL_ERROR responses cannot be classified as expected validation failures.');
-      }
-      if (typeof reason !== 'string' || !reason.trim()) throw new TypeError('Expected HTTP failures need a concrete reason.');
-      if (!proof || typeof proof !== 'object') throw new TypeError('Expected HTTP failures need request/action proof.');
-      const diagnostic = report.network.find(entry => entry.kind === 'network' &&
-        entry.browserRequestId === capturedEntry.browserRequestId && entry.status === capturedEntry.status &&
-        entry.method === capturedEntry.method);
-      if (!diagnostic) throw new Error('Expected HTTP failure did not match the exact observed native response diagnostic.');
-      const consoleMatch = matchExpectedHttpConsole({
-        capturedEntry,
-        nativeRequests: report.nativeRequests,
-        diagnostics: diagnostics.console,
-        errors: report.errors,
-      });
-      const evidence = sanitizePayload({
-        browserRequestId: capturedEntry.browserRequestId,
-        requestId: capturedEntry.requestId,
-        method: capturedEntry.method,
-        path: capturedEntry.path,
-        status: capturedEntry.status,
-        reason: safeText(reason),
-        proof,
-        ...(consoleMatch ? { console: {
-          status: consoleMatch.status,
-          message: safeText(consoleMatch.message),
-          location: safeURL(consoleMatch.location),
-          fixtureDiagnostic: Boolean(consoleMatch.fixtureDiagnostic),
-          requestCaptureError: Boolean(consoleMatch.reportError),
-        } } : {}),
-      });
-      if (diagnostic.expectedHttpFailure) {
-        if (diagnostic.expectedHttpFailure.reason === evidence.reason) return diagnostic.expectedHttpFailure;
-        throw new Error('This exact native HTTP response already has a different expected-failure classification.');
-      }
-      diagnostic.expected = true;
-      diagnostic.expectedHttpFailure = evidence;
-      if (consoleMatch?.fixtureDiagnostic) {
-        consoleMatch.fixtureDiagnostic.expected = true;
-        consoleMatch.fixtureDiagnostic.expectedHttpFailure = evidence;
-        const index = diagnostics.console.indexOf(consoleMatch.fixtureDiagnostic);
-        if (index < 0) throw new Error('Matched expected HTTP console diagnostic disappeared before classification.');
-        diagnostics.console.splice(index, 1);
-        capturedEntry.fixtureExpectedHttpConsoleConsumed = true;
-      }
-      if (consoleMatch?.reportError) {
-        consoleMatch.reportError.expected = true;
-        consoleMatch.reportError.expectedHttpFailure = evidence;
-      }
-      capturedEntry.expected = true;
-      capturedEntry.expectedHttpFailure = evidence;
+      const evidence = observer.markExpectedValidation(capturedEntry, { status, reason, proof });
       report.expectedHttpFailures ??= [];
-      report.expectedHttpFailures.push(evidence);
-      for (const error of report.errors) {
-        if (error.browserRequestId !== capturedEntry.browserRequestId) continue;
-        error.expected = true;
-        error.expectedHttpFailure = evidence;
+      if (!report.expectedHttpFailures.some(item => item.browserRequestId === evidence.browserRequestId)) {
+        report.expectedHttpFailures.push(evidence);
       }
       return evidence;
     };
-    const withExpectedCancellations = async (specification, work) => {
-      if (typeof work !== 'function') throw new TypeError('Expected cancellation scope needs a work callback.');
-      const { origin, method, paths, requestIdPrefixes, reason, proof = {}, actionLabel } = specification ?? {};
-      const normalizedOrigin = new URL(origin).origin;
-      if (!ownedOrigins.has(normalizedOrigin)) throw new Error('Expected cancellation origin must belong to the validated CDA target.');
-      if (typeof method !== 'string' || !method.trim()) throw new TypeError('Expected cancellation method is required.');
-      if (!Array.isArray(paths) || paths.length === 0 || paths.some(path => typeof path !== 'string' || !path.startsWith('/'))) {
-        throw new TypeError('Expected cancellation needs exact request paths.');
+    const captureRequests = (ownedPathPrefix, options = {}) => {
+      if (options.responsePaths) {
+        const paths = Array.isArray(options.responsePaths) ? options.responsePaths : [options.responsePaths];
+        requestedResponsePaths.push(...paths);
       }
-      if (!Array.isArray(requestIdPrefixes) || requestIdPrefixes.length === 0 || requestIdPrefixes.some(prefix => typeof prefix !== 'string' || !prefix)) {
-        throw new TypeError('Expected cancellation needs request ID prefixes.');
-      }
-      if (typeof actionLabel !== 'string' || !actionLabel.trim()) throw new TypeError('Expected cancellation needs its active action label.');
-      if (typeof reason !== 'string' || !reason.trim()) throw new TypeError('Expected cancellation needs a concrete reason.');
-      const scope = {
-        origin: normalizedOrigin,
-        method: method.toUpperCase(),
-        paths,
-        requestIdPrefixes,
-        reason,
-        proof,
-        actionLabel,
-        armedAt: Date.now(),
-        requests: new Set(),
-        active: true,
-      };
-      cancellationScopes.push(scope);
-      for (const request of pendingRequests) {
-        if (matchesCancellationScope(request, scope)) scope.requests.add(request);
-      }
-      try {
-        return await work();
-      } finally {
-        scope.active = false;
-        cancellationScopes.splice(cancellationScopes.indexOf(scope), 1);
-        scope.requests.clear();
-      }
+      return createCDARequestView(observer, {
+        browserRequestOrigin: options.browserRequestOrigin ?? uiUrl,
+        ownedPathPrefix,
+      });
     };
 
     const context = {
@@ -1108,11 +664,11 @@ export const test = base.extend({
       action,
       check,
       fault,
-      expectCanceledRequest,
-      expectCapturedCancellation,
+      expectTransportFailure,
       expectHttpFailure,
-      flushHttpDiagnostics,
-      withExpectedCancellations,
+      captureRequests,
+      requestBody: observer.requestBody,
+      responseBody: observer.responseBody,
       step,
       setActionEvidence: (label, locator) => {
         activeAction = safeText(label);
@@ -1137,10 +693,8 @@ export const test = base.extend({
       action,
       check,
       fault,
-      expectCanceledRequest,
-      expectCapturedCancellation,
+      expectTransportFailure,
       expectHttpFailure,
-      withExpectedCancellations,
       onDialog: handler => {
         if (customDialogHandler) page.removeListener('dialog', customDialogHandler);
         page.removeListener('dialog', onUnexpectedDialog);
@@ -1173,23 +727,6 @@ export const test = base.extend({
       }),
       inspect: createCdaInspector(page),
       wait: (callback, args, timeout) => waitForBrowser(page, callback, args, timeout),
-      captureRequests: (ownedPathPrefix, options = {}) => {
-        const tracker = captureRequests(page, report, ownedPathPrefix, {
-          apiOrigin: target.apiUrl,
-          uiOrigin: target.uiUrl,
-          currentAction: () => activeAction,
-          ...options,
-        });
-        trackers.add(tracker);
-        return tracker;
-      },
-      registerAfterNativeRequestDrainProjection: projection => {
-        if (!projectionRegistrationOpen) throw new Error('CDA report projections must be registered before native request drain.');
-        if (typeof projection !== 'function') throw new TypeError('CDA report projection must be a function.');
-        afterNativeRequestDrainProjections.push(projection);
-      },
-      waitForCapturedResponse: (tracker, predicate, timeout) => waitForCapturedResponse(page, tracker, predicate, timeout),
-      includeBrowserDiagnostics: () => includeBrowserDiagnostics(diagnostics, report),
       attachReport: async (name, value = report) => {
         const path = safeAttachmentPath(testInfo, name);
         await mkdir(dirname(path), { recursive: true, mode: 0o700 });
@@ -1202,47 +739,20 @@ export const test = base.extend({
     report.target.sourceFingerprint = identity.sourceFingerprint;
     report.target.apiBuildIdentity = identity.apiBuildIdentity;
     report.fixtureTimings.setupMs = Math.round(performance.now() - setupStarted);
-    await use(cda);
-    projectionRegistrationOpen = false;
+    try {
+      await use(cda);
+    } finally {
+      observer.stop();
+    }
 
     let freezeError;
-    let diagnosticDrainError;
-    let reportVerificationError;
     let reportAttachmentError;
-    const diagnosticDrainFailures = [];
+    let observerAssertionError;
     try {
       for (const handler of faultHandlers) await page.unroute('**/*', handler);
     } catch (error) {
-      diagnosticDrainFailures.push(error);
+      report.errors.push({ kind: 'fault-route-cleanup', message: safeText(error?.message ?? error) });
     }
-    const finalizationResults = await runAfterNativeRequestDrain({
-      terminalDrains: [
-        ...[...trackers].map(tracker => () => tracker.flush({ timeoutMs: 5_000, waitForNativeRequestTerminals: true })),
-      ],
-      postDrainDrains: [
-        () => flushHttpDiagnostics({ timeoutMs: 5_000 }),
-        ...(Array.isArray(report.nativeAbortProbeEvents) ? [() => flushNativeAbortProbeEvents(page)] : []),
-      ],
-      projections: afterNativeRequestDrainProjections,
-    });
-    for (const result of [...finalizationResults.terminalDrainResults, ...finalizationResults.postDrainResults]) {
-      if (result.status === 'rejected') diagnosticDrainFailures.push(result.reason);
-    }
-    for (const result of finalizationResults.projectionResults) {
-      if (result.status === 'rejected') {
-        const error = result.reason instanceof Error ? result.reason : new Error(safeText(result.reason));
-        report.errors.push({ kind: 'native-report-projection', message: safeText(error.message) });
-        diagnosticDrainFailures.push(error);
-      }
-    }
-    if (diagnosticDrainFailures.length) {
-      diagnosticDrainError = new Error(diagnosticDrainFailures
-        .map(error => safeText(error?.message ?? error)).join('; '));
-      report.errors.push({ kind: 'browser-diagnostic-drain', message: safeText(diagnosticDrainError.message) });
-      recordCheck(report, 'correctness', 'CDA browser response diagnostics completed before report snapshot', false,
-        { message: safeText(diagnosticDrainError.message) });
-    }
-    includeBrowserDiagnostics(diagnostics, report);
     try {
       report.navigationTimings = mainFrameNavigations.map(({ id, atMs, url, phase }) => ({ id, atMs, url, phase }));
       report.browserLifecycle = {
@@ -1263,21 +773,12 @@ export const test = base.extend({
       recordCheck(report, 'correctness', 'CDA watched source and API build stayed unchanged', false,
         { message: safeText(error?.message ?? error) });
     } finally {
-      page.removeListener('console', onConsole);
-      page.removeListener('request', onRequest);
       page.removeListener('framenavigated', onFrameNavigated);
-      page.removeListener('requestfinished', onRequestFinished);
-      page.removeListener('pageerror', onPageError);
-      page.removeListener('requestfailed', onRequestFailed);
-      page.removeListener('response', onResponse);
       page.removeListener('dialog', onUnexpectedDialog);
       if (customDialogHandler) page.removeListener('dialog', customDialogHandler);
-      report.network = applyInjectedFaultPolicy(report.network, faultAttempts);
-      markExpectedErrors(report);
-      for (const failure of diagnostics.networkFailures) delete failure.rawURL;
       if (report.assetFailures.length) recordCheck(report, 'correctness', 'incidental asset failures are explicitly recorded', true,
         { failures: report.assetFailures });
-      if (report.requiredChecks.length) finishCdaReport(report);
+      if (report.requiredChecks.length) finishReport(report);
       else {
         report.missingRequiredChecks = [];
         report.status = report.assertions.some(assertion => assertion.status === 'failed') ? 'failed' : 'unverified';
@@ -1292,26 +793,32 @@ export const test = base.extend({
       };
       const runnerSkipped = testInfo.status === 'skipped';
       const failedAssertion = report.assertions.some(assertion => assertion.status === 'failed');
-      if (diagnosticDrainError || freezeError || failedAssertion || (!runnerSkipped && testInfo.status !== 'passed')) {
+      if (freezeError || failedAssertion || (!runnerSkipped && testInfo.status !== 'passed')) {
         report.status = 'failed';
       } else if (runnerSkipped || report.status === 'running') {
         report.status = 'unverified';
       }
       report.finishedAt = new Date().toISOString();
-      if ((testInfo.status === 'passed' || runnerSkipped) && !diagnosticDrainError && !freezeError) {
-        reportVerificationError = gateFailure(report);
-        if (reportVerificationError) {
-          report.errors.push({ kind: 'verification-gate', message: safeText(reportVerificationError.message) });
-          recordCheck(report, 'correctness', 'CDA report has all required checks and no unexpected diagnostics', false,
-            { message: safeText(reportVerificationError.message) });
-          report.status = 'failed';
-          report.finishedAt = new Date().toISOString();
+      if (testInfo.status === 'passed') {
+        try {
+          assertNoUnexpectedFixtureFailures({
+            observerFailures: observer.failures,
+            reportErrors: report.errors,
+            fixtureErrors: [],
+          });
+        } catch (error) {
+          observerAssertionError = error;
         }
+      }
+      if (observerAssertionError) {
+        report.status = 'failed';
+        report.errors.push({ kind: 'browser-observer-assertion', message: safeText(observerAssertionError.message ?? observerAssertionError) });
+        report.finishedAt = new Date().toISOString();
       }
       if (report.status === 'failed' && !report.failureEvidence) {
         const currentAction = firstFailureActionContext ?? activeActionContext;
         await captureFailureEvidence({
-          reason: testInfo.error?.message ?? diagnosticDrainError?.message ?? freezeError?.message ?? reportVerificationError?.message ??
+          reason: observerAssertionError?.message ?? testInfo.error?.message ?? freezeError?.message ??
             report.errors.at(-1)?.message ?? 'CDA Playwright workflow failed outside the action helper',
           label: currentAction?.label ?? activeAction ?? report.activeAction?.label,
           locator: currentAction?.locator ?? activeLocator,
@@ -1334,9 +841,8 @@ export const test = base.extend({
         try { writeReport(reportPath, sanitizePayload(report)); } catch { /* Preserve the test failure when the report path itself is unavailable. */ }
       }
     }
-    if (reportVerificationError) throw reportVerificationError;
     if (reportAttachmentError && testInfo.status === 'passed') throw reportAttachmentError;
-    if (diagnosticDrainError) throw diagnosticDrainError;
     if (freezeError) throw freezeError;
+    if (observerAssertionError) throw observerAssertionError;
   },
 });

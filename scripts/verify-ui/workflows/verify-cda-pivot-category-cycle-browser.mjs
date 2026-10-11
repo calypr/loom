@@ -47,7 +47,6 @@ const report = {
   cases: [],
   errors: [],
   requests: [],
-  authoringRequests: [],
   nativeRequests: [],
   sourceFingerprint: { before: sourceFingerprint(sourceRoot) }, apiBuildIdentity: apiBuildFreeze.initial,
   started: new Date().toISOString(),
@@ -74,20 +73,21 @@ const selectNative = async (_page, selector, value) => {
   assert.equal(await locator.inputValue(), String(value), `Selected value must be applied to ${selector}`);
 };
 let browserRequestCapture;
-const syncAuthoringRequests = () => {
+const authoringRequests = () => {
   const endpoints = new Set(['commands', 'reconcile', 'preview', 'construction-proposals', 'construction-category-discoveries']);
-  report.authoringRequests.splice(0, report.authoringRequests.length, ...report.nativeRequests
+  const requests = browserRequestCapture.requests
     .filter(request => endpoints.has(request.path.split('/').at(-1)))
     .map(request => ({ ...request, endpoint: request.path.split('/').at(-1), url: `${request.origin}${request.path}`, requestStartedAtMs: request.startedAt,
       responseFinishedAtMs: request.completedAt, durationMs: request.completedAt - request.startedAt,
-      requestDraftVersion: request.body?.expectedDraftVersion ?? request.body?.draftVersion, requestDraftDigest: request.body?.expectedDraftDigest ?? request.body?.draftDigest,
-      requestOutputId: request.body?.outputId, requestReceiptId: request.body?.receiptId,
+      requestDraftVersion: request.request?.expectedDraftVersion ?? request.request?.draftVersion, requestDraftDigest: request.request?.expectedDraftDigest ?? request.request?.draftDigest,
+      requestOutputId: request.request?.outputId, requestReceiptId: request.request?.receiptId,
       responseDraftVersion: request.response?.draftVersion, responseDraftDigest: request.response?.draftDigest,
       responseReceiptId: request.response?.receiptId, responseOutputId: request.response?.outputId,
       responseRowCount: request.response?.rowCount ?? request.response?.rows?.length,
-      ...(request.failure ? { loadingFailure: { errorText: request.failure, canceled: request.failure === 'net::ERR_ABORTED' } } : {}),
-    })));
-  correlateAuthoringRequests();
+      ...(request.failure ? { loadingFailure: { errorText: request.failure, readCancellationDiagnostic: request.readCancellationDiagnostic === true } } : {}),
+    }));
+  correlateAuthoringRequests(requests);
+  return requests;
 };
 await mkdir(evidence, { recursive: true });
 const sourceFreezeStartedAt = new Date().toISOString();
@@ -95,16 +95,16 @@ const sourceFreeze = await captureSourceFreeze(fileURLToPath(new URL('../../..',
 report.sourceFreeze = { startedAt: sourceFreezeStartedAt, watchedFileCount: sourceFreeze.watchedFileCount };
 let builder, outputId;
 let editedPivotPresentation=false;
-const correlateAuthoringRequests = () => {
-  for (const reconcile of report.authoringRequests.filter(request => request.endpoint === 'reconcile' && request.responseReceiptId)) {
-    const command = [...report.authoringRequests].reverse().find(request =>
+const correlateAuthoringRequests = requests => {
+  for (const reconcile of requests.filter(request => request.endpoint === 'reconcile' && request.responseReceiptId)) {
+    const command = [...requests].reverse().find(request =>
       request.endpoint === 'commands' &&
       request.responseDraftVersion === reconcile.requestDraftVersion &&
       request.responseDraftDigest === reconcile.requestDraftDigest &&
       request.requestStartedAtMs <= reconcile.requestStartedAtMs,
     );
     if (command) reconcile.commandRequestId = command.requestId;
-    for (const preview of report.authoringRequests.filter(request =>
+    for (const preview of requests.filter(request =>
       request.endpoint === 'preview' && request.requestReceiptId === reconcile.responseReceiptId,
     )) {
       preview.reconcileRequestId = reconcile.requestId;
@@ -114,6 +114,8 @@ const correlateAuthoringRequests = () => {
     }
   }
 };
+const waitForAuthoringResponse = (endpoint, fromIndex, predicate = () => true, timeoutMs = 5000) =>
+  browserRequestCapture.waitForResponse(entry => entry.path.endsWith(`/${endpoint}`) && predicate(entry), { fromIndex, timeoutMs });
 const summarizeAuthoringRequest = request => request ? ({
   requestId: request.requestId,
   status: request.status,
@@ -129,18 +131,19 @@ const summarizeAuthoringRequest = request => request ? ({
   durationMs: request.durationMs,
 }) : undefined;
 const relatedApplyRequestTrace = () => {
-  const applies = report.authoringRequests.filter(request =>
+  const requests = authoringRequests();
+  const applies = requests.filter(request =>
     request.endpoint === 'commands' &&
-    request.body?.commands?.some(command => command.type === 'APPLY_CONSTRUCTION_PROPOSAL'),
+    request.request?.commands?.some(command => command.type === 'APPLY_CONSTRUCTION_PROPOSAL'),
   );
   const secondApply = applies[1];
   const secondReconcile = secondApply
-    ? report.authoringRequests.find(request =>
+    ? requests.find(request =>
         request.endpoint === 'reconcile' && request.commandRequestId === secondApply.requestId,
       )
     : undefined;
   const secondPreview = secondReconcile
-    ? report.authoringRequests.find(request =>
+    ? requests.find(request =>
         request.endpoint === 'preview' && request.reconcileRequestId === secondReconcile.requestId,
       )
     : undefined;
@@ -149,10 +152,6 @@ const relatedApplyRequestTrace = () => {
     secondReconcile: summarizeAuthoringRequest(secondReconcile),
     secondPreview: summarizeAuthoringRequest(secondPreview),
   };
-};
-const drainPendingResponseReads = async () => {
-  await browserRequestCapture?.flush();
-  syncAuthoringRequests();
 };
 const captureFailureDOM = () => inspectPage(page, () => {
 return (() => {
@@ -230,6 +229,9 @@ const proposal = async (name, start, expectedRows) => {
 const p=document.querySelector('[data-testid="construction-proposal-panel"]');return {status:p?.dataset.proposalStatus,proposalId:p?.dataset.proposalId,text:p?.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(r=>[...r.querySelectorAll('td')].map(c=>c.innerText))};
 });
   assert.equal(result.status, 'ready', result.text);
+  const fromIndex = Math.max(0, browserRequestCapture.requests.findIndex(request => request.startedAt >= start));
+  const proposalEntry = await waitForAuthoringResponse('construction-proposals', fromIndex, request => request.status === 200);
+  assert(proposalEntry.response?.proposalId, `${name}: the native proposal response must include its proposal ID`);
   assert.equal(result.rows.length, Math.min(25, expectedRows.length));
   const permitted = new Set(expectedRows.map(row=>JSON.stringify(row)));
   for (const row of result.rows) assert(permitted.has(JSON.stringify(row)), 'Preview row must match an independent CDA relationship witness: '+JSON.stringify(row));
@@ -244,9 +246,12 @@ const recordRender = (name, start) => {
 };
 const apply = async expectedRows => {
   const start = Date.now();
+  const requestIndex = browserRequestCapture.requests.length;
   await clickNative(page, '[data-testid="construction-apply-proposal"]');
   await waitForObservable(page, () => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')));
   await rendered(expectedRows);
+  const commandEntry = await waitForAuthoringResponse('commands', requestIndex, request => request.status === 200);
+  assert(commandEntry.response, 'Applying a proposal must complete its native command response');
   recordRender('apply-to-render', start);
   builder = await api(base + '/builder');
 };
@@ -340,8 +345,6 @@ try {
     await apply(expected);
   }
   if (relatedApplyOnly) {
-    await drainPendingResponseReads();
-    correlateAuthoringRequests();
     const savedDocument = doc(builder);
     assert(savedDocument, `Saved output ${outputId} must still exist after the second related expansion.`);
     const savedSteps = savedDocument.construction?.steps ?? [];
@@ -350,10 +353,21 @@ try {
       ['RELATED_EXPAND', 'RELATED_EXPAND'],
       'The saved output must contain exactly the two related expansion steps.',
     );
+    const applyCommands=authoringRequests().filter(request=>request.endpoint==='commands'&&
+      request.request?.commands?.some(command=>command.type==='APPLY_CONSTRUCTION_PROPOSAL'));
+    assert.equal(applyCommands.length,2,'Both related expansion proposals must have an exact native command response.');
+    const secondCommand=applyCommands[1];
+    const reconcileEntry=await waitForAuthoringResponse('reconcile',0,request=>
+      (request.request?.expectedDraftVersion??request.request?.draftVersion)===secondCommand.responseDraftVersion&&
+      (request.request?.expectedDraftDigest??request.request?.draftDigest)===secondCommand.responseDraftDigest);
+    const previewEntry=await waitForAuthoringResponse('preview',0,request=>
+      request.status===200&&request.request?.receiptId===reconcileEntry.response?.receiptId);
     const requestTrace = relatedApplyRequestTrace();
     assert.equal(requestTrace.proposalApplies.length, 2, 'Both related expansion proposals must be applied exactly once.');
     const [firstApply, secondApply] = requestTrace.proposalApplies;
     assert.equal(secondApply.status, 200, 'The second related expansion command must be accepted.');
+    assert.equal(requestTrace.secondReconcile?.requestId,reconcileEntry.requestId,'Second Apply must reconcile against its exact command draft.');
+    assert.equal(requestTrace.secondPreview?.requestId,previewEntry.requestId,'Second Apply must render its exact reconcile receipt.');
     assert.equal(secondApply.requestDraftVersion, firstApply.responseDraftVersion, 'The second Apply must use the first Apply draft version.');
     assert.equal(secondApply.responseDraftVersion, builder.draftVersion, 'The saved builder must reflect the second Apply version.');
     assert.equal(requestTrace.secondReconcile?.status, 200, 'The second Apply draft must reconcile successfully.');
@@ -526,8 +540,6 @@ return document.querySelector('[data-testid="construction-proposal-panel"]').inn
   assert.deepEqual(doc(builder).construction,doc(beforeCategoryEdit).construction,'A field round trip must preserve authored column IDs and downstream filter');
 
   }
-  await drainPendingResponseReads();
-  correlateAuthoringRequests();
   assert.deepEqual(report.errors,[]);
   report.status = 'passed';
 } catch (error) {
@@ -535,13 +547,9 @@ return document.querySelector('[data-testid="construction-proposal-panel"]').inn
   await captureFailure(error, { phase: report.activeAction?.label ?? report.cases.at(-1)?.name,
     elapsedMs: report.activeAction ? Date.now() - report.activeAction.startedAt : undefined,
     action: report.activeAction, requestEvidence: report.nativeRequests.slice(-20), latestCase: report.cases.at(-1) });
-  await drainPendingResponseReads();
   report.savedBuilderAtFailure=await api(base + '/builder').catch(error=>({readError:String(error)}));
   report.failureDOM = page ? await captureFailureDOM().catch(error=>({captureError:String(error)})) : undefined;
   report.failureUI = report.failureDOM?.bodyText;
-  await drainPendingResponseReads();
-  correlateAuthoringRequests();
-  report.pendingAuthoringRequests=report.authoringRequests.filter(request=>request.responseFinishedAtMs===undefined&&!request.loadingFailure).map(request=>({endpoint:request.endpoint,requestId:request.requestId,method:request.method,url:request.url,requestStartedAtMs:request.requestStartedAtMs,status:request.status,requestDraftVersion:request.requestDraftVersion,requestDraftDigest:request.requestDraftDigest,requestOutputId:request.requestOutputId,requestReceiptId:request.requestReceiptId}));
   if (relatedApplyOnly) {
     const failedDocument = report.savedBuilderAtFailure?.workspace?.documents?.find(document => document.output.id === outputId);
     report.relatedApplyOnly = {
@@ -556,7 +564,6 @@ return document.querySelector('[data-testid="construction-proposal-panel"]').inn
     };
   }
 } finally {
-  await drainPendingResponseReads();
   const sourceFreezeFinishedAt = new Date().toISOString();
   try {
     report.sourceFreeze = {

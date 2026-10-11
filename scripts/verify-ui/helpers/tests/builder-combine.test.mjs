@@ -2,13 +2,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { URL } from 'node:url';
 import test from 'node:test';
-import { chromium } from '@playwright/test';
 import { registry, scenarioCaseFor } from '../../registry.mjs';
 import { authoredColumn } from '../../workflows/builder-combine.mjs';
 import {
   appendEditorConfigurationEvidence,
   appendNullPaddingRows,
-  isOwnedConstructionCapabilitiesRequest,
   builderRequestURL,
   builderResponseIdentity,
   constructionProposalPreviewEvidence,
@@ -92,55 +90,15 @@ test('published source labels resolve against the authored Document wire column 
     { name: 'Observation_status' }), /Expected one authored Observation_status source column; found 2/);
 });
 
-test('construction capability diagnostics bind exact owned origin, project, explorer, and route', () => {
-  const owner = { uiUrl: 'http://127.0.0.1:30008/', project: 'loom_dev_verify_owned', explorer: 'verify-owned-combine' };
-  const requestURL = 'http://127.0.0.1:30008/api/v1/projects/loom_dev_verify_owned/explorers/verify-owned-combine/authoring/v2/construction-capabilities';
-  assert.equal(isOwnedConstructionCapabilitiesRequest({ requestURL, method: 'POST', ...owner }), true);
-  assert.equal(isOwnedConstructionCapabilitiesRequest({ requestURL: requestURL + '/extra', method: 'POST', ...owner }), false);
-  assert.equal(isOwnedConstructionCapabilitiesRequest({ requestURL: requestURL.replace('verify-owned-combine', 'another-explorer'), method: 'POST', ...owner }), false);
-  assert.equal(isOwnedConstructionCapabilitiesRequest({ requestURL: requestURL.replace('loom_dev_verify_owned', 'another-project'), method: 'POST', ...owner }), false);
-  assert.equal(isOwnedConstructionCapabilitiesRequest({ requestURL: requestURL.replace('127.0.0.1:30008', '127.0.0.1:8188'), method: 'POST', ...owner }), false);
-  assert.equal(isOwnedConstructionCapabilitiesRequest({ requestURL, method: 'GET', ...owner }), false);
-});
-
-test('APPEND capability diagnostics use the seeded project and always release listeners after the full lifecycle', () => {
-  const source = readFileSync(new URL('../../workflows/builder-combine.mjs', import.meta.url), 'utf8');
-  const appendWorkflow = source.indexOf('export const appendWorkflow = async ({ page, report, action, nativeRequestLedger }, context) =>');
-  const scope = source.indexOf('openAppendNativeRequestScope(nativeRequestLedger, context.target);', appendWorkflow);
-  const capture = source.indexOf('captureConstructionCapabilitiesFailuresWithPlaywright(page, report', appendWorkflow);
-  const lifecycle = source.indexOf('let builderAtTarget = await readBuilder', capture);
-  const completedLifecycle = source.lastIndexOf('report.target.combineTarget = target;');
-  const listenerCleanup = source.indexOf('capabilitiesFailures?.stop();', completedLifecycle);
-  const requestFlush = source.indexOf('await flushAppendNativeRequestScope({ nativeRequestLedger, scope: nativeRequestScope, explorer, report });', completedLifecycle);
-  assert.ok(appendWorkflow >= 0 && scope > appendWorkflow && scope < capture && lifecycle > capture &&
-    completedLifecycle > lifecycle && listenerCleanup > completedLifecycle && requestFlush > listenerCleanup);
-  assert.doesNotMatch(source, /const runAppend\s*=/, 'APPEND must not remain an executable legacy runner path');
-  assert.doesNotMatch(source, /runBuilderCombine|runJoin|runPlaywrightCase|executeScenario|parseArgs/,
-    'Combine lifecycles must be driven through their native Playwright specifications');
-  const officialSpec = readFileSync(new URL('../../specs/append.spec.mjs', import.meta.url), 'utf8');
-  assert.match(officialSpec, /import \{ test \} from '\.\.\/helpers\/fixtures\.mjs'/);
-  assert.match(officialSpec, /test\.use\(\{ scenarioID: 'builder-combine', caseName: 'append', fixtureDir: 'testdata\/verify-combine' \}\)/);
-  assert.match(officialSpec, /nativeRequestLedger: workflow\.nativeRequestLedger/);
-  assert.match(source.slice(appendWorkflow, scope), /owned isolated fixture/);
-  assert.match(source.slice(capture, lifecycle), /project: context\.target\.fixtureProject/);
-  assert.match(source.slice(completedLifecycle, requestFlush), /finally/);
-  assert.match(source.slice(requestFlush), /if \(!workflowFailed\) throw error/);
-  const diagnosticsHelper = source.slice(source.indexOf('const captureConstructionCapabilitiesFailuresWithPlaywright'),
-    source.indexOf('const captureOwnedConstructionProposals'));
-  assert.match(diagnosticsHelper, /page\.off\('request'/);
-  assert.match(diagnosticsHelper, /sanitizeBody/);
-  assert.doesNotMatch(source.slice(0, source.indexOf('const expectedPatients')), /isDeepStrictEqual/);
-});
-
 test('KEY_JOIN lifecycle is exported for the native Playwright spec', () => {
   const source = readFileSync(new URL('../../workflows/builder-combine.mjs', import.meta.url), 'utf8');
   const joinWorkflow = source.indexOf('export const joinWorkflow = async ({ page, report, action }, context) =>');
-  const appendWorkflow = source.indexOf('export const appendWorkflow = async ({ page, report, action, nativeRequestLedger }, context) =>');
+  const appendWorkflow = source.indexOf('export const appendWorkflow = async ({ page, report, action, networkObserver }, context) =>');
   assert.ok(joinWorkflow >= 0 && appendWorkflow > joinWorkflow, 'Join lifecycle must be available before the APPEND workflow');
   const body = source.slice(joinWorkflow, appendWorkflow);
   for (const name of [
     'fixture contains one bootstrap Patient, four Observations, and three DiagnosticReports',
-    'INNER preview returns the three exact rows matched on shared required IDs',
+    'INNER preview shows literal human headers and the three exact matched rows',
     'Canceling the LEFT edit leaves the saved INNER operation unchanged',
     'LEFT preview before Apply includes null projections for the unmatched row',
     "await removeCombineAndRestoreEmptyRootWithPlaywright(context, page, action, report, explorer, target, emptyTargetBaseline, step.id, 'KEY_JOIN');",
@@ -194,33 +152,6 @@ test('last-step removal waits for the exact empty target preview identity', () =
   assert.match(expression, /data-preview-status/);
   assert.match(expression, /data-preview-output-id/);
   assert.match(expression, /querySelectorAll/);
-});
-
-test('native page DOM confirms empty-target readiness selectors and identity', async () => {
-  const browser = await chromium.launch({ channel: 'chrome', headless: true });
-  try {
-    const page = await browser.newPage();
-    const outputId = 'out_owned_target';
-    const expression = rootedEmptyTargetAppliedExpression(outputId);
-    const content = ({ status = 'empty', previewOutputId = outputId } = {}) => `<!doctype html>
-      <main>
-        <nav><button data-testid="construction-table-${outputId}" aria-current="page">Observation</button></nav>
-        <section data-testid="construction-preview" data-preview-status="${status}" data-preview-output-id="${previewOutputId}">
-          <div data-testid="preview-table-scroll"><p>Add a column to see your table.</p></div>
-        </section>
-      </main>`;
-
-    await page.setContent(content());
-    assert.equal(await page.evaluate(expression), true, 'the real nested empty preview DOM must satisfy readiness');
-    await page.setContent(content({ previewOutputId: 'out_wrong_target' }));
-    assert.equal(await page.evaluate(expression), false, 'a placeholder for another output must not satisfy readiness');
-    await page.setContent(content({ status: 'stale' }));
-    assert.equal(await page.evaluate(expression), false, 'stale preview DOM must not satisfy readiness');
-    await page.setContent(content({ status: 'previewing' }));
-    assert.equal(await page.evaluate(expression), false, 'previewing DOM must not satisfy readiness');
-  } finally {
-    await browser.close();
-  }
 });
 
 test('reloaded last-step removal matches the full pre-Combine empty target document', () => {

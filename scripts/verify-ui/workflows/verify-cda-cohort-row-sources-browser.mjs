@@ -39,8 +39,6 @@ const selectUI = async (selector, value, options = {}) => {
   else await waitUI(`document.querySelector(${JSON.stringify(selector)})?.value===${JSON.stringify(value)}`, 5000);
   if (options.dismissSelector) await clickUI(options.dismissSelector);
 };
-const requestBody = entry => requestCapture.rawRequestBody(entry) ?? entry.body;
-const responseBody = entry => requestCapture.rawResponseBody(entry) ?? entry.response;
 const safeEvidence = (value, key = '') => {
   if (/authorization|cookie|password|passwd|token|secret|credential|session|api[_-]?key/i.test(key)) return '[REDACTED]';
   if (Array.isArray(value)) return value.map(item => safeEvidence(item));
@@ -88,21 +86,17 @@ const openTable = async (expectedRowCount, expectedColumnCount) => {
   record('load-table', started);
 };
 const waitForNativeRequest = async (fromIndex, predicate, label, timeout = 5000) => {
-  const captured = await requestCapture.waitFor(entry =>
-    report.nativeRequests.indexOf(entry) >= fromIndex && predicate({
-      ...entry, body: requestBody(entry), response: responseBody(entry),
-    }), { timeout, label });
-  return { ...captured, body: requestBody(captured), response: responseBody(captured) };
+  const captured = await requestCapture.waitForResponse(entry =>
+    requestCapture.requests.indexOf(entry) >= fromIndex && predicate(entry), { timeout, label });
+  return captured;
 };
 const waitForLineage = async started => waitForNativeRequest(0,
   entry => entry.path === base + '/row-lineage' && entry.startedAt >= started && entry.response,
   'Native row inspection did not complete a fresh row-lineage request within five seconds', Math.max(1, started + 5000 - Date.now()));
 const waitForNativePreview = async (fromIndex, label) => {
   const preview = await waitForNativeRequest(fromIndex,
-    entry => entry.path.endsWith('/preview') && entry.body?.outputId === outputId,
+    entry => entry.path.endsWith('/preview') && entry.request?.outputId === outputId,
     label);
-  preview.body = requestBody(preview);
-  preview.response = responseBody(preview);
   assert.equal(preview.status, 200, JSON.stringify(preview));
   assert(preview.response, `${label} response body was unavailable: ${preview.responseReadError ?? JSON.stringify(preview)}`);
   assert(Array.isArray(preview.response.rows), `${label} response has no rows: ${JSON.stringify(preview.response).slice(0, 1000)}`);
@@ -120,9 +114,9 @@ const inspectCohortRow = async name => {
   const native = await waitForLineage(started);
   assert.equal(native.status, 200, JSON.stringify(native));
   assert.equal(native.response.status, 'COMPLETE', JSON.stringify(native.response));
-  assert.equal(native.response.receiptId, native.body.receiptId);
+  assert.equal(native.response.receiptId, native.request.receiptId);
   assert.equal(native.response.outputId, outputId);
-  assert.equal(native.response.rowId, native.body.rowId);
+  assert.equal(native.response.rowId, native.request.rowId);
   const expected = report.oracle.sources.map(source => `${resourceType}/${source.id}`).sort();
   const listed = await page.locator(`${selector} ul li`).evaluateAll(items => items.map(item=>item.innerText.trim()).sort());
   assert.deepEqual(listed, expected, 'Native source-record panel must list exactly the independently pinned cohort members');
@@ -135,7 +129,7 @@ const inspectCohortRow = async name => {
   assert.equal(native.response.hasMore ?? false, false, 'The complete two-member cohort must fit in one lineage page');
   const identity = await page.locator(`${selector} p.font-mono`).textContent();
   assert(identity);
-  const rowId = native.body.rowId;
+  const rowId = native.request.rowId;
   assert.equal(typeof rowId, 'string', 'The native row inspector must submit the displayed row identity as a string');
   let rowIdObject;
   try { rowIdObject = JSON.parse(rowId); } catch { assert.fail(`Cohort row identity is not serialized JSON: ${rowId}`); }
@@ -149,7 +143,7 @@ const inspectCohortRow = async name => {
   await clickUI(`${selector} button`, { name: 'Close' });
   await page.locator(selector).waitFor({ state: 'detached', timeout: 5000 });
   record(name, started);
-  return { identity, rowId, rowIdObject, receiptId: native.body.receiptId, sourceContributors };
+  return { identity, rowId, rowIdObject, receiptId: native.request.receiptId, sourceContributors };
 };
 
 const traceCohortCell = async (
@@ -316,30 +310,30 @@ const changeSavedMemberPolicy = async (columnId, expectedPolicy, nextPolicy, { e
   const selector = `[aria-label="Table columns"] [data-column-name=${JSON.stringify(column.column)}] select[aria-label^="Values per cohort member for "]`;
   await waitUI(`(()=>{const rows=[...document.querySelectorAll('[aria-label="Table columns"] [role="listitem"]')].filter(row=>row.getAttribute('data-column-name')===${JSON.stringify(column.column)});const select=rows[0]?.querySelector('select[aria-label^="Values per cohort member for "]');return rows.length===1&&select&&!select.disabled&&select.value===${JSON.stringify(expectedPolicy)};})()`, 5000);
 
-  const requestFrom = report.nativeRequests.length;
+  const requestFrom = requestCapture.requests.length;
   let request;
   await selectUI(selector, nextPolicy, {
     ...(expectRejected ? { settledWhen: `document.querySelector(${JSON.stringify(selector)})?.value===${JSON.stringify(expectedPolicy)}` } : {}),
   });
   request = await waitForNativeRequest(requestFrom,
-    entry => entry.path.endsWith('/commands') && entry.body?.commands?.some(item =>
+    entry => entry.path.endsWith('/commands') && entry.request?.commands?.some(item =>
       item.type === 'UPDATE_COLUMN_ROW_VALUE_POLICY' && item.outputId === outputId &&
       item.column === column.column && item.rowValuePolicy === nextPolicy),
     `Saved ${expectedPolicy} to ${nextPolicy} row-value policy update for ${column.column}`);
-  assert.deepEqual(request.body.commands, [{
+  assert.deepEqual(request.request.commands, [{
     type: 'UPDATE_COLUMN_ROW_VALUE_POLICY',
     outputId,
     column: column.column,
     rowValuePolicy: nextPolicy,
   }], 'Editing a saved policy must send exactly one update for the existing physical column');
-  assert.equal(request.body.snapshotToken, snapshot.snapshotToken);
-  assert.equal(request.body.expectedDraftVersion, snapshot.draftVersion);
-  assert.equal(request.body.expectedDraftDigest, snapshot.draftDigest);
+  assert.equal(request.request.snapshotToken, snapshot.snapshotToken);
+  assert.equal(request.request.expectedDraftVersion, snapshot.draftVersion);
+  assert.equal(request.request.expectedDraftDigest, snapshot.draftDigest);
   let previewRequest;
   if (!expectRejected) {
     assert.equal(request.status, 200, JSON.stringify(request));
     previewRequest = await waitForNativeRequest(requestFrom,
-      entry => entry.path.endsWith('/preview') && entry.startedAt >= request.startedAt && entry.body?.outputId === outputId,
+      entry => entry.path.endsWith('/preview') && entry.startedAt >= request.startedAt && entry.request?.outputId === outputId,
       `Fresh automatic Preview after saved row-value policy change for ${column.column}`);
     assert.equal(previewRequest.status, 200, JSON.stringify(previewRequest));
   } else if (request.status >= 400) {
@@ -353,7 +347,7 @@ const changeSavedMemberPolicy = async (columnId, expectedPolicy, nextPolicy, { e
       draftDigest: snapshot.draftDigest, stableColumnId: columnId,
     });
     await waitForNativeRequest(requestFrom,
-      entry => entry.path.endsWith('/commands') && entry.body?.commands?.some(item =>
+      entry => entry.path.endsWith('/commands') && entry.request?.commands?.some(item =>
         item.type === 'UPDATE_COLUMN_ROW_VALUE_POLICY' && item.outputId === outputId && item.column === column.column &&
         item.rowValuePolicy === nextPolicy) && Boolean(entry.response || entry.responseReadError),
       `Readable validation response for ambiguous ONE policy on ${column.column}`);
@@ -699,10 +693,10 @@ try {
   const undoPolicyEditStarted = Date.now();
   const policyColumnsMenuOpen = await page.getByLabel('Table columns').count().then(count => count > 0);
   if (policyColumnsMenuOpen) await clickUI('button', { name: 'Columns' });
-  const undoRequestFrom = report.nativeRequests.length;
+  const undoRequestFrom = requestCapture.requests.length;
   await clickUI('[data-testid="construction-undo"]');
   const undoPolicyRequest = await waitForNativeRequest(undoRequestFrom,
-    entry => entry.path.endsWith('/commands') && entry.body?.commands?.some(item => item.type === 'RESTORE_DRAFT_REVISION'),
+    entry => entry.path.endsWith('/commands') && entry.request?.commands?.some(item => item.type === 'RESTORE_DRAFT_REVISION'),
     'Undo of the saved ONE-to-ALL policy edit');
   assert.equal(undoPolicyRequest.status, 200, JSON.stringify(undoPolicyRequest));
   record('undo-saved-member-policy-one-to-all', undoPolicyEditStarted);
@@ -749,17 +743,17 @@ try {
     'The saved-edit lifecycle must restore the same source columns before the add-new-ONE scenario');
   const beforeOneInspection = reloadedInspection;
   const onePreviewStarted = Date.now();
-  const oneProposalFrom = report.nativeRequests.length;
+  const oneProposalFrom = requestCapture.requests.length;
   const onePreview = await chooseRootFieldWithPolicy('ONE');
   assert.equal(onePreview.status, 'ready', onePreview.text);
   assert.equal(onePreview.rows.length, 1, 'The ONE member-field proposal must preview the same single named cohort row');
   assert.equal(onePreview.rows[0].at(-1), resourceType, 'ONE must accept the shared resourceType value from both selected members');
   const onePreviewRequest = await waitForNativeRequest(oneProposalFrom,
-    entry => entry.path.endsWith('/construction-choice-proposals') && entry.body?.constructionChoices?.length === 1,
+    entry => entry.path.endsWith('/construction-choice-proposals') && entry.request?.constructionChoices?.length === 1,
     'Native ONE member-field preview');
   assert.equal(onePreviewRequest.status, 200);
-  assert.equal(onePreviewRequest.body.constructionChoices[0].rowValuePolicy, 'ONE');
-  report.oneProposal = { status: onePreviewRequest.status, policy: onePreviewRequest.body.constructionChoices[0].rowValuePolicy, previewRows: onePreview.rows };
+  assert.equal(onePreviewRequest.request.constructionChoices[0].rowValuePolicy, 'ONE');
+  report.oneProposal = { status: onePreviewRequest.status, policy: onePreviewRequest.request.constructionChoices[0].rowValuePolicy, previewRows: onePreview.rows };
   record('preview-cohort-member-field-one', onePreviewStarted);
 
   const cancelOneStarted = Date.now();
@@ -770,16 +764,16 @@ try {
   record('cancel-cohort-member-field-one', cancelOneStarted);
 
   const oneApplyStarted = Date.now();
-  const oneApplyFrom = report.nativeRequests.length;
+  const oneApplyFrom = requestCapture.requests.length;
   const oneApplyPreview = await chooseRootFieldWithPolicy('ONE');
   assert.equal(oneApplyPreview.status, 'ready', oneApplyPreview.text);
   assert.equal(oneApplyPreview.rows[0].at(-1), resourceType);
   await clickUI('[data-testid="construction-choice-proposal-panel"] button', { name: 'Apply columns' });
   const oneApplyRequest = await waitForNativeRequest(oneApplyFrom,
-    entry => entry.path.endsWith('/commands') && entry.body?.commands?.some(item => item.type === 'APPLY_CONSTRUCTION_CHOICE'),
+    entry => entry.path.endsWith('/commands') && entry.request?.commands?.some(item => item.type === 'APPLY_CONSTRUCTION_CHOICE'),
     'Native ONE member-field Apply');
   assert.equal(oneApplyRequest.status, 200);
-  const oneApplyCommand = oneApplyRequest.body.commands.find(item => item.type === 'APPLY_CONSTRUCTION_CHOICE');
+  const oneApplyCommand = oneApplyRequest.request.commands.find(item => item.type === 'APPLY_CONSTRUCTION_CHOICE');
   assert.equal(oneApplyCommand.constructionChoice.rowValuePolicy, 'ONE');
   await waitUI(`!document.querySelector('[data-testid="construction-choice-proposal-panel"]')&&!document.body.innerText.includes('Loading your table…')&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='5'`, 5000);
   builder = await api(base + '/builder');
@@ -818,11 +812,11 @@ try {
   assert.equal(reloadedOneTrace.value, resourceType);
 
   const removeOneStarted = Date.now();
-  const removeOneFrom = report.nativeRequests.length;
+  const removeOneFrom = requestCapture.requests.length;
   await removeColumnByIdentity(oneColumn.column);
   await waitUI(`!document.body.innerText.includes('Loading your table…')&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='4'`, 5000);
   const removeOneRequest = await waitForNativeRequest(removeOneFrom,
-    entry => entry.path.endsWith('/commands') && entry.body?.commands?.some(item => item.type === 'REMOVE_COLUMN' && item.column === oneColumn.column),
+    entry => entry.path.endsWith('/commands') && entry.request?.commands?.some(item => item.type === 'REMOVE_COLUMN' && item.column === oneColumn.column),
     'Native removal of the ONE member field');
   assert.equal(removeOneRequest.status, 200);
   builder = await api(base + '/builder');
@@ -849,16 +843,16 @@ try {
   const currentRenderedColumnCount = Number(await page.locator('[data-testid="preview-table-scroll"] [role="table"]').getAttribute('aria-colcount'));
   assert(Number.isInteger(currentRenderedColumnCount) && currentRenderedColumnCount > 0);
   const ambiguousRenderedColumnCount = currentRenderedColumnCount + 1;
-  const ambiguousProposalFrom = report.nativeRequests.length;
+  const ambiguousProposalFrom = requestCapture.requests.length;
   const ambiguousProposal = await chooseRootFieldWithPolicy('ALL', ambiguousFieldOracle.fieldPath);
   assert.equal(ambiguousProposal.status, 'ready', ambiguousProposal.text);
   assert.equal(ambiguousProposal.rows.length, 1, 'The ambiguous-field setup must retain the single pinned named group');
   await clickUI('[data-testid="construction-choice-proposal-panel"] button', { name: 'Apply columns' });
   const ambiguousApplyRequest = await waitForNativeRequest(ambiguousProposalFrom,
-    entry => entry.path.endsWith('/commands') && entry.body?.commands?.some(item => item.type === 'APPLY_CONSTRUCTION_CHOICE'),
+    entry => entry.path.endsWith('/commands') && entry.request?.commands?.some(item => item.type === 'APPLY_CONSTRUCTION_CHOICE'),
     'Native add-time ALL setup for the distinct-value member field');
   assert.equal(ambiguousApplyRequest.status, 200, JSON.stringify(ambiguousApplyRequest));
-  const ambiguousApplyCommand = ambiguousApplyRequest.body.commands.find(item => item.type === 'APPLY_CONSTRUCTION_CHOICE');
+  const ambiguousApplyCommand = ambiguousApplyRequest.request.commands.find(item => item.type === 'APPLY_CONSTRUCTION_CHOICE');
   assert.equal(ambiguousApplyCommand.constructionChoice.rowValuePolicy, 'ALL',
     'The distinct-value setup must begin with the saved ALL policy');
   await waitUI(`!document.querySelector('[data-testid="construction-choice-proposal-panel"]')&&!document.body.innerText.includes('Loading your table…')&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')===${JSON.stringify(String(ambiguousProposal.rows.length + 1))}&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')===${JSON.stringify(String(ambiguousRenderedColumnCount))}`, 5000);
@@ -961,15 +955,15 @@ try {
       'KEEP_ORIGINAL', {
         dismissSelector: 'div:has(> [aria-label="Table columns"]) > p',
       });
-    const recodingRequestFrom = report.nativeRequests.length;
+    const recodingRequestFrom = requestCapture.requests.length;
     const recodingStarted = Date.now();
     await clickConfiguredFieldControl('button', 'Save recoding');
     const recodingRequest = await waitForNativeRequest(recodingRequestFrom,
-      entry => entry.path.endsWith('/commands') && entry.body?.commands?.some(item =>
+      entry => entry.path.endsWith('/commands') && entry.request?.commands?.some(item =>
         item.type === 'UPDATE_COLUMN_TRANSFORMATION' && item.outputId === outputId && item.column === ambiguousColumn.column),
       `Native exact recoding for grouped member field ${ambiguousFieldPath}`);
     assert.equal(recodingRequest.status, 200, JSON.stringify(recodingRequest));
-    assert.deepEqual(recodingRequest.body.commands, [{
+    assert.deepEqual(recodingRequest.request.commands, [{
       type: 'UPDATE_COLUMN_TRANSFORMATION', outputId, column: ambiguousColumn.column,
       transformationChange: { kind: 'SET', transformation: recodingTransformation },
     }]);
@@ -999,11 +993,11 @@ try {
     );
     assert.deepEqual(recodedAllAgain.previewRequest.response.rows[0]?.[ambiguousColumn.column], [recodedCategory]);
     await openConfiguredFieldEditor('Edit exact category recoding');
-    const removeRecodingFrom = report.nativeRequests.length;
+    const removeRecodingFrom = requestCapture.requests.length;
     const removeRecodingStarted = Date.now();
     await clickConfiguredFieldControl('button', 'Remove recoding');
     const removeRecodingRequest = await waitForNativeRequest(removeRecodingFrom,
-      entry => entry.path.endsWith('/commands') && entry.body?.commands?.some(item =>
+      entry => entry.path.endsWith('/commands') && entry.request?.commands?.some(item =>
         item.type === 'UPDATE_COLUMN_TRANSFORMATION' && item.column === ambiguousColumn.column && item.transformationChange?.kind === 'REMOVE'),
       'Native removal of the temporary explicit-group member recoding');
     assert.equal(removeRecodingRequest.status, 200, JSON.stringify(removeRecodingRequest));
@@ -1104,7 +1098,6 @@ try {
   assert.equal(report.memberFieldPolicyCoverage.exactSameContributorSet, true);
   assert.equal(oneApplyDoc.rows.groups.rowValues.find(value => value.columnId === oneColumn.columnId)?.policy, 'ONE');
   assert.equal(report.memberFieldPolicyCoverage.savedPolicyEditSupported, true);
-  await requestCapture.flush();
   assert.deepEqual(report.errors.filter(error => !(error.expected || error.expectedHttpFailure || error.expectedCancellation || error.expectedInjectedFault)), []);
   report.status = 'passed';
 } catch (error) {
@@ -1117,7 +1110,6 @@ try {
       elapsedMs: Date.now() - report.activeAction.startedAt };
     delete report.activeAction;
   }
-  await requestCapture.flush();
   await cda.attachReport(`cohort-row-sources-${cohortRowValueCase}-evidence.json`, report);
 }
 }

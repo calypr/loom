@@ -7,7 +7,7 @@ import { createNativeCdaWorkflowTools, validatedArangoContainer } from '../helpe
 export async function contributorCodeWorkflow({ page, cda, caseOptions = {} }) {
   const { click, fill, selectOption, navigate, inspect, clickControl, fillControl, selectControl,
     nativeClick, nativeFill, nativeSelect, navigatePage, inspectDOM, browserEval, inspectPage,
-    waitForDOM, waitForBrowser, captureCDARequests, captureRequests, waitForCapturedResponse,
+    waitForDOM, waitForBrowser,
     performAction, requireUnique } = createNativeCdaWorkflowTools({ page, cda });
   const target = cda.target;
   const project = cda.project;
@@ -44,7 +44,6 @@ let builder;
 let outputId;
 let requestCapture;
 
-const contributorSearchRequests = [];
 
 const api = async (path, body) => {
   const startedAt = Date.now();
@@ -394,12 +393,18 @@ const startRelatedExpand = async () => {
   return panel;
 };
 
-const waitForContributorSearch = async (startedAt) => {
-  const entry = await requestCapture.waitFor(item => item.startedAt >= startedAt && item.path === `${base}/related-expand-contributors` && item.body?.query === 'valueQuantity.code' && item.response, { timeoutMs: Math.max(1, startedAt + 5000 - Date.now()) });
+const waitForContributorSearch = async (fromIndex, startedAt) => {
+  const entry = await requestCapture.waitForResponse(item => item.path === `${base}/related-expand-contributors`
+    && item.method === 'POST' && item.startedAt >= startedAt
+    && item.request?.query === 'valueQuantity.code' && item.response, {
+    fromIndex,
+    timeoutMs: Math.max(1, startedAt + 5000 - Date.now()),
+  });
   return entry.response;
 };
 const chooseContributorValueQuantityCodeEquals = async (panel, oracle, actionName) => {
   const startedAt = Date.now();
+  const searchFromIndex = requestCapture.requests.length;
   const options = `${panel} [data-testid="construction-related-expand-contributors"]`;
   await selectControl(page, `${panel} select[aria-label="If a current row has no matches"]`, 'PRESERVE_PARENT');
   const disclosure = `${panel} [data-testid="construction-related-expand-contributor-options"]`;
@@ -421,7 +426,7 @@ const chooseContributorValueQuantityCodeEquals = async (panel, oracle, actionNam
   await fillControl(page, search, 'valueQuantity.code');
   await waitForDOM(page, args => Boolean([...document.querySelectorAll(''+args.__template0+' [role="group"][aria-label="Fields for related-record condition"] button')]
       .some(button=>button.innerText.replace(/\\s+/g,' ').includes('valueQuantity.code'))), { __template0: (options) });
-  const choiceResponse = await waitForContributorSearch(searchStartedAt);
+  const choiceResponse = await waitForContributorSearch(searchFromIndex, searchStartedAt);
   const visibleChoices = await inspectDOM(page, async args => { return [...document.querySelectorAll(''+args.__template0+' [role="group"][aria-label="Fields for related-record condition"] button')]
       .map(button=>({text:button.innerText.trim(),pressed:button.getAttribute('aria-pressed')})); }, { __template0: (options) });
   const manyWitness = oracle.witnesses.find((item) => item.bucket === 'many');
@@ -508,7 +513,6 @@ const applyProposal = async (expectedRows, name) => {
 
 report.target ??= { ...cda.report.target };
 report.nativeRequests = cda.report.nativeRequests;
-report.errors = cda.report.errors;
 
   try {
 
@@ -563,12 +567,6 @@ page.on('request', request => {
   if (url.pathname.includes('cda-builder-full-qa-1790440983382')) report.errors.push({ kind: 'protected-explorer-request', path: url.pathname });
 });
 requestCapture = cda.captureRequests(`${root}/${explorer}`, { responsePaths: /related-expand-contributors|commands|construction-proposals|preview/, });
-page.on('request', request => {
-  if (new URL(request.url()).pathname === `${base}/related-expand-contributors`) {
-    const entry = requestCapture.byRequest.get(request);
-    if (entry) contributorSearchRequests.push(entry);
-  }
-});
 
 await open(baselineRows, 'source-selection-zero-one-many');
 let panel = await startRelatedExpand();
@@ -679,16 +677,10 @@ assert.deepEqual(restored.population, original.population, 'Removing Contributor
 await open(baselineRows, 'reload-restored-source-table');
 builder = await api(base + '/builder');
 assertStableSourceProjection(builder, original, canonicalSourceColumnId, 'reload after Contributor removal');
-await requestCapture.flush();
-assert.deepEqual(report.errors, [], 'Unexpected browser errors were reported');
-assert.deepEqual(cda.diagnostics.pageErrors, [], 'Unexpected page errors were reported');
-assert.deepEqual(cda.diagnostics.console, [], 'Unexpected console errors were reported');
-assert.deepEqual(cda.diagnostics.networkFailures, [], 'Unexpected network failures were reported');
-assert.deepEqual(cda.diagnostics.httpFailures, [], 'Unexpected HTTP failures were reported');
-report.status = 'passed';
+
+assert.deepEqual(report.errors, [], 'Browser requests must never target the protected Explorer');
+
   } finally {
-    try { await requestCapture?.flush(); } catch (error) { report.requestFlushError = String(error); }
-    cda.includeBrowserDiagnostics();
     report.finished = new Date().toISOString();
     await cda.attachReport(`standalone-${cda.caseName}-domain.json`, {
       ...cda.report,

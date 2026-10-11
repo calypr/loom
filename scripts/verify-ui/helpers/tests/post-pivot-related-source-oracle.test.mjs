@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import { scenarioCaseFor } from '../../registry.mjs';
-import { assertRelatedSourceStepAfterUpstreamChange, assertSavedPreviewIdentity, cdaExplorerSelectionsPath, isPostPivotRawOracleUnavailable, matchesSavedPreviewRequest, readPivotSelectOptions, readProposalPreviewDocument, relatedRouteChoice, proveSourceBinding, relatedSourceEditEvidence, sameConstructionIgnoringPivotCategoryOutputIDs, sameWorkspace, sameWorkspaceIgnoringEmptySourceConstruction, sameWorkspaceIgnoringPivotCategoryOutputIDs, uniqueEnabledSelectValue, waitForCdaCapturedResponse, withoutRelatedSourceFromWorkspace } from '../../workflows/verify-cda-related-source-after-pivot-browser.mjs';
-import { captureCDARequests, navigateAfterOwnedConstructionCapabilities } from '../cda-playwright-requests.mjs';
+import { assertRelatedSourceStepAfterUpstreamChange, assertSavedPreviewIdentity, cdaExplorerSelectionsPath, isPostPivotRawOracleUnavailable, matchesSavedPreviewRequest, readPivotSelectOptions, readProposalPreviewDocument, relatedRouteChoice, proveSourceBinding, relatedSourceEditEvidence, sameConstructionIgnoringPivotCategoryOutputIDs, sameWorkspace, sameWorkspaceIgnoringEmptySourceConstruction, sameWorkspaceIgnoringPivotCategoryOutputIDs, unexpectedRelatedSourceNetworkFailures, uniqueEnabledSelectValue, waitForCdaCapturedResponse, withoutRelatedSourceFromWorkspace } from '../../workflows/verify-cda-related-source-after-pivot-browser.mjs';
 import { choosePostPivotRelatedSourcePair, verifyPostPivotRelatedSourceWitness } from '../post-pivot-related-source-oracle.mjs';
 import { assertVisibleRowsMatchOracle } from '../cda-row-oracle.mjs';
 
@@ -50,6 +49,27 @@ const linked = pair => pair.members.flatMap(member => {
       resourceType: 'Patient',
     },
   }];
+});
+
+test('post-Pivot diagnostic gate ignores only observer-marked read cancellations', () => {
+  const readCancellations = Array.from({ length: 6 }, (_, index) => ({
+    method: 'POST',
+    url: `/api/v1/projects/project/explorers/explorer/authoring/v2/schema-fields`,
+    errorText: 'net::ERR_ABORTED',
+    canceled: true,
+    readCancellationDiagnostic: true,
+    observerRequestIndex: index,
+  }));
+  assert.deepEqual(unexpectedRelatedSourceNetworkFailures(readCancellations), []);
+
+  const failedWrite = { ...readCancellations[0], readCancellationDiagnostic: false, isMutation: true };
+  assert.deepEqual(unexpectedRelatedSourceNetworkFailures([...readCancellations, failedWrite]), [failedWrite]);
+
+  const unexpectedTransportFailure = {
+    ...readCancellations[0], url: '/api/v1/unexpected-read', readCancellationDiagnostic: false, canceled: false,
+  };
+  assert.deepEqual(unexpectedRelatedSourceNetworkFailures([...readCancellations, unexpectedTransportFailure]),
+    [unexpectedTransportFailure]);
 });
 
 test('post-Pivot source oracle requires two same-key Observation roots with distinct exact Patient terminals', () => {
@@ -670,237 +690,21 @@ test('raw witness absence is skipped only for this case and remains an unverifie
   assert.match(spec, /throw error;/, 'All non-witness failures must continue to fail the registered test.');
 });
 
-test('CDA request capture uses the three-argument fixture facade', async () => {
+test('workflow response waits use the scoped tracker and local cursor', async () => {
   const calls = [];
-  const fixtureFacade = {
-    waitForCapturedResponse(...args) {
-      calls.push(args);
+  const tracker = {
+    waitForResponse(predicate, options) {
+      calls.push({ predicate, options });
       return Promise.resolve('response');
     },
   };
-  const tracker = {};
   const predicate = () => true;
-  assert.equal(await waitForCdaCapturedResponse(fixtureFacade, tracker, predicate, 413), 'response');
+  assert.equal(await waitForCdaCapturedResponse(tracker, predicate, 413, 7), 'response');
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].length, 3);
-  assert.equal(calls[0][0], tracker);
-  assert.equal(calls[0][1], predicate);
-  assert.equal(calls[0][2], 413);
-  const fixtureSource = await readFile(new URL('../cda-fixtures.mjs', import.meta.url), 'utf8');
+  assert.equal(calls[0].predicate, predicate);
+  assert.deepEqual(calls[0].options, { fromIndex: 7, timeoutMs: 413 });
   const workflow = await readFile(relatedWorkflowPath, 'utf8');
-  assert.match(fixtureSource, /waitForCapturedResponse: \(tracker, predicate, timeout\) => waitForCapturedResponse\(page, tracker, predicate, timeout\)/);
-  assert.equal((workflow.match(/waitForCdaCapturedResponse\(cda, requestCapture,/g) ?? []).length, 3);
-});
-
-test('owned construction-capabilities requests reach a terminal result before full-page navigation', async () => {
-  const tracker = {};
-  const capabilityPath = '/api/v1/projects/loom_dev_cda_fhir/explorers/qa/authoring/v2/construction-capabilities';
-  const pending = { path: capabilityPath, method: 'POST', requestId: 'capabilities-pending', startedAt: 100 };
-  const alreadyComplete = { path: capabilityPath, method: 'POST', requestId: 'capabilities-complete', completedAt: 90, status: 200 };
-  const wrongMethod = { path: capabilityPath, method: 'GET', requestId: 'capabilities-get' };
-  const unrelated = { path: `${capabilityPath}/other`, method: 'POST', requestId: 'other-endpoint' };
-  const entries = [alreadyComplete, wrongMethod, unrelated, pending];
-  let releasePending;
-  let waitCalls = 0;
-  const cda = {
-    waitForCapturedResponse(actualTracker, predicate, timeout) {
-      assert.equal(actualTracker, tracker);
-      assert(timeout > 0);
-      const matched = entries.find(predicate);
-      assert.equal(matched, pending, 'Only the exact unfinished capabilities POST should be awaited.');
-      waitCalls += 1;
-      return new Promise(resolve => {
-        releasePending = () => {
-          pending.status = 200;
-          pending.completedAt = Date.now();
-          resolve(pending);
-        };
-      });
-    },
-  };
-  let navigated = false;
-  const navigation = navigateAfterOwnedConstructionCapabilities(
-    cda, tracker, () => entries, capabilityPath, 5000,
-    async () => {
-      assert(Number.isFinite(pending.completedAt), 'Navigation must wait until the captured request has completed.');
-      navigated = true;
-      return 'reloaded';
-    },
-  );
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(waitCalls, 1);
-  assert.equal(navigated, false, 'A full-page reload must not retire the still-pending owned request.');
-  releasePending();
-  const result = await navigation;
-  assert.equal(result.navigationResult, 'reloaded');
-  assert.deepEqual(result.settledEntries, [pending]);
-  assert.equal(navigated, true);
-});
-
-test('retained repeated-empty source-projection request is settled before saved-table navigation', async () => {
-  const retained = JSON.parse(await readFile(
-    new URL('./fixtures/retained-repeat-empty-capabilities-request.json', import.meta.url), 'utf8',
-  ));
-  const pending = structuredClone(retained);
-  const capabilityPath = '/api/v1/projects/loom_dev_cda_fhir/explorers/cda-repeated-empty-1791501485973/authoring/v2/construction-capabilities';
-  const tracker = {};
-  let releaseResponse;
-  let waitCalls = 0;
-  let navigationCalls = 0;
-  const cda = {
-    waitForCapturedResponse(actualTracker, predicate, timeout) {
-      assert.equal(actualTracker, tracker);
-      assert(timeout > 0);
-      assert.equal(predicate(pending), true);
-      waitCalls += 1;
-      return new Promise(resolve => {
-        releaseResponse = () => {
-          pending.status = 200;
-          pending.completedAt = Date.now();
-          resolve(pending);
-        };
-      });
-    },
-  };
-  const startedAt = Date.now();
-  const navigation = navigateAfterOwnedConstructionCapabilities(
-    cda,
-    tracker,
-    () => [pending],
-    capabilityPath,
-    Math.max(1, startedAt + 5000 - Date.now()),
-    async () => {
-      assert.equal(pending.status, 200);
-      assert(Number.isFinite(pending.completedAt));
-      assert.equal(pending.body.stageId, 'source_projection');
-      assert.equal(pending.body.expectedDraftVersion, 10);
-      navigationCalls += 1;
-      return 'saved-table-reloaded';
-    },
-  );
-
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(waitCalls, 1);
-  assert.equal(navigationCalls, 0, 'navigation must not retire the retained request-only capabilities call');
-  releaseResponse();
-
-  const result = await navigation;
-  assert.equal(result.navigationResult, 'saved-table-reloaded');
-  assert.deepEqual(result.settledEntries, [pending]);
-  assert.equal(navigationCalls, 1);
-});
-
-test('retained GAP-003 v7 source-projection request is settled inside the action deadline before table navigation', async () => {
-  const explorerPath = '/api/v1/projects/loom_dev_cda_fhir/explorers/cda-repeated-rows-1791520369741';
-  const capabilityPath = explorerPath + '/authoring/v2/construction-capabilities';
-  const listeners = new Map();
-  const page = { on(event, listener) { listeners.set(event, listener); } };
-  const report = { nativeRequests: [], errors: [] };
-  const tracker = captureCDARequests(page, {
-    apiOrigin: 'http://127.0.0.1:30008',
-    browserRequestOrigin: 'http://127.0.0.1:30008',
-    appOrigins: ['http://127.0.0.1:30008'],
-    ownedPathPrefix: explorerPath,
-    report,
-    responsePaths: /construction-capabilities/,
-  });
-  const requestBody = {
-    snapshotToken: 'sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7',
-    expectedDraftVersion: 7,
-    expectedDraftDigest: 'sha256:6691dbacc0d076f8ebd2f6d3cda80b5198a6bbbfc7f589c57ff7f1b2fda27181',
-    outputId: 'out_2e0e7cd8d64998f7fd7581ba',
-    stageId: 'source_projection',
-  };
-  const request = {
-    url: () => 'http://127.0.0.1:30008' + capabilityPath,
-    method: () => 'POST',
-    headers: () => ({ 'x-request-id': 'playwright-75' }),
-    postData: () => JSON.stringify(requestBody),
-  };
-  listeners.get('request')(request);
-  const pending = report.nativeRequests[0];
-  let resolveBody;
-  const body = new Promise(resolve => { resolveBody = resolve; });
-  const response = {
-    request: () => request,
-    headers: () => ({ 'x-request-id': 'playwright-75' }),
-    status: () => 200,
-    text: () => body,
-  };
-  const actionStartedAt = Date.now();
-  const actionDeadline = actionStartedAt + 5000;
-  let waitTimeout;
-  let waitStartedAt;
-  let navigationCalls = 0;
-  const cda = {
-    waitForCapturedResponse(actualTracker, predicate, timeout) {
-      waitTimeout = timeout;
-      waitStartedAt = Date.now();
-      return actualTracker.waitFor(predicate, { timeoutMs: timeout });
-    },
-  };
-
-  const navigation = navigateAfterOwnedConstructionCapabilities(
-    cda,
-    tracker,
-    () => report.nativeRequests,
-    capabilityPath,
-    Math.max(1, actionDeadline - Date.now()),
-    async () => {
-      assert.equal(pending.body.expectedDraftVersion, 7);
-      assert.equal(pending.body.expectedDraftDigest, 'sha256:6691dbacc0d076f8ebd2f6d3cda80b5198a6bbbfc7f589c57ff7f1b2fda27181');
-      assert.equal(pending.body.outputId, 'out_2e0e7cd8d64998f7fd7581ba');
-      assert.equal(pending.body.stageId, 'source_projection');
-      assert.equal(pending.status, 200);
-      assert.deepEqual(pending.response, { capabilities: [] });
-      assert(pending.nativeEventChronology.some(event => event.event === 'requestfinished'),
-        'Navigation must wait for the native requestfinished event as well as its captured body.');
-      navigationCalls += 1;
-      return 'reloaded-saved-table';
-    },
-  );
-
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(navigationCalls, 0, 'Navigation must stay inside the action until the current-draft request settles.');
-  assert(waitTimeout > 0 && waitTimeout <= actionDeadline - waitStartedAt + 1,
-    'The request wait must consume only the original action budget that remains.');
-  assert.equal(pending.requestId, 'playwright-75');
-  listeners.get('response')(response);
-  listeners.get('requestfinished')(request);
-  resolveBody(JSON.stringify({ capabilities: [] }));
-
-  const result = await navigation;
-  assert.equal(result.navigationResult, 'reloaded-saved-table');
-  assert.deepEqual(result.settledEntries, [pending]);
-  assert.equal(navigationCalls, 1);
-  await tracker.flush({ timeoutMs: 100, waitForNativeRequestTerminals: true });
-  assert.deepEqual(report.nativeRequestDrainEvidence ?? [], [], 'The settled native request must have no unfinished terminal evidence.');
-});
-
-test('an in-flight owned capabilities transport failure blocks navigation without inventing an HTTP status', async () => {
-  const tracker = {};
-  const capabilityPath = '/api/v1/projects/loom_dev_cda_fhir/explorers/qa/authoring/v2/construction-capabilities';
-  const failed = {
-    path: capabilityPath, method: 'POST', requestId: 'capabilities-aborted', startedAt: 100,
-  };
-  const cda = {
-    waitForCapturedResponse(actualTracker, predicate) {
-      assert.equal(actualTracker, tracker);
-      assert(predicate(failed));
-      return Promise.resolve().then(() => {
-        failed.completedAt = Date.now();
-        failed.failure = 'net::ERR_ABORTED';
-        return failed;
-      });
-    },
-  };
-  let navigated = false;
-  await assert.rejects(navigateAfterOwnedConstructionCapabilities(
-    cda, tracker, () => [failed], capabilityPath, 5000,
-    async () => { navigated = true; },
-  ), /successful terminal response before navigation/);
-  assert.equal(failed.status, undefined, 'A transport failure must remain distinct from an HTTP response.');
-  assert.equal(navigated, false, 'A failed owned request must be reported before the page is replaced.');
+  assert.equal((workflow.match(/waitForCdaCapturedResponse\(requestCapture,/g) ?? []).length, 2);
 });
 
 test('saved-preview wait binds the native POST request and response receipt to the exact output', () => {

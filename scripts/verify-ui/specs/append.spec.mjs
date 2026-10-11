@@ -8,6 +8,6 @@ test('APPEND preview, apply, edit, cancel, removal and reload', async ({ page, w
     page,
     report: workflow.report,
     action: workflow.action,
-    nativeRequestLedger: workflow.nativeRequestLedger,
+    networkObserver: workflow.networkObserver,
   }, loomContext);
 });

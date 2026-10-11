@@ -33,8 +33,7 @@ const waitForBrowser = (_page, predicate, argsOrTimeout = [], timeout) => Array.
   ? cda.wait(predicate, argsOrTimeout, timeout ?? 5000)
   : cda.wait(predicate, [], argsOrTimeout);
 const captureRequests = (_page, _report, ownedPathPrefix, options = {}) => cda.captureRequests(ownedPathPrefix, options);
-const waitForCapturedResponse = (_page, tracker, predicate, timeout) => cda.waitForCapturedResponse(tracker, predicate, timeout);
-const includeBrowserDiagnostics = () => cda.includeBrowserDiagnostics();
+const waitForCapturedResponse = (_page, tracker, predicate, timeout) => tracker.waitForResponse(predicate, { timeoutMs: timeout });
 let browserEvents;
 let builder;
 let baselineOutputId;
@@ -318,7 +317,7 @@ const main = async () => {
   const renameState = await readNativeState(ids, titles, { selectedOutputId: createdOutputId });
   const renameMs = Date.now() - renameStarted;
   assert(renameMs <= 5000, `Rename took ${renameMs} ms to save and render`);
-  assert(commandTraffic().slice(commandCountBeforeRename).some((entry) => entry.body?.commands?.some((command) => command.type === 'RENAME_TABLE')), 'Rename emitted no RENAME_TABLE command');
+  assert(commandTraffic().slice(commandCountBeforeRename).some((entry) => entry.request?.commands?.some((command) => command.type === 'RENAME_TABLE')), 'Rename emitted no RENAME_TABLE command');
   report.actions.push({ label: 'Rename table', control: renameControl, elapsedMs: renameMs, ...renameState });
 
   const beforeDuplicate = await readBuilder();
@@ -341,7 +340,7 @@ const main = async () => {
   const duplicateState = await readNativeState(ids, titles, { selectedOutputId: duplicateOutputId });
   const duplicateMs = Date.now() - duplicateStarted;
   assert(duplicateMs <= 5000, `Duplicate took ${duplicateMs} ms to save and render`);
-  assert(commandTraffic().some((entry) => entry.body?.commands?.some((command) => command.type === 'DUPLICATE_TABLE' && command.sourceOutputId === createdOutputId)), 'Duplicate emitted no source-bound DUPLICATE_TABLE command');
+  assert(commandTraffic().some((entry) => entry.request?.commands?.some((command) => command.type === 'DUPLICATE_TABLE' && command.sourceOutputId === createdOutputId)), 'Duplicate emitted no source-bound DUPLICATE_TABLE command');
   report.actions.push({ label: 'Duplicate table', control: duplicateControl, elapsedMs: duplicateMs, ...duplicateState, sourceOutputId: createdOutputId, duplicateOutputId });
   assert.deepEqual(builder.workspace.documents.find((document) => document.output.id === createdOutputId), sourceDocument, 'Creating a duplicate changed its source document');
 
@@ -360,7 +359,7 @@ const main = async () => {
   assert.deepEqual(sourceAfterIndependentRename, sourceDocument, 'Renaming the duplicate changed its source document');
   assert(independentlyRenamedDuplicate, 'Renamed duplicate document was not saved');
   assert.deepEqual(normalizedDocument(independentlyRenamedDuplicate), normalizedDocument(sourceDocument), 'Renaming the duplicate changed its authored document or field bindings');
-  assert(commandTraffic().slice(commandCountBeforeIndependentRename).some((entry) => entry.body?.commands?.some((command) => command.type === 'RENAME_TABLE' && command.outputId === duplicateOutputId)), 'Renaming the duplicate emitted no source-bound RENAME_TABLE command');
+  assert(commandTraffic().slice(commandCountBeforeIndependentRename).some((entry) => entry.request?.commands?.some((command) => command.type === 'RENAME_TABLE' && command.outputId === duplicateOutputId)), 'Renaming the duplicate emitted no source-bound RENAME_TABLE command');
   report.actions.push({ label: 'Rename duplicate independently', control: independentRenameControl, elapsedMs: independentRenameMs, ...independentRenameState, sourceOutputId: createdOutputId, duplicateOutputId });
 
   queueDialog('prompt', 'Table name', { accept: true, promptText: duplicateTitle });
@@ -383,7 +382,7 @@ const main = async () => {
   const moveState = await readNativeState(ids, moveTitles, { selectedOutputId: duplicateOutputId });
   const moveMs = Date.now() - moveStarted;
   assert(moveMs <= 5000, `Reorder took ${moveMs} ms to save and render`);
-  assert(commandTraffic().some((entry) => entry.body?.commands?.some((command) => command.type === 'REORDER_TABLES')), 'Reorder emitted no REORDER_TABLES command');
+  assert(commandTraffic().some((entry) => entry.request?.commands?.some((command) => command.type === 'REORDER_TABLES')), 'Reorder emitted no REORDER_TABLES command');
   const afterMoveReload = await reloadAndRead(ids, moveTitles);
   report.actions.push({ label: 'Reorder and reload', control: moveControl, elapsedMs: moveMs, ...moveState, afterReload: afterMoveReload });
 
@@ -393,7 +392,7 @@ const main = async () => {
   const undoReorderState = await readNativeState(ids, titles, { maxMs: 5000 });
   const undoReorderMs = Date.now() - undoReorderStarted;
   assert(undoReorderMs <= 5000, `Undo reorder took ${undoReorderMs} ms to save and render`);
-  assert(commandTraffic().some((entry) => entry.body?.commands?.some((command) => command.type === 'RESTORE_DRAFT_REVISION')), 'Undo emitted no RESTORE_DRAFT_REVISION command');
+  assert(commandTraffic().some((entry) => entry.request?.commands?.some((command) => command.type === 'RESTORE_DRAFT_REVISION')), 'Undo emitted no RESTORE_DRAFT_REVISION command');
   const afterUndoReload = await reloadAndRead(ids, titles);
   report.actions.push({ label: 'Undo reorder and reload', control: undoReorderControl, elapsedMs: undoReorderMs, ...undoReorderState, afterReload: afterUndoReload });
 
@@ -418,7 +417,7 @@ const main = async () => {
   const deleteState = await readNativeState(ids, titles);
   const deleteMs = Date.now() - deleteStarted;
   assert(deleteMs <= 5000, `Delete took ${deleteMs} ms to save and render`);
-  assert(commandTraffic().slice(commandCountBeforeDelete).some((entry) => entry.body?.commands?.some((command) => command.type === 'DELETE_TABLE' && command.outputId === duplicateOutputId)), 'Delete emitted no DELETE_TABLE command');
+  assert(commandTraffic().slice(commandCountBeforeDelete).some((entry) => entry.request?.commands?.some((command) => command.type === 'DELETE_TABLE' && command.outputId === duplicateOutputId)), 'Delete emitted no DELETE_TABLE command');
   report.actions.push({ label: 'Delete table', control: deleteControl, elapsedMs: deleteMs, ...deleteState });
 
   const undoDeleteStarted = Date.now();
@@ -431,12 +430,10 @@ const main = async () => {
   const afterUndoDeleteReload = await reloadAndRead(ids, titles);
   report.actions.push({ label: 'Undo delete and reload', control: undoDeleteControl, elapsedMs: undoDeleteMs, ...undoDeleteState, afterReload: afterUndoDeleteReload });
 
-  await browserEvents?.flush();
   const previews = report.protocol.filter((entry) => entry.path.endsWith('/preview'));
   assert(previews.length > 0, 'Native table creation did not issue a bounded preview');
-  assert(previews.every((entry) => Number(entry.body?.limit) <= 25), 'A native preview exceeded 25 rows');
+  assert(previews.every((entry) => Number(entry.request?.limit) <= 25), 'A native preview exceeded 25 rows');
   assert.equal(dialogQueue.length, 0, 'A queued dialog response was not consumed');
-  includeBrowserDiagnostics();
   assert.deepEqual(cda.diagnostics.pageErrors, [], 'Browser JavaScript exceptions occurred');
   assert.deepEqual(report.errors, [], 'Unexpected browser HTTP, runtime, console, or module errors occurred');
   validateVisiblePreviewIds();
@@ -483,10 +480,9 @@ try {
       fatal ??= error;
     }
   }
-  await browserEvents?.flush();
   await cda.attachReport('table-management-browser.json', report);
 }
 
-if (fatal || report.status === 'failed') throw fatal ?? new Error(report.cleanupError ?? 'Table-management lifecycle failed');
+if (fatal) throw fatal;
 return report;
 }

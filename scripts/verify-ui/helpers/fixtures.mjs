@@ -1,150 +1,34 @@
 import { test as base, expect } from '@playwright/test';
 import { performance } from 'node:perf_hooks';
 import {
-  captureInjectedFaultRequest,
-  capabilityBinding,
-  capabilityResponseMatches,
-  isIncidentalFavicon,
   matchesOwnedFaultRequest,
   ownedFaultTarget,
-  supersedingCapabilityRequest,
 } from './network-evidence.mjs';
 import { checkContainerApiBuildStamp } from './api-build-freeze.mjs';
-import { sanitizeBody, sanitizePayload, sanitizeText } from './playwright-browser.mjs';
+import { sanitizePayload, sanitizeText } from './playwright-browser.mjs';
 import {
   createRunContext,
   environmentForFixtureDir,
+  fixtureExplorerRequestPathMatches,
+  fixtureProjectExplorerCollectionPath,
   makeReportLocation,
   scenarioFor,
   validateScenarioCase,
 } from './fixture-context.mjs';
-import { adjudicatePendingLifecycle, classifyNetworkRecord, createReport, finishReport, recordCheck, writeReport } from './report.mjs';
+import { createReport, finishReport, recordCheck, writeReport } from './report.mjs';
 import { scenarioCaseFor } from '../registry.mjs';
 import { sourceFingerprintChangedPaths, sourceFingerprintWithManifest } from './source-fingerprint.mjs';
 import { captureNativeFailureEvidence, MAX_NATIVE_FAILURE_CAPTURE_MS } from './native-failure-evidence.mjs';
-import { correlateRequestFailure } from './network-timing.mjs';
-import { captureConstructionChoiceProposalRequest } from './construction-choice-request.mjs';
-import { createPendingResponseReads } from './pending-response-reads.mjs';
-import { includeBrowserDiagnostics } from './cda-playwright.mjs';
+import { createPlaywrightNetworkObserver } from './playwright-network-observer.mjs';
+import { canonicalProjectID } from '../../loom-dev.mjs';
 import {
-  createFixtureNativeRequestLedger,
-  finalizeFixtureNativeRequestReport,
-  openBasicFixtureNativeRequestScope,
-  projectFixtureNetworkDiagnostics,
-} from './native-request-ledger.mjs';
+  assertFixtureSourceApiFreeze,
+  assertNoUnexpectedFixtureFailures,
+} from './fixture-failure-assertions.mjs';
 
 const ACTION_TIMEOUT_MS = 5_000;
 const CONTEXT_SETUP_TIMEOUT_MS = 120_000;
-const MAX_DIAGNOSTICS = 100;
 const safeText = (value) => sanitizeText(value).slice(0, 4_000);
-
-export function createFixtureBrowserDiagnostics(report) {
-  if (!report || typeof report !== 'object') {
-    throw new TypeError('Fixture browser diagnostics require a report object.');
-  }
-  const channels = ['pageErrors', 'console', 'networkFailures', 'httpFailures', 'assetFailures'];
-  const diagnostics = Object.fromEntries(channels.map(channel => [channel, []]));
-  const droppedCounts = Object.fromEntries(channels.map(channel => [channel, 0]));
-  diagnostics.droppedCounts = droppedCounts;
-  const responseReads = createPendingResponseReads();
-  let overflowError;
-  const reportCaptureCounts = () => {
-    const retainedCounts = Object.fromEntries(channels.map(channel => [channel, diagnostics[channel].length]));
-    report.browserDiagnostics = { retainedCounts, droppedCounts: { ...droppedCounts } };
-    if (Object.values(droppedCounts).some(count => count > 0)) {
-      report.errors ??= [];
-      if (!overflowError) {
-        overflowError = {
-          kind: 'browser-diagnostic-overflow',
-          message: 'Fixture browser diagnostics exceeded a per-channel capture limit.',
-          droppedCounts: { ...droppedCounts },
-        };
-        report.errors.push(overflowError);
-        recordCheck(report, 'correctness', 'fixture browser diagnostic channels stayed within capture limits', false,
-          { retainedCounts, droppedCounts: { ...droppedCounts }, limitPerChannel: MAX_DIAGNOSTICS });
-      } else {
-        overflowError.droppedCounts = { ...droppedCounts };
-        const assertion = report.assertions?.find(item => item.name === 'fixture browser diagnostic channels stayed within capture limits'
-          && item.status === 'failed');
-        if (assertion) assertion.evidence = { retainedCounts, droppedCounts: { ...droppedCounts }, limitPerChannel: MAX_DIAGNOSTICS };
-      }
-    }
-  };
-  const project = () => {
-    includeBrowserDiagnostics(diagnostics, report);
-    reportCaptureCounts();
-  };
-  const flushHttpDiagnostics = ({ timeoutMs = 5_000 } = {}) =>
-    responseReads.flush({ timeoutMs, label: 'fixture HTTP diagnostic bodies' });
-  return {
-    diagnostics,
-    record(channel, entry) {
-      const entries = diagnostics[channel];
-      if (!Array.isArray(entries)) throw new TypeError(`Unknown fixture browser diagnostic channel: ${channel}`);
-      if (entries.length >= MAX_DIAGNOSTICS) {
-        droppedCounts[channel] += 1;
-        return false;
-      }
-      entries.push(entry);
-      return true;
-    },
-    trackHttpDiagnosticRead(read, details) {
-      return responseReads.track(read, { phase: 'fixture-http-response-body', ...details });
-    },
-    flushHttpDiagnostics,
-    includeBrowserDiagnostics() {
-      project();
-    },
-    async finalize({ timeoutMs = 5_000 } = {}) {
-      let drainError;
-      try {
-        await flushHttpDiagnostics({ timeoutMs });
-      } catch (error) {
-        drainError = safeText(error?.message ?? error);
-        report.errors ??= [];
-        report.errors.push({ kind: 'browser-diagnostic-drain', message: drainError });
-        recordCheck(report, 'correctness', 'fixture HTTP response diagnostics drained before report finalization', false,
-          { message: drainError, timeoutMs });
-      }
-      reportCaptureCounts();
-      if (!drainError) {
-        recordCheck(report, 'correctness', 'fixture HTTP response diagnostics drained before report finalization', true,
-          { timeoutMs, retainedHttpDiagnostics: diagnostics.httpFailures.length });
-      }
-      return { drainError, droppedCounts: { ...droppedCounts } };
-    },
-  };
-}
-
-const safeURL = (raw) => {
-  try {
-    const url = new URL(raw);
-    return safeText(`${url.origin}${url.pathname}`);
-  } catch {
-    return safeText(raw);
-  }
-};
-
-const requestDiagnostic = (request) => {
-  let body;
-  try { body = request.postDataJSON(); } catch { body = undefined; }
-  const input = body?.variables?.input ?? body ?? {};
-  const headers = request.headers();
-  const constructionChoiceProposal = captureConstructionChoiceProposalRequest(request, body);
-  let previewReceiptId;
-  try {
-    if (new URL(request.url()).pathname.endsWith('/authoring/v2/preview')) previewReceiptId = input.receiptId ?? null;
-  } catch {}
-  return sanitizePayload({
-    requestId: headers['x-request-id'] ?? body?.requestId ?? body?.requestID ?? null,
-    draftVersion: input.expectedDraftVersion ?? input.draftVersion ?? null,
-    draftDigest: input.expectedDraftDigest ?? input.draftDigest ?? null,
-    outputId: input.outputId ?? null,
-    stageId: input.stageId ?? null,
-    ...(constructionChoiceProposal ? { constructionChoiceProposal } : {}),
-    ...(previewReceiptId === undefined ? {} : { receiptId: previewReceiptId }),
-  });
-};
 
 const apiIdentity = async (target) => {
   if (!target.composeProject) return { identity: null, error: 'owned API container is unavailable' };
@@ -279,17 +163,13 @@ export const test = base.extend({
     report.fixtureTimings.apiBuildIdentityAfterMs = performance.now() - apiAfterStarted;
 
     finishReport(report);
-    adjudicatePendingLifecycle(report);
     const sanitizedReport = sanitizePayload(report);
     writeReport(location.reportPath, sanitizedReport);
     await testInfo.attach('loom-verification-report.json', {
       path: location.reportPath,
       contentType: 'application/json',
     });
-    if (testInfo.status === 'passed') {
-      expect(report.missingRequiredChecks, 'required Loom workflow checks were not recorded as passed').toEqual([]);
-      expect(report.status, 'Loom domain report did not pass').toBe('passed');
-    }
+    if (testInfo.status === 'passed') assertFixtureSourceApiFreeze(report.assertions);
   }, { timeout: CONTEXT_SETUP_TIMEOUT_MS }],
 
   workflow: async ({ loomContext, page }, use, testInfo) => {
@@ -297,6 +177,32 @@ export const test = base.extend({
     const lifecycleStarted = performance.now();
     const workflowStartedAt = lifecycleStarted;
     const ownedOrigins = new Set([target.uiUrl, target.apiUrl].filter(Boolean).map((url) => new URL(url).origin));
+    const projectExplorerCollectionPath = fixtureProjectExplorerCollectionPath(target.fixtureProject);
+    const selectedExplorer = () => report.target?.explorer ?? report.explorer ?? target.bootstrapExplorerId;
+    const scopeRequest = (request) => {
+      try {
+        const url = new URL(request.url());
+        if (url.origin !== new URL(target.uiUrl).origin) return false;
+        if (url.pathname === projectExplorerCollectionPath) return true;
+        if (request.method() === 'POST' && url.pathname === '/graphql/graph') {
+          let input;
+          try { input = request.postDataJSON()?.variables?.input; }
+          catch { return false; }
+          const outputId = report.target?.viewerOutputId;
+          return input?.projectId === canonicalProjectID(target.fixtureProject) && typeof outputId === 'string' &&
+            input.selector?.output === outputId && Boolean(selectedExplorer());
+        }
+        const explorer = selectedExplorer();
+        return fixtureExplorerRequestPathMatches(url.pathname, target.fixtureProject, explorer);
+      } catch { return false; }
+    };
+    const networkObserver = createPlaywrightNetworkObserver(page, {
+      scopeRequest,
+      appOrigins: [...ownedOrigins],
+      responsePaths: /^\/api\/v1\/projects\/[^/]+\/explorers\/[^/]+(?:\/.*)?$/,
+      report,
+    });
+    const diagnostics = networkObserver.diagnostics;
     const captureFailureEvidence = async details => {
       if (report.failureEvidence) return;
       try {
@@ -308,240 +214,26 @@ export const test = base.extend({
         };
       }
     };
-    const capabilityRequests = new Map();
-    const requestIDs = new WeakMap();
-    const requestMetadata = new WeakMap();
-    const nativeRequestLedger = createFixtureNativeRequestLedger();
-    openBasicFixtureNativeRequestScope(nativeRequestLedger, target);
-    const browserDiagnostics = createFixtureBrowserDiagnostics(report);
-    const mainFrameNavigations = [];
-    let navigationSequence = 0;
-    let droppedNavigationTimings = 0;
     let actionSequence = 0;
-    const faultAttempts = [];
     const faultRouteHandlers = [];
-    let requestSequence = 0;
-    let requestIDSequence = 0;
     let activeAction;
     let activeActionContext;
     let firstFailureActionContext;
-    let retainedDiagnostics = 0;
     let droppedDiagnostics = 0;
-    const addDiagnostic = (entry) => {
-      if (retainedDiagnostics < MAX_DIAGNOSTICS) {
-        report.network.push(entry);
-        retainedDiagnostics += 1;
-        return true;
-      } else {
-        droppedDiagnostics += 1;
-        return false;
-      }
+    const recordTeardownError = (error) => {
+      const message = safeText(error?.message ?? error);
+      report.errors ??= [];
+      report.errors.push({ kind: 'fixture-teardown', message });
+      report.network.push({ kind: 'exception', message });
     };
-    const belongsToTarget = (request) => {
-      try { return ownedOrigins.has(new URL(request.url()).origin); }
-      catch { return false; }
-    };
-    const playwrightRequestId = (request) => {
-      let id = requestIDs.get(request);
-      if (!id) {
-        id = `request-${++requestIDSequence}`;
-        requestIDs.set(request, id);
-      }
-      return id;
-    };
-
+    const expectTransportFailure = (request, { reason, action } = {}) =>
+      networkObserver.markExpectedTransportFailure(request, { reason, action });
     const actionSnapshot = () => {
       if (activeAction) return { id: activeAction.id, label: activeAction.label };
       const workflowAction = report.activeAction;
       const label = workflowAction?.label ?? workflowAction?.name;
       return workflowAction?.id && label ? { id: workflowAction.id, label: safeText(label) } : null;
     };
-    const onRequest = request => {
-      const requestId = playwrightRequestId(request);
-      const frameIdentity = nativeRequestLedger.frameIdentityForRequest(request, page);
-      if (belongsToTarget(request) && request.isNavigationRequest?.() && frameIdentity.frameIsMainFrame === true) {
-        const startedAt = performance.now();
-        const sequence = ++navigationSequence;
-        if (mainFrameNavigations.length < MAX_DIAGNOSTICS) {
-          mainFrameNavigations.push({ id: `navigation-${sequence}`, sequence, startedAt,
-            atMs: Math.round(startedAt - workflowStartedAt), url: safeURL(request.url()), phase: 'request-start',
-            ...frameIdentity, browserRequestId: requestId });
-        } else droppedNavigationTimings += 1;
-      }
-      if (belongsToTarget(request)) {
-        const startedAt = performance.now();
-        const metadata = {
-          requestId,
-          method: request.method(),
-          resourceType: request.resourceType(),
-          url: safeURL(request.url()),
-          requestDetails: requestDiagnostic(request),
-          startedAt,
-          startedMs: Math.round(startedAt - workflowStartedAt),
-          action: actionSnapshot(),
-          navigationSequenceAtStart: navigationSequence,
-          ...frameIdentity,
-        };
-        requestMetadata.set(request, metadata);
-        nativeRequestLedger.recordRequest(request, {
-          requestId: metadata.requestDetails.requestId ?? requestId,
-          browserRequestId: requestId,
-          method: metadata.method,
-          resourceType: metadata.resourceType,
-          url: metadata.url,
-          requestDetails: metadata.requestDetails,
-          startedAt: Date.now(),
-          action: metadata.action,
-          navigationSequenceAtStart: metadata.navigationSequenceAtStart,
-          pageId: metadata.pageId,
-          frameId: metadata.frameId,
-          frameIsMainFrame: metadata.frameIsMainFrame,
-          frameIdentityStatus: metadata.frameIdentityStatus,
-        });
-      }
-      const binding = capabilityBinding(request, { ...target, explorer: report.target.explorer ?? target.bootstrapExplorerId });
-      if (binding) capabilityRequests.set(request, { binding, sequence: ++requestSequence, status: null, requestAction: actionSnapshot()?.label ?? null });
-    };
-    const onFrameNavigated = frame => {
-      if (frame !== page.mainFrame()) return;
-      let origin;
-      try { origin = new URL(frame.url()).origin; } catch { return; }
-      if (!ownedOrigins.has(origin)) return;
-      const startedAt = performance.now();
-      const sequence = ++navigationSequence;
-      if (mainFrameNavigations.length >= MAX_DIAGNOSTICS) {
-        droppedNavigationTimings += 1;
-        return;
-      }
-      mainFrameNavigations.push({
-        id: `navigation-${sequence}`,
-        sequence,
-        startedAt,
-        atMs: Math.round(startedAt - workflowStartedAt),
-        url: safeURL(frame.url()),
-        ...nativeRequestLedger.frameIdentityForFrame(frame, page),
-        phase: 'frame-navigated',
-      });
-    };
-    const onConsole = (message) => {
-      if (message.type() !== 'error') return;
-      if (isIncidentalFavicon(message.location().url, target, 404) && message.text().includes('404')) {
-        const failure = { kind: 'asset-failure', url: safeURL(message.location().url), status: 404 };
-        if (browserDiagnostics.record('assetFailures', failure)) report.assetFailures.push(failure);
-        return;
-      }
-      browserDiagnostics.record('console', { text: safeText(message.text()), location: safeURL(message.location().url) });
-      addDiagnostic({
-        kind: 'console-error',
-        text: safeText(message.text()),
-        location: safeURL(message.location().url),
-        rawLocation: message.location().url,
-      });
-    };
-    const onPageError = (error) => {
-      const failure = { message: safeText(error.message), stack: safeText(error.stack) };
-      browserDiagnostics.record('pageErrors', failure);
-      addDiagnostic({ kind: 'exception', ...failure });
-    };
-    const onResponse = (response) => {
-      nativeRequestLedger.recordResponse(response.request(), {
-        status: response.status(),
-        serverRequestId: response.headers()?.['x-request-id'],
-      });
-      const ownedRequest = capabilityRequests.get(response.request());
-      if (ownedRequest) {
-        ownedRequest.status = response.status();
-        if (response.ok()) void response.json().then(body => {
-          ownedRequest.responseMatches = capabilityResponseMatches(ownedRequest.binding, body);
-        }, error => { ownedRequest.responseReadError = safeText(error.message); });
-      }
-      if (response.status() < 400 || !belongsToTarget(response.request())) return;
-      if (isIncidentalFavicon(response.url(), target, response.status())) {
-        const failure = { kind: 'asset-failure', url: safeURL(response.url()), status: 404 };
-        if (browserDiagnostics.record('assetFailures', failure)) report.assetFailures.push(failure);
-        return;
-      }
-      const request = response.request();
-      const responseBody = { captureState: 'pending' };
-      const entry = {
-        kind: 'network', status: response.status(), method: response.request().method(),
-        url: safeURL(response.url()), resourceType: response.request().resourceType(),
-        rawURL: response.url(),
-        playwrightRequestId: playwrightRequestId(request),
-        requestDetails: requestMetadata.get(request)?.requestDetails ?? requestDiagnostic(request),
-        ...(requestMetadata.has(request) ? { requestTimeline: correlateRequestFailure({
-          requestStartedAt: requestMetadata.get(request).startedAt, failedAt: performance.now(), workflowStartedAt,
-          action: requestMetadata.get(request).action,
-          navigationSequenceAtStart: requestMetadata.get(request).navigationSequenceAtStart,
-          navigations: mainFrameNavigations,
-        }) } : {}),
-        responseBody,
-      };
-      nativeRequestLedger.associateDiagnostic(request, entry);
-      if (!addDiagnostic(entry)) return;
-      const read = Promise.resolve().then(() => response.text()).then(body => {
-        responseBody.captureState = 'completed';
-        responseBody.body = sanitizeBody(body);
-        browserDiagnostics.record('httpFailures', { url: entry.url, status: entry.status, body: responseBody.body,
-          browserRequestId: entry.playwrightRequestId, playwrightRequestId: entry.playwrightRequestId });
-      }, error => {
-        responseBody.captureState = 'readfailed';
-        responseBody.error = safeText(error?.message ?? error);
-        browserDiagnostics.record('httpFailures', { url: entry.url, status: entry.status, body: responseBody,
-          browserRequestId: entry.playwrightRequestId, playwrightRequestId: entry.playwrightRequestId });
-        throw error;
-      });
-      browserDiagnostics.trackHttpDiagnosticRead(read, {
-        browserRequestId: entry.playwrightRequestId,
-        requestId: entry.requestDetails.requestId,
-        method: entry.method,
-        path: new URL(entry.rawURL).pathname,
-        status: entry.status,
-      });
-    };
-    const onRequestFailed = (request) => {
-      const rawErrorText = request.failure()?.errorText ?? null;
-      nativeRequestLedger.recordFailed(request, {
-        failure: rawErrorText == null ? null : safeText(rawErrorText).replace(/https?:\/\/[^\s"'<>]+/g, value => safeURL(value)),
-      });
-      if (!belongsToTarget(request)) return;
-      const ownedRequest = capabilityRequests.get(request);
-      if (ownedRequest) ownedRequest.failed = true;
-      const failedAt = performance.now();
-      const metadata = requestMetadata.get(request);
-      const errorText = safeText(request.failure()?.errorText).replace(/https?:\/\/[^\s\"'<>]+/g, value => safeURL(value));
-      const entry = {
-        kind: 'network', method: request.method(), url: metadata?.url ?? safeURL(request.url()),
-        resourceType: request.resourceType(), errorText,
-        rawURL: request.url(),
-        playwrightRequestId: metadata?.requestId ?? playwrightRequestId(request),
-        requestDetails: metadata?.requestDetails ?? requestDiagnostic(request),
-        ...(metadata ? { requestTimeline: correlateRequestFailure({
-          requestStartedAt: metadata.startedAt, failedAt, workflowStartedAt,
-          action: metadata.action,
-          navigationSequenceAtStart: metadata.navigationSequenceAtStart,
-          navigations: mainFrameNavigations,
-        }) } : { failedAtMs: Math.round(failedAt - workflowStartedAt) }),
-        ...capabilityRequests.get(request), triggerAction: metadata?.action?.label ?? null,
-      };
-      browserDiagnostics.record('networkFailures', { url: entry.url, errorText: entry.errorText,
-        browserRequestId: entry.playwrightRequestId, playwrightRequestId: entry.playwrightRequestId });
-      nativeRequestLedger.associateDiagnostic(request, entry);
-      addDiagnostic(entry);
-    };
-    const onRequestFinished = request => {
-      nativeRequestLedger.recordFinished(request);
-      const ownedRequest = capabilityRequests.get(request);
-      if (ownedRequest) ownedRequest.finished = true;
-    };
-    page.on('requestfinished', onRequestFinished);
-    page.on('framenavigated', onFrameNavigated);
-    page.on('request', onRequest);
-    page.on('console', onConsole);
-    page.on('pageerror', onPageError);
-    page.on('response', onResponse);
-    page.on('requestfailed', onRequestFailed);
-
     const check = (dimension, name, passed, evidence = {}) => {
       const success = Boolean(passed);
       recordCheck(report, dimension, name, success, evidence);
@@ -626,15 +318,14 @@ export const test = base.extend({
       const ownedTarget = ownedFaultTarget(target, { method, path });
       const responseStatus = response == null ? null :
         (typeof response.status === 'function' ? response.status() : (response.status ?? 200));
+      report.injectedRequests ??= [];
       const attempt = {
-        id: `injected-${faultAttempts.length + 1}`,
+        id: `injected-${report.injectedRequests.length + 1}`,
         ...ownedTarget,
         matched: false,
         action: response == null ? 'abort' : 'fulfill',
         responseStatus,
       };
-      faultAttempts.push(attempt);
-      report.injectedRequests ??= [];
       const evidence = {
         id: attempt.id,
         matched: false,
@@ -652,13 +343,34 @@ export const test = base.extend({
           await route.fallback();
           return;
         }
-        captureInjectedFaultRequest(attempt, request, playwrightRequestId(request));
+        const observed = networkObserver.byRequest.get(request);
+        if (!observed) throw new Error('Injected fault request was outside the shared observer scope.');
+        attempt.matched = true;
+        attempt.browserRequestId = observed.browserRequestId;
         evidence.matched = true;
-        evidence.playwrightRequestId = attempt.playwrightRequestId;
-        evidence.url = safeURL(request.url());
-        evidence.request = requestDiagnostic(request);
-        if (response == null) await route.abort();
-        else await route.fulfill(response);
+        evidence.browserRequestId = observed.browserRequestId;
+        evidence.url = observed.url;
+        evidence.request = { method: observed.method, path: observed.path };
+        if (response == null) {
+          expectTransportFailure(request, {
+            reason: `fixture fault ${attempt.id} intentionally aborted this request`,
+            action: actionSnapshot()?.label ?? attempt.id,
+          });
+          await route.abort();
+        }
+        else {
+          await route.fulfill(response);
+          if ([400, 422].includes(responseStatus)) {
+            const observed = networkObserver.byRequest.get(request);
+            if (!observed) throw new Error('Injected validation request was outside the shared observer scope.');
+            const completed = await networkObserver.waitForResponse(entry => entry === observed, { fromIndex: observed.index });
+            networkObserver.markExpectedValidation(completed, {
+              status: responseStatus,
+              reason: `fixture fault ${attempt.id} intentionally returned an HTTP validation response`,
+              proof: evidence,
+            });
+          }
+        }
       };
       await page.route('**/*', handler);
       faultRouteHandlers.push(handler);
@@ -671,73 +383,64 @@ export const test = base.extend({
     };
 
     try {
-      await use({ ...loomContext, ...browserDiagnostics, page, check, action, fault, nativeRequestLedger });
+      await use({ ...loomContext, diagnostics, page, check, action, fault, expectTransportFailure, networkObserver });
     } finally {
       try {
-        try {
-          for (const handler of faultRouteHandlers) await page.unroute('**/*', handler);
-        } finally {
-          await nativeRequestLedger.finalizeScope({
-            project: target.fixtureProject,
-            explorer: report.target?.explorer ?? report.explorer,
-            timeoutMs: 5_000,
-          });
-        }
+        for (const handler of faultRouteHandlers) await page.unroute('**/*', handler);
+      } catch (error) {
+        recordTeardownError(error);
       } finally {
-        page.removeListener('requestfinished', onRequestFinished);
-        page.removeListener('framenavigated', onFrameNavigated);
-        page.removeListener('request', onRequest);
-        page.removeListener('console', onConsole);
-        page.removeListener('pageerror', onPageError);
-        page.removeListener('response', onResponse);
-        page.removeListener('requestfailed', onRequestFailed);
+        try { await networkObserver.stop(); }
+        catch (error) { recordTeardownError(error); }
       }
-      await browserDiagnostics.finalize({ timeoutMs: 5_000 });
-      projectFixtureNetworkDiagnostics({ report, ledger: nativeRequestLedger, faults: faultAttempts });
-      for (const failure of report.network) {
-        const replacement = supersedingCapabilityRequest(failure, [...capabilityRequests.values()]);
-        if (!replacement) continue;
-        failure.canceled = true;
-        failure.cancellationReason = 'superseded capability binding has a later successful replacement';
-        failure.replacement = { sequence: replacement.sequence, status: replacement.status, finished: replacement.finished, responseMatches: replacement.responseMatches, binding: replacement.binding };
-      }
-      report.navigationTimings = mainFrameNavigations.map(({ id, sequence, atMs, url, phase, pageId, frameId,
-        frameIsMainFrame, frameIdentityStatus, browserRequestId }) => ({
-        id, sequence, atMs, url, phase, pageId, frameId, frameIsMainFrame, frameIdentityStatus,
-        ...(browserRequestId ? { browserRequestId } : {}),
-      }));
-      await finalizeFixtureNativeRequestReport({
-        report,
-        ledger: nativeRequestLedger,
-        project: target.fixtureProject,
-        explorer: report.target?.explorer ?? report.explorer,
-        timeoutMs: 5_000,
-      });
+      report.assetFailures = [...diagnostics.assetFailures];
+      const diagnosticChannels = ['console', 'pageErrors', 'networkFailures', 'httpFailures', 'assetFailures'];
+      const retainedCounts = Object.fromEntries(diagnosticChannels.map(channel => [channel, diagnostics[channel].length]));
+      const droppedCounts = diagnostics.overflow ? { ...diagnostics.overflow } : {};
+      droppedDiagnostics = Object.values(droppedCounts).reduce((total, count) => total + count, 0);
+      report.browserDiagnostics = {
+        source: 'playwright-network-observer',
+        retainedCounts,
+        droppedCounts,
+        captureComplete: droppedDiagnostics === 0,
+      };
       if (report.assetFailures.length) recordCheck(report, 'correctness', 'incidental asset failures are explicitly recorded', true, { failures: report.assetFailures });
       report.browserLifecycle = {
         kind: 'official-playwright-page',
         status: testInfo.status,
         durationMs: Math.round(performance.now() - lifecycleStarted),
-        diagnosticLimit: MAX_DIAGNOSTICS,
         droppedDiagnostics,
-        droppedNavigationTimings,
+        observedRequestCount: networkObserver.requests.length,
       };
-      if (droppedDiagnostics > 0) {
-        report.network.push({ kind: 'exception', message: `diagnostic limit exceeded; ${droppedDiagnostics} events omitted` });
-      }
-      const missingRequiredChecks = report.requiredChecks.filter(name =>
-        !report.assertions.some(assertion => assertion.name === name && assertion.status === 'passed'));
+      const observerFailures = networkObserver.failures.map(failure => ({
+        kind: failure.kind,
+        message: failure.message ?? failure.errorText ?? failure.entry?.failure?.errorText,
+        url: failure.url ?? failure.entry?.url,
+        method: failure.entry?.method,
+        path: failure.entry?.path,
+      }));
+      const fixtureErrors = report.errors.filter(entry => ['fixture-audit-error', 'fixture-teardown'].includes(entry.kind));
+      const noUnexpectedFailures = observerFailures.length === 0 && fixtureErrors.length === 0;
+      recordCheck(report, 'correctness', 'fixture browser observer reported no unexpected network or runtime errors',
+        noUnexpectedFailures, { observerFailures, fixtureErrors });
       const firstFailurePending = testInfo.status !== 'passed' ||
         report.assertions.some(assertion => assertion.status === 'failed') ||
-        missingRequiredChecks.length > 0 || droppedDiagnostics > 0 ||
-        report.network.some(entry => classifyNetworkRecord(entry) === 'unexpected-error');
+        !noUnexpectedFailures;
       if (firstFailurePending && !report.failureEvidence) {
         const failureAction = firstFailureActionContext ?? activeActionContext;
         await captureFailureEvidence({
-          reason: testInfo.error?.message ?? 'Playwright workflow failed outside the action helper',
+          reason: testInfo.error?.message ?? observerFailures[0]?.message ?? fixtureErrors[0]?.message ??
+            'Playwright workflow failed outside the action helper',
           label: failureAction?.label,
           locator: failureAction?.locator,
           startedAt: failureAction?.startedAt,
+        });
+      }
+      if (testInfo.status === 'passed') {
+        assertNoUnexpectedFixtureFailures({
+          observerFailures,
+          reportErrors: [],
+          fixtureErrors,
         });
       }
     }

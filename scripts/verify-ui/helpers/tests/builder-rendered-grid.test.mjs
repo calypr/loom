@@ -77,3 +77,33 @@ test('rendered-grid wait matches CSS-uppercased headers and exact nested raw cel
     else globalThis.document = priorDocument;
   }
 });
+
+test('rendered-grid check matches exact virtual Preview Patient IDs while skipping its ARIA header', () => {
+  const priorDocument = globalThis.document;
+  const contract = {
+    tableSelector: '[data-testid="preview-table-scroll"] [role="table"]',
+    expectedRows: [
+      { 'Patient ID': 'dev-patient-001' },
+      { 'Patient ID': 'dev-patient-002' },
+    ],
+  };
+  try {
+    globalThis.document = gridDocument([
+      row([cell('PATIENT ID')], true),
+      row([cell('dev-patient-001')]),
+      row([cell('dev-patient-002')]),
+    ]);
+    assert.equal(builderRenderedGridWaitPredicate(contract), true);
+
+    globalThis.document = gridDocument([
+      row([cell('PATIENT ID'), cell('GENDER')], true),
+      row([cell('dev-patient-001'), cell('Female')]),
+      row([cell('dev-patient-002'), cell('Male')]),
+    ]);
+    assert.equal(builderRenderedGridWaitPredicate(contract), true,
+      'the exact Patient ID oracle should remain valid when Viewer setup adds Gender');
+  } finally {
+    if (priorDocument === undefined) delete globalThis.document;
+    else globalThis.document = priorDocument;
+  }
+});

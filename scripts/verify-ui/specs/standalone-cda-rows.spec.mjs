@@ -174,6 +174,28 @@ test.describe('CDA related source ONE and ALL values', () => {
         'Basic Quantity ONE-to-ALL lifecycle action-to-render checkpoints finish within five seconds',
       ]);
     }
+    if (relatedScenarioID === 'cda-related-one-all-specimen-reference') {
+      const requiredSettledCheckpoints = [
+        'related-observation-one-disagreement',
+        'same-chooser-all-repair-preview',
+        'cancel-related-all-proposal-preserves-group',
+        'reopened-all-preview-before-apply',
+        'apply-related-all-to-native-table-render',
+        'native-preview-matches-exact-related-field-oracle',
+        'reload-related-all-available-cardinality-values',
+        'edit-related-field-output-label',
+        'reload-edited-related-field-output-label',
+        'remove-related-source-step-preview',
+        'apply-remove-related-step-restores-native-group-table',
+        'reload-restored-available-witness-group-table',
+      ];
+      const durationByName = new Map(result.cases.map(({ name, durationMs }) => [name, durationMs]));
+      for (const name of requiredSettledCheckpoints) {
+        const durationMs = durationByName.get(name);
+        expect(Number.isFinite(durationMs), `${name} must have an end-to-end duration`).toBe(true);
+        expect(durationMs, `${name} must settle within five seconds`).toBeLessThanOrEqual(5000);
+      }
+    }
   });
 });
 

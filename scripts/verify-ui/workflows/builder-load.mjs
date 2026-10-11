@@ -1,5 +1,6 @@
 import { expect } from '@playwright/test';
 import { browserURL } from './builder-url.mjs';
+import { fixtureProjectExplorerCollectionPath } from '../helpers/fixture-context.mjs';
 import { recordCheck } from '../helpers/report.mjs';
 
 const retryLabel = /^(?:Try again|Retry(?:\s+(?:Builder|Explorer|capabilit)[\w ]*)?|Reload capabilities)$/i;
@@ -8,8 +9,8 @@ export const isLoadedBuilderSnapshot = (snapshot, expectedExplorer) => Boolean(
   snapshot && snapshot.selectedExplorerId === expectedExplorer &&
   (snapshot.emptyWorkspaceVisible || (snapshot.tableCount > 0 && snapshot.previewStatus === 'ready')),
 );
-const ownedRead = (target, caseName) => {
-  const explorers = `/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers`;
+export const ownedRead = (target, caseName) => {
+  const explorers = fixtureProjectExplorerCollectionPath(target.fixtureProject);
   return {
     method: 'GET',
     path: caseName === 'list'

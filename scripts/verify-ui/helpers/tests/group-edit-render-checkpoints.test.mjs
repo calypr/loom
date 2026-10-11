@@ -4,10 +4,19 @@ import {
   groupEditRenderBudgetMs,
   groupEditRenderCheckpointNames,
   groupEditRenderCheckpointSummary,
+  isProtectedExplorerRequestPath,
   recordGroupEditActionToRender,
 } from '../../workflows/verify-cda-group-edit-before-related-column-browser.mjs';
 
 const completeCheckpoints = () => groupEditRenderCheckpointNames.map((name) => ({ name, durationMs: 4999 }));
+
+test('protected Explorer request guard matches its exact project path and descendants only', () => {
+  const root = '/api/v1/projects/qa-project/explorers';
+  assert.equal(isProtectedExplorerRequestPath(root + '/protected-id', root, 'protected-id'), true);
+  assert.equal(isProtectedExplorerRequestPath(root + '/protected-id/authoring/v2/builder', root, 'protected-id'), true);
+  assert.equal(isProtectedExplorerRequestPath(root + '/protected-id-copy', root, 'protected-id'), false);
+  assert.equal(isProtectedExplorerRequestPath('/api/v1/projects/other/explorers/protected-id', root, 'protected-id'), false);
+});
 
 test('Group edit action-to-render recording enforces the five-second budget', () => {
   const report = { cases: [] };

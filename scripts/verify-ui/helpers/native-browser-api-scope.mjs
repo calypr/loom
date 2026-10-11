@@ -1,3 +1,5 @@
+import { fixtureProjectExplorerCollectionPath } from './fixture-context.mjs';
+
 const belongsToPath = (pathname, prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`);
 
 /** Classify browser API traffic against the local UI proxy and one owned Explorer. */
@@ -11,8 +13,8 @@ export const classifyNativeBrowserApiRequest = (requestUrl, {
   const url = new URL(requestUrl);
   if (!url.pathname.startsWith('/api/')) return { kind: 'ignore', url };
 
-  const projectPath = `/api/v1/projects/${encodeURIComponent(project)}`;
-  const explorersPath = `${projectPath}/explorers`;
+  const explorersPath = fixtureProjectExplorerCollectionPath(project);
+  const projectPath = explorersPath.slice(0, -'/explorers'.length);
   const protectedPath = `${explorersPath}/${encodeURIComponent(protectedExplorer)}`;
   if (belongsToPath(url.pathname, protectedPath) || url.pathname.includes(`/explorers/${encodeURIComponent(protectedExplorer)}/`)) {
     return { kind: 'reject', reason: 'protected-explorer', url };

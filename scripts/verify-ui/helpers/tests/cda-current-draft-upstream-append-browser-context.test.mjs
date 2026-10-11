@@ -7,6 +7,7 @@ import { classifyEvidence } from '../coverage-status.mjs';
 import { scenarioCaseFor } from '../../registry.mjs';
 import { CDA_ACTION_TO_RENDER_BUDGET_MS, summarizeCdaActionToRenderTimings } from '../cda-action-to-render-budget.mjs';
 import {
+  currentDraftReconcileMatchesOutput,
   readSelectOptionsInPage,
 } from '../../workflows/cda-current-draft-upstream-append-workflow.mjs';
 
@@ -40,6 +41,43 @@ test('Patient membership checks use dimensions accepted by the native report wri
     assert.ok(reportDimensions.includes(dimension), `Patient handoff check ${index + 1} uses unsupported report dimension '${dimension}'`);
     assert.doesNotThrow(() => recordCheck(report, dimension, `Patient handoff check ${index + 1}`, true));
   });
+});
+
+test('APPEND receipt correlation skips a same-draft Patient reconciliation', () => {
+  const expected = {
+    path: '/api/v1/projects/p/explorers/e/authoring/v2/reconcile',
+    outputId: 'out-append',
+    snapshotToken: 'sha256:snapshot',
+    draftVersion: 18,
+    draftDigest: 'sha256:draft',
+  };
+  const makeReconcile = outputId => ({
+    method: 'POST',
+    path: expected.path,
+    status: 200,
+    request: {
+      outputId,
+      snapshotToken: expected.snapshotToken,
+      draftVersion: expected.draftVersion,
+      draftDigest: expected.draftDigest,
+    },
+  });
+  const patientReconcile = makeReconcile('out-patient');
+  patientReconcile.response = { outputs: [{ outputId: 'out-patient' }] };
+  const appendReconcile = makeReconcile(expected.outputId);
+  appendReconcile.response = { outputs: [
+    { outputId: 'out-observation-a' },
+    { outputId: 'out-observation-b' },
+    { outputId: 'out-patient' },
+    { outputId: expected.outputId },
+  ] };
+
+  assert.equal(currentDraftReconcileMatchesOutput(patientReconcile, expected), false,
+    'The same-draft Patient receipt cannot satisfy the APPEND preview waiter');
+  assert.equal(currentDraftReconcileMatchesOutput(appendReconcile, expected), true,
+    'The APPEND receipt must match its exact request output ID');
+  assert.equal(appendReconcile.response.outputs.filter(output => output.outputId === expected.outputId).length, 1,
+    'The selected APPEND receipt must contain its output exactly once');
 });
 
 

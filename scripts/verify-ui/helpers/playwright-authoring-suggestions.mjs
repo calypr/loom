@@ -5,100 +5,11 @@ import { join } from 'node:path';
 import { assertPreviewPatientIds, patientWindow } from './playwright-authoring.mjs';
 import { configureNativePage } from './playwright-authoring-page.mjs';
 import { browserURL } from '../workflows/builder-url.mjs';
-import { recordCheck } from './report.mjs';
 
 const unique = async locator => {
   const count = await locator.count();
   assert.equal(count, 1, `Expected one target for ${locator.toString()}, found ${count}`);
   return locator;
-};
-
-const hasVerifiedCapabilityReplacement = item => {
-  const binding = item.binding;
-  const replacement = item.replacement;
-  return item.kind === 'network' && item.errorText === 'net::ERR_ABORTED' &&
-    item.canceled === true && item.cancellationReason === 'superseded capability binding has a later successful replacement' &&
-    item.method === 'POST' && Number.isInteger(item.sequence) &&
-    binding?.route === item.url && new URL(binding.route).pathname.endsWith('/authoring/v2/construction-capabilities') &&
-    replacement && Number.isInteger(replacement.sequence) && replacement.sequence > item.sequence &&
-    Number.isInteger(replacement.status) && replacement.status >= 200 && replacement.status < 300 &&
-    replacement.finished === true && replacement.responseMatches === true && replacement.failed !== true &&
-    replacement.binding?.route === binding.route &&
-    JSON.stringify(replacement.binding) !== JSON.stringify(binding);
-};
-
-const suggestionRequestURL = (target, explorer) => `${new URL(target.uiUrl).origin}` +
-  `/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers/${encodeURIComponent(explorer)}/authoring/v2/suggestions`;
-
-const exactInjectedSuggestionFailure = (report, target, failure) => {
-  const expectedURL = suggestionRequestURL(target, report.target.explorer);
-  return report.network.includes(failure) && failure.kind === 'network' && failure.method === 'POST' &&
-    failure.url === expectedURL && failure.rawURL === expectedURL && failure.errorText === 'net::ERR_FAILED' &&
-    failure.injectedFault === true && failure.injectedAction === 'abort' &&
-    failure.injectedRequestId === failure.requestDetails?.requestId &&
-    typeof failure.injectedRequestId === 'string' && failure.injectedRequestId.length > 0 &&
-    typeof failure.playwrightRequestId === 'string' && failure.playwrightRequestId.length > 0;
-};
-
-export const classifySuggestionDiagnostics = (report, target, injectedFailure) => {
-  const cancelledReads = report.network.filter(item => {
-    try { return hasVerifiedCapabilityReplacement(item); } catch { return false; }
-  });
-  const validFailure = exactInjectedSuggestionFailure(report, target, injectedFailure) ? injectedFailure : undefined;
-  const competingSameRequestURLFailures = validFailure
-    ? report.network.filter(item => item !== validFailure && item.kind === 'network' &&
-      item.method === validFailure.method && item.errorText === 'net::ERR_FAILED' &&
-      (item.rawURL ?? item.url) === validFailure.rawURL)
-    : [];
-  const matchingAbortConsoleErrors = validFailure && competingSameRequestURLFailures.length === 0
-    ? report.network.filter(item => item.kind === 'console-error' &&
-      item.text === 'Failed to load resource: net::ERR_FAILED' && item.rawLocation === validFailure.rawURL)
-    : [];
-  const expectedAbortConsoleError = matchingAbortConsoleErrors.length === 1 ? matchingAbortConsoleErrors[0] : undefined;
-  if (expectedAbortConsoleError) {
-    Object.assign(expectedAbortConsoleError, {
-      kind: 'network',
-      observedAs: 'console-error',
-      method: validFailure.method,
-      url: validFailure.url,
-      errorText: 'net::ERR_FAILED',
-      injectedFault: true,
-      injectedAction: 'abort',
-      injectedRequestId: validFailure.injectedRequestId,
-      playwrightRequestId: validFailure.playwrightRequestId,
-      requestDetails: validFailure.requestDetails,
-    });
-  }
-  const expected = new Set([
-    ...cancelledReads,
-    ...(validFailure ? [validFailure] : []),
-    ...(expectedAbortConsoleError ? [expectedAbortConsoleError] : []),
-  ]);
-  return {
-    cancelledReads,
-    expectedInjectedSuggestionFailures: [
-      ...(validFailure ? [validFailure] : []),
-      ...(expectedAbortConsoleError ? [expectedAbortConsoleError] : []),
-    ],
-    expectedAbortConsoleError,
-    competingSameRequestURLFailures,
-    unexpected: report.network.filter(item => !expected.has(item)),
-  };
-};
-
-const checkUnexpectedDiagnostics = (report, target, injectedFailure) => {
-  const { cancelledReads, expectedInjectedSuggestionFailures, expectedAbortConsoleError, unexpected } =
-    classifySuggestionDiagnostics(report, target, injectedFailure);
-  report.cancelledOwnedReads = cancelledReads;
-  report.expectedInjectedSuggestionFailures = expectedInjectedSuggestionFailures;
-  recordCheck(report, 'correctness', 'no unexpected network, API, or browser errors', unexpected.length === 0,
-    { console: unexpected.filter(item => item.kind === 'console-error'),
-      pageErrors: unexpected.filter(item => item.kind === 'exception'),
-      matchedAbortConsoleError: expectedAbortConsoleError ? {
-        text: expectedAbortConsoleError.text,
-        url: expectedAbortConsoleError.rawLocation ?? expectedAbortConsoleError.location,
-      } : null,
-      networkFailures: unexpected.filter(item => item.kind === 'network') });
 };
 
 const explorerFromAuthoringPath = pathname => {
@@ -203,7 +114,7 @@ export const waitForOwnedRootSuggestionRequest = async (requestSeen, timeoutMs =
 };
 
 export const releaseSuggestionRouteAfterGate = async (
-  route, actionCompleted, timeoutMs = 5_000, chronology = {}, beforeAbort,
+  route, actionCompleted, timeoutMs = 5_000, chronology = {}, beforeAbort, expectTransportFailure,
 ) => {
   let timer;
   let completed = false;
@@ -220,6 +131,7 @@ export const releaseSuggestionRouteAfterGate = async (
     chronology.releaseAction = completed ? 'abort' : 'continue';
     if (completed) {
       chronology.abortStartedAtMs = chronology.releaseStartedAtMs;
+      await expectTransportFailure?.(route.request(), { reason: 'injected lazy suggestion retry failure', action: 'abort' });
       await route.abort('failed');
     } else {
       await route.continue();
@@ -439,7 +351,8 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
                 rootTableActionCompletedSequence:
                   suggestionsFaultChronology.rootTableAction.completedSequence,
               };
-            });
+            },
+            request => workflow.expectTransportFailure(request, { reason: 'injected lazy suggestion retry failure', action: 'abort' }));
           attempt.evidence.actionCompletedBeforeAbort = attempt.actionCompletedBeforeAbort;
           attempt.injectedFault = attempt.actionCompletedBeforeAbort;
           attempt.evidence.injectedFault = attempt.actionCompletedBeforeAbort;
@@ -544,25 +457,16 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
   }
   const rawFieldSection = page.getByTestId('feature-catalog-raw-fields');
   const failedLazyAlert = page.getByTestId('builder-suggestions-error');
-  let failureRecord;
   let failureUiState;
   const lazyAttemptsBeforeRetry = suggestionAttempts.filter(candidate => candidate.kind === 'lazy');
   try {
     await failedLazyAlert.waitFor({ state: 'visible' });
   } finally {
-    failureRecord = report.network.find(item => item.kind === 'network' &&
-      item.requestDetails?.requestId === firstLazyAttempt?.requestId && item.method === 'POST' &&
-      item.url === `${uiOrigin}${suggestionsPath}` && item.rawURL === `${uiOrigin}${suggestionsPath}` &&
-      item.errorText === 'net::ERR_FAILED' && typeof item.playwrightRequestId === 'string');
-    suggestionsFaultChronology.lazy.failureRecordCaptured = Boolean(failureRecord);
-    suggestionsFaultChronology.lazy.failureObservedAtMs = failureRecord ? Date.now() : null;
     failureUiState = await captureExplorerScopedUiState();
     const failureCaptureSequence = ++driverSequence;
     suggestionsFaultChronology.lazy.catchOutcome = {
       observedAtMs: failureUiState.capturedAtMs,
       sequence: failureCaptureSequence,
-      requestFailureObserved: Boolean(failureRecord),
-      requestErrorText: failureRecord?.errorText ?? null,
       failureAlertVisible: failureUiState.failureAlertVisible ?? null,
       failureAlertText: failureUiState.failureAlertText ?? null,
       appErrorCodeFromVisibleAlert: failureUiState.failureAlertCode ?? null,
@@ -604,34 +508,29 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
         lazyFailureRequestId: firstLazyAttempt?.requestId ?? null,
         lazyAttemptCount: lazyAttemptsBeforeRetry.length,
       });
-    if (failureRecord) {
-      failureRecord.injectedFault = true;
-      failureRecord.injectedAction = 'abort';
-      failureRecord.injectedRequestId = firstLazyAttempt.requestId;
-      failureRecord.injectedReason = 'the first lazy Patient suggestion request was intentionally aborted by this case';
-    }
   }
   const failedLazyAttempt = lazyAttemptsBeforeRetry[0];
   assert.equal(failedLazyAttempt, firstLazyAttempt,
     'The exact root request must be aborted only after the root-table preview gate passes.');
-  assert(failureRecord, 'The report must retain the exact failed request signature for the injected lazy suggestion transport failure.');
   const retry = page.getByTestId('builder-suggestions-retry');
   await unique(retry);
-  const retryResponsePromise = page.waitForResponse(response => {
-    const request = response.request();
-    const url = new URL(response.url());
-    return request.method() === 'POST' && url.origin === uiOrigin && url.pathname === suggestionsPath &&
-      (request.headers()['x-request-id'] ?? '') === firstLazyAttempt.requestId && response.ok();
-  });
+  const retryObserverFromIndex = workflow.networkObserver.requests.length;
   await act('retry finding columns', retry, () => retry.click());
-  const retryResponse = await retryResponsePromise;
+  const retryEntry = await workflow.networkObserver.waitForResponse(entry =>
+    entry.method === 'POST' && entry.path === suggestionsPath &&
+    JSON.stringify(entry.request) === JSON.stringify(firstLazyAttempt.body),
+  { fromIndex: retryObserverFromIndex, timeoutMs: 5000 });
+  const retryRequestBody = await workflow.networkObserver.requestBody(retryEntry);
+  const retryResponseBody = await workflow.networkObserver.responseBody(retryEntry);
   const lazyAttempts = suggestionAttempts.filter(candidate => candidate.kind === 'lazy');
   check('correctness', 'retry resends the same Explorer, snapshot, and Patient root suggestion request',
     lazyAttempts.length === 2 && lazyAttempts[1].explorer === explorer &&
       lazyAttempts[1].requestId === firstLazyAttempt.requestId &&
-      JSON.stringify(lazyAttempts[1].body) === JSON.stringify(firstLazyAttempt.body) && retryResponse.ok(),
+      JSON.stringify(lazyAttempts[1].body) === JSON.stringify(firstLazyAttempt.body) &&
+      JSON.stringify(retryRequestBody) === JSON.stringify(firstLazyAttempt.body) &&
+      retryEntry.status >= 200 && retryEntry.status < 300 && retryResponseBody !== undefined,
     { explorer, requestIds: lazyAttempts.map(candidate => candidate.requestId),
-      bodies: lazyAttempts.map(candidate => candidate.body), retryStatus: retryResponse.status() });
+      bodies: lazyAttempts.map(candidate => candidate.body), retryStatus: retryEntry.status });
   await failedLazyAlert.waitFor({ state: 'hidden' });
   await page.getByTestId('construction-action-add-columns').waitFor({ state: 'visible' });
   await page.waitForFunction(() => {
@@ -711,10 +610,9 @@ export const builderAuthoringSuggestionsWorkflow = async (workflow, context) => 
     exactAppliedPatientIDs,
     { expectedIds, visibleRowIDs: settledPatientIds, addedPatientIDColumnValues: settledPatientFieldIds,
       proposal: proposalEvidence });
-  checkUnexpectedDiagnostics(report, target, failureRecord);
 
   const sourceSHA256After = createHash('sha256')
     .update(readFileSync(join(target.fixtureDir, 'Patient.ndjson'))).digest('hex');
-  recordCheck(report, 'correctness', 'independent Patient source stayed unchanged during browser run',
+  check('correctness', 'independent Patient source stayed unchanged during browser run',
     sourceSHA256After === sourceSHA256, { before: sourceSHA256, after: sourceSHA256After });
 };

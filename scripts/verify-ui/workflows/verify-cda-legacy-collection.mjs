@@ -16,6 +16,7 @@ export async function legacyCollectionWorkflow({ page, cda }) {
   const report = cda.report;
   Object.assign(report, { seedPath, explorer: seed.explorer, cases: [], errors: report.errors ?? [], started: new Date().toISOString(), target: cda.target });
   let requestMonitor;
+  let fatal;
   const builder = async () => {
     const response = await fetch(apiOrigin + base + '/builder', { signal: AbortSignal.timeout(30000) });
     assert.equal(response.status, 200);
@@ -62,7 +63,6 @@ export async function legacyCollectionWorkflow({ page, cda }) {
     assert.equal(report.after.draftDigest, report.before.draftDigest);
     assert.equal(report.after.draftVersion, report.before.draftVersion);
     assert.deepEqual(report.after.workspace, report.before.workspace, 'Direction resolution must not rewrite the authored draft');
-    cda.includeBrowserDiagnostics();
     assert.deepEqual(report.errors, []);
     assert.deepEqual(cda.diagnostics.pageErrors, [], 'Unexpected browser exceptions');
     assert.deepEqual(cda.diagnostics.console, [], 'Unexpected browser console errors');
@@ -70,13 +70,12 @@ export async function legacyCollectionWorkflow({ page, cda }) {
     assert.deepEqual(cda.diagnostics.httpFailures, [], 'Unexpected browser HTTP failures');
     report.status = 'passed';
   } catch (error) {
+    fatal = error;
     report.status = 'failed'; report.error = String(error.stack ?? error);
     report.failureUI = await cda.inspect( () => document.body.innerText).catch(String);
   } finally {
-    await requestMonitor?.flush();
     report.finished = new Date().toISOString();
-    cda.includeBrowserDiagnostics();
     await cda.attachReport('legacy-collection', report);
   }
-  if (report.status === 'failed') throw new Error(report.error);
+  if (fatal) throw fatal;
 }

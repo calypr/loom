@@ -8,17 +8,18 @@ export const assertReopenedProposalAfterCancel = ({ previous, cancelledAt, curre
     'The reopened proposal must come from a new native request after the canceled proposal');
   assert(current.request?.startedAt >= cancelledAt,
     'The reopened proposal request must start after Cancel completed');
-  assert(current.request?.networkTerminal && current.request?.bodyReadStatus === 'decoded' &&
+  assert(current.request?.networkComplete && current.request?.responseCaptureComplete &&
+    current.request?.responseBodyCaptured &&
     current.request?.completedAt >= current.request?.startedAt && current.request?.status === 200,
-  'The reopened proposal must have a successful, fully decoded native response');
+  'The reopened proposal must have a successful native response with its body captured');
   assert.equal(current.request.path, previous.request.path);
-  assert.equal(current.request.body?.snapshotToken, state.catalog.snapshotToken);
-  assert.equal(current.request.body?.expectedDraftVersion, state.draftVersion,
+  assert.equal(current.request.request?.snapshotToken, state.catalog.snapshotToken);
+  assert.equal(current.request.request?.expectedDraftVersion, state.draftVersion,
     'The reopened request must bind to the unchanged current draft version');
-  assert.equal(current.request.body?.expectedDraftDigest, state.draftDigest,
+  assert.equal(current.request.request?.expectedDraftDigest, state.draftDigest,
     'The reopened request must bind to the unchanged current draft digest');
-  assert.equal(current.request.body?.outputId, outputId);
-  assert.deepEqual(current.request.body?.removeStepIds, removeStepIds);
+  assert.equal(current.request.request?.outputId, outputId);
+  assert.deepEqual(current.request.request?.removeStepIds, removeStepIds);
 
   const before = previous.response;
   const after = current.response;

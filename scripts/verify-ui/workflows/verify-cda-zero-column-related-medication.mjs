@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { canonicalProjectID } from '../../loom-dev.mjs';
+import { constructionCandidateWireEquivalent } from '../helpers/builder-combine-draft-helpers.mjs';
+import { fingerprintAuthorizationScopeDigest } from '../helpers/playwright-browser.mjs';
 import { scenarioCaseFor } from '../registry.mjs';
 
 const CASE_ID = 'cda-five-hop-related-expansion';
@@ -216,7 +218,7 @@ FOR specimen IN Specimen
     const expectedCount = expectedValues.length;
     assert(draft?.catalog?.snapshotToken && draft?.draftVersion !== undefined && draft?.draftDigest,
       'Saved Builder draft identity is required to bind the native preview');
-    const reconcileRequest = await tracker.waitFor(entry => {
+    const reconcileRequest = await tracker.waitForResponse(entry => {
       const body = rawRequest(entry);
       return entry.method === 'POST' && entry.path === `${authoringPath}/reconcile` && entry.status === 200 &&
         body?.snapshotToken === draft.catalog.snapshotToken && body?.draftVersion === draft.draftVersion &&
@@ -227,7 +229,10 @@ FOR specimen IN Specimen
     assert(receipt?.receiptId, 'Native reconcile receipt must have an ID');
     assert.equal(receipt.snapshotToken, draft.catalog.snapshotToken);
     assert.equal(receipt.generation, draft.catalog.generation);
-    assert.equal(receipt.authorizationScopeDigest, draft.catalog.authorizationScopeDigest);
+    const scopeFingerprint = fingerprintAuthorizationScopeDigest(draft.catalog.authorizationScopeDigest);
+    assert(scopeFingerprint, 'Saved Builder draft must carry a SHA-256 authorization scope digest');
+    assert.equal(receipt.authorizationScopeDigest, scopeFingerprint,
+      'Native reconcile receipt must carry the exact saved Builder authorization scope fingerprint');
     assert.equal(receipt.outputs?.filter(item => item.outputId === outputId).length, 1,
       'Reconcile receipt must contain the exact saved output once');
     const savedDocument = draft.workspace.documents.find(item => item.output.id === outputId);
@@ -237,11 +242,11 @@ FOR specimen IN Specimen
     assert.deepEqual(receiptDocument.population, savedDocument.population);
     assert.deepEqual(receiptDocument.construction, savedDocument.construction);
     assert.deepEqual(receiptDocument.route, savedDocument.route);
-    const previewRequest = await tracker.waitFor(entry => {
+    const previewRequest = await tracker.waitForResponse(entry => {
       const body = rawRequest(entry);
       return entry.method === 'POST' && entry.path === `${authoringPath}/preview` && entry.status === 200 &&
         body?.receiptId === receipt.receiptId && body?.outputId === outputId;
-    }, { fromIndex: cda.report.nativeRequests.indexOf(reconcileRequest) + 1, timeoutMs: ACTION_BUDGET_MS });
+    }, { fromIndex: tracker.requests.indexOf(reconcileRequest) + 1, timeoutMs: ACTION_BUDGET_MS });
     const protocol = rawResponse(previewRequest);
     assert.equal(rawRequest(previewRequest).receiptId, receipt.receiptId);
     assert.equal(protocol?.receiptId, receipt.receiptId, 'Native preview response must bind to the exact reconcile receipt');
@@ -347,9 +352,9 @@ FOR specimen IN Specimen
         text: panel?.innerText };
     });
   };
-  const rawRequest = entry => tracker.rawRequestBody(entry);
-  const rawResponse = entry => tracker.rawResponseBody(entry);
-  const findProposal = async (predicate, fromIndex = 0) => tracker.waitFor(entry => entry.method === 'POST' && entry.path === `${authoringPath}/construction-proposals` && predicate(rawRequest(entry), rawResponse(entry)), { fromIndex, timeoutMs: ACTION_BUDGET_MS });
+  const rawRequest = entry => entry.request;
+  const rawResponse = entry => entry.response;
+  const findProposal = async (predicate, fromIndex = 0) => tracker.waitForResponse(entry => entry.method === 'POST' && entry.path === `${authoringPath}/construction-proposals` && predicate(rawRequest(entry), rawResponse(entry)), { fromIndex, timeoutMs: ACTION_BUDGET_MS });
 
   try {
     const scanned = readOracle();
@@ -491,15 +496,15 @@ FOR specimen IN Specimen
     await wait(([panel]) => document.querySelector(`${panel} select[aria-label="Related record type"]`)?.disabled === false, [PANEL]);
     measured('native related-expansion editor discovery', editorStart);
     const targetStart = Date.now();
-    const routeSearchFromIndex = cda.report.nativeRequests.length;
+    const routeSearchFromIndex = tracker.requests.length;
     await cda.selectOption(`${PANEL} select[aria-label="Related record type"]`, 'Medication');
     const routeSelector = `${PANEL} input[type="radio"][aria-label=${JSON.stringify(ROUTE_LABEL)}]`;
-    const routeComplete = await tracker.waitFor(entry => entry.method === 'POST' && /related-expand-choices/.test(entry.path) &&
+    const routeComplete = await tracker.waitForResponse(entry => entry.method === 'POST' && /related-expand-choices/.test(entry.path) &&
       rawRequest(entry)?.targetResourceType === 'Medication' && (rawResponse(entry)?.complete === true ||
         (rawResponse(entry)?.truncated === true && rawResponse(entry)?.nextCursor == null)),
     { fromIndex: routeSearchFromIndex, timeoutMs: ACTION_BUDGET_MS });
     assert.equal(routeComplete.status, 200);
-    const routePages = cda.report.nativeRequests.slice(routeSearchFromIndex).filter(entry => entry.method === 'POST' &&
+    const routePages = tracker.requests.slice(routeSearchFromIndex).filter(entry => entry.method === 'POST' &&
       /related-expand-choices/.test(entry.path) && rawRequest(entry)?.targetResourceType === 'Medication' && entry.status === 200);
     assert(routePages.length > 0 && routePages.at(-1) === routeComplete,
       'The native route scan must finish on a terminal complete or cursorless-truncated page before inspecting choices');
@@ -577,7 +582,7 @@ FOR specimen IN Specimen
     const shortestRouteLength = Math.min(...routeChoices.map(candidate => candidate.route.length));
     await revealRouteChoice(routeSelector, choice.route, shortestRouteLength);
     measured('native Medication route-choice discovery', targetStart);
-    const proposalStartIndex = cda.report.nativeRequests.length;
+    const proposalStartIndex = tracker.requests.length;
     await cda.click(routeSelector);
     assert.equal(await cda.inspect(([panel]) => document.querySelector(`${panel} select[aria-label="If a current row has no matches"]`)?.value, [PANEL]), 'PRESERVE_PARENT');
     const proposal = await proposalEvidence('ready');
@@ -593,6 +598,10 @@ FOR specimen IN Specimen
     assert.deepEqual(operationStep.operation.relatedExpand.route, choice.route);
     let output = operationStep.outputs.find(column => column.id === operationStep.operation.relatedExpand.relatedRecordColumnId);
     assert(output, 'RELATED_EXPAND must define the visible Medication identity output');
+    assert.equal(output.nullable, true, 'PRESERVE_PARENT must mark the proposed Medication ID output nullable');
+    const proposedResponseStep = rawResponse(proposalRequest).candidateConstruction.steps.find(step => step.id === operationStep.id);
+    const proposedResponseOutput = proposedResponseStep?.outputs.find(column => column.id === operationStep.operation.relatedExpand.relatedRecordColumnId);
+    assert.equal(proposedResponseOutput?.nullable, true, 'The validated proposal must retain nullable Medication ID metadata');
     let proposalPreview = rawResponse(proposalRequest).preview;
     assert.equal(proposalPreview?.rowCount, report.rawOracle.expectedPreserveRowCount);
     assert.deepEqual(proposalPreview?.rows?.map(row => row[output.name]).sort((a, b) => String(a).localeCompare(String(b))),
@@ -631,7 +640,7 @@ FOR specimen IN Specimen
     await cda.selectOption(`${PANEL} select[aria-label="Related record type"]`, 'Medication');
     await revealRouteChoice(routeSelector, choice.route, shortestRouteLength);
     measured('reopened Medication route-choice discovery', reopenedTargetStart);
-    const reopenedProposalFromIndex = cda.report.nativeRequests.length;
+    const reopenedProposalFromIndex = tracker.requests.length;
     await cda.click(routeSelector);
     const reopenedProposal = await proposalEvidence('ready');
     measured('reopened Medication target selection through exact five-hop ready proposal', reopenedTargetStart);
@@ -643,19 +652,23 @@ FOR specimen IN Specimen
     proposalBody = rawRequest(proposalRequest);
     operationStep = proposalBody.candidateConstruction.steps.find(step => step.operation?.kind === 'RELATED_EXPAND');
     output = operationStep.outputs.find(column => column.id === operationStep.operation.relatedExpand.relatedRecordColumnId);
+    assert.equal(output?.nullable, true, 'Reopened PRESERVE_PARENT proposal must retain nullable output metadata');
+    const reopenedResponseStep = rawResponse(reopenedProposalRequest).candidateConstruction.steps.find(step => step.id === operationStep.id);
+    const reopenedResponseOutput = reopenedResponseStep?.outputs.find(column => column.id === operationStep.operation.relatedExpand.relatedRecordColumnId);
+    assert.equal(reopenedResponseOutput?.nullable, true, 'Reopened validated proposal must retain nullable output metadata');
     proposalPreview = rawResponse(proposalRequest).preview;
     assert.deepEqual(operationStep.operation.relatedExpand.route, choice.route);
     assert.equal(operationStep.operation.relatedExpand.anchorColumnId, '_key');
     assert.equal(operationStep.operation.relatedExpand.emptyPolicy, 'PRESERVE_PARENT');
     assert.deepEqual(reopenedProposal.rows, proposal.rows, 'Reopening the same route after Cancel must produce the same exact proposal rows');
 
-    const applyRequestFromIndex = cda.report.nativeRequests.length;
+    const applyRequestFromIndex = tracker.requests.length;
     const applyStart = Date.now();
     await cda.click('[data-testid="construction-apply-proposal"]');
     await wait(() => !document.querySelector('[data-testid="construction-proposal-panel"]'));
     const appliedProposalId = rawResponse(proposalRequest)?.proposalId;
     assert(appliedProposalId, 'Native proposal response must provide the exact ID submitted by Apply');
-    const applyCommand = await tracker.waitFor(entry => entry.method === 'POST' && entry.path === `${authoringPath}/commands` &&
+    const applyCommand = await tracker.waitForResponse(entry => entry.method === 'POST' && entry.path === `${authoringPath}/commands` &&
       rawRequest(entry)?.commands?.some(item => item.type === 'APPLY_CONSTRUCTION_PROPOSAL' &&
         item.outputId === outputId && item.proposalId === appliedProposalId),
     { fromIndex: applyRequestFromIndex, timeoutMs: ACTION_BUDGET_MS });
@@ -671,6 +684,7 @@ FOR specimen IN Specimen
     assert.equal(doc().population.selectionRevisionId, selection.id);
     const savedOutput = savedStep.outputs.find(column => column.id === savedStep.operation.relatedExpand.relatedRecordColumnId);
     assert(savedOutput);
+    assert.equal(savedOutput.nullable, true, 'Applied PRESERVE_PARENT output must persist as nullable');
     const appliedRows = await nativeRows(report.rawOracle.expectedVisibleMedicationValues, {
       fromIndex: applyRequestFromIndex, draft: builder,
     });
@@ -687,7 +701,7 @@ FOR specimen IN Specimen
       previewRequestId: appliedPreviewRequest.requestId, savedDraftVersion: builder.draftVersion, savedDraftDigest: builder.draftDigest });
 
     const reloadStart = Date.now();
-    const reloadFromIndex = cda.report.nativeRequests.length;
+    const reloadFromIndex = tracker.requests.length;
     await page.reload({ waitUntil: 'domcontentloaded', timeout: ACTION_BUDGET_MS });
     await wait(() => Boolean(document.querySelector('[data-testid="construction-workspace"]')));
     await cda.click(`[data-testid="construction-table-${outputId}"]`);
@@ -698,6 +712,9 @@ FOR specimen IN Specimen
     measured('reload to restored Medication output rows', reloadStart);
     const reloadStep = doc().construction.steps.find(step => step.id === savedStep.id);
     assert(reloadStep);
+    const reloadedOutput = reloadStep.outputs.find(column => column.id === reloadStep.operation.relatedExpand.relatedRecordColumnId);
+    assert(reloadedOutput);
+    assert.equal(reloadedOutput.nullable, true, 'Reload must preserve nullable output metadata for PRESERVE_PARENT');
     assert.deepEqual(reloadStep.operation.relatedExpand.route, savedStep.operation.relatedExpand.route);
     assert.equal(reloadStep.operation.relatedExpand.emptyPolicy, 'PRESERVE_PARENT');
     assert.deepEqual(reloadedRows.protocolValues, appliedRows.protocolValues);
@@ -709,7 +726,7 @@ FOR specimen IN Specimen
       previewRequestId: reloadedRows.previewRequest.requestId, savedDraftVersion: builder.draftVersion, savedDraftDigest: builder.draftDigest });
 
     const preserveParentSavedBuilder = structuredClone(builder);
-    const editProposalFromIndex = cda.report.nativeRequests.length;
+    const editProposalFromIndex = tracker.requests.length;
     const editOpenStart = Date.now();
     await cda.click(`[data-testid="construction-history-step-${savedStep.id}"]`);
     await wait(([id]) => document.querySelector(`[data-testid="construction-edit-step-${id}"]`)?.disabled === false, [savedStep.id]);
@@ -723,6 +740,13 @@ FOR specimen IN Specimen
     let excludedProposal = await proposalEvidence('ready');
     let excludeProposalRequest = await findProposal((body, response) => body?.outputId === outputId && body?.candidateConstruction?.steps?.some(step =>
       step.id === savedStep.id && step.operation?.relatedExpand?.emptyPolicy === 'EXCLUDE') && response?.proposalId, editProposalFromIndex);
+    let excludeCandidateStep = rawRequest(excludeProposalRequest).candidateConstruction.steps.find(step => step.id === savedStep.id);
+    let excludeCandidateOutput = excludeCandidateStep?.outputs.find(column => column.id === excludeCandidateStep.operation.relatedExpand.relatedRecordColumnId);
+    assert.equal(excludeCandidateOutput?.nullable, false, 'EXCLUDE proposal must clear nullable output metadata');
+    assert(constructionCandidateWireEquivalent(
+      rawRequest(excludeProposalRequest).candidateConstruction,
+      rawResponse(excludeProposalRequest).candidateConstruction,
+    ), 'Validated EXCLUDE proposal must preserve the candidate; the wire may omit default-false nullable metadata');
     assert.equal(rawResponse(excludeProposalRequest).preview?.rowCount, report.rawOracle.expectedExcludeRowCount);
     assert.equal(excludedProposal.rows.length, report.rawOracle.expectedExcludeRowCount);
     measured('EXCLUDE policy selection to exact automatic proposal', policyChoiceStart);
@@ -767,12 +791,19 @@ FOR specimen IN Specimen
       measured('reopen saved RelatedExpand editor after EXCLUDE edit Cancel', reopenEditStart);
       assert.equal(await cda.inspect(([panel]) => document.querySelector(`${panel} select[aria-label="If a current row has no matches"]`)?.value, [PANEL]),
         'PRESERVE_PARENT', 'Reopened editor must hydrate the saved policy after canceling EXCLUDE');
-      const reopenedEditFromIndex = cda.report.nativeRequests.length;
+      const reopenedEditFromIndex = tracker.requests.length;
       const reopenedPolicyStart = Date.now();
       await cda.selectOption(policySelector, 'EXCLUDE');
       excludedProposal = await proposalEvidence('ready');
       excludeProposalRequest = await findProposal((body, response) => body?.outputId === outputId && body?.candidateConstruction?.steps?.some(step =>
         step.id === savedStep.id && step.operation?.relatedExpand?.emptyPolicy === 'EXCLUDE') && response?.proposalId, reopenedEditFromIndex);
+      excludeCandidateStep = rawRequest(excludeProposalRequest).candidateConstruction.steps.find(step => step.id === savedStep.id);
+      excludeCandidateOutput = excludeCandidateStep?.outputs.find(column => column.id === excludeCandidateStep.operation.relatedExpand.relatedRecordColumnId);
+      assert.equal(excludeCandidateOutput?.nullable, false, 'Reopened EXCLUDE proposal must clear nullable output metadata');
+      assert(constructionCandidateWireEquivalent(
+        rawRequest(excludeProposalRequest).candidateConstruction,
+        rawResponse(excludeProposalRequest).candidateConstruction,
+      ), 'Reopened validated EXCLUDE proposal must preserve the candidate; the wire may omit default-false nullable metadata');
       excludePreview = rawResponse(excludeProposalRequest).preview;
       assert.equal(excludePreview?.rowCount, report.rawOracle.expectedExcludeRowCount);
       assert.deepEqual(excludePreview.rows.map(row => row[savedOutput.name]).sort(), [...excludedExpectedValues].sort());
@@ -780,7 +811,7 @@ FOR specimen IN Specimen
       measured('reopened EXCLUDE edit selection to exact automatic proposal', reopenedPolicyStart);
     }
 
-    const excludeApplyFromIndex = cda.report.nativeRequests.length;
+    const excludeApplyFromIndex = tracker.requests.length;
     const excludeApplyStart = Date.now();
     await cda.click('[data-testid="construction-apply-proposal"]');
     await wait(() => !document.querySelector('[data-testid="construction-proposal-panel"]'));
@@ -793,9 +824,13 @@ FOR specimen IN Specimen
     assert.equal(excludedRows.columnCount, 1);
     const excludedStep = doc().construction.steps.find(step => step.id === savedStep.id);
     assert.equal(excludedStep.operation.relatedExpand.emptyPolicy, 'EXCLUDE');
+    const excludedOutput = excludedStep.outputs.find(column => column.id === excludedStep.operation.relatedExpand.relatedRecordColumnId);
+    assert(excludedOutput);
+    assert(excludedOutput.nullable === undefined || excludedOutput.nullable === false,
+      'Applied EXCLUDE output must remain non-nullable; the authored-column wire may omit default false');
 
     const excludeReloadStart = Date.now();
-    const excludeReloadFromIndex = cda.report.nativeRequests.length;
+    const excludeReloadFromIndex = tracker.requests.length;
     await page.reload({ waitUntil: 'domcontentloaded', timeout: ACTION_BUDGET_MS });
     await wait(() => Boolean(document.querySelector('[data-testid="construction-workspace"]')));
     await cda.click(`[data-testid="construction-table-${outputId}"]`);
@@ -804,13 +839,18 @@ FOR specimen IN Specimen
       fromIndex: excludeReloadFromIndex, draft: builder,
     });
     measured('reload after EXCLUDE edit', excludeReloadStart);
-    assert.equal(doc().construction.steps.find(step => step.id === savedStep.id)?.operation.relatedExpand.emptyPolicy, 'EXCLUDE');
+    const excludedReloadStep = doc().construction.steps.find(step => step.id === savedStep.id);
+    assert.equal(excludedReloadStep?.operation.relatedExpand.emptyPolicy, 'EXCLUDE');
+    const excludedReloadOutput = excludedReloadStep?.outputs.find(column => column.id === excludedReloadStep.operation.relatedExpand.relatedRecordColumnId);
+    assert(excludedReloadOutput);
+    assert(excludedReloadOutput.nullable === undefined || excludedReloadOutput.nullable === false,
+      'Reload must preserve non-nullable output metadata for EXCLUDE; the authored-column wire may omit default false');
     assert.deepEqual(excludedReload.protocolValues, excludedRows.protocolValues);
     assert.deepEqual(excludedReload.protocolRowIDs, excludedRows.protocolRowIDs);
     check(7, 'correctness', { editedPolicy: excludedStep.operation.relatedExpand.emptyPolicy, proposalRowCount: report.rawOracle.expectedExcludeRowCount, actualTableRowCount: excludedRows.rowCount, reloadTableRowCount: excludedReload.rowCount });
 
     const excludeSavedBuilder = structuredClone(builder);
-    let removeFromIndex = cda.report.nativeRequests.length;
+    let removeFromIndex = tracker.requests.length;
     const removeEditorStart = Date.now();
     await cda.click(`[data-testid="construction-history-step-${savedStep.id}"]`);
     await wait(([id]) => document.querySelector(`[data-testid="construction-remove-step-${id}"]`)?.disabled === false, [savedStep.id]);
@@ -853,7 +893,7 @@ FOR specimen IN Specimen
       await cda.click(`[data-testid="construction-history-step-${savedStep.id}"]`);
       await wait(([id]) => document.querySelector(`[data-testid="construction-remove-step-${id}"]`)?.disabled === false, [savedStep.id]);
       measured('reopen saved RelatedExpand removal controls after Cancel', reopenRemovalStart);
-      removeFromIndex = cda.report.nativeRequests.length;
+      removeFromIndex = tracker.requests.length;
       const reopenRemoveProposalStart = Date.now();
       await cda.click(`[data-testid="construction-remove-step-${savedStep.id}"]`);
       await proposalEvidence('ready');
@@ -899,11 +939,9 @@ FOR specimen IN Specimen
     check(8, 'persistence', { columns: finalDocument.columns, constructionSteps: finalDocument.construction?.steps ?? [], population: finalDocument.population, selectedRefs: persistedRefs, restoredUI: restoredPreviewPrompt });
     check(9, 'performance', { budgetMs: ACTION_BUDGET_MS, checkpoints: report.checkpoints });
 
-    await tracker.flush();
     if (oracleMode.positiveFixture) {
       report.lifecycle.status = 'pending-final-adjudication';
     } else {
-      cda.includeBrowserDiagnostics();
       assert.deepEqual(cda.diagnostics.pageErrors, [], 'Unexpected JavaScript errors');
       assert.deepEqual(report.errors, [], 'Unexpected native browser HTTP or workflow errors');
       report.lifecycle.status = 'passed';
@@ -914,10 +952,8 @@ FOR specimen IN Specimen
     report.lifecycle.failure = { message: String(error?.message ?? error), stack: error?.stack,
       bodyText: await cda.inspect(() => document.body.innerText.slice(-12_000)).catch(inspectError => String(inspectError)),
       builder: outputId ? await api(`${authoringPath}/builder`).catch(apiError => ({ error: String(apiError) })) : undefined };
-    if (!oracleMode.positiveFixture) cda.includeBrowserDiagnostics();
   } finally {
-    await tracker?.flush().catch(() => undefined);
-    report.lifecycle.nativeRequests = cda.report.nativeRequests.map(entry => ({ method: entry.method, path: entry.path, status: entry.status, body: entry.body, response: entry.response }));
+    report.lifecycle.nativeRequests = tracker.requests.map(entry => ({ method: entry.method, path: entry.path, status: entry.status, body: entry.request, response: entry.response }));
     report.lifecycle.checkpoints = report.checkpoints;
     await cda.attachReport('zero-column-related-medication.json', report);
   }

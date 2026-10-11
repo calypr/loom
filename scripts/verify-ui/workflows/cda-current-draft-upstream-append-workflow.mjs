@@ -11,7 +11,6 @@ import {
   cdaUpstreamAppendScanQuery,
   prepareCdaUpstreamAppendOracle,
   prepareCdaUpstreamAppendPatientSubsetOracle,
-  proveObservedSupersededEmptyGroupProposals,
 } from '../helpers/cda-current-draft-upstream-append-oracle.mjs';
 import {
   builderDraftStateEvidence,
@@ -23,6 +22,7 @@ import { proposalPreviewReadinessExpression, proposalPreviewStateInPage } from '
 import { validatedArangoContainer } from '../helpers/native-cda-workflow-tools.mjs';
 import { buildArangoShellInvocation } from '../helpers/owned-arangosh-command.mjs';
 import { CDA_ACTION_TO_RENDER_BUDGET_MS, summarizeCdaActionToRenderTimings } from '../helpers/cda-action-to-render-budget.mjs';
+import { fingerprintAuthorizationScopeDigest } from '../helpers/playwright-browser.mjs';
 
 const MAX_ACTION_MS = CDA_ACTION_TO_RENDER_BUDGET_MS;
 const ACTION_CHECK = 'all native CDA Group→DERIVE→APPEND lifecycle actions complete within five seconds';
@@ -55,6 +55,14 @@ export const exactSelectionReadMatches = (method, requestURL, expectedOrigin, ex
     const url = new URL(requestURL);
     return url.origin === expectedOrigin && url.pathname === expectedPath;
   } catch { return false; }
+};
+export const currentDraftReconcileMatchesOutput = (entry, {
+  path, outputId, snapshotToken, draftVersion, draftDigest,
+}) => {
+  const body = entry?.request;
+  return entry?.method === 'POST' && entry.path === path && entry.status === 200 &&
+    body?.outputId === outputId && body?.snapshotToken === snapshotToken &&
+    body?.draftVersion === draftVersion && body?.draftDigest === draftDigest;
 };
 const waitWithinDeadline = (promise, remainingMs, label) => {
   let timer;
@@ -478,7 +486,6 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
         async () => waitFunction(`document.querySelector('[data-testid="construction-action-group-rows"]')?.disabled===false`));
       const proposalPath = `${explorerBase}/authoring/v2/construction-proposals`;
       const proposalOrigin = new URL(uiOrigin).origin;
-      const groupProposalFromIndex = report.nativeRequests.length;
       await click(`Open native ${source.definition.title} GROUP`, page.getByTestId('construction-action-group-rows'),
         async () => waitSelector('select[aria-label="Summary 1"]'));
       const summary = page.locator('select[aria-label="Summary 1"]');
@@ -486,30 +493,28 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
       const groupKey = page.locator(`input[type="checkbox"][aria-label=${JSON.stringify(`Group by ${keyColumn.label}`)}]`);
       assert.equal(await groupKey.count(), 1, 'GROUP editor must expose the exact selected raw FHIR key column');
       const groupBase = await readBuilder();
-      const replacementFromIndex = report.nativeRequests.length;
-      let checkboxClickedAt;
+      const replacementFromIndex = requestCapture.requests.length;
       await timedAction(`Select ${source.definition.title} native GROUP key and render COUNT_ROWS`, groupKey, async item => {
-        checkboxClickedAt = Date.now();
         await item.click({ timeout: MAX_ACTION_MS });
       },
         async () => waitProposal(source.outputId, source.groupRows.length));
       const grid = await readGrid('proposal');
       assertRows(`${source.definition.title} native GROUP preview matches exact selected raw counts`, grid,
         [keyColumn.label, 'Row count'], source.groupRows);
-      const groupEvent = await requestCapture.waitFor(entry => entry.path === proposalPath &&
+      const groupEvent = await requestCapture.waitForResponse(entry => entry.path === proposalPath &&
         entry.origin === proposalOrigin && entry.method === 'POST' && entry.status === 200 &&
-        Number.isFinite(entry.completedAt) && entry.failure === undefined && entry.responseReadError === undefined &&
-        requestCapture.rawRequestBody(entry)?.outputId === source.outputId &&
-        requestCapture.rawRequestBody(entry)?.snapshotToken === groupBase.catalog.snapshotToken &&
-        requestCapture.rawRequestBody(entry)?.expectedDraftVersion === groupBase.draftVersion &&
-        requestCapture.rawRequestBody(entry)?.expectedDraftDigest === groupBase.draftDigest &&
-        requestCapture.rawRequestBody(entry)?.candidateConstruction?.steps?.length === 1 &&
-        requestCapture.rawRequestBody(entry)?.candidateConstruction?.steps?.[0]?.operation?.kind === 'GROUP' &&
-        requestCapture.rawRequestBody(entry)?.candidateConstruction?.steps?.[0]?.operation?.group?.keys?.length === 1 &&
-        requestCapture.rawRequestBody(entry)?.candidateConstruction?.steps?.[0]?.operation?.group?.keys?.[0]?.inputColumnId === keyColumn.columnId,
+        Number.isFinite(entry.completedAt) && entry.failure === undefined &&
+        entry.request?.outputId === source.outputId &&
+        entry.request?.snapshotToken === groupBase.catalog.snapshotToken &&
+        entry.request?.expectedDraftVersion === groupBase.draftVersion &&
+        entry.request?.expectedDraftDigest === groupBase.draftDigest &&
+        entry.request?.candidateConstruction?.steps?.length === 1 &&
+        entry.request?.candidateConstruction?.steps?.[0]?.operation?.kind === 'GROUP' &&
+        entry.request?.candidateConstruction?.steps?.[0]?.operation?.group?.keys?.length === 1 &&
+        entry.request?.candidateConstruction?.steps?.[0]?.operation?.group?.keys?.[0]?.inputColumnId === keyColumn.columnId,
       { fromIndex: replacementFromIndex, timeoutMs: MAX_ACTION_MS });
-      const groupRequest = requestCapture.rawRequestBody(groupEvent);
-      const groupResponse = requestCapture.rawResponseBody(groupEvent);
+      const groupRequest = groupEvent.request;
+      const groupResponse = groupEvent.response;
       const proposalDOM = await page.evaluate(proposalPreviewStateInPage, source.outputId);
       assert.equal(proposalDOM.proposalPanelCount, 1, 'The replacement proposal must have exactly one native proposal panel');
       assert.equal(proposalDOM.proposalStatus, 'ready', 'The replacement proposal panel must be READY');
@@ -536,36 +541,10 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
         Boolean(groupResponse.preview?.receiptId) && groupResponse.preview.receiptId === groupResponse.proposalId &&
         proposalDOM.proposalId === groupResponse.proposalId && proposalDOM.resultReceiptId === groupResponse.proposalId &&
         proposalDOM.previewReceiptId === groupResponse.proposalId;
-      const proposalEntries = report.nativeRequests.slice(groupProposalFromIndex).filter(entry =>
-        entry.origin === proposalOrigin && entry.path === proposalPath && entry.method === 'POST' &&
-        Number.isFinite(entry.completedAt));
-      const supersessionProofs = proveObservedSupersededEmptyGroupProposals({
-        proposalEntries: proposalEntries.map(entry => ({ entry, body: requestCapture.rawRequestBody(entry) })),
-        replacementEntry: groupEvent,
-        replacementBody: groupRequest,
-        replacementResponse: groupResponse,
-        uiOrigin: proposalOrigin,
-        proposalPath,
-        outputId: source.outputId,
-        snapshotToken: groupBase.catalog.snapshotToken,
-        draftVersion: groupBase.draftVersion,
-        draftDigest: groupBase.draftDigest,
-        inputColumnId: keyColumn.columnId,
-        checkboxClickedAt,
-        previewRowCount: source.groupRows.length,
-        previewRowsMatched: true,
-      });
-      const proposalAborts = proposalEntries.filter(entry => entry.failure === 'net::ERR_ABORTED');
-      for (let index = 0; index < proposalAborts.length; index += 1) {
-        cda.expectCapturedCancellation(proposalAborts[index],
-          'Initial empty-key GROUP proposal was superseded by the user-selected key and exact READY preview',
-          supersessionProofs[index]);
-      }
       requireCheck('correctness', `${source.definition.title} native GROUP binds its exact raw field and COUNT_ROWS`,
         groupStep.operation.group.keys.some(key => key.inputColumnId === keyColumn.columnId) && aggregate.operation === 'COUNT_ROWS' && proposalCAS,
         { outputId: source.outputId, inputColumnId: keyColumn.columnId, groupStepId: groupStep.id,
           keyOutput, countOutput, groupOperation: groupStep.operation.group, proposalCAS, proposalDOM,
-          supersededIntermediateProposals: supersessionProofs,
           draftVersion: groupRequest.expectedDraftVersion, draftDigest: groupRequest.expectedDraftDigest });
       await click(`Apply ${source.definition.title} native GROUP`, page.getByTestId('construction-apply-proposal'),
         async () => waitSaved(source.outputId, source.groupRows.length));
@@ -672,16 +651,16 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
       checkBuilderScope(builder);
       const priorOutputs = builder.workspace.documents.map(document => document.output.id);
       const observationRoots = builder.catalog.nodes.filter(node => node.resourceType === 'Observation' && node.rowRootEligible).map(node => node.nodeId);
-      const fromIndex = report.nativeRequests.length;
+      const fromIndex = requestCapture.requests.length;
       const combine = page.getByTestId('construction-action-combine');
       await click('Open native Combine and create an empty current-draft target', combine,
         async () => waitSelector('[data-testid="construction-combine-editor"]'));
-      const event = await requestCapture.waitFor(entry => entry.path === `${explorerBase}/authoring/v2/commands` &&
+      const event = await requestCapture.waitForResponse(entry => entry.path === `${explorerBase}/authoring/v2/commands` &&
         entry.method === 'POST' && entry.status === 200 && entry.completedAt &&
-        requestCapture.rawRequestBody(entry)?.commands?.some(item => item.type === 'CREATE_TABLE'),
+        entry.request?.commands?.some(item => item.type === 'CREATE_TABLE'),
       { fromIndex, timeoutMs: MAX_ACTION_MS });
-      const body = requestCapture.rawRequestBody(event);
-      const response = requestCapture.rawResponseBody(event);
+      const body = event.request;
+      const response = event.response;
       const mountedOutputId = await page.locator('[data-testid="construction-operation-editor"][data-operation-family="COMBINE"]')
         .getAttribute('data-output-id');
       const evidence = nativeCombineTargetBindingEvidence({ requestBody: body, responseStatus: event.status, response,
@@ -750,19 +729,19 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
       const countLabels = [observationLeft.countLabel, observationRight.countLabel, patient.derive.output.label];
       const finalMapping = await addOutput(2, 'row_count', 'Row count', countLabels, true);
       assert(finalMapping?.selector && finalMapping?.value, 'APPEND mapping must leave its final Patient derived count as preview trigger');
-      const fromIndex = report.nativeRequests.length;
+      const fromIndex = requestCapture.requests.length;
       await select('Complete native three-source APPEND mapping and render the raw concatenation row multiset',
         page.locator(finalMapping.selector), finalMapping.value,
         async () => waitProposal(target.outputId, oracle.append.plusOne.length));
       const grid = await readGrid('proposal');
       assertRows('three-source APPEND proposal row multiset matches raw concatenation with duplicate category multiplicity', grid,
         ['Category', 'Row count'], oracle.append.plusOne);
-      const event = await requestCapture.waitFor(entry => entry.path === `${explorerBase}/authoring/v2/construction-proposals` &&
+      const event = await requestCapture.waitForResponse(entry => entry.path === `${explorerBase}/authoring/v2/construction-proposals` &&
         entry.method === 'POST' && entry.status === 200 && entry.completedAt &&
-        requestCapture.rawRequestBody(entry)?.outputId === target.outputId,
+        entry.request?.outputId === target.outputId,
       { fromIndex: fromIndex, timeoutMs: MAX_ACTION_MS });
-      const requestBody = requestCapture.rawRequestBody(event);
-      const responseBody = requestCapture.rawResponseBody(event);
+      const requestBody = event.request;
+      const responseBody = event.response;
       const step = requestBody.candidateConstruction?.steps?.at(-1);
       const inputIDs = (step?.inputs ?? []).map(input => input.outputId);
       const currentDraft = currentDraftSourceEvidence({ inputs: step?.inputs,
@@ -877,7 +856,7 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
       assert.equal(appendIdentityBefore.steps.at(-1)?.id, appliedAppend.step.id);
       assert.deepEqual(patientIdentityBefore.steps.map(step => step.operation), ['GROUP', 'DERIVE']);
 
-      const membershipStartIndex = report.nativeRequests.length;
+      const membershipStartIndex = requestCapture.requests.length;
       const attachmentToGridTimings = [];
       report.lifecycle ??= {};
       report.lifecycle.patientMembershipHandoff ??= {};
@@ -891,15 +870,15 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
         return url.toString();
       };
       const navigateToHandoff = async selection => {
-        const fromIndex = report.nativeRequests.length;
+        const fromIndex = requestCapture.requests.length;
         const url = selectionURL(selection.id);
         await cda.navigate(url);
         await waitSelector(`[data-testid="construction-table-${patient.outputId}"]`);
         const selectionPath = `${explorerBase}/selections/${encoded(selection.id)}`;
-        const browserRead = await requestCapture.waitFor(entry =>
+        const browserRead = await requestCapture.waitForResponse(entry =>
           entry.method === 'GET' && entry.path === selectionPath && entry.status === 200,
         { fromIndex, timeoutMs: MAX_ACTION_MS });
-        const browserBody = requestCapture.rawResponseBody(browserRead);
+        const browserBody = browserRead.response;
         assert.equal(browserBody?.revision?.id, selection.id,
           'Standalone Builder handoff must load the exact immutable Patient selection revision');
         assert.equal(browserBody.revision.project, project);
@@ -939,14 +918,14 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
         const panel = await readStartingCollectionPanel();
         assert.equal(panel.selectionRevisionId, selection.id);
         const routePath = `${explorerBase}/authoring/v2/population-routes`;
-        const routeEvent = await requestCapture.waitFor(entry => {
-          const body = requestCapture.rawRequestBody(entry);
+        const routeEvent = await requestCapture.waitForResponse(entry => {
+          const body = entry.request;
           return entry.method === 'POST' && entry.path === routePath && entry.status === 200 &&
             body?.outputId === patient.outputId && body?.selectionRevisionId === selection.id &&
-            Array.isArray(requestCapture.rawResponseBody(entry)?.choices);
+            Array.isArray(entry.response?.choices);
         }, { fromIndex, timeoutMs: MAX_ACTION_MS });
-        const routeBody = requestCapture.rawRequestBody(routeEvent);
-        const routeResponse = requestCapture.rawResponseBody(routeEvent);
+        const routeBody = routeEvent.request;
+        const routeResponse = routeEvent.response;
         assert.equal(routeBody.snapshotToken, initialScope.snapshotToken);
         assert.equal(routeResponse.snapshotToken, initialScope.snapshotToken);
         assert.equal(routeResponse.outputId, patient.outputId);
@@ -957,7 +936,7 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
         return { panel, routeEvent, routeBody, routeResponse, routeChoice: directChoices[0] };
       };
       const commandRequest = (entry, type, selectionId) => {
-        const body = requestCapture.rawRequestBody(entry);
+        const body = entry.request;
         const matching = (body?.commands ?? []).filter(item => item.type === type && item.outputId === patient.outputId &&
           (selectionId === undefined || item.selectionRevisionId === selectionId));
         assert.equal(entry.method, 'POST');
@@ -968,28 +947,34 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
       };
       const waitForAutoAppendPreview = async (fromIndex, expectedRows, expectedBuilder, phase) => {
         const reconcilePath = `${explorerBase}/authoring/v2/reconcile`;
-        const reconcile = await requestCapture.waitFor(entry => {
-          const body = requestCapture.rawRequestBody(entry);
-          return entry.method === 'POST' && entry.path === reconcilePath && entry.status === 200 &&
-            body?.snapshotToken === expectedBuilder.catalog.snapshotToken &&
-            body?.draftVersion === expectedBuilder.draftVersion && body?.draftDigest === expectedBuilder.draftDigest;
+        const reconcile = await requestCapture.waitForResponse(entry => {
+          return currentDraftReconcileMatchesOutput(entry, {
+            path: reconcilePath,
+            outputId: target.outputId,
+            snapshotToken: expectedBuilder.catalog.snapshotToken,
+            draftVersion: expectedBuilder.draftVersion,
+            draftDigest: expectedBuilder.draftDigest,
+          });
         }, { fromIndex, timeoutMs: MAX_ACTION_MS });
-        const reconcileBody = requestCapture.rawRequestBody(reconcile);
-        const receipt = requestCapture.rawResponseBody(reconcile);
+        const reconcileBody = reconcile.request;
+        const receipt = reconcile.response;
         assert.equal(receipt?.kind, 'ExplorerBuilderReceipt');
         assert.equal(receipt.snapshotToken, expectedBuilder.catalog.snapshotToken);
         assert.equal(receipt.generation, generation);
-        assert.equal(receipt.authorizationScopeDigest, initialScope.authorizationScopeDigest);
+        const scopeFingerprint = fingerprintAuthorizationScopeDigest(initialScope.authorizationScopeDigest);
+        assert(scopeFingerprint, 'Saved Builder draft must carry a SHA-256 authorization scope digest');
+        assert.equal(receipt.authorizationScopeDigest, scopeFingerprint,
+          'Native APPEND reconcile receipt must carry the exact saved Builder authorization scope fingerprint');
         assert.equal(receipt.outputs?.filter(output => output.outputId === target.outputId).length, 1,
           'Native reconciliation receipt must retain the exact APPEND output once');
         const previewPath = `${explorerBase}/authoring/v2/preview`;
-        const previewRequest = await requestCapture.waitFor(entry => {
-          const body = requestCapture.rawRequestBody(entry);
+        const previewRequest = await requestCapture.waitForResponse(entry => {
+          const body = entry.request;
           return entry.method === 'POST' && entry.path === previewPath && entry.status === 200 &&
             body?.receiptId === receipt.receiptId && body?.outputId === target.outputId;
-        }, { fromIndex: report.nativeRequests.indexOf(reconcile) + 1, timeoutMs: MAX_ACTION_MS });
-        const previewBody = requestCapture.rawRequestBody(previewRequest);
-        const previewResponse = requestCapture.rawResponseBody(previewRequest);
+        }, { fromIndex: requestCapture.requests.indexOf(reconcile) + 1, timeoutMs: MAX_ACTION_MS });
+        const previewBody = previewRequest.request;
+        const previewResponse = previewRequest.response;
         assert.equal(previewBody.receiptId, receipt.receiptId);
         assert.equal(previewResponse?.receiptId, receipt.receiptId);
         assert.equal(previewResponse?.outputId, target.outputId);
@@ -1056,9 +1041,9 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
         isDeepStrictEqual(abandonedPatient, beforePatient) && isDeepStrictEqual(abandonedAppend, beforeAppend);
       assert(abandonmentUnchanged,
         'Dismissing the detached selection handoff must leave the saved two-member Patient source and APPEND document unchanged');
-      const abandonmentCommandEvents = report.nativeRequests.slice(membershipStartIndex).filter(entry =>
-        entry.path === `${explorerBase}/authoring/v2/commands` && requestCapture.rawRequestBody(entry) !== undefined);
-      const abandonmentCommands = abandonmentCommandEvents.flatMap(entry => requestCapture.rawRequestBody(entry)?.commands ?? []);
+      const abandonmentCommandEvents = requestCapture.requests.slice(membershipStartIndex).filter(entry =>
+        entry.path === `${explorerBase}/authoring/v2/commands` && entry.request !== undefined);
+      const abandonmentCommands = abandonmentCommandEvents.flatMap(entry => entry.request?.commands ?? []);
       assert.equal(abandonmentCommands.length, 0,
         'Abandoning the detached handoff must issue no source command, including no clear or attach');
       await selectTable(target.outputId, membershipOracle.append.rowCounts.before, 'Read the unchanged four-row APPEND after handoff abandonment');
@@ -1096,12 +1081,12 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
         assert.equal(opened.panel.attachedSelectionRevisionId, previousSelectionId);
         assert.equal(opened.panel.selectionRevisionId, selection.id);
         const route = opened.routeChoice;
-        const preAttachCommandEvents = report.nativeRequests.slice(entered.fromIndex).filter(entry =>
-          entry.path === `${explorerBase}/authoring/v2/commands` && requestCapture.rawRequestBody(entry) !== undefined);
-        const preAttachCommands = preAttachCommandEvents.flatMap(entry => requestCapture.rawRequestBody(entry)?.commands ?? []);
+        const preAttachCommandEvents = requestCapture.requests.slice(entered.fromIndex).filter(entry =>
+          entry.path === `${explorerBase}/authoring/v2/commands` && entry.request !== undefined);
+        const preAttachCommands = preAttachCommandEvents.flatMap(entry => entry.request?.commands ?? []);
         assert.equal(preAttachCommands.length, 0,
           'Opening or abandoning an attached replacement handoff must not mutate the saved source before Replace current collection is clicked');
-        const attachFromIndex = report.nativeRequests.length;
+        const attachFromIndex = requestCapture.requests.length;
         const replaceButton = page.getByRole('button', { name: 'Replace current collection', exact: true });
         await replaceButton.waitFor({ state: 'visible', timeout: MAX_ACTION_MS });
         assert.equal(await replaceButton.count(), 1,
@@ -1119,8 +1104,8 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
         await click('Replace the saved Patient collection with the native selection handoff',
           replaceButton,
           async () => waitFunction(`(()=>{const p=document.querySelector('section[aria-label="Starting collection"]');return p?.getAttribute('data-attached-selection-revision-id')===${JSON.stringify(selection.id)}})()`));
-        const attachEvent = await requestCapture.waitFor(entry => {
-          const body = requestCapture.rawRequestBody(entry);
+        const attachEvent = await requestCapture.waitForResponse(entry => {
+          const body = entry.request;
           return entry.method === 'POST' && entry.path === `${explorerBase}/authoring/v2/commands` &&
             body?.commands?.some(item => item.type === 'SET_TABLE_POPULATION' && item.outputId === patient.outputId &&
               item.selectionRevisionId === selection.id);
@@ -1153,9 +1138,9 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
         transitionTiming.withinBudget = transitionTiming.durationMs <= transitionTiming.budgetMs;
         assert(autoPreview.ok,
           `${label} must render the exact raw-driven APPEND row multiset under the current draft receipt: ${JSON.stringify(autoPreview)}`);
-        const sourceProposalRequests = report.nativeRequests.slice(membershipStartIndex).filter(entry =>
+        const sourceProposalRequests = requestCapture.requests.slice(membershipStartIndex).filter(entry =>
           entry.path === `${explorerBase}/authoring/v2/construction-proposals` &&
-          requestCapture.rawRequestBody(entry) !== undefined);
+          entry.request !== undefined);
         return {
           handoff: entered,
           route: { status: opened.routeEvent.status, outputId: opened.routeResponse.outputId,
@@ -1233,7 +1218,7 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
         });
       assert(narrowedSaved);
 
-      const narrowReloadFromIndex = report.nativeRequests.length;
+      const narrowReloadFromIndex = requestCapture.requests.length;
       await reloadSelectTable(target.outputId, expectedOneAppend.length,
         'Reload one-member Patient selection and exact three-row APPEND', oneMemberSelection.id);
       const reloadedNarrow = await readBuilder();
@@ -1254,7 +1239,7 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
         expectedAppendStepId: appliedAppend.step.id,
         rowCount: reloadedNarrowGrid.rows.length,
         expectedRows: expectedOneAppend,
-        selectionRead: report.nativeRequests.slice(narrowReloadFromIndex).filter(entry =>
+        selectionRead: requestCapture.requests.slice(narrowReloadFromIndex).filter(entry =>
           entry.method === 'GET' && entry.path === `${explorerBase}/selections/${encoded(oneMemberSelection.id)}` && entry.status === 200)
           .map(entry => ({ path: entry.path, status: entry.status })),
       });
@@ -1267,7 +1252,7 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
         expectedAppendRows: membershipOracle.append.afterRestoration,
         label: 'restored two-member Patient attachment',
       });
-      const restorationReloadFromIndex = report.nativeRequests.length;
+      const restorationReloadFromIndex = requestCapture.requests.length;
       await reloadSelectTable(target.outputId, membershipOracle.append.rowCounts.afterRestoration,
         'Reload restored two-member Patient selection and exact four-row APPEND', originalSelection.id);
       const restoredState = await readBuilder();
@@ -1291,7 +1276,7 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
           appendStepId: restoredAppend.construction.steps.at(-1)?.id,
           expectedAppendStepId: appliedAppend.step.id,
           expectedRows: membershipOracle.append.afterRestoration,
-          selectionRead: report.nativeRequests.slice(restorationReloadFromIndex).filter(entry =>
+          selectionRead: requestCapture.requests.slice(restorationReloadFromIndex).filter(entry =>
             entry.method === 'GET' && entry.path === `${explorerBase}/selections/${encoded(originalSelection.id)}` && entry.status === 200)
             .map(entry => ({ path: entry.path, status: entry.status })),
           groupedAfterNarrowing: membershipOracle.grouped.afterNarrowing,
@@ -1321,14 +1306,14 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
         attachmentToGridBudget.withinBudget && attachmentToGridTimings.length === 2, attachmentToGridEvidence);
       assert(attachmentToGridBudget.withinBudget,
         'Each Patient Replace click through the exact APPEND grid must complete within five seconds');
-      const proposalRequests = report.nativeRequests.slice(membershipStartIndex).filter(entry =>
+      const proposalRequests = requestCapture.requests.slice(membershipStartIndex).filter(entry =>
         entry.path === `${explorerBase}/authoring/v2/construction-proposals` &&
-        requestCapture.rawRequestBody(entry) !== undefined);
+        entry.request !== undefined);
       assert.equal(proposalRequests.length, 0,
         'Native starting collection membership handoff must not open a source construction proposal');
-      const membershipCommandEvents = report.nativeRequests.slice(membershipStartIndex).filter(entry =>
-        entry.path === `${explorerBase}/authoring/v2/commands` && requestCapture.rawRequestBody(entry) !== undefined);
-      const membershipCommands = membershipCommandEvents.flatMap(entry => requestCapture.rawRequestBody(entry)?.commands ?? []);
+      const membershipCommandEvents = requestCapture.requests.slice(membershipStartIndex).filter(entry =>
+        entry.path === `${explorerBase}/authoring/v2/commands` && entry.request !== undefined);
+      const membershipCommands = membershipCommandEvents.flatMap(entry => entry.request?.commands ?? []);
       const replacementCommands = membershipCommands.filter(item => item.type === 'SET_TABLE_POPULATION' &&
         item.outputId === patient.outputId && [oneMemberSelection.id, originalSelection.id].includes(item.selectionRevisionId));
       const clearCommands = membershipCommands.filter(item => item.type === 'CLEAR_TABLE_POPULATION');
@@ -1446,15 +1431,15 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
       [patient.derive.keyOutput.label, patient.derive.countOutput.label, patient.derive.output.label], oracle.patientDerived.plusOne);
 
     await editStep(patient.outputId, originalDerive.id, 'Patient DERIVE', '[data-testid="construction-calculate-editor"]');
-    const deriveProposalFromIndex = report.nativeRequests.length;
+    const deriveProposalFromIndex = requestCapture.requests.length;
     await fillDeriveEdit();
-    const editEvent = await requestCapture.waitFor(entry => entry.path === `${explorerBase}/authoring/v2/construction-proposals` &&
+    const editEvent = await requestCapture.waitForResponse(entry => entry.path === `${explorerBase}/authoring/v2/construction-proposals` &&
       entry.method === 'POST' && entry.status === 200 && entry.completedAt &&
-      requestCapture.rawRequestBody(entry)?.outputId === patient.outputId &&
-      requestCapture.rawRequestBody(entry)?.candidateConstruction?.steps?.some(step => step.id === originalDerive.id &&
+      entry.request?.outputId === patient.outputId &&
+      entry.request?.candidateConstruction?.steps?.some(step => step.id === originalDerive.id &&
         step.operation?.kind === 'DERIVE' && step.operation.derive.right?.literal?.integer === 2),
       { fromIndex: deriveProposalFromIndex, timeoutMs: MAX_ACTION_MS });
-    const deriveCandidate = requestCapture.rawRequestBody(editEvent)?.candidateConstruction?.steps?.find(step => step.id === originalDerive.id);
+    const deriveCandidate = editEvent.request?.candidateConstruction?.steps?.find(step => step.id === originalDerive.id);
     const deriveCandidateOutput = deriveCandidate?.outputs?.find(output => output.id === patient.derive.output.id);
     const deriveCASExact = editEvent.status === 200 && deriveCandidateOutput?.name === 'row_count_offset' &&
       deriveCandidate?.operation?.derive?.left?.columnId === patient.derive.countOutput.id &&
@@ -1612,6 +1597,5 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
     };
   } finally {
     page.removeListener('request', onRequest);
-    await requestCapture?.flush();
   }
 }

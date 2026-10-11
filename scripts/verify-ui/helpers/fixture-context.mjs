@@ -1,9 +1,20 @@
-import { createDevSession, assertOwnedDevSession, createFreshVerificationFixture } from '../../loom-dev.mjs';
+import { createDevSession, assertOwnedDevSession, canonicalProjectID, createFreshVerificationFixture } from '../../loom-dev.mjs';
 import { getScenario, scenarioCaseFor } from '../registry.mjs';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 export { environmentForFixtureDir } from './fixture-environment.mjs';
+
+export const fixtureProjectExplorerCollectionPath = project =>
+  `/api/v1/projects/${encodeURIComponent(encodeURIComponent(canonicalProjectID(project)))}/explorers`;
+
+export const fixtureExplorerRequestPathMatches = (pathname, project, explorer) => {
+  const collectionPath = fixtureProjectExplorerCollectionPath(project);
+  if (pathname === collectionPath) return true;
+  if (typeof explorer !== 'string' || !explorer.trim()) return false;
+  const explorerPath = `${collectionPath}/${encodeURIComponent(explorer)}`;
+  return pathname === explorerPath || pathname.startsWith(`${explorerPath}/`);
+};
 
 const namedSessionEnvironment = [
   'LOOM_DEV_SOURCE_ROOT',
@@ -21,7 +32,7 @@ export const assertNamedDevSessionEnvironment = (env = process.env) => {
 export const createRunContext = async ({ caseName }, scenario, { env = process.env } = {}) => {
   assertNamedDevSessionEnvironment(env);
   const session = createDevSession(env);
-  await assertOwnedDevSession(session);
+  await assertOwnedDevSession(session, { uiRouting: 'explicit-query' });
   const id = Date.now().toString(36) + '-' + Math.random().toString(16).slice(2, 9);
   const fixture = await createFreshVerificationFixture(session, id);
   return {

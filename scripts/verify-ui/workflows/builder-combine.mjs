@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
+import { expect } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { browserURL } from './builder-url.mjs';
-import { sanitizeBody } from '../helpers/playwright-browser.mjs';
 import { recordCheck } from '../helpers/report.mjs';
-import { appendNullPaddingRows, builderRequestURL, builderResponseIdentity, constructionProposalPreviewEvidence, currentPublishedRevisionForOutput, displayAppendNullPaddingRows, findColumn, isCombineInputIDColumn, isNumericClickHouseType, isScalarStringColumn, joinOracleRows, appendEditorConfigurationEvidence, nativeCombineTargetBindingEvidence, sameSourceDocuments, snapshotSourceDocument, isOwnedConstructionCapabilitiesRequest, rootedEmptyTargetAppliedExpression, rootedEmptyTargetRestorationEvidence, savedAppendPreviewAppliedExpression, measureActionToDOMResult, combineCancellationPreservationEvidence } from '../helpers/builder-combine-helpers.mjs';
+import { appendNullPaddingRows, builderRequestURL, builderResponseIdentity, constructionProposalPreviewEvidence, currentPublishedRevisionForOutput, displayAppendNullPaddingRows, findColumn, isCombineInputIDColumn, isNumericClickHouseType, isScalarStringColumn, joinOracleRows, appendEditorConfigurationEvidence, nativeCombineTargetBindingEvidence, sameSourceDocuments, snapshotSourceDocument, rootedEmptyTargetAppliedExpression, rootedEmptyTargetRestorationEvidence, savedAppendPreviewAppliedExpression, measureActionToDOMResult, combineCancellationPreservationEvidence } from '../helpers/builder-combine-helpers.mjs';
 
 export const authoredColumn = (document, catalogColumn) => {
   const matches = (document.columns ?? []).filter(column => column.column === catalogColumn.name);
@@ -26,76 +26,27 @@ const expectedReports = [
   { id: 'combine-observation-final-2', status: 'final' },
   { id: 'combine-observation-preliminary', status: 'preliminary' },
 ];
-const captureConstructionCapabilitiesFailuresWithPlaywright = (page, report, owner) => {
-  const requests = new Map();
-  const onRequest = request => {
-    if (!isOwnedConstructionCapabilitiesRequest({ requestURL: request.url(), method: request.method(), ...owner })) return;
-    let parsed;
-    try { parsed = request.postDataJSON(); } catch { parsed = undefined; }
-    requests.set(request, {
-      requestURL: new URL(request.url()).origin + new URL(request.url()).pathname,
-      owner: { origin: new URL(owner.uiUrl).origin, project: owner.project, explorer: owner.explorer },
-      requestBody: parsed ? {
-        snapshotToken: parsed.snapshotToken,
-        expectedDraftVersion: parsed.expectedDraftVersion,
-        expectedDraftDigest: parsed.expectedDraftDigest,
-        outputId: parsed.outputId,
-        stageId: parsed.stageId,
-      } : null,
-    });
-  };
-  const onResponse = response => {
-    const request = requests.get(response.request());
-    if (!request || response.status() < 400) return;
-    const diagnostic = { ...request, status: response.status(), mimeType: response.headers()['content-type'] ?? null, responseBody: null };
-    report.constructionCapabilitiesFailures ??= [];
-    report.constructionCapabilitiesFailures.push(diagnostic);
-    void response.text().then(text => { diagnostic.responseBody = sanitizeBody(text); }, error => {
-      diagnostic.responseReadError = error instanceof Error ? error.message : String(error);
-    });
-  };
-  page.on('request', onRequest);
-  page.on('response', onResponse);
-  return { stop: () => {
-    page.off('request', onRequest);
-    page.off('response', onResponse);
-  } };
-};
+const appendProposalPath = (project, explorer) =>
+  `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorer)}/authoring/v2/construction-proposals`;
 
-const captureOwnedConstructionProposals = (page, target) => {
-  const entries = [];
-  const byRequest = new Map();
-  const project = target.fixtureProject;
-  const path = `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(target.explorer)}/authoring/v2/construction-proposals`;
-  const onRequest = request => {
-    if (request.method() !== 'POST' || new URL(request.url()).origin !== new URL(target.uiUrl).origin || new URL(request.url()).pathname !== path) return;
-    let body;
-    try { body = request.postDataJSON(); } catch { return; }
-    if (body?.outputId !== target.outputId) return;
-    const entry = { request, sequence: entries.length + 1, url: new URL(request.url()).origin + path, body, status: null, responsePromise: null };
-    entries.push(entry);
-    byRequest.set(request, entry);
-  };
-  const onResponse = response => {
-    const entry = byRequest.get(response.request());
-    if (!entry) return;
-    entry.status = response.status();
-    entry.responsePromise = response.json().then(value => {
-      entry.response = value;
-      return value;
-    }).catch(error => {
-      entry.response = { responseReadError: error instanceof Error ? error.message : String(error) };
-      return entry.response;
-    });
-  };
-  page.on('request', onRequest);
-  page.on('response', onResponse);
+const waitForAppendProposal = async (networkObserver, target, expectedDraft, fromIndex, timeoutMs) => {
+  const entry = await networkObserver.waitForResponse(candidate => {
+    const body = candidate.request;
+    const step = body?.candidateConstruction?.steps?.at(-1);
+    return candidate.method === 'POST' && candidate.path === appendProposalPath(target.fixtureProject, target.explorer) &&
+      body?.outputId === target.outputId &&
+      body?.snapshotToken === expectedDraft.catalog.snapshotToken &&
+      body?.expectedDraftVersion === expectedDraft.draftVersion &&
+      body?.expectedDraftDigest === expectedDraft.draftDigest &&
+      step?.operation?.combine?.kind === 'APPEND' && step.outputs?.length === 3;
+  }, { fromIndex, timeoutMs });
   return {
-    entries,
-    stop: () => {
-      page.off('request', onRequest);
-      page.off('response', onResponse);
-    },
+    entry,
+    body: await networkObserver.requestBody(entry),
+    response: await networkObserver.responseBody(entry),
+    status: entry.status,
+    url: entry.url,
+    sequence: entry.index + 1,
   };
 };
 
@@ -105,46 +56,13 @@ const check = (report, dimension, name, condition, evidence = {}) => {
     throw new TypeError('Combine checks require a known dimension, a string name, and a boolean condition.');
   }
   recordCheck(report, dimension, name, Boolean(condition), evidence);
-  if (!condition) throw new Error('required Combine check failed: ' + name + '; evidence=' + JSON.stringify(evidence).slice(0, 1400));
+  expect(Boolean(condition), name).toBe(true);
 };
 
 const recordReloadTiming = (report, name, startedAt, evidence = {}) => {
   const elapsedMs = Date.now() - startedAt;
   report.timings[name] = elapsedMs;
   check(report, 'performance', name, elapsedMs <= 5000, { elapsedMs, limitMs: 5000, ...evidence });
-};
-
-export const openAppendNativeRequestScope = (nativeRequestLedger, target) => {
-  if (!nativeRequestLedger?.openScope || typeof target?.fixtureProject !== 'string' ||
-      !target.fixtureProject.trim() || typeof target.uiUrl !== 'string') {
-    throw new TypeError('APPEND native request scope requires the fixture project, UI URL, and fixture request ledger.');
-  }
-  const origin = new URL(target.uiUrl).origin;
-  return nativeRequestLedger.openScope({ project: target.fixtureProject, origin });
-};
-
-export const flushAppendNativeRequestScope = async ({
-  nativeRequestLedger, scope, explorer, report, timeoutMs = 5000,
-} = {}) => {
-  if (!nativeRequestLedger?.flush || !scope || !report || typeof report !== 'object') {
-    throw new TypeError('APPEND native request flush requires its ledger scope and workflow report.');
-  }
-  const snapshot = await nativeRequestLedger.flush(scope, { explorer, timeoutMs });
-  Object.assign(report, {
-    nativeRequests: snapshot.nativeRequests,
-    nativeRequestDrainEvidence: snapshot.nativeRequestDrainEvidence,
-    excludedNativeRequests: snapshot.excludedNativeRequests,
-    excludedNativeRequestDrainEvidence: snapshot.excludedNativeRequestDrainEvidence,
-    nativeRequestCorrelationErrors: snapshot.nativeRequestCorrelationErrors,
-    nativeRequestTerminalLedger: snapshot.nativeRequestTerminalLedger,
-  });
-  if (!snapshot.nativeRequestTerminalLedger.complete) {
-    const error = new Error('APPEND native request ledger did not reach a complete terminal state: ' +
-      JSON.stringify(snapshot.nativeRequestTerminalLedger));
-    error.nativeRequestSnapshot = snapshot;
-    throw error;
-  }
-  return snapshot;
 };
 
 const parseNDJSON = (path) => readFileSync(path, 'utf8')
@@ -1124,7 +1042,7 @@ const assertAppendNullPaddingStep = (report, name, step, api) => {
   return { actualInputs, actualProjections, outputNullability };
 };
 
-export const appendWorkflow = async ({ page, report, action, nativeRequestLedger }, context) => {
+export const appendWorkflow = async ({ page, report, action, networkObserver }, context) => {
   assert.equal(context.custom, false, 'Combine authoring requires an owned isolated fixture.');
   assert.equal(context.seed?.fresh, true, 'Combine authoring requires a fresh verification project.');
   const fixture = exactFixture(context.target.fixtureDir);
@@ -1149,14 +1067,11 @@ export const appendWorkflow = async ({ page, report, action, nativeRequestLedger
       expectedUnionRows: fixture.patients.length + fixture.observations.length + fixture.diagnosticReports.length,
     });
 
-  const nativeRequestScope = openAppendNativeRequestScope(nativeRequestLedger, context.target);
   let explorer;
   let docs;
   let api;
   let target;
-  let capabilitiesFailures;
-  let proposalCapture;
-  let workflowFailed = false;
+  let appendProposalFromIndex = 0;
 
   try {
     const prepared = await createAndPublishSourcesWithPlaywright(context, page, action, report, true);
@@ -1166,9 +1081,6 @@ export const appendWorkflow = async ({ page, report, action, nativeRequestLedger
     target = initialCancelProbeTarget;
     report.target.combineTarget = target;
     report.target.initialCancelProbeTarget = initialCancelProbeTarget;
-    capabilitiesFailures = captureConstructionCapabilitiesFailuresWithPlaywright(page, report, {
-      uiUrl: context.target.uiUrl, project: context.target.fixtureProject, explorer,
-    });
     let builderAtTarget = await readBuilder(context, explorer);
     const builderBeforeInitialProbe = builderAtTarget;
     const initialProbeEmptyTargetBaseline = snapshotSourceDocument(readTargetDocument(builderAtTarget, target.outputId));
@@ -1228,9 +1140,6 @@ export const appendWorkflow = async ({ page, report, action, nativeRequestLedger
     const probeAfterRestart = readTargetDocument(builderAtTarget, initialCancelProbeTarget.outputId);
     const probeAfterRestartEvidence = rootedEmptyTargetRestorationEvidence(
       probeAfterRestart, initialProbeEmptyTargetBaseline, initialCancelProbeTarget);
-    proposalCapture = captureOwnedConstructionProposals(page, {
-      ...context.target, explorer, outputId: target.outputId,
-    });
     const initialCancelEvidence = {
       ok: initialCancelRootVisible && emptyBeforeCancelReloadEvidence.ok && emptyAfterCancelReloadEvidence.ok &&
         builderBeforeInitialProbe.draftVersion === emptyAfterCancelReloadBuilder.draftVersion &&
@@ -1320,16 +1229,18 @@ export const appendWorkflow = async ({ page, report, action, nativeRequestLedger
       outputConfiguration.ok, outputConfiguration);
 
     const genderMapping = page.locator('select[aria-label="Output field 3 matching field in input 3"]');
+    appendProposalFromIndex = networkObserver.requests.length;
     await action('automatically preview three-input APPEND with explicit absent-field mappings', genderMapping,
       () => genderMapping.selectOption('column:' + api.columns.patientGender.id), {
         timeout: 5000, budget: 5000,
         after: () => waitProposalWithPlaywright(page, target.outputId, appendedRows.length),
       });
-    const candidateRequest = [...proposalCapture.entries].reverse().find(entry =>
-      entry.body?.candidateConstruction?.steps?.at(-1)?.operation?.combine?.kind === 'APPEND');
-    assert(candidateRequest, 'completing all APPEND slots must issue an automatic construction proposal');
-    const candidateResponse = await candidateRequest.responsePromise;
-    assert(candidateResponse && !candidateResponse.responseReadError, 'APPEND proposal response body must be retained');
+    const candidateRequest = await waitForAppendProposal(networkObserver, {
+      ...context.target, explorer, outputId: target.outputId,
+    }, builderAtTarget, appendProposalFromIndex, 5000);
+    expect(candidateRequest.status, 'APPEND proposal response status').toBe(200);
+    expect(candidateRequest.response, 'APPEND proposal response body').toBeTruthy();
+    const candidateResponse = candidateRequest.response;
     const candidateStep = candidateRequest.body.candidateConstruction.steps.at(-1);
     const candidateShape = assertAppendNullPaddingStep(report,
       'automatic APPEND proposal omits only explicit-empty source pairs and marks padded outputs nullable', candidateStep, api);
@@ -1522,32 +1433,21 @@ export const appendWorkflow = async ({ page, report, action, nativeRequestLedger
     await assertSourceImmutability(context, explorer, docs, api, report);
     report.target.explorer = explorer;
     report.target.combineTarget = target;
-  } catch (error) {
-    workflowFailed = true;
-    throw error;
   } finally {
-    proposalCapture?.stop();
-    report.nativeAppendProposals = (proposalCapture?.entries ?? []).map(entry => ({
-      requestSequence: entry.sequence,
-      url: entry.url,
-      requestBody: entry.body,
-      status: entry.status,
-      response: entry.response ?? null,
-      stageId: entry.body?.stageId ?? null,
-      outputId: entry.body?.outputId ?? null,
-      snapshotToken: entry.body?.snapshotToken ?? null,
-      expectedDraftVersion: entry.body?.expectedDraftVersion ?? null,
-      expectedDraftDigest: entry.body?.expectedDraftDigest ?? null,
-    }));
-    capabilitiesFailures?.stop();
-    try {
-      await flushAppendNativeRequestScope({ nativeRequestLedger, scope: nativeRequestScope, explorer, report });
-    } catch (error) {
-      report.nativeRequestFlushFailure = {
-        message: error instanceof Error ? error.message : String(error),
-        terminalLedger: error?.nativeRequestSnapshot?.nativeRequestTerminalLedger ?? report.nativeRequestTerminalLedger ?? null,
-      };
-      if (!workflowFailed) throw error;
-    }
+    report.nativeAppendProposals = networkObserver.requests.slice(appendProposalFromIndex)
+      .filter(entry => entry.method === 'POST' && entry.path === appendProposalPath(context.target.fixtureProject, explorer ?? '') &&
+        entry.request?.outputId === target?.outputId)
+      .map(entry => ({
+        requestSequence: entry.index + 1,
+        url: entry.url,
+        requestBody: entry.request,
+        status: entry.status,
+        response: entry.response ?? null,
+        stageId: entry.request?.stageId ?? null,
+        outputId: entry.request?.outputId ?? null,
+        snapshotToken: entry.request?.snapshotToken ?? null,
+        expectedDraftVersion: entry.request?.expectedDraftVersion ?? null,
+        expectedDraftDigest: entry.request?.expectedDraftDigest ?? null,
+      }));
   }
 };

@@ -10,6 +10,23 @@ Compose project. It does not drive the canonical `loom-demo` deployment.
 
 ## Failure-loop discipline
 
+### Batch scheduling
+
+Use `docs/BUILDER_WORKLIST.md` and `docs/BUILDER_WORKLIST.tsv` as the active
+queue. Historical matrix rows are evidence, not separate tasks. Implement
+independent corrections in separate worktrees with cheap focused regressions,
+review and integrate the ready batch, then freeze source once for its complete
+native browser cases. Do not require each full browser lifecycle to finish before
+implementing another independent correction.
+
+Before concurrent cases, record each case's owned QA Explorer or project,
+artifact directory, fixture setup/cleanup effects and target identity. Unknown
+shared-state effects prevent concurrent launch. Serialize shared-state mutations
+and HMR probes. Keep concurrent latency provisional and confirm timing failures
+serially. A batch does not weaken any case's complete lifecycle or independent
+correctness requirements.
+
+
 ### Own and close the complete lifecycle
 
 One assigned Luna lead owns a case through diagnosis, focused regression,
@@ -18,16 +35,15 @@ do not require a foreground handoff for every predicate or selector. Escalate
 product decisions, shared architecture changes, or unexplained failures; Sol
 reviews the complete verified unit before the lead commits or merges it.
 
-Use actual retained request/response shapes and native event ordering as the
-regression fixture. Exercise the driver's production helper, including negative
-identity cases, rather than copying its matcher into a test. Distinguish browser
-request IDs from diagnostic IDs and response arrival from evidence-body capture.
-Do not impose a new wire contract merely to satisfy a test assumption.
+Use independent source data to verify native UI outcomes. Keep user-visible
+actions, required state transitions, correctness, and timing in Playwright test
+assertions. Reports help diagnose failures and record coverage; they do not
+replace the native test result.
 
-Audit the remaining workflow actions and batch demonstrated driver corrections
-before the next full rerun. Preserve independent data expectations, complete
-lifecycle checks, and the original latency budget. Keep common evidence rules in
-shared helpers rather than rebuilding them in each case.
+Before the next full run, inspect known failing actions in the workflow and batch
+demonstrated driver corrections. Preserve independent data expectations,
+complete lifecycle assertions, and the original latency budget. Keep shared
+evidence handling in the existing helpers.
 
 Review the final artifact once; renew review for consequential corrections, not
 unchanged passing checks or evidence-only bookkeeping. Record the pass in the
@@ -112,10 +128,10 @@ After partial staging from a dirty worktree, inspect the staged diff and run
 the focused check against an isolated snapshot of the index tree or resulting
 commit. A dirty-worktree pass does not prove the staged artifact.
 
-Capture diagnostics on the first failing action: elapsed time, control values,
-DOM, console exception, exact owned request scope and draft/stage identity,
-HTTP status, and response diagnostic body. Exclude credentials and unrelated
-traffic. Unexpected network failures remain fatal.
+Capture diagnostics for the first failing action: action, elapsed time, control
+values, error, console exception, and relevant owned request status or response
+body when available. Exclude credentials and unrelated traffic. Keep these
+details in the report; native test assertions determine whether the case passed.
 
 For a failed native bracket, list validated construction-proposal and
 prerequisite-state choices before extracting a focused test input:
@@ -191,18 +207,15 @@ repairs do not count as closed product failures.
 After two consecutive harness failures on the same path, stop backend browser
 reruns and audit the remaining actions in that workflow, not just the first
 failing line. Check selectors and control multiplicity, fixture/schema shape,
-request adapters, ownership, event ordering, saved state, and final error gates
-against current source and retained DOM. Inspect cheap remaining assumptions
-after the first failure when the evidence is already available.
+saved state, and final error assertions against current source and retained
+diagnostics. Inspect cheap remaining assumptions after the first failure when
+the evidence is already available.
 
 Batch demonstrated driver corrections before the next full run. Validate
 questionable locators with native Playwright on a small `page.setContent`
-fixture; use retained request/response artifacts for adapter and classification
-checks. Exercise the actual functions used by the driver. Include negative
-cases that reject wrong identities and extra or unexpected errors. Check the
-live fixture lifecycle: teardown-only records may not exist inside the workflow.
-Preserve raw errors and classify expected events only with exact ownership and
-response/supersession proof. Resume the same complete case with its original
+fixture. Use retained request and response details to diagnose adapter failures,
+and preserve raw errors in the report. Add assertions for the user-visible
+behavior required by the case. Resume the same complete case with its original
 oracle, lifecycle scope, and latency budget; do not weaken assertions.
 
 ### Verification bracket and compact handoff
@@ -222,8 +235,33 @@ uses official Playwright `--list` to require exactly one registered test before
 it runs focused checks. It binds the target config to the case identity, then
 performs precheck, before/after capture, health, and one native Playwright test.
 It creates a fresh summary outside watched source, forces one worker and zero
-retries, and attempts after-capture and health even after browser failure. Do
-not run a second manual bracket for the same case.
+retries, and attempts after-capture and health even after browser failure. The
+exact selected native test result and source/API integrity determine the
+outcome. Missing or ambiguous selection and skipped tests cannot pass. Required
+lifecycle behavior must fail through native test assertions. Native fixture
+assertions also fail unexpected HTTP errors, uncaught exceptions,
+non-cancellation transport errors, and failed or canceled writes. Read
+cancellations remain diagnostic while required current outcomes must succeed.
+Report generation and response-body capture failures are recorded separately;
+report statuses, check totals, and request inventories are not extra pass gates.
+Do not run a second manual bracket for the same case.
+
+For an explicit multi-case run, use the runner's `--batch <manifest.json>`
+mode. The schema-v1 manifest contains only registered scenario/case selections
+and a per-case environment target for cases without registered target identity
+or config target for bound cases; all targets must resolve to the same capture
+identity. The batch owns one shared before/after bracket and
+closes it after its cases finish. Concurrency defaults to 1 and accepts values
+from 1 through 3; it can overlap only registry cases reviewed for fresh fixture
+projects. Unannotated cases run alone; each marked fixture validates its own
+project.
+Keep the current worklist authoritative: include only the ready cases selected
+for this run. For timing, supply the batch summary and each case summary as
+explicit `verification-timing.mjs report --summary <path>` inputs; the batch
+summary describes the shared interval and case summaries provide browser
+command durations. To record a phase, run `verification-timing.mjs start`
+with an outside-repository spans directory, owner, case ID, and phase, then
+pass its returned ID to `verification-timing.mjs finish`.
 
 When adding or changing a target-bound case registration or owned target config,
 run that case from the owned live checkout in target-bound checks-only mode
@@ -269,10 +307,12 @@ intentionally verifies Vite-provided routing defaults must opt in with
 `cdaUiRouting: 'defaults'`, which retains the existing project and bootstrap
 Explorer checks.
 
-Accept a pass only when the summary reports passed lifecycle and integrity,
-all registered focused checks pass, and the selected native test exits
-successfully. Read the linked domain report for correctness and consequential
-failure evidence.
+Accept a pass only when the exact selected native test passes without a skip and
+source/API integrity passes. A missing or ambiguous selection is a preparation
+failure. Focused prerequisites may stop the run when they fail, but report
+statuses and request-completion observations do not decide the lifecycle
+outcome. Read the linked domain report to diagnose failures and describe
+coverage.
 
 The first live proof passed the Group-to-Pivot Append lifecycle at source commit
 `d120b68c7bf172ef2a0979052802f7108158363b`: 31/31 required checks, no retries,
@@ -280,14 +320,15 @@ The first live proof passed the Group-to-Pivot Append lifecycle at source commit
 This proves the coordinator on that basic fixture; it does not establish CDA
 coverage or replace the remaining-workflow audit.
 
-Generate the run summary from retained artifacts: exact command, exit status,
-stage durations, source fingerprint, API identity, lifecycle checks and gaps,
-maximum measured latency, failure category, and evidence paths. Add the patch
-hash, preserved preimages, focused check results, and Luna max verdict once per
-final reviewed artifact. Link to detailed logs instead of copying payloads or
-manually reconstructing manifests. Sol reviews the consequential diff and this
-packet; missing evidence goes back to its owner, not to duplicate foreground
-runs. Renew review when the patch changes.
+Record the exact command, selected native test result, exit status, stage
+durations, source fingerprint, API identity, report paths, maximum measured
+latency, and first-failure details. Keep report checks and gaps as diagnostic
+and coverage data. Add the patch hash, preserved preimages, focused check
+results, and Luna max verdict once per final reviewed artifact. Link to detailed
+logs instead of copying payloads or manually reconstructing manifests. Sol
+reviews the consequential diff and this packet; missing evidence goes back to
+its owner, not to duplicate foreground runs. Renew review when the patch
+changes.
 
 Give the runtime bracket one owner through after-capture and release. Keep
 isolated implementation and review moving; a documentation commit or unrelated
@@ -437,10 +478,10 @@ per-file hashes, an aggregate source fingerprint, and API build identity before
 and after the run; source mutation invalidates the run. Retain the independent
 fixture or CDA oracle and the complete lifecycle requirements above.
 
-Use the JSON report and sanitized JSON diagnostics as primary failure evidence.
-Retain the first failed action, locator state, DOM, console and owned request
-diagnostics, and elapsed time. Traces and screenshots are optional follow-up
-artifacts, disabled by default in the native runner. Run from a physically separate source
+Use the JSON report and sanitized JSON diagnostics to inspect failures. Retain
+the first failed action, error, elapsed time, console details, and relevant
+request diagnostics. Traces and screenshots are optional follow-up artifacts,
+disabled by default in the native runner. Run from a physically separate source
 checkout with the source frozen. Use a dedicated Compose project for isolated
 state by default. A single explicitly named, owned development stack with a
 loaded CDA may be reused when authorized and its project and generation are

@@ -46,10 +46,8 @@ const clickOne = async (selector, name) => {
   report.actions.push(state);
 };
 const previewResponse = async startIndex => {
-  await tracker.flush();
-  const existing = report.nativeRequests.slice(startIndex).find(entry => entry.path.endsWith('/preview') && entry.status === 200 && entry.response);
-  return existing ?? cda.waitForCapturedResponse(tracker,
-    entry => entry.path.endsWith('/preview') && report.nativeRequests.indexOf(entry) >= startIndex && entry.status === 200, 5000);
+  const existing = tracker.requests.slice(startIndex).find(entry => entry.path.endsWith('/preview') && entry.status === 200 && entry.response);
+  return existing ?? tracker.waitForResponse(entry => entry.path.endsWith('/preview') && entry.method === 'POST' && entry.status === 200, { fromIndex: startIndex, timeoutMs: 5000 });
 };
 const rawCda = aql => {
   const output = execFileSync('docker', ['exec', target.arangoContainer, 'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string',
@@ -112,7 +110,7 @@ try {
     }));
   }
 
-  const sourcePreviewRequestStart = report.nativeRequests.length;
+  const sourcePreviewRequestStart = tracker.requests.length;
   await clickOne('button:text-is("Preview")', 'Preview source');
   await one('[data-testid="preview-table-scroll"] [role="table"]').waitFor({ state: 'visible', timeout: 5000 });
   const sourcePreviewEntry = await previewResponse(sourcePreviewRequestStart);
@@ -147,7 +145,7 @@ try {
   assert(editor.inputs.some(input => input.label === 'Unpivot subject.reference'));
   assert(editor.inputs.some(input => input.label === 'Unpivot collection.bodySite.reference.reference'));
   assert(editor.advancedClosed && editor.effect?.includes('Rows with missing values stay in the table'), 'Unpivot must show a preserving default with Advanced options closed');
-  const defaultProposalStart = report.nativeRequests.length;
+  const defaultProposalStart = tracker.requests.length;
   const defaultPreviewStarted = Date.now();
   for (const field of fields) {
     const selector = `input[aria-label=${JSON.stringify(`Unpivot ${field}`)}]`;
@@ -159,10 +157,9 @@ try {
   const defaultPreviewMs = Date.now() - defaultPreviewStarted;
   const defaultEffect = await inspect(() => document.querySelector('[data-testid="construction-unpivot-effect"]')?.innerText);
   assert(defaultEffect?.includes('2 new rows per original row. Rows with missing values stay in the table.'), 'Unpivot does not explain the default row effect after selecting columns');
-  await tracker.flush();
-  const defaultProposalRequest = report.nativeRequests.slice(defaultProposalStart).filter(request => request.path.endsWith('/construction-proposals')).at(-1);
-  assert(defaultProposalRequest?.body, 'Preserving Unpivot proposal request was not captured');
-  const defaultOperation = defaultProposalRequest.body.candidateConstruction.steps.at(-1).operation.unpivot;
+  const defaultProposalRequest = await tracker.waitForResponse(request => request.path.endsWith('/construction-proposals') && request.method === 'POST' && request.status === 200, { fromIndex: defaultProposalStart, timeoutMs: Math.max(1, defaultPreviewStarted + 5000 - Date.now()) });
+  assert(defaultProposalRequest?.request, 'Preserving Unpivot proposal request was not captured');
+  const defaultOperation = defaultProposalRequest.request.candidateConstruction.steps.at(-1).operation.unpivot;
   assert.equal(defaultOperation.inputs.length, 2, 'Default preview must include both selected columns');
   assert.equal(defaultOperation.nullRowPolicy, 'PRESERVE');
   assert.equal(defaultProposalRequest.status, 200, 'Preserving Unpivot proposal did not succeed');
@@ -191,15 +188,14 @@ try {
       panel: document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText,
       previewText: table?.innerText.slice(0, 2500), applyDisabled: document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled };
   });
-  await tracker.flush();
-  const proposalEntry = report.nativeRequests.filter(response => response.path.endsWith('/construction-proposals')).at(-1);
-  const proposalBody = proposalEntry?.response;
-  assert.equal(proposalEntry?.status, 200, 'Configured Unpivot proposal request must succeed');
-  assert.equal(proposalEntry?.body?.candidateConstruction?.steps?.at(-1)?.operation?.unpivot?.nullRowPolicy, 'DROP');
+  const proposalEntry = await tracker.waitForResponse(response => response.path.endsWith('/construction-proposals') && response.method === 'POST' && response.status === 200, { fromIndex: defaultProposalStart, timeoutMs: 5000 });
+  const proposalBody = proposalEntry.response;
+  assert.equal(proposalEntry.status, 200, 'Configured Unpivot proposal request must succeed');
+  assert.equal(proposalEntry.request?.candidateConstruction?.steps?.at(-1)?.operation?.unpivot?.nullRowPolicy, 'DROP');
   const proposal = { ...proposalDOM, response: proposalBody };
   const proposalSummary = { status: proposal.status, panel: proposal.panel, applyDisabled: proposal.applyDisabled, responseStatus: proposalEntry?.status, responseKeys: proposalBody ? Object.keys(proposalBody) : [] };
   await mkdir(evidenceDirectory, { recursive: true });
-  await writeFile(join(evidenceDirectory, 'unpivot-proposal.json'), JSON.stringify({ pageURL, before, currentColumns, source, selected, added, sourcePreview, editor, defaultPreviewMs, defaultEffect, defaultProposalRequest, defaultPreview, configured, proposal, nativeRequests: report.nativeRequests }, null, 2));
+  await writeFile(join(evidenceDirectory, 'unpivot-proposal.json'), JSON.stringify({ pageURL, before, currentColumns, source, selected, added, sourcePreview, editor, defaultPreviewMs, defaultEffect, defaultProposalRequest: { status: defaultProposalRequest.status, request: defaultProposalRequest.request, response: defaultProposalRequest.response }, defaultPreview, configured, proposal, nativeRequests: report.nativeRequests }, null, 2));
   assert.equal(proposal.status, 'ready', `Unpivot proposal did not become ready: ${proposal.panel}`);
   assert.equal(proposal.applyDisabled, false, 'Apply should be enabled for a ready unpivot proposal');
   await clickOne('[data-testid="construction-apply-proposal"]', 'Apply Unpivot');
@@ -211,7 +207,7 @@ try {
   try { await wait(() => !document.querySelector('[data-testid^="construction-history-step-"]')?.innerText.includes('a column as'), [], 3000); }
   catch { historyLabelsResolved = false; }
   const reloadedHistory = await inspect(() => document.querySelector('[data-testid^="construction-history-step-"]')?.innerText);
-  const appliedPreviewStart = report.nativeRequests.length;
+  const appliedPreviewStart = tracker.requests.length;
   await clickOne('button:text-is("Preview")', 'Preview applied Unpivot');
   await one('[data-testid="preview-table-scroll"] [role="table"]').waitFor({ state: 'visible', timeout: 5000 });
   const appliedPreviewEntry = await previewResponse(appliedPreviewStart);
@@ -247,25 +243,24 @@ try {
   const removeSelector = `[data-testid=${JSON.stringify(`construction-remove-step-${stepId}`)}]`;
   await one(removeSelector).waitFor({ state: 'visible', timeout: 5000 });
   assert(await one(removeSelector).isEnabled(), 'Remove Unpivot step control is disabled');
-  const removeProposalStart = report.nativeRequests.length;
+  const removeProposalStart = tracker.requests.length;
   await clickOne(removeSelector, 'Propose Unpivot removal');
   await wait(() => document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status') === 'ready');
-  await tracker.flush();
-  const removeProposalEntry = report.nativeRequests.slice(removeProposalStart).find(entry => entry.path.endsWith('/construction-proposals'));
-  assert(removeProposalEntry?.body, 'Remove step should send a construction proposal request');
-  assert.deepEqual(removeProposalEntry.body.removeStepIds, [stepId]);
+  const removeProposalEntry = await tracker.waitForResponse(entry => entry.path.endsWith('/construction-proposals') && entry.method === 'POST' && entry.status === 200, { fromIndex: removeProposalStart, timeoutMs: 5000 });
+  assert(removeProposalEntry?.request, 'Remove step should send a construction proposal request');
+  assert.deepEqual(removeProposalEntry.request.removeStepIds, [stepId]);
   const removeProposal = await inspect(() => ({ panel: document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText,
     preview: document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0, 1500),
     disabled: document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled }));
   assert.equal(removeProposal.disabled, false, `Remove proposal Apply should be enabled: ${removeProposal.panel}`);
-  const removeCommandStart = report.nativeRequests.length;
+  const removeCommandStart = tracker.requests.length;
   await clickOne('[data-testid="construction-apply-proposal"]', 'Apply Unpivot removal');
-  const removeCommand = await cda.waitForCapturedResponse(tracker, entry => entry.path.endsWith('/commands') && report.nativeRequests.indexOf(entry) >= removeCommandStart, 5000);
+  const removeCommand = await tracker.waitForResponse(entry => entry.path.endsWith('/commands') && tracker.requests.indexOf(entry) >= removeCommandStart, { timeoutMs: 5000 });
   assert.equal(removeCommand.status, 200, 'Removing the unpivot command failed');
   await wait(() => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0);
   await cda.navigate(pageURL);
   await wait(() => document.body.innerText.includes('DATASET WORKSPACE') && document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0);
-  const restoredPreviewStart = report.nativeRequests.length;
+  const restoredPreviewStart = tracker.requests.length;
   await one('button:text-is("Preview")').waitFor({ state: 'visible', timeout: 5000 });
   await clickOne('button:text-is("Preview")', 'Preview restored source');
   await one('[data-testid="preview-table-scroll"] [role="table"]').waitFor({ state: 'visible', timeout: 5000 });
@@ -276,10 +271,10 @@ try {
   assert.deepEqual(restoredRows, expectedRows, 'Removing the unpivot should restore the original source rows exactly');
   includeFixtureDiagnostics(report);
   assert.deepEqual(report.errors, [], `Unexpected browser or owned API errors: ${JSON.stringify(report.errors)}`);
-  await writeFile(join(evidenceDirectory, 'unpivot-end-to-end.json'), JSON.stringify({ pageURL, before, currentColumns, sourceRecords, sourcePreview: { outputId: sourcePreview.outputId, rowCount: sourcePreview.rowCount, columns: sourcePreview.columns, rows: expectedRows }, editor, defaultPreviewMs, defaultEffect, defaultProposalRequest, defaultPreview, configured, proposal, savedHistory, reloadedHistory, historyLabelsResolved, appliedPreview: { rowCount: appliedPreview.rowCount, columns: appliedPreview.columns, rows: appliedRows }, restoredEditor, removeProposalRequest: removeProposalEntry.body, removeProposal, removeProposalStatus: removeProposalEntry.status, removeApplyStatus: removeCommand.status, restored: { outputId: restoredBody.outputId, rowCount: restoredBody.rowCount, columns: restoredBody.columns, rows: restoredRows }, nativeRequests: report.nativeRequests, actions: report.actions, errors: report.errors }, null, 2));
+  await writeFile(join(evidenceDirectory, 'unpivot-end-to-end.json'), JSON.stringify({ pageURL, before, currentColumns, sourceRecords, sourcePreview: { outputId: sourcePreview.outputId, rowCount: sourcePreview.rowCount, columns: sourcePreview.columns, rows: expectedRows }, editor, defaultPreviewMs, defaultEffect, defaultProposalRequest, defaultPreview, configured, proposal, savedHistory, reloadedHistory, historyLabelsResolved, appliedPreview: { rowCount: appliedPreview.rowCount, columns: appliedPreview.columns, rows: appliedRows }, restoredEditor, removeProposalRequest: removeProposalEntry.request, removeProposal, removeProposalStatus: removeProposalEntry.status, removeApplyStatus: removeCommand.status, restored: { outputId: restoredBody.outputId, rowCount: restoredBody.rowCount, columns: restoredBody.columns, rows: restoredRows }, nativeRequests: report.nativeRequests, actions: report.actions, errors: report.errors }, null, 2));
   assert.equal(restoredBody.rowCount, sourcePreview.rowCount, 'Restored preview row count differs from source');
   assert(historyLabelsResolved, 'Saved Unpivot history did not resolve the selected field labels');
-  assert.deepEqual(report.nativeRequests.filter(request => request.path.endsWith('/publish')), [], 'Focused unpivot verification must not publish');
+  assert.deepEqual(tracker.requests.filter(request => request.path.endsWith('/publish')), [], 'Focused unpivot verification must not publish');
 } catch (error) {
   await captureFailure(error, { action: report.activeAction ?? report.actions.at(-1), project, explorerId, requests: report.nativeRequests.slice(-20) });
   throw error;

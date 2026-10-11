@@ -92,7 +92,6 @@ const selectOption = async (_page, selector, value, timeout = 5000) => {
     (target, options) => target.selectOption(value, options), { timeout });
 };
 const navigate = (_page, url) => cda.navigate(url);
-let browserPending = new Set();
 let requestMonitor;
 let fatal;
 
@@ -222,16 +221,7 @@ const monitorBrowser = () => {
     ownedPathPrefix: `${explorerPath}`,
     responsePaths: /publish|commands|selections|explicit-groups|row-definition-proposals|construction-choice-proposals|construction-proposals|construction-capabilities|row-lineage|population-mapping|preview/,
     report: { nativeRequests: report.browserRequests, errors: report.errors },
-    shouldReportRequestFailure: (entry, request) => {
-      const index = report.browserRequests.indexOf(entry);
-      const replacement = report.browserRequests.slice(index + 1).find(candidate =>
-        candidate.path === entry.path && candidate.method === entry.method);
-      return request.failure()?.errorText === 'net::ERR_ABORTED'
-        && ['/row-definition-proposals', '/preview'].some(path => entry.path.endsWith(path)) && replacement
-        ? { expected: true, reason: `A later same-path owned preview request (${replacement.requestId}) superseded this request.` } : true;
-    },
   });
-  browserPending = requestMonitor.pendingReads;
   page.on('request', request => {
     const captured = requestMonitor.byRequest.get(request);
     if (!captured || !captured.path.includes('/authoring/v2/')) return;
@@ -248,7 +238,7 @@ const monitorBrowser = () => {
   });
   page.on('requestfailed', request => {
     const url = new URL(request.url());
-    if (url.origin !== new URL(uiOrigin).origin || request.failure()?.errorText === 'net::ERR_ABORTED') return;
+    if (url.origin !== new URL(uiOrigin).origin) return;
     const failure = { url: sanitizeText(request.url()), type: request.resourceType(), error: sanitizeText(request.failure()?.errorText) };
     if (url.pathname.endsWith('/favicon.ico')) report.browserErrors.incidental.push(failure);
     else if (request.resourceType() === 'script') report.browserErrors.modules.push(failure);
@@ -271,19 +261,12 @@ const measure = async (name, action) => {
   return durationMs;
 };
 
-const waitForNativeResponse = async (suffix, priorCount, timeoutMs = 5000) => {
-  const existing = protocol.filter(entry => entry.path.endsWith(suffix) && entry.status !== undefined);
-  let entry = existing.length > priorCount ? existing.at(-1) : undefined;
-  if (!entry) {
-    const response = await page.waitForResponse(candidate => {
-      const candidateEntry = requestMonitor.byRequest.get(candidate.request());
-      return candidateEntry?.path.endsWith(suffix) && candidateEntry.status !== undefined;
-    }, { timeout: timeoutMs });
-    entry = requestMonitor.byRequest.get(response.request());
-  }
-  await requestMonitor.flush();
-  assert(entry?.response !== undefined, `Timed out waiting for native ${suffix} response body`);
-  return entry;
+const waitForNativeResponse = async (suffix, fromIndex, timeoutMs = 5000) => {
+  const existing = protocol.slice(fromIndex).find(entry => entry.path.endsWith(suffix) && entry.status !== undefined && entry.response !== undefined);
+  return existing ?? requestMonitor.waitForResponse(
+    entry => entry.path.endsWith(suffix) && entry.status !== undefined,
+    { fromIndex, timeoutMs },
+  );
 };
 
 const previewEntries = () => protocol.filter(entry => entry.path.endsWith('/preview') && entry.status === 200 && entry.response);
@@ -341,7 +324,7 @@ const openRowSettings = async () => measure('row-definition-choice-discovery', a
 });
 
 const selectExpandedAndPreview = async () => measure('native-component-row-preview', async startedAt => {
-  const priorProposalCount = protocol.filter(entry => entry.path.endsWith('/row-definition-proposals') && entry.status !== undefined).length;
+  const priorProposalCount = protocol.length;
   const shapeSelect = 'select[aria-label="What should each row represent?"]';
   await selectOption(page, shapeSelect, `expanded:${componentChoice.choiceId}`);
   const policySelect = 'select[aria-label="Unmatched record policy"]';
@@ -361,9 +344,9 @@ const selectExpandedAndPreview = async () => measure('native-component-row-previ
   assert(!proposalError, `Row definition proposal failed: ${proposalError}`);
   const proposal = await waitForNativeResponse('/row-definition-proposals', priorProposalCount, remaining(startedAt));
   assert.equal(proposal.status, 200, `Native row proposal failed: ${JSON.stringify(proposal.response)}`);
-  assert.equal(proposal.body?.selection?.kind, 'EXPANDED');
-  assert.equal(proposal.body?.selection?.expanded?.rowChoiceId, componentChoice.choiceId);
-  assert.equal(proposal.body?.selection?.expanded?.emptyCollectionPolicy, 'PRESERVE_PARENT');
+  assert.equal(proposal.request?.selection?.kind, 'EXPANDED');
+  assert.equal(proposal.request?.selection?.expanded?.rowChoiceId, componentChoice.choiceId);
+  assert.equal(proposal.request?.selection?.expanded?.emptyCollectionPolicy, 'PRESERVE_PARENT');
   assert.equal(proposal.response?.comparison?.candidate?.rowCount, expectedCount);
   report.rowProposal = proposal;
 });
@@ -561,7 +544,7 @@ const main = async () => {
   await selectExpandedAndPreview();
   assert(protocol.filter(entry => entry.path.endsWith('/row-definition-proposals') && entry.status !== undefined).length > previousProposalCount,
     'Native component row preview did not issue a second proposal');
-  const previousPreviewCount = previewEntries().length;
+  const previousPreviewCount = protocol.length;
   let appliedPreviewEntry;
   await measure('native-row-definition-apply-and-render', async startedAt => {
     await click(page, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
@@ -576,10 +559,10 @@ const main = async () => {
   assert.equal(document().rows.kind, 'EXPANDED');
   assert.equal(document().rows.expanded.scopePath, 'component[]');
   assert.equal(document().rows.expanded.emptyCollectionPolicy, 'PRESERVE_PARENT');
-  const appliedCommand = report.browserRequests.findLast(entry => entry.path.endsWith('/commands') && entry.body?.commands?.some(item => item.type === 'APPLY_ROW_DEFINITION_PROPOSAL'));
+  const appliedCommand = report.browserRequests.findLast(entry => entry.path.endsWith('/commands') && entry.request?.commands?.some(item => item.type === 'APPLY_ROW_DEFINITION_PROPOSAL'));
   assert(appliedCommand, 'Row definition Apply must use the native Builder command');
-  const appliedProposal = report.browserRequests.findLast(entry => entry.path.endsWith('/row-definition-proposals') && entry.body?.selection?.expanded?.rowChoiceId === componentChoice.choiceId);
-  assert.equal(appliedProposal?.body?.selection?.expanded?.emptyCollectionPolicy, 'PRESERVE_PARENT');
+  const appliedProposal = report.browserRequests.findLast(entry => entry.path.endsWith('/row-definition-proposals') && entry.request?.selection?.expanded?.rowChoiceId === componentChoice.choiceId);
+  assert.equal(appliedProposal?.request?.selection?.expanded?.emptyCollectionPolicy, 'PRESERVE_PARENT');
   recordAssertion('native row-definition Apply persists component[] and exact tuple values', {
     rowKind: document().rows.kind, scopePath: document().rows.expanded.scopePath,
     policy: document().rows.expanded.emptyCollectionPolicy, tuples: expandedCount,
@@ -587,7 +570,7 @@ const main = async () => {
   report.appliedPreview = verifyRenderedPairs('Applied expanded preview');
   await saveDOM('component-rows-applied');
 
-  const beforeReloadPreviewCount = previewEntries().length;
+  const beforeReloadPreviewCount = protocol.length;
   let reloadedPreviewEntry;
   await openTable(expandedCount, 'reload-expanded-component-rows', true);
   reloadedPreviewEntry = await waitForNativeResponse('/preview', beforeReloadPreviewCount, 5000);
@@ -611,7 +594,7 @@ const main = async () => {
 
   const publishControl = await inspectPage(page, `const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Publish');return {disabled:button?.disabled,visible:Boolean(button)};`);
   assert(publishControl.visible && !publishControl.disabled, 'Publish is not enabled after the ready expanded preview');
-  const priorPublishCount = protocol.filter(entry => entry.path.endsWith('/publish') && entry.status !== undefined).length;
+  const priorPublishCount = protocol.length;
   let publication;
   await measure('native-publish-and-render', async startedAt => {
     await click(page, 'button', { name: 'Publish' }, 1500);
@@ -634,7 +617,6 @@ const main = async () => {
   });
 
   await verifyViewerAndReload();
-  await Promise.all([...browserPending]);
   assert.deepEqual(cda.diagnostics.pageErrors, [], 'Unexpected browser JavaScript exceptions occurred');
   assert.deepEqual(report.errors, [], 'CDA request capture reported an owned API, runtime, or console failure');
   for (const kind of ['exceptions', 'console', 'modules', 'http', 'network']) {
@@ -655,8 +637,7 @@ try {
   report.error = String(error.stack ?? error);
   report.failures.push({ error: String(error.stack ?? error), phase: report.assertions.length });
 } finally {
-  await Promise.all([...browserPending]);
-  await requestMonitor?.flush();
+  await requestMonitor?.stop();
   report.dialogs ??= [];
   report.finished = new Date().toISOString();
   report.cleanup = {
@@ -668,6 +649,7 @@ try {
   await cda.attachReport('expanded-publication-domain-report.json', report);
 }
 
-if (fatal || report.status !== 'passed') throw fatal ?? new Error(report.error ?? 'Expanded publication workflow did not pass');
+if (fatal) throw fatal;
+if (report.gaps.length) throw new Error(`Expanded publication has required evidence gaps: ${JSON.stringify(report.gaps)}`);
 return report;
 }

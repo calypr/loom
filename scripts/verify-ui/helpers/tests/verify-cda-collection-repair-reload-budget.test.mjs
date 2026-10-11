@@ -78,7 +78,7 @@ test('partial repair starts from a nonempty native construction without changing
   const seedReturnsToSettings = workflow.indexOf('await openRowSettings();', seedDefinition);
   const returnToTableBudget = workflow.indexOf('const returnToTableDurationMs = Date.now() - returnToTableStartedAt;', seedDefinition);
   const filterEditorBudget = workflow.indexOf('const filterEditorDurationMs = Date.now() - filterEditorStartedAt;', seedDefinition);
-  const capturedProposal = workflow.indexOf('requestMonitor.waitFor(entry => {', seedDefinition);
+  const capturedProposal = workflow.indexOf('requestMonitor.waitForResponse(entry => {', seedDefinition);
   const exactPreviewRows = workflow.indexOf("assert.deepEqual(protocolObservationIDs, [...expectedObservationIDs].sort()", capturedProposal);
   const exactPreviewColumns = workflow.indexOf('savedAuthoringPreviewSchema(before.columns)', capturedProposal);
   const proposalReceipt = workflow.indexOf('proposalResponse.preview?.receiptId, proposalResponse.proposalId', capturedProposal);
@@ -89,13 +89,13 @@ test('partial repair starts from a nonempty native construction without changing
   const cancelledRows = workflow.indexOf("await assertPreviewIDs('cancelled-nonempty-construction-seed-preview')", cancelProposal);
   const reopenFilter = workflow.indexOf("await click(page, '[data-testid=\"construction-action-keep-rows\"]')", cancelProposal);
   const reappliedExists = workflow.indexOf("await selectOption(page, conditionSelector, 'EXISTS')", reopenFilter);
-  const reappliedProposal = workflow.indexOf('const appliedProposalEntry = await requestMonitor.waitFor(entry => {', reappliedExists);
+  const reappliedProposal = workflow.indexOf('const appliedProposalEntry = await requestMonitor.waitForResponse(entry => {', reappliedExists);
   const freshProposalStart = workflow.indexOf('const appliedProposalStartedAt = Date.now();', reopenFilter);
   const freshProposalDeadline = workflow.indexOf('appliedProposalStartedAt + 5000 - Date.now()', freshProposalStart);
   const reopenedConditionCheck = workflow.indexOf("assert.notEqual(reopenedCondition, 'EXISTS'", reopenFilter);
   const intermediateMissingChoice = workflow.indexOf("await selectOption(page, conditionSelector, 'MISSING')", reopenFilter);
   const sameCandidateSemantics = workflow.indexOf('constructionSemantics(appliedProposalResponse.candidateConstruction)', reappliedProposal);
-  const freshStepIdentity = workflow.indexOf('appliedProposalEntry.body?.changedStepId, appliedProposalStepId', reappliedProposal);
+  const freshStepIdentity = workflow.indexOf('appliedProposalEntry.request?.changedStepId, appliedProposalStepId', reappliedProposal);
   const freshProposalDuration = workflow.indexOf('const appliedProposalDurationMs = Date.now() - appliedProposalStartedAt;', reappliedProposal);
   const applyStartedAt = workflow.indexOf('const applyStartedAt = Date.now();', freshProposalDuration);
   const applyDuration = workflow.indexOf('const applyDurationMs = Date.now() - applyStartedAt;', applyStartedAt);
@@ -127,13 +127,13 @@ test('partial repair starts from a nonempty native construction without changing
     'the seed must capture the single exact native FILTER EXISTS proposal rather than a stale or unrelated proposal');
   assert.match(workflow, /constructionSemantics\(appliedProposalResponse\.candidateConstruction\)[\s\S]*?constructionSemantics\(proposalResponse\.candidateConstruction\)/,
     'the re-proposal comparison must ignore only its generated step identity while retaining operation, inputs, and output bindings');
-  assert.match(workflow, /appliedProposalEntry\.body\?\.changedStepId, appliedProposalStepId/,
+  assert.match(workflow, /appliedProposalEntry\.request\?\.changedStepId, appliedProposalStepId/,
     'the fresh candidate step identity must match the request that is applied');
   assert.doesNotMatch(workflow, /assert\.equal\(appliedProposalResponse\.candidateWorkspaceDigest, proposalResponse\.candidateWorkspaceDigest/,
     'a regenerated step ID must not be treated as a deterministic candidate digest');
   assert.match(workflow, /previousStepId: proposalStepId,[\s\S]*?stepId: appliedProposalStepId/,
     'the report must retain both canceled and fresh candidate step identities');
-  assert.match(workflow, /entry\.body\?\.outputId === outputId && entry\.body\?\.expectedDraftDigest === beforeDigest/,
+  assert.match(workflow, /entry\.request\?\.outputId === outputId && entry\.request\?\.expectedDraftDigest === beforeDigest/,
     'the captured seed proposal must match the target output and exact pre-seed draft');
   assert.match(workflow, /findSavedAuthoringColumn\(before\.columns, sourceColumn\.id\)/,
     'the selected UI column ID must resolve through the saved authoring wire identity');

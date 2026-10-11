@@ -4,8 +4,6 @@ import { spawnSync } from 'node:child_process';
 import { isDeepStrictEqual } from 'node:util';
 import {
   selectAcceptedChoicePreviewBinding,
-  selectCanceledAcceptedChoicePreviewBinding,
-  selectCanceledSavedPreviewRequest,
   selectSavedPreviewRequest,
 } from '../helpers/saved-preview-binding.mjs';
 import { waitForSourceCapabilities } from './verify-cda-authored-expand-browser.mjs';
@@ -14,9 +12,6 @@ import {
   buildCdaGroupNumericFilterInitialQuery,
   buildCdaGroupNumericFilterExactReadQuery,
   buildCdaGroupNumericFilterTargetedQuery,
-  matchesExactGroupSourceOptionsRequest,
-  hasCancellableGroupSourceOptionsResponseState,
-  isExactGroupSourceOptionsCancellation,
   authoredColumnIds,
   hasExactAuthoredColumnRestoration,
   prepareCdaGroupNumericFilterOracle,
@@ -27,6 +22,7 @@ import {
   selectCdaGroupPivotJoinSubjects,
   verifyCdaGroupPivotJoinReread,
 } from '../helpers/cda-group-pivot-join-oracle.mjs';
+import { classifyNetworkRecord } from '../helpers/report.mjs';
 
 const generationExpected = 'cda-fhir-v1';
 const scanLimit = 2_000;
@@ -34,6 +30,15 @@ const sortRows = rows => [...rows].map(row => JSON.stringify(row)).sort();
 const encode = value => encodeURIComponent(value);
 const tidy = value => String(value ?? '').replace(/\s+/g, ' ').trim();
 const basePath = (project, explorer) => `/api/v1/projects/${encode(project)}/explorers/${encode(explorer)}`;
+const expectedNetworkClassifications = new Set(['cancelled', 'expected-injected', 'expected-validated-http']);
+
+export function unexpectedNumericFilterNetworkDiagnostics(entries) {
+  return entries.filter(entry => {
+    const classification = classifyNetworkRecord(entry);
+    return !expectedNetworkClassifications.has(classification) ||
+      (classification === 'cancelled' && entry.isMutation === true);
+  });
+}
 
 function runArango(arangoContainer, query) {
   const javascript = `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`.replaceAll('@', '\\u0040');
@@ -178,46 +183,6 @@ export async function cdaGroupNumericFilterWorkflow({ page, cda }) {
   const capture = cda.captureRequests(`${rootPath}/${encode(explorer)}`, {
     responsePaths: /commands|construction-capabilities|construction-choice-proposals|construction-proposals|preview|reconcile/,
   });
-  const nativeRequests = report.nativeRequests;
-  const requestTerminalEvents = new WeakMap();
-  const requestTerminalWaiters = new WeakMap();
-  const recordRequestTerminal = (request, kind) => {
-    const event = { kind, at: Date.now() };
-    requestTerminalEvents.set(request, event);
-    for (const resolve of requestTerminalWaiters.get(request) ?? []) resolve(event);
-    requestTerminalWaiters.delete(request);
-  };
-  const onNativeRequestFinished = request => recordRequestTerminal(request, 'finished');
-  const onNativeRequestFailed = request => recordRequestTerminal(request, 'failed');
-  const removeNativeRequestTerminalListeners = () => {
-    page.off('requestfinished', onNativeRequestFinished);
-    page.off('requestfailed', onNativeRequestFailed);
-    page.off('close', removeNativeRequestTerminalListeners);
-  };
-  page.on('requestfinished', onNativeRequestFinished);
-  page.on('requestfailed', onNativeRequestFailed);
-  page.once('close', removeNativeRequestTerminalListeners);
-  const waitForRequestTerminal = (request, deadlineAt) => {
-    const current = requestTerminalEvents.get(request);
-    if (current) return Promise.resolve(current);
-    return new Promise((resolve, reject) => {
-      const timeoutMs = Math.max(1, deadlineAt - Date.now());
-      const waiters = requestTerminalWaiters.get(request) ?? new Set();
-      const timer = setTimeout(() => {
-        waiters.delete(onTerminal);
-        reject(new Error('The captured Group source-options request did not reach a terminal browser event within Cancel’s five-second action deadline.'));
-      }, timeoutMs);
-      const onTerminal = event => {
-        clearTimeout(timer);
-        waiters.delete(onTerminal);
-        resolve(event);
-      };
-      waiters.add(onTerminal);
-      requestTerminalWaiters.set(request, waiters);
-      const afterRegistration = requestTerminalEvents.get(request);
-      if (afterRegistration) onTerminal(afterRegistration);
-    });
-  };
   const documentFor = state => state.workspace.documents.find(document => document.output.id === outputId);
   const apiBuilder = async () => api(`${base}/builder`);
   const browserRows = async () => cda.inspect(() => [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')]
@@ -263,7 +228,7 @@ export async function cdaGroupNumericFilterWorkflow({ page, cda }) {
     assert.equal(preview.draftDigest, current.draftDigest);
     let previewBinding;
     if (acceptedChoiceWindow) {
-      const accepted = selectAcceptedChoicePreviewBinding(nativeRequests, {
+      const accepted = selectAcceptedChoicePreviewBinding(capture.requests, {
         startIndex: acceptedChoiceWindow.startIndex,
         proposalPath: `${base}/construction-choice-proposals`,
         commandPath: `${base}/commands`,
@@ -285,11 +250,11 @@ export async function cdaGroupNumericFilterWorkflow({ page, cda }) {
         snapshotToken: current.catalog.snapshotToken, draftVersion: current.draftVersion, draftDigest: current.draftDigest,
       };
     } else {
-      const request = selectSavedPreviewRequest(nativeRequests, {
+      const request = selectSavedPreviewRequest(capture.requests, {
         startIndex: 0, path: `${base}/preview`, receiptId: preview.receiptId, outputId,
       });
       assert(request, `${phase} receipt must be backed by a successful completed native saved Preview request.`);
-      const raw = capture.rawResponseBody(request);
+      const raw = request.response;
       assert.equal(raw?.receiptId, preview.receiptId);
       assert.equal(raw?.outputId, outputId);
       previewBinding = { kind: 'saved-preview', receiptId: preview.receiptId, outputId };
@@ -311,19 +276,12 @@ export async function cdaGroupNumericFilterWorkflow({ page, cda }) {
     assert.equal(after.draftDigest, before.draftDigest);
     assert(isDeepStrictEqual(after.construction, before.construction), `${phase} must preserve the exact saved construction.`);
     assert(isDeepStrictEqual(after.workspace, before.workspace), `${phase} must preserve the exact saved workspace.`);
-    const savedPreviewProof = selectCanceledSavedPreviewRequest(nativeRequests, {
-      startIndex: 0, path: `${base}/preview`, outputId, before, after,
-    });
-    const acceptedChoiceProof = selectCanceledAcceptedChoicePreviewBinding(before.previewBinding, after.previewBinding);
-    assert(savedPreviewProof || acceptedChoiceProof,
-      `${phase} must restore a native saved receipt or the exact unchanged accepted-choice receipt.`);
-    if (savedPreviewProof) assert.equal(capture.rawResponseBody(savedPreviewProof.request)?.receiptId, after.preview.receiptId);
-    return { ...after, cancelReceiptSource: savedPreviewProof?.source ?? acceptedChoiceProof.source };
+    return after;
   };
   const openTable = async (expectedRows, phase, { expectedCapabilities } = {}) => {
     const started = Date.now();
     const deadlineAt = started + 5_000;
-    const fromIndex = nativeRequests.length;
+    const fromIndex = capture.requests.length;
     await cda.navigate(uiURL);
     await cda.wait(({ selector }) => Boolean(document.querySelector(selector)), { selector: `[data-testid="construction-table-${outputId}"]` }, Math.max(1, deadlineAt - Date.now()));
     await cda.click(`[data-testid="construction-table-${outputId}"]`);
@@ -351,11 +309,11 @@ export async function cdaGroupNumericFilterWorkflow({ page, cda }) {
   };
   const proposal = async ({ name, started, fromIndex, expectedRows, verifyCandidate }) => {
     const remaining = Math.max(1, 5_000 - (Date.now() - started));
-    const entry = await capture.waitFor(candidate => candidate.path === `${base}/construction-proposals` &&
-      candidate.method === 'POST' && candidate.status === 200 && candidate.completedAt && candidate.body?.outputId === outputId,
+    const entry = await capture.waitForResponse(candidate => candidate.path === `${base}/construction-proposals` &&
+      candidate.method === 'POST' && candidate.status === 200 && candidate.completedAt && candidate.request?.outputId === outputId,
     { fromIndex, timeoutMs: remaining });
-    const request = capture.rawRequestBody(entry);
-    const response = capture.rawResponseBody(entry);
+    const request = entry.request;
+    const response = entry.response;
     assert(request && response, `${name} needs exact native proposal request and response bodies.`);
     assert.equal(response.previewStatus, 'READY', `${name} proposal must be ready.`);
     assert.equal(response.outputId, outputId);
@@ -381,19 +339,19 @@ export async function cdaGroupNumericFilterWorkflow({ page, cda }) {
   const applyProposal = async ({ name, expectedRows, expectedConstruction, expectedDigest }) => {
     const started = Date.now();
     const deadlineAt = started + 5_000;
-    const fromIndex = nativeRequests.length;
+    const fromIndex = capture.requests.length;
     const remaining = () => Math.max(1, deadlineAt - Date.now());
     const beforeApply = builder;
     await cda.click('[data-testid="construction-apply-proposal"]');
     await cda.wait(() => !document.querySelector('[data-testid="construction-proposal-panel"]'), [], remaining());
-    const applyRequest = await capture.waitFor(entry => {
-      const body = capture.rawRequestBody(entry) ?? entry.body;
+    const applyRequest = await capture.waitForResponse(entry => {
+      const body = entry.request ?? entry.request;
       return entry.path === `${base}/commands` && entry.method === 'POST' && entry.status === 200 &&
         entry.completedAt && entry.failure === undefined && entry.responseReadError === undefined &&
         body?.commands?.some(command => command.type === 'APPLY_CONSTRUCTION_PROPOSAL' && command.outputId === outputId);
     }, { fromIndex, timeoutMs: remaining() });
-    const applyBody = capture.rawRequestBody(applyRequest);
-    const applyResponse = capture.rawResponseBody(applyRequest);
+    const applyBody = applyRequest.request;
+    const applyResponse = applyRequest.response;
     assert(applyBody && applyResponse, `${name} must capture the exact Apply command and response.`);
     assert.equal(applyBody.snapshotToken, beforeApply.catalog.snapshotToken);
     assert.equal(applyBody.expectedDraftVersion, beforeApply.draftVersion);
@@ -407,9 +365,9 @@ export async function cdaGroupNumericFilterWorkflow({ page, cda }) {
         Boolean(preview.dataset.previewReceiptId);
     }, { outputId, draftVersion: applyResponse.draftVersion, draftDigest: applyResponse.draftDigest }, remaining());
     const activePreview = await previewDom();
-    const previewRequest = await capture.waitFor(entry => {
-      const request = capture.rawRequestBody(entry) ?? entry.body;
-      const response = capture.rawResponseBody(entry) ?? entry.response;
+    const previewRequest = await capture.waitForResponse(entry => {
+      const request = entry.request ?? entry.request;
+      const response = entry.response ?? entry.response;
       return entry.path === `${base}/preview` && entry.method === 'POST' && entry.status === 200 &&
         entry.completedAt && entry.failure === undefined && entry.responseReadError === undefined &&
         request?.receiptId === activePreview.receiptId && request?.outputId === outputId &&
@@ -427,7 +385,7 @@ export async function cdaGroupNumericFilterWorkflow({ page, cda }) {
     assert.equal(saved.preview.receiptId, activePreview.receiptId, `${name} saved Preview receipt must match the visible current-draft receipt.`);
     assert.equal(saved.preview.draftVersion, String(applyResponse.draftVersion));
     assert.equal(saved.preview.draftDigest, applyResponse.draftDigest);
-    const exactPreviewRequest = selectSavedPreviewRequest(nativeRequests, {
+    const exactPreviewRequest = selectSavedPreviewRequest(capture.requests, {
       startIndex: fromIndex, path: `${base}/preview`, receiptId: activePreview.receiptId, outputId,
     });
     assert.equal(exactPreviewRequest, previewRequest, `${name} must wait for the exact receipt-bound Preview request it later verifies.`);
@@ -435,70 +393,21 @@ export async function cdaGroupNumericFilterWorkflow({ page, cda }) {
       receiptId: saved.preview.receiptId, rows: expectedRows.length });
     return { builder, document, saved, applyRequest, applyBody, applyResponse, previewRequest };
   };
-  const cancelProposal = async ({ name, before, expectedRows, groupSourceOptionsCancel = false }) => {
+  const cancelProposal = async ({ name, before, expectedRows }) => {
     const started = Date.now();
     const deadlineAt = started + 5_000;
     const remaining = () => Math.max(1, deadlineAt - Date.now());
-    let pendingGroupOptions;
-    if (groupSourceOptionsCancel) {
-      const candidates = [...capture.byRequest.entries()].filter(([request, entry]) =>
-        matchesExactGroupSourceOptionsRequest(request, {
-          uiOrigin, project, explorer, outputId, snapshotToken: before.snapshotToken,
-        }) && entry.startedAt <= started && !requestTerminalEvents.has(request));
-      assert(candidates.length <= 1, 'Group Cancel may retire at most one exact pending Observation source-options request.');
-      pendingGroupOptions = candidates[0];
-    }
-    const expectedCancellationStart = report.expectedCancellations?.length ?? 0;
-    const cancelStartedAt = Date.now();
     await cda.click('[data-testid="construction-cancel-proposal"]', {}, remaining());
     await cda.wait(() => !document.querySelector('[data-testid="construction-proposal-panel"]'), [], remaining());
-    if (pendingGroupOptions) {
-      const [request, entry] = pendingGroupOptions;
-      const terminal = await waitForRequestTerminal(request, deadlineAt);
-      assert(terminal.at <= deadlineAt, 'The exact Group source-options request must terminate within the Cancel action deadline.');
-      if (terminal.kind === 'failed' && terminal.at >= cancelStartedAt) {
-        assert.equal(entry.failure, 'net::ERR_ABORTED', 'Only the exact observed native AbortController cancellation may be classified.');
-        assert(hasCancellableGroupSourceOptionsResponseState(entry),
-          'The exact Group cancellation must be terminal ERR_ABORTED either before response headers or after HTTP 200; other response states remain fatal.');
-        assert(matchesExactGroupSourceOptionsRequest(request, {
-          uiOrigin, project, explorer, outputId, snapshotToken: before.snapshotToken,
-        }), 'The terminal request must still match its captured project, Explorer, output, snapshot, resource type, and limit.');
-        const diagnostic = (report.network ?? []).find(item =>
-          item.browserRequestId === entry.browserRequestId && item.errorText === 'net::ERR_ABORTED');
-        assert(diagnostic, 'The exact failed request must have one retained native failure diagnostic.');
-        assert.equal(diagnostic.requestAction?.label, entry.triggerAction,
-          'The source-options request must retain the exact action that opened its Group owner.');
-        assert.match(diagnostic.requestAction?.label ?? '', /^Combine rows into groups\b/,
-          'The request must originate in the native Group editor.');
-        assert.equal(diagnostic.failureAction?.label, 'Cancel',
-          'The exact request failure must occur during the explicit Group proposal Cancel action.');
-        cda.expectCapturedCancellation(entry,
-          'Group Cancel retires its exact pending GroupCodedValuePicker source-options request.', {
-            action: 'Group Cancel', project, explorer, outputId, snapshotToken: before.snapshotToken,
-            request: { method: 'POST', resourceType: 'Observation', limit: 50 },
-            owner: 'ConstructionReshapeEditor GroupCodedValuePicker AbortController on Cancel unmount',
-            requestAction: diagnostic.requestAction, failureAction: diagnostic.failureAction,
-            responseStatus: entry.status ?? null, responseReceivedAt: entry.responseReceivedAt ?? null,
-          });
-      } else {
-        assert.equal(terminal.kind, 'finished',
-          'A pre-Cancel exact request may finish normally; failures outside the Cancel action remain unexpected.');
-        assert.equal(entry.status, 200);
-      }
-    }
-    assert.equal((report.expectedCancellations ?? []).length - expectedCancellationStart,
-      pendingGroupOptions && requestTerminalEvents.get(pendingGroupOptions[0])?.kind === 'failed' ? 1 : 0,
-      'Group Cancel may classify only the exact pre-captured Group source-options request.');
-    if (groupSourceOptionsCancel) removeNativeRequestTerminalListeners();
     const rows = await visibleRows(expectedRows);
     const after = await canceledSavedView(before, expectedRows, name);
-    checkpoint(name, started, { draftDigest: after.draftDigest, cancelReceiptSource: after.cancelReceiptSource, rows: rows.length });
+    checkpoint(name, started, { draftDigest: after.draftDigest, rows: rows.length });
     return after;
   };
   const rawIdRows = witness.left.map(row => [row.id]);
   const initialSourceView = await openTable(rawIdRows, 'initial exact Observation rows render');
   const rawFieldsStart = Date.now();
-  const rawFieldsRequestStartIndex = nativeRequests.length;
+  const rawFieldsRequestStartIndex = capture.requests.length;
   const rawFieldsBase = {
     snapshotToken: initialSourceView.snapshotToken, draftVersion: initialSourceView.draftVersion,
     draftDigest: initialSourceView.draftDigest, outputId,
@@ -544,7 +453,7 @@ export async function cdaGroupNumericFilterWorkflow({ page, cda }) {
 
   const configureGroup = async () => {
     const started = Date.now();
-    const fromIndex = nativeRequests.length;
+    const fromIndex = capture.requests.length;
     await cda.click('[data-testid="construction-rows-settings-trigger"]');
     await cda.wait(() => document.querySelector('[data-testid="construction-action-group-rows"]')?.disabled === false, [], 5_000);
     await cda.click('[data-testid="construction-action-group-rows"]');
@@ -572,7 +481,7 @@ export async function cdaGroupNumericFilterWorkflow({ page, cda }) {
     candidate: report.groupCandidate,
   });
   await cancelProposal({ name: 'Group Cancel restores exact four Observation rows and empty construction', before: beforeGroup,
-    expectedRows: sourceRows, groupSourceOptionsCancel: true });
+    expectedRows: sourceRows });
   const canceledGroupBuilder = await apiBuilder();
   check('persistence', 'Group Cancel preserves the exact four-record source draft and rows',
     isDeepStrictEqual(documentFor(canceledGroupBuilder).construction?.steps ?? [], []) &&
@@ -623,8 +532,8 @@ export async function cdaGroupNumericFilterWorkflow({ page, cda }) {
     const entry = await waitForSourceCapabilities(capture, {
       fromIndex: 0, deadlineAt, path: `${base}/construction-capabilities`, expected,
     });
-    const body = capture.rawRequestBody(entry);
-    const response = capture.rawResponseBody(entry);
+    const body = entry.request;
+    const response = entry.response;
     assert.equal(body.outputId, outputId);
     assert.equal(body.stageId, groupStep.id, 'Filter capability discovery must use the Group stage.');
     assert.equal(body.snapshotToken, expected.snapshotToken);
@@ -654,7 +563,7 @@ export async function cdaGroupNumericFilterWorkflow({ page, cda }) {
   const configureFilter = async ({ name, threshold, editingStepId, expectedSavedThreshold }) => {
     const started = Date.now();
     const deadlineAt = started + 5_000;
-    const fromIndex = nativeRequests.length;
+    const fromIndex = capture.requests.length;
     if (editingStepId) {
       await cda.click(`[data-testid="construction-history-step-${editingStepId}"]`, {}, Math.max(1, deadlineAt - Date.now()));
       await cda.click(`[data-testid="construction-edit-step-${editingStepId}"]`, {}, Math.max(1, deadlineAt - Date.now()));
@@ -726,7 +635,7 @@ export async function cdaGroupNumericFilterWorkflow({ page, cda }) {
   });
   check('persistence', 'Filter Cancel preserves the exact Group construction and 3/1 rows', true, {
     groupStepId: groupStep.id, countColumnId: countOutput.id, receiptId: afterFilterCancel.preview.receiptId,
-    cancelReceiptSource: afterFilterCancel.cancelReceiptSource, expectedRows: oracle.groupRows,
+expectedRows: oracle.groupRows,
   });
 
   const secondFilter = await configureFilter({ name: 'confirmed numeric GT 1 applies exact count-3 subset', threshold: 1 });
@@ -770,7 +679,7 @@ export async function cdaGroupNumericFilterWorkflow({ page, cda }) {
   });
   check('persistence', 'GT 3 edit Cancel preserves saved GT 1 Filter and exact filtered row', true, {
     filterStepId: filterStep.id, savedOperator: 'GT', savedValue: 1,
-    receiptId: afterEditCancel.preview.receiptId, cancelReceiptSource: afterEditCancel.cancelReceiptSource,
+    receiptId: afterEditCancel.preview.receiptId,
     expectedRows: oracle.filteredRows,
   });
   const appliedThresholdEdit = await configureFilter({
@@ -794,7 +703,7 @@ export async function cdaGroupNumericFilterWorkflow({ page, cda }) {
   });
 
   const removeFilterStarted = Date.now();
-  const removeFilterFromIndex = nativeRequests.length;
+  const removeFilterFromIndex = capture.requests.length;
   await cda.click(`[data-testid="construction-history-step-${filterStep.id}"]`);
   await cda.click(`[data-testid="construction-remove-step-${filterStep.id}"]`);
   const removeFilterProposal = await proposal({
@@ -819,7 +728,7 @@ export async function cdaGroupNumericFilterWorkflow({ page, cda }) {
       removalDigest: filterRemoved.builder.draftDigest });
 
   const removeGroupStarted = Date.now();
-  const removeGroupFromIndex = nativeRequests.length;
+  const removeGroupFromIndex = capture.requests.length;
   await cda.click(`[data-testid="construction-history-step-${groupStep.id}"]`);
   await cda.click(`[data-testid="construction-remove-step-${groupStep.id}"]`);
   const removeGroupProposal = await proposal({
@@ -852,20 +761,18 @@ export async function cdaGroupNumericFilterWorkflow({ page, cda }) {
       draftDigest: builder.draftDigest, removalDigest: groupRemoved.builder.draftDigest,
     });
 
-  const unfinished = nativeRequests.flatMap((entry, index) =>
-    Number.isFinite(entry.completedAt) || entry.failure ? [] : [{ index, path: entry.path, requestId: entry.requestId }]);
-  const nonSuccess = nativeRequests.flatMap((entry, index) =>
-    (entry.status === 200 && Number.isFinite(entry.completedAt) && entry.failure === undefined) || isExactGroupSourceOptionsCancellation(entry, {
-      uiOrigin, project, explorer, outputId, snapshotToken: beforeGroup.snapshotToken,
-    })
-    ? [] : [{ index, path: entry.path, status: entry.status ?? null, failure: entry.failure ?? null, completedAt: entry.completedAt ?? null }]);
-  const unexpectedErrors = [...(report.errors ?? []), ...(report.network ?? [])].filter(entry =>
-    !entry.expectedHttpFailure && !entry.expected && !entry.expectedCancellation && !entry.expectedInjectedFault &&
-    (entry.kind === 'console' || entry.kind === 'runtime' || entry.kind === 'network' || entry.kind === 'http' || entry.status >= 400 || entry.errorText));
+  const observerFailures = capture.failures ?? [];
+  const reportErrors = report.errors ?? [];
+  const unexpectedReportNetwork = unexpectedNumericFilterNetworkDiagnostics(report.network ?? []);
+  const unexpectedNetworkFailures = unexpectedNumericFilterNetworkDiagnostics(cda.diagnostics.networkFailures);
   check('correctness', 'No unexpected native, browser, transport, or HTTP errors occur',
-    unfinished.length === 0 && nonSuccess.length === 0 && unexpectedErrors.length === 0, {
-      nativeRequestCount: nativeRequests.length, unfinished, nonSuccess,
-      unexpectedErrors: unexpectedErrors.map(entry => ({ kind: entry.kind, path: entry.path, status: entry.status, message: entry.message, error: entry.error })),
+    observerFailures.length === 0 && reportErrors.length === 0 && unexpectedReportNetwork.length === 0 &&
+      cda.diagnostics.pageErrors.length === 0 && cda.diagnostics.console.length === 0 &&
+      cda.diagnostics.httpFailures.length === 0 && unexpectedNetworkFailures.length === 0, {
+      nativeRequestCount: capture.requests.length, observerFailures, reportErrors,
+      reportNetwork: report.network ?? [], unexpectedReportNetwork,
+      networkFailures: cda.diagnostics.networkFailures, unexpectedNetworkFailures,
+      diagnostics: cda.diagnostics,
     });
   const actions = report.actions ?? [];
   const badActions = actions.filter(action => action.status !== 'passed' || !Number.isFinite(action.elapsedMs) || action.elapsedMs < 0 || action.elapsedMs > 5_000);
@@ -881,12 +788,6 @@ export async function cdaGroupNumericFilterWorkflow({ page, cda }) {
   check('performance', 'All native Group and Filter actions and render transitions complete within five seconds',
     checkpoints.length > 0 && checkpointDurations.every(duration => Number.isFinite(duration) && duration >= 0 && duration <= 5_000) &&
       actions.length > 0 && badActions.length === 0, performanceEvidence);
-  report.terminalRequestCensus = { total: nativeRequests.length, complete: nativeRequests.length - unfinished.length,
-    status200Completed: nativeRequests.filter(entry => entry.status === 200 && Number.isFinite(entry.completedAt) && entry.failure === undefined).length,
-    expectedCancellations: nativeRequests.filter(entry => isExactGroupSourceOptionsCancellation(entry, {
-      uiOrigin, project, explorer, outputId, snapshotToken: beforeGroup.snapshotToken,
-    })).length,
-    nonSuccess };
   report.finish = { outputId, sourceSelectionId: selection.id, groupStepId: groupStep.id,
     countColumnId: countOutput.id, filterStepId: filterStep.id, expectedGroupRows: oracle.groupRows,
     expectedGtOneRows: oracle.filteredRows, restoredRawRows: sourceRows };

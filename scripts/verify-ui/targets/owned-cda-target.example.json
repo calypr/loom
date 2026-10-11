@@ -9,6 +9,7 @@
   "uiOrigin": "http://127.0.0.1:30008",
   "apiContainer": "loom-dev-local-project-loom-api-1",
   "arangoContainer": "loom-dev-local-project-arangodb-1",
+  "arangoDatabase": "loom_dev",
   "clickhouseContainer": "loom-dev-local-project-clickhouse-1",
   "noAuth": true
 }
