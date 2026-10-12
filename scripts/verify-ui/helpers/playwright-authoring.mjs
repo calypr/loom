@@ -500,7 +500,7 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
     const currentRootChoice = (await currentRootOption.innerText()).trim();
     assert.equal(currentRootChoice, 'Patient (current)',
       'The shared Record type picker must retain Patient as its disabled current choice.');
-    assert.equal(await currentRootOption.isDisabled(), true,
+    assert.equal(await currentRootOption.evaluate(option => option.disabled), true,
       'The current root must remain an identity choice, not a second actionable route.');
     const observationChoice = await rootOption(rootSelector, 'Observation');
     assert(observationChoice && !observationChoice.disabled &&
@@ -601,7 +601,7 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
     const currentObservationChoice = (await currentObservationOption.innerText()).trim();
     assert.equal(currentObservationChoice, 'Observation (current)',
       'The shared Record type picker must retain Observation as its disabled current choice.');
-    assert.equal(await currentObservationOption.isDisabled(), true,
+    assert.equal(await currentObservationOption.evaluate(option => option.disabled), true,
       'The saved Observation root must remain an identity choice, not a second actionable route.');
     const patientChoice = await rootOption(observationSelector, 'Patient');
     assert(patientChoice && !patientChoice.disabled &&

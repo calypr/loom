@@ -779,7 +779,7 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
     const currentChoice = normalize(await currentOption.innerText());
     assert.equal(currentChoice, currentResourceType + ' (current)',
       'The shared picker must retain the current root as its disabled identity choice: ' + currentChoice);
-    assert.equal(await currentOption.isDisabled(), true,
+    assert.equal(await currentOption.evaluate(option => option.disabled), true,
       'The current root choice must not become a second actionable route.');
     const preserveOptions = (await recordType.locator('option').allTextContents()).map(normalize);
     const routeOption = preserveOptions.find(label => label.startsWith(connectedResourceType));
