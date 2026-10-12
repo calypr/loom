@@ -348,6 +348,21 @@ export const registry = Object.freeze([
         playwrightGrep: 'Builder authoring previews, changes an existing table root, and reloads$',
         focusedChecks: [
           {
+            id: 'builder-single-record-type-root-picker',
+            cwd: 'ui/packages/loom-ui',
+            command: [
+              'vitest', 'run', '--config', 'vitest.config.ts',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionPanel.unit.test.tsx',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.unit.test.ts',
+            ],
+            sourceFiles: [
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionPanel.tsx',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionPanel.unit.test.tsx',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.unit.test.ts',
+            ],
+          },
+          {
             id: 'builder-existing-root-change-independent-oracle',
             cwd: '.',
             command: ['node-test', 'scripts/verify-ui/helpers/tests/playwright-authoring-existing-root-change.test.mjs'],
