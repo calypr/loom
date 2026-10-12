@@ -193,6 +193,10 @@ test('replacement and connected preservation share one route-readable Record typ
   assert.doesNotMatch(workflowSource, /noCurrentDraftConsumers/);
   assert.match(workflowSource, /No shared-filter bindings will be removed\./);
   assert.match(workflowSource, /documentForOutput\(unchangedDuringReview, consumerOutputId\), consumerDocument/);
+  const candidatePreviewReady = workflowSource.indexOf("startFreshDialog.getByRole('heading', { name: 'Candidate preview', exact: true })");
+  const consequenceTextRead = workflowSource.indexOf('startFreshReviewText = normalize(await consequencePanel.innerText());');
+  assert(candidatePreviewReady >= 0 && consequenceTextRead > candidatePreviewReady,
+    'Start Fresh must wait for the receipt-bound candidate preview before reading fixture row-count consequences.');
 });
 
 test('post-Apply handoff waits for the consumer tab before selecting the original output', async () => {

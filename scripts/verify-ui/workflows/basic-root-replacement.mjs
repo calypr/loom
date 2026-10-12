@@ -1254,6 +1254,8 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
     await startFreshDialog.waitFor({ state: 'visible', timeout: remainingTimeout() });
     const consequencePanel = startFreshDialog.getByRole('region', { name: 'Replacement consequences', exact: true });
     await consequencePanel.waitFor({ state: 'visible', timeout: remainingTimeout() });
+    await startFreshDialog.getByRole('heading', { name: 'Candidate preview', exact: true })
+      .waitFor({ state: 'visible', timeout: remainingTimeout() });
     startFreshReviewText = normalize(await consequencePanel.innerText());
     assert(startFreshReviewText.includes('DiagnosticReport'),
       'Start Fresh consequences must name the selected connected DiagnosticReport root.');
@@ -1286,8 +1288,6 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
       'Start Fresh must name exactly the existing consumer and both saved Patient ID join columns in order.');
     assert(startFreshReviewText.includes('No shared-filter bindings will be removed.'),
       'The reset review must show that no shared-filter bindings need removal.');
-    await startFreshDialog.getByRole('heading', { name: 'Candidate preview', exact: true })
-      .waitFor({ state: 'visible', timeout: remainingTimeout() });
     const previewTable = startFreshDialog.locator(ROOT_REPLACEMENT_TABLE_SELECTOR);
     await previewTable.waitFor({ state: 'visible', timeout: remainingTimeout() });
     const capturedRequest = actionRequests.slice(startFreshRequestIndex)
