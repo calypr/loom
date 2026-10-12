@@ -288,7 +288,7 @@ func constructionChoicesMatchSnapshot(identities []capability.ConstructionChoice
 
 func resolveFieldConstructionChoice(ctx context.Context, authorized AuthorizedCapability, snapshot capability.Snapshot, catalogSnapshot authoringv2.CatalogSnapshot, rootResourceType string, selection authoringv2.ConstructionChoiceSelection, choiceIdentity capability.ConstructionChoiceIdentity, identity capability.FieldChoiceSource) (authoringv2.ResolvedConstructionChoice, string, error) {
 	candidate, found := uniqueCapabilityCandidate(snapshot, identity.CandidateID)
-	if !found || candidate.NodeID != identity.NodeID || candidate.ResourceType != identity.ResourceType || candidate.FieldPath != identity.Path || candidate.Cardinality != identity.Cardinality {
+	if !found || !fieldCandidateMatchesIdentity(candidate, identity) {
 		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("field candidate identity is unavailable or changed")
 	}
 	route, err := reauthorizeConstructionRoute(snapshot, rootResourceType, candidate.NodeID, choiceIdentity.Route)
@@ -306,10 +306,20 @@ func resolveFieldConstructionChoice(ctx context.Context, authorized AuthorizedCa
 	if err != nil {
 		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("field candidate no longer has a supported construction choice")
 	}
-	if !constructionChoiceIdentityMatches(choice, selection.ChoiceID, choiceIdentity) || !reflect.DeepEqual(choice.Source, identity) {
+	return resolveFieldConstructionChoiceFromProvenCandidate(
+		catalogSnapshot, route, selection, choiceIdentity, identity, candidate, provenCandidate, choice,
+	)
+}
+
+func resolveFieldConstructionChoiceFromProvenCandidate(catalogSnapshot authoringv2.CatalogSnapshot, route []capability.ConstructionRouteStep, selection authoringv2.ConstructionChoiceSelection, choiceIdentity capability.ConstructionChoiceIdentity, identity capability.FieldChoiceSource, candidate, provenCandidate capability.Candidate, choice capability.ConstructionChoice) (authoringv2.ResolvedConstructionChoice, string, error) {
+	if !fieldCandidateMatchesIdentity(candidate, identity) ||
+		provenCandidate.ID != candidate.ID || provenCandidate.NodeID != candidate.NodeID || provenCandidate.ResourceType != candidate.ResourceType || provenCandidate.FieldPath != candidate.FieldPath {
+		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("field candidate identity is unavailable or changed")
+	}
+	if !reflect.DeepEqual(choice.Route, route) || !constructionChoiceIdentityMatches(choice, selection.ChoiceID, choiceIdentity) || !reflect.DeepEqual(choice.Source, identity) {
 		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("field choice identity does not match the current candidate")
 	}
-	_, found = uniqueCatalogCandidate(catalogSnapshot, candidate.ID)
+	_, found := uniqueCatalogCandidate(catalogSnapshot, candidate.ID)
 	if !found && !strings.HasPrefix(candidate.ID, "schema_field.") {
 		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("field choice options do not match the current catalog")
 	}
@@ -323,6 +333,12 @@ func resolveFieldConstructionChoice(ctx context.Context, authorized AuthorizedCa
 		Path: strings.TrimPrefix(candidate.FieldPath, "root."), ProjectionMode: string(selection.Form),
 	}}
 	return authoringv2.ResolvedConstructionChoice{CandidateID: candidate.ID, Source: source, LogicalType: provenCandidate.LogicalType, Route: route}, candidate.Label, nil
+}
+
+func fieldCandidateMatchesIdentity(candidate capability.Candidate, identity capability.FieldChoiceSource) bool {
+	return candidate.ID == identity.CandidateID && candidate.NodeID == identity.NodeID && candidate.ResourceType == identity.ResourceType &&
+		candidate.FieldPath == identity.Path && candidate.Cardinality == identity.Cardinality &&
+		reflect.DeepEqual(candidate.RepeatedBoundaries, identity.RepeatedBoundaries)
 }
 
 func uniqueCapabilityCandidate(snapshot capability.Snapshot, candidateID string) (capability.Candidate, bool) {

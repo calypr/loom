@@ -235,7 +235,9 @@ func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *tes
 		ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}, SuggestedValues: []string{"d", "t"},
 		SuggestionsComplete: true,
 	}
-	snapshot.Candidates = append(snapshot.Candidates, repeatedCode)
+	snapshotCandidate := repeatedCode
+	snapshotCandidate.ProjectionModes = nil
+	snapshot.Candidates = append(snapshot.Candidates, snapshotCandidate)
 	repeatedCatalogChoice, err := capability.NewFieldConstructionChoice(snapshot.Token, repeatedCode)
 	if err != nil {
 		t.Fatal(err)
@@ -263,7 +265,11 @@ func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *tes
 	}
 	service.config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalog }
 	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
+		prepared, prepareErr := authoringv2.PrepareWorkspaceForCompilation(request.Workspace, catalog)
+		if prepareErr != nil {
+			return nil, prepareErr
+		}
+		receipt := lifecycleTableShapeReceipt(snapshot, prepared)
 		root := explorer.ReceiptConstructionRelatedExpandAnchor{AnchorColumnID: "_key", Kind: "root", ResourceType: "Patient", Label: "Original Patient"}
 		active := explorer.ReceiptConstructionRelatedExpandAnchor{
 			AnchorColumnID: "__terminal_observation_id", Kind: "activeRelatedRecord", NodeID: "observation",

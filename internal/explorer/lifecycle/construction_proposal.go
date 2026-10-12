@@ -1198,20 +1198,40 @@ func reauthorizeRelatedExpandContributor(ctx context.Context, base constructionB
 		if !found {
 			return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the exact related expansion contributor is no longer available", nil, nil)
 		}
-		choice, choiceErr := capability.NewFieldConstructionChoiceForRoute(base.snapshot.Token, identity.Route, candidate)
-		if choiceErr != nil || !reflect.DeepEqual(choice.Source, source) {
-			return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor does not match its current field choice", choiceErr)
+		route, routeErr := reauthorizeConstructionRoute(base.snapshot, rootResourceType, candidate.NodeID, identity.Route)
+		if routeErr != nil || !reflect.DeepEqual(route, identity.Route) {
+			return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor route is unavailable or changed", routeErr)
 		}
-		foundForm := false
+		provedCandidate, proofErr := proveConstructionCandidate(ctx, base.authorized, rootResourceType, candidate, route)
+		if proofErr != nil {
+			return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor has no compiler-proved field form", proofErr)
+		}
+		choice, choiceErr := capability.NewFieldConstructionChoiceForRoute(base.snapshot.Token, route, provedCandidate)
+		if choiceErr != nil {
+			return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor has no compiler-proved field form", choiceErr)
+		}
+		hasSupportedForm := false
 		for _, option := range choice.Options {
 			if option.Support == capability.ConstructionChoiceSupported {
-				form, foundForm = option.Form, true
+				form, hasSupportedForm = option.Form, true
 				break
 			}
 		}
-		if !foundForm {
+		if !hasSupportedForm {
 			return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor has no compiler-proved field form", nil)
 		}
+		resolved, _, resolveErr := resolveFieldConstructionChoiceFromProvenCandidate(
+			base.catalog, route,
+			authoringv2.ConstructionChoiceSelection{ChoiceID: related.ContributorChoiceID, Form: form},
+			identity, source, candidate, provedCandidate, choice,
+		)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		if resolved.LogicalType != authored.LogicalType || !reflect.DeepEqual(resolved.Route, related.Route) {
+			return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor type or route differs from its current compiler-proved choice", nil)
+		}
+		return nil
 	}
 	resolved, _, err := resolveFieldConstructionChoice(ctx, base.authorized, base.snapshot, base.catalog, rootResourceType,
 		authoringv2.ConstructionChoiceSelection{ChoiceID: related.ContributorChoiceID, Form: form}, identity, source)
