@@ -125,6 +125,23 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
     }
     return grid;
   };
+  const openDisclosure = async (selector, label) => {
+    const disclosure = page.locator(selector);
+    assert.equal(await disclosure.count(), 1, `${label} must identify one disclosure.`);
+    if (!await disclosure.evaluate(element => element.open)) {
+      const summary = disclosure.locator(':scope > summary');
+      assert.equal(await summary.count(), 1, `${label} must expose one summary control.`);
+      await act(label, summary, async (control, { remainingTimeout }) =>
+        control.click({ timeout: remainingTimeout() }), {
+        after: ({ remainingTimeout }) => page.waitForFunction(
+          target => document.querySelector(target)?.open === true,
+          selector, { timeout: remainingTimeout() },
+        ),
+      });
+    }
+    assert.equal(await disclosure.evaluate(element => element.open), true,
+      `${label} must leave the disclosure open.`);
+  };
 
   report.target.fixtureRawOracle = {
     fixtureDir: target.fixtureDir,
@@ -204,6 +221,27 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
   await act('browse Condition fields and related data', fieldsRelated, () => fieldsRelated.click(), {
     after: () => page.getByTestId('construction-add-columns-source').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }),
   });
+  await openDisclosure('[aria-label="Related resources"]', 'open Condition related resources');
+  const patientRelatedSources = await page.getByTestId('construction-add-columns-source-option').evaluateAll(options =>
+    options.map(option => ({ label: option.getAttribute('aria-label') ?? '', disabled: option.disabled }))
+      .filter(option => option.label.includes('Patient') && option.label.includes('Related resource')));
+  assert.equal(patientRelatedSources.length, 1,
+    `Condition.subject must expose one Patient related source: ${JSON.stringify(patientRelatedSources)}`);
+  assert.equal(patientRelatedSources[0].disabled, false,
+    `Patient related source must be enabled: ${patientRelatedSources[0].label}`);
+  const patientRelatedSource = page.locator(
+    `[data-testid="construction-add-columns-source-option"][aria-label=${JSON.stringify(patientRelatedSources[0].label)}]`,
+  );
+  assert.equal(await patientRelatedSource.count(), 1, 'Patient related source must have one native control.');
+  await act('select Patient as the related field source', patientRelatedSource,
+    async (control, { remainingTimeout }) => control.click({ timeout: remainingTimeout() }), {
+    after: ({ remainingTimeout }) => page.waitForFunction(label => {
+      const option = [...document.querySelectorAll('[data-testid="construction-add-columns-source-option"]')]
+        .find(candidate => candidate.getAttribute('aria-label') === label);
+      return option?.getAttribute('aria-pressed') === 'true';
+    }, patientRelatedSources[0].label, { timeout: remainingTimeout() }),
+  });
+  await openDisclosure('[data-testid="feature-catalog-raw-fields"]', 'open raw FHIR fields for Patient.id');
   const patientIDChoice = page.getByRole('checkbox', { name: 'Select Patient.id', exact: true });
   await patientIDChoice.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
   assert.equal(await patientIDChoice.isEnabled(), true,
@@ -552,6 +590,7 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
   await act('browse Specimen fields after route Apply', appliedFields, control => control.click(), {
     after: () => page.getByTestId('construction-add-columns-source').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }),
   });
+  await openDisclosure('[data-testid="feature-catalog-raw-fields"]', 'open raw FHIR fields for Specimen.id');
   const specimenIDChoice = page.getByRole('checkbox', { name: 'Select Specimen.id', exact: true });
   await specimenIDChoice.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
   assert.equal(await specimenIDChoice.isEnabled(), true,

@@ -422,6 +422,10 @@ export const registry = Object.freeze([
           },
         ],
         requiredChecks: [
+          'open Condition related resources action-to-render within budget',
+          'select Patient as the related field source action-to-render within budget',
+          'open raw FHIR fields for Patient.id action-to-render within budget',
+          'open raw FHIR fields for Specimen.id action-to-render within budget',
           'independent fixture oracle distinguishes all compiler route results and an unmatched Specimen',
           'Condition.subject authors Patient ID on the exact related occurrence',
           'authored Patient anchor route automatically previews its exact fixture rows without saved mutation',
