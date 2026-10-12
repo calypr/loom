@@ -188,7 +188,7 @@ describe('RowDefinitionPanel', () => {
     expect(encounterOptions).toHaveLength(2);
     expect(encounterOptions[0]).toHaveTextContent('Encounter via Specimen → Observations → Observation → Encounter');
     expect(encounterOptions[1]).toHaveTextContent('Encounter via Specimen → Encounters → Encounter');
-    expect(encounterOptions[0].value).not.toBe(encounterOptions[1].value);
+    expect(encounterOptions[0].getAttribute('value')).not.toBe(encounterOptions[1].getAttribute('value'));
   });
 
   it('resets the selected type when the snapshot, table, or current root changes', () => {
