@@ -479,7 +479,7 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
       await openRootSettings('open existing table row settings');
     await expect(settings.getByText('One row per Patient record.', { exact: true })).toBeVisible();
     await expect(startingType).toBeVisible();
-    await expect(rootSelector).toHaveValue('base');
+    await expect(rootSelector).toHaveValue('current');
     const observationChoice = await rootOption(rootSelector, 'Observation');
     assert(observationChoice && !observationChoice.disabled && /subject_Patient$/.test(observationChoice.label),
       `The native selector must expose the exact legal Observation Subject route: ${JSON.stringify(observationChoice)}`);
@@ -565,7 +565,7 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
     const { dialog: observationSettings, selector: observationSelector } =
       await openRootSettings('open Observation table root settings for native restoration');
     await expect(observationSettings.getByText('One row per Observation record.', { exact: true })).toBeVisible();
-    await expect(observationSelector).toHaveValue('base');
+    await expect(observationSelector).toHaveValue('current');
     const patientChoice = await rootOption(observationSelector, 'Patient');
     assert(patientChoice && !patientChoice.disabled && /subject_Patient$/.test(patientChoice.label),
       `The saved Observation table must expose Patient as a legal return root: ${JSON.stringify(patientChoice)}`);

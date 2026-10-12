@@ -124,6 +124,14 @@ const sumColumn = (window?: ContributorWindow) => ({
   },
 }) satisfies ExplorerBuilderColumn;
 
+const hasObservationColumn = {
+  column: 'has_observation',
+  label: 'Has Observation',
+  logicalType: 'boolean',
+  occurrenceId: 'root',
+  source: { kind: 'aggregate' as const, aggregate: { operation: 'EXISTS' as const, path: 'status' } },
+} satisfies ExplorerBuilderColumn;
+
 const savedWindow: ContributorWindow = {
   timestampPath: 'effectiveDateTime',
   anchorPath: 'meta.lastUpdated',
@@ -723,5 +731,114 @@ describe('FeaturePolicyEditor', () => {
       'Server-supported aggregate choices are unavailable for this source; fallback choices need validation by Loom.',
     )).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Count values' })).toBeInTheDocument();
+  });
+
+  it('preserves newer contributor edits when an earlier submission is acknowledged', () => {
+    const statusCandidate = {
+      ...categoryRecodeCandidate,
+      candidateId: 'c_status',
+      fieldPath: 'status',
+      label: 'Patient status',
+      repeated: false,
+    } satisfies ExplorerBuilderCandidate;
+    const candidates = [statusCandidate, categoryRecodeCandidate];
+    const existsAcknowledgment = {
+      candidateId: statusCandidate.candidateId,
+      operator: 'EXISTS',
+    } satisfies NonNullable<ExplorerBuilderColumn['contributor']>;
+    const externalContributor = {
+      candidateId: categoryRecodeCandidate.candidateId,
+      operator: 'EQUALS',
+      value: { kind: 'STRING', string: 'female' },
+    } satisfies NonNullable<ExplorerBuilderColumn['contributor']>;
+    const onContributorChange = vi.fn();
+    const renderEditor = (editedColumn: ExplorerBuilderColumn) => (
+      <FeaturePolicyEditor
+        column={editedColumn}
+        candidate={statusCandidate}
+        candidates={candidates}
+        related
+        rowContext="RECORDS"
+        resourceLabel="Patient"
+        disabled={false}
+        onSourceChange={vi.fn()}
+        onTransformationChange={vi.fn()}
+        onContributorChange={onContributorChange}
+      />
+    );
+    const view = render(renderEditor(hasObservationColumn));
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Contributors for Has Observation' }), {
+      target: { value: statusCandidate.candidateId },
+    });
+    expect(onContributorChange).toHaveBeenCalledWith(existsAcknowledgment);
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Contributor condition for Has Observation' }), {
+      target: { value: 'EQUALS' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Contributor value for Has Observation' }), {
+      target: { value: 'female' },
+    });
+
+    view.rerender(renderEditor({ ...hasObservationColumn, contributor: existsAcknowledgment }));
+
+    expect(screen.getByRole('combobox', { name: 'Contributor condition for Has Observation' })).toHaveProperty('value', 'EQUALS');
+    expect(screen.getByRole('textbox', { name: 'Contributor value for Has Observation' })).toHaveProperty('value', 'female');
+
+    view.rerender(renderEditor({ ...hasObservationColumn, contributor: externalContributor }));
+
+    expect(screen.getByRole('combobox', { name: 'Contributors for Has Observation' })).toHaveProperty('value', categoryRecodeCandidate.candidateId);
+    expect(screen.getByRole('combobox', { name: 'Contributor condition for Has Observation' })).toHaveProperty('value', 'EQUALS');
+    expect(screen.getByRole('textbox', { name: 'Contributor value for Has Observation' })).toHaveProperty('value', 'female');
+  });
+
+  it('adopts a later external contributor after replacing an older pending value', () => {
+    const statusCandidate = {
+      ...categoryRecodeCandidate,
+      candidateId: 'c_status',
+      fieldPath: 'status',
+      label: 'Patient status',
+      repeated: false,
+    } satisfies ExplorerBuilderCandidate;
+    const candidates = [statusCandidate, categoryRecodeCandidate];
+    const pendingA = {
+      candidateId: statusCandidate.candidateId,
+      operator: 'EXISTS',
+    } satisfies NonNullable<ExplorerBuilderColumn['contributor']>;
+    const externalB = {
+      candidateId: categoryRecodeCandidate.candidateId,
+      operator: 'EQUALS',
+      value: { kind: 'STRING', string: 'female' },
+    } satisfies NonNullable<ExplorerBuilderColumn['contributor']>;
+    const renderEditor = (editedColumn: ExplorerBuilderColumn) => (
+      <FeaturePolicyEditor
+        column={editedColumn}
+        candidate={statusCandidate}
+        candidates={candidates}
+        related
+        rowContext="RECORDS"
+        resourceLabel="Patient"
+        disabled={false}
+        onSourceChange={vi.fn()}
+        onTransformationChange={vi.fn()}
+        onContributorChange={vi.fn()}
+      />
+    );
+    const view = render(renderEditor(hasObservationColumn));
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Contributors for Has Observation' }), {
+      target: { value: statusCandidate.candidateId },
+    });
+    view.rerender(renderEditor({ ...hasObservationColumn, contributor: externalB }));
+    expect(screen.getByRole('combobox', { name: 'Contributors for Has Observation' }))
+      .toHaveProperty('value', categoryRecodeCandidate.candidateId);
+
+    view.rerender(renderEditor({ ...hasObservationColumn, contributor: pendingA }));
+
+    expect(screen.getByRole('combobox', { name: 'Contributors for Has Observation' }))
+      .toHaveProperty('value', statusCandidate.candidateId);
+    expect(screen.getByRole('combobox', { name: 'Contributor condition for Has Observation' }))
+      .toHaveProperty('value', 'EXISTS');
+    expect(screen.queryByRole('textbox', { name: 'Contributor value for Has Observation' })).toBeNull();
   });
 });

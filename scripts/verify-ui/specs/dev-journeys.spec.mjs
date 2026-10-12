@@ -75,12 +75,16 @@ const test = base.extend({
         type: message.type(),
         text: sanitizeDevJourneyDiagnostic(message.text()),
         location: location ? safeURL(location) : undefined,
+        observedAt: Date.now(),
+        ...(diagnostics.activeAction ? { triggerAction: diagnostics.activeAction.label } : {}),
       });
     };
     const onPageError = (error) => push(diagnostics.pageErrors, {
       name: error.name,
       message: sanitizeDevJourneyDiagnostic(error.message),
       stack: sanitizeDevJourneyDiagnostic(error.stack),
+      observedAt: Date.now(),
+      ...(diagnostics.activeAction ? { triggerAction: diagnostics.activeAction.label } : {}),
     });
     const onRequestFailed = (request) => {
       if (!isOwned(request.url())) return;

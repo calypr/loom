@@ -676,6 +676,14 @@ const UnitNormalizationEditor = ({
 
 type ContributorDraft = NonNullable<ExplorerBuilderColumn['contributor']>;
 
+type ContributorEditorDraft = {
+  readonly observedCurrent: ContributorDraft | undefined;
+  readonly candidateID: string;
+  readonly operator: 'EXISTS' | 'EQUALS';
+  readonly value: string;
+  readonly pendingAcknowledgements: ReadonlyArray<ContributorDraft | undefined>;
+};
+
 const candidateSupportsEquality = (candidate: ExplorerBuilderCandidate) =>
   ['string', 'token', 'id', 'uri', 'url', 'canonical', 'code'].includes(
     candidate.logicalType.toLowerCase(),
@@ -690,6 +698,18 @@ const contributorValue = (contributor?: ContributorDraft) => {
   if (contributor?.value?.kind === 'STRING') return contributor.value.string;
   if (contributor?.value?.kind === 'CODE') return contributor.value.code.code;
   return '';
+};
+
+const sameContributor = (
+  left: ContributorDraft | undefined,
+  right: ContributorDraft | undefined,
+) => {
+  if (!left || !right) return left === right;
+  return left.candidateId === right.candidateId
+    && left.operator === right.operator
+    && left.quantifier === right.quantifier
+    && left.value?.kind === right.value?.kind
+    && contributorValue(left) === contributorValue(right);
 };
 
 const ContributorEditor = ({
@@ -707,17 +727,52 @@ const ContributorEditor = ({
   readonly disabled: boolean;
   readonly onApply: (contributor: ContributorDraft | undefined) => void;
 }) => {
-  const [candidateID, setCandidateID] = useState(current?.candidateId ?? '');
-  const [operator, setOperator] = useState<'EXISTS' | 'EQUALS'>(current?.operator ?? 'EXISTS');
-  const [value, setValue] = useState(contributorValue(current));
+  const [draft, setDraft] = useState<ContributorEditorDraft>(() => ({
+    observedCurrent: current,
+    candidateID: current?.candidateId ?? '',
+    operator: current?.operator ?? 'EXISTS',
+    value: contributorValue(current),
+    pendingAcknowledgements: [],
+  }));
+  if (draft.observedCurrent !== current) {
+    setDraft((previous) => {
+      if (previous.observedCurrent === current) return previous;
+      const acknowledgmentIndex = previous.pendingAcknowledgements.findIndex(
+        (submitted) => sameContributor(submitted, current),
+      );
+      if (acknowledgmentIndex !== -1) {
+        return {
+          ...previous,
+          observedCurrent: current,
+          pendingAcknowledgements: previous.pendingAcknowledgements.filter(
+            (_, index) => index !== acknowledgmentIndex,
+          ),
+        };
+      }
+      if (sameContributor(previous.observedCurrent, current)) {
+        return { ...previous, observedCurrent: current };
+      }
+      return {
+        ...previous,
+        observedCurrent: current,
+        candidateID: current?.candidateId ?? '',
+        operator: current?.operator ?? 'EXISTS',
+        value: contributorValue(current),
+        pendingAcknowledgements: [],
+      };
+    });
+  }
+  const { candidateID, operator, value } = draft;
   const selected = candidates.find((candidate) => candidate.candidateId === candidateID);
   const currentCandidate = candidates.find((candidate) => candidate.candidateId === current?.candidateId);
 
-  useEffect(() => {
-    setCandidateID(current?.candidateId ?? '');
-    setOperator(current?.operator ?? 'EXISTS');
-    setValue(contributorValue(current));
-  }, [current]);
+  const submitContributor = (contributor: ContributorDraft | undefined) => {
+    setDraft((previous) => ({
+      ...previous,
+      pendingAcknowledgements: [...previous.pendingAcknowledgements, contributor],
+    }));
+    onApply(contributor);
+  };
 
   const existsPredicate = (candidate: ExplorerBuilderCandidate): ContributorDraft => ({
     candidateId: candidate.candidateId,
@@ -750,11 +805,9 @@ const ContributorEditor = ({
           disabled={disabled}
           onChange={(event) => {
             const nextID = event.currentTarget.value;
-            setCandidateID(nextID);
-            setOperator('EXISTS');
-            setValue('');
+            setDraft((previous) => ({ ...previous, candidateID: nextID, operator: 'EXISTS', value: '' }));
             const candidate = candidates.find(({ candidateId }) => candidateId === nextID);
-            onApply(candidate ? existsPredicate(candidate) : undefined);
+            submitContributor(candidate ? existsPredicate(candidate) : undefined);
           }}
         >
           <option value="">All matching {resourceLabel} records</option>
@@ -773,8 +826,8 @@ const ContributorEditor = ({
             disabled={disabled}
             onChange={(event) => {
               const next = event.currentTarget.value as 'EXISTS' | 'EQUALS';
-              setOperator(next);
-              if (next === 'EXISTS') onApply(existsPredicate(selected));
+              setDraft((previous) => ({ ...previous, operator: next }));
+              if (next === 'EXISTS') submitContributor(existsPredicate(selected));
             }}
           >
             <option value="EXISTS">Has a value</option>
@@ -791,14 +844,17 @@ const ContributorEditor = ({
               className="rounded border border-slate-300 bg-white px-1.5 py-1 text-xs font-normal"
               value={value}
               disabled={disabled}
-              onChange={(event) => setValue(event.currentTarget.value)}
+              onChange={(event) => {
+                const nextValue = event.currentTarget.value;
+                setDraft((previous) => ({ ...previous, value: nextValue }));
+              }}
             />
           </label>
           <button
             type="button"
             className="rounded bg-slate-800 px-2.5 py-1 font-semibold text-white hover:bg-slate-900 disabled:opacity-40"
             disabled={disabled || (candidateUsesCodeValue(selected) && value.trim() === '')}
-            onClick={() => onApply(equalityPredicate(selected))}
+            onClick={() => submitContributor(equalityPredicate(selected))}
           >
             Apply condition
           </button>

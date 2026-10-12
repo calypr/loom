@@ -12,6 +12,7 @@ import { performAction } from './verify-ui/helpers/playwright-actions.mjs';
 import { captureApiBuildFreeze } from './verify-ui/helpers/api-build-freeze.mjs';
 import { captureNativeFailureEvidence } from './verify-ui/helpers/native-failure-evidence.mjs';
 import { sourceFingerprintChangedPaths, sourceFingerprintWithManifest } from './verify-ui/helpers/source-fingerprint.mjs';
+import { isMutationRequest } from './verify-ui/helpers/playwright-network-observer.mjs';
 import { dataframeOutputQuery } from '../ui/packages/loom-ui/src/dataframeOutputQuery.mjs';
 import { EXPLORER_AUTHORING_SEMANTICS_VERSION } from '../ui/packages/loom-ui/src/authoringSemanticsVersion.mjs';
 
@@ -5007,6 +5008,25 @@ const waitForFreshBuilderDiagnostic = async (target, page, explorerId, baseline,
   })}`);
 };
 
+export const verifyFullHTTPFailureMatches = (entry, { url, code }) => {
+  if (entry?.method !== 'POST' || entry.status !== 422 || typeof entry.url !== 'string' || typeof entry.body !== 'string') return false;
+  try {
+    const body = JSON.parse(entry.body);
+    const actualURL = new URL(entry.url);
+    const expectedURL = new URL(url);
+    if (actualURL.origin !== expectedURL.origin || actualURL.pathname !== expectedURL.pathname) return false;
+    const diagnostics = body?.diagnostics;
+    if (diagnostics !== undefined && (!Array.isArray(diagnostics) || diagnostics.some((diagnostic) => diagnostic?.code !== code))) return false;
+    if (typeof body?.error?.code === 'string' && body.error.code !== '') return body.error.code === code;
+    return Array.isArray(diagnostics) && diagnostics.length > 0;
+  } catch {
+    return false;
+  }
+};
+
+export const verifyFullUnexpectedNetworkFailures = (entries) => entries.filter((entry) =>
+  !(entry?.failure === 'net::ERR_ABORTED' && !isMutationRequest(entry.method, entry.url)));
+
 const fetchJ01Preview = async (target, explorerId, outputId, state, limit = 1000) => {
   let receiptId = state.receipt?.receiptId ?? state.receiptId;
   if (!receiptId) {
@@ -5238,23 +5258,25 @@ const verifyInterpretationCandidate = async (target, report, diagnostics, page, 
   if (panelCount !== sameLabelColumns.length) throw new Error(`Expected ${sameLabelColumns.length} interpretation panels for saved label ${feature.label}; found ${panelCount}`);
   const panel = panelMatches.nth(sameLabelIndex);
   if (await panel.count() !== 1) throw new Error(`Patient id interpretation panel for ${feature.label} at saved occurrence ${sameLabelIndex} not found`);
+  const reusableMappings = panel.locator('details').filter({ has: page.getByText('Reusable mappings', { exact: true }) });
+  const libraryCard = reusableMappings.getByText(libraryID, { exact: true }).locator('xpath=../..');
   const openMappingPanel = async () => {
-    const details = panel.locator('details').filter({ has: page.getByText('Reusable mappings', { exact: true }) });
-    if (await details.count() !== 1) throw new Error('reusable mappings control was missing or ambiguous');
-    const open = await details.evaluate((element) => element.open);
-    if (!open) await click('open reusable mappings', details.locator('summary'));
+    if (await reusableMappings.count() !== 1) throw new Error('reusable mappings control was missing or ambiguous');
+    const open = await reusableMappings.evaluate((element) => element.open);
+    if (!open) await click('open reusable mappings', reusableMappings.locator(':scope > summary'));
   };
   const openSourceSetup = async () => {
     const details = page.getByTestId('construction-source-setup');
     await details.waitFor({ state: 'visible', timeout: 60000 });
-    if (!await details.evaluate((element) => element.open)) await click('open advanced source setup', details.locator('summary'));
+    if (!await details.evaluate((element) => element.open)) await click('open advanced source setup', details.locator(':scope > summary'));
   };
 
   await openMappingPanel();
   await fill('interpretation library ID', libraryID, panel.getByPlaceholder('vitals', { exact: true }));
   await fill('interpretation explanation', 'Patient identifier meaning for the verification fixture', panel.getByPlaceholder('What this feature means', { exact: true }));
   await click('save reusable mapping', panel.getByRole('button', { name: 'Save reusable mapping', exact: true }));
-  await page.getByText(libraryID, { exact: true }).waitFor({ state: 'visible', timeout: 30000 });
+  await libraryCard.waitFor({ state: 'visible', timeout: 30000 });
+  if (await libraryCard.count() !== 1) throw new Error(`created interpretation library ${libraryID} is missing or ambiguous in the selected reusable mappings panel`);
 
   const createdList = await fetchInterpretationLibraries(target, target.fixtureProject);
   const createdView = createdList.libraries.find((item) => item.library?.id === libraryID);
@@ -5266,8 +5288,8 @@ const verifyInterpretationCandidate = async (target, report, diagnostics, page, 
 
   const beforeV1Review = await fetchBuilderState(target, explorerID);
   await openMappingPanel();
-  await click('review created interpretation mapping', panel.getByRole('button', { name: 'Review', exact: true }));
-  await page.getByText('Review: Current → With this mapping', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+  await click('review created interpretation mapping', libraryCard.getByRole('button', { name: 'Review', exact: true }));
+  await panel.getByText('Review: Current → With this mapping', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
   await click('apply reviewed v1 mapping', panel.getByRole('button', { name: 'Apply', exact: true }));
   let appliedV1;
   const applyV1Deadline = Date.now() + 30000;
@@ -5318,11 +5340,11 @@ const verifyInterpretationCandidate = async (target, report, diagnostics, page, 
   await waitForDOMCondition(`document.body.innerText.includes('Feature meanings') && document.body.innerText.includes(${JSON.stringify(`Pinned revision ${firstRevision.id}`)})`, 60000);
   const beforeV2Review = await fetchBuilderState(target, v1ConsumerID);
   await openMappingPanel();
-  await click('review updated interpretation mapping', panel.getByRole('button', { name: 'Review', exact: true }));
-  await page.getByText('Review: Current → With this mapping', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+  await click('review updated interpretation mapping', libraryCard.getByRole('button', { name: 'Review', exact: true }));
+  await panel.getByText('Review: Current → With this mapping', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
   const reviewDOM = await panel.evaluate((panelElement) => {
     const norm = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
-    const table = [...document.querySelectorAll('table')].find((candidate) => {
+    const table = [...panelElement.querySelectorAll('table')].find((candidate) => {
       const headers = [...candidate.querySelectorAll('thead th')].map((cell) => norm(cell.textContent));
       return headers.join('|') === 'Row|Current|With this mapping|State';
     });
@@ -5344,7 +5366,7 @@ const verifyInterpretationCandidate = async (target, report, diagnostics, page, 
     reviewDOM.complete && reviewDOM.counts);
   await saveDOM(join(evidenceDir, 'interpretation-review.html'));
   await click('cancel v2 interpretation review', panel.getByRole('button', { name: 'Cancel', exact: true }));
-  await page.getByText('Review: Current → With this mapping', { exact: true }).waitFor({ state: 'hidden' });
+  await panel.getByText('Review: Current → With this mapping', { exact: true }).waitFor({ state: 'hidden' });
   const afterV2Cancel = await fetchBuilderState(target, v1ConsumerID);
   recordAssertion(report, 'interpretation-v2-cancel-keeps-draft-unchanged', {
     version: beforeV2Review.draftVersion,
@@ -5354,8 +5376,8 @@ const verifyInterpretationCandidate = async (target, report, diagnostics, page, 
     digest: afterV2Cancel.draftDigest,
   });
   await openMappingPanel();
-  await click('open bounded v2 interpretation review', panel.getByRole('button', { name: 'Review', exact: true }));
-  await page.getByText('Review: Current → With this mapping', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+  await click('open bounded v2 interpretation review', libraryCard.getByRole('button', { name: 'Review', exact: true }));
+  await panel.getByText('Review: Current → With this mapping', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
   const bounded = await previewInterpretationCandidate(target, v1ConsumerID, afterV2Cancel, secondRevision.id, 1);
   recordAssertion(report, 'interpretation-bounded-preview-reports-incomplete', 200, bounded.response.status);
   recordAssertion(report, 'interpretation-bounded-preview-has-incomplete-completeness', 'INCOMPLETE', bounded.value?.completeness);
@@ -5475,6 +5497,10 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
   if (!bootstrapExplorerId) throw new Error('fixture bootstrap Explorer identity is missing');
   const browserURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(bootstrapExplorerId)}&mode=builder`;
   let explorerId = '';
+  const browserAuthoringURL = (endpoint) => new URL(
+    `/api/v1/projects/${encodeURIComponent(encodeURIComponent(canonicalProjectID(target.fixtureProject)))}/explorers/${encodeURIComponent(explorerId)}/authoring/v2/${endpoint}`,
+    target.uiUrl,
+  ).toString();
   const click = (label, locator) => performAction(diagnostics, label, locator,
     (targetLocator, { timeout }) => targetLocator.click({ timeout }), { timeout: 5000 });
   const clickButton = (name, scope = page) => click(`click button ${name}`, scope.getByRole('button', { name, exact: true }));
@@ -5486,13 +5512,63 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
     (locator, { timeout }) => locator.selectOption({ value }, { timeout }), { timeout: 5000 });
   const clickCandidate = (fieldPath, suffix) => click(`select ${fieldPath} ${suffix}`,
     page.getByRole('checkbox', { name: `Add ${fieldPath} ${suffix}`, exact: true }));
+  const diagnosticWindow = () => ({ console: diagnostics.console.length, http: diagnostics.httpFailures.length });
+  const assertExpected422ForAction = async (window, { action, assertion, url, code }) => {
+    await diagnostics.flushPending?.();
+    const matches = diagnostics.httpFailures.slice(window.http)
+      .filter((entry) => verifyFullHTTPFailureMatches(entry, { url, code }));
+    recordAssertion(report, `${assertion}-captured-exact-422`, 1, matches.length);
+    const response = matches[0];
+    if (!response) return;
+    response.expectedByAssertion = assertion;
+    response.expectedAction = action;
+    response.expectedCode = code;
+    const responseURL = new URL(response.url);
+    const matchingConsole = diagnostics.console.slice(window.console).filter((entry) => {
+      if (entry.type !== 'error' || !entry.location || !entry.text.includes('status of 422 (Unprocessable Entity)')) return false;
+      try {
+        const location = new URL(entry.location);
+        return location.origin === responseURL.origin && location.pathname === responseURL.pathname;
+      } catch { return false; }
+    });
+    if (matchingConsole.length === 1) {
+      matchingConsole[0].expectedByAssertion = assertion;
+      matchingConsole[0].expectedAction = action;
+      matchingConsole[0].expectedCode = code;
+    }
+  };
   const scrollPreviewToRow = async (rowIndex, label) => {
     const scrollRegion = page.getByTestId('preview-table-scroll');
     const box = await scrollRegion.boundingBox();
     if (!box) throw new Error('preview table scroll region is not visible');
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     const target = page.getByRole('button', { name: label, exact: true });
-    for (let step = 0; step < 80 && await target.count() === 0; step += 1) await page.mouse.wheel(0, 900);
+    const targetRow = rowIndex + 1;
+    const wheelStep = Math.max(100, Math.floor(box.height * 0.6));
+    for (let step = 0; step < 120; step += 1) {
+      if (await target.count() > 0) break;
+      const range = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll('[data-testid="preview-table-scroll"] button[aria-label^="Inspect shared for row "]')]
+          .map((button) => Number(button.getAttribute('aria-label')?.match(/row (\d+)$/)?.[1]))
+          .filter(Number.isInteger);
+        return rows.length > 0
+          ? { first: Math.min(...rows), last: Math.max(...rows) }
+          : undefined;
+      });
+      if (!range) throw new Error('preview table has no rendered owner-record rows to guide scrolling');
+      if (targetRow >= range.first && targetRow <= range.last) break;
+      const direction = targetRow < range.first ? -1 : 1;
+      await page.mouse.wheel(0, direction * wheelStep);
+      await page.waitForFunction(({ first, last, direction }) => {
+        const rows = [...document.querySelectorAll('[data-testid="preview-table-scroll"] button[aria-label^="Inspect shared for row "]')]
+          .map((button) => Number(button.getAttribute('aria-label')?.match(/row (\d+)$/)?.[1]))
+          .filter(Number.isInteger);
+        if (rows.length === 0) return false;
+        return direction > 0
+          ? Math.max(...rows) > last || Math.min(...rows) > first
+          : Math.min(...rows) < first || Math.max(...rows) < last;
+      }, { first: range.first, last: range.last, direction }, { timeout: 3000 });
+    }
     await target.waitFor({ state: 'visible', timeout: 60000 });
   };
   const waitForDOMCondition = async (condition, timeout = 30000) => page.waitForFunction(condition, undefined, { timeout });
@@ -5526,6 +5602,51 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
     recordAssertion(report, 'owner-records-browser-selected-owned-explorer', true, Boolean(ownerRecordsExplorerId && ownerRecordsExplorerId !== bootstrapExplorerId));
     report.target.ownerRecordsExplorerId = ownerRecordsExplorerId;
 
+    const ownerRecordsSelectionIDs = ['dev-pair-001', 'dev-pair-002'];
+    const ownerRecordsSelectionBuilder = await fetchBuilderState(target, ownerRecordsExplorerId);
+    if (!ownerRecordsSelectionBuilder.catalog?.snapshotToken) throw new Error('owner-record fixture selection has no current Builder snapshot');
+    const ownerRecordsSelectionEndpoint = `${target.apiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers/${encodeURIComponent(ownerRecordsExplorerId)}/selections`;
+    const ownerRecordsSelection = await requestJSON(ownerRecordsSelectionEndpoint, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 30000,
+      body: JSON.stringify({
+        idempotencyKey: `loom-dev-owner-records-${ownerRecordsExplorerId}`,
+        snapshotToken: ownerRecordsSelectionBuilder.catalog.snapshotToken,
+        source: {
+          kind: 'resources',
+          resources: {
+            resourceType: 'Observation',
+            refs: ownerRecordsSelectionIDs.map((id) => ({
+              project: target.fixtureProject,
+              generation: target.fixtureGeneration,
+              resourceType: 'Observation',
+              id,
+            })),
+          },
+        },
+      }),
+    });
+    const ownerRecordsSelectionID = ownerRecordsSelection.value?.id;
+    if (ownerRecordsSelection.response.status !== 201 || ownerRecordsSelection.value?.complete !== true ||
+        ownerRecordsSelection.value?.resourceType !== 'Observation' || ownerRecordsSelection.value?.memberCount !== ownerRecordsSelectionIDs.length ||
+        !ownerRecordsSelectionID) {
+      throw new Error(`owner-record fixture selection returned HTTP ${ownerRecordsSelection.response.status}: ${JSON.stringify(ownerRecordsSelection.value).slice(0, 500)}`);
+    }
+    const ownerRecordsSelectionPage = await requestJSON(`${ownerRecordsSelectionEndpoint}/${encodeURIComponent(ownerRecordsSelectionID)}?limit=10`, { timeout: 30000 });
+    const selectedOwnerRecordIDs = (ownerRecordsSelectionPage.value?.members ?? []).map(({ ref }) => ref.id).sort();
+    if (!ownerRecordsSelectionPage.response.ok || ownerRecordsSelectionPage.value?.revision?.id !== ownerRecordsSelectionID ||
+        ownerRecordsSelectionPage.value?.revision?.complete !== true || ownerRecordsSelectionPage.value?.nextCursor) {
+      throw new Error(`owner-record fixture selection could not be read back: ${JSON.stringify(ownerRecordsSelectionPage.value).slice(0, 500)}`);
+    }
+    recordAssertion(report, 'owner-records-starting-selection-contains-exact-fixture-ids', ownerRecordsSelectionIDs, selectedOwnerRecordIDs);
+    report.target.ownerRecordsSelectionRevisionId = ownerRecordsSelectionID;
+    const ownerRecordsBrowserURL = new URL(target.uiUrl);
+    ownerRecordsBrowserURL.searchParams.set('project', target.fixtureProject);
+    ownerRecordsBrowserURL.searchParams.set('explorer', ownerRecordsExplorerId);
+    ownerRecordsBrowserURL.searchParams.set('selection', ownerRecordsSelectionID);
+    ownerRecordsBrowserURL.searchParams.set('mode', 'builder');
+    await navigatePage(ownerRecordsBrowserURL.toString());
+    await waitForDOMCondition(`document.querySelector('.demo-controls span')?.textContent.trim() === ${JSON.stringify(`${target.fixtureProject} / ${ownerRecordsExplorerId}`)} && (${builderDOMReadyCondition})`, 60000);
+
     await fill('first-table-name', 'Observation owner records', page.locator('#first-table-name'));
     await page.getByRole('button', { name: 'Choose Observation rows', exact: true }).waitFor({ state: 'visible', timeout: 60000 });
     await installFirstTableAddColumnsObserver(page, 'Observation owner records');
@@ -5539,6 +5660,17 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
       ownerRecordsAvailabilityEvents.some((event) => event.source === 'mutation' && event.acceptedCurrentPreview));
     recordAssertion(report, 'verified-id-first-table-final-action-has-current-preview', true,
       ownerRecordsAvailabilityEvents.some((event) => event.source === 'final' && event.acceptedCurrentPreview));
+    await clickButton('Configure rows');
+    const ownerRowsDialog = page.getByRole('dialog', { name: 'Row definition settings', exact: true });
+    await ownerRowsDialog.waitFor({ state: 'visible', timeout: 30000 });
+    await waitForDOMCondition(`Boolean([...document.querySelectorAll('[role="dialog"] button')].find((button) => button.textContent.trim() === 'Use selected resources' && !button.disabled))`);
+    await clickButton('Use selected resources', ownerRowsDialog);
+    await waitForDOMCondition(`document.querySelector('section[aria-label="Starting collection"]')?.getAttribute('data-attached-selection-revision-id') === ${JSON.stringify(ownerRecordsSelectionID)}`);
+    const ownerRecordsPopulationBuilder = await fetchBuilderState(target, ownerRecordsExplorerId);
+    const ownerRecordsPopulationSelectionID = ownerRecordsPopulationBuilder.workspace?.documents?.[0]?.population?.selectionRevisionId;
+    recordAssertion(report, 'owner-records-table-uses-exact-fixture-selection', ownerRecordsSelectionID, ownerRecordsPopulationSelectionID);
+    await clickButton('Back to table', ownerRowsDialog);
+    await waitForDOMCondition(`!document.querySelector('[role="dialog"][aria-label="Row definition settings"]')`);
     const ownerRecordsInitialBuilder = await fetchBuilderState(target, ownerRecordsExplorerId);
     const ownerRecordsInitialTable = ownerRecordsInitialBuilder.workspace?.documents?.[0];
     recordAssertion(report, 'owner-records-builder-creates-observation-rows', 'Observation', ownerRecordsInitialTable?.rootResourceType);
@@ -5639,7 +5771,6 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
     await waitForDOMCondition(`Number(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')) > ${Math.max(validOwnerRow, invalidOwnerRow) + 1}`, 60000);
     const invalidOwnerButton = `Inspect shared for row ${invalidOwnerRow + 1}`;
     await scrollPreviewToRow(invalidOwnerRow, invalidOwnerButton);
-    await waitForDOMCondition(`Boolean(document.querySelector('button[aria-label="Inspect shared for row ${invalidOwnerRow + 1}"]'))`);
     await clickButton(invalidOwnerButton);
     await waitForDOMCondition(`Boolean(document.querySelector('[role="dialog"][aria-label="shared record evidence"]')) && document.body.innerText.includes('Repeated FHIR records preserved in this cell')`);
     const invalidOwnerRecordEvidence = String(await page.evaluate(`document.querySelector('[role="dialog"][aria-label="shared record evidence"]')?.innerText || ''`));
@@ -5649,7 +5780,6 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
     await clickButton('Close');
     const validOwnerButton = `Inspect shared for row ${validOwnerRow + 1}`;
     await scrollPreviewToRow(validOwnerRow, validOwnerButton);
-    await waitForDOMCondition(`Boolean(document.querySelector('button[aria-label="Inspect shared for row ${validOwnerRow + 1}"]'))`);
     await clickButton(validOwnerButton);
     await waitForDOMCondition(`Boolean(document.querySelector('[role="dialog"][aria-label="shared record evidence"]')) && document.body.innerText.includes('Repeated FHIR records preserved in this cell')`);
     const ownerRecordEvidence = String(await page.evaluate(`document.querySelector('[role="dialog"][aria-label="shared record evidence"]')?.innerText || ''`));
@@ -5698,7 +5828,7 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
     await waitForDOMCondition(`Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Search' && !button.disabled))`);
     await clickButton('Search');
     const rawFieldsDetails = page.getByTestId('feature-catalog-raw-fields');
-    if (!await rawFieldsDetails.evaluate((details) => details.open)) await click('expand raw FHIR fields', rawFieldsDetails.locator('summary'));
+    if (!await rawFieldsDetails.evaluate((details) => details.open)) await click('expand raw FHIR fields', rawFieldsDetails.locator(':scope > summary'));
     await waitForDOMCondition(`Boolean(document.querySelector('input[aria-label="Select Patient.id"]:not(:disabled)'))`);
     await click('select Patient.id root field', page.getByRole('checkbox', { name: 'Select Patient.id', exact: true }));
     await waitForDOMCondition(`Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Add 1 selected feature' && !button.disabled))`);
@@ -5713,7 +5843,7 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
     await click('close Add columns editor', page.getByTestId('construction-close-operation-editor'));
     await waitForDOMCondition(`!document.querySelector('[aria-label="Add columns editor"]')`);
     const sourceSetupDetails = page.getByTestId('construction-source-setup');
-    if (!await sourceSetupDetails.evaluate((details) => details.open)) await click('expand advanced source setup', sourceSetupDetails.locator('summary'));
+    if (!await sourceSetupDetails.evaluate((details) => details.open)) await click('expand advanced source setup', sourceSetupDetails.locator(':scope > summary'));
     const initialPatientColumns = new Set(patientInitialTable.columns.map(column => column.column));
     const waitForRootField = async (fieldPath, newlyAdded = false) => {
       const deadline = Date.now() + 30000;
@@ -5835,12 +5965,53 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
     const optionalBuilder = await fetchBuilderState(target, explorerId);
     recordAssertion(report, 'builder-optional-match-restores-feature-only-route', 'OPTIONAL', optionalBuilder.workspace.documents[0].route.children[0].matchMode);
     const columnSearch = page.getByLabel('Search columns', { exact: true });
-    const columnPane = columnSearch.locator('xpath=ancestor::aside[1]').locator('.overflow-y-auto');
+    const columnPane = columnSearch.locator('xpath=ancestor::aside[1]').locator(':scope > div.overflow-y-auto');
+    await columnPane.hover({ timeout: 5000 });
     const columnPaneBox = await columnPane.boundingBox();
     if (!columnPaneBox) throw new Error('column viewport is not visible');
-    await page.mouse.move(columnPaneBox.x + columnPaneBox.width / 2, columnPaneBox.y + columnPaneBox.height / 2);
+    const columnPaneHitTest = await columnPane.evaluate((pane) => {
+      const rect = pane.getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const y = rect.top + rect.height / 2;
+      const target = document.elementFromPoint(x, y);
+      return {
+        viewportBox: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+        center: { x, y },
+        hitTarget: target ? {
+          tagName: target.tagName,
+          role: target.getAttribute('role'),
+          ariaLabel: target.getAttribute('aria-label'),
+          testId: target.getAttribute('data-testid'),
+        } : null,
+        hitInsidePane: target === pane || Boolean(target && pane.contains(target)),
+      };
+    });
+    const columnScrollBefore = await columnPane.evaluate((pane) => ({ scrollTop: pane.scrollTop, scrollHeight: pane.scrollHeight, clientHeight: pane.clientHeight }));
+    report.target.columnListScroll = {
+      boundingBox: columnPaneBox,
+      hitTest: columnPaneHitTest,
+      before: columnScrollBefore,
+    };
     await page.mouse.wheel(0, 1100);
+    let columnScrollMovementError;
+    try {
+      await page.waitForFunction((previousScrollTop) => {
+        const search = document.querySelector('input[aria-label="Search columns"]');
+        const pane = search?.closest('aside')?.querySelector(':scope > div.overflow-y-auto');
+        return pane instanceof HTMLElement && pane.scrollTop > previousScrollTop;
+      }, columnScrollBefore.scrollTop, { timeout: 5000 });
+    } catch (error) {
+      columnScrollMovementError = error;
+    }
     const columnScroll = await columnPane.evaluate((pane) => ({ scrollTop: pane.scrollTop, scrollHeight: pane.scrollHeight, clientHeight: pane.clientHeight }));
+    report.target.columnListScroll = {
+      boundingBox: columnPaneBox,
+      hitTest: columnPaneHitTest,
+      before: columnScrollBefore,
+      after: columnScroll,
+      movementObserved: !columnScrollMovementError,
+    };
+    if (columnScrollMovementError) throw columnScrollMovementError;
     await waitForDOMCondition(`Boolean(document.querySelector('input[aria-label^="Add "][aria-label$=" to table"]'))`);
     recordAssertion(report, 'builder-virtualized-column-list-scrolls', true,
       columnScroll.scrollTop > 0 && columnScroll.scrollHeight > columnScroll.clientHeight);
@@ -5897,6 +6068,49 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
       operator: 'EQUALS',
       value: { kind: 'STRING', string: 'final' },
     }, equalityFeature?.contributor);
+    const equalityBuilderURL = new URL(target.uiUrl);
+    equalityBuilderURL.searchParams.set('project', target.fixtureProject);
+    equalityBuilderURL.searchParams.set('explorer', explorerId);
+    equalityBuilderURL.searchParams.set('mode', 'builder');
+    await navigatePage(equalityBuilderURL.toString());
+    await waitForDOMCondition(`document.querySelector('.demo-controls span')?.textContent.trim() === ${JSON.stringify(`${target.fixtureProject} / ${explorerId}`)} && (${builderDOMReadyCondition})`, 60000);
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
+    await waitForDOMCondition(`document.querySelector('.demo-controls span')?.textContent.trim() === ${JSON.stringify(`${target.fixtureProject} / ${explorerId}`)} && (${builderDOMReadyCondition})`, 60000);
+    await waitForDOMCondition(`document.body.innerText.includes('Has Observation')`, 30000);
+    const reloadedEqualityBuilder = await fetchBuilderState(target, explorerId);
+    const reloadedObservationNode = reloadedEqualityBuilder.catalog.nodes.find((node) => node.resourceType === 'Observation');
+    const reloadedStatusCandidate = reloadedEqualityBuilder.catalog.candidates.find((candidate) =>
+      candidate.nodeId === reloadedObservationNode?.nodeId && candidate.fieldPath === 'status');
+    const reloadedEqualityFeature = reloadedEqualityBuilder.workspace.documents[0].columns.find((column) => column.label === 'Has Observation');
+    recordAssertion(report, 'builder-restores-contributor-equality-after-reload', {
+      candidateId: reloadedStatusCandidate?.candidateId,
+      operator: 'EQUALS',
+      value: { kind: 'STRING', string: 'final' },
+    }, reloadedEqualityFeature?.contributor);
+    await captureDOM(join(evidenceDir, 'builder-after-equality-reload.html'));
+    const sourceSetup = page.getByTestId('construction-source-setup');
+    if (await sourceSetup.getAttribute('open') === null) {
+      await click('open Advanced source setup', sourceSetup.locator(':scope > summary'));
+    }
+    await waitForDOMCondition(`document.querySelector('[data-testid="construction-source-setup"]')?.open === true`);
+    await clickButton('Advanced graph');
+    await waitForDOMCondition(`document.body.innerText.includes('Dataset graph')`);
+    await click('select Observation graph node', page.locator('.react-flow__node').filter({ hasText: 'Observation' }));
+    await waitForDOMCondition(`document.body.innerText.includes('Observation columns')`);
+    await fill('Search columns', 'Has Observation');
+    await waitForDOMCondition(`Boolean(document.querySelector('select[aria-label="Contributor condition for Has Observation"]')) && Boolean(document.querySelector('input[aria-label="Contributor value for Has Observation"]'))`);
+    const reloadedContributorCondition = page.getByLabel('Contributor condition for Has Observation', { exact: true });
+    const reloadedContributorValue = page.getByLabel('Contributor value for Has Observation', { exact: true });
+    await reloadedContributorCondition.waitFor({ state: 'visible', timeout: 60000 });
+    await reloadedContributorValue.waitFor({ state: 'visible', timeout: 60000 });
+    recordAssertion(report, 'builder-visible-contributor-equality-survives-reload', {
+      operator: 'EQUALS',
+      value: 'final',
+    }, {
+      operator: await reloadedContributorCondition.inputValue(),
+      value: await reloadedContributorValue.inputValue(),
+    });
+    await captureDOM(join(evidenceDir, 'builder-visible-equality-after-reload.html'));
     const valueCandidateDeadline = Date.now() + 30000;
     let valueCandidateVisible = false;
     while (Date.now() < valueCandidateDeadline && !valueCandidateVisible) {
@@ -5932,12 +6146,20 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
       await page.evaluate(`document.querySelector('input[aria-label="Allow first related value for valueQuantity.value"]').checked`));
     recordAssertion(report, 'contract-does-not-claim-ml-readiness', false,
       await page.evaluate(`document.body.innerText.includes('ML-ready: Yes')`));
+    const unacknowledgedPublishDiagnostics = diagnosticWindow();
     await clickButton('Publish');
     await waitForDOMCondition(`document.body.innerText.includes('UNACKNOWLEDGED_RELATED_FIRST')`, 30000);
     const rejectedState = await fetchExplorerState(target, explorerId);
     recordAssertion(report, 'unacknowledged-related-selection-cannot-publish', false,
       Boolean(rejectedState.active?.revisionId || rejectedState.runtime?.outputs?.length));
+    await assertExpected422ForAction(unacknowledgedPublishDiagnostics, {
+      action: 'click button Publish',
+      assertion: 'unacknowledged-related-selection-cannot-publish',
+      url: browserAuthoringURL('publish'),
+      code: 'UNACKNOWLEDGED_RELATED_FIRST',
+    });
     const requireOnePreviewBaseline = await captureBuilderPreviewBaseline(target, page, explorerId);
+    const requireOneDiagnostics = diagnosticWindow();
     await select('Across related Observation records for valueQuantity.value', 'Require zero or one value');
     const requireOneDiagnostic = await waitForFreshBuilderDiagnostic(target, page, explorerId, requireOnePreviewBaseline, 'RELATIONSHIP_CARDINALITY_VIOLATION');
     recordAssertion(report, 'require-one-rejects-ambiguous-related-values', true,
@@ -5977,6 +6199,12 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
       noReceiptOrProposal: true,
       loadingPlaceholderCleared: true,
     }, requireOneErrorActual);
+    await assertExpected422ForAction(requireOneDiagnostics, {
+      action: 'select Across related Observation records for valueQuantity.value — Require zero or one value',
+      assertion: 'require-one-rejects-ambiguous-related-values',
+      url: browserAuthoringURL('preview'),
+      code: 'RELATIONSHIP_CARDINALITY_VIOLATION',
+    });
     const valueCountPreviewBaseline = await captureBuilderPreviewBaseline(target, page, explorerId);
     await select('Across related Observation records for valueQuantity.value', 'Count values or records');
     const valueCountRecoveryState = await waitForFreshBuilderPreview(target, page, explorerId, valueCountPreviewBaseline, report,
@@ -6031,14 +6259,15 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
     ], valueCounts);
     await select('Across related Observation records for valueQuantity.value', 'Value nearest a date');
     await waitForDOMCondition(`Boolean(document.querySelector('select[aria-label="Record date"]')) && Boolean(document.querySelector('select[aria-label="Compare with row date"]')) && Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Apply date selection'))`);
-    await select('Record date', 'effectiveDateTime');
-    await select('Compare with row date', 'meta.lastUpdated');
+    await selectValue('Record date', 'effectiveDateTime');
+    await selectValue('Compare with row date', 'meta.lastUpdated');
     recordAssertion(report, 'date-aware-editor-selects-expected-source-and-anchor', ['effectiveDateTime', 'meta.lastUpdated'],
       await page.evaluate(`[document.querySelector('select[aria-label="Record date"]')?.value, document.querySelector('select[aria-label="Compare with row date"]')?.value]`));
     const temporalPreviewBaseline = await captureBuilderPreviewBaseline(target, page, explorerId);
     const beforeTemporalApply = await fetchBuilderState(target, explorerId);
     recordAssertion(report, 'date-aware-editor-does-not-persist-partial-policy', 'COUNT',
       beforeTemporalApply.workspace.documents[0].columns.find((column) => column.label === 'valueQuantity.value')?.source?.aggregate?.operation);
+    const temporalTieDiagnostics = diagnosticWindow();
     await clickButton('Apply date selection');
     let temporalBuilder;
     const temporalDeadline = Date.now() + 30000;
@@ -6069,6 +6298,12 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
     await waitForFreshBuilderDiagnostic(target, page, explorerId, temporalPreviewBaseline, 'TEMPORAL_TIE_AMBIGUOUS');
     recordAssertion(report, 'date-aware-selection-rejects-equal-date-ambiguity', true,
       String(await page.evaluate('document.body.innerText')).includes('TEMPORAL_TIE_AMBIGUOUS'));
+    await assertExpected422ForAction(temporalTieDiagnostics, {
+      action: 'click button Apply date selection',
+      assertion: 'date-aware-selection-rejects-equal-date-ambiguity',
+      url: browserAuthoringURL('preview'),
+      code: 'TEMPORAL_TIE_AMBIGUOUS',
+    });
     await clickButton('Edit date window');
     await select('Equal date handling', 'Choose deterministically by resource key');
     const tiePolicyPreviewBaseline = await captureBuilderPreviewBaseline(target, page, explorerId);
@@ -6249,7 +6484,7 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
     await waitForDOMCondition(`document.body.innerText.includes('Published') && document.body.innerText.includes('dev-patient-001')`, 60000);
     await clickButton('Load values');
     await waitForDOMCondition(`Boolean([...document.querySelectorAll('label')].find((candidate) => candidate.textContent.trim().startsWith('female')))`);
-    await click('select female facet', page.locator('label').filter({ hasText: /^female(?:\b|\s)/ }));
+    await click('select female facet', page.locator('label').filter({ has: page.getByText('female', { exact: true }) }));
     await waitForDOMCondition(`document.querySelector('table[aria-label$=" results"] tbody')?.querySelectorAll('tr').length === 1`, 30000);
     const filteredViewer = await page.evaluate(`(() => {
       const table = document.querySelector('table[aria-label$=" results"]');
@@ -6266,16 +6501,14 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
 
     await clickButton('Explain valueQuantity.value for row 1');
     await waitForDOMCondition(`document.body.innerText.includes('Why is valueQuantity.value ${maximumRelatedValue}?') && document.body.innerText.includes('One source record supplied this value.')`, 30000);
-    await click('expand Source details (1)', page.locator('summary').filter({ hasText: /^Source details \(1\)$/ }));
-    const cellExplanation = await page.evaluate(`(() => {
-      const dialog = [...document.querySelectorAll('[role="dialog"]')].find((candidate) => candidate.innerText.includes('Why is valueQuantity.value'));
-      return dialog?.innerText ?? '';
-    })()`);
+    const cellExplanationDialog = page.getByRole('dialog').filter({ hasText: `Why is valueQuantity.value ${maximumRelatedValue}?` });
+    await click('expand Source details (1)', cellExplanationDialog.locator('details').locator(':scope > summary').filter({ hasText: /^Source details \(1\)$/ }));
+    const cellExplanation = String(await cellExplanationDialog.innerText());
     recordAssertion(report, 'viewer-explains-related-maximum-with-winning-fhir-source', true,
       cellExplanation.includes('dev-observation-003')
       && cellExplanation.includes('180'));
     await captureDOM(join(evidenceDir, 'viewer-cell-explanation.html'));
-    await clickButton('Close cell explanation');
+    await clickButton('Close cell explanation', cellExplanationDialog);
     await waitForDOMCondition(`![...document.querySelectorAll('[role="dialog"]')].some((candidate) => candidate.innerText.includes('Why is valueQuantity.value'))`);
 
     const trainingArtifactDownloadStarted = Date.now();
@@ -6359,15 +6592,32 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
   } finally {
     if (explorerId) report.target.explorerRetention = 'retained with fresh verification project; remove only with owned dev-volume purge';
     try {
+      await diagnostics.flushPending?.();
+      const unexpectedNetworkFailures = verifyFullUnexpectedNetworkFailures(diagnostics.networkFailures);
+      const unexpectedHTTPFailures = diagnostics.httpFailures.filter((entry) => !entry.expectedByAssertion);
+      const unexpectedConsoleErrors = diagnostics.console.filter((entry) => !entry.expectedByAssertion);
+      for (const entry of diagnostics.networkFailures) {
+        entry.isMutation = isMutationRequest(entry.method, entry.url);
+        entry.expectedReadCancellation = entry.failure === 'net::ERR_ABORTED' && !entry.isMutation;
+      }
+      report.target.verifyFullDiagnostics = {
+        expectedHTTPFailures: diagnostics.httpFailures.filter((entry) => entry.expectedByAssertion).map(({ status, method, url, expectedByAssertion, expectedAction, expectedCode }) =>
+          ({ status, method, url, expectedByAssertion, expectedAction, expectedCode })),
+        expectedReadCancellations: diagnostics.networkFailures.filter((entry) => entry.expectedReadCancellation).length,
+        unexpectedHTTPFailures: unexpectedHTTPFailures.length,
+        unexpectedConsoleErrors: unexpectedConsoleErrors.length,
+        unexpectedNetworkFailures: unexpectedNetworkFailures.length,
+        pageErrors: diagnostics.pageErrors.length,
+      };
       await captureDOM(join(evidenceDir, 'final.html'));
       const diagnosticsPath = join(evidenceDir, 'browser-diagnostics.json');
       writeJSON(diagnosticsPath, diagnostics);
       recordEvidence(report, diagnosticsPath);
       if (!primaryFailure) recordAssertion(report, 'verify-fast-browser-has-no-unexpected-errors-or-api-failures', true,
-        diagnostics.console.length === 0
+        unexpectedConsoleErrors.length === 0
         && diagnostics.pageErrors.length === 0
-        && diagnostics.networkFailures.length === 0
-        && diagnostics.httpFailures.length === 0);
+        && unexpectedNetworkFailures.length === 0
+        && unexpectedHTTPFailures.length === 0);
     } catch (error) {
       if (!primaryFailure) throw error;
     }

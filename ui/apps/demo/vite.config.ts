@@ -55,7 +55,17 @@ export default defineConfig(({ command }) => {
       },
     },
     optimizeDeps: development
-      ? { exclude: ['@calypr/loom-ui'] }
+      ? {
+          include: [
+            '@mantine/core',
+            '@tanstack/react-table',
+            'echarts-for-react',
+            'zod',
+            '@xyflow/react',
+            'elkjs/lib/elk.bundled.js',
+          ],
+          exclude: ['@calypr/loom-ui'],
+        }
       : { include: ['@calypr/loom-ui'] },
   };
 });

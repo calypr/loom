@@ -576,6 +576,85 @@ describe('configured V2 columns', () => {
     expect(screen.getByText('Only Research Subject records where Identifier equals “registered” contribute to this feature.')).toBeInTheDocument();
   });
 
+  it('resets a configured contributor draft when the table output owner changes', () => {
+    const contributorCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      candidates: [{
+        candidateId: 'c_identifier',
+        nodeId: 'research-subject',
+        fieldPath: 'identifier[].value',
+        label: 'Identifier',
+        logicalType: 'string',
+        cardinality: 'many',
+        repeated: true,
+        filterable: true,
+        chartable: false,
+        projectionModes: ['FIRST', 'ALL'],
+        defaultProjectionMode: 'FIRST',
+        aggregateOperations: [],
+        transformations: unavailableTransformations,
+        valueTransformations: availableStringValueTransformations,
+      }],
+    };
+    const contributor = {
+      candidateId: 'c_identifier',
+      operator: 'EXISTS',
+      quantifier: 'ANY',
+    } satisfies NonNullable<ExplorerBuilderColumn['contributor']>;
+    const configuredColumn = {
+      column: 'subject_count',
+      label: 'Subject count',
+      occurrenceId: 'base',
+      logicalType: 'integer',
+      source: { kind: 'aggregate' as const, aggregate: { operation: 'EXISTS' as const, path: 'identifier[].value' } },
+      contributor,
+      table: { visible: true, order: 0 },
+    } satisfies ExplorerBuilderColumn;
+    const tableForOutput = (outputId: string): DraftTable => ({
+      ...table,
+      outputId,
+      tabId: outputId,
+      title: outputId,
+      document: {
+        ...table.document,
+        output: { ...table.document.output, id: outputId, title: outputId },
+        columns: [{ ...configuredColumn, contributor: { ...contributor } }],
+      },
+    });
+    const onContributorChange = vi.fn();
+    const renderSelector = (selectedTable: DraftTable) => (
+      <ColumnSelector
+        catalog={contributorCatalog}
+        table={selectedTable}
+        occurrenceId="base"
+        disabled={false}
+        onAdd={vi.fn()}
+        onAddAll={vi.fn()}
+        onChange={vi.fn()}
+        onSourceChange={vi.fn()}
+        onContributorChange={onContributorChange}
+        onRemove={vi.fn()}
+      />
+    );
+    const view = render(renderSelector(tableForOutput('output-a')));
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Contributor condition for Subject count' }), {
+      target: { value: 'EQUALS' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Contributor value for Subject count' }), {
+      target: { value: 'draft value' },
+    });
+
+    view.rerender(renderSelector(tableForOutput('output-b')));
+
+    expect(screen.getByRole('combobox', { name: 'Contributors for Subject count' }))
+      .toHaveProperty('value', 'c_identifier');
+    expect(screen.getByRole('combobox', { name: 'Contributor condition for Subject count' }))
+      .toHaveProperty('value', 'EXISTS');
+    expect(screen.queryByRole('textbox', { name: 'Contributor value for Subject count' })).toBeNull();
+    expect(onContributorChange).not.toHaveBeenCalled();
+  });
+
   it('adds count and existence features for a related resource without replacing fields', () => {
     const onAddSource = vi.fn();
     const relatedCatalog: ExplorerBuilderCatalog = {

@@ -37,3 +37,17 @@ Do not edit source or run another probe concurrently.
 - Stopping services retains synthetic projects. Only explicit owned-volume
   purge discards them and their materializations.
 - Probes do not replace unit tests, production builds, or real-data acceptance.
+
+## Narrow iteration-only recipe
+
+`make verify-current` uses the existing configured bootstrap workspace, without
+the full journey's fixture-seeding branch. It exercises CSS HMR, successful
+backend rebuild, deliberate compilation failure and recovery. It still owns
+temporary watched-source probes and must run alone, with the same validated
+owned target environment used by the doctor.
+
+2026-10-11: the native iteration-only recipe passed in 29.7 seconds. The broader
+`verify-full` attempt stopped earlier at its owner-records inspector locator;
+that failure does not invalidate the separate iteration pass or establish a
+full journey pass. The existing owned CDA stack was reused with its separate
+synthetic routing project; no CDA reload was performed.

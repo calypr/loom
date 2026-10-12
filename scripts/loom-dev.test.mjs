@@ -5,7 +5,36 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { requireNativeDevJourneyContext } from './loom-dev.mjs';
-import { addColumnsActionReadinessCondition, AUTHORING_SEMANTICS_VERSION, authoringCommandSemanticsVersion, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, builderDOMReadyCondition, builderDraftMatchesPreviewDOM, builderPreviewFailureMatchesDraft, builderPreviewIsFreshForDraft, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, expectedTrainingArtifactMembers, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04DefaultRecordCellTraceRowID, j04ExactEqual, j04FixtureManifest, j04PatientOperatorDOMPlan, j04PatientOperatorSourceIDs, j04PatientSelectionSeedPlan, J05_REQUIRED_ASSERTIONS, j05AssertionCompletion, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
+import { addColumnsActionReadinessCondition, AUTHORING_SEMANTICS_VERSION, authoringCommandSemanticsVersion, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, builderDOMReadyCondition, builderDraftMatchesPreviewDOM, builderPreviewFailureMatchesDraft, builderPreviewIsFreshForDraft, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, expectedTrainingArtifactMembers, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04DefaultRecordCellTraceRowID, j04ExactEqual, j04FixtureManifest, j04PatientOperatorDOMPlan, j04PatientOperatorSourceIDs, j04PatientSelectionSeedPlan, J05_REQUIRED_ASSERTIONS, j05AssertionCompletion, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract, verifyFullHTTPFailureMatches, verifyFullUnexpectedNetworkFailures } from './loom-dev.mjs';
+
+test('verify-full diagnostics bind exact 422 responses and reject canceled writes', () => {
+  const expected = {
+    url: 'http://127.0.0.1:30008/api/v1/projects/p/explorers/e/authoring/v2/preview',
+    code: 'TEMPORAL_TIE_AMBIGUOUS',
+  };
+  const exact422 = {
+    method: 'POST',
+    status: 422,
+    url: expected.url,
+    body: JSON.stringify({ diagnostics: [{ code: expected.code }], error: { code: expected.code } }),
+  };
+  assert.equal(verifyFullHTTPFailureMatches(exact422, expected), true);
+  assert.equal(verifyFullHTTPFailureMatches({ ...exact422, status: 500 }, expected), false);
+  assert.equal(verifyFullHTTPFailureMatches({ ...exact422, body: '{"error":{"code":"OTHER"}}' }, expected), false);
+  assert.equal(verifyFullHTTPFailureMatches({ ...exact422, body: JSON.stringify({ error: { code: 'OTHER' }, diagnostics: [{ code: expected.code }] }) }, expected), false);
+  assert.equal(verifyFullHTTPFailureMatches({ ...exact422, body: JSON.stringify({ error: { code: expected.code }, diagnostics: [{ code: expected.code }, { code: 'INTERNAL_ERROR' }] }) }, expected), false);
+  assert.equal(verifyFullHTTPFailureMatches({ ...exact422, body: JSON.stringify({ diagnostics: [{ code: expected.code }, { code: 'OTHER' }] }) }, expected), false);
+  assert.equal(verifyFullHTTPFailureMatches({ ...exact422, body: JSON.stringify({ diagnostics: [{ code: expected.code }] }) }, expected), true);
+  assert.equal(verifyFullHTTPFailureMatches({ ...exact422, url: exact422.url.replace('/preview', '/publish') }, expected), false);
+  assert.equal(verifyFullHTTPFailureMatches({ ...exact422, url: exact422.url.replace('/explorers/e/', '/explorers/other/') }, expected), false);
+  assert.equal(verifyFullHTTPFailureMatches({ ...exact422, method: 'GET' }, expected), false);
+
+  const canceledRead = { method: 'POST', url: 'http://127.0.0.1/api/v1/projects/p/explorers/e/authoring/v2/reconcile', failure: 'net::ERR_ABORTED' };
+  const canceledCommandWrite = { method: 'POST', url: 'http://127.0.0.1/api/v1/projects/p/explorers/e/authoring/v2/commands', failure: 'net::ERR_ABORTED' };
+  const otherTransportFailure = { method: 'GET', url: 'http://127.0.0.1/api/v1/projects/p/explorers/e/builder', failure: 'net::ERR_CONNECTION_RESET' };
+  assert.deepEqual(verifyFullUnexpectedNetworkFailures([canceledRead, canceledCommandWrite, otherTransportFailure]),
+    [canceledCommandWrite, otherTransportFailure]);
+});
 
 test('J05 cannot pass with missing, failed, or unproven assertions', () => {
   const passed = J05_REQUIRED_ASSERTIONS.map((name) => ({ name, status: 'passed' }));

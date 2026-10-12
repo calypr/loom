@@ -14,7 +14,8 @@ resource relationship, and selects fields for the table and filter controls.
 
 Open the development URL and choose `Builder`. Expand `New explorer`, enter a
 name, and choose `Create blank`. Name the first table and choose `Create table`.
-Choose Patient in the graph, then Observation to add the supported route.
+Choose `Choose Patient rows` for the initial table. Open Advanced graph later
+to choose Observation and add the supported route.
 
 ## Driving it with loom-dev
 
@@ -35,3 +36,21 @@ two Patients and one Observation for each Patient.
 - Candidate lists are virtualized. Catalog presence does not prove selection.
 - Commands persist asynchronously. Wait for configured fields and enabled actions.
 - The UI retains its last table. Do not reset and reuse an earlier test Explorer.
+
+## Registered focused lifecycle
+
+`make verify-case SCENARIO=builder-authoring CASE=authoring TARGET_FROM_ENV=1`
+selects the native test “Builder authoring previews, changes an existing table
+root, and reloads”. Its fresh Basic fixture is
+`testdata/builder-coded-source-column`; it verifies Patient/Gender rows,
+publication/reload, and Patient↔Observation changes on the existing table.
+Configure the owned environment as described in the verification skill first.
+This Basic case does not establish the complete CDA row-operation inventory.
+
+## Maintenance result
+
+2026-10-11: after correcting the two stale selector expectations from `base`
+to `current`, the same registered native authoring lifecycle passed 22/22
+checks in 34.1 seconds. Exact Patient↔Observation rows, Cancel, Apply,
+restoration and reload passed; maximum measured action was 899 ms. Source/API
+identity stayed unchanged and after-health passed. This is Basic fixture proof.

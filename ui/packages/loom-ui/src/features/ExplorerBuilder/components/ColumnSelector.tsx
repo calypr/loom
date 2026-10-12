@@ -963,7 +963,7 @@ export const ColumnSelector = ({
                   return (
                     <div
                       key={row.kind === 'configured'
-                        ? `configured:${row.column.column}`
+                        ? `configured:${table?.outputId ?? 'unbound'}:${row.column.column}`
                         : row.kind === 'construction'
                           ? `construction:${row.stepId}:${row.column.id}`
                           : `available:${row.candidate.candidateId}`}
