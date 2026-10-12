@@ -215,12 +215,22 @@ func resolveSemanticConstructionChoice(ctx context.Context, authorized Authorize
 	if err != nil || !constructionChoiceIdentityMatches(choice, selection.ChoiceID, choiceIdentity) || !reflect.DeepEqual(choice.Source, identity) {
 		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("semantic choice identity does not match the current observation and compiler candidate")
 	}
-	fieldChoice, err := capability.NewFieldConstructionChoiceForRoute(snapshot.Token, route, provenCandidate)
-	if err != nil {
+	catalogCandidate, found := uniqueCatalogCandidate(catalogSnapshot, provenCandidate.ID)
+	if !found {
+		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("semantic choice options do not match the current compiler candidate")
+	}
+	if len(route) == 0 {
+		primaryFieldChoice, choiceErr := capability.NewFieldConstructionChoiceForRoute(snapshot.Token, route, provenCandidate)
+		if choiceErr != nil || catalogCandidate.ConstructionChoice == nil || !reflect.DeepEqual(*catalogCandidate.ConstructionChoice, primaryFieldChoice) {
+			return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("semantic choice options do not match the current compiler candidate")
+		}
+	}
+	projectedCandidate, ok := semanticCandidateWithFallback(snapshot, observation, provenCandidate)
+	if !ok {
 		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("semantic compiler candidate has no current supported options")
 	}
-	catalogCandidate, found := uniqueCatalogCandidate(catalogSnapshot, provenCandidate.ID)
-	if !found || (len(route) == 0 && (catalogCandidate.ConstructionChoice == nil || !reflect.DeepEqual(*catalogCandidate.ConstructionChoice, fieldChoice))) || !semanticChoiceFieldOptionsMatch(choice, fieldChoice) {
+	fieldChoice, choiceErr := capability.NewFieldConstructionChoiceForRoute(snapshot.Token, route, projectedCandidate)
+	if choiceErr != nil || !semanticChoiceFieldOptionsMatch(choice, fieldChoice) {
 		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("semantic choice options do not match the current compiler candidate")
 	}
 	if !constructionChoiceSupports(choice, selection.Form) {

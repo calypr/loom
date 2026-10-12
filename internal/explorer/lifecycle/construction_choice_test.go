@@ -102,6 +102,125 @@ func TestApplyConstructionChoiceMapsSemanticObservationAtTheDocumentRoot(t *test
 	}
 }
 
+func TestResolveSemanticConstructionChoiceUsesFallbackCandidateOptionsAcrossOptionalRoute(t *testing.T) {
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	snapshot := readySnapshot("project-a", "generation-a", "semantic-fallback-route", scope)
+	snapshot.Nodes = []capability.Node{
+		{ID: "medication", ResourceType: "Medication", RowRootEligible: true},
+		{ID: "administration", ResourceType: "MedicationAdministration"},
+		{ID: "patient", ResourceType: "Patient"},
+		{ID: "observation", ResourceType: "Observation", RowRootEligible: true},
+	}
+	route := []capability.ConstructionRouteStep{
+		{EdgeID: "medication-administration", FromNodeID: "medication", ToNodeID: "administration", FromResourceType: "Medication", ToResourceType: "MedicationAdministration", Relationship: "medication_reference_Medication", StorageDirection: "INBOUND", MatchMode: "OPTIONAL"},
+		{EdgeID: "administration-patient", FromNodeID: "administration", ToNodeID: "patient", FromResourceType: "MedicationAdministration", ToResourceType: "Patient", Relationship: "subject_Patient", StorageDirection: "OUTBOUND", MatchMode: "OPTIONAL"},
+		{EdgeID: "patient-observation", FromNodeID: "patient", ToNodeID: "observation", FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "focus_Patient", StorageDirection: "INBOUND", MatchMode: "OPTIONAL"},
+	}
+	snapshot.Edges = []capability.Edge{
+		{ID: "medication-administration", FromNodeID: "medication", ToNodeID: "administration", SourceResourceType: "Medication", TargetResourceType: "MedicationAdministration", Label: "medication_reference_Medication", StorageDirection: "INBOUND"},
+		{ID: "administration-patient", FromNodeID: "administration", ToNodeID: "patient", SourceResourceType: "MedicationAdministration", TargetResourceType: "Patient", Label: "subject_Patient", StorageDirection: "OUTBOUND"},
+		{ID: "patient-observation", FromNodeID: "patient", ToNodeID: "observation", SourceResourceType: "Patient", TargetResourceType: "Observation", Label: "focus_Patient", StorageDirection: "INBOUND"},
+	}
+	primary := capability.Candidate{
+		ID: "observation-value-text", NodeID: "observation", ResourceType: "Observation",
+		FieldPath: "valueCodeableConcept.text", Label: "Value text", LogicalType: "string", Cardinality: "optional_one",
+		ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+	}
+	fallback := capability.Candidate{
+		ID: "observation-coding-display", NodeID: "observation", ResourceType: "Observation",
+		FieldPath: "valueCodeableConcept.coding[].display", Label: "Value coding display", LogicalType: "string", Cardinality: "many",
+		RepeatedBoundaries: []capability.RepeatedBoundary{{Path: "valueCodeableConcept.coding[]", MaxItems: 1}},
+		ProjectionModes:    []capability.ProjectionMode{capability.ProjectionFirst, capability.ProjectionArray},
+	}
+	snapshot.Candidates = []capability.Candidate{primary, fallback}
+	entry := catalog.SemanticInventoryEntry{ConceptID: "concept-snomed-1222590007", BindingID: "binding-snomed", Observation: catalog.SemanticObservation{
+		SchemaVersion: catalog.SemanticObservationSchemaVersion,
+		Source:        catalog.SemanticObservationSource{Type: "Observation", Path: "code"},
+		Key:           catalog.SemanticObservationKey{Selector: "code.coding[]", System: "http://snomed.info/sct", Code: "1222590007"},
+		Value: catalog.SemanticObservationValue{
+			Selector: "valueCodeableConcept.text", Type: "string",
+			FallbackSelectors: []string{"valueCodeableConcept.coding[].display"}, FallbackOnBlankString: true,
+		},
+		ChoiceArm: "valueCodeableConcept", LogicalType: "string", Completeness: catalog.SemanticComplete,
+		Status: "SUPPORTED", RuleHint: catalog.SemanticRuleHintCodedValueV1, RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
+	}}
+	buildID := catalog.SemanticInventoryBuildID(snapshot.Identity.Project, snapshot.Identity.Generation)
+	contextToken, err := semanticInventoryContextToken(snapshot, "explorer-a", "Medication", buildID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	choice, err := semanticInventoryConstructionChoiceForRoute(snapshot, contextToken, buildID, route, entry, primary, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := capability.DecodeConstructionChoiceID(choice.ChoiceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	semanticSource, ok := identity.Source.(capability.SemanticBindingChoiceSource)
+	if !ok {
+		t.Fatalf("semantic choice source = %#v", identity.Source)
+	}
+	catalogSnapshot := authoringv2.CatalogSnapshot{SnapshotToken: snapshot.Token, Candidates: []authoringv2.CatalogCandidate{{
+		ID: primary.ID, NodeID: primary.NodeID, FieldPath: primary.FieldPath, Cardinality: primary.Cardinality,
+	}}}
+	resolved, _, err := resolveSemanticConstructionChoice(
+		context.Background(), AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
+		"explorer-a", "Medication", contextToken, buildID, buildID,
+		map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry},
+		authoringv2.ConstructionChoiceSelection{ChoiceID: choice.ChoiceID, Form: capability.ConstructionChoiceValue}, identity,
+		semanticSource,
+	)
+	if err != nil {
+		t.Fatalf("resolve semantic choice across OPTIONAL route: %v", err)
+	}
+	if resolved.CandidateID != primary.ID || resolved.Source.Lookup == nil || resolved.Source.Lookup.Binding == nil ||
+		resolved.Source.Lookup.Binding.ValuePath != "valueCodeableConcept.text" || resolved.Source.Lookup.ProjectionMode != "VALUE" ||
+		!reflect.DeepEqual(resolved.Route, route) {
+		t.Fatalf("resolved semantic choice = %#v", resolved)
+	}
+
+	rootContextToken, err := semanticInventoryContextToken(snapshot, "explorer-a", "Observation", buildID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootChoice, err := semanticInventoryConstructionChoiceForRoute(snapshot, rootContextToken, buildID, nil, entry, primary, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootIdentity, err := capability.DecodeConstructionChoiceID(rootChoice.ChoiceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootSemanticSource, ok := rootIdentity.Source.(capability.SemanticBindingChoiceSource)
+	if !ok {
+		t.Fatalf("root semantic choice source = %#v", rootIdentity.Source)
+	}
+	rootFieldChoice, err := capability.NewFieldConstructionChoiceForRoute(snapshot.Token, nil, primary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootCatalogSnapshot := authoringv2.CatalogSnapshot{SnapshotToken: snapshot.Token, Candidates: []authoringv2.CatalogCandidate{{
+		ID: primary.ID, NodeID: primary.NodeID, FieldPath: primary.FieldPath, Cardinality: primary.Cardinality,
+		ConstructionChoice: &rootFieldChoice,
+	}}}
+	rootResolved, _, err := resolveSemanticConstructionChoice(
+		context.Background(), AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, rootCatalogSnapshot,
+		"explorer-a", "Observation", rootContextToken, buildID, buildID,
+		map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry},
+		authoringv2.ConstructionChoiceSelection{ChoiceID: rootChoice.ChoiceID, Form: capability.ConstructionChoiceValue}, rootIdentity,
+		rootSemanticSource,
+	)
+	if err != nil {
+		t.Fatalf("resolve root semantic choice with catalog primary consistency: %v", err)
+	}
+	if rootResolved.CandidateID != primary.ID || rootResolved.Source.Lookup == nil || rootResolved.Source.Lookup.Binding == nil ||
+		rootResolved.Source.Lookup.Binding.ValuePath != "valueCodeableConcept.text" || rootResolved.Source.Lookup.ProjectionMode != "VALUE" ||
+		len(rootResolved.Route) != 0 {
+		t.Fatalf("resolved root semantic choice = %#v", rootResolved)
+	}
+}
+
 func TestResolveSemanticConstructionChoiceBuildsOwnerRecordSourceAfterCompilerProof(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := readySnapshot("project-a", "generation-a", "owner-record-snapshot", scope)
