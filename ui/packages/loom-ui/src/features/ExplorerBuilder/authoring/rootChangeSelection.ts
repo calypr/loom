@@ -151,7 +151,9 @@ export const startingRootChoices = (
         occurrenceId: occurrence.id,
       },
       resourceType: occurrence.resourceType,
-      relationship: occurrence.relationship,
+      relationship: index === 0
+        ? occurrence.relationship
+        : occurrenceLabel(catalog, occurrence.id, occurrences) ?? occurrence.relationship,
       current: index === 0,
     }));
   const authoredNodeIds = new Set(occurrences.map((occurrence) => occurrence.nodeId));

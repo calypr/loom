@@ -1,10 +1,108 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { ExplorerBuilderCatalog } from '../../../types';
 import { derivedOccurrences, type DraftTable } from '../authoring/model';
 import {
   startingRootChoices,
   type RootChangeSelection,
 } from '../authoring/rootChangeSelection';
+
+type RootPickerChoice =
+  | {
+      readonly kind: 'current';
+      readonly key: string;
+      readonly resourceType: string;
+    }
+  | {
+      readonly kind: 'connected';
+      readonly key: string;
+      readonly resourceType: string;
+      readonly routeLabel?: string;
+      readonly selection: RootChangeSelection;
+    }
+  | {
+      readonly kind: 'replacement-only';
+      readonly key: string;
+      readonly resourceType: string;
+      readonly nodeId: string;
+    };
+
+const RootTypePicker = ({
+  choices,
+  currentChoiceKey,
+  disabled,
+  onChange,
+  onReplace,
+}: {
+  readonly choices: ReadonlyArray<RootPickerChoice>;
+  readonly currentChoiceKey: string;
+  readonly disabled: boolean;
+  readonly onChange: (selection: RootChangeSelection) => void;
+  readonly onReplace?: (rootNodeId: string) => void;
+}) => {
+  const [selectedChoiceKey, setSelectedChoiceKey] = useState(currentChoiceKey);
+  const selectedChoice = choices.find((choice) => choice.key === selectedChoiceKey) ??
+    choices.find((choice) => choice.key === currentChoiceKey);
+  const selectedConnectedChoice = selectedChoice?.kind === 'connected' ? selectedChoice : undefined;
+  const reviewDisabled = disabled || !selectedChoice || selectedChoice.kind === 'current';
+  const selectionExplanation = selectedChoice?.kind === 'connected'
+    ? 'Loom will check which existing columns and filters can carry over.'
+    : selectedChoice?.kind === 'replacement-only'
+      ? 'A new setup is required. Review will list the current setup items that would be removed.'
+      : undefined;
+
+  return (
+    <section aria-label="What should each row represent?" className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-slate-800">
+      <h4 className="font-semibold text-slate-900">What should each row represent?</h4>
+      <p className="mt-1 text-xs text-slate-600">
+        Choose a record type. Loom will show how this changes your rows and whether existing columns or filters need updating.
+      </p>
+      {selectionExplanation ? <p className="mt-1 text-xs text-slate-600">{selectionExplanation}</p> : null}
+      <label className="mt-2 block font-medium text-slate-900">
+        <span>Record type</span>
+        <select
+          aria-label="Record type"
+          className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 outline-blue-500 disabled:opacity-50"
+          value={selectedChoice?.key ?? currentChoiceKey}
+          disabled={disabled}
+          onChange={(event) => setSelectedChoiceKey(event.currentTarget.value)}
+        >
+          {choices.map((choice) => (
+            <option key={choice.key} value={choice.key} disabled={choice.kind === 'current'}>
+              {choice.kind === 'current'
+                ? `${choice.resourceType} (current)`
+                : choice.kind === 'connected'
+                  ? `${choice.resourceType}${choice.routeLabel ? ` via ${choice.routeLabel}` : ''}`
+                  : choice.resourceType}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className="rounded-md bg-blue-700 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
+          disabled={reviewDisabled}
+          onClick={() => {
+            if (selectedChoice?.kind === 'connected') onChange(selectedChoice.selection);
+            if (selectedChoice?.kind === 'replacement-only') onReplace?.(selectedChoice.nodeId);
+          }}
+        >
+          Review changes
+        </button>
+        {selectedConnectedChoice && onReplace ? (
+          <button
+            type="button"
+            className="rounded-md border border-amber-700 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-50 disabled:opacity-50"
+            disabled={disabled}
+            onClick={() => onReplace(selectedConnectedChoice.selection.nodeId)}
+          >
+            Start fresh with {selectedConnectedChoice.resourceType}
+          </button>
+        ) : null}
+      </div>
+    </section>
+  );
+};
 
 export const RowDefinitionPanel = ({
   catalog,
@@ -19,90 +117,71 @@ export const RowDefinitionPanel = ({
   readonly onChange: (selection: RootChangeSelection) => void;
   readonly onReplace?: (rootNodeId: string) => void;
 }) => {
-  const choices = useMemo(
+  const connectedChoices = useMemo(
     () => startingRootChoices(table, catalog),
     [catalog, table],
   );
-  const currentRootNodeId = derivedOccurrences(table, catalog)[0]?.nodeId;
-  const replacementChoices = useMemo(
-    () => catalog.nodes.filter((node) => node.rowRootEligible),
-    [catalog.nodes],
-  );
-  const [replacementNodeId, setReplacementNodeId] = useState('');
+  const currentOccurrence = derivedOccurrences(table, catalog)[0];
+  const currentRootNodeId = currentOccurrence?.nodeId;
+  const currentResourceType = table.document.rootResourceType;
+  const currentConnectedChoice = connectedChoices.find((choice) => choice.current);
+  const replacementOnlyChoices = useMemo(() => {
+    if (!onReplace) return [];
+    const representedResourceTypes = new Set([
+      currentResourceType,
+      ...connectedChoices.map((choice) => choice.resourceType),
+    ]);
+    const choices: Array<Extract<RootPickerChoice, { kind: 'replacement-only' }>> = [];
+    for (const node of catalog.nodes) {
+      if (!node.rowRootEligible || representedResourceTypes.has(node.resourceType)) continue;
+      representedResourceTypes.add(node.resourceType);
+      choices.push({
+        kind: 'replacement-only',
+        key: `replacement:${node.nodeId}`,
+        resourceType: node.resourceType,
+        nodeId: node.nodeId,
+      });
+    }
+    return choices;
+  }, [catalog.nodes, connectedChoices, currentResourceType, onReplace]);
 
-  useEffect(() => {
-    setReplacementNodeId('');
-  }, [catalog.snapshotToken, table.outputId, currentRootNodeId]);
+  if (!currentResourceType) return null;
 
-  if (!table.document.rootResourceType) return null;
-  const currentChoice = choices.find((choice) => choice.current);
-  const hasPreservationChoices = choices.length >= 2 && currentChoice !== undefined;
-  const hasReplacementChoices = onReplace !== undefined && replacementChoices.some(
-    (node) => node.nodeId !== currentRootNodeId,
-  );
-  if (!hasPreservationChoices && !hasReplacementChoices) return null;
+  const currentChoiceKey = currentConnectedChoice?.key ?? 'current';
+  const choices: ReadonlyArray<RootPickerChoice> = [
+    {
+      kind: 'current',
+      key: currentChoiceKey,
+      resourceType: currentResourceType,
+    },
+    ...connectedChoices
+      .filter((choice) => !choice.current)
+      .map((choice): RootPickerChoice => ({
+        kind: 'connected',
+        key: choice.key,
+        resourceType: choice.resourceType,
+        routeLabel: choice.relationship,
+        selection: choice.selection,
+      })),
+    ...replacementOnlyChoices,
+  ];
+  const hasAlternative = choices.some((choice) => choice.kind !== 'current');
+  if (!hasAlternative) return null;
+
+  const contextKey = [
+    catalog.snapshotToken,
+    table.outputId,
+    currentRootNodeId ?? currentResourceType,
+  ].join('\u0000');
 
   return (
-    <section aria-label="Starting record type" className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-slate-800">
-      <h4 className="font-semibold text-slate-900">Starting record type</h4>
-      {hasPreservationChoices ? (
-        <>
-          <p className="mt-1 text-xs text-slate-600">Choose a connected record type for each row.</p>
-          <label className="mt-2 block font-medium text-slate-900">
-            <span>Choose starting record type</span>
-            <select
-              aria-label="Choose starting record type"
-              className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 outline-blue-500 disabled:opacity-50"
-              value={currentChoice.key}
-              disabled={disabled}
-              onChange={(event) => {
-                const choice = choices.find((candidate) => candidate.key === event.currentTarget.value);
-                if (choice && !choice.current) onChange(choice.selection);
-              }}
-            >
-              {choices.map((choice) => (
-                <option key={choice.key} value={choice.key}>
-                  {choice.resourceType}{choice.relationship ? ` via ${choice.relationship}` : ''}{choice.current ? ' (current)' : ''}
-                </option>
-              ))}
-            </select>
-          </label>
-          <p className="mt-2 text-xs text-slate-600">Loom checks whether features, filters, actions, and the starting collection can be preserved before changing rows.</p>
-        </>
-      ) : null}
-      {hasReplacementChoices ? (
-        <div className="mt-3 border-t border-blue-200 pt-3">
-          <h5 className="font-medium text-slate-900">Replace current setup</h5>
-          <p className="mt-1 text-xs text-slate-600">Choose any loaded eligible record type. Loom will show the changes before applying them.</p>
-          <label className="mt-2 block font-medium text-slate-900">
-            <span>Choose replacement starting type</span>
-            <select
-              aria-label="Choose replacement starting type"
-              className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 outline-blue-500 disabled:opacity-50"
-              value={replacementNodeId}
-              disabled={disabled}
-              onChange={(event) => setReplacementNodeId(event.currentTarget.value)}
-            >
-              <option value="">Choose a record type</option>
-              {replacementChoices.map((node) => (
-                <option key={node.nodeId} value={node.nodeId}>
-                  {node.resourceType}{node.nodeId === currentRootNodeId ? ' (current)' : ''}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            className="mt-2 rounded-md border border-amber-700 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-50 disabled:opacity-50"
-            disabled={disabled || !replacementNodeId || replacementNodeId === currentRootNodeId}
-            onClick={() => {
-              if (replacementNodeId && replacementNodeId !== currentRootNodeId) onReplace(replacementNodeId);
-            }}
-          >
-            Replace current setup
-          </button>
-        </div>
-      ) : null}
-    </section>
+    <RootTypePicker
+      key={contextKey}
+      choices={choices}
+      currentChoiceKey={currentChoiceKey}
+      disabled={disabled}
+      onChange={onChange}
+      onReplace={onReplace}
+    />
   );
 };
