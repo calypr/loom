@@ -47,6 +47,18 @@ publication/reload, and Patient↔Observation changes on the existing table.
 Configure the owned environment as described in the verification skill first.
 This Basic case does not establish the complete CDA row-operation inventory.
 
+## Routed semantic value with blank fallback
+
+`standalone-misc / semantic-construction-choice-route-fallback` selects the
+native ConceptCatalog workflow in
+`scripts/verify-ui/specs/semantic-construction-choice-route.spec.mjs`. Its
+fresh fixture covers Observation.code `1222590007`, VALUE from
+`valueCodeableConcept.text`, blank fallback to
+`valueCodeableConcept.coding[].display`, and the optional Medication →
+MedicationAdministration → Patient → Observation route. The case verifies the
+exact Preview rows, Apply, reload, label edit, removal, and source/API
+integrity for this fixture and route.
+
 ## Maintenance result
 
 2026-10-11: after correcting the two stale selector expectations from `base`
