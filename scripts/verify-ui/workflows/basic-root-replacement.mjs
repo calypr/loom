@@ -1243,8 +1243,8 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
     assert.deepEqual([...startFreshAssessment.proposal.removedFeatureKeys].sort(),
       ['column:id', 'root:ResearchStudy'],
       'Resetting the already-default ResearchStudy table must report only its root and default ID as replaced.');
-    assert.deepEqual(startFreshAssessment.proposal.workspaceOutputConsumers, [],
-      'The reset must report no current-draft inputs using the existing default ResearchStudy output.');
+    assert.deepEqual(startFreshAssessment.proposal.workspaceOutputConsumers, expectedConsumerEffects,
+      'Start Fresh must identify the exact existing current-draft consumer input from the saved consumer document.');
     assert.deepEqual(startFreshAssessment.proposal.sharedFilterBindings, [],
       'The reset must report no shared filters to remove from the default ResearchStudy setup.');
     assert.deepEqual(replacementAssessmentEffectsMatch(startFreshAssessment, startFreshAssessment.proposal),
@@ -1270,8 +1270,20 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
       'Starting record type — ResearchStudy',
     ].sort(),
       'Start Fresh must show the exact current root and default ID that its REPLACE action resets.');
-    assert(startFreshReviewText.includes('No current-draft table inputs use this output.'),
-      'The reset review must show that no current-draft table inputs depend on this default output.');
+    const affectedConsumers = consequencePanel.getByRole('list', {
+      name: 'Affected current-draft consumers', exact: true,
+    });
+    await affectedConsumers.waitFor({ state: 'visible', timeout: remainingTimeout() });
+    const affectedConsumerRows = (await affectedConsumers.getByRole('listitem').allTextContents()).map(normalize);
+    const patientJoinColumnIDs = [
+      idColumnFor(baselineDocument, 'Patient').columnId,
+      duplicateIDColumn.columnId,
+    ];
+    const expectedAffectedConsumerRows = [
+      `${consumerTitle} · Join fields: ${patientJoinColumnIDs.join(', ')}`,
+    ];
+    assert.deepEqual(affectedConsumerRows, expectedAffectedConsumerRows,
+      'Start Fresh must name exactly the existing consumer and both saved Patient ID join columns in order.');
     assert(startFreshReviewText.includes('No shared-filter bindings will be removed.'),
       'The reset review must show that no shared-filter bindings need removal.');
     await startFreshDialog.getByRole('heading', { name: 'Candidate preview', exact: true })
@@ -1307,6 +1319,8 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
     const unchangedDuringReview = await readBuilder();
     assert(isDeepStrictEqual(documentForOutput(unchangedDuringReview, outputId), replacedDocument),
       'Reviewing connected Start Fresh must leave the saved ResearchStudy setup unchanged until Apply.');
+    assert(isDeepStrictEqual(documentForOutput(unchangedDuringReview, consumerOutputId), consumerDocument),
+      'Reviewing connected Start Fresh must leave the dependent consumer document unchanged until Apply.');
     assert.deepEqual(workspaceTabIdentitySnapshot(unchangedDuringReview), baselineTabs,
       'Reviewing connected Start Fresh must keep all existing workspace tab identities.');
     check('correctness', 'connected DiagnosticReport Start Fresh reviews exact reset consequences and default-ID rows', true, {
@@ -1316,13 +1330,15 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
       assessmentRequest: capturedRequest.body,
       proposal: startFreshAssessment.proposal,
       removedFeatureKeys: startFreshAssessment.proposal.removedFeatureKeys,
-      noCurrentDraftConsumers: true,
       noSharedFilterBindings: true,
       reviewText: startFreshReviewText,
       candidateReceiptId,
       candidateIDColumn: startFreshCandidate,
       preview: startFreshCandidateGrid,
       exactDiagnosticReportIDs: oracle.diagnosticReportIDs,
+      expectedWorkspaceOutputConsumers: expectedConsumerEffects,
+      workspaceOutputConsumers: startFreshAssessment.proposal.workspaceOutputConsumers,
+      affectedConsumerRows,
     });
   }, {
     after: async ({ remainingTimeout }) => {

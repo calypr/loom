@@ -184,8 +184,15 @@ test('replacement and connected preservation share one route-readable Record typ
   assert.match(workflowSource, /removedSetupLabels = \(await removedSetup\.getByRole\('listitem'\)\.allTextContents\(\)\)\.map\(normalize\)\.sort\(\)/);
   assert.match(workflowSource, /Starting record type — ResearchStudy/);
   assert.match(workflowSource, /Field — ' \+ currentResearchStudyIDColumn\.label/);
-  assert.match(workflowSource, /No current-draft table inputs use this output\./);
+  assert.match(workflowSource, /startFreshAssessment\.proposal\.workspaceOutputConsumers, expectedConsumerEffects/);
+  assert.match(workflowSource, /name: 'Affected current-draft consumers', exact: true/);
+  assert.match(workflowSource, /await affectedConsumers\.waitFor\(\{ state: 'visible', timeout: remainingTimeout\(\) \}\)/);
+  assert.match(workflowSource, /const patientJoinColumnIDs = \[\s*idColumnFor\(baselineDocument, 'Patient'\)\.columnId,\s*duplicateIDColumn\.columnId,/);
+  assert.match(workflowSource, /assert\.deepEqual\(affectedConsumerRows, expectedAffectedConsumerRows/);
+  assert.doesNotMatch(workflowSource, /No current-draft table inputs use this output\./);
+  assert.doesNotMatch(workflowSource, /noCurrentDraftConsumers/);
   assert.match(workflowSource, /No shared-filter bindings will be removed\./);
+  assert.match(workflowSource, /documentForOutput\(unchangedDuringReview, consumerOutputId\), consumerDocument/);
 });
 
 test('post-Apply handoff waits for the consumer tab before selecting the original output', async () => {
