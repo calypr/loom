@@ -442,25 +442,28 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
       } : null;
       return { rowChange: summarize(rowChange), preview: summarize(preview) };
     };
-    const proposeRoot = async ({ selector, review, choice, rootResourceType, expectedRows, selectionLabel, label }) => {
+    const proposeRoot = async ({ selector, choice, rootResourceType, expectedRows, selectionLabel, previewCheck }) => {
       const panel = page.getByRole('region', { name: 'Review proposed rows' });
       const applyButton = panel.getByRole('button', { name: 'Apply row change', exact: true });
       const fromIndex = Array.isArray(networkObserver?.requests) ? networkObserver.requests.length : 0;
       let candidate;
-      await act(selectionLabel, selector,
-        () => selector.selectOption(choice.value), {
-          after: async () => expect(selector).toHaveValue(choice.value),
-        });
-      await act(label, review, () => review.click(), {
+      await act(selectionLabel, selector, () => selector.selectOption(choice.value), {
         after: async () => {
           await expect(panel).toBeVisible({ timeout: 5000 });
           await expect(applyButton).toBeEnabled({ timeout: 5000 });
           await expect(panel.getByTestId('construction-proposal-preview'))
             .toHaveAttribute('data-preview-status', 'ready', { timeout: 5000 });
-          candidate = await readProposalGrid({ name: label, expectedRows });
+          await expect(page.getByRole('dialog', { name: 'Row definition settings' })).toHaveCount(0, { timeout: 5000 });
+          candidate = await readProposalGrid({ name: selectionLabel, expectedRows });
           const heading = (await panel.getByRole('heading').innerText()).trim();
-          assert.equal(heading, `One row per ${rootResourceType}`, `${label} must show the exact proposed root`);
+          assert.equal(heading, `One row per ${rootResourceType}`, `${selectionLabel} must show the exact proposed root`);
         },
+        requiredCheck: `${selectionLabel} action-to-preview within budget`,
+      });
+      check('correctness', previewCheck, candidate.outputId === originalIdentity.document.output.id &&
+        Boolean(candidate.receiptId) && isDeepStrictEqual(candidate.rows, expectedRows), {
+        rootResourceType, outputId: candidate.outputId, receiptId: candidate.receiptId,
+        rows: candidate.rows, expectedRows,
       });
       proposalReceipts.push({ rootResourceType, receiptId: candidate.receiptId, outputId: candidate.outputId });
       proposalRequests.push({ rootResourceType, receiptId: candidate.receiptId,
@@ -476,7 +479,6 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
       const dialog = page.getByRole('dialog', { name: 'Row definition settings' });
       const section = dialog.getByRole('region', { name: 'What should each row represent?', exact: true });
       const selector = section.getByRole('combobox', { name: 'Record type', exact: true });
-      const review = section.getByRole('button', { name: 'Review changes', exact: true });
       assert.equal(await selector.count(), 1, 'The row setup must expose one shared Record type picker.');
       assert.equal(await dialog.getByRole('combobox', { name: 'Choose starting record type', exact: true }).count(), 0,
         'The old separate preservation picker must be absent.');
@@ -485,14 +487,15 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
       assert.equal(await dialog.getByRole('heading', { name: 'Replace current setup', exact: true }).count(), 0,
         'Replacement selection must not appear in a separate setup card.');
       assert.equal(await dialog.getByRole('button', { name: 'Replace current setup', exact: true }).count(), 0,
-        'The shared picker must own the Review changes action.');
-      await expect(review).toBeVisible();
-      return { dialog, section, selector, review };
+        'The shared picker must not show a separate replacement action.');
+      assert.equal(await section.getByRole('button', { name: 'Review changes', exact: true }).count(), 0,
+        'Selecting a connected record type must start its review without a separate Review changes button.');
+      return { dialog, section, selector };
     };
     const initialTable = await reloadAndVerify('Patient', expectedPatientRows,
       'reload existing Patient table with starting record choices');
     assert.deepEqual(initialTable.rows, sortedRows(expectedPatientRows));
-    const { dialog: settings, section: rowMeaning, selector: rootSelector, review: reviewRootChange } =
+    const { dialog: settings, section: rowMeaning, selector: rootSelector } =
       await openRootSettings('open existing table row settings');
     await expect(settings.getByText('One row per Patient record.', { exact: true })).toBeVisible();
     await expect(rowMeaning).toBeVisible();
@@ -516,20 +519,21 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
       oldReplacementActions: await settings.getByRole('button', { name: 'Replace current setup', exact: true }).count(),
     };
     assert.deepEqual(pickerContract, {
-      recordTypePickers: 1, reviewChangesActions: 1, oldPreservationPickers: 0,
+      recordTypePickers: 1, reviewChangesActions: 0, oldPreservationPickers: 0,
       oldReplacementPickers: 0, oldReplacementCards: 0, oldReplacementActions: 0,
-    }, 'Connected and replacement choices must share one Record type picker and one Review changes action.');
-    check('correctness', 'existing Patient table exposes the shared Record type picker and Review changes action', true, {
+    }, 'Connected and replacement choices must share one Record type picker without a separate review action.');
+    check('correctness', 'existing Patient table exposes one shared Record type picker without a separate review action', true, {
       summary: 'One row per Patient record.', currentRootChoice,
       section: 'What should each row represent?', option: observationChoice.label,
       routeReadable: /Patient/.test(observationChoice.label) && /Subject/.test(observationChoice.label),
       pickerContract,
     });
 
-    const canceledProposal = await proposeRoot({ selector: rootSelector, review: reviewRootChange,
+    const canceledProposal = await proposeRoot({ selector: rootSelector,
       choice: observationChoice, rootResourceType: 'Observation', expectedRows: expectedObservationRows,
       selectionLabel: 'select Observation for the Cancel proposal in the shared Record type picker',
-      label: 'review Observation as the existing table starting record type' });
+      previewCheck: 'automatic Observation selection opens the exact receipt-bound Cancel proposal Preview',
+    });
     await act('cancel existing table root change', page.getByRole('button', { name: 'Keep current rows', exact: true }),
       () => page.getByRole('button', { name: 'Keep current rows', exact: true }).click(), {
         after: () => page.getByRole('region', { name: 'Review proposed rows' }).waitFor({ state: 'hidden', timeout: 5000 }),
@@ -551,15 +555,14 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
     const applySettings = page.getByRole('dialog', { name: 'Row definition settings' });
     const applySelector = applySettings.getByRole('region', { name: 'What should each row represent?', exact: true })
       .getByRole('combobox', { name: 'Record type', exact: true });
-    const applyReview = applySettings.getByRole('region', { name: 'What should each row represent?', exact: true })
-      .getByRole('button', { name: 'Review changes', exact: true });
     const applyObservationChoice = await rootOption(applySelector, 'Observation');
     assert(applyObservationChoice && !applyObservationChoice.disabled && applyObservationChoice.value === observationChoice.value,
       'Reopening the shared picker must preserve the same legal Observation route choice');
-    const appliedProposal = await proposeRoot({ selector: applySelector, review: applyReview, choice: applyObservationChoice,
+    const appliedProposal = await proposeRoot({ selector: applySelector, choice: applyObservationChoice,
       rootResourceType: 'Observation', expectedRows: expectedObservationRows,
       selectionLabel: 'select Observation again for Apply in the shared Record type picker',
-      label: 'review Observation again for existing table Apply' });
+      previewCheck: 'automatic Observation selection opens the exact receipt-bound Apply proposal Preview',
+    });
     assert.deepEqual(appliedProposal.rows, canceledProposal.rows,
       'A fresh native proposal must match the exact preview checked before Cancel');
     const applyButton = page.getByRole('region', { name: 'Review proposed rows' })
@@ -594,7 +597,7 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
       draftDigest: restoredObservation.builder.draftDigest, rows: restoredObservation.rows,
     });
 
-    const { dialog: observationSettings, selector: observationSelector, review: reviewObservationRootChange } =
+    const { dialog: observationSettings, selector: observationSelector } =
       await openRootSettings('open Observation table root settings for native restoration');
     await expect(observationSettings.getByText('One row per Observation record.', { exact: true })).toBeVisible();
     const currentObservationOption = observationSelector.locator('option:checked');
@@ -608,10 +611,11 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
       /^Patient\b/.test(patientChoice.label) &&
       /Observation/.test(patientChoice.label) && /Subject/.test(patientChoice.label),
       `The shared picker must expose Patient through the saved Observation Subject route: ${JSON.stringify(patientChoice)}`);
-    const restoredProposal = await proposeRoot({ selector: observationSelector, review: reviewObservationRootChange,
+    const restoredProposal = await proposeRoot({ selector: observationSelector,
       choice: patientChoice, rootResourceType: 'Patient', expectedRows: expectedPatientRows,
       selectionLabel: 'select Patient for restoration in the shared Record type picker',
-      label: 'review Patient to restore the existing table root' });
+      previewCheck: 'automatic Patient selection opens the exact receipt-bound restoration Preview',
+    });
     const restoreButton = page.getByRole('region', { name: 'Review proposed rows' })
       .getByRole('button', { name: 'Apply row change', exact: true });
     let restoredGrid;

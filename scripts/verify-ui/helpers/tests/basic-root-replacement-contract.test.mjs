@@ -178,8 +178,14 @@ test('replacement and connected preservation share one route-readable Record typ
   assert.match(workflowSource, /getByRole\('combobox', \{ name: 'Choose starting record type', exact: true \}\)\.count\(\), 0/);
   assert.match(workflowSource, /getByRole\('combobox', \{ name: 'Choose replacement starting type', exact: true \}\)\.count\(\), 0/);
   assert.match(workflowSource, /getByRole\('heading', \{ name: 'Replace current setup', exact: true \}\)\.count\(\), 0/);
+  assert.match(workflowSource, /getByRole\('button', \{ name: 'Review changes', exact: true \}\)\.count\(\), 0/);
+  assert.doesNotMatch(workflowSource, /REPLACEMENT_ACTION|review\.click\(\)|const review = rowMeaning/);
   assert.match(workflowSource, /option\.value === 'replacement:' \+ researchStudyNode\.nodeId/);
+  assert.match(workflowSource, /assessmentResponsePromise = page\.waitForResponse\([\s\S]*?control\.selectOption\('replacement:' \+ researchStudyNode\.nodeId/);
+  assert.match(workflowSource, /Selecting disconnected ResearchStudy must directly start its replacement assessment/);
   assert.match(workflowSource, /name: 'Start fresh with DiagnosticReport', exact: true/);
+  assert.match(workflowSource, /control\.selectOption\(connectedDiagnosticReport\.value[\s\S]*?await startFresh\.click\(/);
+  assert.doesNotMatch(workflowSource, /reviewConnectedType|Review changes opened the replacement consequence dialog/);
   assert.match(workflowSource, /connected DiagnosticReport Start Fresh reviews exact reset consequences and default-ID rows/);
   assert.match(workflowSource, /removedSetupLabels = \(await removedSetup\.getByRole\('listitem'\)\.allTextContents\(\)\)\.map\(normalize\)\.sort\(\)/);
   assert.match(workflowSource, /Starting record type — ResearchStudy/);

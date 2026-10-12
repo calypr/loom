@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
@@ -64,4 +64,17 @@ test('existing-root option matching keeps resource type outside the serialized D
   assert.deepEqual(await rootOption(selector, 'Observation'), {
     value: 'node:observation-node', label: 'Observation via Patient → Subject → Observation', disabled: false,
   });
+});
+
+test('existing-root preservation selects once and opens the receipt-bound preview without a Review action', async () => {
+  const workflowSource = readFileSync(new URL('../../helpers/playwright-authoring.mjs', import.meta.url), 'utf8');
+  assert.match(workflowSource,
+    /const proposeRoot = async \(\{ selector, choice, rootResourceType, expectedRows, selectionLabel, previewCheck \}\) =>/);
+  assert.match(workflowSource,
+    /await act\(selectionLabel, selector, \(\) => selector\.selectOption\(choice\.value\), \{[\s\S]*?await expect\(panel\)\.toBeVisible/);
+  assert.match(workflowSource,
+    /toHaveAttribute\('data-preview-status', 'ready',[\s\S]*?getByRole\('dialog', \{ name: 'Row definition settings' \}\)\)\.toHaveCount\(0/);
+  assert.match(workflowSource,
+    /getByRole\('button', \{ name: 'Review changes', exact: true \}\)\.count\(\), 0/);
+  assert.doesNotMatch(workflowSource, /review\.click\(\)|review: applyReview|review: reviewRootChange/);
 });

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ExplorerBuilderPreviewResult, RowChangeAssessment, RowDefinitionChoicesResponse, RowDefinitionProposal } from '../../../types';
 import type { SelectionRevision } from '../../../selection';
 import type { DraftTable } from '../authoring/model';
-import type { RootChangeSelection } from '../authoring/rootChangeSelection';
+import type { RootChangePickerState, RootChangeSelection } from '../authoring/rootChangeSelection';
 import type { ConstructionHistoryStep } from '../constructionWorkspace/ConstructionWorkspace';
 import { RowDefinitionSettingsPanel, type ReadyReplacementAssessment } from './RowDefinitionSettingsPanel';
 
@@ -284,12 +284,16 @@ const replacementShapeTable: DraftTable = {
 const relatedRowProps = {
   currentRowMeaning: 'One row per source record',
   startingCollectionSummary: 'Starting collection: All authorized Patient records',
-  renderRootSettings: (onRootChange: (selection: RootChangeSelection) => void, onReplaceRoot: (rootNodeId: string) => void) => (
-    <section aria-label="Starting record type">
-      <h4>Starting record type</h4>
+  renderRootSettings: (
+    onRootChange: (selection: RootChangeSelection) => void,
+    _onResolveRootChange: (referenceId: string, alternative: string) => void,
+    onReplaceRoot: (rootNodeId: string) => void,
+  ) => (
+    <section aria-label="What should each row represent?">
+      <h4>What should each row represent?</h4>
       <label>
-        <span>Choose starting record type</span>
-        <select aria-label="Choose starting record type" value="base" onChange={(event) => {
+        <span>Record type</span>
+        <select aria-label="Record type" value="base" onChange={(event) => {
           if (event.currentTarget.value === 'patient-observation') {
             onRootChange({ kind: 'authored-occurrence', nodeId: 'observation', occurrenceId: 'patient-observation' });
           }
@@ -308,6 +312,13 @@ const relatedRowProps = {
   onChooseReshape: vi.fn(),
   onChangeRootSelection: vi.fn(),
 };
+
+const idleRootChangeProps = () => ({
+  rootChangeState: { kind: 'idle' } as const satisfies RootChangePickerState,
+  rootChangePreviewOpen: false,
+  onCancelRootChange: vi.fn(),
+  onResolveRootSelection: vi.fn(),
+});
 
 const selectionPage = {
   revision: sourceSelection,
@@ -360,6 +371,7 @@ const renderSettings = (overrides: {
   const onRemoveConstructionStep = overrides.onRemoveConstructionStep ?? vi.fn();
   const view = render(
     <RowDefinitionSettingsPanel
+      {...idleRootChangeProps()}
       {...relatedRowProps}
       renderRootSettings={overrides.renderRootSettings ?? relatedRowProps.renderRootSettings}
       currentRowMeaning={overrides.currentRowMeaning ?? relatedRowProps.currentRowMeaning}
@@ -612,7 +624,7 @@ describe('RowDefinitionSettingsPanel', () => {
 
     fireEvent.click(trigger);
     const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
-    expect(dialog.contains(screen.getByRole('region', { name: 'Starting record type' }))).toBe(true);
+    expect(dialog.contains(screen.getByRole('region', { name: 'What should each row represent?' }))).toBe(true);
     expect(dialog.contains(screen.getByRole('region', { name: 'Starting collection' }))).toBe(true);
     expect(screen.getByText('All authorized Patient records')).toBeInTheDocument();
     expect(dialog.querySelectorAll('details')).toHaveLength(0);
@@ -747,7 +759,7 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(onChooseReshape).toHaveBeenCalledWith('categories');
   });
 
-  it('closes row settings before changing the root occurrence', async () => {
+  it('keeps row settings open while the parent starts a root assessment', async () => {
     const onChangeRootSelection = vi.fn();
     const { onChangeRootSelection: onChangeRoot } = renderSettings({
       currentRowMeaning: 'One row per Patient record.',
@@ -757,9 +769,9 @@ describe('RowDefinitionSettingsPanel', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
 
     const summary = within(dialog).getByText('One row per Patient record.');
-    const startingType = within(dialog).getByRole('region', { name: 'Starting record type' });
+    const startingType = within(dialog).getByRole('region', { name: 'What should each row represent?' });
     const rowChanges = within(dialog).getByRole('region', { name: 'Choose a row change' });
-    const select = within(startingType).getByRole('combobox', { name: 'Choose starting record type' });
+    const select = within(startingType).getByRole('combobox', { name: 'Record type' });
     expect(summary.nextElementSibling).toBe(startingType);
     expect(startingType.compareDocumentPosition(rowChanges) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(select instanceof HTMLSelectElement && select.value).toBe('base');
@@ -769,7 +781,8 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.change(select, { target: { value: 'patient-observation' } });
 
     expect(onChangeRoot).toHaveBeenCalledWith({ kind: 'authored-occurrence', nodeId: 'observation', occurrenceId: 'patient-observation' });
-    expect(dialog).not.toBeInTheDocument();
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getAllByRole('combobox', { name: 'Record type' })).toHaveLength(1);
   });
 
   it('explains when the backend has no executable related row path', async () => {
@@ -974,6 +987,7 @@ describe('RowDefinitionSettingsPanel', () => {
     const onApply = vi.fn().mockResolvedValue(true);
     render(
       <RowDefinitionSettingsPanel
+        {...idleRootChangeProps()}
         {...relatedRowProps}
         client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision }}
         project="project-a"
@@ -1033,6 +1047,7 @@ describe('RowDefinitionSettingsPanel', () => {
     const onApply = vi.fn();
     render(
       <RowDefinitionSettingsPanel
+        {...idleRootChangeProps()}
         {...relatedRowProps}
         client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision }}
         project="project-a"
@@ -1081,6 +1096,7 @@ describe('RowDefinitionSettingsPanel', () => {
     }));
     render(
       <RowDefinitionSettingsPanel
+        {...idleRootChangeProps()}
         {...relatedRowProps}
         client={{ listRowDefinitionChoices, proposeRowDefinition: vi.fn().mockResolvedValue(proposal), getSelection, createExplicitGroupRevision }}
         project="project-a" explorerId="explorer-a" snapshotToken="snapshot-1" draftVersion={4} draftDigest="draft-digest-4"
@@ -1127,6 +1143,7 @@ describe('RowDefinitionSettingsPanel', () => {
     }));
     render(
       <RowDefinitionSettingsPanel
+        {...idleRootChangeProps()}
         {...relatedRowProps}
         client={{ listRowDefinitionChoices, proposeRowDefinition: vi.fn().mockResolvedValue(proposal), getSelection: vi.fn().mockResolvedValue(selectionPage), createExplicitGroupRevision }}
         project="project-a" explorerId="explorer-a" snapshotToken="snapshot-1" draftVersion={4} draftDigest="draft-digest-4"
@@ -1150,6 +1167,7 @@ describe('RowDefinitionSettingsPanel', () => {
     const proposeRowDefinition = vi.fn().mockResolvedValue(proposal);
     const onApply = vi.fn().mockResolvedValue(true);
     const props = {
+      ...idleRootChangeProps(),
       client: { listRowDefinitionChoices, proposeRowDefinition, getSelection: vi.fn(), createExplicitGroupRevision: vi.fn() },
       project: 'project-a', explorerId: 'explorer-a', snapshotToken: 'snapshot-1',
       draftVersion: 4, draftDigest: 'draft-digest-4', table, workspaceTables: [table], disabled: false, onApply,
@@ -1204,6 +1222,7 @@ describe('RowDefinitionSettingsPanel', () => {
     const onApply = vi.fn().mockResolvedValue(true);
     render(
       <RowDefinitionSettingsPanel
+        {...idleRootChangeProps()}
         {...relatedRowProps}
         client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection: vi.fn(), createExplicitGroupRevision: vi.fn() }}
         project="project-a"

@@ -25,7 +25,9 @@ import type {
   ConstructionProposalResponse,
   ExplorerBuilderCompileResult,
   ExplorerBuilderDocument,
+  ExplorerBuilderPreviewResult,
   ExplorerBuilderWorkspace,
+  RowChangeAssessment,
 } from '../../types';
 import type { RelatedExpandQueryOwner } from './constructionOperations/RelatedExpandEditor';
 import type { ConstructionCandidateIntent } from './constructionWorkspace/useConstructionLifecycle';
@@ -127,9 +129,14 @@ vi.mock('./components/BuilderToolbar', () => ({
         {publishing ? 'Publishing…' : 'Publish'}
       </button>
       {tables[1] ? (
-        <button type="button" onClick={() => onSelectTable(tables[1].outputId)}>
-          Select second table
-        </button>
+        <>
+          <button type="button" onClick={() => onSelectTable(tables[0].outputId)}>
+            Select first table
+          </button>
+          <button type="button" onClick={() => onSelectTable(tables[1].outputId)}>
+            Select second table
+          </button>
+        </>
       ) : null}
       {tables.length > 1 ? (
         <>
@@ -397,6 +404,136 @@ const builderState = {
   workspace,
   catalog,
 };
+
+const rowChangeRouteToken = (edgeIds: ReadonlyArray<string>, anchorOccurrenceId = 'base'): string => {
+  const payload = btoa(JSON.stringify({ edgeIds, anchorOccurrenceId }))
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+  return `row-change-route:v1:${payload}`;
+};
+
+const rootPickerCatalog = {
+  ...catalog,
+  routePolicy: { allowRepeatedEdges: true, allowSelfLoops: false },
+  nodes: [
+    { nodeId: 'specimen-node', resourceType: 'Specimen', rowRootEligible: true, populated: true, documentCount: 4 },
+    { nodeId: 'observation-node', resourceType: 'Observation', rowRootEligible: true, populated: true, documentCount: 4 },
+    { nodeId: 'encounter-node', resourceType: 'Encounter', rowRootEligible: true, populated: true, documentCount: 3 },
+    { nodeId: 'patient-node', resourceType: 'Patient', rowRootEligible: true, populated: true, documentCount: 4 },
+  ],
+  edges: [
+    { edgeId: 'specimen-observation', fromNodeId: 'specimen-node', toNodeId: 'observation-node', label: 'observations' },
+    { edgeId: 'observation-specimen', fromNodeId: 'observation-node', toNodeId: 'specimen-node', label: 'observations' },
+    { edgeId: 'observation-patient', fromNodeId: 'observation-node', toNodeId: 'patient-node', label: 'subject_Patient' },
+    { edgeId: 'patient-observation', fromNodeId: 'patient-node', toNodeId: 'observation-node', label: 'subject_Patient' },
+    { edgeId: 'observation-patient-alt', fromNodeId: 'observation-node', toNodeId: 'patient-node', label: 'performer_Patient' },
+    { edgeId: 'patient-observation-alt', fromNodeId: 'patient-node', toNodeId: 'observation-node', label: 'performer_Patient' },
+    { edgeId: 'specimen-encounter', fromNodeId: 'specimen-node', toNodeId: 'encounter-node', label: 'encounters' },
+    { edgeId: 'encounter-specimen', fromNodeId: 'encounter-node', toNodeId: 'specimen-node', label: 'encounters' },
+    { edgeId: 'encounter-patient', fromNodeId: 'encounter-node', toNodeId: 'patient-node', label: 'subject_Patient' },
+    { edgeId: 'patient-encounter', fromNodeId: 'patient-node', toNodeId: 'encounter-node', label: 'subject_Patient' },
+    { edgeId: 'specimen-patient', fromNodeId: 'specimen-node', toNodeId: 'patient-node', label: 'subject_Specimen' },
+    { edgeId: 'patient-specimen', fromNodeId: 'patient-node', toNodeId: 'specimen-node', label: 'subject_Patient' },
+    { edgeId: 'specimen-patient-alt', fromNodeId: 'specimen-node', toNodeId: 'patient-node', label: 'performer_Specimen' },
+    { edgeId: 'patient-specimen-alt', fromNodeId: 'patient-node', toNodeId: 'specimen-node', label: 'performer_Patient' },
+  ],
+};
+
+const rootPickerBuilderState = {
+  ...builderState,
+  workspace: {
+    ...workspace,
+    documents: [{
+      ...workspace.documents[0],
+      route: {
+        occurrenceId: 'base',
+        resourceType: 'Specimen',
+        children: [{
+          occurrenceId: 'labs',
+          resourceType: 'Observation',
+          relationship: 'observations',
+          catalogEdgeId: 'specimen-observation',
+        }],
+      },
+    }],
+  },
+  catalog: rootPickerCatalog,
+};
+
+const readyRootChangeAssessment = ({
+  nodeId = 'patient-node',
+  resourceType = 'Patient',
+  outputId = 'specimens',
+  rootOccurrenceId = 'root-occurrence',
+  routeRebase = [{ occurrenceId: 'labs', edgeId: 'patient-observation' }],
+  receiptId = 'root-change-receipt',
+}: {
+  readonly nodeId?: string;
+  readonly resourceType?: string;
+  readonly outputId?: string;
+  readonly rootOccurrenceId?: string;
+  readonly routeRebase?: ReadonlyArray<{ readonly occurrenceId: string; readonly edgeId: string }>;
+  readonly receiptId?: string;
+} = {}) => ({
+  snapshotToken: 'snapshot-1',
+  draftVersion: 1,
+  draftDigest: 'sha256:draft-1',
+  status: 'READY' as const,
+  currentRootResourceType: 'Specimen',
+  candidateRootResourceType: resourceType,
+  preservedFeatureKeys: ['specimen_identifier'],
+  proposal: {
+    outputId,
+    rootNodeId: nodeId,
+    rootOccurrenceId,
+    sourceDocumentDigest: 'sha256:document-1',
+    routeRebase,
+    preservedFeatureKeys: ['specimen_identifier'],
+  },
+  candidateReceiptId: receiptId,
+  unresolved: [],
+  diagnostics: [],
+});
+
+const blockedRootOccurrenceAssessment = () => ({
+  snapshotToken: 'snapshot-1',
+  draftVersion: 1,
+  draftDigest: 'sha256:draft-1',
+  status: 'BLOCKED' as const,
+  currentRootResourceType: 'Specimen',
+  candidateRootResourceType: 'Patient',
+  preservedFeatureKeys: ['specimen_identifier'],
+  unresolved: [{
+    kind: 'route' as const,
+    id: 'root-occurrence',
+    code: 'AMBIGUOUS_ROW_ROOT_OCCURRENCE',
+    message: 'Choose the compiler-proven route for Patient.',
+    alternatives: [
+      rowChangeRouteToken(['specimen-observation', 'observation-patient'], 'labs'),
+      rowChangeRouteToken(['specimen-observation', 'observation-patient-alt'], 'labs'),
+    ],
+  }],
+  diagnostics: [],
+});
+
+const blockedRouteRebaseAssessment = () => ({
+  snapshotToken: 'snapshot-1',
+  draftVersion: 1,
+  draftDigest: 'sha256:draft-1',
+  status: 'BLOCKED' as const,
+  currentRootResourceType: 'Specimen',
+  candidateRootResourceType: 'Patient',
+  preservedFeatureKeys: ['specimen_identifier'],
+  unresolved: [{
+    kind: 'route' as const,
+    id: 'labs',
+    code: 'AMBIGUOUS_ROUTE_REBASE_EDGE',
+    message: 'Choose how to retain the Observation route.',
+    alternatives: ['patient-observation', 'patient-observation-alt'],
+  }],
+  diagnostics: [],
+});
 const receipt = {
   apiVersion,
   kind: 'ExplorerBuilderReceipt' as const,
@@ -2424,8 +2561,49 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(mockLoomClient.getSelection).not.toHaveBeenCalled();
   });
 
-  it('assesses and applies a row change without destructive reset', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+  it('keeps the row-definition dialog open for ambiguity and previews the exact compiler route before Apply', async () => {
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: rootPickerBuilderState,
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    const routeToken = rowChangeRouteToken(
+      ['specimen-patient'],
+      'base',
+    );
+    const routeAssessment = {
+      ...blockedRootOccurrenceAssessment(),
+      unresolved: [{
+        kind: 'route' as const,
+        id: 'root-occurrence',
+        code: 'AMBIGUOUS_ROW_ROOT_OCCURRENCE',
+        message: 'Choose the compiler-proven route for Patient.',
+        alternatives: [
+          routeToken,
+          rowChangeRouteToken(['specimen-patient-alt'], 'base'),
+        ],
+      }],
+    };
+    const ready = readyRootChangeAssessment({
+      rootOccurrenceId: routeToken,
+      routeRebase: [],
+      receiptId: 'compiler-route-receipt',
+    });
+    assessRowChange
+      .mockReturnValueOnce(resolvedRequest(routeAssessment))
+      .mockReturnValueOnce(resolvedRequest(ready));
+    mockLoomClient.preview.mockImplementation((args: { readonly receiptId: string; readonly outputId: string }) => Promise.resolve({
+      apiVersion,
+      kind: 'ExplorerBuilderPreview',
+      rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
+      receiptId: args.receiptId,
+      outputId: args.outputId,
+      columns: receipt.outputs[0].columns,
+      rows: [{ specimen_identifier: 'candidate-patient-row' }],
+      rowCount: 1,
+      diagnostics: [],
+    }));
+
     render(
       <BuilderWorkspace
         organization="HTAN_INT"
@@ -2434,51 +2612,113 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced graph' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Change rows' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    const picker = within(dialog).getByRole('combobox', { name: 'Record type' });
+    const patientChoice = within(picker).getByRole('option', { name: /^Patient/ });
+    fireEvent.change(picker, { target: { value: patientChoice.getAttribute('value') } });
 
-    await waitFor(() => expect(assessRowChange).toHaveBeenCalledWith(expect.objectContaining({
+    await waitFor(() => expect(assessRowChange).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole('dialog', { name: 'Row definition settings' })).toBeInTheDocument();
+    expect(await within(dialog).findByText('Choose the compiler-proven route for Patient.')).toBeInTheDocument();
+    const blockedPicker = within(screen.getByRole('dialog', { name: 'Row definition settings' }))
+      .getByRole('combobox', { name: 'Record type' });
+    const exactRoute = await within(blockedPicker).findByRole('option', {
+      name: /Use Specimen → Subject → Patient from Specimen/,
+    });
+    expect(within(blockedPicker).getAllByRole('option', { name: /^Use Specimen/ })).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: 'Review changes' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Choose how to preserve this table' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Apply row change' })).toBeNull();
+    expect(applyCommands).not.toHaveBeenCalled();
+
+    fireEvent.change(blockedPicker, { target: { value: exactRoute.getAttribute('value') } });
+    await waitFor(() => expect(assessRowChange).toHaveBeenCalledTimes(2));
+    expect(assessRowChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      explorerId: 'test',
       outputId: 'specimens',
-      rootNodeId: 'patient-node',
+      snapshotToken: 'snapshot-1',
       draftVersion: 1,
       draftDigest: 'sha256:draft-1',
-    })));
+      rootNodeId: 'patient-node',
+      rootOccurrenceId: routeToken,
+    }));
+
+    await screen.findByRole('button', { name: 'Apply row change' });
+    expect(mockLoomClient.preview).toHaveBeenCalledWith(expect.objectContaining({
+      receiptId: 'compiler-route-receipt',
+      outputId: 'specimens',
+    }), expect.any(AbortSignal));
+    expect(screen.getByText('candidate-patient-row')).toBeInTheDocument();
+    expect(applyCommands).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /^(Cancel|Keep current rows)$/ }));
+    expect(screen.queryByRole('region', { name: 'Review proposed rows' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Row definition settings' })).toBeNull();
+    expect(screen.getByTestId('construction-rows-settings-trigger')).toHaveTextContent(
+      'One row per Specimen record.',
+    );
+    expect(applyCommands).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    const currentPatientChoice = within(screen.getByRole('dialog', { name: 'Row definition settings' }))
+      .getByRole('combobox', { name: 'Record type' });
+    fireEvent.change(currentPatientChoice, { target: { value: 'node:patient-node' } });
     await screen.findByRole('button', { name: 'Apply row change' });
     expect(applyCommands).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Apply row change' }));
     await waitFor(() => expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
-      commands: [{
-        type: 'APPLY_TABLE_ROOT_REBASE',
-        rowChange: expect.objectContaining({
-          outputId: 'specimens',
-          preservedFeatureKeys: ['specimen_identifier'],
-        }),
-      }],
+      commands: [expect.objectContaining({ type: 'APPLY_TABLE_ROOT_REBASE' })],
     })));
+    expect(screen.queryByText(/out of date|table changed/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Apply row change' })).toBeNull();
   });
 
-  it('reassesses an ambiguous row change with the relationship chosen by the user', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-    const ready = assessRowChange().unwrap();
+  it('keeps multi-step AMBIGUOUS_ROUTE_REBASE_EDGE repairs in the same picker and retains earlier choices', async () => {
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: rootPickerBuilderState,
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    const ready = readyRootChangeAssessment({
+      routeRebase: [
+        { occurrenceId: 'base', edgeId: 'patient-specimen' },
+        { occurrenceId: 'labs', edgeId: 'patient-observation' },
+      ],
+      receiptId: 'multi-rebase-receipt',
+    });
     assessRowChange
       .mockReturnValueOnce(resolvedRequest({
-        snapshotToken: 'snapshot-1',
-        draftVersion: 1,
-        draftDigest: 'sha256:draft-1',
-        status: 'BLOCKED',
-        currentRootResourceType: 'Specimen',
-        candidateRootResourceType: 'Patient',
-        preservedFeatureKeys: ['specimen_identifier'],
+        ...blockedRouteRebaseAssessment(),
         unresolved: [{
           kind: 'route',
           id: 'base',
           code: 'AMBIGUOUS_ROUTE_REBASE_EDGE',
-          message: 'Choose the relationship to the previous rows.',
-          alternatives: ['patient-specimen', 'patient-subject'],
+          message: 'Choose how to retain the Specimen route.',
+          alternatives: ['patient-specimen', 'patient-specimen-alt'],
         }],
-        diagnostics: [],
       }))
-      .mockReturnValueOnce({ unwrap: vi.fn(() => ready), abort: vi.fn() });
+      .mockReturnValueOnce(resolvedRequest({
+        ...blockedRouteRebaseAssessment(),
+        unresolved: [{
+          kind: 'route',
+          id: 'labs',
+          code: 'AMBIGUOUS_ROUTE_REBASE_EDGE',
+          message: 'Choose how to retain the Observation route.',
+          alternatives: ['patient-observation', 'patient-observation-alt'],
+        }],
+      }))
+      .mockReturnValueOnce(resolvedRequest(ready));
+    mockLoomClient.preview.mockImplementation((args: { readonly receiptId: string; readonly outputId: string }) => Promise.resolve({
+      apiVersion,
+      kind: 'ExplorerBuilderPreview',
+      rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
+      receiptId: args.receiptId,
+      outputId: args.outputId,
+      columns: receipt.outputs[0].columns,
+      rows: [{ specimen_identifier: 'candidate-patient-row' }],
+      rowCount: 1,
+      diagnostics: [],
+    }));
 
     render(
       <BuilderWorkspace
@@ -2488,26 +2728,169 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced graph' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Change rows' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Match through patient-specimen' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    const picker = within(dialog).getByRole('combobox', { name: 'Record type' });
+    const patientChoice = within(picker).getByRole('option', { name: /^Patient/ });
+    fireEvent.change(picker, { target: { value: patientChoice.getAttribute('value') } });
+    await waitFor(() => expect(assessRowChange).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole('dialog', { name: 'Row definition settings' })).toBeInTheDocument();
+    expect(await within(dialog).findByText('Choose how to retain the Specimen route.')).toBeInTheDocument();
 
-    await waitFor(() => expect(assessRowChange).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        rootNodeId: 'patient-node',
-        routeRebase: [{ occurrenceId: 'base', edgeId: 'patient-specimen' }],
-      }),
-    ));
+    const firstEdge = await within(within(screen.getByRole('dialog', { name: 'Row definition settings' }))
+      .getByRole('combobox', { name: 'Record type' }))
+      .findByRole('option', { name: 'Use Subject between Patient and Specimen for Choose how to retain the Specimen route.' });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Record type' }), {
+      target: { value: firstEdge.getAttribute('value') },
+    });
+    await waitFor(() => expect(assessRowChange).toHaveBeenCalledTimes(2));
+    expect(assessRowChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      rootNodeId: 'patient-node',
+      routeRebase: [{ occurrenceId: 'base', edgeId: 'patient-specimen' }],
+    }));
+
+    const secondEdge = await within(within(screen.getByRole('dialog', { name: 'Row definition settings' }))
+      .getByRole('combobox', { name: 'Record type' }))
+      .findByRole('option', { name: 'Use Subject between Patient and Observation for Choose how to retain the Observation route.' });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Record type' }), {
+      target: { value: secondEdge.getAttribute('value') },
+    });
+    await waitFor(() => expect(assessRowChange).toHaveBeenCalledTimes(3));
+    expect(assessRowChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      explorerId: 'test',
+      outputId: 'specimens',
+      snapshotToken: 'snapshot-1',
+      draftVersion: 1,
+      draftDigest: 'sha256:draft-1',
+      rootNodeId: 'patient-node',
+      routeRebase: [
+        { occurrenceId: 'base', edgeId: 'patient-specimen' },
+        { occurrenceId: 'labs', edgeId: 'patient-observation' },
+      ],
+    }));
+
     await screen.findByRole('button', { name: 'Apply row change' });
+    expect(screen.queryByRole('heading', { name: 'Choose how to preserve this table' })).toBeNull();
+    expect(screen.getByTestId('construction-proposal-preview')).toHaveAttribute(
+      'data-preview-receipt-id', 'multi-rebase-receipt',
+    );
     expect(applyCommands).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Apply row change' }));
-    await waitFor(() => expect(applyCommands).toHaveBeenCalledWith(
-      expect.objectContaining({
-        commands: [expect.objectContaining({
-          type: 'APPLY_TABLE_ROOT_REBASE',
-        })],
-      }),
-    ));
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
+      commands: [expect.objectContaining({
+        type: 'APPLY_TABLE_ROOT_REBASE',
+        rowChange: expect.objectContaining({
+          rootOccurrenceId: 'root-occurrence',
+          routeRebase: [
+            { occurrenceId: 'base', edgeId: 'patient-specimen' },
+            { occurrenceId: 'labs', edgeId: 'patient-observation' },
+          ],
+        }),
+      })],
+    })));
+  });
+
+  it('lets Start fresh supersede an in-flight preserve assessment without showing its late preview', async () => {
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: rootPickerBuilderState,
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    const preserveAssessment = deferredRequest<ReturnType<typeof readyRootChangeAssessment>>();
+    assessRowChange.mockReturnValueOnce(preserveAssessment.request);
+    const replacementAssessment: RowChangeAssessment = {
+      status: 'READY',
+      mode: 'REPLACE',
+      snapshotToken: 'snapshot-1',
+      draftVersion: 1,
+      draftDigest: 'sha256:draft-1',
+      currentRootResourceType: 'Specimen',
+      candidateRootResourceType: 'Patient',
+      preservedFeatureKeys: [],
+      removedFeatureKeys: ['root:Specimen'],
+      workspaceOutputConsumers: [],
+      sharedFilterBindings: [],
+      proposal: {
+        mode: 'REPLACE',
+        outputId: 'specimens',
+        rootNodeId: 'patient-node',
+        rootOccurrenceId: 'base',
+        sourceDocumentDigest: 'sha256:document-1',
+        routeRebase: [],
+        preservedFeatureKeys: [],
+        catalogSnapshotToken: 'snapshot-1',
+        catalogGeneration: 'generation-1',
+        catalogDigest: 'sha256:catalog-1',
+        removedFeatureKeys: ['root:Specimen'],
+        workspaceOutputConsumers: [],
+        sharedFilterBindings: [],
+      },
+      candidateReceiptId: 'fresh-receipt',
+      unresolved: [],
+      diagnostics: [],
+    };
+    const freshPreview: ExplorerBuilderPreviewResult = {
+      apiVersion,
+      kind: 'ExplorerBuilderPreview',
+      rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
+      receiptId: 'fresh-receipt',
+      outputId: 'specimens',
+      columns: [{
+        column: 'id', label: 'Patient ID', logicalType: 'string', filterable: true, chartable: false,
+        sourceResourceType: 'Patient', sourcePath: 'id',
+      }],
+      rows: [{ id: 'fresh-patient-row' }],
+      rowCount: 1,
+      diagnostics: [],
+    };
+    const replacementAssessmentRequest = vi.fn().mockResolvedValue(replacementAssessment);
+    const receiptPreview = vi.fn().mockResolvedValue(freshPreview);
+    mockLoomClientReference.current = {
+      ...mockLoomClient,
+      assessRowChange: replacementAssessmentRequest,
+      preview: receiptPreview,
+    };
+
+    render(
+      <BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    const picker = within(await screen.findByRole('dialog', { name: 'Row definition settings' }))
+      .getByRole('combobox', { name: 'Record type' });
+    const patientChoice = within(picker).getByRole('option', { name: /^Patient/ });
+    fireEvent.change(picker, { target: { value: patientChoice.getAttribute('value') } });
+    await waitFor(() => expect(assessRowChange).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start fresh with Patient' }));
+    const replacementDialog = await screen.findByRole('dialog', { name: 'Replace this table’s current setup?' });
+    await within(replacementDialog).findByText('fresh-patient-row');
+    expect(replacementAssessmentRequest).toHaveBeenCalledWith(expect.objectContaining({
+      project: 'HTAN_INT/BForePC',
+      explorerId: 'test',
+      authResourcePath: '/programs/HTAN_INT/projects/BForePC',
+      mode: 'REPLACE',
+      outputId: 'specimens',
+      snapshotToken: 'snapshot-1',
+      draftVersion: 1,
+      draftDigest: 'sha256:draft-1',
+      rootNodeId: 'patient-node',
+    }), expect.any(AbortSignal));
+    expect(preserveAssessment.request.abort).toHaveBeenCalledOnce();
+    expect(receiptPreview).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      receiptId: 'fresh-receipt', outputId: 'specimens',
+    }), expect.any(AbortSignal));
+    expect(applyCommands).not.toHaveBeenCalled();
+
+    await act(async () => preserveAssessment.resolve(readyRootChangeAssessment({
+      receiptId: 'preserve-receipt',
+    })));
+    expect(screen.getByRole('dialog', { name: 'Replace this table’s current setup?' })).toBeInTheDocument();
+    expect(screen.getByText('fresh-patient-row')).toBeInTheDocument();
+    expect(receiptPreview).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: 'Apply row change' })).toBeNull();
+
+    fireEvent.click(within(replacementDialog).getByRole('button', { name: 'Cancel' }));
+    expect(applyCommands).not.toHaveBeenCalled();
   });
 
   it('cancels an automatic preview when a patient column changes', async () => {

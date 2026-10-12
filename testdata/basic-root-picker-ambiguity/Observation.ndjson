@@ -1,0 +1,2 @@
+{"resourceType":"Observation","id":"observation-stage-route","status":"final","code":{"text":"Condition stage-to-Specimen route fixture"},"specimen":{"reference":"Specimen/specimen-stage-route"}}
+{"resourceType":"Observation","id":"observation-focus-route","status":"final","code":{"text":"Condition focus-to-Specimen route fixture"},"focus":[{"reference":"Condition/condition-focus-route"}],"specimen":{"reference":"Specimen/specimen-focus-route"}}

@@ -10,7 +10,10 @@ import type {
   RowChangeAssessment,
 } from '../../../types';
 import { routeNode, type DraftTable } from '../authoring/model';
-import type { RootChangeSelection } from '../authoring/rootChangeSelection';
+import type {
+  RootChangePickerState,
+  RootChangeSelection,
+} from '../authoring/rootChangeSelection';
 import type { SelectionRevision } from '../../../selection';
 import type { ConstructionHistoryStep } from '../constructionWorkspace/ConstructionWorkspace';
 import { ExplicitGroupAuthoring } from './ExplicitGroupAuthoring';
@@ -19,6 +22,7 @@ import { TraversalPath } from '../constructionWorkspace/TraversalPath';
 const rowChangingOperationKinds = new Set<ConstructionStep['operation']['kind']>([
   'GROUP', 'CODED_GROUP', 'PIVOT', 'CODED_PIVOT', 'EXPAND', 'UNPIVOT', 'RELATED_EXPAND',
 ]);
+
 
 type SelectionOption = {
   readonly value: string;
@@ -389,6 +393,10 @@ export const RowDefinitionSettingsPanel = ({
   onChooseReshape,
   sourceCollectionAction,
   onChangeRootSelection,
+  onResolveRootSelection,
+  rootChangeState,
+  rootChangePreviewOpen,
+  onCancelRootChange,
   onApplyRootReplacement,
   onEditConstructionStep,
   onRemoveConstructionStep,
@@ -407,6 +415,7 @@ export const RowDefinitionSettingsPanel = ({
   readonly startingCollectionSummary: string;
   readonly renderRootSettings: (
     onRootChange: (selection: RootChangeSelection) => void,
+    onResolveRootChange: (referenceId: string, alternative: string) => void,
     onReplaceRoot: (rootNodeId: string) => void,
   ) => ReactNode;
   readonly startingCollectionSettings: ReactNode;
@@ -429,6 +438,10 @@ export const RowDefinitionSettingsPanel = ({
   readonly onChooseReshape: (kind: 'group' | 'source-group' | 'coded-group' | 'expand' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot') => void;
   readonly sourceCollectionAction?: ReactNode;
   readonly onChangeRootSelection: (selection: RootChangeSelection) => void;
+  readonly onResolveRootSelection: (referenceId: string, alternative: string) => void;
+  readonly rootChangeState: RootChangePickerState;
+  readonly rootChangePreviewOpen: boolean;
+  readonly onCancelRootChange: () => void;
   readonly onApplyRootReplacement: (assessment: ReadyReplacementAssessment) => Promise<boolean>;
   readonly onEditConstructionStep?: (stepId: string) => void;
   readonly onRemoveConstructionStep?: (stepId: string) => void;
@@ -532,6 +545,18 @@ export const RowDefinitionSettingsPanel = ({
       });
     }
   };
+
+  useEffect(() => {
+    if (rootChangeState.kind === 'idle') return;
+    if (settings.kind === 'closed') void openSettings();
+  }, [rootChangeState.kind, rootChangeState.kind === 'idle' ? -1 : rootChangeState.identity.epoch,
+    settings.kind]);
+
+  useEffect(() => {
+    if (rootChangePreviewOpen && settings.kind !== 'closed') {
+      setSettings({ kind: 'closed' });
+    }
+  }, [rootChangePreviewOpen, settings.kind]);
 
   const propose = async (selected: RowDefinitionSelection) => {
     cancelPendingPreview();
@@ -688,10 +713,22 @@ export const RowDefinitionSettingsPanel = ({
   const cancel = () => {
     cancelPendingPreview();
     cancelReplacementRequest();
+    if (rootChangeState.kind !== 'idle' || rootChangePreviewOpen) onCancelRootChange();
     setReplacementState({ kind: 'idle' });
     settingsRequestEpoch.current += 1;
     setSettings({ kind: 'closed' });
     setProposalState({ kind: 'none' });
+  };
+
+  const beginRootChange = (next: RootChangeSelection) => {
+    cancelReplacementRequest();
+    setReplacementState({ kind: 'idle' });
+    onChangeRootSelection(next);
+  };
+  const beginRootResolution = (referenceId: string, alternative: string) => {
+    cancelReplacementRequest();
+    setReplacementState({ kind: 'idle' });
+    onResolveRootSelection(referenceId, alternative);
   };
 
   const chooseRelatedRows = () => {
@@ -776,10 +813,7 @@ export const RowDefinitionSettingsPanel = ({
               <div>
                 <h3 className="text-xl font-semibold text-slate-900">Change the table shape</h3>
                 <p className="mt-2 text-sm text-slate-700">{currentRowMeaning}</p>
-                {renderRootSettings((selection) => {
-                  cancel();
-                  onChangeRootSelection(selection);
-                }, (rootNodeId) => void assessReplacement(rootNodeId))}
+                {renderRootSettings(beginRootChange, beginRootResolution, (rootNodeId) => void assessReplacement(rootNodeId))}
                 <p className="mt-3 text-sm text-slate-600">Choose a different starting record type or decide what one row should describe. Preview row changes before applying them.</p>
               </div>
               <button type="button" className="shrink-0 whitespace-nowrap rounded-md border border-slate-300 px-3 py-1.5 text-sm" onClick={cancel}>Back to table</button>

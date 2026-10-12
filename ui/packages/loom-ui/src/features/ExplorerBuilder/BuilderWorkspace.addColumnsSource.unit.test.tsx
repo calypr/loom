@@ -95,7 +95,6 @@ vi.mock('./components/GuidedGraphWorkspace', () => ({
 vi.mock('./components/ColumnSelector', () => ({ ColumnSelector: () => null }));
 vi.mock('./components/DataframeContractPanel', () => ({ DataframeContractPanel: () => null }));
 vi.mock('./components/PopulationPanel', () => ({ PopulationPanel: () => null }));
-vi.mock('./components/RowChangeRepairPanel', () => ({ RowChangeRepairPanel: () => null }));
 vi.mock('./components/RowDefinitionPanel', () => ({ RowDefinitionPanel: () => null }));
 vi.mock('./components/RowDefinitionSettingsPanel', () => ({ RowDefinitionSettingsPanel: () => null }));
 vi.mock('./components/TableShapeSettingsPanel', () => ({ TableShapeSettingsPanel: () => null }));

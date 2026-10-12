@@ -4,7 +4,11 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ExplorerBuilderCatalog } from '../../../types';
 import type { DraftTable } from '../authoring/model';
-import type { RootChangeSelection } from '../authoring/rootChangeSelection';
+import type {
+  RootChangePickerState,
+  RootChangeRequestIdentity,
+  RootChangeSelection,
+} from '../authoring/rootChangeSelection';
 import { RowDefinitionPanel } from './RowDefinitionPanel';
 
 const catalog: ExplorerBuilderCatalog = {
@@ -45,6 +49,26 @@ const table: DraftTable = {
   },
 };
 
+const rootOnlyTable: DraftTable = {
+  ...table,
+  document: {
+    ...table.document,
+    route: { occurrenceId: 'base', resourceType: 'Specimen' },
+  },
+};
+
+const specimenWithObservationTable: DraftTable = {
+  ...rootOnlyTable,
+  document: {
+    ...rootOnlyTable.document,
+    route: {
+      occurrenceId: 'base',
+      resourceType: 'Specimen',
+      children: [{ occurrenceId: 'labs', resourceType: 'Observation', relationship: 'observations' }],
+    },
+  },
+};
+
 const patientTable: DraftTable = {
   ...table,
   document: {
@@ -71,45 +95,122 @@ const patientCatalog: ExplorerBuilderCatalog = {
   ],
 };
 
+const routeToken = (edgeIds: ReadonlyArray<string>, anchorOccurrenceId = 'base'): string => {
+  const payload = btoa(JSON.stringify({ edgeIds, anchorOccurrenceId }))
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+  return `row-change-route:v1:${payload}`;
+};
+
+const compilerRouteCatalog: ExplorerBuilderCatalog = {
+  ...catalog,
+  nodes: [
+    { nodeId: 'specimen-node', resourceType: 'Specimen', rowRootEligible: true, populated: true, documentCount: 4 },
+    { nodeId: 'observation-node', resourceType: 'Observation', rowRootEligible: true, populated: true, documentCount: 4 },
+    { nodeId: 'encounter-node', resourceType: 'Encounter', rowRootEligible: true, populated: true, documentCount: 3 },
+    { nodeId: 'patient-node', resourceType: 'Patient', rowRootEligible: true, populated: true, documentCount: 4 },
+  ],
+  edges: [
+    { edgeId: 'specimen-observation', fromNodeId: 'specimen-node', toNodeId: 'observation-node', label: 'observations' },
+    { edgeId: 'observation-specimen', fromNodeId: 'observation-node', toNodeId: 'specimen-node', label: 'observations' },
+    { edgeId: 'observation-encounter', fromNodeId: 'observation-node', toNodeId: 'encounter-node', label: 'encounter' },
+    { edgeId: 'encounter-observation', fromNodeId: 'encounter-node', toNodeId: 'observation-node', label: 'encounter' },
+    { edgeId: 'observation-patient', fromNodeId: 'observation-node', toNodeId: 'patient-node', label: 'subject' },
+    { edgeId: 'patient-observation', fromNodeId: 'patient-node', toNodeId: 'observation-node', label: 'subject' },
+    { edgeId: 'observation-patient-alt', fromNodeId: 'observation-node', toNodeId: 'patient-node', label: 'performer' },
+    { edgeId: 'patient-observation-alt', fromNodeId: 'patient-node', toNodeId: 'observation-node', label: 'performer' },
+    { edgeId: 'specimen-encounter', fromNodeId: 'specimen-node', toNodeId: 'encounter-node', label: 'encounters' },
+    { edgeId: 'encounter-specimen', fromNodeId: 'encounter-node', toNodeId: 'specimen-node', label: 'encounters' },
+    { edgeId: 'encounter-patient', fromNodeId: 'encounter-node', toNodeId: 'patient-node', label: 'subject' },
+    { edgeId: 'patient-encounter', fromNodeId: 'patient-node', toNodeId: 'encounter-node', label: 'subject' },
+  ],
+};
+
+const specimenObservationPatientRoute = routeToken(['specimen-observation', 'observation-patient']);
+const specimenEncounterPatientRoute = routeToken(['specimen-encounter', 'encounter-patient']);
+
+const rootIdentity = (
+  overrides: Partial<RootChangeRequestIdentity> = {},
+): RootChangeRequestIdentity => ({
+  epoch: 3,
+  project: 'BForePC',
+  explorerId: 'test-explorer',
+  outputId: 'specimens',
+  snapshotToken: 'snapshot',
+  draftVersion: 1,
+  draftDigest: 'sha256:draft-1',
+  ...overrides,
+});
+
+const idleRootPickerProps = () => ({
+  rootChangeState: { kind: 'idle' } as const satisfies RootChangePickerState,
+  currentIdentity: rootIdentity(),
+  onResolve: vi.fn(),
+  onRefresh: vi.fn(),
+  onKeepCurrent: vi.fn(),
+});
+
+const blockedRootRouteState: RootChangePickerState = {
+  kind: 'blocked',
+  selection: { kind: 'catalog-node', nodeId: 'patient-node' },
+  resolution: {},
+  identity: rootIdentity(),
+  assessment: {
+    status: 'BLOCKED',
+    snapshotToken: 'snapshot',
+    draftVersion: 1,
+    draftDigest: 'sha256:draft-1',
+    currentRootResourceType: 'Specimen',
+    candidateRootResourceType: 'Patient',
+    preservedFeatureKeys: [],
+    unresolved: [{
+      kind: 'route',
+      id: 'root-occurrence',
+      code: 'AMBIGUOUS_ROW_ROOT_OCCURRENCE',
+      message: 'Choose the compiler-proven route for Patient.',
+      alternatives: [specimenObservationPatientRoute, specimenEncounterPatientRoute],
+    }],
+    diagnostics: [],
+  },
+};
+
 afterEach(cleanup);
 
 describe('RowDefinitionPanel', () => {
   it('shows one Record type picker and makes the current type a no-op', () => {
     const onChange = vi.fn();
     const onReplace = vi.fn();
-    render(<RowDefinitionPanel catalog={catalog} table={table} disabled={false} onChange={onChange} onReplace={onReplace} />);
+    render(<RowDefinitionPanel {...idleRootPickerProps()} catalog={catalog} table={table} disabled={false} onChange={onChange} onReplace={onReplace} />);
 
     const section = screen.getByRole('region', { name: 'What should each row represent?' });
     expect(within(section).getAllByRole('combobox')).toHaveLength(1);
     expect(within(section).getByRole('combobox', { name: 'Record type' })).toBeTruthy();
     expect(within(section).getByText('Choose a record type. Loom will show how this changes your rows and whether existing columns or filters need updating.')).toBeTruthy();
     expect(within(section).getByRole('option', { name: 'Specimen (current)' })).toHaveProperty('disabled', true);
-    expect(within(section).getByRole('button', { name: 'Review changes' })).toHaveProperty('disabled', true);
+    expect(within(section).queryByRole('button', { name: 'Review changes' })).toBeNull();
     expect(within(section).queryByRole('combobox', { name: 'Choose replacement starting type' })).toBeNull();
     expect(within(section).queryByRole('button', { name: 'Replace current setup' })).toBeNull();
     expect(onChange).not.toHaveBeenCalled();
     expect(onReplace).not.toHaveBeenCalled();
   });
 
-  it('reviews a connected route through the existing preserve callback', () => {
+  it('submits a connected route from the Record type picker without a second review action', () => {
     const onChange = vi.fn();
-    render(<RowDefinitionPanel catalog={catalog} table={table} disabled={false} onChange={onChange} />);
+    render(<RowDefinitionPanel {...idleRootPickerProps()} catalog={catalog} table={table} disabled={false} onChange={onChange} />);
 
     const section = screen.getByRole('region', { name: 'What should each row represent?' });
     const picker = within(section).getByRole('combobox', { name: 'Record type' });
     fireEvent.change(picker, { target: { value: 'occurrence:labs' } });
-    expect(within(section).getByText('Loom will check which existing columns and filters can carry over.')).toBeTruthy();
-    expect(onChange).not.toHaveBeenCalled();
-    fireEvent.click(within(section).getByRole('button', { name: 'Review changes' }));
-
     expect(onChange).toHaveBeenCalledExactlyOnceWith({
       kind: 'authored-occurrence',
       nodeId: 'observation',
       occurrenceId: 'labs',
     } satisfies RootChangeSelection);
+    expect(within(section).queryByRole('button', { name: 'Review changes' })).toBeNull();
   });
 
-  it('reviews a replacement-only loaded eligible type through the assessed replacement flow', () => {
+  it('starts the assessed replacement flow from a replacement-only picker choice', () => {
     const disconnectedCatalog: ExplorerBuilderCatalog = {
       ...patientCatalog,
       nodes: [
@@ -121,37 +222,158 @@ describe('RowDefinitionPanel', () => {
     };
     const onChange = vi.fn();
     const onReplace = vi.fn();
-    render(<RowDefinitionPanel catalog={disconnectedCatalog} table={patientTable} disabled={false} onChange={onChange} onReplace={onReplace} />);
+    render(<RowDefinitionPanel {...idleRootPickerProps()} catalog={disconnectedCatalog} table={patientTable} disabled={false} onChange={onChange} onReplace={onReplace} />);
 
     const section = screen.getByRole('region', { name: 'What should each row represent?' });
     const picker = within(section).getByRole('combobox', { name: 'Record type' });
     expect(within(picker).getByRole('option', { name: 'ResearchStudy' })).toBeTruthy();
     expect(within(picker).getByRole('option', { name: 'Medication' })).toBeTruthy();
     fireEvent.change(picker, { target: { value: 'replacement:research-study-node' } });
-    expect(within(section).getByText('A new setup is required. Review will list the current setup items that would be removed.')).toBeTruthy();
-    expect(onReplace).not.toHaveBeenCalled();
-    expect(onChange).not.toHaveBeenCalled();
-    fireEvent.click(within(section).getByRole('button', { name: 'Review changes' }));
-
     expect(onReplace).toHaveBeenCalledExactlyOnceWith('research-study-node');
     expect(onChange).not.toHaveBeenCalled();
+    expect(within(section).queryByRole('button', { name: 'Review changes' })).toBeNull();
   });
 
-  it('offers Start fresh for a selected connected type without opening preserve review', () => {
+  it('keeps connected Start fresh as a separate contextual replacement action', () => {
     const onChange = vi.fn();
     const onReplace = vi.fn();
-    render(<RowDefinitionPanel catalog={patientCatalog} table={patientTable} disabled={false} onChange={onChange} onReplace={onReplace} />);
+    render(<RowDefinitionPanel {...idleRootPickerProps()} catalog={patientCatalog} table={patientTable} disabled={false} onChange={onChange} onReplace={onReplace} />);
 
     const section = screen.getByRole('region', { name: 'What should each row represent?' });
     fireEvent.change(within(section).getByRole('combobox', { name: 'Record type' }), {
       target: { value: 'node:observation' },
     });
-    expect(onChange).not.toHaveBeenCalled();
+    expect(onChange).toHaveBeenCalledExactlyOnceWith({ kind: 'catalog-node', nodeId: 'observation' });
     expect(onReplace).not.toHaveBeenCalled();
+    expect(within(section).queryByRole('button', { name: 'Review changes' })).toBeNull();
     fireEvent.click(within(section).getByRole('button', { name: 'Start fresh with Observation' }));
 
     expect(onReplace).toHaveBeenCalledExactlyOnceWith('observation');
-    expect(onChange).not.toHaveBeenCalled();
+    expect(onChange).toHaveBeenCalledExactlyOnceWith({ kind: 'catalog-node', nodeId: 'observation' });
+  });
+
+  it('keeps compiler-proven route, occurrence, and edge choices in the single Record type picker', () => {
+    const onChange = vi.fn();
+    const onResolve = vi.fn();
+    const onRefresh = vi.fn();
+    const onKeepCurrent = vi.fn();
+    const onReplace = vi.fn();
+    const view = render(
+      <RowDefinitionPanel
+        catalog={compilerRouteCatalog}
+        table={rootOnlyTable}
+        disabled={false}
+        currentIdentity={blockedRootRouteState.identity}
+        rootChangeState={blockedRootRouteState}
+        onChange={onChange}
+        onResolve={onResolve}
+        onRefresh={onRefresh}
+        onKeepCurrent={onKeepCurrent}
+        onReplace={onReplace}
+      />,
+    );
+
+    const section = screen.getByRole('region', { name: 'What should each row represent?' });
+    const picker = within(section).getByRole('combobox', { name: 'Record type' });
+    const routeOption = within(picker).getByRole('option', {
+      name: 'Use Specimen → Observations → Observation → Subject → Patient from Specimen rows',
+    });
+    expect(within(section).getAllByRole('combobox')).toHaveLength(1);
+    expect(within(picker).getAllByRole('option', { name: /^Use Specimen/ })).toHaveLength(2);
+    expect(within(section).queryByRole('button', { name: 'Review changes' })).toBeNull();
+    expect(within(section).queryByRole('heading', { name: 'Choose how to preserve this table' })).toBeNull();
+    fireEvent.change(picker, { target: { value: routeOption.getAttribute('value') } });
+    expect(onChange).toHaveBeenLastCalledWith({
+      kind: 'compiler-route', nodeId: 'patient-node', referenceId: 'root-occurrence',
+      routeToken: specimenObservationPatientRoute,
+    } satisfies RootChangeSelection);
+
+    const occurrenceTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        route: {
+          occurrenceId: 'base',
+          resourceType: 'Specimen',
+          children: [
+            { occurrenceId: 'labs', resourceType: 'Observation', relationship: 'observations',
+              children: [{ occurrenceId: 'visit-via-labs', resourceType: 'Encounter', relationship: 'encounter' }] },
+            { occurrenceId: 'visit-direct', resourceType: 'Encounter', relationship: 'encounters' },
+          ],
+        },
+      },
+    };
+    const occurrenceState: RootChangePickerState = {
+      kind: 'blocked', selection: { kind: 'catalog-node', nodeId: 'encounter-node' }, resolution: {},
+      identity: rootIdentity(),
+      assessment: {
+        ...blockedRootRouteState.assessment,
+        candidateRootResourceType: 'Encounter',
+        unresolved: [{ kind: 'route', id: 'root-occurrence', code: 'AMBIGUOUS_ROW_ROOT_OCCURRENCE',
+          message: 'Choose the Encounter occurrence to use.', alternatives: ['visit-via-labs', 'visit-direct'] }],
+      },
+    };
+    view.rerender(
+      <RowDefinitionPanel catalog={compilerRouteCatalog} table={occurrenceTable} disabled={false}
+        currentIdentity={occurrenceState.identity} rootChangeState={occurrenceState} onChange={onChange}
+        onResolve={onResolve} onRefresh={onRefresh} onKeepCurrent={onKeepCurrent} onReplace={onReplace} />,
+    );
+    const occurrencePicker = screen.getByRole('combobox', { name: 'Record type' });
+    const directEncounter = within(occurrencePicker).getByRole('option', { name: 'Use Specimen → Encounters → Encounter' });
+    expect(within(occurrencePicker).getByRole('option', {
+      name: 'Use Specimen → Observations → Observation → Encounter → Encounter',
+    })).toBeTruthy();
+    fireEvent.change(occurrencePicker, { target: { value: directEncounter.getAttribute('value') } });
+    expect(onChange).toHaveBeenLastCalledWith({
+      kind: 'compiler-occurrence', nodeId: 'encounter-node', referenceId: 'root-occurrence',
+      occurrenceId: 'visit-direct',
+    } satisfies RootChangeSelection);
+
+    const edgeState: RootChangePickerState = {
+      ...blockedRootRouteState,
+      assessment: {
+        ...blockedRootRouteState.assessment,
+        unresolved: [{ kind: 'route', id: 'labs', code: 'AMBIGUOUS_ROUTE_REBASE_EDGE',
+          message: 'Choose how this route stays connected.',
+          alternatives: ['patient-observation', 'patient-observation-alt'] }],
+      },
+    };
+    view.rerender(
+      <RowDefinitionPanel catalog={compilerRouteCatalog} table={specimenWithObservationTable} disabled={false}
+        currentIdentity={edgeState.identity} rootChangeState={edgeState} onChange={onChange}
+        onResolve={onResolve} onRefresh={onRefresh} onKeepCurrent={onKeepCurrent} onReplace={onReplace} />,
+    );
+    const edgePicker = screen.getByRole('combobox', { name: 'Record type' });
+    const edgeOption = within(edgePicker).getByRole('option', {
+      name: 'Use Subject between Patient and Observation for Choose how this route stays connected.',
+    });
+    expect(screen.getAllByRole('combobox', { name: 'Record type' })).toHaveLength(1);
+    expect(screen.queryByRole('heading', { name: 'Choose how to preserve this table' })).toBeNull();
+    fireEvent.change(edgePicker, { target: { value: edgeOption.getAttribute('value') } });
+    expect(onResolve).toHaveBeenCalledExactlyOnceWith('labs', 'patient-observation');
+
+    const staleIdentities: ReadonlyArray<RootChangeRequestIdentity> = [
+      rootIdentity({ epoch: 4 }), rootIdentity({ project: 'NextProject' }),
+      rootIdentity({ authResourcePath: 'Patient/other' }), rootIdentity({ explorerId: 'next-explorer' }),
+      rootIdentity({ outputId: 'other-table' }), rootIdentity({ snapshotToken: 'next-snapshot' }),
+      rootIdentity({ draftVersion: 2 }), rootIdentity({ draftDigest: 'sha256:draft-2' }),
+    ];
+    for (const currentIdentity of staleIdentities) {
+      view.rerender(
+        <RowDefinitionPanel catalog={compilerRouteCatalog} table={specimenWithObservationTable} disabled={false}
+          currentIdentity={currentIdentity} rootChangeState={blockedRootRouteState} onChange={onChange}
+          onResolve={onResolve} onRefresh={onRefresh} onKeepCurrent={onKeepCurrent} onReplace={onReplace} />,
+      );
+      expect(within(screen.getByRole('combobox', { name: 'Record type' }))
+        .queryByRole('option', { name: /^Use Specimen/ })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Refresh choices' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Keep current rows' })).toBeEnabled();
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh choices' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Keep current rows' }));
+    expect(onRefresh).toHaveBeenCalledOnce();
+    expect(onKeepCurrent).toHaveBeenCalledOnce();
+    expect(onReplace).not.toHaveBeenCalled();
   });
 
   it('keeps connected routes with the same resource type distinct and readable', () => {
@@ -181,7 +403,7 @@ describe('RowDefinitionPanel', () => {
         },
       },
     };
-    render(<RowDefinitionPanel catalog={routeCatalog} table={routeTable} disabled={false} onChange={vi.fn()} />);
+    render(<RowDefinitionPanel {...idleRootPickerProps()} catalog={routeCatalog} table={routeTable} disabled={false} onChange={vi.fn()} />);
 
     const picker = screen.getByRole('combobox', { name: 'Record type' });
     const encounterOptions = within(picker).getAllByRole('option', { name: /^Encounter via / });
@@ -192,19 +414,19 @@ describe('RowDefinitionPanel', () => {
   });
 
   it('resets the selected type when the snapshot, table, or current root changes', () => {
-    const { rerender } = render(<RowDefinitionPanel catalog={catalog} table={table} disabled={false} onChange={vi.fn()} />);
+    const { rerender } = render(<RowDefinitionPanel {...idleRootPickerProps()} catalog={catalog} table={table} disabled={false} onChange={vi.fn()} />);
     const selectRoute = () => fireEvent.change(screen.getByRole('combobox', { name: 'Record type' }), {
       target: { value: 'occurrence:labs' },
     });
 
     selectRoute();
     expect(screen.getByRole('option', { selected: true })).toHaveProperty('value', 'occurrence:labs');
-    rerender(<RowDefinitionPanel catalog={catalog} table={{ ...table, outputId: 'other-table' }} disabled={false} onChange={vi.fn()} />);
+    rerender(<RowDefinitionPanel {...idleRootPickerProps()} currentIdentity={rootIdentity({ outputId: 'other-table' })} catalog={catalog} table={{ ...table, outputId: 'other-table' }} disabled={false} onChange={vi.fn()} />);
     expect(screen.getByRole('option', { selected: true })).toHaveProperty('value', 'current');
 
     selectRoute();
     const nextSnapshot = { ...catalog, snapshotToken: 'next-snapshot' };
-    rerender(<RowDefinitionPanel catalog={nextSnapshot} table={{ ...table, outputId: 'other-table' }} disabled={false} onChange={vi.fn()} />);
+    rerender(<RowDefinitionPanel {...idleRootPickerProps()} currentIdentity={rootIdentity({ outputId: 'other-table', snapshotToken: 'next-snapshot' })} catalog={nextSnapshot} table={{ ...table, outputId: 'other-table' }} disabled={false} onChange={vi.fn()} />);
     expect(screen.getByRole('option', { selected: true })).toHaveProperty('value', 'current');
 
     selectRoute();
@@ -221,7 +443,7 @@ describe('RowDefinitionPanel', () => {
         },
       },
     };
-    rerender(<RowDefinitionPanel catalog={nextSnapshot} table={observationTable} disabled={false} onChange={vi.fn()} />);
+    rerender(<RowDefinitionPanel {...idleRootPickerProps()} currentIdentity={rootIdentity({ outputId: 'other-table', snapshotToken: 'next-snapshot' })} catalog={nextSnapshot} table={observationTable} disabled={false} onChange={vi.fn()} />);
     expect(screen.getByRole('option', { selected: true })).toHaveProperty('value', 'current');
   });
 
@@ -231,7 +453,7 @@ describe('RowDefinitionPanel', () => {
       document: { ...table.document, route: { occurrenceId: 'base', resourceType: 'Specimen' } },
     };
     const unconnectedCatalog = { ...catalog, edges: [] };
-    render(<RowDefinitionPanel catalog={unconnectedCatalog} table={rootOnly} disabled={false} onChange={vi.fn()} />);
+    render(<RowDefinitionPanel {...idleRootPickerProps()} catalog={unconnectedCatalog} table={rootOnly} disabled={false} onChange={vi.fn()} />);
     expect(screen.queryByRole('combobox', { name: 'Record type' })).toBeNull();
     expect(screen.queryByRole('region', { name: 'What should each row represent?' })).toBeNull();
   });

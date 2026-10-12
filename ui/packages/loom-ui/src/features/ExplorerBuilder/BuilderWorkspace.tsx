@@ -37,7 +37,6 @@ import type {
   ConstructionChoiceSelection,
   ConstructionChoiceProposalResponse,
   RowChangeAssessment,
-  RowChangeUnresolvedReference,
 } from '../../types';
 import { BuilderToolbar, NewExplorerControl } from './components/BuilderToolbar';
 import {
@@ -54,7 +53,6 @@ import {
 } from './components/PreviewTable';
 import { DataframeContractPanel } from './components/DataframeContractPanel';
 import { PopulationPanel } from './components/PopulationPanel';
-import { RowChangeRepairPanel } from './components/RowChangeRepairPanel';
 import { RowChangePreviewPanel } from './components/RowChangePreviewPanel';
 import { RowDefinitionPanel } from './components/RowDefinitionPanel';
 import { RowDefinitionSettingsPanel, rowScopeLabel } from './components/RowDefinitionSettingsPanel';
@@ -72,7 +70,13 @@ import {
   workspaceFromState,
   type BuilderAuthoringState,
 } from './authoring/model';
-import type { RootChangeSelection } from './authoring/rootChangeSelection';
+import {
+  sameRootChangeRequestIdentity,
+  type RootChangePickerState,
+  type RootChangeRequestIdentity,
+  type RootChangeResolution,
+  type RootChangeSelection,
+} from './authoring/rootChangeSelection';
 import { builderAuthoringReducer } from './authoring/reducer';
 import {
   planInitialTable,
@@ -313,32 +317,14 @@ type AutomaticPreviewExecution = {
   previewRequest?: { readonly abort: () => void };
 };
 
-type RowChangeResolution = {
-  readonly rootOccurrenceId?: string;
-  readonly routeRebase?: ReadonlyArray<{
-    readonly occurrenceId: string;
-    readonly edgeId: string;
-  }>;
-};
-
-type PendingRowChange = {
-  readonly nodeId: string;
-  readonly resolution: RowChangeResolution;
-  readonly assessment: Extract<RowChangeAssessment, { readonly status: 'BLOCKED' }>;
-};
-
 type RowChangePreviewContext = {
   readonly assessment: Extract<RowChangeAssessment, { readonly status: 'READY' }>;
-  readonly outputId: string;
-  readonly snapshotToken: string;
-  readonly draftVersion: number;
-  readonly draftDigest: string;
+  readonly identity: RootChangeRequestIdentity;
 };
 
 type PendingRowChangePreview =
   | (RowChangePreviewContext & { readonly status: 'loading' })
-  | (RowChangePreviewContext & { readonly status: 'ready'; readonly preview: ExplorerBuilderPreviewResult })
-  | (RowChangePreviewContext & { readonly status: 'error'; readonly error: string });
+  | (RowChangePreviewContext & { readonly status: 'ready'; readonly preview: ExplorerBuilderPreviewResult });
 
 type FirstTableProgress =
   | { readonly kind: 'idle' }
@@ -500,10 +486,14 @@ const BuilderWorkspaceContent = ({
     readonly key: string;
     readonly message: string;
   }>();
-  const [pendingRowChange, setPendingRowChange] =
-    useState<PendingRowChange>();
+  const [rootChangeState, setRootChangeState] =
+    useState<RootChangePickerState>({ kind: 'idle' });
+  const rootChangeStateRef = useRef(rootChangeState);
+  rootChangeStateRef.current = rootChangeState;
   const [pendingRowChangePreview, setPendingRowChangePreview] =
     useState<PendingRowChangePreview>();
+  const rowChangeAssessmentRequest = useRef<{ readonly abort: () => void } | undefined>(undefined);
+  const rowChangeRequestEpoch = useRef(0);
   const rowChangePreviewRequest = useRef<AbortController | undefined>(undefined);
   const [lastPublished, setLastPublished] = useState<{
     readonly ownerKey: string;
@@ -863,6 +853,19 @@ const BuilderWorkspaceContent = ({
   useDirtyBeforeUnload(state.dirty || pendingCommands > 0);
 
   const table = selectedTable(state);
+  const rootChangeIdentityForTable = (outputId: string): RootChangeRequestIdentity => ({
+    epoch: rowChangeRequestEpoch.current,
+    project: projectId,
+    ...(authResourcePath ? { authResourcePath } : {}),
+    explorerId: state.explorerId,
+    outputId,
+    snapshotToken: state.catalog.snapshotToken,
+    draftVersion: serverDraft.current.version,
+    draftDigest: serverDraft.current.digest,
+  });
+  const currentRootChangeIdentity = table
+    ? rootChangeIdentityForTable(table.outputId)
+    : undefined;
   const candidateForPreviewColumn = (column: ExplorerBuilderColumn): ExplorerBuilderCandidate | undefined => {
     const context = interpretationContext;
     if (
@@ -884,9 +887,56 @@ const BuilderWorkspaceContent = ({
     return state.catalog.candidates?.find((candidate) => candidate.candidateId === candidateId);
   };
   useEffect(() => {
+    const currentIdentity: RootChangeRequestIdentity | undefined = table ? {
+      epoch: rowChangeRequestEpoch.current,
+      project: projectId,
+      ...(authResourcePath ? { authResourcePath } : {}),
+      explorerId: state.explorerId,
+      outputId: table.outputId,
+      snapshotToken: state.catalog.snapshotToken,
+      draftVersion: serverDraft.current.version,
+      draftDigest: serverDraft.current.digest,
+    } : undefined;
+    const active = rootChangeStateRef.current;
+    const pendingPreview = pendingRowChangePreview;
+    const activeIsStale = active.kind !== 'idle' && (
+      currentIdentity === undefined ||
+      !sameRootChangeRequestIdentity(active.identity, currentIdentity)
+    );
+    const previewIsStale = pendingPreview !== undefined && (
+      currentIdentity === undefined ||
+      !sameRootChangeRequestIdentity(pendingPreview.identity, currentIdentity)
+    );
+    if (!activeIsStale && !previewIsStale) return;
+
+    rowChangeAssessmentRequest.current?.abort();
+    rowChangeAssessmentRequest.current = undefined;
     rowChangePreviewRequest.current?.abort();
+    rowChangePreviewRequest.current = undefined;
+    rowChangeRequestEpoch.current += 1;
     setPendingRowChangePreview(undefined);
-  }, [state.explorerId, table?.outputId, state.catalog.snapshotToken, state.draftVersion, state.draftDigest]);
+
+    if (activeIsStale) {
+      const sameExplorerOutput = active.identity.project === projectId &&
+        active.identity.authResourcePath === authResourcePath &&
+        active.identity.explorerId === state.explorerId &&
+        active.identity.outputId === table?.outputId;
+      setRootChangeState(sameExplorerOutput
+        ? {
+            kind: 'failed',
+            reason: 'stale',
+            selection: active.selection,
+            resolution: active.resolution,
+            identity: active.identity,
+            message: 'The table changed while Loom checked this row choice. Refresh the choices or keep the current rows.',
+          }
+        : { kind: 'idle' });
+    }
+    if (previewIsStale) {
+      setMessage('The table changed while Loom prepared the row preview. Review the change again.');
+    }
+  }, [authResourcePath, projectId, state.explorerId, state.catalog.snapshotToken,
+    state.draftVersion, state.draftDigest, table?.outputId, pendingRowChangePreview]);
   useEffect(() => {
     choiceProposalRequest.current?.abort();
     choiceProposalRequest.current = undefined;
@@ -1756,123 +1806,267 @@ const BuilderWorkspaceContent = ({
     }
   }, [activePopulationSelection, applyCommands, authResourcePath, loomClient, populationSelectionContextKey, projectId]);
 
+  const getCurrentRootChangeIdentity = useCallback((): RootChangeRequestIdentity | undefined => {
+    const current = latestState.current;
+    const currentTable = selectedTable(current);
+    if (!currentTable) return undefined;
+    return {
+      epoch: rowChangeRequestEpoch.current,
+      project: projectId,
+      ...(authResourcePath ? { authResourcePath } : {}),
+      explorerId: current.explorerId,
+      outputId: currentTable.outputId,
+      snapshotToken: current.catalog.snapshotToken,
+      draftVersion: serverDraft.current.version,
+      draftDigest: serverDraft.current.digest,
+    };
+  }, [authResourcePath, projectId]);
+
+  const abortRootChangeRequests = useCallback(() => {
+    rowChangeAssessmentRequest.current?.abort();
+    rowChangeAssessmentRequest.current = undefined;
+    rowChangePreviewRequest.current?.abort();
+    rowChangePreviewRequest.current = undefined;
+  }, []);
+
+  const cancelRootChange = useCallback(() => {
+    abortRootChangeRequests();
+    rowChangeRequestEpoch.current += 1;
+    setPendingRowChangePreview(undefined);
+    setRootChangeState({ kind: 'idle' });
+  }, [abortRootChangeRequests]);
+
   const changeTableRoot = useCallback(
-    async (nodeId: string, resolution: RowChangeResolution = {}) => {
-      rowChangePreviewRequest.current?.abort();
+    async (selection: RootChangeSelection, resolution: RootChangeResolution = {}) => {
+      abortRootChangeRequests();
+      rowChangeRequestEpoch.current += 1;
+      const epoch = rowChangeRequestEpoch.current;
+      const identity = getCurrentRootChangeIdentity();
+      if (!identity) {
+        setRootChangeState({ kind: 'idle' });
+        return;
+      }
       setPendingRowChangePreview(undefined);
-      const current = latestState.current;
-      const currentTable = selectedTable(current);
-      if (!currentTable) return;
+      setMessage(undefined);
+      setRootChangeState({ kind: 'assessing', selection, resolution, identity });
+      const isCurrentAttempt = () => {
+        const currentIdentity = getCurrentRootChangeIdentity();
+        return rowChangeRequestEpoch.current === epoch && currentIdentity !== undefined &&
+          sameRootChangeRequestIdentity(identity, currentIdentity);
+      };
+      const request = assessRowChange({
+        project: identity.project,
+        explorerId: identity.explorerId,
+        authResourcePath: identity.authResourcePath,
+        snapshotToken: identity.snapshotToken,
+        draftVersion: identity.draftVersion,
+        draftDigest: identity.draftDigest,
+        outputId: identity.outputId,
+        rootNodeId: selection.nodeId,
+        ...resolution,
+        requestId: `row-change-${window.crypto.randomUUID()}`,
+      });
+      rowChangeAssessmentRequest.current = request;
       try {
-        const assessment = await assessRowChange({
-          project: projectId,
-          explorerId: current.explorerId,
-          authResourcePath,
-          snapshotToken: current.catalog.snapshotToken,
-          draftVersion: serverDraft.current.version,
-          draftDigest: serverDraft.current.digest,
-          outputId: currentTable.outputId,
-          rootNodeId: nodeId,
-          ...resolution,
-          requestId: `row-change-${window.crypto.randomUUID()}`,
-        }).unwrap();
+        const assessment = await request.unwrap();
+        if (!isCurrentAttempt()) return;
+        if (assessment.snapshotToken !== identity.snapshotToken ||
+            assessment.draftVersion !== identity.draftVersion ||
+            assessment.draftDigest !== identity.draftDigest) {
+          setRootChangeState({
+            kind: 'failed', reason: 'stale', selection, resolution, identity,
+            message: 'The table changed while Loom checked this row choice. Refresh the choices or keep the current rows.',
+          });
+          return;
+        }
         if (assessment.status === 'NO_CHANGE') {
-          setPendingRowChange(undefined);
+          setRootChangeState({ kind: 'idle' });
           setMessage(undefined);
           return;
         }
         if (assessment.status === 'BLOCKED') {
-          const actionable = assessment.unresolved.some(
-            (reference) => (reference.alternatives?.length ?? 0) > 0,
-          );
-          setPendingRowChange(
-            actionable ? { nodeId, resolution, assessment } : undefined,
-          );
-          setMessage(actionable
-            ? undefined
-            : `Loom did not change the rows: ${assessment.unresolved
-                .map((reference) => reference.message)
-                .join(' ')}`);
+          setRootChangeState({ kind: 'blocked', selection, resolution, identity, assessment });
+          setMessage(undefined);
           return;
         }
-        setPendingRowChange(undefined);
-        if (!assessment.candidateReceiptId) {
-          setMessage('Loom cannot preview the proposed rows. The current table has not changed.');
+        const candidateReceiptId = assessment.candidateReceiptId;
+        if (!candidateReceiptId || assessment.proposal.outputId !== identity.outputId ||
+            assessment.proposal.rootNodeId !== selection.nodeId ||
+            (resolution.rootOccurrenceId !== undefined &&
+              assessment.proposal.rootOccurrenceId !== resolution.rootOccurrenceId)) {
+          setRootChangeState({
+            kind: 'failed', reason: 'unavailable', selection, resolution, identity,
+            message: 'Loom could not match this row choice to a preview receipt. The table has not changed.',
+          });
           return;
         }
-        const context: RowChangePreviewContext = {
-          assessment,
-          outputId: currentTable.outputId,
-          snapshotToken: current.catalog.snapshotToken,
-          draftVersion: serverDraft.current.version,
-          draftDigest: serverDraft.current.digest,
-        };
+        const context: RowChangePreviewContext = { assessment, identity };
+        setRootChangeState({ kind: 'previewing', selection, resolution, identity });
         setPendingRowChangePreview({ ...context, status: 'loading' });
         const controller = new AbortController();
         rowChangePreviewRequest.current = controller;
         try {
           const candidatePreview = await loomClient.preview({
-            project: projectId,
-            explorerId: current.explorerId,
-            authResourcePath,
-            receiptId: assessment.candidateReceiptId,
-            outputId: currentTable.outputId,
+            project: identity.project,
+            explorerId: identity.explorerId,
+            authResourcePath: identity.authResourcePath,
+            receiptId: candidateReceiptId,
+            outputId: identity.outputId,
             limit: previewLimit,
             requestId: `row-change-preview-${window.crypto.randomUUID()}`,
           }, controller.signal);
-          const latest = latestState.current;
-          if (controller.signal.aborted) return;
-          if (candidatePreview.receiptId !== assessment.candidateReceiptId ||
-            candidatePreview.outputId !== currentTable.outputId ||
-            candidatePreview.rows === null ||
-            latest.catalog.snapshotToken !== context.snapshotToken ||
-            latest.selectedOutputId !== context.outputId ||
-            serverDraft.current.version !== context.draftVersion ||
-            serverDraft.current.digest !== context.draftDigest) {
-            throw new Error('The proposed rows could not be matched to the current table. Review the change again.');
+          if (controller.signal.aborted || !isCurrentAttempt()) return;
+          if (candidatePreview.receiptId !== candidateReceiptId ||
+              candidatePreview.outputId !== identity.outputId ||
+              candidatePreview.rows === null) {
+            setPendingRowChangePreview(undefined);
+            setRootChangeState({
+              kind: 'failed', reason: 'unavailable', selection, resolution, identity,
+              message: 'Loom returned a preview that does not match the selected row change. The table has not changed.',
+            });
+            return;
           }
           setPendingRowChangePreview({ ...context, status: 'ready', preview: candidatePreview });
+          setRootChangeState({ kind: 'idle' });
         } catch (error) {
-          if (!controller.signal.aborted) {
-            setPendingRowChangePreview({
-              ...context,
-              status: 'error',
-              error: error instanceof Error ? error.message : 'Loom could not preview the proposed rows.',
-            });
-          }
+          if (controller.signal.aborted || !isCurrentAttempt()) return;
+          setPendingRowChangePreview(undefined);
+          setRootChangeState({
+            kind: 'failed', reason: 'request', selection, resolution, identity,
+            message: error instanceof Error ? error.message : 'Loom could not preview the proposed rows.',
+          });
         } finally {
           if (rowChangePreviewRequest.current === controller) rowChangePreviewRequest.current = undefined;
         }
       } catch (error) {
-        const apiError = error as ExplorerAuthoringApiError;
-        if (isDraftDesynchronized(apiError.code) || isStaleSnapshot(apiError.code)) {
+        if (!isCurrentAttempt()) return;
+        const apiError = typeof error === 'object' && error !== null && 'code' in error &&
+          typeof error.code === 'string'
+          ? {
+              code: error.code,
+              ...( 'message' in error && typeof error.message === 'string'
+                ? { message: error.message }
+                : {}),
+            }
+          : undefined;
+        if (apiError && (isDraftDesynchronized(apiError.code) || isStaleSnapshot(apiError.code))) {
           const refreshed = await refetchBuilder({ reload: true });
+          if (!isCurrentAttempt()) return;
           if (refreshed.data) syncBuilderData(refreshed.data, 'hydrate');
+          setRootChangeState({
+            kind: 'failed', reason: 'stale', selection, resolution, identity,
+            message: 'The table changed while Loom checked this row choice. Refresh the choices or keep the current rows.',
+          });
+          return;
         }
-        if (apiError.code !== 'CLIENT_CANCELLED') {
-          setMessage(apiError.message ?? 'Loom could not assess the row change.');
-        }
+        if (apiError?.code === 'CLIENT_CANCELLED') return;
+        setRootChangeState({
+          kind: 'failed', reason: 'request', selection, resolution, identity,
+          message: apiError?.message ?? (error instanceof Error ? error.message : 'Loom could not assess the row change.'),
+        });
+      } finally {
+        if (rowChangeAssessmentRequest.current === request) rowChangeAssessmentRequest.current = undefined;
       }
     },
-    [
-      assessRowChange,
-      authResourcePath,
-      loomClient,
-      previewLimit,
-      projectId,
-      refetchBuilder,
-      syncBuilderData,
-    ],
+    [abortRootChangeRequests, assessRowChange, getCurrentRootChangeIdentity, loomClient,
+      previewLimit, projectId, refetchBuilder, syncBuilderData],
   );
+
+  const selectRootChoice = useCallback((selection: RootChangeSelection) => {
+    const active = rootChangeStateRef.current;
+    const sameTarget = active.kind !== 'idle' && active.selection.nodeId === selection.nodeId;
+    const currentIdentity = getCurrentRootChangeIdentity();
+    const validPreviousResolution = active.kind === 'blocked' && sameTarget &&
+      currentIdentity !== undefined &&
+      sameRootChangeRequestIdentity(active.identity, currentIdentity)
+      ? active.resolution
+      : {};
+    if (selection.kind === 'compiler-route' || selection.kind === 'compiler-occurrence') {
+      const isCurrentBlocked = active.kind === 'blocked' && currentIdentity !== undefined &&
+        sameRootChangeRequestIdentity(active.identity, currentIdentity);
+      const alternative = selection.kind === 'compiler-route'
+        ? selection.routeToken
+        : selection.occurrenceId;
+      const reference = isCurrentBlocked
+        ? active.assessment.unresolved.find((candidate) =>
+            candidate.id === selection.referenceId &&
+            candidate.code === 'AMBIGUOUS_ROW_ROOT_OCCURRENCE' &&
+            candidate.alternatives?.includes(alternative),
+          )
+        : undefined;
+      if (!reference || !isCurrentBlocked || active.kind !== 'blocked') {
+        if (currentIdentity) setRootChangeState({
+          kind: 'failed', reason: 'unavailable', selection: active.kind === 'idle' ? selection : active.selection,
+          resolution: active.kind === 'idle' ? {} : active.resolution,
+          identity: active.kind === 'idle' ? currentIdentity : active.identity,
+          message: 'That relationship choice is no longer available. Refresh the choices or keep the current rows.',
+        });
+        return;
+      }
+      void changeTableRoot(selection, {
+        ...active.resolution,
+        rootOccurrenceId: alternative,
+      });
+      return;
+    }
+    const resolution: RootChangeResolution = {
+      ...(validPreviousResolution.routeRebase?.length
+        ? { routeRebase: validPreviousResolution.routeRebase }
+        : {}),
+      ...(selection.kind === 'authored-occurrence'
+        ? { rootOccurrenceId: selection.occurrenceId }
+        : {}),
+    };
+    void changeTableRoot(selection, resolution);
+  }, [changeTableRoot, getCurrentRootChangeIdentity]);
+
+  const resolveRootChange = useCallback((referenceId: string, alternative: string) => {
+    const active = rootChangeStateRef.current;
+    const currentIdentity = getCurrentRootChangeIdentity();
+    const isCurrentBlocked = active.kind === 'blocked' && currentIdentity !== undefined &&
+      sameRootChangeRequestIdentity(active.identity, currentIdentity);
+    const reference = isCurrentBlocked && active.kind === 'blocked'
+      ? active.assessment.unresolved.find((candidate) =>
+          candidate.id === referenceId &&
+          candidate.code === 'AMBIGUOUS_ROUTE_REBASE_EDGE' &&
+          candidate.alternatives?.includes(alternative),
+        )
+      : undefined;
+    if (!reference || !isCurrentBlocked || active.kind !== 'blocked') {
+      if (active.kind !== 'idle') setRootChangeState({
+        kind: 'failed', reason: 'unavailable', selection: active.selection,
+        resolution: active.resolution, identity: active.identity,
+        message: 'That relationship choice is no longer available. Refresh the choices or keep the current rows.',
+      });
+      return;
+    }
+    const resolution: RootChangeResolution = {
+      ...active.resolution,
+      routeRebase: [
+        ...(active.resolution.routeRebase ?? []).filter(
+          (choice) => choice.occurrenceId !== referenceId,
+        ),
+        { occurrenceId: referenceId, edgeId: alternative },
+      ],
+    };
+    void changeTableRoot(active.selection, resolution);
+  }, [changeTableRoot, getCurrentRootChangeIdentity]);
+
+  const refreshRootChange = useCallback(() => {
+    const active = rootChangeStateRef.current;
+    if (active.kind === 'idle') return;
+    if (active.kind === 'failed' && active.reason !== 'request') {
+      void changeTableRoot({ kind: 'catalog-node', nodeId: active.selection.nodeId }, {});
+      return;
+    }
+    void changeTableRoot(active.selection, active.resolution);
+  }, [changeTableRoot]);
 
   const applyRowChangePreview = useCallback(async () => {
     const pending = pendingRowChangePreview;
     if (pending?.status !== 'ready') return;
-    const current = latestState.current;
-    if (current.catalog.snapshotToken !== pending.snapshotToken ||
-      current.selectedOutputId !== pending.outputId ||
-      serverDraft.current.version !== pending.draftVersion ||
-      serverDraft.current.digest !== pending.draftDigest) {
+    const currentIdentity = getCurrentRootChangeIdentity();
+    if (!currentIdentity || !sameRootChangeRequestIdentity(pending.identity, currentIdentity)) {
       setPendingRowChangePreview(undefined);
       setMessage('The table changed. Review the proposed rows again.');
       return;
@@ -1882,32 +2076,7 @@ const BuilderWorkspaceContent = ({
       rowChange: pending.assessment.proposal,
     }]);
     if (applied) setPendingRowChangePreview(undefined);
-  }, [applyCommands, pendingRowChangePreview]);
-
-  const resolveRowChange = useCallback(
-    (
-      reference: RowChangeUnresolvedReference,
-      alternative: string,
-    ) => {
-      if (!pendingRowChange) return;
-      const resolution = reference.code === 'AMBIGUOUS_ROW_ROOT_OCCURRENCE'
-        ? {
-            ...pendingRowChange.resolution,
-            rootOccurrenceId: alternative,
-          }
-        : {
-            ...pendingRowChange.resolution,
-            routeRebase: [
-              ...(pendingRowChange.resolution.routeRebase ?? []).filter(
-                (choice) => choice.occurrenceId !== reference.id,
-              ),
-              { occurrenceId: reference.id, edgeId: alternative },
-            ],
-          };
-      void changeTableRoot(pendingRowChange.nodeId, resolution);
-    },
-    [changeTableRoot, pendingRowChange],
-  );
+  }, [applyCommands, getCurrentRootChangeIdentity, pendingRowChangePreview]);
 
   const ensureSuggestions = useCallback(() => {
     const current = latestState.current;
@@ -3785,6 +3954,10 @@ const BuilderWorkspaceContent = ({
     </section>
   );
 
+  const rootChangePreviewReady = pendingRowChangePreview?.status === 'ready' &&
+    currentRootChangeIdentity !== undefined &&
+    sameRootChangeRequestIdentity(pendingRowChangePreview.identity, currentRootChangeIdentity);
+
   return (
     <main className="min-h-screen bg-slate-50 p-2 pb-10 text-slate-900 sm:p-3">
       {toolbarHost ? createPortal(toolbar, toolbarHost) : toolbar}
@@ -3912,30 +4085,14 @@ const BuilderWorkspaceContent = ({
             </button>
           </div>
         ) : null}
-        {pendingRowChange && table ? (
-          <RowChangeRepairPanel
-            unresolved={pendingRowChange.assessment.unresolved}
-            catalog={state.catalog}
-            table={table}
-            candidateRootNodeId={pendingRowChange.nodeId}
-            snapshotIsCurrent={pendingRowChange.assessment.snapshotToken === state.catalog.snapshotToken}
-            disabled={rowChangeStatus.isLoading}
-            onChoose={resolveRowChange}
-            onCancel={() => setPendingRowChange(undefined)}
-          />
-        ) : null}
-        {pendingRowChangePreview && table?.outputId === pendingRowChangePreview.outputId ? (
+        {rootChangePreviewReady && pendingRowChangePreview?.status === 'ready' ? (
           <RowChangePreviewPanel
             candidateRoot={pendingRowChangePreview.assessment.candidateRootResourceType}
-            status={pendingRowChangePreview.status}
-            preview={pendingRowChangePreview.status === 'ready' ? pendingRowChangePreview.preview : undefined}
-            error={pendingRowChangePreview.status === 'error' ? pendingRowChangePreview.error : undefined}
+            status="ready"
+            preview={pendingRowChangePreview.preview}
             disabled={pendingCommands > 0}
             onApply={() => void applyRowChangePreview()}
-            onCancel={() => {
-              rowChangePreviewRequest.current?.abort();
-              setPendingRowChangePreview(undefined);
-            }}
+            onCancel={cancelRootChange}
           />
         ) : null}
         {state.tables.length === 0 ? tableCreatorPanel : (
@@ -3980,12 +4137,17 @@ const BuilderWorkspaceContent = ({
                     workspaceTables={state.tables}
                     currentRowMeaning={rowMeaning}
                     startingCollectionSummary={startingCollectionSummary}
-                    renderRootSettings={(onRootChange, onReplaceRoot) => (
+                    renderRootSettings={(onRootChange, onResolveRootChange, onReplaceRoot) => (
                       <RowDefinitionPanel
                         catalog={state.catalog}
                         table={table}
-                        disabled={rowChangeStatus.isLoading || pendingCommands > 0 || state.reconciliation === 'pending'}
+                        disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                        rootChangeState={rootChangeState}
+                        currentIdentity={rootChangeIdentityForTable(table.outputId)}
                         onChange={onRootChange}
+                        onResolve={onResolveRootChange}
+                        onRefresh={refreshRootChange}
+                        onKeepCurrent={cancelRootChange}
                         onReplace={onReplaceRoot}
                       />
                     )}
@@ -4065,12 +4227,11 @@ const BuilderWorkspaceContent = ({
                         disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
                       />
                     ) : undefined}
-                    onChangeRootSelection={(selection: RootChangeSelection) => void changeTableRoot(
-                      selection.nodeId,
-                      selection.kind === 'authored-occurrence'
-                        ? { rootOccurrenceId: selection.occurrenceId }
-                        : {},
-                    )}
+                    onChangeRootSelection={selectRootChoice}
+                    onResolveRootSelection={resolveRootChange}
+                    rootChangeState={rootChangeState}
+                    rootChangePreviewOpen={rootChangePreviewReady}
+                    onCancelRootChange={cancelRootChange}
                     onEditConstructionStep={editConstructionStep}
                     onRemoveConstructionStep={removeConstructionStep}
                     onApply={(proposalId) => applyCommands([{
@@ -4105,7 +4266,7 @@ const BuilderWorkspaceContent = ({
                   !table.document.rootResourceType ||
                   pendingCommands > 0 ||
                   state.reconciliation === 'pending' ||
-                  Boolean(pendingRowChange) ||
+                  rootChangeState.kind !== 'idle' ||
                   Boolean(pendingRowChangePreview) ||
                   constructionLifecycle.proposal.status === 'applying'
                 }
@@ -4324,7 +4485,7 @@ const BuilderWorkspaceContent = ({
                     },
                   ])
                 }
-                onChangeBase={(nodeId) => void changeTableRoot(nodeId)}
+                onChangeBase={(nodeId) => selectRootChoice({ kind: 'catalog-node', nodeId })}
                 onAppendEdge={(parentOccurrenceId, edgeId) => {
                   if (!table) return;
                   const edge = state.catalog.edges.find(

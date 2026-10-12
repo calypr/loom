@@ -19,7 +19,6 @@ import { readBasicRootReplacementOracle } from '../helpers/basic-root-replacemen
 
 const ACTION_TIMEOUT_MS = 5_000;
 const REPLACEMENT_TYPE_CONTROL = 'Record type';
-const REPLACEMENT_ACTION = 'Review changes';
 const REPLACEMENT_REVIEW_HEADING = 'Replace this table’s current setup?';
 const REPLACEMENT_APPLY = 'Change starting record type';
 const REPLACEMENT_CANCEL = 'Cancel';
@@ -763,9 +762,10 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
     });
     const rowMeaning = dialog.getByRole('region', { name: 'What should each row represent?', exact: true });
     const recordType = rowMeaning.getByRole('combobox', { name: REPLACEMENT_TYPE_CONTROL, exact: true });
-    const review = rowMeaning.getByRole('button', { name: REPLACEMENT_ACTION, exact: true });
     assert.equal(await recordType.count(), 1,
       'The row setup must expose one Record type picker for preservation and replacement.');
+    assert.equal(await rowMeaning.getByRole('button', { name: 'Review changes', exact: true }).count(), 0,
+      'Selecting a record type must start its review without a separate Review changes action.');
     assert.equal(await dialog.getByRole('combobox', { name: 'Choose starting record type', exact: true }).count(), 0,
       'The old separate preservation picker must be absent.');
     assert.equal(await dialog.getByRole('combobox', { name: 'Choose replacement starting type', exact: true }).count(), 0,
@@ -773,8 +773,7 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
     assert.equal(await dialog.getByRole('heading', { name: 'Replace current setup', exact: true }).count(), 0,
       'Disconnected replacement choices must not appear in a separate setup card.');
     assert.equal(await dialog.getByRole('button', { name: 'Replace current setup', exact: true }).count(), 0,
-      'The shared picker must use Review changes for a replacement proposal.');
-    await review.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
+      'Disconnected replacement choices must not have a separate setup action.');
     const currentOption = recordType.locator('option:checked');
     const currentChoice = normalize(await currentOption.innerText());
     assert.equal(currentChoice, currentResourceType + ' (current)',
@@ -787,24 +786,17 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
       'The shared picker must retain the route-readable ' + currentResourceType + '-to-' +
         connectedResourceType + ' choice: ' + JSON.stringify(preserveOptions));
     assert.equal(await dialog.getByRole('combobox', { name: REPLACEMENT_TYPE_CONTROL, exact: true }).count(), 1);
-    return { dialog, rowMeaning, recordType, review, preserveOptions, routeOption };
+    return { dialog, rowMeaning, recordType, preserveOptions, routeOption };
   };
 
   const assessReplacement = async label => {
-    const { dialog: rowSettingsDialog, recordType: targetType, review } = await openRowSettings();
+    const { recordType: targetType } = await openRowSettings();
     const targetOptions = await targetType.locator('option').evaluateAll(options => options.map(option => ({ value: option.value, label: option.textContent.trim() })));
     assert(targetOptions.some(option => option.value === 'replacement:' + researchStudyNode.nodeId && /ResearchStudy/.test(option.label)),
       `Disconnected ResearchStudy must be an explicit option in the shared Record type picker: ${JSON.stringify(targetOptions)}`);
-    await act('select the loaded disconnected ResearchStudy in the shared Record type picker', targetType,
-      () => targetType.selectOption('replacement:' + researchStudyNode.nodeId), {
-        after: async () => assert.equal(await targetType.inputValue(), 'replacement:' + researchStudyNode.nodeId),
-      });
-    const replace = review;
-    assert.equal(await rowSettingsDialog.getByRole('combobox', { name: REPLACEMENT_TYPE_CONTROL, exact: true }).count(), 1,
-      'ResearchStudy replacement must use the same single Record type picker as connected preservation.');
     let assessmentResult;
     let assessmentResponsePromise;
-    await act(label, replace, async (control, { remainingTimeout }) => {
+    await act(label, targetType, async (control, { remainingTimeout }) => {
       assessmentResponsePromise = page.waitForResponse(response => {
         const request = response.request();
         const url = new URL(response.url());
@@ -812,7 +804,9 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
         return request.method() === 'POST' && url.origin === uiOrigin && url.pathname === replacementRouteChangePath &&
           body?.outputId === outputId && body.mode === 'REPLACE' && body.rootNodeId === researchStudyNode.nodeId;
       }, { timeout: remainingTimeout() });
-      await control.click({ timeout: remainingTimeout() });
+      await control.selectOption('replacement:' + researchStudyNode.nodeId, { timeout: remainingTimeout() });
+      assert.equal(await targetType.inputValue(), 'replacement:' + researchStudyNode.nodeId,
+        'Selecting disconnected ResearchStudy must directly start its replacement assessment.');
     }, {
       after: async ({ remainingTimeout }) => {
         const response = await assessmentResponsePromise;
@@ -927,7 +921,7 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
   };
 
   const firstAssessmentCount = actionRequests.length;
-  const firstReview = await assessReplacement('review explicit ResearchStudy replacement consequences');
+  const firstReview = await assessReplacement('select disconnected ResearchStudy to open replacement review');
   const firstAssessment = firstReview.assessment;
   const firstRequest = actionRequests.slice(firstAssessmentCount).find(entry => entry.kind === 'replacement-assessment');
   assert(firstRequest, 'Native target selection must send its explicit replacement assessment request.');
@@ -984,7 +978,7 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
   assert.equal(builder.draftDigest, baselineBuilder.draftDigest);
 
   const secondAssessmentStart = actionRequests.length;
-  const secondReview = await assessReplacement('review the same replacement after Cancel');
+  const secondReview = await assessReplacement('reselect disconnected ResearchStudy after Cancel to reopen replacement review');
   const secondAssessment = secondReview.assessment;
   const secondRequest = actionRequests.slice(secondAssessmentStart).find(entry => entry.kind === 'replacement-assessment');
   assert(secondRequest, 'Repeated target selection must send a fresh server replacement assessment.');
@@ -1163,7 +1157,6 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
     dialog: startFreshSettings,
     rowMeaning: startFreshRowMeaning,
     recordType: startFreshRecordType,
-    review: reviewConnectedType,
     routeOption: diagnosticRouteOption,
   } = await openRowSettings({
     currentResourceType: 'ResearchStudy',
@@ -1185,15 +1178,9 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
     'The connected choice must retain its exact readable ResearchStudy Result route.');
   assert.equal(diagnosticRouteOption, connectedDiagnosticReport.label,
     'The shared picker route contract must identify the same DiagnosticReport option selected below.');
-  await act('select connected DiagnosticReport in the shared Record type picker', startFreshRecordType,
-    () => startFreshRecordType.selectOption(connectedDiagnosticReport.value), {
-      after: async () => assert.equal(await startFreshRecordType.inputValue(), connectedDiagnosticReport.value),
-    });
   const startFresh = startFreshRowMeaning.getByRole('button', {
     name: 'Start fresh with DiagnosticReport', exact: true,
   });
-  await startFresh.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
-  await reviewConnectedType.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
   assert.equal(await startFreshSettings.getByRole('combobox', {
     name: REPLACEMENT_TYPE_CONTROL, exact: true,
   }).count(), 1, 'Start Fresh must use the same single Record type picker.');
@@ -1204,7 +1191,7 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
   let startFreshReviewText;
   let startFreshCandidate;
   let startFreshCandidateGrid;
-  await act('Start fresh with connected DiagnosticReport', startFresh, async (control, { remainingTimeout }) => {
+  await act('Start fresh with connected DiagnosticReport', startFreshRecordType, async (control, { remainingTimeout }) => {
     const responsePromise = page.waitForResponse(response => {
       const request = response.request();
       const url = new URL(response.url());
@@ -1213,7 +1200,9 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
         url.pathname === replacementRouteChangePath && body?.outputId === outputId &&
         body.mode === 'REPLACE' && body.rootNodeId === reportNode.nodeId;
     }, { timeout: remainingTimeout() });
-    await control.click({ timeout: remainingTimeout() });
+    await control.selectOption(connectedDiagnosticReport.value, { timeout: remainingTimeout() });
+    await startFresh.waitFor({ state: 'visible', timeout: remainingTimeout() });
+    await startFresh.click({ timeout: remainingTimeout() });
     const response = await responsePromise;
     assert.equal(response.status(), 200, 'Connected DiagnosticReport Start Fresh assessment must return HTTP 200.');
     const request = requestBody(response.request());
@@ -1473,11 +1462,11 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
       'nondefault two-member Patient starting collection and active GTE birthDate filter',
       'native second Patient root and current-draft KEY_JOIN consumer of the source birthDate column',
       'disconnected ResearchStudy selected through the shared native Record type picker',
-      'Review changes opened the replacement consequence dialog, which Cancel closed with the exact saved Patient source preserved',
+      'Selecting disconnected ResearchStudy opened its replacement consequence dialog, which Cancel closed with the exact saved Patient source preserved',
       'same replacement reassessed and applied using the atomic root-replacement command',
       'replacement output identity/title/default ID rows verified after reload',
       'ResearchStudy→DiagnosticReport relationship option inspected after reload',
-      'connected DiagnosticReport selected through the shared Record type picker and contextual Start fresh action',
+      'connected DiagnosticReport selected and Start Fresh launched from the shared Record type picker',
       'Start Fresh reviewed the exact ResearchStudy root and ID reset consequences and DiagnosticReport ID rows',
       'connected Start Fresh applied and reloaded the same output with exact DiagnosticReport IDs',
     ],

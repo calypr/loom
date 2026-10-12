@@ -1,4 +1,8 @@
-import type { ExplorerBuilderCatalog } from '../../../types';
+import type {
+  ExplorerBuilderCatalog,
+  RowChangeAssessment,
+  RowChangeUnresolvedReference,
+} from '../../../types';
 import { relationshipLabel } from '../constructionWorkspace/routeDisplay';
 import { derivedOccurrences, type DraftTable } from './model';
 
@@ -11,7 +15,240 @@ export type RootChangeSelection =
   | {
       readonly kind: 'catalog-node';
       readonly nodeId: string;
+    }
+  | {
+      readonly kind: 'compiler-route';
+      readonly nodeId: string;
+      readonly referenceId: string;
+      readonly routeToken: string;
+    }
+  | {
+      readonly kind: 'compiler-occurrence';
+      readonly nodeId: string;
+      readonly referenceId: string;
+      readonly occurrenceId: string;
     };
+
+export type CompilerRootPickerChoice =
+  | {
+      readonly kind: 'compiler-route';
+      readonly key: string;
+      readonly selection: Extract<RootChangeSelection, { readonly kind: 'compiler-route' }>;
+      readonly label: string;
+    }
+  | {
+      readonly kind: 'compiler-occurrence';
+      readonly key: string;
+      readonly selection: Extract<RootChangeSelection, { readonly kind: 'compiler-occurrence' }>;
+      readonly label: string;
+    }
+  | {
+      readonly kind: 'compiler-edge';
+      readonly key: string;
+      readonly referenceId: string;
+      readonly nodeId: string;
+      readonly edgeId: string;
+      readonly label: string;
+    };
+
+export type RootChangeResolution = {
+  readonly rootOccurrenceId?: string;
+  readonly routeRebase?: ReadonlyArray<{
+    readonly occurrenceId: string;
+    readonly edgeId: string;
+  }>;
+};
+
+export type RootChangeRequestIdentity = {
+  readonly epoch: number;
+  readonly project: string;
+  readonly authResourcePath?: string;
+  readonly explorerId: string;
+  readonly outputId: string;
+  readonly snapshotToken: string;
+  readonly draftVersion: number;
+  readonly draftDigest: string;
+};
+
+export const sameRootChangeRequestIdentity = (
+  left: RootChangeRequestIdentity,
+  right: RootChangeRequestIdentity,
+): boolean => left.epoch === right.epoch && left.project === right.project &&
+  left.authResourcePath === right.authResourcePath && left.explorerId === right.explorerId &&
+  left.outputId === right.outputId && left.snapshotToken === right.snapshotToken &&
+  left.draftVersion === right.draftVersion && left.draftDigest === right.draftDigest;
+
+export type RootChangePickerState =
+  | { readonly kind: 'idle' }
+  | {
+      readonly kind: 'assessing';
+      readonly selection: RootChangeSelection;
+      readonly resolution: RootChangeResolution;
+      readonly identity: RootChangeRequestIdentity;
+    }
+  | {
+      readonly kind: 'blocked';
+      readonly selection: RootChangeSelection;
+      readonly resolution: RootChangeResolution;
+      readonly identity: RootChangeRequestIdentity;
+      readonly assessment: Extract<RowChangeAssessment, { readonly status: 'BLOCKED' }>;
+    }
+  | {
+      readonly kind: 'previewing';
+      readonly selection: RootChangeSelection;
+      readonly resolution: RootChangeResolution;
+      readonly identity: RootChangeRequestIdentity;
+    }
+  | {
+      readonly kind: 'failed';
+      readonly reason: 'stale' | 'unavailable' | 'request';
+      readonly selection: RootChangeSelection;
+      readonly resolution: RootChangeResolution;
+      readonly identity: RootChangeRequestIdentity;
+      readonly message: string;
+    };
+
+const edgeChoiceLabel = (
+  edgeId: string,
+  reference: RowChangeUnresolvedReference,
+  catalog: ExplorerBuilderCatalog,
+): string | undefined => {
+  const edge = catalog.edges.find((candidate) => candidate.edgeId === edgeId);
+  if (!edge) return undefined;
+  const from = catalog.nodes.find((node) => node.nodeId === edge.fromNodeId)?.resourceType;
+  const to = catalog.nodes.find((node) => node.nodeId === edge.toNodeId)?.resourceType;
+  if (!from || !to) return undefined;
+  const relationship = relationshipLabel({
+    fromResourceType: from,
+    toResourceType: to,
+    relationship: edge.label,
+  });
+  return `Use ${relationship} between ${from} and ${to} for ${reference.message}`;
+};
+
+export const compilerRootRepairChoices = ({
+  assessment,
+  catalog,
+  table,
+  target,
+  resolution,
+  boundaryIdentity,
+}: {
+  readonly assessment: Extract<RowChangeAssessment, { readonly status: 'BLOCKED' }>;
+  readonly catalog: ExplorerBuilderCatalog;
+  readonly table: DraftTable;
+  readonly target: RootChangeSelection;
+  readonly resolution: RootChangeResolution;
+  readonly boundaryIdentity: RootChangeRequestIdentity;
+}): ReadonlyArray<CompilerRootPickerChoice> => {
+  if (table.outputId !== boundaryIdentity.outputId ||
+      catalog.snapshotToken !== boundaryIdentity.snapshotToken ||
+      assessment.snapshotToken !== boundaryIdentity.snapshotToken ||
+      assessment.draftVersion !== boundaryIdentity.draftVersion ||
+      assessment.draftDigest !== boundaryIdentity.draftDigest) return [];
+  const occurrences = derivedOccurrences(table, catalog);
+  const authoredChoices = startingRootChoices(table, catalog);
+  const choices: CompilerRootPickerChoice[] = [];
+  for (const reference of assessment.unresolved) {
+    if (reference.code === 'AMBIGUOUS_ROW_ROOT_OCCURRENCE') {
+      for (const alternative of reference.alternatives ?? []) {
+        if (alternative === resolution.rootOccurrenceId) continue;
+        if (isCatalogRootRouteSelectionToken(alternative)) {
+          const route = resolveCatalogRootRouteSelection(
+            alternative,
+            catalog,
+            table,
+            target.nodeId,
+            true,
+          );
+          if (!route) continue;
+          choices.push({
+            kind: 'compiler-route',
+            key: `compiler-route:${reference.id}:${alternative}`,
+            selection: {
+              kind: 'compiler-route',
+              nodeId: target.nodeId,
+              referenceId: reference.id,
+              routeToken: alternative,
+            },
+            label: `Use ${route.pathLabel} from ${route.anchorLabel}`,
+          });
+          continue;
+        }
+        const occurrence = occurrences.find((candidate) => candidate.id === alternative);
+        if (!occurrence) continue;
+        const pathLabel = authoredChoices.find((choice) =>
+          choice.selection.kind === 'authored-occurrence' &&
+          choice.selection.occurrenceId === occurrence.id,
+        )?.relationship ?? occurrence.relationship ?? `${occurrence.resourceType} rows`;
+        choices.push({
+          kind: 'compiler-occurrence',
+          key: `compiler-occurrence:${reference.id}:${alternative}`,
+          selection: {
+            kind: 'compiler-occurrence',
+            nodeId: target.nodeId,
+            referenceId: reference.id,
+            occurrenceId: occurrence.id,
+          },
+          label: `Use ${pathLabel}`,
+        });
+      }
+      continue;
+    }
+    if (reference.code !== 'AMBIGUOUS_ROUTE_REBASE_EDGE') continue;
+    for (const edgeId of reference.alternatives ?? []) {
+      if (resolution.routeRebase?.some((choice) =>
+        choice.occurrenceId === reference.id && choice.edgeId === edgeId,
+      )) continue;
+      const label = edgeChoiceLabel(edgeId, reference, catalog);
+      if (!label) continue;
+      choices.push({
+        kind: 'compiler-edge',
+        key: `compiler-edge:${reference.id}:${edgeId}`,
+        referenceId: reference.id,
+        nodeId: target.nodeId,
+        edgeId,
+        label,
+      });
+    }
+  }
+  return choices;
+};
+
+export const compilerRootSelectionLabel = ({
+  selection,
+  catalog,
+  table,
+  boundaryIdentity,
+}: {
+  readonly selection: RootChangeSelection;
+  readonly catalog: ExplorerBuilderCatalog;
+  readonly table: DraftTable;
+  readonly boundaryIdentity: RootChangeRequestIdentity;
+}): string | undefined => {
+  if (table.outputId !== boundaryIdentity.outputId ||
+      catalog.snapshotToken !== boundaryIdentity.snapshotToken) return undefined;
+  if (selection.kind === 'compiler-route') {
+    const route = resolveCatalogRootRouteSelection(
+      selection.routeToken,
+      catalog,
+      table,
+      selection.nodeId,
+      true,
+    );
+    return route ? `Use ${route.pathLabel} from ${route.anchorLabel}` : undefined;
+  }
+  if (selection.kind !== 'compiler-occurrence') return undefined;
+  const occurrence = derivedOccurrences(table, catalog).find(
+    (candidate) => candidate.id === selection.occurrenceId,
+  );
+  if (!occurrence) return undefined;
+  const pathLabel = startingRootChoices(table, catalog).find((choice) =>
+    choice.selection.kind === 'authored-occurrence' &&
+    choice.selection.occurrenceId === occurrence.id,
+  )?.relationship ?? occurrence.relationship ?? `${occurrence.resourceType} rows`;
+  return `Use ${pathLabel}`;
+};
 
 export type StartingRootChoice = {
   readonly key: string;
