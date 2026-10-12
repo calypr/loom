@@ -39,6 +39,10 @@ export const readConditionSpecimenRouteOracle = fixtureDir => {
   assert.deepEqual(ids('Condition'), [
     'condition-focus-route', 'condition-stage-route', 'condition-subject-route',
   ]);
+  for (const condition of resources.Condition) {
+    assert.deepEqual(condition.clinicalStatus, { text: 'active' },
+      `Condition/${condition.id} must retain the loader-required clinicalStatus value.`);
+  }
   assert.deepEqual(ids('Observation'), ['observation-focus-route', 'observation-stage-route']);
   assert.deepEqual(ids('Patient'), [
     'patient-focus-anchor', 'patient-observation-anchor', 'patient-subject-anchor', 'patient-unmatched',
