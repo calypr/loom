@@ -27,6 +27,7 @@ export const correlatedBindingSchema = z.object({
   codePath: opaqueIdSchema,
   valuePath: opaqueIdSchema,
   valueFallback: z.array(opaqueIdSchema).optional(),
+  fallbackOnBlankString: z.boolean().optional(),
   choiceArms: z.array(opaqueIdSchema).optional(),
   logicalType: opaqueIdSchema,
   unitPath: z.string().optional(),

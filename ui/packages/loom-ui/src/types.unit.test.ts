@@ -15,6 +15,7 @@ import {
   explorerBuilderCandidateSchema,
   explorerBuilderCatalogEdgeSchema,
   constructionChoiceSchema,
+  correlatedBindingSchema,
   explorerBuilderCommandSchema,
   explorerBuilderDocumentSchema,
   explorerColumnSourceSchema,
@@ -800,6 +801,35 @@ describe('row-definition contract schemas', () => {
   });
 });
 
+describe('correlatedBindingSchema', () => {
+  const binding = {
+    ownerPath: 'code.coding[]',
+    keyPath: 'code.coding[]',
+    systemPath: 'system',
+    codePath: 'code',
+    valuePath: 'valueCodeableConcept.text',
+    valueFallback: ['valueCodeableConcept.coding[].display'],
+    logicalType: 'string',
+  };
+
+  it.each([true, false])('parses and JSON-round-trips fallbackOnBlankString=%s', fallbackOnBlankString => {
+    const expected = { ...binding, fallbackOnBlankString };
+    const parsed = correlatedBindingSchema.parse(expected);
+    const serialized = JSON.parse(JSON.stringify(parsed));
+
+    expect(parsed).toEqual(expected);
+    expect(correlatedBindingSchema.parse(serialized)).toEqual(expected);
+  });
+
+  it('rejects unknown binding keys while allowing fallbackOnBlankString', () => {
+    expect(correlatedBindingSchema.safeParse({
+      ...binding,
+      fallbackOnBlankString: true,
+      unrelatedServerField: 'not in the wire contract',
+    }).success).toBe(false);
+  });
+});
+
 describe('explorerColumnSourceSchema', () => {
   it('preserves a typed Identifier namespace/value binding', () => {
     const source = {
@@ -826,13 +856,16 @@ describe('explorerColumnSourceSchema', () => {
   it('preserves the selected terminology pair and rejects competing legacy fields', () => {
     const binding = {
       ownerPath: 'component[]', keyPath: 'component[].code.coding[]',
-      systemPath: 'system', codePath: 'code', valuePath: 'valueQuantity.value', logicalType: 'decimal',
+      systemPath: 'system', codePath: 'code', valuePath: 'valueCodeableConcept.text',
+      valueFallback: ['valueCodeableConcept.coding[].display'], fallbackOnBlankString: true, logicalType: 'string',
     };
     const source = {
       kind: 'codedValue',
       lookup: { binding, key: { system: 'urn:system:B', code: 'shared' }, projectionMode: 'ALL' },
     };
-    expect(explorerColumnSourceSchema.parse(source)).toEqual(source);
+    const parsedSource = explorerColumnSourceSchema.parse(source);
+    expect(parsedSource).toEqual(source);
+    expect(explorerColumnSourceSchema.parse(JSON.parse(JSON.stringify(parsedSource)))).toEqual(source);
     expect(explorerColumnSourceSchema.safeParse({ ...source, kind: 'identifierBySystem' }).success).toBe(false);
     for (const kind of ['codingBySystem', 'observationComponentByCode']) {
       expect(explorerColumnSourceSchema.safeParse({ ...source, kind }).success).toBe(false);
