@@ -187,7 +187,8 @@ test('replacement and connected preservation share one route-readable Record typ
   assert.match(workflowSource, /startFreshAssessment\.proposal\.workspaceOutputConsumers, expectedConsumerEffects/);
   assert.match(workflowSource, /name: 'Affected current-draft consumers', exact: true/);
   assert.match(workflowSource, /await affectedConsumers\.waitFor\(\{ state: 'visible', timeout: remainingTimeout\(\) \}\)/);
-  assert.match(workflowSource, /const patientJoinColumnIDs = \[\s*idColumnFor\(baselineDocument, 'Patient'\)\.columnId,\s*duplicateIDColumn\.columnId,/);
+  assert.match(workflowSource, /const expectedAffectedColumnIDs = \[\s*\.\.\.\(consumerStep\.operation\.combine\.projections \?\? \[\]\)\s*\.filter\(projection => projection\.inputIndex === 0\)\s*\.map\(projection => projection\.inputColumnId\),\s*\.\.\.\(consumerStep\.operation\.combine\.keys \?\? \[\]\)\s*\.map\(key => key\.leftColumnId\)\s*\.filter\(Boolean\),/);
+  assert.match(workflowSource, /new Set\(expectedAffectedColumnIDs\)/);
   assert.match(workflowSource, /assert\.deepEqual\(affectedConsumerRows, expectedAffectedConsumerRows/);
   assert.doesNotMatch(workflowSource, /No current-draft table inputs use this output\./);
   assert.doesNotMatch(workflowSource, /noCurrentDraftConsumers/);

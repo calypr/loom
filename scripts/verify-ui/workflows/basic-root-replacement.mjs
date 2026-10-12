@@ -1277,15 +1277,19 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
     });
     await affectedConsumers.waitFor({ state: 'visible', timeout: remainingTimeout() });
     const affectedConsumerRows = (await affectedConsumers.getByRole('listitem').allTextContents()).map(normalize);
-    const patientJoinColumnIDs = [
-      idColumnFor(baselineDocument, 'Patient').columnId,
-      duplicateIDColumn.columnId,
+    const expectedAffectedColumnIDs = [
+      ...(consumerStep.operation.combine.projections ?? [])
+        .filter(projection => projection.inputIndex === 0)
+        .map(projection => projection.inputColumnId),
+      ...(consumerStep.operation.combine.keys ?? [])
+        .map(key => key.leftColumnId)
+        .filter(Boolean),
     ];
     const expectedAffectedConsumerRows = [
-      `${consumerTitle} · Join fields: ${patientJoinColumnIDs.join(', ')}`,
+      `${consumerTitle} · Join fields: ${[...new Set(expectedAffectedColumnIDs)].join(', ')}`,
     ];
     assert.deepEqual(affectedConsumerRows, expectedAffectedConsumerRows,
-      'Start Fresh must name exactly the existing consumer and both saved Patient ID join columns in order.');
+      'Start Fresh must name exactly the existing consumer and fields from the replaced input in UI order.');
     assert(startFreshReviewText.includes('No shared-filter bindings will be removed.'),
       'The reset review must show that no shared-filter bindings need removal.');
     const previewTable = startFreshDialog.locator(ROOT_REPLACEMENT_TABLE_SELECTOR);
