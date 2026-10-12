@@ -357,9 +357,7 @@ export const registry = Object.freeze([
             ],
             sourceFiles: [
               'ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionPanel.tsx',
-              'ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionPanel.unit.test.tsx',
               'ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts',
-              'ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.unit.test.ts',
             ],
           },
           {
