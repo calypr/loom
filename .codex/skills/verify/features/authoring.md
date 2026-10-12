@@ -55,9 +55,9 @@ represent?` box has one `Record type` picker. Choose a connected type and use
 `Review changes` to inspect the route and which columns or filters carry over.
 For a connected type, `Start fresh with <type>` is available in that same box;
 it opens the replacement preview, including removed setup and current-draft
-consumer effects, before `Apply`. Eligible disconnected types use the same
-picker and `Review changes` to open the replacement preview. Selecting a type
-alone does not change the saved table.
+consumer effects, before applying the change. Eligible disconnected types use
+the same picker and `Review changes` to open the replacement preview. Selecting
+a type alone does not change the saved table.
 
 The native `builder-authoring/authoring` case covers the connected
 Patient↔Observation preservation flow. The
