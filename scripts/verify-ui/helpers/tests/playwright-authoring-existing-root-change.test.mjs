@@ -46,9 +46,9 @@ test('existing-root preview normalizes missing Patient ID and Gender display cel
 
 test('existing-root option matching keeps resource type outside the serialized DOM callback', async () => {
   const optionNodes = [
-    { value: 'base', textContent: 'Patient', disabled: false },
-    { value: 'observation-subject', textContent: 'Observation via subject_Patient', disabled: false },
-    { value: 'encounter-service', textContent: 'Encounter via service', disabled: false },
+    { value: 'current', textContent: 'Patient (current)', disabled: true },
+    { value: 'node:observation-node', textContent: 'Observation via Patient → Subject → Observation', disabled: false },
+    { value: 'node:encounter-node', textContent: 'Encounter via Patient → Encounter → Service → Encounter', disabled: false },
   ];
   const selector = {
     locator: name => {
@@ -62,6 +62,6 @@ test('existing-root option matching keeps resource type outside the serialized D
   };
 
   assert.deepEqual(await rootOption(selector, 'Observation'), {
-    value: 'observation-subject', label: 'Observation via subject_Patient', disabled: false,
+    value: 'node:observation-node', label: 'Observation via Patient → Subject → Observation', disabled: false,
   });
 });

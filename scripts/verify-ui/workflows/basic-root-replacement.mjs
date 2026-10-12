@@ -18,8 +18,8 @@ import {
 import { readBasicRootReplacementOracle } from '../helpers/basic-root-replacement-oracle.mjs';
 
 const ACTION_TIMEOUT_MS = 5_000;
-const REPLACEMENT_TYPE_CONTROL = 'Choose replacement starting type';
-const REPLACEMENT_ACTION = 'Replace current setup';
+const REPLACEMENT_TYPE_CONTROL = 'Record type';
+const REPLACEMENT_ACTION = 'Review changes';
 const REPLACEMENT_REVIEW_HEADING = 'Replace this table’s current setup?';
 const REPLACEMENT_APPLY = 'Change starting record type';
 const REPLACEMENT_CANCEL = 'Cancel';
@@ -737,7 +737,11 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
   const replacementRouteChangePath = browserAuthoringPathFor(explorer, 'row-change');
   const applyCommandPath = browserAuthoringPathFor(explorer, 'commands');
 
-  const openRowSettings = async () => {
+  const openRowSettings = async ({
+    currentResourceType = 'Patient',
+    connectedResourceType = 'Observation',
+    relationshipName = 'Subject',
+  } = {}) => {
     const tableCard = page.getByTestId(`construction-table-${outputId}`);
     if (await tableCard.getAttribute('aria-current') !== 'page') {
       await act('select the existing Patient output before replacement', tableCard, () => tableCard.click(), {
@@ -749,34 +753,55 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
     const rowSettings = page.getByTestId('construction-rows-settings-trigger');
     await rowSettings.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
     const trigger = page.getByTestId('construction-rows-settings-trigger');
-    await act('open starting-type settings for the existing table', trigger, () => trigger.click(), {
-      after: async () => page.getByRole('combobox', { name: REPLACEMENT_TYPE_CONTROL, exact: true })
-        .waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }),
+    const dialog = page.getByRole('dialog', { name: 'Row definition settings', exact: true });
+    await act('open shared row meaning settings for the existing table', trigger, () => trigger.click(), {
+      after: async () => {
+        await dialog.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
+        await dialog.getByRole('region', { name: 'What should each row represent?', exact: true })
+          .waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
+      },
     });
-    const startingTypeRegion = page.getByRole('region', { name: 'Starting record type', exact: true });
-    const preserveType = startingTypeRegion.getByRole('combobox', { name: 'Choose starting record type', exact: true });
-    assert.equal(await preserveType.count(), 1,
-      'Explicit replacement selection must leave the existing preserve/rebase row-type control available.');
-    assert.equal(await preserveType.isVisible(), true,
-      'The existing preserve/rebase row-type control must stay visible beside replacement selection.');
-    assert.equal(await preserveType.inputValue(), 'current',
-      'Opening replacement choices must leave the existing Patient row root selected for preservation.');
-    const preserveOptions = (await preserveType.locator('option').allTextContents()).map(normalize);
-    assert(preserveOptions.includes('Observation via Patient → Subject → Observation'),
-      'The existing Patient-to-Observation preservation route must remain available beside disconnected replacement choices.');
+    const rowMeaning = dialog.getByRole('region', { name: 'What should each row represent?', exact: true });
+    const recordType = rowMeaning.getByRole('combobox', { name: REPLACEMENT_TYPE_CONTROL, exact: true });
+    const review = rowMeaning.getByRole('button', { name: REPLACEMENT_ACTION, exact: true });
+    assert.equal(await recordType.count(), 1,
+      'The row setup must expose one Record type picker for preservation and replacement.');
+    assert.equal(await dialog.getByRole('combobox', { name: 'Choose starting record type', exact: true }).count(), 0,
+      'The old separate preservation picker must be absent.');
+    assert.equal(await dialog.getByRole('combobox', { name: 'Choose replacement starting type', exact: true }).count(), 0,
+      'The old separate replacement picker must be absent.');
+    assert.equal(await dialog.getByRole('heading', { name: 'Replace current setup', exact: true }).count(), 0,
+      'Disconnected replacement choices must not appear in a separate setup card.');
+    assert.equal(await dialog.getByRole('button', { name: 'Replace current setup', exact: true }).count(), 0,
+      'The shared picker must use Review changes for a replacement proposal.');
+    await review.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
+    const currentOption = recordType.locator('option:checked');
+    const currentChoice = normalize(await currentOption.innerText());
+    assert.equal(currentChoice, currentResourceType + ' (current)',
+      'The shared picker must retain the current root as its disabled identity choice: ' + currentChoice);
+    assert.equal(await currentOption.isDisabled(), true,
+      'The current root choice must not become a second actionable route.');
+    const preserveOptions = (await recordType.locator('option').allTextContents()).map(normalize);
+    const routeOption = preserveOptions.find(label => label.startsWith(connectedResourceType));
+    assert(routeOption && routeOption.includes(currentResourceType) && routeOption.includes(relationshipName),
+      'The shared picker must retain the route-readable ' + currentResourceType + '-to-' +
+        connectedResourceType + ' choice: ' + JSON.stringify(preserveOptions));
+    assert.equal(await dialog.getByRole('combobox', { name: REPLACEMENT_TYPE_CONTROL, exact: true }).count(), 1);
+    return { dialog, rowMeaning, recordType, review, preserveOptions, routeOption };
   };
 
   const assessReplacement = async label => {
-    await openRowSettings();
-    const targetType = page.getByRole('combobox', { name: REPLACEMENT_TYPE_CONTROL, exact: true });
+    const { dialog: rowSettingsDialog, recordType: targetType, review } = await openRowSettings();
     const targetOptions = await targetType.locator('option').evaluateAll(options => options.map(option => ({ value: option.value, label: option.textContent.trim() })));
-    assert(targetOptions.some(option => option.value === researchStudyNode.nodeId && /ResearchStudy/.test(option.label)),
-      `Disconnected ResearchStudy must be an explicit replacement target: ${JSON.stringify(targetOptions)}`);
-    await act('select the loaded disconnected ResearchStudy root', targetType,
-      () => targetType.selectOption(researchStudyNode.nodeId), {
-        after: async () => assert.equal(await targetType.inputValue(), researchStudyNode.nodeId),
+    assert(targetOptions.some(option => option.value === 'replacement:' + researchStudyNode.nodeId && /ResearchStudy/.test(option.label)),
+      `Disconnected ResearchStudy must be an explicit option in the shared Record type picker: ${JSON.stringify(targetOptions)}`);
+    await act('select the loaded disconnected ResearchStudy in the shared Record type picker', targetType,
+      () => targetType.selectOption('replacement:' + researchStudyNode.nodeId), {
+        after: async () => assert.equal(await targetType.inputValue(), 'replacement:' + researchStudyNode.nodeId),
       });
-    const replace = page.getByRole('button', { name: REPLACEMENT_ACTION, exact: true });
+    const replace = review;
+    assert.equal(await rowSettingsDialog.getByRole('combobox', { name: REPLACEMENT_TYPE_CONTROL, exact: true }).count(), 1,
+      'ResearchStudy replacement must use the same single Record type picker as connected preservation.');
     let assessmentResult;
     let assessmentResponsePromise;
     await act(label, replace, async (control, { remainingTimeout }) => {
@@ -902,7 +927,7 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
   };
 
   const firstAssessmentCount = actionRequests.length;
-  const firstReview = await assessReplacement('preview explicit ResearchStudy replacement consequences');
+  const firstReview = await assessReplacement('review explicit ResearchStudy replacement consequences');
   const firstAssessment = firstReview.assessment;
   const firstRequest = actionRequests.slice(firstAssessmentCount).find(entry => entry.kind === 'replacement-assessment');
   assert(firstRequest, 'Native target selection must send its explicit replacement assessment request.');
@@ -1131,21 +1156,315 @@ export const basicRootReplacementWorkflow = async ({ page, report, check, action
       toResourceType: oracle.connectedReplacementRelationship.toResourceType,
       featureChooserSearch: 'result', visibleRelationshipOption: true });
 
+  const beforeConnectedStartFresh = await readBuilder();
+  assert(isDeepStrictEqual(documentForOutput(beforeConnectedStartFresh, outputId), replacedDocument),
+    'ResearchStudy Start Fresh must begin from the exact saved default replacement document.');
+  const {
+    dialog: startFreshSettings,
+    rowMeaning: startFreshRowMeaning,
+    recordType: startFreshRecordType,
+    review: reviewConnectedType,
+    routeOption: diagnosticRouteOption,
+  } = await openRowSettings({
+    currentResourceType: 'ResearchStudy',
+    connectedResourceType: 'DiagnosticReport',
+    relationshipName: 'Result',
+  });
+  const connectedTypeOptions = await startFreshRecordType.locator('option')
+    .evaluateAll(options => options.map(option => ({
+      value: option.value,
+      label: option.textContent,
+      disabled: option.disabled,
+    }))).then(options => options.map(option => ({ ...option, label: normalize(option.label) })));
+  const connectedDiagnosticReport = connectedTypeOptions.find(option =>
+    option.value === 'node:' + reportNode.nodeId && option.label.startsWith('DiagnosticReport'));
+  assert(connectedDiagnosticReport && !connectedDiagnosticReport.disabled,
+    'The shared Record type picker must expose the connected DiagnosticReport catalog node.');
+  assert.equal(connectedDiagnosticReport.label,
+    'DiagnosticReport via ResearchStudy → Result → DiagnosticReport',
+    'The connected choice must retain its exact readable ResearchStudy Result route.');
+  assert.equal(diagnosticRouteOption, connectedDiagnosticReport.label,
+    'The shared picker route contract must identify the same DiagnosticReport option selected below.');
+  await act('select connected DiagnosticReport in the shared Record type picker', startFreshRecordType,
+    () => startFreshRecordType.selectOption(connectedDiagnosticReport.value), {
+      after: async () => assert.equal(await startFreshRecordType.inputValue(), connectedDiagnosticReport.value),
+    });
+  const startFresh = startFreshRowMeaning.getByRole('button', {
+    name: 'Start fresh with DiagnosticReport', exact: true,
+  });
+  await startFresh.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
+  await reviewConnectedType.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
+  assert.equal(await startFreshSettings.getByRole('combobox', {
+    name: REPLACEMENT_TYPE_CONTROL, exact: true,
+  }).count(), 1, 'Start Fresh must use the same single Record type picker.');
+  const startFreshRequestIndex = actionRequests.length;
+  const replacementApplyCountBeforeStartFresh = replacementApplyRequestCount;
+  let startFreshAssessment;
+  let startFreshDialog;
+  let startFreshReviewText;
+  let startFreshCandidate;
+  let startFreshCandidateGrid;
+  await act('Start fresh with connected DiagnosticReport', startFresh, async (control, { remainingTimeout }) => {
+    const responsePromise = page.waitForResponse(response => {
+      const request = response.request();
+      const url = new URL(response.url());
+      const body = requestBody(request);
+      return request.method() === 'POST' && url.origin === uiOrigin &&
+        url.pathname === replacementRouteChangePath && body?.outputId === outputId &&
+        body.mode === 'REPLACE' && body.rootNodeId === reportNode.nodeId;
+    }, { timeout: remainingTimeout() });
+    await control.click({ timeout: remainingTimeout() });
+    const response = await responsePromise;
+    assert.equal(response.status(), 200, 'Connected DiagnosticReport Start Fresh assessment must return HTTP 200.');
+    const request = requestBody(response.request());
+    assert.deepEqual(replacementAssessmentMatches(request, {
+      outputId,
+      rootNodeId: reportNode.nodeId,
+      snapshotToken: beforeConnectedStartFresh.catalog.snapshotToken,
+      draftVersion: beforeConnectedStartFresh.draftVersion,
+      draftDigest: beforeConnectedStartFresh.draftDigest,
+    }), { ok: true, failures: [] },
+    'Start Fresh must assess explicit REPLACE against the exact saved ResearchStudy draft and target node.');
+    startFreshAssessment = await response.json();
+    assert.equal(startFreshAssessment.status, 'READY',
+      'Connected DiagnosticReport Start Fresh must return a ready replacement assessment.');
+    assert.equal(startFreshAssessment.mode, 'REPLACE');
+    assert.equal(startFreshAssessment.candidateRootResourceType, 'DiagnosticReport');
+    assert.equal(startFreshAssessment.snapshotToken, beforeConnectedStartFresh.catalog.snapshotToken);
+    assert.equal(startFreshAssessment.draftVersion, beforeConnectedStartFresh.draftVersion);
+    assert.equal(startFreshAssessment.draftDigest, beforeConnectedStartFresh.draftDigest);
+    assert.deepEqual(replacementProposalMatches(startFreshAssessment.proposal, {
+      outputId,
+      rootNodeId: reportNode.nodeId,
+      snapshotToken: beforeConnectedStartFresh.catalog.snapshotToken,
+      catalogGeneration: beforeConnectedStartFresh.catalog.generation,
+    }), { ok: true, failures: [] },
+    'Start Fresh must return the exact receipt-bound replacement proposal for DiagnosticReport.');
+    assert.deepEqual([...startFreshAssessment.proposal.removedFeatureKeys].sort(),
+      ['column:id', 'root:ResearchStudy'],
+      'Resetting the already-default ResearchStudy table must report only its root and default ID as replaced.');
+    assert.deepEqual(startFreshAssessment.proposal.workspaceOutputConsumers, [],
+      'The reset must report no current-draft inputs using the existing default ResearchStudy output.');
+    assert.deepEqual(startFreshAssessment.proposal.sharedFilterBindings, [],
+      'The reset must report no shared filters to remove from the default ResearchStudy setup.');
+    assert.deepEqual(replacementAssessmentEffectsMatch(startFreshAssessment, startFreshAssessment.proposal),
+      { ok: true, failures: [] },
+      'The visible Start Fresh assessment and submitted proposal must retain the same consequence arrays.');
+    startFreshDialog = page.getByRole('dialog', { name: REPLACEMENT_REVIEW_HEADING, exact: true });
+    await startFreshDialog.waitFor({ state: 'visible', timeout: remainingTimeout() });
+    const consequencePanel = startFreshDialog.getByRole('region', { name: 'Replacement consequences', exact: true });
+    await consequencePanel.waitFor({ state: 'visible', timeout: remainingTimeout() });
+    startFreshReviewText = normalize(await consequencePanel.innerText());
+    assert(startFreshReviewText.includes('DiagnosticReport'),
+      'Start Fresh consequences must name the selected connected DiagnosticReport root.');
+    assert(startFreshReviewText.includes('One row per source record · ' +
+      oracle.diagnosticReportIDs.length + ' preview rows'),
+    'Start Fresh consequences must report the exact fixture-backed DiagnosticReport row count.');
+    assert(startFreshReviewText.includes('Default ID column'),
+      'Start Fresh consequences must identify the seeded default root ID column.');
+    const removedSetup = consequencePanel.getByRole('list', { name: 'Removed setup features', exact: true });
+    const removedSetupLabels = (await removedSetup.getByRole('listitem').allTextContents()).map(normalize).sort();
+    const currentResearchStudyIDColumn = idColumnFor(replacedDocument, 'ResearchStudy');
+    assert.deepEqual(removedSetupLabels, [
+      'Field — ' + currentResearchStudyIDColumn.label,
+      'Starting record type — ResearchStudy',
+    ].sort(),
+      'Start Fresh must show the exact current root and default ID that its REPLACE action resets.');
+    assert(startFreshReviewText.includes('No current-draft table inputs use this output.'),
+      'The reset review must show that no current-draft table inputs depend on this default output.');
+    assert(startFreshReviewText.includes('No shared-filter bindings will be removed.'),
+      'The reset review must show that no shared-filter bindings need removal.');
+    await startFreshDialog.getByRole('heading', { name: 'Candidate preview', exact: true })
+      .waitFor({ state: 'visible', timeout: remainingTimeout() });
+    const previewTable = startFreshDialog.locator(ROOT_REPLACEMENT_TABLE_SELECTOR);
+    await previewTable.waitFor({ state: 'visible', timeout: remainingTimeout() });
+    const capturedRequest = actionRequests.slice(startFreshRequestIndex)
+      .find(entry => entry.kind === 'replacement-assessment' &&
+        entry.body.mode === 'REPLACE' && entry.body.rootNodeId === reportNode.nodeId);
+    assert(capturedRequest, 'Start Fresh must retain its exact connected DiagnosticReport replacement request.');
+    const candidateReceiptId = startFreshAssessment.candidateReceiptId;
+    const candidatePreviewRequest = actionRequests.slice(startFreshRequestIndex)
+      .find(entry => entry.kind === 'candidate-preview' &&
+        entry.body.receiptId === candidateReceiptId && entry.body.outputId === outputId);
+    assert(candidatePreviewRequest,
+      'Start Fresh preview must use the exact server-issued receipt and existing output identity.');
+    const previewResult = await candidatePreviewResponses.get(candidateReceiptId + ':' + outputId);
+    assert(previewResult && previewResult.status === 200,
+      'Start Fresh must capture the receipt-bound DiagnosticReport preview response.');
+    const typedPreview = previewResult.body;
+    assert.equal(typedPreview.receiptId, candidateReceiptId);
+    assert.equal(typedPreview.outputId, outputId);
+    startFreshCandidate = replacementRootIDColumnFromPreview(typedPreview, 'DiagnosticReport');
+    assert.deepEqual(typedPreview.rows.map(row => row[startFreshCandidate.column]).sort(),
+      oracle.diagnosticReportIDs,
+      'Start Fresh typed preview rows must equal the exact literal DiagnosticReport fixture IDs.');
+    startFreshCandidateGrid = await snapshotTable(previewTable);
+    assert.deepEqual(startFreshCandidateGrid.headers, [startFreshCandidate.label],
+      'Start Fresh visible preview must contain only the server-authored DiagnosticReport ID column.');
+    assert.deepEqual(rowIDs(startFreshCandidateGrid, 'DiagnosticReport', startFreshCandidate.label),
+      oracle.diagnosticReportIDs,
+      'Start Fresh visible preview rows must equal the independent DiagnosticReport fixture oracle.');
+    const unchangedDuringReview = await readBuilder();
+    assert(isDeepStrictEqual(documentForOutput(unchangedDuringReview, outputId), replacedDocument),
+      'Reviewing connected Start Fresh must leave the saved ResearchStudy setup unchanged until Apply.');
+    assert.deepEqual(workspaceTabIdentitySnapshot(unchangedDuringReview), baselineTabs,
+      'Reviewing connected Start Fresh must keep all existing workspace tab identities.');
+    check('correctness', 'connected DiagnosticReport Start Fresh reviews exact reset consequences and default-ID rows', true, {
+      outputId,
+      targetRoot: 'DiagnosticReport',
+      route: diagnosticRouteOption,
+      assessmentRequest: capturedRequest.body,
+      proposal: startFreshAssessment.proposal,
+      removedFeatureKeys: startFreshAssessment.proposal.removedFeatureKeys,
+      noCurrentDraftConsumers: true,
+      noSharedFilterBindings: true,
+      reviewText: startFreshReviewText,
+      candidateReceiptId,
+      candidateIDColumn: startFreshCandidate,
+      preview: startFreshCandidateGrid,
+      exactDiagnosticReportIDs: oracle.diagnosticReportIDs,
+    });
+  }, {
+    after: async ({ remainingTimeout }) => {
+      assert(startFreshAssessment?.proposal && startFreshDialog && startFreshCandidate,
+        'Start Fresh review must retain its assessment, consequence dialog, and default-ID candidate.');
+      await startFreshDialog.getByRole('button', { name: REPLACEMENT_APPLY, exact: true })
+        .waitFor({ state: 'visible', timeout: remainingTimeout() });
+    },
+  });
+  const startFreshApply = startFreshDialog.getByRole('button', { name: REPLACEMENT_APPLY, exact: true });
+  const actionRequestCountBeforeStartFreshApply = actionRequests.length;
+  const replacementApplyCountBeforeStartFreshApply = replacementApplyRequestCount;
+  let startFreshApplyResponsePromise;
+  await act('Apply connected Start Fresh to DiagnosticReport', startFreshApply,
+    async (control, { remainingTimeout }) => {
+      startFreshApplyResponsePromise = page.waitForResponse(response => {
+        const request = response.request();
+        const url = new URL(response.url());
+        const command = replacementApplyCommandFromRequest(requestBody(request)).command;
+        return request.method() === 'POST' && url.origin === uiOrigin &&
+          url.pathname === applyCommandPath && command?.rowChange?.outputId === outputId &&
+          command.rowChange.rootNodeId === reportNode.nodeId;
+      }, { timeout: remainingTimeout() });
+      await control.click({ timeout: remainingTimeout() });
+    }, {
+      after: async ({ remainingTimeout }) => {
+        const response = await startFreshApplyResponsePromise;
+        assert.equal(response.status(), 200, 'Connected DiagnosticReport Start Fresh Apply must return HTTP 200.');
+        const body = requestBody(response.request());
+        assert.equal(body.snapshotToken, beforeConnectedStartFresh.catalog.snapshotToken);
+        assert.equal(body.expectedDraftVersion, beforeConnectedStartFresh.draftVersion);
+        assert.equal(body.expectedDraftDigest, beforeConnectedStartFresh.draftDigest);
+        assert.deepEqual(replacementApplyCommandMatches(body, startFreshAssessment.proposal), {
+          ok: true, failures: [], command: body.commands[0],
+        }, 'Start Fresh Apply must submit the exact reviewed REPLACE proposal as its sole command.');
+        const applyRequests = actionRequests.slice(actionRequestCountBeforeStartFreshApply);
+        const rootCommands = applyRequests.filter(entry => entry.kind === 'row-root-command');
+        assert.equal(rootCommands.length, 1,
+          'Start Fresh Apply must submit exactly one atomic root replacement command.');
+        assert.deepEqual(replacementApplyCommandFromRequest(rootCommands[0].body).command?.rowChange,
+          startFreshAssessment.proposal);
+        assert.equal(replacementApplyRequestCount, replacementApplyCountBeforeStartFreshApply + 1,
+          'Start Fresh Apply must add exactly one replacement command after its pre-click baseline.');
+        await startFreshDialog.waitFor({ state: 'detached', timeout: remainingTimeout() });
+        await visibleRows(oracle.diagnosticReportIDs, 'DiagnosticReport', startFreshCandidate.label);
+      },
+    });
+  assert.equal(replacementApplyRequestCount, replacementApplyCountBeforeStartFresh + 1,
+    'The connected Start Fresh path must add exactly one Apply after its reviewed REPLACE assessment.');
+  const appliedStartFreshBuilder = await readBuilder();
+  const appliedStartFreshDocument = documentForOutput(appliedStartFreshBuilder, outputId);
+  assert.equal(appliedStartFreshDocument.output.id, outputId);
+  assert.equal(appliedStartFreshDocument.output.title, tableTitle);
+  assert.equal(appliedStartFreshDocument.rootResourceType, 'DiagnosticReport');
+  assert.equal(appliedStartFreshDocument.rows.kind, 'RECORDS');
+  assert.equal(appliedStartFreshDocument.columns.length, 1);
+  const diagnosticReportIDColumn = idColumnFor(appliedStartFreshDocument, 'DiagnosticReport');
+  assert.equal(diagnosticReportIDColumn.source.field.path, 'id');
+  assert.equal(diagnosticReportIDColumn.source.field.projectionMode, 'VALUE');
+  assert.equal(appliedStartFreshDocument.population, undefined);
+  assert.equal((appliedStartFreshDocument.construction?.steps ?? []).length, 0);
+  assert.equal((appliedStartFreshDocument.route?.children ?? []).length, 0,
+    'Start Fresh must clear the ResearchStudy route and make DiagnosticReport the only root occurrence.');
+  const appliedStartFreshRows = await visibleRows(oracle.diagnosticReportIDs, 'DiagnosticReport',
+    diagnosticReportIDColumn.label);
+  assert(isDeepStrictEqual(documentForOutput(appliedStartFreshBuilder, consumerOutputId), consumerDocument),
+    'Connected Start Fresh must leave the dependent consumer document unchanged for human repair.');
+  assert.deepEqual(workspaceTabIdentitySnapshot(appliedStartFreshBuilder), baselineTabs,
+    'Connected Start Fresh must preserve every output/tab identity and order.');
+  const appliedStartFreshSnapshot = {
+    outputId,
+    outputTitle: appliedStartFreshDocument.output.title,
+    rootResourceType: appliedStartFreshDocument.rootResourceType,
+    rowsKind: appliedStartFreshDocument.rows.kind,
+    route: appliedStartFreshDocument.route,
+    defaultIDColumn: diagnosticReportIDColumn,
+    population: appliedStartFreshDocument.population ?? null,
+    constructionSteps: appliedStartFreshDocument.construction?.steps ?? [],
+    exactVisibleIDs: rowIDs(appliedStartFreshRows, 'DiagnosticReport', diagnosticReportIDColumn.label),
+    candidateReceiptId: startFreshAssessment.candidateReceiptId,
+    removedFeatureKeys: startFreshAssessment.proposal.removedFeatureKeys,
+    consumerDocumentUnchanged: isDeepStrictEqual(
+      documentForOutput(appliedStartFreshBuilder, consumerOutputId), consumerDocument,
+    ),
+    workspaceTabs: workspaceTabIdentitySnapshot(appliedStartFreshBuilder),
+  };
+  check('correctness', 'connected Start Fresh Apply preserves the output identity and saves exact DiagnosticReport defaults', true,
+    appliedStartFreshSnapshot);
+  await act('reload after connected Start Fresh', page.locator('body'),
+    () => page.reload({ waitUntil: 'domcontentloaded', timeout: ACTION_TIMEOUT_MS }), {
+      after: async () => {
+        await visibleRows(oracle.diagnosticReportIDs, 'DiagnosticReport', diagnosticReportIDColumn.label);
+        const reloaded = await readBuilder();
+        const reloadedDocument = documentForOutput(reloaded, outputId);
+        assert(isDeepStrictEqual(reloadedDocument, appliedStartFreshDocument),
+          'Reload must preserve the exact DiagnosticReport default setup saved by Start Fresh.');
+        assert(isDeepStrictEqual(documentForOutput(reloaded, consumerOutputId), consumerDocument),
+          'Reload after Start Fresh must keep the dependent consumer document unchanged.');
+        assert.deepEqual(workspaceTabIdentitySnapshot(reloaded), baselineTabs,
+          'Reload after Start Fresh must preserve all workspace tab identities.');
+      },
+    });
+  const finalStartFreshBuilder = await readBuilder();
+  const finalStartFreshDocument = documentForOutput(finalStartFreshBuilder, outputId);
+  assert.equal(finalStartFreshDocument.rootResourceType, 'DiagnosticReport');
+  assert(isDeepStrictEqual(finalStartFreshDocument, appliedStartFreshDocument));
+  check('persistence', 'Start Fresh DiagnosticReport ID rows and default setup survive reload', true, {
+    outputId,
+    outputTitle: finalStartFreshDocument.output.title,
+    rootResourceType: finalStartFreshDocument.rootResourceType,
+    route: finalStartFreshDocument.route,
+    rows: finalStartFreshDocument.rows,
+    columns: finalStartFreshDocument.columns,
+    ids: oracle.diagnosticReportIDs,
+    consumerDocumentUnchanged: true,
+    tabs: workspaceTabIdentitySnapshot(finalStartFreshBuilder),
+  });
+  const finalOracle = readBasicRootReplacementOracle({ fixtureDir: target.fixtureDir });
+  assert.deepEqual(finalOracle.source.files.map(file => file.sha256),
+    oracle.source.files.map(file => file.sha256),
+    'The independent Basic fixture bytes must remain unchanged through replacement and connected Start Fresh.');
+  check('correctness', 'independent Basic fixture sources stayed unchanged through replacement and Start Fresh', true,
+    { files: finalOracle.source.files, exactDiagnosticReportIDs: finalOracle.diagnosticReportIDs });
+
   report.lifecycle = {
     stages: [
       'fresh Basic Patient table with native birthDate VALUE field',
       'nondefault two-member Patient starting collection and active GTE birthDate filter',
       'native second Patient root and current-draft KEY_JOIN consumer of the source birthDate column',
-      'disconnected ResearchStudy target selected through native replacement control',
-      'server proposal Preview inspected and canceled with exact saved Patient source preserved',
+      'disconnected ResearchStudy selected through the shared native Record type picker',
+      'Review changes opened the replacement consequence dialog, which Cancel closed with the exact saved Patient source preserved',
       'same replacement reassessed and applied using the atomic root-replacement command',
       'replacement output identity/title/default ID rows verified after reload',
       'ResearchStudy→DiagnosticReport relationship option inspected after reload',
+      'connected DiagnosticReport selected through the shared Record type picker and contextual Start fresh action',
+      'Start Fresh reviewed the exact ResearchStudy root and ID reset consequences and DiagnosticReport ID rows',
+      'connected Start Fresh applied and reloaded the same output with exact DiagnosticReport IDs',
     ],
     replacementAssessments: actionRequests.filter(entry => entry.kind === 'replacement-assessment').map(entry => entry.body),
     replacementApplyCount: replacementApplyRequestCount,
     finalOutputId: outputId,
-    finalRoot: 'ResearchStudy',
-    exactFinalIDs: studyIDs,
+    finalRoot: 'DiagnosticReport',
+    exactFinalIDs: oracle.diagnosticReportIDs,
   };
 };

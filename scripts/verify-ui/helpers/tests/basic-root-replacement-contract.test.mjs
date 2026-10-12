@@ -169,11 +169,23 @@ test('saved preview headers prefer semantic text over CSS-transformed innerText'
   assert.match(workflowSource, /cell\.getAttribute\('aria-label'\) \?\? cell\.querySelector\('span'\)\?\.textContent \?\? cell\.textContent \?\? cell\.innerText/);
 });
 
-test('replacement keeps the separately scoped connected-root preservation choice', async () => {
+test('replacement and connected preservation share one route-readable Record type picker', async () => {
   const workflowSource = await readFile(new URL('../../workflows/basic-root-replacement.mjs', import.meta.url), 'utf8');
-  assert.match(workflowSource, /const startingTypeRegion = page\.getByRole\('region', \{ name: 'Starting record type', exact: true \}\);[\s\S]*?startingTypeRegion\.getByRole\('combobox', \{ name: 'Choose starting record type', exact: true \}\)/);
-  assert.match(workflowSource, /preserveOptions\.includes\('Observation via Patient → Subject → Observation'\)/);
-  assert.doesNotMatch(workflowSource, /getByRole\('combobox', \{ name: 'Record type', exact: true \}\)/);
+  assert.match(workflowSource, /const rowMeaning = dialog\.getByRole\('region', \{ name: 'What should each row represent\?', exact: true \}\);/);
+  assert.match(workflowSource, /const recordType = rowMeaning\.getByRole\('combobox', \{ name: REPLACEMENT_TYPE_CONTROL, exact: true \}\);/);
+  assert.match(workflowSource, /const routeOption = preserveOptions\.find\(label => label\.startsWith\(connectedResourceType\)\);/);
+  assert.match(workflowSource, /routeOption && routeOption\.includes\(currentResourceType\) && routeOption\.includes\(relationshipName\)/);
+  assert.match(workflowSource, /getByRole\('combobox', \{ name: 'Choose starting record type', exact: true \}\)\.count\(\), 0/);
+  assert.match(workflowSource, /getByRole\('combobox', \{ name: 'Choose replacement starting type', exact: true \}\)\.count\(\), 0/);
+  assert.match(workflowSource, /getByRole\('heading', \{ name: 'Replace current setup', exact: true \}\)\.count\(\), 0/);
+  assert.match(workflowSource, /option\.value === 'replacement:' \+ researchStudyNode\.nodeId/);
+  assert.match(workflowSource, /name: 'Start fresh with DiagnosticReport', exact: true/);
+  assert.match(workflowSource, /connected DiagnosticReport Start Fresh reviews exact reset consequences and default-ID rows/);
+  assert.match(workflowSource, /removedSetupLabels = \(await removedSetup\.getByRole\('listitem'\)\.allTextContents\(\)\)\.map\(normalize\)\.sort\(\)/);
+  assert.match(workflowSource, /Starting record type — ResearchStudy/);
+  assert.match(workflowSource, /Field — ' \+ currentResearchStudyIDColumn\.label/);
+  assert.match(workflowSource, /No current-draft table inputs use this output\./);
+  assert.match(workflowSource, /No shared-filter bindings will be removed\./);
 });
 
 test('post-Apply handoff waits for the consumer tab before selecting the original output', async () => {

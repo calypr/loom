@@ -345,6 +345,8 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
     assert.equal(originalDocument?.output?.id, seededDocument.output.id);
     assert.equal(originalDocument?.route?.children?.[0]?.resourceType, 'Observation',
       'The existing Patient table must expose Observation as a legal starting record type');
+    assert.equal(originalDocument?.route?.children?.[0]?.catalogEdgeId, subjectEdge.edgeId,
+      'The saved route must retain the exact independently selected Patient-to-Observation Subject edge identity.');
     const originalIdentity = {
       draftVersion: beforeRootChange.draftVersion,
       draftDigest: beforeRootChange.draftDigest,
@@ -440,12 +442,16 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
       } : null;
       return { rowChange: summarize(rowChange), preview: summarize(preview) };
     };
-    const proposeRoot = async ({ selector, choice, rootResourceType, expectedRows, label }) => {
+    const proposeRoot = async ({ selector, review, choice, rootResourceType, expectedRows, selectionLabel, label }) => {
       const panel = page.getByRole('region', { name: 'Review proposed rows' });
       const applyButton = panel.getByRole('button', { name: 'Apply row change', exact: true });
       const fromIndex = Array.isArray(networkObserver?.requests) ? networkObserver.requests.length : 0;
       let candidate;
-      await act(label, selector, () => selector.selectOption(choice.value), {
+      await act(selectionLabel, selector,
+        () => selector.selectOption(choice.value), {
+          after: async () => expect(selector).toHaveValue(choice.value),
+        });
+      await act(label, review, () => review.click(), {
         after: async () => {
           await expect(panel).toBeVisible({ timeout: 5000 });
           await expect(applyButton).toBeEnabled({ timeout: 5000 });
@@ -468,39 +474,62 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
             .waitFor({ state: 'visible', timeout: 5000 }),
         });
       const dialog = page.getByRole('dialog', { name: 'Row definition settings' });
-      const section = dialog.getByRole('region', { name: 'Starting record type' });
-      const selector = section.getByRole('combobox', { name: 'Choose starting record type', exact: true });
-      return { dialog, section, selector };
+      const section = dialog.getByRole('region', { name: 'What should each row represent?', exact: true });
+      const selector = section.getByRole('combobox', { name: 'Record type', exact: true });
+      const review = section.getByRole('button', { name: 'Review changes', exact: true });
+      assert.equal(await selector.count(), 1, 'The row setup must expose one shared Record type picker.');
+      assert.equal(await dialog.getByRole('combobox', { name: 'Choose starting record type', exact: true }).count(), 0,
+        'The old separate preservation picker must be absent.');
+      assert.equal(await dialog.getByRole('combobox', { name: 'Choose replacement starting type', exact: true }).count(), 0,
+        'The old separate replacement picker must be absent.');
+      assert.equal(await dialog.getByRole('heading', { name: 'Replace current setup', exact: true }).count(), 0,
+        'Replacement selection must not appear in a separate setup card.');
+      assert.equal(await dialog.getByRole('button', { name: 'Replace current setup', exact: true }).count(), 0,
+        'The shared picker must own the Review changes action.');
+      await expect(review).toBeVisible();
+      return { dialog, section, selector, review };
     };
     const initialTable = await reloadAndVerify('Patient', expectedPatientRows,
       'reload existing Patient table with starting record choices');
     assert.deepEqual(initialTable.rows, sortedRows(expectedPatientRows));
-    const { dialog: settings, section: startingType, selector: rootSelector } =
+    const { dialog: settings, section: rowMeaning, selector: rootSelector, review: reviewRootChange } =
       await openRootSettings('open existing table row settings');
     await expect(settings.getByText('One row per Patient record.', { exact: true })).toBeVisible();
-    await expect(startingType).toBeVisible();
-    await expect(rootSelector).toHaveValue('current');
+    await expect(rowMeaning).toBeVisible();
+    const currentRootOption = rootSelector.locator('option:checked');
+    const currentRootChoice = (await currentRootOption.innerText()).trim();
+    assert.equal(currentRootChoice, 'Patient (current)',
+      'The shared Record type picker must retain Patient as its disabled current choice.');
+    assert.equal(await currentRootOption.isDisabled(), true,
+      'The current root must remain an identity choice, not a second actionable route.');
     const observationChoice = await rootOption(rootSelector, 'Observation');
-    assert(observationChoice && !observationChoice.disabled && /subject_Patient$/.test(observationChoice.label),
-      `The native selector must expose the exact legal Observation Subject route: ${JSON.stringify(observationChoice)}`);
-    const controlPlacement = await settings.evaluate(dialog => {
-      const summary = [...dialog.querySelectorAll('p')].find(item => item.textContent?.trim() === 'One row per Patient record.');
-      const startingRecord = dialog.querySelector('section[aria-label="Starting record type"]');
-      const rowActions = dialog.querySelector('section[aria-label="Choose a row change"]');
-      return Boolean(summary && startingRecord && rowActions &&
-        (summary.compareDocumentPosition(startingRecord) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0 &&
-        (startingRecord.compareDocumentPosition(rowActions) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0);
-    });
-    assert.equal(controlPlacement, true,
-      'Starting record type must appear beside the current row summary and before row-shape actions');
-    check('correctness', 'existing Patient table exposes the starting record type control beside its row summary', true, {
-      summary: 'One row per Patient record.', selectorValue: await rootSelector.inputValue(),
-      section: 'Starting record type', option: observationChoice.label, placement: controlPlacement,
+    assert(observationChoice && !observationChoice.disabled &&
+      /^Observation\b/.test(observationChoice.label) &&
+      /Patient/.test(observationChoice.label) && /Subject/.test(observationChoice.label),
+    `The shared picker must expose the exact legal, route-readable Observation choice: ${JSON.stringify(observationChoice)}`);
+    const pickerContract = {
+      recordTypePickers: await rowMeaning.getByRole('combobox', { name: 'Record type', exact: true }).count(),
+      reviewChangesActions: await rowMeaning.getByRole('button', { name: 'Review changes', exact: true }).count(),
+      oldPreservationPickers: await settings.getByRole('combobox', { name: 'Choose starting record type', exact: true }).count(),
+      oldReplacementPickers: await settings.getByRole('combobox', { name: 'Choose replacement starting type', exact: true }).count(),
+      oldReplacementCards: await settings.getByRole('heading', { name: 'Replace current setup', exact: true }).count(),
+      oldReplacementActions: await settings.getByRole('button', { name: 'Replace current setup', exact: true }).count(),
+    };
+    assert.deepEqual(pickerContract, {
+      recordTypePickers: 1, reviewChangesActions: 1, oldPreservationPickers: 0,
+      oldReplacementPickers: 0, oldReplacementCards: 0, oldReplacementActions: 0,
+    }, 'Connected and replacement choices must share one Record type picker and one Review changes action.');
+    check('correctness', 'existing Patient table exposes the shared Record type picker and Review changes action', true, {
+      summary: 'One row per Patient record.', currentRootChoice,
+      section: 'What should each row represent?', option: observationChoice.label,
+      routeReadable: /Patient/.test(observationChoice.label) && /Subject/.test(observationChoice.label),
+      pickerContract,
     });
 
-    const canceledProposal = await proposeRoot({ selector: rootSelector, choice: observationChoice,
-      rootResourceType: 'Observation', expectedRows: expectedObservationRows,
-      label: 'select Observation as the existing table starting record type' });
+    const canceledProposal = await proposeRoot({ selector: rootSelector, review: reviewRootChange,
+      choice: observationChoice, rootResourceType: 'Observation', expectedRows: expectedObservationRows,
+      selectionLabel: 'select Observation for the Cancel proposal in the shared Record type picker',
+      label: 'review Observation as the existing table starting record type' });
     await act('cancel existing table root change', page.getByRole('button', { name: 'Keep current rows', exact: true }),
       () => page.getByRole('button', { name: 'Keep current rows', exact: true }).click(), {
         after: () => page.getByRole('region', { name: 'Review proposed rows' }).waitFor({ state: 'hidden', timeout: 5000 }),
@@ -520,14 +549,17 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
 
     await openRootSettings('reopen existing table root selector');
     const applySettings = page.getByRole('dialog', { name: 'Row definition settings' });
-    const applySelector = applySettings.getByRole('region', { name: 'Starting record type' })
-      .getByRole('combobox', { name: 'Choose starting record type', exact: true });
+    const applySelector = applySettings.getByRole('region', { name: 'What should each row represent?', exact: true })
+      .getByRole('combobox', { name: 'Record type', exact: true });
+    const applyReview = applySettings.getByRole('region', { name: 'What should each row represent?', exact: true })
+      .getByRole('button', { name: 'Review changes', exact: true });
     const applyObservationChoice = await rootOption(applySelector, 'Observation');
     assert(applyObservationChoice && !applyObservationChoice.disabled && applyObservationChoice.value === observationChoice.value,
-      'Reopening the selector must preserve the same legal Observation option');
-    const appliedProposal = await proposeRoot({ selector: applySelector, choice: applyObservationChoice,
+      'Reopening the shared picker must preserve the same legal Observation route choice');
+    const appliedProposal = await proposeRoot({ selector: applySelector, review: applyReview, choice: applyObservationChoice,
       rootResourceType: 'Observation', expectedRows: expectedObservationRows,
-      label: 'select Observation again for existing table Apply' });
+      selectionLabel: 'select Observation again for Apply in the shared Record type picker',
+      label: 'review Observation again for existing table Apply' });
     assert.deepEqual(appliedProposal.rows, canceledProposal.rows,
       'A fresh native proposal must match the exact preview checked before Cancel');
     const applyButton = page.getByRole('region', { name: 'Review proposed rows' })
@@ -562,16 +594,24 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
       draftDigest: restoredObservation.builder.draftDigest, rows: restoredObservation.rows,
     });
 
-    const { dialog: observationSettings, selector: observationSelector } =
+    const { dialog: observationSettings, selector: observationSelector, review: reviewObservationRootChange } =
       await openRootSettings('open Observation table root settings for native restoration');
     await expect(observationSettings.getByText('One row per Observation record.', { exact: true })).toBeVisible();
-    await expect(observationSelector).toHaveValue('current');
+    const currentObservationOption = observationSelector.locator('option:checked');
+    const currentObservationChoice = (await currentObservationOption.innerText()).trim();
+    assert.equal(currentObservationChoice, 'Observation (current)',
+      'The shared Record type picker must retain Observation as its disabled current choice.');
+    assert.equal(await currentObservationOption.isDisabled(), true,
+      'The saved Observation root must remain an identity choice, not a second actionable route.');
     const patientChoice = await rootOption(observationSelector, 'Patient');
-    assert(patientChoice && !patientChoice.disabled && /subject_Patient$/.test(patientChoice.label),
-      `The saved Observation table must expose Patient as a legal return root: ${JSON.stringify(patientChoice)}`);
-    const restoredProposal = await proposeRoot({ selector: observationSelector, choice: patientChoice,
-      rootResourceType: 'Patient', expectedRows: expectedPatientRows,
-      label: 'select Patient to restore the existing table root' });
+    assert(patientChoice && !patientChoice.disabled &&
+      /^Patient\b/.test(patientChoice.label) &&
+      /Observation/.test(patientChoice.label) && /Subject/.test(patientChoice.label),
+      `The shared picker must expose Patient through the saved Observation Subject route: ${JSON.stringify(patientChoice)}`);
+    const restoredProposal = await proposeRoot({ selector: observationSelector, review: reviewObservationRootChange,
+      choice: patientChoice, rootResourceType: 'Patient', expectedRows: expectedPatientRows,
+      selectionLabel: 'select Patient for restoration in the shared Record type picker',
+      label: 'review Patient to restore the existing table root' });
     const restoreButton = page.getByRole('region', { name: 'Review proposed rows' })
       .getByRole('button', { name: 'Apply row change', exact: true });
     let restoredGrid;
@@ -590,12 +630,16 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
     assert.equal(restoredDocument?.output?.id, originalIdentity.document.output.id);
     assert.deepEqual(restoredDocument.columns, originalIdentity.document.columns,
       'Returning to Patient must preserve the original table column bindings and identities');
+    assert.deepEqual(restoredDocument.route, originalIdentity.document.route,
+      'Returning to Patient must restore the exact original route identity and occurrence path.');
 
     const finalPatient = await reloadAndVerify('Patient', expectedPatientRows,
       'reload restores the original Patient root and exact rows', restoredBuilder.draftDigest);
+    assert.deepEqual(finalPatient.document.route, originalIdentity.document.route,
+      'The reloaded Patient table must retain the same route edge and occurrence identities.');
     check('correctness', 'native restoration returns the existing output to Patient rows and survives reload', true, {
       outputId: finalPatient.document.output.id, rootResourceType: finalPatient.document.rootResourceType,
-      draftDigest: finalPatient.builder.draftDigest, rows: finalPatient.rows,
+      route: finalPatient.document.route, draftDigest: finalPatient.builder.draftDigest, rows: finalPatient.rows,
       restorationReceiptId: restoredProposal.receiptId,
     });
 
