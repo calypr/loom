@@ -64,6 +64,10 @@ type ReshapeColumn = ConstructionStageDescriptor['columns'][number];
 type ReshapeStage = ConstructionStageDescriptor;
 type ReshapeCapabilities = ConstructionCapabilitiesResponse;
 type SourceInputChoice = NonNullable<ReshapeCapabilities['sourceInput']>['choices'][number];
+type AvailableSourceField = {
+  readonly choice: SourceInputChoice;
+  readonly examples: ReadonlyArray<string>;
+};
 type StageCapability = { readonly supported: boolean; readonly reason: string; readonly reasonCode?: string };
 
 type GroupKey = {
@@ -228,7 +232,7 @@ export interface ConstructionReshapeEditorEntry {
 export type ReshapeEntryKind = 'choose' | 'group' | 'source-group' | 'coded-group' | 'expand' | 'pivot' | 'coded-pivot' | 'categories' | 'related-expand' | 'unpivot';
 
 const reshapeFormLabels = {
-  group: 'Combine matching rows',
+  group: 'Group rows',
   'source-group': 'Group by source field',
   'coded-group': 'Group by coded value',
   expand: 'Expand repeated values',
@@ -1574,6 +1578,14 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const sourceGroupStageMatches = sourceInputMatchesStage(sourceInput?.stageId, groupStage);
   const sourceGroupHasPopulatedChoice = sourceGroupChoices.some((choice) => choice.isPopulated);
   const sourceGroupSupported = Boolean(sourceInput?.supported && sourceGroupStageMatches && sourceGroupHasPopulatedChoice);
+  const availableSourceFields: ReadonlyArray<AvailableSourceField> = sourceGroupSupported
+    ? sourceGroupChoices.filter((choice) => choice.isPopulated).map((choice) => ({
+      choice,
+      examples: props.relatedExpandContext?.catalog.availability?.fields.find((field) =>
+        field.resourceType === props.codedPivotContext?.rowRoot && field.path === choice.fieldPath,
+      )?.examples.slice(0, 3) ?? [],
+    }))
+    : [];
   const sourceGroupReason = !sourceGroupStageMatches
     ? 'Source field grouping is available only at the starting source stage.'
     : sourceInput?.supported
@@ -1676,6 +1688,11 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     const evaluation = evaluate(next);
     setContractUnavailable(evaluation.kind === 'schema-pending');
     onCandidateChange(evaluation.kind === 'ready' ? evaluation.intent : undefined);
+  };
+
+  const chooseSourceField = (choice: SourceInputChoice) => {
+    const next = initialSourceGroupForm(construction, [choice, ...sourceGroupChoices.filter((candidate) => candidate.choiceId !== choice.choiceId)]);
+    if (next) updateForm(next);
   };
 
   const rememberManualPivotSelection = (pivot: PivotForm) => {
@@ -1786,6 +1803,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
             disabled={disabled}
             onChoose={() => updateForm(initialGroupForm(stage, props.selectedColumns ?? [], undefined, construction))}
           />
+          <SourceFieldChoices fields={availableSourceFields} disabled={disabled} onChoose={chooseSourceField} />
           <ReshapeChoice
             testId="construction-reshape-choice-coded-group"
             title="Group by coded value"
@@ -1797,19 +1815,6 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
               : codedGroupSupport.reason || (stage.codedGroupChoices?.length ? '' : 'No Coding fields are available here.')}
             disabled={disabled}
             onChoose={() => updateForm(initialCodedGroupForm(stage))}
-          />
-          <ReshapeChoice
-            testId="construction-reshape-choice-source-group"
-            title="Group by a source field"
-            rows="Count records for each value of a field in the starting records."
-            columns="Show the chosen field and its source record count."
-            supported={sourceGroupSupported}
-            reason={sourceGroupReason}
-            disabled={disabled}
-            onChoose={() => {
-              const next = initialSourceGroupForm(construction, capabilities.sourceInput?.choices ?? []);
-              if (next) updateForm(next);
-            }}
           />
           <ReshapeChoice
             testId="construction-reshape-choice-expand"
@@ -1895,17 +1900,20 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
       ) : null}
 
       {form.kind === 'group' ? (
-        <GroupEditor
-          key={`${id}:group:${contextKey}`}
-          form={form}
-          stage={groupStage}
-          codedPivotContext={groupCodedValuesSupported ? props.codedPivotContext : undefined}
-          codedPivotSupported={groupCodedValuesSupported}
-          supported={groupSupport.supported || groupCodedValuesSupported}
-          reason={groupSupport.supported || groupCodedValuesSupported ? '' : groupSupport.reason}
-          disabled={disabled}
-          onChange={(next) => updateForm(next)}
-        />
+        <>
+          {!editingStep ? <SourceFieldChoices fields={availableSourceFields} disabled={disabled} onChoose={chooseSourceField} /> : null}
+          <GroupEditor
+            key={`${id}:group:${contextKey}`}
+            form={form}
+            stage={groupStage}
+            codedPivotContext={groupCodedValuesSupported ? props.codedPivotContext : undefined}
+            codedPivotSupported={groupCodedValuesSupported}
+            supported={groupSupport.supported || groupCodedValuesSupported}
+            reason={groupSupport.supported || groupCodedValuesSupported ? '' : groupSupport.reason}
+            disabled={disabled}
+            onChange={(next) => updateForm(next)}
+          />
+        </>
       ) : null}
 
       {form.kind === 'coded-group' ? (
@@ -1922,10 +1930,12 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
       {form.kind === 'source-group' ? (
         <SourceGroupEditor
           form={form}
-          choices={capabilities.sourceInput?.choices ?? []}
+          fields={availableSourceFields}
           supported={sourceGroupSupported}
           reason={sourceGroupReason}
           disabled={disabled}
+          canClear={!editingStep}
+          onClear={() => updateForm(initialGroupForm(groupStage, props.selectedColumns ?? [], undefined, construction))}
           onChange={updateForm}
         />
       ) : null}
@@ -1997,66 +2007,107 @@ const ReshapeChoice = (props: {
   </button>
 );
 
+const SourceFieldChoices = (props: {
+  readonly fields: ReadonlyArray<AvailableSourceField>;
+  readonly disabled: boolean;
+  readonly onChoose: (choice: SourceInputChoice) => void;
+}) => props.fields.length > 0 ? (
+  <section aria-label="Available dataset fields" data-testid="construction-reshape-source-field-choices" className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+    <h4 className="m-0 text-sm font-semibold text-slate-900">Available dataset fields</h4>
+    <ul className="m-0 grid list-none gap-2 p-0 sm:grid-cols-2">
+      {props.fields.map((field) => (
+        <li key={field.choice.choiceId}>
+          <button type="button" aria-label={`Group by ${field.choice.label}`} disabled={props.disabled}
+            onClick={() => props.onChoose(field.choice)}
+            className="grid w-full gap-1 rounded border border-slate-200 bg-white px-3 py-2 text-left hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
+            <span className="text-sm font-medium text-slate-900">{field.choice.label}</span>
+            <span className="text-xs text-slate-600">{field.choice.logicalType}</span>
+            {field.examples.length > 0 ? <span className="text-xs text-slate-600">Examples: {field.examples.join(' · ')}</span> : null}
+          </button>
+        </li>
+      ))}
+    </ul>
+  </section>
+) : null;
+
+const SourceFieldDescription = ({ field }: { readonly field: AvailableSourceField }) => (
+  <span className="grid gap-0.5">
+    <span className="text-sm font-medium text-slate-900">{field.choice.label}</span>
+    <span className="text-xs text-slate-600">{field.choice.logicalType}</span>
+    {field.examples.length > 0 ? <span className="text-xs text-slate-600">Examples: {field.examples.join(' · ')}</span> : null}
+  </span>
+);
+
 const SourceGroupEditor = (props: {
   readonly form: SourceGroupForm;
-  readonly choices: ReadonlyArray<SourceInputChoice>;
+  readonly fields: ReadonlyArray<AvailableSourceField>;
   readonly supported: boolean;
   readonly reason: string;
   readonly disabled: boolean;
+  readonly canClear: boolean;
+  readonly onClear: () => void;
   readonly onChange: (form: SourceGroupForm) => void;
-}) => (
+}) => {
+  const selectedCount = 1 + (props.form.additionalKeys?.length ?? 0);
+  const selected = (choiceId: string) => props.form.choiceId === choiceId || props.form.additionalKeys?.some((key) => key.choiceId === choiceId) === true;
+  const toggleChoice = (field: AvailableSourceField, checked: boolean) => {
+    const { choice } = field;
+    if (checked) {
+      if (selected(choice.choiceId)) return;
+      const usedNames = new Set([props.form.keyOutput.name, props.form.countOutput.name, ...(props.form.additionalKeys ?? []).map((key) => key.keyOutput.name)]);
+      props.onChange({ ...props.form, additionalKeys: [...(props.form.additionalKeys ?? []), {
+        choiceId: choice.choiceId,
+        inputColumnId: createOpaqueId('group-source'),
+        keyOutput: {
+          id: createOpaqueId('group-key'),
+          name: uniqueName(normalizedName(choice.fieldPath.split('.').at(-1) ?? choice.label), usedNames),
+          label: choice.label,
+          type: choice.logicalType,
+        },
+      }] });
+      return;
+    }
+    if (props.form.choiceId === choice.choiceId) {
+      const [nextPrimary, ...remainingKeys] = props.form.additionalKeys ?? [];
+      if (!nextPrimary) {
+        if (props.canClear) props.onClear();
+        return;
+      }
+      props.onChange({
+        ...props.form,
+        choiceId: nextPrimary.choiceId,
+        inputColumnId: nextPrimary.inputColumnId,
+        keyOutput: nextPrimary.keyOutput,
+        additionalKeys: remainingKeys,
+      });
+      return;
+    }
+    props.onChange({ ...props.form, additionalKeys: props.form.additionalKeys?.filter((key) => key.choiceId !== choice.choiceId) });
+  };
+
+  return (
   <section aria-label="Group by a source field" data-testid="construction-reshape-source-group" className="grid content-start gap-3 rounded-lg border border-slate-200 p-3">
     <header>
-      <h4 className="m-0 text-sm font-semibold text-slate-900">Combine records into rows</h4>
-      <p className="mb-0 mt-1 text-sm text-slate-600">Choose the fields that records must share to belong to the same row. Add columns afterward from those contributing records.</p>
+      <h4 className="m-0 text-sm font-semibold text-slate-900">Group rows</h4>
+      <p className="mb-0 mt-1 text-sm text-slate-600">Choose fields that records must share to belong to one row. Add columns afterward from those contributing records.</p>
     </header>
     {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
-    <label className="grid gap-1 text-sm font-medium text-slate-800">
-      Field to group by
-      <select
-        data-testid="construction-source-group-field"
-        value={props.form.choiceId}
-        disabled={props.disabled || !props.supported}
-        onChange={(event) => {
-          const choice = props.choices.find((candidate) => candidate.choiceId === event.currentTarget.value);
-          if (!choice) return;
-          props.onChange({
-            ...props.form,
-            choiceId: choice.choiceId,
-            keyOutput: {
-              ...props.form.keyOutput,
-              name: normalizedName(choice.fieldPath.split('.').at(-1) ?? choice.label),
-              label: choice.label,
-              type: choice.logicalType,
-            },
-          });
-        }}
-        className="rounded border border-slate-300 bg-white px-2 py-2"
-      >
-        {props.choices.filter((choice) => !props.form.additionalKeys?.some((key) => key.choiceId === choice.choiceId)).map((choice) => (
-          <option key={choice.choiceId} value={choice.choiceId} disabled={!choice.isPopulated}>{choice.label}{choice.isPopulated ? '' : ' (no recorded values)'}</option>
-        ))}
-      </select>
-    </label>
-    {(props.form.additionalKeys ?? []).map((key) => <div key={key.inputColumnId} className="flex items-center gap-2 text-sm">
-      <span className="flex-1">{key.keyOutput.label}</span>
-      <button type="button" aria-label={`Remove grouping field ${key.keyOutput.label}`} disabled={props.disabled}
-        onClick={() => props.onChange({ ...props.form, additionalKeys: props.form.additionalKeys?.filter((item) => item.inputColumnId !== key.inputColumnId) })}
-        className="rounded px-2 py-1 text-slate-600 hover:bg-slate-100">Remove</button>
-    </div>)}
-    <select aria-label="Add grouping field" value="" disabled={props.disabled || !props.supported}
-      onChange={(event) => {
-        const choice = props.choices.find((item) => item.choiceId === event.currentTarget.value);
-        if (!choice) return;
-        const usedNames = new Set([props.form.keyOutput.name, props.form.countOutput.name, ...(props.form.additionalKeys ?? []).map((key) => key.keyOutput.name)]);
-        props.onChange({ ...props.form, additionalKeys: [...(props.form.additionalKeys ?? []), {
-          choiceId: choice.choiceId, inputColumnId: createOpaqueId('group-source'),
-          keyOutput: { id: createOpaqueId('group-key'), name: uniqueName(normalizedName(choice.fieldPath.split('.').at(-1) ?? choice.label), usedNames), label: choice.label, type: choice.logicalType },
-        }] });
-      }} className="rounded border border-slate-300 bg-white px-2 py-2 text-sm">
-      <option value="">Add another grouping field</option>
-      {props.choices.filter((choice) => choice.isPopulated && choice.choiceId !== props.form.choiceId && !props.form.additionalKeys?.some((key) => key.choiceId === choice.choiceId)).map((choice) => <option key={choice.choiceId} value={choice.choiceId}>{choice.label}</option>)}
-    </select>
+    <fieldset disabled={props.disabled || !props.supported} className="grid gap-2">
+      <legend className="text-sm font-medium text-slate-800">Available dataset fields</legend>
+      {props.fields.map((field) => {
+        const isSelected = selected(field.choice.choiceId);
+        const cannotClearLast = isSelected && selectedCount === 1 && !props.canClear;
+        return (
+          <label key={field.choice.choiceId} className="flex items-start gap-2 rounded border border-slate-200 bg-white p-2">
+            <input type="checkbox" aria-label={`Group by ${field.choice.label}`} checked={isSelected}
+              disabled={cannotClearLast}
+              onChange={(event) => toggleChoice(field, event.currentTarget.checked)} />
+            <SourceFieldDescription field={field} />
+          </label>
+        );
+      })}
+      {selectedCount === 1 && !props.canClear ? <p className="m-0 text-xs text-slate-600">Keep at least one grouping field while editing this step.</p> : null}
+    </fieldset>
     <p role="status" data-testid="construction-source-group-summary" className="m-0 text-xs text-slate-600">One row per distinct combination of {[props.form.keyOutput.label, ...(props.form.additionalKeys ?? []).map((key) => key.keyOutput.label)].join(' and ')}. Each row retains its contributing records for Add columns.</p>
     <details className="rounded border border-slate-200 p-2 text-sm">
       <summary className="cursor-pointer font-medium text-slate-800">Advanced: missing values</summary>
@@ -2081,7 +2132,8 @@ const SourceGroupEditor = (props: {
       </label>
     </details>
   </section>
-);
+  );
+};
 
 const CodedGroupEditor = (props: {
   readonly form: CodedGroupForm;
@@ -2173,7 +2225,7 @@ const GroupEditor = (props: {
   return (
     <section aria-label="Summarize into groups" data-testid="construction-reshape-group" className="grid content-start gap-4 rounded-lg border border-slate-200 p-3">
       <header>
-        <h4 className="m-0 text-sm font-semibold text-slate-900">Summarize rows</h4>
+        <h4 className="m-0 text-sm font-semibold text-slate-900">Group rows</h4>
         <p className="mb-0 mt-1 text-sm text-slate-600">Group fields become the new row labels. Each summary becomes another column.</p>
       </header>
       {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}

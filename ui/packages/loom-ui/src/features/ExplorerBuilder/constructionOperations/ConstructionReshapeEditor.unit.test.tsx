@@ -55,6 +55,7 @@ const renderEditor = (args: {
   readonly onCandidateChange?: ConstructionReshapeEditorProps['onCandidateChange'];
   readonly onDiscoverCategories?: ConstructionReshapeEditorProps['onDiscoverCategories'];
   readonly codedPivotContext?: ConstructionReshapeEditorProps['codedPivotContext'];
+  readonly relatedExpandContext?: ConstructionReshapeEditorProps['relatedExpandContext'];
   readonly disabled?: boolean;
   readonly onEditStep?: ConstructionReshapeEditorProps['onEditStep'];
 }) => {
@@ -70,6 +71,7 @@ const renderEditor = (args: {
       selectedColumns={args.selectedColumns}
       onDiscoverCategories={args.onDiscoverCategories}
       codedPivotContext={args.codedPivotContext}
+      relatedExpandContext={args.relatedExpandContext}
       disabled={args.disabled ?? false}
       onCandidateChange={onCandidateChange}
       onEditStep={onEditStep}
@@ -354,9 +356,10 @@ describe('ConstructionReshapeEditor', () => {
     expect(step?.operation.codedGroup.source.codingPath).toBe('type.coding[]');
     expect(screen.queryByTestId('construction-reshape-choice-group')).not.toBeInTheDocument();
   });
-  it('accepts the backend SOURCE_PROJECTION stage for source-field grouping', () => {
+  it('shows available dataset fields from the group menu and submits their compiler choice IDs', () => {
+    const idOnlyStage = { ...sourceStage, columns: [sourceColumns[0]] } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
     const capabilities = {
-      ...capabilitiesFor([sourceStage], sourceStage),
+      ...capabilitiesFor([idOnlyStage], idOnlyStage),
       sourceInput: {
         supported: true,
         stageId: 'source_projection',
@@ -366,27 +369,56 @@ describe('ConstructionReshapeEditor', () => {
         ],
       },
     } satisfies ConstructionReshapeEditorProps['capabilities'];
-    expect(capabilities.selectedStage).toMatchObject({ id: 'source_projection', operation: 'SOURCE_PROJECTION' });
-    expect(capabilities.sourceInput).toMatchObject({ supported: true, stageId: capabilities.selectedStage.id });
+    const relatedExpandContext = {
+      project: 'project-1', explorerId: 'explorer-1', snapshotToken: 'snapshot-1', outputId: 'table-1',
+      catalog: { availability: { fields: [
+        { resourceType: 'Specimen', path: 'status', examples: ['active', 'complete', 'in-progress', 'ignored'], observedShapeKind: 'scalar', pathObservedDocumentCount: 1, examplesTruncated: false, semanticObservations: [] },
+        { resourceType: 'Patient', path: 'gender', examples: ['wrong-resource'], observedShapeKind: 'scalar', pathObservedDocumentCount: 1, examplesTruncated: false, semanticObservations: [] },
+        { resourceType: 'Specimen', path: 'wrong', examples: ['wrong-path'], observedShapeKind: 'scalar', pathObservedDocumentCount: 1, examplesTruncated: false, semanticObservations: [] },
+      ] } },
+    } as unknown as NonNullable<ConstructionReshapeEditorProps['relatedExpandContext']>;
+    const codedPivotContext = { rowRoot: 'Specimen' } as NonNullable<ConstructionReshapeEditorProps['codedPivotContext']>;
     const onCandidateChange = vi.fn();
-    renderEditor({ capabilities, initialKind: 'source-group', onCandidateChange });
+    renderEditor({ capabilities, initialKind: 'choose', relatedExpandContext, codedPivotContext, onCandidateChange });
+    expect(screen.getByTestId('construction-reshape-choice-group')).toHaveTextContent('Summarize into groups');
+    expect(screen.getByRole('region', { name: 'Available dataset fields' })).toBeInTheDocument();
+    expect(screen.getByText('Status')).toBeInTheDocument();
+    expect(screen.getByText('Gender')).toBeInTheDocument();
+    expect(screen.getByText('Examples: active · complete · in-progress')).toBeInTheDocument();
+    expect(screen.queryByText(/ignored|wrong-resource|wrong-path/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Group by Gender' }));
     expect(screen.getByTestId('construction-reshape-source-group')).toBeInTheDocument();
+    expect(controlChecked('Group by Gender')).toBe(true);
+    expect(onCandidateChange.mock.lastCall?.[0]?.groupSources).toEqual([{ rowChoiceId: 'gender-choice', columnId: expect.any(String) }]);
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Group by Status' }));
     const intent = onCandidateChange.mock.lastCall?.[0];
-    expect(intent?.groupSources).toEqual([{ rowChoiceId: 'status-choice', columnId: expect.any(String) }]);
+    expect(intent?.groupSources?.map((source: { rowChoiceId: string }) => source.rowChoiceId)).toEqual(['gender-choice', 'status-choice']);
     expect(intent?.candidateConstruction.steps[0]?.inputs).toEqual([{ kind: 'SOURCE_PROJECTION' }]);
-    expect(intent?.candidateConstruction.steps[0].operation.group.aggregates).toEqual([
-      { operation: 'COUNT_ROWS', outputColumnId: expect.any(String) },
-    ]);
-    expect(intent?.candidateConstruction.steps[0].outputs.map((column: { label: string }) => column.label)).toEqual(['Status', 'Source records']);
-    fireEvent.change(screen.getByTestId('construction-source-group-field'), { target: { value: 'gender-choice' } });
-    expect(onCandidateChange.mock.lastCall?.[0]?.groupSources[0].rowChoiceId).toBe('gender-choice');
-    expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0].outputs[0].label).toBe('Gender');
-    fireEvent.change(screen.getByLabelText('Add grouping field'), { target: { value: 'status-choice' } });
-    expect(onCandidateChange.mock.lastCall?.[0]?.groupSources).toHaveLength(2);
-    expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0].operation.group.keys).toHaveLength(2);
+    expect(intent?.candidateConstruction.steps[0]?.operation.group.keys).toHaveLength(2);
+    expect(intent?.candidateConstruction.steps[0]?.outputs.map((column: { label: string }) => column.label)).toEqual(['Gender', 'Status', 'Source records']);
     expect(screen.getByTestId('construction-source-group-summary')).toHaveTextContent('Gender and Status');
-    fireEvent.click(screen.getByLabelText('Remove grouping field Status'));
-    expect(onCandidateChange.mock.lastCall?.[0]?.groupSources).toHaveLength(1);
+
+    cleanup();
+    renderEditor({ capabilities, initialKind: 'group', relatedExpandContext, codedPivotContext, onCandidateChange: vi.fn() });
+    expect(screen.getByRole('region', { name: 'Available dataset fields' })).toBeInTheDocument();
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
+  });
+  it('does not offer unavailable or non-populated source choices', () => {
+    const noPopulatedChoices = {
+      ...capabilitiesFor(),
+      sourceInput: {
+        supported: true,
+        stageId: 'source_projection',
+        choices: [{ choiceId: 'empty-choice', occurrenceId: 'root-1', fieldPath: 'empty', label: 'Empty field', fhirType: 'string', logicalType: 'string', valueType: 'string', isIdentifier: false, isReference: false, isPopulated: false }],
+      },
+    } satisfies ConstructionReshapeEditorProps['capabilities'];
+    renderEditor({ capabilities: noPopulatedChoices, initialKind: 'group' });
+    expect(screen.queryByTestId('construction-reshape-source-field-choices')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Group by Empty field' })).not.toBeInTheDocument();
+
+    cleanup();
+    renderEditor({ initialKind: 'group' });
+    expect(screen.queryByTestId('construction-reshape-source-field-choices')).not.toBeInTheDocument();
   });
   it('rejects source-group choices when source input belongs to another stage or selected stage is constructed', () => {
     const sourceChoice = {
@@ -400,7 +432,7 @@ describe('ConstructionReshapeEditor', () => {
     } satisfies ConstructionReshapeEditorProps['capabilities'];
     const wrongSourceInputChange = vi.fn();
     renderEditor({ capabilities: wrongSourceInputCapabilities, onCandidateChange: wrongSourceInputChange });
-    expect(screen.getByTestId('construction-reshape-choice-source-group')).toBeDisabled();
+    expect(screen.queryByTestId('construction-reshape-source-field-choices')).not.toBeInTheDocument();
     expect(wrongSourceInputChange).toHaveBeenLastCalledWith(undefined);
 
     cleanup();
@@ -422,7 +454,7 @@ describe('ConstructionReshapeEditor', () => {
     });
     expect(screen.getByTestId('construction-reshape-source-group')).toBeInTheDocument();
     expect(screen.getByText('Source field grouping is available only at the starting source stage.')).toBeInTheDocument();
-    expect(screen.getByTestId('construction-source-group-field')).toBeDisabled();
+    expect(screen.queryByRole('checkbox', { name: 'Group by Status' })).not.toBeInTheDocument();
     expect(constructedSourceGroupChange).toHaveBeenLastCalledWith(undefined);
   });
   it('shows why backend capability choices are unavailable and emits no candidate', () => {
