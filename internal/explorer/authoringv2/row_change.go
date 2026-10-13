@@ -5,9 +5,12 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 const (
@@ -21,6 +24,14 @@ const (
 )
 
 const rowChangeRouteTokenPrefix = "row-change-route:v1:"
+
+type rowChangeRelatedSourceAtRootError struct {
+	sourceOccurrenceID string
+}
+
+func (e *rowChangeRelatedSourceAtRootError) Error() string {
+	return fmt.Sprintf("the selected row root is the saved related-source occurrence %q, which cannot be preserved as a non-empty related-source route", e.sourceOccurrenceID)
+}
 
 type rowChangeRouteToken struct {
 	EdgeIDs            []string `json:"edgeIds"`
@@ -260,6 +271,14 @@ func AssessRowChange(workspace Workspace, catalog CatalogSnapshot, request RowCh
 		SharedFilterBindings:     []SharedFilterBindingRef{},
 	}
 	if _, err := applyRowChange(sourceDocument, catalog, proposal); err != nil {
+		var sourceAtRoot *rowChangeRelatedSourceAtRootError
+		if errors.As(err, &sourceAtRoot) {
+			assessment.Unresolved = append(assessment.Unresolved, RowChangeUnresolvedReference{
+				Kind: RowReferenceColumn, ID: sourceAtRoot.sourceOccurrenceID,
+				Code: "ROW_CHANGE_RELATED_SOURCE_AT_ROOT", Message: err.Error(),
+			})
+			return assessment, nil
+		}
 		assessment.Unresolved = append(assessment.Unresolved, RowChangeUnresolvedReference{
 			Kind: RowReferenceRoute, ID: proposal.RootOccurrenceID, Code: "INVALID_REBASED_ROUTE", Message: err.Error(),
 		})
@@ -621,6 +640,9 @@ func applyRowChange(document Document, catalog CatalogSnapshot, proposal RowChan
 	}
 	document.RootResourceType = selected.ResourceType
 	document.Route = newRoot
+	if err := rebaseRelatedSourceRoutes(&document, catalog, path, pathNodeIDs, choices); err != nil {
+		return Document{}, err
+	}
 	if document.Population != nil {
 		prefix := make([]PopulationRouteStep, 0, len(path)-1)
 		for index := len(path) - 2; index >= 0; index-- {
@@ -636,6 +658,231 @@ func applyRowChange(document Document, catalog CatalogSnapshot, proposal RowChan
 		return Document{}, err
 	}
 	return document, nil
+}
+
+func rebaseRelatedSourceRoutes(
+	document *Document,
+	catalog CatalogSnapshot,
+	path []RouteNode,
+	pathNodeIDs []string,
+	inverseChoices map[string]CatalogEdge,
+) error {
+	if document.Construction == nil {
+		return nil
+	}
+	for stepIndex := range document.Construction.Steps {
+		step := &document.Construction.Steps[stepIndex]
+		related := step.Operation.RelatedSource
+		if step.Operation.Kind != ConstructionOperationRelatedSource || related == nil {
+			continue
+		}
+		route, err := rebaseRelatedSourceRoute(*related, catalog, path, pathNodeIDs, inverseChoices)
+		if err != nil {
+			return fmt.Errorf("rebase related source route for construction step %q: %w", step.ID, err)
+		}
+		candidate, err := relatedSourceCatalogCandidate(catalog, *related)
+		if err != nil {
+			return fmt.Errorf("resolve related source candidate for construction step %q: %w", step.ID, err)
+		}
+		choice, err := capability.NewFieldConstructionChoiceForRoute(catalog.SnapshotToken, route, candidate)
+		if err != nil {
+			return fmt.Errorf("reissue related source choice for construction step %q: %w", step.ID, err)
+		}
+		if !constructionChoiceSupportsRelatedForm(choice, related.Form) {
+			return fmt.Errorf("current catalog candidate %q no longer authorizes related-source form %q", related.Source.CandidateID, related.Form)
+		}
+		related.Route = route
+		related.ChoiceID = choice.ChoiceID
+	}
+	return nil
+}
+
+func relatedSourceCatalogCandidate(catalog CatalogSnapshot, related ConstructionRelatedSource) (capability.Candidate, error) {
+	candidate, found := catalogCandidate(catalog, related.Source.CandidateID)
+	if !found || candidate.ConstructionChoice == nil {
+		return capability.Candidate{}, fmt.Errorf("current catalog candidate %q is unavailable", related.Source.CandidateID)
+	}
+	choiceSource, ok := candidate.ConstructionChoice.Source.(capability.FieldChoiceSource)
+	if !ok {
+		return capability.Candidate{}, fmt.Errorf("current catalog candidate %q is not a field source", related.Source.CandidateID)
+	}
+	choiceIdentity, err := capability.DecodeConstructionChoiceID(candidate.ConstructionChoice.ChoiceID)
+	if err != nil {
+		return capability.Candidate{}, fmt.Errorf("current catalog candidate %q has an invalid construction choice: %w", related.Source.CandidateID, err)
+	}
+	identitySource, ok := choiceIdentity.Source.(capability.FieldChoiceSource)
+	if !ok || choiceIdentity.SnapshotToken != catalog.SnapshotToken || len(choiceIdentity.Route) != 0 ||
+		identitySource.Kind != choiceSource.Kind || identitySource.CandidateID != choiceSource.CandidateID ||
+		identitySource.NodeID != choiceSource.NodeID || identitySource.ResourceType != choiceSource.ResourceType ||
+		identitySource.Path != choiceSource.Path || identitySource.Cardinality != choiceSource.Cardinality ||
+		!sameCapabilityRepeatedBoundaries(identitySource.RepeatedBoundaries, choiceSource.RepeatedBoundaries) {
+		return capability.Candidate{}, fmt.Errorf("current catalog candidate %q construction choice does not pin its current field identity", related.Source.CandidateID)
+	}
+	node, found := catalogNode(catalog, candidate.NodeID)
+	if !found || candidate.ID != related.Source.CandidateID || candidate.NodeID != related.Source.NodeID ||
+		node.ResourceType != related.Source.ResourceType || candidate.FieldPath != related.Source.Path ||
+		candidate.LogicalType != related.Source.LogicalType || candidate.Cardinality != related.Source.Cardinality ||
+		choiceSource.Kind != capability.ConstructionChoiceSourceField || choiceSource.CandidateID != related.Source.CandidateID ||
+		choiceSource.NodeID != related.Source.NodeID || choiceSource.ResourceType != related.Source.ResourceType ||
+		choiceSource.Path != related.Source.Path || choiceSource.Cardinality != related.Source.Cardinality ||
+		!sameCatalogCapabilityRepeatedBoundaries(candidate.RepeatedBoundaries, related.Source.RepeatedBoundaries) ||
+		!sameCapabilityRepeatedBoundaries(choiceSource.RepeatedBoundaries, related.Source.RepeatedBoundaries) {
+		return capability.Candidate{}, fmt.Errorf("current catalog candidate %q does not match the saved related-source field identity", related.Source.CandidateID)
+	}
+	modes := make([]capability.ProjectionMode, 0, len(candidate.ProjectionModes))
+	for _, mode := range candidate.ProjectionModes {
+		switch mode {
+		case "VALUE":
+			modes = append(modes, capability.ProjectionScalar)
+		case "INDEXED":
+			modes = append(modes, capability.ProjectionIndexed)
+		case "FIRST":
+			modes = append(modes, capability.ProjectionFirst)
+		case "ALL":
+			modes = append(modes, capability.ProjectionArray)
+		case "DISTINCT":
+			modes = append(modes, capability.ProjectionDistinctArray)
+		default:
+			return capability.Candidate{}, fmt.Errorf("current catalog candidate %q advertises unknown projection mode %q", related.Source.CandidateID, mode)
+		}
+	}
+	if len(modes) == 0 {
+		return capability.Candidate{}, fmt.Errorf("current catalog candidate %q has no compiler-authorized projection mode", related.Source.CandidateID)
+	}
+	boundaries := make([]capability.RepeatedBoundary, 0, len(candidate.RepeatedBoundaries))
+	for _, boundary := range candidate.RepeatedBoundaries {
+		boundaries = append(boundaries, capability.RepeatedBoundary{Path: boundary.Path, MaxItems: boundary.MaxItems})
+	}
+	return capability.Candidate{
+		ID: candidate.ID, NodeID: candidate.NodeID, ResourceType: node.ResourceType,
+		FieldPath: candidate.FieldPath, Label: candidate.Label, LogicalType: candidate.LogicalType,
+		Cardinality: candidate.Cardinality, RepeatedBoundaries: boundaries, ProjectionModes: modes,
+	}, nil
+}
+
+func constructionChoiceSupportsRelatedForm(choice capability.ConstructionChoice, form capability.ConstructionChoiceForm) bool {
+	for _, option := range choice.Options {
+		if option.Form == form && option.Support == capability.ConstructionChoiceSupported {
+			return true
+		}
+	}
+	return false
+}
+
+func sameCatalogCapabilityRepeatedBoundaries(left []RepeatedBoundary, right []capability.RepeatedBoundary) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != (RepeatedBoundary{Path: right[index].Path, MaxItems: right[index].MaxItems}) {
+			return false
+		}
+	}
+	return true
+}
+
+func sameCapabilityRepeatedBoundaries(left, right []capability.RepeatedBoundary) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != (capability.RepeatedBoundary{Path: right[index].Path, MaxItems: right[index].MaxItems}) {
+			return false
+		}
+	}
+	return true
+}
+
+func rebaseRelatedSourceRoute(
+	related ConstructionRelatedSource,
+	catalog CatalogSnapshot,
+	path []RouteNode,
+	pathNodeIDs []string,
+	inverseChoices map[string]CatalogEdge,
+) ([]capability.ConstructionRouteStep, error) {
+	if len(path) < 2 || len(pathNodeIDs) != len(path) {
+		return nil, fmt.Errorf("selected row root path is incomplete")
+	}
+	if related.SourceOccurrenceID != related.Source.NodeID {
+		return nil, fmt.Errorf("saved source occurrence %q does not match its source node %q", related.SourceOccurrenceID, related.Source.NodeID)
+	}
+	if pathNodeIDs[len(path)-1] == related.Source.NodeID {
+		return nil, &rowChangeRelatedSourceAtRootError{sourceOccurrenceID: related.SourceOccurrenceID}
+	}
+
+	// If the exact saved source route is part of the compiler-selected route to
+	// the new root, reuse its terminal occurrence and keep only the inverse
+	// suffix between that occurrence and the selected root. Otherwise carry the
+	// saved route after the inverse prefix back to its original root.
+	sourcePathIndex := -1
+	if len(related.Route) <= len(path)-1 && len(related.Route) > 0 &&
+		related.Route[0].FromNodeID == pathNodeIDs[0] &&
+		related.Route[0].FromResourceType == path[0].ResourceType {
+		matchesSavedRoute := true
+		for index, savedHop := range related.Route {
+			edge, err := resolveCatalogRouteEdge(catalog, pathNodeIDs[index], path[index], path[index+1])
+			if err != nil || savedHop.EdgeID != edge.ID || savedHop.FromNodeID != edge.FromNodeID ||
+				savedHop.ToNodeID != edge.ToNodeID || savedHop.FromResourceType != path[index].ResourceType ||
+				savedHop.ToResourceType != path[index+1].ResourceType || savedHop.Relationship != edge.Label ||
+				savedHop.StorageDirection != edge.StorageDirection {
+				matchesSavedRoute = false
+				break
+			}
+		}
+		if matchesSavedRoute {
+			candidateSourceIndex := len(related.Route)
+			if pathNodeIDs[candidateSourceIndex] == related.Source.NodeID && candidateSourceIndex < len(path)-1 {
+				sourcePathIndex = candidateSourceIndex
+			}
+		}
+	}
+	if sourcePathIndex >= 0 {
+		return reverseConstructionRoutePath(path, pathNodeIDs, inverseChoices, catalog, sourcePathIndex)
+	}
+
+	prefix, err := reverseConstructionRoutePath(path, pathNodeIDs, inverseChoices, catalog, 0)
+	if err != nil {
+		return nil, err
+	}
+	if len(related.Route) == 0 || related.Route[0].FromNodeID != pathNodeIDs[0] ||
+		related.Route[0].FromResourceType != path[0].ResourceType {
+		return nil, fmt.Errorf("saved related-source route does not start at the prior row root")
+	}
+	return append(prefix, related.Route...), nil
+}
+
+func reverseConstructionRoutePath(
+	path []RouteNode,
+	pathNodeIDs []string,
+	inverseChoices map[string]CatalogEdge,
+	catalog CatalogSnapshot,
+	startIndex int,
+) ([]capability.ConstructionRouteStep, error) {
+	if startIndex < 0 || startIndex >= len(path)-1 || len(pathNodeIDs) != len(path) {
+		return nil, fmt.Errorf("selected route cannot reach the saved source occurrence")
+	}
+	route := make([]capability.ConstructionRouteStep, 0, len(path)-1-startIndex)
+	for index := len(path) - 2; index >= startIndex; index-- {
+		fromNodeID, toNodeID := pathNodeIDs[index+1], pathNodeIDs[index]
+		edge, found := inverseChoices[path[index].OccurrenceID]
+		if !found || edge.FromNodeID != fromNodeID || edge.ToNodeID != toNodeID ||
+			edge.Label == "" || edge.StorageDirection != "INBOUND" && edge.StorageDirection != "OUTBOUND" {
+			return nil, fmt.Errorf("selected inverse edge for occurrence %q is unavailable", path[index].OccurrenceID)
+		}
+		fromNode, fromFound := catalogNode(catalog, fromNodeID)
+		toNode, toFound := catalogNode(catalog, toNodeID)
+		if !fromFound || !toFound || fromNode.ResourceType != path[index+1].ResourceType ||
+			toNode.ResourceType != path[index].ResourceType {
+			return nil, fmt.Errorf("selected inverse edge %q does not match the proven route endpoints", edge.ID)
+		}
+		route = append(route, capability.ConstructionRouteStep{
+			EdgeID: edge.ID, FromNodeID: fromNodeID, ToNodeID: toNodeID,
+			FromResourceType: fromNode.ResourceType, ToResourceType: toNode.ResourceType,
+			Relationship: edge.Label, StorageDirection: edge.StorageDirection,
+			MatchMode: string(path[index+1].MatchMode.Normalized()),
+		})
+	}
+	return route, nil
 }
 
 func rebasePopulationRoute(prefix, existing []PopulationRouteStep, newRootNodeID, previousRootNodeID string, catalog CatalogSnapshot) []PopulationRouteStep {

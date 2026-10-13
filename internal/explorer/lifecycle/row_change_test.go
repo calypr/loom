@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"reflect"
@@ -666,5 +667,268 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 		seed.Source.Field.Path != "id" || seed.Source.Field.ProjectionMode != "VALUE" || seed.Table == nil ||
 		seed.Table.Visible == nil || !*seed.Table.Visible || seed.Table.Order == nil || *seed.Table.Order != 0 {
 		t.Fatalf("replacement ID seed is not a visible root VALUE column at order zero: %#v", seed)
+	}
+}
+
+func TestAssessRowChangeRebasesRelatedSourceForSelectedCompilerRootRoute(t *testing.T) {
+	snapshot := readySnapshot("project-a", "generation-a", "row-change-related-source", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	nodeSet := []capability.Node{
+		{ID: "condition", ResourceType: "Condition", RowRootEligible: true, Populated: true},
+		{ID: "patient", ResourceType: "Patient", RowRootEligible: true, Populated: true},
+		{ID: "patient-alt", ResourceType: "Patient", RowRootEligible: true, Populated: true},
+		{ID: "specimen", ResourceType: "Specimen", RowRootEligible: true, Populated: true},
+	}
+	edgeSet := []capability.Edge{
+		{ID: "condition-patient", FromNodeID: "condition", ToNodeID: "patient", Label: "subject_Patient", StorageDirection: "OUTBOUND", SourceResourceType: "Condition", TargetResourceType: "Patient"},
+		{ID: "patient-condition", FromNodeID: "patient", ToNodeID: "condition", Label: "subject_Patient", StorageDirection: "INBOUND", SourceResourceType: "Patient", TargetResourceType: "Condition"},
+		{ID: "patient-specimen", FromNodeID: "patient", ToNodeID: "specimen", Label: "subject_Patient", StorageDirection: "INBOUND", SourceResourceType: "Patient", TargetResourceType: "Specimen"},
+		{ID: "specimen-patient", FromNodeID: "specimen", ToNodeID: "patient", Label: "subject_Patient", StorageDirection: "OUTBOUND", SourceResourceType: "Specimen", TargetResourceType: "Patient"},
+		{ID: "condition-patient-alt", FromNodeID: "condition", ToNodeID: "patient-alt", Label: "subject_Patient", StorageDirection: "OUTBOUND", SourceResourceType: "Condition", TargetResourceType: "Patient"},
+		{ID: "patient-alt-condition", FromNodeID: "patient-alt", ToNodeID: "condition", Label: "subject_Patient", StorageDirection: "INBOUND", SourceResourceType: "Patient", TargetResourceType: "Condition"},
+		{ID: "patient-alt-specimen", FromNodeID: "patient-alt", ToNodeID: "specimen", Label: "subject_Patient", StorageDirection: "INBOUND", SourceResourceType: "Patient", TargetResourceType: "Specimen"},
+		{ID: "specimen-patient-alt", FromNodeID: "specimen", ToNodeID: "patient-alt", Label: "subject_Patient", StorageDirection: "OUTBOUND", SourceResourceType: "Specimen", TargetResourceType: "Patient"},
+	}
+	candidateSet := []capability.Candidate{
+		{ID: "condition-id", NodeID: "condition", ResourceType: "Condition", FieldPath: "id", Label: "Condition ID", LogicalType: "string", Cardinality: "required_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Populated: true},
+		{ID: "patient-id", NodeID: "patient", ResourceType: "Patient", FieldPath: "id", Label: "Patient ID", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Populated: true},
+	}
+	snapshot.Nodes = nodeSet
+	snapshot.Edges = edgeSet
+	snapshot.Candidates = candidateSet
+	snapshot.Policy.Route = capability.RoutePolicy{}
+
+	relatedRoute := []capability.ConstructionRouteStep{{
+		EdgeID: "condition-patient", FromNodeID: "condition", ToNodeID: "patient",
+		FromResourceType: "Condition", ToResourceType: "Patient", Relationship: "subject_Patient",
+		StorageDirection: "OUTBOUND", MatchMode: "OPTIONAL",
+	}}
+	choice, err := capability.NewFieldConstructionChoiceForRoute(snapshot.Token, relatedRoute, candidateSet[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootColumn := authoringv2.Column{
+		ColumnID: "condition-id-column", Column: "condition_id", Label: "Condition ID", LogicalType: "string",
+		OccurrenceID: authoringv2.RootOccurrenceID,
+		Source:       authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+	}
+	related := authoringv2.ConstructionRelatedSource{
+		AnchorColumnID: "_key", ChoiceID: choice.ChoiceID, SourceOccurrenceID: "patient",
+		Source: authoringv2.ConstructionRelatedFieldSource{
+			Kind: capability.ConstructionChoiceSourceField, CandidateID: candidateSet[1].ID,
+			NodeID: candidateSet[1].NodeID, ResourceType: candidateSet[1].ResourceType,
+			Path: candidateSet[1].FieldPath, Cardinality: candidateSet[1].Cardinality,
+			LogicalType: candidateSet[1].LogicalType,
+		},
+		Route: relatedRoute, ContributorRule: authoringv2.ConstructionRelatedContributorRule{Policy: authoringv2.ConstructionRelatedAllMatches},
+		Form: capability.ConstructionChoiceAll, RowValuePolicy: authoringv2.ConstructionRowValueOne,
+		OutputColumnID: "related-patient-id",
+	}
+	rootStageColumn := authoringv2.StageColumn{ID: rootColumn.ColumnID, Name: rootColumn.Column, Label: rootColumn.Label, Type: rootColumn.LogicalType}
+	relatedStageColumn := authoringv2.StageColumn{ID: related.OutputColumnID, Name: "related_patient_id", Label: "Related Patient ID", Type: "string"}
+	workspace := authoringv2.Workspace{
+		APIVersion: authoringv2.APIVersion, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Conditions"},
+		Documents: []authoringv2.Document{{
+			Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Conditions"},
+			RootResourceType: "Condition", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Condition"},
+			Rows: authoringv2.RecordsRowDefinition(), Columns: []authoringv2.Column{rootColumn},
+			Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+				ID: "related-patient-step", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedSource, RelatedSource: &related},
+				Outputs:   []authoringv2.StageColumn{rootStageColumn, relatedStageColumn},
+			}}},
+		}},
+		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Conditions", OutputID: "patients", Order: 0, Visible: true}},
+	}
+	if err := workspace.Validate(); err != nil {
+		t.Fatalf("validate related-source source workspace: %v", err)
+	}
+	draft, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeStore{created: &explorer.Explorer{
+		Project: "project-a", ExplorerID: "conditions", DraftConfig: draft, DraftVersion: 1, DraftDigest: digest,
+	}, copyGet: true}
+	config := testConfig(snapshot)
+	config.PreviewReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		return dataframeexecution.PreviewSummary{Columns: []string{"condition_id", "related_patient_id"}, RowCount: 1, Complete: true}, nil
+	}
+	config.Capability.Catalog = func(got capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
+		catalog := authoringv2.CatalogSnapshot{
+			APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind,
+			Project: "project-a", ExplorerID: explorerID, SourceGeneration: got.Identity.Generation,
+			AuthorizationScopeDigest: got.Identity.AuthorizationScopeDigest, SnapshotToken: got.Token,
+			Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
+		}
+		for _, node := range got.Nodes {
+			catalog.Nodes = append(catalog.Nodes, authoringv2.CatalogNode{
+				ID: node.ID, ResourceType: node.ResourceType, RowRootEligible: node.RowRootEligible, Populated: node.Populated,
+			})
+		}
+		for _, edge := range got.Edges {
+			catalog.Edges = append(catalog.Edges, authoringv2.CatalogEdge{
+				ID: edge.ID, FromNodeID: edge.FromNodeID, ToNodeID: edge.ToNodeID,
+				Label: edge.Label, StorageDirection: edge.StorageDirection,
+			})
+		}
+		for _, candidate := range got.Candidates {
+			candidateChoice, choiceErr := capability.NewFieldConstructionChoice(got.Token, candidate)
+			if choiceErr != nil {
+				t.Fatal(choiceErr)
+			}
+			projectionModes := make([]string, 0, len(candidate.ProjectionModes))
+			for _, mode := range candidate.ProjectionModes {
+				switch mode {
+				case capability.ProjectionScalar:
+					projectionModes = append(projectionModes, "VALUE")
+				case capability.ProjectionIndexed:
+					projectionModes = append(projectionModes, "INDEXED")
+				case capability.ProjectionFirst:
+					projectionModes = append(projectionModes, "FIRST")
+				case capability.ProjectionArray:
+					projectionModes = append(projectionModes, "ALL")
+				case capability.ProjectionDistinctArray:
+					projectionModes = append(projectionModes, "DISTINCT")
+				default:
+					projectionModes = append(projectionModes, string(mode))
+				}
+			}
+			catalog.Candidates = append(catalog.Candidates, authoringv2.CatalogCandidate{
+				ID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath,
+				Label: candidate.Label, LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality,
+				ProjectionModes: projectionModes, DefaultProjectionMode: "VALUE", ConstructionChoice: &candidateChoice,
+			})
+		}
+		return catalog
+	}
+	compileCandidate := func(candidateWorkspace authoringv2.Workspace) (explorercompilation.WorkspaceResult, error) {
+		compiled, compileErr := explorercompilation.CompileWorkspace(context.Background(), "project-a", "conditions", candidateWorkspace, snapshot, explorercompilation.ResolvedInputs{})
+		if compileErr != nil {
+			return explorercompilation.WorkspaceResult{}, compileErr
+		}
+		plan, compileErr := semantic.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: snapshot.Identity.Generation})
+		if compileErr != nil {
+			return explorercompilation.WorkspaceResult{}, compileErr
+		}
+		resolved, compileErr := semantic.ResolveRecipePlan(plan, snapshot.Identity.AuthorizationScopeDigest, snapshot.Identity.Generation)
+		if compileErr != nil {
+			return explorercompilation.WorkspaceResult{}, compileErr
+		}
+		if _, compileErr := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy()); compileErr != nil {
+			return explorercompilation.WorkspaceResult{}, compileErr
+		}
+		return compiled, nil
+	}
+	var compiledWorkspace authoringv2.Workspace
+	config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		compiledWorkspace = request.Workspace
+		compiled, compileErr := compileCandidate(request.Workspace)
+		if compileErr != nil {
+			t.Logf("candidate route before compile failure: %#v", request.Workspace.Documents[0].Route)
+			t.Logf("candidate related source before compile failure: %#v", request.Workspace.Documents[0].Construction.Steps[0].Operation.RelatedSource)
+			return nil, compileErr
+		}
+		receipt := nativeReceipt(snapshot)
+		receipt.ExplorerID = "conditions"
+		receipt.IntentDigest, compileErr = request.Workspace.Digest()
+		if compileErr != nil {
+			return nil, compileErr
+		}
+		receipt.NormalizedBundle, compileErr = request.Workspace.CanonicalJSON()
+		if compileErr != nil {
+			return nil, compileErr
+		}
+		receipt.Bundle = compiled.Bundle
+		receipt.RecipeDigest = compiled.RecipeDigest
+		receipt.ResolvedRecipeDigest = compiled.RecipeDigest
+		receipt.EmittedColumns = compiled.EmittedColumns
+		receipt.CompiledOutputSchemas = testCompiledOutputSchemas(request.Workspace)
+		receipt.OutputColumnProvenance = testOutputColumnProvenance(request.Workspace)
+		contracts, marshalErr := json.Marshal(explorer.PublicOutputContracts{Outputs: compiled.OutputContracts})
+		if marshalErr != nil {
+			return nil, marshalErr
+		}
+		receipt.PublicOutputContract = contracts
+		receipt.OutputContractDigest, compileErr = explorer.CompilationArtifactDigest(contracts)
+		if compileErr != nil {
+			return nil, compileErr
+		}
+		receipt.CompilationKey, compileErr = explorer.CompilationKey(*receipt)
+		if compileErr != nil {
+			return nil, compileErr
+		}
+		receipt.ID, compileErr = explorer.ReceiptID(*receipt)
+		if compileErr != nil {
+			return nil, compileErr
+		}
+		if compileErr = receipt.Validate(); compileErr != nil {
+			return nil, compileErr
+		}
+		store.receipt = receipt
+		return receipt, nil
+	}
+	service := newTestService(t, store, config)
+	initial, err := service.AssessRowChange(context.Background(), AssessRowChangeRequest{
+		Project: "project-a", ExplorerID: "conditions", SnapshotToken: snapshot.Token,
+		DraftVersion: 1, DraftDigest: digest, OutputID: "patients", RootNodeID: "specimen",
+	})
+	if err != nil || initial.Assessment.Status != authoringv2.RowChangeBlocked || len(initial.Assessment.Unresolved) != 1 ||
+		initial.Assessment.Unresolved[0].Code != "AMBIGUOUS_ROW_ROOT_OCCURRENCE" || len(initial.Assessment.Unresolved[0].Alternatives) != 2 {
+		t.Fatalf("initial compiler-root assessment=%#v err=%v", initial, err)
+	}
+	var selectedRoute string
+	for _, alternative := range initial.Assessment.Unresolved[0].Alternatives {
+		const prefix = "row-change-route:v1:"
+		if !strings.HasPrefix(alternative, prefix) {
+			continue
+		}
+		payload, decodeErr := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(alternative, prefix))
+		if decodeErr != nil {
+			t.Fatalf("decode compiler route %q: %v", alternative, decodeErr)
+		}
+		var route struct {
+			EdgeIDs []string `json:"edgeIds"`
+		}
+		if decodeErr := json.Unmarshal(payload, &route); decodeErr != nil {
+			t.Fatalf("unmarshal compiler route %q: %v", alternative, decodeErr)
+		}
+		if reflect.DeepEqual(route.EdgeIDs, []string{"condition-patient", "patient-specimen"}) {
+			selectedRoute = alternative
+		}
+	}
+	if selectedRoute == "" {
+		t.Fatalf("assessment did not offer the exact route through the saved Patient source occurrence: %#v", initial.Assessment.Unresolved[0].Alternatives)
+	}
+	terminalSource, err := service.AssessRowChange(context.Background(), AssessRowChangeRequest{
+		Project: "project-a", ExplorerID: "conditions", SnapshotToken: snapshot.Token,
+		DraftVersion: 1, DraftDigest: digest, OutputID: "patients", RootNodeID: "patient",
+	})
+	if err != nil || terminalSource.Assessment.Status != authoringv2.RowChangeBlocked ||
+		terminalSource.Assessment.Proposal != nil || terminalSource.CandidateReceiptID != "" ||
+		len(terminalSource.Assessment.Unresolved) != 1 || terminalSource.Assessment.Unresolved[0].Code != "ROW_CHANGE_RELATED_SOURCE_AT_ROOT" {
+		t.Fatalf("root change to saved related-source terminal=%#v err=%v, want an actionable blocked assessment", terminalSource, err)
+	}
+
+	selected, err := service.AssessRowChange(context.Background(), AssessRowChangeRequest{
+		Project: "project-a", ExplorerID: "conditions", SnapshotToken: snapshot.Token,
+		DraftVersion: 1, DraftDigest: digest, OutputID: "patients", RootNodeID: "specimen",
+		RootOccurrenceID: selectedRoute,
+	})
+	if err != nil || selected.Assessment.Status != authoringv2.RowChangeReady || selected.Assessment.Proposal == nil || selected.CandidateReceiptID == "" {
+		t.Fatalf("selected compiler-root assessment=%#v err=%v", selected, err)
+	}
+	if compiledWorkspace.Documents[0].RootResourceType != "Specimen" {
+		t.Fatalf("candidate receipt compiled root %q, want Specimen", compiledWorkspace.Documents[0].RootResourceType)
+	}
+	gotRelated := compiledWorkspace.Documents[0].Construction.Steps[0].Operation.RelatedSource
+	if gotRelated == nil || len(gotRelated.Route) != 1 || gotRelated.Route[0].FromNodeID != "specimen" ||
+		gotRelated.Route[0].ToNodeID != "patient" || gotRelated.Route[0].EdgeID != "specimen-patient" ||
+		gotRelated.SourceOccurrenceID != "patient" {
+		t.Fatalf("candidate related-source route=%#v, want the selected Specimen→saved Patient occurrence route", gotRelated)
 	}
 }
