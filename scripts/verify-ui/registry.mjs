@@ -402,7 +402,7 @@ export const registry = Object.freeze([
       'condition-specimen-route-ambiguity': {
         fixtureDir: 'testdata/basic-root-picker-ambiguity',
         playwrightTest: 'scripts/verify-ui/specs/condition-specimen-route-ambiguity.spec.mjs',
-        playwrightGrep: 'native Record type picker resolves Condition-to-Specimen alternatives with the authored Patient anchor$',
+        playwrightGrep: 'native Record type picker resolves Condition-to-Specimen alternatives through the Patient-subject path$',
         focusedChecks: [
           {
             id: 'condition-specimen-route-oracle',
@@ -431,9 +431,9 @@ export const registry = Object.freeze([
           'select Condition.subject route for Patient.id action-to-render within budget',
           'select ALL form for Patient.id action-to-render within budget',
           'confirm Patient.id through Condition.subject and ALL action-to-render within budget',
-          'Condition.subject authors Patient IDs through the exact related source route',
-          'authored Patient anchor route automatically previews its exact fixture rows without saved mutation',
-          'Cancel leaves the authored Condition and Patient setup unchanged',
+          'Condition.subject adds Patient IDs through the exact Patient-subject source route',
+          'Patient-subject route automatically previews its exact fixture rows without saved mutation',
+          'Cancel leaves the Condition table and Patient-subject source step unchanged',
           'focus-inbound route exposes and resolves AMBIGUOUS_ROUTE_REBASE_EDGE inline',
           'focus-inbound route Preview matches its distinct exact Condition and Patient fixture rows',
           'Apply renders exact Specimen IDs with the selected Condition and Patient values',
