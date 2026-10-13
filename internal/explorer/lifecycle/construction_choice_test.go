@@ -164,20 +164,66 @@ func TestResolveSemanticConstructionChoiceUsesFallbackCandidateOptionsAcrossOpti
 	catalogSnapshot := authoringv2.CatalogSnapshot{SnapshotToken: snapshot.Token, Candidates: []authoringv2.CatalogCandidate{{
 		ID: primary.ID, NodeID: primary.NodeID, FieldPath: primary.FieldPath, Cardinality: primary.Cardinality,
 	}}}
-	resolved, _, err := resolveSemanticConstructionChoice(
-		context.Background(), AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
-		"explorer-a", "Medication", contextToken, buildID, buildID,
-		map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry},
-		authoringv2.ConstructionChoiceSelection{ChoiceID: choice.ChoiceID, Form: capability.ConstructionChoiceValue}, identity,
-		semanticSource,
-	)
-	if err != nil {
-		t.Fatalf("resolve semantic choice across OPTIONAL route: %v", err)
+	for _, option := range choice.Options {
+		if option.Form == capability.ConstructionChoiceOwnerRecords {
+			continue
+		}
+		resolved, _, err := resolveSemanticConstructionChoice(
+			context.Background(), AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
+			"explorer-a", "Medication", contextToken, buildID, buildID,
+			map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry},
+			authoringv2.ConstructionChoiceSelection{ChoiceID: choice.ChoiceID, Form: option.Form}, identity,
+			semanticSource,
+		)
+		if err != nil {
+			t.Fatalf("resolve fallback semantic choice form %s across OPTIONAL route: %v", option.Form, err)
+		}
+		if resolved.CandidateID != primary.ID || resolved.Source.Lookup == nil || resolved.Source.Lookup.Binding == nil ||
+			resolved.Source.Lookup.Binding.ValuePath != "valueCodeableConcept.text" || resolved.Source.Lookup.ProjectionMode != string(option.Form) ||
+			!reflect.DeepEqual(resolved.Route, route) {
+			t.Fatalf("resolved fallback semantic choice form %s = %#v", option.Form, resolved)
+		}
 	}
-	if resolved.CandidateID != primary.ID || resolved.Source.Lookup == nil || resolved.Source.Lookup.Binding == nil ||
-		resolved.Source.Lookup.Binding.ValuePath != "valueCodeableConcept.text" || resolved.Source.Lookup.ProjectionMode != "VALUE" ||
-		!reflect.DeepEqual(resolved.Route, route) {
-		t.Fatalf("resolved semantic choice = %#v", resolved)
+
+	// A scalar semantic value on a non-empty route must advertise the same
+	// route-specific reductions as a field choice for the same compiler
+	// candidate. The framed Builder flow reissues this choice during apply.
+	scalarEntry := entry
+	scalarEntry.Observation.Value.FallbackSelectors = nil
+	scalarEntry.Observation.Value.FallbackOnBlankString = false
+	scalarChoice, err := semanticInventoryConstructionChoiceForRoute(snapshot, contextToken, buildID, route, scalarEntry, primary, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scalarFieldChoice, err := capability.NewFieldConstructionChoiceForRoute(snapshot.Token, route, primary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(scalarChoice.Options, scalarFieldChoice.Options) {
+		t.Fatalf("routed scalar semantic options differ from the exact compiler candidate: semantic=%#v field=%#v", scalarChoice.Options, scalarFieldChoice.Options)
+	}
+	scalarIdentity, err := capability.DecodeConstructionChoiceID(scalarChoice.ChoiceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scalarSource, ok := scalarIdentity.Source.(capability.SemanticBindingChoiceSource)
+	if !ok {
+		t.Fatalf("routed scalar semantic source = %#v", scalarIdentity.Source)
+	}
+	for _, option := range scalarFieldChoice.Options {
+		resolved, _, err := resolveSemanticConstructionChoice(
+			context.Background(), AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
+			"explorer-a", "Medication", contextToken, buildID, buildID,
+			map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(scalarEntry.ConceptID, scalarEntry.BindingID): scalarEntry},
+			authoringv2.ConstructionChoiceSelection{ChoiceID: scalarChoice.ChoiceID, Form: option.Form}, scalarIdentity,
+			scalarSource,
+		)
+		if err != nil {
+			t.Fatalf("resolve routed scalar semantic choice form %s: %v", option.Form, err)
+		}
+		if resolved.CandidateID != primary.ID || resolved.Source.Lookup == nil || resolved.Source.Lookup.ProjectionMode != string(option.Form) || !reflect.DeepEqual(resolved.Route, route) {
+			t.Fatalf("resolved routed scalar semantic choice form %s = %#v", option.Form, resolved)
+		}
 	}
 
 	rootContextToken, err := semanticInventoryContextToken(snapshot, "explorer-a", "Observation", buildID)

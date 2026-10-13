@@ -551,7 +551,7 @@ func NewSemanticConstructionChoiceForRoute(snapshotToken, semanticContextToken, 
 	if err != nil {
 		return ConstructionChoice{}, err
 	}
-	choice := ConstructionChoice{ChoiceID: choiceID, Source: source, Route: cloneConstructionRoute(route), Presentation: semanticChoicePresentation(source, candidate), Options: constructionOptions(candidate)}
+	choice := ConstructionChoice{ChoiceID: choiceID, Source: source, Route: cloneConstructionRoute(route), Presentation: semanticChoicePresentation(source, candidate), Options: constructionOptionsForRoute(candidate, route)}
 	if len(ownerRecordsProved) > 0 && ownerRecordsProved[0] && ownerRecordsSourceSupported(source, candidate) {
 		choice.Options = append(choice.Options, ConstructionChoiceOption{
 			Form: ConstructionChoiceOwnerRecords, Shape: ConstructionChoiceList,
