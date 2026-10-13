@@ -429,136 +429,41 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
       : candidate.label.includes('Focus') && candidate.label.includes('Observation') && candidate.label.includes('Specimen') && candidate.label.endsWith('from Condition rows'));
     assert(option, `The ${kind} native route choice must be available: ${JSON.stringify(compilerChoices.map(({ value, label }) => ({ value, label })))}`);
     let previewIdentity;
-    let edgeRepairEvidence;
     let rootSelectionRequest;
-    if (kind === 'focus') {
-      await act('select the focus-inbound Condition-to-Specimen route', selector,
-        async (control, { remainingTimeout }) => {
-          const responsePromise = waitForRootAssessment(nodeId, remainingTimeout);
-          await control.selectOption(option.value, { timeout: remainingTimeout() });
-          const response = await responsePromise;
-          assert.equal(response.status(), 200, 'The focus route assessment must return HTTP 200.');
-          const assessment = await response.json();
-          const reference = (assessment.unresolved ?? []).find(entry =>
-            entry.code === 'AMBIGUOUS_ROUTE_REBASE_EDGE');
-          assert(assessment.status === 'BLOCKED' && reference,
-            `The Condition/Observation route must expose the backend AMBIGUOUS_ROUTE_REBASE_EDGE assessment: ${JSON.stringify(assessment)}`);
-          assert(Array.isArray(reference.alternatives) && reference.alternatives.length === 2,
-            `The fixture must expose its two backend repair alternatives: ${JSON.stringify(reference.alternatives)}`);
-          const relationshipAlternatives = reference.alternatives.map(edgeId => {
-            const matches = sourceCheckpoint.catalog.edges.filter(edge => edge.edgeId === edgeId);
-            assert.equal(matches.length, 1,
-              `Compiler alternative ${edgeId} must resolve to one edge in the saved catalog snapshot.`);
-            const [edge] = matches;
-            const from = sourceCheckpoint.catalog.nodes.find(node => node.nodeId === edge.fromNodeId);
-            const to = sourceCheckpoint.catalog.nodes.find(node => node.nodeId === edge.toNodeId);
-            assert(from && to, `Compiler alternative ${edgeId} must have catalog endpoint metadata.`);
-            return {
-              edgeId,
-              relationship: edge.label,
-              fromResourceType: from.resourceType,
-              toResourceType: to.resourceType,
-            };
-          });
-          assert(relationshipAlternatives.every(edge => {
-            const endpoints = new Set([edge.fromResourceType, edge.toResourceType]);
-            return endpoints.has('Observation') && endpoints.has('Condition');
-          }), `Every compiler alternative must connect the same Condition/Observation resources: ${JSON.stringify(relationshipAlternatives)}`);
-          const focusAlternatives = relationshipAlternatives.filter(edge =>
-            edge.relationship.toLowerCase().includes('focus'));
-          assert.equal(focusAlternatives.length, 1,
-            `One compiler alternative must identify the fixture's Focus relationship from catalog metadata: ${JSON.stringify(relationshipAlternatives)}`);
-          edgeRepairEvidence = {
-            status: assessment.status,
-            code: reference.code,
-            referenceId: reference.id,
-            message: reference.message,
-            alternatives: reference.alternatives,
-            relationshipAlternatives,
-            focusAlternative: focusAlternatives[0],
-          };
-        }, {
-          after: async ({ remainingTimeout }) => {
-            const values = edgeRepairEvidence.alternatives.map(edgeId =>
-              `compiler-edge:${edgeRepairEvidence.referenceId}:${edgeId}`);
-            await page.waitForFunction(expectedValues => {
-              const options = [...(document.querySelector('[aria-label="Record type"]')?.options ?? [])];
-              return expectedValues.every(value => options.some(option => option.value === value && !option.disabled));
-            }, values, { timeout: remainingTimeout() });
-          },
-        });
-      const edgeOptions = await selector.locator('option').evaluateAll(nodes => nodes.map(candidate => ({
-        value: candidate.value,
-        disabled: candidate.disabled,
-      })));
-      const alternativeOptions = edgeRepairEvidence.alternatives.map(edgeId => {
-        const value = `compiler-edge:${edgeRepairEvidence.referenceId}:${edgeId}`;
-        const matches = edgeOptions.filter(candidate => candidate.value === value);
-        assert.equal(matches.length, 1,
-          `Backend edge alternative ${edgeId} must have one native picker option.`);
-        assert.equal(matches[0].disabled, false,
-          `Backend edge alternative ${edgeId} must remain enabled in the native picker.`);
-        return { edgeId, value };
+    const routeAction = kind === 'focus'
+      ? 'select the focus-inbound Condition-to-Specimen route'
+      : 'select the Patient-subject Condition-to-Specimen route';
+    await act(routeAction, selector,
+      async (control, { remainingTimeout }) => {
+        const responsePromise = waitForRootAssessment(nodeId, remainingTimeout);
+        await control.selectOption(option.value, { timeout: remainingTimeout() });
+        const response = await responsePromise;
+        assert.equal(response.status(), 200, `Selecting the ${kind} compiler route must return HTTP 200.`);
+        const body = requestBody(response.request());
+        assert.equal(body?.rootOccurrenceId, option.routeToken,
+          `The selected ${kind} compiler route token must be submitted unchanged as rootOccurrenceId.`);
+        const assessment = await response.json();
+        assert.equal(assessment.status, 'READY',
+          `The selected ${kind} compiler route must produce a ready receipt-bound Preview: ${JSON.stringify(assessment)}`);
+        assert.equal(assessment.proposal?.rootOccurrenceId, option.routeToken,
+          'The READY proposal must retain the exact selected compiler route token.');
+        expectReceipt(assessment.candidateReceiptId);
+        rootSelectionRequest = {
+          rootNodeId: body.rootNodeId,
+          optionValue: option.value,
+          referenceId: option.referenceId,
+          rootOccurrenceId: body.rootOccurrenceId,
+          candidateReceiptId: assessment.candidateReceiptId,
+          routeRebase: assessment.proposal.routeRebase,
+        };
+      }, {
+        after: async () => {
+          await page.getByRole('region', { name: 'Review proposed rows', exact: true })
+            .waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
+          await page.getByRole('dialog', { name: 'Row definition settings', exact: true })
+            .waitFor({ state: 'detached', timeout: ACTION_TIMEOUT_MS });
+        },
       });
-      const focusEdgeID = edgeRepairEvidence.focusAlternative.edgeId;
-      const focusEdgeOption = alternativeOptions.find(option => option.edgeId === focusEdgeID);
-      const otherEdgeOptions = alternativeOptions.filter(option => option.edgeId !== focusEdgeID);
-      assert(focusEdgeOption && otherEdgeOptions.length === 1 && otherEdgeOptions[0].edgeId !== focusEdgeID,
-        'The selected Focus edge and the remaining compiler alternative must have distinct IDs.');
-      assert.equal(await page.getByRole('heading', { name: 'Choose how to preserve this table', exact: true }).count(), 0,
-        'AMBIGUOUS_ROUTE_REBASE_EDGE must remain inline in the Record type picker.');
-      await act('select the inline Observation.focus relationship repair', selector,
-        async (control, { remainingTimeout }) => {
-          const responsePromise = waitForRootAssessment(nodeId, remainingTimeout);
-          await control.selectOption(focusEdgeOption.value, { timeout: remainingTimeout() });
-          const response = await responsePromise;
-          assert.equal(response.status(), 200, 'Applying the inline relationship repair must return HTTP 200.');
-          const body = requestBody(response.request());
-          assert.deepEqual(body?.routeRebase, [{ occurrenceId: edgeRepairEvidence.referenceId, edgeId: focusEdgeID }],
-            'Selecting the inline Focus alternative must submit its exact reference and edge IDs.');
-          const assessment = await response.json();
-          assert.equal(assessment.status, 'READY',
-            `The selected Focus edge must resolve the blocked route into a ready receipt-bound Preview: ${JSON.stringify(assessment)}`);
-          edgeRepairEvidence = {
-            ...edgeRepairEvidence,
-            selectedEdgeId: focusEdgeID,
-            selectedRelationship: edgeRepairEvidence.focusAlternative,
-            resolutionRequest: body.routeRebase,
-            resolvedStatus: assessment.status,
-          };
-        }, {
-          after: async () => {
-            await page.getByRole('region', { name: 'Review proposed rows', exact: true })
-              .waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
-            await page.getByRole('dialog', { name: 'Row definition settings', exact: true })
-              .waitFor({ state: 'detached', timeout: ACTION_TIMEOUT_MS });
-          },
-        });
-    } else {
-      await act('select the Patient-subject Condition-to-Specimen route', selector,
-        async (control, { remainingTimeout }) => {
-          const responsePromise = waitForRootAssessment(nodeId, remainingTimeout);
-          await control.selectOption(option.value, { timeout: remainingTimeout() });
-          const response = await responsePromise;
-          assert.equal(response.status(), 200, 'Selecting the Patient-subject compiler route must return HTTP 200.');
-          const body = requestBody(response.request());
-          assert.equal(body?.rootOccurrenceId, option.routeToken,
-            'The selected compiler route token from the Patient-subject picker option must be submitted exactly as rootOccurrenceId.');
-          rootSelectionRequest = {
-            rootNodeId: body.rootNodeId,
-            optionValue: option.value,
-            referenceId: option.referenceId,
-            rootOccurrenceId: body.rootOccurrenceId,
-          };
-        }, {
-          after: async () => {
-            await page.getByRole('region', { name: 'Review proposed rows', exact: true })
-              .waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
-            await page.getByRole('dialog', { name: 'Row definition settings', exact: true })
-              .waitFor({ state: 'detached', timeout: ACTION_TIMEOUT_MS });
-          },
-        });
-    }
     const panel = page.getByRole('region', { name: 'Review proposed rows', exact: true });
     const preview = panel.getByTestId('construction-proposal-preview');
     await preview.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
@@ -576,7 +481,7 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
     assert.equal(previewIdentity.outputId, outputId);
     expectReceipt(previewIdentity.receiptId);
     const grid = await candidateGrid(preview);
-    return { panel, preview, grid, previewIdentity, edgeRepairEvidence, rootSelectionRequest };
+    return { panel, preview, grid, previewIdentity, rootSelectionRequest, routeToken: option.routeToken, routeLabel: option.label };
   };
   const expectReceipt = value => {
     assert(typeof value === 'string' && value.length > 0, 'Candidate preview must bind to a non-empty receipt.');
@@ -648,18 +553,12 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
   assert.equal(beforeApply.draftDigest, sourceCheckpoint.draftDigest);
   assert.deepEqual(documentForOutput(beforeApply, outputId), sourceCheckpoint.document,
     'Focus route Preview must leave the source Condition and Patient documents unchanged until Apply.');
-  check('correctness', 'focus-inbound route exposes and resolves AMBIGUOUS_ROUTE_REBASE_EDGE inline',
-    focusRoute.edgeRepairEvidence?.status === 'BLOCKED' &&
-      focusRoute.edgeRepairEvidence?.code === 'AMBIGUOUS_ROUTE_REBASE_EDGE' &&
-      focusRoute.edgeRepairEvidence?.resolvedStatus === 'READY' &&
-      focusRoute.edgeRepairEvidence?.selectedEdgeId === focusRoute.edgeRepairEvidence?.selectedRelationship?.edgeId, {
+  check('correctness', 'focus-inbound compiler route opens an exact receipt-bound Preview',
+    focusRoute.rootSelectionRequest?.rootOccurrenceId === focusRoute.routeToken &&
+      focusRoute.rootSelectionRequest?.candidateReceiptId === focusRoute.previewIdentity.receiptId &&
+      focusRoute.previewIdentity.status === 'ready', {
     outputId,
-    unresolvedCode: focusRoute.edgeRepairEvidence?.code,
-    unresolvedMessage: focusRoute.edgeRepairEvidence?.message,
-    alternatives: focusRoute.edgeRepairEvidence?.alternatives,
-    selectedEdgeId: focusRoute.edgeRepairEvidence?.selectedEdgeId,
-    resolutionRequest: focusRoute.edgeRepairEvidence?.resolutionRequest,
-    selectedRelationship: focusRoute.edgeRepairEvidence?.selectedRelationship,
+    rootSelectionRequest: focusRoute.rootSelectionRequest,
     receiptId: focusRoute.previewIdentity.receiptId,
   });
   check('correctness', 'focus-inbound route Preview matches its distinct exact Condition and Patient fixture rows', true, {
@@ -683,8 +582,10 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
     child.resourceType === 'Condition' && child.relationship === 'focus_Condition');
   assert(selectedFocusEdge,
     `Applied route must retain the literal Observation.focus → Condition edge: ${JSON.stringify(appliedDocument.route)}`);
-  assert.equal(selectedFocusEdge.catalogEdgeId, focusRoute.edgeRepairEvidence.selectedEdgeId,
-    'Applied route must retain the exact compiler Focus edge selected from AMBIGUOUS_ROUTE_REBASE_EDGE alternatives.');
+  const selectedFocusRouteEdge = focusRoute.rootSelectionRequest.routeRebase.find(choice => choice.occurrenceId === 'base');
+  assert(selectedFocusRouteEdge, 'The READY root proposal must retain the exact inverse edge for the Condition anchor.');
+  assert.equal(selectedFocusEdge.catalogEdgeId, selectedFocusRouteEdge.edgeId,
+    'Applied route must retain the exact compiler edge from the READY Focus route proposal.');
   const conditionNode = selectedFocusEdge;
   assert(conditionNode.children?.some(child => child.resourceType === 'Patient' && child.relationship === 'subject_Patient'),
     `Applied route must include the exact Patient-subject path: ${JSON.stringify(appliedDocument.route)}`);
@@ -786,8 +687,7 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
     },
     appliedFocusRoute: {
       path: focusRoute.routeLabel,
-      resolvedCode: focusRoute.edgeRepairEvidence?.code,
-      edgeRepair: focusRoute.edgeRepairEvidence,
+      rootSelectionRequest: focusRoute.rootSelectionRequest,
       receiptId: focusRoute.previewIdentity.receiptId,
       rows: focusPreviewRows,
       postApplyRows: appliedVisibleRows,
