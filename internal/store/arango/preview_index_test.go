@@ -94,6 +94,31 @@ func TestPreviewCoveringIndexMatchesFieldsForIdempotence(t *testing.T) {
 	}
 }
 
+func TestPreviewCoveringIndexDefinitionsListOnlySafeCompilerIndexes(t *testing.T) {
+	fields := []string{"project", "dataset_generation", "resourceType", "payload.valueQuantity.code", "auth_resource_path"}
+	foreign := previewIndexResponse("user_owned", "Observation/user_owned", fields)
+	sparse := previewIndexResponse("loom_pivot_preview_sparse", "Observation/sparse", fields)
+	sparse.Sparse = boolPointer(true)
+	unique := previewIndexResponse("loom_pivot_preview_unique", "Observation/unique", fields)
+	unique.Unique = boolPointer(true)
+	wrongType := previewIndexResponse("loom_pivot_preview_wrong_type", "Observation/wrong-type", fields)
+	wrongType.Type = driver.IndexType("hash")
+	wrongFields := previewIndexResponse("loom_pivot_preview_wrong_fields", "Observation/wrong-fields", []string{"project", "dataset_generation", "payload.valueQuantity.code"})
+	want := previewIndexResponse("loom_pivot_preview_existing", "Observation/existing", fields)
+	indexes := []driver.IndexResponse{foreign, sparse, unique, wrongType, wrongFields, want}
+	definitions := previewCoveringIndexDefinitions("Observation", indexes)
+	if len(definitions) != 1 {
+		t.Fatalf("preview index definitions = %+v, want only the safe compiler-owned index", definitions)
+	}
+	if definitions[0].Collection != "Observation" || definitions[0].Name != want.Name || !slices.Equal(definitions[0].Fields, fields) {
+		t.Fatalf("preview index definition = %+v, want %q with fields %v", definitions[0], want.Name, fields)
+	}
+	fields[0] = "mutated"
+	if definitions[0].Fields[0] != "project" {
+		t.Fatal("preview index metadata aliases the Arango response fields")
+	}
+}
+
 func TestStoredValuesPreviewIndexRequiresExactProjectionContract(t *testing.T) {
 	fields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status"}
 	storedValues := []string{"payload.valueQuantity"}

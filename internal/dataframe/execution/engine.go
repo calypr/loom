@@ -90,6 +90,7 @@ type Config struct {
 	QueryRows                  QueryRows
 	PreviewQueryRows           QueryRows
 	PreparePreviewIndex        func(context.Context, compiler.PreviewCoveringIndexSpec) error
+	PreviewCoveringIndexes     func(context.Context, string) ([]arango.PreviewCoveringIndex, error)
 	PreviewCollectionRevision  func(context.Context, string) (string, error)
 	PreviewExplainQuery        func(context.Context, string, map[string]any) (arango.ExplainResult, error)
 	PreviewCollectionCount     func(context.Context, string) (int64, error)
@@ -111,6 +112,7 @@ type Engine struct {
 	queryRows                  QueryRows
 	previewQueryRows           QueryRows
 	preparePreviewIndex        func(context.Context, compiler.PreviewCoveringIndexSpec) error
+	previewCoveringIndexes     func(context.Context, string) ([]arango.PreviewCoveringIndex, error)
 	previewCollectionRevision  func(context.Context, string) (string, error)
 	previewExplainQuery        func(context.Context, string, map[string]any) (arango.ExplainResult, error)
 	previewCollectionCount     func(context.Context, string) (int64, error)
@@ -247,6 +249,7 @@ func New(cfg Config) (*Engine, error) {
 	return &Engine{
 		registry: cfg.Registry, revisions: cfg.Revisions, resolveBundle: cfg.ResolveBundle,
 		queryRows: cfg.QueryRows, previewQueryRows: cfg.PreviewQueryRows, preparePreviewIndex: cfg.PreparePreviewIndex,
+		previewCoveringIndexes:    cfg.PreviewCoveringIndexes,
 		previewCollectionRevision: cfg.PreviewCollectionRevision, previewExplainQuery: cfg.PreviewExplainQuery,
 		previewCollectionCount: cfg.PreviewCollectionCount, clickHouseQueryRows: cfg.ClickHouseQueryRows,
 		resolveClickHouseInputs: cfg.ResolveClickHouseInputs, withExecutionReadPins: cfg.WithExecutionReadPins,
@@ -1052,7 +1055,7 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	var previewCacheKeyWeight int
 	var previewCacheEnabled bool
 	var previewCacheHitRows []map[string]any
-	if query.PreviewCoveringIndex != nil && query.PreviewCoveringIndex.PrepareAfterPreview && e.previewCollectionRevision != nil {
+	if query.PreviewCoveringIndex != nil && (query.PreviewCoveringIndex.PrepareAfterPreview || query.PreviewGroupScan != nil) && e.previewCollectionRevision != nil {
 		revision, revisionErr := e.previewCollectionRevision(ctx, query.PreviewCoveringIndex.Collection)
 		if err := contextError(ctx); err != nil {
 			return PreviewSummary{}, err

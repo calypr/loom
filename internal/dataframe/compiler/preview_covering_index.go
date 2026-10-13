@@ -16,6 +16,17 @@ const previewCoveringIndexNamePrefix = "loom_pivot_preview_"
 
 var previewCoveringIndexPrefixFields = []string{"project", "dataset_generation", "auth_resource_path"}
 
+// RenderPreviewPhysicalPlanWithRootIndexHint rerenders a compiled preview
+// plan with one compiler-owned, non-forcing root-index hint. It is used only
+// after runtime index metadata identifies an existing compatible definition.
+func RenderPreviewPhysicalPlanWithRootIndexHint(plan ir.PhysicalPlan, indexName string) (string, map[string]any, error) {
+	rendered, err := aql.RenderPhysicalPlanWithRootIndexHint(plan, indexName)
+	if err != nil {
+		return "", nil, err
+	}
+	return rendered.Query, rendered.BindVars, nil
+}
+
 func previewCoveringIndexSpec(plan ir.PhysicalPlan) *PreviewCoveringIndexSpec {
 	sequence := plan.StageSequence
 	if sequence == nil || sequence.PreviewLimitBindKey == "" || sequence.PreviewSourceWindowByRootID ||

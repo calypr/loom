@@ -516,6 +516,19 @@ func TestConstructionGroupPreviewUsesProjectionFieldsAndOneRootHint(t *testing.T
 		}
 	}
 
+	existingName := "loom_pivot_preview_existing_compatible"
+	queryWithExistingIndex, existingBinds, err := RenderPreviewPhysicalPlanWithRootIndexHint(query.PhysicalPlan, existingName)
+	if err != nil {
+		t.Fatalf("render Group preview with existing compatible index: %v", err)
+	}
+	if !strings.Contains(queryWithExistingIndex, "OPTIONS { indexHint: \""+existingName+"\", forceIndexHint: false }") ||
+		strings.Contains(queryWithExistingIndex, "forceIndexHint: true") {
+		t.Fatalf("existing index hint is not non-forcing:\n%s", queryWithExistingIndex)
+	}
+	if !reflect.DeepEqual(existingBinds, query.BindVars) {
+		t.Fatalf("existing-index render changed query binds: got=%v want=%v", existingBinds, query.BindVars)
+	}
+
 	repeated := compileConstructionOutputQuery(t, constructionGroupRowValuesOutput(), "group-covering-project", "group-covering-generation")
 	if repeated.PreviewCoveringIndex == nil || repeated.PreviewCoveringIndex.Name != index.Name || !repeated.PreviewCoveringIndex.PrepareAfterPreview ||
 		!reflect.DeepEqual(repeated.PreviewCoveringIndex.Fields, index.Fields) {

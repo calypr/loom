@@ -21,6 +21,15 @@ const previewCoveringIndexCleanupTimeout = 3 * time.Second
 
 var ErrPreviewCoveringIndexLimit = errors.New("preview covering index limit reached")
 
+// PreviewCoveringIndex is a verified compiler-owned persistent index that
+// may be used to cover a bounded preview without creating a new index.
+type PreviewCoveringIndex struct {
+	Collection   string
+	Name         string
+	Fields       []string
+	StoredValues []string
+}
+
 type previewIndexCollection interface {
 	Indexes(context.Context) ([]driver.IndexResponse, error)
 	EnsurePersistentIndex(context.Context, []string, *driver.CreatePersistentIndexOptions) (driver.IndexResponse, bool, error)
@@ -30,6 +39,45 @@ type previewIndexCollection interface {
 type previewIndexReplacement struct {
 	name   string
 	fields []string
+}
+
+// ListPreviewCoveringIndexes returns only persistent, non-sparse,
+// non-unique indexes owned by the preview compiler for the named collection.
+func (c *Client) ListPreviewCoveringIndexes(ctx context.Context, collection string) ([]PreviewCoveringIndex, error) {
+	if c == nil || c.db == nil || collection == "" || !validIndexPath(collection) {
+		return nil, fmt.Errorf("invalid preview covering collection")
+	}
+	col, err := c.db.GetCollection(ctx, collection, nil)
+	if err != nil {
+		return nil, fmt.Errorf("open preview covering collection: %w", err)
+	}
+	indexes, err := col.Indexes(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list preview covering indexes: %w", err)
+	}
+	return previewCoveringIndexDefinitions(collection, indexes), nil
+}
+
+func previewCoveringIndexDefinitions(collection string, indexes []driver.IndexResponse) []PreviewCoveringIndex {
+	definitions := make([]PreviewCoveringIndex, 0, len(indexes))
+	for _, index := range indexes {
+		if index.Type != driver.IndexType("persistent") || index.RegularIndex == nil ||
+			index.Unique == nil || *index.Unique || index.Sparse == nil || *index.Sparse ||
+			!validPreviewCoveringIndex(collection, index.Name, index.RegularIndex.Fields) {
+			continue
+		}
+		if len(index.RegularIndex.StoredValues) != 0 &&
+			!validPreviewCoveringIndexStoredValuesDefinition(index.Name, index.RegularIndex.Fields, index.RegularIndex.StoredValues) {
+			continue
+		}
+		definitions = append(definitions, PreviewCoveringIndex{
+			Collection:   collection,
+			Name:         index.Name,
+			Fields:       append([]string(nil), index.RegularIndex.Fields...),
+			StoredValues: append([]string(nil), index.RegularIndex.StoredValues...),
+		})
+	}
+	return definitions
 }
 
 // EnsurePreviewCoveringIndex adds one bounded, compiler-selected covering index.

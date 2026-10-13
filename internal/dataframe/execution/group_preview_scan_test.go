@@ -3,11 +3,233 @@ package execution
 import (
 	"context"
 	"errors"
+	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/store/arango"
 )
+
+func TestChooseGroupPreviewScanReusesSmallestCompatibleCoveringIndex(t *testing.T) {
+	engine, query, stream := compiledGroupPreviewScanFixture(t, recipe.RuntimeBindings{
+		Project: "P1", DatasetGeneration: "G1", AuthScopeMode: authscope.ReadScopeRestricted,
+		AuthResourcePaths: []string{"Observation/allowed"},
+	})
+	required := query.PreviewCoveringIndex
+	if required == nil {
+		t.Fatal("fixture query has no compiler-owned covering index requirements")
+	}
+	originalQuery := query.Query
+	originalBinds := query.BindVars
+	largeFields := append(append([]string(nil), required.Fields...), "payload.extra", "resourceType")
+	smallFields := []string{"project", "dataset_generation", "resourceType"}
+	smallFields = append(smallFields, required.Fields[2:]...)
+	indexes := []arango.PreviewCoveringIndex{
+		{Collection: required.Collection, Name: "loom_pivot_preview_existing_larger", Fields: largeFields},
+		{Collection: required.Collection, Name: "loom_pivot_preview_existing_smaller", Fields: smallFields},
+	}
+	indexCalls, explainCalls := 0, 0
+	engine.previewCoveringIndexes = func(_ context.Context, collection string) ([]arango.PreviewCoveringIndex, error) {
+		indexCalls++
+		if collection != required.Collection {
+			t.Fatalf("index collection = %q, want %q", collection, required.Collection)
+		}
+		return indexes, nil
+	}
+	engine.previewExplainQuery = func(_ context.Context, queryText string, bindVars map[string]any) (arango.ExplainResult, error) {
+		explainCalls++
+		if strings.Contains(queryText, "loom_pivot_preview_existing_larger") {
+			t.Fatalf("larger compatible index was explained before the smaller one:\n%s", queryText)
+		}
+		if !strings.Contains(queryText, `OPTIONS { indexHint: "loom_pivot_preview_existing_smaller", forceIndexHint: false }`) ||
+			strings.Contains(queryText, "forceIndexHint: true") {
+			t.Fatalf("candidate query did not use the expected non-forcing hint:\n%s", queryText)
+		}
+		if !reflect.DeepEqual(bindVars, originalBinds) || bindVars["auth_resource_paths"] == nil ||
+			!reflect.DeepEqual(bindVars["auth_resource_paths"], originalBinds["auth_resource_paths"]) {
+			t.Fatalf("candidate query changed restricted authorization binds: got=%v want=%v", bindVars, originalBinds)
+		}
+		return coveringGroupExplain(required.Collection), nil
+	}
+	engine.previewCollectionCount = func(context.Context, string) (int64, error) {
+		t.Fatal("covering candidate should skip the sequential-scan assessment")
+		return 0, nil
+	}
+	stream.stream = func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		t.Fatal("covering candidate should skip the scoped source count")
+		return nil
+	}
+	if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
+		t.Fatal(err)
+	}
+	if indexCalls != 1 || explainCalls != 1 {
+		t.Fatalf("metadata/explain calls = %d/%d, want one each", indexCalls, explainCalls)
+	}
+	if query.Query == originalQuery || query.Query != stream.query || query.PreviewCoveringIndex.Name != indexes[1].Name ||
+		!reflect.DeepEqual(query.PreviewCoveringIndex.Fields, smallFields) || !reflect.DeepEqual(query.BindVars, originalBinds) ||
+		!reflect.DeepEqual(query.BindVars, stream.bindVars) {
+		t.Fatalf("selected compatible query was not applied consistently: query=%q stream=%q spec=%+v", query.Query, stream.query, query.PreviewCoveringIndex)
+	}
+}
+
+func TestChooseGroupPreviewScanKeepsSequentialFallbackWhenNoCompatibleIndexExists(t *testing.T) {
+	engine, query, stream := compiledGroupPreviewScanFixture(t, recipe.RuntimeBindings{Project: "P1", DatasetGeneration: "G1"})
+	originalQuery := query.Query
+	required := query.PreviewCoveringIndex
+	engine.previewCoveringIndexes = func(context.Context, string) ([]arango.PreviewCoveringIndex, error) {
+		return []arango.PreviewCoveringIndex{{
+			Collection: required.Collection, Name: "loom_pivot_preview_missing_auth",
+			Fields: []string{"project", "dataset_generation", "payload.status"},
+		}}, nil
+	}
+	explainCalls, scopeCountCalls := 0, 0
+	engine.previewExplainQuery = func(_ context.Context, queryText string, _ map[string]any) (arango.ExplainResult, error) {
+		explainCalls++
+		if queryText != originalQuery {
+			t.Fatalf("incompatible index changed the canonical query:\n%s", queryText)
+		}
+		return groupExplainWithCoverage(false, false, required.Collection), nil
+	}
+	engine.previewCollectionCount = func(context.Context, string) (int64, error) { return 1000, nil }
+	stream.stream = func(_ context.Context, queryText string, batchSize int, _ map[string]any, visit func(map[string]any) error) error {
+		scopeCountCalls++
+		if queryText != query.PreviewGroupScan.ScopeCountQuery || batchSize != 1 {
+			t.Fatalf("scope-count query = %q batch=%d", queryText, batchSize)
+		}
+		return visit(map[string]any{"count": float64(950)})
+	}
+	if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
+		t.Fatal(err)
+	}
+	if query.Query != query.PreviewGroupScan.SequentialQuery || explainCalls != 1 || scopeCountCalls != 1 {
+		t.Fatalf("sequential fallback state: query=%q explains=%d scope counts=%d", query.Query, explainCalls, scopeCountCalls)
+	}
+}
+
+func TestChooseGroupPreviewScanRequiresExplainToProveCoveringIndex(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		plan arango.ExplainResult
+	}{
+		{name: "projection uncovered", plan: groupExplainWithCoverage(false, true)},
+		{name: "output uncovered", plan: groupExplainWithCoverage(true, false)},
+		{name: "coverage unknown", plan: arango.ExplainResult{Plan: &arango.ExplainPlan{Nodes: []arango.ExplainNode{{Type: "IndexNode", Collection: "Observation"}}}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			engine, query, stream := compiledGroupPreviewScanFixture(t, recipe.RuntimeBindings{Project: "P1", DatasetGeneration: "G1"})
+			originalQuery := query.Query
+			candidate := arango.PreviewCoveringIndex{
+				Collection: query.PreviewCoveringIndex.Collection, Name: "loom_pivot_preview_unproven", Fields: append([]string(nil), query.PreviewCoveringIndex.Fields...),
+			}
+			engine.previewCoveringIndexes = func(context.Context, string) ([]arango.PreviewCoveringIndex, error) {
+				return []arango.PreviewCoveringIndex{candidate}, nil
+			}
+			explainCalls := 0
+			engine.previewExplainQuery = func(_ context.Context, queryText string, _ map[string]any) (arango.ExplainResult, error) {
+				explainCalls++
+				if queryText == originalQuery {
+					return groupExplainWithCoverage(false, false, query.PreviewGroupScan.Collection), nil
+				}
+				return test.plan, nil
+			}
+			engine.previewCollectionCount = func(context.Context, string) (int64, error) { return 1000, nil }
+			stream.stream = func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+				return visit(map[string]any{"count": float64(500)})
+			}
+			if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
+				t.Fatal(err)
+			}
+			if query.Query != originalQuery || stream.query != originalQuery || explainCalls != 2 {
+				t.Fatalf("unproven candidate changed canonical query: query=%q stream=%q explains=%d", query.Query, stream.query, explainCalls)
+			}
+		})
+	}
+}
+
+func TestPreviewOutputReusesStoredValuesGroupIndexWithoutPrewarmingIt(t *testing.T) {
+	queryCalls, prepareCalls := 0, 0
+	index := arango.PreviewCoveringIndex{
+		Collection:   "Observation",
+		Name:         "loom_pivot_preview_existing_stored_values",
+		Fields:       []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status"},
+		StoredValues: []string{"payload.valueQuantity"},
+	}
+	engine, err := New(Config{
+		Registry:    invalidRecipeRegistry{},
+		ScopeDigest: func(recipe.RuntimeBindings) string { return "group-preview-existing-index" },
+		QueryRows:   func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		PreviewQueryRows: func(ctx context.Context, query string, batch int, binds map[string]any, visit func(map[string]any) error) error {
+			queryCalls++
+			return groupPreviewCacheRows()(ctx, query, batch, binds, visit)
+		},
+		PreparePreviewIndex: func(context.Context, compiler.PreviewCoveringIndexSpec) error {
+			prepareCalls++
+			return errors.New("reused indexes must not be prepared")
+		},
+		PreviewCoveringIndexes: func(context.Context, string) ([]arango.PreviewCoveringIndex, error) {
+			return []arango.PreviewCoveringIndex{index}, nil
+		},
+		PreviewCollectionRevision: func(context.Context, string) (string, error) { return "revision-1", nil },
+		PreviewExplainQuery: func(_ context.Context, queryText string, _ map[string]any) (arango.ExplainResult, error) {
+			if !strings.Contains(queryText, index.Name) {
+				return arango.ExplainResult{}, errors.New("candidate index hint was not rendered")
+			}
+			return coveringGroupExplain(index.Collection), nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved := compileGroupPreviewCacheTestOutput(t, engine, recipe.RuntimeBindings{Project: "P1", DatasetGeneration: "G1"})
+	for range 2 {
+		if _, err := engine.PreviewOutput(context.Background(), resolved, PreviewRequest{Output: "group_preview", Limit: 1}, func(map[string]any) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if queryCalls != 1 {
+		t.Fatalf("preview query calls = %d, want one execution and one cached replay", queryCalls)
+	}
+	if prepareCalls != 0 {
+		t.Fatalf("reused stored-values index was sent to preview prewarm %d times", prepareCalls)
+	}
+}
+
+func compiledGroupPreviewScanFixture(t *testing.T, bindings recipe.RuntimeBindings) (*Engine, compiler.CompiledQuery, OutputStream) {
+	t.Helper()
+	engine, err := New(Config{
+		Registry:         invalidRecipeRegistry{},
+		ScopeDigest:      func(recipe.RuntimeBindings) string { return "group-preview-scan-test" },
+		QueryRows:        func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		PreviewQueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved := compileGroupPreviewCacheTestOutput(t, engine, bindings)
+	stream, query, err := engine.streamForOutput(resolved, "group_preview", 25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return engine, query, stream
+}
+
+func coveringGroupExplain(collection string) arango.ExplainResult {
+	return groupExplainWithCoverage(true, true, collection)
+}
+
+func groupExplainWithCoverage(indexCoversProjections, indexCoversOutProjections bool, collection ...string) arango.ExplainResult {
+	name := "Observation"
+	if len(collection) != 0 {
+		name = collection[0]
+	}
+	return arango.ExplainResult{Plan: &arango.ExplainPlan{Nodes: []arango.ExplainNode{{
+		Type: "IndexNode", Collection: name,
+		IndexCoversProjections: &indexCoversProjections, IndexCoversOutProjections: &indexCoversOutProjections,
+	}}}}
+}
 
 func TestChooseGroupPreviewScanUsesSequentialOnlyForBroadNonCoveringIndex(t *testing.T) {
 	covering := false

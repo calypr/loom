@@ -525,6 +525,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			}
 			return err
 		}),
+		PreviewCoveringIndexes:    lifecycleClient.ListPreviewCoveringIndexes,
 		PreviewCollectionRevision: lifecycleClient.CollectionRevision,
 		PreviewExplainQuery: func(ctx context.Context, query string, bindVars map[string]any) (arangostore.ExplainResult, error) {
 			return lifecycleClient.Explain(ctx, arangostore.ExplainRequest{Query: query, BindVars: bindVars})
