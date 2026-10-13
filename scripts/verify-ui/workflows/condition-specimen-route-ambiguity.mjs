@@ -326,10 +326,8 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
     rows: afterAuthoringGrid.rows.map(row => row.values),
     expectedRows: sourceConditionRows,
   });
-  await act('close the Condition field chooser', page.getByTestId('construction-close-operation-editor'),
-    control => control.click(), {
-      after: () => page.locator('[aria-label="Add columns editor"]').waitFor({ state: 'detached', timeout: ACTION_TIMEOUT_MS }),
-    });
+  assert.equal(await page.locator('[aria-label="Add columns editor"]').count(), 0,
+    'Applying the related-source proposal returns the Builder to the table.');
 
   builder = await readBuilder();
   conditionDocument = documentForOutput(builder, outputId);
