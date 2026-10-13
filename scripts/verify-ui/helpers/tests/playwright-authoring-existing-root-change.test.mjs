@@ -3,8 +3,23 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
-import { existingRootChangeOracle, normalizeRootChangePreviewCell, rootOption } from '../playwright-authoring.mjs';
+import { existingRootChangeOracle, normalizeRootChangePreviewCell, rootChangePreviewRowsMatch, rootOption } from '../playwright-authoring.mjs';
 import { previewHeaderIndex } from '../playwright-preview-rows.mjs';
+
+test('root-change preview matching ignores order while retaining duplicate rows and exact values', () => {
+  const expected = [
+    { patientId: 'dev-patient-001', gender: 'female' },
+    { patientId: 'dev-patient-002', gender: null },
+    { patientId: 'dev-patient-001', gender: 'female' },
+    { patientId: null, gender: null },
+  ];
+  const rendered = [expected[2], expected[3], expected[1], expected[0]];
+  assert.equal(rootChangePreviewRowsMatch(rendered, expected), true);
+  assert.equal(rootChangePreviewRowsMatch(rendered.slice(1), expected), false,
+    'The root preview comparison must retain duplicate source rows.');
+  assert.equal(rootChangePreviewRowsMatch(rendered.map(row => ({ ...row, gender: 'unknown' })), expected), false,
+    'The root preview comparison must retain exact nullable source values.');
+});
 
 test('existing-table root-change oracle covers every Observation root and nullable Patient bindings', () => {
   const fixtureDir = resolve('testdata/builder-coded-source-column');

@@ -8,6 +8,12 @@ import { browserURL } from '../workflows/builder-url.mjs';
 import { collectPreviewRows, previewHeaderIndex } from './playwright-preview-rows.mjs';
 import { configureNativePage, recordPlaywrightTiming } from './playwright-authoring-page.mjs';
 
+const sortedRootChangeRows = rows => [...rows].sort((left, right) =>
+  `${left.patientId}\0${left.gender ?? ''}`.localeCompare(`${right.patientId}\0${right.gender ?? ''}`));
+
+export const rootChangePreviewRowsMatch = (actualRows, expectedRows) =>
+  isDeepStrictEqual(sortedRootChangeRows(actualRows), sortedRootChangeRows(expectedRows));
+
 const patientSource = target => {
   const contents = readFileSync(join(target.fixtureDir, 'Patient.ndjson'));
   return {
@@ -363,8 +369,7 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
     const previewPath = `${observerAuthoringPath}/preview`;
     const proposalReceipts = [];
     const proposalRequests = [];
-    const sortedRows = rows => [...rows].sort((left, right) =>
-      `${left.patientId}\0${left.gender ?? ''}`.localeCompare(`${right.patientId}\0${right.gender ?? ''}`));
+    const sortedRows = sortedRootChangeRows;
     const assertExactGrid = (grid, expectedRows, phase) => {
       const idIndex = previewHeaderIndex(grid.headers, 'Patient ID');
       const genderIndex = previewHeaderIndex(grid.headers, 'Gender');
@@ -462,7 +467,7 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
         requiredCheck: `${selectionLabel} action-to-preview within budget`,
       });
       check('correctness', previewCheck, candidate.outputId === originalIdentity.document.output.id &&
-        Boolean(candidate.receiptId) && isDeepStrictEqual(sortRows(candidate.rows), sortRows(expectedRows)), {
+        Boolean(candidate.receiptId) && rootChangePreviewRowsMatch(candidate.rows, expectedRows), {
         rootResourceType, outputId: candidate.outputId, receiptId: candidate.receiptId,
         rows: candidate.rows, expectedRows,
       });
