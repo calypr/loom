@@ -31,8 +31,9 @@ type PreviewCoveringIndexSpec struct {
 // PreviewCoveringIndexReplacement is an exact compiler-owned index identity
 // eligible for replacement by a more useful index on the same category path.
 type PreviewCoveringIndexReplacement struct {
-	Name   string
-	Fields []string
+	Name         string
+	Fields       []string
+	StoredValues []string
 }
 
 // PreviewGroupScanSpec contains compiler-rendered alternatives for a narrow

@@ -513,7 +513,7 @@ func run(ctx context.Context, serverConfig Config) error {
 				if spec.Supersedes != nil {
 					err = lifecycleClient.EnsurePreviewCoveringIndexWithStoredValuesReplacing(
 						ctx, spec.Collection, spec.Name, spec.Fields, spec.StoredValues,
-						spec.Supersedes.Name, spec.Supersedes.Fields,
+						spec.Supersedes.Name, spec.Supersedes.Fields, spec.Supersedes.StoredValues,
 					)
 				} else {
 					err = lifecycleClient.EnsurePreviewCoveringIndexWithStoredValues(ctx, spec.Collection, spec.Name, spec.Fields, spec.StoredValues)

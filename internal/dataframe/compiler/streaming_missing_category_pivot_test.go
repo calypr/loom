@@ -16,6 +16,9 @@ import (
 func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testing.T) {
 	bindings := recipe.RuntimeBindings{Project: "loom_dev_cda_fhir", DatasetGeneration: "cda-fhir-v1"}
 	output := streamingMissingCategoryPivotTestOutput()
+	idColumn := recipe.StageColumn{ID: "id_id", Name: "id", Type: "string", Nullable: true}
+	output.Fields = append([]recipe.Field{{Name: "id", ColumnID: idColumn.ID, Expr: recipe.Expression{Select: "root.id"}}}, output.Fields...)
+	output.Construction.SourceColumns = append([]recipe.StageColumn{idColumn}, output.Construction.SourceColumns...)
 	bundle := recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
 		Name:                output.Name,
@@ -54,6 +57,16 @@ func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testin
 	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
+	}
+	index := query.PreviewCoveringIndex
+	wantLegacyFields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status"}
+	wantFields := append(append([]string(nil), wantLegacyFields...), "resourceType")
+	wantStoredValues := []string{"payload.valueQuantity"}
+	if index == nil || index.Name != previewCoveringIndexNameWithStoredValues("Observation", wantFields, wantStoredValues) ||
+		!reflect.DeepEqual(index.Fields, wantFields) || !reflect.DeepEqual(index.StoredValues, wantStoredValues) ||
+		index.Supersedes == nil || index.Supersedes.Name != previewCoveringIndexNameWithStoredValues("Observation", wantLegacyFields, wantStoredValues) ||
+		!reflect.DeepEqual(index.Supersedes.Fields, wantLegacyFields) || !reflect.DeepEqual(index.Supersedes.StoredValues, wantStoredValues) {
+		t.Fatalf("streaming missing-category Pivot did not augment its exact stored-parent index: index=%+v supersedes=%+v wantFields=%v wantLegacy=%v", index, index.Supersedes, wantFields, wantLegacyFields)
 	}
 	if !strings.Contains(query.Query, "COLLECT ") || !strings.Contains(query.Query, " AGGREGATE ") {
 		t.Fatalf("query does not stream grouped values through COLLECT AGGREGATE:\n%s", query.Query)

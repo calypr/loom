@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -172,7 +173,7 @@ func TestConstructionCategoryScanPreservesMissingAndNullAgainstArango(t *testing
 	assertMissingAndNull(existsScan)
 }
 
-func TestRootCategoryScanUsesSharedTypedIndexContractAgainstArango(t *testing.T) {
+func TestRootQuantityCategoryScanAugmentsStoredParentIndexAgainstArango(t *testing.T) {
 	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
 	if url == "" || database == "" {
 		t.Skip("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must point to the supplied Docker Arango service")
@@ -275,14 +276,25 @@ func TestRootCategoryScanUsesSharedTypedIndexContractAgainstArango(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantIndexFields := []string{"project", "dataset_generation", "resourceType", "payload.valueQuantity.code", "auth_resource_path"}
-	if scan.CategoryIndex == nil || scan.CategoryIndex.Name != previewCoveringIndexName("Observation", wantIndexFields) ||
-		!sameCategoryIndexFields(scan.CategoryIndex.Fields, wantIndexFields) || scan.CategoryIndex.Supersedes == nil {
-		t.Fatalf("root category index does not share the related-category contract: %+v", scan.CategoryIndex)
+	wantIndexFields := previewQuantityCategoryFields()
+	wantStoredValues := previewQuantityCategoryStoredValues()
+	wantLegacyFields := previewQuantityCategoryLegacyFields()
+	if scan.CategoryIndex == nil || scan.CategoryIndex.Name != previewCoveringIndexNameWithStoredValues("Observation", wantIndexFields, wantStoredValues) ||
+		!sameCategoryIndexFields(scan.CategoryIndex.Fields, wantIndexFields) || !reflect.DeepEqual(scan.CategoryIndex.StoredValues, wantStoredValues) ||
+		scan.CategoryIndex.Supersedes == nil || scan.CategoryIndex.Supersedes.Name != previewCoveringIndexNameWithStoredValues("Observation", wantLegacyFields, wantStoredValues) ||
+		!reflect.DeepEqual(scan.CategoryIndex.Supersedes.Fields, wantLegacyFields) || !reflect.DeepEqual(scan.CategoryIndex.Supersedes.StoredValues, wantStoredValues) {
+		t.Fatalf("root quantity category index does not exactly augment its stored-parent Pivot index: %+v", scan.CategoryIndex)
 	}
 	if !strings.Contains(scan.Query, "root.resourceType == @__loom_category_resource_type") ||
 		scan.BindVars["__loom_category_resource_type"] != "Observation" {
 		t.Fatalf("root category query omitted exact resource type guard: %s\n%#v", scan.Query, scan.BindVars)
+	}
+	if strings.Contains(scan.Query, "UNION_DISTINCT") || !strings.Contains(scan.Query, "COLLECT ") ||
+		!strings.Contains(scan.Query, "IS_OBJECT(__loom_category_parent)") || !strings.Contains(scan.Query, "HAS(__loom_category_parent") {
+		t.Fatalf("stored-parent category scan did not use one object-presence grouping query:\n%s", scan.Query)
+	}
+	if scan.PreviewCoveringIndex != nil {
+		t.Fatalf("stored-parent category index should suppress the older field-only prewarm: %+v", scan.PreviewCoveringIndex)
 	}
 
 	rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: scan.Query, BindVars: scan.BindVars})

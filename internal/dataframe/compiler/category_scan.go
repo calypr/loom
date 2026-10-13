@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -300,6 +301,11 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 				overflowWitness = &CategoryOverflowWitness{Query: witnessQuery, BindVars: witnessBinds}
 			}
 		}
+	}
+	if categoryIndex != nil && len(categoryIndex.StoredValues) != 0 {
+		// The category index is also the direct-root Pivot index for this path;
+		// do not schedule the older field-only source prewarm alongside it.
+		previewCoveringIndex = nil
 	}
 
 	diagnostics := physicalPlanDiagnostics(physical)
@@ -608,9 +614,25 @@ func categoryScanCategoryIndexSpec(plan ir.PhysicalPlan, category lower.Compiled
 	if !ok || strings.TrimSpace(collection) == "" {
 		return nil
 	}
+	rootType := strings.TrimSpace(plan.Source.ResourceType)
+	if collection == "Observation" && rootType == collection &&
+		path == "payload.valueQuantity.code" && categoryScanHasExactRootPresencePath(*selected, root.Variable, strings.Split(path, ".")) {
+		legacyFields := previewQuantityCategoryLegacyFields()
+		legacyStoredValues := previewQuantityCategoryStoredValues()
+		fields := previewQuantityCategoryFields()
+		return &PreviewCoveringIndexSpec{
+			Collection:   collection,
+			Name:         previewCoveringIndexNameWithStoredValues(collection, fields, legacyStoredValues),
+			Fields:       fields,
+			StoredValues: legacyStoredValues,
+			Supersedes: &PreviewCoveringIndexReplacement{
+				Name:   previewCoveringIndexNameWithStoredValues(collection, legacyFields, legacyStoredValues),
+				Fields: legacyFields, StoredValues: legacyStoredValues,
+			},
+		}
+	}
 	fields := []string{"project", "dataset_generation", path, "auth_resource_path"}
 	var supersedes *PreviewCoveringIndexReplacement
-	rootType := strings.TrimSpace(plan.Source.ResourceType)
 	if rootType != "" && collection == rootType {
 		legacyFields := append([]string(nil), fields...)
 		fields = []string{"project", "dataset_generation", "resourceType", path, "auth_resource_path"}
@@ -673,6 +695,9 @@ func categoryScanIndexedRootQueries(plan ir.PhysicalPlan, category lower.Compile
 	if err := categoryScanAddRootResourceTypeGuard(plan, root, value.Path, index, &prefix, bindVars); err != nil {
 		return "", nil, nil, err
 	}
+	if categoryScanUsesStoredQuantityParent(index, value.Path) {
+		return categoryScanStoredQuantityParentQuery(prefix, root, valueExpression, value.Path, bindVars, maxValues)
+	}
 	presenceExpression, err := categoryScanRootPresenceExpression(*projection.Presence, root.Variable, bindVars)
 	if err != nil {
 		return "", nil, nil, err
@@ -705,6 +730,84 @@ func categoryScanIndexedRootQueries(plan ir.PhysicalPlan, category lower.Compile
 	return query, bindVars, &CategoryOverflowWitness{Query: witnessQuery, BindVars: witnessBinds}, nil
 }
 
+func categoryScanStoredQuantityParentQuery(prefix string, root *ir.PhysicalRootScan, valueExpression string, valuePath []string, bindVars map[string]any, maxValues int) (string, map[string]any, *CategoryOverflowWitness, error) {
+	parentPath := strings.Join(previewQuantityCategoryStoredValues(), ".")
+	parentSegments := strings.Split(parentPath, ".")
+	if len(valuePath) != len(parentSegments)+1 || !samePathPrefix(valuePath, parentSegments) || valuePath[len(valuePath)-1] != "code" {
+		return "", nil, nil, fmt.Errorf("stored quantity category index does not match the direct code leaf")
+	}
+	parentExpression := root.Variable + "." + parentPath
+	presenceBind := categoryScanUniqueBindKey(bindVars, "__loom_category_presence_1")
+	bindVars[presenceBind] = "code"
+	variables := categoryScanIndexedQueryVariables(prefix)
+	parentVariable := categoryScanUniqueVariable(prefix, variables, "__loom_category_parent")
+	variables["parent"] = parentVariable
+	presentVariable := categoryScanUniqueVariable(prefix, variables, "__loom_category_present")
+	variables["present"] = presentVariable
+	valueVariable := categoryScanUniqueVariable(prefix, variables, "__loom_category_value")
+	variables["value"] = valueVariable
+	groupPresentVariable := categoryScanUniqueVariable(prefix, variables, "__loom_category_group_present")
+	variables["groupPresent"] = groupPresentVariable
+	groupValueVariable := categoryScanUniqueVariable(prefix, variables, "__loom_category_group_value")
+	variables["groupValue"] = groupValueVariable
+	presenceExpression := "(IS_OBJECT(" + parentVariable + ") ? HAS(" + parentVariable + ", @" + presenceBind + ") : false)"
+	query := prefix + "\nLET " + parentVariable + " = " + parentExpression + "\n" +
+		"LET " + presentVariable + " = " + presenceExpression + "\n" +
+		"LET " + valueVariable + " = " + valueExpression + "\n" +
+		"COLLECT " + groupPresentVariable + " = " + presentVariable + ", " + groupValueVariable + " = " + valueVariable + "\n" +
+		"SORT " + groupPresentVariable + " ASC, TYPENAME(" + groupValueVariable + ") ASC, " + groupValueVariable + " ASC\n" +
+		"LIMIT @" + categoryLimitBind + "\n" +
+		"RETURN { present: " + groupPresentVariable + ", value: " + groupValueVariable + " }"
+	if _, exists := bindVars[categoryLimitBind]; exists {
+		return "", nil, nil, fmt.Errorf("category scan bind %q is already defined", categoryLimitBind)
+	}
+	bindVars[categoryLimitBind] = maxValues + 1
+	witnessQuery := prefix + "\nLET " + parentVariable + " = " + parentExpression + "\n" +
+		"FILTER " + valueExpression + " == null\nFILTER NOT " + presenceExpression + "\nLIMIT 1\nRETURN { present: false, value: null }"
+	witnessBinds := cloneCategoryScanBinds(bindVars)
+	delete(witnessBinds, categoryLimitBind)
+	bindVars = categoryScanPruneBindVars(bindVars, query)
+	witnessBinds = categoryScanPruneBindVars(witnessBinds, witnessQuery)
+	return query, bindVars, &CategoryOverflowWitness{Query: witnessQuery, BindVars: witnessBinds}, nil
+}
+
+func categoryScanUsesStoredQuantityParent(index *PreviewCoveringIndexSpec, valuePath []string) bool {
+	if index == nil || index.Collection != "Observation" ||
+		!reflect.DeepEqual(index.Fields, previewQuantityCategoryFields()) ||
+		!reflect.DeepEqual(index.StoredValues, previewQuantityCategoryStoredValues()) {
+		return false
+	}
+	parent := strings.Split(index.StoredValues[0], ".")
+	return len(valuePath) == len(parent)+1 && samePathPrefix(valuePath, parent) && valuePath[len(valuePath)-1] == "code"
+}
+
+func categoryScanHasExactRootPresencePath(projection ir.PhysicalProjection, rootVariable string, valuePath []string) bool {
+	if projection.Presence == nil || !categoryScanProjectionPresenceMatches(projection, rootVariable, ir.PhysicalValue{Variable: rootVariable, Path: valuePath}) {
+		return false
+	}
+	return len(valuePath) == 3 && valuePath[0] == "payload" && valuePath[1] == "valueQuantity" && valuePath[2] == "code"
+}
+
+func samePathPrefix(path, prefix []string) bool {
+	if len(path) < len(prefix) {
+		return false
+	}
+	for index := range prefix {
+		if path[index] != prefix[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func categoryScanUniqueVariable(sourceQuery string, variables map[string]string, base string) string {
+	variable := base
+	for suffix := 1; strings.Contains(sourceQuery, variable) || variablesContain(variables, variable); suffix++ {
+		variable = fmt.Sprintf("%s_%d", base, suffix)
+	}
+	return variable
+}
+
 func categoryScanAddRootResourceTypeGuard(plan ir.PhysicalPlan, root *ir.PhysicalRootScan, path []string, index *PreviewCoveringIndexSpec, prefix *string, bindVars map[string]any) error {
 	collection, ok := plan.BindVars[root.CollectionBindKey].(string)
 	if !ok || collection == "" || index.Collection != collection {
@@ -713,6 +816,19 @@ func categoryScanAddRootResourceTypeGuard(plan ir.PhysicalPlan, root *ir.Physica
 	categoryPath := strings.Join(path, ".")
 	legacyFields := []string{"project", "dataset_generation", categoryPath, "auth_resource_path"}
 	if sameCategoryIndexFields(index.Fields, legacyFields) {
+		return nil
+	}
+	if categoryScanUsesStoredQuantityParent(index, path) {
+		rootType := strings.TrimSpace(plan.Source.ResourceType)
+		if rootType != "Observation" || collection != rootType {
+			return fmt.Errorf("stored quantity category index does not match the exact source collection type")
+		}
+		const typeBindKey = "__loom_category_resource_type"
+		if _, exists := bindVars[typeBindKey]; exists {
+			return fmt.Errorf("category scan bind %q is already defined", typeBindKey)
+		}
+		*prefix += "\nFILTER " + root.Variable + ".resourceType == @" + typeBindKey
+		bindVars[typeBindKey] = rootType
 		return nil
 	}
 	sharedFields := []string{"project", "dataset_generation", "resourceType", categoryPath, "auth_resource_path"}

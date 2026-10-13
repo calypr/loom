@@ -37,8 +37,9 @@ type previewIndexCollection interface {
 }
 
 type previewIndexReplacement struct {
-	name   string
-	fields []string
+	name         string
+	fields       []string
+	storedValues []string
 }
 
 // ListPreviewCoveringIndexes returns only persistent, non-sparse,
@@ -100,9 +101,12 @@ func (c *Client) EnsurePreviewCoveringIndexWithStoredValues(ctx context.Context,
 
 // EnsurePreviewCoveringIndexWithStoredValuesReplacing provisions a
 // compiler-owned stored-values index and replaces only the exact older
-// compiler-owned field-only definition supplied by the same plan.
-func (c *Client) EnsurePreviewCoveringIndexWithStoredValuesReplacing(ctx context.Context, collection, name string, fields, storedValues []string, supersededName string, supersededFields []string) error {
-	replacement := &previewIndexReplacement{name: supersededName, fields: append([]string(nil), supersededFields...)}
+// compiler-owned definition supplied by the same plan.
+func (c *Client) EnsurePreviewCoveringIndexWithStoredValuesReplacing(ctx context.Context, collection, name string, fields, storedValues []string, supersededName string, supersededFields, supersededStoredValues []string) error {
+	replacement := &previewIndexReplacement{
+		name: supersededName, fields: append([]string(nil), supersededFields...),
+		storedValues: append([]string(nil), supersededStoredValues...),
+	}
 	if c == nil || !validPreviewCoveringIndexStoredValuesReplacement(collection, name, fields, storedValues, replacement) {
 		return fmt.Errorf("invalid preview covering index replacement specification")
 	}
@@ -175,7 +179,7 @@ func ensurePreviewCoveringIndexDefinition(ctx context.Context, col previewIndexC
 		if strings.HasPrefix(index.Name, previewCoveringIndexPrefix) {
 			count++
 		}
-		if replacement != nil && index.Name == replacement.name && previewCoveringIndexMatchesDefinition(index, replacement.fields, nil) {
+		if replacement != nil && index.Name == replacement.name && previewCoveringIndexMatchesDefinition(index, replacement.fields, replacement.storedValues) {
 			copy := index
 			superseded = &copy
 		}
@@ -268,16 +272,38 @@ func validPreviewCoveringIndexWithStoredValues(collection, name string, fields, 
 }
 
 func validPreviewCoveringIndexStoredValuesReplacement(collection, name string, fields, storedValues []string, replacement *previewIndexReplacement) bool {
-	return validPreviewCoveringIndexWithStoredValues(collection, name, fields, storedValues) &&
-		replacement != nil && replacement.name != name &&
-		validPreviewCoveringIndex(collection, replacement.name, replacement.fields) &&
-		previewCoveringIndexName(collection, replacement.fields) == replacement.name
+	if !validPreviewCoveringIndexWithStoredValues(collection, name, fields, storedValues) || replacement == nil || replacement.name == name {
+		return false
+	}
+	if len(replacement.storedValues) == 0 {
+		return validPreviewCoveringIndex(collection, replacement.name, replacement.fields) &&
+			previewCoveringIndexName(collection, replacement.fields) == replacement.name
+	}
+	if !validPreviewCoveringIndexWithStoredValues(collection, replacement.name, replacement.fields, replacement.storedValues) {
+		return false
+	}
+	if collection != "Observation" || !slices.Equal(storedValues, []string{"payload.valueQuantity"}) ||
+		!slices.Equal(replacement.storedValues, storedValues) || len(fields) != len(replacement.fields)+1 ||
+		fields[len(fields)-1] != "resourceType" || !slices.Equal(fields[:len(fields)-1], replacement.fields) {
+		return false
+	}
+	return name == previewCoveringIndexNameWithStoredValues(collection, fields, storedValues) &&
+		replacement.name == previewCoveringIndexNameWithStoredValues(collection, replacement.fields, replacement.storedValues)
 }
 
 // previewCoveringIndexName is kept in lockstep with the compiler's stable
 // field-only name derivation so replacement is limited to an exact owned spec.
 func previewCoveringIndexName(collection string, fields []string) string {
 	digest := sha256.Sum256([]byte(collection + "\x00" + strings.Join(fields, "\x00")))
+	return previewCoveringIndexPrefix + hex.EncodeToString(digest[:8])
+}
+
+func previewCoveringIndexNameWithStoredValues(collection string, fields, storedValues []string) string {
+	canonicalStoredValues := append([]string(nil), storedValues...)
+	slices.Sort(canonicalStoredValues)
+	canonical := collection + "\x00fields\x00" + strings.Join(fields, "\x00") +
+		"\x00storedValues\x00" + strings.Join(canonicalStoredValues, "\x00")
+	digest := sha256.Sum256([]byte(canonical))
 	return previewCoveringIndexPrefix + hex.EncodeToString(digest[:8])
 }
 
@@ -295,8 +321,15 @@ func validPreviewCoveringIndexStoredValuesDefinition(name string, fields, stored
 		}
 		fieldSet[field] = struct{}{}
 	}
+	lastPayloadField := ""
 	for index, field := range fields[4:] {
-		if !strings.HasPrefix(field, "payload.") || (index > 0 && fields[index+3] >= field) {
+		if field == "resourceType" {
+			if index != len(fields[4:])-1 {
+				return false
+			}
+			continue
+		}
+		if !strings.HasPrefix(field, "payload.") || (lastPayloadField != "" && lastPayloadField >= field) {
 			return false
 		}
 		for previous := 4; previous < index+4; previous++ {
@@ -304,6 +337,7 @@ func validPreviewCoveringIndexStoredValuesDefinition(name string, fields, stored
 				return false
 			}
 		}
+		lastPayloadField = field
 	}
 	seen := make(map[string]struct{}, len(storedValues))
 	for _, path := range storedValues {

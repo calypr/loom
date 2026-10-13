@@ -245,6 +245,74 @@ func TestStoredValuesReplacementDropsOnlyExactCompilerOwnedLegacyIndexAtCap(t *t
 	}
 }
 
+func TestStoredValuesQuantityTypeAugmentationReplacesExactIndexAtCap(t *testing.T) {
+	ctx := context.Background()
+	legacyFields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status"}
+	storedValues := []string{"payload.valueQuantity"}
+	fields := append(append([]string(nil), legacyFields...), "resourceType")
+	legacyName := previewCoveringIndexNameWithStoredValues("Observation", legacyFields, storedValues)
+	name := previewCoveringIndexNameWithStoredValues("Observation", fields, storedValues)
+	replacement := &previewIndexReplacement{name: legacyName, fields: legacyFields, storedValues: storedValues}
+	if legacyName != "loom_pivot_preview_cdeb305dcc142386" || name != "loom_pivot_preview_7be3321552fa58fc" {
+		t.Fatalf("typed index identities diverged from the active cdeb migration: legacy=%s new=%s", legacyName, name)
+	}
+	if !validPreviewCoveringIndexStoredValuesReplacement("Observation", name, fields, storedValues, replacement) {
+		t.Fatal("exact typed stored-parent replacement was rejected")
+	}
+	wrongReplacement := &previewIndexReplacement{name: legacyName, fields: legacyFields, storedValues: []string{"payload.other"}}
+	if validPreviewCoveringIndexStoredValuesReplacement("Observation", name, fields, storedValues, wrongReplacement) {
+		t.Fatal("replacement accepted the cdeb name with a different stored parent")
+	}
+
+	baseInventory := func() []driver.IndexResponse {
+		return []driver.IndexResponse{
+			previewIndexResponse("loom_pivot_preview_unrelated_a", "Observation/unrelated-a", []string{"project", "dataset_generation", "auth_resource_path", "payload.a"}),
+			previewIndexResponse("loom_pivot_preview_unrelated_b", "Observation/unrelated-b", []string{"project", "dataset_generation", "auth_resource_path", "payload.b"}),
+			previewIndexResponse("loom_pivot_preview_unrelated_c", "Observation/unrelated-c", []string{"project", "dataset_generation", "auth_resource_path", "payload.c"}),
+			previewIndexResponseWithStoredValues(legacyName, "Observation/legacy-exact", legacyFields, storedValues),
+		}
+	}
+	t.Run("create verify and exact drop", func(t *testing.T) {
+		fake := &fakePreviewIndexCollection{indexes: baseInventory()}
+		if err := ensurePreviewCoveringIndexDefinition(ctx, fake, name, fields, storedValues, replacement); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(fake.events, []string{"ensure:" + name, "delete:Observation/legacy-exact"}) ||
+			containsPreviewIndex(fake.indexes, legacyName) || !containsPreviewIndex(fake.indexes, name) ||
+			len(fake.indexes) != maxPreviewCoveringIndexesPerCollection {
+			t.Fatalf("typed index replacement events/inventory = %v / %#v", fake.events, fake.indexes)
+		}
+		for _, unrelated := range []string{"loom_pivot_preview_unrelated_a", "loom_pivot_preview_unrelated_b", "loom_pivot_preview_unrelated_c"} {
+			if !containsPreviewIndex(fake.indexes, unrelated) {
+				t.Errorf("replacement removed unrelated preview index %s", unrelated)
+			}
+		}
+	})
+	t.Run("preserve exact old index if its drop fails", func(t *testing.T) {
+		fake := &fakePreviewIndexCollection{
+			indexes: baseInventory(), deleteErr: errors.New("drop failed"), failDeleteID: "Observation/legacy-exact",
+		}
+		if err := ensurePreviewCoveringIndexDefinition(ctx, fake, name, fields, storedValues, replacement); err == nil {
+			t.Fatal("failed old-index drop unexpectedly succeeded")
+		}
+		if containsPreviewIndex(fake.indexes, name) || !containsPreviewIndex(fake.indexes, legacyName) ||
+			len(fake.indexes) != maxPreviewCoveringIndexesPerCollection {
+			t.Fatalf("failed drop did not roll back candidate and preserve old capped inventory: %#v", fake.indexes)
+		}
+	})
+	t.Run("refuse same-name index with different stored parent", func(t *testing.T) {
+		inventory := baseInventory()
+		inventory[len(inventory)-1] = previewIndexResponseWithStoredValues(legacyName, "Observation/legacy-wrong", legacyFields, []string{"payload.other"})
+		fake := &fakePreviewIndexCollection{indexes: inventory}
+		if err := ensurePreviewCoveringIndexDefinition(ctx, fake, name, fields, storedValues, replacement); !errors.Is(err, ErrPreviewCoveringIndexLimit) {
+			t.Fatalf("wrong stored-parent replacement error = %v, want index cap refusal", err)
+		}
+		if len(fake.events) != 0 || len(fake.indexes) != maxPreviewCoveringIndexesPerCollection {
+			t.Fatalf("wrong stored-parent inventory was mutated: events=%v indexes=%#v", fake.events, fake.indexes)
+		}
+	})
+}
+
 func TestStoredValuesReplacementAtCapRefusesNonmatchingLegacyInventory(t *testing.T) {
 	ctx := context.Background()
 	fields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status"}
