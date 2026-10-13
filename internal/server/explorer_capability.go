@@ -27,7 +27,7 @@ import (
 const (
 	explorerCapabilityCompilerVersion = "loom-dataframe-compiler-v4"
 	explorerCapabilityProtocolVersion = "loom.calypr.org/explorer-authoring/v2"
-	explorerCapabilityCacheVersion    = "observed-availability-v1"
+	explorerCapabilityCacheVersion    = "observed-availability-v2"
 	explorerTraversalPolicyVersion    = "finite-unbounded-v1"
 	explorerProjectionPolicyVersion   = "compiler-probed-v2"
 )
@@ -109,6 +109,12 @@ func (r *explorerCapabilityResolver) Resolve(ctx context.Context, project, reque
 	if err != nil {
 		return capability.Snapshot{}, fmt.Errorf("digest repeated shape evidence: %w", err)
 	}
+	entityIdentity := identity
+	entityIdentity.CacheVersion = ""
+	entityIdentity.FieldDigest, err = catalog.FieldEnrichmentDigest(evidence.FieldEnrichment.Values)
+	if err != nil {
+		return capability.Snapshot{}, fmt.Errorf("digest semantic field identity: %w", err)
+	}
 	key, err := capabilityIdentityKey(identity)
 	if err != nil {
 		return capability.Snapshot{}, err
@@ -126,6 +132,7 @@ func (r *explorerCapabilityResolver) Resolve(ctx context.Context, project, reque
 		builder := capability.NewBuilder(identity, capabilityEvidenceFromCatalog(evidence), capability.CompilerCallbacks{
 			Node: compiler.ProbeNode, Edge: compiler.ProbeEdge, Candidate: compiler.ProbeCandidate,
 		})
+		builder.EntityIdentity = entityIdentity
 		builder.Policy = capability.Policy{
 			Route:      capability.RoutePolicy{Version: explorerTraversalPolicyVersion, MaxHops: 0, AllowsRepeatedEdges: true, AllowsSelfLoops: true},
 			Projection: capability.ProjectionPolicy{Version: explorerProjectionPolicyVersion, SuggestionLimit: capability.DefaultSuggestionLimit},

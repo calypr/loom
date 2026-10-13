@@ -11,6 +11,7 @@ import (
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	compilerprobe "github.com/calypr/loom/internal/dataframe/compiler/capability"
 	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
@@ -604,10 +605,22 @@ func TestExplorerCapabilityResolverRebuildsLegacyIdentityAndRetainsOldToken(t *t
 
 func TestExplorerCapabilityCacheSeparatesFieldCoverageReadiness(t *testing.T) {
 	manifest := testCapabilityManifest(t)
-	inventory := []catalog.ResourceInventoryObservation{{Project: "project-a", DatasetGeneration: "generation-a", ResourceType: "Patient", DocumentCount: 2}}
-	fields := []catalog.FieldEnrichmentObservation{{Project: "project-a", DatasetGeneration: "generation-a", ResourceType: "Patient", Path: "id", Kind: "scalar", DocCount: 2}}
+	inventory := []catalog.ResourceInventoryObservation{
+		{Project: "project-a", DatasetGeneration: "generation-a", ResourceType: "Observation", DocumentCount: 3},
+		{Project: "project-a", DatasetGeneration: "generation-a", ResourceType: "Patient", DocumentCount: 2},
+	}
+	fields := []catalog.FieldEnrichmentObservation{
+		{Project: "project-a", DatasetGeneration: "generation-a", ResourceType: "Observation", Path: "id", Kind: "scalar", DocCount: 3},
+		{Project: "project-a", DatasetGeneration: "generation-a", ResourceType: "Patient", Path: "id", Kind: "scalar", DocCount: 2},
+	}
+	relationships := []catalog.RelationshipObservation{{
+		Project: "project-a", DatasetGeneration: "generation-a", Label: "subject_Patient", EdgeCount: 2,
+		StorageFromType: "Observation", StorageToType: "Patient", StorageDirection: "OUTBOUND",
+		BuilderFromType: "Patient", BuilderToType: "Observation", BuilderDirection: "INBOUND",
+		FromType: "Patient", ToType: "Observation",
+	}}
 	inventoryDigest, _ := catalog.ResourceInventoryDigest(inventory)
-	relationshipDigest, _ := catalog.RelationshipObservationDigest(nil)
+	relationshipDigest, _ := catalog.RelationshipObservationDigest(relationships)
 	makeEvidence := func(coverageKnown bool) staticCapabilityEvidence {
 		fieldDigest, err := catalog.FieldEnrichmentDigest(fields, coverageKnown, true, false)
 		if err != nil {
@@ -615,7 +628,7 @@ func TestExplorerCapabilityCacheSeparatesFieldCoverageReadiness(t *testing.T) {
 		}
 		return staticCapabilityEvidence{
 			inventory:     catalog.ResourceInventoryResult{Values: inventory, Available: true, Complete: true, Status: catalog.EvidenceAvailable, Digest: inventoryDigest},
-			relationships: catalog.RelationshipObservationResult{Values: []catalog.RelationshipObservation{}, Available: true, Complete: true, Status: catalog.EvidenceEmpty, Digest: relationshipDigest},
+			relationships: catalog.RelationshipObservationResult{Values: relationships, Available: true, Complete: true, Status: catalog.EvidenceAvailable, Digest: relationshipDigest},
 			fields:        catalog.FieldEnrichmentResult{Values: fields, Available: true, Complete: true, FieldCoverageKnown: coverageKnown, Status: catalog.EvidenceAvailable, Digest: fieldDigest},
 		}
 	}
@@ -639,10 +652,64 @@ func TestExplorerCapabilityCacheSeparatesFieldCoverageReadiness(t *testing.T) {
 	if legacy.Token == known.Token {
 		t.Fatal("field coverage readiness change reused a prior snapshot token")
 	}
+	if len(known.Edges) == 0 || !sameCapabilityEntityIDs(known, legacy) {
+		t.Fatalf("availability readiness changed compiler graph sizes: known=%#v legacy=%#v", known, legacy)
+	}
+	// Before availability metadata was added, the entity ID seed used the
+	// semantic evidence identity: no cache version and a digest of field values
+	// alone. Rebuild that exact identity to catch stable-but-incompatible IDs.
+	preAvailabilityIdentity := known.Identity
+	preAvailabilityIdentity.CacheVersion = ""
+	preAvailabilityIdentity.FieldDigest, err = catalog.FieldEnrichmentDigest(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiler := explorerCapabilityCompiler{scope: compilerprobe.Scope{
+		Project: "project-a", DatasetGeneration: "generation-a", AuthScopeMode: authscope.ReadScopeUnrestricted,
+	}}
+	baselineEvidence := makeEvidence(true)
+	baselineBuilder := capability.NewBuilder(preAvailabilityIdentity, capabilityEvidenceFromCatalog(catalog.CapabilityEvidence{
+		ResourceInventory: baselineEvidence.inventory,
+		Relationships:     baselineEvidence.relationships,
+		FieldEnrichment:   baselineEvidence.fields,
+	}), capability.CompilerCallbacks{Node: compiler.ProbeNode, Edge: compiler.ProbeEdge, Candidate: compiler.ProbeCandidate})
+	baselineBuilder.Policy = capability.Policy{
+		Route:      capability.RoutePolicy{Version: explorerTraversalPolicyVersion, MaxHops: 0, AllowsRepeatedEdges: true, AllowsSelfLoops: true},
+		Projection: capability.ProjectionPolicy{Version: explorerProjectionPolicyVersion, SuggestionLimit: capability.DefaultSuggestionLimit},
+	}
+	preAvailability, err := baselineBuilder.Build(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameCapabilityEntityIDs(known, preAvailability) {
+		t.Fatalf("availability metadata changed IDs from the pre-availability identity: current=%#v baseline=%#v", known, preAvailability)
+	}
 	retained, err := legacyResolver.ResolveToken(context.Background(), "project-a", known.Token)
 	if err != nil || retained.Token != known.Token || retained.Availability.Readiness.Status != "COMPLETE" {
 		t.Fatalf("retained known token was mutated: %#v, %v", retained.Availability, err)
 	}
+}
+
+func sameCapabilityEntityIDs(a, b capability.Snapshot) bool {
+	if len(a.Nodes) != len(b.Nodes) || len(a.Edges) != len(b.Edges) || len(a.Candidates) != len(b.Candidates) {
+		return false
+	}
+	for i := range a.Nodes {
+		if a.Nodes[i].ID != b.Nodes[i].ID {
+			return false
+		}
+	}
+	for i := range a.Edges {
+		if a.Edges[i].ID != b.Edges[i].ID {
+			return false
+		}
+	}
+	for i := range a.Candidates {
+		if a.Candidates[i].ID != b.Candidates[i].ID {
+			return false
+		}
+	}
+	return true
 }
 
 func TestExplorerCapabilityResolverFailsClosedOnIncompleteFieldEnrichment(t *testing.T) {

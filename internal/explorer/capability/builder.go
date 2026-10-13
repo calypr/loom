@@ -96,10 +96,14 @@ type CompilerCallbacks struct {
 }
 
 type Builder struct {
-	Identity  SnapshotIdentity
-	Policy    Policy
-	Complete  bool
-	Truncated bool
+	Identity SnapshotIdentity
+	// EntityIdentity is the pre-availability semantic identity used only to
+	// mint stable node, edge, and candidate IDs. Cache-only metadata belongs
+	// in Identity so it can invalidate snapshots without rewriting authored IDs.
+	EntityIdentity SnapshotIdentity
+	Policy         Policy
+	Complete       bool
+	Truncated      bool
 
 	Evidence Evidence
 	Compiler CompilerCallbacks
@@ -174,7 +178,12 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 	}
 	identity.TraversalPolicyVersion = first(identity.TraversalPolicyVersion, policy.Route.Version)
 	identity.ProjectionPolicyVersion = first(identity.ProjectionPolicyVersion, policy.Projection.Version)
-	idSeed := identityDigest(identity)
+	entityIdentity := b.EntityIdentity
+	if strings.TrimSpace(entityIdentity.Project) == "" {
+		entityIdentity = identity
+		entityIdentity.CacheVersion = ""
+	}
+	idSeed := identityDigest(entityIdentity)
 
 	// A resource type is a concrete generated FHIR type, not a collection or
 	// arbitrary path. Deduplicate only exact resource observations; their
