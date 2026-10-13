@@ -502,6 +502,7 @@ const ConceptCatalogContent = ({
   const client = useLoomClient();
   const [queryInput, setQueryInput] = useState('');
   const [query, setQuery] = useState('');
+  const [rawFieldsExpanded, setRawFieldsExpanded] = useState(layout !== 'panel');
   const [pageNavigation, setPageNavigation] = useState<{
     readonly scopeKey: string;
     readonly cursors: ReadonlyArray<string | undefined>;
@@ -719,7 +720,10 @@ const ConceptCatalogContent = ({
       if (!nextCursor && !page.complete) throw new Error('Generated field discovery did not finish.');
     } while (nextCursor);
     return fields;
-  }, [client, project, explorerId, authResourcePath, snapshotToken, schemaNodeId, query], Boolean(schemaDiscoveryEnabled && schemaNodeId && client.searchSchemaFields));
+  }, [client, project, explorerId, authResourcePath, snapshotToken, schemaNodeId, query], Boolean(
+    schemaDiscoveryEnabled && schemaNodeId && client.searchSchemaFields &&
+    (layout !== 'panel' || rawFieldsExpanded),
+  ));
   const generatedFields = schemaProgress?.key === schemaScopeKey && schemaProgress.client === client
     ? schemaProgress.fields : schemaFields.data ?? [];
   const fieldItems = useMemo(
@@ -1040,9 +1044,13 @@ const ConceptCatalogContent = ({
           busy={adding || loadingMoreRoutes !== undefined}
           loadingMoreRoutes={loadingMoreRoutes}
           routeLoadError={routeLoadError}
+          submissionError={actionMessage}
           onLoadMoreRoutes={(group) => void loadMoreChoices(group)}
           onInspectRouteCoverage={onInspectRouteCoverage}
-          onCancel={() => setPendingSelection(undefined)}
+          onCancel={() => {
+            setPendingSelection(undefined);
+            setActionMessage(undefined);
+          }}
           onConfirm={(selections) => void commitSelections(selections)}
         />
       ) : null}
@@ -1125,12 +1133,10 @@ const ConceptCatalogContent = ({
         </div>
       ) : null}
 
-      <div className={layout === 'panel'
-        ? 'grid min-h-[14rem]'
-        : 'grid min-h-[24rem] lg:grid-cols-[minmax(0,1.25fr)_minmax(19rem,0.75fr)]'}>
+      <div className={layout === 'panel' ? 'grid min-h-[14rem]' : 'grid min-h-[24rem]'}>
         <div className={layout === 'panel'
           ? 'min-w-0 border-b border-slate-200 p-4'
-          : 'min-w-0 border-b border-slate-200 p-4 lg:border-b-0 lg:border-r sm:p-5'}>
+          : 'min-w-0 border-b border-slate-200 p-4 sm:p-5'}>
           <section aria-labelledby="feature-catalog-concepts-title">
             <div className="flex items-center justify-between gap-3">
               <h3 id="feature-catalog-concepts-title" className="text-sm font-semibold text-slate-800">
@@ -1211,7 +1217,8 @@ const ConceptCatalogContent = ({
           </div>
           </section>
 
-          <details className="mt-6 border-t border-slate-200 pt-5" data-testid="feature-catalog-raw-fields" open={layout !== 'panel' ? true : undefined}>
+          <details className="mt-6 border-t border-slate-200 pt-5" data-testid="feature-catalog-raw-fields" open={layout !== 'panel' ? true : undefined}
+            onToggle={(event) => { if (layout === 'panel') setRawFieldsExpanded(event.currentTarget.open); }}>
             <summary className="cursor-pointer text-sm font-semibold text-slate-700">Raw FHIR fields (advanced)</summary>
             <p className="mt-2 text-xs text-slate-600">Use a source path when you need a row ID, date, grouping field, or a value without a coded pairing.</p>
           <section className="mt-3" aria-labelledby="feature-catalog-fields-title">
@@ -1256,50 +1263,23 @@ const ConceptCatalogContent = ({
           </details>
         </div>
 
-        <aside className="bg-slate-50/70 p-4 sm:p-5">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="font-semibold text-slate-900">Selected features</h3>
-            <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-800">{selected.size}</span>
-          </div>
-          <p className="mt-1 text-xs text-slate-600">Selections stay here while you search and change pages.</p>
-          <div className="mt-4 space-y-2">
-            {selectedItems.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-8 text-center text-sm text-slate-500">
-                Select fields or concepts to build your feature list.
-              </div>
-            ) : selectedItems.map((item) => (
-              <div key={catalogItemKey(item)} className="flex items-start gap-2 rounded-md border border-slate-200 bg-white p-2.5">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-slate-900">{catalogItemLabel(item)}</p>
-                  <p className="truncate text-[11px] text-slate-500">{item.kind === 'FIELD' ? 'Field' : semanticCodeLabel(item.item)}</p>
-                </div>
-                <button
-                  type="button"
-                  aria-label={`Remove ${catalogItemLabel(item)}`}
-                  onClick={() => toggleSelection(item)}
-                  className="rounded px-1.5 text-lg leading-5 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-          {!pendingSelection ? (
-          <button
-            type="button"
+        {!pendingSelection ? (
+          <aside aria-label="Selected feature action" className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 bg-slate-50/70 p-3 sm:p-4">
+            <p className="m-0 text-sm font-medium text-slate-700" role="status">
+              {selected.size} {selected.size === 1 ? 'feature' : 'features'} selected
+            </p>
+            <button
+              type="button"
               disabled={disabled || adding || selected.size === 0 || !onAddSelected || !selectedItems.every(canAddCatalogItem)}
               onClick={() => void openSelection()}
-            className="mt-4 w-full rounded-md bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
-          >
+              className="rounded-md bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
               {selected.size === 0
                 ? 'Add selected features'
                 : `Add ${selected.size} selected ${selected.size === 1 ? 'feature' : 'features'}`}
-          </button>
-          ) : null}
-          {actionMessage ? (
-            <p className="mt-3 text-sm text-slate-700" role="status">{actionMessage}</p>
-          ) : null}
-        </aside>
+            </button>
+            {actionMessage ? <p className="col-span-2 m-0 text-sm text-slate-700" role="status">{actionMessage}</p> : null}
+          </aside>
+        ) : null}
       </div>
     </section>
   );

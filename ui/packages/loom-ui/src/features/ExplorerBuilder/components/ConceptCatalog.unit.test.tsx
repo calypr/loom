@@ -2,7 +2,7 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { createLoomClient as createFullLoomClient } from '../../../api';
+import { createLoomClient as createFullLoomClient, type LoomClient } from '../../../api';
 
 // These existing fixtures contain observed inventory only. Generated-field
 // requests have their own route-aware fixture below.
@@ -19,6 +19,7 @@ import type {
   SemanticInventoryBrowseResponse,
   SemanticInventoryItem,
 } from '../../../types';
+import { EXPLORER_AUTHORING_API_VERSION } from '../../../types';
 import type { CatalogInitialSelection } from './CatalogSelectionDialog';
 import type { PairedColumnSuggestion } from '../constructionWorkspace/PairedColumnSuggestions';
 import {
@@ -274,6 +275,69 @@ const renderCatalogAtRoute = (
 };
 
 describe('ConceptCatalog', () => {
+  it('defers generated schema pagination until raw fields are opened in a panel', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(page([])), { status: 200, headers: { 'content-type': 'application/json' } }),
+    );
+    const schemaPage: Awaited<ReturnType<NonNullable<LoomClient['searchSchemaFields']>>> = {
+      apiVersion: EXPLORER_AUTHORING_API_VERSION,
+      kind: 'ExplorerBuilderGeneratedSchemaFields',
+      snapshotToken: 'snapshot-a',
+      schemaDigest: 'a'.repeat(64),
+      nodeId: 'patient-node',
+      resourceType: 'Patient',
+      query: '',
+      fields: [],
+      complete: true,
+      truncated: false,
+    };
+    const searchSchemaFields = vi.fn<NonNullable<LoomClient['searchSchemaFields']>>().mockResolvedValue(schemaPage);
+    const client = { ...createFullLoomClient({ fetch }), searchSchemaFields } satisfies LoomClient;
+    render(
+      <LoomProvider client={client}>
+        <ConceptCatalog project="project-a" explorerId="explorer-a" snapshotToken="snapshot-a"
+          outputId="patients" rowRoot="Patient" sourceNodeId="patient-node" catalog={catalog} layout="panel" />
+      </LoomProvider>,
+    );
+
+    await screen.findByRole('searchbox', { name: 'Search features by field name, concept, or code' });
+    expect(searchSchemaFields).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('Raw FHIR fields (advanced)'));
+    await waitFor(() => expect(searchSchemaFields).toHaveBeenCalledTimes(1));
+  });
+
+  it('keeps failed submissions in the choice dialog and clears the duplicate aside', async () => {
+    const slowConcept = item('ajcc-m', 'AJCC pathological M category', 1);
+    const multiFormChoice = {
+      ...slowConcept,
+      constructionChoice: semanticChoice('ajcc-m-choice', slowConcept, [
+        choiceOption('VALUE', 'DEFAULT'),
+        choiceOption('ALL', 'REQUIRES_DECISION'),
+      ]),
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(page([multiFormChoice])), { status: 200, headers: { 'content-type': 'application/json' } }),
+    );
+    const onAddSelected = vi.fn().mockRejectedValue(new Error('preview exceeded its execution deadline'));
+    renderCatalog(fetch, onAddSelected);
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select AJCC pathological M category' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
+    expect(screen.queryByRole('heading', { name: 'Selected features' })).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 column' }));
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('preview exceeded its execution deadline');
+    expect(screen.getByRole('dialog', { name: 'Choose how to add these fields' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Add 1 column' })).toBeEnabled();
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeEnabled();
+    expect(onAddSelected).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog', { name: 'Choose how to add these fields' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add 1 selected feature' })).toBeEnabled();
+  });
+
   it('keeps a pending inventory read when only source-availability presentation changes', async () => {
     let resolveFetch: ((response: Response) => void) | undefined;
     const fetch = vi.fn<typeof globalThis.fetch>(() => new Promise<Response>((resolve) => {
@@ -1246,7 +1310,7 @@ describe('ConceptCatalog', () => {
   });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Glucose' }));
-    expect(screen.getByText('3')).toBeInTheDocument();
+    expect(screen.getByLabelText('Selected feature action')).toHaveTextContent('3 features selected');
 
     fireEvent.click(screen.getByRole('button', { name: 'Add 3 selected features' }));
     await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([

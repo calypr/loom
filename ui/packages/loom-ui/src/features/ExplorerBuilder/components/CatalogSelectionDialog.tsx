@@ -112,6 +112,7 @@ export const CatalogSelectionDialog = ({
   busy,
   loadingMoreRoutes,
   routeLoadError,
+  submissionError,
   onLoadMoreRoutes,
   onInspectRouteCoverage,
   onCancel,
@@ -124,6 +125,7 @@ export const CatalogSelectionDialog = ({
   readonly busy: boolean;
   readonly loadingMoreRoutes?: string;
   readonly routeLoadError?: { readonly key: string; readonly message: string };
+  readonly submissionError?: string;
   readonly onLoadMoreRoutes: (group: CatalogChoiceGroup) => void;
   readonly onInspectRouteCoverage?: (selection: CatalogChoiceIntent, signal: AbortSignal) => Promise<RouteCoverage>;
   readonly onCancel: () => void;
@@ -266,6 +268,7 @@ export const CatalogSelectionDialog = ({
         <p className="mt-1 text-sm text-slate-600">
           Choose where each field comes from and how it should appear in the table. When there are multiple paths, Loom leaves the choice open for you.
         </p>
+        {submissionError ? <p className="mt-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900" role="alert">{submissionError}</p> : null}
         {groupedRowValuePolicy ? (
           <label className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-700">
             <span className="font-medium">Values per grouped row</span>
