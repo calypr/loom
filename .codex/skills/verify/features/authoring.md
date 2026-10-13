@@ -51,23 +51,26 @@ This Basic case does not establish the complete CDA row-operation inventory.
 ## Change what each row represents
 
 For an existing table, open `Configure rows`. The `What should each row
-represent?` box has one `Record type` picker. Choose a connected type and use
-`Review changes` to inspect the route and which columns or filters carry over.
-For a connected type, `Start fresh with <type>` is available in that same box;
-it opens the replacement preview, including removed setup and current-draft
-consumer effects, before applying the change. Eligible disconnected types use
-the same picker and `Review changes` to open the replacement preview. Selecting
-a type alone does not change the saved table.
+represent?` box has one `Record type` picker. Choosing a connected type opens a
+receipt-bound Preview automatically when its compiler route is unique. If the
+compiler finds multiple valid routes, its alternatives appear inline in that
+same picker; choosing one opens its Preview automatically. `Start fresh with
+<type>` is available in the same box and opens a replacement Preview showing
+removed setup and current-draft consumer effects. Disconnected types open their
+replacement Preview directly.
+Cancel preserves the saved table, and Apply commits the reviewed change.
 
-The native `builder-authoring/authoring` case covers the connected
-Patient↔Observation preservation flow. The
-`builder-root-replacement/replace-current-setup` case covers disconnected
-ResearchStudy replacement and connected DiagnosticReport `Start fresh`,
-including consumer repair consequences and reload. On 2026-10-12 it passed
-11/11 checks on a fresh Basic fixture with source and API integrity unchanged;
-the retained summary is
-`run-builder-root-replacement-replace-current-setup-JFfuq9` in the session's
-`loom-verification-brackets` directory.
+The final serial native Basic batch passed all three row-root lifecycles on one
+unchanged source and API identity: `builder-authoring/condition-specimen-route-ambiguity`
+passed 17/17 checks for compiler route alternatives, receipt-bound Preview,
+Cancel, Apply, exact fixture rows, and reload; `builder-authoring/authoring`
+passed 22/22 checks for connected Patient↔Observation preservation, Cancel,
+Apply, and Patient restoration; `builder-root-replacement/replace-current-setup`
+passed 14/14 checks for disconnected ResearchStudy replacement and connected
+DiagnosticReport `Start fresh`, including consumer effects and reload. The
+shared batch summary is
+`/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-batch-1791858364721-WB0iLS/batch-summary.json`.
+These Basic fixture lifecycles do not establish CDA-specific row behavior.
 
 ## Routed semantic value with blank fallback
 
