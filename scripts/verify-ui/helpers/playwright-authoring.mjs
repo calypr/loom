@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { expect } from '@playwright/test';
 import { browserURL } from '../workflows/builder-url.mjs';
 import { collectPreviewRows, previewHeaderIndex } from './playwright-preview-rows.mjs';
