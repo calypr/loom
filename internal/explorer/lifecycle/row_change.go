@@ -69,6 +69,11 @@ func (s *Service) AssessRowChange(ctx context.Context, request AssessRowChangeRe
 		if err != nil {
 			return AssessRowChangeResult{}, unprocessable("row-change", "INVALID_ROW_CHANGE", err.Error(), err)
 		}
+	} else {
+		previewWorkspace, err = constructionCapabilitiesWorkspace(candidateWorkspace, request.OutputID)
+		if err != nil {
+			return AssessRowChangeResult{}, unprocessable("row-change", "INVALID_ROW_CHANGE", err.Error(), err)
+		}
 	}
 	candidateReceipt, err := s.compile(ctx, compileRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, Workspace: previewWorkspace,

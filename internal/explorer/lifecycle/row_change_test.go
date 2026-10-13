@@ -27,8 +27,23 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 	snapshot.Nodes = []capability.Node{
 		{ID: "patient", ResourceType: "Patient", RowRootEligible: true, Populated: true},
 		{ID: "research-study", ResourceType: "ResearchStudy", RowRootEligible: true, Populated: true},
+		{ID: "diagnostic-report", ResourceType: "DiagnosticReport", RowRootEligible: true, Populated: true},
 	}
-	for _, item := range []struct{ nodeID, resourceType string }{{"patient", "Patient"}, {"research-study", "ResearchStudy"}} {
+	snapshot.Edges = []capability.Edge{
+		{
+			ID: "study-result-report", FromNodeID: "research-study", ToNodeID: "diagnostic-report",
+			Label: "result_DiagnosticReport", SourceResourceType: "ResearchStudy", TargetResourceType: "DiagnosticReport",
+			StorageDirection: "OUTBOUND", AllowsRepeatedTarget: true,
+		},
+		{
+			ID: "report-study-result", FromNodeID: "diagnostic-report", ToNodeID: "research-study",
+			Label: "result_DiagnosticReport", SourceResourceType: "DiagnosticReport", TargetResourceType: "ResearchStudy",
+			StorageDirection: "INBOUND",
+		},
+	}
+	for _, item := range []struct{ nodeID, resourceType string }{
+		{"patient", "Patient"}, {"research-study", "ResearchStudy"}, {"diagnostic-report", "DiagnosticReport"},
+	} {
 		_, err := schemaIndexResolve(item.resourceType, "id")
 		if err != nil {
 			t.Fatal(err)
@@ -118,7 +133,15 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 			APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: "project-a", ExplorerID: explorerID,
 			SourceGeneration: got.Identity.Generation, AuthorizationScopeDigest: got.Identity.AuthorizationScopeDigest, ResolvedSchemaDigest: got.Identity.SchemaDigest,
 			SnapshotToken: got.Token, Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
-			Nodes: []authoringv2.CatalogNode{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}, {ID: "research-study", ResourceType: "ResearchStudy", RowRootEligible: true}},
+			Nodes: []authoringv2.CatalogNode{
+				{ID: "patient", ResourceType: "Patient", RowRootEligible: true},
+				{ID: "research-study", ResourceType: "ResearchStudy", RowRootEligible: true},
+				{ID: "diagnostic-report", ResourceType: "DiagnosticReport", RowRootEligible: true},
+			},
+			Edges: []authoringv2.CatalogEdge{
+				{ID: "study-result-report", FromNodeID: "research-study", ToNodeID: "diagnostic-report", Label: "result_DiagnosticReport", StorageDirection: "OUTBOUND", Populated: true},
+				{ID: "report-study-result", FromNodeID: "diagnostic-report", ToNodeID: "research-study", Label: "result_DiagnosticReport", StorageDirection: "INBOUND", Populated: true},
+			},
 		}
 		for _, candidate := range got.Candidates {
 			choice, choiceErr := capability.NewFieldConstructionChoice(got.Token, candidate)
@@ -211,6 +234,31 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 	}
 	if _, err := compile(result.Workspace); err == nil {
 		t.Fatal("full workspace compile succeeded although consumer still references removed patient_id")
+	}
+
+	preserved, err := service.AssessRowChange(context.Background(), AssessRowChangeRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
+		DraftVersion: result.DraftVersion, DraftDigest: result.DraftDigest, Mode: authoringv2.RowChangeModePreserve,
+		OutputID: "patients", RootNodeID: "diagnostic-report",
+	})
+	if err != nil {
+		t.Fatalf("PRESERVE assessment with unchanged downstream consumer: %v", err)
+	}
+	if preserved.Assessment.Status != authoringv2.RowChangeReady || preserved.CandidateReceiptID == "" {
+		t.Fatalf("connected DiagnosticReport PRESERVE assessment=%#v", preserved)
+	}
+	if got := compiledOutputIDs(compiledWorkspaces[len(compiledWorkspaces)-1]); !reflect.DeepEqual(got, []string{"patients", "other"}) {
+		t.Fatalf("PRESERVE receipt compile scope = %#v, want selected output and independent sibling only", got)
+	}
+	if len(store.receipt.Bundle.Outputs) != 2 {
+		t.Fatalf("PRESERVE receipt contains the downstream consumer: %#v", store.receipt.Bundle.Outputs)
+	}
+	storedAfterPreserve, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(storedAfterPreserve.Documents[0], result.Workspace.Documents[0]) {
+		t.Fatalf("PRESERVE assessment mutated the saved consumer:\n got %#v\nwant %#v", storedAfterPreserve.Documents[0], result.Workspace.Documents[0])
 	}
 
 	capabilities, err := service.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{
