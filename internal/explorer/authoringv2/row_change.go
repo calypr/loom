@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -24,14 +23,6 @@ const (
 )
 
 const rowChangeRouteTokenPrefix = "row-change-route:v1:"
-
-type rowChangeRelatedSourceAtRootError struct {
-	sourceOccurrenceID string
-}
-
-func (e *rowChangeRelatedSourceAtRootError) Error() string {
-	return fmt.Sprintf("the selected row root is the saved related-source occurrence %q, which cannot be preserved as a non-empty related-source route", e.sourceOccurrenceID)
-}
 
 type rowChangeRouteToken struct {
 	EdgeIDs            []string `json:"edgeIds"`
@@ -271,14 +262,6 @@ func AssessRowChange(workspace Workspace, catalog CatalogSnapshot, request RowCh
 		SharedFilterBindings:     []SharedFilterBindingRef{},
 	}
 	if _, err := applyRowChange(sourceDocument, catalog, proposal); err != nil {
-		var sourceAtRoot *rowChangeRelatedSourceAtRootError
-		if errors.As(err, &sourceAtRoot) {
-			assessment.Unresolved = append(assessment.Unresolved, RowChangeUnresolvedReference{
-				Kind: RowReferenceColumn, ID: sourceAtRoot.sourceOccurrenceID,
-				Code: "ROW_CHANGE_RELATED_SOURCE_AT_ROOT", Message: err.Error(),
-			})
-			return assessment, nil
-		}
 		assessment.Unresolved = append(assessment.Unresolved, RowChangeUnresolvedReference{
 			Kind: RowReferenceRoute, ID: proposal.RootOccurrenceID, Code: "INVALID_REBASED_ROUTE", Message: err.Error(),
 		})
@@ -806,40 +789,10 @@ func rebaseRelatedSourceRoute(
 	if related.SourceOccurrenceID != related.Source.NodeID {
 		return nil, fmt.Errorf("saved source occurrence %q does not match its source node %q", related.SourceOccurrenceID, related.Source.NodeID)
 	}
-	if pathNodeIDs[len(path)-1] == related.Source.NodeID {
-		return nil, &rowChangeRelatedSourceAtRootError{sourceOccurrenceID: related.SourceOccurrenceID}
-	}
-
-	// If the exact saved source route is part of the compiler-selected route to
-	// the new root, reuse its terminal occurrence and keep only the inverse
-	// suffix between that occurrence and the selected root. Otherwise carry the
-	// saved route after the inverse prefix back to its original root.
-	sourcePathIndex := -1
-	if len(related.Route) <= len(path)-1 && len(related.Route) > 0 &&
-		related.Route[0].FromNodeID == pathNodeIDs[0] &&
-		related.Route[0].FromResourceType == path[0].ResourceType {
-		matchesSavedRoute := true
-		for index, savedHop := range related.Route {
-			edge, err := resolveCatalogRouteEdge(catalog, pathNodeIDs[index], path[index], path[index+1])
-			if err != nil || savedHop.EdgeID != edge.ID || savedHop.FromNodeID != edge.FromNodeID ||
-				savedHop.ToNodeID != edge.ToNodeID || savedHop.FromResourceType != path[index].ResourceType ||
-				savedHop.ToResourceType != path[index+1].ResourceType || savedHop.Relationship != edge.Label ||
-				savedHop.StorageDirection != edge.StorageDirection {
-				matchesSavedRoute = false
-				break
-			}
-		}
-		if matchesSavedRoute {
-			candidateSourceIndex := len(related.Route)
-			if pathNodeIDs[candidateSourceIndex] == related.Source.NodeID && candidateSourceIndex < len(path)-1 {
-				sourcePathIndex = candidateSourceIndex
-			}
-		}
-	}
-	if sourcePathIndex >= 0 {
-		return reverseConstructionRoutePath(path, pathNodeIDs, inverseChoices, catalog, sourcePathIndex)
-	}
-
+	// Keep the original source anchor: reach the prior row root through the
+	// inverse selected path, then replay the saved related-source route from
+	// that root. A shared prefix does not make the source equivalent when the
+	// new root is itself related to the old root through another record.
 	prefix, err := reverseConstructionRoutePath(path, pathNodeIDs, inverseChoices, catalog, 0)
 	if err != nil {
 		return nil, err

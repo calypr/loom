@@ -675,7 +675,7 @@ func TestAssessRowChangeRebasesRelatedSourceForSelectedCompilerRootRoute(t *test
 	nodeSet := []capability.Node{
 		{ID: "condition", ResourceType: "Condition", RowRootEligible: true, Populated: true},
 		{ID: "patient", ResourceType: "Patient", RowRootEligible: true, Populated: true},
-		{ID: "patient-alt", ResourceType: "Patient", RowRootEligible: true, Populated: true},
+		{ID: "patient-alt", ResourceType: "Patient", RowRootEligible: false, Populated: true},
 		{ID: "specimen", ResourceType: "Specimen", RowRootEligible: true, Populated: true},
 	}
 	edgeSet := []capability.Edge{
@@ -904,14 +904,16 @@ func TestAssessRowChangeRebasesRelatedSourceForSelectedCompilerRootRoute(t *test
 	if selectedRoute == "" {
 		t.Fatalf("assessment did not offer the exact route through the saved Patient source occurrence: %#v", initial.Assessment.Unresolved[0].Alternatives)
 	}
-	terminalSource, err := service.AssessRowChange(context.Background(), AssessRowChangeRequest{
+	rootPatient, err := service.AssessRowChange(context.Background(), AssessRowChangeRequest{
 		Project: "project-a", ExplorerID: "conditions", SnapshotToken: snapshot.Token,
 		DraftVersion: 1, DraftDigest: digest, OutputID: "patients", RootNodeID: "patient",
 	})
-	if err != nil || terminalSource.Assessment.Status != authoringv2.RowChangeBlocked ||
-		terminalSource.Assessment.Proposal != nil || terminalSource.CandidateReceiptID != "" ||
-		len(terminalSource.Assessment.Unresolved) != 1 || terminalSource.Assessment.Unresolved[0].Code != "ROW_CHANGE_RELATED_SOURCE_AT_ROOT" {
-		t.Fatalf("root change to saved related-source terminal=%#v err=%v, want an actionable blocked assessment", terminalSource, err)
+	if err != nil || rootPatient.Assessment.Status != authoringv2.RowChangeReady || rootPatient.Assessment.Proposal == nil || rootPatient.CandidateReceiptID == "" {
+		t.Fatalf("root change to saved related-source terminal=%#v err=%v", rootPatient, err)
+	}
+	rootPatientRoute := compiledWorkspace.Documents[0].Construction.Steps[0].Operation.RelatedSource.Route
+	if len(rootPatientRoute) != 2 || rootPatientRoute[0].EdgeID != "patient-condition" || rootPatientRoute[1].EdgeID != "condition-patient" {
+		t.Fatalf("root-at-source candidate route=%#v, want Patient→Condition→Patient", rootPatientRoute)
 	}
 
 	selected, err := service.AssessRowChange(context.Background(), AssessRowChangeRequest{
@@ -926,9 +928,11 @@ func TestAssessRowChangeRebasesRelatedSourceForSelectedCompilerRootRoute(t *test
 		t.Fatalf("candidate receipt compiled root %q, want Specimen", compiledWorkspace.Documents[0].RootResourceType)
 	}
 	gotRelated := compiledWorkspace.Documents[0].Construction.Steps[0].Operation.RelatedSource
-	if gotRelated == nil || len(gotRelated.Route) != 1 || gotRelated.Route[0].FromNodeID != "specimen" ||
-		gotRelated.Route[0].ToNodeID != "patient" || gotRelated.Route[0].EdgeID != "specimen-patient" ||
+	if gotRelated == nil || len(gotRelated.Route) != 3 ||
+		gotRelated.Route[0].FromNodeID != "specimen" || gotRelated.Route[0].ToNodeID != "patient" || gotRelated.Route[0].EdgeID != "specimen-patient" ||
+		gotRelated.Route[1].FromNodeID != "patient" || gotRelated.Route[1].ToNodeID != "condition" || gotRelated.Route[1].EdgeID != "patient-condition" ||
+		gotRelated.Route[2].FromNodeID != "condition" || gotRelated.Route[2].ToNodeID != "patient" || gotRelated.Route[2].EdgeID != "condition-patient" ||
 		gotRelated.SourceOccurrenceID != "patient" {
-		t.Fatalf("candidate related-source route=%#v, want the selected Specimen→saved Patient occurrence route", gotRelated)
+		t.Fatalf("candidate related-source route=%#v, want Specimen→Patient→Condition→Patient to preserve the Condition source anchor", gotRelated)
 	}
 }
