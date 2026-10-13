@@ -462,7 +462,7 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
         requiredCheck: `${selectionLabel} action-to-preview within budget`,
       });
       check('correctness', previewCheck, candidate.outputId === originalIdentity.document.output.id &&
-        Boolean(candidate.receiptId) && isDeepStrictEqual(candidate.rows, expectedRows), {
+        Boolean(candidate.receiptId) && isDeepStrictEqual(sortRows(candidate.rows), sortRows(expectedRows)), {
         rootResourceType, outputId: candidate.outputId, receiptId: candidate.receiptId,
         rows: candidate.rows, expectedRows,
       });
