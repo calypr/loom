@@ -114,6 +114,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 	var frame *authoringv2.FrameDefinition
 	var codedFamily *frameSourceFamilyCandidate
 	var codedRoute []capability.ConstructionRouteStep
+	var outputDocument *authoringv2.Document
 	bindingFilter := ""
 	if req.FrameID != "" {
 		if strings.TrimSpace(req.OutputID) == "" || req.OutputID != strings.TrimSpace(req.OutputID) {
@@ -188,6 +189,20 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 		codedFamily = &family
 		codedRoute = route
 	}
+	if req.OutputID != "" && req.OutputID != strings.TrimSpace(req.OutputID) {
+		return result, malformed("catalog", "outputId must be an exact identifier", nil)
+	}
+	if req.OutputID != "" && frame == nil && codedFamily == nil {
+		workspace, workspaceErr := s.currentWorkspace(ctx, req.Project, req.ExplorerID)
+		if workspaceErr != nil {
+			return result, workspaceErr
+		}
+		document := findSemanticOutput(workspace, req.OutputID)
+		if document == nil || document.RootResourceType != req.RowRoot {
+			return result, notFound("catalog", "OUTPUT_NOT_FOUND", "the output was not found for this row root", nil)
+		}
+		outputDocument = document
+	}
 	var cursor semanticBrowseCursor
 	if req.Cursor != "" {
 		raw, err := base64.RawURLEncoding.DecodeString(req.Cursor)
@@ -219,6 +234,13 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 	if result.SourceAvailability == "" {
 		result.SourceAvailability = catalog.SemanticInventorySourceAvailabilityUnknown
 	}
+	var outputChoices map[string]capability.ConstructionChoice
+	if outputDocument != nil {
+		outputChoices, err = semanticInventoryChoicesForOutput(ctx, authorized, snapshot, *outputDocument, req.OutputID, result.ContextToken, result.BuildID, page.Entries)
+		if err != nil {
+			return result, err
+		}
+	}
 	result.Entries = make([]SemanticInventoryItem, 0, len(page.Entries))
 	for _, entry := range page.Entries {
 		observation := entry.Observation
@@ -240,6 +262,15 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 			ObservedUnits: append([]string(nil), observation.ObservedUnits...), ObservedUnitsTruncated: observation.ObservedUnitsTruncated,
 			Completeness: observation.Completeness,
 			Readiness:    plan.Readiness,
+		}
+		if outputDocument != nil {
+			choice, ok := outputChoices[semanticChoiceKey(entry.ConceptID, entry.BindingID)]
+			if !ok {
+				continue
+			}
+			item.ConstructionChoice = &choice
+			result.Entries = append(result.Entries, item)
+			continue
 		}
 		if plan.Readiness.Addable() {
 			if candidate, ok := semanticConstructionCandidate(snapshot, observation); ok {
@@ -293,6 +324,185 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 		result.NextCursor = base64.RawURLEncoding.EncodeToString(raw)
 	}
 	return result, nil
+}
+
+type semanticInventoryRouteCandidate struct {
+	key       string
+	entry     catalog.SemanticInventoryEntry
+	candidate capability.Candidate
+}
+
+type semanticCandidateRouteProof struct {
+	candidate capability.Candidate
+	route     []capability.ConstructionRouteStep
+	ok        bool
+}
+
+// semanticInventoryChoicesForOutput keeps table applicability separate from
+// global semantic inventory. Routes are planned once per distinct candidate
+// node; repeated entries reuse the exact candidate+route compiler proof, while
+// each semantic binding still gets its own choice ID.
+func semanticInventoryChoicesForOutput(
+	ctx context.Context,
+	authorized AuthorizedCapability,
+	snapshot capability.Snapshot,
+	document authoringv2.Document,
+	outputID, contextToken, buildID string,
+	entries []catalog.SemanticInventoryEntry,
+) (map[string]capability.ConstructionChoice, error) {
+	choices := make(map[string]capability.ConstructionChoice)
+	byNode := make(map[string][]semanticInventoryRouteCandidate)
+	targets := make(map[string]struct{})
+	for _, entry := range entries {
+		if !authoringv2.ResolveSemanticSelectionPlan(entry.Observation).Readiness.Addable() {
+			continue
+		}
+		candidate, ok := semanticConstructionCandidate(snapshot, entry.Observation)
+		if !ok || candidate.NodeID == "" {
+			continue
+		}
+		key := semanticChoiceKey(entry.ConceptID, entry.BindingID)
+		byNode[candidate.NodeID] = append(byNode[candidate.NodeID], semanticInventoryRouteCandidate{key: key, entry: entry, candidate: candidate})
+		targets[candidate.NodeID] = struct{}{}
+	}
+	if len(targets) == 0 {
+		return choices, nil
+	}
+	targetNodeIDs := make([]string, 0, len(targets))
+	for targetNodeID := range targets {
+		targetNodeIDs = append(targetNodeIDs, targetNodeID)
+	}
+	sort.Strings(targetNodeIDs)
+	reachable := semanticInventoryReachableNodes(snapshot, document.RootResourceType)
+	reachableTargets := targetNodeIDs[:0]
+	for _, targetNodeID := range targetNodeIDs {
+		if reachable[targetNodeID] {
+			reachableTargets = append(reachableTargets, targetNodeID)
+		} else {
+			delete(byNode, targetNodeID)
+		}
+	}
+	targetNodeIDs = reachableTargets
+	if len(targetNodeIDs) == 0 {
+		return choices, nil
+	}
+	proofCache := make(map[string]semanticCandidateRouteProof)
+	for _, targetNodeID := range targetNodeIDs {
+		routeCandidates := byNode[targetNodeID]
+		keyBytes, err := json.Marshal(struct {
+			OutputID string
+			Snapshot string
+			Target   string
+		}{OutputID: outputID, Snapshot: snapshot.Token, Target: targetNodeID})
+		if err != nil {
+			return nil, internal("catalog", "CONSTRUCTION_ROUTE_SEARCH_FAILED", "the table's semantic route scope could not be encoded", err)
+		}
+		sourceDigest := sha256.Sum256(keyBytes)
+		sourceKey := "semantic-inventory:" + hex.EncodeToString(sourceDigest[:])
+		cursor := ""
+		for {
+			if err := ctx.Err(); err != nil {
+				return nil, unavailable("catalog", "CONSTRUCTION_ROUTE_SEARCH_INTERRUPTED", "the table's semantic route search was interrupted", err)
+			}
+			page, err := capability.PlanConstructionRoutes(capability.ConstructionRouteSearch{
+				Snapshot: snapshot, RootResource: document.RootResourceType, TargetNodeID: targetNodeID,
+				SourceKey: sourceKey, Cursor: cursor, Limit: capability.ConstructionRouteMaxLimit,
+			})
+			if err != nil {
+				return nil, internal("catalog", "CONSTRUCTION_ROUTE_SEARCH_FAILED", "the table's semantic routes could not be planned", err)
+			}
+			for _, route := range page.Routes {
+				for _, routeCandidate := range routeCandidates {
+					if _, resolved := choices[routeCandidate.key]; resolved {
+						continue
+					}
+					resolvedRoute, routeErr := reauthorizeConstructionRoute(snapshot, document.RootResourceType, targetNodeID, route)
+					if routeErr != nil {
+						continue
+					}
+					proofKey := semanticCandidateRouteProofCacheKey(routeCandidate.candidate, resolvedRoute)
+					proof, cached := proofCache[proofKey]
+					if !cached {
+						proof = semanticCandidateRouteProof{candidate: routeCandidate.candidate, route: resolvedRoute, ok: true}
+						if len(resolvedRoute) > 0 || strings.HasPrefix(routeCandidate.candidate.ID, "schema_field.") {
+							proof.candidate, err = proveConstructionCandidate(ctx, authorized, document.RootResourceType, routeCandidate.candidate, resolvedRoute)
+							proof.ok = err == nil
+							if err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil) {
+								return nil, unavailable("catalog", "CONSTRUCTION_ROUTE_PROOF_INTERRUPTED", "compiler proof for the table's semantic routes was interrupted", err)
+							}
+						}
+						proofCache[proofKey] = proof
+					}
+					if !proof.ok {
+						continue
+					}
+					ownerRecordsProved := proveOwnerRecordsForRoute(ctx, authorized, document.RootResourceType, routeCandidate.entry.Observation, proof.route)
+					if err := ctx.Err(); err != nil {
+						return nil, unavailable("catalog", "CONSTRUCTION_ROUTE_PROOF_INTERRUPTED", "compiler proof for the table's semantic routes was interrupted", err)
+					}
+					choice, choiceErr := semanticInventoryConstructionChoiceForRoute(snapshot, contextToken, buildID, proof.route, routeCandidate.entry, proof.candidate, ownerRecordsProved)
+					if choiceErr == nil {
+						choices[routeCandidate.key] = choice
+					}
+				}
+			}
+			allResolved := true
+			for _, candidate := range routeCandidates {
+				if _, ok := choices[candidate.key]; !ok {
+					allResolved = false
+					break
+				}
+			}
+			if allResolved || page.NextCursor == "" {
+				break
+			}
+			cursor = page.NextCursor
+		}
+	}
+	return choices, nil
+}
+
+// semanticInventoryReachableNodes uses the authorized snapshot graph only as
+// a negative prefilter. Every retained route is still reauthorized and
+// compiler-probed below; disconnected resource nodes never trigger a full
+// alternate-route search.
+func semanticInventoryReachableNodes(snapshot capability.Snapshot, rootResourceType string) map[string]bool {
+	adjacency := make(map[string][]string)
+	for _, edge := range snapshot.Edges {
+		if edge.BlockedReason != "" || edge.ID == "" || edge.FromNodeID == "" || edge.ToNodeID == "" || edge.Label == "" {
+			continue
+		}
+		from, fromOK := snapshot.Node(edge.FromNodeID)
+		to, toOK := snapshot.Node(edge.ToNodeID)
+		if fromOK && toOK && from.ResourceType == edge.SourceResourceType && to.ResourceType == edge.TargetResourceType {
+			adjacency[edge.FromNodeID] = append(adjacency[edge.FromNodeID], edge.ToNodeID)
+		}
+	}
+	queue := make([]string, 0)
+	reachable := make(map[string]bool)
+	for _, node := range snapshot.Nodes {
+		if node.RowRootEligible && node.ResourceType == rootResourceType && !reachable[node.ID] {
+			reachable[node.ID] = true
+			queue = append(queue, node.ID)
+		}
+	}
+	for head := 0; head < len(queue); head++ {
+		for _, targetNodeID := range adjacency[queue[head]] {
+			if !reachable[targetNodeID] {
+				reachable[targetNodeID] = true
+				queue = append(queue, targetNodeID)
+			}
+		}
+	}
+	return reachable
+}
+
+func semanticCandidateRouteProofCacheKey(candidate capability.Candidate, route []capability.ConstructionRouteStep) string {
+	identity, _ := json.Marshal(struct {
+		Candidate capability.Candidate
+		Route     []capability.ConstructionRouteStep
+	}{Candidate: candidate, Route: route})
+	return string(identity)
 }
 
 func semanticInventoryConstructionChoice(snapshot capability.Snapshot, contextToken, buildID string, entry catalog.SemanticInventoryEntry, candidate capability.Candidate, ownerRecordsProved bool) (capability.ConstructionChoice, error) {

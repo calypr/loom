@@ -117,6 +117,97 @@ func TestBrowseSemanticInventoryScopesAndContext(t *testing.T) {
 	}
 }
 
+func TestBrowseSemanticInventoryOutputScopeKeepsOnlyCompilerProvenIdentifiers(t *testing.T) {
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}}
+	snapshot := readySnapshot("project-a", "generation-a", "token", scope)
+	snapshot.Nodes = []capability.Node{
+		{ID: "patient", ResourceType: "Patient", RowRootEligible: true},
+		{ID: "z-observation", ResourceType: "Observation"},
+		{ID: "a-specimen", ResourceType: "Specimen"},
+		{ID: "substance", ResourceType: "Substance"},
+		{ID: "substance-definition", ResourceType: "SubstanceDefinition"},
+	}
+	snapshot.Edges = []capability.Edge{
+		{ID: "patient-observation", FromNodeID: "patient", ToNodeID: "z-observation", SourceResourceType: "Patient", TargetResourceType: "Observation", Label: "subject_Patient", StorageDirection: "INBOUND"},
+		{ID: "patient-specimen", FromNodeID: "patient", ToNodeID: "a-specimen", SourceResourceType: "Patient", TargetResourceType: "Specimen", Label: "subject_Patient", StorageDirection: "INBOUND"},
+	}
+	for _, target := range []struct{ id, resource string }{
+		{"z-observation", "Observation"}, {"a-specimen", "Specimen"}, {"substance", "Substance"}, {"substance-definition", "SubstanceDefinition"},
+	} {
+		snapshot.Candidates = append(snapshot.Candidates, capability.Candidate{
+			ID: target.id + "-identifier", NodeID: target.id, ResourceType: target.resource,
+			FieldPath: "identifier[].value", Label: target.resource + " identifier value", LogicalType: "string", Cardinality: "many",
+			ProjectionModes: []capability.ProjectionMode{capability.ProjectionFirst, capability.ProjectionArray},
+		})
+	}
+	entries := make([]catalog.SemanticInventoryEntry, 0, 4)
+	for _, resourceType := range []string{"SubstanceDefinition", "Substance", "Observation", "Specimen"} {
+		entries = append(entries, catalog.SemanticInventoryEntry{
+			ConceptID: resourceType + "-identifier", BindingID: resourceType + "-system",
+			Observation: catalog.SemanticObservation{
+				SchemaVersion: catalog.SemanticObservationSchemaVersion,
+				Source:        catalog.SemanticObservationSource{Type: resourceType, Path: "identifier[]"},
+				Key:           catalog.SemanticObservationKey{Selector: "identifier[].system", System: "urn:example:" + resourceType, Display: resourceType + " identifier"},
+				Value:         catalog.SemanticObservationValue{Selector: "identifier[].value", Type: "string"},
+				OwningScope:   "identifier[]", LogicalType: "string", Completeness: catalog.SemanticComplete,
+				Status: "SUPPORTED", RuleHint: "IDENTIFIER_SYSTEM_VALUE", RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
+			},
+		})
+	}
+	buildID := catalog.SemanticInventoryBuildID("project-a", "generation-a")
+	store := semanticAuthoringStore(t)
+	service := newTestService(t, store, Config{
+		Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
+			return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		}},
+		SemanticInventory: func(_ context.Context, options catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error) {
+			if options.Project != "project-a" || options.DatasetGeneration != "generation-a" || options.AuthResourcePathsUnrestricted == nil || *options.AuthResourcePathsUnrestricted || !reflect.DeepEqual(options.AuthResourcePaths, scope.AuthResourcePaths) {
+				t.Fatalf("output-scoped browse changed authorization scope: %#v", options)
+			}
+			return catalog.SemanticInventoryPage{
+				State:   catalog.SemanticInventoryComplete,
+				Build:   catalog.SemanticInventoryBuild{BuildID: buildID, State: catalog.SemanticInventoryComplete, SourceAvailability: catalog.SemanticInventorySourceAvailabilityVerified},
+				Entries: entries,
+			}, nil
+		},
+	})
+
+	global, err := service.BrowseSemanticInventory(context.Background(), BrowseSemanticInventoryRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, RowRoot: "Patient", Limit: 50,
+	})
+	if err != nil || len(global.Entries) != 4 {
+		t.Fatalf("global semantic inventory changed: entries=%#v err=%v", global.Entries, err)
+	}
+	if global.ContextToken == "" || global.BuildID != buildID {
+		t.Fatalf("global semantic context/build missing: %#v", global)
+	}
+
+	scoped, err := service.BrowseSemanticInventory(context.Background(), BrowseSemanticInventoryRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, RowRoot: "Patient", OutputID: "patients", Limit: 50,
+	})
+	if err != nil || len(scoped.Entries) != 2 {
+		t.Fatalf("table-scoped inventory did not omit unreachable identifiers: entries=%#v err=%v", scoped.Entries, err)
+	}
+	if scoped.ContextToken != global.ContextToken || scoped.BuildID != buildID {
+		t.Fatalf("table-scoped context/build changed: scoped=%#v global=%#v", scoped, global)
+	}
+	gotResources := make(map[string]bool)
+	for _, item := range scoped.Entries {
+		gotResources[item.ResourceType] = true
+		if item.ConstructionChoice == nil {
+			t.Fatalf("table-scoped item has no compiler-proven construction choice: %#v", item)
+		}
+		choiceSource, ok := item.ConstructionChoice.Source.(capability.SemanticBindingChoiceSource)
+		if !ok || choiceSource.ConceptID != item.ConceptID || choiceSource.BindingID != item.BindingID || item.ConstructionChoice == nil || len(item.ConstructionChoice.Route) != 1 ||
+			item.ConstructionChoice.Route[0].Relationship != "subject_Patient" || item.ConstructionChoice.Route[0].StorageDirection != "INBOUND" {
+			t.Fatalf("table-scoped choice is not bound to an exact supported route: item=%#v", item)
+		}
+	}
+	if !gotResources["Observation"] || !gotResources["Specimen"] || gotResources["Substance"] || gotResources["SubstanceDefinition"] {
+		t.Fatalf("table-scoped identifier resources = %#v", gotResources)
+	}
+}
+
 func TestSemanticCandidateWithFallbackPreservesRepeatedCardinalityAndAuthorizationIdentity(t *testing.T) {
 	observation := catalog.SemanticObservation{
 		SchemaVersion: catalog.SemanticObservationSchemaVersion,
