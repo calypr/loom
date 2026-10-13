@@ -8,6 +8,7 @@ import (
 const (
 	FieldCatalogCollection        = "fhir_field_catalog"
 	RelationshipCatalogCollection = "fhir_relationship_catalog"
+	FieldProfileStatusRecordType  = "profile_status"
 	fieldKindScalar               = "scalar"
 	fieldKindObject               = "object"
 	fieldKindArray                = "array"
@@ -87,6 +88,53 @@ type ResourceInventoryResult struct {
 	Diagnostics []EvidenceDiagnostic           `json:"diagnostics,omitempty"`
 }
 
+const ResourceInventoryCollection = "fhir_resource_inventory"
+
+// ResourceInventoryCount is a content-addressed count of retained vertices
+// for one resource type and authorization path in one immutable generation.
+type ResourceInventoryCount struct {
+	Key               string `json:"_key"`
+	RecordType        string `json:"record_type"`
+	Project           string `json:"project"`
+	DatasetGeneration string `json:"dataset_generation"`
+	AuthResourcePath  string `json:"auth_resource_path"`
+	ResourceType      string `json:"resource_type"`
+	BuildID           string `json:"build_id"`
+	DocumentCount     int64  `json:"document_count"`
+}
+
+// ResourceInventoryBuild is the publish-last completeness marker for all
+// generated resource types in one project generation.
+type ResourceInventoryBuild struct {
+	Key               string   `json:"_key"`
+	RecordType        string   `json:"record_type"`
+	Project           string   `json:"project"`
+	DatasetGeneration string   `json:"dataset_generation"`
+	BuildID           string   `json:"build_id"`
+	CoverageDigest    string   `json:"coverage_digest"`
+	ResourceTypes     []string `json:"resource_types"`
+	ResourceTypeCount int      `json:"resource_type_count"`
+	CountRowCount     int      `json:"count_row_count"`
+	Complete          bool     `json:"complete"`
+}
+
+type ResourceInventoryRebuildOptions struct {
+	Project           string
+	DatasetGeneration string
+	ResourceTypes     []string
+	CursorBatch       int
+	BatchSize         int
+	WriteAPI          string
+}
+
+type ResourceInventoryRebuildSummary struct {
+	BuildID           string `json:"build_id"`
+	CoverageDigest    string `json:"coverage_digest"`
+	ResourceTypeCount int    `json:"resource_type_count"`
+	CountRowCount     int    `json:"count_row_count"`
+	DocumentCount     int64  `json:"document_count"`
+}
+
 // RelationshipObservation retains both projections of one physical edge
 // aggregate. StorageFromType/StorageToType are the original _from/_to
 // endpoint types (and StorageDirection is always OUTBOUND for fhir_edge).
@@ -150,13 +198,14 @@ type FieldEnrichmentObservation struct {
 }
 
 type FieldEnrichmentResult struct {
-	Values      []FieldEnrichmentObservation `json:"values"`
-	Available   bool                         `json:"available"`
-	Complete    bool                         `json:"complete"`
-	Truncated   bool                         `json:"truncated"`
-	Status      EvidenceStatus               `json:"status"`
-	Digest      string                       `json:"digest,omitempty"`
-	Diagnostics []EvidenceDiagnostic         `json:"diagnostics,omitempty"`
+	Values             []FieldEnrichmentObservation `json:"values"`
+	Available          bool                         `json:"available"`
+	Complete           bool                         `json:"complete"`
+	Truncated          bool                         `json:"truncated"`
+	FieldCoverageKnown bool                         `json:"field_coverage_known"`
+	Status             EvidenceStatus               `json:"status"`
+	Digest             string                       `json:"digest,omitempty"`
+	Diagnostics        []EvidenceDiagnostic         `json:"diagnostics,omitempty"`
 }
 
 // CapabilityEvidence is the neutral aggregate consumed by a snapshot
@@ -176,23 +225,26 @@ type CapabilityEvidenceReader interface {
 
 // Write-side catalog records persisted during load.
 type FieldCatalogDocument struct {
-	Key     string `json:"_key"`
-	Project string `json:"project"`
+	Key        string `json:"_key"`
+	RecordType string `json:"record_type,omitempty"`
+	Project    string `json:"project"`
 	// DatasetGeneration identifies the immutable dataset generation that
 	// produced this catalog row. An omitted value is intentionally the legacy
 	// dataset namespace; readers always bind either this exact value or null so
 	// legacy and generation-qualified observations never mix.
-	DatasetGeneration string                      `json:"dataset_generation,omitempty"`
-	AuthResourcePath  string                      `json:"auth_resource_path,omitempty"`
-	ResourceType      string                      `json:"resource_type"`
-	Path              string                      `json:"path"`
-	Kind              string                      `json:"kind"`
-	DocCount          int64                       `json:"doc_count"`
-	MaxItems          int                         `json:"max_items,omitempty"`
-	SampleCount       int                         `json:"sample_count"`
-	DistinctValues    []string                    `json:"distinct_values,omitempty"`
-	DistinctTruncated bool                        `json:"distinct_truncated"`
-	ExtensionValues   []ExtensionValueObservation `json:"extension_values,omitempty"`
+	DatasetGeneration   string                      `json:"dataset_generation,omitempty"`
+	AuthResourcePath    string                      `json:"auth_resource_path,omitempty"`
+	ResourceType        string                      `json:"resource_type"`
+	Path                string                      `json:"path"`
+	Kind                string                      `json:"kind"`
+	DocCount            int64                       `json:"doc_count"`
+	MaxItems            int                         `json:"max_items,omitempty"`
+	SampleCount         int                         `json:"sample_count"`
+	DistinctValues      []string                    `json:"distinct_values,omitempty"`
+	DistinctTruncated   bool                        `json:"distinct_truncated"`
+	EnrichmentComplete  *bool                       `json:"enrichment_complete,omitempty"`
+	EnrichmentTruncated bool                        `json:"enrichment_truncated"`
+	ExtensionValues     []ExtensionValueObservation `json:"extension_values,omitempty"`
 	// SemanticObservations retain correlated terminology/value facts discovered
 	// on one owning FHIR item. They are additive to the raw field profile: a
 	// missing or unresolved interpretation never removes the source field.
@@ -385,18 +437,19 @@ type RelationshipKey struct {
 
 // Write-side field profiling state.
 type Profiler struct {
-	project            string
-	datasetGeneration  string
-	authResourcePath   string
-	resourceType       string
-	semanticSourceKind string
-	semanticOnly       bool
-	limits             ProfileLimits
-	shapeCache         *ShapePlanCache
-	stats              map[string]*fieldCatalogStats
-	retainedBytes      int
-	truncated          bool
-	budget             *retentionBudget
+	project             string
+	datasetGeneration   string
+	authResourcePath    string
+	resourceType        string
+	semanticSourceKind  string
+	semanticOnly        bool
+	limits              ProfileLimits
+	shapeCache          *ShapePlanCache
+	stats               map[string]*fieldCatalogStats
+	retainedBytes       int
+	truncated           bool
+	enrichmentTruncated bool
+	budget              *retentionBudget
 }
 
 type fieldCatalogStats struct {

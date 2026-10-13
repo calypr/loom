@@ -327,6 +327,18 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	if err = ctx.Err(); err != nil {
 		return summary, err
 	}
+	resourceInventorySummary, inventoryErr := catalogStore.RebuildResourceInventory(ctx, catalog.ResourceInventoryRebuildOptions{
+		Project: opts.Project, DatasetGeneration: plan.Dataset.Generation,
+		ResourceTypes: schemaIdentity.GeneratedResourceTypes, BatchSize: opts.BatchSize, WriteAPI: opts.WriteAPI,
+	})
+	if inventoryErr != nil {
+		return summary, fmt.Errorf("build resource inventory for dataset generation %s/%s: %w", plan.Dataset.Project, plan.Dataset.Generation, inventoryErr)
+	}
+	emitEvent(opts.EventSink, "go_resource_inventory_complete", map[string]any{
+		"dataset_generation": plan.Dataset.Generation, "build_id": resourceInventorySummary.BuildID,
+		"resource_type_count": resourceInventorySummary.ResourceTypeCount, "count_row_count": resourceInventorySummary.CountRowCount,
+		"document_count": resourceInventorySummary.DocumentCount,
+	})
 	if err = catalogStore.CompleteSemanticInventoryBuild(ctx, inventoryBuild, totalResourceRows(summary.Resources), lastInventoryCheckpoint); err != nil {
 		return summary, fmt.Errorf("complete semantic inventory build: %w", err)
 	}

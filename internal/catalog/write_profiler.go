@@ -156,15 +156,18 @@ func (p *Profiler) Merge(other *Profiler) error {
 		p.stats = make(map[string]*fieldCatalogStats)
 	}
 	p.truncated = p.truncated || other.Truncated()
+	p.enrichmentTruncated = p.enrichmentTruncated || other.enrichmentTruncated
 	for path, otherStat := range other.stats {
 		stat, ok := p.stats[path]
 		if !ok {
 			if p.limits.MaxFields > 0 && len(p.stats) >= p.limits.MaxFields {
 				p.truncated = true
+				p.enrichmentTruncated = true
 				continue
 			}
 			if !p.reserve(fieldStatsWeight(otherStat.path, otherStat.kind)) {
 				p.truncated = true
+				p.enrichmentTruncated = true
 				continue
 			}
 			stat = &fieldCatalogStats{
@@ -212,6 +215,16 @@ func (p *Profiler) Documents() []FieldCatalogDocument {
 	}
 	sort.Strings(paths)
 	datasetGeneration := NormalizeDatasetGeneration(p.datasetGeneration)
+	enrichmentTruncated := p.enrichmentTruncated
+	enrichmentComplete := !enrichmentTruncated
+	if len(paths) == 0 && enrichmentTruncated {
+		return []FieldCatalogDocument{{
+			Key:        "fpe_" + catalogIdentityDigest("field-profile-status/v1", p.project, datasetGeneration, p.authResourcePath, p.resourceType),
+			RecordType: FieldProfileStatusRecordType, Project: p.project, DatasetGeneration: datasetGeneration,
+			AuthResourcePath: p.authResourcePath, ResourceType: p.resourceType,
+			EnrichmentComplete: &enrichmentComplete, EnrichmentTruncated: true,
+		}}
+	}
 	for _, path := range paths {
 		stat := p.stats[path]
 		distinctValues := append([]string(nil), stat.distinctValues...)
@@ -267,6 +280,8 @@ func (p *Profiler) Documents() []FieldCatalogDocument {
 			SampleCount:           len(distinctValues),
 			DistinctValues:        distinctValues,
 			DistinctTruncated:     stat.distinctTruncated,
+			EnrichmentComplete:    &enrichmentComplete,
+			EnrichmentTruncated:   enrichmentTruncated,
 			PivotCandidate:        stat.pivotCandidate,
 			PivotKind:             stat.pivotKind,
 			PivotColumns:          pivotColumns,
@@ -339,10 +354,12 @@ func (p *Profiler) ensureStat(field *fieldPlan) *fieldCatalogStats {
 	}
 	if p.limits.MaxFields > 0 && len(p.stats) >= p.limits.MaxFields {
 		p.truncated = true
+		p.enrichmentTruncated = true
 		return nil
 	}
 	if !p.reserve(fieldStatsWeight(field.Path, field.Kind)) {
 		p.truncated = true
+		p.enrichmentTruncated = true
 		return nil
 	}
 	stat := &fieldCatalogStats{
@@ -602,10 +619,12 @@ func (p *Profiler) ensureExtensionURLStat(path string) *fieldCatalogStats {
 	}
 	if p.limits.MaxFields > 0 && len(p.stats) >= p.limits.MaxFields {
 		p.truncated = true
+		p.enrichmentTruncated = true
 		return nil
 	}
 	if !p.reserve(fieldStatsWeight(path, fieldKindScalar)) {
 		p.truncated = true
+		p.enrichmentTruncated = true
 		return nil
 	}
 	stat := &fieldCatalogStats{path: path, kind: fieldKindScalar, distinctSet: make(map[string]struct{}), pivotColumnSet: make(map[string]struct{}), extensionValueSet: make(map[string]struct{})}
@@ -849,10 +868,12 @@ func (p *Profiler) observeObservationCodePivot(payload map[string]any) {
 	if !ok {
 		if p.limits.MaxFields > 0 && len(p.stats) >= p.limits.MaxFields {
 			p.truncated = true
+			p.enrichmentTruncated = true
 			return
 		}
 		if !p.reserve(fieldStatsWeight("code", fieldKindCodeableConcept)) {
 			p.truncated = true
+			p.enrichmentTruncated = true
 			return
 		}
 		stat = &fieldCatalogStats{

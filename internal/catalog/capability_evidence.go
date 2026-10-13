@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"sort"
 )
 
@@ -53,7 +54,7 @@ func relationshipObservationLess(a, b RelationshipObservation) bool {
 	return a.EdgeCount < b.EdgeCount
 }
 
-func FieldEnrichmentDigest(records []FieldEnrichmentObservation) (string, error) {
+func FieldEnrichmentDigest(records []FieldEnrichmentObservation, completeness ...bool) (string, error) {
 	canonical := cloneFieldEnrichment(records)
 	sort.SliceStable(canonical, func(i, j int) bool {
 		a, b := canonical[i], canonical[j]
@@ -64,6 +65,17 @@ func FieldEnrichmentDigest(records []FieldEnrichmentObservation) (string, error)
 		}
 		return a.DocCount < b.DocCount
 	})
+	if len(completeness) != 0 {
+		if len(completeness) != 3 {
+			return "", fmt.Errorf("field enrichment digest completeness requires known, complete, and truncated flags")
+		}
+		return canonicalDigest(struct {
+			Values        []FieldEnrichmentObservation `json:"values"`
+			CoverageKnown bool                         `json:"field_coverage_known"`
+			Complete      bool                         `json:"complete"`
+			Truncated     bool                         `json:"truncated"`
+		}{canonical, completeness[0], completeness[1], completeness[2]})
+	}
 	return canonicalDigest(canonical)
 }
 

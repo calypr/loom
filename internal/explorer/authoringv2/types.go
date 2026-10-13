@@ -124,21 +124,22 @@ type ChartPresentation struct {
 // CatalogSnapshot is an immutable, authorization-scoped projection. The
 // token identifies the exact snapshot used to validate a document.
 type CatalogSnapshot struct {
-	APIVersion               string              `json:"-"`
-	Kind                     string              `json:"-"`
-	Project                  string              `json:"-"`
-	ExplorerID               string              `json:"-"`
-	SourceGeneration         string              `json:"generation"`
-	AuthorizationScopeDigest string              `json:"authorizationScopeDigest"`
-	ResolvedSchemaDigest     string              `json:"resolvedSchemaDigest,omitempty"`
-	SnapshotToken            string              `json:"snapshotToken"`
-	Complete                 bool                `json:"complete"`
-	Truncated                bool                `json:"-"`
-	Diagnostics              []CatalogDiagnostic `json:"-"`
-	Nodes                    []CatalogNode       `json:"nodes"`
-	Edges                    []CatalogEdge       `json:"edges"`
-	Candidates               []CatalogCandidate  `json:"candidates"`
-	RoutePolicy              RoutePolicy         `json:"routePolicy"`
+	APIVersion               string               `json:"-"`
+	Kind                     string               `json:"-"`
+	Project                  string               `json:"-"`
+	ExplorerID               string               `json:"-"`
+	SourceGeneration         string               `json:"generation"`
+	AuthorizationScopeDigest string               `json:"authorizationScopeDigest"`
+	ResolvedSchemaDigest     string               `json:"resolvedSchemaDigest,omitempty"`
+	SnapshotToken            string               `json:"snapshotToken"`
+	Complete                 bool                 `json:"complete"`
+	Truncated                bool                 `json:"-"`
+	Diagnostics              []CatalogDiagnostic  `json:"-"`
+	Availability             *CatalogAvailability `json:"availability,omitempty"`
+	Nodes                    []CatalogNode        `json:"nodes"`
+	Edges                    []CatalogEdge        `json:"edges"`
+	Candidates               []CatalogCandidate   `json:"candidates"`
+	RoutePolicy              RoutePolicy          `json:"routePolicy"`
 }
 
 type CatalogDiagnostic struct {

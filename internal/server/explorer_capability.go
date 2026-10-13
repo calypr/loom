@@ -27,6 +27,7 @@ import (
 const (
 	explorerCapabilityCompilerVersion = "loom-dataframe-compiler-v4"
 	explorerCapabilityProtocolVersion = "loom.calypr.org/explorer-authoring/v2"
+	explorerCapabilityCacheVersion    = "observed-availability-v1"
 	explorerTraversalPolicyVersion    = "finite-unbounded-v1"
 	explorerProjectionPolicyVersion   = "compiler-probed-v2"
 )
@@ -94,6 +95,7 @@ func (r *explorerCapabilityResolver) Resolve(ctx context.Context, project, reque
 	identity := capability.SnapshotIdentity{
 		Project: project, Generation: generation,
 		AuthorizationScopeDigest: explorerScopeDigest(scope),
+		CacheVersion:             explorerCapabilityCacheVersion,
 		SchemaDigest:             manifest.SchemaIdentity.SchemaSHA256,
 		ResourceInventoryDigest:  evidence.ResourceInventory.Digest,
 		RelationshipDigest:       evidence.Relationships.Digest,
@@ -231,9 +233,16 @@ func requireCompleteCapabilityEvidence(value catalog.CapabilityEvidence) error {
 		{"field enrichment", value.FieldEnrichment.Available, value.FieldEnrichment.Complete, value.FieldEnrichment.Truncated},
 	}
 	for _, check := range checks {
-		if !check.available || !check.complete || check.truncated {
-			return fmt.Errorf("%w: %s is unavailable, incomplete, or truncated", capability.ErrSnapshotUnavailable, check.name)
+		status := strings.ToLower(strings.TrimSpace(string(stringStatusForCapabilityEvidence(value, check.name))))
+		if status == "building" || status == "incomplete" || status == "truncated" || status == "unavailable" || status == "failed" || status == "invalidated" {
+			return fmt.Errorf("%w: %s", capability.ErrSnapshotUnavailable, capabilityEvidenceUnavailableReason(check.name))
 		}
+		if !check.available || !check.complete || check.truncated {
+			return fmt.Errorf("%w: %s", capability.ErrSnapshotUnavailable, capabilityEvidenceUnavailableReason(check.name))
+		}
+	}
+	if strings.EqualFold(string(value.ResourceInventory.Status), "unknown") && len(value.ResourceInventory.Values) == 0 {
+		return fmt.Errorf("%w: resource inventory readiness is unknown and no observed resource facts are available; rebuild the generation inventory before opening Builder", capability.ErrSnapshotUnavailable)
 	}
 	var documents int64
 	for _, item := range value.ResourceInventory.Values {
@@ -250,6 +259,28 @@ func requireCompleteCapabilityEvidence(value catalog.CapabilityEvidence) error {
 	return nil
 }
 
+func capabilityEvidenceUnavailableReason(source string) string {
+	switch source {
+	case "resource inventory":
+		return "resource inventory is unavailable or incomplete; rebuild the generation inventory before opening Builder"
+	case "relationship evidence":
+		return "relationship evidence is unavailable or incomplete; rebuild the generation catalog before opening Builder"
+	default:
+		return "field profile enrichment is unavailable or incomplete; rebuild the generation profiles before opening Builder"
+	}
+}
+
+func stringStatusForCapabilityEvidence(value catalog.CapabilityEvidence, source string) catalog.EvidenceStatus {
+	switch source {
+	case "resource inventory":
+		return value.ResourceInventory.Status
+	case "relationship evidence":
+		return value.Relationships.Status
+	default:
+		return value.FieldEnrichment.Status
+	}
+}
+
 func capabilityIdentityKey(identity capability.SnapshotIdentity) (string, error) {
 	raw, err := json.Marshal(identity)
 	if err != nil {
@@ -264,12 +295,31 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 		ResourcesAvailable:     value.ResourceInventory.Available,
 		RelationshipsAvailable: value.Relationships.Available,
 		FieldsAvailable:        value.FieldEnrichment.Available,
+		AvailabilityReadiness:  catalogAvailabilityReadiness(value),
 	}
 	for _, item := range value.ResourceInventory.Values {
 		out.Resources = append(out.Resources, capability.ResourceObservation{ResourceType: item.ResourceType, Populated: item.DocumentCount > 0, DocumentCount: item.DocumentCount})
 	}
 	relationships := map[string]capability.RelationshipObservation{}
+	observedRelationships := map[string]capability.ObservedRelationship{}
 	for _, item := range value.Relationships.Values {
+		source, target := item.BuilderFromType, item.BuilderToType
+		if source == "" {
+			source = item.FromType
+		}
+		if target == "" {
+			target = item.ToType
+		}
+		builderDirection := item.BuilderDirection
+		if builderDirection == "" {
+			builderDirection = item.StorageDirection
+		}
+		observedKey := strings.Join([]string{source, item.Label, target, item.StorageDirection, builderDirection}, "\x00")
+		observed := observedRelationships[observedKey]
+		observed.SourceResourceType, observed.TargetResourceType = source, target
+		observed.Label, observed.StorageDirection, observed.BuilderDirection = item.Label, item.StorageDirection, builderDirection
+		observed.ObservedEdgeCount += item.EdgeCount
+		observedRelationships[observedKey] = observed
 		// A stored FHIR reference is navigable in both directions. Catalog
 		// evidence retains the physical OUTBOUND orientation, while the
 		// dataframe compiler proves whether either generated traversal is
@@ -292,6 +342,13 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 			relationships[key] = observation
 		}
 	}
+	for _, relationship := range observedRelationships {
+		out.ObservedRelationships = append(out.ObservedRelationships, relationship)
+	}
+	sort.Slice(out.ObservedRelationships, func(i, j int) bool {
+		a, b := out.ObservedRelationships[i], out.ObservedRelationships[j]
+		return strings.Join([]string{a.SourceResourceType, a.Label, a.TargetResourceType, a.StorageDirection, a.BuilderDirection}, "\x00") < strings.Join([]string{b.SourceResourceType, b.Label, b.TargetResourceType, b.StorageDirection, b.BuilderDirection}, "\x00")
+	})
 	for _, item := range relationships {
 		out.Relationships = append(out.Relationships, item)
 	}
@@ -299,6 +356,12 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 		a, b := out.Relationships[i], out.Relationships[j]
 		return strings.Join([]string{a.SourceResourceType, a.Label, a.TargetResourceType, a.StorageDirection}, "\x00") < strings.Join([]string{b.SourceResourceType, b.Label, b.TargetResourceType, b.StorageDirection}, "\x00")
 	})
+	type observedFieldAggregate struct {
+		observation capability.ObservedField
+		examples    map[string]struct{}
+		semantics   map[string]struct{}
+	}
+	observedFields := map[string]*observedFieldAggregate{}
 	type fieldAggregate struct {
 		observation capability.FieldObservation
 		values      map[string]struct{}
@@ -309,9 +372,30 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 	semanticOwnerFields := map[string]struct{}{}
 	for _, item := range value.FieldEnrichment.Values {
 		key := item.ResourceType + "\x00" + item.Path
+		observed := observedFields[key]
+		if observed == nil {
+			observed = &observedFieldAggregate{
+				observation: capability.ObservedField{ResourceType: item.ResourceType, Path: item.Path, ShapeKind: observedShapeKind(item.Kind), Examples: []string{}, SemanticObservations: []capability.ConceptCandidate{}},
+				examples:    map[string]struct{}{}, semantics: map[string]struct{}{},
+			}
+			observedFields[key] = observed
+		}
+		observed.observation.PathObservedCount += item.DocCount
+		observed.observation.ExamplesTruncated = observed.observation.ExamplesTruncated || item.DistinctTruncated
+		for _, example := range item.DistinctValues {
+			observed.examples[example] = struct{}{}
+		}
+		for _, observation := range item.SemanticObservations {
+			semantic := capabilitySemanticCandidate(observation)
+			encoded, _ := json.Marshal(semantic)
+			if _, ok := observed.semantics[string(encoded)]; !ok {
+				observed.semantics[string(encoded)] = struct{}{}
+				observed.observation.SemanticObservations = append(observed.observation.SemanticObservations, semantic)
+			}
+		}
 		aggregate := fields[key]
 		if aggregate == nil {
-			aggregate = &fieldAggregate{observation: capability.FieldObservation{ResourceType: item.ResourceType, Path: item.Path, Label: item.Path, LogicalType: item.Kind, Observed: true, Populated: item.DocCount > 0, SuggestionsComplete: true}, values: map[string]struct{}{}}
+			aggregate = &fieldAggregate{observation: capability.FieldObservation{ResourceType: item.ResourceType, Path: item.Path, Label: item.Path, LogicalType: item.Kind, ObservedShapeKind: observedShapeKind(item.Kind), Examples: []string{}, Observed: true, Populated: item.DocCount > 0, SuggestionsComplete: true}, values: map[string]struct{}{}}
 			fields[key] = aggregate
 		}
 		aggregate.observation.ObservedDocumentCount += item.DocCount
@@ -323,28 +407,13 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 		}
 		for _, suggestion := range item.DistinctValues {
 			aggregate.values[suggestion] = struct{}{}
+			aggregate.observation.Examples = append(aggregate.observation.Examples, suggestion)
 		}
+		aggregate.observation.ExamplesTruncated = aggregate.observation.ExamplesTruncated || item.DistinctTruncated
 		for _, observation := range item.SemanticObservations {
+			concept := capabilitySemanticCandidate(observation)
 			if semanticConceptOwnerPath(item.Path, observation) {
 				semanticOwnerFields[key] = struct{}{}
-			}
-			concept := capability.ConceptCandidate{
-				SourceResourceType: observation.Source.Type,
-				SourceCanonical:    observation.Source.Canonical,
-				SourceProfile:      observation.Source.Profile,
-				SourcePath:         observation.Source.Path,
-				OwningScope:        observation.OwningScope,
-				ExtensionURLPath:   append([]string(nil), observation.ExtensionURLPath...),
-				KeySelector:        observation.Key.Selector,
-				System:             observation.Key.System, Code: observation.Key.Code, Display: observation.Key.Display,
-				ValueSelector: observation.Value.Selector, ChoiceArm: observation.ChoiceArm,
-				LogicalType:            observation.LogicalType,
-				ObservedUnits:          append([]string(nil), observation.ObservedUnits...),
-				ObservedUnitsTruncated: observation.ObservedUnitsTruncated,
-				Completeness:           string(observation.Completeness), Status: observation.Status,
-				Population: observation.Population, Examples: append([]string(nil), observation.Examples...),
-				ExamplesTruncated: observation.ExamplesTruncated,
-				RuleHint:          observation.RuleHint, RuleVersion: observation.RuleVersion,
 			}
 			targetPath := semanticConceptValuePath(observation)
 			if targetPath == "" {
@@ -418,6 +487,16 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 	}
 	sort.Slice(out.Fields, func(i, j int) bool {
 		return out.Fields[i].ResourceType+"\x00"+out.Fields[i].Path < out.Fields[j].ResourceType+"\x00"+out.Fields[j].Path
+	})
+	for _, aggregate := range observedFields {
+		for example := range aggregate.examples {
+			aggregate.observation.Examples = append(aggregate.observation.Examples, example)
+		}
+		sort.Strings(aggregate.observation.Examples)
+		out.ObservedFields = append(out.ObservedFields, aggregate.observation)
+	}
+	sort.Slice(out.ObservedFields, func(i, j int) bool {
+		return out.ObservedFields[i].ResourceType+"\x00"+out.ObservedFields[i].Path < out.ObservedFields[j].ResourceType+"\x00"+out.ObservedFields[j].Path
 	})
 	return out
 }
@@ -534,7 +613,8 @@ func authoringV2Catalog(snapshot capability.Snapshot, explorerID string) authori
 		AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
 		ResolvedSchemaDigest:     snapshot.Identity.SchemaDigest,
 		SnapshotToken:            snapshot.Token, Complete: snapshot.Complete, Truncated: snapshot.Truncated,
-		Nodes: []authoringv2.CatalogNode{}, Edges: []authoringv2.CatalogEdge{}, Candidates: []authoringv2.CatalogCandidate{}, Diagnostics: []authoringv2.CatalogDiagnostic{},
+		Availability: authoringCatalogAvailability(snapshot.Availability),
+		Nodes:        []authoringv2.CatalogNode{}, Edges: []authoringv2.CatalogEdge{}, Candidates: []authoringv2.CatalogCandidate{}, Diagnostics: []authoringv2.CatalogDiagnostic{},
 		RoutePolicy: authoringv2.RoutePolicy{Unbounded: snapshot.Policy.Route.MaxHops == 0, AllowRepeatedEdges: snapshot.Policy.Route.AllowsRepeatedEdges, AllowSelfLoops: snapshot.Policy.Route.AllowsSelfLoops},
 	}
 	if snapshot.Policy.Route.MaxHops > 0 {
@@ -637,6 +717,118 @@ func authoringConceptCandidates(values []capability.ConceptCandidate) []authorin
 		}
 	}
 	return out
+}
+
+func catalogAvailabilityReadiness(value catalog.CapabilityEvidence) capability.AvailabilityReadiness {
+	readiness := capability.AvailabilityReadiness{
+		ResourceInventory: sourceReadiness(value.ResourceInventory.Available, value.ResourceInventory.Complete, value.ResourceInventory.Truncated, string(value.ResourceInventory.Status)),
+		Relationships:     sourceReadiness(value.Relationships.Available, value.Relationships.Complete, value.Relationships.Truncated, string(value.Relationships.Status)),
+		FieldProfiles:     fieldProfileReadiness(value.FieldEnrichment),
+	}
+	readiness.Status = "COMPLETE"
+	for _, source := range []capability.AvailabilitySourceReadiness{readiness.ResourceInventory, readiness.Relationships, readiness.FieldProfiles} {
+		if source.Status == "BLOCKED" {
+			readiness.Status = "BLOCKED"
+			break
+		}
+		if source.Status != "COMPLETE" {
+			readiness.Status = "UNKNOWN"
+		}
+	}
+	for _, source := range []capability.AvailabilitySourceReadiness{readiness.ResourceInventory, readiness.Relationships, readiness.FieldProfiles} {
+		if source.Reason != "" {
+			readiness.Reason = source.Reason
+			break
+		}
+	}
+	return readiness
+}
+
+func fieldProfileReadiness(value catalog.FieldEnrichmentResult) capability.AvailabilitySourceReadiness {
+	readiness := sourceReadiness(value.Available, value.Complete, value.Truncated, string(value.Status))
+	if !value.FieldCoverageKnown && readiness.Status == "COMPLETE" {
+		return capability.AvailabilitySourceReadiness{Status: "UNKNOWN", Reason: "field profile coverage is not proven for this generation"}
+	}
+	return readiness
+}
+
+func sourceReadiness(available, complete, truncated bool, status string) capability.AvailabilitySourceReadiness {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "unknown", "unproven":
+		return capability.AvailabilitySourceReadiness{Status: "UNKNOWN", Reason: "source completeness is not proven"}
+	case "building", "incomplete", "truncated", "unavailable", "failed", "invalidated":
+		return capability.AvailabilitySourceReadiness{Status: "BLOCKED", Reason: "source artifact is not complete and ready"}
+	}
+	if truncated {
+		return capability.AvailabilitySourceReadiness{Status: "BLOCKED", Reason: "source artifact is truncated"}
+	}
+	if !available {
+		return capability.AvailabilitySourceReadiness{Status: "BLOCKED", Reason: "source artifact is unavailable"}
+	}
+	if !complete {
+		return capability.AvailabilitySourceReadiness{Status: "UNKNOWN", Reason: "source completeness is not established"}
+	}
+	return capability.AvailabilitySourceReadiness{Status: "COMPLETE"}
+}
+
+func observedShapeKind(value string) string {
+	if value == "codeable_concept" {
+		return "object"
+	}
+	return value
+}
+
+func capabilitySemanticCandidate(value catalog.SemanticObservation) capability.ConceptCandidate {
+	return capability.ConceptCandidate{
+		SourceResourceType: value.Source.Type, SourceCanonical: value.Source.Canonical,
+		SourceProfile: value.Source.Profile, SourcePath: value.Source.Path,
+		OwningScope: value.OwningScope, ExtensionURLPath: append([]string(nil), value.ExtensionURLPath...),
+		KeySelector: value.Key.Selector, System: value.Key.System, Code: value.Key.Code, Display: value.Key.Display,
+		ValueSelector: value.Value.Selector, ChoiceArm: value.ChoiceArm, LogicalType: value.LogicalType,
+		ObservedUnits: append([]string(nil), value.ObservedUnits...), ObservedUnitsTruncated: value.ObservedUnitsTruncated,
+		Completeness: string(value.Completeness), Status: value.Status, Population: value.Population,
+		Examples: append([]string(nil), value.Examples...), ExamplesTruncated: value.ExamplesTruncated,
+		RuleHint: value.RuleHint, RuleVersion: value.RuleVersion,
+	}
+}
+
+func authoringCatalogAvailability(value *capability.Availability) *authoringv2.CatalogAvailability {
+	if value == nil {
+		return nil
+	}
+	result := &authoringv2.CatalogAvailability{
+		Readiness: authoringv2.CatalogAvailabilityReadiness{
+			Status: value.Readiness.Status, Reason: value.Readiness.Reason,
+			ResourceInventory: authoringv2.CatalogAvailabilitySourceReadiness{Status: value.Readiness.ResourceInventory.Status, Reason: value.Readiness.ResourceInventory.Reason},
+			Relationships:     authoringv2.CatalogAvailabilitySourceReadiness{Status: value.Readiness.Relationships.Status, Reason: value.Readiness.Relationships.Reason},
+			FieldProfiles:     authoringv2.CatalogAvailabilitySourceReadiness{Status: value.Readiness.FieldProfiles.Status, Reason: value.Readiness.FieldProfiles.Reason},
+		},
+		Resources:     make([]authoringv2.CatalogObservedResource, 0, len(value.Resources)),
+		Fields:        make([]authoringv2.CatalogObservedField, 0, len(value.Fields)),
+		Relationships: make([]authoringv2.CatalogObservedRelationship, 0, len(value.Relationships)),
+	}
+	for _, resource := range value.Resources {
+		result.Resources = append(result.Resources, authoringv2.CatalogObservedResource{ResourceType: resource.ResourceType, DocumentCount: resource.DocumentCount, Populated: resource.Populated})
+	}
+	for _, field := range value.Fields {
+		semanticObservations := authoringConceptCandidates(field.SemanticObservations)
+		if semanticObservations == nil {
+			semanticObservations = []authoringv2.ConceptCandidate{}
+		}
+		result.Fields = append(result.Fields, authoringv2.CatalogObservedField{
+			ResourceType: field.ResourceType, Path: field.Path, ObservedShapeKind: field.ShapeKind,
+			PathObservedDocumentCount: field.PathObservedCount, Examples: append([]string{}, field.Examples...),
+			ExamplesTruncated: field.ExamplesTruncated, SemanticObservations: semanticObservations,
+		})
+	}
+	for _, relationship := range value.Relationships {
+		result.Relationships = append(result.Relationships, authoringv2.CatalogObservedRelationship{
+			SourceResourceType: relationship.SourceResourceType, TargetResourceType: relationship.TargetResourceType,
+			Label: relationship.Label, StorageDirection: relationship.StorageDirection, BuilderDirection: relationship.BuilderDirection,
+			ObservedEdgeCount: relationship.ObservedEdgeCount,
+		})
+	}
+	return result
 }
 
 func stringProjectionModes(values []capability.ProjectionMode) []string {

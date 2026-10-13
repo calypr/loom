@@ -20,6 +20,7 @@ import (
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	publication "github.com/calypr/loom/internal/dataset"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/ingest"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
@@ -48,6 +49,8 @@ func main() {
 		err = runDiscoverPopulatedFields(ctx, os.Args[2:])
 	case "rebuild-relationship-catalog":
 		err = runRebuildRelationshipCatalog(ctx, os.Args[2:])
+	case "rebuild-resource-inventory":
+		err = runRebuildResourceInventory(ctx, os.Args[2:])
 	case "audit-relationship-edges":
 		err = runAuditRelationshipEdges(ctx, os.Args[2:])
 	case "repair-generation":
@@ -297,6 +300,72 @@ func runRebuildRelationshipCatalog(ctx context.Context, args []string) error {
 		return err
 	}
 	return printJSON(summary)
+}
+
+func runRebuildResourceInventory(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("rebuild-resource-inventory", flag.ExitOnError)
+	opts := catalog.ResourceInventoryRebuildOptions{}
+	connection := arangostore.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}
+	fs.StringVar(&connection.URL, "url", defaultURL, "Backend base URL")
+	fs.StringVar(&connection.Database, "database", defaultDatabase, "Arango database")
+	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
+	fs.StringVar(&opts.DatasetGeneration, "generation", "", "Required staged immutable dataset generation identifier")
+	fs.StringVar(&opts.WriteAPI, "write-api", "import", "Bulk write API: import or document")
+	fs.IntVar(&opts.CursorBatch, "cursor-batch-size", 1000, "Query cursor batch size")
+	fs.IntVar(&opts.BatchSize, "batch-size", 1000, "Catalog write batch size")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	ref, err := publication.NewRef(opts.Project, opts.DatasetGeneration)
+	if err != nil {
+		return fmt.Errorf("--generation is required and must identify an immutable dataset: %w", err)
+	}
+	client, err := arangostore.Open(ctx, connection.URL, connection.Database)
+	if err != nil {
+		return err
+	}
+	defer client.Close(ctx)
+	lifecycleStore, err := publicationarango.New(client)
+	if err != nil {
+		return err
+	}
+	manifest, err := lifecycleStore.ReadManifest(ctx, ref)
+	if err != nil {
+		return err
+	}
+	if !manifest.IsStaged() {
+		return fmt.Errorf("resource inventory rebuild requires staged immutable generation %s/%s, got %s", ref.Project, ref.Generation, manifest.State)
+	}
+	opts.ResourceTypes, err = canonicalManifestResourceTypes(manifest.SchemaIdentity.GeneratedResourceTypes)
+	if err != nil {
+		return fmt.Errorf("staged generation %s/%s has invalid generated-resource coverage: %w", ref.Project, ref.Generation, err)
+	}
+	adapter, err := catalogarango.New(client)
+	if err != nil {
+		return err
+	}
+	summary, err := adapter.RebuildResourceInventory(ctx, opts)
+	if err != nil {
+		return err
+	}
+	return printJSON(summary)
+}
+
+func canonicalManifestResourceTypes(resourceTypes []string) ([]string, error) {
+	if len(resourceTypes) == 0 {
+		return nil, fmt.Errorf("generated resource type coverage is empty")
+	}
+	canonical := append([]string(nil), resourceTypes...)
+	for i, resourceType := range canonical {
+		concrete, ok := fhirschema.ConcreteResourceType(resourceType)
+		if !ok || concrete != resourceType {
+			return nil, fmt.Errorf("resource type %q is not a canonical generated type", resourceType)
+		}
+		if i > 0 && canonical[i-1] >= resourceType {
+			return nil, fmt.Errorf("generated resource types are duplicated or not sorted")
+		}
+	}
+	return canonical, nil
 }
 
 func runAuditRelationshipEdges(ctx context.Context, args []string) error {
@@ -603,6 +672,7 @@ func usage() {
   arango-fhir-proto discover-populated-fields [flags]
   arango-fhir-proto audit-relationship-edges [flags]  # read-only invalid endpoint audit
   arango-fhir-proto rebuild-relationship-catalog [flags]  # explicit fhir_edge repair/backfill
+  arango-fhir-proto rebuild-resource-inventory --generation ID [flags]  # rebuild a staged generation's resource counts
   arango-fhir-proto repair-generation [flags]  # stage a corrected immutable generation; --activate is explicit
   arango-fhir-proto activate-generation [flags]  # validate and activate a staged immutable generation
   arango-fhir-proto backfill-semantic-inventory --project PROJECT --generation ID [flags]  # resumably rebuild retained-source semantic inventory

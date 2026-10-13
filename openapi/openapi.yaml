@@ -2971,6 +2971,7 @@ components:
         resolvedSchemaDigest: {type: string}
         snapshotToken: {type: string, minLength: 1}
         complete: {type: boolean}
+        availability: {$ref: '#/components/schemas/CatalogAvailability'}
         nodes:
           type: array
           items: {$ref: '#/components/schemas/CatalogNode'}
@@ -2981,6 +2982,73 @@ components:
           type: array
           items: {$ref: '#/components/schemas/CatalogCandidate'}
         routePolicy: {$ref: '#/components/schemas/RoutePolicy'}
+    CatalogAvailability:
+      type: object
+      additionalProperties: false
+      required: [readiness, resources, fields, relationships]
+      properties:
+        readiness: {$ref: '#/components/schemas/CatalogAvailabilityReadiness'}
+        resources:
+          type: array
+          items: {$ref: '#/components/schemas/CatalogObservedResource'}
+        fields:
+          type: array
+          items: {$ref: '#/components/schemas/CatalogObservedField'}
+        relationships:
+          type: array
+          items: {$ref: '#/components/schemas/CatalogObservedRelationship'}
+    CatalogAvailabilityReadiness:
+      type: object
+      additionalProperties: false
+      required: [status, resourceInventory, relationships, fieldProfiles]
+      properties:
+        status: {type: string, enum: [COMPLETE, UNKNOWN, BLOCKED]}
+        reason: {type: string}
+        resourceInventory: {$ref: '#/components/schemas/CatalogAvailabilitySourceReadiness'}
+        relationships: {$ref: '#/components/schemas/CatalogAvailabilitySourceReadiness'}
+        fieldProfiles: {$ref: '#/components/schemas/CatalogAvailabilitySourceReadiness'}
+    CatalogAvailabilitySourceReadiness:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: {type: string, enum: [COMPLETE, UNKNOWN, BLOCKED]}
+        reason: {type: string}
+    CatalogObservedResource:
+      type: object
+      additionalProperties: false
+      required: [resourceType, documentCount, populated]
+      properties:
+        resourceType: {type: string, minLength: 1}
+        documentCount: {type: integer, format: int64, minimum: 0}
+        populated: {type: boolean}
+    CatalogObservedField:
+      type: object
+      additionalProperties: false
+      required: [resourceType, path, observedShapeKind, pathObservedDocumentCount, examples, examplesTruncated, semanticObservations]
+      properties:
+        resourceType: {type: string, minLength: 1}
+        path: {type: string, minLength: 1}
+        observedShapeKind: {type: string}
+        pathObservedDocumentCount: {type: integer, format: int64, minimum: 0}
+        examples:
+          type: array
+          items: {type: string}
+        examplesTruncated: {type: boolean}
+        semanticObservations:
+          type: array
+          items: {$ref: '#/components/schemas/ConceptCandidate'}
+    CatalogObservedRelationship:
+      type: object
+      additionalProperties: false
+      required: [sourceResourceType, targetResourceType, label, storageDirection, builderDirection, observedEdgeCount]
+      properties:
+        sourceResourceType: {type: string, minLength: 1}
+        targetResourceType: {type: string, minLength: 1}
+        label: {type: string, minLength: 1}
+        storageDirection: {type: string, enum: [INBOUND, OUTBOUND]}
+        builderDirection: {type: string, enum: [INBOUND, OUTBOUND]}
+        observedEdgeCount: {type: integer, format: int64, minimum: 0}
     CatalogNode:
       type: object
       additionalProperties: false

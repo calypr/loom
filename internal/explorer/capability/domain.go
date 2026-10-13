@@ -68,15 +68,19 @@ type SnapshotIdentity struct {
 	Project                  string `json:"project"`
 	Generation               string `json:"generation"`
 	AuthorizationScopeDigest string `json:"authorizationScopeDigest"`
-	SchemaDigest             string `json:"schemaDigest"`
-	ResourceInventoryDigest  string `json:"resourceInventoryDigest"`
-	RelationshipDigest       string `json:"relationshipDigest"`
-	FieldDigest              string `json:"fieldDigest"`
-	ShapeDigest              string `json:"shapeDigest,omitempty"`
-	ProtocolVersion          string `json:"protocolVersion"`
-	CompilerVersion          string `json:"compilerVersion"`
-	TraversalPolicyVersion   string `json:"traversalPolicyVersion"`
-	ProjectionPolicyVersion  string `json:"projectionPolicyVersion"`
+	// CacheVersion invalidates current-identity lookups when the retained
+	// snapshot payload gains additive metadata. Exact retained tokens remain
+	// resolvable under their original identity.
+	CacheVersion            string `json:"cacheVersion,omitempty"`
+	SchemaDigest            string `json:"schemaDigest"`
+	ResourceInventoryDigest string `json:"resourceInventoryDigest"`
+	RelationshipDigest      string `json:"relationshipDigest"`
+	FieldDigest             string `json:"fieldDigest"`
+	ShapeDigest             string `json:"shapeDigest,omitempty"`
+	ProtocolVersion         string `json:"protocolVersion"`
+	CompilerVersion         string `json:"compilerVersion"`
+	TraversalPolicyVersion  string `json:"traversalPolicyVersion"`
+	ProjectionPolicyVersion string `json:"projectionPolicyVersion"`
 }
 
 type RoutePolicy struct {
@@ -110,6 +114,51 @@ type ProjectionPolicy struct {
 type Policy struct {
 	Route      RoutePolicy      `json:"route"`
 	Projection ProjectionPolicy `json:"projection"`
+}
+
+type AvailabilitySourceReadiness struct {
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+}
+
+type AvailabilityReadiness struct {
+	Status            string                      `json:"status"`
+	Reason            string                      `json:"reason,omitempty"`
+	ResourceInventory AvailabilitySourceReadiness `json:"resourceInventory"`
+	Relationships     AvailabilitySourceReadiness `json:"relationships"`
+	FieldProfiles     AvailabilitySourceReadiness `json:"fieldProfiles"`
+}
+
+type ObservedResource struct {
+	ResourceType  string `json:"resourceType"`
+	DocumentCount int64  `json:"documentCount"`
+	Populated     bool   `json:"populated"`
+}
+
+type ObservedField struct {
+	ResourceType         string             `json:"resourceType"`
+	Path                 string             `json:"path"`
+	ShapeKind            string             `json:"shapeKind"`
+	PathObservedCount    int64              `json:"pathObservedCount"`
+	Examples             []string           `json:"examples"`
+	ExamplesTruncated    bool               `json:"examplesTruncated"`
+	SemanticObservations []ConceptCandidate `json:"semanticObservations"`
+}
+
+type ObservedRelationship struct {
+	SourceResourceType string `json:"sourceResourceType"`
+	TargetResourceType string `json:"targetResourceType"`
+	Label              string `json:"label"`
+	StorageDirection   string `json:"storageDirection"`
+	BuilderDirection   string `json:"builderDirection"`
+	ObservedEdgeCount  int64  `json:"observedEdgeCount"`
+}
+
+type Availability struct {
+	Readiness     AvailabilityReadiness  `json:"readiness"`
+	Resources     []ObservedResource     `json:"resources"`
+	Fields        []ObservedField        `json:"fields"`
+	Relationships []ObservedRelationship `json:"relationships"`
 }
 
 type Node struct {
@@ -231,6 +280,7 @@ type Snapshot struct {
 	Status          Status           `json:"status"`
 	Complete        bool             `json:"complete"`
 	Truncated       bool             `json:"truncated"`
+	Availability    *Availability    `json:"availability,omitempty"`
 	Nodes           []Node           `json:"nodes"`
 	Edges           []Edge           `json:"edges"`
 	Candidates      []Candidate      `json:"candidates"`
@@ -295,6 +345,8 @@ func (s Snapshot) CanonicalPayload() []byte {
 }
 
 func canonicalSnapshot(s Snapshot) Snapshot {
+	s.Availability = cloneAvailability(s.Availability)
+	normalizeAvailability(s.Availability)
 	s.Nodes = append([]Node(nil), s.Nodes...)
 	s.Edges = append([]Edge(nil), s.Edges...)
 	s.Candidates = append([]Candidate(nil), s.Candidates...)
@@ -323,6 +375,28 @@ func canonicalSnapshot(s Snapshot) Snapshot {
 	normalizeCandidateValues(s.Candidates)
 	normalizeCandidateValues(s.AuditCandidates)
 	return s
+}
+
+func normalizeAvailability(value *Availability) {
+	if value == nil {
+		return
+	}
+	sort.Slice(value.Resources, func(i, j int) bool {
+		return value.Resources[i].ResourceType < value.Resources[j].ResourceType
+	})
+	sort.Slice(value.Fields, func(i, j int) bool {
+		return value.Fields[i].ResourceType+"\x00"+value.Fields[i].Path < value.Fields[j].ResourceType+"\x00"+value.Fields[j].Path
+	})
+	for i := range value.Fields {
+		sort.Strings(value.Fields[i].Examples)
+		sort.SliceStable(value.Fields[i].SemanticObservations, func(a, b int) bool {
+			return conceptCandidateKey(value.Fields[i].SemanticObservations[a]) < conceptCandidateKey(value.Fields[i].SemanticObservations[b])
+		})
+	}
+	sort.Slice(value.Relationships, func(i, j int) bool {
+		a, b := value.Relationships[i], value.Relationships[j]
+		return a.SourceResourceType+"\x00"+a.Label+"\x00"+a.TargetResourceType+"\x00"+a.StorageDirection+"\x00"+a.BuilderDirection < b.SourceResourceType+"\x00"+b.Label+"\x00"+b.TargetResourceType+"\x00"+b.StorageDirection+"\x00"+b.BuilderDirection
+	})
 }
 
 func NewSnapshot(identity SnapshotIdentity, policy Policy, status Status, complete, truncated bool, nodes []Node, edges []Edge, candidates []Candidate, diagnostics []Diagnostic) Snapshot {
@@ -368,6 +442,7 @@ func conceptCandidateKey(candidate ConceptCandidate) string {
 }
 
 func cloneSnapshot(s Snapshot) Snapshot {
+	s.Availability = cloneAvailability(s.Availability)
 	s.Nodes = cloneNodes(s.Nodes)
 	s.AuditNodes = cloneNodes(s.AuditNodes)
 	s.Edges = append([]Edge(nil), s.Edges...)
@@ -377,6 +452,21 @@ func cloneSnapshot(s Snapshot) Snapshot {
 	s.Diagnostics = cloneDiagnostics(s.Diagnostics)
 	s.Policy.Projection.Modes = append([]ProjectionMode(nil), s.Policy.Projection.Modes...)
 	return s
+}
+
+func cloneAvailability(in *Availability) *Availability {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Resources = append([]ObservedResource(nil), in.Resources...)
+	out.Relationships = append([]ObservedRelationship(nil), in.Relationships...)
+	out.Fields = append([]ObservedField(nil), in.Fields...)
+	for i := range out.Fields {
+		out.Fields[i].Examples = append([]string(nil), in.Fields[i].Examples...)
+		out.Fields[i].SemanticObservations = cloneConceptCandidates(in.Fields[i].SemanticObservations)
+	}
+	return &out
 }
 func cloneNodes(v []Node) []Node {
 	out := append([]Node(nil), v...)

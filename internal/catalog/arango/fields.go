@@ -45,6 +45,17 @@ func (s *Store) DiscoverFieldEnrichment(ctx context.Context, opts catalog.FieldE
 	}
 	resourceTypes, diagnostics := evidenceResourceTypes(opts.ResourceTypes)
 	result := catalog.FieldEnrichmentResult{Values: []catalog.FieldEnrichmentObservation{}, Available: true, Complete: true, Diagnostics: diagnostics}
+	sawExplicitCoverage, sawLegacyCoverage := false, false
+	recordCoverage := func(row map[string]any) {
+		if complete, ok := row["enrichment_complete"].(bool); ok {
+			sawExplicitCoverage = true
+			if !complete {
+				result.Complete = false
+			}
+		} else {
+			sawLegacyCoverage = true
+		}
+	}
 	vars := map[string]any{
 		"project":                          opts.Project,
 		"dataset_generation":               generation(opts.DatasetGeneration),
@@ -57,6 +68,13 @@ func (s *Store) DiscoverFieldEnrichment(ctx context.Context, opts catalog.FieldE
 		vars["resource_types"] = nil
 	}
 	err := s.client.QueryRows(ctx, fieldEnrichmentAQL, opts.CursorBatch, vars, func(row map[string]any) error {
+		if stringValue(row["record_type"]) == catalog.FieldProfileStatusRecordType {
+			recordCoverage(row)
+			if truncated, ok := row["enrichment_truncated"].(bool); ok && truncated {
+				result.Truncated = true
+			}
+			return nil
+		}
 		var field catalog.PopulatedField
 		if err := decode(row, &field); err != nil {
 			return err
@@ -74,9 +92,7 @@ func (s *Store) DiscoverFieldEnrichment(ctx context.Context, opts catalog.FieldE
 		if truncated, ok := row["enrichment_truncated"].(bool); ok && truncated {
 			result.Truncated = true
 		}
-		if complete, ok := row["enrichment_complete"].(bool); ok && !complete {
-			result.Complete = false
-		}
+		recordCoverage(row)
 		return nil
 	})
 	if err != nil {
@@ -84,11 +100,12 @@ func (s *Store) DiscoverFieldEnrichment(ctx context.Context, opts catalog.FieldE
 		result.Diagnostics = append(result.Diagnostics, catalog.EvidenceDiagnostic{Code: "FIELD_ENRICHMENT_UNAVAILABLE", Message: err.Error()})
 		return result, err
 	}
+	result.FieldCoverageKnown = sawExplicitCoverage && !sawLegacyCoverage
 	if result.Truncated {
 		result.Complete = false
 	}
 	sort.Slice(result.Values, func(i, j int) bool { return fieldLess(result.Values[i], result.Values[j]) })
-	result.Digest, _ = catalog.FieldEnrichmentDigest(result.Values)
+	result.Digest, _ = catalog.FieldEnrichmentDigest(result.Values, result.FieldCoverageKnown, result.Complete, result.Truncated)
 	result.Status = evidenceStatus(result.Available, result.Complete, result.Truncated, len(result.Values))
 	return result, nil
 }
@@ -129,6 +146,7 @@ const populatedFieldsAQL = `
 FOR d IN fhir_field_catalog
   FILTER d.project == @project
   FILTER d.dataset_generation == @dataset_generation
+  FILTER d.record_type != "profile_status"
   FILTER @auth_resource_paths_unrestricted == true OR d.auth_resource_path IN @auth_resource_paths
   FILTER @resource_type == null OR d.resource_type == @resource_type
   FILTER @pivot_only == false OR d.pivot_candidate == true
@@ -164,8 +182,9 @@ FOR d IN fhir_field_catalog
   FILTER d.dataset_generation == @dataset_generation
   FILTER @auth_resource_paths_unrestricted == true OR d.auth_resource_path IN @auth_resource_paths
   FILTER @resource_types == null OR d.resource_type IN @resource_types
-  SORT d.resource_type, d.path, d.auth_resource_path, d.doc_count
+  SORT d.resource_type, d.record_type, d.path, d.auth_resource_path, d.doc_count
   RETURN {
+    record_type: d.record_type,
     project: d.project,
     dataset_generation: d.dataset_generation,
     auth_resource_path: d.auth_resource_path,
@@ -177,6 +196,8 @@ FOR d IN fhir_field_catalog
     sample_count: d.sample_count,
     distinct_values: d.distinct_values,
     distinct_truncated: d.distinct_truncated,
+    enrichment_complete: d.enrichment_complete,
+    enrichment_truncated: d.enrichment_truncated,
     extension_values: d.extension_values,
     semantic_observations: d.semantic_observations,
     pivot_candidate: d.pivot_candidate,
@@ -187,7 +208,5 @@ FOR d IN fhir_field_catalog
     pivot_value_selector: d.pivot_value_selector,
     pivot_item_source: d.pivot_item_source,
     pivot_item_resource_type: d.pivot_item_resource_type,
-    pivot_value_selectors: d.pivot_value_selectors,
-    enrichment_complete: d.enrichment_complete,
-    enrichment_truncated: d.enrichment_truncated
+    pivot_value_selectors: d.pivot_value_selectors
   }`

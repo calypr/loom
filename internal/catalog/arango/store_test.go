@@ -53,9 +53,6 @@ func (f *evidenceClient) QueryRows(_ context.Context, query string, _ int, vars 
 		return f.err
 	}
 	rows := f.rows[query]
-	if query == resourceInventoryAQL && f.rowsByCollection != nil {
-		rows = f.rowsByCollection[stringValue(vars["@resource_collection"])]
-	}
 	for _, row := range rows {
 		if err := visit(row); err != nil {
 			return err
@@ -527,52 +524,52 @@ func TestCapabilityEvidenceRelationshipPreservesBuilderAndStorageProvenance(t *t
 	}
 }
 
-func TestCapabilityEvidenceInventoryBindsCollectionAndIdentity(t *testing.T) {
-	client := &evidenceClient{rows: map[string][]map[string]any{resourceInventoryAQL: {{
-		"project": "p", "dataset_generation": "g", "resource_type": "Patient", "document_count": int64(4),
-	}}}}
+func TestCapabilityEvidenceInventoryBindsBuildAndAuthorization(t *testing.T) {
+	build, _, err := catalog.NewResourceInventoryBuild("p", "g", []string{"Patient"}, []catalog.ResourceInventoryCount{{
+		Project: "p", DatasetGeneration: "g", AuthResourcePath: "scope-a", ResourceType: "Patient", DocumentCount: 4,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := inventoryTestRow(t, build)
+	client := &evidenceClient{rows: map[string][]map[string]any{
+		readResourceInventoryBuildAQL:  {marker},
+		readResourceInventoryCountsAQL: {{"resource_type": "Patient", "document_count": int64(4)}},
+	}}
 	adapter, _ := New(client)
-	result, err := adapter.DiscoverResourceInventory(context.Background(), catalog.ResourceInventoryOptions{Project: "p", DatasetGeneration: "g", AuthResourcePaths: []string{}, AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(false), ResourceTypes: []string{"Patient"}})
-	if err != nil || len(result.Values) != 1 || result.Values[0].DocumentCount != 4 {
+	result, err := adapter.DiscoverResourceInventory(context.Background(), catalog.ResourceInventoryOptions{Project: "p", DatasetGeneration: "g", AuthResourcePaths: []string{"scope-a"}, AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(false), ResourceTypes: []string{"Patient"}})
+	if err != nil || len(result.Values) != 1 || result.Values[0].DocumentCount != 4 || !result.Available || !result.Complete {
 		t.Fatalf("inventory = %#v err=%v", result, err)
 	}
-	vars := client.vars[0]
-	if vars["project"] != "p" || vars["dataset_generation"] != "g" || vars["@resource_collection"] != "Patient" || vars["auth_resource_paths_unrestricted"] != false {
+	if len(client.queries) != 2 || client.queries[0] != readResourceInventoryBuildAQL || client.queries[1] != readResourceInventoryCountsAQL {
+		t.Fatalf("inventory queries = %#v", client.queries)
+	}
+	vars := client.vars[1]
+	if vars["project"] != "p" || vars["dataset_generation"] != "g" || vars["build_id"] != build.BuildID || vars["auth_resource_paths_unrestricted"] != false {
 		t.Fatalf("inventory binds = %#v", vars)
 	}
-	if _, exists := vars["resource_collection"]; exists {
-		t.Fatalf("collection bind used value-variable syntax: %#v", vars)
+	if paths, ok := vars["auth_resource_paths"].([]string); !ok || !reflect.DeepEqual(paths, []string{"scope-a"}) {
+		t.Fatalf("authorized paths = %#v", vars["auth_resource_paths"])
 	}
-	for _, name := range []string{"@@resource_collection", "@project", "@dataset_generation", "@auth_resource_paths", "@auth_resource_paths_unrestricted", "COLLECT WITH COUNT"} {
-		if !strings.Contains(client.queries[0], name) {
-			t.Fatalf("inventory query missing %q: %s", name, client.queries[0])
+	for _, query := range client.queries {
+		if strings.Contains(query, "@@resource_collection") || strings.Contains(query, "COLLECT WITH COUNT") {
+			t.Fatalf("discovery queried a source resource collection: %s", query)
 		}
 	}
 }
 
-func TestCapabilityEvidenceInventoryTreatsMissingCollectionAsEmpty(t *testing.T) {
-	client := &evidenceClient{
-		collections: map[string]bool{"Patient": true},
-		rowsByCollection: map[string][]map[string]any{"Patient": {{
-			"project": "p", "dataset_generation": "g", "resource_type": "Patient", "document_count": int64(7),
-		}}},
-	}
+func TestCapabilityEvidenceInventoryMissingMarkerIsUnavailable(t *testing.T) {
+	client := &evidenceClient{collections: map[string]bool{"Patient": true, catalog.ResourceInventoryCollection: true}}
 	adapter, _ := New(client)
-	result, err := adapter.DiscoverResourceInventory(context.Background(), catalog.ResourceInventoryOptions{
-		Project: "p", DatasetGeneration: "g", ResourceTypes: []string{"Patient", "DiagnosticReport"},
-	})
-	if err != nil || !result.Available || !result.Complete || len(result.Values) != 2 {
+	result, err := adapter.DiscoverResourceInventory(context.Background(), catalog.ResourceInventoryOptions{Project: "p", DatasetGeneration: "g", ResourceTypes: []string{"Patient"}})
+	if !errors.Is(err, ErrResourceInventoryBuildUnavailable) || result.Available || result.Complete || result.Status != catalog.EvidenceUnavailable || len(result.Values) != 0 {
 		t.Fatalf("inventory = %#v err=%v", result, err)
 	}
-	counts := map[string]int64{}
-	for _, value := range result.Values {
-		counts[value.ResourceType] = value.DocumentCount
+	if !strings.Contains(err.Error(), "arango-fhir-proto rebuild-resource-inventory --generation ID") {
+		t.Fatalf("missing-marker error is not actionable: %v", err)
 	}
-	if counts["Patient"] != 7 || counts["DiagnosticReport"] != 0 {
-		t.Fatalf("inventory counts = %#v", counts)
-	}
-	if len(client.collectionChecks) != 2 || len(client.queries) != 1 {
-		t.Fatalf("collection checks=%#v queries=%d", client.collectionChecks, len(client.queries))
+	if len(client.queries) != 1 || client.queries[0] != readResourceInventoryBuildAQL || len(client.collectionChecks) != 1 || client.collectionChecks[0] != catalog.ResourceInventoryCollection {
+		t.Fatalf("missing marker queries=%#v collections=%#v", client.queries, client.collectionChecks)
 	}
 }
 
@@ -583,8 +580,8 @@ func TestCapabilityEvidenceInventoryCollectionLookupFailureIsUnavailable(t *test
 	if err == nil || result.Available || result.Complete || result.Status != catalog.EvidenceUnavailable {
 		t.Fatalf("inventory = %#v err=%v", result, err)
 	}
-	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "RESOURCE_INVENTORY_UNAVAILABLE" {
-		t.Fatalf("diagnostics = %#v", result.Diagnostics)
+	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "RESOURCE_INVENTORY_UNAVAILABLE" || len(client.queries) != 0 {
+		t.Fatalf("diagnostics = %#v queries=%#v", result.Diagnostics, client.queries)
 	}
 }
 

@@ -1943,6 +1943,60 @@ export const explorerBuilderCatalogEdgeSchema = z
     populated: z.boolean().optional(),
   })
   .strict();
+export const explorerBuilderAvailabilitySourceReadinessSchema = z
+  .object({
+    status: z.enum(['COMPLETE', 'UNKNOWN', 'BLOCKED']),
+    reason: z.string().optional(),
+  })
+  .strict();
+export const explorerBuilderAvailabilityReadinessSchema = z
+  .object({
+    status: z.enum(['COMPLETE', 'UNKNOWN', 'BLOCKED']),
+    reason: z.string().optional(),
+    resourceInventory: explorerBuilderAvailabilitySourceReadinessSchema,
+    relationships: explorerBuilderAvailabilitySourceReadinessSchema,
+    fieldProfiles: explorerBuilderAvailabilitySourceReadinessSchema,
+  })
+  .strict();
+export const explorerBuilderObservedResourceSchema = z
+  .object({
+    resourceType: z.string().min(1),
+    documentCount: z.number().int().nonnegative().safe(),
+    populated: z.boolean(),
+  })
+  .strict();
+export const explorerBuilderObservedFieldSchema = z
+  .object({
+    resourceType: z.string().min(1),
+    path: z.string().min(1),
+    observedShapeKind: z.string(),
+    pathObservedDocumentCount: z.number().int().nonnegative().safe(),
+    examples: z.array(z.string()),
+    examplesTruncated: z.boolean(),
+    semanticObservations: z.array(conceptCandidateSchema),
+  })
+  .strict();
+export const explorerBuilderObservedRelationshipSchema = z
+  .object({
+    sourceResourceType: z.string().min(1),
+    targetResourceType: z.string().min(1),
+    label: z.string().min(1),
+    storageDirection: z.enum(['INBOUND', 'OUTBOUND']),
+    builderDirection: z.enum(['INBOUND', 'OUTBOUND']),
+    observedEdgeCount: z.number().int().nonnegative().safe(),
+  })
+  .strict();
+export const explorerBuilderAvailabilitySchema = z
+  .object({
+    readiness: explorerBuilderAvailabilityReadinessSchema,
+    resources: z.array(explorerBuilderObservedResourceSchema),
+    fields: z.array(explorerBuilderObservedFieldSchema),
+    relationships: z.array(explorerBuilderObservedRelationshipSchema),
+  })
+  .strict();
+export type ExplorerBuilderAvailability = z.infer<
+  typeof explorerBuilderAvailabilitySchema
+>;
 
 export const constructionChoiceFormSchema = z.enum([
   'VALUE',
@@ -2411,6 +2465,7 @@ export const explorerBuilderCatalogSchema = z
     resolvedSchemaDigest: z.string().optional(),
     authorizationScopeDigest: z.string().optional(),
     complete: z.boolean().optional(),
+    availability: explorerBuilderAvailabilitySchema.optional(),
     routePolicy: explorerBuilderRoutePolicySchema,
     nodes: z.array(explorerBuilderCatalogNodeSchema),
     edges: z.array(explorerBuilderCatalogEdgeSchema),

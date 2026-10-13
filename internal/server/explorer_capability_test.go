@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -12,8 +13,11 @@ import (
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/dataset"
+	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/gofiber/fiber/v3"
 )
 
 type staticCapabilityEvidence struct {
@@ -513,11 +517,11 @@ func TestExplorerCapabilityResolverBuildsAndReusesCompilerProvenSnapshot(t *test
 	fields := []catalog.FieldEnrichmentObservation{{Project: "project-a", DatasetGeneration: "generation-a", ResourceType: "Patient", Path: "id", Kind: "scalar", DocCount: 2}}
 	inventoryDigest, _ := catalog.ResourceInventoryDigest(inventory)
 	relationshipDigest, _ := catalog.RelationshipObservationDigest(nil)
-	fieldDigest, _ := catalog.FieldEnrichmentDigest(fields)
+	fieldDigest, _ := catalog.FieldEnrichmentDigest(fields, true, true, false)
 	evidence := staticCapabilityEvidence{
 		inventory:     catalog.ResourceInventoryResult{Values: inventory, Available: true, Complete: true, Status: catalog.EvidenceAvailable, Digest: inventoryDigest},
 		relationships: catalog.RelationshipObservationResult{Values: []catalog.RelationshipObservation{}, Available: true, Complete: true, Status: catalog.EvidenceEmpty, Digest: relationshipDigest},
-		fields:        catalog.FieldEnrichmentResult{Values: fields, Available: true, Complete: true, Status: catalog.EvidenceAvailable, Digest: fieldDigest},
+		fields:        catalog.FieldEnrichmentResult{Values: fields, Available: true, Complete: true, FieldCoverageKnown: true, Status: catalog.EvidenceAvailable, Digest: fieldDigest},
 	}
 	repository := newTestCapabilityStore()
 	resolver, err := newExplorerCapabilityResolver(evidence, nil, staticActiveManifest{manifest: manifest}, repository)
@@ -530,6 +534,9 @@ func TestExplorerCapabilityResolverBuildsAndReusesCompilerProvenSnapshot(t *test
 	}
 	if !first.Usable() || len(first.Nodes) != 1 || first.Nodes[0].ResourceType != "Patient" || len(first.Candidates) != 1 || first.Candidates[0].FieldPath != "id" {
 		t.Fatalf("snapshot=%#v", first)
+	}
+	if first.Availability == nil || first.Availability.Readiness.Status != "COMPLETE" || first.Availability.Readiness.FieldProfiles.Status != "COMPLETE" || len(first.Availability.Resources) != 1 || len(first.Availability.Fields) != 1 || first.Availability.Fields[0].PathObservedCount != 2 {
+		t.Fatalf("availability=%#v", first.Availability)
 	}
 	if first.Identity.ResourceInventoryDigest != inventoryDigest || first.Identity.FieldDigest != fieldDigest {
 		t.Fatalf("identity=%#v", first.Identity)
@@ -547,6 +554,97 @@ func TestExplorerCapabilityResolverBuildsAndReusesCompilerProvenSnapshot(t *test
 	}
 }
 
+func TestExplorerCapabilityResolverRebuildsLegacyIdentityAndRetainsOldToken(t *testing.T) {
+	manifest := testCapabilityManifest(t)
+	inventory := []catalog.ResourceInventoryObservation{{Project: "project-a", DatasetGeneration: "generation-a", ResourceType: "Patient", DocumentCount: 2}}
+	fields := []catalog.FieldEnrichmentObservation{{Project: "project-a", DatasetGeneration: "generation-a", ResourceType: "Patient", Path: "id", Kind: "scalar", DocCount: 2}}
+	inventoryDigest, _ := catalog.ResourceInventoryDigest(inventory)
+	relationshipDigest, _ := catalog.RelationshipObservationDigest(nil)
+	fieldDigest, _ := catalog.FieldEnrichmentDigest(fields, false, true, false)
+	evidence := staticCapabilityEvidence{
+		inventory:     catalog.ResourceInventoryResult{Values: inventory, Available: true, Complete: true, Status: catalog.EvidenceAvailable, Digest: inventoryDigest},
+		relationships: catalog.RelationshipObservationResult{Values: []catalog.RelationshipObservation{}, Available: true, Complete: true, Status: catalog.EvidenceEmpty, Digest: relationshipDigest},
+		fields:        catalog.FieldEnrichmentResult{Values: fields, Available: true, Complete: true, FieldCoverageKnown: false, Status: catalog.EvidenceAvailable, Digest: fieldDigest},
+	}
+	repository := newTestCapabilityStore()
+	resolver, err := newExplorerCapabilityResolver(evidence, nil, staticActiveManifest{manifest: manifest}, repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := resolver.Resolve(context.Background(), "project-a", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !current.Usable() || len(current.Candidates) != 1 || current.Availability == nil || current.Availability.Readiness.Status != "UNKNOWN" || current.Availability.Readiness.FieldProfiles.Status != "UNKNOWN" {
+		t.Fatalf("legacy field coverage changed compiler behavior or readiness: %#v", current)
+	}
+	legacyIdentity := current.Identity
+	legacyIdentity.CacheVersion = ""
+	legacy := capability.NewSnapshot(legacyIdentity, current.Policy, current.Status, current.Complete, current.Truncated, current.Nodes, current.Edges, current.Candidates, current.Diagnostics)
+	if legacy.Availability != nil {
+		t.Fatal("legacy fixture unexpectedly has availability metadata")
+	}
+	if _, err := repository.Put(context.Background(), legacy); err != nil {
+		t.Fatal(err)
+	}
+	delete(repository.byIdentity, current.Identity)
+
+	rebuilt, err := resolver.Resolve(context.Background(), "project-a", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rebuilt.Identity.CacheVersion != explorerCapabilityCacheVersion || rebuilt.Availability == nil || rebuilt.Token == legacy.Token {
+		t.Fatalf("current identity did not rebuild metadata: %#v", rebuilt)
+	}
+	retained, err := resolver.ResolveToken(context.Background(), "project-a", legacy.Token)
+	if err != nil || retained.Token != legacy.Token || retained.Availability != nil {
+		t.Fatalf("legacy retained token changed: %#v, %v", retained, err)
+	}
+}
+
+func TestExplorerCapabilityCacheSeparatesFieldCoverageReadiness(t *testing.T) {
+	manifest := testCapabilityManifest(t)
+	inventory := []catalog.ResourceInventoryObservation{{Project: "project-a", DatasetGeneration: "generation-a", ResourceType: "Patient", DocumentCount: 2}}
+	fields := []catalog.FieldEnrichmentObservation{{Project: "project-a", DatasetGeneration: "generation-a", ResourceType: "Patient", Path: "id", Kind: "scalar", DocCount: 2}}
+	inventoryDigest, _ := catalog.ResourceInventoryDigest(inventory)
+	relationshipDigest, _ := catalog.RelationshipObservationDigest(nil)
+	makeEvidence := func(coverageKnown bool) staticCapabilityEvidence {
+		fieldDigest, err := catalog.FieldEnrichmentDigest(fields, coverageKnown, true, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return staticCapabilityEvidence{
+			inventory:     catalog.ResourceInventoryResult{Values: inventory, Available: true, Complete: true, Status: catalog.EvidenceAvailable, Digest: inventoryDigest},
+			relationships: catalog.RelationshipObservationResult{Values: []catalog.RelationshipObservation{}, Available: true, Complete: true, Status: catalog.EvidenceEmpty, Digest: relationshipDigest},
+			fields:        catalog.FieldEnrichmentResult{Values: fields, Available: true, Complete: true, FieldCoverageKnown: coverageKnown, Status: catalog.EvidenceAvailable, Digest: fieldDigest},
+		}
+	}
+	repository := newTestCapabilityStore()
+	knownResolver, err := newExplorerCapabilityResolver(makeEvidence(true), nil, staticActiveManifest{manifest: manifest}, repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	known, err := knownResolver.Resolve(context.Background(), "project-a", "")
+	if err != nil || !known.Usable() || known.Availability.Readiness.Status != "COMPLETE" {
+		t.Fatalf("known profile readiness = %#v, %v", known.Availability, err)
+	}
+	legacyResolver, err := newExplorerCapabilityResolver(makeEvidence(false), nil, staticActiveManifest{manifest: manifest}, repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := legacyResolver.Resolve(context.Background(), "project-a", "")
+	if err != nil || !legacy.Usable() || legacy.Availability.Readiness.Status != "UNKNOWN" || legacy.Availability.Readiness.FieldProfiles.Status != "UNKNOWN" || len(legacy.Candidates) != len(known.Candidates) {
+		t.Fatalf("legacy profile readiness changed compiler behavior: %#v, %v", legacy, err)
+	}
+	if legacy.Token == known.Token {
+		t.Fatal("field coverage readiness change reused a prior snapshot token")
+	}
+	retained, err := legacyResolver.ResolveToken(context.Background(), "project-a", known.Token)
+	if err != nil || retained.Token != known.Token || retained.Availability.Readiness.Status != "COMPLETE" {
+		t.Fatalf("retained known token was mutated: %#v, %v", retained.Availability, err)
+	}
+}
+
 func TestExplorerCapabilityResolverFailsClosedOnIncompleteFieldEnrichment(t *testing.T) {
 	manifest := testCapabilityManifest(t)
 	inventory := []catalog.ResourceInventoryObservation{{Project: "project-a", DatasetGeneration: "generation-a", ResourceType: "Patient", DocumentCount: 1}}
@@ -560,8 +658,39 @@ func TestExplorerCapabilityResolverFailsClosedOnIncompleteFieldEnrichment(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := resolver.Resolve(context.Background(), "project-a", ""); err == nil || !strings.Contains(err.Error(), "field enrichment") {
+	if _, err := resolver.Resolve(context.Background(), "project-a", ""); err == nil || !strings.Contains(err.Error(), "field profile enrichment") {
 		t.Fatalf("Resolve() error=%v", err)
+	}
+}
+
+func TestBuilderUnavailableResponseExplainsResourceInventoryRebuild(t *testing.T) {
+	evidence := staticCapabilityEvidence{
+		inventory:     catalog.ResourceInventoryResult{Available: false, Complete: false, Status: catalog.EvidenceUnavailable},
+		relationships: catalog.RelationshipObservationResult{Values: []catalog.RelationshipObservation{}, Available: true, Complete: true, Status: catalog.EvidenceEmpty},
+		fields:        catalog.FieldEnrichmentResult{Values: []catalog.FieldEnrichmentObservation{}, Available: true, Complete: true, Status: catalog.EvidenceEmpty},
+	}
+	resolver, err := newExplorerCapabilityResolver(evidence, nil, staticActiveManifest{manifest: testCapabilityManifest(t)}, newTestCapabilityStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := explorer.NewService(newTestExplorerStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := lifecycle.Config{Capability: lifecycle.CapabilityResolver{
+		Current: func(ctx context.Context, project, _, generation string) (capability.Snapshot, error) {
+			return resolver.Resolve(ctx, project, generation)
+		},
+		Catalog: authoringV2Catalog,
+	}}
+	app := fiber.New()
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	response := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/default/authoring/v2/builder", "")
+	if response.StatusCode != http.StatusServiceUnavailable || !strings.Contains(response.Body, `"code":"CAPABILITY_UNAVAILABLE"`) || !strings.Contains(response.Body, "resource inventory is unavailable") || !strings.Contains(response.Body, "rebuild the generation inventory") {
+		t.Fatalf("unavailable Builder response status=%d body=%s", response.StatusCode, response.Body)
+	}
+	if strings.Contains(response.Body, `"code":"INTERNAL_ERROR"`) || strings.Contains(response.Body, `"nodes":[]`) {
+		t.Fatalf("unavailable resource inventory became an internal error or empty catalog: %s", response.Body)
 	}
 }
 
@@ -582,6 +711,136 @@ func TestCapabilityEvidencePublishesBothStoredRelationshipDirections(t *testing.
 	}
 	if inbound := got["Patient->Specimen"]; inbound.StorageDirection != "INBOUND" || inbound.ObservedEdgeCount != 7 {
 		t.Fatalf("inbound relationship = %#v", inbound)
+	}
+}
+
+func TestCapabilityEvidenceAggregatesObservedRelationshipsAcrossAuthPaths(t *testing.T) {
+	evidence := capabilityEvidenceFromCatalog(catalog.CapabilityEvidence{
+		Relationships: catalog.RelationshipObservationResult{Values: []catalog.RelationshipObservation{
+			{
+				AuthResourcePath: "subject", Label: "subject_Patient", EdgeCount: 3,
+				StorageFromType: "Observation", StorageToType: "Patient", StorageDirection: "OUTBOUND",
+				BuilderFromType: "Patient", BuilderToType: "Observation", BuilderDirection: "INBOUND",
+			},
+			{
+				AuthResourcePath: "focus", Label: "subject_Patient", EdgeCount: 4,
+				StorageFromType: "Observation", StorageToType: "Patient", StorageDirection: "OUTBOUND",
+				BuilderFromType: "Patient", BuilderToType: "Observation", BuilderDirection: "INBOUND",
+			},
+		}},
+	})
+	if len(evidence.ObservedRelationships) != 1 {
+		t.Fatalf("observed relationships = %#v, want one identity aggregated across auth paths", evidence.ObservedRelationships)
+	}
+	relationship := evidence.ObservedRelationships[0]
+	if relationship.SourceResourceType != "Patient" || relationship.TargetResourceType != "Observation" || relationship.Label != "subject_Patient" || relationship.ObservedEdgeCount != 7 {
+		t.Fatalf("aggregated relationship = %#v, want edge count 7", relationship)
+	}
+}
+
+func TestCapabilityEvidenceRetainsObservedOwnerFieldsAndSemanticSummary(t *testing.T) {
+	value := catalog.CapabilityEvidence{
+		ResourceInventory: catalog.ResourceInventoryResult{Values: []catalog.ResourceInventoryObservation{
+			{Project: "project-a", ResourceType: "Patient", DocumentCount: 3},
+		}},
+		Relationships: catalog.RelationshipObservationResult{Values: []catalog.RelationshipObservation{{
+			Label: "subject_Patient", EdgeCount: 2, StorageFromType: "Observation", StorageToType: "Patient", StorageDirection: "OUTBOUND",
+			BuilderFromType: "Patient", BuilderToType: "Observation", BuilderDirection: "INBOUND",
+		}}},
+		FieldEnrichment: catalog.FieldEnrichmentResult{Values: []catalog.FieldEnrichmentObservation{{
+			ResourceType: "Patient", Path: "identifier", Kind: "object", DocCount: 3, DistinctValues: []string{"urn:mrn"},
+			SemanticObservations: []catalog.SemanticObservation{{
+				SchemaVersion: catalog.SemanticObservationSchemaVersion,
+				Source:        catalog.SemanticObservationSource{Type: "Patient", Path: "identifier"},
+				Key:           catalog.SemanticObservationKey{Selector: "system", System: "urn:mrn", Code: "MRN"},
+				Value:         catalog.SemanticObservationValue{Selector: "value", Type: "string"},
+				OwningScope:   "identifier", Completeness: catalog.SemanticComplete, Status: "SUPPORTED", Population: 3,
+			}},
+		}}},
+	}
+	evidence := capabilityEvidenceFromCatalog(value)
+	var owner *capability.ObservedField
+	for index := range evidence.ObservedFields {
+		field := &evidence.ObservedFields[index]
+		if field.ResourceType == "Patient" && field.Path == "identifier" {
+			owner = field
+			break
+		}
+	}
+	if owner == nil || owner.ShapeKind != "object" || owner.PathObservedCount != 3 || len(owner.Examples) != 1 || len(owner.SemanticObservations) != 1 {
+		t.Fatalf("observed owner field = %#v", owner)
+	}
+	if owner.SemanticObservations[0].Code != "MRN" || owner.SemanticObservations[0].SourceResourceType != "Patient" || owner.SemanticObservations[0].Status != "SUPPORTED" {
+		t.Fatalf("semantic summary = %#v", owner.SemanticObservations[0])
+	}
+	for _, field := range evidence.Fields {
+		if field.Path == "identifier" {
+			t.Fatal("object semantic owner became a compiler field candidate")
+		}
+	}
+	if len(evidence.ObservedRelationships) != 1 || evidence.ObservedRelationships[0].SourceResourceType != "Patient" || evidence.ObservedRelationships[0].TargetResourceType != "Observation" || evidence.ObservedRelationships[0].StorageDirection != "OUTBOUND" || evidence.ObservedRelationships[0].BuilderDirection != "INBOUND" {
+		t.Fatalf("observed relationship = %#v", evidence.ObservedRelationships)
+	}
+}
+
+func TestAuthoringV2CatalogCarriesAdditiveObservedAvailability(t *testing.T) {
+	snapshot := capability.NewSnapshot(
+		capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a"}, capability.Policy{}, capability.StatusReady, true, false,
+		[]capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true}}, nil, nil, nil,
+	)
+	snapshot.Availability = &capability.Availability{
+		Readiness: capability.AvailabilityReadiness{
+			Status: "UNKNOWN", Reason: "field profile coverage is not proven",
+			ResourceInventory: capability.AvailabilitySourceReadiness{Status: "COMPLETE"},
+			Relationships:     capability.AvailabilitySourceReadiness{Status: "COMPLETE"},
+			FieldProfiles:     capability.AvailabilitySourceReadiness{Status: "UNKNOWN", Reason: "field profile coverage is not proven"},
+		},
+		Resources:     []capability.ObservedResource{{ResourceType: "Patient", DocumentCount: 3, Populated: true}},
+		Fields:        []capability.ObservedField{{ResourceType: "Organization", Path: "name", ShapeKind: "string-ish", PathObservedCount: 1, Examples: []string{"Clinic"}, ExamplesTruncated: true, SemanticObservations: []capability.ConceptCandidate{}}},
+		Relationships: []capability.ObservedRelationship{{SourceResourceType: "Patient", TargetResourceType: "Organization", Label: "managingOrganization", StorageDirection: "OUTBOUND", BuilderDirection: "INBOUND", ObservedEdgeCount: 2}},
+	}
+	wire := authoringV2Catalog(snapshot, "default")
+	if len(wire.Nodes) != 1 || len(wire.Candidates) != 0 || wire.Availability == nil || len(wire.Availability.Fields) != 1 || wire.Availability.Fields[0].ObservedShapeKind != "string-ish" {
+		t.Fatalf("wire catalog changed compiler graph or lost observations: %#v", wire)
+	}
+	encoded, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatal(err)
+	}
+	var availability map[string]json.RawMessage
+	if err := json.Unmarshal(payload["availability"], &availability); err != nil || len(availability["readiness"]) == 0 || len(availability["resources"]) == 0 || len(availability["fields"]) == 0 || len(availability["relationships"]) == 0 {
+		t.Fatalf("availability contract missing: %s err=%v", payload["availability"], err)
+	}
+	var fields []map[string]json.RawMessage
+	if err := json.Unmarshal(availability["fields"], &fields); err != nil || len(fields) != 1 {
+		t.Fatalf("availability fields = %s err=%v", availability["fields"], err)
+	}
+	for _, name := range []string{"observedShapeKind", "pathObservedDocumentCount", "examples", "examplesTruncated", "semanticObservations"} {
+		if len(fields[0][name]) == 0 {
+			t.Errorf("availability field omitted %q: %s", name, availability["fields"])
+		}
+	}
+	var generated loomapi.Catalog
+	if err := json.Unmarshal(encoded, &generated); err != nil || generated.Availability == nil || len(generated.Availability.Fields) != 1 || generated.Availability.Fields[0].ObservedShapeKind != "string-ish" || generated.Availability.Readiness.Status != loomapi.CatalogAvailabilityReadinessStatusUNKNOWN {
+		t.Fatalf("generated Catalog contract lost availability: %#v err=%v", generated.Availability, err)
+	}
+	embeddedSpec, err := loomapi.GetSpecJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var specification struct {
+		Components struct {
+			Schemas map[string]struct {
+				Properties map[string]json.RawMessage `json:"properties"`
+			} `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(embeddedSpec, &specification); err != nil || len(specification.Components.Schemas["Catalog"].Properties["availability"]) == 0 || len(specification.Components.Schemas["CatalogObservedField"].Properties["pathObservedDocumentCount"]) == 0 {
+		t.Fatalf("embedded OpenAPI spec is missing the additive availability schema: err=%v", err)
 	}
 }
 

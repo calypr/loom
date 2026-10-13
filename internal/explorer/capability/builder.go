@@ -21,6 +21,7 @@ type RelationshipObservation struct {
 	TargetResourceType   string
 	Label                string
 	StorageDirection     string
+	BuilderDirection     string
 	ObservedEdgeCount    int64
 	AllowsRepeatedTarget bool
 }
@@ -30,11 +31,14 @@ type FieldObservation struct {
 	Path                  string
 	Label                 string
 	LogicalType           string
+	ObservedShapeKind     string
 	Cardinality           string
 	RepeatedBoundaries    []RepeatedBoundary
 	Observed              bool
 	ObservedDocumentCount int64
 	Populated             bool
+	Examples              []string
+	ExamplesTruncated     bool
 	SuggestedValues       []string
 	SuggestionsComplete   bool
 	SuggestionsTruncated  bool
@@ -45,9 +49,12 @@ type FieldObservation struct {
 // snapshot. Availability is explicit because an empty result is valid evidence
 // for some generations, while an unavailable source must fail closed.
 type Evidence struct {
-	Resources     []ResourceObservation
-	Relationships []RelationshipObservation
-	Fields        []FieldObservation
+	Resources             []ResourceObservation
+	Relationships         []RelationshipObservation
+	Fields                []FieldObservation
+	ObservedFields        []ObservedField
+	ObservedRelationships []ObservedRelationship
+	AvailabilityReadiness AvailabilityReadiness
 
 	ResourcesAvailable     bool
 	RelationshipsAvailable bool
@@ -128,8 +135,23 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 	fields := append([]FieldObservation(nil), b.Evidence.Fields...)
 	for i := range fields {
 		fields[i].SuggestedValues = append([]string(nil), fields[i].SuggestedValues...)
+		fields[i].Examples = append([]string(nil), fields[i].Examples...)
 		fields[i].RepeatedBoundaries = append([]RepeatedBoundary(nil), fields[i].RepeatedBoundaries...)
 		fields[i].ConceptCandidates = cloneConceptCandidates(fields[i].ConceptCandidates)
+	}
+	observedFields := append([]ObservedField(nil), b.Evidence.ObservedFields...)
+	if len(observedFields) == 0 {
+		for _, field := range fields {
+			observedFields = append(observedFields, ObservedField{
+				ResourceType: field.ResourceType, Path: field.Path, ShapeKind: field.ObservedShapeKind,
+				PathObservedCount: field.ObservedDocumentCount, Examples: append([]string(nil), field.Examples...),
+				ExamplesTruncated: field.ExamplesTruncated, SemanticObservations: cloneConceptCandidates(field.ConceptCandidates),
+			})
+		}
+	}
+	for i := range observedFields {
+		observedFields[i].Examples = append([]string(nil), observedFields[i].Examples...)
+		observedFields[i].SemanticObservations = cloneConceptCandidates(observedFields[i].SemanticObservations)
 	}
 
 	policy := b.Policy
@@ -312,12 +334,100 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 	if len(diags) > 0 && !b.Evidence.FieldsAvailable {
 		status = StatusFailed
 	}
+	availability := buildAvailability(b.Evidence, resources, relationships, observedFields, b.Complete, b.Truncated)
 	s := NewSnapshot(identity, policy, status, b.Complete, b.Truncated, nodes, edges, candidates, diags)
+	s.Availability = &availability
 	s.AuditNodes = auditNodes
 	s.AuditEdges = auditEdges
 	s.AuditCandidates = auditCandidates
 	s = rehash(s)
 	return s, nil
+}
+
+func buildAvailability(evidence Evidence, resources []ResourceObservation, relationships []RelationshipObservation, fields []ObservedField, complete, truncated bool) Availability {
+	readiness := evidence.AvailabilityReadiness
+	if readiness.ResourceInventory.Status == "" {
+		readiness.ResourceInventory = inferredReadiness(evidence.ResourcesAvailable)
+	}
+	if readiness.Relationships.Status == "" {
+		readiness.Relationships = inferredReadiness(evidence.RelationshipsAvailable)
+	}
+	if readiness.FieldProfiles.Status == "" {
+		readiness.FieldProfiles = inferredReadiness(evidence.FieldsAvailable)
+	}
+	if readiness.Status == "" {
+		readiness.Status = "COMPLETE"
+		for _, source := range []AvailabilitySourceReadiness{readiness.ResourceInventory, readiness.Relationships, readiness.FieldProfiles} {
+			if source.Status != "COMPLETE" {
+				readiness.Status = "UNKNOWN"
+				break
+			}
+		}
+	}
+	if readiness.Reason == "" {
+		for _, source := range []AvailabilitySourceReadiness{readiness.ResourceInventory, readiness.Relationships, readiness.FieldProfiles} {
+			if source.Reason != "" {
+				readiness.Reason = source.Reason
+				break
+			}
+		}
+	}
+	if !complete || truncated {
+		readiness.Status = "UNKNOWN"
+		for _, source := range []*AvailabilitySourceReadiness{&readiness.ResourceInventory, &readiness.Relationships, &readiness.FieldProfiles} {
+			if source.Status == "COMPLETE" {
+				source.Status = "UNKNOWN"
+				if source.Reason == "" {
+					source.Reason = "source completeness is not established"
+				}
+			}
+		}
+		if readiness.Reason == "" {
+			readiness.Reason = "one or more observation sources are incomplete or truncated"
+		}
+	}
+
+	resourceFacts := make([]ObservedResource, 0, len(resources))
+	for _, resource := range resources {
+		if resource.DocumentCount <= 0 {
+			continue
+		}
+		resourceFacts = append(resourceFacts, ObservedResource{ResourceType: resource.ResourceType, DocumentCount: resource.DocumentCount, Populated: true})
+	}
+	sort.Slice(resourceFacts, func(i, j int) bool { return resourceFacts[i].ResourceType < resourceFacts[j].ResourceType })
+
+	fieldFacts := append([]ObservedField(nil), fields...)
+	sort.Slice(fieldFacts, func(i, j int) bool {
+		return fieldFacts[i].ResourceType+"\x00"+fieldFacts[i].Path < fieldFacts[j].ResourceType+"\x00"+fieldFacts[j].Path
+	})
+
+	relationshipFacts := append([]ObservedRelationship(nil), evidence.ObservedRelationships...)
+	if len(relationshipFacts) == 0 {
+		for _, relationship := range relationships {
+			direction := relationship.BuilderDirection
+			if direction == "" {
+				direction = relationship.StorageDirection
+			}
+			relationshipFacts = append(relationshipFacts, ObservedRelationship{
+				SourceResourceType: relationship.SourceResourceType, TargetResourceType: relationship.TargetResourceType,
+				Label: relationship.Label, StorageDirection: relationship.StorageDirection,
+				BuilderDirection: direction, ObservedEdgeCount: relationship.ObservedEdgeCount,
+			})
+		}
+	}
+	sort.Slice(relationshipFacts, func(i, j int) bool {
+		a, b := relationshipFacts[i], relationshipFacts[j]
+		return a.SourceResourceType+"\x00"+a.Label+"\x00"+a.TargetResourceType+"\x00"+a.StorageDirection+"\x00"+a.BuilderDirection < b.SourceResourceType+"\x00"+b.Label+"\x00"+b.TargetResourceType+"\x00"+b.StorageDirection+"\x00"+b.BuilderDirection
+	})
+
+	return Availability{Readiness: readiness, Resources: resourceFacts, Fields: fieldFacts, Relationships: relationshipFacts}
+}
+
+func inferredReadiness(available bool) AvailabilitySourceReadiness {
+	if available {
+		return AvailabilitySourceReadiness{Status: "COMPLETE"}
+	}
+	return AvailabilitySourceReadiness{Status: "BLOCKED", Reason: "observation source is unavailable"}
 }
 
 func cloneConceptCandidates(in []ConceptCandidate) []ConceptCandidate {

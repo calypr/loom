@@ -120,6 +120,13 @@ func bootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter E
 				{"project", "dataset_generation"},
 			},
 		},
+		arangostore.CollectionSpec{
+			Name: catalog.ResourceInventoryCollection,
+			Indexes: [][]string{
+				{"project", "dataset_generation", "record_type", "resource_type", "auth_resource_path"},
+				{"project", "dataset_generation", "build_id", "record_type"},
+			},
+		},
 	)
 	return arangostore.BootstrapSpec{
 		Collections: collections,
