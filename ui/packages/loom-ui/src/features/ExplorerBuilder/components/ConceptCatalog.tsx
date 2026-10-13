@@ -16,6 +16,7 @@ import {
   catalogItemLabel,
   catalogItemConstructionChoice,
   catalogItemDefaultForm,
+  catalogSourceOptions,
   fieldCatalogItems,
   schemaFieldCatalogItems,
   isRelatedFieldCatalogItem,
@@ -548,6 +549,7 @@ const ConceptCatalogContent = ({
     authResourcePath ?? '',
     snapshotToken,
     rowRoot,
+    outputId,
     resourceType ?? '',
     query,
     searchGeneration,
@@ -576,6 +578,7 @@ const ConceptCatalogContent = ({
         authResourcePath,
         snapshotToken,
         rowRoot,
+        outputId,
         resourceType,
         query,
         cursor,
@@ -600,6 +603,7 @@ const ConceptCatalogContent = ({
     client,
     cursor,
     explorerId,
+    outputId,
     project,
     query,
     resourceType,
@@ -727,12 +731,17 @@ const ConceptCatalogContent = ({
   const generatedFields = schemaProgress?.key === schemaScopeKey && schemaProgress.client === client
     ? schemaProgress.fields : schemaFields.data ?? [];
   const fieldItems = useMemo(
-    () => [...fieldCatalogItems(catalog, rowRoot, resourceType, query, sourceNodeId), ...schemaFieldCatalogItems(generatedFields)].filter(
-      (item) =>
-        item.kind === 'FIELD' &&
-        (!routeContext || item.candidate.nodeId === routeContext.nodeId),
-    ),
-    [catalog, query, resourceType, routeContext, rowRoot, sourceNodeId, generatedFields],
+    () => {
+      const reachableSourceNodeIds = new Set(catalogSourceOptions(catalog, rowRoot)
+        .flatMap((source) => source.kind === 'RELATED' ? [source.sourceNodeId] : []));
+      return [...fieldCatalogItems(catalog, rowRoot, resourceType, query, sourceNodeId), ...schemaFieldCatalogItems(generatedFields)].filter(
+        (item) => item.kind === 'FIELD' &&
+          (!routeContext || item.candidate.nodeId === routeContext.nodeId) &&
+          (routeContext || item.constructionChoice.source.resourceType === rowRoot || reachableSourceNodeIds.has(item.candidate.nodeId)) &&
+          canAddCatalogItem(item) && catalogItemAvailability(item).selectable,
+      );
+    },
+    [catalog, query, resourceType, routeContext, rowRoot, sourceNodeId, generatedFields, relatedSourceAvailability, sourceProjectionAvailability],
   );
   const appliedInitialSelection = useRef(false);
   useEffect(() => {
@@ -746,12 +755,10 @@ const ConceptCatalogContent = ({
     setSelected((current) => current.size > 0 ? current : new Map([[catalogItemKey(item), item]]));
   }, [fieldItems, initialFieldSource]);
   const semanticItems = useMemo(
-    () => semanticCatalogItems(response?.entries ?? [], resourceType, sourceNodeId),
-    [resourceType, response?.entries, sourceNodeId],
+    () => semanticCatalogItems(response?.entries ?? [], resourceType, sourceNodeId)
+      .filter((item) => canAddCatalogItem(item) && catalogItemAvailability(item).selectable),
+    [canAddFromSourceProjection, relatedSourceAvailability, response?.entries, resourceType, rowRoot, sourceNodeId],
   );
-  const hasUnscopedConcepts = Boolean(sourceNodeId && response?.entries.some(
-    (item) => item.constructionChoice === undefined,
-  ));
   const selectedItems = useMemo(() => selectedAsArray(selected), [selected]);
   const toggleSelection = (item: CatalogItem) => {
     if (!canAddCatalogItem(item) || !catalogItemAvailability(item).selectable) return;
@@ -1055,11 +1062,11 @@ const ConceptCatalogContent = ({
         />
       ) : null}
       <div className="border-b border-slate-200 px-3 py-3">
-        <h2 className="text-base font-semibold text-slate-950">Add coded value columns</h2>
+        <h2 className="text-base font-semibold text-slate-950">Add coded values to this table</h2>
         <p className="mt-1 text-xs text-slate-600">
           {resourceType
-            ? `Find coded values on the selected ${resourceType} graph node.`
-            : `Find coded values across the authorized dataset, starting from ${rowRoot} rows.`}
+            ? `Find coded values available on ${resourceType} for the current table.`
+            : `Find coded values Loom can construct from ${rowRoot} table rows.`}
         </p>
         <form className="mt-2 flex gap-2" onSubmit={submitSearch}>
           <label className="sr-only" htmlFor="feature-catalog-search">Search coded values and raw fields</label>
@@ -1140,15 +1147,10 @@ const ConceptCatalogContent = ({
           <section aria-labelledby="feature-catalog-concepts-title">
             <div className="flex items-center justify-between gap-3">
               <h3 id="feature-catalog-concepts-title" className="text-sm font-semibold text-slate-800">
-                {query ? `Coded values for “${query}”` : resourceType ? `Coded values on ${resourceType}` : 'Coded values across the dataset'}
+                {query ? `Coded values for “${query}”` : resourceType ? `Coded values on ${resourceType} for this table` : 'Coded values for this table'}
               </h3>
               <span className="text-xs text-slate-500">{semanticItems.length} on this page</span>
             </div>
-            {hasUnscopedConcepts ? (
-              <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-950" role="status" data-testid="construction-operation-unscoped-concepts">
-                Some concepts are hidden because Loom did not identify their source node.
-              </p>
-            ) : null}
           <div className="mt-3 divide-y divide-slate-200">
             {loadState.status === 'loading' && !response ? (
                 <p className="py-8 text-center text-sm text-slate-500">Loading concepts…</p>

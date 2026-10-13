@@ -268,11 +268,17 @@ export const catalogItemAvailability = (
 ): CatalogItemAvailability => {
   switch (item.kind) {
     case 'FIELD':
-      return item.constructionChoice.source.kind === 'FIELD'
+      if (item.constructionChoice.source.kind !== 'FIELD') {
+        return {
+          selectable: false,
+          reason: 'Loom did not provide a field construction choice for this source.',
+        };
+      }
+      return item.constructionChoice.options.some((option) => option.support === 'SUPPORTED')
         ? { selectable: true }
         : {
             selectable: false,
-            reason: 'Loom did not provide a field construction choice for this source.',
+            reason: 'Loom did not provide a supported form for this field.',
           };
     case 'SEMANTIC': {
       const readiness = item.item.readiness;
@@ -289,6 +295,12 @@ export const catalogItemAvailability = (
         return {
           selectable: false,
           reason: 'Loom returned a construction choice for a different source kind.',
+        };
+      }
+      if (!item.constructionChoice.options.some((option) => option.support === 'SUPPORTED')) {
+        return {
+          selectable: false,
+          reason: 'Loom did not provide a supported form for this concept.',
         };
       }
       if (
