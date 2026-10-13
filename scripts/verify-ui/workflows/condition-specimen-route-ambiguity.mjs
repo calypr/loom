@@ -14,7 +14,7 @@ const sortRows = rows => [...rows].sort((left, right) =>
 
 const routeRowsFromGrid = (grid, { includesSpecimenID }) => {
   const conditionIndex = previewHeaderIndex(grid.headers, 'Condition ID');
-  const patientIndex = previewHeaderIndex(grid.headers, 'Patient ID');
+  const patientIndex = previewHeaderIndex(grid.headers, 'Patient IDs');
   const specimenIndex = includesSpecimenID ? previewHeaderIndex(grid.headers, 'Specimen ID') : -1;
   const values = grid.rows.map(row => Array.isArray(row) ? row : row.values);
   return values.map(row => ({
@@ -114,7 +114,7 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
       const conditionIndex = previewHeaderIndex(grid.headers, 'Condition ID');
       const actual = grid.rows.map(row => ({
         id: normalizeCell(row.values[conditionIndex]),
-        ...(includePatientColumn ? { patientId: normalizeCell(row.values[previewHeaderIndex(grid.headers, 'Patient ID')]) } : {}),
+        ...(includePatientColumn ? { patientId: normalizeCell(row.values[previewHeaderIndex(grid.headers, 'Patient IDs')]) } : {}),
       }));
       const expectedRows = includePatientColumn ? expected : expected.map(({ id }) => ({ id }));
       const sortConditionRows = rows => [...rows].sort((left, right) =>
@@ -287,33 +287,39 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
     });
   const confirmPatientID = fieldChoiceDialog.getByRole('button', { name: 'Add 1 column', exact: true });
   assert.equal(await confirmPatientID.count(), 1, 'The selected Patient.id route/form must expose one Add 1 column action.');
+  const fieldProposal = page.getByTestId('construction-proposal-panel');
   await act('confirm Patient.id through Condition.subject and ALL', confirmPatientID,
     async (control, { remainingTimeout }) => control.click({ timeout: remainingTimeout() }), {
-      after: ({ remainingTimeout }) => page.getByTestId('construction-choice-proposal-panel')
+      after: ({ remainingTimeout }) => fieldProposal
         .waitFor({ state: 'visible', timeout: remainingTimeout() }),
     });
-  const fieldProposal = page.getByTestId('construction-choice-proposal-panel');
   await page.waitForFunction(() => ['ready', 'error'].includes(
-    document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus),
+    document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus),
   null, { timeout: ACTION_TIMEOUT_MS });
   assert.equal(await fieldProposal.getAttribute('data-proposal-status'), 'ready',
-    'Condition.subject Patient.id must produce a receipt-bound field proposal.');
-  const applyPatientID = fieldProposal.getByRole('button', { name: 'Apply columns', exact: true });
+    'Condition.subject Patient.id must produce a receipt-bound related-source proposal.');
+  const applyPatientID = fieldProposal.getByRole('button', { name: 'Apply change', exact: true });
   await act('apply Patient.id through Condition.subject', applyPatientID, () => applyPatientID.click(), {
     after: () => fieldProposal.waitFor({ state: 'detached', timeout: ACTION_TIMEOUT_MS }),
   });
   builder = await readBuilder();
   conditionDocument = documentForOutput(builder, outputId);
-  const patientColumn = conditionDocument.columns.find(column => column.source?.kind === 'field' &&
-    column.source.field?.path === 'id' && column.occurrenceId !== 'base');
-  assert(patientColumn?.columnId, 'Applied Patient.id must retain a stable authored column identity.');
-  const patientOccurrence = (conditionDocument.route?.children ?? []).find(child =>
-    child.resourceType === 'Patient' && child.relationship === 'subject_Patient');
-  assert(patientOccurrence && patientOccurrence.occurrenceId === patientColumn.occurrenceId,
-    'Patient.id must be attached to the authored Condition.subject → Patient occurrence.');
+  const patientSourceStep = (conditionDocument.construction?.steps ?? []).find(step =>
+    step.operation.kind === 'RELATED_SOURCE' && step.operation.relatedSource.source.resourceType === 'Patient' &&
+    step.operation.relatedSource.source.path === 'id');
+  assert(patientSourceStep, `Applied Patient.id must retain its compiler-backed related-source step: ${JSON.stringify(conditionDocument.construction)}`);
+  const patientSource = patientSourceStep.operation.relatedSource;
+  assert.equal(patientSource.form, 'ALL', 'Patient.id must retain all matching values from the selected route.');
+  assert.deepEqual(patientSource.route.map(({ fromResourceType, relationship, toResourceType }) =>
+    ({ fromResourceType, relationship, toResourceType })), [
+    { fromResourceType: 'Condition', relationship: 'subject_Patient', toResourceType: 'Patient' },
+  ], 'Patient.id must retain the exact compiler Condition.subject → Patient route.');
+  const patientColumn = patientSourceStep.outputs.find(column => column.id === patientSource.outputColumnId);
+  assert(patientColumn, 'The authored Patient.id route must retain its output column identity.');
+  const patientOccurrence = { sourceOccurrenceId: patientSource.sourceOccurrenceId, route: patientSource.route };
   const sourceConditionRows = independent.conditions.map(({ id, patientId }) => ({ id, patientId }));
   const afterAuthoringGrid = await getCurrentRows('condition');
-  check('correctness', 'Condition.subject authors Patient ID on the exact related occurrence', true, {
+  check('correctness', 'Condition.subject authors Patient IDs through the exact related source route', true, {
     outputId,
     route: conditionDocument.route,
     conditionAndPatientColumnIDs: conditionDocument.columns.map(column => column.columnId),
@@ -332,8 +338,14 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
   await getCurrentRows('condition');
   builder = await readBuilder();
   conditionDocument = documentForOutput(builder, outputId);
-  assert.equal(conditionDocument.route.children[0].occurrenceId, patientOccurrence.occurrenceId,
-    'Reload must preserve the authored Patient anchor occurrence identity.');
+  const reloadedPatientSourceStep = (conditionDocument.construction?.steps ?? []).find(step =>
+    step.operation.kind === 'RELATED_SOURCE' && step.operation.relatedSource.source.resourceType === 'Patient' &&
+    step.operation.relatedSource.source.path === 'id');
+  assert(reloadedPatientSourceStep, 'Reload must preserve the authored Patient.id related-source step.');
+  assert.equal(reloadedPatientSourceStep.operation.relatedSource.sourceOccurrenceId, patientOccurrence.sourceOccurrenceId,
+    'Reload must preserve the authored Patient source identity.');
+  assert.deepEqual(reloadedPatientSourceStep.operation.relatedSource.route, patientOccurrence.route,
+    'Reload must preserve the exact authored Condition.subject → Patient route.');
   assert.deepEqual(conditionDocument, authoredConditionDocument,
     'Reloaded authored Condition columns must remain persisted.');
   const sourceCheckpoint = {
@@ -558,7 +570,7 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
   check('persistence', 'Cancel leaves the authored Condition and Patient setup unchanged', true, {
     outputId, draftVersion: afterCancel.draftVersion, draftDigest: afterCancel.draftDigest,
     route: documentForOutput(afterCancel, outputId).route,
-    patientAnchorOccurrenceId: patientOccurrence.occurrenceId,
+    patientAnchorSourceOccurrenceId: patientOccurrence.sourceOccurrenceId,
     visibleRows: visibleAfterPatientCancel.rows.map(row => row.values),
   });
   const { selector: applySelector } = await openRowSettings('reopen Condition row settings for focus route');
