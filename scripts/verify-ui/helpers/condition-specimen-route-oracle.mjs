@@ -53,8 +53,8 @@ export const readConditionSpecimenRouteOracle = fixtureDir => {
 
   const stage = oracle.alternatives.find(choice => choice.key === 'condition-stage-assessment');
   const focus = oracle.alternatives.find(choice => choice.key === 'observation-focus-inbound');
-  const patient = oracle.alternatives.find(choice => choice.key === 'authored-patient-anchor');
-  assert(stage && focus && patient, 'Independent oracle must retain the stage, focus-inbound, and authored-Patient alternatives.');
+  const patient = oracle.alternatives.find(choice => choice.key === 'condition-patient-subject');
+  assert(stage && focus && patient, 'Independent oracle must retain the stage, focus-inbound, and Patient-subject alternatives.');
   assert.equal(get('Condition', stage.conditionId).stage?.[0]?.assessment?.[0]?.reference,
     `Observation/${stage.observationId}`);
   assert.equal(get('Observation', stage.observationId).specimen?.reference, `Specimen/${stage.specimenId}`);
@@ -65,12 +65,12 @@ export const readConditionSpecimenRouteOracle = fixtureDir => {
   const authoredCondition = get('Condition', patient.conditionId);
   const authoredPatientReference = authoredCondition.subject?.reference;
   assert.equal(authoredPatientReference, `Patient/${patient.patientId}`,
-    'The independent anchor must be the authored Condition.subject → Patient occurrence.');
+    'The independent Patient-subject path must use the exact Condition.subject → Patient reference.');
   assert.equal(get('Specimen', patient.specimenId).subject?.reference, authoredPatientReference,
-    'The authored Patient route must join the exact Specimen.subject reference.');
+    'The Patient-subject path must join the exact Specimen.subject reference.');
   assert.equal(get('Specimen', oracle.unmatched.specimenId).subject?.reference, 'Patient/patient-unmatched');
   assert(resources.Observation.every(value => value.subject === undefined),
-    'Observation.subject must remain absent so the authored Patient anchor does not gain a competing source route.');
+    'Observation.subject must remain absent so the Patient-subject path has no competing route.');
 
   const routeRows = alternative => sortedRows(resources.Specimen.map(specimen => ({
     specimenId: specimen.id,
@@ -88,7 +88,7 @@ export const readConditionSpecimenRouteOracle = fixtureDir => {
       id: condition.id,
       patientId: condition.subject?.reference?.replace(/^Patient\//, ''),
     })),
-    patientAnchorRows: routeRows(patient),
+    patientSubjectRows: routeRows(patient),
     focusRows: routeRows(focus),
     stageRows: routeRows(stage),
   };

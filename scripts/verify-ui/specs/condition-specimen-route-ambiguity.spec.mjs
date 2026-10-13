@@ -8,7 +8,7 @@ test.describe('Condition-to-Specimen root-choice ambiguity', () => {
     fixtureDir: 'testdata/basic-root-picker-ambiguity',
   });
 
-  test('native Record type picker resolves Condition-to-Specimen alternatives with the authored Patient anchor',
+  test('native Record type picker resolves Condition-to-Specimen alternatives through the Patient-subject path',
     async ({ page, workflow, loomContext }) => {
       test.setTimeout(180_000);
       await conditionSpecimenRouteAmbiguityWorkflow({ ...workflow, page }, loomContext);

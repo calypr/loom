@@ -1,6 +1,6 @@
 {
   "startRoot": "Condition",
-  "authoredAnchor": {
+  "patientSubjectPath": {
     "resourceType": "Patient",
     "relationship": "subject_Patient",
     "conditionId": "condition-subject-route",
@@ -30,7 +30,7 @@
       "routeRepair": "AMBIGUOUS_ROUTE_REBASE_EDGE"
     },
     {
-      "key": "authored-patient-anchor",
+      "key": "condition-patient-subject",
       "path": [
         "Condition.subject -> Patient",
         "Specimen.subject -> Patient (inverse from Patient to Specimen)"

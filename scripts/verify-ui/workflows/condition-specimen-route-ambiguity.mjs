@@ -148,7 +148,7 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
     project,
     generation,
     sourceIDs: independent.sourceIDs,
-    authoredPatientAnchor: oracle.authoredAnchor,
+    patientSubjectPath: oracle.patientSubjectPath,
     expectedRouteRows: oracle.alternatives.map(choice => ({
       key: choice.key,
       path: choice.path,
@@ -159,7 +159,7 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
     unmatchedSpecimen: oracle.unmatched,
   };
   check('correctness', 'independent fixture oracle distinguishes all compiler route results and an unmatched Specimen',
-    independent.patientAnchorRows.some(row => row.conditionId) &&
+    independent.patientSubjectRows.some(row => row.conditionId) &&
       independent.focusRows.some(row => row.conditionId) && independent.stageRows.some(row => row.conditionId) &&
       new Set(oracle.alternatives.map(choice => choice.specimenId)).size === oracle.alternatives.length &&
       independent.sourceIDs.Specimen.includes(oracle.unmatched.specimenId), report.target.fixtureRawOracle);
@@ -316,10 +316,10 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
   ], 'Patient.id must retain the exact compiler Condition.subject → Patient route.');
   const patientColumn = patientSourceStep.outputs.find(column => column.id === patientSource.outputColumnId);
   assert(patientColumn, 'The authored Patient.id route must retain its output column identity.');
-  const patientOccurrence = { sourceOccurrenceId: patientSource.sourceOccurrenceId, route: patientSource.route };
+  const patientSourceIdentity = { sourceOccurrenceId: patientSource.sourceOccurrenceId, route: patientSource.route };
   const sourceConditionRows = independent.conditions.map(({ id, patientId }) => ({ id, patientId }));
   const afterAuthoringGrid = await getCurrentRows('condition');
-  check('correctness', 'Condition.subject authors Patient IDs through the exact related source route', true, {
+  check('correctness', 'Condition.subject adds Patient IDs through the exact Patient-subject source route', true, {
     outputId,
     route: conditionDocument.route,
     conditionAndPatientColumnIDs: conditionDocument.columns.map(column => column.columnId),
@@ -339,11 +339,11 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
   const reloadedPatientSourceStep = (conditionDocument.construction?.steps ?? []).find(step =>
     step.operation.kind === 'RELATED_SOURCE' && step.operation.relatedSource.source.resourceType === 'Patient' &&
     step.operation.relatedSource.source.path === 'id');
-  assert(reloadedPatientSourceStep, 'Reload must preserve the authored Patient.id related-source step.');
-  assert.equal(reloadedPatientSourceStep.operation.relatedSource.sourceOccurrenceId, patientOccurrence.sourceOccurrenceId,
-    'Reload must preserve the authored Patient source identity.');
-  assert.deepEqual(reloadedPatientSourceStep.operation.relatedSource.route, patientOccurrence.route,
-    'Reload must preserve the exact authored Condition.subject → Patient route.');
+  assert(reloadedPatientSourceStep, 'Reload must preserve the selected Patient.id related-source step.');
+  assert.equal(reloadedPatientSourceStep.operation.relatedSource.sourceOccurrenceId, patientSourceIdentity.sourceOccurrenceId,
+    'Reload must preserve the selected Patient source identity.');
+  assert.deepEqual(reloadedPatientSourceStep.operation.relatedSource.route, patientSourceIdentity.route,
+    'Reload must preserve the exact Condition.subject → Patient route.');
   assert.deepEqual(conditionDocument, authoredConditionDocument,
     'Reloaded authored Condition columns must remain persisted.');
   const sourceCheckpoint = {
@@ -397,18 +397,18 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
     labels.sort();
     assert.equal(await page.getByRole('heading', { name: 'Choose how to preserve this table', exact: true }).count(), 0,
       'Compiler route choices must be inline in Record type, without the former route-repair panel.');
-    assert(labels.some(label => label.includes('Stage Assessment') && label.includes('Observation') && label.includes('Specimen') && label.endsWith('from Condition rows')),
+    assert(labels.some(label => label.includes('Stage assessment') && label.includes('Observation') && label.includes('Specimen') && label.endsWith('from Condition rows')),
       `Compiler alternatives must include the source-backed Condition.stage path: ${JSON.stringify(labels)}`);
     assert(labels.some(label => label.includes('Focus') && label.includes('Observation') && label.includes('Specimen') && label.endsWith('from Condition rows')),
       `Compiler alternatives must include the source-backed Observation.focus inbound path: ${JSON.stringify(labels)}`);
-    assert(labels.some(label => label.includes('Subject') && label.includes('Patient') && label.includes('Specimen') && label.endsWith('from Condition → Subject → Patient')),
-      `Compiler alternatives must expose the exact authored Patient anchor: ${JSON.stringify(labels)}`);
+    assert(labels.some(label => label.includes('Condition → Subject → Patient → Subject → Specimen') && label.endsWith('from Condition rows')),
+      `Compiler alternatives must expose the exact Patient-subject route: ${JSON.stringify(labels)}`);
     return labels;
   };
   const choosePath = async (selector, { kind, nodeId }) => {
     const labels = await routeOptions(selector);
     const label = labels.find(value => kind === 'patient'
-      ? value.includes('Subject') && value.includes('Patient') && value.includes('Specimen') && value.endsWith('from Condition → Subject → Patient')
+      ? value.includes('Condition → Subject → Patient → Subject → Specimen') && value.endsWith('from Condition rows')
       : value.includes('Focus') && value.includes('Observation') && value.includes('Specimen') && value.endsWith('from Condition rows'));
     assert(label, `The exact ${kind} compiler alternative must remain visible: ${JSON.stringify(labels)}`);
     const option = (await selector.locator('option').evaluateAll(nodes => nodes.map(candidate => ({
@@ -491,7 +491,7 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
           },
         });
     } else {
-      await act('select the authored Patient-anchor Condition-to-Specimen route', selector,
+      await act('select the Patient-subject Condition-to-Specimen route', selector,
         control => control.selectOption(option.value), {
           after: async () => {
             await page.getByRole('region', { name: 'Review proposed rows', exact: true })
@@ -537,10 +537,10 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
       .getByRole('button', { name: 'Review changes', exact: true }).count(),
   };
   assert.deepEqual(pickerContract, { region: 'What should each row represent?', comboboxes: 1, reviewButtons: 0 });
-  const { choice: specimenChoice } = await selectSpecimen({ selector: firstSelector }, 'Patient anchor preview');
+  const { choice: specimenChoice } = await selectSpecimen({ selector: firstSelector }, 'Patient-subject route preview');
   const patientRoute = await choosePath(firstSelector, { kind: 'patient', nodeId: specimenChoice.value.slice('node:'.length) });
-  const patientPreviewRows = assertVisibleRows(patientRoute.grid, independent.patientAnchorRows, {
-    phase: 'Authored Patient-anchored Condition-to-Specimen Preview',
+  const patientPreviewRows = assertVisibleRows(patientRoute.grid, independent.patientSubjectRows, {
+    phase: 'Patient-subject Condition-to-Specimen Preview',
   });
   const beforePatientCancel = await readBuilder();
   assert.equal(beforePatientCancel.draftVersion, sourceCheckpoint.draftVersion,
@@ -548,27 +548,27 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
   assert.equal(beforePatientCancel.draftDigest, sourceCheckpoint.draftDigest,
     'Automatic route Preview must not mutate the saved draft digest.');
   assert.deepEqual(documentForOutput(beforePatientCancel, outputId), sourceCheckpoint.document,
-    'Automatic route Preview must not mutate the authored Condition and Patient anchor document.');
-  check('correctness', 'authored Patient anchor route automatically previews its exact fixture rows without saved mutation', true, {
+    'Automatic route Preview must not mutate the Condition table or selected Patient-subject route.');
+  check('correctness', 'Patient-subject route automatically previews its exact fixture rows without saved mutation', true, {
     outputId, selectedValue: specimenChoice.value, route: patientRoute.routeLabel,
     receiptId: patientRoute.previewIdentity.receiptId, rows: patientPreviewRows,
-    expectedSpecimenId: oracle.alternatives.find(choice => choice.key === 'authored-patient-anchor').specimenId,
+    expectedSpecimenId: oracle.alternatives.find(choice => choice.key === 'condition-patient-subject').specimenId,
     savedDraftVersion: beforePatientCancel.draftVersion, savedDraftDigest: beforePatientCancel.draftDigest,
   });
   const keepRows = patientRoute.panel.getByRole('button', { name: 'Keep current rows', exact: true });
-  await act('cancel the authored Patient-anchored route Preview', keepRows, control => control.click(), {
+  await act('cancel the Patient-subject route Preview', keepRows, control => control.click(), {
     after: () => patientRoute.panel.waitFor({ state: 'detached', timeout: ACTION_TIMEOUT_MS }),
   });
   const afterCancel = await readBuilder();
   assert.equal(afterCancel.draftVersion, sourceCheckpoint.draftVersion);
   assert.equal(afterCancel.draftDigest, sourceCheckpoint.draftDigest);
   assert.deepEqual(documentForOutput(afterCancel, outputId), sourceCheckpoint.document,
-    'Cancel must preserve the exact Condition root, authored Patient route, columns, and output identity.');
+    'Cancel must preserve the exact Condition root, Patient-subject source step, columns, and output identity.');
   const visibleAfterPatientCancel = await getCurrentRows('condition');
-  check('persistence', 'Cancel leaves the authored Condition and Patient setup unchanged', true, {
+  check('persistence', 'Cancel leaves the Condition table and Patient-subject source step unchanged', true, {
     outputId, draftVersion: afterCancel.draftVersion, draftDigest: afterCancel.draftDigest,
     route: documentForOutput(afterCancel, outputId).route,
-    patientAnchorSourceOccurrenceId: patientOccurrence.sourceOccurrenceId,
+    patientSourceNodeId: patientSourceIdentity.sourceOccurrenceId,
     visibleRows: visibleAfterPatientCancel.rows.map(row => row.values),
   });
   const { selector: applySelector } = await openRowSettings('reopen Condition row settings for focus route');
@@ -620,7 +620,7 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
     `Applied route must retain the user-selected Observation.focus inverse: ${JSON.stringify(appliedDocument.route)}`);
   const conditionNode = observationNode.children.find(child => child.resourceType === 'Condition');
   assert(conditionNode.children?.some(child => child.resourceType === 'Patient' && child.relationship === 'subject_Patient'),
-    `Applied route must preserve the exact authored Patient anchor: ${JSON.stringify(appliedDocument.route)}`);
+    `Applied route must include the exact Patient-subject path: ${JSON.stringify(appliedDocument.route)}`);
   const appliedRoute = structuredClone(appliedDocument.route);
   const appliedPreviewGrid = await collectPreviewRows(page, { timeout: ACTION_TIMEOUT_MS });
   const appliedVisibleRows = assertVisibleRows(appliedPreviewGrid, independent.focusRows, {
@@ -692,7 +692,7 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
   assert.equal(reloadedDocument.rootResourceType, 'Specimen');
   assert.equal(reloadedDocument.output.id, outputId);
   assert.deepEqual(reloadedDocument.route, appliedDocument.route,
-    'Reload must preserve selected catalog edge and authored Patient anchor occurrence identities.');
+    'Reload must preserve the selected catalog route and Patient-subject relationship identities.');
   check('persistence', 'Applied Specimen root, route identities, and exact source rows survive reload', true, {
     outputId, rootResourceType: reloadedDocument.rootResourceType, route: reloadedDocument.route,
     draftVersion: reloadedBuilder.draftVersion, draftDigest: reloadedBuilder.draftDigest,
@@ -711,7 +711,7 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
     sourceCheckpoint,
     pickerContract,
     selectedCatalogValue: specimenChoice.value,
-    canceledPatientAnchorRoute: {
+    canceledPatientSubjectRoute: {
       path: patientRoute.routeLabel,
       receiptId: patientRoute.previewIdentity.receiptId,
       rows: patientPreviewRows,
