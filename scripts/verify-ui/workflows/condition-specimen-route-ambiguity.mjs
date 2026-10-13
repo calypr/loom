@@ -575,9 +575,10 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
   assert.equal(appliedDocument.output.id, outputId, 'Apply must preserve the existing table output identity.');
   assert.equal(appliedDocument.columns.length, sourceCheckpoint.document.columns.length,
     'Connected root Apply must preserve the exact authored columns.');
-  assert(appliedDocument.route.children.some(child => child.resourceType === 'Observation' && child.relationship === 'specimen_observation'),
-    `Applied Specimen route must retain the selected reverse specimen relationship: ${JSON.stringify(appliedDocument.route)}`);
-  const observationNode = appliedDocument.route.children.find(child => child.resourceType === 'Observation');
+  const appliedObservationEdge = appliedDocument.route.children.find(child => child.resourceType === 'Observation');
+  assert(appliedObservationEdge,
+    `Applied Specimen route must retain its selected Observation relationship: ${JSON.stringify(appliedDocument.route)}`);
+  const observationNode = appliedObservationEdge;
   const selectedFocusEdge = observationNode?.children?.find(child =>
     child.resourceType === 'Condition' && child.relationship === 'focus_Condition');
   assert(selectedFocusEdge,
@@ -586,9 +587,23 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
   assert(selectedFocusRouteEdge, 'The READY root proposal must retain the exact inverse edge for the Condition anchor.');
   assert.equal(selectedFocusEdge.catalogEdgeId, selectedFocusRouteEdge.edgeId,
     'Applied route must retain the exact compiler edge from the READY Focus route proposal.');
-  const conditionNode = selectedFocusEdge;
-  assert(conditionNode.children?.some(child => child.resourceType === 'Patient' && child.relationship === 'subject_Patient'),
-    `Applied route must include the exact Patient-subject path: ${JSON.stringify(appliedDocument.route)}`);
+  assert.deepEqual(
+    [appliedObservationEdge.catalogEdgeId, selectedFocusEdge.catalogEdgeId].sort(),
+    focusRoute.rootSelectionRequest.routeRebase.map(choice => choice.edgeId).sort(),
+    'Applied route must retain both exact compiler edges from the READY Focus route proposal.',
+  );
+  const appliedPatientSource = appliedDocument.construction?.steps
+    ?.map(step => step.operation?.relatedSource)
+    .find(source => source?.source?.resourceType === 'Patient');
+  assert(appliedPatientSource,
+    'The preserved Patient IDs column must retain its compiler-backed Patient related-source route.');
+  const patientSubjectEdge = appliedPatientSource.route?.at(-1);
+  assert.equal(patientSubjectEdge?.fromResourceType, 'Condition');
+  assert.equal(patientSubjectEdge?.toResourceType, 'Patient');
+  assert.equal(patientSubjectEdge?.relationship, 'subject_Patient');
+  assert.deepEqual(appliedPatientSource.route.slice(0, -1).map(edge => edge.edgeId),
+    [appliedObservationEdge.catalogEdgeId, selectedFocusEdge.catalogEdgeId],
+    'The preserved Patient source route must extend the exact selected Specimen-to-Condition route.');
   const appliedRoute = structuredClone(appliedDocument.route);
   const appliedPreviewGrid = await collectPreviewRows(page, { timeout: ACTION_TIMEOUT_MS });
   const appliedVisibleRows = assertVisibleRows(appliedPreviewGrid, independent.focusRows, {
