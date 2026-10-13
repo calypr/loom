@@ -2,10 +2,21 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 
 const sortedRows = rows => [...rows].sort((left, right) =>
   `${left.specimenId ?? ''}\0${left.conditionId ?? ''}\0${left.patientId ?? ''}`
     .localeCompare(`${right.specimenId ?? ''}\0${right.conditionId ?? ''}\0${right.patientId ?? ''}`));
+
+const sortVisibleConditionPatientRows = rows => rows.map(row => ({
+  conditionId: row.conditionId ?? null,
+  patientId: row.patientId ?? null,
+})).sort((left, right) =>
+  `${left.conditionId ?? ''}\0${left.patientId ?? ''}`
+    .localeCompare(`${right.conditionId ?? ''}\0${right.patientId ?? ''}`));
+
+export const conditionPatientRowsMatch = (actualRows, expectedRows) =>
+  isDeepStrictEqual(sortVisibleConditionPatientRows(actualRows), sortVisibleConditionPatientRows(expectedRows));
 
 const readResources = (fixtureDir, resourceType) => {
   const path = join(fixtureDir, `${resourceType}.ndjson`);

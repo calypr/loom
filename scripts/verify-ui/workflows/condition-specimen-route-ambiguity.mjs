@@ -3,7 +3,7 @@ import { browserURL } from './builder-url.mjs';
 import { collectPreviewRows, previewHeaderIndex } from '../helpers/playwright-preview-rows.mjs';
 import { configureNativePage } from '../helpers/playwright-authoring-page.mjs';
 import { rootOption } from '../helpers/playwright-authoring.mjs';
-import { readConditionSpecimenRouteOracle } from '../helpers/condition-specimen-route-oracle.mjs';
+import { conditionPatientRowsMatch, readConditionSpecimenRouteOracle } from '../helpers/condition-specimen-route-oracle.mjs';
 
 const ACTION_TIMEOUT_MS = 5_000;
 const normalizeCell = value => value === '—' || value === '' ? null : String(value ?? '').trim();
@@ -96,16 +96,17 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
   };
   const assertVisibleRows = (grid, expected, { includesSpecimenID = false, phase }) => {
     assert.equal(grid.rowCount ?? grid.rows.length, expected.length, `${phase} must show every literal Specimen root row.`);
-    const actual = sortRows(routeRowsFromGrid(grid, { includesSpecimenID }));
-    const wanted = sortRows(expected);
     if (!includesSpecimenID) {
-      assert.deepEqual(actual.map(({ conditionId, patientId }) => ({ conditionId, patientId })),
-        wanted.map(({ conditionId, patientId }) => ({ conditionId, patientId })),
+      const actual = routeRowsFromGrid(grid, { includesSpecimenID });
+      assert.equal(conditionPatientRowsMatch(actual, expected), true,
         `${phase} must show the exact independent Condition/Patient values selected by the route oracle.`);
+      return actual;
     } else {
+      const actual = sortRows(routeRowsFromGrid(grid, { includesSpecimenID }));
+      const wanted = sortRows(expected);
       assert.deepEqual(actual, wanted, `${phase} must show exact Specimen, Condition, and Patient source IDs.`);
+      return actual;
     }
-    return actual;
   };
   const getCurrentRows = async (phase, { includePatientColumn = true } = {}) => {
     const grid = await collectPreviewRows(page, { timeout: ACTION_TIMEOUT_MS });
@@ -601,6 +602,8 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
   const patientPreviewRows = assertVisibleRows(patientRoute.grid, independent.patientSubjectRows, {
     phase: 'Patient-subject Condition-to-Specimen Preview',
   });
+  assert(!patientPreviewRows.some(row => row.patientId === 'patient-unmatched'),
+    'The unmatched Specimen must not expose its own Patient subject after rebasing the Condition-anchored Patient source.');
   const beforePatientCancel = await readBuilder();
   assert.equal(beforePatientCancel.draftVersion, sourceCheckpoint.draftVersion,
     'Automatic route Preview must not mutate the saved draft version.');
