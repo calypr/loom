@@ -58,6 +58,14 @@ func inboundPatientObservationRouteFixture(t *testing.T) (*fakeStore, *Service, 
 	return store, newTestService(t, store, config), snapshot, catalog, candidate
 }
 
+func constructionRouteTestReceipt(service *Service, snapshot capability.Snapshot, workspace authoringv2.Workspace) (*explorer.CompilationReceipt, error) {
+	prepared, err := authoringv2.PrepareWorkspaceForCompilation(workspace, service.catalog(snapshot, "patients"))
+	if err != nil {
+		return nil, err
+	}
+	return lifecycleTableShapeReceipt(snapshot, prepared), nil
+}
+
 func TestConstructionChoiceSearchAndApplyUseCompilerProvedInboundRoute(t *testing.T) {
 	store, service, snapshot, _, candidate := inboundPatientObservationRouteFixture(t)
 	search, err := service.SearchConstructionChoices(context.Background(), ConstructionChoiceSearchRequest{
@@ -167,7 +175,10 @@ func TestConstructionChoiceSearchExplainsUnsupportedObjectField(t *testing.T) {
 func TestRelatedExpandChoiceSearchPinsRouteToCompilerSupportedStage(t *testing.T) {
 	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
 	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
+		receipt, prepareErr := constructionRouteTestReceipt(service, snapshot, request.Workspace)
+		if prepareErr != nil {
+			return nil, prepareErr
+		}
 		capabilities := []explorer.ReceiptConstructionOperationChoice{{Kind: "RELATED_EXPAND", Supported: true}}
 		columns := []explorer.ReceiptConstructionStageColumn{{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}}
 		anchors := []explorer.ReceiptConstructionRelatedExpandAnchor{{AnchorColumnID: "_key", Kind: "root", ResourceType: "Patient", Label: "Original Patient"}}
@@ -454,7 +465,10 @@ func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *tes
 func TestRelatedExpandChoiceSearchRequiresCompilerSupportedSelectedStage(t *testing.T) {
 	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
 	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
+		receipt, prepareErr := constructionRouteTestReceipt(service, snapshot, request.Workspace)
+		if prepareErr != nil {
+			return nil, prepareErr
+		}
 		columns := []explorer.ReceiptConstructionStageColumn{{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}}
 		anchors := []explorer.ReceiptConstructionRelatedExpandAnchor{{AnchorColumnID: "_key", Kind: "root", ResourceType: "Patient", Label: "Original Patient"}}
 		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{"patients": {
@@ -501,7 +515,10 @@ func TestRelatedExpandChoicesCanStartAtRootOrCurrentRelatedRecord(t *testing.T) 
 		return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
 	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
+		receipt, prepareErr := constructionRouteTestReceipt(service, snapshot, request.Workspace)
+		if prepareErr != nil {
+			return nil, prepareErr
+		}
 		rootAnchor := explorer.ReceiptConstructionRelatedExpandAnchor{
 			AnchorColumnID: "_key", Kind: "root", ResourceType: "Patient", Label: "Original Patient",
 		}
@@ -602,7 +619,10 @@ func TestRelatedFieldChoicesAreStageBoundAndOnlyOfferLowerablePaths(t *testing.T
 		return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
 	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
+		receipt, prepareErr := constructionRouteTestReceipt(service, snapshot, request.Workspace)
+		if prepareErr != nil {
+			return nil, prepareErr
+		}
 		route := []recipe.ConstructionRelatedRouteStep{{
 			EdgeID: "subject-patient", FromNodeID: "patient", ToNodeID: "observation",
 			FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
@@ -692,7 +712,10 @@ func TestRelatedFieldChoicesAreStageBoundAndOnlyOfferLowerablePaths(t *testing.T
 func TestRelatedFieldChoicesRequireActiveStageIdentity(t *testing.T) {
 	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
 	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
+		receipt, prepareErr := constructionRouteTestReceipt(service, snapshot, request.Workspace)
+		if prepareErr != nil {
+			return nil, prepareErr
+		}
 		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{"patients": {
 			{ID: recipe.ConstructionSourceProjectionID, Columns: []explorer.ReceiptConstructionStageColumn{{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}}},
 		}}

@@ -683,7 +683,11 @@ func TestProposeRowDefinitionAllowsMetadataNormalization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest, err := workspace.Digest()
+	decoded, err := authoringv2.DecodeWorkspace(draft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := decoded.Digest()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -903,12 +907,16 @@ func rowProposalService(t *testing.T) (*Service, *fakeStore, capability.Snapshot
 	config.RowChoiceResolver = rowProposalChoiceResolver{}
 	config.RowChoicePlanner = rowProposalChoicePlanner{}
 	config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		prepared, prepareErr := authoringv2.PrepareWorkspaceForCompilation(request.Workspace, config.Capability.Catalog(snapshot, request.ExplorerID))
+		if prepareErr != nil {
+			return nil, prepareErr
+		}
 		receipt := nativeReceipt(snapshot)
-		receipt.IntentDigest, err = request.Workspace.Digest()
+		receipt.IntentDigest, err = prepared.Digest()
 		if err != nil {
 			return nil, err
 		}
-		receipt.NormalizedBundle, err = request.Workspace.CanonicalJSON()
+		receipt.NormalizedBundle, err = prepared.CanonicalJSON()
 		if err != nil {
 			return nil, err
 		}

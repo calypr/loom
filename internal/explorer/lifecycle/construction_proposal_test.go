@@ -328,7 +328,10 @@ func TestProposeConstructionReauthorizesNewRelatedSourceWithOmittedChangedStepHi
 func TestProposeConstructionReauthorizesRelatedExpandRouteChoice(t *testing.T) {
 	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
 	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
+		receipt, prepareErr := constructionRouteTestReceipt(service, snapshot, request.Workspace)
+		if prepareErr != nil {
+			return nil, prepareErr
+		}
 		receipt.ConstructionProposal = cloneConstructionProposalBinding(request.ConstructionProposal)
 		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{
 			"patients": testConstructionStageDescriptors(request.Workspace, "patients"),
