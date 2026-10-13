@@ -250,9 +250,48 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
     after: async () => assert.equal(await patientIDChoice.isChecked(), true),
   });
   const addPatientID = page.getByRole('button', { name: 'Add 1 selected feature', exact: true });
-  await act('preview Patient.id through Condition.subject', addPatientID, () => addPatientID.click(), {
-    after: () => page.getByTestId('construction-choice-proposal-panel').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }),
+  const fieldChoiceDialog = page.getByRole('dialog', { name: 'Choose how to add these fields', exact: true });
+  await act('open Patient.id route and form choices', addPatientID, control => control.click(), {
+    after: ({ remainingTimeout }) => fieldChoiceDialog.waitFor({ state: 'visible', timeout: remainingTimeout() }),
   });
+  assert.equal(await fieldChoiceDialog.count(), 1, 'Patient.id must open one compiler-backed route and form dialog.');
+  const routeChoices = await fieldChoiceDialog.getByRole('radio').evaluateAll(inputs => inputs.map(input => ({
+    label: input.getAttribute('aria-label') ?? '',
+    disabled: input.disabled,
+  })));
+  const directSubjectRoutes = routeChoices.filter(choice => choice.label.includes('Condition -[subject]-> Patient'));
+  assert.equal(directSubjectRoutes.length, 1,
+    `Patient.id must offer the exact compiler Condition.subject → Patient route once: ${JSON.stringify(routeChoices)}`);
+  assert.equal(directSubjectRoutes[0].disabled, false,
+    `The compiler Condition.subject → Patient route must be selectable: ${directSubjectRoutes[0].label}`);
+  const directSubjectRoute = fieldChoiceDialog.getByRole('radio', { name: directSubjectRoutes[0].label, exact: true });
+  await act('select Condition.subject route for Patient.id', directSubjectRoute,
+    async (control, { remainingTimeout }) => control.check({ timeout: remainingTimeout() }), {
+      after: async ({ remainingTimeout }) => {
+        const allForm = fieldChoiceDialog.getByRole('radio', { name: /Keep all matching values$/ });
+        await allForm.waitFor({ state: 'visible', timeout: remainingTimeout() });
+      },
+    });
+  const patientIDForms = await fieldChoiceDialog.getByRole('radio').evaluateAll(inputs => inputs.map(input => ({
+    label: input.getAttribute('aria-label') ?? '',
+    disabled: input.disabled,
+  })).filter(choice => choice.label.endsWith(': Keep all matching values')));
+  assert.equal(patientIDForms.length, 1,
+    `Patient.id must offer one ALL form choice: ${JSON.stringify(patientIDForms)}`);
+  assert.equal(patientIDForms[0].disabled, false, `Patient.id ALL form must be selectable: ${patientIDForms[0].label}`);
+  const allPatientIDValues = fieldChoiceDialog.getByRole('radio', { name: patientIDForms[0].label, exact: true });
+  await act('select ALL form for Patient.id', allPatientIDValues,
+    async (control, { remainingTimeout }) => control.check({ timeout: remainingTimeout() }), {
+      after: async () => assert.equal(await allPatientIDValues.isChecked(), true,
+        'Patient.id must preserve all matching values without deduplication.'),
+    });
+  const confirmPatientID = fieldChoiceDialog.getByRole('button', { name: 'Add 1 column', exact: true });
+  assert.equal(await confirmPatientID.count(), 1, 'The selected Patient.id route/form must expose one Add 1 column action.');
+  await act('confirm Patient.id through Condition.subject and ALL', confirmPatientID,
+    async (control, { remainingTimeout }) => control.click({ timeout: remainingTimeout() }), {
+      after: ({ remainingTimeout }) => page.getByTestId('construction-choice-proposal-panel')
+        .waitFor({ state: 'visible', timeout: remainingTimeout() }),
+    });
   const fieldProposal = page.getByTestId('construction-choice-proposal-panel');
   await page.waitForFunction(() => ['ready', 'error'].includes(
     document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus),
@@ -600,7 +639,11 @@ export const conditionSpecimenRouteAmbiguityWorkflow = async ({ page, report, ch
   });
   const addSelectedSpecimenID = page.getByRole('button', { name: 'Add 1 selected feature', exact: true });
   await act('preview Specimen.id root rows', addSelectedSpecimenID, control => control.click(), {
-    after: () => page.getByTestId('construction-choice-proposal-panel').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }),
+    after: async ({ remainingTimeout }) => {
+      assert.equal(await page.getByRole('dialog', { name: 'Choose how to add these fields', exact: true }).count(), 0,
+        'Root Specimen.id must resolve through one defaultable choice without a route/form dialog.');
+      await page.getByTestId('construction-choice-proposal-panel').waitFor({ state: 'visible', timeout: remainingTimeout() });
+    },
   });
   const specimenIDProposal = page.getByTestId('construction-choice-proposal-panel');
   await page.waitForFunction(() => ['ready', 'error'].includes(
