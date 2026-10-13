@@ -431,7 +431,7 @@ export const registry = Object.freeze([
           'select Condition.subject route for Patient.id action-to-render within budget',
           'select ALL form for Patient.id action-to-render within budget',
           'confirm Patient.id through Condition.subject and ALL action-to-render within budget',
-          'Condition.subject authors Patient ID on the exact related occurrence',
+          'Condition.subject authors Patient IDs through the exact related source route',
           'authored Patient anchor route automatically previews its exact fixture rows without saved mutation',
           'Cancel leaves the authored Condition and Patient setup unchanged',
           'focus-inbound route exposes and resolves AMBIGUOUS_ROUTE_REBASE_EDGE inline',
