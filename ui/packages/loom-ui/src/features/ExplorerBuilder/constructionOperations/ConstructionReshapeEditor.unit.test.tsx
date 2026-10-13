@@ -369,6 +369,7 @@ describe('ConstructionReshapeEditor', () => {
         ],
       },
     } satisfies ConstructionReshapeEditorProps['capabilities'];
+    expect(createReshapeEditorEntry({ construction: capabilities.baseConstruction, capabilities, kind: 'group' })).toBeUndefined();
     const relatedExpandContext = {
       project: 'project-1', explorerId: 'explorer-1', snapshotToken: 'snapshot-1', outputId: 'table-1',
       catalog: { availability: { fields: [
@@ -386,6 +387,11 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByText('Gender')).toBeInTheDocument();
     expect(screen.getByText('Examples: active · complete · in-progress')).toBeInTheDocument();
     expect(screen.queryByText(/ignored|wrong-resource|wrong-path/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('construction-reshape-choice-group'));
+    expect(screen.getByTestId('construction-reshape-source-field-choices')).toBeInTheDocument();
+    expect(screen.queryByTestId('construction-reshape-group')).not.toBeInTheDocument();
+    expect(onCandidateChange.mock.lastCall?.[0]).toBeUndefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Change row operation' }));
     fireEvent.click(screen.getByRole('button', { name: 'Group by Gender' }));
     expect(screen.getByTestId('construction-reshape-source-group')).toBeInTheDocument();
     expect(controlChecked('Group by Gender')).toBe(true);
@@ -399,9 +405,22 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByTestId('construction-source-group-summary')).toHaveTextContent('Gender and Status');
 
     cleanup();
-    renderEditor({ capabilities, initialKind: 'group', relatedExpandContext, codedPivotContext, onCandidateChange: vi.fn() });
+    const groupPreview = vi.fn();
+    renderEditor({ capabilities, initialKind: 'group', relatedExpandContext, codedPivotContext, onCandidateChange: groupPreview });
     expect(screen.getByRole('region', { name: 'Available dataset fields' })).toBeInTheDocument();
+    expect(screen.queryByTestId('construction-reshape-group')).not.toBeInTheDocument();
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
+    expect(groupPreview.mock.lastCall?.[0]).toBeUndefined();
+
+    cleanup();
+    const savedGroup: ConstructionReshapeStep = {
+      id: 'saved-group', inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: { kind: 'GROUP', group: { constructionId: 'saved-group', missingKeyPolicy: 'GROUP', keys: [], aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: 'saved-count' }] } },
+      outputs: [{ id: 'saved-count', name: 'count', label: 'Count', type: 'integer' }],
+    };
+    renderEditor({ capabilities, construction: { version: 1, steps: [savedGroup] }, editingStep: savedGroup, relatedExpandContext, codedPivotContext });
+    expect(screen.getByTestId('construction-reshape-group')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Available dataset fields' })).not.toBeInTheDocument();
   });
   it('does not offer unavailable or non-populated source choices', () => {
     const noPopulatedChoices = {
@@ -415,10 +434,12 @@ describe('ConstructionReshapeEditor', () => {
     renderEditor({ capabilities: noPopulatedChoices, initialKind: 'group' });
     expect(screen.queryByTestId('construction-reshape-source-field-choices')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Group by Empty field' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('construction-reshape-group')).toBeInTheDocument();
 
     cleanup();
     renderEditor({ initialKind: 'group' });
     expect(screen.queryByTestId('construction-reshape-source-field-choices')).not.toBeInTheDocument();
+    expect(screen.getByTestId('construction-reshape-group')).toBeInTheDocument();
   });
   it('rejects source-group choices when source input belongs to another stage or selected stage is constructed', () => {
     const sourceChoice = {

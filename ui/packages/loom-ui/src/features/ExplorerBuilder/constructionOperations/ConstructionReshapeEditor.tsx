@@ -1545,6 +1545,9 @@ export const createReshapeEditorEntry = (args: {
   readonly selectedColumns?: ReadonlyArray<string>;
 }): ConstructionReshapeEditorEntry | undefined => {
   const stage = args.capabilities.selectedStage;
+  if (args.kind === 'group' && args.capabilities.sourceInput?.supported &&
+    sourceInputMatchesStage(args.capabilities.sourceInput.stageId, stage) &&
+    args.capabilities.sourceInput.choices.some((choice) => choice.isPopulated)) return undefined;
   if (args.kind === 'expand' && (!capabilityFor(stage, 'EXPAND').supported || !hasPublicScalarListColumn(stage))) return undefined;
   if (args.kind === 'group' && !capabilityFor(stage, 'GROUP').supported) return undefined;
   const form = args.kind === 'group'
@@ -1685,7 +1688,9 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
       automaticallySelectedPivotPairs.current.delete(pivotSelectionIdentity(form, stage.id));
     }
     setForm(next);
-    const evaluation = evaluate(next);
+    const evaluation = next.kind === 'group' && !editingStep && availableSourceFields.length > 0
+      ? { kind: 'incomplete' as const }
+      : evaluate(next);
     setContractUnavailable(evaluation.kind === 'schema-pending');
     onCandidateChange(evaluation.kind === 'ready' ? evaluation.intent : undefined);
   };
@@ -1902,17 +1907,19 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
       {form.kind === 'group' ? (
         <>
           {!editingStep ? <SourceFieldChoices fields={availableSourceFields} disabled={disabled} onChoose={chooseSourceField} /> : null}
-          <GroupEditor
-            key={`${id}:group:${contextKey}`}
-            form={form}
-            stage={groupStage}
-            codedPivotContext={groupCodedValuesSupported ? props.codedPivotContext : undefined}
-            codedPivotSupported={groupCodedValuesSupported}
-            supported={groupSupport.supported || groupCodedValuesSupported}
-            reason={groupSupport.supported || groupCodedValuesSupported ? '' : groupSupport.reason}
-            disabled={disabled}
-            onChange={(next) => updateForm(next)}
-          />
+          {(editingStep || availableSourceFields.length === 0) ? (
+            <GroupEditor
+              key={`${id}:group:${contextKey}`}
+              form={form}
+              stage={groupStage}
+              codedPivotContext={groupCodedValuesSupported ? props.codedPivotContext : undefined}
+              codedPivotSupported={groupCodedValuesSupported}
+              supported={groupSupport.supported || groupCodedValuesSupported}
+              reason={groupSupport.supported || groupCodedValuesSupported ? '' : groupSupport.reason}
+              disabled={disabled}
+              onChange={(next) => updateForm(next)}
+            />
+          ) : null}
         </>
       ) : null}
 
