@@ -146,7 +146,10 @@ export const relatedExpandFieldLifecycleWorkflow = async ({ page, action, check,
   const rootGrid = await readGrid(page);
   const rootIDColumn = sourceField(document, 'id');
   assert(rootIDColumn?.label, 'Observation root must retain its public ID column.');
-  const renderedRootIDs = rootGrid.rows.map(row => row[rootGrid.headers.indexOf(rootIDColumn.label)]).sort();
+  const rootIDColumnIndex = rootGrid.headers.findIndex(header =>
+    header.toLowerCase() === rootIDColumn.label.toLowerCase());
+  assert(rootIDColumnIndex >= 0, `Rendered table is missing the Observation ID header: ${JSON.stringify(rootGrid.headers)}`);
+  const renderedRootIDs = rootGrid.rows.map(row => row[rootIDColumnIndex]).sort();
   assert.deepEqual(renderedRootIDs, rootIDs, 'Native Observation root rows must equal the exact fixture IDs.');
 
   const editor = page.locator('[aria-label="Add columns editor"]');
