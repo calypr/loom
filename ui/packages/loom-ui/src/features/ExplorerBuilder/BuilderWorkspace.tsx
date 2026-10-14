@@ -1312,10 +1312,19 @@ const BuilderWorkspaceContent = ({
       table?.document.rootResourceType ?? '',
       selectedRouteContext?.nodeId,
     );
-    const searchableSources = [{ kind: 'ALL' as const, key: 'all', label: 'All accessible resources' }, ...sources];
     const current = constructionLifecycle.capabilities;
+    const currentStage = current.status === 'ready' ? current.response.selectedStage : undefined;
+    const appendStageIsCurrent = current.status === 'ready' && currentStage?.id ===
+      constructionAppendStageFor(current.response.baseConstruction, table?.document.rows);
+    const relatedSourceSupported = !hasUnsupportedSavedSourceColumns && !editingConstructionStep && appendStageIsCurrent &&
+      currentStage?.rowIdentityColumn &&
+      currentStage.capabilities.some((capability) => capability.kind === 'RELATED_SOURCE' && capability.supported);
+    const visibleSources = addColumnsView === 'fields' && !relatedSourceSupported
+      ? sources.filter((source) => source.kind === 'ROOT')
+      : sources;
+    const searchableSources = [{ kind: 'ALL' as const, key: 'all', label: 'All accessible resources' }, ...visibleSources];
     if (current.status !== 'ready' ||
-        current.response.selectedStage.id !== constructionAppendStageFor(current.response.baseConstruction, table?.document.rows) ||
+        !appendStageIsCurrent ||
         !current.response.selectedStage.activeRelatedRecord ||
         !current.response.selectedStage.capabilities.some((capability) => capability.kind === 'RELATED_FIELD' && capability.supported)) return searchableSources;
     const anchor = current.response.selectedStage.activeRelatedRecord;
@@ -1326,7 +1335,7 @@ const BuilderWorkspaceContent = ({
       resourceType: anchor.targetResourceType,
       sourceNodeId: undefined,
     }, ...searchableSources];
-  }, [state.catalog, table?.document.rootResourceType, selectedRouteContext?.nodeId, constructionLifecycle.capabilities]);
+  }, [state.catalog, table?.document.rootResourceType, table?.document.rows, selectedRouteContext?.nodeId, constructionLifecycle.capabilities, addColumnsView, hasUnsupportedSavedSourceColumns, editingConstructionStep]);
   const addSourceContext = JSON.stringify([
     state.explorerId,
     state.catalog.snapshotToken,
@@ -3210,6 +3219,9 @@ const BuilderWorkspaceContent = ({
   const capabilityStage = constructionLifecycle.capabilities.status === 'ready'
     ? constructionLifecycle.capabilities.response.selectedStage
     : undefined;
+  const constructionCapabilitiesResponse = constructionLifecycle.capabilities.status === 'ready'
+    ? constructionLifecycle.capabilities.response
+    : undefined;
   const relatedSourceCapability = capabilityStage?.capabilities.find(
     (candidate) => candidate.kind === 'RELATED_SOURCE',
   );
@@ -3318,6 +3330,20 @@ const BuilderWorkspaceContent = ({
               : 'Loom is checking whether this stage supports related-source fields.'
         ),
       };
+  const activeRelatedFieldCapability = capabilityStage?.capabilities.find(
+    (candidate) => candidate.kind === 'RELATED_FIELD',
+  );
+  const activeRelatedFieldGroupAvailable = !relatedSourceUnavailableReason &&
+    capabilityIsForAppendStage &&
+    Boolean(capabilityStage?.activeRelatedRecord) &&
+    activeRelatedFieldCapability?.supported === true;
+  const activeRelatedRecordForFields = activeRelatedFieldGroupAvailable
+    ? capabilityStage?.activeRelatedRecord
+    : undefined;
+  const showActiveRelatedFieldGroup = addColumnsView === 'fields' &&
+    selectedAddSource?.kind === 'ALL' &&
+    !relatedSourceAvailability.supported &&
+    activeRelatedFieldGroupAvailable;
   const sourceSelectionDisabledReason = pendingCommands > 0
     ? 'Loom is finishing the previous table update. Field selection will return when the draft refresh completes.'
     : state.reconciliation === 'pending'
@@ -3525,6 +3551,7 @@ const BuilderWorkspaceContent = ({
                 {selectedAddSource?.kind === 'EXACT_RELATED' && constructionLifecycle.capabilities.status === 'ready' ? (
                   <RelatedFieldEditor
                     key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${constructionLifecycle.capabilities.response.selectedStage.id}`}
+                    presentation="standalone"
                     project={projectId}
                     explorerId={state.explorerId}
                     authResourcePath={authResourcePath}
@@ -3536,29 +3563,55 @@ const BuilderWorkspaceContent = ({
                     onCandidateChange={constructionLifecycle.onCandidateChange}
                   />
                 ) : (
-                  <ConceptCatalog
-                    key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${selectedAddSource?.key ?? 'root'}:${addSourceRouteContext?.occurrenceId ?? 'unscoped'}`}
-                    project={projectId}
-                    explorerId={state.explorerId}
-                    authResourcePath={authResourcePath}
-                    snapshotToken={state.catalog.snapshotToken}
-                    outputId={table.outputId}
-                    rowRoot={table.document.rootResourceType}
-                    resourceType={selectedAddSource?.resourceType}
-                    sourceNodeId={selectedAddSource?.sourceNodeId}
-                    routeContext={addSourceRouteContext}
-                    layout="panel"
-                    view={addColumnsView}
-                    catalog={state.catalog}
-                    sourceProjectionAvailability={sourceAvailability}
-                    relatedSourceAvailability={relatedSourceAvailability}
-                    suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}
-                    disabledReason={sourceSelectionDisabledReason}
-                    disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                    groupedRowValuePolicy={groupedRowValuePolicy}
-                    onAddSelected={addSelectedFeatures}
-                    onInspectRouteCoverage={inspectRelatedRouteCoverage}
-                  />
+                  <>
+                    <ConceptCatalog
+                      key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${selectedAddSource?.key ?? 'root'}:${addSourceRouteContext?.occurrenceId ?? 'unscoped'}`}
+                      project={projectId}
+                      explorerId={state.explorerId}
+                      authResourcePath={authResourcePath}
+                      snapshotToken={state.catalog.snapshotToken}
+                      outputId={table.outputId}
+                      rowRoot={table.document.rootResourceType}
+                      resourceType={selectedAddSource?.resourceType}
+                      sourceNodeId={selectedAddSource?.sourceNodeId}
+                      routeContext={addSourceRouteContext}
+                      layout="panel"
+                      view={addColumnsView}
+                      catalog={state.catalog}
+                      sourceProjectionAvailability={sourceAvailability}
+                      relatedSourceAvailability={relatedSourceAvailability}
+                      suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}
+                      disabledReason={sourceSelectionDisabledReason}
+                      disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                      groupedRowValuePolicy={groupedRowValuePolicy}
+                      onAddSelected={addSelectedFeatures}
+                      onInspectRouteCoverage={inspectRelatedRouteCoverage}
+                    />
+                    {showActiveRelatedFieldGroup && constructionCapabilitiesResponse && activeRelatedRecordForFields ? (
+                      <section
+                        className="mx-3 mb-4 rounded-lg border border-slate-200 bg-white p-4 sm:mx-5"
+                        data-source-node-id={activeRelatedRecordForFields.targetNodeId}
+                        data-testid="construction-add-columns-active-related-fields"
+                      >
+                        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Fields from {activeRelatedRecordForFields.targetResourceType}
+                        </h3>
+                        <RelatedFieldEditor
+                          key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${constructionCapabilitiesResponse.selectedStage.id}`}
+                          presentation="source-group"
+                          project={projectId}
+                          explorerId={state.explorerId}
+                          authResourcePath={authResourcePath}
+                          snapshotToken={state.catalog.snapshotToken}
+                          outputId={table.outputId}
+                          construction={table.document.construction ?? constructionCapabilitiesResponse.baseConstruction}
+                          capabilities={constructionCapabilitiesResponse}
+                          disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+                          onCandidateChange={constructionLifecycle.onCandidateChange}
+                        />
+                      </section>
+                    ) : null}
+                  </>
                 )}
                 {addColumnsView === 'coded' && table.document.frames?.length ? (
                   <details className="rounded-md border border-slate-200 bg-white p-3">
@@ -3755,6 +3808,7 @@ const BuilderWorkspaceContent = ({
       ) : constructionLifecycle.capabilities.status === 'ready' ? (
         <RelatedFieldEditor
           key={`${ownerKey}:${editingRelatedFieldStep.id}`}
+          presentation="standalone"
           project={projectId}
           explorerId={state.explorerId}
           authResourcePath={authResourcePath}

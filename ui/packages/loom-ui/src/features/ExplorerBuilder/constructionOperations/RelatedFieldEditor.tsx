@@ -81,6 +81,7 @@ const candidateFor = (
 };
 
 export const RelatedFieldEditor = ({
+  presentation,
   project,
   explorerId,
   authResourcePath,
@@ -93,6 +94,7 @@ export const RelatedFieldEditor = ({
   onCandidateChange,
   onCancel,
 }: {
+  readonly presentation: 'standalone' | 'source-group';
   readonly project: string;
   readonly explorerId: string;
   readonly authResourcePath?: string;
@@ -205,13 +207,18 @@ export const RelatedFieldEditor = ({
   }
 
   return (
-    <div className="grid gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4" data-testid="construction-related-field-editor">
-      <div>
-        <h4 className="font-semibold text-slate-900">From this row’s {stage.activeRelatedRecord.targetResourceType}</h4>
-        <p className="mt-1 text-sm text-slate-600">Fields come from the exact related record that defines this row. Missing records produce an empty value. Preview shows the resulting values.</p>
-      </div>
+    <div
+      className={presentation === 'standalone' ? 'grid gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4' : 'grid gap-4'}
+      data-testid="construction-related-field-editor"
+    >
+      {presentation === 'standalone' ? (
+        <div>
+          <h4 className="font-semibold text-slate-900">From this row’s {stage.activeRelatedRecord.targetResourceType}</h4>
+          <p className="mt-1 text-sm text-slate-600">Fields come from the exact related record that defines this row. Missing records produce an empty value. Preview shows the resulting values.</p>
+        </div>
+      ) : null}
       <label className="grid gap-1 text-sm font-medium text-slate-800">
-        Find a field
+        {presentation === 'standalone' ? 'Find a field' : 'Filter these fields (optional)'}
         <input value={query} disabled={disabled} onChange={(event) => {
           requestVersion.current += 1;
           moreController.current?.abort();

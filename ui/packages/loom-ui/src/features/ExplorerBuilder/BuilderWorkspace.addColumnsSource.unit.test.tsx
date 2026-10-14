@@ -28,6 +28,7 @@ import type {
   ExplorerBuilderPreviewResult,
   ExplorerBuilderState,
   ExplorerBuilderWorkspace,
+  RelatedFieldChoiceSearchResponse,
   ExplorerRowDefinition,
 } from '../../types';
 import BuilderWorkspace from './BuilderWorkspace';
@@ -671,7 +672,44 @@ describe('BuilderWorkspace Add columns source selection', () => {
     });
   });
 
-  it('labels the exact active related record so it is distinct from current table rows', async () => {
+  it('shows populated root and exact active related fields without exposing unsupported related scopes', async () => {
+    const patientBirthDate = fieldCandidate('patient-birth-date', 'patient-node', 'Patient', 'birthDate');
+    const relatedExpandConstruction: Construction = {
+      version: 1,
+      steps: [{
+        id: 'related-expand-step',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        outputs: [],
+        operation: {
+          kind: 'RELATED_EXPAND',
+          relatedExpand: {
+            anchorColumnId: 'patient-id',
+            choiceId: 'patient-medication-administration-route',
+            targetNodeId: 'medicationadministration-node',
+            targetResourceType: 'MedicationAdministration',
+            route: [],
+            contributorRule: { policy: 'ALL_MATCHES' },
+            emptyPolicy: 'PRESERVE_PARENT',
+            relatedRecordColumnId: 'medicationadministration-id',
+          },
+        },
+      }],
+    };
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: {
+        ...builderState,
+        workspace: {
+          ...workspace,
+          documents: workspace.documents.map((document) => ({
+            ...document,
+            construction: relatedExpandConstruction,
+          })),
+        },
+        catalog: { ...catalog, candidates: [patientBirthDate] },
+      },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
     mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
       readonly snapshotToken: string;
       readonly expectedDraftVersion: number;
@@ -684,7 +722,11 @@ describe('BuilderWorkspace Add columns source selection', () => {
         inputStageId: '',
         rowIdentityColumn: 'medicationadministration-row-key',
         columns: [],
-        capabilities: [{ kind: 'RELATED_FIELD', supported: true }],
+        capabilities: [
+          { kind: 'RELATED_SOURCE', supported: false, reasonCode: 'NO_SOURCE_ROW_ANCHOR', reason: 'No retained root source anchor.' },
+          { kind: 'RELATED_EXPAND', supported: false, reasonCode: 'NO_RELATED_ROUTE', reason: 'No additional related expansion route is available.' },
+          { kind: 'RELATED_FIELD', supported: true },
+        ],
         activeRelatedRecord: {
           targetNodeId: 'medicationadministration-node',
           targetResourceType: 'MedicationAdministration',
@@ -697,11 +739,51 @@ describe('BuilderWorkspace Add columns source selection', () => {
         draftDigest: args.expectedDraftDigest,
         outputId: args.outputId,
         stageId: args.stageId,
-        baseConstruction: { version: 1, steps: [] },
-        stages: [selectedStage],
+        baseConstruction: relatedExpandConstruction,
+        stages: [
+          { ...selectedStage, id: 'source_projection', rowIdentityColumn: 'source-row-id', activeRelatedRecord: undefined },
+          selectedStage,
+        ],
         selectedStage,
+        sourceProjectionAvailability: { stageId: args.stageId, supported: true },
       };
     });
+    const relatedFieldChoices: RelatedFieldChoiceSearchResponse['choices'] = [
+      {
+        choiceId: 'medication-administration-medication',
+        label: 'Medication',
+        source: {
+          kind: 'FIELD', candidateId: 'medication-administration-medication',
+          nodeId: 'medicationadministration-node', resourceType: 'MedicationAdministration',
+          path: 'medication', cardinality: 'optional_one', logicalType: 'CodeableReference',
+        },
+      },
+      {
+        choiceId: 'medication-administration-effective',
+        label: 'Effective date',
+        source: {
+          kind: 'FIELD', candidateId: 'medication-administration-effective',
+          nodeId: 'medicationadministration-node', resourceType: 'MedicationAdministration',
+          path: 'effective', cardinality: 'optional_one', logicalType: 'dateTime',
+        },
+      },
+    ];
+    mockLoomClient.searchRelatedFieldChoices.mockReset().mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+      readonly outputId: string;
+      readonly stageId: string;
+    }) => ({
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      stageId: args.stageId,
+      complete: true,
+      truncated: false,
+      choices: relatedFieldChoices,
+    }));
 
     const { unmount } = render(
       <BuilderWorkspace
@@ -714,17 +796,45 @@ describe('BuilderWorkspace Add columns source selection', () => {
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
     const source = await screen.findByRole('group', { name: 'Add columns source' });
     const searchScope = within(source).getByRole('group', { name: 'Search scope' });
+    const codedTab = screen.getByRole('tab', { name: 'Coded values' });
+    fireEvent.click(codedTab);
+    expect(codedTab).toHaveAttribute('aria-selected', 'true');
     const exactRelated = within(searchScope).getByRole('button', {
       name: 'MedicationAdministration — this row’s related record, Related record for this row',
     });
 
     expect(exactRelated.textContent).toContain('MedicationAdministration — this row’s related record');
     expect(exactRelated.getAttribute('data-source-kind')).toBe('EXACT_RELATED');
-    fireEvent.click(exactRelated);
-    expect(exactRelated).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('tab', { name: 'Other fields' })).toHaveAttribute('aria-selected', 'true');
-    expect(await screen.findByRole('heading', { name: 'From this row’s MedicationAdministration' })).toBeInTheDocument();
+    const relatedResourceMenu = within(source).getByRole('group', { name: 'Related resources' });
+    fireEvent.click(within(relatedResourceMenu).getByText('Related resources (2)'));
+    const codedRelatedScope = within(relatedResourceMenu).getByRole('button', { name: /DiagnosticReport/ });
+    fireEvent.click(codedRelatedScope);
+    expect(codedRelatedScope).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('tab', { name: 'Other fields' }));
+    expect(within(searchScope).getByRole('button', {
+      name: 'All accessible resources, Search coded concepts and fields across the dataset',
+    })).toHaveAttribute('aria-pressed', 'true');
+    expect(await screen.findByRole('checkbox', { name: 'Select Patient.birthDate' })).toBeEnabled();
+    const activeRelatedGroup = await screen.findByTestId('construction-add-columns-active-related-fields');
+    expect(activeRelatedGroup).toHaveAttribute('data-source-node-id', 'medicationadministration-node');
+    expect(activeRelatedGroup.textContent).toContain('Fields from MedicationAdministration');
     await waitFor(() => expect(mockLoomClient.searchRelatedFieldChoices).toHaveBeenCalledTimes(1));
+    const relatedFieldsList = within(activeRelatedGroup).getByRole('group', { name: 'Fields from this related record' });
+    expect(within(relatedFieldsList).getByRole('button', { name: /Medication/ })).toBeInTheDocument();
+    expect(within(relatedFieldsList).getByRole('button', { name: /Effective date/ })).toBeInTheDocument();
+    expect(within(searchScope).queryByRole('button', { name: /DiagnosticReport/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Coded values' }));
+    expect(within(screen.getByRole('group', { name: 'Related resources' })).getByRole('button', { name: /DiagnosticReport/ })).toBeInTheDocument();
+    const codedExactRelated = within(screen.getByRole('group', { name: 'Search scope' })).getByRole('button', {
+      name: 'MedicationAdministration — this row’s related record, Related record for this row',
+    });
+    fireEvent.click(codedExactRelated);
+    expect(screen.getByRole('tab', { name: 'Other fields' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByTestId('construction-add-columns-active-related-fields')).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'From this row’s MedicationAdministration' })).toBeInTheDocument();
+    await waitFor(() => expect(mockLoomClient.searchRelatedFieldChoices).toHaveBeenCalledTimes(2));
+    expect(codedExactRelated).toHaveAttribute('aria-pressed', 'true');
 
     fireEvent.click(screen.getByTestId('construction-close-operation-editor'));
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
@@ -740,7 +850,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
     });
     fireEvent.click(reopenedExactRelated);
     expect(screen.getByRole('tab', { name: 'Other fields' })).toHaveAttribute('aria-selected', 'true');
-    await waitFor(() => expect(mockLoomClient.searchRelatedFieldChoices).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockLoomClient.searchRelatedFieldChoices).toHaveBeenCalledTimes(3));
     fireEvent.click(screen.getByRole('tab', { name: 'Coded values' }));
     expect(screen.getByRole('tab', { name: 'Coded values' })).toHaveAttribute('aria-selected', 'true');
     expect(reopenedExactRelated).toHaveAttribute('aria-pressed', 'false');
