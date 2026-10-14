@@ -209,3 +209,94 @@ func TestSourceGroupPrunesUnusedRelatedSetAndKeepsFilters(t *testing.T) {
 		}
 	}
 }
+
+func TestSourceGroupPrunesUnusedSetsForRepeatedRootProjections(t *testing.T) {
+	repeated := func(name string, steps ...fhirschema.SelectorStep) ir.PhysicalProjection {
+		return ir.PhysicalProjection{Name: name, Expression: &ir.PhysicalExpression{
+			Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality,
+			NullBehavior: ir.PhysicalPreserveNull,
+			Extract: &ir.PhysicalExtract{
+				Source: ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}, ResourceType: "Condition",
+				Selector: fhirschema.Selector{Steps: steps}, ExecutionMode: ir.PhysicalSelectorConditionalArray,
+			},
+		}}
+	}
+	set := func(variable, source string) *ir.PhysicalSet {
+		captures := []string{"root"}
+		if source != "" {
+			captures = append(captures, source)
+		}
+		return &ir.PhysicalSet{Variable: variable, SourceSetVariable: source,
+			Subplan: ir.PhysicalSubplan{Captures: captures}}
+	}
+	plan := ir.PhysicalPlan{Operations: []ir.PhysicalOperation{
+		{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
+		{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+			Operator: "EQUALS", Left: ir.PhysicalValue{Variable: "root", Path: []string{"project"}}, Right: &ir.PhysicalValue{BindKey: "project"},
+		}}},
+		{Kind: ir.PhysicalSetOp, Set: set("unused_parent", "")},
+		{Kind: ir.PhysicalSetOp, Set: set("unused_child", "unused_parent")},
+		{Kind: ir.PhysicalSetOp, Set: set("live_parent", "")},
+		{Kind: ir.PhysicalSetOp, Set: set("live_child", "live_parent")},
+		{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{
+			Kind: ir.PhysicalExistsPredicate, Exists: &ir.PhysicalSubplan{Captures: []string{"live_child"}},
+		}}},
+		{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{
+			{Name: "onset", Value: ir.PhysicalValue{Variable: "root", Path: []string{"payload", "onsetString"}}},
+			repeated("code", fhirschema.SelectorStep{Field: "code"}, fhirschema.SelectorStep{Field: "coding", Iterate: true}, fhirschema.SelectorStep{Field: "code"}),
+			repeated("category", fhirschema.SelectorStep{Field: "category", Iterate: true}, fhirschema.SelectorStep{Field: "coding", Iterate: true}, fhirschema.SelectorStep{Field: "code"}),
+			{Name: "unused", Value: ir.PhysicalValue{Variable: "unused_child"}},
+		}}},
+	}}
+	sequence := &ir.PhysicalStageSequence{
+		SourceStageID: "source_projection",
+		Stages: []ir.PhysicalConstructionStage{{
+			ID: "group", InputStageID: "source_projection", Kind: ir.PhysicalStageGroupOp,
+			Group: &ir.PhysicalStageGroup{
+				Keys: []ir.PhysicalStageGroupKey{{InputColumn: "onset"}},
+				RowValues: []ir.PhysicalStageRowValue{
+					{InputColumn: "code", Policy: "ALL"}, {InputColumn: "category", Policy: "ALL"},
+				},
+			},
+		}},
+	}
+
+	pruneUnusedSourceGroupProjections(&plan, sequence)
+	sets, filters := map[string]bool{}, 0
+	var sourceReturn *ir.PhysicalReturn
+	for _, operation := range plan.Operations {
+		switch operation.Kind {
+		case ir.PhysicalSetOp:
+			sets[operation.Set.Variable] = true
+		case ir.PhysicalFilterOp:
+			filters++
+		case ir.PhysicalReturnOp:
+			sourceReturn = operation.Return
+		}
+	}
+	for _, variable := range []string{"live_parent", "live_child"} {
+		if !sets[variable] {
+			t.Errorf("live source set %q was pruned", variable)
+		}
+	}
+	for _, variable := range []string{"unused_parent", "unused_child"} {
+		if sets[variable] {
+			t.Errorf("unused source set %q was retained", variable)
+		}
+	}
+	if filters != 2 {
+		t.Fatalf("source filters = %d, want membership and match filters retained", filters)
+	}
+	if sourceReturn == nil || len(sourceReturn.Projections) != 3 {
+		t.Fatalf("source return = %#v, want group key and two row-value projections", sourceReturn)
+	}
+	for _, projection := range sourceReturn.Projections {
+		if projection.Name != "code" && projection.Name != "category" {
+			continue
+		}
+		if projection.Expression == nil || projection.Expression.Cardinality != ir.PhysicalArrayCardinality ||
+			projection.Expression.Extract == nil || projection.Expression.Extract.Source.Variable != "root" {
+			t.Errorf("repeated root projection %q changed: %#v", projection.Name, projection)
+		}
+	}
+}

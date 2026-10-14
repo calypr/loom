@@ -1143,21 +1143,35 @@ func directRootCategoryProjection(projection ir.PhysicalProjection, root string)
 		return projection.Value.Variable == root && projection.Value.BindKey == "" && len(projection.Value.Path) > 0
 	}
 	expression := projection.Expression
-	if expression.Kind != ir.PhysicalExtractExpression || expression.Cardinality != ir.PhysicalScalarCardinality || expression.Extract == nil {
+	if expression.Kind != ir.PhysicalExtractExpression || expression.Extract == nil {
 		return false
 	}
 	extract := expression.Extract
-	if extract.ExecutionMode != ir.PhysicalSelectorDirectScalar || extract.Source.Variable != root || extract.Source.BindKey != "" ||
+	if extract.Source.Variable != root || extract.Source.BindKey != "" ||
 		len(extract.Source.Path) == 0 || len(extract.Fallbacks) != 0 || extract.Prepared != nil || extract.Distinct ||
 		extract.UnitNormalization != nil || extract.Selector.Filter != nil || len(extract.Selector.Steps) == 0 {
 		return false
 	}
+	var mode ir.PhysicalSelectorExecutionMode
+	switch expression.Cardinality {
+	case ir.PhysicalScalarCardinality:
+		mode = ir.PhysicalSelectorDirectScalar
+	case ir.PhysicalArrayCardinality:
+		mode = ir.PhysicalSelectorConditionalArray
+	default:
+		return false
+	}
+	if extract.ExecutionMode != mode {
+		return false
+	}
+	hasIteration := false
 	for _, step := range extract.Selector.Steps {
-		if step.Field == "" || step.Iterate || step.Index != nil {
+		if step.Field == "" || step.Index != nil || (expression.Cardinality == ir.PhysicalScalarCardinality && step.Iterate) {
 			return false
 		}
+		hasIteration = hasIteration || step.Iterate
 	}
-	return true
+	return expression.Cardinality != ir.PhysicalArrayCardinality || hasIteration
 }
 
 func terminalKeylessCountRowsOnly(sequence *ir.PhysicalStageSequence) bool {
