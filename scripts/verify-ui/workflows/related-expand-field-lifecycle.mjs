@@ -274,13 +274,8 @@ export const relatedExpandFieldLifecycleWorkflow = async ({ page, action, check,
       assert.equal(await currentRowsSource.getAttribute('aria-pressed'), 'true');
     });
   }
-  const rawFields = editor.getByTestId('feature-catalog-raw-fields');
-  if (!await rawFields.evaluate(element => element.open)) {
-    await click('open advanced Observation fields after RelatedExpand', rawFields.locator(':scope > summary'), () =>
-      page.waitForFunction(() => document.querySelector('[data-testid="feature-catalog-raw-fields"]')?.open === true,
-        undefined, { timeout: ACTION_TIMEOUT_MS }));
-  }
   const statusCandidate = editor.getByRole('checkbox', { name: 'Select Observation.status', exact: true });
+  await statusCandidate.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
   assert.equal(await statusCandidate.isEnabled(), true,
     'The post-expansion sourceProjectionAvailability result must enable Observation.status from Current table rows.');
   await click('select compiler-issued Observation.status from post-expansion rows', statusCandidate,
