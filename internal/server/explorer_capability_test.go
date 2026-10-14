@@ -1,10 +1,12 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -122,6 +124,89 @@ func TestAuthoringV2CatalogExposesCandidateFieldPath(t *testing.T) {
 	fieldSource, err := generated.ConstructionChoice.Source.AsFieldChoiceSource()
 	if err != nil || fieldSource.Kind != loomapi.FieldChoiceSourceKindFIELD || fieldSource.CandidateId != "c_patient_birth_date" || fieldSource.Path != "birthDate" {
 		t.Fatalf("generated field choice source=%#v err=%v", fieldSource, err)
+	}
+}
+
+func TestAuthoringV2CatalogExposesCandidatePopulationWithoutChangingSnapshotIdentity(t *testing.T) {
+	snapshot := capability.NewSnapshot(
+		capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a"},
+		capability.Policy{}, capability.StatusReady, true, false,
+		[]capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true}},
+		nil,
+		[]capability.Candidate{
+			{
+				ID: "c_patient_birth_date", NodeID: "n_patient", ResourceType: "Patient",
+				FieldPath: "birthDate", Label: "Birth date", LogicalType: "date",
+				Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Populated: true,
+			},
+			{
+				ID: "c_patient_deceased", NodeID: "n_patient", ResourceType: "Patient",
+				FieldPath: "deceasedBoolean", Label: "Deceased", LogicalType: "boolean",
+				Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Populated: false,
+			},
+		},
+		nil,
+	)
+	beforeToken := snapshot.Token
+	beforeCanonicalPayload := append([]byte(nil), snapshot.CanonicalPayload()...)
+
+	wire := authoringV2Catalog(snapshot, "default")
+	if len(wire.Candidates) != 2 {
+		t.Fatalf("catalog candidates = %#v", wire.Candidates)
+	}
+	if snapshot.Token != beforeToken || !bytes.Equal(snapshot.CanonicalPayload(), beforeCanonicalPayload) {
+		t.Fatal("public candidate population projection changed the immutable capability snapshot identity")
+	}
+
+	populatedByID := map[string]bool{}
+	for _, candidate := range wire.Candidates {
+		encoded, err := json.Marshal(candidate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var payload map[string]json.RawMessage
+		if err := json.Unmarshal(encoded, &payload); err != nil {
+			t.Fatal(err)
+		}
+		var populated bool
+		if err := json.Unmarshal(payload["populated"], &populated); err != nil {
+			t.Fatalf("candidate %q omitted its population flag: %s (err=%v)", candidate.ID, encoded, err)
+		}
+		populatedByID[candidate.ID] = populated
+
+		var generated loomapi.CatalogCandidate
+		if err := json.Unmarshal(encoded, &generated); err != nil {
+			t.Fatalf("generated candidate boundary rejected population field: %v", err)
+		}
+		if generated.Populated != populated {
+			t.Errorf("generated candidate %q populated=%v, want %v", candidate.ID, generated.Populated, populated)
+		}
+	}
+	if populatedByID["c_patient_birth_date"] != true || populatedByID["c_patient_deceased"] != false {
+		t.Fatalf("wire candidate population flags = %#v", populatedByID)
+	}
+
+	embeddedSpec, err := loomapi.GetSpecJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var specification struct {
+		Components struct {
+			Schemas map[string]struct {
+				Required   []string                   `json:"required"`
+				Properties map[string]json.RawMessage `json:"properties"`
+			} `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(embeddedSpec, &specification); err != nil {
+		t.Fatal(err)
+	}
+	candidateSchema := specification.Components.Schemas["CatalogCandidate"]
+	if _, ok := candidateSchema.Properties["populated"]; !ok {
+		t.Fatal("embedded CatalogCandidate schema omits populated")
+	}
+	if !slices.Contains(candidateSchema.Required, "populated") {
+		t.Fatalf("embedded CatalogCandidate required fields omit populated: %#v", candidateSchema.Required)
 	}
 }
 

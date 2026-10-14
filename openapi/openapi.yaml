@@ -3074,7 +3074,7 @@ components:
     CatalogCandidate:
       type: object
       additionalProperties: false
-      required: [candidateId, nodeId, fieldPath, label, logicalType, cardinality, repeated, filterable, chartable, projectionModes, defaultProjectionMode, aggregateOperations, transformations, valueTransformations]
+      required: [candidateId, nodeId, fieldPath, label, logicalType, cardinality, repeated, filterable, chartable, populated, projectionModes, defaultProjectionMode, aggregateOperations, transformations, valueTransformations]
       properties:
         candidateId: {type: string, minLength: 1}
         nodeId: {type: string, minLength: 1}
@@ -3085,6 +3085,7 @@ components:
         repeated: {type: boolean}
         filterable: {type: boolean}
         chartable: {type: boolean}
+        populated: {type: boolean, description: Whether this compiler-proven field has positive population evidence in the current authorized dataset snapshot.}
         projectionModes:
           type: array
           items: {$ref: '#/components/schemas/ProjectionMode'}
