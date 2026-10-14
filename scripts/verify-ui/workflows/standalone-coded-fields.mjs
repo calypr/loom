@@ -106,7 +106,9 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
     assert.equal(await sourceGroup.count(), 1, `${label} must resolve to its exact compiler source-node group.`);
     const card = sourceGroup.locator(':scope > article').filter({ hasText: valueField });
     assert.equal(await card.count(), 1, `${label} must resolve to one card by its exact typed value field.`);
-    const valueFieldFact = card.locator('details > dl').getByText(valueField, { exact: true });
+    const sourceFacts = card.locator(':scope > div > .min-w-0.flex-1 > details > dl');
+    assert.equal(await sourceFacts.count(), 1, `${label} must expose one top-level source-facts list.`);
+    const valueFieldFact = sourceFacts.getByText(valueField, { exact: true });
     if (!(await valueFieldFact.isVisible())) {
       await click('inspect the paired Observation value field',
         card.getByText('Inspect meaning, evidence, and construction choices', { exact: true }),
