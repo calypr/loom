@@ -45,7 +45,7 @@ import {
 } from './components/DatasetReviewPanel';
 import { GuidedGraphWorkspace } from './components/GuidedGraphWorkspace';
 import { ColumnSelector } from './components/ColumnSelector';
-import { ConceptCatalog } from './components/ConceptCatalog';
+import { ConceptCatalog, type ConceptCatalogView } from './components/ConceptCatalog';
 import { RowRootPicker } from './components/RowRootPicker';
 import {
   PreviewTable,
@@ -544,6 +544,7 @@ const BuilderWorkspaceContent = ({
     readonly editorKey: string;
     readonly entry: ConstructionReshapeEditorEntry;
   }>();
+  const [addColumnsView, setAddColumnsView] = useState<Exclude<ConceptCatalogView, 'all'>>('coded');
   const [addColumnsSource, setAddColumnsSource] = useState<{
     readonly context: string;
     readonly key: string;
@@ -1339,6 +1340,22 @@ const BuilderWorkspaceContent = ({
         addSourceOptions.find((option) => option.kind === 'ALL')?.key ??
         addSourceOptions.find((option) => option.kind === 'EXACT_RELATED')?.key),
   ) ?? addSourceOptions.find((option) => option.kind === 'ALL') ?? addSourceOptions[0];
+  const selectAddColumnsView = (view: Exclude<ConceptCatalogView, 'all'>) => {
+    if (view === 'coded' && selectedAddSource?.kind === 'EXACT_RELATED') {
+      const allSource = addSourceOptions.find((source) => source.kind === 'ALL');
+      if (allSource) setAddColumnsSource({ context: addSourceContext, key: allSource.key });
+    }
+    setAddColumnsView(view);
+  };
+  const handleAddColumnsTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const nextView = event.currentTarget.dataset.view === 'coded' ? 'fields' : 'coded';
+    selectAddColumnsView(nextView);
+    event.currentTarget.parentElement
+      ?.querySelector<HTMLButtonElement>(`[data-view="${nextView}"]`)
+      ?.focus();
+  };
   useEffect(() => {
     choiceProposalRequest.current?.abort();
     choiceProposalRequest.current = undefined;
@@ -3013,6 +3030,7 @@ const BuilderWorkspaceContent = ({
 
   const selectConstructionFamily = (family: ConstructionOperationFamily) => {
     const willOpen = activeConstructionFamily !== family;
+    if (family === 'ADD_COLUMNS' && willOpen) selectAddColumnsView('coded');
     if (family === 'COMBINE' && willOpen) {
       if (!canStartCombine) return;
       void startCombine();
@@ -3395,6 +3413,38 @@ const BuilderWorkspaceContent = ({
             ) : null}
             {table.document.rootResourceType ? (
               <>
+                <div role="tablist" aria-label="Column types" className="flex gap-1 rounded-md bg-slate-100 p-1">
+                  <button
+                    type="button"
+                    role="tab"
+                    id="add-columns-tab-coded"
+                    aria-controls="add-columns-tabpanel"
+                    aria-selected={addColumnsView === 'coded'}
+                    tabIndex={addColumnsView === 'coded' ? 0 : -1}
+                    data-view="coded"
+                    onClick={() => selectAddColumnsView('coded')}
+                    onKeyDown={handleAddColumnsTabKeyDown}
+                    className={`rounded px-3 py-1.5 text-sm font-medium ${addColumnsView === 'coded' ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-600'}`}
+                  >
+                    Coded values
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    id="add-columns-tab-fields"
+                    aria-controls="add-columns-tabpanel"
+                    aria-selected={addColumnsView === 'fields'}
+                    tabIndex={addColumnsView === 'fields' ? 0 : -1}
+                    data-view="fields"
+                    onClick={() => selectAddColumnsView('fields')}
+                    onKeyDown={handleAddColumnsTabKeyDown}
+                    className={`rounded px-3 py-1.5 text-sm font-medium ${addColumnsView === 'fields' ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-600'}`}
+                  >
+                    Other fields
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500">Selected fields and coded values stay in the add list as you switch tabs.</p>
+                <div id="add-columns-tabpanel" role="tabpanel" aria-labelledby={addColumnsView === 'coded' ? 'add-columns-tab-coded' : 'add-columns-tab-fields'} tabIndex={0}>
                 <fieldset
                   aria-label="Add columns source"
                   data-testid="construction-add-columns-source"
@@ -3415,6 +3465,7 @@ const BuilderWorkspaceContent = ({
                           onClick={() => {
                             setAddColumnsSource({ context: addSourceContext, key: source.key });
                             setAddSourceSearch({ context: addSourceContext, query: '' });
+                            if (source.kind === 'EXACT_RELATED') setAddColumnsView('fields');
                           }}
                           title={description}
                           className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${selected ? 'border-blue-700 bg-blue-50 text-blue-950' : 'border-slate-300 bg-white text-slate-800 hover:border-slate-500'}`}
@@ -3456,6 +3507,7 @@ const BuilderWorkspaceContent = ({
                             onClick={() => {
                               setAddColumnsSource({ context: addSourceContext, key: source.key });
                               setAddSourceSearch({ context: addSourceContext, query: '' });
+                              if (source.kind === 'EXACT_RELATED') setAddColumnsView('fields');
                             }}
                             title={description}
                             className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${selected ? 'border-blue-700 bg-blue-50 text-blue-950' : 'border-slate-300 bg-white text-slate-800 hover:border-slate-500'}`}
@@ -3496,7 +3548,7 @@ const BuilderWorkspaceContent = ({
                     sourceNodeId={selectedAddSource?.sourceNodeId}
                     routeContext={addSourceRouteContext}
                     layout="panel"
-                    codedValuesOnly
+                    view={addColumnsView}
                     catalog={state.catalog}
                     sourceProjectionAvailability={sourceAvailability}
                     relatedSourceAvailability={relatedSourceAvailability}
@@ -3508,7 +3560,7 @@ const BuilderWorkspaceContent = ({
                     onInspectRouteCoverage={inspectRelatedRouteCoverage}
                   />
                 )}
-                {table.document.frames?.length ? (
+                {addColumnsView === 'coded' && table.document.frames?.length ? (
                   <details className="rounded-md border border-slate-200 bg-white p-3">
                     <summary className="cursor-pointer text-sm font-semibold text-slate-700">Manage saved coded-value sources</summary>
                     <FrameSourcePanel
@@ -3534,6 +3586,7 @@ const BuilderWorkspaceContent = ({
                     />
                   </details>
                 ) : null}
+                </div>
               </>
             ) : null}
           </div>

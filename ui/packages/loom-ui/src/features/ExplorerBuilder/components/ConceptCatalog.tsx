@@ -54,6 +54,8 @@ export interface CatalogRelatedSourceAvailability {
   readonly reason?: string;
 }
 
+export type ConceptCatalogView = 'all' | 'coded' | 'fields';
+
 type CatalogLoadState =
   | { readonly status: 'idle' }
   | { readonly status: 'loading' }
@@ -466,7 +468,7 @@ const ConceptCatalogContent = ({
   disabledReason,
   sourceProjectionAvailability,
   relatedSourceAvailability,
-  codedValuesOnly = false,
+  view = 'all',
   suppressUnavailableNotices = false,
   initialSelection,
   initialFieldSource,
@@ -492,7 +494,7 @@ const ConceptCatalogContent = ({
   readonly disabledReason?: string;
   readonly sourceProjectionAvailability?: CatalogSourceProjectionAvailability;
   readonly relatedSourceAvailability?: CatalogRelatedSourceAvailability;
-  readonly codedValuesOnly?: boolean;
+  readonly view?: ConceptCatalogView;
   readonly suppressUnavailableNotices?: boolean;
   readonly initialSelection?: CatalogInitialSelection;
   readonly initialFieldSource?: Pick<FieldChoiceSource, 'candidateId' | 'nodeId' | 'path'>;
@@ -531,10 +533,24 @@ const ConceptCatalogContent = ({
     : undefined;
   const activeChoiceRequest = useRef<AbortController | undefined>(undefined);
   const selectionContext = useRef<string | undefined>(undefined);
+  const semanticContextRef = useRef<{
+    readonly scopeKey: string;
+    readonly client: typeof client;
+    readonly value?: { readonly contextToken: string; readonly buildId: string };
+  }>({ scopeKey: '', client });
+  const previousView = useRef(view);
   const handledSuggestionRequests = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (previousView.current === view) return;
+    previousView.current = view;
+    setQuery('');
+    setQueryInput('');
+    setPageNavigation(undefined);
+  }, [view]);
   const contextKey = JSON.stringify([
     project,
     explorerId,
+    authResourcePath ?? '',
     snapshotToken,
     outputId,
     rowRoot,
@@ -546,8 +562,22 @@ const ConceptCatalogContent = ({
     sourceProjectionAvailability?.reason ?? '',
     relatedSourceAvailability?.supported ?? true,
     relatedSourceAvailability?.reason ?? '',
-    codedValuesOnly,
   ]);
+  const semanticContextScopeKey = JSON.stringify([
+    project,
+    explorerId,
+    authResourcePath ?? '',
+    snapshotToken,
+    outputId,
+    rowRoot,
+    resourceType ?? '*',
+    sourceNodeId ?? '',
+    routeContext?.occurrenceId ?? '',
+    routeContext?.nodeId ?? '',
+  ]);
+  if (semanticContextRef.current.scopeKey !== semanticContextScopeKey || semanticContextRef.current.client !== client) {
+    semanticContextRef.current = { scopeKey: semanticContextScopeKey, client };
+  }
   const catalogRequestScopeKey = JSON.stringify([
     project,
     explorerId,
@@ -558,7 +588,6 @@ const ConceptCatalogContent = ({
     resourceType ?? '',
     query,
     searchGeneration,
-    codedValuesOnly,
   ]);
   const currentPageNavigation = pageNavigation?.scopeKey === catalogRequestScopeKey
     ? pageNavigation
@@ -616,7 +645,7 @@ const ConceptCatalogContent = ({
     rowRoot,
     searchGeneration,
     snapshotToken,
-  ], Boolean(snapshotToken && rowRoot));
+  ], Boolean(snapshotToken && rowRoot && view !== 'fields'));
   const loadState: CatalogLoadState = !snapshotToken || !rowRoot
     ? { status: 'idle' }
     : catalogQuery.error
@@ -632,11 +661,8 @@ const ConceptCatalogContent = ({
   const sourceProjectionReason = sourceProjectionAvailability?.reason.trim();
   const relatedSourceAvailabilityId = useId();
   const canAddCatalogItem = (item: CatalogItem): boolean => {
-    if (
-      codedValuesOnly &&
-      item.kind === 'SEMANTIC' &&
-      !semanticItemMatchesRule(item.item, CODED_VALUE_RULE_HINT)
-    ) return false;
+    if (view !== 'all' && item.kind === 'SEMANTIC' &&
+      !semanticItemMatchesRule(item.item, CODED_VALUE_RULE_HINT)) return false;
     if (relatedSourceAvailability && isRelatedFieldCatalogItem(item, rowRoot)) {
       return relatedSourceAvailability.supported;
     }
@@ -646,7 +672,7 @@ const ConceptCatalogContent = ({
 
   useEffect(() => {
     const suggestion = pairedColumnSuggestion;
-    if (!suggestion || handledSuggestionRequests.current.has(suggestion.requestId)) return;
+    if (view === 'fields' || !suggestion || handledSuggestionRequests.current.has(suggestion.requestId)) return;
     handledSuggestionRequests.current.add(suggestion.requestId);
     onPairedColumnSuggestionHandled?.(suggestion.requestId);
 
@@ -700,9 +726,18 @@ const ConceptCatalogContent = ({
     outputId,
     pairedColumnSuggestion,
     snapshotToken,
+    view,
   ]);
 
-  const response = catalogQuery.data;
+  const semanticResponse = catalogQuery.data ?? pageCache.current.pages.get(catalogPageCacheKey);
+  if (semanticResponse) {
+    semanticContextRef.current = {
+      scopeKey: semanticContextScopeKey,
+      client,
+      value: { contextToken: semanticResponse.contextToken, buildId: semanticResponse.buildId },
+    };
+  }
+  const response = view === 'fields' ? undefined : semanticResponse;
   const pageIndex = currentPageNavigation.index;
   const warning = response ? availabilityMessage(response) : undefined;
   const canBrowseConcepts = response?.state === 'complete';
@@ -737,12 +772,13 @@ const ConceptCatalogContent = ({
     return fields;
   }, [client, project, explorerId, authResourcePath, snapshotToken, schemaNodeId, query], Boolean(
     schemaDiscoveryEnabled && schemaNodeId && client.searchSchemaFields &&
-    (layout !== 'panel' || rawFieldsExpanded),
+    (view === 'fields' || (view === 'all' && (layout !== 'panel' || rawFieldsExpanded))),
   ));
   const generatedFields = schemaProgress?.key === schemaScopeKey && schemaProgress.client === client
     ? schemaProgress.fields : schemaFields.data ?? [];
   const fieldItems = useMemo(
     () => {
+      if (view === 'coded') return [];
       const reachableSourceNodeIds = new Set(catalogSourceOptions(catalog, rowRoot)
         .flatMap((source) => source.kind === 'RELATED' ? [source.sourceNodeId] : []));
       return [...fieldCatalogItems(catalog, rowRoot, resourceType, query, sourceNodeId), ...schemaFieldCatalogItems(generatedFields)].filter(
@@ -752,7 +788,7 @@ const ConceptCatalogContent = ({
           canAddCatalogItem(item) && catalogItemAvailability(item).selectable,
       );
     },
-    [catalog, query, resourceType, routeContext, rowRoot, sourceNodeId, generatedFields, relatedSourceAvailability, sourceProjectionAvailability],
+    [catalog, query, resourceType, routeContext, rowRoot, sourceNodeId, generatedFields, relatedSourceAvailability, sourceProjectionAvailability, view],
   );
   const appliedInitialSelection = useRef(false);
   useEffect(() => {
@@ -770,10 +806,11 @@ const ConceptCatalogContent = ({
       response?.entries ?? [],
       resourceType,
       sourceNodeId,
-      codedValuesOnly ? CODED_VALUE_RULE_HINT : undefined,
+      view === 'coded' ? CODED_VALUE_RULE_HINT : undefined,
     )
+      .filter((item) => view !== 'fields')
       .filter((item) => canAddCatalogItem(item) && catalogItemAvailability(item).selectable),
-    [canAddFromSourceProjection, codedValuesOnly, relatedSourceAvailability, response?.entries, resourceType, rowRoot, sourceNodeId],
+    [canAddFromSourceProjection, view, relatedSourceAvailability, response?.entries, resourceType, rowRoot, sourceNodeId],
   );
   const selectedItems = useMemo(() => selectedAsArray(selected), [selected]);
   const toggleSelection = (item: CatalogItem) => {
@@ -789,7 +826,7 @@ const ConceptCatalogContent = ({
   };
 
   const choiceDetailsKey = (item: CatalogItem): string =>
-    JSON.stringify([contextKey, response?.contextToken ?? '', catalogItemKey(item)]);
+    JSON.stringify([contextKey, semanticResponse?.contextToken ?? '', catalogItemKey(item)]);
 
   const resolveChoiceGroup = async (
     item: CatalogItem,
@@ -807,8 +844,11 @@ const ConceptCatalogContent = ({
     ) {
       return { item, choices: [existingChoice], complete: true, truncated: false };
     }
-    if (item.kind === 'SEMANTIC' && !response) {
-      if (!semanticContext) {
+    const retainedSemanticContext = semanticContextRef.current.scopeKey === semanticContextScopeKey && semanticContextRef.current.client === client
+      ? semanticContextRef.current.value
+      : undefined;
+    if (item.kind === 'SEMANTIC' && !semanticResponse) {
+      if (!semanticContext && !retainedSemanticContext) {
         throw new Error('Loom has not provided a complete concept catalog for this result.');
       }
     }
@@ -816,10 +856,10 @@ const ConceptCatalogContent = ({
     if (item.kind === 'FIELD') {
       source = { kind: 'FIELD', candidateId: item.candidate.candidateId };
     } else {
-      const effectiveContext = semanticContext ?? (response ? {
-        contextToken: response.contextToken,
-        buildId: response.buildId,
-      } : undefined);
+      const effectiveContext = semanticContext ?? (semanticResponse ? {
+        contextToken: semanticResponse.contextToken,
+        buildId: semanticResponse.buildId,
+      } : retainedSemanticContext);
       if (!effectiveContext) {
         throw new Error('Loom has not provided a complete concept catalog for this result.');
       }
@@ -856,10 +896,10 @@ const ConceptCatalogContent = ({
       truncated: resolved.truncated,
       nextCursor: resolved.nextCursor,
       ...(item.kind === 'SEMANTIC' ? {
-        semanticContext: semanticContext ?? (response ? {
-          contextToken: response.contextToken,
-          buildId: response.buildId,
-        } : undefined),
+        semanticContext: semanticContext ?? (semanticResponse ? {
+          contextToken: semanticResponse.contextToken,
+          buildId: semanticResponse.buildId,
+        } : retainedSemanticContext),
       } : {}),
     };
   };
@@ -1052,6 +1092,50 @@ const ConceptCatalogContent = ({
     setSearchGeneration((generation) => generation + 1);
   };
 
+  const fieldSection = (
+    <section className="mt-3" aria-labelledby="feature-catalog-fields-title">
+      <div className="flex items-center justify-between gap-3">
+        <h3 id="feature-catalog-fields-title" className="text-sm font-semibold text-slate-800">
+          Fields {resourceType ? `on ${resourceType}` : query ? 'matching this search' : `on ${rowRoot}`}
+        </h3>
+        <span className="text-xs text-slate-500">{fieldItems.length} available</span>
+      </div>
+      <div className="mt-3 divide-y divide-slate-200">
+        {schemaFields.error ? (
+          <p role="alert" className="text-red-700">{schemaFields.error instanceof Error ? schemaFields.error.message : 'Generated field discovery failed.'}</p>
+        ) : schemaFields.isLoading ? (
+          <p role="status" className="text-slate-600">Loading fields from the FHIR definitions…</p>
+        ) : null}
+        {fieldItems.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
+            No fields match this search.
+          </p>
+        ) : fieldItems.map((item) => (
+          <CatalogItemRow
+            key={catalogItemKey(item)}
+            item={item}
+            rowRoot={rowRoot}
+            currentResourceType={resourceType}
+            hasRouteContext={routeContext !== undefined}
+            checked={selected.has(catalogItemKey(item))}
+            disabled={disabled || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
+            selectionDisabled={!canAddCatalogItem(item)}
+            disabledReasonId={visibleDisabledReasonId}
+            selectionDisabledReasonId={
+              relatedSourceAvailability?.supported === false &&
+              isRelatedFieldCatalogItem(item, rowRoot)
+                ? relatedSourceAvailabilityId
+                : undefined
+            }
+            onToggle={() => toggleSelection(item)}
+            choiceDetails={choiceDetails.get(choiceDetailsKey(item))}
+            onInspectChoices={() => inspectChoices(item)}
+          />
+        ))}
+      </div>
+    </section>
+  );
+
   return (
     <section className="min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm">
       {pendingSelection ? (
@@ -1078,21 +1162,27 @@ const ConceptCatalogContent = ({
         />
       ) : null}
       <div className="border-b border-slate-200 px-3 py-3">
-        <h2 className="text-base font-semibold text-slate-950">Add coded values to this table</h2>
+        <h2 className="text-base font-semibold text-slate-950">
+          {view === 'fields' ? 'Add other fields to this table' : 'Add coded values to this table'}
+        </h2>
         <p className="mt-1 text-xs text-slate-600">
-          {resourceType
-            ? `Find coded values available on ${resourceType} for the current table.`
-            : `Find coded values Loom can construct from ${rowRoot} table rows.`}
+          {view === 'fields'
+            ? `Browse fields Loom can add from ${resourceType ?? rowRoot} records.`
+            : resourceType
+              ? `Find coded values available on ${resourceType} for the current table.`
+              : `Find coded values Loom can construct from ${rowRoot} table rows.`}
         </p>
         <form className="mt-2 flex gap-2" onSubmit={submitSearch}>
-          <label className="sr-only" htmlFor="feature-catalog-search">Search coded values and raw fields</label>
+          <label className="sr-only" htmlFor="feature-catalog-search">
+            {view === 'fields' ? 'Search dataset fields by name or type' : 'Search coded values by code or label'}
+          </label>
           <input
             id="feature-catalog-search"
             type="search"
-            aria-label="Search features by field name, concept, or code"
+            aria-label={view === 'fields' ? 'Search dataset fields by name or type' : 'Search coded values by code or label'}
             value={queryInput}
             onChange={(event) => setQueryInput(event.currentTarget.value)}
-            placeholder="Search a code or label"
+            placeholder={view === 'fields' ? 'Search a field name or type' : 'Search a code or label'}
             className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm outline-blue-500 focus:border-blue-500"
           />
           <button
@@ -1103,11 +1193,13 @@ const ConceptCatalogContent = ({
             Search
           </button>
         </form>
-        <details className="mt-2 text-xs text-slate-600">
-          <summary className="cursor-pointer font-medium text-blue-800">How coded columns work</summary>
-          <p className="mt-1">The code label names the column; its paired value fills the cells. Loom keeps the exact code, system, and source behind the label.</p>
-          <p className="mt-1">Concept counts describe observed source occurrences. This catalog does not report a per-code denominator or coverage across the current table rows.</p>
-        </details>
+        {view !== 'fields' ? (
+          <details className="mt-2 text-xs text-slate-600">
+            <summary className="cursor-pointer font-medium text-blue-800">How coded columns work</summary>
+            <p className="mt-1">The code label names the column; its paired value fills the cells. Loom keeps the exact code, system, and source behind the label.</p>
+            <p className="mt-1">Concept counts describe observed source occurrences. This catalog does not report a per-code denominator or coverage across the current table rows.</p>
+          </details>
+        ) : null}
       </div>
 
       {warning ? (
@@ -1138,7 +1230,10 @@ const ConceptCatalogContent = ({
           ) : null}
           {sourceProjectionAvailability && !sourceProjectionAvailability.available && !suppressUnavailableNotices ? (
             <p className="mt-2" role="status">
-              Add from source is unavailable here: {sourceProjectionReason || 'Loom has not confirmed that source columns retain this stage’s row identity.'} You can still inspect fields, concepts, evidence, and the source choices Loom provides.
+              Add from source is unavailable here: {sourceProjectionReason || 'Loom has not confirmed that source columns retain this stage’s row identity.'}{' '}
+              {view === 'all'
+                ? 'You can still inspect fields, concepts, evidence, and the source choices Loom provides.'
+                : 'You can still inspect the available choices in this tab.'}
             </p>
           ) : sourceProjectionAvailability?.available && !suppressUnavailableNotices ? (
             <p className="mt-2" role="status">You can add columns while keeping the current rows. Preview the result to see which rows have values.</p>
@@ -1160,7 +1255,7 @@ const ConceptCatalogContent = ({
         <div className={layout === 'panel'
           ? 'min-w-0 border-b border-slate-200 p-4'
           : 'min-w-0 border-b border-slate-200 p-4 sm:p-5'}>
-          <section aria-labelledby="feature-catalog-concepts-title">
+          {view !== 'fields' ? <section aria-labelledby="feature-catalog-concepts-title">
             <div className="flex items-center justify-between gap-3">
               <h3 id="feature-catalog-concepts-title" className="text-sm font-semibold text-slate-800">
                 {query ? `Coded values for “${query}”` : resourceType ? `Coded values on ${resourceType} for this table` : 'Coded values for this table'}
@@ -1173,7 +1268,7 @@ const ConceptCatalogContent = ({
             ) : null}
               {response && semanticItems.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
-                {codedValuesOnly && response.nextCursor
+                {view === 'coded' && response.nextCursor
                   ? 'No coded values on this page. Use Next to continue through the catalog.'
                   : 'No concepts match this search.'}
               </p>
@@ -1235,52 +1330,21 @@ const ConceptCatalogContent = ({
               Next
             </button>
           </div>
-          </section>
+          </section> : null}
 
-          <details className="mt-6 border-t border-slate-200 pt-5" data-testid="feature-catalog-raw-fields" open={layout !== 'panel' ? true : undefined}
-            onToggle={(event) => { if (layout === 'panel') setRawFieldsExpanded(event.currentTarget.open); }}>
-            <summary className="cursor-pointer text-sm font-semibold text-slate-700">Fields</summary>
-            <p className="mt-2 text-xs text-slate-600">Choose a dataset field such as a row ID, date, grouping field, or value without a coded pairing.</p>
-          <section className="mt-3" aria-labelledby="feature-catalog-fields-title">
-            <div className="flex items-center justify-between gap-3">
-              <h3 id="feature-catalog-fields-title" className="text-sm font-semibold text-slate-800">Fields {resourceType ? `on ${resourceType}` : query ? 'matching this search' : `on ${rowRoot}`}</h3>
-              <span className="text-xs text-slate-500">{fieldItems.length} available</span>
+          {view === 'fields' ? (
+            <div data-testid="feature-catalog-raw-fields" className="p-4">
+              <p className="text-xs text-slate-600">Browse available dataset fields such as dates, text, numbers, booleans, or identifiers.</p>
+              {fieldSection}
             </div>
-            <div className="mt-3 divide-y divide-slate-200">
-              {schemaFields.error ? (
-                <p role="alert" className="text-red-700">{schemaFields.error instanceof Error ? schemaFields.error.message : 'Generated field discovery failed.'}</p>
-              ) : schemaFields.isLoading ? (
-                <p role="status" className="text-slate-600">Loading fields from the FHIR definitions…</p>
-              ) : null}
-              {fieldItems.length === 0 ? (
-                <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
-                  No fields match this search.
-                </p>
-              ) : fieldItems.map((item) => (
-                <CatalogItemRow
-                  key={catalogItemKey(item)}
-                  item={item}
-                  rowRoot={rowRoot}
-                  currentResourceType={resourceType}
-                  hasRouteContext={routeContext !== undefined}
-                  checked={selected.has(catalogItemKey(item))}
-                  disabled={disabled || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
-                  selectionDisabled={!canAddCatalogItem(item)}
-                  disabledReasonId={visibleDisabledReasonId}
-                  selectionDisabledReasonId={
-                    relatedSourceAvailability?.supported === false &&
-                    isRelatedFieldCatalogItem(item, rowRoot)
-                      ? relatedSourceAvailabilityId
-                      : undefined
-                  }
-                  onToggle={() => toggleSelection(item)}
-                  choiceDetails={choiceDetails.get(choiceDetailsKey(item))}
-                  onInspectChoices={() => inspectChoices(item)}
-                />
-              ))}
-            </div>
-          </section>
-          </details>
+          ) : view === 'all' ? (
+            <details className="mt-6 border-t border-slate-200 pt-5" data-testid="feature-catalog-raw-fields" open={layout !== 'panel' ? true : undefined}
+              onToggle={(event) => { if (layout === 'panel') setRawFieldsExpanded(event.currentTarget.open); }}>
+              <summary className="cursor-pointer text-sm font-semibold text-slate-700">Fields</summary>
+              <p className="mt-2 text-xs text-slate-600">Choose a dataset field such as a row ID, date, grouping field, or value without a coded pairing.</p>
+              {fieldSection}
+            </details>
+          ) : null}
         </div>
 
         {!pendingSelection ? (
@@ -1288,6 +1352,30 @@ const ConceptCatalogContent = ({
             <p className="m-0 text-sm font-medium text-slate-700" role="status">
               {selected.size} {selected.size === 1 ? 'feature' : 'features'} selected
             </p>
+            {selectedItems.length > 0 ? (
+              <ul aria-label="Selected fields and coded values" className="col-span-2 grid max-h-24 gap-1 overflow-auto rounded-md border border-slate-200 bg-white p-2 text-xs">
+                {selectedItems.map((item) => {
+                  const label = catalogItemLabel(item);
+                  return (
+                    <li key={catalogItemKey(item)} className="flex items-center gap-2">
+                      <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-700">
+                        {item.kind === 'SEMANTIC' ? 'Coded value' : 'Field'}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-slate-800">{label}</span>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${label} from selected features`}
+                        disabled={disabled || adding}
+                        onClick={() => toggleSelection(item)}
+                        className="shrink-0 text-blue-800 underline disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
             <button
               type="button"
               disabled={disabled || adding || selected.size === 0 || !onAddSelected || !selectedItems.every(canAddCatalogItem)}
@@ -1311,7 +1399,6 @@ export const ConceptCatalog = (props: React.ComponentProps<typeof ConceptCatalog
       props.project, props.explorerId, props.authResourcePath ?? '', props.snapshotToken,
       props.outputId, props.rowRoot, props.resourceType ?? '', props.sourceNodeId ?? '',
       props.routeContext?.occurrenceId ?? '', props.routeContext?.nodeId ?? '',
-      props.codedValuesOnly ?? false,
     ])}
     {...props}
   />

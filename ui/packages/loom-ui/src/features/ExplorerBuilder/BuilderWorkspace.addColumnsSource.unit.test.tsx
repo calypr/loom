@@ -601,7 +601,18 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(mockLoomClient.getConstructionCapabilities).not.toHaveBeenCalled();
   });
 
-  it('shows coded values and fields in one all-source catalog with source scopes', async () => {
+  it('shows separate Coded values and Other fields tabs with shared source scopes', async () => {
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: {
+        ...builderState,
+        catalog: {
+          ...catalog,
+          candidates: [fieldCandidate('patient-birthdate', 'patient-node', 'Patient', 'birthDate')],
+        },
+      },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
     const { unmount } = render(
       <BuilderWorkspace
         organization="HTAN_INT"
@@ -612,10 +623,14 @@ describe('BuilderWorkspace Add columns source selection', () => {
 
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
     expect(await screen.findByRole('heading', { name: 'Add coded values to this table' })).toBeInTheDocument();
-    expect(screen.queryByRole('group', { name: 'Column types' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Fields and related data' })).not.toBeInTheDocument();
+    const tabs = screen.getByRole('tablist', { name: 'Column types' });
+    const codedTab = within(tabs).getByRole('tab', { name: 'Coded values' });
+    const fieldsTab = within(tabs).getByRole('tab', { name: 'Other fields' });
+    expect(codedTab).toHaveAttribute('aria-selected', 'true');
+    expect(fieldsTab).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByText('Selected fields and coded values stay in the add list as you switch tabs.')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Coded values for this table' })).toBeInTheDocument();
-    expect(within(screen.getByTestId('feature-catalog-raw-fields')).getByText('Fields')).toBeInTheDocument();
+    expect(screen.queryByTestId('feature-catalog-raw-fields')).not.toBeInTheDocument();
     const sourceScopes = screen.getByRole('group', { name: 'Search scope' });
     expect(within(sourceScopes).getByRole('button', { name: 'All accessible resources, Search coded concepts and fields across the dataset' })).toHaveAttribute('aria-pressed', 'true');
     await waitFor(() => expect(mockLoomClient.browseSemanticInventory.mock.calls.some(([args]) => args.outputId === 'patients')).toBe(true));
@@ -636,6 +651,19 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(screen.queryByRole('heading', { name: 'Coded sources' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Browse sources' })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Ready-to-add paired concepts' })).not.toBeInTheDocument();
+
+    const semanticRequestCount = mockLoomClient.browseSemanticInventory.mock.calls.length;
+    fireEvent.click(fieldsTab);
+    expect(fieldsTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('heading', { name: 'Add other fields to this table' })).toBeInTheDocument();
+    expect(screen.getByRole('searchbox', { name: 'Search dataset fields by name or type' })).toBeInTheDocument();
+    expect(screen.getByTestId('feature-catalog-raw-fields').tagName).not.toBe('DETAILS');
+    expect(await screen.findByRole('checkbox', { name: 'Select Patient.birthDate' })).toBeEnabled();
+    expect(screen.queryByRole('heading', { name: 'Coded values for this table' })).not.toBeInTheDocument();
+    expect(mockLoomClient.browseSemanticInventory).toHaveBeenCalledTimes(semanticRequestCount);
+    expect(within(screen.getByRole('group', { name: 'Search scope' })).getByRole('button', {
+      name: 'All accessible resources, Search coded concepts and fields across the dataset',
+    })).toHaveAttribute('aria-pressed', 'true');
     unmount();
     await act(async () => {
       await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
@@ -693,7 +721,32 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(exactRelated.getAttribute('data-source-kind')).toBe('EXACT_RELATED');
     fireEvent.click(exactRelated);
     expect(exactRelated).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('tab', { name: 'Other fields' })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByRole('heading', { name: 'From this row’s MedicationAdministration' })).toBeInTheDocument();
     await waitFor(() => expect(mockLoomClient.searchRelatedFieldChoices).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByTestId('construction-close-operation-editor'));
+    fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
+    const reopenedCodedTab = screen.getByRole('tab', { name: 'Coded values' });
+    expect(reopenedCodedTab).toHaveAttribute('aria-selected', 'true');
+    const reopenedSource = screen.getByRole('group', { name: 'Search scope' });
+    expect(within(reopenedSource).getByRole('button', {
+      name: 'All accessible resources, Search coded concepts and fields across the dataset',
+    })).toHaveAttribute('aria-pressed', 'true');
+
+    const reopenedExactRelated = within(reopenedSource).getByRole('button', {
+      name: 'MedicationAdministration — this row’s related record, Related record for this row',
+    });
+    fireEvent.click(reopenedExactRelated);
+    expect(screen.getByRole('tab', { name: 'Other fields' })).toHaveAttribute('aria-selected', 'true');
+    await waitFor(() => expect(mockLoomClient.searchRelatedFieldChoices).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole('tab', { name: 'Coded values' }));
+    expect(screen.getByRole('tab', { name: 'Coded values' })).toHaveAttribute('aria-selected', 'true');
+    expect(reopenedExactRelated).toHaveAttribute('aria-pressed', 'false');
+    expect(within(screen.getByRole('group', { name: 'Search scope' })).getByRole('button', {
+      name: 'All accessible resources, Search coded concepts and fields across the dataset',
+    })).toHaveAttribute('aria-pressed', 'true');
+    expect(await screen.findByRole('heading', { name: 'Coded values for this table' })).toBeInTheDocument();
     await act(async () => {
       await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
     });

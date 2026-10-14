@@ -789,7 +789,19 @@ describe('ConceptCatalog', () => {
       'shared-concept',
       'coded-value-binding',
     );
-    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_input, init) => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input, init) => {
+      if (String(input).endsWith('/construction-choices')) {
+        return new Response(JSON.stringify({
+          snapshotToken: 'snapshot-a',
+          outputId: 'patients',
+          complete: true,
+          truncated: false,
+          choices: [codedValue.constructionChoice],
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
       const request = JSON.parse(String(init?.body)) as { readonly cursor?: string };
       const response = request.cursor === 'coded-page-2'
         ? page([codedValue])
@@ -800,7 +812,9 @@ describe('ConceptCatalog', () => {
       });
     });
 
-    render(<LoomProvider client={createLoomClient({ fetch })}>
+    const client = createLoomClient({ fetch });
+    const onAddSelected = vi.fn().mockResolvedValue(undefined);
+    const renderView = (view: 'coded' | 'fields') => <LoomProvider client={client}>
       <ConceptCatalog
         project="project-a"
         explorerId="explorer-a"
@@ -808,9 +822,11 @@ describe('ConceptCatalog', () => {
         outputId="patients"
         rowRoot="Patient"
         catalog={catalog}
-        codedValuesOnly
+        view={view}
+        onAddSelected={onAddSelected}
       />
-    </LoomProvider>);
+    </LoomProvider>;
+    const { rerender } = render(renderView('coded'));
 
     expect(await screen.findByText('No coded values on this page. Use Next to continue through the catalog.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled();
@@ -818,6 +834,7 @@ describe('ConceptCatalog', () => {
     expect(screen.queryByRole('checkbox', { name: /us-core-race/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: 'Select Unproven code' })).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: 'Select Mismatched code' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('feature-catalog-raw-fields')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     expect(await screen.findByRole('checkbox', { name: 'Select Diagnostic Method' })).toBeEnabled();
@@ -826,6 +843,79 @@ describe('ConceptCatalog', () => {
     expect(screen.queryByRole('checkbox', { name: 'Select Unproven code' })).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: 'Select Mismatched code' })).not.toBeInTheDocument();
     expect(JSON.parse(String(fetch.mock.calls[1]?.[1]?.body))).toMatchObject({ cursor: 'coded-page-2' });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Diagnostic Method' }));
+    expect(screen.getByText('1 feature selected')).toBeInTheDocument();
+    const requestCountBeforeFields = fetch.mock.calls.length;
+    rerender(renderView('fields'));
+    expect(await screen.findByRole('heading', { name: 'Fields on Patient' })).toBeInTheDocument();
+    expect(screen.getByText('1 feature selected')).toBeInTheDocument();
+    const selectedItems = screen.getByRole('list', { name: 'Selected fields and coded values' });
+    expect(within(selectedItems).getByText('Coded value')).toBeInTheDocument();
+    expect(within(selectedItems).getByText('Diagnostic Method')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search dataset fields by name or type' }), {
+      target: { value: 'id' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    const fieldCheckbox = await screen.findByRole('checkbox', { name: 'Select Patient.id' });
+    expect(fieldCheckbox).toBeEnabled();
+    fireEvent.click(fieldCheckbox);
+    expect(screen.getByText('2 features selected')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add 2 selected features' })).toBeEnabled();
+    expect(fetch).toHaveBeenCalledTimes(requestCountBeforeFields);
+    rerender(renderView('coded'));
+    await waitFor(() => expect((screen.getByRole('searchbox', {
+      name: 'Search coded values by code or label',
+    }) as HTMLInputElement).value).toBe(''));
+    const preservedItems = screen.getByRole('list', { name: 'Selected fields and coded values' });
+    expect(within(preservedItems).getByText('Diagnostic Method')).toBeInTheDocument();
+    expect(within(preservedItems).getByText('Patient ID')).toBeInTheDocument();
+    rerender(renderView('fields'));
+    await waitFor(() => expect((screen.getByRole('searchbox', {
+      name: 'Search dataset fields by name or type',
+    }) as HTMLInputElement).value).toBe(''));
+    fireEvent.click(screen.getByRole('button', { name: 'Add 2 selected features' }));
+    await waitFor(() => expect(onAddSelected).toHaveBeenCalledTimes(1));
+    const routeCall = fetch.mock.calls.find(([input]) => String(input).endsWith('/construction-choices'));
+    if (!routeCall) throw new Error('The selected non-root coded value was not resolved against the table.');
+    expect(JSON.parse(String(routeCall[1]?.body))).toMatchObject({
+      source: {
+        kind: 'SEMANTIC',
+        contextToken: 'context-1',
+        buildId: 'build-1',
+        conceptId: 'shared-concept',
+        bindingId: 'coded-value-binding',
+      },
+    });
+  });
+
+  it('browses compiler-issued fields directly without loading semantic inventory', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(page([item('hidden-code', 'Diagnostic Method', 4)])), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    render(<LoomProvider client={createLoomClient({ fetch })}>
+      <ConceptCatalog
+        project="project-a"
+        explorerId="explorer-a"
+        snapshotToken="snapshot-a"
+        outputId="patients"
+        rowRoot="Patient"
+        catalog={catalog}
+        view="fields"
+      />
+    </LoomProvider>);
+
+    const fields = await screen.findByTestId('feature-catalog-raw-fields');
+    expect(fields.tagName).toBe('DIV');
+    expect(await screen.findByRole('heading', { name: 'Fields on Patient' })).toBeInTheDocument();
+    expect(await screen.findByRole('checkbox', { name: 'Select Patient.id' })).toBeEnabled();
+    expect(screen.getByRole('searchbox', { name: 'Search dataset fields by name or type' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Coded values for this table' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Select Diagnostic Method' })).not.toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('omits raw fields outside the catalog reachable set', async () => {
