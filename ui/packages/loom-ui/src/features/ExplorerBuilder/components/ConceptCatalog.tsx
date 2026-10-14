@@ -10,6 +10,7 @@ import type {
   SchemaFieldOption,
 } from '../../../types';
 import {
+  CODED_VALUE_RULE_HINT,
   catalogChoiceIntent,
   catalogItemAvailability,
   catalogItemKey,
@@ -21,6 +22,7 @@ import {
   schemaFieldCatalogItems,
   isRelatedFieldCatalogItem,
   semanticCatalogItems,
+  semanticItemMatchesRule,
   type CatalogChoiceGroup,
   type CatalogChoiceIntent,
   type CatalogItem,
@@ -464,6 +466,7 @@ const ConceptCatalogContent = ({
   disabledReason,
   sourceProjectionAvailability,
   relatedSourceAvailability,
+  codedValuesOnly = false,
   suppressUnavailableNotices = false,
   initialSelection,
   initialFieldSource,
@@ -489,6 +492,7 @@ const ConceptCatalogContent = ({
   readonly disabledReason?: string;
   readonly sourceProjectionAvailability?: CatalogSourceProjectionAvailability;
   readonly relatedSourceAvailability?: CatalogRelatedSourceAvailability;
+  readonly codedValuesOnly?: boolean;
   readonly suppressUnavailableNotices?: boolean;
   readonly initialSelection?: CatalogInitialSelection;
   readonly initialFieldSource?: Pick<FieldChoiceSource, 'candidateId' | 'nodeId' | 'path'>;
@@ -542,6 +546,7 @@ const ConceptCatalogContent = ({
     sourceProjectionAvailability?.reason ?? '',
     relatedSourceAvailability?.supported ?? true,
     relatedSourceAvailability?.reason ?? '',
+    codedValuesOnly,
   ]);
   const catalogRequestScopeKey = JSON.stringify([
     project,
@@ -553,6 +558,7 @@ const ConceptCatalogContent = ({
     resourceType ?? '',
     query,
     searchGeneration,
+    codedValuesOnly,
   ]);
   const currentPageNavigation = pageNavigation?.scopeKey === catalogRequestScopeKey
     ? pageNavigation
@@ -626,6 +632,11 @@ const ConceptCatalogContent = ({
   const sourceProjectionReason = sourceProjectionAvailability?.reason.trim();
   const relatedSourceAvailabilityId = useId();
   const canAddCatalogItem = (item: CatalogItem): boolean => {
+    if (
+      codedValuesOnly &&
+      item.kind === 'SEMANTIC' &&
+      !semanticItemMatchesRule(item.item, CODED_VALUE_RULE_HINT)
+    ) return false;
     if (relatedSourceAvailability && isRelatedFieldCatalogItem(item, rowRoot)) {
       return relatedSourceAvailability.supported;
     }
@@ -755,9 +766,14 @@ const ConceptCatalogContent = ({
     setSelected((current) => current.size > 0 ? current : new Map([[catalogItemKey(item), item]]));
   }, [fieldItems, initialFieldSource]);
   const semanticItems = useMemo(
-    () => semanticCatalogItems(response?.entries ?? [], resourceType, sourceNodeId)
+    () => semanticCatalogItems(
+      response?.entries ?? [],
+      resourceType,
+      sourceNodeId,
+      codedValuesOnly ? CODED_VALUE_RULE_HINT : undefined,
+    )
       .filter((item) => canAddCatalogItem(item) && catalogItemAvailability(item).selectable),
-    [canAddFromSourceProjection, relatedSourceAvailability, response?.entries, resourceType, rowRoot, sourceNodeId],
+    [canAddFromSourceProjection, codedValuesOnly, relatedSourceAvailability, response?.entries, resourceType, rowRoot, sourceNodeId],
   );
   const selectedItems = useMemo(() => selectedAsArray(selected), [selected]);
   const toggleSelection = (item: CatalogItem) => {
@@ -1157,7 +1173,9 @@ const ConceptCatalogContent = ({
             ) : null}
               {response && semanticItems.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
-                No concepts match this search.
+                {codedValuesOnly && response.nextCursor
+                  ? 'No coded values on this page. Use Next to continue through the catalog.'
+                  : 'No concepts match this search.'}
               </p>
             ) : null}
               {semanticItems.map((item) => (
@@ -1293,6 +1311,7 @@ export const ConceptCatalog = (props: React.ComponentProps<typeof ConceptCatalog
       props.project, props.explorerId, props.authResourcePath ?? '', props.snapshotToken,
       props.outputId, props.rowRoot, props.resourceType ?? '', props.sourceNodeId ?? '',
       props.routeContext?.occurrenceId ?? '', props.routeContext?.nodeId ?? '',
+      props.codedValuesOnly ?? false,
     ])}
     {...props}
   />

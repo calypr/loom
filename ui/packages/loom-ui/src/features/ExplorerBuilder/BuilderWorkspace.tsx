@@ -3414,6 +3414,7 @@ const BuilderWorkspaceContent = ({
                   outputId={table.outputId}
                   rowRoot={table.document.rootResourceType}
                   layout="panel"
+                  codedValuesOnly
                   catalog={state.catalog}
                   sourceProjectionAvailability={sourceAvailability}
                   relatedSourceAvailability={relatedSourceAvailability}

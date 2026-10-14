@@ -93,6 +93,7 @@ const semanticChoice = (
   choiceId: string,
   item: Pick<SemanticInventoryItem, 'conceptId' | 'bindingId' | 'resourceType' | 'sourcePath' | 'valueSelector' | 'system' | 'code'>,
   options: ConstructionChoice['options'] = [choiceOption('VALUE', 'DEFAULT')],
+  ruleHint = 'CODED_VALUE_V1',
 ): ConstructionChoice => ({
   choiceId,
   route: [],
@@ -116,6 +117,7 @@ const semanticChoice = (
     logicalType: 'decimal',
     system: item.system,
     code: item.code,
+    ruleHint,
     ruleVersion: '1',
     schemaVersion: 1,
     cardinality: 'optional_one',
@@ -128,6 +130,7 @@ const item = (
   display: string,
   occurrences: number,
   resourceType = 'Patient',
+  ruleHint = 'CODED_VALUE_V1',
 ): SemanticInventoryItem => {
   const value = {
   conceptId: `concept-${code}`,
@@ -149,7 +152,27 @@ const item = (
   completeness: 'partial' as const,
     readiness: { status: 'READY' as const, code: 'READY', message: 'This semantic field is ready to add.' },
   };
-  return { ...value, constructionChoice: semanticChoice(`choice-${code}`, value) };
+  return { ...value, constructionChoice: semanticChoice(`choice-${code}`, value, undefined, ruleHint) };
+};
+
+const withSemanticIdentity = (
+  entry: SemanticInventoryItem,
+  conceptId: string,
+  bindingId: string,
+): SemanticInventoryItem => {
+  const choice = entry.constructionChoice;
+  if (!choice || choice.source.kind !== 'SEMANTIC') {
+    throw new Error('A semantic construction choice is required for this fixture.');
+  }
+  return {
+    ...entry,
+    conceptId,
+    bindingId,
+    constructionChoice: {
+      ...choice,
+      source: { ...choice.source, conceptId, bindingId },
+    },
+  };
 };
 
 const page = (
@@ -731,6 +754,78 @@ describe('ConceptCatalog', () => {
     expect(screen.queryByRole('checkbox', { name: 'Select Substance identifier' })).not.toBeInTheDocument();
     const request = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as { outputId?: string };
     expect(request.outputId).toBe('patients');
+  });
+
+  it('shows only compiler-proven coded-value pairs and can advance past other semantic families', async () => {
+    const identifier = withSemanticIdentity(
+      item('patient-identifier', 'Patient identifier', 8, 'Patient', 'IDENTIFIER_SYSTEM_VALUE'),
+      'shared-concept',
+      'identifier-binding',
+    );
+    const extension = item(
+      'extension-url',
+      'http://hl7.org/fhir/us/core/StructureDefinition/us-core-race',
+      6,
+      'Observation',
+      'EXTENSION_URL_VALUE',
+    );
+    const codedWithoutChoice = {
+      ...item('unproven-code', 'Unproven code', 2),
+      constructionChoice: undefined,
+    };
+    const mismatchedChoiceItem = item('mismatched-code', 'Mismatched code', 1);
+    const mismatchedChoice = {
+      ...mismatchedChoiceItem,
+      constructionChoice: {
+        ...mismatchedChoiceItem.constructionChoice!,
+        source: {
+          ...mismatchedChoiceItem.constructionChoice!.source,
+          bindingId: 'another-binding',
+        },
+      },
+    };
+    const codedValue = withSemanticIdentity(
+      item('method-code', 'Diagnostic Method', 4, 'Observation'),
+      'shared-concept',
+      'coded-value-binding',
+    );
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_input, init) => {
+      const request = JSON.parse(String(init?.body)) as { readonly cursor?: string };
+      const response = request.cursor === 'coded-page-2'
+        ? page([codedValue])
+        : page([identifier, extension, codedWithoutChoice, mismatchedChoice], 'coded-page-2');
+      return new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+
+    render(<LoomProvider client={createLoomClient({ fetch })}>
+      <ConceptCatalog
+        project="project-a"
+        explorerId="explorer-a"
+        snapshotToken="snapshot-a"
+        outputId="patients"
+        rowRoot="Patient"
+        catalog={catalog}
+        codedValuesOnly
+      />
+    </LoomProvider>);
+
+    expect(await screen.findByText('No coded values on this page. Use Next to continue through the catalog.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled();
+    expect(screen.queryByRole('checkbox', { name: 'Select Patient identifier' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /us-core-race/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Select Unproven code' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Select Mismatched code' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(await screen.findByRole('checkbox', { name: 'Select Diagnostic Method' })).toBeEnabled();
+    expect(screen.queryByRole('checkbox', { name: 'Select Patient identifier' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /us-core-race/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Select Unproven code' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Select Mismatched code' })).not.toBeInTheDocument();
+    expect(JSON.parse(String(fetch.mock.calls[1]?.[1]?.body))).toMatchObject({ cursor: 'coded-page-2' });
   });
 
   it('omits raw fields outside the catalog reachable set', async () => {

@@ -34,6 +34,8 @@ export type CatalogChoiceIntent = {
   };
 };
 
+export const CODED_VALUE_RULE_HINT = 'CODED_VALUE_V1';
+
 export type CatalogChoiceGroup = {
   readonly item: CatalogItem;
   readonly choices: ReadonlyArray<ConstructionChoice>;
@@ -415,14 +417,28 @@ export const rootFieldCatalogItems = (
   query: string,
 ): ReadonlyArray<CatalogItem> => fieldCatalogItems(catalog, rowRoot, rowRoot, query);
 
+export const semanticItemMatchesRule = (
+  item: SemanticInventoryItem,
+  ruleHint: string,
+): boolean => {
+  const source = item.constructionChoice?.source;
+  return source?.kind === 'SEMANTIC' &&
+    source.ruleHint === ruleHint &&
+    source.conceptId === item.conceptId &&
+    source.bindingId === item.bindingId &&
+    source.resourceType === item.resourceType;
+};
+
 export const semanticCatalogItems = (
   items: ReadonlyArray<SemanticInventoryItem>,
   resourceType?: string,
   sourceNodeId?: string,
+  ruleHint?: string,
 ): ReadonlyArray<CatalogItem> => items
   .filter((item) =>
     (!resourceType || item.resourceType === resourceType) &&
-    (!sourceNodeId || item.constructionChoice?.source.nodeId === sourceNodeId),
+    (!sourceNodeId || item.constructionChoice?.source.nodeId === sourceNodeId) &&
+    (!ruleHint || semanticItemMatchesRule(item, ruleHint)),
   )
   .map((item) => ({
     kind: 'SEMANTIC',
