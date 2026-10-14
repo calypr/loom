@@ -401,8 +401,10 @@ export const relatedExpandFieldLifecycleWorkflow = async ({ page, action, check,
       });
     }
     const current = await readVisibleWorkspace(page, target, builderPath);
+    const patientGenderNode = current.catalog.nodes.find(node => node.resourceType === 'Patient');
+    assert(patientGenderNode?.nodeId, 'Builder must expose the populated Patient resource node.');
     const candidates = current.catalog.candidates.filter(candidate =>
-      candidate.resourceType === 'Patient' && candidate.fieldPath === 'gender' && candidate.populated === true);
+      candidate.nodeId === patientGenderNode.nodeId && candidate.fieldPath === 'gender' && candidate.populated === true);
     assert(candidates.length > 0, 'Builder must expose a populated Patient.gender candidate for this Basic fixture.');
     const patientGenderCandidate = candidates[0];
     const relatedResources = editor.getByRole('group', { name: 'Related resources', exact: true });
@@ -447,7 +449,7 @@ export const relatedExpandFieldLifecycleWorkflow = async ({ page, action, check,
       });
     }
     check('correctness', 'native Patient.gender choice is populated and exposes the compiler-proven related source', true,
-      { resourceType: patientGenderCandidate.resourceType, fieldPath: patientGenderCandidate.fieldPath,
+      { resourceType: patientGenderNode.resourceType, fieldPath: patientGenderCandidate.fieldPath,
         populated: patientGenderCandidate.populated, nodeId: patientGenderCandidate.nodeId, form: 'ALL' });
     const proposalFrom = networkObserver.requests.length;
     await click('preview Patient.gender from the related source', dialog.getByRole('button', { name: 'Add 1 column', exact: true }),
