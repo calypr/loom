@@ -1,0 +1,2 @@
+{"resourceType":"MedicationAdministration","id":"field-lifecycle-administration-a","status":"completed","subject":{"reference":"Patient/field-lifecycle-patient-matched"}}
+{"resourceType":"MedicationAdministration","id":"field-lifecycle-administration-b","status":"in-progress","subject":{"reference":"Patient/field-lifecycle-patient-matched"}}

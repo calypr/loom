@@ -1287,6 +1287,87 @@ export const registry = Object.freeze([
     ],
   }),
   Object.freeze({
+    id: 'basic-related-expand-field-lifecycle',
+    workflow: 'basic-related-expand-field-lifecycle-native-lifecycle',
+    hooks: [
+      'useGetExplorerBuilderStateV2Query',
+      'useCreateExplorerAuthoringMutation',
+      'useApplyExplorerBuilderCommandsV2Mutation',
+      'usePreviewExplorerAuthoringV2Mutation',
+    ],
+    endpoints: [
+      'POST /api/v1/projects/{project}/explorers',
+      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-proposals',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-choice-proposals',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/preview',
+    ],
+    requiredTransitions: [
+      'create a fresh Observation-root RECORDS table with exact fixture rows and add Observation.status through native Fields and related data',
+      'use native RelatedExpand to follow Observation.subject_Patient then the reverse MedicationAdministration.subject_Patient route with PRESERVE_PARENT',
+      'Apply the native RelatedExpand proposal and verify two exact MedicationAdministration matches plus one unmatched Observation row',
+      'add MedicationAdministration.status from the active related record through the native RELATED_FIELD editor, Cancel the first preview, then Apply and verify exact values',
+      'group expanded rows by the public carried Observation.status field and verify final: 2 and preliminary: 1',
+      'edit the related field label and reload; remove the related field and reload exact expanded rows and saved bindings; then Group by public Observation.status',
+    ],
+    gateReasons: [
+      'the independent Basic fixture oracle binds two MedicationAdministration records to one Observation root and preserves one unmatched Observation root',
+      'the exact source data and group counts are read from fixture files, separately from Builder preview output',
+      'all construction mutations use visible native Builder controls; Builder reads and saved preview receipts are read-only verification',
+      'this synthetic Basic case does not establish a loaded CDA dataset witness or runtime dataset identity',
+    ],
+    script: 'related-expand-field-lifecycle.mjs',
+    cases: {
+      'observation-root-medication-administration': {
+        playwrightTest: 'scripts/verify-ui/specs/related-expand-field-lifecycle.spec.mjs',
+        playwrightGrep: 'Basic fixture preserves related MedicationAdministration fields through Group lifecycle$',
+        focusedChecks: [
+          {
+            id: 'related-expand-field-lifecycle-literal-fixture-oracle',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/related-expand-field-lifecycle-oracle.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/specs/related-expand-field-lifecycle.spec.mjs',
+              'scripts/verify-ui/workflows/related-expand-field-lifecycle.mjs',
+              'scripts/verify-ui/helpers/related-expand-field-lifecycle-oracle.mjs',
+              'testdata/basic-related-expand-field-lifecycle/README.md',
+              'testdata/basic-related-expand-field-lifecycle/MedicationAdministration.ndjson',
+              'testdata/basic-related-expand-field-lifecycle/Observation.ndjson',
+              'testdata/basic-related-expand-field-lifecycle/Patient.ndjson',
+            ],
+          },
+        ],
+        requiredChecks: [
+          'literal fixture proves two exact MedicationAdministration matches and one unmatched Observation root',
+          'native Observation root preview preserves exact source IDs and the carried Observation.status values',
+          'native RelatedExpand proposal uses the exact two-hop route and PRESERVE_PARENT row policy',
+          'RelatedExpand Apply and RELATED_FIELD reload render both MedicationAdministration rows and the unmatched Observation row',
+          'native RELATED_FIELD proposal reads MedicationAdministration.status from the active related record',
+          'RELATED_FIELD Cancel preserves the saved expansion and exact rows before Apply',
+          'RELATED_FIELD Apply and reload preserve exact MedicationAdministration.status values and null unmatched value',
+          'native Group binds the public Observation.status column and returns final count 2 and preliminary count 1',
+          'editing the related field label preserves its source binding and exact expanded rows after reload',
+          'removing the related field restores exact expanded rows and source construction after reload',
+          'public Observation.status Group retains exact keys and multiplicity after reload',
+          'post-expansion source projection is available for the exact RelatedExpand stage',
+        ],
+      },
+    },
+    coverage: [
+      {
+        feature: 'Basic RelatedExpand active-record field selection and public-root Group lifecycle',
+        acceptance: {
+          intent: 'row-lifecycle', kind: 'lifecycle', case: 'observation-root-medication-administration',
+          checks: { choice: 4, proposal: 6, cancel: 4, apply: 7, savedRows: 7, reload: 9, edit: 4, restoration: 6 },
+        },
+        status: 'untested',
+        reason: 'A dedicated literal fixture, raw row oracle, and native Playwright lifecycle are registered. Browser acceptance remains pending the RelatedExpand active-record field UI/backend integration and a frozen native run.',
+      },
+    ],
+  }),
+  Object.freeze({
     id: 'basic-named-cohort-presence',
     workflow: 'basic-named-cohort-presence-native-lifecycle',
     hooks: [

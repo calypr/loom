@@ -1,0 +1,2 @@
+{"resourceType":"Observation","id":"field-lifecycle-observation-matched","status":"final","subject":{"reference":"Patient/field-lifecycle-patient-matched"}}
+{"resourceType":"Observation","id":"field-lifecycle-observation-unmatched","status":"preliminary","subject":{"reference":"Patient/field-lifecycle-patient-unmatched"}}
