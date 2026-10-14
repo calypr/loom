@@ -4806,17 +4806,18 @@ type ConstructionCapabilitiesRequest struct {
 
 // ConstructionCapabilitiesResponse defines model for ConstructionCapabilitiesResponse.
 type ConstructionCapabilitiesResponse struct {
-	BaseConstruction Construction                  `json:"baseConstruction"`
-	DraftDigest      string                        `json:"draftDigest"`
-	DraftVersion     int                           `json:"draftVersion"`
-	OutputId         string                        `json:"outputId"`
-	PivotSourceInput *ConstructionSourceInput      `json:"pivotSourceInput,omitempty"`
-	SelectedStage    ConstructionStageDescriptor   `json:"selectedStage"`
-	SnapshotToken    string                        `json:"snapshotToken"`
-	SourceInput      ConstructionSourceInput       `json:"sourceInput"`
-	StageId          string                        `json:"stageId"`
-	Stages           []ConstructionStageDescriptor `json:"stages"`
-	WorkspaceInputs  []ConstructionWorkspaceInput  `json:"workspaceInputs"`
+	BaseConstruction             Construction                              `json:"baseConstruction"`
+	DraftDigest                  string                                    `json:"draftDigest"`
+	DraftVersion                 int                                       `json:"draftVersion"`
+	OutputId                     string                                    `json:"outputId"`
+	PivotSourceInput             *ConstructionSourceInput                  `json:"pivotSourceInput,omitempty"`
+	SelectedStage                ConstructionStageDescriptor               `json:"selectedStage"`
+	SnapshotToken                string                                    `json:"snapshotToken"`
+	SourceInput                  ConstructionSourceInput                   `json:"sourceInput"`
+	SourceProjectionAvailability *ConstructionSourceProjectionAvailability `json:"sourceProjectionAvailability,omitempty"`
+	StageId                      string                                    `json:"stageId"`
+	Stages                       []ConstructionStageDescriptor             `json:"stages"`
+	WorkspaceInputs              []ConstructionWorkspaceInput              `json:"workspaceInputs"`
 }
 
 // ConstructionCategoryDiscoveryRequest defines model for ConstructionCategoryDiscoveryRequest.
@@ -5590,6 +5591,14 @@ type ConstructionSourceProjection struct {
 	LogicalType  string  `json:"logicalType"`
 	OccurrenceId string  `json:"occurrenceId"`
 	OwnerStepId  *string `json:"ownerStepId,omitempty"`
+}
+
+// ConstructionSourceProjectionAvailability indicates whether root scalar source fields can be carried to a selected construction stage.
+type ConstructionSourceProjectionAvailability struct {
+	Reason     *string `json:"reason,omitempty"`
+	ReasonCode *string `json:"reasonCode,omitempty"`
+	StageId    string  `json:"stageId"`
+	Supported  bool    `json:"supported"`
 }
 
 // ConstructionStageColumn defines model for ConstructionStageColumn.

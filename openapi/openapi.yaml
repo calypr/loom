@@ -4182,9 +4182,23 @@ components:
         selectedStage: {$ref: '#/components/schemas/ConstructionStageDescriptor'}
         sourceInput: {$ref: '#/components/schemas/ConstructionSourceInput'}
         pivotSourceInput: {$ref: '#/components/schemas/ConstructionSourceInput'}
+        sourceProjectionAvailability: {$ref: '#/components/schemas/ConstructionSourceProjectionAvailability'}
         workspaceInputs:
           type: array
           items: {$ref: '#/components/schemas/ConstructionWorkspaceInput'}
+    ConstructionSourceProjectionAvailability:
+      type: object
+      description: >-
+        Indicates whether root scalar source projection can be carried into the
+        exact selected construction stage. This does not certify individual
+        fields or describe other source-choice modes.
+      additionalProperties: false
+      required: [supported, stageId]
+      properties:
+        supported: {type: boolean}
+        stageId: {type: string, minLength: 1}
+        reasonCode: {type: string}
+        reason: {type: string}
     ConstructionWorkspaceInput:
       type: object
       additionalProperties: false

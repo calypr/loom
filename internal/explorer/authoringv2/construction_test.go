@@ -1113,6 +1113,101 @@ func TestSourceColumnsAddedAfterConstructionReceiveStableIDsAndFlowThroughStages
 	}
 }
 
+func TestAddRootScalarSourceAfterRelatedExpandPreservesStageAndSupportsGrouping(t *testing.T) {
+	catalog := testCatalog()
+	catalog.Nodes = []CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}}
+	catalog.Edges = nil
+	catalog.Candidates = []CatalogCandidate{{
+		ID: "observation-status", NodeID: "observation", FieldPath: "status",
+		Cardinality: "optional_one", Label: "Status", LogicalType: "string", ProjectionModes: []string{"VALUE"},
+		DefaultProjectionMode: "VALUE",
+		ConstructionChoice:    testFieldConstructionChoice(catalog.SnapshotToken, "observation-status", "observation", "Observation", "status", "optional_one", capability.ProjectionScalar),
+	}}
+	document := workspaceDocument("observations")
+	document.RootResourceType = "Observation"
+	document.Route.ResourceType = "Observation"
+	document.Columns = []Column{{
+		ColumnID: "observation-id", Column: "observation_id", Label: "Observation ID", LogicalType: "string",
+		OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+	}}
+	rootID := StageColumn{ID: "observation-id", Name: "observation_id", Label: "Observation ID", Type: "string"}
+	relatedID := StageColumn{ID: "related-medadmin-id", Name: "related_medicationadministration_id", Label: "MedicationAdministration ID", Type: "string", Nullable: true}
+	document.Construction = &Construction{Version: ConstructionVersion, Steps: []ConstructionStep{{
+		ID: "expand_medicationadministrations", Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
+		Operation: ConstructionOperation{Kind: ConstructionOperationRelatedExpand, RelatedExpand: &ConstructionRelatedExpand{
+			AnchorColumnID: "_key", ChoiceID: "related-route-choice", TargetNodeID: "medicationadministration",
+			TargetResourceType: "MedicationAdministration", Route: []capability.ConstructionRouteStep{
+				{EdgeID: "observation-patient", FromNodeID: "observation", ToNodeID: "patient", FromResourceType: "Observation", ToResourceType: "Patient", Relationship: "subject_Patient", StorageDirection: "OUTBOUND", MatchMode: "OPTIONAL"},
+				{EdgeID: "patient-medicationadministration", FromNodeID: "patient", ToNodeID: "medicationadministration", FromResourceType: "Patient", ToResourceType: "MedicationAdministration", Relationship: "subject_Patient", StorageDirection: "INBOUND", MatchMode: "OPTIONAL"},
+			},
+			ContributorRule: ConstructionRelatedContributorRule{Policy: ConstructionRelatedAllMatches},
+			EmptyPolicy:     ConstructionExpandEmptyPreserveParent, RelatedRecordColumnID: relatedID.ID,
+		}}, Outputs: []StageColumn{rootID, relatedID},
+	}}}
+	workspace := constructionWorkspace(document)
+	if err := workspace.Validate(); err != nil {
+		t.Fatalf("validate RELATED_EXPAND source workspace: %v", err)
+	}
+	updated, results, err := ApplyCommands(workspace, catalog, "add-observation-status", []Command{{
+		Type: CommandAddColumnSource, OutputID: document.Output.ID, OccurrenceID: RootOccurrenceID,
+		Source: &ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "status", ProjectionMode: "VALUE"}},
+	}})
+	if err != nil {
+		t.Fatalf("ADD_COLUMN_SOURCE after RELATED_EXPAND: %v", err)
+	}
+	if len(results) != 1 || results[0].Type != CommandResultColumnAdded {
+		t.Fatalf("ADD_COLUMN_SOURCE result = %#v", results)
+	}
+	updatedDocument := updated.Documents[0]
+	var added Column
+	for _, column := range updatedDocument.Columns {
+		if column.ColumnID != rootID.ID {
+			added = column
+		}
+	}
+	if added.ColumnID == "" || added.Source.Field == nil || added.Source.Field.Path != "status" {
+		t.Fatalf("added root scalar column = %#v", added)
+	}
+	expand := updatedDocument.Construction.Steps[0]
+	if len(updatedDocument.Construction.Steps) != 1 || len(expand.RowValues) != 0 ||
+		expand.Operation.RelatedExpand == nil || expand.Operation.RelatedExpand.EmptyPolicy != ConstructionExpandEmptyPreserveParent {
+		t.Fatalf("adding a root scalar changed expansion policy or grain: %#v", updatedDocument.Construction)
+	}
+	if got, found := findStageColumnByID(expand.Outputs, relatedID.ID); !found || !got.Nullable {
+		t.Fatalf("nullable unmatched MedicationAdministration ID changed: %#v, found=%t", got, found)
+	}
+	if got, found := findStageColumnByID(expand.Outputs, added.ColumnID); !found || got.Type != "string" {
+		t.Fatalf("added root field did not remain a scalar pass-through: %#v, found=%t", got, found)
+	}
+
+	encoded, err := updated.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := DecodeWorkspace(encoded)
+	if err != nil {
+		t.Fatalf("reload expanded source field: %v", err)
+	}
+	groupedDocument := reloaded.Documents[0]
+	groupStep := ConstructionStep{
+		ID: "group_by_observation_status", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: expand.ID}},
+		Operation: ConstructionOperation{Kind: ConstructionOperationGroup, Group: &ConstructionGroup{
+			ConstructionID: "group_by_observation_status", MissingKeyPolicy: ConstructionGroupMissingKeyGroup,
+			Keys:       []ConstructionGroupKey{{InputColumnID: added.ColumnID, OutputColumnID: "status_key"}},
+			Aggregates: []ConstructionGroupAggregate{{Operation: ConstructionGroupCountRows, OutputColumnID: "record_count"}},
+		}},
+		Outputs: []StageColumn{
+			{ID: "status_key", Name: "status", Label: "Status", Type: "string"},
+			{ID: "record_count", Name: "record_count", Label: "Record count", Type: "integer"},
+		},
+	}
+	candidate := *groupedDocument.Construction
+	candidate.Steps = append(append([]ConstructionStep(nil), candidate.Steps...), groupStep)
+	if _, _, err := groupedDocument.AnalyzeConstructionCandidate(candidate, groupStep.ID, nil); err != nil {
+		t.Fatalf("GROUP could not consume the added public field at the expanded stage: %v", err)
+	}
+}
+
 func TestConstructionRejectsNonFiniteTypedNumbers(t *testing.T) {
 	if err := (FilterValue{Kind: ConstructionFilterDecimal, Decimal: float64Pointer(math.NaN())}).Validate(); err == nil {
 		t.Fatal("NaN filter literal was accepted")

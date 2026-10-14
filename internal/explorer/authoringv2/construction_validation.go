@@ -351,7 +351,7 @@ func validatePivotSourceProjection(construction *Construction, projection Constr
 	}
 	for index := 0; index < ownerIndex; index++ {
 		step := construction.Steps[index]
-		if !constructionCanCarrySourceProjection(step.Operation.Kind) {
+		if !ConstructionCanCarrySourceProjection(step.Operation.Kind) {
 			return fmt.Errorf("source projection cannot cross %s before its owner PIVOT", step.Operation.Kind)
 		}
 		found := false
@@ -368,7 +368,9 @@ func validatePivotSourceProjection(construction *Construction, projection Constr
 	return nil
 }
 
-func constructionCanCarrySourceProjection(kind ConstructionOperationKind) bool {
+// ConstructionCanCarrySourceProjection reports whether an operation preserves
+// a root scalar source field in its output schema.
+func ConstructionCanCarrySourceProjection(kind ConstructionOperationKind) bool {
 	switch kind {
 	case ConstructionOperationDerive, ConstructionOperationFilter, ConstructionOperationExpand,
 		ConstructionOperationRelatedSource, ConstructionOperationRelatedExpand,

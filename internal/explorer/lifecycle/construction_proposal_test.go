@@ -431,6 +431,9 @@ func TestConstructionCapabilitiesReturnOnlyReceiptBoundStableStages(t *testing.T
 	if capabilities.SelectedStage.ID != recipe.ConstructionSourceProjectionID || len(capabilities.Stages) != 1 || len(capabilities.SelectedStage.Capabilities) != 5 {
 		t.Fatalf("source-stage capabilities = %#v", capabilities)
 	}
+	if availability := capabilities.SourceProjectionAvailability; availability == nil || !availability.Supported || availability.StageID != recipe.ConstructionSourceProjectionID {
+		t.Fatalf("source-stage projection availability = %#v, want supported and bound to source_projection", availability)
+	}
 	if len(capabilities.SelectedStage.Columns) == 0 || capabilities.SelectedStage.Columns[0].ID == "" {
 		t.Fatalf("source descriptor omitted stable column identity: %#v", capabilities.SelectedStage.Columns)
 	}
@@ -442,6 +445,30 @@ func TestConstructionCapabilitiesReturnOnlyReceiptBoundStableStages(t *testing.T
 	})
 	if lifecycleErrorCode(err) != "STALE_STAGE_REFERENCE" {
 		t.Fatalf("invented stage reference error = %v", err)
+	}
+}
+
+func TestConstructionSourceProjectionAvailabilityUsesAuthoringCarryPolicy(t *testing.T) {
+	construction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+		{ID: "filter_before", Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter}},
+		{ID: "expand_first", Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedExpand}},
+		{ID: "filter_between", Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter}},
+		{ID: "expand_second", Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedExpand}},
+		{ID: "group_rows", Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup}},
+		{ID: "pivot_rows", Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationPivot}},
+		{ID: "append_rows", Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationCombine}},
+	}}
+	for _, stageID := range []string{recipe.ConstructionSourceProjectionID, "filter_before", "expand_first", "filter_between", "expand_second"} {
+		availability := constructionSourceProjectionAvailability(construction, stageID)
+		if !availability.Supported || availability.StageID != stageID || availability.ReasonCode != "" {
+			t.Fatalf("root source projection availability at %q = %#v, want supported and stage-bound", stageID, availability)
+		}
+	}
+	for _, stageID := range []string{"group_rows", "pivot_rows", "append_rows", "missing_stage"} {
+		availability := constructionSourceProjectionAvailability(construction, stageID)
+		if availability.Supported || availability.StageID != stageID || availability.ReasonCode != "ROOT_SOURCE_PROJECTION_UNAVAILABLE" || availability.Reason == "" {
+			t.Fatalf("root source projection availability at %q = %#v, want explicit unsupported reason", stageID, availability)
+		}
 	}
 }
 

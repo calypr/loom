@@ -181,7 +181,7 @@ func (d Document) AnalyzeConstructionCandidate(candidateConstruction Constructio
 				firstChanged = oldIndex
 			}
 		} else if oldIndex < firstChanged && !reflect.DeepEqual(oldStep, candidateStep) {
-			if !constructionCanCarrySourceProjection(oldStep.Operation.Kind) ||
+			if !ConstructionCanCarrySourceProjection(oldStep.Operation.Kind) ||
 				!stepDiffOnlyChangesOwnedProjection(oldStep, candidateSteps[expectedIndex], projectionOwners,
 					base.Construction.SourceProjections, cloned.SourceProjections) {
 				return d, ConstructionImpact{}, fmt.Errorf("candidate changes step %q before the changed step", oldStep.ID)

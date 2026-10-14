@@ -32,17 +32,29 @@ type ConstructionCapabilitiesRequest struct {
 }
 
 type ConstructionCapabilitiesResponse struct {
-	SnapshotToken    string                              `json:"snapshotToken"`
-	DraftVersion     int64                               `json:"draftVersion"`
-	DraftDigest      string                              `json:"draftDigest"`
-	OutputID         string                              `json:"outputId"`
-	StageID          string                              `json:"stageId"`
-	BaseConstruction authoringv2.Construction            `json:"baseConstruction"`
-	Stages           []explorer.ReceiptConstructionStage `json:"stages"`
-	SelectedStage    explorer.ReceiptConstructionStage   `json:"selectedStage"`
-	SourceInput      ConstructionGroupSourceCapability   `json:"sourceInput"`
-	PivotSourceInput ConstructionPivotSourceCapability   `json:"pivotSourceInput"`
-	WorkspaceInputs  []ConstructionWorkspaceInput        `json:"workspaceInputs"`
+	SnapshotToken                string                                    `json:"snapshotToken"`
+	DraftVersion                 int64                                     `json:"draftVersion"`
+	DraftDigest                  string                                    `json:"draftDigest"`
+	OutputID                     string                                    `json:"outputId"`
+	StageID                      string                                    `json:"stageId"`
+	BaseConstruction             authoringv2.Construction                  `json:"baseConstruction"`
+	Stages                       []explorer.ReceiptConstructionStage       `json:"stages"`
+	SelectedStage                explorer.ReceiptConstructionStage         `json:"selectedStage"`
+	SourceInput                  ConstructionGroupSourceCapability         `json:"sourceInput"`
+	PivotSourceInput             ConstructionPivotSourceCapability         `json:"pivotSourceInput"`
+	SourceProjectionAvailability *ConstructionSourceProjectionAvailability `json:"sourceProjectionAvailability,omitempty"`
+	WorkspaceInputs              []ConstructionWorkspaceInput              `json:"workspaceInputs"`
+}
+
+// ConstructionSourceProjectionAvailability indicates whether root scalar
+// source fields can be carried into this exact stage. It does not certify an
+// individual field; the existing construction-choice proposal validates and
+// compiles each selected field before it can be applied.
+type ConstructionSourceProjectionAvailability struct {
+	Supported  bool   `json:"supported"`
+	StageID    string `json:"stageId"`
+	ReasonCode string `json:"reasonCode,omitempty"`
+	Reason     string `json:"reason,omitempty"`
 }
 
 // ConstructionWorkspaceInput is a current sibling output eligible to be
@@ -302,6 +314,7 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 	if err != nil {
 		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile pivot source choices: %w", err)
 	}
+	sourceProjectionAvailability := constructionSourceProjectionAvailability(base.construction, selected.ID)
 	workspaceInputs, err := constructionWorkspaceInputs(base, request.OutputID)
 	if err != nil {
 		return ConstructionCapabilitiesResponse{}, err
@@ -310,8 +323,19 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 		SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
 		OutputID: request.OutputID, StageID: request.StageID, BaseConstruction: base.construction,
 		Stages: stages, SelectedStage: *selected, SourceInput: sourceInput, PivotSourceInput: pivotSourceInput,
-		WorkspaceInputs: workspaceInputs,
+		SourceProjectionAvailability: &sourceProjectionAvailability, WorkspaceInputs: workspaceInputs,
 	}, nil
+}
+
+func constructionSourceProjectionAvailability(construction authoringv2.Construction, stageID string) ConstructionSourceProjectionAvailability {
+	availability := ConstructionSourceProjectionAvailability{StageID: stageID}
+	if !constructionRootProjectionCanReachStage(construction, stageID) {
+		availability.ReasonCode = "ROOT_SOURCE_PROJECTION_UNAVAILABLE"
+		availability.Reason = "the current construction prefix does not carry root scalar source fields to this stage"
+		return availability
+	}
+	availability.Supported = true
+	return availability
 }
 
 func constructionWorkspaceInputs(base constructionBase, targetOutputID string) ([]ConstructionWorkspaceInput, error) {

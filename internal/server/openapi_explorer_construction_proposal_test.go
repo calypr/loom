@@ -46,6 +46,9 @@ func TestConstructionCodedGroupOpenAPIDTOPreservesPayloadAndChoices(t *testing.T
 	}
 	response, err := directAuthoringJSON[loomapi.ConstructionCapabilitiesResponse](lifecycle.ConstructionCapabilitiesResponse{
 		Stages: []explorer.ReceiptConstructionStage{stage}, SelectedStage: stage,
+		SourceProjectionAvailability: &lifecycle.ConstructionSourceProjectionAvailability{
+			Supported: true, StageID: recipe.ConstructionSourceProjectionID,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -53,6 +56,24 @@ func TestConstructionCodedGroupOpenAPIDTOPreservesPayloadAndChoices(t *testing.T
 	if response.SelectedStage.CodedGroupChoices == nil || len(*response.SelectedStage.CodedGroupChoices) != 1 ||
 		(*response.SelectedStage.CodedGroupChoices)[0].CodingPath != "includedStructure[].structure.coding[]" {
 		t.Fatalf("OpenAPI response conversion dropped codedGroupChoices: %#v", response.SelectedStage)
+	}
+	if response.SourceProjectionAvailability == nil || !response.SourceProjectionAvailability.Supported ||
+		response.SourceProjectionAvailability.StageId != recipe.ConstructionSourceProjectionID {
+		t.Fatalf("OpenAPI response conversion dropped stage-bound source projection availability: %#v", response.SourceProjectionAvailability)
+	}
+	unsupported, err := directAuthoringJSON[loomapi.ConstructionCapabilitiesResponse](lifecycle.ConstructionCapabilitiesResponse{
+		SourceProjectionAvailability: &lifecycle.ConstructionSourceProjectionAvailability{
+			StageID: "group_stage", ReasonCode: "ROOT_SOURCE_PROJECTION_UNAVAILABLE", Reason: "root fields are not carried to this stage",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unsupported.SourceProjectionAvailability == nil || unsupported.SourceProjectionAvailability.Supported ||
+		unsupported.SourceProjectionAvailability.StageId != "group_stage" ||
+		unsupported.SourceProjectionAvailability.ReasonCode == nil || *unsupported.SourceProjectionAvailability.ReasonCode != "ROOT_SOURCE_PROJECTION_UNAVAILABLE" ||
+		unsupported.SourceProjectionAvailability.Reason == nil || *unsupported.SourceProjectionAvailability.Reason != "root fields are not carried to this stage" {
+		t.Fatalf("OpenAPI response conversion dropped root-projection unavailability: %#v", unsupported.SourceProjectionAvailability)
 	}
 }
 

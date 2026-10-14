@@ -128,7 +128,7 @@ func constructionRootProjectionCanReachStage(construction authoringv2.Constructi
 		return true
 	}
 	for _, step := range construction.Steps {
-		if !constructionOperationCarriesPivotSource(step.Operation.Kind) {
+		if !authoringv2.ConstructionCanCarrySourceProjection(step.Operation.Kind) {
 			return false
 		}
 		if step.ID == stageID {
@@ -136,17 +136,6 @@ func constructionRootProjectionCanReachStage(construction authoringv2.Constructi
 		}
 	}
 	return false
-}
-
-func constructionOperationCarriesPivotSource(kind authoringv2.ConstructionOperationKind) bool {
-	switch kind {
-	case authoringv2.ConstructionOperationDerive, authoringv2.ConstructionOperationFilter, authoringv2.ConstructionOperationExpand,
-		authoringv2.ConstructionOperationRelatedSource, authoringv2.ConstructionOperationRelatedExpand,
-		authoringv2.ConstructionOperationRelatedEligibility, authoringv2.ConstructionOperationRelatedField:
-		return true
-	default:
-		return false
-	}
 }
 
 func constructionReceiptStage(stages []explorer.ReceiptConstructionStage, stageID string) (explorer.ReceiptConstructionStage, bool) {
@@ -408,7 +397,7 @@ func (s *Service) constructionCandidateWithPivotSources(
 	// row-preserving prefix stage that leads to this Pivot.
 	for index := 0; index < pivotIndex; index++ {
 		step := &steps[index]
-		if !constructionOperationCarriesPivotSource(step.Operation.Kind) {
+		if !authoringv2.ConstructionCanCarrySourceProjection(step.Operation.Kind) {
 			if hasNewRootPivotSource(resolved) {
 				return authoringv2.Construction{}, nil, unprocessable("construction-proposal", "PIVOT_SOURCE_CANNOT_CROSS_STAGE", "a selected root field cannot be carried through an earlier row-changing operation", nil)
 			}

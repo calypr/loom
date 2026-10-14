@@ -27,7 +27,7 @@ func CanPopulateConstructionRows(construction *Construction) bool {
 			shaped = true
 			continue
 		}
-		if !constructionCanCarrySourceProjection(step.Operation.Kind) {
+		if !ConstructionCanCarrySourceProjection(step.Operation.Kind) {
 			return false
 		}
 	}
@@ -130,7 +130,7 @@ func populateConstructionColumn(document *Document, column Column, policy Constr
 			step.RowValues = append(step.RowValues, ConstructionRowValue{InputColumnID: current.ID, OutputColumnID: output.ID, Policy: policy})
 			step.Outputs = append(step.Outputs, output)
 			current = output
-		} else if constructionCanCarrySourceProjection(step.Operation.Kind) {
+		} else if ConstructionCanCarrySourceProjection(step.Operation.Kind) {
 			step.Outputs = append(step.Outputs, current)
 		} else {
 			return fmt.Errorf("adding source values across %s is not supported", step.Operation.Kind)
