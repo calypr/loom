@@ -438,9 +438,16 @@ export const relatedExpandFieldLifecycleWorkflow = async ({ page, action, check,
         .waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
     });
     const dialog = page.getByRole('dialog');
-    const allValues = dialog.getByRole('radio', {
-      name: 'Patient.gender: Keep all matching values', exact: true,
+    const patientRoute = dialog.getByRole('radio', {
+      name: 'Gender: Observation -[subject]-> Patient', exact: true,
     });
+    await click('choose the current-row Observation.subject to Patient path', patientRoute, async () => {
+      assert.equal(await patientRoute.isChecked(), true);
+    });
+    const allValues = dialog.getByRole('radio', {
+      name: 'Gender: Keep all matching values', exact: true,
+    });
+    await allValues.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
     assert.equal(await allValues.isVisible(), true,
       'Patient.gender must expose the compiler-supported all-matching-values form.');
     if (!await allValues.isChecked()) {
