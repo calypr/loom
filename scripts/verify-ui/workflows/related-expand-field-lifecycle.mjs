@@ -310,6 +310,11 @@ export const relatedExpandFieldLifecycleWorkflow = async ({ page, action, check,
     await openAddColumns('open Add columns for the active MedicationAdministration record');
     const activeSource = editor.locator('[data-testid="construction-add-columns-source-option"][data-source-kind="EXACT_RELATED"]');
     assert.equal(await activeSource.count(), 1, 'Add columns must expose the exact active related record source.');
+    const relatedSources = editor.getByRole('group', { name: 'Related resources', exact: true });
+    if (!await activeSource.isVisible()) {
+      await click('browse exact related record sources', relatedSources.locator('summary'), () =>
+        activeSource.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }));
+    }
     assert((await activeSource.innerText()).includes('MedicationAdministration — this row’s related record'),
       'The exact active source must identify the current MedicationAdministration row.');
     if (await activeSource.getAttribute('aria-pressed') !== 'true') {
