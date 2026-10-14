@@ -2,13 +2,106 @@ package compilation
 
 import (
 	"context"
+	"strconv"
+	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
+
+func TestCompileAuthoringCodedConceptCarriesSelectedVersionToRenderBinds(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		version string
+	}{
+		{name: "versioned", version: "v1"},
+		{name: "unversioned", version: ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			observation := catalog.SemanticObservation{
+				SchemaVersion: catalog.SemanticObservationSchemaVersion,
+				Source:        catalog.SemanticObservationSource{Type: "Condition", Path: "code.coding[]"},
+				Key: catalog.SemanticObservationKey{
+					Selector: "code.coding[]", System: "urn:example:condition", Version: test.version, Code: "condition-shared",
+				},
+				Value: catalog.SemanticObservationValue{
+					Selector: "code.coding[].display", Type: "string",
+					FallbackSelectors: []string{"code.coding[].code"}, FallbackOnBlankString: true,
+				},
+				Completeness: catalog.SemanticComplete,
+				Status:       "SUPPORTED",
+				RuleHint:     catalog.SemanticRuleHintCodedConceptV1,
+				RuleVersion:  strconv.Itoa(catalog.SemanticObservationRuleVersion),
+			}
+			selection := authoringv2.ResolveSemanticSelectionPlan(observation)
+			if selection.Source == nil || selection.Source.Lookup == nil || selection.Source.Lookup.Key == nil {
+				t.Fatalf("versioned semantic selection was not ready: %#v", selection.Readiness)
+			}
+			if got := selection.Source.Lookup.Key.Version; got != test.version {
+				t.Fatalf("selection key version = %q, want %q", got, test.version)
+			}
+			document := authoringv2.Document{
+				Rows:             authoringv2.RecordsRowDefinition(),
+				Kind:             authoringv2.Kind,
+				Output:           authoringv2.Output{ID: "conditions", Title: "Conditions"},
+				RootResourceType: "Condition",
+				Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Condition"},
+				Columns: []authoringv2.Column{{
+					Column: "condition_display", Label: "Condition display", OccurrenceID: authoringv2.RootOccurrenceID,
+					LogicalType: selection.LogicalType,
+					Source:      *selection.Source,
+				}},
+			}
+			snapshot := fixtureSnapshotForProject("project-a")
+			snapshot.Nodes = append(snapshot.Nodes, capability.Node{ID: "n_condition", ResourceType: "Condition", RowRootEligible: true, RowGrain: "resource"})
+			compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, snapshot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			recipePlan, err := semantic.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolved, err := semantic.ResolveRecipePlan(recipePlan, "scope-a", "generation-a")
+			if err != nil {
+				t.Fatal(err)
+			}
+			physical, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(physical.Outputs) != 1 {
+				t.Fatalf("physical outputs = %d, want 1", len(physical.Outputs))
+			}
+			rendered, err := aql.RenderPhysicalPlan(physical.Outputs[0].Plan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got string
+			found := false
+			for key, value := range rendered.BindVars {
+				if strings.HasSuffix(key, "_version") {
+					got, found = value.(string)
+					if !found {
+						t.Fatalf("version bind %q has type %T", key, value)
+					}
+					break
+				}
+			}
+			if !found || got != test.version {
+				t.Fatalf("rendered Coding version bind = %q (found=%t), want %q; binds=%#v", got, found, test.version, rendered.BindVars)
+			}
+		})
+	}
+}
 
 func TestCompileAuthoringCorrelatedLookupCarriesSelectedPair(t *testing.T) {
 	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),

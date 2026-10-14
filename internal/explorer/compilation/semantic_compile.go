@@ -1020,7 +1020,7 @@ func semanticCodedValuePivot(column authoringv2.Column, leaf string) (recipe.Piv
 		Name:    "correlated_" + shortHash(column.Column+"\x00"+lookup.Key.System+"\x00"+lookup.Key.Code),
 		Columns: []string{lookup.Key.Code}, ColumnAliases: map[string]string{lookup.Key.Code: leaf},
 		ProjectionMode: recipe.NormalizedPivotProjectionMode(lookup.ProjectionMode), Correlation: lookup.Binding,
-		CorrelationSystem: lookup.Key.System, CorrelationCode: lookup.Key.Code,
+		CorrelationSystem: lookup.Key.System, CorrelationCode: lookup.Key.Code, CorrelationVersion: lookup.Key.Version,
 	}
 	return pivot, nil
 }
