@@ -175,6 +175,38 @@ func (s *Store) ClaimSemanticInventoryBackfill(ctx context.Context, build catalo
 	return catalog.SemanticInventoryBuild{}, false, ErrSemanticInventoryClaimed
 }
 
+// RefreshSemanticInventorySourceAvailability upgrades only the source-coverage
+// metadata of an unchanged completed retained build. Callers must independently
+// prove the generation's source counts before requesting this compare-and-set.
+func (s *Store) RefreshSemanticInventorySourceAvailability(ctx context.Context, expected catalog.SemanticInventoryBuild) (catalog.SemanticInventoryBuild, bool, error) {
+	if err := catalog.ValidateSemanticInventoryBuild(expected); err != nil {
+		return catalog.SemanticInventoryBuild{}, false, err
+	}
+	if expected.State != catalog.SemanticInventoryComplete || expected.SourceKind != catalog.SemanticInventorySourceRetained ||
+		expected.SourceAvailability != catalog.SemanticInventorySourceAvailabilityUnproven || len(expected.Diagnostics) != 0 || expected.AuthResourcePath != "" {
+		return expected, false, nil
+	}
+	var refreshed catalog.SemanticInventoryBuild
+	found := false
+	err := s.client.QueryRows(ctx, refreshSemanticInventorySourceAvailabilityAQL, 1, map[string]interface{}{
+		"key": expected.Key, "project": expected.Project, "dataset_generation": catalog.NormalizeDatasetGeneration(expected.DatasetGeneration),
+		"build_id": expected.BuildID, "auth_resource_path": expected.AuthResourcePath, "scanned_resources": expected.ScannedResources,
+	}, func(row map[string]any) error {
+		if err := decodeInventoryRow(row, &refreshed); err != nil {
+			return err
+		}
+		found = true
+		return nil
+	})
+	if err != nil {
+		return catalog.SemanticInventoryBuild{}, false, fmt.Errorf("refresh verified semantic inventory source availability: %w", err)
+	}
+	if !found {
+		return expected, false, nil
+	}
+	return refreshed, true, nil
+}
+
 func (s *Store) AdvanceSemanticInventoryBackfill(ctx context.Context, build catalog.SemanticInventoryBuild, token string, expected catalog.SemanticInventoryCheckpoint, next catalog.SemanticInventoryCheckpoint, scanned int64, lease time.Duration) (catalog.SemanticInventoryBuild, error) {
 	now := time.Now()
 	return s.executeSemanticInventoryBackfill(ctx, advanceSemanticInventoryBackfillAQL, map[string]interface{}{
@@ -949,6 +981,24 @@ UPSERT {_key: @key}
   IN fhir_semantic_inventory_builds
   OPTIONS {exclusive: true}
 RETURN NEW`
+
+const refreshSemanticInventorySourceAvailabilityAQL = `
+FOR d IN fhir_semantic_inventory_builds
+  FILTER d._key == @key
+  FILTER d.project == @project
+  FILTER d.dataset_generation == @dataset_generation
+  FILTER d.build_id == @build_id
+  FILTER NOT_NULL(d.auth_resource_path, "") == @auth_resource_path
+  FILTER d.state == "complete"
+  FILTER d.source_kind == "retained_vertex"
+  FILTER d.source_availability == "unproven"
+  FILTER LENGTH(NOT_NULL(d.diagnostics, [])) == 0
+  FILTER NOT_NULL(d.scanned_resources, 0) == @scanned_resources
+  FILTER NOT_NULL(d.lease_token, "") == ""
+  FILTER NOT_NULL(d.lease_expires_at, 0) == 0
+  UPDATE d WITH {source_availability: "verified"} IN fhir_semantic_inventory_builds
+  OPTIONS {exclusive: true}
+  RETURN NEW`
 
 const advanceSemanticInventoryBackfillAQL = `
 FOR d IN fhir_semantic_inventory_builds
