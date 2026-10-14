@@ -111,6 +111,36 @@ const availabilityMessage = (
 const selectedAsArray = (selected: ReadonlyMap<string, CatalogItem>) =>
   [...selected.values()];
 
+type CatalogSourceGroup = {
+  readonly nodeId: string;
+  readonly resourceType: string;
+  readonly items: ReadonlyArray<CatalogItem>;
+};
+
+const catalogSourceGroups = (
+  items: ReadonlyArray<CatalogItem>,
+  rowRoot: string,
+): ReadonlyArray<CatalogSourceGroup> => {
+  const groups = new Map<string, { nodeId: string; resourceType: string; items: CatalogItem[] }>();
+  for (const item of items) {
+    const source = catalogItemConstructionChoice(item)?.source;
+    const resourceType = item.kind === 'FIELD' ? item.constructionChoice.source.resourceType : item.item.resourceType;
+    const nodeId = source?.nodeId ?? (item.kind === 'FIELD' ? item.candidate.nodeId : resourceType);
+    const existing = groups.get(nodeId);
+    if (existing) {
+      existing.items.push(item);
+    } else {
+      groups.set(nodeId, { nodeId, resourceType, items: [item] });
+    }
+  }
+  return [...groups.values()].sort((left, right) => {
+    if (left.resourceType === rowRoot && right.resourceType !== rowRoot) return -1;
+    if (right.resourceType === rowRoot && left.resourceType !== rowRoot) return 1;
+    if (left.resourceType !== right.resourceType) return left.resourceType < right.resourceType ? -1 : 1;
+    return left.nodeId < right.nodeId ? -1 : left.nodeId > right.nodeId ? 1 : 0;
+  });
+};
+
 const choiceGroupsForRelatedSource = (
   groups: ReadonlyArray<CatalogChoiceGroup>,
   rowRoot: string,
@@ -772,7 +802,7 @@ const ConceptCatalogContent = ({
     return fields;
   }, [client, project, explorerId, authResourcePath, snapshotToken, schemaNodeId, query], Boolean(
     schemaDiscoveryEnabled && schemaNodeId && client.searchSchemaFields &&
-    (view === 'fields' || (view === 'all' && (layout !== 'panel' || rawFieldsExpanded))),
+    view === 'all' && (layout !== 'panel' || rawFieldsExpanded),
   ));
   const generatedFields = schemaProgress?.key === schemaScopeKey && schemaProgress.client === client
     ? schemaProgress.fields : schemaFields.data ?? [];
@@ -781,7 +811,16 @@ const ConceptCatalogContent = ({
       if (view === 'coded') return [];
       const reachableSourceNodeIds = new Set(catalogSourceOptions(catalog, rowRoot)
         .flatMap((source) => source.kind === 'RELATED' ? [source.sourceNodeId] : []));
-      return [...fieldCatalogItems(catalog, rowRoot, resourceType, query, sourceNodeId), ...schemaFieldCatalogItems(generatedFields)].filter(
+      const catalogFields = fieldCatalogItems(
+        catalog,
+        rowRoot,
+        resourceType,
+        query,
+        sourceNodeId,
+        view === 'fields',
+      ).filter((item) => item.kind === 'FIELD' && (view !== 'fields' || item.candidate.populated === true));
+      const schemaFields = view === 'all' ? schemaFieldCatalogItems(generatedFields) : [];
+      return [...catalogFields, ...schemaFields].filter(
         (item) => item.kind === 'FIELD' &&
           (!routeContext || item.candidate.nodeId === routeContext.nodeId) &&
           (routeContext || item.constructionChoice.source.resourceType === rowRoot || reachableSourceNodeIds.has(item.candidate.nodeId)) &&
@@ -811,6 +850,14 @@ const ConceptCatalogContent = ({
       .filter((item) => view !== 'fields')
       .filter((item) => canAddCatalogItem(item) && catalogItemAvailability(item).selectable),
     [canAddFromSourceProjection, view, relatedSourceAvailability, response?.entries, resourceType, rowRoot, sourceNodeId],
+  );
+  const fieldGroups = useMemo(
+    () => catalogSourceGroups(fieldItems, rowRoot),
+    [fieldItems, rowRoot],
+  );
+  const semanticGroups = useMemo(
+    () => catalogSourceGroups(semanticItems, rowRoot),
+    [semanticItems, rowRoot],
   );
   const selectedItems = useMemo(() => selectedAsArray(selected), [selected]);
   const toggleSelection = (item: CatalogItem) => {
@@ -1096,7 +1143,11 @@ const ConceptCatalogContent = ({
     <section className="mt-3" aria-labelledby="feature-catalog-fields-title">
       <div className="flex items-center justify-between gap-3">
         <h3 id="feature-catalog-fields-title" className="text-sm font-semibold text-slate-800">
-          Fields {resourceType ? `on ${resourceType}` : query ? 'matching this search' : `on ${rowRoot}`}
+          {resourceType
+            ? `Fields on ${resourceType}`
+            : view === 'fields'
+              ? query ? 'Fields matching this search' : 'Available dataset fields'
+              : query ? 'Fields matching this search' : `Fields on ${rowRoot}`}
         </h3>
         <span className="text-xs text-slate-500">{fieldItems.length} available</span>
       </div>
@@ -1108,29 +1159,38 @@ const ConceptCatalogContent = ({
         ) : null}
         {fieldItems.length === 0 ? (
           <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
-            No fields match this search.
+            {view === 'fields'
+              ? query ? 'No populated dataset fields match this search.' : 'No populated dataset fields are available for this output.'
+              : 'No fields match this search.'}
           </p>
-        ) : fieldItems.map((item) => (
-          <CatalogItemRow
-            key={catalogItemKey(item)}
-            item={item}
-            rowRoot={rowRoot}
-            currentResourceType={resourceType}
-            hasRouteContext={routeContext !== undefined}
-            checked={selected.has(catalogItemKey(item))}
-            disabled={disabled || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
-            selectionDisabled={!canAddCatalogItem(item)}
-            disabledReasonId={visibleDisabledReasonId}
-            selectionDisabledReasonId={
-              relatedSourceAvailability?.supported === false &&
-              isRelatedFieldCatalogItem(item, rowRoot)
-                ? relatedSourceAvailabilityId
-                : undefined
-            }
-            onToggle={() => toggleSelection(item)}
-            choiceDetails={choiceDetails.get(choiceDetailsKey(item))}
-            onInspectChoices={() => inspectChoices(item)}
-          />
+        ) : fieldGroups.map((group) => (
+          <section key={group.nodeId} data-source-node-id={group.nodeId} className="py-2 first:pt-0">
+            <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Fields from {group.resourceType}
+            </h4>
+            {group.items.map((item) => (
+              <CatalogItemRow
+                key={catalogItemKey(item)}
+                item={item}
+                rowRoot={rowRoot}
+                currentResourceType={resourceType}
+                hasRouteContext={routeContext !== undefined}
+                checked={selected.has(catalogItemKey(item))}
+                disabled={disabled || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
+                selectionDisabled={!canAddCatalogItem(item)}
+                disabledReasonId={visibleDisabledReasonId}
+                selectionDisabledReasonId={
+                  relatedSourceAvailability?.supported === false &&
+                  isRelatedFieldCatalogItem(item, rowRoot)
+                    ? relatedSourceAvailabilityId
+                    : undefined
+                }
+                onToggle={() => toggleSelection(item)}
+                choiceDetails={choiceDetails.get(choiceDetailsKey(item))}
+                onInspectChoices={() => inspectChoices(item)}
+              />
+            ))}
+          </section>
         ))}
       </div>
     </section>
@@ -1273,23 +1333,30 @@ const ConceptCatalogContent = ({
                   : 'No concepts match this search.'}
               </p>
             ) : null}
-              {semanticItems.map((item) => (
-                <CatalogItemRow
-                  key={catalogItemKey(item)}
-                  item={item}
-                  rowRoot={rowRoot}
-                  currentResourceType={resourceType}
-                  hasRouteContext={routeContext !== undefined}
-                  checked={selected.has(catalogItemKey(item))}
-                  disabled={disabled || !canBrowseConcepts || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
-                  selectionDisabled={!canAddFromSourceProjection}
-                  disabledReasonId={visibleDisabledReasonId}
-                  onToggle={() => toggleSelection(item)}
-                  choiceDetails={choiceDetails.get(choiceDetailsKey(item))}
-                  onInspectChoices={() => inspectChoices(item)}
+              {semanticGroups.map((group) => (
+                <section key={group.nodeId} data-source-node-id={group.nodeId} className="py-2 first:pt-0">
+                  <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Coded values from {group.resourceType}
+                  </h4>
+                  {group.items.map((item) => (
+                    <CatalogItemRow
+                      key={catalogItemKey(item)}
+                      item={item}
+                      rowRoot={rowRoot}
+                      currentResourceType={resourceType}
+                      hasRouteContext={routeContext !== undefined}
+                      checked={selected.has(catalogItemKey(item))}
+                      disabled={disabled || !canBrowseConcepts || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
+                      selectionDisabled={!canAddCatalogItem(item)}
+                      disabledReasonId={visibleDisabledReasonId}
+                      onToggle={() => toggleSelection(item)}
+                      choiceDetails={choiceDetails.get(choiceDetailsKey(item))}
+                      onInspectChoices={() => inspectChoices(item)}
                     />
+                  ))}
+                </section>
               ))}
-                        </div>
+          </div>
           <div className="mt-4 flex items-center justify-between border-t border-slate-200 pt-3">
             <button
               type="button"

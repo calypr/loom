@@ -190,6 +190,7 @@ const page = (
 const rootId: ExplorerBuilderCandidate = {
   candidateId: 'candidate-id',
   nodeId: 'patient-node',
+  populated: true,
   fieldPath: 'id',
   label: 'id',
   logicalType: 'string',
@@ -838,6 +839,7 @@ describe('ConceptCatalog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     expect(await screen.findByRole('checkbox', { name: 'Select Diagnostic Method' })).toBeEnabled();
+    expect(screen.getByRole('heading', { name: 'Coded values from Observation' })).toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: 'Select Patient identifier' })).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: /us-core-race/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: 'Select Unproven code' })).not.toBeInTheDocument();
@@ -847,7 +849,7 @@ describe('ConceptCatalog', () => {
     expect(screen.getByText('1 feature selected')).toBeInTheDocument();
     const requestCountBeforeFields = fetch.mock.calls.length;
     rerender(renderView('fields'));
-    expect(await screen.findByRole('heading', { name: 'Fields on Patient' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Available dataset fields' })).toBeInTheDocument();
     expect(screen.getByText('1 feature selected')).toBeInTheDocument();
     const selectedItems = screen.getByRole('list', { name: 'Selected fields and coded values' });
     expect(within(selectedItems).getByText('Coded value')).toBeInTheDocument();
@@ -888,33 +890,97 @@ describe('ConceptCatalog', () => {
     });
   });
 
-  it('browses compiler-issued fields directly without loading semantic inventory', async () => {
+  it('groups populated compiler fields by source and skips generated schema-only fields', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       new Response(JSON.stringify(page([item('hidden-code', 'Diagnostic Method', 4)])), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       }),
     );
+    const observationStatus: ExplorerBuilderCandidate = {
+      ...rootId,
+      candidateId: 'candidate-observation-status',
+      nodeId: 'observation-node',
+      fieldPath: 'status',
+      label: 'Observation status',
+      constructionChoice: fieldChoice(
+        'field-choice-observation-status',
+        'candidate-observation-status',
+        'observation-node',
+        'Observation',
+        'status',
+      ),
+    };
+    const unpopulatedGender: ExplorerBuilderCandidate = {
+      ...rootId,
+      candidateId: 'candidate-patient-gender',
+      fieldPath: 'gender',
+      label: 'Patient gender',
+      populated: false,
+      constructionChoice: fieldChoice('field-choice-patient-gender', 'candidate-patient-gender', 'patient-node', 'Patient', 'gender'),
+    };
+    const unknownPopulationField: ExplorerBuilderCandidate = {
+      ...rootId,
+      candidateId: 'candidate-patient-city',
+      fieldPath: 'address.city',
+      label: 'Patient city',
+      populated: undefined,
+      constructionChoice: fieldChoice('field-choice-patient-city', 'candidate-patient-city', 'patient-node', 'Patient', 'address.city'),
+    };
+    const catalogWithFields = {
+      ...catalog,
+      candidates: [...(catalog.candidates ?? []), observationStatus, unpopulatedGender, unknownPopulationField],
+    } satisfies ExplorerBuilderCatalog;
+    const schemaPage: Awaited<ReturnType<NonNullable<LoomClient['searchSchemaFields']>>> = {
+      apiVersion: EXPLORER_AUTHORING_API_VERSION,
+      kind: 'ExplorerBuilderGeneratedSchemaFields',
+      snapshotToken: 'snapshot-a',
+      schemaDigest: 'a'.repeat(64),
+      nodeId: 'patient-node',
+      resourceType: 'Patient',
+      query: '',
+      fields: [{
+        origin: 'GENERATED_SCHEMA',
+        constructionChoice: fieldChoice('field-choice-patient-birth-date', 'candidate-patient-birth-date', 'patient-node', 'Patient', 'birthDate'),
+        nodeId: 'patient-node',
+        resourceType: 'Patient',
+        path: 'birthDate',
+        primitiveType: 'date',
+        cardinality: 'optional_one',
+      }],
+      complete: true,
+      truncated: false,
+    };
+    const searchSchemaFields = vi.fn<NonNullable<LoomClient['searchSchemaFields']>>().mockResolvedValue(schemaPage);
+    const client = { ...createFullLoomClient({ fetch }), searchSchemaFields } satisfies LoomClient;
 
-    render(<LoomProvider client={createLoomClient({ fetch })}>
+    render(<LoomProvider client={client}>
       <ConceptCatalog
         project="project-a"
         explorerId="explorer-a"
         snapshotToken="snapshot-a"
         outputId="patients"
         rowRoot="Patient"
-        catalog={catalog}
+        catalog={catalogWithFields}
         view="fields"
       />
     </LoomProvider>);
 
     const fields = await screen.findByTestId('feature-catalog-raw-fields');
     expect(fields.tagName).toBe('DIV');
-    expect(await screen.findByRole('heading', { name: 'Fields on Patient' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Available dataset fields' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Fields from Patient' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Fields from Observation' })).toBeInTheDocument();
     expect(await screen.findByRole('checkbox', { name: 'Select Patient.id' })).toBeEnabled();
+    expect(screen.getByRole('checkbox', { name: 'Select Observation.status' })).toBeEnabled();
+    expect(screen.queryByRole('checkbox', { name: 'Select Patient.gender' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Select Patient city' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Select Patient.birthDate' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Select DocumentReference.id' })).not.toBeInTheDocument();
     expect(screen.getByRole('searchbox', { name: 'Search dataset fields by name or type' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Coded values for this table' })).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: 'Select Diagnostic Method' })).not.toBeInTheDocument();
+    expect(searchSchemaFields).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
   });
 

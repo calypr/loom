@@ -136,6 +136,7 @@ const fieldCandidate = (
 ): ExplorerBuilderCandidate => ({
   candidateId,
   nodeId,
+  populated: true,
   fieldPath,
   label: `${resourceType} ${fieldPath}`,
   logicalType: 'string',

@@ -2440,6 +2440,7 @@ export const explorerBuilderCandidateSchema = z
   .object({
     candidateId: opaqueIdSchema,
     nodeId: opaqueIdSchema,
+    populated: z.boolean().optional(),
     fieldPath: opaqueIdSchema,
     label: z.string(),
     logicalType: opaqueIdSchema,

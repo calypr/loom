@@ -366,6 +366,7 @@ export const fieldCatalogItems = (
   resourceType: string | undefined,
   query: string,
   sourceNodeId?: string,
+  includeRelated = false,
 ): ReadonlyArray<CatalogItem> => {
   const search = query.trim().toLowerCase();
   const rootPriority = (item: CatalogItem): number =>
@@ -383,7 +384,7 @@ export const fieldCatalogItems = (
       !node ||
       (resourceType
         ? node.resourceType !== resourceType
-        : !search && node.resourceType !== rowRoot) ||
+        : !includeRelated && !search && node.resourceType !== rowRoot) ||
       (sourceNodeId && node.nodeId !== sourceNodeId) ||
       source.kind !== 'FIELD' ||
       source.candidateId !== candidate.candidateId ||
