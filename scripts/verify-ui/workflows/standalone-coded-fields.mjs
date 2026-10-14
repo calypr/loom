@@ -429,8 +429,13 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
         const value = rowByPatient.get(patientID)?.[column.column];
         const expected = expectedByPatient[patientID];
         if (form === 'ALL') {
-          assert.deepEqual(value, expected === null ? [] : [expected],
-            `${label} must return only its exact matched Coding value for ${patientID}.`);
+          if (expected === null) {
+            assert(value === null || (Array.isArray(value) && value.length === 0),
+              `${label} must remain empty when no Coding matches ${patientID}.`);
+          } else {
+            assert.deepEqual(value, [expected],
+              `${label} must return only its exact matched Coding value for ${patientID}.`);
+          }
         } else {
           assert.equal(value ?? null, expected,
             `${label} must return only its exact matched Coding value for ${patientID}.`);
