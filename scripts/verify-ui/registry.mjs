@@ -1301,12 +1301,16 @@ export const registry = Object.freeze([
       'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
       'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-proposals',
       'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-choice-proposals',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-capabilities',
       'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/preview',
     ],
     requiredTransitions: [
       'create a fresh Observation-root RECORDS table with exact fixture rows and add Observation.status through native Fields and related data',
       'use native RelatedExpand to follow Observation.subject_Patient then the reverse MedicationAdministration.subject_Patient route with PRESERVE_PARENT',
       'Apply the native RelatedExpand proposal and verify two exact MedicationAdministration matches plus one unmatched Observation row',
+      'add a native Filter step using the public Observation.status is-present rule and preserve all matched plus unmatched rows',
+      'verify Filter-stage capabilities bind root projection and both related-field operations to the exact saved Filter step',
+      'add populated Patient.gender through the compiler-proven related source after Filter, Cancel once, Apply, and reload exact values',
       'add MedicationAdministration.status from the active related record through the native RELATED_FIELD editor, Cancel the first preview, then Apply and verify exact values',
       'group expanded rows by the public carried Observation.status field and verify final: 2 and preliminary: 1',
       'edit the related field label and reload; remove the related field and reload exact expanded rows and saved bindings; then Group by public Observation.status',
@@ -1321,7 +1325,7 @@ export const registry = Object.freeze([
     cases: {
       'observation-root-medication-administration': {
         playwrightTest: 'scripts/verify-ui/specs/related-expand-field-lifecycle.spec.mjs',
-        playwrightGrep: 'Basic fixture preserves related MedicationAdministration fields through Group lifecycle$',
+        playwrightGrep: 'Basic fixture preserves related source and active-record fields through Group lifecycle$',
         focusedChecks: [
           {
             id: 'related-expand-field-lifecycle-literal-fixture-oracle',
@@ -1343,6 +1347,13 @@ export const registry = Object.freeze([
           'literal fixture proves two exact MedicationAdministration matches and one unmatched Observation root',
           'native Observation root preview preserves exact source IDs and the carried Observation.status values',
           'native RelatedExpand proposal uses the exact two-hop route and PRESERVE_PARENT row policy',
+          'Filter after RelatedExpand preserves exact matching and unmatched Observation rows',
+          'post-Filter capabilities bind root, related-source, and active-record fields to the exact Filter stage',
+          'native Patient.gender choice is populated and exposes the compiler-proven related source',
+          'Patient.gender related-source preview preserves values across matched and unmatched rows',
+          'RELATED_SOURCE Cancel preserves exact filtered rows and the saved draft',
+          'RELATED_SOURCE Apply preserves Patient.gender across matched and unmatched rows',
+          'RELATED_SOURCE reload preserves Patient.gender across matched and unmatched rows',
           'RelatedExpand Apply and RELATED_FIELD reload render both MedicationAdministration rows and the unmatched Observation row',
           'native RELATED_FIELD proposal reads MedicationAdministration.status from the active related record',
           'RELATED_FIELD Cancel preserves the saved expansion and exact rows before Apply',
@@ -1357,13 +1368,13 @@ export const registry = Object.freeze([
     },
     coverage: [
       {
-        feature: 'Basic RelatedExpand active-record field selection and public-root Group lifecycle',
+        feature: 'Basic RelatedExpand generic related-source and active-record field lifecycle with public-root Group',
         acceptance: {
           intent: 'row-lifecycle', kind: 'lifecycle', case: 'observation-root-medication-administration',
-          checks: { choice: 4, proposal: 6, cancel: 4, apply: 7, savedRows: 7, reload: 9, edit: 4, restoration: 6 },
+          checks: { choice: 5, proposal: 6, cancel: 7, apply: 8, savedRows: 8, reload: 9, edit: 15, restoration: 16 },
         },
         status: 'untested',
-        reason: 'A dedicated literal fixture, raw row oracle, and native Playwright lifecycle are registered. Browser acceptance remains pending the RelatedExpand active-record field UI/backend integration and a frozen native run.',
+        reason: 'A dedicated literal fixture, raw row oracle, and native Playwright lifecycle are registered. Browser acceptance remains pending a frozen run of the generic RELATED_SOURCE-after-Filter and active RELATED_FIELD lifecycle.',
       },
     ],
   }),

@@ -9,7 +9,7 @@ test.describe('Basic RelatedExpand active-record field lifecycle', () => {
     fixtureGeneration: 'cda-fhir-v1',
   });
 
-  test('Basic fixture preserves related MedicationAdministration fields through Group lifecycle', async ({ page, workflow }) => {
+  test('Basic fixture preserves related source and active-record fields through Group lifecycle', async ({ page, workflow }) => {
     await relatedExpandFieldLifecycleWorkflow({ ...workflow, page });
   });
 });

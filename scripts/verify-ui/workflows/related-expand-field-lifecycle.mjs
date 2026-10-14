@@ -75,6 +75,8 @@ const sourceField = (document, path) => document.columns.find(column =>
   column.source?.field?.path === path && column.occurrenceId === 'base');
 const relatedFieldStep = document => document.construction?.steps?.find(step => step.operation?.kind === 'RELATED_FIELD');
 const expandStep = document => document.construction?.steps?.find(step => step.operation?.kind === 'RELATED_EXPAND');
+const filterStep = document => document.construction?.steps?.find(step => step.operation?.kind === 'FILTER');
+const relatedSourceStep = document => document.construction?.steps?.find(step => step.operation?.kind === 'RELATED_SOURCE');
 
 export const relatedExpandFieldLifecycleWorkflow = async ({ page, action, check, networkObserver, report, target, seed }) => {
   configureNativePage(page);
@@ -138,6 +140,7 @@ export const relatedExpandFieldLifecycleWorkflow = async ({ page, action, check,
   const builderPath = `${authoringBase}/${encodeURIComponent(explorer)}/authoring/v2`;
   let builder = await readVisibleWorkspace(page, target, builderPath);
   let document = builder.workspace.documents.find(item => item.rootResourceType === ROOT_RESOURCE);
+  let grid;
   assert(document?.output?.id, 'Native root setup must create an Observation table.');
   const outputId = document.output.id;
   report.target.outputId = outputId;
@@ -304,7 +307,279 @@ export const relatedExpandFieldLifecycleWorkflow = async ({ page, action, check,
   const rootStatusColumn = sourceField(document, 'status');
   assert(rootStatusColumn?.columnId && rootStatusColumn.label, 'Applied root status field must retain its public column identity.');
   const rootStatusLabel = rootStatusColumn.label;
-  const expandedBaseline = structuredClone(builder.workspace);
+  const rootStatusStep = document.construction.steps.find(step =>
+    step.outputs.some(column => column.id === rootStatusColumn.columnId));
+  assert(rootStatusStep, 'Observation.status must retain its source-projection step identity.');
+
+  const keepRowsAction = page.getByTestId('construction-action-keep-rows');
+  await click('open Filter rows after RelatedExpand', keepRowsAction,
+    () => page.getByTestId('construction-filter-editor').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }));
+  const filterEditor = page.getByTestId('construction-filter-editor');
+  const filterColumn = filterEditor.getByRole('combobox', { name: 'Column', exact: true });
+  if (await filterColumn.inputValue() !== rootStatusColumn.columnId) {
+    await doAction('filter on the public Observation.status column', filterColumn,
+      () => filterColumn.selectOption(rootStatusColumn.columnId, { timeout: ACTION_TIMEOUT_MS }),
+      () => page.waitForFunction(columnId =>
+        document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Column"]')?.value === columnId,
+      rootStatusColumn.columnId, { timeout: ACTION_TIMEOUT_MS }));
+  }
+  const filterCondition = filterEditor.getByRole('combobox', { name: 'Condition', exact: true });
+  const filterOperators = await filterCondition.locator('option').evaluateAll(options => options.map(option => option.value));
+  assert(filterOperators.includes('EXISTS'), 'The public Observation.status filter must expose is-present.');
+  if (await filterCondition.inputValue() !== 'EXISTS') {
+    await doAction('keep rows with a present Observation.status', filterCondition,
+      () => filterCondition.selectOption('EXISTS', { timeout: ACTION_TIMEOUT_MS }),
+      () => page.waitForFunction(() =>
+        document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Condition"]')?.value === 'EXISTS',
+      undefined, { timeout: ACTION_TIMEOUT_MS }));
+  }
+  await waitForProposal(page);
+  const filterProposalGrid = await readGrid(page, true);
+  assertRowsByLabels(filterProposalGrid, [rootIDColumn.label, relatedIDColumn.label, rootStatusLabel], oracle.rows.map(row => [
+    row.observationId, row.medicationAdministrationId, row.observationStatus,
+  ]), 'Post-RelatedExpand Filter proposal');
+  const postFilterCapabilityFrom = networkObserver.requests.length;
+  await click('Apply present-status Filter after RelatedExpand', page.getByTestId('construction-apply-proposal'), async () => {
+    await page.waitForFunction(() => !document.querySelector('[data-testid="construction-proposal-panel"]'), undefined,
+      { timeout: ACTION_TIMEOUT_MS });
+    await waitForSavedPreview(page, outputId, 3);
+  });
+  builder = await readVisibleWorkspace(page, target, builderPath);
+  document = documentFor(builder, outputId);
+  const savedFilterStep = filterStep(document);
+  assert(savedFilterStep, 'Filter Apply must persist a FILTER operation after RelatedExpand.');
+  assert.equal(savedFilterStep.operation.filter.columnId, rootStatusColumn.columnId);
+  assert.equal(savedFilterStep.operation.filter.operator, 'EXISTS');
+  assert.equal(savedFilterStep.inputs.at(-1)?.stepId, rootStatusStep.id,
+    'Filter must consume the exact public Observation.status source-projection step.');
+  const filterGrid = await readGrid(page);
+  assertRowsByLabels(filterGrid, [rootIDColumn.label, relatedIDColumn.label, rootStatusLabel], oracle.rows.map(row => [
+    row.observationId, row.medicationAdministrationId, row.observationStatus,
+  ]), 'Post-RelatedExpand Filter Apply');
+  const filterCapabilityEntry = await networkObserver.waitForResponse(entry =>
+    entry.index >= postFilterCapabilityFrom && entry.method === 'POST' &&
+      entry.path.endsWith('/construction-capabilities') && entry.status === 200 &&
+      entry.request?.outputId === outputId && entry.request?.stageId === savedFilterStep.id &&
+      entry.response?.outputId === outputId && entry.response?.stageId === savedFilterStep.id &&
+      entry.response?.selectedStage?.id === savedFilterStep.id,
+  { fromIndex: postFilterCapabilityFrom, timeoutMs: ACTION_TIMEOUT_MS });
+  const filterCapabilities = filterCapabilityEntry.response.selectedStage.capabilities;
+  const relatedSourceCapability = filterCapabilities.find(capability => capability.kind === 'RELATED_SOURCE');
+  const relatedFieldCapability = filterCapabilities.find(capability => capability.kind === 'RELATED_FIELD');
+  assert.equal(filterCapabilityEntry.request.stageId, savedFilterStep.id,
+    'Post-filter capabilities must request the exact saved Filter stage.');
+  assert.equal(filterCapabilityEntry.response.selectedStage.id, savedFilterStep.id,
+    'Post-filter capabilities must describe the exact saved Filter stage.');
+  assert.equal(filterCapabilityEntry.response.sourceProjectionAvailability?.stageId, savedFilterStep.id,
+    'Root source projection capability must be bound to the exact Filter stage.');
+  assert.equal(filterCapabilityEntry.response.sourceProjectionAvailability?.supported, true,
+    'The Filter stage must preserve root-source field carry-through.');
+  assert.equal(relatedSourceCapability?.supported, true,
+    'The exact post-filter stage must expose compiler-proven related-source fields.');
+  assert.equal(relatedFieldCapability?.supported, true,
+    'The exact active MedicationAdministration record must remain available after Filter.');
+  report.target.postFilterCapabilities = {
+    requestStageId: filterCapabilityEntry.request.stageId,
+    selectedStageId: filterCapabilityEntry.response.selectedStage.id,
+    rowIdentityColumn: filterCapabilityEntry.response.selectedStage.rowIdentityColumn,
+    sourceProjectionAvailability: filterCapabilityEntry.response.sourceProjectionAvailability,
+    relatedSourceCapability,
+    relatedFieldCapability,
+  };
+  check('correctness', 'post-Filter capabilities bind root, related-source, and active-record fields to the exact Filter stage', true,
+    report.target.postFilterCapabilities);
+  check('correctness', 'Filter after RelatedExpand preserves exact matching and unmatched Observation rows', true,
+    { filter: savedFilterStep.operation.filter, rows: filterGrid.rows, stageId: savedFilterStep.id });
+  const filteredBaseline = await readVisibleWorkspace(page, target, builderPath);
+  assert.deepEqual(filteredBaseline.workspace, builder.workspace);
+
+  const openPatientGenderRelatedSource = async (label) => {
+    await openAddColumns(label);
+    const fieldsTab = editor.getByRole('tab', { name: 'Other fields', exact: true });
+    if (await fieldsTab.getAttribute('aria-selected') !== 'true') {
+      await click('browse populated dataset fields', fieldsTab, async () => {
+        assert.equal(await fieldsTab.getAttribute('aria-selected'), 'true');
+      });
+    }
+    const current = await readVisibleWorkspace(page, target, builderPath);
+    const candidates = current.catalog.candidates.filter(candidate =>
+      candidate.resourceType === 'Patient' && candidate.fieldPath === 'gender' && candidate.populated === true);
+    assert(candidates.length > 0, 'Builder must expose a populated Patient.gender candidate for this Basic fixture.');
+    const patientGenderCandidate = candidates[0];
+    const relatedResources = editor.getByRole('group', { name: 'Related resources', exact: true });
+    const sourceOption = editor.locator(
+      `[data-testid="construction-add-columns-source-option"][data-source-key=${JSON.stringify(`node:${patientGenderCandidate.nodeId}`)}]`,
+    );
+    if (!await sourceOption.isVisible()) {
+      await click('browse related source resources', relatedResources.locator(':scope > summary'), async () => {
+        await sourceOption.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
+      });
+    }
+    assert.equal(await sourceOption.getAttribute('data-source-kind'), 'RELATED',
+      'Patient.gender must be selected from its compiler-reachable related source node.');
+    if (await sourceOption.getAttribute('aria-pressed') !== 'true') {
+      await click('choose the compiler-reachable Patient source for gender', sourceOption, async () => {
+        assert.equal(await sourceOption.getAttribute('aria-pressed'), 'true');
+      });
+    }
+    const genderCandidate = editor.getByRole('checkbox', { name: 'Select Patient.gender', exact: true });
+    await genderCandidate.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
+    assert.equal(await genderCandidate.isEnabled(), true,
+      'Populated Patient.gender must be selectable through the related-source fields list.');
+    if (!await genderCandidate.isChecked()) {
+      await click('select populated Patient.gender', genderCandidate, async () => {
+        assert.equal(await genderCandidate.isChecked(), true);
+      });
+    }
+    const addSelected = editor.getByRole('button', { name: 'Add 1 selected feature', exact: true });
+    await click('configure Patient.gender for the filtered rows', addSelected, async () => {
+      await page.getByRole('dialog', { name: 'Choose how to add these fields', exact: false })
+        .waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
+    });
+    const dialog = page.getByRole('dialog');
+    const allValues = dialog.getByRole('radio', {
+      name: 'Patient.gender: Keep all matching values', exact: true,
+    });
+    assert.equal(await allValues.isVisible(), true,
+      'Patient.gender must expose the compiler-supported all-matching-values form.');
+    if (!await allValues.isChecked()) {
+      await click('keep all matching Patient.gender values', allValues, async () => {
+        assert.equal(await allValues.isChecked(), true);
+      });
+    }
+    check('correctness', 'native Patient.gender choice is populated and exposes the compiler-proven related source', true,
+      { resourceType: patientGenderCandidate.resourceType, fieldPath: patientGenderCandidate.fieldPath,
+        populated: patientGenderCandidate.populated, nodeId: patientGenderCandidate.nodeId, form: 'ALL' });
+    const proposalFrom = networkObserver.requests.length;
+    await click('preview Patient.gender from the related source', dialog.getByRole('button', { name: 'Add 1 column', exact: true }),
+      () => waitForProposal(page));
+    const proposalEntry = await networkObserver.waitForResponse(entry =>
+      entry.index >= proposalFrom && entry.method === 'POST' &&
+        entry.path.endsWith('/construction-proposals') && entry.status === 200 &&
+        entry.request?.requestId?.startsWith('construction-proposal-') &&
+        entry.request?.candidateConstruction?.steps?.some(step =>
+          step.operation?.kind === 'RELATED_SOURCE' && step.operation.relatedSource?.source?.path === 'gender'),
+    { fromIndex: proposalFrom, timeoutMs: ACTION_TIMEOUT_MS });
+    return { patientGenderCandidate, proposalEntry, proposalGrid: await readGrid(page, true) };
+  };
+
+  const patientGenderProposal = await openPatientGenderRelatedSource('open Other fields after the saved Filter step');
+  const requestedRelatedSourceStep = patientGenderProposal.proposalEntry.request.candidateConstruction.steps.find(step =>
+    step.operation?.kind === 'RELATED_SOURCE' && step.operation.relatedSource?.source?.path === 'gender');
+  assert(requestedRelatedSourceStep, 'The native proposal must contain a compiler-backed RELATED_SOURCE step for Patient.gender.');
+  const requestedRelatedSource = requestedRelatedSourceStep.operation.relatedSource;
+  const filteredRowIdentityColumn = filterCapabilityEntry.response.selectedStage.rowIdentityColumn;
+  assert.equal(typeof filteredRowIdentityColumn, 'string',
+    'The exact saved Filter stage must expose its generated current-row identity.');
+  assert.equal(requestedRelatedSource.sourceOccurrenceId, patientGenderProposal.patientGenderCandidate.nodeId,
+    'RELATED_SOURCE must retain the exact selected Patient source occurrence.');
+  assert.equal(requestedRelatedSource.source.resourceType, 'Patient');
+  assert.equal(requestedRelatedSource.source.path, 'gender');
+  assert.equal(requestedRelatedSource.form, 'ALL');
+  assert.equal(requestedRelatedSource.anchorColumnId, filteredRowIdentityColumn,
+    'RELATED_SOURCE must bind the compiler-generated current row identity from the exact Filter stage.');
+  assert.equal(requestedRelatedSourceStep.inputs.at(-1)?.stepId, savedFilterStep.id,
+    'RELATED_SOURCE proposal must consume the exact saved Filter stage.');
+  const patientGenderOutput = requestedRelatedSourceStep.outputs.find(column =>
+    column.id === requestedRelatedSource.outputColumnId);
+  assert(patientGenderOutput?.label, 'RELATED_SOURCE proposal must expose its public Patient.gender output label.');
+  const assertPatientGenderRows = (grid, phase) => {
+    const labels = [rootIDColumn.label, relatedIDColumn.label, rootStatusLabel, patientGenderOutput.label];
+    const indices = labels.map(label => grid.headers.findIndex(header => header.toLowerCase() === label.toLowerCase()));
+    assert(indices.every(index => index >= 0), `${phase}: missing expected columns ${JSON.stringify(labels)} in ${JSON.stringify(grid.headers)}`);
+    const genderValues = grid.rows.map(row => {
+      const text = normalize(row[indices[3]]);
+      try {
+        const value = JSON.parse(text);
+        if (Array.isArray(value)) return value;
+      } catch { /* A single scalar may render without list punctuation. */ }
+      return text === '—' ? [] : [text];
+    });
+    const actual = sortedRows(grid.rows.map((row, index) => [row[indices[0]], row[indices[1]], row[indices[2]], genderValues[index]]));
+    const expected = sortedRows(oracle.rows.map(row => [
+      row.observationId,
+      visibleValue(row.medicationAdministrationId),
+      row.observationStatus,
+      [row.patientGender],
+    ]));
+    assert.deepEqual(actual, expected, `${phase}: Patient.gender must come from each Observation's Patient, including the unmatched parent.`);
+  };
+  assertPatientGenderRows(patientGenderProposal.proposalGrid, 'RELATED_SOURCE proposal');
+  check('correctness', 'Patient.gender related-source preview preserves values across matched and unmatched rows', true,
+    { sourceNodeId: patientGenderProposal.patientGenderCandidate.nodeId,
+      stepId: requestedRelatedSourceStep.id, anchorColumnId: requestedRelatedSource.anchorColumnId,
+      filterStageId: savedFilterStep.id, generatedRowIdentityColumn: filteredRowIdentityColumn,
+      route: requestedRelatedSource.route, rows: patientGenderProposal.proposalGrid.rows });
+
+  await click('Cancel Patient.gender related-source preview', page.getByTestId('construction-cancel-proposal'), async () => {
+    await page.waitForFunction(() => !document.querySelector('[data-testid="construction-proposal-panel"]'), undefined,
+      { timeout: ACTION_TIMEOUT_MS });
+    const after = await readVisibleWorkspace(page, target, builderPath);
+    assert.deepEqual(after.workspace, filteredBaseline.workspace,
+      'RELATED_SOURCE Cancel must preserve the exact filtered workspace.');
+    assert.equal(after.draftVersion, filteredBaseline.draftVersion);
+    assert.equal(after.draftDigest, filteredBaseline.draftDigest);
+    const grid = await readGrid(page);
+    assertRowsByLabels(grid, [rootIDColumn.label, relatedIDColumn.label, rootStatusLabel], oracle.rows.map(row => [
+      row.observationId, row.medicationAdministrationId, row.observationStatus,
+    ]), 'RELATED_SOURCE Cancel');
+  });
+  check('persistence', 'RELATED_SOURCE Cancel preserves exact filtered rows and the saved draft', true,
+    { draftVersion: filteredBaseline.draftVersion, draftDigest: filteredBaseline.draftDigest });
+
+  const appliedPatientGenderProposal = await openPatientGenderRelatedSource('reopen Other fields after RELATED_SOURCE Cancel');
+  const appliedRelatedSourceStep = appliedPatientGenderProposal.proposalEntry.request.candidateConstruction.steps.find(step =>
+    step.operation?.kind === 'RELATED_SOURCE' && step.operation.relatedSource?.source?.path === 'gender');
+  assert(appliedRelatedSourceStep, 'Reopening Patient.gender must produce a RELATED_SOURCE proposal.');
+  assertPatientGenderRows(appliedPatientGenderProposal.proposalGrid, 'RELATED_SOURCE Apply preview');
+  await click('Apply Patient.gender related-source field', page.getByTestId('construction-apply-proposal'), async () => {
+    await page.waitForFunction(() => !document.querySelector('[data-testid="construction-proposal-panel"]'), undefined,
+      { timeout: ACTION_TIMEOUT_MS });
+    await waitForSavedPreview(page, outputId, 3);
+    const grid = await readGrid(page);
+    assertPatientGenderRows(grid, 'RELATED_SOURCE Apply');
+  });
+  builder = await readVisibleWorkspace(page, target, builderPath);
+  document = documentFor(builder, outputId);
+  const savedRelatedSourceStep = relatedSourceStep(document);
+  assert(savedRelatedSourceStep, 'RELATED_SOURCE Apply must persist the generic related-source operation.');
+  assert.deepEqual(savedRelatedSourceStep.operation.relatedSource, appliedRelatedSourceStep.operation.relatedSource,
+    'Saved RELATED_SOURCE must preserve the exact compiler choice, source route, current-row anchor, and output.');
+  const savedPatientGenderOutput = savedRelatedSourceStep.outputs.find(column =>
+    column.id === savedRelatedSourceStep.operation.relatedSource.outputColumnId);
+  assert(savedPatientGenderOutput?.id && savedPatientGenderOutput.label,
+    'Saved RELATED_SOURCE must retain its public Patient.gender output.');
+  assert.equal(savedPatientGenderOutput.label, patientGenderOutput.label);
+  grid = await readGrid(page);
+  assertPatientGenderRows(grid, 'RELATED_SOURCE saved preview');
+  check('persistence', 'RELATED_SOURCE Apply preserves Patient.gender across matched and unmatched rows', true,
+    { stepId: savedRelatedSourceStep.id, source: savedRelatedSourceStep.operation.relatedSource.source,
+      rows: grid.rows, outputColumnId: savedPatientGenderOutput.id });
+  const relatedSourceBaseline = structuredClone(builder.workspace);
+  report.target.relatedSourceOutput = {
+    stepId: savedRelatedSourceStep.id,
+    outputColumnId: savedPatientGenderOutput.id,
+    label: savedPatientGenderOutput.label,
+    source: savedRelatedSourceStep.operation.relatedSource.source,
+    route: savedRelatedSourceStep.operation.relatedSource.route,
+    currentRowAnchor: savedRelatedSourceStep.operation.relatedSource.anchorColumnId,
+  };
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: ACTION_TIMEOUT_MS });
+  await page.getByTestId(`construction-table-${outputId}`).waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
+  await waitForSavedPreview(page, outputId, 3);
+  builder = await readVisibleWorkspace(page, target, builderPath);
+  document = documentFor(builder, outputId);
+  const reloadedRelatedSourceStep = relatedSourceStep(document);
+  assert(reloadedRelatedSourceStep, 'Reload must preserve the applied generic RELATED_SOURCE step.');
+  assert.deepEqual(reloadedRelatedSourceStep.operation.relatedSource, savedRelatedSourceStep.operation.relatedSource);
+  grid = await readGrid(page);
+  assertPatientGenderRows(grid, 'RELATED_SOURCE reload');
+  check('persistence', 'RELATED_SOURCE reload preserves Patient.gender across matched and unmatched rows', true,
+    { stepId: reloadedRelatedSourceStep.id, source: reloadedRelatedSourceStep.operation.relatedSource.source,
+      rows: grid.rows, outputColumnId: savedPatientGenderOutput.id });
+
+  const expandedBaseline = await readVisibleWorkspace(page, target, builderPath);
+  assert.deepEqual(expandedBaseline.workspace, relatedSourceBaseline);
 
   const openActiveRelatedField = async () => {
     await openAddColumns('open Add columns for the active MedicationAdministration record');
@@ -363,7 +638,7 @@ export const relatedExpandFieldLifecycleWorkflow = async ({ page, action, check,
     await page.waitForFunction(() => !document.querySelector('[data-testid="construction-proposal-panel"]'), undefined,
       { timeout: ACTION_TIMEOUT_MS });
     const after = await readVisibleWorkspace(page, target, builderPath);
-    assert.deepEqual(after.workspace, expandedBaseline, 'RELATED_FIELD Cancel must preserve the exact saved RelatedExpand workspace.');
+    assert.deepEqual(after.workspace, expandedBaseline.workspace, 'RELATED_FIELD Cancel must preserve the exact filtered RelatedExpand workspace.');
     assert.equal(after.draftVersion, relatedFieldProposal.draftVersion);
     assert.equal(after.draftDigest, relatedFieldProposal.draftDigest);
     const grid = await readGrid(page);
@@ -388,8 +663,8 @@ export const relatedExpandFieldLifecycleWorkflow = async ({ page, action, check,
     assert(fieldStep, 'RELATED_FIELD Apply must persist a typed active-record field operation.');
     assert.equal(fieldStep.operation.relatedField.source.resourceType, RELATED_RESOURCE);
     assert.equal(fieldStep.operation.relatedField.source.path, 'status');
-    assert.equal(fieldStep.inputs.at(-1)?.stepId, expandedStep.id,
-      'RELATED_FIELD must bind to the exact RelatedExpand stage that defines each active MedicationAdministration record.');
+    assert.equal(fieldStep.inputs.at(-1)?.stepId, savedRelatedSourceStep.id,
+      'RELATED_FIELD must bind to the exact post-filter stage that still defines each active MedicationAdministration record.');
     const fieldOutput = fieldStep.outputs.find(column => column.id === fieldStep.operation.relatedField.outputColumnId);
     assert(fieldOutput?.label, 'Applied RELATED_FIELD must expose its public output column.');
     const grid = await readGrid(page);
@@ -421,7 +696,7 @@ export const relatedExpandFieldLifecycleWorkflow = async ({ page, action, check,
   assert.equal(fieldOutput?.label, originalFieldLabel, 'Reload must preserve the exact related field output label.');
   assert.equal(savedFieldStep?.operation.relatedField.source.resourceType, RELATED_RESOURCE);
   assert.equal(savedFieldStep?.operation.relatedField.source.path, 'status');
-  let grid = await readGrid(page);
+  grid = await readGrid(page);
   assertRowsByLabels(grid, [rootStatusLabel, relatedIDColumn.label, originalFieldLabel], [
     ['final', 'field-lifecycle-administration-a', 'completed'],
     ['final', 'field-lifecycle-administration-b', 'in-progress'],
@@ -539,7 +814,7 @@ export const relatedExpandFieldLifecycleWorkflow = async ({ page, action, check,
     await page.waitForFunction(() => !document.querySelector('[data-testid="construction-proposal-panel"]'), undefined,
       { timeout: ACTION_TIMEOUT_MS });
     const after = await readVisibleWorkspace(page, target, builderPath);
-    assert.deepEqual(after.workspace, groupBaseline.workspace, 'Group Cancel must preserve the exact RelatedExpand source workspace.');
+    assert.deepEqual(after.workspace, groupBaseline.workspace, 'Group Cancel must preserve the exact filtered related-source workspace.');
     grid = await readGrid(page);
     assertRowsByLabels(grid, [rootStatusLabel, relatedIDColumn.label], [
       ['final', 'field-lifecycle-administration-a'],

@@ -1,2 +1,2 @@
-{"resourceType":"Patient","id":"field-lifecycle-patient-matched"}
-{"resourceType":"Patient","id":"field-lifecycle-patient-unmatched"}
+{"resourceType":"Patient","id":"field-lifecycle-patient-matched","gender":"female","birthDate":"1980-04-03"}
+{"resourceType":"Patient","id":"field-lifecycle-patient-unmatched","gender":"male","birthDate":"1990-02-10"}

@@ -48,9 +48,12 @@ export const readRelatedExpandFieldLifecycleOracle = (fixtureDir) => {
     const reference = observation.subject?.reference;
     assert.match(reference ?? '', /^Patient\//, `Observation/${observation.id} must reference one fixture Patient`);
     const patientId = reference.slice('Patient/'.length);
-    assert(patients.has(patientId), `Observation/${observation.id} references an unknown Patient`);
+    const patient = patients.get(patientId);
+    assert(patient, `Observation/${observation.id} references an unknown Patient`);
     assert.equal(typeof observation.status, 'string', `Observation/${observation.id} must have a public status value`);
-    return { observation, patientId };
+    assert.equal(typeof patient.gender, 'string', `Patient/${patientId} must have a populated gender value`);
+    assert.match(patient.birthDate ?? '', /^\d{4}-\d{2}-\d{2}$/, `Patient/${patientId} must have a populated birthDate`);
+    return { observation, patient };
   });
   const observationsById = new Map(roots.map(({ observation }) => [observation.id, observation]));
   assert.equal(observationsById.get('field-lifecycle-observation-matched')?.status, 'final');
@@ -60,18 +63,25 @@ export const readRelatedExpandFieldLifecycleOracle = (fixtureDir) => {
   assert.equal(administrationsByPatient.has('field-lifecycle-patient-unmatched'), false,
     'The unmatched Patient must have no MedicationAdministration records');
 
-  const rows = roots.flatMap(({ observation, patientId }) => {
+  const rows = roots.flatMap(({ observation, patient }) => {
+    const patientId = patient.id;
     const matches = administrationsByPatient.get(patientId) ?? [];
     return matches.length > 0
       ? matches.map(administration => ({
         observationId: observation.id,
         observationStatus: observation.status,
+        patientId,
+        patientGender: patient.gender,
+        patientBirthDate: patient.birthDate,
         medicationAdministrationId: administration.id,
         medicationAdministrationStatus: administration.status ?? null,
       }))
       : [{
         observationId: observation.id,
         observationStatus: observation.status,
+        patientId,
+        patientGender: patient.gender,
+        patientBirthDate: patient.birthDate,
         medicationAdministrationId: null,
         medicationAdministrationStatus: null,
       }];
@@ -87,18 +97,27 @@ export const readRelatedExpandFieldLifecycleOracle = (fixtureDir) => {
     {
       observationId: 'field-lifecycle-observation-matched',
       observationStatus: 'final',
+      patientId: 'field-lifecycle-patient-matched',
+      patientGender: 'female',
+      patientBirthDate: '1980-04-03',
       medicationAdministrationId: 'field-lifecycle-administration-a',
       medicationAdministrationStatus: 'completed',
     },
     {
       observationId: 'field-lifecycle-observation-matched',
       observationStatus: 'final',
+      patientId: 'field-lifecycle-patient-matched',
+      patientGender: 'female',
+      patientBirthDate: '1980-04-03',
       medicationAdministrationId: 'field-lifecycle-administration-b',
       medicationAdministrationStatus: 'in-progress',
     },
     {
       observationId: 'field-lifecycle-observation-unmatched',
       observationStatus: 'preliminary',
+      patientId: 'field-lifecycle-patient-unmatched',
+      patientGender: 'male',
+      patientBirthDate: '1990-02-10',
       medicationAdministrationId: null,
       medicationAdministrationStatus: null,
     },
