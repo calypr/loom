@@ -102,7 +102,9 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
       return page.getByRole('checkbox', { name: `Select ${label}`, exact: true });
     }
     const valueField = `${source.resourceType}.${source.fieldPath}`;
-    const card = page.locator('article').filter({ hasText: valueField });
+    const sourceGroup = page.locator(`[data-source-node-id="${source.nodeId}"]`);
+    assert.equal(await sourceGroup.count(), 1, `${label} must resolve to its exact compiler source-node group.`);
+    const card = sourceGroup.locator(':scope > article').filter({ hasText: valueField });
     assert.equal(await card.count(), 1, `${label} must resolve to one card by its exact typed value field.`);
     const valueFieldFact = card.getByText(valueField, { exact: true });
     if (!(await valueFieldFact.isVisible())) {
