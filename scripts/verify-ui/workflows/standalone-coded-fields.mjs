@@ -32,13 +32,13 @@ const fixtureItem = (entries, label, predicate) => {
 
 const semanticLabel = item => item.display?.trim() || item.code;
 const formLabel = form => ({
-  VALUE: 'Use the matching value',
-  FIRST: 'Use the first value',
-  ALL: 'Keep all matching values',
-  DISTINCT: 'Keep unique values',
-  COUNT: 'Count matching records',
-  PRESENCE: 'Show whether a match exists',
-  OWNER_RECORDS: 'Keep each matching record',
+  VALUE: 'One value',
+  FIRST: 'First value',
+  ALL: 'All values',
+  DISTINCT: 'Distinct values',
+  COUNT: 'Matching record count',
+  PRESENCE: 'Has matching record',
+  OWNER_RECORDS: 'Matching records',
 })[form];
 const routePath = route => {
   const relationshipField = edge => [edge.fromResourceType, edge.toResourceType].reduce((name, type) =>
@@ -142,12 +142,12 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
     workflowMutations: ['native UI created a blank Explorer and Patient root table in the fresh disposable fixture project'],
     cleanupMutations: [],
   };
-  await waitFor(page, expectedOutput => {
+  await waitFor(page, expected => {
     const preview = document.querySelector('[data-testid="construction-preview"]');
     const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
-    return preview?.dataset.previewStatus === 'ready' && preview.dataset.previewOutputId === expectedOutput &&
-      table?.getAttribute('aria-rowcount') === String(oracle.patientIDs.length + 1);
-  }, outputId);
+    return preview?.dataset.previewStatus === 'ready' && preview.dataset.previewOutputId === expected.outputId &&
+      table?.getAttribute('aria-rowcount') === String(expected.rowCount);
+  }, { outputId, rowCount: oracle.patientIDs.length + 1 });
   const initialGrid = await readVisibleGrid(page);
   const idIndex = initialGrid.headers.findIndex(header => header === idColumn.label);
   assert(idIndex >= 0, 'The exact Patient ID column must render in the root preview.');
