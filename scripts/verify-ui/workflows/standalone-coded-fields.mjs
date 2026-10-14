@@ -71,7 +71,7 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
     sourceFiles: oracle.sourceFiles,
     routes: oracle.routes,
   };
-  check('correctness', 'literal fixture proves standalone coded sources and paired Observation values with exact versions',
+  check('correctness', 'literal fixture proves standalone Coding versions and the unversioned paired Observation 42/null values',
     oracle.patientIDs.length === 2 &&
       oracle.conditionCodesByPatient['coded-catalog-patient-01'].length === 3 &&
       oracle.conditionCodesByPatient['coded-catalog-patient-01'].map(item => item.version ?? '').join(',') === 'v1,v2,' &&
