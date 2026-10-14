@@ -124,6 +124,9 @@ func TestCompileConstructionUsesTypedIntermediateStages(t *testing.T) {
 			t.Fatalf("rendered stage sequence is missing %q: %s", expected, rendered.Query)
 		}
 	}
+	if strings.Contains(rendered.Query, rootContributorSetColumn) {
+		t.Fatalf("unmodified Pivot pipeline materialized unused root contributor arrays:\n%s", rendered.Query)
+	}
 	if strings.Contains(rendered.Query, "LIMIT @") {
 		t.Fatalf("lowering inserted a preview limit before the caller requested one: %s", rendered.Query)
 	}
@@ -162,6 +165,16 @@ func TestConstructionUnpivotPreservesInternalSourceIdentity(t *testing.T) {
 	}
 	if !hasCompiledColumn(compiled.OutputSchema, "_key", true) {
 		t.Fatalf("final construction schema dropped hidden source identity: %#v", compiled.OutputSchema)
+	}
+	var relatedSourceCapability *StageOperationCapability
+	for _, capability := range compiled.Stages[1].Capabilities {
+		if capability.Operation == recipe.ConstructionRelatedSourceOp {
+			relatedSourceCapability = &capability
+			break
+		}
+	}
+	if relatedSourceCapability == nil || !relatedSourceCapability.Supported {
+		t.Fatalf("UNPIVOT should expose its physically retained typed root key: %#v", relatedSourceCapability)
 	}
 }
 
@@ -473,6 +486,237 @@ func TestFilterDoesNotDuplicateRootAnchorWhenItIsTheRowIdentity(t *testing.T) {
 	}
 	if keyColumns != 1 || keyProjections != 1 {
 		t.Fatalf("FILTER must carry the row-identity root key once: columns=%d projections=%d", keyColumns, keyProjections)
+	}
+}
+
+func TestRelatedSourceCapabilityAfterRelatedExpandUsesRetainedRootAnchor(t *testing.T) {
+	output := constructionTestOutput()
+	construction := relatedFieldTestConstruction([]string{"RELATED_EXPAND", "FILTER"})
+	filterStep := construction.Steps[len(construction.Steps)-1]
+	outputs := append([]recipe.StageColumn(nil), filterStep.Outputs...)
+	outputs = append(outputs, recipe.StageColumn{ID: "medication-status", Name: "medication_status", Type: "string"})
+	construction.Steps = append(construction.Steps, recipe.ConstructionStep{
+		ID:     "add_medication_status",
+		Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: filterStep.ID}},
+		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedSourceOp, RelatedSource: &recipe.ConstructionRelatedSource{
+			AnchorColumnID: constructionRowID, ChoiceID: "medication-status-choice", SourceOccurrenceID: "medication-node",
+			Source: recipe.ConstructionRelatedFieldSource{
+				CandidateID: "medication-status", NodeID: "medication-node", ResourceType: "MedicationAdministration",
+				Path: "MedicationAdministration.status", Cardinality: "optional_one", LogicalType: "string",
+			},
+			Route: []recipe.ConstructionRelatedRouteStep{{
+				EdgeID: "patient-medication", FromNodeID: "patient-node", ToNodeID: "medication-node",
+				FromResourceType: "Patient", ToResourceType: "MedicationAdministration", Relationship: "subject_Patient",
+				StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+			}},
+			ContributorPolicy: "ALL_MATCHES", Form: "ALL", OutputColumnID: "medication-status",
+		}},
+		Outputs: outputs,
+	})
+	output.Construction = construction
+
+	compiled := compileDerivedTestOutput(t, output)
+	if len(compiled.Stages) != 4 {
+		t.Fatalf("compiled stage count = %d, want source, RelatedExpand, FILTER, RelatedSource", len(compiled.Stages))
+	}
+	for _, stageIndex := range []int{1, 2} {
+		var relatedSourceCapability *StageOperationCapability
+		for _, capability := range compiled.Stages[stageIndex].Capabilities {
+			if capability.Operation == recipe.ConstructionRelatedSourceOp {
+				relatedSourceCapability = &capability
+				break
+			}
+		}
+		if relatedSourceCapability == nil || !relatedSourceCapability.Supported {
+			t.Fatalf("stage %q should expose related source through its retained typed root anchor: %#v", compiled.Stages[stageIndex].ID, relatedSourceCapability)
+		}
+	}
+	filter := compiled.Plan.StageSequence.Stages[1]
+	activeIdentity := compiled.Plan.StageSequence.Stages[0].RelatedExpand.TerminalIdentityColumn
+	if filter.RowIdentityColumn != constructionRowID {
+		t.Fatalf("FILTER row identity = %q, want exact generated RelatedExpand identity %q", filter.RowIdentityColumn, constructionRowID)
+	}
+	rootKey, found := physicalStageColumnsForTest(filter.OutputColumns)["_key"]
+	if !found || !rootKey.Internal || rootKey.Identity || rootKey.RootContributorResourceType != "Patient" || rootKey.Cardinality != "required_one" {
+		t.Fatalf("FILTER root contributor = %#v, want the retained typed Patient key", rootKey)
+	}
+	terminal, found := physicalStageColumnsForTest(filter.OutputColumns)[activeIdentity]
+	if !found || !terminal.Internal || !terminal.Nullable || terminal.RelatedRecordAnchor == nil || terminal.RelatedRecordAnchor.ResourceType != "Observation" {
+		t.Fatalf("FILTER active terminal identity = %#v, want nullable exact Observation identity", terminal)
+	}
+	relatedSource := compiled.Plan.StageSequence.Stages[2].RelatedSource
+	if relatedSource == nil || relatedSource.AnchorColumnID != constructionRowID || relatedSource.RootContributorColumn != "_key" || relatedSource.RootResourceType != "Patient" {
+		t.Fatalf("RELATED_SOURCE anchors = %#v, want current row identity plus typed Patient root contributor", relatedSource)
+	}
+	if _, err := aql.RenderPhysicalPlan(compiled.Plan); err != nil {
+		t.Fatalf("render RelatedExpand→FILTER→RELATED_SOURCE plan: %v", err)
+	}
+}
+
+func TestRelatedSourceAfterExpandCarriesExactRootKey(t *testing.T) {
+	const (
+		patientIDColumn = "patient-id"
+		givenValuesID   = "given-values"
+		givenItemID     = "given-item"
+		statusID        = "medication-status"
+	)
+	columns := []recipe.StageColumn{
+		{ID: patientIDColumn, Name: "patient_id", Type: "string"},
+		{ID: givenValuesID, Name: "given_values", Type: "string"},
+	}
+	expandedColumns := []recipe.StageColumn{
+		columns[0], {ID: givenItemID, Name: "given", Type: "string"},
+	}
+	output := recipe.Output{
+		Name: "patient_expanded_related_source", RootResourceType: "Patient", RowGrain: "patient",
+		Fields: []recipe.Field{
+			{Name: "patient_id", ColumnID: patientIDColumn, Expr: recipe.Expression{Select: "root.id"}},
+			{Name: "given_values", ColumnID: givenValuesID, Expr: recipe.Expression{Select: "root.name[].given[]"}, ValueMode: recipe.ValueModeAll},
+		},
+		Construction: &recipe.Construction{Version: 1, SourceColumns: columns, Steps: []recipe.ConstructionStep{
+			{
+				ID: "expand_given_values", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionExpandOp, Expand: &recipe.ConstructionExpand{
+					ConstructionID: "expand_given_values", InputColumnID: givenValuesID, OutputColumnID: givenItemID,
+					EmptyPolicy: recipe.ExpansionPreserveParent,
+				}}, Outputs: expandedColumns,
+			},
+			{
+				ID: "add_medication_status", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "expand_given_values"}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedSourceOp, RelatedSource: &recipe.ConstructionRelatedSource{
+					AnchorColumnID: constructionRowID, ChoiceID: "medication-status-choice", SourceOccurrenceID: "medication-node",
+					Source: recipe.ConstructionRelatedFieldSource{
+						CandidateID: "medication-status", NodeID: "medication-node", ResourceType: "MedicationAdministration",
+						Path: "MedicationAdministration.status", Cardinality: "optional_one", LogicalType: "string",
+					},
+					Route: []recipe.ConstructionRelatedRouteStep{{
+						EdgeID: "patient-medication", FromNodeID: "patient-node", ToNodeID: "medication-node",
+						FromResourceType: "Patient", ToResourceType: "MedicationAdministration", Relationship: "subject_Patient",
+						StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+					}},
+					ContributorPolicy: "ALL_MATCHES", Form: "ALL", OutputColumnID: statusID,
+				}}, Outputs: append(append([]recipe.StageColumn(nil), expandedColumns...), recipe.StageColumn{
+					ID: statusID, Name: "medication_status", Type: "string",
+				}),
+			},
+		}},
+	}
+	compiled := compileDerivedTestOutput(t, output)
+	if len(compiled.Stages) != 3 {
+		t.Fatalf("compiled stage count = %d, want source, EXPAND, RELATED_SOURCE", len(compiled.Stages))
+	}
+	var relatedSourceCapability *StageOperationCapability
+	for _, capability := range compiled.Stages[1].Capabilities {
+		if capability.Operation == recipe.ConstructionRelatedSourceOp {
+			relatedSourceCapability = &capability
+			break
+		}
+	}
+	if relatedSourceCapability == nil || !relatedSourceCapability.Supported {
+		t.Fatalf("EXPAND should retain a compiler-owned scalar root key for a later RELATED_SOURCE: %#v", relatedSourceCapability)
+	}
+	expand := compiled.Plan.StageSequence.Stages[0]
+	rootKey, found := physicalStageColumnsForTest(expand.OutputColumns)["_key"]
+	if !found || !rootKey.Internal || rootKey.Identity || rootKey.RootContributorResourceType != "Patient" || rootKey.Cardinality != "required_one" {
+		t.Fatalf("EXPAND root contributor = %#v, want hidden required scalar Patient key", rootKey)
+	}
+	if projectionCount(expand.OutputProjections, "_key") != 1 {
+		t.Fatalf("EXPAND should project the root key exactly once: %#v", expand.OutputProjections)
+	}
+	relatedSource := compiled.Plan.StageSequence.Stages[1].RelatedSource
+	if relatedSource == nil || relatedSource.AnchorColumnID != constructionRowID || relatedSource.RootContributorColumn != "_key" {
+		t.Fatalf("RELATED_SOURCE anchors after EXPAND = %#v, want current generated identity plus typed root key", relatedSource)
+	}
+	if _, err := aql.RenderPhysicalPlan(compiled.Plan); err != nil {
+		t.Fatalf("render EXPAND→RELATED_SOURCE plan: %v", err)
+	}
+}
+
+func projectionCount(projections []ir.PhysicalProjection, name string) int {
+	count := 0
+	for _, projection := range projections {
+		if projection.Name == name {
+			count++
+		}
+	}
+	return count
+}
+
+func TestGroupRootContributorSetStaysLazyUntilRelatedSourceIsAdded(t *testing.T) {
+	sourceColumns := []recipe.StageColumn{
+		{ID: "active-id", Name: "active", Type: "boolean"},
+	}
+	groupStep := recipe.ConstructionStep{
+		ID: "group_patients", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+			ConstructionID: "group_by_active",
+			Keys:           []recipe.ConstructionGroupKey{{InputColumnID: "active-id", OutputColumnID: "group-active-id"}},
+			Aggregates:     []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "row-count-id"}},
+		}},
+		Outputs: []recipe.StageColumn{
+			{ID: "group-active-id", Name: "active", Type: "boolean"},
+			{ID: "row-count-id", Name: "row_count", Type: "integer"},
+		},
+	}
+	output := recipe.Output{
+		Name: "grouped_patients", RootResourceType: "Patient", RowGrain: "patient",
+		Fields:       []recipe.Field{{Name: "active", ColumnID: "active-id", Expr: recipe.Expression{Select: "root.active"}}},
+		Construction: &recipe.Construction{Version: 1, SourceColumns: sourceColumns, Steps: []recipe.ConstructionStep{groupStep}},
+	}
+	base := compileDerivedTestOutput(t, output)
+	group := base.Plan.StageSequence.Stages[0]
+	if group.Group == nil || group.Group.RootContributorOutputColumn != "" {
+		t.Fatalf("unmodified Group should not materialize an unused contributor set: %#v", group.Group)
+	}
+	var sourceCapability *StageOperationCapability
+	for _, capability := range base.Stages[1].Capabilities {
+		if capability.Operation == recipe.ConstructionRelatedSourceOp {
+			sourceCapability = &capability
+			break
+		}
+	}
+	if sourceCapability == nil || !sourceCapability.Supported {
+		t.Fatalf("Group should advertise a future related source backed by its lazy compiler proof: %#v", sourceCapability)
+	}
+	baseQuery, err := aql.RenderPhysicalPlan(base.Plan)
+	if err != nil {
+		t.Fatalf("render unmodified Group plan: %v", err)
+	}
+	if strings.Contains(baseQuery.Query, rootContributorSetColumn) {
+		t.Fatalf("unmodified Group query materialized unused contributor arrays:\n%s", baseQuery.Query)
+	}
+
+	candidate := output
+	candidate.Construction = &recipe.Construction{
+		Version: 1, SourceColumns: append([]recipe.StageColumn(nil), sourceColumns...),
+		Steps: append([]recipe.ConstructionStep(nil), output.Construction.Steps...),
+	}
+	candidateSteps := append([]recipe.StageColumn(nil), groupStep.Outputs...)
+	candidateSteps = append(candidateSteps, recipe.StageColumn{ID: "medication-status", Name: "medication_status", Type: "string"})
+	candidate.Construction.Steps = append(candidate.Construction.Steps, recipe.ConstructionStep{
+		ID: "add_medication_status", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: groupStep.ID}},
+		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedSourceOp, RelatedSource: &recipe.ConstructionRelatedSource{
+			AnchorColumnID: constructionRowID, ChoiceID: "medication-status-choice", SourceOccurrenceID: "medication-node",
+			Source: recipe.ConstructionRelatedFieldSource{
+				CandidateID: "medication-status", NodeID: "medication-node", ResourceType: "MedicationAdministration",
+				Path: "MedicationAdministration.status", Cardinality: "optional_one", LogicalType: "string",
+			},
+			Route: []recipe.ConstructionRelatedRouteStep{{
+				EdgeID: "patient-medication", FromNodeID: "patient-node", ToNodeID: "medication-node",
+				FromResourceType: "Patient", ToResourceType: "MedicationAdministration", Relationship: "subject_Patient",
+				StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+			}},
+			ContributorPolicy: "ALL_MATCHES", Form: "ALL", OutputColumnID: "medication-status",
+		}}, Outputs: candidateSteps,
+	})
+	extended := compileDerivedTestOutput(t, candidate)
+	retainedGroup := extended.Plan.StageSequence.Stages[0].Group
+	if retainedGroup == nil || retainedGroup.RootContributorOutputColumn != rootContributorSetColumn {
+		t.Fatalf("Group did not materialize contributors for the appended source operation: %#v", retainedGroup)
+	}
+	relatedSource := extended.Plan.StageSequence.Stages[1].RelatedSource
+	if relatedSource == nil || relatedSource.AnchorColumnID != constructionRowID || relatedSource.RootContributorColumn != rootContributorSetColumn {
+		t.Fatalf("appended RELATED_SOURCE did not use exact row identity and compiler-owned contributor set: %#v", relatedSource)
 	}
 }
 

@@ -110,12 +110,12 @@ func DescribeConstructionSourceStage(schema []CompiledOutputColumn, rootResource
 }
 
 type constructionStageResult struct {
-	physical                       ir.PhysicalConstructionStage
-	schema                         []CompiledOutputColumn
-	identity                       string
-	rootContributorProvenance      bool
-	rootContributorSourceAvailable bool
-	descriptor                     CompiledStageDescriptor
+	physical                     ir.PhysicalConstructionStage
+	schema                       []CompiledOutputColumn
+	identity                     string
+	rootContributorProvenance    bool
+	lazyRootContributorAvailable bool
+	descriptor                   CompiledStageDescriptor
 }
 
 type cohortGroupCompileInput struct {
@@ -172,8 +172,9 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 		Columns: cloneCompiledSchema(resolvedSource), RowIdentityColumn: sourceIdentity,
 	}}
 	rootContributorProvenance := hasRootContributorIdentity(resolvedSource, rootResourceType)
-	rootContributorSourceAvailable := populationRootContributorAvailable(plan, resolvedSource, rootResourceType)
-	descriptors[0].Capabilities = stageCapabilities(resolvedSource, rootContributorSourceAvailable)
+	populationRootSourceAvailable := populationRootContributorAvailable(plan, resolvedSource, rootResourceType)
+	lazyRootContributorAvailable := false
+	descriptors[0].Capabilities = stageCapabilities(resolvedSource, false)
 	descriptors[0].Capabilities = withConstructionCapability(descriptors[0].Capabilities, codedGroupSourceCapability(resolvedSource, rootResourceType))
 	descriptors[0].Capabilities = withConstructionCapability(descriptors[0].Capabilities, codedPivotSourceCapability(resolvedSource, rootResourceType))
 	descriptors[0].RelatedExpandAnchors = relatedExpandAnchors(resolvedSource, rootResourceType, false)
@@ -182,7 +183,7 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 	}
 	usedVariables := physicalPlanVariables(plan.Operations)
 	retainRootContributors := constructionNeedsRetainedRootContributors(construction.Steps) || cohortNeedsRetainedRootContributors(construction, cohort) ||
-		populationConstructionNeedsRetainedRootContributors(construction.Steps, cohort, rootContributorSourceAvailable)
+		populationConstructionNeedsRetainedRootContributors(construction.Steps, cohort, populationRootSourceAvailable)
 	priorSchema, priorIdentity := resolvedSource, sourceIdentity
 	priorStageID := recipe.ConstructionSourceProjectionID
 	cohortAnchorIndex, err := constructionCohortAnchorIndex(construction, cohort)
@@ -241,14 +242,14 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 		descriptor := CompiledStageDescriptor{
 			ID: recipe.ConstructionCohortGroupStageID, InputStageID: priorStageID, Operation: "COHORT_GROUP",
 			Columns: cloneCompiledSchema(outputSchema), RowIdentityColumn: constructionRowID,
-			Capabilities:         stageCapabilities(outputSchema, true),
+			Capabilities:         stageCapabilities(outputSchema, false),
 			RelatedExpandAnchors: relatedExpandAnchors(outputSchema, rootResourceType, true),
 		}
 		descriptor.Capabilities = append(descriptor.Capabilities, StageOperationCapability{Operation: recipe.ConstructionOperationKind("ROW_VALUES"), Supported: true})
 		sequence.Stages = append(sequence.Stages, physical)
 		descriptors = append(descriptors, descriptor)
 		priorStageID, priorSchema, priorIdentity = recipe.ConstructionCohortGroupStageID, outputSchema, constructionRowID
-		rootContributorProvenance, rootContributorSourceAvailable = true, true
+		rootContributorProvenance, lazyRootContributorAvailable = true, true
 		return nil
 	}
 	for index, step := range construction.Steps {
@@ -257,7 +258,7 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 				return nil, nil, "", err
 			}
 		}
-		result, stageErr := lowerConstructionStep(plan, step, priorStageID, priorSchema, priorIdentity, rootResourceType, policy, usedVariables, index, rootContributorProvenance, rootContributorSourceAvailable, retainRootContributors, presenceCategoryIDs)
+		result, stageErr := lowerConstructionStep(plan, step, priorStageID, priorSchema, priorIdentity, rootResourceType, policy, usedVariables, index, rootContributorProvenance, lazyRootContributorAvailable, retainRootContributors, presenceCategoryIDs)
 		if stageErr != nil {
 			return nil, nil, "", fmt.Errorf("construction step %q: %w", step.ID, stageErr)
 		}
@@ -265,7 +266,7 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 		descriptors = append(descriptors, result.descriptor)
 		priorStageID, priorSchema, priorIdentity = step.ID, result.schema, result.identity
 		rootContributorProvenance = result.rootContributorProvenance
-		rootContributorSourceAvailable = result.rootContributorSourceAvailable
+		lazyRootContributorAvailable = result.lazyRootContributorAvailable
 	}
 	if cohort != nil && cohortAnchorIndex == len(construction.Steps)-1 {
 		if err := appendCohort(); err != nil {
@@ -830,7 +831,7 @@ func sourcePresenceCompanionColumn(schema []CompiledOutputColumn, name string) (
 	return CompiledOutputColumn{}, false
 }
 
-func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, inputStageID string, inputSchema []CompiledOutputColumn, inputIdentity, rootResourceType string, policy ir.PhysicalOptimizationPolicy, usedVariables map[string]bool, index int, rootContributorProvenance, rootContributorSourceAvailable, retainRootContributors bool, presenceCategoryIDs map[string]bool) (constructionStageResult, error) {
+func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, inputStageID string, inputSchema []CompiledOutputColumn, inputIdentity, rootResourceType string, policy ir.PhysicalOptimizationPolicy, usedVariables map[string]bool, index int, rootContributorProvenance, lazyRootContributorAvailable, retainRootContributors bool, presenceCategoryIDs map[string]bool) (constructionStageResult, error) {
 	inputByID := compiledSchemaByID(inputSchema)
 	outputByID := make(map[string]recipe.StageColumn, len(step.Outputs))
 	for _, column := range step.Outputs {
@@ -1169,8 +1170,19 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 			}
 		}
 	}
+	if base.Kind == ir.PhysicalStageExpandOp {
+		if rootKey, ok := rootContributorRootKey(inputSchema, rootResourceType); ok && rootKey.Name != outputIdentity {
+			if _, alreadyRetained := rootContributorRootKey(outputSchema, rootResourceType); !alreadyRetained {
+				rootKey.Identity = false
+				outputSchema = append(outputSchema, rootKey)
+				base.OutputProjections = insertProjectionBeforeIdentity(base.OutputProjections, ir.PhysicalProjection{
+					Name: rootKey.Name, Hidden: true, Value: ir.PhysicalValue{Variable: inputRow, Path: []string{rootKey.Name}},
+				}, outputIdentity)
+			}
+		}
+	}
 	if base.Kind != ir.PhysicalStageRelatedExpandOp && preservesActiveRelatedRecord(base.Kind) {
-		if rootAnchor, ok := retainedRootResourceAnchor(inputSchema); ok && rootAnchor.Name != outputIdentity {
+		if rootAnchor, ok := retainedRootResourceAnchor(inputSchema, rootResourceType); ok && rootAnchor.Name != outputIdentity {
 			rootAnchor.Identity = false
 			outputSchema = append(outputSchema, rootAnchor)
 			base.OutputProjections = append(base.OutputProjections, ir.PhysicalProjection{
@@ -1232,13 +1244,13 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 		}
 	}
 	rootContributorOutputProvenance := rootContributorProvenance && constructionPreservesRootContributorProvenance(step.Operation.Kind)
-	rootContributorOutputAvailable := rootContributorSourceAvailable && constructionPreservesRootContributorSourceAvailability(step.Operation.Kind)
+	lazyRootContributorOutputAvailable := lazyRootContributorAvailable && constructionPreservesLazyRootContributorAvailability(step.Operation.Kind)
 	if step.Operation.Kind == recipe.ConstructionGroupOp || step.Operation.Kind == recipe.ConstructionPivotOp {
-		rootContributorOutputAvailable = rootContributorOutputProvenance
+		lazyRootContributorOutputAvailable = rootContributorOutputProvenance
 	}
-	descriptor.Capabilities = stageCapabilities(outputSchema, rootContributorOutputAvailable)
-	descriptor.RelatedExpandAnchors = relatedExpandAnchors(outputSchema, rootResourceType, rootContributorOutputAvailable)
-	return constructionStageResult{physical: base, schema: outputSchema, identity: outputIdentity, rootContributorProvenance: rootContributorOutputProvenance, rootContributorSourceAvailable: rootContributorOutputAvailable, descriptor: descriptor}, nil
+	descriptor.Capabilities = stageCapabilities(outputSchema, lazyRootContributorOutputAvailable)
+	descriptor.RelatedExpandAnchors = relatedExpandAnchors(outputSchema, rootResourceType, lazyRootContributorOutputAvailable)
+	return constructionStageResult{physical: base, schema: outputSchema, identity: outputIdentity, rootContributorProvenance: rootContributorOutputProvenance, lazyRootContributorAvailable: lazyRootContributorOutputAvailable, descriptor: descriptor}, nil
 }
 
 func lowerConstructionRelatedSource(
@@ -1782,6 +1794,28 @@ func rootContributorSet(schema []CompiledOutputColumn, rootResourceType string) 
 	return CompiledOutputColumn{}, false
 }
 
+func rootContributorRootKey(schema []CompiledOutputColumn, rootResourceType string) (CompiledOutputColumn, bool) {
+	for _, column := range schema {
+		if column.Internal && column.Name == "_key" && column.RootContributorResourceType == rootResourceType &&
+			column.Kind == string(expression.KindString) && column.Cardinality == string(expression.RequiredOne) {
+			return column, true
+		}
+	}
+	return CompiledOutputColumn{}, false
+}
+
+func hasCompilerOwnedRootContributor(schema []CompiledOutputColumn) bool {
+	for _, column := range schema {
+		if column.RootContributorResourceType == "" {
+			continue
+		}
+		if _, found := rootContributorInput(schema, column.RootContributorResourceType); found {
+			return true
+		}
+	}
+	return false
+}
+
 func constructionNeedsRetainedRootContributors(steps []recipe.ConstructionStep) bool {
 	seenShape := false
 	for _, step := range steps {
@@ -1813,7 +1847,7 @@ func constructionCarriesRootContributorValue(operation recipe.ConstructionOperat
 	return constructionPreservesRootContributorProvenance(operation)
 }
 
-func constructionPreservesRootContributorSourceAvailability(operation recipe.ConstructionOperationKind) bool {
+func constructionPreservesLazyRootContributorAvailability(operation recipe.ConstructionOperationKind) bool {
 	switch operation {
 	case recipe.ConstructionDeriveOp, recipe.ConstructionFilterOp, recipe.ConstructionUnpivotOp,
 		recipe.ConstructionExpandOp, recipe.ConstructionRelatedSourceOp, recipe.ConstructionRelatedExpandOp,
@@ -1824,13 +1858,15 @@ func constructionPreservesRootContributorSourceAvailability(operation recipe.Con
 	}
 }
 
-func stageCapabilities(columns []CompiledOutputColumn, rootContributorProvenance bool) []StageOperationCapability {
+func stageCapabilities(columns []CompiledOutputColumn, lazyRootContributorAvailable bool) []StageOperationCapability {
 	public := publicCompiledSchema(columns)
 	numeric, scalar, arrays := 0, 0, 0
 	rootKey, rootRowIdentity := false, false
+	rootContributorAvailable := lazyRootContributorAvailable || hasCompilerOwnedRootContributor(columns)
 	_, activeRelatedRecord := activeRelatedRecordColumn(columns)
 	for _, column := range columns {
-		if column.Internal && column.Name == "_key" && column.Kind == string(expression.KindString) && column.Cardinality == string(expression.RequiredOne) {
+		if column.Internal && column.Name == "_key" && column.RootContributorResourceType != "" &&
+			column.Kind == string(expression.KindString) && column.Cardinality == string(expression.RequiredOne) {
 			rootKey = true
 			rootRowIdentity = column.Identity
 		}
@@ -1859,9 +1895,9 @@ func stageCapabilities(columns []CompiledOutputColumn, rootContributorProvenance
 		capability(recipe.ConstructionCodedGroupOp, false, "DIRECT_SOURCE_STAGE_REQUIRED", "coded grouping is available only on the direct source projection stage because transformed rows may omit Coding occurrences"),
 		capability(recipe.ConstructionCodedPivotOp, false, "DIRECT_SOURCE_STAGE_REQUIRED", "coded Pivot is available only on the direct source projection stage"),
 		capability(recipe.ConstructionExpandOp, arrays > 0, "NO_ARRAY_COLUMNS", "expand requires a public array-valued column"),
-		capability(recipe.ConstructionRelatedSourceOp, rootRowIdentity || rootContributorProvenance, "NO_SOURCE_ROW_ANCHOR", "related source requires a root document identity or compiler-proven root contributors to survive this stage"),
-		capability(recipe.ConstructionRelatedExpandOp, rootKey || rootContributorProvenance || activeRelatedRecord, "NO_SOURCE_ROW_ANCHOR", "related expansion requires a retained root key, compiler-proven source records, or exact related-record identity"),
-		capability(recipe.ConstructionRelatedEligibilityOp, rootKey || rootContributorProvenance || activeRelatedRecord, "NO_SOURCE_ROW_ANCHOR", "related eligibility requires a retained root key, compiler-proven root contributors, or exact related-record identity on this stage"),
+		capability(recipe.ConstructionRelatedSourceOp, rootRowIdentity || rootContributorAvailable, "NO_SOURCE_ROW_ANCHOR", "related source requires a root document identity or compiler-proven root contributors to survive this stage"),
+		capability(recipe.ConstructionRelatedExpandOp, rootKey || rootContributorAvailable || activeRelatedRecord, "NO_SOURCE_ROW_ANCHOR", "related expansion requires a retained root key, compiler-proven source records, or exact related-record identity"),
+		capability(recipe.ConstructionRelatedEligibilityOp, rootKey || rootContributorAvailable || activeRelatedRecord, "NO_SOURCE_ROW_ANCHOR", "related eligibility requires a retained root key, compiler-proven root contributors, or exact related-record identity on this stage"),
 		capability(recipe.ConstructionRelatedFieldOp, activeRelatedRecord, "NO_ACTIVE_RELATED_RECORD", "related field requires the exact terminal resource identity to survive this stage"),
 	}
 }
@@ -1937,14 +1973,15 @@ func withConstructionCapability(capabilities []StageOperationCapability, replace
 
 func relatedExpandAnchors(schema []CompiledOutputColumn, rootResourceType string, rootContributorsAvailable bool) []CompiledRelatedExpandAnchor {
 	anchors := make([]CompiledRelatedExpandAnchor, 0, 3)
-	_, retainedRootKey := retainedRootResourceAnchor(schema)
+	_, retainedRootKey := retainedRootResourceAnchor(schema, rootResourceType)
 	if retainedRootKey && rootResourceType != "" {
 		anchors = append(anchors, CompiledRelatedExpandAnchor{
 			AnchorColumnID: "_key", Kind: "root", ResourceType: rootResourceType,
 			Label: "Original " + rootResourceType,
 		})
 	}
-	if !retainedRootKey && rootContributorsAvailable && rootResourceType != "" {
+	_, retainedRootContributorSet := rootContributorSet(schema, rootResourceType)
+	if !retainedRootKey && (retainedRootContributorSet || rootContributorsAvailable) && rootResourceType != "" {
 		anchors = append(anchors, CompiledRelatedExpandAnchor{
 			AnchorColumnID: rootContributorSetColumn, Kind: "rootContributors", ResourceType: rootResourceType,
 			Label: "Records that make up this row",
@@ -1960,9 +1997,9 @@ func relatedExpandAnchors(schema []CompiledOutputColumn, rootResourceType string
 	return anchors
 }
 
-func retainedRootResourceAnchor(schema []CompiledOutputColumn) (CompiledOutputColumn, bool) {
+func retainedRootResourceAnchor(schema []CompiledOutputColumn, rootResourceType string) (CompiledOutputColumn, bool) {
 	for _, column := range schema {
-		if column.Internal && column.Name == "_key" && column.Kind == string(expression.KindString) &&
+		if column.Internal && column.Name == "_key" && column.RootContributorResourceType == rootResourceType && column.Kind == string(expression.KindString) &&
 			column.Cardinality == string(expression.RequiredOne) {
 			return column, true
 		}
