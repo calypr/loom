@@ -491,6 +491,12 @@ func frameSourceFamilies(snapshot capability.Snapshot, entries []catalog.Semanti
 	byFamily := make(map[string]frameSourceFamilyCandidate)
 	for _, entry := range entries {
 		observation := entry.Observation
+		if observation.RuleHint != catalog.SemanticRuleHintCodedValueV1 {
+			// Frames represent an existing paired code/value binding. A standalone
+			// Coding's value lives on the matched Coding item, so it cannot be
+			// represented by the owner-scoped frame family contract.
+			continue
+		}
 		plan := authoringv2.ResolveSemanticSelectionPlan(observation)
 		if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Kind != authoringv2.SourceCodedValue || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil || plan.Source.Lookup.Key == nil {
 			continue

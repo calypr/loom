@@ -64,6 +64,16 @@ func TestOwnerRecordsSourceIsClosedAndSchemaValidated(t *testing.T) {
 	if err := ownerRecordsAuthoringDocument(missingKey).Validate(); err == nil || !strings.Contains(err.Error(), "key.system/code") {
 		t.Fatalf("missing owner-record key error = %v", err)
 	}
+	versioned := validOwnerRecordsSource()
+	versioned.Key.Version = "v1"
+	if err := ownerRecordsAuthoringDocument(versioned).Validate(); err == nil || !strings.Contains(err.Error(), "does not support Coding value scope or version matching") {
+		t.Fatalf("versioned owner-record key error = %v", err)
+	}
+	codingScoped := validOwnerRecordsSource()
+	codingScoped.Binding.ValueScope = fhirschema.CorrelatedValueScopeCoding
+	if err := ownerRecordsAuthoringDocument(codingScoped).Validate(); err == nil || !strings.Contains(err.Error(), "does not support Coding value scope or version matching") {
+		t.Fatalf("Coding-scoped owner-record binding error = %v", err)
+	}
 }
 
 func validCorrelatedLookup() *LookupSource {
@@ -90,6 +100,28 @@ func TestCorrelatedLookupRequiresClosedSelectedKey(t *testing.T) {
 	legacyKey := &LookupSource{Match: "shared", Key: &fhirschema.CorrelatedKey{System: "urn:study:A", Code: "shared"}}
 	if err := correlatedAuthoringDocument(legacyKey).Validate(); err == nil || !strings.Contains(err.Error(), "lookup.binding") {
 		t.Fatalf("legacy key error = %v", err)
+	}
+	versionWithoutPath := validCorrelatedLookup()
+	versionWithoutPath.Key.Version = "v1"
+	if err := correlatedAuthoringDocument(versionWithoutPath).Validate(); err == nil || !strings.Contains(err.Error(), "key.version requires lookup.binding.versionPath") {
+		t.Fatalf("version without versionPath error = %v", err)
+	}
+	versioned := validCorrelatedLookup()
+	versioned.Binding.ValueScope = fhirschema.CorrelatedValueScopeCoding
+	versioned.Binding.VersionPath = "version"
+	versioned.Binding.ValuePath = "display"
+	versioned.Binding.LogicalType = "string"
+	versioned.Key.Version = "v1"
+	if err := correlatedAuthoringDocument(versioned).Validate(); err != nil {
+		t.Fatalf("versioned Coding lookup was rejected: %v", err)
+	}
+	unversioned := validCorrelatedLookup()
+	unversioned.Binding.ValueScope = fhirschema.CorrelatedValueScopeCoding
+	unversioned.Binding.VersionPath = "version"
+	unversioned.Binding.ValuePath = "display"
+	unversioned.Binding.LogicalType = "string"
+	if err := correlatedAuthoringDocument(unversioned).Validate(); err != nil {
+		t.Fatalf("explicit empty-version Coding lookup was rejected: %v", err)
 	}
 }
 

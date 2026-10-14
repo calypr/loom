@@ -1542,6 +1542,96 @@ export const registry = Object.freeze([
     ],
   }),
   Object.freeze({
+    id: 'basic-standalone-coded-fields',
+    workflow: 'basic-standalone-coded-fields-native-lifecycle',
+    hooks: [
+      'useGetExplorerBuilderStateV2Query',
+      'useCreateExplorerAuthoringMutation',
+      'useApplyExplorerBuilderCommandsV2Mutation',
+      'useGetExplorerAuthoringCapabilityV2Query',
+      'useReconcileExplorerBuilderV2Mutation',
+      'usePreviewExplorerAuthoringV2Mutation',
+    ],
+    endpoints: [
+      'POST /api/v1/projects/{project}/explorers',
+      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/semantic-inventory',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-choices',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-choice-proposals',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/reconcile',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/preview',
+    ],
+    requiredTransitions: [
+      'create a fresh Basic Patient table from the six-resource literal fixture',
+      'browse all output-scoped coded values without a source-type or typed-search gate and select Condition, Medication, Specimen, and paired Observation choices',
+      'cancel the first native coded-column preview without changing the saved Patient table',
+      'apply the same coded choices and verify exact display, code fallback, and version correlation by Patient',
+      'reload the applied table and verify the persisted CODING bindings and exact source-derived rows',
+    ],
+    gateReasons: [
+      'the literal Basic fixture has two Patient identities, versioned and unversioned Condition codings with the same system/code, a text-only Condition control, Medication and Specimen coded sources, and one paired Observation value',
+      'the native lifecycle verifies standalone Coding bindings separately from the existing owner-scoped paired Observation binding',
+      'the fixture is synthetic Basic data and does not establish CDA dataset coverage',
+    ],
+    script: 'standalone-coded-fields.mjs',
+    cases: {
+      'coded-fields': {
+        playwrightTest: 'scripts/verify-ui/specs/standalone-coded-fields.spec.mjs',
+        playwrightGrep: 'Basic fixture adds standalone coded fields with exact Coding version and display correlation$',
+        focusedChecks: [
+          {
+            id: 'basic-standalone-coded-fields-source-oracle',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/standalone-coded-field-fixture.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/specs/standalone-coded-fields.spec.mjs',
+              'scripts/verify-ui/workflows/standalone-coded-fields.mjs',
+              'scripts/verify-ui/helpers/standalone-coded-field-fixture.mjs',
+              'testdata/basic-standalone-coded-fields/Patient.ndjson',
+              'testdata/basic-standalone-coded-fields/Condition.ndjson',
+              'testdata/basic-standalone-coded-fields/Observation.ndjson',
+              'testdata/basic-standalone-coded-fields/Specimen.ndjson',
+              'testdata/basic-standalone-coded-fields/MedicationAdministration.ndjson',
+              'testdata/basic-standalone-coded-fields/Medication.ndjson',
+            ],
+          },
+          {
+            id: 'basic-standalone-coded-fields-contract-ui',
+            cwd: 'ui/packages/loom-ui',
+            command: [
+              'vitest', 'run', '--config', 'vitest.config.ts',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx',
+              'ui/packages/loom-ui/src/types.unit.test.ts',
+            ],
+            sourceFiles: [
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx',
+              'ui/packages/loom-ui/src/types.ts',
+            ],
+          },
+        ],
+        requiredChecks: [
+          'literal fixture proves standalone coded sources and paired Observation values with exact versions',
+          'native Coded values browse shows compiler-proven entries from all eligible source resources without search',
+          'Cancel leaves the saved Patient table and draft unchanged',
+          'Apply persists CODING-scoped version-aware sources and leaves paired values owner-scoped',
+          'Applied coded fields and exact per-patient values survive Builder reload',
+          'independent FHIR source fixture remains unchanged through the lifecycle',
+        ],
+      },
+    },
+    coverage: [
+      {
+        feature: 'Basic native standalone Coding values across Condition, Medication, Specimen and paired Observation values',
+        acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', case: 'coded-fields', checks: { choice: 2, proposal: 2, cancel: 1, apply: 1, savedRows: 2, reload: 2, edit: 0, restoration: 0 } },
+        status: 'untested',
+        reason: 'The registered fresh Basic fixture has an independent six-resource source oracle; native browse, exact version-aware apply, and reload remain pending.',
+      },
+    ],
+  }),
+  Object.freeze({
     id: 'basic-coded-pivot',
     workflow: 'basic-coded-pivot-native-lifecycle',
     hooks: [

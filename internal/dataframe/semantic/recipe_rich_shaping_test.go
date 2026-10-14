@@ -64,6 +64,32 @@ func TestLowerRecipePivotsUsesGeneratedFamilyAndDeclaredColumns(t *testing.T) {
 	}
 }
 
+func TestLowerRecipeCorrelatedPivotPreservesSelectedVersion(t *testing.T) {
+	binding := &fhirschema.CorrelatedBinding{
+		OwnerPath: "input[]", KeyPath: "input[].valueCoding", VersionPath: "version",
+		ValueScope: fhirschema.CorrelatedValueScopeCoding, SystemPath: "system", CodePath: "code",
+		ValuePath: "display", LogicalType: "string",
+	}
+	pivots, err := lowerRecipePivots("Task", "root", newRootScope("Task"), []recipe.Pivot{{
+		Name: "task_code", Columns: []string{"shared"}, Correlation: binding,
+		CorrelationSystem: "urn:study:A", CorrelationCode: "shared", CorrelationVersion: "v2",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pivots) != 1 || pivots[0].CorrelationVersion != "v2" || pivots[0].Correlation == nil || pivots[0].Correlation.VersionPath != "version" {
+		t.Fatalf("lowered correlated pivot = %#v", pivots)
+	}
+
+	values, err := recipeFilterValues([]recipe.FilterValue{{Kind: recipe.FilterCode, Code: &recipe.CodeValue{System: "urn:study:A", Code: "shared", Version: "v2"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 1 || values[0].Code == nil || values[0].Code.Version != "v2" {
+		t.Fatalf("lowered correlated filter values = %#v", values)
+	}
+}
+
 func TestLowerRecipePivotsRejectsUnsupportedPairAndDuplicateColumn(t *testing.T) {
 	scope := newRootScope("Patient")
 	_, err := lowerRecipePivots("Patient", "root", scope, []recipe.Pivot{{

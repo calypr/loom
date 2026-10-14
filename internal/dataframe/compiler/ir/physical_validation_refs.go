@@ -275,6 +275,17 @@ func validatePhysicalCorrelation(correlation PhysicalCorrelation, defined map[st
 	if err := validatePhysicalValue(correlation.Source, defined, bindVars); err != nil {
 		return err
 	}
+	switch correlation.ValueScope {
+	case "", fhirschema.CorrelatedValueScopeOwner, fhirschema.CorrelatedValueScopeCoding:
+	default:
+		return fmt.Errorf("correlation value scope %q is unsupported", correlation.ValueScope)
+	}
+	if correlation.VersionSelector != nil && correlation.ValueScope != fhirschema.CorrelatedValueScopeCoding {
+		return fmt.Errorf("correlation version selector requires Coding value scope")
+	}
+	if correlation.VersionSelector == nil && correlation.VersionBindKey != "" {
+		return fmt.Errorf("correlation version bind key requires version selector")
+	}
 	if strings.TrimSpace(correlation.ResourceType) == "" || !schemaDefinitionExists(correlation.ResourceType) {
 		return fmt.Errorf("correlation resource type %q is not represented by generated FHIR schema", correlation.ResourceType)
 	}
@@ -291,6 +302,12 @@ func validatePhysicalCorrelation(correlation PhysicalCorrelation, defined map[st
 		}
 	}
 	if len(correlation.ExtensionURLSelectors) > 0 {
+		if correlation.ValueScope == fhirschema.CorrelatedValueScopeCoding {
+			return fmt.Errorf("extension correlation does not support Coding value scope")
+		}
+		if correlation.VersionSelector != nil {
+			return fmt.Errorf("extension correlation does not support Coding version selector")
+		}
 		if correlation.OwnerResource != "Extension" {
 			return fmt.Errorf("extension correlation owner resource %q is not Extension", correlation.OwnerResource)
 		}
@@ -333,6 +350,48 @@ func validatePhysicalCorrelation(correlation PhysicalCorrelation, defined map[st
 	if strings.TrimSpace(correlation.KeyResource) == "" || !schemaDefinitionExists(correlation.KeyResource) {
 		return fmt.Errorf("correlation key resource %q is not represented by generated FHIR schema", correlation.KeyResource)
 	}
+	keyShape, ok := fhirschema.ResolveFieldSemantics(ownerResource, correlation.KeySelector.CanonicalPath())
+	if !ok {
+		return fmt.Errorf("correlation key selector %q is not represented by generated resource type %q", correlation.KeySelector.CanonicalPath(), ownerResource)
+	}
+	if correlation.KeyIsArray {
+		if keyShape.Kind != fhirschema.FieldKindArray || keyShape.ElementKind != fhirschema.FieldKindObject || keyShape.Reference != correlation.KeyResource {
+			return fmt.Errorf("correlation key selector must resolve to an array of %s objects", correlation.KeyResource)
+		}
+	} else if correlation.ValueScope != fhirschema.CorrelatedValueScopeCoding || keyShape.Kind != fhirschema.FieldKindObject || keyShape.Reference != correlation.KeyResource {
+		return fmt.Errorf("singular correlation key selector requires a CODING-scoped %s object", correlation.KeyResource)
+	}
+	valueResource := ownerResource
+	if correlation.ValueScope == fhirschema.CorrelatedValueScopeCoding {
+		if correlation.KeyResource != "Coding" {
+			return fmt.Errorf("CODING correlation value scope requires Coding key resource, got %q", correlation.KeyResource)
+		}
+		if len(correlation.ChoiceArms) != 0 || len(correlation.ChoiceSelectors) != 0 {
+			return fmt.Errorf("CODING correlation value scope does not support owner choice arms")
+		}
+		valueResource = "Coding"
+	}
+	if correlation.VersionSelector != nil {
+		if err := validatePhysicalSelector("Coding", *correlation.VersionSelector); err != nil {
+			return fmt.Errorf("correlation version selector: %w", err)
+		}
+		if correlation.VersionSelector.CanonicalPath() != "version" {
+			return fmt.Errorf("correlation version selector must identify Coding.version")
+		}
+		metadata, ok := fhirschema.ResolveTerminalScalarMetadata("Coding", correlation.VersionSelector.CanonicalPath())
+		if !ok || metadata.Primitive != fhirschema.PrimitiveString {
+			return fmt.Errorf("correlation version selector must resolve to a Coding string")
+		}
+		if strings.TrimSpace(correlation.VersionBindKey) == "" {
+			return fmt.Errorf("correlation version bind key is required")
+		}
+		if err := requireBind(bindVars, correlation.VersionBindKey); err != nil {
+			return err
+		}
+		if _, ok := bindVars[correlation.VersionBindKey].(string); !ok {
+			return fmt.Errorf("correlation version bind %q must be a string", correlation.VersionBindKey)
+		}
+	}
 	if err := validatePhysicalSelector(ownerResource, correlation.KeySelector); err != nil {
 		return fmt.Errorf("key selector: %w", err)
 	}
@@ -342,21 +401,21 @@ func validatePhysicalCorrelation(correlation PhysicalCorrelation, defined map[st
 	if err := validatePhysicalSelector(correlation.KeyResource, correlation.CodeSelector); err != nil {
 		return fmt.Errorf("code selector: %w", err)
 	}
-	if err := validatePhysicalSelector(ownerResource, correlation.ValueSelector); err != nil {
-		return fmt.Errorf("value selector: %w", err)
+	if err := validatePhysicalSelector(valueResource, correlation.ValueSelector); err != nil {
+		return fmt.Errorf("value selector in %s: %w", valueResource, err)
 	}
 	for index, fallback := range correlation.ValueFallbacks {
-		if err := validatePhysicalSelector(ownerResource, fallback); err != nil {
-			return fmt.Errorf("value fallback %d: %w", index, err)
+		if err := validatePhysicalSelector(valueResource, fallback); err != nil {
+			return fmt.Errorf("value fallback %d in %s: %w", index, valueResource, err)
 		}
 	}
 	for index, choice := range correlation.ChoiceSelectors {
-		if err := validatePhysicalSelector(ownerResource, choice); err != nil {
+		if err := validatePhysicalSelector(valueResource, choice); err != nil {
 			return fmt.Errorf("choice selector %d: %w", index, err)
 		}
 	}
 	if correlation.UnitSelector != nil {
-		if err := validatePhysicalSelector(ownerResource, *correlation.UnitSelector); err != nil {
+		if err := validatePhysicalSelector(valueResource, *correlation.UnitSelector); err != nil {
 			return fmt.Errorf("unit selector: %w", err)
 		}
 	}

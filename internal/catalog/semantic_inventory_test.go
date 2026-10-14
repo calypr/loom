@@ -160,12 +160,19 @@ func TestRetainedSemanticEmitterProjectsExactCodedGroupWitness(t *testing.T) {
 			observation.Source.Path != "code" || observation.Key.System != "http://snomed.info/sct" || observation.Key.Code != "1222593009" ||
 			observation.Value.Selector != "valueCodeableConcept.text" ||
 			!reflect.DeepEqual(observation.Value.FallbackSelectors, []string{"valueCodeableConcept.coding[].display"}) ||
-			!observation.Value.FallbackOnBlankString || observation.Status != "SUPPORTED" {
+			!observation.Value.FallbackOnBlankString || observation.Status != "SUPPORTED" || observation.RuleHint != SemanticRuleHintCodedValueV1 {
 			t.Fatalf("%s retained semantic contribution = %#v", record.id, contribution)
 		}
 	}
-	if got := len(contributionsByID[witness[2].id]); got != 0 {
-		t.Fatalf("null-valued third observation contributions = %d, want none", got)
+	standalone := contributionsByID[witness[2].id]
+	if len(standalone) != 1 {
+		t.Fatalf("unpaired third observation contributions = %d, want one standalone coded concept", len(standalone))
+	}
+	observation := standalone[0].Observation
+	if observation.RuleHint != SemanticRuleHintCodedConceptV1 || observation.Source.Path != "code.coding[]" ||
+		observation.OwningScope != "" || observation.Key.Selector != "code.coding[]" || observation.Key.System != "http://loinc.org" || observation.Key.Code != "81247-9" ||
+		observation.Value.Selector != "code.coding[].display" || !reflect.DeepEqual(observation.Value.FallbackSelectors, []string{"code.coding[].code"}) {
+		t.Fatalf("unpaired third observation standalone contribution = %#v", standalone[0])
 	}
 }
 

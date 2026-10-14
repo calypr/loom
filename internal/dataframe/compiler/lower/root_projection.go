@@ -168,6 +168,12 @@ func semanticNodePhysicalProjections(physical *ir.PhysicalPlan, node semantic.Se
 }
 
 func physicalOwnerRecordsExpression(physical *ir.PhysicalPlan, resourceType string, source ir.PhysicalValue, operation semantic.SemanticOwnerRecords) (ir.PhysicalExpression, error) {
+	if strings.TrimSpace(operation.Key.Version) != "" {
+		return ir.PhysicalExpression{}, fmt.Errorf("OWNER_RECORDS does not support Coding version matching")
+	}
+	if operation.Binding.ValueScope == fhirschema.CorrelatedValueScopeCoding {
+		return ir.PhysicalExpression{}, fmt.Errorf("OWNER_RECORDS does not support Coding value scope")
+	}
 	prefix := "owner_records_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(operation.Name)
 	systemKey := prefix + "_system"
 	codeKey := prefix + "_code"
@@ -220,7 +226,12 @@ func physicalPivotProjections(physical *ir.PhysicalPlan, resourceType string, so
 		codeKey := columnsBindKey + "_code"
 		physical.BindVars[systemKey] = pivot.CorrelationSystem
 		physical.BindVars[codeKey] = pivot.CorrelationCode
-		correlation, err := LowerCorrelatedBinding(resourceType, *pivot.Correlation, source, systemKey, codeKey)
+		versionKey := ""
+		if strings.TrimSpace(pivot.Correlation.VersionPath) != "" {
+			versionKey = columnsBindKey + "_version"
+			physical.BindVars[versionKey] = pivot.CorrelationVersion
+		}
+		correlation, err := LowerCorrelatedBindingWithVersion(resourceType, *pivot.Correlation, source, systemKey, codeKey, versionKey)
 		if err != nil {
 			return nil, err
 		}

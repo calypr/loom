@@ -60,9 +60,10 @@ type SemanticPivot struct {
 	// Correlation is the closed system+code/value binding used when a pivot
 	// must preserve one Coding and one owning repeated item. Nil retains the
 	// legacy validated pivot path.
-	Correlation       *fhirschema.CorrelatedBinding
-	CorrelationSystem string
-	CorrelationCode   string
+	Correlation        *fhirschema.CorrelatedBinding
+	CorrelationSystem  string
+	CorrelationCode    string
+	CorrelationVersion string
 	// ExtensionCorrelation carries the checked ancestor-aware extension
 	// binding. It shares the physical correlation IR with terminology pivots.
 	ExtensionCorrelation *fhirschema.ExtensionBinding

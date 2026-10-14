@@ -219,6 +219,9 @@ func (p Pivot) validateAt(path string, budget *int) error {
 		if strings.TrimSpace(p.CorrelationSystem) == "" || strings.TrimSpace(p.CorrelationCode) == "" {
 			return validationError("invalid_correlation", path+".correlation", "selected system and code are required")
 		}
+		if strings.TrimSpace(p.CorrelationVersion) != "" && strings.TrimSpace(p.Correlation.VersionPath) == "" {
+			return validationError("invalid_correlation", path+".correlation", "selected version requires a versionPath")
+		}
 		if p.ItemResourceType == "" && p.ColumnExpr.zero() && p.ValueExpr.zero() && p.ItemSource.zero() && len(p.ValueFallbacks) == 0 {
 			// Correlated pivots are a closed binding variant. Their selectors are
 			// validated from Correlation and are deliberately not duplicated as
@@ -231,7 +234,7 @@ func (p Pivot) validateAt(path string, budget *int) error {
 		if p.Discovery != nil {
 			return validationError("ambiguous_correlation", path, "extension-correlated pivot cannot use discovery")
 		}
-		if p.Correlation != nil || strings.TrimSpace(p.CorrelationSystem) != "" || strings.TrimSpace(p.CorrelationCode) != "" {
+		if p.Correlation != nil || strings.TrimSpace(p.CorrelationSystem) != "" || strings.TrimSpace(p.CorrelationCode) != "" || strings.TrimSpace(p.CorrelationVersion) != "" {
 			return validationError("ambiguous_correlation", path, "extension-correlated pivot must not carry terminology correlation fields")
 		}
 		if p.ItemResourceType != "" || !p.ColumnExpr.zero() || !p.ValueExpr.zero() || !p.ItemSource.zero() || len(p.ValueFallbacks) != 0 {

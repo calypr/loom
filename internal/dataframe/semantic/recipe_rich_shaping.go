@@ -96,10 +96,13 @@ func lowerRecipePivots(resourceType, alias string, scope scopeFrame, pivots []re
 			if strings.TrimSpace(input.CorrelationSystem) == "" || strings.TrimSpace(input.CorrelationCode) == "" {
 				return nil, fmt.Errorf("%s correlation requires selected system and code", path)
 			}
+			if strings.TrimSpace(input.CorrelationVersion) != "" && strings.TrimSpace(input.Correlation.VersionPath) == "" {
+				return nil, fmt.Errorf("%s correlation version requires versionPath", path)
+			}
 			out = append(out, SemanticPivot{
 				Name: input.Name, FieldRef: input.FieldRef, Columns: columns, ColumnAliases: columnAliases, ProjectionMode: projectionMode,
 				Family: "correlated", Correlation: cloneCorrelatedBinding(input.Correlation),
-				CorrelationSystem: input.CorrelationSystem, CorrelationCode: input.CorrelationCode,
+				CorrelationSystem: input.CorrelationSystem, CorrelationCode: input.CorrelationCode, CorrelationVersion: input.CorrelationVersion,
 				ValueKind: correlatedValueKind(checked.LogicalType), StringifyValue: checked.LogicalType == "string",
 				Discovered: input.Discovered,
 			})

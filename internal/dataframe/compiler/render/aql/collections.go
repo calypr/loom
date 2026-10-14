@@ -298,7 +298,7 @@ func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorr
 	}
 	owner := r.newInternalVariable("correlation_pivot_owner")
 	coding := r.newInternalVariable("correlation_pivot_coding")
-	codings, err := r.renderSelectorArrayFromSource(owner, correlation.KeySelector, false, false)
+	codings, err := r.renderCorrelationCodingItems(owner, correlation)
 	if err != nil {
 		return "", err
 	}
@@ -310,11 +310,16 @@ func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorr
 	if err != nil {
 		return "", err
 	}
-	values, err := r.renderCorrelationValues(owner, correlation.ValueSelector, correlation.ValueFallbacks, correlation.FallbackOnBlankString)
+	versionClause, err := r.renderCorrelationVersionClause(correlation, coding, "      ")
 	if err != nil {
 		return "", err
 	}
-	unsupportedValues, err := r.renderCorrelationUnsupportedChoiceValues(owner, correlation)
+	valueSource := correlationValueSource(correlation, owner, coding)
+	values, err := r.renderCorrelationValues(valueSource, correlation.ValueSelector, correlation.ValueFallbacks, correlation.FallbackOnBlankString)
+	if err != nil {
+		return "", err
+	}
+	unsupportedValues, err := r.renderCorrelationUnsupportedChoiceValues(valueSource, correlation)
 	if err != nil {
 		return "", err
 	}
@@ -328,13 +333,13 @@ func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorr
 	// component's value.
 	pairs := fmt.Sprintf(`FOR %s IN %s
   LET __correlation_owner_pairs = (
-    FOR %s IN FLATTEN(%s)
+    FOR %s IN %s
       LET __correlation_system = %s
       LET __correlation_code = %s
       FILTER __correlation_system != null AND __correlation_system != ""
       FILTER __correlation_code != null AND __correlation_code != ""
       FILTER __correlation_system == @%s
-      FILTER POSITION(@%s, __correlation_code)
+      FILTER POSITION(@%s, __correlation_code)%s
       LET __correlation_values = %s
       LET __correlation_flat_values = FLATTEN(__correlation_values)
       LET __correlation_unsupported_values = %s
@@ -348,7 +353,7 @@ func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorr
         LET __correlation_owner_unsupported = UNIQUE(FLATTEN(__correlation_owner_group[*].__correlation_candidate.unsupported))
         RETURN { key: __correlation_owner_key, values: __correlation_owner_values, unsupported: __correlation_owner_unsupported }
   )
-    RETURN __correlation_owner_pair`, owner, owners, coding, codings, system, code, correlation.SystemBindKey, columnsBindKey, values, unsupportedValues)
+    RETURN __correlation_owner_pair`, owner, owners, coding, codings, system, code, correlation.SystemBindKey, columnsBindKey, versionClause, values, unsupportedValues)
 	if flattenSingle {
 		return fmt.Sprintf(`FIRST(
 	  FOR __correlation_pair IN (

@@ -31,6 +31,14 @@ export const correlatedBindingSchema = z.object({
   choiceArms: z.array(opaqueIdSchema).optional(),
   logicalType: opaqueIdSchema,
   unitPath: z.string().optional(),
+  versionPath: opaqueIdSchema.optional(),
+  valueScope: z.literal('CODING').optional(),
+}).strict();
+
+const terminologyKeySchema = z.object({
+  system: opaqueIdSchema,
+  code: opaqueIdSchema,
+  version: z.string().optional(),
 }).strict();
 
 export const conceptCandidateSchema = z.object({
@@ -155,7 +163,7 @@ const lookupColumnSourceSchema = z.union([
     kind: z.literal('codedValue'),
     lookup: z.object({
       binding: correlatedBindingSchema,
-      key: z.object({ system: opaqueIdSchema, code: opaqueIdSchema }).strict(),
+      key: terminologyKeySchema,
       projectionMode: projectionModeSchema.optional(),
     }).strict(),
   }).strict(),
@@ -164,7 +172,7 @@ const ownerRecordsColumnSourceSchema = z.object({
   kind: z.literal('ownerRecords'),
   ownerRecords: z.object({
     binding: correlatedBindingSchema,
-    key: z.object({ system: opaqueIdSchema, code: opaqueIdSchema }).strict(),
+    key: terminologyKeySchema,
   }).strict(),
 }).strict();
 export const contributorWindowSchema = z.object({

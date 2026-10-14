@@ -2572,6 +2572,7 @@ components:
       properties:
         system: {type: string, minLength: 1}
         code: {type: string, minLength: 1}
+        version: {type: string}
     OwnerRecordsSource:
       type: object
       additionalProperties: false
@@ -2598,6 +2599,14 @@ components:
           items: {type: string, minLength: 1}
         logicalType: {type: string, minLength: 1}
         unitPath: {type: string}
+        versionPath:
+          type: string
+          minLength: 1
+          description: Relative path to Coding.version when valueScope is CODING; an empty key version matches an unversioned Coding exactly.
+        valueScope:
+          type: string
+          enum: [CODING]
+          description: Binding paths are relative to the matched Coding. Omitted for legacy owner-scoped coded-value bindings.
     RelatedSelection:
       type: object
       additionalProperties: false

@@ -5,30 +5,43 @@ import (
 	"strings"
 )
 
+type CorrelatedValueScope string
+
+const (
+	CorrelatedValueScopeOwner  CorrelatedValueScope = "OWNER"
+	CorrelatedValueScopeCoding CorrelatedValueScope = "CODING"
+)
+
 // CorrelatedBinding is the backend-neutral description of one terminology
 // key/value relationship. OwnerPath names the repeated FHIR item that owns the
-// value; KeyPath names the repeated Coding collection within that item. System
-// and Code are relative to one Coding item, so they cannot be accidentally
-// paired from different array members.
+// value; KeyPath names a repeated Coding collection or singular Coding within
+// that item. System and Code are relative to one Coding item, so they cannot be
+// accidentally paired from different array members.
 type CorrelatedBinding struct {
-	OwnerPath             string   `json:"ownerPath,omitempty"`
-	KeyPath               string   `json:"keyPath"`
-	SystemPath            string   `json:"systemPath"`
-	CodePath              string   `json:"codePath"`
-	ValuePath             string   `json:"valuePath"`
-	ValueFallback         []string `json:"valueFallback,omitempty"`
-	FallbackOnBlankString bool     `json:"fallbackOnBlankString,omitempty"`
-	ChoiceArms            []string `json:"choiceArms,omitempty"`
-	LogicalType           string   `json:"logicalType"`
-	UnitPath              string   `json:"unitPath,omitempty"`
+	OwnerPath   string `json:"ownerPath,omitempty"`
+	KeyPath     string `json:"keyPath"`
+	VersionPath string `json:"versionPath,omitempty"`
+	// ValueScope selects the object that owns ValuePath and ValueFallback.
+	// Empty and OWNER preserve the legacy owner-relative binding; CODING uses
+	// the exact Coding item matched by KeyPath.
+	ValueScope            CorrelatedValueScope `json:"valueScope,omitempty"`
+	SystemPath            string               `json:"systemPath"`
+	CodePath              string               `json:"codePath"`
+	ValuePath             string               `json:"valuePath"`
+	ValueFallback         []string             `json:"valueFallback,omitempty"`
+	FallbackOnBlankString bool                 `json:"fallbackOnBlankString,omitempty"`
+	ChoiceArms            []string             `json:"choiceArms,omitempty"`
+	LogicalType           string               `json:"logicalType"`
+	UnitPath              string               `json:"unitPath,omitempty"`
 }
 
 // CorrelatedKey is the selected terminology identity for one correlated
 // projection. It is deliberately separate from CorrelatedBinding, which only
 // describes where the identity and value are structurally found.
 type CorrelatedKey struct {
-	System string `json:"system"`
-	Code   string `json:"code"`
+	System  string `json:"system"`
+	Code    string `json:"code"`
+	Version string `json:"version,omitempty"`
 }
 
 // ExtensionBinding is the closed authoring shape for an ancestor-aware FHIR
@@ -52,14 +65,17 @@ type ExtensionBinding struct {
 }
 
 // CorrelatedBindingSpec is the checked form consumed by semantic and physical
-// compilers. Selectors in this value are relative to the owning item unless
-// OwnerSelector is empty (the root resource is the owner).
+// compilers. Key selectors are relative to the owning item unless OwnerSelector
+// is empty. Value selectors use ValueScope to select the owner or matched Coding.
 type CorrelatedBindingSpec struct {
 	ResourceType          string
 	OwnerSelector         Selector
 	OwnerResource         string
 	KeySelector           Selector
 	KeyResource           string
+	KeyIsArray            bool
+	VersionSelector       *Selector
+	ValueScope            CorrelatedValueScope
 	SystemSelector        Selector
 	CodeSelector          Selector
 	ValueSelector         Selector
@@ -99,8 +115,8 @@ func ValidateCorrelatedBinding(resourceType string, binding CorrelatedBinding) (
 	}
 	ownerPath := CanonicalizePath(binding.OwnerPath)
 	keyPath := CanonicalizePath(binding.KeyPath)
-	if keyPath == "" || !strings.Contains(keyPath, "[]") {
-		return CorrelatedBindingSpec{}, fmt.Errorf("correlated keyPath must identify a repeated Coding item")
+	if keyPath == "" {
+		return CorrelatedBindingSpec{}, fmt.Errorf("correlated keyPath is required")
 	}
 	if strings.TrimSpace(binding.SystemPath) == "" || strings.TrimSpace(binding.CodePath) == "" {
 		return CorrelatedBindingSpec{}, fmt.Errorf("correlated binding requires systemPath and codePath")
@@ -130,10 +146,25 @@ func ValidateCorrelatedBinding(resourceType string, binding CorrelatedBinding) (
 		keyRelative = strings.TrimPrefix(keyPath, ownerPath+".")
 	}
 	keyResolved, ok := ResolvePath(ownerResource, keyRelative)
-	if !ok || keyResolved.Property.Kind != "array" || strings.TrimSpace(keyResolved.Property.ItemRef) == "" {
-		return CorrelatedBindingSpec{}, fmt.Errorf("keyPath %q must resolve to a repeated object within owner scope", keyPath)
+	if !ok {
+		return CorrelatedBindingSpec{}, fmt.Errorf("keyPath %q is not represented within owner scope", keyPath)
 	}
-	keyResource := keyResolved.Property.ItemRef
+	keyIsArray := keyResolved.Property.Kind == "array"
+	keyResource := ""
+	if keyIsArray {
+		if !strings.HasSuffix(keyRelative, "[]") {
+			return CorrelatedBindingSpec{}, fmt.Errorf("keyPath %q must include [] for its repeated Coding item", keyPath)
+		}
+		keyResource = keyResolved.Property.ItemRef
+	} else if keyResolved.Property.Kind == "object" {
+		if strings.HasSuffix(keyRelative, "[]") {
+			return CorrelatedBindingSpec{}, fmt.Errorf("keyPath %q cannot include [] for a singular Coding object", keyPath)
+		}
+		keyResource = keyResolved.Property.Ref
+	}
+	if keyResource == "" {
+		return CorrelatedBindingSpec{}, fmt.Errorf("keyPath %q must resolve to a Coding object or repeated Coding array within owner scope", keyPath)
+	}
 	system, err := ParseSelector(binding.SystemPath)
 	if err != nil {
 		return CorrelatedBindingSpec{}, fmt.Errorf("systemPath: %w", err)
@@ -149,14 +180,42 @@ func ValidateCorrelatedBinding(resourceType string, binding CorrelatedBinding) (
 		return CorrelatedBindingSpec{}, fmt.Errorf("codePath %q is not a field of Coding item %q", binding.CodePath, keyResource)
 	}
 	valueResource := ownerResource
-	if ownerPath == "" {
-		valueResource = resourceType
+	var versionSelector *Selector
+	switch binding.ValueScope {
+	case "", CorrelatedValueScopeOwner:
+		if !keyIsArray {
+			return CorrelatedBindingSpec{}, fmt.Errorf("owner value scope requires keyPath to identify a repeated Coding item")
+		}
+		if strings.TrimSpace(binding.VersionPath) != "" {
+			return CorrelatedBindingSpec{}, fmt.Errorf("versionPath requires CODING value scope")
+		}
+	case CorrelatedValueScopeCoding:
+		if keyResource != "Coding" {
+			return CorrelatedBindingSpec{}, fmt.Errorf("CODING value scope requires keyPath to resolve to Coding, got %q", keyResource)
+		}
+		valueResource = "Coding"
+		if versionPath := CanonicalizePath(binding.VersionPath); versionPath != "" {
+			if versionPath != "version" {
+				return CorrelatedBindingSpec{}, fmt.Errorf("versionPath %q must identify Coding.version", versionPath)
+			}
+			versionMetadata, ok := ResolveTerminalScalarMetadata("Coding", versionPath)
+			if !ok || versionMetadata.Primitive != PrimitiveString {
+				return CorrelatedBindingSpec{}, fmt.Errorf("versionPath %q must resolve to a string in Coding", versionPath)
+			}
+			selector, parseErr := ParseSelector(versionPath)
+			if parseErr != nil {
+				return CorrelatedBindingSpec{}, fmt.Errorf("versionPath: %w", parseErr)
+			}
+			versionSelector = &selector
+		}
+	default:
+		return CorrelatedBindingSpec{}, fmt.Errorf("correlated valueScope %q is unsupported", binding.ValueScope)
 	}
 	value, valueErr := validateBindingValue(valueResource, binding.ValuePath, binding.ValueFallback, binding.FallbackOnBlankString, binding.ChoiceArms, binding.LogicalType, binding.UnitPath)
 	if valueErr != nil {
 		return CorrelatedBindingSpec{}, valueErr
 	}
-	return CorrelatedBindingSpec{ResourceType: resourceType, OwnerSelector: ownerSelector, OwnerResource: ownerResource, KeySelector: mustParseSelector(keyRelative), KeyResource: keyResource, SystemSelector: system, CodeSelector: code, ValueSelector: value.ValueSelector, ValueFallbacks: value.ValueFallbacks, FallbackOnBlankString: value.FallbackOnBlankString, ChoiceArms: value.ChoiceArms, LogicalType: value.LogicalType, ValuePrimitive: value.ValuePrimitive, UnitSelector: value.UnitSelector}, nil
+	return CorrelatedBindingSpec{ResourceType: resourceType, OwnerSelector: ownerSelector, OwnerResource: ownerResource, KeySelector: mustParseSelector(keyRelative), KeyResource: keyResource, KeyIsArray: keyIsArray, VersionSelector: versionSelector, ValueScope: binding.ValueScope, SystemSelector: system, CodeSelector: code, ValueSelector: value.ValueSelector, ValueFallbacks: value.ValueFallbacks, FallbackOnBlankString: value.FallbackOnBlankString, ChoiceArms: value.ChoiceArms, LogicalType: value.LogicalType, ValuePrimitive: value.ValuePrimitive, UnitSelector: value.UnitSelector}, nil
 }
 
 type checkedBindingValue struct {

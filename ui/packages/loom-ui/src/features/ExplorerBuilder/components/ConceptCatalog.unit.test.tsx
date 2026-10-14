@@ -324,7 +324,7 @@ describe('ConceptCatalog', () => {
       </LoomProvider>,
     );
 
-    await screen.findByRole('searchbox', { name: 'Search features by field name, concept, or code' });
+    await screen.findByRole('searchbox', { name: 'Search coded values by code or label' });
     expect(searchSchemaFields).not.toHaveBeenCalled();
     fireEvent.click(within(screen.getByTestId('feature-catalog-raw-fields')).getByText('Fields'));
     await waitFor(() => expect(searchSchemaFields).toHaveBeenCalledTimes(1));
@@ -623,7 +623,7 @@ describe('ConceptCatalog', () => {
     );
     const onAddSelected = renderCatalog(fetch);
 
-    expect(await screen.findByRole('searchbox', { name: 'Search features by field name, concept, or code' })).toBeInTheDocument();
+    expect(await screen.findByRole('searchbox', { name: 'Search coded values by code or label' })).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Select Patient.id' })).toBeEnabled();
     expect(await screen.findByRole('checkbox', { name: 'Select Hemoglobin A1c' })).toBeEnabled();
     expect(
@@ -757,7 +757,7 @@ describe('ConceptCatalog', () => {
     expect(request.outputId).toBe('patients');
   });
 
-  it('shows only compiler-proven coded-value pairs and can advance past other semantic families', async () => {
+  it('shows compiler-proven coded concepts and paired values while excluding other semantic families', async () => {
     const identifier = withSemanticIdentity(
       item('patient-identifier', 'Patient identifier', 8, 'Patient', 'IDENTIFIER_SYSTEM_VALUE'),
       'shared-concept',
@@ -790,6 +790,44 @@ describe('ConceptCatalog', () => {
       'shared-concept',
       'coded-value-binding',
     );
+    const standaloneCodeBase = item('condition-code', 'Condition Alpha', 3, 'Condition', 'CODED_CONCEPT_V1');
+    const standaloneChoice = standaloneCodeBase.constructionChoice;
+    if (!standaloneChoice || standaloneChoice.source.kind !== 'SEMANTIC') {
+      throw new Error('The standalone coded-field fixture requires a compiler-issued semantic choice.');
+    }
+    const standaloneConcept: SemanticInventoryItem = {
+      ...standaloneCodeBase,
+      conceptId: 'shared-concept',
+      bindingId: 'condition-code-binding',
+      sourcePath: 'code',
+      valueSelector: 'coding.code',
+      system: 'urn:condition-codes',
+      code: 'condition-alpha',
+      display: 'Condition Alpha',
+      constructionChoice: {
+        ...standaloneChoice,
+        route: [{
+          edgeId: 'patient-condition',
+          fromNodeId: 'patient-node',
+          toNodeId: 'condition-node',
+          fromResourceType: 'Patient',
+          toResourceType: 'Condition',
+          relationship: 'subject_Patient',
+          storageDirection: 'INBOUND',
+          matchMode: 'OPTIONAL',
+        }],
+        source: {
+          ...standaloneChoice.source,
+          conceptId: 'shared-concept',
+          bindingId: 'condition-code-binding',
+          nodeId: 'condition-node',
+          sourcePath: 'code',
+          fieldPath: 'code',
+          valueSelector: 'coding.code',
+          logicalType: 'code',
+        },
+      },
+    };
     const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input, init) => {
       if (String(input).endsWith('/construction-choices')) {
         return new Response(JSON.stringify({
@@ -805,7 +843,7 @@ describe('ConceptCatalog', () => {
       }
       const request = JSON.parse(String(init?.body)) as { readonly cursor?: string };
       const response = request.cursor === 'coded-page-2'
-        ? page([codedValue])
+        ? page([codedValue, standaloneConcept])
         : page([identifier, extension, codedWithoutChoice, mismatchedChoice], 'coded-page-2');
       return new Response(JSON.stringify(response), {
         status: 200,
@@ -839,6 +877,8 @@ describe('ConceptCatalog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     expect(await screen.findByRole('checkbox', { name: 'Select Diagnostic Method' })).toBeEnabled();
+    expect(screen.getByRole('checkbox', { name: 'Select Condition Alpha' })).toBeEnabled();
+    expect(screen.getByRole('heading', { name: 'Coded values from Condition' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Coded values from Observation' })).toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: 'Select Patient identifier' })).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: /us-core-race/ })).not.toBeInTheDocument();
@@ -992,7 +1032,7 @@ describe('ConceptCatalog', () => {
 
     expect(await screen.findByText('No concepts match this search.')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Search' })).toBeEnabled());
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search features by field name, concept, or code' }), {
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search coded values by code or label' }), {
       target: { value: 'id' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
@@ -1238,7 +1278,7 @@ describe('ConceptCatalog', () => {
     );
 
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Patient.id' }));
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search features by field name, concept, or code' }), {
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search coded values by code or label' }), {
       target: { value: 'amount' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
@@ -1282,7 +1322,7 @@ describe('ConceptCatalog', () => {
     expect(rootField).toBeEnabled();
     expect(screen.getByText(new RegExp(reason))).toBeInTheDocument();
 
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search features by field name, concept, or code' }), {
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search coded values by code or label' }), {
       target: { value: 'identifier' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
@@ -1351,7 +1391,7 @@ describe('ConceptCatalog', () => {
     expect(await screen.findByText('No concepts match this search.')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Search' })).toBeEnabled());
     expect(screen.queryByRole('checkbox', { name: 'Select Patient.id' })).not.toBeInTheDocument();
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search features by field name, concept, or code' }), {
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search coded values by code or label' }), {
       target: { value: 'identifier' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
@@ -1553,7 +1593,7 @@ describe('ConceptCatalog', () => {
     renderCatalog(fetch);
 
     expect(await screen.findByText('No concepts match this search.')).toBeInTheDocument();
-    const search = await screen.findByRole('searchbox', { name: 'Search features by field name, concept, or code' });
+    const search = await screen.findByRole('searchbox', { name: 'Search coded values by code or label' });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Search' })).toBeEnabled());
     expect(screen.getByRole('checkbox', { name: 'Select Patient.id' })).toBeInTheDocument();
     fireEvent.change(search, { target: { value: 'missing' } });
@@ -1576,7 +1616,7 @@ describe('ConceptCatalog', () => {
     renderCatalog(fetch);
 
     expect(await screen.findByText('No concepts match this search.')).toBeInTheDocument();
-    const search = await screen.findByRole('searchbox', { name: 'Search features by field name, concept, or code' });
+    const search = await screen.findByRole('searchbox', { name: 'Search coded values by code or label' });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Search' })).toBeEnabled());
     fireEvent.change(search, { target: { value: 'id' } });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
@@ -1617,7 +1657,7 @@ describe('ConceptCatalog', () => {
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Hemoglobin A1c' }));
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Hemoglobin' }));
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search features by field name, concept, or code' }), {
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search coded values by code or label' }), {
       target: { value: 'glucose' },
   });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));

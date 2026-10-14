@@ -821,6 +821,34 @@ describe('correlatedBindingSchema', () => {
     expect(correlatedBindingSchema.parse(serialized)).toEqual(expected);
   });
 
+  it('round-trips a standalone Coding value scope without changing legacy owner-scoped bindings', () => {
+    const legacy = correlatedBindingSchema.parse(binding);
+    const standalone = {
+      ...binding,
+      valuePath: 'display',
+      versionPath: 'version',
+      valueScope: 'CODING',
+    } as const;
+
+    expect(legacy.valueScope).toBeUndefined();
+    expect(correlatedBindingSchema.parse(standalone)).toEqual(standalone);
+    expect(correlatedBindingSchema.parse(JSON.parse(JSON.stringify(standalone)))).toEqual(standalone);
+    expect(correlatedBindingSchema.safeParse({ ...standalone, valueScope: 'OWNER' }).success).toBe(false);
+  });
+
+  it('accepts exact version matching, including an empty unversioned Coding version', () => {
+    const standalone = { ...binding, versionPath: 'version', valueScope: 'CODING' } as const;
+    const key = { system: 'urn:test', code: 'shared', version: '' };
+    const source = { kind: 'codedValue', lookup: { binding: standalone, key } } as const;
+    const versionedSource = {
+      ...source,
+      lookup: { ...source.lookup, key: { ...key, version: 'v1' } },
+    } as const;
+
+    expect(explorerColumnSourceSchema.parse(source)).toEqual(source);
+    expect(explorerColumnSourceSchema.parse(versionedSource)).toEqual(versionedSource);
+  });
+
   it('rejects unknown binding keys while allowing fallbackOnBlankString', () => {
     expect(correlatedBindingSchema.safeParse({
       ...binding,

@@ -66,7 +66,7 @@ func (r *physicalPlanRenderer) renderCorrelationPredicate(correlation ir.Physica
 	}
 	owner := r.newInternalVariable("correlation_owner")
 	coding := r.newInternalVariable("correlation_coding")
-	codings, err := r.renderSelectorArrayFromSource(owner, correlation.KeySelector, false, false)
+	codings, err := r.renderCorrelationCodingItems(owner, correlation)
 	if err != nil {
 		return "", fmt.Errorf("correlation key selector: %w", err)
 	}
@@ -78,33 +78,38 @@ func (r *physicalPlanRenderer) renderCorrelationPredicate(correlation ir.Physica
 	if err != nil {
 		return "", fmt.Errorf("correlation code selector: %w", err)
 	}
-	if correlation.SystemBindKey == "" || correlation.CodeBindKey == "" {
-		return "", fmt.Errorf("correlation match binds are required")
-	}
-	values, err := r.renderCorrelationValues(owner, correlation.ValueSelector, correlation.ValueFallbacks, correlation.FallbackOnBlankString)
+	versionClause, err := r.renderCorrelationVersionClause(correlation, coding, "\t      ")
 	if err != nil {
 		return "", err
 	}
-	unsupportedValues, err := r.renderCorrelationUnsupportedChoiceValues(owner, correlation)
+	if correlation.SystemBindKey == "" || correlation.CodeBindKey == "" {
+		return "", fmt.Errorf("correlation match binds are required")
+	}
+	valueSource := correlationValueSource(correlation, owner, coding)
+	values, err := r.renderCorrelationValues(valueSource, correlation.ValueSelector, correlation.ValueFallbacks, correlation.FallbackOnBlankString)
+	if err != nil {
+		return "", err
+	}
+	unsupportedValues, err := r.renderCorrelationUnsupportedChoiceValues(valueSource, correlation)
 	if err != nil {
 		return "", err
 	}
 	return fmt.Sprintf(`LENGTH(
   FOR %s IN %s
-    FOR %s IN FLATTEN(%s)
+    FOR %s IN %s
       LET __correlation_system = %s
       LET __correlation_code = %s
       FILTER __correlation_system != null AND __correlation_system != ""
       FILTER __correlation_code != null AND __correlation_code != ""
       FILTER __correlation_system == @%s
-	      FILTER __correlation_code == @%s
+	      FILTER __correlation_code == @%s%s
 	      LET __correlation_values = %s
 	      LET __correlation_unsupported_values = %s
 	      FILTER LENGTH(__correlation_unsupported_values) == 0
 	      FILTER LENGTH(FLATTEN(__correlation_values)) > 0
 	      LIMIT 1
 	      RETURN 1
-) > 0`, owner, owners, coding, codings, system, code, correlation.SystemBindKey, correlation.CodeBindKey, values, unsupportedValues), nil
+) > 0`, owner, owners, coding, codings, system, code, correlation.SystemBindKey, correlation.CodeBindKey, versionClause, values, unsupportedValues), nil
 }
 
 func (r *physicalPlanRenderer) renderCorrelationOwners(source ir.PhysicalValue, ownerSelector spec.Selector) (string, error) {

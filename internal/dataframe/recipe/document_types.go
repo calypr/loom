@@ -255,6 +255,7 @@ type CodeValue struct {
 	System  string `json:"system,omitempty"`
 	Code    string `json:"code"`
 	Display string `json:"display,omitempty"`
+	Version string `json:"version,omitempty"`
 }
 
 // FilterValue is a strict tagged union. Pointer scalar members preserve false,
@@ -291,9 +292,10 @@ type Pivot struct {
 	Discovery      *PivotDiscovery `json:"discovery,omitempty"`
 	// Correlation is the closed system+code/value binding for terminology
 	// pivots. Nil preserves the legacy selector pivot representation.
-	Correlation       *fhirschema.CorrelatedBinding `json:"correlation,omitempty"`
-	CorrelationSystem string                        `json:"correlationSystem,omitempty"`
-	CorrelationCode   string                        `json:"correlationCode,omitempty"`
+	Correlation        *fhirschema.CorrelatedBinding `json:"correlation,omitempty"`
+	CorrelationSystem  string                        `json:"correlationSystem,omitempty"`
+	CorrelationCode    string                        `json:"correlationCode,omitempty"`
+	CorrelationVersion string                        `json:"correlationVersion,omitempty"`
 	// ExtensionCorrelation is the closed ancestor-aware extension binding. It
 	// is mutually exclusive with Correlation and legacy selector expressions.
 	ExtensionCorrelation *fhirschema.ExtensionBinding `json:"extensionCorrelation,omitempty"`
@@ -357,9 +359,10 @@ func (p Pivot) MarshalJSON() ([]byte, error) {
 		Correlation          *fhirschema.CorrelatedBinding `json:"correlation,omitempty"`
 		CorrelationSystem    string                        `json:"correlationSystem,omitempty"`
 		CorrelationCode      string                        `json:"correlationCode,omitempty"`
+		CorrelationVersion   string                        `json:"correlationVersion,omitempty"`
 		ExtensionCorrelation *fhirschema.ExtensionBinding  `json:"extensionCorrelation,omitempty"`
 	}
-	wire := pivotJSON{Name: p.Name, FieldRef: p.FieldRef, ValueFallbacks: p.ValueFallbacks, ItemResourceType: p.ItemResourceType, Columns: p.Columns, ColumnAliases: p.ColumnAliases, ProjectionMode: p.ProjectionMode, Discovery: p.Discovery, Correlation: p.Correlation, CorrelationSystem: p.CorrelationSystem, CorrelationCode: p.CorrelationCode, ExtensionCorrelation: p.ExtensionCorrelation}
+	wire := pivotJSON{Name: p.Name, FieldRef: p.FieldRef, ValueFallbacks: p.ValueFallbacks, ItemResourceType: p.ItemResourceType, Columns: p.Columns, ColumnAliases: p.ColumnAliases, ProjectionMode: p.ProjectionMode, Discovery: p.Discovery, Correlation: p.Correlation, CorrelationSystem: p.CorrelationSystem, CorrelationCode: p.CorrelationCode, CorrelationVersion: p.CorrelationVersion, ExtensionCorrelation: p.ExtensionCorrelation}
 	if p.Correlation == nil && p.ExtensionCorrelation == nil && (p.Discovery == nil || !p.ColumnExpr.zero()) {
 		value := p.ColumnExpr
 		wire.ColumnExpr = &value

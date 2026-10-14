@@ -3,6 +3,7 @@ package ir
 import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataframe/unit"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 // PhysicalPlan is the renderer-independent AQL operation graph produced after
@@ -273,8 +274,11 @@ type PhysicalCorrelation struct {
 	ResourceType          string
 	OwnerResource         string
 	OwnerSelector         spec.Selector
+	ValueScope            fhirschema.CorrelatedValueScope
 	KeyResource           string
 	KeySelector           spec.Selector
+	KeyIsArray            bool
+	VersionSelector       *spec.Selector
 	SystemSelector        spec.Selector
 	CodeSelector          spec.Selector
 	ValueSelector         spec.Selector
@@ -287,6 +291,7 @@ type PhysicalCorrelation struct {
 	UnitSelector          *spec.Selector
 	SystemBindKey         string
 	CodeBindKey           string
+	VersionBindKey        string
 	// ExtensionURLSelectors and ExtensionURLBindKeys describe an ancestor-
 	// aware extension correlation. Each selector is relative to the current
 	// Extension item and each bind is matched before descending to the next

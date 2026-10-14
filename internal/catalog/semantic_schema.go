@@ -121,6 +121,13 @@ func (p *Profiler) observeSchemaSemantics(
 		}
 	}
 
+	pairedCodeableConcepts := make(map[string]struct{})
+	identifierOrExtensionOwners := make([]string, 0)
+	for _, scope := range scopes {
+		if scope.definition == "Identifier" || scope.definition == "Extension" {
+			identifierOrExtensionOwners = append(identifierOrExtensionOwners, scope.ownerPath)
+		}
+	}
 	for _, scope := range scopes {
 		association, hasAssociation := semanticDatatypeAssociations[scope.definition]
 		switch {
@@ -129,10 +136,126 @@ func (p *Profiler) observeSchemaSemantics(
 		case hasAssociation && scope.definition == "Extension":
 			p.emitExtensionScope(scope, association, extensionURLs, profile, emit)
 		default:
-			p.emitCodedChoiceScope(scope, profile, emit)
+			p.emitCodedChoiceScope(scope, profile, func(observation SemanticObservation, examples []any) {
+				if observation.RuleHint == SemanticRuleHintCodedValueV1 {
+					if strings.HasSuffix(observation.Key.Selector, ".coding[]") {
+						conceptPath := strings.TrimSuffix(observation.Key.Selector, ".coding[]")
+						pairedCodeableConcepts[appendSemanticPath(scope.ownerPath, conceptPath)] = struct{}{}
+					}
+					if observation.ChoiceArm == "valueCodeableConcept" && strings.HasSuffix(observation.Value.Selector, ".text") {
+						conceptPath := strings.TrimSuffix(observation.Value.Selector, ".text")
+						pairedCodeableConcepts[appendSemanticPath(scope.ownerPath, conceptPath)] = struct{}{}
+					}
+				}
+				emit(observation, examples)
+			})
 		}
 	}
+	for _, scope := range scopes {
+		if scope.definition != "Coding" {
+			continue
+		}
+		if semanticScopeIsBelowAny(scope.ownerPath, identifierOrExtensionOwners) {
+			continue
+		}
+		if conceptPath := semanticCodingConceptPath(scope); conceptPath != "" {
+			if _, paired := pairedCodeableConcepts[conceptPath]; paired {
+				continue
+			}
+		}
+		p.emitStandaloneCodingScope(scope, profile, emit)
+	}
 	return nil
+}
+
+func (p *Profiler) emitStandaloneCodingScope(
+	scope *semanticScope,
+	profile string,
+	emit func(SemanticObservation, []any),
+) {
+	system := stringValue(scope.value["system"])
+	code := stringValue(scope.value["code"])
+	if strings.TrimSpace(system) == "" || strings.TrimSpace(code) == "" {
+		return
+	}
+
+	ownerPath := semanticNearestRepeatedOwner(scope.canonicalPath)
+	keyPath := relativeSemanticPath(ownerPath, scope.canonicalPath)
+	if keyPath == scope.canonicalPath && ownerPath != "" {
+		return
+	}
+	valuePath := appendSemanticPath(keyPath, "display")
+	fallbackPath := appendSemanticPath(keyPath, "code")
+	display := stringValue(scope.value["display"])
+	example := display
+	if strings.TrimSpace(example) == "" {
+		example = code
+	}
+	observation := SemanticObservation{
+		SchemaVersion: SemanticObservationSchemaVersion,
+		Source: SemanticObservationSource{
+			Canonical: semanticCanonical(p.resourceType, scope.canonicalPath),
+			Type:      p.resourceType,
+			Profile:   profile,
+			Path:      scope.canonicalPath,
+		},
+		Key: SemanticObservationKey{
+			Selector: keyPath,
+			System:   system,
+			Version:  stringValue(scope.value["version"]),
+			Code:     code,
+			Display:  display,
+		},
+		Value: SemanticObservationValue{
+			Selector:              valuePath,
+			Type:                  "string",
+			FallbackSelectors:     []string{fallbackPath},
+			FallbackOnBlankString: true,
+		},
+		OwningScope:  ownerPath,
+		LogicalType:  "string",
+		Completeness: SemanticComplete,
+		Status:       "SUPPORTED",
+		RuleHint:     SemanticRuleHintCodedConceptV1,
+		RuleVersion:  strconv.Itoa(SemanticObservationRuleVersion),
+	}
+	p.recordSchemaSemanticObservation(scope.canonicalPath, observation, []any{example}, emit)
+}
+
+func semanticScopeIsBelowAny(path string, ancestors []string) bool {
+	for _, ancestor := range ancestors {
+		if ancestor != "" && (path == ancestor || strings.HasPrefix(path, ancestor+".")) {
+			return true
+		}
+	}
+	return false
+}
+
+func semanticCodingConceptPath(scope *semanticScope) string {
+	if scope == nil || !strings.HasSuffix(scope.canonicalPath, ".coding[]") {
+		return ""
+	}
+	itemStart := strings.LastIndex(scope.ownerPath, "[")
+	if itemStart < 0 || !strings.HasSuffix(scope.ownerPath, "]") {
+		return ""
+	}
+	arrayPath := strings.TrimSuffix(scope.ownerPath, scope.ownerPath[itemStart:])
+	return strings.TrimSuffix(arrayPath, ".coding")
+}
+
+func semanticNearestRepeatedOwner(path string) string {
+	lastBoundary := strings.LastIndex(path, "[]")
+	if lastBoundary < 0 {
+		return ""
+	}
+	if !strings.HasSuffix(path, "[]") {
+		return path[:lastBoundary+2]
+	}
+	previousBoundary := strings.LastIndex(path[:lastBoundary], "[]")
+	if previousBoundary < 0 {
+		return ""
+	}
+	return path[:previousBoundary+2]
 }
 
 func (p *Profiler) emitIdentifierScope(

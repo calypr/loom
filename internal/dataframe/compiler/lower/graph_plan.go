@@ -265,7 +265,12 @@ func appendGraphPathFilters(operations *[]ir.PhysicalOperation, node semantic.Se
 			codeKey := fmt.Sprintf("graph_%s_filter_%d_code", sanitizeColumnName(node.Alias), index+1)
 			binds[systemKey] = filter.Values[0].Code.System
 			binds[codeKey] = filter.Values[0].Code.Code
-			predicate, err := correlatedPredicateWithBinds(node.ResourceType, *binding, ir.PhysicalValue{Variable: targetVariable, Path: []string{"payload"}}, systemKey, codeKey)
+			versionKey := ""
+			if strings.TrimSpace(binding.VersionPath) != "" {
+				versionKey = fmt.Sprintf("graph_%s_filter_%d_version", sanitizeColumnName(node.Alias), index+1)
+				binds[versionKey] = filter.Values[0].Code.Version
+			}
+			predicate, err := correlatedPredicateWithVersionBinds(node.ResourceType, *binding, ir.PhysicalValue{Variable: targetVariable, Path: []string{"payload"}}, systemKey, codeKey, versionKey)
 			if err != nil {
 				return fmt.Errorf("graph traversal %q filter correlation: %w", node.Alias, err)
 			}

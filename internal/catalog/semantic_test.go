@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -46,15 +47,161 @@ func TestSemanticObservationsKeepCodingPairAndOwnerScope(t *testing.T) {
 	if got := byPair["urn:study:B\x00shared"]; got.Status != "SUPPORTED" || got.Examples[0] != "222" {
 		t.Fatalf("B paired observation = %#v", got)
 	}
+	pairedValues := 0
 	for _, observation := range observations {
+		if observation.RuleHint == SemanticRuleHintCodedValueV1 && observation.OwningScope == "component[]" && observation.Key.Code == "shared" {
+			pairedValues++
+		}
+		if observation.RuleHint == SemanticRuleHintCodedConceptV1 && observation.OwningScope == "component[]" && observation.Key.Code == "shared" {
+			t.Fatalf("paired CodeableConcept was also emitted as standalone: %#v", observation)
+		}
 		if len(observation.ExtensionURLPath) == 2 && observation.ExtensionURLPath[0] == "parent" && observation.ExtensionURLPath[1] == "leaf" {
 			if observation.Examples[0] != "left-only" {
 				t.Fatalf("nested extension example = %#v", observation)
+			}
+			if pairedValues != 2 {
+				t.Fatalf("paired coded observations = %d, want 2", pairedValues)
 			}
 			return
 		}
 	}
 	t.Fatal("nested extension ancestry was not retained")
+}
+
+func TestStandaloneCodingScopesObserveEachIdentifiedCodingAtItsOwnerScope(t *testing.T) {
+	payload := map[string]any{
+		"resourceType": "Observation",
+		"status":       "final",
+		"meta": map[string]any{"security": []any{
+			map[string]any{"system": "urn:security", "code": "security-code", "display": "Security label"},
+		}},
+		"identifier": []any{map[string]any{
+			"system": "urn:identifier",
+			"value":  "identifier-value",
+			"type": map[string]any{"coding": []any{
+				map[string]any{"system": "urn:identifier-type", "code": "identifier-type"},
+			}},
+		}},
+		"extension": []any{map[string]any{
+			"url": "urn:extension",
+			"valueCodeableConcept": map[string]any{"coding": []any{
+				map[string]any{"system": "urn:extension-value", "code": "extension-code"},
+			}},
+		}},
+		"code": map[string]any{"coding": []any{
+			map[string]any{"system": "urn:root", "code": "root-code", "display": "Root label"},
+		}},
+		"component": []any{map[string]any{
+			"code": map[string]any{"coding": []any{
+				map[string]any{"system": "urn:panel", "version": "v1", "code": "alpha", "display": "Alpha"},
+				map[string]any{"system": "urn:panel", "version": "v2", "code": "beta", "display": "  "},
+				map[string]any{"system": "", "code": "missing-system", "display": "Unidentified system"},
+				map[string]any{"system": "urn:panel", "code": "", "display": "Unidentified code"},
+			}},
+		}},
+	}
+
+	var contributions []SemanticInventoryContribution
+	emitter := NewSemanticInventoryEmitter("project", "generation")
+	emitter.ObservePayload(payload, "Observation", "scope", "observation-1", func(contribution SemanticInventoryContribution) {
+		contributions = append(contributions, contribution)
+	})
+	byCode := map[string]SemanticInventoryContribution{}
+	for _, contribution := range contributions {
+		if contribution.Observation.RuleHint == SemanticRuleHintCodedConceptV1 {
+			byCode[contribution.Observation.Key.Code] = contribution
+		}
+	}
+	if len(byCode) != 4 {
+		t.Fatalf("standalone coded concept contributions = %d, want root, security, alpha, and beta: %#v", len(byCode), byCode)
+	}
+
+	root := byCode["root-code"].Observation
+	if root.OwningScope != "" || root.Source.Path != "code.coding[]" || root.Source.Canonical != "Observation.code.coding[]" || root.Key.Selector != "code.coding[]" || root.Value.Selector != "code.coding[].display" || !reflect.DeepEqual(root.Value.FallbackSelectors, []string{"code.coding[].code"}) {
+		t.Fatalf("root standalone observation = %#v", root)
+	}
+
+	security := byCode["security-code"].Observation
+	if security.OwningScope != "" || security.Source.Path != "meta.security[]" || security.Source.Canonical != "Observation.meta.security[]" || security.Key.Selector != "meta.security[]" || security.Value.Selector != "meta.security[].display" || !reflect.DeepEqual(security.Value.FallbackSelectors, []string{"meta.security[].code"}) {
+		t.Fatalf("direct Coding observation = %#v", security)
+	}
+
+	alpha := byCode["alpha"]
+	if alpha.ConceptID == "" || alpha.BindingID == "" || alpha.Observation.Population != 1 || alpha.Observation.Source.Path != "component[].code.coding[]" || alpha.Observation.Source.Canonical != "Observation.component[].code.coding[]" || alpha.Observation.OwningScope != "component[]" {
+		t.Fatalf("alpha standalone identity or owner scope = %#v", alpha)
+	}
+	if alpha.Observation.Key.System != "urn:panel" || alpha.Observation.Key.Version != "v1" || alpha.Observation.Key.Code != "alpha" || alpha.Observation.Key.Display != "Alpha" || alpha.Example != "Alpha" {
+		t.Fatalf("alpha coding projection = %#v", alpha)
+	}
+	if alpha.Observation.Key.Selector != "code.coding[]" || alpha.Observation.Value.Selector != "code.coding[].display" || alpha.Observation.Value.Type != "string" || !reflect.DeepEqual(alpha.Observation.Value.FallbackSelectors, []string{"code.coding[].code"}) || !alpha.Observation.Value.FallbackOnBlankString {
+		t.Fatalf("alpha display/fallback selectors = %#v", alpha.Observation.Value)
+	}
+
+	beta := byCode["beta"]
+	if beta.Observation.Key.System != "urn:panel" || beta.Observation.Key.Version != "v2" || beta.Observation.Key.Code != "beta" || beta.Observation.Key.Display != "  " || beta.Example != "beta" {
+		t.Fatalf("beta coding projection mixed a sibling coding's display or fallback: %#v", beta)
+	}
+	if beta.Observation.Value.Selector != "code.coding[].display" || !reflect.DeepEqual(beta.Observation.Value.FallbackSelectors, []string{"code.coding[].code"}) || !beta.Observation.Value.FallbackOnBlankString {
+		t.Fatalf("beta display/fallback selectors = %#v", beta.Observation.Value)
+	}
+}
+
+func TestStandaloneScalarCodingChoiceUsesRepeatedOwnerAndExcludesIdentifierAndExtension(t *testing.T) {
+	payload := map[string]any{
+		"resourceType": "Task",
+		"status":       "requested",
+		"intent":       "order",
+		"input": []any{map[string]any{
+			"type": map[string]any{"text": "Task result"},
+			"valueCoding": map[string]any{
+				"system":  "urn:task-result",
+				"version": "2025",
+				"code":    "approved",
+				"display": "Approved",
+			},
+		}},
+		"identifier": []any{map[string]any{
+			"system": "urn:task-identifier",
+			"value":  "task-1",
+			"type": map[string]any{"coding": []any{
+				map[string]any{"system": "urn:identifier-type", "code": "identifier-type", "display": "Identifier type"},
+			}},
+		}},
+		"extension": []any{map[string]any{
+			"url": "urn:task-extension",
+			"valueCoding": map[string]any{
+				"system":  "urn:extension-value",
+				"code":    "extension-code",
+				"display": "Extension value",
+			},
+		}},
+	}
+
+	var contributions []SemanticInventoryContribution
+	emitter := NewSemanticInventoryEmitter("project", "generation")
+	emitter.ObservePayload(payload, "Task", "scope", "task-1", func(contribution SemanticInventoryContribution) {
+		contributions = append(contributions, contribution)
+	})
+	var standalone []SemanticInventoryContribution
+	for _, contribution := range contributions {
+		if contribution.Observation.RuleHint == SemanticRuleHintCodedConceptV1 {
+			standalone = append(standalone, contribution)
+		}
+	}
+	if len(standalone) != 1 {
+		t.Fatalf("standalone Task Coding contributions = %d, want only valueCoding: %#v", len(standalone), standalone)
+	}
+
+	contribution := standalone[0]
+	observation := contribution.Observation
+	if observation.Source.Type != "Task" || observation.Source.Path != "input[].valueCoding" || observation.Source.Canonical != "Task.input[].valueCoding" ||
+		observation.OwningScope != "input[]" || observation.Key.Selector != "valueCoding" ||
+		observation.Value.Selector != "valueCoding.display" || !reflect.DeepEqual(observation.Value.FallbackSelectors, []string{"valueCoding.code"}) {
+		t.Fatalf("scalar Coding owner-relative selectors = %#v", observation)
+	}
+	if observation.Key.System != "urn:task-result" || observation.Key.Version != "2025" || observation.Key.Code != "approved" || observation.Key.Display != "Approved" || contribution.Example != "Approved" || observation.Population != 1 {
+		t.Fatalf("scalar Coding identity/display = %#v", contribution)
+	}
 }
 
 func TestSemanticObservationsUseGeneratedDatePrimitive(t *testing.T) {

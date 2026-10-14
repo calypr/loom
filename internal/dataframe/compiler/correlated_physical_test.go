@@ -174,6 +174,267 @@ func TestCorrelatedPhysicalFilterUsesSameCodingBinding(t *testing.T) {
 	}
 }
 
+func TestCorrelatedPhysicalVersionedFilterMatchesSameCodingVersion(t *testing.T) {
+	binding := correlatedPhysicalBinding()
+	binding.ValueScope = fhirschema.CorrelatedValueScopeCoding
+	binding.VersionPath = "version"
+	binding.ValuePath = "display"
+	binding.LogicalType = "string"
+	binding.ChoiceArms = nil
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+		Alias: "root", ResourceType: "Observation", Filters: []spec.TypedFilter{{
+			FieldRef: "Observation.component_code", Selector: "code.coding[].code", FieldKind: spec.FilterCode, Repeated: true, Quantifier: spec.QuantifierAny, Operator: spec.FilterEquals,
+			Values: []spec.FilterValue{{Kind: spec.FilterCode, Code: &spec.CodeValue{System: "urn:study:A", Code: "shared", Version: "v2"}}}, Correlation: binding,
+		}},
+	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rendered.BindVars["correlated_version_root_filter_1"]; got != "v2" {
+		t.Fatalf("version bind = %#v, want v2; all binds: %#v", got, rendered.BindVars)
+	}
+	query := rendered.Query
+	codeMatch := strings.Index(query, "FILTER __correlation_code == @correlated_code_root_filter_1")
+	versionMatch := strings.Index(query, "FILTER __correlation_version == @correlated_version_root_filter_1")
+	valueRead := strings.Index(query, "LET __correlation_values =")
+	if codeMatch < 0 || versionMatch < codeMatch || valueRead < versionMatch {
+		t.Fatalf("system/code/version must match one Coding before its value is read:\n%s", query)
+	}
+	if !strings.Contains(query, "LET __correlation_version = NOT_NULL(FIRST(") {
+		t.Fatalf("missing/null Coding.version is not normalized to empty string:\n%s", query)
+	}
+}
+
+func TestCorrelatedPhysicalProjectionReadsValueFromMatchedCoding(t *testing.T) {
+	binding := correlatedPhysicalBinding()
+	binding.ValueScope = fhirschema.CorrelatedValueScopeCoding
+	binding.VersionPath = "version"
+	binding.ValuePath = "display"
+	binding.ValueFallback = []string{"code"}
+	binding.FallbackOnBlankString = true
+	binding.ChoiceArms = nil
+	binding.LogicalType = "string"
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+		Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{
+			Name: "shared", Columns: []string{"shared"}, ProjectionMode: "ALL",
+			Correlation: binding, CorrelationSystem: "urn:study:A", CorrelationCode: "shared", CorrelationVersion: "v2",
+		}},
+	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := rendered.Query
+	match := strings.Index(query, "FILTER POSITION(@pivot_root_shared_columns, __correlation_code)")
+	versionMatch := strings.Index(query, "FILTER __correlation_version == @pivot_root_shared_columns_version")
+	values := strings.Index(query, "LET __correlation_values =")
+	if got := rendered.BindVars["pivot_root_shared_columns_version"]; got != "v2" {
+		t.Fatalf("version bind = %#v, want v2", got)
+	}
+	if match < 0 || versionMatch < match || values < versionMatch {
+		t.Fatalf("selected system/code/version Coding must match before its value is read:\n%s", query)
+	}
+	valueEnd := strings.Index(query[values:], "LET __correlation_flat_values =")
+	if valueEnd < 0 {
+		t.Fatalf("query has no end for correlated value expression:\n%s", query)
+	}
+	valueExpression := query[values : values+valueEnd]
+	for _, fragment := range []string{
+		"FOR __root IN [__loom_physical_correlation_pivot_coding]",
+		"LET __value = __root.display",
+		"LET __value = __root.code",
+		"TRIM(__loom_physical_correlation_nonblank_value) != ''",
+	} {
+		if !strings.Contains(valueExpression, fragment) {
+			t.Fatalf("same-Coding display/code fallback is missing %q:\n%s", fragment, valueExpression)
+		}
+	}
+}
+
+func TestCorrelatedPhysicalVersionlessKeyMatchesOnlyMissingOrNullVersion(t *testing.T) {
+	binding := correlatedPhysicalBinding()
+	binding.ValueScope = fhirschema.CorrelatedValueScopeCoding
+	binding.VersionPath = "version"
+	binding.ValuePath = "display"
+	binding.LogicalType = "string"
+	binding.ChoiceArms = nil
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+		Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{
+			Name: "shared", Columns: []string{"shared"}, Correlation: binding,
+			CorrelationSystem: "urn:study:A", CorrelationCode: "shared", CorrelationVersion: "",
+		}},
+	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value, ok := rendered.BindVars["pivot_root_shared_columns_version"]; !ok || value != "" {
+		t.Fatalf("empty-version bind = %#v, present=%t; all binds: %#v", value, ok, rendered.BindVars)
+	}
+	if !strings.Contains(rendered.Query, `NOT_NULL(FIRST(`) || !strings.Contains(rendered.Query, `, "")`) || !strings.Contains(rendered.Query, "FILTER __correlation_version == @pivot_root_shared_columns_version") {
+		t.Fatalf("empty selected version must match only missing/null Coding.version:\n%s", rendered.Query)
+	}
+}
+
+func TestCorrelatedPhysicalTaskSingletonCodingPivotAndFilter(t *testing.T) {
+	binding := &fhirschema.CorrelatedBinding{
+		OwnerPath: "input[]", KeyPath: "input[].valueCoding", ValueScope: fhirschema.CorrelatedValueScopeCoding,
+		SystemPath: "system", CodePath: "code", VersionPath: "version", ValuePath: "display",
+		ValueFallback: []string{"code"}, FallbackOnBlankString: true, LogicalType: "string",
+	}
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+		Alias: "root", ResourceType: "Task",
+		Pivots: []semantic.SemanticPivot{{
+			Name: "task_code", Columns: []string{"shared"}, ProjectionMode: "ALL", Correlation: binding,
+			CorrelationSystem: "urn:study:A", CorrelationCode: "shared", CorrelationVersion: "v2",
+		}},
+		Filters: []spec.TypedFilter{{
+			FieldRef: "Task.input_code", Selector: "input[].valueCoding.code", FieldKind: spec.FilterCode, Repeated: true, Quantifier: spec.QuantifierAny, Operator: spec.FilterEquals,
+			Values: []spec.FilterValue{{Kind: spec.FilterCode, Code: &spec.CodeValue{System: "urn:study:A", Code: "shared", Version: "v2"}}}, Correlation: binding,
+		}},
+	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bind := range []string{"pivot_root_task_code_columns_version", "correlated_version_root_filter_1"} {
+		if rendered.BindVars[bind] != "v2" {
+			t.Fatalf("singleton Coding version bind %q = %#v; all binds: %#v", bind, rendered.BindVars[bind], rendered.BindVars)
+		}
+	}
+	for _, codingVariable := range []string{"__loom_physical_correlation_pivot_coding", "__loom_physical_correlation_coding"} {
+		loop := "FOR " + codingVariable + " IN "
+		start := strings.Index(rendered.Query, loop)
+		if start < 0 {
+			t.Fatalf("query has no singleton Coding loop %q:\n%s", loop, rendered.Query)
+		}
+		collectionStart := start + len(loop)
+		if !strings.HasPrefix(rendered.Query[collectionStart:], "(\n") {
+			t.Fatalf("singular valueCoding must be iterated as the singleton result list, without array flattening:\n%s", rendered.Query)
+		}
+	}
+	for _, fragment := range []string{
+		"LET __value = __root.valueCoding",
+		"FILTER __value != null",
+		"FILTER __correlation_version == @pivot_root_task_code_columns_version",
+		"FILTER __correlation_version == @correlated_version_root_filter_1",
+		"LET __value = __root.display",
+		"LET __value = __root.code",
+	} {
+		if !strings.Contains(rendered.Query, fragment) {
+			t.Fatalf("singleton Coding correlation is missing %q:\n%s", fragment, rendered.Query)
+		}
+	}
+}
+
+func TestCorrelatedPhysicalFilterReadsValueFromMatchedCoding(t *testing.T) {
+	binding := correlatedPhysicalBinding()
+	binding.ValueScope = fhirschema.CorrelatedValueScopeCoding
+	binding.ValuePath = "display"
+	binding.ValueFallback = []string{"code"}
+	binding.FallbackOnBlankString = true
+	binding.ChoiceArms = nil
+	binding.LogicalType = "string"
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+		Alias: "root", ResourceType: "Observation", Filters: []spec.TypedFilter{{
+			FieldRef: "Observation.component_code", Selector: "code.coding[].code", FieldKind: spec.FilterCode, Repeated: true, Quantifier: spec.QuantifierAny, Operator: spec.FilterEquals,
+			Values: []spec.FilterValue{{Kind: spec.FilterCode, Code: &spec.CodeValue{System: "urn:study:A", Code: "shared"}}}, Correlation: binding,
+		}},
+	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := rendered.Query
+	match := strings.Index(query, "FILTER __correlation_code == @correlated_code_root_filter_1")
+	values := strings.Index(query, "LET __correlation_values =")
+	if match < 0 || values < match {
+		t.Fatalf("selected Coding must match before its value is read:\n%s", query)
+	}
+	valueEnd := strings.Index(query[values:], "LET __correlation_unsupported_values =")
+	if valueEnd < 0 {
+		t.Fatalf("query has no end for correlated value expression:\n%s", query)
+	}
+	valueExpression := query[values : values+valueEnd]
+	for _, fragment := range []string{"FOR __root IN [__loom_physical_correlation_coding]", "LET __value = __root.display", "LET __value = __root.code"} {
+		if !strings.Contains(valueExpression, fragment) {
+			t.Fatalf("same-Coding display/code fallback is missing %q:\n%s", fragment, valueExpression)
+		}
+	}
+}
+
+func TestCorrelatedPhysicalCodingScopeValidatesValuesAgainstCoding(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		withVersion bool
+		mutate      func(*ir.PhysicalCorrelation)
+	}{
+		{name: "primary", mutate: func(correlation *ir.PhysicalCorrelation) {
+			correlation.ValueSelector = mustSelector(t, "valueQuantity.value")
+		}},
+		{name: "fallback", mutate: func(correlation *ir.PhysicalCorrelation) {
+			correlation.ValueFallbacks[0] = mustSelector(t, "valueQuantity.value")
+		}},
+		{name: "key shape", mutate: func(correlation *ir.PhysicalCorrelation) {
+			correlation.KeyIsArray = false
+		}},
+		{name: "version selector", withVersion: true, mutate: func(correlation *ir.PhysicalCorrelation) {
+			selector := mustSelector(t, "display")
+			correlation.VersionSelector = &selector
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			binding := correlatedPhysicalBinding()
+			binding.ValueScope = fhirschema.CorrelatedValueScopeCoding
+			binding.ValuePath = "display"
+			if test.withVersion {
+				binding.VersionPath = "version"
+			}
+			binding.ValueFallback = []string{"code"}
+			binding.ChoiceArms = nil
+			binding.LogicalType = "string"
+			plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+				Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{
+					Name: "shared", Columns: []string{"shared"}, Correlation: binding, CorrelationSystem: "urn:study:A", CorrelationCode: "shared",
+				}},
+			}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatal(err)
+			}
+			var correlation *ir.PhysicalCorrelation
+			operations := append(append([]ir.PhysicalOperation(nil), plan.DeferredExpressionLets...), plan.Operations...)
+			for _, operation := range operations {
+				if operation.ExpressionLet != nil && operation.ExpressionLet.Expression.Pivot != nil {
+					correlation = operation.ExpressionLet.Expression.Pivot.Correlation
+				}
+			}
+			if correlation == nil {
+				t.Fatal("correlated pivot has no physical correlation")
+			}
+			test.mutate(correlation)
+			if err := plan.Validate(); err == nil || !strings.Contains(err.Error(), "Coding") {
+				t.Fatalf("invalid Coding selector error = %v", err)
+			}
+		})
+	}
+}
+
 func TestExtensionPhysicalProjectionKeepsNestedURLAndValueScope(t *testing.T) {
 	binding := &fhirschema.ExtensionBinding{
 		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueString", LogicalType: "string", ChoiceArms: []string{"valueString"},

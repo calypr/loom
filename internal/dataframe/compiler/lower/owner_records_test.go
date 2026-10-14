@@ -102,3 +102,64 @@ func TestOwnerRecordsPlanRejectsMissingMetadataBind(t *testing.T) {
 		t.Fatalf("validation error = %v, want undefined bind", err)
 	}
 }
+
+func TestOwnerRecordsRejectCodingValueScope(t *testing.T) {
+	binding := fhirschema.CorrelatedBinding{
+		OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
+		ValueScope: fhirschema.CorrelatedValueScopeCoding, SystemPath: "system", CodePath: "code",
+		ValuePath: "display", LogicalType: "string",
+	}
+	_, err := BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+		Alias: "root", ResourceType: "Observation",
+		OwnerRecords: []semantic.SemanticOwnerRecords{{Name: "records", FieldRef: "component", Binding: binding, Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "code"}}},
+	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	if err == nil || !strings.Contains(err.Error(), "OWNER_RECORDS does not support Coding value scope") {
+		t.Fatalf("owner-record Coding value scope error = %v", err)
+	}
+}
+
+func TestOwnerRecordsRejectCodingVersion(t *testing.T) {
+	binding := fhirschema.CorrelatedBinding{
+		OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
+		SystemPath: "system", CodePath: "code", ValuePath: "valueString", LogicalType: "string",
+	}
+	_, err := BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+		Alias: "root", ResourceType: "Observation",
+		OwnerRecords: []semantic.SemanticOwnerRecords{{Name: "records", FieldRef: "component", Binding: binding, Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "code", Version: "v2"}}},
+	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	if err == nil || !strings.Contains(err.Error(), "OWNER_RECORDS does not support Coding version matching") {
+		t.Fatalf("owner-record Coding version error = %v", err)
+	}
+}
+
+func TestOwnerRecordsPhysicalIRRejectsCodingValueScope(t *testing.T) {
+	binding := fhirschema.CorrelatedBinding{
+		OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
+		SystemPath: "system", CodePath: "code", ValuePath: "valueString", LogicalType: "string",
+	}
+	plan, err := BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+		Alias: "root", ResourceType: "Observation",
+		OwnerRecords: []semantic.SemanticOwnerRecords{{Name: "records", FieldRef: "component", Binding: binding, Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "code"}}},
+	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var correlation *ir.PhysicalCorrelation
+	for _, operation := range plan.Operations {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Expression != nil && projection.Expression.OwnerRecords != nil {
+				correlation = &projection.Expression.OwnerRecords.Correlation
+			}
+		}
+	}
+	if correlation == nil {
+		t.Fatal("owner-record correlation is missing")
+	}
+	correlation.ValueScope = fhirschema.CorrelatedValueScopeCoding
+	if err := plan.Validate(); err == nil || !strings.Contains(err.Error(), "owner records does not support Coding value scope") {
+		t.Fatalf("owner-record IR Coding value scope error = %v", err)
+	}
+}

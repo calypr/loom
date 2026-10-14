@@ -702,6 +702,9 @@ func (s ColumnSource) validate(path string) error {
 			if s.Lookup.Binding == nil || s.Lookup.Key == nil || strings.TrimSpace(s.Lookup.Key.System) == "" || strings.TrimSpace(s.Lookup.Key.Code) == "" {
 				return fmt.Errorf("%s codedValue source requires lookup.binding and lookup.key.system/code", path)
 			}
+			if strings.TrimSpace(s.Lookup.Key.Version) != "" && strings.TrimSpace(s.Lookup.Binding.VersionPath) == "" {
+				return fmt.Errorf("%s codedValue key.version requires lookup.binding.versionPath", path)
+			}
 			if strings.TrimSpace(s.Lookup.Match) != "" || strings.TrimSpace(s.Lookup.Path) != "" || s.Lookup.Extension != nil || s.Lookup.Identifier != nil {
 				return fmt.Errorf("%s codedValue lookup must not combine its binding with legacy match, path, identifier, or extension", path)
 			}
@@ -717,6 +720,10 @@ func (s ColumnSource) validate(path string) error {
 		if s.OwnerRecords == nil || strings.TrimSpace(s.OwnerRecords.Binding.OwnerPath) == "" ||
 			strings.TrimSpace(s.OwnerRecords.Key.System) == "" || strings.TrimSpace(s.OwnerRecords.Key.Code) == "" {
 			return fmt.Errorf("%s ownerRecords source requires ownerRecords.binding.ownerPath and ownerRecords.key.system/code", path)
+		}
+		if strings.TrimSpace(s.OwnerRecords.Key.Version) != "" || strings.TrimSpace(s.OwnerRecords.Binding.VersionPath) != "" ||
+			s.OwnerRecords.Binding.ValueScope == fhirschema.CorrelatedValueScopeCoding {
+			return fmt.Errorf("%s ownerRecords source does not support Coding value scope or version matching", path)
 		}
 	case SourceAggregate:
 		if s.Aggregate == nil {

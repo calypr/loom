@@ -10,7 +10,7 @@ import type {
   SchemaFieldOption,
 } from '../../../types';
 import {
-  CODED_VALUE_RULE_HINT,
+  CODED_SEMANTIC_RULE_HINTS,
   catalogChoiceIntent,
   catalogItemAvailability,
   catalogItemKey,
@@ -22,7 +22,7 @@ import {
   schemaFieldCatalogItems,
   isRelatedFieldCatalogItem,
   semanticCatalogItems,
-  semanticItemMatchesRule,
+  semanticItemMatchesAnyRule,
   type CatalogChoiceGroup,
   type CatalogChoiceIntent,
   type CatalogItem,
@@ -692,7 +692,7 @@ const ConceptCatalogContent = ({
   const relatedSourceAvailabilityId = useId();
   const canAddCatalogItem = (item: CatalogItem): boolean => {
     if (view !== 'all' && item.kind === 'SEMANTIC' &&
-      !semanticItemMatchesRule(item.item, CODED_VALUE_RULE_HINT)) return false;
+      !semanticItemMatchesAnyRule(item.item, CODED_SEMANTIC_RULE_HINTS)) return false;
     if (relatedSourceAvailability && isRelatedFieldCatalogItem(item, rowRoot)) {
       return relatedSourceAvailability.supported;
     }
@@ -845,7 +845,7 @@ const ConceptCatalogContent = ({
       response?.entries ?? [],
       resourceType,
       sourceNodeId,
-      view === 'coded' ? CODED_VALUE_RULE_HINT : undefined,
+      view === 'coded' ? CODED_SEMANTIC_RULE_HINTS : undefined,
     )
       .filter((item) => view !== 'fields')
       .filter((item) => canAddCatalogItem(item) && catalogItemAvailability(item).selectable),

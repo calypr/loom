@@ -717,6 +717,11 @@ func clonePhysicalCorrelation(correlation *PhysicalCorrelation) *PhysicalCorrela
 	copy.KeySelector.Steps = append([]spec.SelectorStep(nil), correlation.KeySelector.Steps...)
 	copy.SystemSelector.Steps = append([]spec.SelectorStep(nil), correlation.SystemSelector.Steps...)
 	copy.CodeSelector.Steps = append([]spec.SelectorStep(nil), correlation.CodeSelector.Steps...)
+	if correlation.VersionSelector != nil {
+		version := *correlation.VersionSelector
+		version.Steps = append([]spec.SelectorStep(nil), correlation.VersionSelector.Steps...)
+		copy.VersionSelector = &version
+	}
 	copy.ValueSelector.Steps = append([]spec.SelectorStep(nil), correlation.ValueSelector.Steps...)
 	copy.ValueFallbacks = make([]spec.Selector, len(correlation.ValueFallbacks))
 	for index := range correlation.ValueFallbacks {

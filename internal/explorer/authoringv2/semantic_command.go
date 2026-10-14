@@ -141,6 +141,8 @@ func ResolveSemanticSelectionPlan(observation catalog.SemanticObservation) Seman
 		return resolveIdentifierSelectionPlan(observation)
 	case "EXTENSION_URL_VALUE":
 		return resolveExtensionSelectionPlan(observation)
+	case catalog.SemanticRuleHintCodedConceptV1:
+		return resolveCodedConceptSelectionPlan(observation)
 	case catalog.SemanticRuleHintCodedValueV1:
 		return resolveCodedValueSelectionPlan(observation)
 	default:
@@ -272,6 +274,62 @@ func resolveCodedValueSelectionPlan(observation catalog.SemanticObservation) Sem
 		binding.UnitPath = checked.UnitSelector.CanonicalPath()
 	}
 	lookup := &LookupSource{Binding: &binding, Key: &fhirschema.CorrelatedKey{System: observation.Key.System, Code: observation.Key.Code}}
+	source := ColumnSource{Kind: SourceCodedValue, Lookup: lookup}
+	return semanticReadyPlan(source, checked.LogicalType, observation.Status)
+}
+
+func resolveCodedConceptSelectionPlan(observation catalog.SemanticObservation) SemanticSelectionPlan {
+	if observation.Status == "UNRESOLVED_SYSTEM" || strings.TrimSpace(observation.Key.System) == "" {
+		return semanticNeedsMapping("CODED_CONCEPT_SYSTEM_MISSING", "This Coding has no system URI to select; map its terminology identity before adding it.")
+	}
+	if observation.Status == "UNRESOLVED_CODE" || strings.TrimSpace(observation.Key.Code) == "" {
+		return semanticNeedsMapping("CODED_CONCEPT_CODE_MISSING", "This Coding has no code to select; map its terminology identity before adding it.")
+	}
+	if observation.Status != "SUPPORTED" && observation.Status != "DATA_QUALITY_WARNING" {
+		return semanticStatusPlan(observation.Status)
+	}
+
+	ownerPath := strings.Trim(strings.TrimSpace(observation.OwningScope), ".")
+	keyPath := qualifySemanticPath(ownerPath, observation.Key.Selector)
+	valuePath := qualifySemanticPath(ownerPath, observation.Value.Selector)
+	valuePathInCoding, valueOK := relativeSemanticPath(keyPath, valuePath)
+	logicalType := firstNonBlank(observation.LogicalType, observation.Value.Type)
+	if strings.TrimSpace(observation.Source.Type) == "" || keyPath == "" || valuePathInCoding == "" || !valueOK ||
+		strings.Contains(valuePathInCoding, "[]") || logicalType != "string" ||
+		observation.ChoiceArm != "" || len(observation.Value.FallbackSelectors) == 0 || !observation.Value.FallbackOnBlankString {
+		return semanticUnsupported("CODED_CONCEPT_BINDING_INCOMPLETE", "The catalog observation does not contain one exact Coding identity with its matching display and code fallback.")
+	}
+	fallbacks := make([]string, 0, len(observation.Value.FallbackSelectors))
+	for _, selector := range observation.Value.FallbackSelectors {
+		fallbackPath := qualifySemanticPath(ownerPath, selector)
+		fallbackInCoding, ok := relativeSemanticPath(keyPath, fallbackPath)
+		if !ok || fallbackInCoding == "" || strings.Contains(fallbackInCoding, "[]") {
+			return semanticUnsupported("CODED_CONCEPT_BINDING_INCOMPLETE", "The catalog observation does not contain one exact Coding identity with its matching display and code fallback.")
+		}
+		fallbacks = append(fallbacks, fallbackInCoding)
+	}
+	binding := fhirschema.CorrelatedBinding{
+		OwnerPath: ownerPath, KeyPath: keyPath, SystemPath: "system", CodePath: "code",
+		VersionPath: "version",
+		ValuePath:   valuePathInCoding, ValueFallback: fallbacks, FallbackOnBlankString: true,
+		LogicalType: "string", ValueScope: fhirschema.CorrelatedValueScopeCoding,
+	}
+	checked, err := fhirschema.ValidateCorrelatedBinding(observation.Source.Type, binding)
+	if err != nil {
+		return semanticUnsupported("FHIR_BINDING_UNSUPPORTED", "The observed Coding and its matching display do not match the generated FHIR schema.")
+	}
+	binding.OwnerPath = checked.OwnerSelector.CanonicalPath()
+	binding.KeyPath = qualifySemanticPath(binding.OwnerPath, checked.KeySelector.CanonicalPath())
+	binding.ValuePath = checked.ValueSelector.CanonicalPath()
+	binding.ValueFallback = make([]string, len(checked.ValueFallbacks))
+	for index := range checked.ValueFallbacks {
+		binding.ValueFallback[index] = checked.ValueFallbacks[index].CanonicalPath()
+	}
+	binding.FallbackOnBlankString = checked.FallbackOnBlankString
+	binding.ValueScope = checked.ValueScope
+	binding.VersionPath = checked.VersionSelector.CanonicalPath()
+	binding.LogicalType = checked.LogicalType
+	lookup := &LookupSource{Binding: &binding, Key: &fhirschema.CorrelatedKey{System: observation.Key.System, Code: observation.Key.Code, Version: observation.Key.Version}}
 	source := ColumnSource{Kind: SourceCodedValue, Lookup: lookup}
 	return semanticReadyPlan(source, checked.LogicalType, observation.Status)
 }

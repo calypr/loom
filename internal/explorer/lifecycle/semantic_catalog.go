@@ -511,6 +511,12 @@ func semanticInventoryConstructionChoice(snapshot capability.Snapshot, contextTo
 
 func semanticInventoryConstructionChoiceForRoute(snapshot capability.Snapshot, contextToken, buildID string, route []capability.ConstructionRouteStep, entry catalog.SemanticInventoryEntry, candidate capability.Candidate, ownerRecordsProved bool) (capability.ConstructionChoice, error) {
 	observation := entry.Observation
+	if observation.RuleHint == catalog.SemanticRuleHintCodedConceptV1 {
+		// Owner-record output is defined over the enclosing semantic owner. A
+		// standalone Coding choice must stay attached to the exact matched
+		// Coding, so expose only the compiler-proved scalar/list choices.
+		ownerRecordsProved = false
+	}
 	logicalType := observation.LogicalType
 	if logicalType == "" {
 		logicalType = observation.Value.Type
@@ -569,7 +575,7 @@ func semanticEntryForFrameFamily(
 	family capability.SemanticFrameFamily,
 ) (catalog.SemanticInventoryEntry, authoringv2.SemanticSelectionPlan, bool) {
 	observation := entry.Observation
-	if !semanticEntrySourceMatchesFrameFamily(observation, family) || observation.Key.Version != "" {
+	if observation.RuleHint != catalog.SemanticRuleHintCodedValueV1 || !semanticEntrySourceMatchesFrameFamily(observation, family) || observation.Key.Version != "" {
 		return catalog.SemanticInventoryEntry{}, authoringv2.SemanticSelectionPlan{}, false
 	}
 

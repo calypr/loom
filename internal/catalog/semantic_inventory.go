@@ -18,7 +18,7 @@ const (
 	SemanticInventoryEntryIndexVersion = 2
 	SemanticObservationRuleVersion     = 5
 	// SemanticInventoryEmitterVersion changes when retained-resource emission changes independently of observation or binding identity.
-	SemanticInventoryEmitterVersion = 2
+	SemanticInventoryEmitterVersion = 3
 	// These are the only prior observation versions whose primary-only
 	// semantic binding identity is still accepted for saved frames.
 	SemanticObservationLegacyV1SchemaVersion = 3

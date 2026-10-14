@@ -54,6 +54,7 @@ type CodeValue struct {
 	System  string `json:"system,omitempty"`
 	Code    string `json:"code"`
 	Display string `json:"display,omitempty"`
+	Version string `json:"version,omitempty"`
 }
 
 // FilterValue is a tagged value. Exactly the member selected by Kind must be

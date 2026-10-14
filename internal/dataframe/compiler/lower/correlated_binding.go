@@ -14,12 +14,22 @@ import (
 // bound terminology values; selectors and scope are never rendered as user
 // supplied query text.
 func LowerCorrelatedBinding(resourceType string, binding fhirschema.CorrelatedBinding, source ir.PhysicalValue, systemBindKey, codeBindKey string) (ir.PhysicalCorrelation, error) {
+	return LowerCorrelatedBindingWithVersion(resourceType, binding, source, systemBindKey, codeBindKey, "")
+}
+
+func LowerCorrelatedBindingWithVersion(resourceType string, binding fhirschema.CorrelatedBinding, source ir.PhysicalValue, systemBindKey, codeBindKey, versionBindKey string) (ir.PhysicalCorrelation, error) {
 	checked, err := fhirschema.ValidateCorrelatedBinding(resourceType, binding)
 	if err != nil {
 		return ir.PhysicalCorrelation{}, err
 	}
 	if strings.TrimSpace(systemBindKey) == "" || strings.TrimSpace(codeBindKey) == "" {
 		return ir.PhysicalCorrelation{}, fmt.Errorf("correlated binding system and code bind keys are required")
+	}
+	if checked.VersionSelector != nil && strings.TrimSpace(versionBindKey) == "" {
+		return ir.PhysicalCorrelation{}, fmt.Errorf("correlated binding version bind key is required when versionPath is set")
+	}
+	if checked.VersionSelector == nil && strings.TrimSpace(versionBindKey) != "" {
+		return ir.PhysicalCorrelation{}, fmt.Errorf("correlated binding version bind key requires versionPath")
 	}
 	choiceArms := append([]string(nil), checked.ChoiceArms...)
 	if len(choiceArms) == 0 {
@@ -38,7 +48,11 @@ func LowerCorrelatedBinding(resourceType string, binding fhirschema.CorrelatedBi
 	}
 	choiceSelectors := make([]spec.Selector, 0)
 	if len(choiceArms) > 0 {
-		for _, option := range fhirschema.ChoiceValueSelectorOptions(checked.OwnerResource) {
+		valueResource := checked.OwnerResource
+		if checked.ValueScope == fhirschema.CorrelatedValueScopeCoding {
+			valueResource = "Coding"
+		}
+		for _, option := range fhirschema.ChoiceValueSelectorOptions(valueResource) {
 			selector, parseErr := spec.ParseSelector(fhirschema.SelectorExpression(option))
 			if parseErr != nil {
 				return ir.PhysicalCorrelation{}, fmt.Errorf("choice selector %q: %w", fhirschema.SelectorExpression(option), parseErr)
@@ -47,12 +61,16 @@ func LowerCorrelatedBinding(resourceType string, binding fhirschema.CorrelatedBi
 		}
 	}
 	correlation := ir.PhysicalCorrelation{
-		Source: source, ResourceType: resourceType, OwnerResource: checked.OwnerResource, OwnerSelector: checked.OwnerSelector, KeyResource: checked.KeyResource,
+		Source: source, ResourceType: resourceType, OwnerResource: checked.OwnerResource, OwnerSelector: checked.OwnerSelector, ValueScope: checked.ValueScope, KeyResource: checked.KeyResource, KeyIsArray: checked.KeyIsArray,
 		KeySelector: checked.KeySelector, SystemSelector: checked.SystemSelector, CodeSelector: checked.CodeSelector,
 		ValueSelector: checked.ValueSelector, ValueFallbacks: append([]spec.Selector(nil), checked.ValueFallbacks...),
 		FallbackOnBlankString: checked.FallbackOnBlankString,
 		ChoiceArms:            choiceArms, ChoiceSelectors: choiceSelectors, LogicalType: checked.LogicalType, ValuePrimitive: string(checked.ValuePrimitive),
-		SystemBindKey: systemBindKey, CodeBindKey: codeBindKey,
+		SystemBindKey: systemBindKey, CodeBindKey: codeBindKey, VersionBindKey: versionBindKey,
+	}
+	if checked.VersionSelector != nil {
+		version := *checked.VersionSelector
+		correlation.VersionSelector = &version
 	}
 	if checked.UnitSelector != nil {
 		unit := *checked.UnitSelector
@@ -130,11 +148,16 @@ func LowerCorrelatedPredicateWithIdentity(physical *ir.PhysicalPlan, resourceTyp
 	codeKey := "correlated_code_" + suffix
 	physical.BindVars[systemKey] = code.System
 	physical.BindVars[codeKey] = code.Code
-	return correlatedPredicateWithBinds(resourceType, binding, source, systemKey, codeKey)
+	versionKey := ""
+	if strings.TrimSpace(binding.VersionPath) != "" {
+		versionKey = "correlated_version_" + suffix
+		physical.BindVars[versionKey] = code.Version
+	}
+	return correlatedPredicateWithVersionBinds(resourceType, binding, source, systemKey, codeKey, versionKey)
 }
 
-func correlatedPredicateWithBinds(resourceType string, binding fhirschema.CorrelatedBinding, source ir.PhysicalValue, systemKey, codeKey string) (ir.PhysicalPredicate, error) {
-	correlation, err := LowerCorrelatedBinding(resourceType, binding, source, systemKey, codeKey)
+func correlatedPredicateWithVersionBinds(resourceType string, binding fhirschema.CorrelatedBinding, source ir.PhysicalValue, systemKey, codeKey, versionKey string) (ir.PhysicalPredicate, error) {
+	correlation, err := LowerCorrelatedBindingWithVersion(resourceType, binding, source, systemKey, codeKey, versionKey)
 	if err != nil {
 		return ir.PhysicalPredicate{}, err
 	}

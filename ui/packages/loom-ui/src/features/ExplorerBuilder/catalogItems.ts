@@ -35,6 +35,12 @@ export type CatalogChoiceIntent = {
 };
 
 export const CODED_VALUE_RULE_HINT = 'CODED_VALUE_V1';
+export const CODED_CONCEPT_RULE_HINT = 'CODED_CONCEPT_V1';
+export const CODED_SEMANTIC_RULE_HINTS = [
+  CODED_VALUE_RULE_HINT,
+  CODED_CONCEPT_RULE_HINT,
+] as const;
+export type CodedSemanticRuleHint = (typeof CODED_SEMANTIC_RULE_HINTS)[number];
 
 export type CatalogChoiceGroup = {
   readonly item: CatalogItem;
@@ -430,16 +436,21 @@ export const semanticItemMatchesRule = (
     source.resourceType === item.resourceType;
 };
 
+export const semanticItemMatchesAnyRule = (
+  item: SemanticInventoryItem,
+  ruleHints: ReadonlyArray<CodedSemanticRuleHint>,
+): boolean => ruleHints.some((ruleHint) => semanticItemMatchesRule(item, ruleHint));
+
 export const semanticCatalogItems = (
   items: ReadonlyArray<SemanticInventoryItem>,
   resourceType?: string,
   sourceNodeId?: string,
-  ruleHint?: string,
+  ruleHints?: ReadonlyArray<CodedSemanticRuleHint>,
 ): ReadonlyArray<CatalogItem> => items
   .filter((item) =>
     (!resourceType || item.resourceType === resourceType) &&
     (!sourceNodeId || item.constructionChoice?.source.nodeId === sourceNodeId) &&
-    (!ruleHint || semanticItemMatchesRule(item, ruleHint)),
+    (!ruleHints || semanticItemMatchesAnyRule(item, ruleHints)),
   )
   .map((item) => ({
     kind: 'SEMANTIC',
