@@ -41,6 +41,7 @@ const mockLoomClient = vi.hoisted(() => ({
   preview: vi.fn(),
   proposeConstruction: vi.fn(),
   proposeConstructionChoices: vi.fn(),
+  searchRelatedFieldChoices: vi.fn(),
   configuredColumnContextsQuery: vi.fn(),
   searchConstructionChoices: vi.fn(),
 }));
@@ -493,6 +494,22 @@ describe('BuilderWorkspace Add columns source selection', () => {
         selectedStage,
       };
     });
+    mockLoomClient.searchRelatedFieldChoices.mockReset().mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+      readonly outputId: string;
+      readonly stageId: string;
+    }) => ({
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      stageId: args.stageId,
+      complete: true,
+      truncated: false,
+      choices: [],
+    }));
     mockLoomClient.getSelection.mockReset();
     mockLoomClient.listRowDefinitionChoices.mockReset().mockResolvedValue({
       snapshotToken: 'snapshot-1',
@@ -582,6 +599,66 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(await screen.findByRole('heading', { name: 'Build your first table' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Choose Patient rows' })).toBeInTheDocument();
     expect(mockLoomClient.getConstructionCapabilities).not.toHaveBeenCalled();
+  });
+
+  it('labels the exact active related record so it is distinct from current table rows', async () => {
+    mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+      readonly outputId: string;
+      readonly stageId: string;
+    }) => {
+      const selectedStage: ConstructionStageDescriptor = {
+        id: args.stageId,
+        inputStageId: '',
+        rowIdentityColumn: 'medicationadministration-row-key',
+        columns: [],
+        capabilities: [{ kind: 'RELATED_FIELD', supported: true }],
+        activeRelatedRecord: {
+          targetNodeId: 'medicationadministration-node',
+          targetResourceType: 'MedicationAdministration',
+          terminalIdentityColumn: 'medicationadministration-id',
+        },
+      };
+      return {
+        snapshotToken: args.snapshotToken,
+        draftVersion: args.expectedDraftVersion,
+        draftDigest: args.expectedDraftDigest,
+        outputId: args.outputId,
+        stageId: args.stageId,
+        baseConstruction: { version: 1, steps: [] },
+        stages: [selectedStage],
+        selectedStage,
+      };
+    });
+
+    const { unmount } = render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
+    fireEvent.click(screen.getByRole('button', { name: 'Fields and related data' }));
+    const source = await screen.findByRole('group', { name: 'Add columns source' });
+    const relatedSources = within(source).getByRole('group', { name: 'Related resources' });
+    const exactRelated = within(relatedSources).getByRole('button', {
+      name: 'MedicationAdministration — this row’s related record, Related record for this row',
+    });
+
+    expect(exactRelated.textContent).toContain('MedicationAdministration — this row’s related record');
+    expect(exactRelated.getAttribute('data-source-kind')).toBe('EXACT_RELATED');
+    await waitFor(() => expect(mockLoomClient.searchRelatedFieldChoices).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
+    });
+    unmount();
+    await act(async () => {
+      await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
+    });
   });
 
   it('saves the primary Columns-menu policy edit as one versioned command using the physical field name', async () => {

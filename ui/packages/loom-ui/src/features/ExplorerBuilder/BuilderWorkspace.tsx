@@ -1361,7 +1361,7 @@ const BuilderWorkspaceContent = ({
   }, new Map<string, number>());
   const addSourceOptionItems = addSourceOptions.map((source) => {
     const isCurrentOccurrence = source.sourceNodeId !== undefined && source.sourceNodeId === selectedRouteContext?.nodeId;
-    const label = source.resourceType ?? source.label;
+    const label = source.kind === 'EXACT_RELATED' ? source.label : source.resourceType ?? source.label;
     const baseDescription = source.kind === 'ALL'
       ? 'Search coded concepts and fields across the dataset'
       : source.kind === 'ROOT'

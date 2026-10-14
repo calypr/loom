@@ -119,9 +119,7 @@ export const relatedExpandFieldLifecycleWorkflow = async ({ page, action, check,
   await click('open fresh Explorer creation', newExplorer,
     () => page.locator('#new-explorer-name').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }));
   const explorerName = `Verify ${report.target.project.slice(-10)} RelatedExpand fields`;
-  await fill('name fresh RelatedExpand field Explorer', page.locator('#new-explorer-name'), explorerName, () =>
-    page.waitForFunction(name => document.querySelector('select[aria-label="Explorer"] option:checked')?.textContent.trim() === name &&
-      document.body.innerText.includes('Build your first table'), explorerName, { timeout: ACTION_TIMEOUT_MS }));
+  await fill('name fresh RelatedExpand field Explorer', page.locator('#new-explorer-name'), explorerName);
   await click('create fresh related-field Explorer', page.getByRole('button', { name: 'Create blank', exact: true }), () =>
     page.waitForFunction(name => document.querySelector('select[aria-label="Explorer"] option:checked')?.textContent.trim() === name,
       explorerName, { timeout: ACTION_TIMEOUT_MS }));
