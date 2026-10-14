@@ -309,7 +309,8 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
     item.constructionChoice?.source.ruleHint === 'CODED_CONCEPT_V1');
   const observationPair = fixtureItem(allowedEntries, 'paired Observation value', item => item.resourceType === 'Observation' &&
     item.system === 'urn:loom:basic-coded-semantic:observation' && item.code === 'diagnostic-method' &&
-    item.constructionChoice?.source.ruleHint === 'CODED_VALUE_V1');
+    item.constructionChoice?.source.ruleHint === 'CODED_VALUE_V1' &&
+    item.constructionChoice.source.fieldPath === 'valueQuantity.value');
   const selectedItems = [conditionV1, conditionUnversioned, medicationBeta, specimenCode, observationPair];
   const expectedGroups = ['Condition', 'Medication', 'Observation', 'Specimen'];
   for (const resourceType of expectedGroups) {
