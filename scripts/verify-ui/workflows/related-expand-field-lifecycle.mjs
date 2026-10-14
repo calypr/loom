@@ -306,6 +306,9 @@ export const relatedExpandFieldLifecycleWorkflow = async ({ page, action, check,
   const rootStatusStep = document.construction.steps.find(step =>
     step.outputs.some(column => column.id === rootStatusColumn.columnId));
   assert(rootStatusStep, 'Observation.status must retain its source-projection step identity.');
+  await click('close Add columns after applying Observation.status',
+    editor.getByRole('button', { name: 'Close operation editor', exact: true }),
+    () => editor.waitFor({ state: 'hidden', timeout: ACTION_TIMEOUT_MS }));
 
   const keepRowsAction = page.getByTestId('construction-action-keep-rows');
   await click('open Filter rows after RelatedExpand', keepRowsAction,
