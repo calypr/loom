@@ -1613,8 +1613,8 @@ export const registry = Object.freeze([
           },
         ],
         requiredChecks: [
-          'literal fixture proves standalone coded sources and paired Observation values with exact versions',
-          'native Coded values browse shows compiler-proven entries from all eligible source resources without search',
+          'literal fixture proves standalone Coding versions and the unversioned paired Observation 42/null values',
+          'native Coded values browse after the exact Patient Filter shows compiler-proven entries from all eligible source resources without search',
           'Cancel leaves the saved Patient table and draft unchanged',
           'Apply persists CODING-scoped version-aware sources and leaves paired values owner-scoped',
           'Applied coded fields and exact per-patient values survive Builder reload',

@@ -15,6 +15,9 @@ test('standalone coded-field fixture preserves per-Coding correlation and absent
   assert.equal(oracle.medicationCodesByPatient['coded-catalog-patient-01'].length, 2);
   assert.equal(oracle.specimenCodesByPatient['coded-catalog-patient-01'][0]?.display, undefined);
   assert.equal(oracle.specimenCodesByPatient['coded-catalog-patient-02'].length, 0);
+  assert.deepEqual(oracle.observationPairsByPatient['coded-catalog-patient-01'].codes.map(({ system, version, code }) => ({ system, version, code })), [
+    { system: 'urn:loom:basic-coded-semantic:observation', version: undefined, code: 'diagnostic-method' },
+  ]);
   assert.equal(oracle.observationPairsByPatient['coded-catalog-patient-01'].quantity, 42);
   assert.equal(oracle.observationPairsByPatient['coded-catalog-patient-02'].quantity, null);
   assert.deepEqual(Object.keys(oracle.routes).sort(), ['Condition', 'Medication', 'Observation', 'Specimen']);

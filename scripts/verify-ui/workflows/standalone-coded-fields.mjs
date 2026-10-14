@@ -77,6 +77,8 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
       oracle.conditionCodesByPatient['coded-catalog-patient-01'].map(item => item.version ?? '').join(',') === 'v1,v2,' &&
       oracle.medicationCodesByPatient['coded-catalog-patient-01'].length === 2 &&
       oracle.specimenCodesByPatient['coded-catalog-patient-01'][0]?.display === undefined &&
+      oracle.observationPairsByPatient['coded-catalog-patient-01'].codes.length === 1 &&
+      oracle.observationPairsByPatient['coded-catalog-patient-01'].codes[0]?.version === undefined &&
       oracle.observationPairsByPatient['coded-catalog-patient-01'].quantity === 42,
     report.target.fixtureOracle);
 
@@ -93,6 +95,25 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
       editable: true,
       ...(after ? { after } : {}),
     });
+  const checkboxForItem = async item => {
+    const label = semanticLabel(item);
+    const source = item.constructionChoice.source;
+    if (source.ruleHint !== 'CODED_VALUE_V1') {
+      return page.getByRole('checkbox', { name: `Select ${label}`, exact: true });
+    }
+    const valueField = `${source.resourceType}.${source.fieldPath}`;
+    const card = page.locator('article').filter({ hasText: valueField });
+    assert.equal(await card.count(), 1, `${label} must resolve to one card by its exact typed value field.`);
+    const valueFieldFact = card.getByText(valueField, { exact: true });
+    if (!(await valueFieldFact.isVisible())) {
+      await click('inspect the paired Observation value field',
+        card.getByText('Inspect meaning, evidence, and construction choices', { exact: true }),
+        () => valueFieldFact.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }));
+    }
+    assert.equal(await valueFieldFact.isVisible(), true,
+      `${label} must expose its exact ${valueField} source fact before selection.`);
+    return card.getByRole('checkbox', { name: `Select ${label}`, exact: true });
+  };
 
   await page.goto(browserURL(target, target.fixtureProject, target.bootstrapExplorerId, 'builder'), {
     waitUntil: 'domcontentloaded', timeout: ACTION_TIMEOUT_MS,
@@ -154,7 +175,96 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
   assert(idIndex >= 0, 'The exact Patient ID column must render in the root preview.');
   assert.deepEqual(initialGrid.rows.map(row => row[idIndex]).sort(), oracle.patientIDs,
     'The initial native Patient preview must preserve the exact fixture IDs.');
+  const draftBeforeFilter = { version: builder.draftVersion, digest: builder.draftDigest };
+
+  const filterEditor = page.getByTestId('construction-filter-editor');
+  const filterProposalFrom = networkObserver.requests.length;
+  const filterProposalPromise = networkObserver.waitForResponse(entry => entry.index >= filterProposalFrom &&
+    entry.path.endsWith('/construction-proposals') && entry.request?.outputId === outputId &&
+    entry.request?.candidateConstruction?.steps?.some(step => step.operation?.kind === 'FILTER' &&
+      step.operation.filter?.columnId === idColumn.columnId && step.operation.filter?.operator === 'EXISTS'),
+  { fromIndex: filterProposalFrom, timeoutMs: ACTION_TIMEOUT_MS });
+  const keepRowsAction = page.getByTestId('construction-action-keep-rows');
+  await click('open Patient row settings for Filter', page.getByTestId('construction-rows-settings-trigger'),
+    () => keepRowsAction.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }));
+  await click('open Patient row Filter', keepRowsAction,
+    () => filterEditor.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }));
+  const filterColumn = filterEditor.getByRole('combobox', { name: 'Column', exact: true });
+  if (await filterColumn.inputValue() !== idColumn.columnId) {
+    await action('select Patient ID for the row Filter', filterColumn,
+      control => control.selectOption(idColumn.columnId, { timeout: ACTION_TIMEOUT_MS }), {
+        timeout: ACTION_TIMEOUT_MS, budget: ACTION_TIMEOUT_MS,
+        after: async () => assert.equal(await filterColumn.inputValue(), idColumn.columnId),
+      });
+  }
+  const filterCondition = filterEditor.getByRole('combobox', { name: 'Condition', exact: true });
+  const filterOperators = await filterCondition.locator('option').evaluateAll(options => options.map(option => option.value));
+  assert(filterOperators.includes('EXISTS'), 'Patient ID must support the non-null EXISTS Filter.');
+  if (await filterCondition.inputValue() !== 'EXISTS') {
+    await action('keep Patient rows with an ID', filterCondition,
+      control => control.selectOption('EXISTS', { timeout: ACTION_TIMEOUT_MS }), {
+        timeout: ACTION_TIMEOUT_MS, budget: ACTION_TIMEOUT_MS,
+        after: async () => assert.equal(await filterCondition.inputValue(), 'EXISTS'),
+      });
+  }
+  await page.waitForFunction(() => {
+    const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
+    const preview = document.querySelector('[data-testid="construction-proposal-preview"]');
+    return panel?.dataset.proposalStatus === 'ready' && preview?.dataset.previewStatus === 'ready';
+  }, undefined, { timeout: ACTION_TIMEOUT_MS });
+  const filterProposal = await filterProposalPromise;
+  assert.equal(filterProposal.status, 200, 'The Patient ID EXISTS Filter proposal must return HTTP 200.');
+  const candidateFilterSteps = filterProposal.response.candidateConstruction?.steps ?? [];
+  assert.equal(candidateFilterSteps.length, 1, 'The native Patient ID Filter proposal must contain exactly one row operation.');
+  const candidateFilterStep = candidateFilterSteps[0];
+  assert.equal(candidateFilterStep.operation?.kind, 'FILTER');
+  assert.equal(candidateFilterStep.operation.filter?.columnId, idColumn.columnId);
+  assert.equal(candidateFilterStep.operation.filter?.operator, 'EXISTS');
+  assert.equal(filterProposal.response.preview?.rowCount, oracle.patientIDs.length,
+    'The Patient ID EXISTS Filter must preserve both fixture rows.');
+  const proposalIDColumn = filterProposal.response.preview.columns.find(column => column.column === idColumn.column);
+  assert(proposalIDColumn, 'The Filter preview must retain the exact public Patient ID column.');
+  assert.deepEqual(filterProposal.response.preview.rows.map(row => String(row[proposalIDColumn.column])).sort(), oracle.patientIDs,
+    'The Filter preview must retain both exact Patient IDs.');
+
+  const filterCapabilityFrom = networkObserver.requests.length;
+  const filterCapabilityPromise = networkObserver.waitForResponse(entry => entry.index >= filterCapabilityFrom &&
+    entry.method === 'POST' && entry.path.endsWith('/construction-capabilities') && entry.status === 200 &&
+    entry.request?.outputId === outputId && entry.request?.stageId === candidateFilterStep.id &&
+    entry.response?.outputId === outputId && entry.response?.stageId === candidateFilterStep.id &&
+    entry.response?.selectedStage?.id === candidateFilterStep.id,
+  { fromIndex: filterCapabilityFrom, timeoutMs: ACTION_TIMEOUT_MS });
+  await click('Apply Patient ID EXISTS Filter', page.getByTestId('construction-apply-proposal'), async () => {
+    await page.getByTestId('construction-proposal-panel').waitFor({ state: 'detached', timeout: ACTION_TIMEOUT_MS });
+    await waitFor(page, expected => {
+      const preview = document.querySelector('[data-testid="construction-preview"]');
+      const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+      return preview?.dataset.previewStatus === 'ready' && preview.dataset.previewOutputId === expected.outputId &&
+        table?.getAttribute('aria-rowcount') === String(expected.rowCount);
+    }, { outputId, rowCount: oracle.patientIDs.length + 1 });
+  });
+  builder = await readBuilder();
+  document = documentFor(builder);
+  const savedFilterSteps = (document.construction?.steps ?? []).filter(step => step.operation?.kind === 'FILTER');
+  assert.equal(savedFilterSteps.length, 1, 'The Patient table must persist one Filter before coded browsing.');
+  const savedFilterStep = savedFilterSteps[0];
+  assert.equal(savedFilterStep.id, candidateFilterStep.id, 'The saved Filter must retain the proposed exact stage ID.');
+  assert.equal(savedFilterStep.operation.filter.columnId, idColumn.columnId);
+  assert.equal(savedFilterStep.operation.filter.operator, 'EXISTS');
+  const filteredGrid = await readVisibleGrid(page);
+  const filteredIDIndex = filteredGrid.headers.findIndex(header => header === normalizeHeader(idColumn.label));
+  assert(filteredIDIndex >= 0, 'The filtered preview must retain Patient ID.');
+  assert.deepEqual(filteredGrid.rows.map(row => row[filteredIDIndex]).sort(), oracle.patientIDs,
+    'The saved Filter must preserve both exact Patient rows.');
+  const filterCapabilityEntry = await filterCapabilityPromise;
+  assert.equal(filterCapabilityEntry.response.selectedStage.id, savedFilterStep.id,
+    'The compiler capability response must describe the exact saved Filter stage.');
+  assert.equal(filterCapabilityEntry.response.selectedStage.capabilities.find(capability => capability.kind === 'FILTER')?.supported,
+    true, 'The saved Filter stage must remain compiler-supported before coded browsing.');
+  report.target.qaIsolation.workflowMutations.push('native UI applied a Patient ID EXISTS Filter that preserves both fixture rows');
   const baselineDraft = { version: builder.draftVersion, digest: builder.draftDigest };
+  assert(baselineDraft.version > draftBeforeFilter.version && baselineDraft.digest !== draftBeforeFilter.digest,
+    'The saved Patient ID Filter must establish the coded-browse baseline draft.');
 
   const openCatalogAndReadInventory = async label => {
     const editor = page.locator('[aria-label="Add columns editor"]');
@@ -208,19 +318,23 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
     'The UI inventory must keep the same system/code at the distinct v2 Coding.');
   for (const item of selectedItems) {
     const label = semanticLabel(item);
-    const checkbox = page.getByRole('checkbox', { name: `Select ${label}`, exact: true });
+    const checkbox = await checkboxForItem(item);
+    assert.equal(await checkbox.count(), 1, `${label} must resolve to one card for its exact value source.`);
     await checkbox.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
     assert.equal(await checkbox.isEnabled(), true, `${label} must be selectable from the current coded inventory.`);
   }
-  check('correctness', 'native Coded values browse shows compiler-proven entries from all eligible source resources without search',
+  check('correctness', 'native Coded values browse after the exact Patient Filter shows compiler-proven entries from all eligible source resources without search',
     selectedItems.every(item => CODED_RULES.has(item.constructionChoice.source.ruleHint)) &&
-      expectedGroups.every(resourceType => entries.some(item => item.resourceType === resourceType && CODED_RULES.has(item.constructionChoice?.source.ruleHint))),
-    { outputId, request: inventory.request, groups: expectedGroups, selectedLabels: selectedItems.map(semanticLabel) });
+      expectedGroups.every(resourceType => entries.some(item => item.resourceType === resourceType && CODED_RULES.has(item.constructionChoice?.source.ruleHint))) &&
+      savedFilterStep.operation.kind === 'FILTER' && savedFilterStep.operation.filter.columnId === idColumn.columnId &&
+      savedFilterStep.operation.filter.operator === 'EXISTS' && filterCapabilityEntry.response.selectedStage.id === savedFilterStep.id,
+    { outputId, request: inventory.request, groups: expectedGroups, selectedLabels: selectedItems.map(semanticLabel),
+      filterStepId: savedFilterStep.id, filterOperation: savedFilterStep.operation, filterCapabilityStageId: filterCapabilityEntry.response.selectedStage.id });
 
   const selectAndPreview = async phase => {
     for (const item of selectedItems) {
       const label = semanticLabel(item);
-      const checkbox = page.getByRole('checkbox', { name: `Select ${label}`, exact: true });
+      const checkbox = await checkboxForItem(item);
       if (!(await checkbox.isChecked())) await click(`${phase}: select ${label}`, checkbox,
         async () => assert.equal(await checkbox.isChecked(), true));
     }
@@ -377,8 +491,10 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
   assert.equal(pairedColumn.source.lookup.binding.versionPath, undefined,
     'Legacy paired Observation values must not acquire Coding-scoped version behavior.');
   assert.equal(pairedColumn.source.lookup.key.version, undefined);
-  assert.equal(document.construction?.steps?.length ?? 0, 0,
-    'Standalone coded value columns must not create a row-shaping or RELATED_SOURCE step.');
+  const persistedFilterSteps = (document.construction?.steps ?? []).filter(step => step.operation?.kind === 'FILTER');
+  assert.equal(persistedFilterSteps.length, 1, 'Applying coded values must preserve the existing Patient Filter only.');
+  assert.equal(persistedFilterSteps[0].id, savedFilterStep.id);
+  assert.equal(persistedFilterSteps[0].operation.filter.operator, 'EXISTS');
   check('correctness', 'Apply persists CODING-scoped version-aware sources and leaves paired values owner-scoped',
     [conditionV1, conditionUnversioned, medicationBeta, specimenCode].every(item => {
       const source = sourceForLabel(semanticLabel(item)).source.lookup;
@@ -386,7 +502,8 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
         source.key.system === item.system && source.key.code === item.code &&
         (source.key.version ?? '') === (item.constructionChoice.source.version ?? '');
     }) && pairedColumn.source.lookup.binding.valueScope === undefined &&
-      (document.construction?.steps?.length ?? 0) === 0,
+      persistedFilterSteps.length === 1 && persistedFilterSteps[0].id === savedFilterStep.id &&
+      persistedFilterSteps[0].operation.filter.operator === 'EXISTS',
     { outputId, savedLabels: savedColumns.map(column => column.label), versionedLabels: [semanticLabel(conditionV1), semanticLabel(conditionUnversioned)] });
 
   const expectedVisibleRows = oracle.patientIDs.map(patientID => {
