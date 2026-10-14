@@ -283,10 +283,7 @@ export const relatedExpandFieldLifecycleWorkflow = async ({ page, action, check,
     () => page.waitForFunction(() => document.querySelector('input[aria-label="Select Observation.status"]')?.checked === true,
       undefined, { timeout: ACTION_TIMEOUT_MS }));
   await click('propose carried-through post-expansion Observation.status', editor.getByRole('button', { name: 'Add 1 selected feature', exact: true }),
-    () => page.getByRole('dialog', { name: 'Choose how to add these fields', exact: true }).waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }));
-  const rootFieldDialog = page.getByRole('dialog', { name: 'Choose how to add these fields', exact: true });
-  const addRootColumn = rootFieldDialog.getByRole('button', { name: 'Add 1 column', exact: true });
-  await click('add Observation.status after RelatedExpand', addRootColumn, () => waitForProposal(page));
+    () => waitForProposal(page));
   await click('Apply post-expansion Observation.status field', page.getByTestId('construction-choice-proposal-panel').getByRole('button', { name: 'Apply columns', exact: true }), async () => {
     await waitForSavedPreview(page, outputId, 3);
     const grid = await readGrid(page);
