@@ -216,7 +216,7 @@ const CategoryPicker = ({
 };
 
 export const FrameSourcePanel = ({
-  project, explorerId, authResourcePath, snapshotToken, outputId, rowRoot, frames, columns, disabled,
+  project, explorerId, authResourcePath, snapshotToken, outputId, rowRoot, frames, columns, disabled, allowNewSource = true,
   onSet, onReplace, onRemove, onAddSelected, onRemoveColumn,
 }: {
   readonly project: string;
@@ -228,6 +228,7 @@ export const FrameSourcePanel = ({
   readonly frames: ReadonlyArray<FrameDefinition>;
   readonly columns: ReadonlyArray<{ readonly column: string; readonly label: string; readonly frameId?: string }>;
   readonly disabled: boolean;
+  readonly allowNewSource?: boolean;
   readonly onSet: (choice: FrameSourceOption, form: FrameDefinition['form']) => Promise<boolean>;
   readonly onReplace: (frameId: string, choice: FrameSourceOption, form: FrameDefinition['form']) => Promise<boolean>;
   readonly onRemove: (frameId: string) => Promise<boolean>;
@@ -382,11 +383,13 @@ export const FrameSourcePanel = ({
             ? 'Browse coded-value sources Loom can add to this table.'
             : 'Each code names a column; its paired value fills the cells.'}</p>
         </div>
-        <button type="button" aria-expanded={sourcePickerOpen} onClick={() => setSourcePickerOpen((open) => !open)}
-          className="shrink-0 text-sm font-semibold text-blue-800 hover:underline">
-          {sourcePickerOpen ? 'Hide source choices' : editingFrame ? 'Choose replacement' : frames.length === 0 ? 'Browse sources' : 'Add coded source'}
-          <span aria-hidden="true"> {sourcePickerOpen ? '▴' : '▾'}</span>
-        </button>
+        {allowNewSource || editingFrame || sourcePickerOpen ? (
+          <button type="button" aria-expanded={sourcePickerOpen} onClick={() => setSourcePickerOpen((open) => !open)}
+            className="shrink-0 text-sm font-semibold text-blue-800 hover:underline">
+            {sourcePickerOpen ? 'Hide source choices' : editingFrame ? 'Choose replacement' : frames.length === 0 ? 'Browse sources' : 'Add coded source'}
+            <span aria-hidden="true"> {sourcePickerOpen ? '▴' : '▾'}</span>
+          </button>
+        ) : null}
       </div>
       {frames.map((frame) => (
         <div key={frame.id} className="mt-2 rounded-md border border-emerald-200 bg-emerald-50/40 p-2" data-testid={`saved-frame-${frame.id}`}>

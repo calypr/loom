@@ -105,10 +105,6 @@ import {
   type ConstructionSelectableColumn,
 } from './constructionWorkspace/ConstructionColumnSelection';
 import {
-  PairedColumnSuggestions,
-  type PairedColumnSuggestion,
-} from './constructionWorkspace/PairedColumnSuggestions';
-import {
   ConstructionProposalPanel,
 } from './constructionWorkspace/ConstructionProposalPanel';
 import { ConstructionProposalPreview } from './constructionWorkspace/ConstructionProposalPreview';
@@ -528,8 +524,6 @@ const BuilderWorkspaceContent = ({
   const appliedChoicePreview = useRef<AppliedChoicePreview | undefined>(undefined);
   const [featureMode, setFeatureMode] = useState<'catalog' | 'graph'>('catalog');
   const [sourceSetupOpen, setSourceSetupOpen] = useState(false);
-  const [pairedColumnSuggestion, setPairedColumnSuggestion] =
-    useState<PairedColumnSuggestion>();
   const [activeConstructionSelection, setActiveConstructionSelection] = useState<{
     readonly ownerKey: string;
     readonly explorerId: string;
@@ -1157,9 +1151,6 @@ const BuilderWorkspaceContent = ({
         label: column.label,
       type: column.logicalType,
     }));
-  useEffect(() => {
-    setPairedColumnSuggestion(undefined);
-  }, [state.explorerId, state.catalog.snapshotToken, table?.outputId, table?.document.rootResourceType]);
   const sourceRowMeaning = !table?.document.rootResourceType
     ? 'Choose what one row represents to start this table.'
     : table.document.rows.kind === 'GROUPS'
@@ -3081,21 +3072,6 @@ const BuilderWorkspaceContent = ({
     setReshapeEntry(nextEntry);
     setActiveConstructionFamily('RESHAPE');
   };
-  const openCodedValueCatalog = () => {
-    constructionLifecycle.cancel();
-    cancelCombineCatalogRequest();
-    setConstructionHistorySelection({ kind: 'source' });
-    setEditingConstructionStepId(undefined);
-    setPairedColumnSuggestion(undefined);
-    setFeatureMode('catalog');
-    setAddColumnsView('fields');
-    setAddColumnsSource({ context: addSourceContext, key: 'all' });
-    setAddSourceSearch({ context: addSourceContext, query: '' });
-    setActiveConstructionFamily('ADD_COLUMNS');
-    requestAnimationFrame(() => {
-      document.querySelector<HTMLInputElement>('[aria-label="Add columns editor"] #feature-catalog-search')?.focus();
-    });
-  };
   const selectConstructionHistory = (selection: ConstructionHistorySelection) => {
     constructionLifecycle.cancel();
     cancelCombineCatalogRequest();
@@ -3219,10 +3195,6 @@ const BuilderWorkspaceContent = ({
   const relatedSourceCapability = capabilityStage?.capabilities.find(
     (candidate) => candidate.kind === 'RELATED_SOURCE',
   );
-  const relatedFieldCapability = capabilityStage?.capabilities.find(
-    (candidate) => candidate.kind === 'RELATED_FIELD',
-  );
-  const currentRelatedResourceType = capabilityStage?.activeRelatedRecord?.targetResourceType;
   const relatedSourceReason = [
     relatedSourceCapability?.reasonCode,
     relatedSourceCapability?.reason,
@@ -3232,17 +3204,6 @@ const BuilderWorkspaceContent = ({
       constructionLifecycle.capabilities.response.baseConstruction,
       table?.document.rows,
     );
-  const canAddCurrentRelatedFields = capabilityIsForAppendStage &&
-    relatedFieldCapability?.supported === true &&
-    Boolean(currentRelatedResourceType);
-  const currentRelatedResourceLabel = currentRelatedResourceType ?? 'the current related record';
-  const sourceFieldGuidance = hasUnsupportedSavedSourceColumns
-    ? 'Resolve or remove unsupported saved fields before adding more columns.'
-    : constructionLifecycle.capabilities.status === 'loading'
-      ? 'Loom is checking which starting-record fields can be used for these rows.'
-      : canAddCurrentRelatedFields
-        ? `The current rows include ${currentRelatedResourceLabel} records. Open Fields and related data to add fields from those exact records.`
-        : 'You can still browse coded sources below, or browse and select available fields and related data.';
   const reshapeAvailabilityFor = (kind: 'GROUP' | 'PIVOT' | 'CODED_PIVOT') => {
     const capability = capabilityStage?.capabilities.find((candidate) => candidate.kind === kind);
     return capabilityIsForAppendStage && capability?.supported
@@ -3444,49 +3405,53 @@ const BuilderWorkspaceContent = ({
             </div>
             {addColumnsView === 'coded' && table.document.rootResourceType ? (
               <>
-                {!sourceAvailability.available ? (
-                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-3" role="status" data-testid="construction-catalog-stage-guidance">
-                    <h3 className="text-sm font-semibold text-slate-900">Coded source suggestions are unavailable for these rows</h3>
-                    <p className="mt-1 text-sm text-slate-700">{sourceFieldGuidance}</p>
-                    <button type="button" className="mt-2 text-sm font-semibold text-blue-800 hover:underline"
-                      onClick={() => setAddColumnsView('fields')}>
-                      {canAddCurrentRelatedFields ? `Browse ${currentRelatedResourceLabel} fields` : 'Browse fields and related data'}
-                    </button>
-                  </div>
-                ) : null}
-                {sourceAvailability.available ? <PairedColumnSuggestions
-                  project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
-                  snapshotToken={state.catalog.snapshotToken} outputId={table.outputId}
+                <ConceptCatalog
+                  key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:coded-all`}
+                  project={projectId}
+                  explorerId={state.explorerId}
+                  authResourcePath={authResourcePath}
+                  snapshotToken={state.catalog.snapshotToken}
+                  outputId={table.outputId}
                   rowRoot={table.document.rootResourceType}
-                  columns={[...selectableColumns, ...table.document.columns.map((column) => ({ id: column.column, label: column.label }))]}
+                  layout="panel"
+                  catalog={state.catalog}
+                  sourceProjectionAvailability={sourceAvailability}
+                  relatedSourceAvailability={relatedSourceAvailability}
+                  suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}
+                  disabledReason={sourceSelectionDisabledReason}
                   disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                  onSelectSuggestion={(suggestion) => {
-                    setPairedColumnSuggestion(suggestion);
-                    setFeatureMode('catalog');
-                    setAddColumnsView('fields');
-                  }}
-                  onBrowseAll={openCodedValueCatalog}
-                /> : null}
-                <FrameSourcePanel
-                  key={`${table.outputId}:${state.catalog.snapshotToken}`}
-                  project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
-                  snapshotToken={state.catalog.snapshotToken} outputId={table.outputId}
-                  rowRoot={table.document.rootResourceType} frames={table.document.frames ?? []}
-                  columns={table.document.columns} disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                  onSet={(choice, form) => applyCommands([{
-                    type: 'SET_FRAME_SOURCE', outputId: table.outputId, frameChoiceId: choice.choiceId, form,
-                  }])}
-                  onReplace={(frameId, choice, form) => applyCommands([{
-                    type: 'REPLACE_FRAME_SOURCE', outputId: table.outputId, frameId, frameChoiceId: choice.choiceId, form,
-                  }])}
-                  onRemove={(frameId) => applyCommands([{
-                    type: 'REMOVE_FRAME_SOURCE', outputId: table.outputId, frameId,
-                  }])}
-                  onAddSelected={(selections) => addSelectedFeatures(selections, true)}
-                  onRemoveColumn={(column) => applyCommands([{
-                    type: 'REMOVE_COLUMN', outputId: table.outputId, column,
-                  }])}
+                  groupedRowValuePolicy={groupedRowValuePolicy}
+                  onAddSelected={addSelectedFeatures}
+                  onInspectRouteCoverage={inspectRelatedRouteCoverage}
                 />
+                {table.document.frames?.length ? (
+                  <details className="rounded-md border border-slate-200 bg-white p-3">
+                    <summary className="cursor-pointer text-sm font-semibold text-slate-700">
+                      Manage saved coded-value sources
+                    </summary>
+                    <FrameSourcePanel
+                      key={`${table.outputId}:${state.catalog.snapshotToken}`}
+                      project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
+                      snapshotToken={state.catalog.snapshotToken} outputId={table.outputId}
+                      rowRoot={table.document.rootResourceType} frames={table.document.frames ?? []}
+                      columns={table.document.columns} disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                      allowNewSource={false}
+                      onSet={(choice, form) => applyCommands([{
+                        type: 'SET_FRAME_SOURCE', outputId: table.outputId, frameChoiceId: choice.choiceId, form,
+                      }])}
+                      onReplace={(frameId, choice, form) => applyCommands([{
+                        type: 'REPLACE_FRAME_SOURCE', outputId: table.outputId, frameId, frameChoiceId: choice.choiceId, form,
+                      }])}
+                      onRemove={(frameId) => applyCommands([{
+                        type: 'REMOVE_FRAME_SOURCE', outputId: table.outputId, frameId,
+                      }])}
+                      onAddSelected={(selections) => addSelectedFeatures(selections, true)}
+                      onRemoveColumn={(column) => applyCommands([{
+                        type: 'REMOVE_COLUMN', outputId: table.outputId, column,
+                      }])}
+                    />
+                  </details>
+                ) : null}
               </>
             ) : null}
             {addColumnsView === 'fields' ? <>
@@ -3600,11 +3565,7 @@ const BuilderWorkspaceContent = ({
               suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}
               disabledReason={sourceSelectionDisabledReason}
               disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-              pairedColumnSuggestion={pairedColumnSuggestion}
               groupedRowValuePolicy={groupedRowValuePolicy}
-              onPairedColumnSuggestionHandled={(requestId) =>
-                setPairedColumnSuggestion((current) => current?.requestId === requestId ? undefined : current)
-              }
               onAddSelected={addSelectedFeatures}
               onInspectRouteCoverage={inspectRelatedRouteCoverage}
             />}
@@ -4478,12 +4439,6 @@ const BuilderWorkspaceContent = ({
                   suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}
                   disabledReason={sourceSelectionDisabledReason}
                   disabled={pendingCommands > 0 || state.reconciliation === 'pending' || addColumnsPreviewPending}
-                  pairedColumnSuggestion={pairedColumnSuggestion}
-                  onPairedColumnSuggestionHandled={(requestId) =>
-                    setPairedColumnSuggestion((current) =>
-                      current?.requestId === requestId ? undefined : current,
-                    )
-                  }
                   onAddSelected={addSelectedFeatures}
                   onInspectRouteCoverage={inspectRelatedRouteCoverage}
                   />

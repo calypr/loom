@@ -601,6 +601,41 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(mockLoomClient.getConstructionCapabilities).not.toHaveBeenCalled();
   });
 
+  it('opens the table-scoped all-source coded catalog without a separate source picker', async () => {
+    const { unmount } = render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
+    expect(await screen.findByRole('heading', { name: 'Add coded values to this table' })).toBeInTheDocument();
+    await waitFor(() => expect(mockLoomClient.browseSemanticInventory.mock.calls.some(([args]) => args.outputId === 'patients')).toBe(true));
+    const request = mockLoomClient.browseSemanticInventory.mock.calls.find(([args]) => args.outputId === 'patients')?.[0];
+    if (!request) throw new Error('The coded browser did not request the current table inventory.');
+    expect(request).toMatchObject({
+      project: 'HTAN_INT/BForePC',
+      explorerId: 'test',
+      snapshotToken: 'snapshot-1',
+      outputId: 'patients',
+      rowRoot: 'Patient',
+      limit: 50,
+    });
+    expect(request.resourceType).toBeUndefined();
+    expect(request.sourceNodeId).toBeUndefined();
+    expect(request.frameId).toBeUndefined();
+    expect(mockLoomClient.browseFrameSourceOptions).not.toHaveBeenCalled();
+    expect(screen.queryByRole('heading', { name: 'Coded sources' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Browse sources' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Ready-to-add paired concepts' })).not.toBeInTheDocument();
+    unmount();
+    await act(async () => {
+      await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
+    });
+  });
+
   it('labels the exact active related record so it is distinct from current table rows', async () => {
     mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
       readonly snapshotToken: string;
