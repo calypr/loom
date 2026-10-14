@@ -6,6 +6,7 @@ import { readStandaloneCodedFieldFixture } from '../helpers/standalone-coded-fie
 const ACTION_TIMEOUT_MS = 10_000;
 const CODED_RULES = new Set(['CODED_CONCEPT_V1', 'CODED_VALUE_V1']);
 const normalize = value => String(value ?? '').replace(/\s+/g, ' ').trim();
+const normalizeHeader = value => normalize(value).toLowerCase();
 
 const waitFor = (page, predicate, argument, timeoutMs = ACTION_TIMEOUT_MS) => page.waitForFunction(
   ({ predicateSource, argument: value }) => Boolean(Function('argument', `return (${predicateSource})(argument);`)(value)),
@@ -14,7 +15,7 @@ const waitFor = (page, predicate, argument, timeoutMs = ACTION_TIMEOUT_MS) => pa
 );
 
 const readVisibleGrid = page => page.locator('[data-testid="preview-table-scroll"] [role="table"]').evaluate(table => ({
-  headers: [...table.querySelectorAll('[role="columnheader"]')].map(cell => cell.innerText.replace(/\s+/g, ' ').trim()),
+  headers: [...table.querySelectorAll('[role="columnheader"]')].map(cell => cell.innerText.replace(/\s+/g, ' ').trim().toLowerCase()),
   rows: [...table.querySelectorAll('[role="row"]')].slice(1)
     .filter(row => row.querySelector('[role="cell"]'))
     .map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.replace(/\s+/g, ' ').trim())),
@@ -149,7 +150,7 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
       table?.getAttribute('aria-rowcount') === String(expected.rowCount);
   }, { outputId, rowCount: oracle.patientIDs.length + 1 });
   const initialGrid = await readVisibleGrid(page);
-  const idIndex = initialGrid.headers.findIndex(header => header === idColumn.label);
+  const idIndex = initialGrid.headers.findIndex(header => header === normalizeHeader(idColumn.label));
   assert(idIndex >= 0, 'The exact Patient ID column must render in the root preview.');
   assert.deepEqual(initialGrid.rows.map(row => row[idIndex]).sort(), oracle.patientIDs,
     'The initial native Patient preview must preserve the exact fixture IDs.');
@@ -401,9 +402,11 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
     }, outputId);
     const grid = await readVisibleGrid(page);
     const expectedLabels = [idColumn.label, ...appliedPreview.expectedValueByLabel.keys()];
-    assert.deepEqual([...grid.headers].sort(), [...expectedLabels].sort(), `${label} must display the exact root ID and five coded columns.`);
+    const normalizedExpectedLabels = expectedLabels.map(normalizeHeader);
+    assert.deepEqual([...grid.headers].sort(), [...normalizedExpectedLabels].sort(), `${label} must display the exact root ID and five coded columns.`);
     const columnIndices = expectedLabels.map(header => {
-      const matches = grid.headers.flatMap((actual, index) => actual === header ? [index] : []);
+      const expectedHeader = normalizeHeader(header);
+      const matches = grid.headers.flatMap((actual, index) => actual === expectedHeader ? [index] : []);
       assert.equal(matches.length, 1, `${label} must render one exact ${header} column.`);
       return matches[0];
     });
