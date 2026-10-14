@@ -185,8 +185,12 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
       step.operation.filter?.columnId === idColumn.columnId && step.operation.filter?.operator === 'EXISTS'),
   { fromIndex: filterProposalFrom, timeoutMs: ACTION_TIMEOUT_MS });
   const keepRowsAction = page.getByTestId('construction-action-keep-rows');
+  const rowSettingsDialog = page.getByRole('dialog', { name: 'Row definition settings', exact: true });
   await click('open Patient row settings for Filter', page.getByTestId('construction-rows-settings-trigger'),
     () => keepRowsAction.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }));
+  await click('return to the Patient table before opening Filter',
+    rowSettingsDialog.getByRole('button', { name: 'Back to table', exact: true }),
+    () => rowSettingsDialog.waitFor({ state: 'hidden', timeout: ACTION_TIMEOUT_MS }));
   await click('open Patient row Filter', keepRowsAction,
     () => filterEditor.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }));
   const filterColumn = filterEditor.getByRole('combobox', { name: 'Column', exact: true });
