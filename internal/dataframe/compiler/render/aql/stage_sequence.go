@@ -1152,26 +1152,29 @@ func directRootCategoryProjection(projection ir.PhysicalProjection, root string)
 		extract.UnitNormalization != nil || extract.Selector.Filter != nil || len(extract.Selector.Steps) == 0 {
 		return false
 	}
-	var mode ir.PhysicalSelectorExecutionMode
 	switch expression.Cardinality {
 	case ir.PhysicalScalarCardinality:
-		mode = ir.PhysicalSelectorDirectScalar
 	case ir.PhysicalArrayCardinality:
-		mode = ir.PhysicalSelectorConditionalArray
 	default:
 		return false
 	}
-	if extract.ExecutionMode != mode {
+	switch extract.ExecutionMode {
+	case ir.PhysicalSelectorDirectScalar:
+		if expression.Cardinality != ir.PhysicalScalarCardinality {
+			return false
+		}
+	case ir.PhysicalSelectorConditionalArray:
+	default:
 		return false
 	}
 	hasIteration := false
 	for _, step := range extract.Selector.Steps {
-		if step.Field == "" || step.Index != nil || (expression.Cardinality == ir.PhysicalScalarCardinality && step.Iterate) {
+		if step.Field == "" || step.Index != nil || (extract.ExecutionMode == ir.PhysicalSelectorDirectScalar && step.Iterate) {
 			return false
 		}
 		hasIteration = hasIteration || step.Iterate
 	}
-	return expression.Cardinality != ir.PhysicalArrayCardinality || hasIteration
+	return extract.ExecutionMode == ir.PhysicalSelectorDirectScalar || hasIteration
 }
 
 func terminalKeylessCountRowsOnly(sequence *ir.PhysicalStageSequence) bool {

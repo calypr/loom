@@ -76,10 +76,20 @@ func TestSourceGroupPrunesUnusedRelatedSetAndKeepsFilters(t *testing.T) {
 		return ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality,
 			NullBehavior: ir.PhysicalPreserveNull, Value: &value}
 	}
+	repeatedScalarProjection := func(name string, steps ...fhirschema.SelectorStep) ir.PhysicalProjection {
+		return ir.PhysicalProjection{Name: name, Expression: &ir.PhysicalExpression{
+			Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality,
+			NullBehavior: ir.PhysicalPreserveNull,
+			Extract: &ir.PhysicalExtract{
+				Source: ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}, ResourceType: "Condition",
+				Selector: fhirschema.Selector{Steps: steps}, ExecutionMode: ir.PhysicalSelectorConditionalArray,
+			},
+		}}
+	}
 	plan := ir.PhysicalPlan{
 		Version: 1,
 		BindVars: map[string]any{
-			"root_collection":                  "Specimen",
+			"root_collection":                  "Condition",
 			"project":                          "loom",
 			"dataset_generation":               "generation-1",
 			"scope_allowed":                    true,
@@ -149,23 +159,9 @@ func TestSourceGroupPrunesUnusedRelatedSetAndKeepsFilters(t *testing.T) {
 				Variable: "unused_correlation", Expression: valueExpression(ir.PhysicalValue{Variable: "unused_child_set"}),
 			}},
 			{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{
-				{
-					Name: "body_site",
-					Expression: &ir.PhysicalExpression{
-						Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
-						Extract: &ir.PhysicalExtract{
-							Source: ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}, ResourceType: "Specimen",
-							Selector: fhirschema.Selector{Steps: []fhirschema.SelectorStep{
-								{Field: "collection"}, {Field: "bodySite"}, {Field: "reference"}, {Field: "reference"},
-							}},
-							ExecutionMode: ir.PhysicalSelectorDirectScalar,
-						},
-					},
-					Presence: &ir.PhysicalProjectionPresence{
-						Source: ir.PhysicalValue{Variable: "root", Path: []string{"payload"}},
-						Paths:  [][]string{{"collection", "bodySite", "reference", "reference"}},
-					},
-				},
+				{Name: "id", Value: ir.PhysicalValue{Variable: "root", Path: []string{"payload", "id"}}},
+				repeatedScalarProjection("code", fhirschema.SelectorStep{Field: "code"}, fhirschema.SelectorStep{Field: "coding", Iterate: true}, fhirschema.SelectorStep{Field: "code"}),
+				repeatedScalarProjection("category", fhirschema.SelectorStep{Field: "category", Iterate: true}, fhirschema.SelectorStep{Field: "coding", Iterate: true}, fhirschema.SelectorStep{Field: "code"}),
 				{Name: "unused_column", Value: ir.PhysicalValue{Variable: "unused_child_set"}},
 			}}},
 		},
@@ -174,7 +170,10 @@ func TestSourceGroupPrunesUnusedRelatedSetAndKeepsFilters(t *testing.T) {
 		SourceStageID: "source",
 		Stages: []ir.PhysicalConstructionStage{{
 			ID: "group", InputStageID: "source", Kind: ir.PhysicalStageGroupOp,
-			Group: &ir.PhysicalStageGroup{Keys: []ir.PhysicalStageGroupKey{{InputColumn: "body_site"}}},
+			Group: &ir.PhysicalStageGroup{
+				Keys:      []ir.PhysicalStageGroupKey{{InputColumn: "id"}},
+				RowValues: []ir.PhysicalStageRowValue{{InputColumn: "code", Policy: "ALL"}, {InputColumn: "category", Policy: "ALL"}},
+			},
 		}},
 	}
 
@@ -197,7 +196,9 @@ func TestSourceGroupPrunesUnusedRelatedSetAndKeepsFilters(t *testing.T) {
 		"FILTER eligibility_child.dataset_generation == @dataset_generation",
 		"eligibility_edge.auth_resource_path IN @auth_resource_paths AND eligibility_child.auth_resource_path IN @auth_resource_paths",
 		"FILTER eligibility_child_scope_allowed == @scope_allowed",
-		"RETURN { [@__loom_physical_projection_0_name]: root.payload.collection.bodySite.reference.reference }",
+		"root.payload.code",
+		"root.payload.category",
+		"RETURN { [@__loom_physical_projection_0_name]: root.payload.id",
 	} {
 		if !strings.Contains(rendered.Query, fragment) {
 			t.Errorf("rendered query missing required source behavior %q:\n%s", fragment, rendered.Query)
