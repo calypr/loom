@@ -795,30 +795,34 @@ export const RowDefinitionSettingsPanel = ({
       <button
         type="button"
         data-testid="construction-rows-settings-trigger"
-        aria-label="Configure rows"
+        aria-label="Change current rows"
         aria-haspopup="dialog"
         aria-expanded={settings.kind !== 'closed'}
         className="inline-flex max-w-full items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-left text-xs text-slate-700 hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
         disabled={disabled || settings.kind === 'loading'}
         onClick={() => void openSettings()}
       >
-        <span className="shrink-0 font-semibold text-slate-900">Rows</span>
-        <span className="truncate text-slate-600">{currentRowMeaning}</span>
-        <span className="shrink-0 font-medium text-blue-800">Change <span aria-hidden="true">→</span></span>
+        <span className="shrink-0 font-semibold text-slate-900">Change current rows</span>
+        <span className="shrink-0 font-medium text-blue-800" aria-hidden="true">→</span>
       </button>
       {settings.kind !== 'closed' ? (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-white">
           <div role="dialog" aria-modal="true" aria-label="Row definition settings" className="mx-auto min-h-dvh w-full max-w-5xl px-4 py-5 sm:px-8 sm:py-8">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h3 className="text-xl font-semibold text-slate-900">Change the table shape</h3>
+                <h3 className="text-xl font-semibold text-slate-900">Change current rows</h3>
                 <p className="mt-2 text-sm text-slate-700">{currentRowMeaning}</p>
-                {renderRootSettings(beginRootChange, beginRootResolution, (rootNodeId) => void assessReplacement(rootNodeId))}
-                <p className="mt-3 text-sm text-slate-600">Choose a different starting record type or decide what one row should describe. Preview row changes before applying them.</p>
+                <section aria-label="Starting record settings" className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <h4 className="text-sm font-semibold text-slate-900">Starting record type</h4>
+                  <p className="mt-1 text-xs text-slate-600">Choose which records begin this table. The current row changes below are applied to those records.</p>
+                  <div className="mt-2">{renderRootSettings(beginRootChange, beginRootResolution, (rootNodeId) => void assessReplacement(rootNodeId))}</div>
+                </section>
+                <p className="mt-3 text-sm text-slate-600">Choose a change to the current rows, then preview it before applying.</p>
               </div>
               <button type="button" className="shrink-0 whitespace-nowrap rounded-md border border-slate-300 px-3 py-1.5 text-sm" onClick={cancel}>Back to table</button>
             </div>
             <div className="mt-3 space-y-3">
+              <h4 className="text-sm font-semibold text-slate-900">Current row changes</h4>
               <section aria-label="Choose a row change" className="grid gap-3 sm:grid-cols-2">
                 <div className="rounded-lg border border-slate-200">
                   <button type="button" data-testid="construction-action-group-rows" disabled={disabled || !reshapeRows.group.supported}
@@ -891,12 +895,14 @@ export const RowDefinitionSettingsPanel = ({
                     <span className="mt-2 block text-xs text-slate-600">{reshapeRows.expand.reason}</span>
                   ) : null}
                 </button>
-                {sourceCollectionAction ? (
-                  <div className="sm:col-span-2 rounded-lg border border-slate-200">
-                    {sourceCollectionAction}
-                  </div>
-                ) : null}
               </section>
+              {sourceCollectionAction ? (
+                <section aria-label="Starting-record rows" className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <h4 className="text-sm font-semibold text-slate-900">Starting-record rows</h4>
+                  <p className="mt-1 text-xs text-slate-600">Expand a repeated field on the starting records before the current row changes. This is different from splitting a list-valued column already in the table.</p>
+                  {sourceCollectionAction}
+                </section>
+              ) : null}
               {appliedRowSteps.length > 0 ? (
                 <section aria-label="Applied row changes" data-testid="construction-row-operation-history" className="grid gap-2 border-t border-slate-200 pt-3">
                   <h4 className="text-sm font-semibold text-slate-900">Applied row changes</h4>
@@ -937,15 +943,17 @@ export const RowDefinitionSettingsPanel = ({
                 </section>
               ) : null}
               <div className="min-w-0">
-                <section aria-label="Row shape settings" className="text-sm text-slate-800">
+                <section aria-label="Starting-record row shape" className="text-sm text-slate-800">
+                  <h4 className="text-sm font-semibold text-slate-900">Starting-record row shape</h4>
+                  <p className="mt-1 text-xs text-slate-600">Choose how each starting record becomes rows before the current row changes above.</p>
                   {settings.kind === 'loading' ? <p className="mt-4" role="status">Loading row choices…</p> : null}
                   {settings.kind === 'error' ? <p className="mt-4 text-red-800" role="alert">{settings.message}</p> : null}
                   {settings.kind === 'editing' ? (
                     <>
                 <label className="block text-sm font-medium text-slate-800">
-                  <span>Start with records or expand repeated values</span>
+                  <span>Rows per starting record</span>
                   <select
-                    aria-label="What should each row represent?"
+                    aria-label="Rows per starting record"
                     className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2"
                     value={selectedOption?.shapeValue ?? ''}
                     disabled={disabled || proposalState.kind === 'applying'}

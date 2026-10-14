@@ -377,9 +377,9 @@ export const FrameSourcePanel = ({
     <section aria-label="Frame coded values into columns" data-testid="frame-source-panel" className="min-w-0">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-slate-900">{frames.length === 0 ? 'Other coded sources' : 'Coded sources'}</h2>
+          <h2 className="text-sm font-semibold text-slate-900">Coded sources</h2>
           <p className="text-xs text-slate-600">{frames.length === 0
-            ? 'Find a different coded source if the suggested columns do not include what you need.'
+            ? 'Browse coded-value sources Loom can add to this table.'
             : 'Each code names a column; its paired value fills the cells.'}</p>
         </div>
         <button type="button" aria-expanded={sourcePickerOpen} onClick={() => setSourcePickerOpen((open) => !open)}

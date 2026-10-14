@@ -1643,6 +1643,13 @@ const constructionScalarSourceInputSchema = z.object({
   }).strict()),
 }).strict();
 
+export const constructionSourceProjectionAvailabilitySchema = z.object({
+  stageId: opaqueIdSchema,
+  supported: z.boolean(),
+  reasonCode: z.string().optional(),
+  reason: z.string().optional(),
+}).strict();
+
 export const constructionPivotSourceSelectionSchema = z.object({
   choiceId: opaqueIdSchema,
   columnId: opaqueIdSchema,
@@ -1658,6 +1665,7 @@ export const constructionCapabilitiesResponseSchema = z.object({
   baseConstruction: constructionSchema,
   stages: z.array(constructionStageDescriptorSchema),
   selectedStage: constructionStageDescriptorSchema,
+  sourceProjectionAvailability: constructionSourceProjectionAvailabilitySchema.optional(),
   sourceInput: constructionScalarSourceInputSchema.optional(),
   pivotSourceInput: constructionScalarSourceInputSchema.optional(),
   workspaceInputs: z.array(constructionWorkspaceInputSchema),

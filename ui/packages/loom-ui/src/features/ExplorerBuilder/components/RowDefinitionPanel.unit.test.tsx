@@ -183,7 +183,7 @@ describe('RowDefinitionPanel', () => {
     const onReplace = vi.fn();
     render(<RowDefinitionPanel {...idleRootPickerProps()} catalog={catalog} table={table} disabled={false} onChange={onChange} onReplace={onReplace} />);
 
-    const section = screen.getByRole('region', { name: 'What should each row represent?' });
+    const section = screen.getByRole('region', { name: 'Starting record type' });
     expect(within(section).getAllByRole('combobox')).toHaveLength(1);
     expect(within(section).getByRole('combobox', { name: 'Record type' })).toBeTruthy();
     expect(within(section).getByText('Choose a record type. Loom will show how this changes your rows and whether existing columns or filters need updating.')).toBeTruthy();
@@ -199,7 +199,7 @@ describe('RowDefinitionPanel', () => {
     const onChange = vi.fn();
     render(<RowDefinitionPanel {...idleRootPickerProps()} catalog={catalog} table={table} disabled={false} onChange={onChange} />);
 
-    const section = screen.getByRole('region', { name: 'What should each row represent?' });
+    const section = screen.getByRole('region', { name: 'Starting record type' });
     const picker = within(section).getByRole('combobox', { name: 'Record type' });
     fireEvent.change(picker, { target: { value: 'occurrence:labs' } });
     expect(onChange).toHaveBeenCalledExactlyOnceWith({
@@ -224,7 +224,7 @@ describe('RowDefinitionPanel', () => {
     const onReplace = vi.fn();
     render(<RowDefinitionPanel {...idleRootPickerProps()} catalog={disconnectedCatalog} table={patientTable} disabled={false} onChange={onChange} onReplace={onReplace} />);
 
-    const section = screen.getByRole('region', { name: 'What should each row represent?' });
+    const section = screen.getByRole('region', { name: 'Starting record type' });
     const picker = within(section).getByRole('combobox', { name: 'Record type' });
     expect(within(picker).getByRole('option', { name: 'ResearchStudy' })).toBeTruthy();
     expect(within(picker).getByRole('option', { name: 'Medication' })).toBeTruthy();
@@ -239,7 +239,7 @@ describe('RowDefinitionPanel', () => {
     const onReplace = vi.fn();
     render(<RowDefinitionPanel {...idleRootPickerProps()} catalog={patientCatalog} table={patientTable} disabled={false} onChange={onChange} onReplace={onReplace} />);
 
-    const section = screen.getByRole('region', { name: 'What should each row represent?' });
+    const section = screen.getByRole('region', { name: 'Starting record type' });
     fireEvent.change(within(section).getByRole('combobox', { name: 'Record type' }), {
       target: { value: 'node:observation' },
     });
@@ -273,7 +273,7 @@ describe('RowDefinitionPanel', () => {
       />,
     );
 
-    const section = screen.getByRole('region', { name: 'What should each row represent?' });
+    const section = screen.getByRole('region', { name: 'Starting record type' });
     const picker = within(section).getByRole('combobox', { name: 'Record type' });
     const routeOption = within(picker).getByRole('option', {
       name: 'Use Specimen → Observations → Observation → Subject → Patient from Specimen rows',
@@ -455,6 +455,6 @@ describe('RowDefinitionPanel', () => {
     const unconnectedCatalog = { ...catalog, edges: [] };
     render(<RowDefinitionPanel {...idleRootPickerProps()} catalog={unconnectedCatalog} table={rootOnly} disabled={false} onChange={vi.fn()} />);
     expect(screen.queryByRole('combobox', { name: 'Record type' })).toBeNull();
-    expect(screen.queryByRole('region', { name: 'What should each row represent?' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Starting record type' })).toBeNull();
   });
 });

@@ -134,8 +134,8 @@ const RootTypePicker = ({
   };
 
   return (
-    <section aria-label="What should each row represent?" className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-slate-800">
-      <h4 className="font-semibold text-slate-900">What should each row represent?</h4>
+    <section aria-label="Starting record type" className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-slate-800">
+      <h4 className="font-semibold text-slate-900">Starting record type</h4>
       <p className="mt-1 text-xs text-slate-600">
         Choose a record type. Loom will show how this changes your rows and whether existing columns or filters need updating.
       </p>

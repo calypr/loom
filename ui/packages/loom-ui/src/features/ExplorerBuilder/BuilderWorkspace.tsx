@@ -3196,6 +3196,12 @@ const BuilderWorkspaceContent = ({
   const sourceStageDescriptors = constructionLifecycle.capabilities.status === 'ready'
     ? constructionLifecycle.capabilities.response.stages
     : undefined;
+  const sourceProjectionSummary = constructionLifecycle.capabilities.status === 'ready'
+    ? constructionLifecycle.capabilities.response.sourceProjectionAvailability
+    : undefined;
+  const selectedCapabilityStageId = constructionLifecycle.capabilities.status === 'ready'
+    ? constructionLifecycle.capabilities.response.selectedStage.id
+    : undefined;
   const rowValuesSupported = sourceStageDescriptors?.at(-1)?.capabilities.some(
     (capability) => capability.kind === 'ROW_VALUES' && capability.supported,
   ) ?? false;
@@ -3206,13 +3212,17 @@ const BuilderWorkspaceContent = ({
     ? { available: false, reason: 'Remove unsupported saved source fields before adding more fields.' }
     : constructionLifecycle.capabilities.status === 'error'
     ? { available: false, reason: constructionLifecycle.capabilities.message }
-    : sourceProjectionAvailability(sourceStageDescriptors);
+    : sourceProjectionAvailability(sourceStageDescriptors, sourceProjectionSummary, selectedCapabilityStageId);
   const capabilityStage = constructionLifecycle.capabilities.status === 'ready'
     ? constructionLifecycle.capabilities.response.selectedStage
     : undefined;
   const relatedSourceCapability = capabilityStage?.capabilities.find(
     (candidate) => candidate.kind === 'RELATED_SOURCE',
   );
+  const relatedFieldCapability = capabilityStage?.capabilities.find(
+    (candidate) => candidate.kind === 'RELATED_FIELD',
+  );
+  const currentRelatedResourceType = capabilityStage?.activeRelatedRecord?.targetResourceType;
   const relatedSourceReason = [
     relatedSourceCapability?.reasonCode,
     relatedSourceCapability?.reason,
@@ -3222,6 +3232,17 @@ const BuilderWorkspaceContent = ({
       constructionLifecycle.capabilities.response.baseConstruction,
       table?.document.rows,
     );
+  const canAddCurrentRelatedFields = capabilityIsForAppendStage &&
+    relatedFieldCapability?.supported === true &&
+    Boolean(currentRelatedResourceType);
+  const currentRelatedResourceLabel = currentRelatedResourceType ?? 'the current related record';
+  const sourceFieldGuidance = hasUnsupportedSavedSourceColumns
+    ? 'Resolve or remove unsupported saved fields before adding more columns.'
+    : constructionLifecycle.capabilities.status === 'loading'
+      ? 'Loom is checking which starting-record fields can be used for these rows.'
+      : canAddCurrentRelatedFields
+        ? `The current rows include ${currentRelatedResourceLabel} records. Open Fields and related data to add fields from those exact records.`
+        : 'You can still browse coded sources below, or browse and select available fields and related data.';
   const reshapeAvailabilityFor = (kind: 'GROUP' | 'PIVOT' | 'CODED_PIVOT') => {
     const capability = capabilityStage?.capabilities.find((candidate) => candidate.kind === kind);
     return capabilityIsForAppendStage && capability?.supported
@@ -3232,7 +3253,13 @@ const BuilderWorkspaceContent = ({
             ? constructionLifecycle.capabilities.message
             : constructionLifecycle.capabilities.status !== 'ready' || !capabilityIsForAppendStage
               ? 'Checking this table’s available row operations…'
-              : capability?.reason ?? 'This row operation is unavailable for the current table.',
+              : capability?.reasonCode === 'NO_NUMERIC_COLUMN'
+                ? 'Add a numeric field before creating a calculated value.'
+                : capability?.reasonCode === 'INSUFFICIENT_SCALAR_COLUMNS'
+                  ? 'Pivot needs fields for the row, category, and value. Add or select those fields first.'
+                  : capability?.reasonCode === 'DIRECT_SOURCE_STAGE_REQUIRED'
+                    ? 'This coded row operation applies to the starting records before other row changes.'
+                    : 'This row operation is unavailable for the current table.',
         };
   };
   const codedGroupingAvailable = capabilityIsForAppendStage &&
@@ -3247,15 +3274,18 @@ const BuilderWorkspaceContent = ({
   const tablePivotAvailability = constructionLifecycle.capabilities.status === 'ready' && constructionLifecycle.capabilities.response.pivotSourceInput?.supported
     ? { supported: true } : reshapeAvailabilityFor('PIVOT');
   const expandCapability = capabilityStage?.capabilities.find((candidate) => candidate.kind === 'EXPAND');
+  const expandUnavailableReason = constructionLifecycle.capabilities.status === 'error'
+    ? constructionLifecycle.capabilities.message
+    : constructionLifecycle.capabilities.status !== 'ready' || !capabilityIsForAppendStage
+      ? 'Checking this table’s available row operations…'
+      : expandCapability?.reasonCode === 'NO_ARRAY_COLUMNS'
+        ? 'This table has no list-valued column to split. To expand a repeated field from the starting records, use Starting-record rows below.'
+        : 'List expansion is unavailable for the current table.';
   const expandRowsAvailability = capabilityIsForAppendStage && expandCapability?.supported && hasPublicScalarListColumn(capabilityStage)
     ? { supported: true }
     : {
         supported: false,
-        reason: constructionLifecycle.capabilities.status === 'error'
-          ? constructionLifecycle.capabilities.message
-          : constructionLifecycle.capabilities.status !== 'ready' || !capabilityIsForAppendStage
-            ? 'Checking this table’s available row operations…'
-            : expandCapability?.reason ?? 'No list column is available in this table.',
+        reason: expandUnavailableReason,
       };
   const groupEntries = [
     ...(stageGroupingAvailability.supported || codedPivotAvailability.supported ? [{ kind: 'group' as const, label: 'By table column' }] : []),
@@ -3414,6 +3444,16 @@ const BuilderWorkspaceContent = ({
             </div>
             {addColumnsView === 'coded' && table.document.rootResourceType ? (
               <>
+                {!sourceAvailability.available ? (
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-3" role="status" data-testid="construction-catalog-stage-guidance">
+                    <h3 className="text-sm font-semibold text-slate-900">Coded source suggestions are unavailable for these rows</h3>
+                    <p className="mt-1 text-sm text-slate-700">{sourceFieldGuidance}</p>
+                    <button type="button" className="mt-2 text-sm font-semibold text-blue-800 hover:underline"
+                      onClick={() => setAddColumnsView('fields')}>
+                      {canAddCurrentRelatedFields ? `Browse ${currentRelatedResourceLabel} fields` : 'Browse fields and related data'}
+                    </button>
+                  </div>
+                ) : null}
                 {sourceAvailability.available ? <PairedColumnSuggestions
                   project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
                   snapshotToken={state.catalog.snapshotToken} outputId={table.outputId}

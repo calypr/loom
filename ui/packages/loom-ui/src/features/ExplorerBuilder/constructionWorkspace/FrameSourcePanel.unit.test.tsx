@@ -65,6 +65,8 @@ describe('FrameSourcePanel query ownership', () => {
       .mockResolvedValueOnce(page('output-a', [second]));
     renderPanel();
 
+    expect(screen.getByRole('heading', { name: 'Coded sources' })).toBeInTheDocument();
+    expect(screen.getByText('Browse coded-value sources Loom can add to this table.')).toBeInTheDocument();
     expect(mockClient.browseFrameSourceOptions).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Browse sources' }));
     expect(await screen.findByTestId('frame-source-choice-source-1')).toBeInTheDocument();

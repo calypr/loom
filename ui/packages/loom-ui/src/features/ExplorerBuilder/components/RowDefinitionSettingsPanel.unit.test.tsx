@@ -289,8 +289,8 @@ const relatedRowProps = {
     _onResolveRootChange: (referenceId: string, alternative: string) => void,
     onReplaceRoot: (rootNodeId: string) => void,
   ) => (
-    <section aria-label="What should each row represent?">
-      <h4>What should each row represent?</h4>
+    <section aria-label="Starting record type">
+      <h4>Starting record type</h4>
       <label>
         <span>Record type</span>
         <select aria-label="Record type" value="base" onChange={(event) => {
@@ -415,8 +415,8 @@ describe('RowDefinitionSettingsPanel', () => {
       tableValue: patientWorkspaceTable,
       workspaceTables: [patientWorkspaceTable, reportWorkspaceTable],
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
+    await screen.findByRole('combobox', { name: 'Rows per starting record' });
     fireEvent.click(screen.getByRole('button', { name: 'Replace current setup' }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Replace this table’s current setup?' });
@@ -480,8 +480,8 @@ describe('RowDefinitionSettingsPanel', () => {
       selection: sourceSelection,
       replacementAssessment: assessmentWithEffects,
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
+    await screen.findByRole('combobox', { name: 'Rows per starting record' });
     fireEvent.click(screen.getByRole('button', { name: 'Replace current setup' }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Replace this table’s current setup?' });
@@ -520,8 +520,8 @@ describe('RowDefinitionSettingsPanel', () => {
       workspaceTables: [nonCombineConsumerTable, noColumnJoinConsumerTable],
       replacementAssessment: assessmentWithConsumers,
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
+    await screen.findByRole('combobox', { name: 'Rows per starting record' });
     fireEvent.click(screen.getByRole('button', { name: 'Replace current setup' }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Replace this table’s current setup?' });
@@ -543,8 +543,8 @@ describe('RowDefinitionSettingsPanel', () => {
       proposal: { ...replacementAssessment.proposal, removedFeatureKeys: featureKeys },
     };
     renderSettings({ tableValue: replacementShapeTable, replacementAssessment: assessmentWithEffects });
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
+    await screen.findByRole('combobox', { name: 'Rows per starting record' });
     fireEvent.click(screen.getByRole('button', { name: 'Replace current setup' }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Replace this table’s current setup?' });
@@ -558,8 +558,8 @@ describe('RowDefinitionSettingsPanel', () => {
     const { onApplyRootReplacement } = renderSettings({
       workspaceTables: [patientWorkspaceTable, reportWorkspaceTable],
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
+    await screen.findByRole('combobox', { name: 'Rows per starting record' });
     fireEvent.click(screen.getByRole('button', { name: 'Replace current setup' }));
     const dialog = await screen.findByRole('dialog', { name: 'Replace this table’s current setup?' });
     const applyButton = await within(dialog).findByRole('button', { name: 'Change starting record type' });
@@ -569,7 +569,7 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(screen.queryByRole('dialog', { name: 'Replace this table’s current setup?' })).toBeNull();
   });
 
-  it('offers source collection expansion directly in the row change menu', async () => {
+  it('separates starting-record expansion from current row changes', async () => {
     const { onChooseReshape } = renderSettings({
       sourceCollectionAction: (
         <button type="button" data-testid="construction-reshape-expand-source">
@@ -581,9 +581,10 @@ describe('RowDefinitionSettingsPanel', () => {
 
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const rowChangeMenu = await screen.findByRole('region', { name: 'Choose a row change' });
-    expect(rowChangeMenu.contains(
-      await screen.findByTestId('construction-reshape-expand-source'),
-    )).toBe(true);
+    const startingRows = await screen.findByRole('region', { name: 'Starting-record rows' });
+    expect(startingRows.contains(await screen.findByTestId('construction-reshape-expand-source'))).toBe(true);
+    expect(rowChangeMenu.contains(screen.getByTestId('construction-reshape-expand-source'))).toBe(false);
+    expect(startingRows).toHaveTextContent('before the current row changes');
     expect(onChooseReshape).not.toHaveBeenCalled();
   });
 
@@ -597,8 +598,9 @@ describe('RowDefinitionSettingsPanel', () => {
     });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const rowChangeMenu = await screen.findByRole('region', { name: 'Choose a row change' });
+    const startingRows = await screen.findByRole('region', { name: 'Starting-record rows' });
     expect(within(rowChangeMenu).getByTestId('construction-action-expand-rows')).toHaveTextContent('Make one row per list value');
-    expect(within(rowChangeMenu).getByTestId('construction-reshape-expand-source')).toHaveTextContent('Expand a repeated source field');
+    expect(within(startingRows).getByTestId('construction-reshape-expand-source')).toHaveTextContent('Expand a repeated source field');
 
     fireEvent.click(within(rowChangeMenu).getByTestId('construction-action-expand-rows'));
     expect(onChooseReshape).toHaveBeenCalledWith('expand');
@@ -617,18 +619,22 @@ describe('RowDefinitionSettingsPanel', () => {
     renderSettings();
 
     const trigger = screen.getByTestId('construction-rows-settings-trigger');
-    expect(trigger).toHaveTextContent('Rows');
-    expect(trigger).toHaveTextContent('One row per source record');
+    expect(trigger).toHaveTextContent('Change current rows');
+    expect(trigger).not.toHaveTextContent('One row per source record');
     expect(trigger).not.toHaveTextContent('Starting collection');
     expect(screen.queryByRole('dialog')).toBeNull();
 
     fireEvent.click(trigger);
     const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
-    expect(dialog.contains(screen.getByRole('region', { name: 'What should each row represent?' }))).toBe(true);
+    expect(within(dialog).getByRole('heading', { name: 'Change current rows' })).toBeInTheDocument();
+    expect(dialog.contains(screen.getByRole('region', { name: 'Starting record settings' }))).toBe(true);
+    expect(dialog.contains(screen.getByRole('region', { name: 'Starting record type' }))).toBe(true);
+    expect(dialog.contains(screen.getByRole('region', { name: 'Starting-record row shape' }))).toBe(true);
+    expect(dialog.contains(screen.getByRole('heading', { name: 'Current row changes' }))).toBe(true);
     expect(dialog.contains(screen.getByRole('region', { name: 'Starting collection' }))).toBe(true);
     expect(screen.getByText('All authorized Patient records')).toBeInTheDocument();
     expect(dialog.querySelectorAll('details')).toHaveLength(0);
-    expect(dialog.contains(await screen.findByRole('combobox', { name: 'What should each row represent?' }))).toBe(true);
+    expect(dialog.contains(await screen.findByRole('combobox', { name: 'Rows per starting record' }))).toBe(true);
   });
 
   it('opens executable related rows from the Rows settings dialog', async () => {
@@ -769,11 +775,13 @@ describe('RowDefinitionSettingsPanel', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
 
     const summary = within(dialog).getByText('One row per Patient record.');
-    const startingType = within(dialog).getByRole('region', { name: 'What should each row represent?' });
+    const startingSettings = within(dialog).getByRole('region', { name: 'Starting record settings' });
+    const startingType = within(dialog).getByRole('region', { name: 'Starting record type' });
     const rowChanges = within(dialog).getByRole('region', { name: 'Choose a row change' });
     const select = within(startingType).getByRole('combobox', { name: 'Record type' });
-    expect(summary.nextElementSibling).toBe(startingType);
-    expect(startingType.compareDocumentPosition(rowChanges) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(summary.nextElementSibling).toBe(startingSettings);
+    expect(startingSettings.contains(startingType)).toBe(true);
+    expect(startingSettings.compareDocumentPosition(rowChanges) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(select instanceof HTMLSelectElement && select.value).toBe('base');
     const patientOption = within(startingType).getByRole('option', { name: 'Patient (current)' });
     expect(patientOption instanceof HTMLOptionElement && patientOption.value).toBe('base');
@@ -804,7 +812,7 @@ describe('RowDefinitionSettingsPanel', () => {
       ] },
     });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
-    const shape = await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    const shape = await screen.findByRole('combobox', { name: 'Rows per starting record' });
     expect(shape instanceof HTMLSelectElement && shape.value).toBe('expanded:expanded-choice');
     const policy = screen.getByRole('combobox', { name: 'Unmatched record policy' });
     expect(policy instanceof HTMLSelectElement && policy.value).toBe('expanded:expanded-choice:EXCLUDE');
@@ -812,8 +820,8 @@ describe('RowDefinitionSettingsPanel', () => {
 
   it('defaults repeated values to preserving unmatched records and allows an explicit policy change', async () => {
     const { proposeRowDefinition } = renderSettings();
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    const shape = await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
+    const shape = await screen.findByRole('combobox', { name: 'Rows per starting record' });
     fireEvent.change(shape, { target: { value: 'expanded:expanded-choice' } });
     expect(screen.getByRole('combobox', { name: 'Unmatched record policy' })).toBeInTheDocument();
     await waitFor(() => expect(proposeRowDefinition).toHaveBeenCalledWith(expect.objectContaining({
@@ -829,8 +837,8 @@ describe('RowDefinitionSettingsPanel', () => {
 
   it('previews the latest row choice without a Preview click', async () => {
     const { proposeRowDefinition } = renderSettings();
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    const shape = await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
+    const shape = await screen.findByRole('combobox', { name: 'Rows per starting record' });
     fireEvent.change(shape, { target: { value: 'expanded:expanded-choice' } });
     fireEvent.change(screen.getByRole('combobox', { name: 'Unmatched record policy' }), {
       target: { value: 'expanded:expanded-choice:EXCLUDE' },
@@ -846,8 +854,8 @@ describe('RowDefinitionSettingsPanel', () => {
   it('cancels an in-flight row preview when the policy changes', async () => {
     const { proposeRowDefinition } = renderSettings();
     proposeRowDefinition.mockImplementationOnce(() => new Promise(() => {}));
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    const shape = await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
+    const shape = await screen.findByRole('combobox', { name: 'Rows per starting record' });
     fireEvent.change(shape, { target: { value: 'expanded:expanded-choice' } });
     await waitFor(() => expect(proposeRowDefinition).toHaveBeenCalledTimes(1));
     const firstSignal = proposeRowDefinition.mock.calls[0]?.[1] as AbortSignal;
@@ -872,16 +880,16 @@ describe('RowDefinitionSettingsPanel', () => {
         policies: [{ name: 'missingKeyPolicy', options: ['ERROR', 'EXCLUDE', 'GROUP_AS_MISSING'] }],
       }],
     } });
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
+    await screen.findByRole('combobox', { name: 'Rows per starting record' });
     expect(screen.queryByRole('option', { name: /Status/ })).toBeNull();
   });
 
   it('previews and applies only the server-issued explicit-group proposal', async () => {
     const { listRowDefinitionChoices, proposeRowDefinition, onApply } = renderSettings();
-    expect(screen.getByTestId('construction-rows-settings-trigger')).toHaveTextContent('One row per source record');
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    const select = await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    expect(screen.getByTestId('construction-rows-settings-trigger')).toHaveTextContent('Change current rows');
+    fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
+    const select = await screen.findByRole('combobox', { name: 'Rows per starting record' });
     expect(screen.getByRole('option', { name: 'One row per source record' })).toBeTruthy();
     expect(screen.getAllByRole('option', { name: 'One row per value in Name' })).toHaveLength(1);
     expect(screen.getAllByRole('option', { name: /One row per saved group/ })).toHaveLength(1);
@@ -918,8 +926,8 @@ describe('RowDefinitionSettingsPanel', () => {
       ],
     };
     renderSettings({ choicesValue: ambiguousChoices });
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
+    await screen.findByRole('combobox', { name: 'Rows per starting record' });
 
     expect(screen.getAllByRole('option', { name: 'One row per code in Component → Code' })).toHaveLength(1);
     expect(screen.getAllByRole('option', { name: 'One row per code in Category' })).toHaveLength(1);
@@ -933,8 +941,8 @@ describe('RowDefinitionSettingsPanel', () => {
         { ...choices.choices[0]!, choiceId: 'direct-component', fieldPath: 'component.code.coding[]' },
       ],
     } });
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
+    await screen.findByRole('combobox', { name: 'Rows per starting record' });
 
     expect(screen.getByRole('option', { name: 'One row per code in Component → Code (component[].code.coding[])' })).toBeTruthy();
     expect(screen.getByRole('option', { name: 'One row per code in Component → Code (component.code.coding[])' })).toBeTruthy();
@@ -949,8 +957,8 @@ describe('RowDefinitionSettingsPanel', () => {
       ],
     };
     renderSettings({ choicesValue: repeatedPathChoices });
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
+    await screen.findByRole('combobox', { name: 'Rows per starting record' });
 
     expect(screen.getAllByRole('option', { name: /One row per code in Component → Code.*Occurrence first via Subject/ })).toHaveLength(1);
     expect(screen.getAllByRole('option', { name: /One row per code in Component → Code.*Occurrence second via Focus/ })).toHaveLength(1);
@@ -1004,8 +1012,8 @@ describe('RowDefinitionSettingsPanel', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
+    await screen.findByRole('combobox', { name: 'Rows per starting record' });
     expect(screen.getByRole('region', { name: 'Named cohorts' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Create groups from this selection' }));
     await screen.findByText('Record 3 · record-c');
@@ -1063,8 +1071,8 @@ describe('RowDefinitionSettingsPanel', () => {
         onApplyRootReplacement={vi.fn().mockResolvedValue(true)}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
+    await screen.findByRole('combobox', { name: 'Rows per starting record' });
     fireEvent.click(screen.getByRole('button', { name: 'Create groups from this selection' }));
     await screen.findByText('Record 3 · record-c');
     fireEvent.click(screen.getByRole('button', { name: 'Cancel group setup' }));
@@ -1103,8 +1111,8 @@ describe('RowDefinitionSettingsPanel', () => {
         table={table} workspaceTables={[table]} selection={sourceSelection} disabled={false} onApply={vi.fn().mockResolvedValue(true)} onApplyRootReplacement={vi.fn().mockResolvedValue(true)}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
+    await screen.findByRole('combobox', { name: 'Rows per starting record' });
     fireEvent.click(screen.getByRole('button', { name: 'Create groups from this selection' }));
     await screen.findByText('Record 2 · record-b');
     expect(screen.getByText('Loaded 2 of 3. Records not loaded or not assigned remain unassigned.')).toBeTruthy();
@@ -1150,8 +1158,8 @@ describe('RowDefinitionSettingsPanel', () => {
         table={table} workspaceTables={[table]} selection={sourceSelection} disabled={false} onApply={vi.fn().mockResolvedValue(true)} onApplyRootReplacement={vi.fn().mockResolvedValue(true)}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
+    await screen.findByRole('combobox', { name: 'Rows per starting record' });
     fireEvent.click(screen.getByRole('button', { name: 'Create groups from this selection' }));
     await screen.findByText('Record 3 · record-c');
     fireEvent.click(screen.getByRole('button', { name: 'Remove Group B' }));
@@ -1175,8 +1183,8 @@ describe('RowDefinitionSettingsPanel', () => {
       ...relatedRowProps,
     };
     const view = render(<RowDefinitionSettingsPanel {...props} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    fireEvent.change(await screen.findByRole('combobox', { name: 'What should each row represent?' }), {
+    fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Rows per starting record' }), {
       target: { value: 'expanded:expanded-choice' },
     });
     await screen.findByRole('button', { name: 'Apply row definition' });
@@ -1201,8 +1209,8 @@ describe('RowDefinitionSettingsPanel', () => {
       },
     };
     const { proposeRowDefinition, onApply } = renderSettings({ proposalValue: unavailable });
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    fireEvent.change(await screen.findByRole('combobox', { name: 'What should each row represent?' }), {
+    fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Rows per starting record' }), {
       target: { value: 'expanded:expanded-choice' },
     });
     expect((await screen.findAllByText('The server could not compare this row definition.')).length).toBeGreaterThan(0);
@@ -1237,12 +1245,12 @@ describe('RowDefinitionSettingsPanel', () => {
         onApplyRootReplacement={vi.fn().mockResolvedValue(true)}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    fireEvent.change(await screen.findByRole('combobox', { name: 'What should each row represent?' }), {
+    fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Rows per starting record' }), {
       target: { value: 'expanded:expanded-choice' },
     });
     expect((await screen.findByRole('alert')).textContent).toContain(serverError.message);
-    expect(screen.getByRole('combobox', { name: 'What should each row represent?' })).toBeEnabled();
+    expect(screen.getByRole('combobox', { name: 'Rows per starting record' })).toBeEnabled();
     expect(screen.getByRole('combobox', { name: 'Unmatched record policy' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'Back to table' }));
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -1252,8 +1260,8 @@ describe('RowDefinitionSettingsPanel', () => {
   it('repairs a missing-value validation failure by changing policy in the same dialog', async () => {
     const { proposeRowDefinition, onApply } = renderSettings();
     proposeRowDefinition.mockRejectedValueOnce(Object.assign(new Error('Some records have no values for this field. Choose another missing-value policy.'), { status: 422, code: 'EMPTY_COLLECTION_ERROR' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    fireEvent.change(await screen.findByRole('combobox', { name: 'What should each row represent?' }), { target: { value: 'expanded:expanded-choice' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Rows per starting record' }), { target: { value: 'expanded:expanded-choice' } });
     expect(await screen.findByRole('alert')).toHaveTextContent('Some records have no values');
     expect(screen.queryByRole('button', { name: 'Apply row definition' })).not.toBeInTheDocument();
     const policy = screen.getByRole('combobox', { name: 'Unmatched record policy' });

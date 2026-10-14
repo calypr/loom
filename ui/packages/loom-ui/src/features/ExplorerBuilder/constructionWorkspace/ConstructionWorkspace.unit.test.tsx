@@ -68,6 +68,93 @@ describe('ConstructionWorkspace', () => {
       .toBe('One row per distinct code, including its system and version.');
   });
 
+  it('describes the current related-record grain, route, and unmatched-row behavior', () => {
+    const related: Construction = {
+      version: 1,
+      steps: [{
+        id: 'related-medication-administration',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: {
+          kind: 'RELATED_EXPAND',
+          relatedExpand: {
+            anchorColumnId: '_key',
+            choiceId: 'observation-to-medication-administration',
+            targetNodeId: 'medication-administration-node',
+            targetResourceType: 'MedicationAdministration',
+            route: [
+              {
+                edgeId: 'observation-subject-patient',
+                fromNodeId: 'observation-node',
+                fromResourceType: 'Observation',
+                relationship: 'subject_Patient',
+                storageDirection: 'OUTBOUND',
+                toNodeId: 'patient-node',
+                toResourceType: 'Patient',
+                matchMode: 'OPTIONAL',
+              },
+              {
+                edgeId: 'patient-subject-medication-administration',
+                fromNodeId: 'patient-node',
+                fromResourceType: 'Patient',
+                relationship: 'subject_Patient',
+                storageDirection: 'INBOUND',
+                toNodeId: 'medication-administration-node',
+                toResourceType: 'MedicationAdministration',
+                matchMode: 'OPTIONAL',
+              },
+            ],
+            contributorRule: { policy: 'ALL_MATCHES' },
+            emptyPolicy: 'PRESERVE_PARENT',
+            relatedRecordColumnId: 'medication-administration-id',
+          },
+        },
+        outputs: [{ id: 'medication-administration-id', name: 'medication_administration_id', label: 'MedicationAdministration FHIR resource ID', type: 'string', nullable: true }],
+      }],
+    };
+
+    expect(constructionRowMeaning('One row per Observation record.', related, []))
+      .toBe('For each Observation, one row per matching MedicationAdministration through the same Patient; existing row fields repeat on each match; keep one Observation row with an empty MedicationAdministration FHIR resource ID when no match exists.');
+
+    const originalStep = related.steps[0]!;
+    if (originalStep.operation.kind !== 'RELATED_EXPAND') throw new Error('Expected a related expansion');
+    const [firstRouteStep, lastRouteStep] = originalStep.operation.relatedExpand.route;
+    const repeatedIntermediaryRoute: Construction = {
+      version: 1,
+      steps: [{
+        ...originalStep,
+        operation: {
+          kind: 'RELATED_EXPAND',
+          relatedExpand: {
+            ...originalStep.operation.relatedExpand,
+            route: [
+              firstRouteStep!,
+              { ...firstRouteStep!, edgeId: 'patient-care-team', fromNodeId: 'patient-node', fromResourceType: 'Patient', toNodeId: 'care-team-node', toResourceType: 'CareTeam' },
+              { ...firstRouteStep!, edgeId: 'care-team-patient', fromNodeId: 'care-team-node', fromResourceType: 'CareTeam', toNodeId: 'patient-node', toResourceType: 'Patient' },
+              lastRouteStep!,
+            ],
+          },
+        },
+      }],
+    };
+    expect(constructionRowMeaning('One row per Observation record.', repeatedIntermediaryRoute, []))
+      .toContain('through Patient → CareTeam → Patient');
+
+    const groupedThenRelated: Construction = {
+      version: 1,
+      steps: [
+        {
+          id: 'group-status', inputs: [{ kind: 'SOURCE_PROJECTION' }],
+          operation: { kind: 'GROUP', group: { constructionId: 'group-status', keys: [{ inputColumnId: 'status', outputColumnId: 'status' }] } },
+          outputs: [{ id: 'status', name: 'status', label: 'Status' }],
+        },
+        { ...related.steps[0]!, id: 'related-after-group', inputs: [{ kind: 'STEP_OUTPUT', stepId: 'group-status' }] },
+      ],
+    };
+    expect(constructionRowMeaning('One row per Observation record.', groupedThenRelated, [
+      { id: 'status', name: 'status', label: 'Status' },
+    ])).toBe('For each current row (one row per distinct combination of Status), one row per matching MedicationAdministration through the same Patient; existing row fields repeat on each match; keep the current row once with an empty MedicationAdministration FHIR resource ID when no match exists.');
+  });
+
   it('keeps column and filter actions above the table while row reshaping lives in Rows', () => {
     const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
 
@@ -218,7 +305,8 @@ describe('ConstructionWorkspace', () => {
     expect(screen.getByText('25')).toBeInTheDocument();
     expect(screen.getByText('Full count not measured')).toBeInTheDocument();
     expect(screen.getByText('Calculate editor').closest('[aria-label="Change editor"]')).toBeInTheDocument();
-    expect(screen.queryByText('One row per patient.')).toBeNull();
+    expect(screen.getByTestId('construction-row-meaning')).toHaveTextContent('One row per patient.');
+    expect(screen.getByRole('heading', { name: 'What each row represents' })).toBeInTheDocument();
     expect(screen.queryByTestId('construction-row-setup')).toBeNull();
     expect(screen.queryByTestId('construction-action-add-columns')).toBeNull();
     expect(screen.getByText('Current rows')).toBeInTheDocument();
@@ -435,31 +523,60 @@ describe('ConstructionWorkspace', () => {
     ]);
   });
 
-  it('only enables source additions when compiler stages retain the source row identity', () => {
-    const stages = [
+  it('requires a matching compiler proof before enabling source fields after a row change', () => {
+    const direct = [{
+      id: 'source_projection',
+      inputStageId: '',
+      rowIdentityColumn: 'source_row_id',
+      columns: [],
+      capabilities: [],
+    }];
+    const transformed = [
+      ...direct,
       {
-        id: 'source_projection',
-        inputStageId: '',
-        rowIdentityColumn: 'source_row_id',
-        columns: [],
-        capabilities: [],
-      },
-      {
-        id: 'derive_bmi',
+        id: 'related_expand',
         inputStageId: 'source_projection',
-        rowIdentityColumn: 'source_row_id',
+        rowIdentityColumn: 'related_row_id',
         columns: [],
         capabilities: [],
       },
     ];
-    expect(sourceProjectionAvailability(stages).available).toBe(true);
+    const grouped = [
+      ...direct,
+      {
+        id: 'group_cohorts',
+        inputStageId: 'source_projection',
+        rowIdentityColumn: 'cohort_row_id',
+        columns: [],
+        capabilities: [{ kind: 'ROW_VALUES' as const, supported: true }],
+      },
+    ];
+    expect(sourceProjectionAvailability(direct).available).toBe(true);
     expect(sourceProjectionAvailability(undefined).available).toBe(false);
-    expect(sourceProjectionAvailability([
-      stages[0],
-      { ...stages[1], rowIdentityColumn: 'reshaped_row_id' },
-    ])).toMatchObject({
+    expect(sourceProjectionAvailability(transformed).available).toBe(false);
+    expect(sourceProjectionAvailability(grouped, {
+      stageId: 'group_cohorts', supported: false,
+    }, 'group_cohorts')).toMatchObject({
+      available: true,
+      reason: expect.stringContaining('contributing to each grouped row'),
+    });
+    expect(sourceProjectionAvailability(grouped, {
+      stageId: 'group_cohorts', supported: false,
+    }, 'stale_stage').available).toBe(false);
+    expect(sourceProjectionAvailability(transformed, {
+      stageId: 'related_expand', supported: true,
+    }, 'related_expand').available).toBe(true);
+    expect(sourceProjectionAvailability(transformed, {
+      stageId: 'source_projection', supported: true,
+    }, 'related_expand')).toMatchObject({
       available: false,
-      reason: expect.stringContaining('row identity'),
+      reason: expect.stringContaining('does not match'),
+    });
+    expect(sourceProjectionAvailability(transformed, {
+      stageId: 'related_expand', supported: false,
+    }, 'related_expand')).toMatchObject({
+      available: false,
+      reason: expect.stringContaining('not available'),
     });
   });
 

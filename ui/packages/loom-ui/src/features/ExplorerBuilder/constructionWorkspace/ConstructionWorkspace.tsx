@@ -298,6 +298,13 @@ export const ConstructionHistory = ({
   );
 };
 
+const CurrentRowMeaning = ({ rowMeaning }: { readonly rowMeaning: string }) => (
+  <section aria-label="Current row meaning" data-testid="construction-row-meaning" className="mt-2 rounded-md border border-emerald-200 bg-emerald-50/50 px-3 py-2">
+    <h2 className="text-[11px] font-semibold uppercase tracking-wide text-emerald-900">What each row represents</h2>
+    <p className="mt-0.5 text-sm text-slate-800">{rowMeaning}</p>
+  </section>
+);
+
 export const ConstructionWorkspace = ({
   tables,
   selectedOutputId,
@@ -393,11 +400,14 @@ export const ConstructionWorkspace = ({
         ? 'flex flex-wrap items-center gap-3 border-b border-slate-200 px-1 py-2'
         : 'flex flex-wrap items-start gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:px-5'}>
         <div className="min-w-0 flex-1">
-          {editor ? <h1 className="truncate text-sm font-semibold text-slate-900">Editing {title}</h1> : (
+          {editor ? <>
+            <h1 className="truncate text-sm font-semibold text-slate-900">Editing {title}</h1>
+            <CurrentRowMeaning rowMeaning={rowMeaning} />
+          </> : (
             <>
               <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Dataset workspace</p>
               <h1 className="mt-0.5 truncate text-xl font-semibold tracking-tight text-slate-950">{title}</h1>
-              {!rowSetup ? <p className="mt-1 text-sm text-slate-600">{rowMeaning}</p> : null}
+              <CurrentRowMeaning rowMeaning={rowMeaning} />
               {rowSetup ? <div aria-label="Define table rows" data-testid="construction-row-setup" className="mt-2 max-w-xl">{rowSetup}</div> : null}
             </>
           )}

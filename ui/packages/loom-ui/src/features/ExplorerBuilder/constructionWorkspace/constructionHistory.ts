@@ -311,6 +311,8 @@ export const constructionRowMeaning = (
   }
   const stages = new Map<string, ReadonlyMap<string, ConstructionStageColumn>>();
   let meaning = sourceMeaning;
+  let relatedExpandCount = 0;
+  let rowsStillRepresentStartingRecords = true;
 
   for (const step of construction.steps) {
     const inputRef = step.inputs[0];
@@ -320,6 +322,8 @@ export const constructionRowMeaning = (
     const column = (id: string) => input.get(id)?.label ?? step.outputs.find((item) => item.id === id)?.label ?? 'a selected column';
     switch (step.operation.kind) {
       case 'GROUP': {
+        relatedExpandCount = 0;
+        rowsStillRepresentStartingRecords = false;
         const keys = (step.operation.group.keys ?? []).map((key) => column(key.inputColumnId));
         meaning = keys.length > 0
           ? `One row per distinct combination of ${keys.join(', ')}.`
@@ -327,9 +331,13 @@ export const constructionRowMeaning = (
         break;
       }
       case 'CODED_GROUP':
+        relatedExpandCount = 0;
+        rowsStillRepresentStartingRecords = false;
         meaning = 'One row per distinct code, including its system and version.';
         break;
       case 'PIVOT': {
+        relatedExpandCount = 0;
+        rowsStillRepresentStartingRecords = false;
         const keys = step.operation.pivot.groupKeyIds.map(column);
         meaning = keys.length > 0
           ? `One row per distinct combination of ${keys.join(', ')}.`
@@ -337,18 +345,50 @@ export const constructionRowMeaning = (
         break;
       }
       case 'EXPAND':
+        relatedExpandCount = 0;
+        rowsStillRepresentStartingRecords = false;
         meaning = `One row per value in ${column(step.operation.expand.inputColumnId)} from each input row.`;
         break;
-      case 'RELATED_EXPAND':
-        meaning = `One row per matching ${step.operation.relatedExpand.targetResourceType} for each input row${
-          step.operation.relatedExpand.emptyPolicy === 'PRESERVE_PARENT' ? '; rows with no match remain' : ''}.`;
+      case 'RELATED_EXPAND': {
+        relatedExpandCount += 1;
+        if (relatedExpandCount > 1) {
+          rowsStillRepresentStartingRecords = false;
+          meaning = `Current rows include ${relatedExpandCount} saved related-record expansions. See the saved row changes for each route and unmatched-record rule.`;
+          break;
+        }
+        const expansion = step.operation.relatedExpand;
+        const sourceResourceType = expansion.route[0]?.fromResourceType;
+        const startingResourceType = rowsStillRepresentStartingRecords ? sourceResourceType : undefined;
+        const via = expansion.route.slice(0, -1).map((routeStep) => routeStep.toResourceType);
+        const priorGrain = meaning.replace(/\.$/, '').replace(/^./, (first) => first.toLowerCase());
+        const rowSource = startingResourceType
+          ? `For each ${startingResourceType}`
+          : `For each current row (${priorGrain})`;
+        const routeSummary = via.length === 1
+          ? ` through the same ${via[0]}`
+          : via.length > 1 ? ` through ${via.join(' → ')}` : '';
+        const relatedRecordLabel = step.outputs.find((output) => output.id === expansion.relatedRecordColumnId)?.label ?? `${expansion.targetResourceType} ID`;
+        const unmatched = expansion.emptyPolicy === 'PRESERVE_PARENT'
+          ? startingResourceType
+            ? `keep one ${startingResourceType} row with an empty ${relatedRecordLabel} when no match exists`
+            : `keep the current row once with an empty ${relatedRecordLabel} when no match exists`
+          : expansion.emptyPolicy === 'ERROR'
+            ? 'require a matching record for every current row'
+            : startingResourceType ? `omit the ${startingResourceType} row when no match exists` : 'omit the current row when no match exists';
+        meaning = `${rowSource}, one row per matching ${expansion.targetResourceType}${routeSummary}; existing row fields repeat on each match; ${unmatched}.`;
+        rowsStillRepresentStartingRecords = false;
         break;
+      }
       case 'UNPIVOT':
+        relatedExpandCount = 0;
+        rowsStillRepresentStartingRecords = false;
         meaning = `One row per selected column from each input row${
           step.operation.unpivot.nullRowPolicy === 'DROP' ? ' when it has a value' : ''}.`;
         break;
       case 'COMBINE':
         if (step.operation.combine.kind !== 'MEMBERSHIP') {
+          relatedExpandCount = 0;
+          rowsStillRepresentStartingRecords = false;
           meaning = 'Rows from combined tables; matching or appended records may change the row count.';
         }
         break;
