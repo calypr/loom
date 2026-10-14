@@ -644,8 +644,8 @@ describe('BuilderWorkspace Add columns source selection', () => {
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
     fireEvent.click(screen.getByRole('button', { name: 'Fields and related data' }));
     const source = await screen.findByRole('group', { name: 'Add columns source' });
-    const relatedSources = within(source).getByRole('group', { name: 'Related resources' });
-    const exactRelated = within(relatedSources).getByRole('button', {
+    const searchScope = within(source).getByRole('group', { name: 'Search scope' });
+    const exactRelated = within(searchScope).getByRole('button', {
       name: 'MedicationAdministration — this row’s related record, Related record for this row',
     });
 

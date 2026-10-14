@@ -475,8 +475,15 @@ export const relatedExpandFieldLifecycleWorkflow = async ({ page, action, check,
   check('persistence', 'editing the related field label preserves its source binding and exact expanded rows after reload', true,
     { field: fieldOutput, source: savedFieldStep.operation.relatedField.source, rows: grid.rows });
 
-  await click('open Columns to remove the active related field', page.getByRole('button', { name: 'Columns', exact: true }));
-  await click('remove MedicationAdministration.status column', page.getByRole('button', { name: `Remove ${editedFieldLabel} column`, exact: true }), async () => {
+  const relatedFieldStepId = savedFieldStep.id;
+  const relatedFieldHistoryItem = page.getByRole('button', { name: /Field from this row’s related record/ });
+  await click('select the active related field history step', relatedFieldHistoryItem,
+    () => page.getByTestId(`construction-remove-step-${relatedFieldStepId}`).waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }));
+  await click('propose removal of the active related field step', page.getByTestId(`construction-remove-step-${relatedFieldStepId}`),
+    () => waitForProposal(page));
+  await click('Apply removal of the active related field step', page.getByTestId('construction-apply-proposal'), async () => {
+    await page.waitForFunction(() => !document.querySelector('[data-testid="construction-proposal-panel"]'), undefined,
+      { timeout: ACTION_TIMEOUT_MS });
     await waitForSavedPreview(page, outputId, 3);
     builder = await readVisibleWorkspace(page, target, builderPath);
     document = documentFor(builder, outputId);

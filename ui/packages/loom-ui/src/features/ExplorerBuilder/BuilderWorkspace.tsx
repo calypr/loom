@@ -1381,7 +1381,7 @@ const BuilderWorkspaceContent = ({
       label,
       description,
       selected: source.key === selectedAddSource?.key,
-      isSearchScope: source.kind === 'ROOT' || source.kind === 'ALL',
+      isSearchScope: source.kind === 'ROOT' || source.kind === 'ALL' || source.kind === 'EXACT_RELATED',
     };
   });
   const scopeSourceOptions = addSourceOptionItems.filter((option) => option.isSearchScope);
