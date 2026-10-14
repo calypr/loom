@@ -33,13 +33,13 @@ const fixtureItem = (entries, label, predicate) => {
 
 const semanticLabel = item => item.display?.trim() || item.code;
 const formLabel = form => ({
-  VALUE: 'One value',
-  FIRST: 'First value',
-  ALL: 'All values',
-  DISTINCT: 'Distinct values',
-  COUNT: 'Matching record count',
-  PRESENCE: 'Has matching record',
-  OWNER_RECORDS: 'Matching records',
+  VALUE: 'Use the matching value',
+  FIRST: 'Use the first value',
+  ALL: 'Keep all matching values',
+  DISTINCT: 'Keep unique values',
+  COUNT: 'Count matching records',
+  PRESENCE: 'Show whether a match exists',
+  OWNER_RECORDS: 'Keep each matching record',
 })[form];
 const routePath = route => {
   const relationshipField = edge => [edge.fromResourceType, edge.toResourceType].reduce((name, type) =>
@@ -354,6 +354,7 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
       await page.getByRole('dialog', { name: 'Choose how to add these fields', exact: true })
         .waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
     });
+    const selectionDialog = page.getByRole('dialog', { name: 'Choose how to add these fields', exact: true });
     const choiceResponses = await Promise.all(choicePromises);
     const selectedChoiceByLabel = new Map();
     for (const item of selectedItems) {
@@ -377,7 +378,7 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
           `${label} route must end at the exact inventory source node.`);
       }
       const routeRadioName = `${label}: ${routePath(selectedChoice.route)}`;
-      const routeRadio = page.getByRole('dialog').getByRole('radio', { name: routeRadioName, exact: true });
+      const routeRadio = selectionDialog.getByRole('radio', { name: routeRadioName, exact: true });
       if (await routeRadio.count()) {
         if (!(await routeRadio.isChecked())) await click(`${phase}: choose ${item.resourceType} route for ${label}`, routeRadio);
       }
@@ -386,13 +387,13 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
         ?? selectedChoice.options.find(option => option.support === 'SUPPORTED');
       const form = allOption?.form ?? defaultOption?.form;
       assert(form, `${label} must have a compiler-supported result form.`);
-      const formRadio = page.getByRole('dialog').getByRole('radio', { name: `${label}: ${formLabel(form)}`, exact: true });
+      const formRadio = selectionDialog.getByRole('radio', { name: `${label}: ${formLabel(form)}`, exact: true });
       assert.equal(await formRadio.count(), 1, `${label} must expose the selected supported ${form} form.`);
       if (!(await formRadio.isChecked())) await click(`${phase}: choose ${form} for ${label}`, formRadio);
       selectedChoiceByLabel.set(label, { item, choice: selectedChoice, form });
     }
     const proposalStart = networkObserver.requests.length;
-    await click(`${phase}: submit the selected coded columns`, page.getByRole('dialog').getByRole('button', { name: 'Add 5 columns', exact: true }),
+    await click(`${phase}: submit the selected coded columns`, selectionDialog.getByRole('button', { name: 'Add 5 columns', exact: true }),
       () => page.getByTestId('construction-choice-proposal-panel').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }));
     const proposal = await networkObserver.waitForResponse(entry => entry.index >= proposalStart &&
       entry.path.endsWith('/construction-choice-proposals') && entry.request?.outputId === outputId,
