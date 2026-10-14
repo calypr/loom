@@ -325,7 +325,7 @@ describe('ConceptCatalog', () => {
 
     await screen.findByRole('searchbox', { name: 'Search features by field name, concept, or code' });
     expect(searchSchemaFields).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByText('Raw FHIR fields (advanced)'));
+    fireEvent.click(within(screen.getByTestId('feature-catalog-raw-fields')).getByText('Fields'));
     await waitFor(() => expect(searchSchemaFields).toHaveBeenCalledTimes(1));
   });
 

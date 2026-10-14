@@ -1239,8 +1239,8 @@ const ConceptCatalogContent = ({
 
           <details className="mt-6 border-t border-slate-200 pt-5" data-testid="feature-catalog-raw-fields" open={layout !== 'panel' ? true : undefined}
             onToggle={(event) => { if (layout === 'panel') setRawFieldsExpanded(event.currentTarget.open); }}>
-            <summary className="cursor-pointer text-sm font-semibold text-slate-700">Raw FHIR fields (advanced)</summary>
-            <p className="mt-2 text-xs text-slate-600">Use a source path when you need a row ID, date, grouping field, or a value without a coded pairing.</p>
+            <summary className="cursor-pointer text-sm font-semibold text-slate-700">Fields</summary>
+            <p className="mt-2 text-xs text-slate-600">Choose a dataset field such as a row ID, date, grouping field, or value without a coded pairing.</p>
           <section className="mt-3" aria-labelledby="feature-catalog-fields-title">
             <div className="flex items-center justify-between gap-3">
               <h3 id="feature-catalog-fields-title" className="text-sm font-semibold text-slate-800">Fields {resourceType ? `on ${resourceType}` : query ? 'matching this search' : `on ${rowRoot}`}</h3>

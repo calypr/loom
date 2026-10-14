@@ -601,7 +601,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(mockLoomClient.getConstructionCapabilities).not.toHaveBeenCalled();
   });
 
-  it('opens the table-scoped all-source coded catalog without a separate source picker', async () => {
+  it('shows coded values and fields in one all-source catalog with source scopes', async () => {
     const { unmount } = render(
       <BuilderWorkspace
         organization="HTAN_INT"
@@ -612,6 +612,12 @@ describe('BuilderWorkspace Add columns source selection', () => {
 
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
     expect(await screen.findByRole('heading', { name: 'Add coded values to this table' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Column types' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Fields and related data' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Coded values for this table' })).toBeInTheDocument();
+    expect(within(screen.getByTestId('feature-catalog-raw-fields')).getByText('Fields')).toBeInTheDocument();
+    const sourceScopes = screen.getByRole('group', { name: 'Search scope' });
+    expect(within(sourceScopes).getByRole('button', { name: 'All accessible resources, Search coded concepts and fields across the dataset' })).toHaveAttribute('aria-pressed', 'true');
     await waitFor(() => expect(mockLoomClient.browseSemanticInventory.mock.calls.some(([args]) => args.outputId === 'patients')).toBe(true));
     const request = mockLoomClient.browseSemanticInventory.mock.calls.find(([args]) => args.outputId === 'patients')?.[0];
     if (!request) throw new Error('The coded browser did not request the current table inventory.');
@@ -677,7 +683,6 @@ describe('BuilderWorkspace Add columns source selection', () => {
     );
 
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
-    fireEvent.click(screen.getByRole('button', { name: 'Fields and related data' }));
     const source = await screen.findByRole('group', { name: 'Add columns source' });
     const searchScope = within(source).getByRole('group', { name: 'Search scope' });
     const exactRelated = within(searchScope).getByRole('button', {
@@ -686,6 +691,8 @@ describe('BuilderWorkspace Add columns source selection', () => {
 
     expect(exactRelated.textContent).toContain('MedicationAdministration — this row’s related record');
     expect(exactRelated.getAttribute('data-source-kind')).toBe('EXACT_RELATED');
+    fireEvent.click(exactRelated);
+    expect(exactRelated).toHaveAttribute('aria-pressed', 'true');
     await waitFor(() => expect(mockLoomClient.searchRelatedFieldChoices).toHaveBeenCalledTimes(1));
     await act(async () => {
       await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
@@ -825,7 +832,6 @@ describe('BuilderWorkspace Add columns source selection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Select saved DiagnosticReport occurrence' }));
     fireEvent.click(screen.getByText('Advanced source setup'));
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
-    fireEvent.click(screen.getByRole('button', { name: 'Fields and related data' }));
 
     const source = await screen.findByRole('group', { name: 'Add columns source' });
     const currentRows = within(source).getByRole('group', { name: 'Search scope' });
@@ -914,7 +920,6 @@ describe('BuilderWorkspace Add columns source selection', () => {
     );
     fireEvent.click(screen.getByText('Advanced source setup'));
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
-    fireEvent.click(screen.getByRole('button', { name: 'Fields and related data' }));
 
     const source = await screen.findByRole('group', { name: 'Add columns source' });
     const currentRows = within(source).getByRole('group', { name: 'Search scope' });
@@ -1171,7 +1176,6 @@ describe('BuilderWorkspace Add columns source selection', () => {
     );
     fireEvent.click(screen.getByText('Advanced source setup'));
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
-    fireEvent.click(screen.getByRole('button', { name: 'Fields and related data' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Observation, Related resource' }));
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Observation.status' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
@@ -1451,7 +1455,6 @@ describe('BuilderWorkspace Add columns source selection', () => {
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
     fireEvent.click(screen.getByText('Advanced source setup'));
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
-    fireEvent.click(screen.getByRole('button', { name: 'Fields and related data' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Observation, Related resource' }));
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Observation.id' }));
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Observation.valueQuantity.value' }));

@@ -537,7 +537,6 @@ const BuilderWorkspaceContent = ({
   });
   const combineCatalogController = useRef<AbortController | undefined>(undefined);
   const combineCatalogRequestGeneration = useRef(0);
-  const [addColumnsView, setAddColumnsView] = useState<'coded' | 'fields'>('coded');
   const [rowValuePolicy, setRowValuePolicy] = useState<NonNullable<ConstructionChoiceSelection['rowValuePolicy']>>('ALL');
   const [reshapeEntry, setReshapeEntry] = useState(0);
   const [reshapeEntryKind, setReshapeEntryKind] = useState<ReshapeEntryKind>('choose');
@@ -1336,8 +1335,9 @@ const BuilderWorkspaceContent = ({
   const selectedAddSource = addSourceOptions.find(
     (source) => source.key === (addColumnsSource?.context === addSourceContext
       ? addColumnsSource.key
-      : addSourceOptions.find((option) => option.kind === 'EXACT_RELATED')?.key ??
-        addSourceOptions.find((option) => (option.kind === 'RELATED' || option.kind === 'SAVED_OCCURRENCE') && option.sourceNodeId === selectedRouteContext?.nodeId)?.key),
+      : addSourceOptions.find((option) => (option.kind === 'RELATED' || option.kind === 'SAVED_OCCURRENCE') && option.sourceNodeId === selectedRouteContext?.nodeId)?.key ??
+        addSourceOptions.find((option) => option.kind === 'ALL')?.key ??
+        addSourceOptions.find((option) => option.kind === 'EXACT_RELATED')?.key),
   ) ?? addSourceOptions.find((option) => option.kind === 'ALL') ?? addSourceOptions[0];
   useEffect(() => {
     choiceProposalRequest.current?.abort();
@@ -3393,43 +3393,124 @@ const BuilderWorkspaceContent = ({
                 <span className="text-xs text-slate-500">Missing values stay empty. Require one stops if records disagree.</span>
               </label>
             ) : null}
-            <div role="group" aria-label="Column types" className="flex gap-1 rounded-md bg-slate-100 p-1">
-              <button type="button" aria-pressed={addColumnsView === 'coded'} onClick={() => setAddColumnsView('coded')}
-                className={`rounded px-3 py-1.5 text-sm font-medium ${addColumnsView === 'coded' ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-600'}`}>
-                Coded values
-              </button>
-              <button type="button" aria-pressed={addColumnsView === 'fields'} onClick={() => setAddColumnsView('fields')}
-                className={`rounded px-3 py-1.5 text-sm font-medium ${addColumnsView === 'fields' ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-600'}`}>
-                Fields and related data
-              </button>
-            </div>
-            {addColumnsView === 'coded' && table.document.rootResourceType ? (
+            {table.document.rootResourceType ? (
               <>
-                <ConceptCatalog
-                  key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:coded-all`}
-                  project={projectId}
-                  explorerId={state.explorerId}
-                  authResourcePath={authResourcePath}
-                  snapshotToken={state.catalog.snapshotToken}
-                  outputId={table.outputId}
-                  rowRoot={table.document.rootResourceType}
-                  layout="panel"
-                  codedValuesOnly
-                  catalog={state.catalog}
-                  sourceProjectionAvailability={sourceAvailability}
-                  relatedSourceAvailability={relatedSourceAvailability}
-                  suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}
-                  disabledReason={sourceSelectionDisabledReason}
-                  disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                  groupedRowValuePolicy={groupedRowValuePolicy}
-                  onAddSelected={addSelectedFeatures}
-                  onInspectRouteCoverage={inspectRelatedRouteCoverage}
-                />
+                <fieldset
+                  aria-label="Add columns source"
+                  data-testid="construction-add-columns-source"
+                  className="rounded-lg border border-slate-200 bg-white p-2"
+                >
+                  <legend className="px-1 text-xs font-semibold text-slate-700">Browse from</legend>
+                  <div role="group" aria-label="Search scope">
+                    <div className="flex flex-wrap gap-1.5">
+                      {scopeSourceOptions.map(({ source, label, description, selected }) => (
+                        <button
+                          key={source.key}
+                          type="button"
+                          aria-label={`${label}, ${description}`}
+                          aria-pressed={selected}
+                          data-testid="construction-add-columns-source-option"
+                          data-source-key={source.key}
+                          data-source-kind={source.kind}
+                          onClick={() => {
+                            setAddColumnsSource({ context: addSourceContext, key: source.key });
+                            setAddSourceSearch({ context: addSourceContext, query: '' });
+                          }}
+                          title={description}
+                          className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${selected ? 'border-blue-700 bg-blue-50 text-blue-950' : 'border-slate-300 bg-white text-slate-800 hover:border-slate-500'}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {relatedSourceOptions.length > 0 ? (
+                    <details role="group" aria-label="Related resources" open={relatedSourceMenuOpen || selectedAddSource?.kind === 'EXACT_RELATED'} className="mt-2 border-t border-slate-100 pt-2">
+                      <summary className="cursor-pointer text-xs font-medium text-blue-800" onClick={(event) => { event.preventDefault(); setRelatedSourceMenuOpen((open) => !open); }}>
+                        Related resources ({relatedSourceOptions.length})
+                      </summary>
+                      {relatedSourceOptions.length >= 6 ? (
+                        <input
+                          type="search"
+                          aria-label="Search related resources"
+                          data-testid="construction-add-columns-source-search"
+                          value={addSourceSearch.context === addSourceContext ? addSourceSearch.query : ''}
+                          onChange={(event) => setAddSourceSearch({
+                            context: addSourceContext,
+                            query: event.currentTarget.value,
+                          })}
+                          placeholder="Search resource types"
+                          className="mb-2 w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 placeholder:text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+                        />
+                      ) : null}
+                      <div className="flex flex-wrap gap-1.5">
+                        {visibleRelatedSourceOptions.map(({ source, label, description, selected }) => (
+                          <button
+                            key={source.key}
+                            type="button"
+                            aria-label={`${label}, ${description}`}
+                            aria-pressed={selected}
+                            data-testid="construction-add-columns-source-option"
+                            data-source-key={source.key}
+                            data-source-kind={source.kind}
+                            onClick={() => {
+                              setAddColumnsSource({ context: addSourceContext, key: source.key });
+                              setAddSourceSearch({ context: addSourceContext, query: '' });
+                            }}
+                            title={description}
+                            className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${selected ? 'border-blue-700 bg-blue-50 text-blue-950' : 'border-slate-300 bg-white text-slate-800 hover:border-slate-500'}`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      {visibleRelatedSourceOptions.length === 0 ? (
+                        <p role="status" className="text-sm text-slate-600">No related resources match this search.</p>
+                      ) : null}
+                    </details>
+                  ) : null}
+                </fieldset>
+                {selectedAddSource?.kind === 'EXACT_RELATED' && constructionLifecycle.capabilities.status === 'ready' ? (
+                  <RelatedFieldEditor
+                    key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${constructionLifecycle.capabilities.response.selectedStage.id}`}
+                    project={projectId}
+                    explorerId={state.explorerId}
+                    authResourcePath={authResourcePath}
+                    snapshotToken={state.catalog.snapshotToken}
+                    outputId={table.outputId}
+                    construction={table.document.construction ?? constructionLifecycle.capabilities.response.baseConstruction}
+                    capabilities={constructionLifecycle.capabilities.response}
+                    disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+                    onCandidateChange={constructionLifecycle.onCandidateChange}
+                  />
+                ) : (
+                  <ConceptCatalog
+                    key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${selectedAddSource?.key ?? 'root'}:${addSourceRouteContext?.occurrenceId ?? 'unscoped'}`}
+                    project={projectId}
+                    explorerId={state.explorerId}
+                    authResourcePath={authResourcePath}
+                    snapshotToken={state.catalog.snapshotToken}
+                    outputId={table.outputId}
+                    rowRoot={table.document.rootResourceType}
+                    resourceType={selectedAddSource?.resourceType}
+                    sourceNodeId={selectedAddSource?.sourceNodeId}
+                    routeContext={addSourceRouteContext}
+                    layout="panel"
+                    codedValuesOnly
+                    catalog={state.catalog}
+                    sourceProjectionAvailability={sourceAvailability}
+                    relatedSourceAvailability={relatedSourceAvailability}
+                    suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}
+                    disabledReason={sourceSelectionDisabledReason}
+                    disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                    groupedRowValuePolicy={groupedRowValuePolicy}
+                    onAddSelected={addSelectedFeatures}
+                    onInspectRouteCoverage={inspectRelatedRouteCoverage}
+                  />
+                )}
                 {table.document.frames?.length ? (
                   <details className="rounded-md border border-slate-200 bg-white p-3">
-                    <summary className="cursor-pointer text-sm font-semibold text-slate-700">
-                      Manage saved coded-value sources
-                    </summary>
+                    <summary className="cursor-pointer text-sm font-semibold text-slate-700">Manage saved coded-value sources</summary>
                     <FrameSourcePanel
                       key={`${table.outputId}:${state.catalog.snapshotToken}`}
                       project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
@@ -3455,122 +3536,6 @@ const BuilderWorkspaceContent = ({
                 ) : null}
               </>
             ) : null}
-            {addColumnsView === 'fields' ? <>
-            <fieldset
-              aria-label="Add columns source"
-              data-testid="construction-add-columns-source"
-              className="rounded-lg border border-slate-200 bg-white p-2"
-            >
-              <legend className="px-1 text-xs font-semibold text-slate-700">
-                Search in
-              </legend>
-              <div role="group" aria-label="Search scope">
-                <div className="flex flex-wrap gap-1.5">
-                  {scopeSourceOptions.map(({ source, label, description, selected }) => (
-                    <button
-                      key={source.key}
-                      type="button"
-                      aria-label={`${label}, ${description}`}
-                      aria-pressed={selected}
-                      data-testid="construction-add-columns-source-option"
-                      data-source-key={source.key}
-                      data-source-kind={source.kind}
-                      onClick={() => {
-                        setAddColumnsSource({ context: addSourceContext, key: source.key });
-                        setAddSourceSearch({ context: addSourceContext, query: '' });
-                      }}
-                      title={description}
-                      className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${selected ? 'border-blue-700 bg-blue-50 text-blue-950' : 'border-slate-300 bg-white text-slate-800 hover:border-slate-500'}`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {relatedSourceOptions.length > 0 ? (
-                <details role="group" aria-label="Related resources" open={relatedSourceMenuOpen || selectedAddSource?.kind === 'EXACT_RELATED'} className="mt-2 border-t border-slate-100 pt-2">
-                  <summary className="cursor-pointer text-xs font-medium text-blue-800" onClick={(event) => { event.preventDefault(); setRelatedSourceMenuOpen((open) => !open); }}>
-                    Related resources ({relatedSourceOptions.length})
-                  </summary>
-                  {relatedSourceOptions.length >= 6 ? (
-                    <input
-                      type="search"
-                      aria-label="Search related resources"
-                      data-testid="construction-add-columns-source-search"
-                      value={addSourceSearch.context === addSourceContext ? addSourceSearch.query : ''}
-                      onChange={(event) => setAddSourceSearch({
-                        context: addSourceContext,
-                        query: event.currentTarget.value,
-                      })}
-                      placeholder="Search resource types"
-                      className="mb-2 w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 placeholder:text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
-                    />
-                  ) : null}
-                  <div className="flex flex-wrap gap-1.5">
-                    {visibleRelatedSourceOptions.map(({ source, label, description, selected }) => (
-                      <button
-                        key={source.key}
-                        type="button"
-                        aria-label={`${label}, ${description}`}
-                        aria-pressed={selected}
-                        data-testid="construction-add-columns-source-option"
-                        data-source-key={source.key}
-                        data-source-kind={source.kind}
-                        onClick={() => {
-                          setAddColumnsSource({ context: addSourceContext, key: source.key });
-                          setAddSourceSearch({ context: addSourceContext, query: '' });
-                        }}
-                        title={description}
-                        className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${selected ? 'border-blue-700 bg-blue-50 text-blue-950' : 'border-slate-300 bg-white text-slate-800 hover:border-slate-500'}`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                  {visibleRelatedSourceOptions.length === 0 ? (
-                    <p role="status" className="text-sm text-slate-600">
-                      No related resources match this search.
-                    </p>
-                  ) : null}
-                </details>
-              ) : null}
-            </fieldset>
-            {selectedAddSource?.kind === 'EXACT_RELATED' && constructionLifecycle.capabilities.status === 'ready' ? (
-              <RelatedFieldEditor
-                key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${constructionLifecycle.capabilities.response.selectedStage.id}`}
-                project={projectId}
-                explorerId={state.explorerId}
-                authResourcePath={authResourcePath}
-                snapshotToken={state.catalog.snapshotToken}
-                outputId={table.outputId}
-                construction={table.document.construction ?? constructionLifecycle.capabilities.response.baseConstruction}
-                capabilities={constructionLifecycle.capabilities.response}
-                disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-                onCandidateChange={constructionLifecycle.onCandidateChange}
-              />
-            ) : <ConceptCatalog
-              key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${selectedAddSource?.key ?? 'root'}:${addSourceRouteContext?.occurrenceId ?? 'unscoped'}`}
-              project={projectId}
-              explorerId={state.explorerId}
-              authResourcePath={authResourcePath}
-              snapshotToken={state.catalog.snapshotToken}
-              outputId={table.outputId}
-              rowRoot={table.document.rootResourceType}
-              resourceType={selectedAddSource?.resourceType}
-              sourceNodeId={selectedAddSource?.sourceNodeId}
-              routeContext={addSourceRouteContext}
-              layout="panel"
-              catalog={state.catalog}
-              sourceProjectionAvailability={sourceAvailability}
-              relatedSourceAvailability={relatedSourceAvailability}
-              suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}
-              disabledReason={sourceSelectionDisabledReason}
-              disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-              groupedRowValuePolicy={groupedRowValuePolicy}
-              onAddSelected={addSelectedFeatures}
-              onInspectRouteCoverage={inspectRelatedRouteCoverage}
-            />}
-            </> : null}
           </div>
         ) : null}
         {activeOperation.family === 'KEEP_ROWS' || activeOperation.family === 'CALCULATE' ? (
