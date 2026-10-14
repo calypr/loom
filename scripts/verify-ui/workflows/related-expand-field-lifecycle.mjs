@@ -161,10 +161,11 @@ export const relatedExpandFieldLifecycleWorkflow = async ({ page, action, check,
       await click(label, page.getByTestId('construction-action-add-columns'),
         () => editor.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }));
     }
-    const fieldsFamily = editor.getByRole('button', { name: 'Fields and related data', exact: true });
-    if (await fieldsFamily.getAttribute('aria-pressed') !== 'true') {
-      await click('choose Fields and related data', fieldsFamily,
-        () => editor.getByTestId('construction-add-columns-source').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }));
+    const fieldsTab = editor.getByRole('tab', { name: 'Other fields', exact: true });
+    if (await fieldsTab.getAttribute('aria-selected') !== 'true') {
+      await click('browse populated Other fields', fieldsTab,
+        () => editor.getByRole('tabpanel', { name: 'Other fields', exact: true })
+          .waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }));
     }
   };
   const openRelatedExpand = async () => {
