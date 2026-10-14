@@ -170,8 +170,10 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
     assert.equal(inventoryRequest.request.resourceType, undefined, 'The initial coded browse must include all eligible resource types.');
     assert.equal(inventoryRequest.request.sourceNodeId, undefined, 'The initial coded browse must not require a source-node filter.');
     assert.equal(String(inventoryRequest.request.query ?? '').trim(), '', 'The initial coded browse must not require typed search.');
-    assert.equal(inventoryRequest.response.outputId, outputId);
-    assert.equal(inventoryRequest.response.snapshotToken, inventoryRequest.request.snapshotToken);
+    assert.equal(typeof inventoryRequest.response.contextToken, 'string');
+    assert(inventoryRequest.response.contextToken.trim(), 'The output-scoped catalog response must bind its compiler choices to a context token.');
+    assert.equal(typeof inventoryRequest.response.buildId, 'string');
+    assert(inventoryRequest.response.buildId.trim(), 'The output-scoped catalog response must identify its semantic build.');
     assert.equal(inventoryRequest.response.state, 'complete');
     return inventoryRequest;
   };
