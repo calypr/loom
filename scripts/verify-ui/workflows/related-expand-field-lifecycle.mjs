@@ -464,9 +464,18 @@ export const relatedExpandFieldLifecycleWorkflow = async ({ page, action, check,
     const proposalEntry = await networkObserver.waitForResponse(entry =>
       entry.index >= proposalFrom && entry.method === 'POST' &&
         entry.path.endsWith('/construction-proposals') && entry.status === 200 &&
-        entry.request?.requestId?.startsWith('construction-proposal-') &&
-        entry.request?.candidateConstruction?.steps?.some(step =>
-          step.operation?.kind === 'RELATED_SOURCE' && step.operation.relatedSource?.source?.path === 'gender'),
+        entry.request?.candidateConstruction?.steps?.some(step => {
+          const source = step.operation?.relatedSource;
+          return step.operation?.kind === 'RELATED_SOURCE' &&
+            source?.sourceOccurrenceId === patientGenderCandidate.nodeId &&
+            source.source?.resourceType === 'Patient' &&
+            source.source?.path === 'gender' &&
+            source.form === 'ALL' &&
+            source.route?.length === 1 &&
+            source.route[0]?.fromResourceType === ROOT_RESOURCE &&
+            source.route[0]?.toResourceType === 'Patient' &&
+            source.route[0]?.relationship === 'subject_Patient';
+        }),
     { fromIndex: proposalFrom, timeoutMs: ACTION_TIMEOUT_MS });
     return { patientGenderCandidate, proposalEntry, proposalGrid: await readGrid(page, true) };
   };
