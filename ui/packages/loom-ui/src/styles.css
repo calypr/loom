@@ -124,3 +124,202 @@
 .loom-viewer-table tbody tr:last-child td {
   border-bottom: 0;
 }
+
+/* Builder-only accents follow the loom-wide border reset above. */
+.loom-ui-root .construction-table-tabs {
+  background-color: transparent;
+}
+
+.loom-ui-root .construction-table-tab {
+  border-bottom: 2px solid transparent;
+  background-color: transparent;
+}
+
+.loom-ui-root .construction-table-tab[aria-current="page"] {
+  border-bottom-color: #2563eb;
+}
+
+.loom-ui-root .construction-query-step button {
+  background-color: transparent;
+}
+
+.loom-ui-root .construction-query-step button[aria-pressed="true"] {
+  background-color: #dbeafe;
+}
+
+.loom-ui-root .construction-source-chip {
+  border-width: 0;
+  background-color: #eff6ff;
+}
+
+.loom-ui-root .construction-more-actions-menu,
+.loom-ui-root [data-testid="construction-table-actions-menu"] {
+  border: 1px solid #e2e8f0;
+  background-color: #ffffff;
+}
+
+.loom-ui-root .construction-preview-surface {
+  border: 1px solid #d5deea;
+  border-radius: 0.5rem;
+}
+
+.loom-ui-root .construction-preview-header-row {
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.loom-ui-root .construction-preview-data-row {
+  border-bottom: 1px solid #eef2f7;
+}
+
+/* Keep interactive feedback consistent inside Loom and its body-level portals. */
+:where(
+  .loom-ui-root,
+  body:has(.loom-ui-root) > [data-mantine-shared-portal-node]:has([role="dialog"], [role="menu"], [role="menuitem"]),
+  body:has(.loom-ui-root) > [role="presentation"]:has(> [role="dialog"] #catalog-selection-dialog-title),
+  body:has(.loom-ui-root) > section[role="dialog"][aria-label="Expanded dataset graph"]
+) :is(
+  button,
+  a[href],
+  select,
+  input[type="checkbox"],
+  input[type="radio"],
+  summary,
+  [role="button"],
+  [role="tab"],
+  [role="menuitem"],
+  label:has(input[type="checkbox"]:not(:disabled):not([aria-disabled="true"]):not([inert]), input[type="radio"]:not(:disabled):not([aria-disabled="true"]):not([inert])),
+  .cursor-pointer:not(label:has(input:disabled, input[aria-disabled="true"], input[inert]))
+):not(:disabled):not([aria-disabled="true"]):not([inert]):not([inert] *) {
+  cursor: pointer;
+  outline: 1px solid transparent;
+  outline-offset: 1px;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    outline-color 140ms ease,
+    transform 140ms ease,
+    opacity 140ms ease;
+}
+
+:where(
+  .loom-ui-root,
+  body:has(.loom-ui-root) > [data-mantine-shared-portal-node]:has([role="dialog"], [role="menu"], [role="menuitem"]),
+  body:has(.loom-ui-root) > [role="presentation"]:has(> [role="dialog"] #catalog-selection-dialog-title),
+  body:has(.loom-ui-root) > section[role="dialog"][aria-label="Expanded dataset graph"]
+) :is(
+  button,
+  a[href],
+  select,
+  input[type="checkbox"],
+  input[type="radio"],
+  summary,
+  [role="button"],
+  [role="tab"],
+  [role="menuitem"],
+  .cursor-pointer
+):is(:disabled, [aria-disabled="true"], [inert], [inert] *) {
+  cursor: default;
+}
+
+:where(
+  .loom-ui-root,
+  body:has(.loom-ui-root) > [data-mantine-shared-portal-node]:has([role="dialog"], [role="menu"], [role="menuitem"]),
+  body:has(.loom-ui-root) > [role="presentation"]:has(> [role="dialog"] #catalog-selection-dialog-title),
+  body:has(.loom-ui-root) > section[role="dialog"][aria-label="Expanded dataset graph"]
+) label:has(input:disabled, input[aria-disabled="true"], input[inert]) {
+  cursor: default;
+}
+
+@media (hover: hover) {
+  :where(
+    .loom-ui-root,
+    body:has(.loom-ui-root) > [data-mantine-shared-portal-node]:has([role="dialog"], [role="menu"], [role="menuitem"]),
+    body:has(.loom-ui-root) > [role="presentation"]:has(> [role="dialog"] #catalog-selection-dialog-title),
+    body:has(.loom-ui-root) > section[role="dialog"][aria-label="Expanded dataset graph"]
+  ) :is(
+    button,
+    a[href],
+    select,
+    input[type="checkbox"],
+    input[type="radio"],
+    summary,
+    [role="button"],
+    [role="tab"],
+    [role="menuitem"],
+    label:has(input[type="checkbox"]:not(:disabled):not([aria-disabled="true"]):not([inert]), input[type="radio"]:not(:disabled):not([aria-disabled="true"]):not([inert])),
+    .cursor-pointer:not(label:has(input:disabled, input[aria-disabled="true"], input[inert]))
+  ):not(:disabled):not([aria-disabled="true"]):not([inert]):not([inert] *):hover {
+    outline: 1px solid #cbd5e1;
+    outline-offset: 1px;
+  }
+}
+
+:where(
+  .loom-ui-root,
+  body:has(.loom-ui-root) > [data-mantine-shared-portal-node]:has([role="dialog"], [role="menu"], [role="menuitem"]),
+  body:has(.loom-ui-root) > [role="presentation"]:has(> [role="dialog"] #catalog-selection-dialog-title),
+  body:has(.loom-ui-root) > section[role="dialog"][aria-label="Expanded dataset graph"]
+) :is(
+  button,
+  a[href],
+  select,
+  input[type="checkbox"],
+  input[type="radio"],
+  summary,
+  [role="button"],
+  [role="tab"],
+  [role="menuitem"],
+  label:has(input[type="checkbox"]:not(:disabled):not([aria-disabled="true"]):not([inert]), input[type="radio"]:not(:disabled):not([aria-disabled="true"]):not([inert])),
+  .cursor-pointer:not(label:has(input:disabled, input[aria-disabled="true"], input[inert]))
+):not(:disabled):not([aria-disabled="true"]):not([inert]):not([inert] *):active {
+  outline: 1px solid #94a3b8;
+  outline-offset: 1px;
+}
+
+:where(
+  .loom-ui-root,
+  body:has(.loom-ui-root) > [data-mantine-shared-portal-node]:has([role="dialog"], [role="menu"], [role="menuitem"]),
+  body:has(.loom-ui-root) > [role="presentation"]:has(> [role="dialog"] #catalog-selection-dialog-title),
+  body:has(.loom-ui-root) > section[role="dialog"][aria-label="Expanded dataset graph"]
+) :is(
+  button,
+  a[href],
+  select,
+  input[type="checkbox"],
+  input[type="radio"],
+  summary,
+  [role="button"],
+  [role="tab"],
+  [role="menuitem"],
+  label:has(input[type="checkbox"]:not(:disabled):not([aria-disabled="true"]):not([inert]), input[type="radio"]:not(:disabled):not([aria-disabled="true"]):not([inert])),
+  .cursor-pointer:not(label:has(input:disabled, input[aria-disabled="true"], input[inert]))
+):not(:disabled):not([aria-disabled="true"]):not([inert]):not([inert] *):focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(
+    .loom-ui-root,
+    body:has(.loom-ui-root) > [data-mantine-shared-portal-node]:has([role="dialog"], [role="menu"], [role="menuitem"]),
+    body:has(.loom-ui-root) > [role="presentation"]:has(> [role="dialog"] #catalog-selection-dialog-title),
+    body:has(.loom-ui-root) > section[role="dialog"][aria-label="Expanded dataset graph"]
+  ) :is(
+    button,
+    a[href],
+    select,
+    input[type="checkbox"],
+    input[type="radio"],
+    summary,
+    [role="button"],
+    [role="tab"],
+    [role="menuitem"],
+    label:has(input[type="checkbox"]:not(:disabled):not([aria-disabled="true"]):not([inert]), input[type="radio"]:not(:disabled):not([aria-disabled="true"]):not([inert])),
+    .cursor-pointer:not(label:has(input:disabled, input[aria-disabled="true"], input[inert]))
+  ):not(:disabled):not([aria-disabled="true"]):not([inert]):not([inert] *) {
+    transition-duration: 0ms !important;
+    transition-delay: 0ms !important;
+  }
+}
