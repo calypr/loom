@@ -915,6 +915,59 @@ func TestRootKeyPagingPreservesExpandedRowsAndAdvancesPastEmptyRoots(t *testing.
 	})
 }
 
+func TestPreviewRootPageRowsAreClampedToRequestedLimit(t *testing.T) {
+	var pageSizes []int
+	queryRows := func(_ context.Context, _ string, _ int, binds map[string]any, visit func(map[string]any) error) error {
+		if _, ok := binds[compiler.RootPageAfterKeyBind]; ok {
+			pageSize, ok := binds[compiler.RootPageSizeBind].(int)
+			if !ok {
+				return fmt.Errorf("root page size bind has type %T", binds[compiler.RootPageSizeBind])
+			}
+			pageSizes = append(pageSizes, pageSize)
+			for _, key := range []string{"a", "b", "c"} {
+				if err := visit(map[string]any{"_key": key}); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		keys, ok := binds[compiler.RootPageKeysBind].([]string)
+		if !ok {
+			return fmt.Errorf("unexpected unpaged query")
+		}
+		for _, key := range keys {
+			for index := 0; index < 30; index++ {
+				if err := visit(map[string]any{"id": fmt.Sprintf("%s-%02d", key, index)}); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	engine, err := New(Config{
+		Registry: invalidRecipeRegistry{}, QueryRows: queryRows,
+		ScopeDigest: func(recipe.RuntimeBindings) string { return "scope" }, RootPageRows: 250,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := engine.CompileResolvedBundle(context.Background(), testResolvedBundle([]string{}), recipe.RuntimeBindings{Project: "P1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	summary, err := engine.PreviewOutput(context.Background(), resolved, PreviewRequest{Output: "Patient", Limit: 25}, func(map[string]any) error {
+		count++
+		return nil
+	})
+	if err != nil || count != 25 || summary.RowCount != 25 {
+		t.Fatalf("preview count=%d summary=%#v err=%v", count, summary, err)
+	}
+	if len(pageSizes) != 1 || pageSizes[0] != 25 {
+		t.Fatalf("preview root page sizes=%v, want one page of 25 roots", pageSizes)
+	}
+}
+
 func TestPreviewOutputNormalizesVisitorAndDynamicSchemaErrors(t *testing.T) {
 	driftEngine := testEngine(func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 		return visit(map[string]any{

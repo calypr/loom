@@ -19,6 +19,16 @@ func TestParseServerOptionsWithoutConfigUsesFlags(t *testing.T) {
 	}
 }
 
+func TestParseServerOptionsDefaultsRootQueryPageRows(t *testing.T) {
+	options, err := parseServerOptions([]string{"--listen", ":19091", "--no-auth", "--dataframer-recipe", "recipe.json"}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatalf("parseServerOptions() error = %v", err)
+	}
+	if options.Server.RecipeQueryPageRows != defaultRecipeQueryPageRows {
+		t.Fatalf("root query page rows = %d, want %d", options.Server.RecipeQueryPageRows, defaultRecipeQueryPageRows)
+	}
+}
+
 func TestDevFaultOverridesAreNoAuthOnly(t *testing.T) {
 	t.Setenv("LOOM_DEV_RECIPE_QUALITY_MAX_ROWS", "1")
 	t.Setenv("LOOM_DEV_RECIPE_QUALITY_MAX_DISTINCT_KEYS", "2")
@@ -116,8 +126,8 @@ func TestConfigDefaultsToBasicAndRequiresCredentials(t *testing.T) {
 
 func TestRecipeQueryPageRowsCanBeConfiguredOrDisabled(t *testing.T) {
 	cfg := DefaultConfig()
-	if cfg.Server.RecipeQueryPageRows != 25 {
-		t.Fatalf("default recipe query page rows = %d, want 25", cfg.Server.RecipeQueryPageRows)
+	if cfg.Server.RecipeQueryPageRows != defaultRecipeQueryPageRows {
+		t.Fatalf("default recipe query page rows = %d, want %d", cfg.Server.RecipeQueryPageRows, defaultRecipeQueryPageRows)
 	}
 	cfg.Server.RecipeQueryPageRows = 0
 	cfg.Auth.AllowUnauthenticated = true
@@ -152,6 +162,20 @@ func TestArtifactConfigurationHasBoundedDefaultsAndEnvironmentOverride(t *testin
 	}
 }
 
+func TestLoadConfigPreservesExplicitRecipeQueryPageRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("server:\n  recipe_query_page_rows: 37\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.Server.RecipeQueryPageRows != 37 {
+		t.Fatalf("explicit YAML root query page rows = %d, want 37", cfg.Server.RecipeQueryPageRows)
+	}
+}
+
 func TestLoadConfigStrictlyDecodesAndAppliesAuthSettings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte("server:\n  listen: :18080\n  dataframer:\n    recipe: /etc/loom/dataframer.json\nauth:\n  mode: calypr\n  calypr:\n    trusted_issuer: https://fence.example.test\n    request_timeout: 7s\n    cache_ttl: 45s\n"), 0o600); err != nil {
@@ -164,7 +188,7 @@ func TestLoadConfigStrictlyDecodesAndAppliesAuthSettings(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
-	if cfg.Server.Listen != ":18080" || cfg.Server.Dataframer.Recipe != "/etc/loom/dataframer.json" || cfg.Auth.Calypr.TrustedIssuer != "https://fence.example.test" || cfg.Auth.Calypr.RequestTimeout != 7*time.Second || cfg.Auth.Calypr.CacheTTL != 45*time.Second {
+	if cfg.Server.Listen != ":18080" || cfg.Server.Dataframer.Recipe != "/etc/loom/dataframer.json" || cfg.Server.RecipeQueryPageRows != defaultRecipeQueryPageRows || cfg.Auth.Calypr.TrustedIssuer != "https://fence.example.test" || cfg.Auth.Calypr.RequestTimeout != 7*time.Second || cfg.Auth.Calypr.CacheTTL != 45*time.Second {
 		t.Fatalf("config = %#v", cfg)
 	}
 }

@@ -79,12 +79,14 @@ type CalyprAuthConfig struct {
 	CacheTTL       time.Duration `yaml:"cache_ttl"`
 }
 
+const defaultRecipeQueryPageRows = 250
+
 func DefaultConfig() Config {
 	return Config{
 		Server: ServerConfig{
 			Listen: ":8080", URL: "http://127.0.0.1:8529", Database: "fhir_proto",
 			Schema: "schemas/graph-fhir.json", ClickHouse: ClickHouseConfig{Enabled: true, URL: "clickhouse://127.0.0.1:9000", Database: "loom", Username: "default"},
-			RecipeBatchRows: 1000, RecipeBatchBytes: 4 << 20, RecipeQueryPageRows: 25,
+			RecipeBatchRows: 1000, RecipeBatchBytes: 4 << 20, RecipeQueryPageRows: defaultRecipeQueryPageRows,
 			RecipeQualityMaxRows: 1_000_000, RecipeQualityMaxDistinctKeys: 1_000_000,
 			ArtifactDirectory: "/tmp/loom-artifacts", ArtifactTTL: 24 * time.Hour,
 			ArtifactMaxRows: 10_000_000, ArtifactMaxBytes: 2 << 30,
@@ -128,7 +130,7 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 	fs.StringVar(&dataframerRecipe, "dataframer-recipe", "", "dataframer recipe JSON file (required when ClickHouse is enabled)")
 	fs.IntVar(&recipeBatchRows, "recipe-batch-rows", 1000, "maximum recipe materialization rows per ClickHouse batch")
 	fs.IntVar(&recipeBatchBytes, "recipe-batch-bytes", 4<<20, "maximum recipe materialization bytes per ClickHouse batch")
-	fs.IntVar(&recipeQueryPageRows, "recipe-query-page-rows", 25, "root documents per bounded dataframe query page; zero disables paging")
+	fs.IntVar(&recipeQueryPageRows, "recipe-query-page-rows", defaultRecipeQueryPageRows, "root documents per bounded dataframe query page; zero disables paging")
 	fs.Int64Var(&recipeQualityMaxRows, "recipe-quality-max-rows", 1_000_000, "maximum rows accepted by the full-population publication quality scan")
 	fs.Int64Var(&recipeQualityMaxKeys, "recipe-quality-max-distinct-keys", 1_000_000, "maximum distinct row identities retained by publication quality checks")
 	fs.StringVar(&localWorkspaceWriteback, "local-workspace-writeback", "", "exact local CONFIG workspace file updated after successful publication (no-auth development only)")

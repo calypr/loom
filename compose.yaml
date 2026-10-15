@@ -57,7 +57,7 @@ services:
       - --dataframer-recipe
       - /app/testdata/recipe.json
       - --recipe-query-page-rows
-      - ${LOOM_RECIPE_QUERY_PAGE_ROWS:-25}
+      - ${LOOM_RECIPE_QUERY_PAGE_ROWS:-250}
     depends_on:
       arangodb:
         condition: service_healthy

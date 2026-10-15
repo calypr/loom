@@ -22,7 +22,7 @@ The demo scripts read these environment variables. Use the same values for
 | `LOOM_API_BUILD_CONTEXT` | `LOOM_DEMO_SOURCE_ROOT` | API Docker build context; overrides the source-root default |
 | `LOOM_UI_BUILD_CONTEXT` | `LOOM_DEMO_SOURCE_ROOT/ui` | UI Docker build context; overrides the source-root default |
 | `LOOM_DEMO_FIXTURE_CACHE_DIR` | Compose named volume `fixture_cache` | Optional host directory or named volume mounted at `/var/cache/loom` |
-| `LOOM_RECIPE_QUERY_PAGE_ROWS` | `25` | Root documents per bounded preview/materialization query; `0` restores single-query execution |
+| `LOOM_RECIPE_QUERY_PAGE_ROWS` | `250` | Root documents per bounded preview/materialization query; `0` restores single-query execution |
 | `LOOM_ACCEPTANCE_PROJECT` | `NCPI_ACCEPTANCE` | Project seeded inside the disposable acceptance database |
 
 ## Dataset settings

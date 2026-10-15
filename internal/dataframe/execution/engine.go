@@ -591,10 +591,14 @@ func (e *Engine) buildCompiledOutputStream(resolved Resolved, output lower.Compi
 	if err != nil {
 		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: %w", output.Name, err)
 	}
+	rootPageRows := e.rootPageRows
+	if limit > 0 && limit < rootPageRows {
+		rootPageRows = limit
+	}
 	stream := OutputStream{
 		Name: output.Name, Columns: append([]string(nil), query.PublicColumns...), sourceIdentityMode: previewSourceIdentityMode(output, query.OutputSchema), RowIdentity: query.RowIdentity.Clone(),
 		DynamicChecks: dynamicChecks(output.DynamicColumns), query: query.Query, bindVars: query.BindVars,
-		stream: e.queryRows, batchSize: e.batchSize, rootPageRows: e.rootPageRows,
+		stream: e.queryRows, batchSize: e.batchSize, rootPageRows: rootPageRows,
 		queryLimit: limit, recipeDigest: resolved.StoredRecipeDigest, planFingerprint: query.PlanDiagnostics.Fingerprint,
 		bindings: bindings,
 		stageID:  compiledOutputFinalStageID(output), outputSchema: lower.CloneCompiledOutputSchema(output.OutputSchema), compiledOutput: true,
@@ -630,10 +634,10 @@ func (e *Engine) buildCompiledOutputStream(resolved Resolved, output lower.Compi
 			}
 		}
 	}
-	if e.rootPageRows > 0 && !wholeInput {
+	if rootPageRows > 0 && !wholeInput {
 		pageBindings := resolved.Semantic.SemanticPlan.Bindings.Clone()
 		pageBindings.PreviewLimit = limit
-		page, pageErr := compiler.CompileRecipeOutputPageWithPolicy(output, pageBindings, e.rootPageRows, ir.DefaultPhysicalOptimizationPolicy())
+		page, pageErr := compiler.CompileRecipeOutputPageWithPolicy(output, pageBindings, rootPageRows, ir.DefaultPhysicalOptimizationPolicy())
 		if pageErr != nil {
 			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q paging: %w", output.Name, pageErr)
 		}
