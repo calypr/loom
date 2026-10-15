@@ -1,5 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useCallback, useRef, useState } from 'react';
 import type {
   ConstructionChoice,
   ConstructionChoiceForm,
@@ -7,6 +6,7 @@ import type {
 } from '../../../types';
 import {
   catalogItemDefaultForm,
+  catalogItemConstructionChoice,
   catalogChoiceIntent,
   catalogItemKey,
   catalogItemLabel,
@@ -104,7 +104,7 @@ export type GroupedRowValuePolicyControl = Readonly<{
   onChange: (value: ConstructionRowValuePolicy) => void;
 }>;
 
-export const CatalogSelectionDialog = ({
+export const CatalogSelectionOptions = ({
   groups,
   rowRoot,
   initialSelection,
@@ -135,10 +135,14 @@ export const CatalogSelectionDialog = ({
     () => new Map(
       groups.flatMap((group) => {
         const savedChoice = group.choices.find((choice) => choice.choiceId === initialSelection?.choiceId);
-        const defaultChoice = group.choices.length === 1 && !group.truncated && !group.nextCursor
+        const compilerDefault = catalogItemConstructionChoice(group.item);
+        const issuedChoice = compilerDefault
+          ? group.choices.find((choice) => choice.choiceId === compilerDefault.choiceId)
+          : undefined;
+        const uniqueChoice = group.choices.length === 1 && !group.truncated && !group.nextCursor
           ? group.choices[0]
           : undefined;
-        const choiceId = savedChoice?.choiceId ?? defaultChoice?.choiceId;
+        const choiceId = savedChoice?.choiceId ?? issuedChoice?.choiceId ?? uniqueChoice?.choiceId;
         return choiceId ? [[catalogItemKey(group.item), choiceId]] : [];
       }),
     ),
@@ -166,6 +170,11 @@ export const CatalogSelectionDialog = ({
   );
   const [routeCoverage, setRouteCoverage] = useState<ReadonlyMap<string, RouteCoverageState>>(() => new Map());
   const coverageRequests = useRef<Map<string, AbortController>>(new Map());
+  const optionsRegionRef = useCallback((node: HTMLDivElement | null) => {
+    if (node) return;
+    coverageRequests.current.forEach((controller) => controller.abort());
+    coverageRequests.current.clear();
+  }, []);
   const inspectRouteCoverage = (group: CatalogChoiceGroup, choice: ConstructionChoice) => {
     const form = routeCoverageForm(group.item, choice, rowRoot, groupedRowValuePolicy !== undefined, initialSelection);
     if (!onInspectRouteCoverage || !form || coverageRequests.current.has(choice.choiceId)) return;
@@ -186,18 +195,11 @@ export const CatalogSelectionDialog = ({
         }));
       }
     }).finally(() => {
-      if (coverageRequests.current.get(choice.choiceId) === controller) coverageRequests.current.delete(choice.choiceId);
+      if (coverageRequests.current.get(choice.choiceId) === controller) {
+        coverageRequests.current.delete(choice.choiceId);
+      }
     });
   };
-
-  useEffect(() => {
-    const automatic = groups.flatMap((group) => {
-      const shortest = Math.min(...group.choices.map((choice) => choice.route.length));
-      return group.choices.filter((choice) => choice.route.length === shortest).map((choice) => ({ group, choice }));
-    }).slice(0, 4);
-    automatic.forEach(({ group, choice }) => inspectRouteCoverage(group, choice));
-    return () => coverageRequests.current.forEach((controller) => controller.abort());
-  }, []);
 
   const complete = groups.every((group) => {
     const itemKey = catalogItemKey(group.item);
@@ -254,42 +256,16 @@ export const CatalogSelectionDialog = ({
     if (selections.length === groups.length) onConfirm(selections);
   };
 
-  return createPortal((
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 p-4" role="presentation">
-      <section
-        aria-labelledby="catalog-selection-dialog-title"
-        aria-modal="true"
-        className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white p-5 shadow-2xl"
-        role="dialog"
+  return (
+      <div
+        ref={optionsRegionRef}
+        data-testid="catalog-selection-options"
+        role="region"
+        aria-label="Advanced route and form choices"
+        className="space-y-3"
       >
-        <h2 id="catalog-selection-dialog-title" className="text-xl font-semibold text-slate-950">
-          Choose how to add these fields
-        </h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Choose where each field comes from and how it should appear in the table. When there are multiple paths, Loom leaves the choice open for you.
-        </p>
-        {submissionError ? <p className="mt-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900" role="alert">{submissionError}</p> : null}
-        {groupedRowValuePolicy ? (
-          <label className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-700">
-            <span className="font-medium">Values per grouped row</span>
-            <select
-              aria-label="Values per grouped row"
-              data-testid="catalog-grouped-row-value-policy"
-              value={groupedRowValuePolicy.value}
-              disabled={busy}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                if (value === 'ALL' || value === 'ONE') groupedRowValuePolicy.onChange(value);
-              }}
-              className="rounded border border-slate-300 bg-white px-2 py-1.5"
-            >
-              <option value="ALL">Keep all distinct values</option>
-              <option value="ONE">Require one distinct value</option>
-            </select>
-            <span className="text-xs text-slate-500">Missing values stay empty. If values disagree, switch to all distinct values and retry.</span>
-          </label>
-        ) : null}
-        <div className="mt-4 min-h-0 space-y-3 overflow-y-auto pr-1">
+        {submissionError ? <p className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900" role="alert">{submissionError}</p> : null}
+        <div className="space-y-3">
           {groups.map((group) => {
             const { item } = group;
             const key = catalogItemKey(item);
@@ -438,7 +414,7 @@ export const CatalogSelectionDialog = ({
                                 )}
                               </div>
                             ) : routeChoice.route.length > 0 ? (
-                              <p className="ml-6 mt-2 text-xs text-slate-500">Current-row coverage appears after preview.</p>
+                              <p className="ml-6 mt-2 text-xs text-slate-500">Matches for this full path have not been checked.</p>
                             ) : null}
                             <details className="ml-6 mt-2 text-xs text-slate-600">
                               <summary className="cursor-pointer font-medium text-blue-700">Technical path details</summary>
@@ -653,15 +629,14 @@ export const CatalogSelectionDialog = ({
             );
           })}
         </div>
-        <div className="mt-4 flex shrink-0 justify-end gap-2 border-t border-slate-200 pt-4">
+        <div className="mt-3 flex justify-end gap-2 border-t border-slate-200 pt-3">
           <button type="button" disabled={busy} onClick={onCancel} className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">
             Cancel
           </button>
           <button type="button" disabled={busy || !complete} onClick={confirm} className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
-            {busy ? 'Adding columns…' : `Add ${groups.length} ${groups.length === 1 ? 'column' : 'columns'}`}
+            {busy ? 'Adding columns…' : `Add ${groups.length} selected ${groups.length === 1 ? 'feature' : 'features'}`}
           </button>
         </div>
-      </section>
-    </div>
-  ), document.body);
+      </div>
+  );
 };

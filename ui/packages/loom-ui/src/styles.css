@@ -175,7 +175,6 @@
 :where(
   .loom-ui-root,
   body:has(.loom-ui-root) > [data-mantine-shared-portal-node]:has([role="dialog"], [role="menu"], [role="menuitem"]),
-  body:has(.loom-ui-root) > [role="presentation"]:has(> [role="dialog"] #catalog-selection-dialog-title),
   body:has(.loom-ui-root) > section[role="dialog"][aria-label="Expanded dataset graph"]
 ) :is(
   button,
@@ -206,7 +205,6 @@
 :where(
   .loom-ui-root,
   body:has(.loom-ui-root) > [data-mantine-shared-portal-node]:has([role="dialog"], [role="menu"], [role="menuitem"]),
-  body:has(.loom-ui-root) > [role="presentation"]:has(> [role="dialog"] #catalog-selection-dialog-title),
   body:has(.loom-ui-root) > section[role="dialog"][aria-label="Expanded dataset graph"]
 ) :is(
   button,
@@ -226,7 +224,6 @@
 :where(
   .loom-ui-root,
   body:has(.loom-ui-root) > [data-mantine-shared-portal-node]:has([role="dialog"], [role="menu"], [role="menuitem"]),
-  body:has(.loom-ui-root) > [role="presentation"]:has(> [role="dialog"] #catalog-selection-dialog-title),
   body:has(.loom-ui-root) > section[role="dialog"][aria-label="Expanded dataset graph"]
 ) label:has(input:disabled, input[aria-disabled="true"], input[inert]) {
   cursor: default;
@@ -236,7 +233,6 @@
   :where(
     .loom-ui-root,
     body:has(.loom-ui-root) > [data-mantine-shared-portal-node]:has([role="dialog"], [role="menu"], [role="menuitem"]),
-    body:has(.loom-ui-root) > [role="presentation"]:has(> [role="dialog"] #catalog-selection-dialog-title),
     body:has(.loom-ui-root) > section[role="dialog"][aria-label="Expanded dataset graph"]
   ) :is(
     button,
@@ -259,7 +255,6 @@
 :where(
   .loom-ui-root,
   body:has(.loom-ui-root) > [data-mantine-shared-portal-node]:has([role="dialog"], [role="menu"], [role="menuitem"]),
-  body:has(.loom-ui-root) > [role="presentation"]:has(> [role="dialog"] #catalog-selection-dialog-title),
   body:has(.loom-ui-root) > section[role="dialog"][aria-label="Expanded dataset graph"]
 ) :is(
   button,
@@ -281,7 +276,6 @@
 :where(
   .loom-ui-root,
   body:has(.loom-ui-root) > [data-mantine-shared-portal-node]:has([role="dialog"], [role="menu"], [role="menuitem"]),
-  body:has(.loom-ui-root) > [role="presentation"]:has(> [role="dialog"] #catalog-selection-dialog-title),
   body:has(.loom-ui-root) > section[role="dialog"][aria-label="Expanded dataset graph"]
 ) :is(
   button,
@@ -304,7 +298,6 @@
   :where(
     .loom-ui-root,
     body:has(.loom-ui-root) > [data-mantine-shared-portal-node]:has([role="dialog"], [role="menu"], [role="menuitem"]),
-    body:has(.loom-ui-root) > [role="presentation"]:has(> [role="dialog"] #catalog-selection-dialog-title),
     body:has(.loom-ui-root) > section[role="dialog"][aria-label="Expanded dataset graph"]
   ) :is(
     button,

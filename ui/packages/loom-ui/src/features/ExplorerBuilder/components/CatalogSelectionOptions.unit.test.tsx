@@ -9,11 +9,11 @@ import type {
 } from '../../../types';
 import type { CatalogChoiceGroup, CatalogChoiceIntent, CatalogItem } from '../catalogItems';
 import {
-  CatalogSelectionDialog,
+  CatalogSelectionOptions,
   type GroupedRowValuePolicyControl,
   type RouteMatchCoverage,
   type RouteCoverage,
-} from './CatalogSelectionDialog';
+} from './CatalogSelectionOptions';
 
 type FieldChoice = ConstructionChoice & { readonly source: FieldChoiceSource };
 
@@ -140,7 +140,7 @@ const createDialog = (
   const onConfirm = vi.fn();
 
   const dialog = (
-    <CatalogSelectionDialog
+    <CatalogSelectionOptions
       groups={[group]}
       rowRoot={rowRoot}
       initialSelection={{
@@ -156,26 +156,23 @@ const createDialog = (
       onConfirm={onConfirm}
     />
   );
-  render(insideClosedDetails ? <details><summary>Source setup</summary>{dialog}</details> : dialog);
+  const rendered = render(insideClosedDetails ? <details><summary>Source setup</summary>{dialog}</details> : dialog);
 
-  return { subjectChoice, focusChoice, onConfirm };
+  return { subjectChoice, focusChoice, onConfirm, unmount: rendered.unmount };
 };
 
-describe('CatalogSelectionDialog', () => {
-  it('lets users change grouped value policy without losing the selected feature', async () => {
+describe('CatalogSelectionOptions', () => {
+  it('keeps grouped row policy outside Advanced options', async () => {
     const onChange = vi.fn();
     const { onConfirm } = createDialog(['EXISTS', 'EQUALS'], {}, false, undefined, false, {
       value: 'ONE',
       onChange,
     });
-    const dialog = screen.getByRole('dialog', { name: 'Choose how to add these fields' });
-    const policy = within(dialog).getByRole('combobox', { name: 'Values per grouped row' });
+    const dialog = screen.getByRole('region', { name: 'Advanced route and form choices' });
+    expect(within(dialog).queryByRole('combobox', { name: 'Values per grouped row' })).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
 
-    expect(policy).toHaveProperty('value', 'ONE');
-    fireEvent.change(policy, { target: { value: 'ALL' } });
-    expect(onChange).toHaveBeenCalledWith('ALL');
-
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 column' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 selected feature' }));
     await waitFor(() => expect(onConfirm).toHaveBeenCalledWith([expect.objectContaining({
       constructionChoice: { choiceId: 'saved-subject-choice', form: 'COUNT' },
     })]));
@@ -188,7 +185,7 @@ describe('CatalogSelectionDialog', () => {
       onChange,
     }, [allOption], 'ALL');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add 1 column' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
     await waitFor(() => expect(onConfirm).toHaveBeenCalledWith([expect.objectContaining({
       constructionChoice: {
         choiceId: 'saved-subject-choice',
@@ -198,11 +195,12 @@ describe('CatalogSelectionDialog', () => {
     })]));
   });
 
-  it('keeps the dialog visible when opened from a collapsed source disclosure', () => {
+  it('keeps Advanced options inline in its source disclosure', () => {
     createDialog(['EXISTS', 'EQUALS'], {}, false, undefined, true);
-    const dialog = screen.getByRole('dialog', { name: 'Choose how to add these fields' });
-    expect(dialog.closest('details')).toBeNull();
-    expect(dialog.parentElement).toBe(document.body.querySelector('[role="presentation"]'));
+    fireEvent.click(screen.getByText('Source setup'));
+    const options = screen.getByRole('region', { name: 'Advanced route and form choices' });
+    expect(options.closest('details')).not.toBeNull();
+    expect(document.body.querySelector('[role="presentation"]')).toBeNull();
   });
 
   it('compares matching records on the visible direct routes without selecting one', async () => {
@@ -212,6 +210,10 @@ describe('CatalogSelectionDialog', () => {
         : { zero: 0, one: 1, many: 0, displayedRows: 1, sampled: true });
     createDialog(['EXISTS', 'EQUALS'], {}, false, inspect);
 
+    expect(inspect).not.toHaveBeenCalled();
+    for (const button of screen.getAllByRole('button', { name: 'Check matching rows' })) {
+      fireEvent.click(button);
+    }
     await waitFor(() => expect(inspect).toHaveBeenCalledTimes(2));
     expect(screen.getByTestId('catalog-route-coverage-saved-subject-choice')).toHaveTextContent(
       '1 displayed row: 0 with no match, 0 with one, 1 with two or more. This is a sample; full-table coverage has not been measured.',
@@ -220,6 +222,22 @@ describe('CatalogSelectionDialog', () => {
       '1 displayed row: 0 with no match, 1 with one, 0 with two or more. This is a sample; full-table coverage has not been measured.',
     );
     expect(inspect.mock.calls.every(([selection]) => selection.constructionChoice.form === 'COUNT')).toBe(true);
+  });
+
+  it('does not check coverage on open and aborts a manual check when options close', async () => {
+    const inspect = vi.fn((_: CatalogChoiceIntent, signal: AbortSignal) =>
+      new Promise<RouteMatchCoverage>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+      }));
+    const { unmount } = createDialog(['EXISTS', 'EQUALS'], {}, false, inspect);
+    expect(inspect).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Check matching rows' })[0]!);
+    await waitFor(() => expect(inspect).toHaveBeenCalledTimes(1));
+    const signal = inspect.mock.calls[0]?.[1];
+    expect(signal?.aborted).toBe(false);
+    unmount();
+    expect(signal?.aborted).toBe(true);
   });
 
   it('keeps a saved related ALL form when checking route coverage', async () => {
@@ -232,6 +250,10 @@ describe('CatalogSelectionDialog', () => {
       onChange: vi.fn(),
     }, [allOption, countOption], 'ALL');
 
+    expect(inspect).not.toHaveBeenCalled();
+    for (const button of screen.getAllByRole('button', { name: 'Check related values' })) {
+      fireEvent.click(button);
+    }
     await waitFor(() => expect(inspect).toHaveBeenCalledTimes(2));
     expect(inspect.mock.calls.map(([selection]) => selection.constructionChoice.form)).toEqual(['ALL', 'ALL']);
   });
@@ -259,7 +281,7 @@ describe('CatalogSelectionDialog', () => {
     const { subjectChoice, onConfirm } = createDialog(
       [], {}, false, undefined, false, undefined, [countOption, presenceOption], 'COUNT', false, 'Specimen', namedCohortRoute,
     );
-    const dialog = screen.getByRole('dialog', { name: 'Choose how to add these fields' });
+    const dialog = screen.getByRole('region', { name: 'Advanced route and form choices' });
 
     expect(subjectChoice.route).toEqual(namedCohortRoute);
     expect(within(dialog).getByRole('radio', { name: 'Observation ID: Specimen -[subject]-> Patient <-[subject]- Observation' }))
@@ -270,7 +292,7 @@ describe('CatalogSelectionDialog', () => {
       .toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByRole('radio', { name: 'Observation ID: Show whether a match exists' }));
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 column' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 selected feature' }));
 
     expect(onConfirm).toHaveBeenCalledWith([{
       constructionChoice: { choiceId: subjectChoice.choiceId, form: 'PRESENCE' },
@@ -283,20 +305,20 @@ describe('CatalogSelectionDialog', () => {
       value: 'ALL',
       onChange: vi.fn(),
     }, [allOption, countOption], 'COUNT', true);
-    const dialog = screen.getByRole('dialog', { name: 'Choose how to add these fields' });
+    const dialog = screen.getByRole('region', { name: 'Advanced route and form choices' });
     fireEvent.click(within(dialog).getByRole('radio', { name: 'Patient ID: Keep all matching values' }));
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 column' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 selected feature' }));
 
     expect(onConfirm).toHaveBeenCalledWith([{
       constructionChoice: { choiceId: 'saved-subject-choice', form: 'ALL' },
       title: 'Patient ID',
     }]);
-    expect(screen.getByRole('combobox', { name: 'Values per grouped row' })).toHaveProperty('value', 'ALL');
+    expect(screen.queryByRole('combobox', { name: 'Values per grouped row' })).not.toBeInTheDocument();
   });
 
   it('keeps a saved COUNT equality condition when the new route supports it', async () => {
     const { focusChoice, onConfirm } = createDialog(['EXISTS', 'EQUALS']);
-    const dialog = screen.getByRole('dialog', { name: 'Choose how to add these fields' });
+    const dialog = screen.getByRole('region', { name: 'Advanced route and form choices' });
     expect(within(dialog).getByText(/Matching records: only records where Observation ID equals known-observation-id/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByText(/Matching records: only records where Observation ID equals known-observation-id/));
 
@@ -324,7 +346,7 @@ describe('CatalogSelectionDialog', () => {
     expect(within(dialog).getByRole('textbox', { name: 'Observation ID exact value' }))
       .toHaveProperty('value', 'known-observation-id');
     expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 column' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 selected feature' }));
 
     await waitFor(() => expect(onConfirm).toHaveBeenCalledWith([{
       constructionChoice: { choiceId: focusChoice.choiceId, form: 'COUNT' },
@@ -339,7 +361,7 @@ describe('CatalogSelectionDialog', () => {
 
   it('blocks Add and requires explicit reset when a target route cannot keep the saved condition', () => {
     const { focusChoice, onConfirm } = createDialog([]);
-    const dialog = screen.getByRole('dialog', { name: 'Choose how to add these fields' });
+    const dialog = screen.getByRole('region', { name: 'Advanced route and form choices' });
     fireEvent.click(within(dialog).getByText(/Matching records: only records where Observation ID equals known-observation-id/));
     fireEvent.click(within(dialog).getByText('Change relationship path (1 alternatives)'));
     fireEvent.click(within(dialog).getByRole('radio', {
@@ -347,12 +369,12 @@ describe('CatalogSelectionDialog', () => {
     }));
 
     expect(within(dialog).getByRole('alert')).toHaveTextContent(/known-observation-id.*not supported/i);
-    expect(within(dialog).getByRole('button', { name: 'Add 1 column' })).toBeDisabled();
+    expect(within(dialog).getByRole('button', { name: 'Add 1 selected feature' })).toBeDisabled();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Use all related records' }));
 
     expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: 'Add 1 column' })).toBeEnabled();
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 column' }));
+    expect(within(dialog).getByRole('button', { name: 'Add 1 selected feature' })).toBeEnabled();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 selected feature' }));
     expect(onConfirm).toHaveBeenCalledWith([{
       constructionChoice: { choiceId: focusChoice.choiceId, form: 'COUNT' },
       title: 'Observation ID',
@@ -368,14 +390,14 @@ describe('CatalogSelectionDialog', () => {
       relationship: 'testedBy_StudyVisit',
       storageDirection: 'OUTBOUND',
     });
-    const dialog = screen.getByRole('dialog', { name: 'Choose how to add these fields' });
+    const dialog = screen.getByRole('region', { name: 'Advanced route and form choices' });
 
     expect(within(dialog).getAllByTitle(/StudyVisit\.testedBy/).length).toBeGreaterThan(0);
   });
 
   it('keeps all related records by default and places optional filters under Advanced', () => {
     createDialog(['EXISTS', 'EQUALS'], {}, false);
-    const dialog = screen.getByRole('dialog', { name: 'Choose how to add these fields' });
+    const dialog = screen.getByRole('region', { name: 'Advanced route and form choices' });
     const matching = within(dialog).getByText('Matching records: all related records · Change').closest('details');
     expect(matching).not.toBeNull();
     if (!matching) return;
@@ -395,6 +417,9 @@ it('keeps a saved COUNT route on COUNT while grouped route coverage uses related
   createDialog(['EXISTS', 'EQUALS'], {}, false, inspect, false,
     { value: 'ONE', onChange: vi.fn() },
     [{ ...countOption, form: 'ALL', shape: 'LIST' }, countOption]);
+  expect(inspect).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Check matching rows' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Check related values' }));
   await waitFor(() => expect(inspect).toHaveBeenCalledTimes(2));
   expect(inspect.mock.calls.map(([selection]) => selection.constructionChoice.form)).toEqual(['COUNT', 'ALL']);
   expect(screen.getByTestId('catalog-route-coverage-saved-subject-choice')).toHaveTextContent(
@@ -403,5 +428,5 @@ it('keeps a saved COUNT route on COUNT while grouped route coverage uses related
   expect(screen.getByTestId('catalog-route-coverage-focus-choice')).toHaveTextContent(
     '1 displayed row: 0 without this value, 0 with one value, 1 with two or more values. This counts values from matching related records, not matching records.',
   );
-  expect(screen.getByRole('combobox', { name: 'Values per grouped row' })).toHaveProperty('value', 'ONE');
+  expect(screen.queryByRole('combobox', { name: 'Values per grouped row' })).not.toBeInTheDocument();
 });

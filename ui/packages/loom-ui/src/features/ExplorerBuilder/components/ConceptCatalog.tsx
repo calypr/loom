@@ -17,7 +17,6 @@ import {
   catalogItemKey,
   catalogItemLabel,
   catalogItemConstructionChoice,
-  catalogItemDefaultForm,
   catalogSourceOptions,
   fieldCatalogItems,
   schemaFieldCatalogItems,
@@ -29,11 +28,11 @@ import {
   type CatalogItem,
 } from '../catalogItems';
 import {
-  CatalogSelectionDialog,
+  CatalogSelectionOptions,
   type CatalogInitialSelection,
   type GroupedRowValuePolicyControl,
   type RouteCoverage,
-} from './CatalogSelectionDialog';
+} from './CatalogSelectionOptions';
 import type { PairedColumnSuggestion } from '../constructionWorkspace/PairedColumnSuggestions';
 
 const PAGE_SIZE = 50;
@@ -621,9 +620,12 @@ const ConceptCatalogContent = ({
   const [choiceDetails, setChoiceDetails] = useState<ReadonlyMap<string, ChoiceDetailsState>>(
     () => new Map(),
   );
-  const [adding, setAdding] = useState(false);
+  const [selectionPhase, setSelectionPhase] = useState<'idle' | 'loading-options' | 'submitting'>('idle');
+  const submitting = selectionPhase === 'submitting';
+  const loadingOptions = selectionPhase === 'loading-options';
   const [actionMessage, setActionMessage] = useState<string>();
   const [pendingSelection, setPendingSelection] = useState<ReadonlyArray<CatalogChoiceGroup>>();
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [loadingMoreRoutes, setLoadingMoreRoutes] = useState<string>();
   const [routeLoadError, setRouteLoadError] = useState<{ readonly key: string; readonly message: string }>();
   const disabledReasonId = useId();
@@ -819,6 +821,7 @@ const ConceptCatalogContent = ({
         buildId: suggestion.buildId,
       },
     }]);
+    setAdvancedOpen(true);
     setActionMessage(undefined);
   }, [
     onPairedColumnSuggestionHandled,
@@ -930,6 +933,7 @@ const ConceptCatalogContent = ({
   );
   const selectedItems = useMemo(() => selectedAsArray(selected), [selected]);
   const toggleSelection = (item: CatalogItem) => {
+    if (submitting) return;
     if (!canAddCatalogItem(item) || !catalogItemAvailability(item).selectable) return;
     const key = catalogItemKey(item);
     setSelected((current) => {
@@ -938,6 +942,12 @@ const ConceptCatalogContent = ({
       else if (next.size < MAX_SELECTIONS) next.set(key, item);
       return next;
     });
+    setPendingSelection(undefined);
+    setAdvancedOpen(false);
+    const pendingChoiceRequest = activeChoiceRequest.current;
+    activeChoiceRequest.current = undefined;
+    pendingChoiceRequest?.abort();
+    if (pendingChoiceRequest) setSelectionPhase('idle');
     setActionMessage(undefined);
   };
 
@@ -1033,6 +1043,67 @@ const ConceptCatalogContent = ({
     };
   };
 
+  const resolveSelectedGroups = async (
+    items: ReadonlyArray<CatalogItem>,
+    signal: AbortSignal,
+  ): Promise<ReadonlyArray<CatalogChoiceGroup> | undefined> => {
+    const groups = await Promise.all(items.map(async (item) => {
+      const cached = choiceDetails.get(choiceDetailsKey(item));
+      if (cached?.status === 'ready') return cached.group;
+      return resolveChoiceGroup(item, signal);
+    }));
+    if (signal.aborted) return undefined;
+    setChoiceDetails((previous) => {
+      const next = new Map(previous);
+      for (const group of groups) {
+        next.set(choiceDetailsKey(group.item), { status: 'ready', group });
+      }
+      return next;
+    });
+    return groups;
+  };
+
+  const defaultIntentForGroup = (group: CatalogChoiceGroup): CatalogChoiceIntent | undefined => {
+    if (initialSelection?.condition) return undefined;
+    const issuedChoice = catalogItemConstructionChoice(group.item);
+    const savedChoice = initialSelection
+      ? group.choices.find((choice) => choice.choiceId === initialSelection.choiceId)
+      : undefined;
+    const matchingIssuedChoice = issuedChoice
+      ? group.choices.find((choice) => choice.choiceId === issuedChoice.choiceId)
+      : undefined;
+    const uniqueChoice = group.complete && !group.truncated && !group.nextCursor && group.choices.length === 1
+      ? group.choices[0]
+      : undefined;
+    const choice = initialSelection
+      ? savedChoice
+      : matchingIssuedChoice ?? uniqueChoice;
+    if (!choice) return undefined;
+    const savedForm = initialSelection?.choiceId === choice.choiceId
+      ? choice.options.find((option) => option.form === initialSelection.form && option.support === 'SUPPORTED')
+      : undefined;
+    const defaults = choice.options.filter((option) =>
+      option.decision === 'DEFAULT' && option.support === 'SUPPORTED',
+    );
+    const form = savedForm?.form ?? (defaults.length === 1 ? defaults[0]?.form : undefined);
+    if (!form) return undefined;
+    const intent = catalogChoiceIntent({
+      item: group.item,
+      choice,
+      form,
+      rowRoot,
+      ...(form === 'ALL' && groupedRowValuePolicy?.value === 'ONE'
+        ? { rowValuePolicy: groupedRowValuePolicy.value }
+        : {}),
+    });
+    if (isRelatedFieldCatalogItem(group.item, rowRoot)) {
+      return relatedSourceAvailability?.supported === false || !intent.relatedSource
+        ? undefined
+        : intent;
+    }
+    return canAddFromSourceProjection ? intent : undefined;
+  };
+
   const loadMoreChoices = async (group: CatalogChoiceGroup) => {
     if (!group.nextCursor || loadingMoreRoutes) return;
     const key = catalogItemKey(group.item);
@@ -1087,6 +1158,25 @@ const ConceptCatalogContent = ({
       });
   };
 
+  const submitIntents = async (intents: ReadonlyArray<CatalogChoiceIntent>) => {
+    if (!onAddSelected || !intents.length) return;
+    setSelectionPhase('submitting');
+    setActionMessage(undefined);
+    try {
+      const result = await onAddSelected(intents);
+      setSelected(new Map());
+      setPendingSelection(undefined);
+      setAdvancedOpen(false);
+      setActionMessage(result === 'preview-ready' || result === 'preview-pending'
+        ? 'Review the proposed rows, then apply the columns.'
+        : addActionMessage(intents));
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : 'Loom could not add the selected features.');
+    } finally {
+      setSelectionPhase('idle');
+    }
+  };
+
   const commitSelections = async (selections: ReadonlyArray<CatalogChoiceIntent>) => {
     if (!onAddSelected || !selections.length) return;
     const intents = pendingSelection?.length === selections.length
@@ -1120,83 +1210,23 @@ const ConceptCatalogContent = ({
           : canAddFromSourceProjection;
       })
     ) return;
-    setAdding(true);
-    setActionMessage(undefined);
-    try {
-      const result = await onAddSelected(intents);
-      setSelected(new Map());
-      setPendingSelection(undefined);
-      setActionMessage(result === 'preview-ready' || result === 'preview-pending'
-        ? 'Review the proposed rows, then apply the columns.'
-        : addActionMessage(intents));
-    } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : 'Loom could not add the selected features.');
-    } finally {
-      setAdding(false);
-    }
+    await submitIntents(intents);
   };
 
-  const openSelection = async () => {
+  const loadAdvancedOptions = async () => {
     if (!selectedItems.length || !onAddSelected || !selectedItems.every(canAddCatalogItem)) return;
+    setAdvancedOpen(true);
+    if (pendingSelection?.length === selectedItems.length) return;
     setRouteLoadError(undefined);
     const controller = new AbortController();
     activeChoiceRequest.current?.abort();
     activeChoiceRequest.current = controller;
-    setAdding(true);
+    setSelectionPhase('loading-options');
     setActionMessage(undefined);
     try {
-      const groups = await Promise.all(selectedItems.map(
-        (item) => resolveChoiceGroup(item, controller.signal),
-      ));
-      if (controller.signal.aborted) return;
-      const dialogGroups = choiceGroupsForRelatedSource(
-        groups,
-        rowRoot,
-        relatedSourceAvailability,
-      );
-      setChoiceDetails((previous) => {
-        const next = new Map(previous);
-        for (const group of groups) {
-          next.set(choiceDetailsKey(group.item), { status: 'ready', group });
-        }
-        return next;
-      });
-      const direct = groups.flatMap((group, index) => {
-        const dialogGroup = dialogGroups[index];
-        if (!group.complete || group.truncated || dialogGroup?.choices.length !== 1) return [];
-        const dialogChoice = dialogGroup.choices[0]!;
-        const choice = group.choices.find(
-          (candidate) => candidate.choiceId === dialogChoice.choiceId,
-        );
-        const form = catalogItemDefaultForm(dialogChoice);
-        return choice && form && dialogChoice.options.length === 1
-          ? [catalogChoiceIntent({
-              item: group.item,
-              choice,
-              form,
-              ...(relatedSourceAvailability?.supported ? { rowRoot } : {}),
-            })]
-          : [];
-      });
-      if (direct.length === groups.length) {
-        if (!groups.every((group, index) => {
-          const intent = direct[index];
-          if (!intent || !canAddCatalogItem(group.item)) return false;
-          return isRelatedFieldCatalogItem(group.item, rowRoot) && relatedSourceAvailability?.supported
-            ? intent.relatedSource !== undefined
-            : canAddFromSourceProjection;
-        })) {
-          setPendingSelection(groups);
-          return;
-        }
-        const result = await onAddSelected(direct);
-        setSelected(new Map());
-        setActionMessage(result === 'preview-ready' || result === 'preview-pending'
-          ? 'Review the proposed rows, then apply the columns.'
-          : addActionMessage(direct));
-      } else {
-        setPendingSelection(groups);
-      }
+      const groups = await resolveSelectedGroups(selectedItems, controller.signal);
+      if (!groups || controller.signal.aborted) return;
+      setPendingSelection(groups);
     } catch (error) {
       if (controller.signal.aborted) return;
       setActionMessage(
@@ -1207,8 +1237,49 @@ const ConceptCatalogContent = ({
     } finally {
       if (activeChoiceRequest.current === controller) {
         activeChoiceRequest.current = undefined;
+        setSelectionPhase('idle');
       }
-      if (!controller.signal.aborted) setAdding(false);
+    }
+  };
+
+  const openAdvancedOptions = () => {
+    setActionMessage(undefined);
+    void loadAdvancedOptions();
+  };
+
+  const openSelection = async () => {
+    if (selectionPhase !== 'idle' || !selectedItems.length || !onAddSelected || !selectedItems.every(canAddCatalogItem)) return;
+    setRouteLoadError(undefined);
+    setActionMessage(undefined);
+    const controller = new AbortController();
+    activeChoiceRequest.current?.abort();
+    activeChoiceRequest.current = controller;
+    setSelectionPhase('loading-options');
+    try {
+      const groups = await resolveSelectedGroups(selectedItems, controller.signal);
+      if (!groups || controller.signal.aborted) return;
+      setPendingSelection(groups);
+      const intents = groups.map(defaultIntentForGroup);
+      const resolvedIntents = intents.filter(
+        (intent): intent is CatalogChoiceIntent => intent !== undefined,
+      );
+      if (resolvedIntents.length === groups.length) {
+        activeChoiceRequest.current = undefined;
+        await submitIntents(resolvedIntents);
+        return;
+      }
+      setAdvancedOpen(true);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setAdvancedOpen(true);
+      setActionMessage(error instanceof Error
+        ? error.message
+        : 'Loom could not resolve the selected feature routes.');
+    } finally {
+      if (activeChoiceRequest.current === controller) {
+        activeChoiceRequest.current = undefined;
+        setSelectionPhase('idle');
+      }
     }
   };
 
@@ -1258,7 +1329,7 @@ const ConceptCatalogContent = ({
                 currentResourceType={resourceType}
                 hasRouteContext={browseRouteContext !== undefined}
                 checked={selected.has(catalogItemKey(item))}
-                disabled={disabled || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
+                disabled={disabled || submitting || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
                 selectionDisabled={!canAddCatalogItem(item)}
                 disabledReasonId={visibleDisabledReasonId}
                 selectionDisabledReasonId={
@@ -1280,29 +1351,6 @@ const ConceptCatalogContent = ({
 
   return (
     <section className="min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm">
-      {pendingSelection ? (
-        <CatalogSelectionDialog
-          groups={choiceGroupsForRelatedSource(
-            pendingSelection,
-            rowRoot,
-            relatedSourceAvailability,
-          )}
-          rowRoot={rowRoot}
-          initialSelection={initialSelection}
-          groupedRowValuePolicy={groupedRowValuePolicy}
-          busy={adding || loadingMoreRoutes !== undefined}
-          loadingMoreRoutes={loadingMoreRoutes}
-          routeLoadError={routeLoadError}
-          submissionError={actionMessage}
-          onLoadMoreRoutes={(group) => void loadMoreChoices(group)}
-          onInspectRouteCoverage={onInspectRouteCoverage}
-          onCancel={() => {
-            setPendingSelection(undefined);
-            setActionMessage(undefined);
-          }}
-          onConfirm={(selections) => void commitSelections(selections)}
-        />
-      ) : null}
       <form className="flex gap-2 border-b border-slate-200 px-3 py-2" onSubmit={submitSearch}>
           <label className="sr-only" htmlFor="feature-catalog-search">
             {view === 'fields' ? 'Search dataset fields by name or type' : 'Search coded values by code or label'}
@@ -1368,6 +1416,63 @@ const ConceptCatalogContent = ({
       {!pendingSelection && selected.size === 0 && actionMessage ? (
         <p className="mx-3 mt-2 text-sm text-slate-700" role="status">{actionMessage}</p>
       ) : null}
+      {selected.size > 0 ? (
+        <div className="mx-3 mt-3">
+          <button
+            type="button"
+            aria-expanded={advancedOpen}
+            disabled={disabled || submitting}
+            onClick={() => {
+              if (advancedOpen) {
+                activeChoiceRequest.current?.abort();
+                activeChoiceRequest.current = undefined;
+                setPendingSelection(undefined);
+                setSelectionPhase('idle');
+                setAdvancedOpen(false);
+                setActionMessage(undefined);
+                return;
+              }
+              void openAdvancedOptions();
+            }}
+            className="text-sm font-medium text-blue-800 underline underline-offset-2 disabled:text-slate-400"
+          >
+            {advancedOpen ? 'Close advanced options' : 'Advanced options'}
+          </button>
+          {advancedOpen ? (
+            <div className="mt-2 rounded-lg border border-slate-200 bg-white p-3">
+              {loadingOptions && !pendingSelection ? (
+                <p role="status" className="text-sm text-slate-600">Loading route and result form choices…</p>
+              ) : pendingSelection ? (
+                <CatalogSelectionOptions
+                  groups={choiceGroupsForRelatedSource(
+                    pendingSelection,
+                    rowRoot,
+                    relatedSourceAvailability,
+                  )}
+                  rowRoot={rowRoot}
+                  initialSelection={initialSelection}
+                  groupedRowValuePolicy={groupedRowValuePolicy}
+                  busy={submitting || loadingMoreRoutes !== undefined}
+                  loadingMoreRoutes={loadingMoreRoutes}
+                  routeLoadError={routeLoadError}
+                  submissionError={actionMessage}
+                  onLoadMoreRoutes={(group) => void loadMoreChoices(group)}
+                  onInspectRouteCoverage={onInspectRouteCoverage}
+                  onCancel={() => {
+                    activeChoiceRequest.current?.abort();
+                    setPendingSelection(undefined);
+                    setAdvancedOpen(false);
+                    setActionMessage(undefined);
+                  }}
+                  onConfirm={(selections) => void commitSelections(selections)}
+                />
+              ) : actionMessage ? (
+                <p role="alert" className="text-sm text-red-800">{actionMessage}</p>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className={`${layout === 'panel' ? 'grid min-h-[14rem]' : 'grid min-h-[24rem]'} ${selected.size > 0 ? 'pb-32 md:pb-0 md:pr-[20rem]' : ''}`}>
         <div className={layout === 'panel'
@@ -1398,7 +1503,7 @@ const ConceptCatalogContent = ({
                       currentResourceType={resourceType}
                       hasRouteContext={browseRouteContext !== undefined}
                       checked={selected.has(catalogItemKey(item))}
-                      disabled={disabled || !canBrowseConcepts || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
+                      disabled={disabled || submitting || !canBrowseConcepts || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
                       selectionDisabled={!canAddCatalogItem(item)}
                       disabledReasonId={visibleDisabledReasonId}
                       onToggle={() => toggleSelection(item)}
@@ -1465,7 +1570,7 @@ const ConceptCatalogContent = ({
           ) : null}
         </div>
 
-        {!pendingSelection && selected.size > 0 ? (
+        {selected.size > 0 ? (
           <aside aria-label="Selected feature action" className="fixed inset-x-4 bottom-4 z-30 grid w-auto gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-lg md:inset-x-auto md:right-4 md:top-1/2 md:bottom-auto md:w-[min(18rem,calc(100vw-2rem))] md:-translate-y-1/2 lg:translate-x-0">
             <p className="m-0 text-sm font-medium text-slate-700" role="status">
               {selected.size} {selected.size === 1 ? 'feature' : 'features'} selected
@@ -1483,7 +1588,7 @@ const ConceptCatalogContent = ({
                       <button
                         type="button"
                         aria-label={`Remove ${label} from selected features`}
-                        disabled={disabled || adding}
+                        disabled={disabled || submitting}
                         onClick={() => toggleSelection(item)}
                         className="shrink-0 text-blue-800 underline disabled:opacity-50"
                       >
@@ -1494,16 +1599,21 @@ const ConceptCatalogContent = ({
                 })}
               </ul>
             ) : null}
-            <button
-              type="button"
-              disabled={disabled || adding || selected.size === 0 || !onAddSelected || !selectedItems.every(canAddCatalogItem)}
-              onClick={() => void openSelection()}
-              className="rounded-md bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
-              {selected.size === 0
-                ? 'Add selected features'
-                : `Add ${selected.size} selected ${selected.size === 1 ? 'feature' : 'features'}`}
-            </button>
-            {actionMessage ? <p className="m-0 text-sm text-slate-700" role="status">{actionMessage}</p> : null}
+            {!advancedOpen ? (
+              <button
+                type="button"
+                disabled={disabled || submitting || loadingOptions || selected.size === 0 || !onAddSelected || !selectedItems.every(canAddCatalogItem)}
+                onClick={() => void openSelection()}
+                className="rounded-md bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
+                {selected.size === 0
+                  ? 'Add selected features'
+                  : `Add ${selected.size} selected ${selected.size === 1 ? 'feature' : 'features'}`}
+              </button>
+            ) : null}
+            {loadingOptions && !advancedOpen ? (
+              <p className="m-0 text-sm text-slate-600" role="status">Checking route and form defaults…</p>
+            ) : null}
+            {actionMessage && !advancedOpen ? <p className="m-0 text-sm text-slate-700" role="status">{actionMessage}</p> : null}
           </aside>
         ) : null}
       </div>

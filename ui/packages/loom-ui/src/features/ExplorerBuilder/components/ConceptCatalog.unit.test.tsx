@@ -20,7 +20,7 @@ import type {
   SemanticInventoryItem,
 } from '../../../types';
 import { EXPLORER_AUTHORING_API_VERSION } from '../../../types';
-import type { CatalogInitialSelection } from './CatalogSelectionDialog';
+import type { CatalogInitialSelection } from './CatalogSelectionOptions';
 import type { PairedColumnSuggestion } from '../constructionWorkspace/PairedColumnSuggestions';
 import {
   ConceptCatalog,
@@ -346,20 +346,47 @@ describe('ConceptCatalog', () => {
     renderCatalog(fetch, onAddSelected);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Select AJCC pathological M category' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
+    const dialog = await screen.findByRole('region', { name: 'Advanced route and form choices' });
     expect(screen.queryByRole('heading', { name: 'Selected features' })).not.toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 column' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 selected feature' }));
 
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('preview exceeded its execution deadline');
-    expect(screen.getByRole('dialog', { name: 'Choose how to add these fields' })).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: 'Add 1 column' })).toBeEnabled();
+    expect(screen.getByRole('region', { name: 'Advanced route and form choices' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Add 1 selected feature' })).toBeEnabled();
     expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeEnabled();
     expect(onAddSelected).toHaveBeenCalledTimes(1);
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
-    expect(screen.queryByRole('dialog', { name: 'Choose how to add these fields' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Advanced route and form choices' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add 1 selected feature' })).toBeEnabled();
+  });
+
+  it('releases the picker when selection changes during Advanced route lookup', async () => {
+    const first = item('first-route', 'First route concept', 1, 'Observation');
+    const second = item('second-route', 'Second route concept', 1, 'Observation');
+    let routeSignal: AbortSignal | null | undefined;
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input, init) => {
+      if (String(input).endsWith('/construction-choices')) {
+        return new Promise<Response>((_resolve, reject) => {
+          routeSignal = init?.signal;
+          routeSignal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+        });
+      }
+      return new Response(JSON.stringify(page([first, second])), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    renderCatalog(fetch);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select First route concept' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
+    await waitFor(() => expect(routeSignal).toBeDefined());
+    expect(screen.getByText('Loading route and result form choices…')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select Second route concept' }));
+    await waitFor(() => expect(routeSignal?.aborted).toBe(true));
+    expect(screen.queryByRole('region', { name: 'Advanced route and form choices' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add 2 selected features' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Advanced options' })).toBeEnabled();
   });
 
   it('keeps a pending inventory read when only source-availability presentation changes', async () => {
@@ -602,7 +629,7 @@ describe('ConceptCatalog', () => {
       </LoomProvider>,
     );
 
-    const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
+    const dialog = await screen.findByRole('region', { name: 'Advanced route and form choices' });
     expect(within(dialog).getByRole('heading', { name: /Days to collection/ })).toBeInTheDocument();
     expect(within(dialog).getByRole('radio', { name: 'Days to collection: Use the matching value' })).toBeInTheDocument();
     expect(within(dialog).getByRole('radio', { name: 'Days to collection: Keep all matching values' })).toBeInTheDocument();
@@ -649,9 +676,9 @@ describe('ConceptCatalog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Select Patient.id' }));
     fireEvent.click(screen.getByRole('button', { name: 'Select Hemoglobin A1c' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add 2 selected features' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
 
-    const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
+    const dialog = await screen.findByRole('region', { name: 'Advanced route and form choices' });
     fireEvent.click(within(dialog).getAllByText('Technical path details')[1]!);
     expect(within(dialog).getByText('valueQuantity.value')).toBeInTheDocument();
     const defaultForm = screen.getByRole('radio', { name: 'Hemoglobin A1c: Use the matching value' });
@@ -660,7 +687,7 @@ describe('ConceptCatalog', () => {
     expect(defaultForm).toHaveProperty('checked', true);
     expect(listForm).toHaveProperty('checked', false);
     fireEvent.click(listForm);
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 2 columns' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 2 selected features' }));
 
     await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([
       {
@@ -702,8 +729,8 @@ describe('ConceptCatalog', () => {
     const onAddSelected = renderCatalog(fetch);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Select All forms' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
+    const dialog = await screen.findByRole('region', { name: 'Advanced route and form choices' });
     const countRadio = within(dialog).getByRole('radio', { name: 'All forms: Count matching records' });
     fireEvent.click(countRadio);
     const countCard = countRadio.closest('.rounded-md') as HTMLElement | null;
@@ -714,7 +741,7 @@ describe('ConceptCatalog', () => {
     expect(countRadio).toHaveProperty('checked', true);
     expect(within(countCard).getByText('COUNT')).toBeInTheDocument();
 
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 column' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 selected feature' }));
     await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([{
       constructionChoice: { choiceId: 'choice-all-forms', form: 'COUNT' },
       title: 'All forms',
@@ -927,7 +954,9 @@ describe('ConceptCatalog', () => {
     await waitFor(() => expect((screen.getByRole('searchbox', {
       name: 'Search dataset fields by name or type',
     }) as HTMLInputElement).value).toBe(''));
-    fireEvent.click(screen.getByRole('button', { name: 'Add 2 selected features' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
+    const advanced = await screen.findByRole('region', { name: 'Advanced route and form choices' });
+    fireEvent.click(await within(advanced).findByRole('button', { name: 'Add 2 selected features' }));
     await waitFor(() => expect(onAddSelected).toHaveBeenCalledTimes(1));
     const routeCall = fetch.mock.calls.find(([input]) => String(input).endsWith('/construction-choices'));
     if (!routeCall) throw new Error('The selected non-root coded value was not resolved against the table.');
@@ -1045,8 +1074,8 @@ describe('ConceptCatalog', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Select Compound name' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
+    const dialog = await screen.findByRole('region', { name: 'Advanced route and form choices' });
     expect(within(dialog).getByRole('heading', { name: /Compound name/ })).toBeInTheDocument();
     expect(within(dialog).getByRole('radio', { name: 'Compound name: Use the matching value' })).toBeInTheDocument();
 
@@ -1062,7 +1091,7 @@ describe('ConceptCatalog', () => {
       },
     });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
-    expect(screen.queryByRole('dialog', { name: 'Choose how to add these fields' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Advanced route and form choices' })).not.toBeInTheDocument();
   });
 
   it('groups populated compiler fields by source and skips generated schema-only fields', async () => {
@@ -1330,7 +1359,7 @@ describe('ConceptCatalog', () => {
       constructionChoice: { choiceId: 'field-choice-id', form: 'VALUE' },
       title: 'Patient ID',
     }]));
-    expect(screen.queryByRole('dialog', { name: 'Choose how to add these fields' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Advanced route and form choices' })).not.toBeInTheDocument();
   });
 
   it('sends the exact related field choice and candidate while keeping root projection simple', async () => {
@@ -1428,13 +1457,13 @@ describe('ConceptCatalog', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Select DiagnosticReport.amount' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add 2 selected features' }));
-    expect(await screen.findByRole('dialog', { name: 'Choose how to add these fields' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
+    expect(await screen.findByRole('region', { name: 'Advanced route and form choices' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('radio', {
       name: 'Amount: Keep all matching values',
     }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add 2 columns' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add 2 selected features' }));
 
     await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([
       {
@@ -1543,7 +1572,10 @@ describe('ConceptCatalog', () => {
     const relatedField = await screen.findByRole('button', { name: 'Select Observation.identifier' });
     expect(relatedField).toBeEnabled();
     fireEvent.click(relatedField);
-    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
+    const advanced = await screen.findByRole('region', { name: 'Advanced route and form choices' });
+    fireEvent.click(within(advanced).getByRole('radio', { name: 'Observation id: Keep all matching values' }));
+    fireEvent.click(within(advanced).getByRole('button', { name: 'Add 1 selected feature' }));
 
     await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([{
       constructionChoice: { choiceId: 'observation-identifier-related-choice', form: 'ALL' },
@@ -1613,55 +1645,69 @@ describe('ConceptCatalog', () => {
     const RelatedCatalog = () => {
       const [policy, setPolicy] = React.useState<'ALL' | 'ONE'>('ALL');
       return (
-        <LoomProvider client={loomClient}>
-          <ConceptCatalog
-            project="project-a"
-            explorerId="explorer-a"
-            snapshotToken="snapshot-a"
-            outputId="patients"
-            rowRoot="Patient"
-            resourceType="Observation"
-            catalog={relatedCatalog}
-            sourceProjectionAvailability={{ available: false, reason: 'The stage uses a related source.' }}
-            relatedSourceAvailability={{ supported: true }}
-            groupedRowValuePolicy={{ value: policy, onChange: setPolicy }}
-            onAddSelected={onAddSelected}
-          />
-        </LoomProvider>
+        <>
+          <label>
+            <span>Values from each row&apos;s contributing records</span>
+            <select
+              aria-label="Values from each row&apos;s contributing records"
+              value={policy}
+              onChange={(event) => setPolicy(event.currentTarget.value as 'ALL' | 'ONE')}
+            >
+              <option value="ALL">Keep all distinct values</option>
+              <option value="ONE">Require one distinct value</option>
+            </select>
+          </label>
+          <LoomProvider client={loomClient}>
+            <ConceptCatalog
+              project="project-a"
+              explorerId="explorer-a"
+              snapshotToken="snapshot-a"
+              outputId="patients"
+              rowRoot="Patient"
+              resourceType="Observation"
+              catalog={relatedCatalog}
+              sourceProjectionAvailability={{ available: false, reason: 'The stage uses a related source.' }}
+              relatedSourceAvailability={{ supported: true }}
+              groupedRowValuePolicy={{ value: policy, onChange: setPolicy }}
+              onAddSelected={onAddSelected}
+            />
+          </LoomProvider>
+        </>
       );
     };
     render(<RelatedCatalog />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Select Observation.identifier' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
+    const dialog = await screen.findByRole('region', { name: 'Advanced route and form choices' });
     fireEvent.click(within(dialog).getByRole('radio', { name: 'Observation id: Keep all matching values' }));
-    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Values per grouped row' }), {
+    fireEvent.change(screen.getByRole('combobox', { name: "Values from each row's contributing records" }), {
       target: { value: 'ONE' },
     });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 column' }));
+    expect(screen.queryByRole('combobox', { name: 'Values per grouped row' })).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 selected feature' }));
 
     await waitFor(() => expect(screen.getByText('ONE has multiple distinct values.', { exact: true })).toBeInTheDocument());
-    expect(screen.getByRole('dialog', { name: 'Choose how to add these fields' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Advanced route and form choices' })).toBeInTheDocument();
     expect(within(dialog).getByRole('radio', { name: 'Observation id: Keep all matching values' })).toHaveProperty('checked', true);
-    expect(within(dialog).getByRole('combobox', { name: 'Values per grouped row' })).toHaveProperty('value', 'ONE');
+    expect(screen.getByRole('combobox', { name: "Values from each row's contributing records" })).toHaveProperty('value', 'ONE');
     expect(onAddSelected).toHaveBeenNthCalledWith(1, [{
       constructionChoice: { choiceId: relatedChoice.choiceId, form: 'ALL', rowValuePolicy: 'ONE' },
       title: 'Observation id',
       relatedSource: { choice: relatedChoice, candidate: relatedCandidate },
     }]);
 
-    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Values per grouped row' }), {
+    fireEvent.change(screen.getByRole('combobox', { name: "Values from each row's contributing records" }), {
       target: { value: 'ALL' },
     });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 column' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 selected feature' }));
     await waitFor(() => expect(onAddSelected).toHaveBeenCalledTimes(2));
     expect(onAddSelected).toHaveBeenNthCalledWith(2, [{
       constructionChoice: { choiceId: relatedChoice.choiceId, form: 'ALL' },
       title: 'Observation id',
       relatedSource: { choice: relatedChoice, candidate: relatedCandidate },
     }]);
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Choose how to add these fields' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Advanced route and form choices' })).not.toBeInTheDocument());
   });
 
   it('suppresses repeated capability errors while the Builder repairs saved source fields', async () => {
@@ -1891,20 +1937,20 @@ describe('ConceptCatalog', () => {
     const onAddSelected = renderCatalog(fetch);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Select Hemoglobin' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
 
-    const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
+    const dialog = await screen.findByRole('region', { name: 'Advanced route and form choices' });
     expect(screen.getByText(/more relationship paths are available/i)).toBeInTheDocument();
     expect(within(dialog).getByRole('radio', {
       name: 'Hemoglobin: Patient <-[subject]- Observation',
     })).toHaveProperty('checked', false);
-    expect(within(dialog).getByRole('button', { name: 'Add 1 column' })).toBeDisabled();
+    expect(within(dialog).getByRole('button', { name: 'Add 1 selected feature' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Load more paths' }));
     fireEvent.click(await within(dialog).findByText('Other relationship paths (1)'));
     fireEvent.click(screen.getByRole('radio', {
       name: 'Hemoglobin: Patient <-[subject]- DiagnosticReport -[result]-> Observation',
     }));
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 column' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 selected feature' }));
 
     await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([{
       constructionChoice: { choiceId: 'route-choice-b', form: 'VALUE' },
@@ -1988,16 +2034,16 @@ describe('ConceptCatalog', () => {
     );
 
     fireEvent.click(await screen.findByRole('button', { name: 'Select Route count' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
+    const dialog = await screen.findByRole('region', { name: 'Advanced route and form choices' });
     const countRadio = within(dialog).getByRole('radio', { name: 'Route count: Count matching records' });
     expect(countRadio).toHaveProperty('checked', true);
     fireEvent.click(within(dialog).getByRole('radio', {
       name: 'Route count: Patient <-[focus]- Observation',
     }));
     expect(countRadio).toHaveProperty('checked', true);
-    expect(within(dialog).getByRole('button', { name: 'Add 1 column' })).toBeEnabled();
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 column' }));
+    expect(within(dialog).getByRole('button', { name: 'Add 1 selected feature' })).toBeEnabled();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 selected feature' }));
 
     await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([{
       constructionChoice: { choiceId: focusChoice.choiceId, form: 'COUNT' },
@@ -2005,7 +2051,7 @@ describe('ConceptCatalog', () => {
     }]));
   });
 
-  it('pins node-local code selection to the selected authored occurrence route', async () => {
+  it('uses the resolved compiler default for the selected authored occurrence route on one Add click', async () => {
     const related = item('718-7', 'Hemoglobin', 64, 'Observation');
     const routeChoice = (
       choiceId: string,
@@ -2066,7 +2112,7 @@ describe('ConceptCatalog', () => {
       constructionChoice: { choiceId: 'route-choice-subject', form: 'VALUE' },
       title: 'Hemoglobin',
     }]));
-    expect(screen.queryByRole('dialog', { name: 'Choose how to add these fields' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Advanced route and form choices' })).not.toBeInTheDocument();
     const inventoryRequest = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
     expect(inventoryRequest).toMatchObject({ resourceType: 'Observation', rowRoot: 'Patient' });
     const constructionRequest = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body)) as Record<string, unknown>;
@@ -2174,11 +2220,11 @@ describe('ConceptCatalog', () => {
     });
 
     fireEvent.click(await screen.findByRole('button', { name: 'Select Observation.identifier' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
 
-    const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
+    const dialog = await screen.findByRole('region', { name: 'Advanced route and form choices' });
     expect(within(dialog).getByText('No verified path or table value is available for this field.')).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: 'Add 1 column' })).toBeDisabled();
+    expect(within(dialog).getByRole('button', { name: 'Add 1 selected feature' })).toBeDisabled();
     expect(onAddSelected).not.toHaveBeenCalled();
     const choiceRequest = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body)) as Record<string, unknown>;
     expect(choiceRequest).toMatchObject({
