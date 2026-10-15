@@ -301,3 +301,96 @@ func TestSourceGroupPrunesUnusedSetsForRepeatedRootProjections(t *testing.T) {
 		}
 	}
 }
+
+func TestSourceGroupPrunesUnusedOptionalRouteBesideCorrelatedPivot(t *testing.T) {
+	value := func(variable string) ir.PhysicalExpression {
+		return ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality,
+			NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{Variable: variable}}
+	}
+	set := func(variable string, captures ...string) *ir.PhysicalSet {
+		return &ir.PhysicalSet{Variable: variable, Kind: ir.PhysicalNodeSetKind,
+			Subplan: ir.PhysicalSubplan{Captures: captures, Return: value("root")}}
+	}
+	plan := ir.PhysicalPlan{Operations: []ir.PhysicalOperation{
+		{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
+		{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+			Operator: "EQUALS", Left: ir.PhysicalValue{Variable: "root", Path: []string{"project"}}, Right: &ir.PhysicalValue{BindKey: "project"},
+		}}},
+		{Kind: ir.PhysicalSetOp, Set: set("required_set", "root")},
+		{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{
+			Kind: ir.PhysicalExistsPredicate, Exists: &ir.PhysicalSubplan{Captures: []string{"required_set"}},
+		}}},
+		{Kind: ir.PhysicalSetOp, Set: set("observation_set", "root")},
+		{Kind: ir.PhysicalSetOp, Set: set("specimen_set", "observation_set")},
+		{Kind: ir.PhysicalSetOp, Set: set("unused_patient_set", "root")},
+		{Kind: ir.PhysicalSetOp, Set: set("unused_research_subject_set", "unused_patient_set")},
+		{Kind: ir.PhysicalExpressionLetOp, ExpressionLet: &ir.PhysicalExpressionLet{
+			Variable: "unused_research_subject_id", Expression: value("unused_research_subject_set"),
+		}},
+		{Kind: ir.PhysicalExpressionLetOp, ExpressionLet: &ir.PhysicalExpressionLet{
+			Variable: "tumor_values",
+			Expression: ir.PhysicalExpression{Kind: ir.PhysicalPivotExpression, Cardinality: ir.PhysicalObjectCardinality,
+				NullBehavior: ir.PhysicalPreserveNull,
+				Pivot: &ir.PhysicalPivotMap{
+					Source: ir.PhysicalValue{Variable: "specimen_set"}, ResourceType: "Specimen",
+					ColumnsBindKey: "tumor_columns", Correlation: &ir.PhysicalCorrelation{
+						Source: ir.PhysicalValue{Variable: "specimen_set"}, KeyResource: "Coding",
+					},
+				},
+			},
+		}},
+		{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{
+			{Name: "onset", Value: ir.PhysicalValue{Variable: "root", Path: []string{"payload", "onsetString"}}},
+			{Name: "tumor", Expression: &ir.PhysicalExpression{
+				Kind: ir.PhysicalObjectLookupExpression, Cardinality: ir.PhysicalScalarCardinality,
+				NullBehavior: ir.PhysicalPreserveNull, ObjectLookup: &ir.PhysicalObjectLookup{ObjectVariable: "tumor_values", KeyBindKey: "tumor_key"},
+			}},
+			{Name: "unselected_route", Value: ir.PhysicalValue{Variable: "unused_research_subject_id"}},
+		}}},
+	}}
+	sequence := &ir.PhysicalStageSequence{
+		SourceStageID: "source_projection",
+		Stages: []ir.PhysicalConstructionStage{{
+			ID: "group", InputStageID: "source_projection", Kind: ir.PhysicalStageGroupOp,
+			Group: &ir.PhysicalStageGroup{
+				Keys:      []ir.PhysicalStageGroupKey{{InputColumn: "onset"}},
+				RowValues: []ir.PhysicalStageRowValue{{InputColumn: "tumor", Policy: "ALL"}},
+			},
+		}},
+	}
+
+	pruneUnusedSourceGroupProjections(&plan, sequence)
+	sets, lets, filters := map[string]bool{}, map[string]bool{}, 0
+	var returned []ir.PhysicalProjection
+	for _, operation := range plan.Operations {
+		switch operation.Kind {
+		case ir.PhysicalSetOp:
+			sets[operation.Set.Variable] = true
+		case ir.PhysicalExpressionLetOp:
+			lets[operation.ExpressionLet.Variable] = true
+		case ir.PhysicalFilterOp:
+			filters++
+		case ir.PhysicalReturnOp:
+			returned = operation.Return.Projections
+		}
+	}
+	for _, variable := range []string{"required_set", "observation_set", "specimen_set"} {
+		if !sets[variable] {
+			t.Errorf("retained pivot or source constraint lost set %q", variable)
+		}
+	}
+	for _, variable := range []string{"unused_patient_set", "unused_research_subject_set"} {
+		if sets[variable] {
+			t.Errorf("unselected optional route retained set %q", variable)
+		}
+	}
+	if !lets["tumor_values"] || lets["unused_research_subject_id"] {
+		t.Errorf("expression liveness = %#v, want pivot retained and unused route reduction pruned", lets)
+	}
+	if filters != 2 {
+		t.Errorf("source filters = %d, want both project and required-match filters retained", filters)
+	}
+	if len(returned) != 2 || returned[0].Name != "onset" || returned[1].Name != "tumor" {
+		t.Errorf("retained source projections = %#v, want group key and ALL pivot value", returned)
+	}
+}

@@ -981,11 +981,10 @@ func pruneUnusedSourceGroupOperations(plan *ir.PhysicalPlan) {
 			if operation.Return == nil || index != len(plan.Operations)-1 {
 				return
 			}
-			for _, projection := range operation.Return.Projections {
-				if !directRootCategoryProjection(projection, rootVariable) {
-					return
-				}
-			}
+			// Source-group liveness follows typed references from every retained
+			// projection below. Restricting this to direct root selectors keeps
+			// unrelated optional graph sets alive when a retained projection is
+			// a Pivot or another typed expression.
 		default:
 			return
 		}
