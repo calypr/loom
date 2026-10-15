@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/spec"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -48,5 +49,30 @@ func TestLowerCorrelatedBindingLeavesLegacyVersionUnset(t *testing.T) {
 	}
 	if !correlation.KeyIsArray || correlation.VersionSelector != nil || correlation.VersionBindKey != "" {
 		t.Fatalf("legacy correlation unexpectedly has version matching: %#v", correlation)
+	}
+}
+
+func TestLowerCorrelatedBindingPreservesExplicitSystemVersionSelection(t *testing.T) {
+	binding := fhirschema.CorrelatedBinding{
+		KeyPath: "code.coding[]", VersionPath: "version", ValueScope: fhirschema.CorrelatedValueScopeCoding,
+		SelectionScope: fhirschema.CorrelatedSelectionScopeSystemVersion,
+		SystemPath:     "system", CodePath: "code", ValuePath: "display", ValueFallback: []string{"code"}, LogicalType: "string",
+	}
+	correlation, err := LowerCorrelatedBindingWithVersion("Condition", binding, ir.PhysicalValue{Variable: "root"}, "system", "", "version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if correlation.SelectionScope != fhirschema.CorrelatedSelectionScopeSystemVersion || correlation.CodeBindKey != "" || correlation.VersionBindKey != "version" {
+		t.Fatalf("physical category = %#v", correlation)
+	}
+	if _, err := LowerCorrelatedBindingWithVersion("Condition", binding, ir.PhysicalValue{Variable: "root"}, "system", "code", "version"); err == nil {
+		t.Fatal("category binding accepted an unused code bind")
+	}
+	physical := ir.PhysicalPlan{BindVars: map[string]any{}}
+	if _, err := LowerCorrelatedPredicate(&physical, "Condition", binding, ir.PhysicalValue{Variable: "root"}, spec.CodeValue{System: "urn:test"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(physical.BindVars) != 2 || physical.BindVars["correlated_version_root"] != "" {
+		t.Fatalf("category predicate binds = %#v", physical.BindVars)
 	}
 }

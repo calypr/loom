@@ -78,6 +78,7 @@ import {
   type RowChangeAssessment,
   type RowChangeMode,
   type SemanticInventoryBrowseResponse,
+  type SemanticInventorySelectionMode,
   type FrameSourceOptionsResponse,
   type ExplorerBuilderRowLineageResponse,
 } from './types';
@@ -324,6 +325,7 @@ export interface BrowseSemanticInventoryArgs extends ExplorerAuthoringStateArgs 
   readonly rowRoot: string;
   readonly frameId?: string;
   readonly sourceChoiceId?: string;
+  readonly selectionMode?: SemanticInventorySelectionMode;
   readonly outputId?: string;
   readonly resourceType?: string;
   readonly query?: string;
@@ -1327,6 +1329,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     request(authoringPath(args, '/semantic-inventory'), withJson({
       snapshotToken: args.snapshotToken,
       rowRoot: args.rowRoot,
+      ...(args.selectionMode ? { selectionMode: args.selectionMode } : {}),
       ...(args.frameId ? { frameId: args.frameId } : {}),
       ...(args.sourceChoiceId ? { sourceChoiceId: args.sourceChoiceId } : {}),
       ...(args.outputId ? { outputId: args.outputId } : {}),

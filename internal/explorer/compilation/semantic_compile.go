@@ -1016,9 +1016,19 @@ func semanticCodedValuePivot(column authoringv2.Column, leaf string) (recipe.Piv
 	if strings.TrimSpace(column.Column) == "" {
 		return recipe.Pivot{}, fmt.Errorf("correlated coding output column is required")
 	}
+	pivotName := "correlated_" + shortHash(column.Column+"\x00"+lookup.Key.System+"\x00"+lookup.Key.Code)
+	columns := []string{lookup.Key.Code}
+	columnAliases := map[string]string{lookup.Key.Code: leaf}
+	if lookup.Binding.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion {
+		// SYSTEM_VERSION selects a typed category family with no exact code. Use
+		// the authored output leaf as its one pivot alias so lowering never
+		// creates an empty output-column name or a synthetic code predicate.
+		pivotName = "correlated_category_" + shortHash(column.Column+"\x00"+lookup.Key.System+"\x00"+lookup.Key.Version+"\x00"+lookup.Binding.KeyPath)
+		columns = []string{leaf}
+		columnAliases = map[string]string{leaf: leaf}
+	}
 	pivot := recipe.Pivot{
-		Name:    "correlated_" + shortHash(column.Column+"\x00"+lookup.Key.System+"\x00"+lookup.Key.Code),
-		Columns: []string{lookup.Key.Code}, ColumnAliases: map[string]string{lookup.Key.Code: leaf},
+		Name: pivotName, Columns: columns, ColumnAliases: columnAliases,
 		ProjectionMode: recipe.NormalizedPivotProjectionMode(lookup.ProjectionMode), Correlation: lookup.Binding,
 		CorrelationSystem: lookup.Key.System, CorrelationCode: lookup.Key.Code, CorrelationVersion: lookup.Key.Version,
 	}

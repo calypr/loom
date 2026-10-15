@@ -2,6 +2,7 @@ package compilation
 
 import (
 	"context"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -124,6 +125,71 @@ func TestCompileAuthoringCorrelatedLookupCarriesSelectedPair(t *testing.T) {
 	}
 	if pivots[0].ColumnAliases["shared.code"] != "height_cm" || !isZeroRecipeExpression(pivots[0].ColumnExpr) || !isZeroRecipeExpression(pivots[0].ValueExpr) || len(pivots[0].ValueFallbacks) != 0 {
 		t.Fatalf("correlated pivot retained legacy expressions or lost alias: %#v", pivots[0])
+	}
+}
+
+func TestCompileAuthoringSystemVersionCategoryUsesNonEmptyOutputAlias(t *testing.T) {
+	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "out", Title: "Output"}, RootResourceType: "Condition",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Condition"},
+		Columns: []authoringv2.Column{{Column: "condition_category", Label: "Condition category", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceCodedValue, Lookup: &authoringv2.LookupSource{
+			Binding: &fhirschema.CorrelatedBinding{
+				KeyPath: "code.coding[]", ValueScope: fhirschema.CorrelatedValueScopeCoding,
+				SelectionScope: fhirschema.CorrelatedSelectionScopeSystemVersion, SystemPath: "system", CodePath: "code",
+				ValuePath: "display", ValueFallback: []string{"code"}, FallbackOnBlankString: true,
+				VersionPath: "version", LogicalType: "string",
+			},
+			Key: &fhirschema.CorrelatedKey{System: "https://example.org/condition", Version: ""}, ProjectionMode: "ALL",
+		}}}},
+	}
+	snapshot := fixtureSnapshotForProject("project")
+	snapshot.Nodes = append(snapshot.Nodes, capability.Node{ID: "n_condition", ResourceType: "Condition", RowRootEligible: true, RowGrain: "condition"})
+	result, err := Compile(context.Background(), "project", "explorer", document, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pivots := result.Bundle.Outputs[0].Pivots
+	if len(pivots) != 1 || pivots[0].Correlation == nil || pivots[0].Correlation.SelectionScope != fhirschema.CorrelatedSelectionScopeSystemVersion || pivots[0].CorrelationCode != "" {
+		t.Fatalf("compiled system-version category pivots = %#v", pivots)
+	}
+	if !reflect.DeepEqual(pivots[0].Columns, []string{"condition_category"}) || pivots[0].ColumnAliases["condition_category"] != "condition_category" {
+		t.Fatalf("system-version category generated an empty or code-derived pivot alias: %#v", pivots[0])
+	}
+
+	recipePlan, err := semantic.BuildRecipePlan(result.Bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation-a"})
+	if err != nil {
+		t.Fatalf("BuildRecipePlan: %v", err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(recipePlan, "scope-a", "generation-a")
+	if err != nil {
+		t.Fatalf("ResolveRecipePlan: %v", err)
+	}
+	physical, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("CompileResolvedRecipePlan: %v", err)
+	}
+	if len(physical.Outputs) != 1 {
+		t.Fatalf("physical outputs = %d, want 1", len(physical.Outputs))
+	}
+	rendered, err := aql.RenderPhysicalPlan(physical.Outputs[0].Plan)
+	if err != nil {
+		t.Fatalf("RenderPhysicalPlan: %v", err)
+	}
+	if !strings.Contains(rendered.Query, "condition_category") {
+		t.Fatalf("rendered category query lost its output alias:\n%s", rendered.Query)
+	}
+	versionFound := false
+	for key, value := range rendered.BindVars {
+		if strings.HasSuffix(key, "_version") {
+			version, ok := value.(string)
+			if !ok || version != "" {
+				t.Fatalf("rendered unversioned category bind %q = %#v, want empty string", key, value)
+			}
+			versionFound = true
+		}
+	}
+	if !versionFound {
+		t.Fatalf("rendered category query has no exact empty-version bind: %#v", rendered.BindVars)
 	}
 }
 

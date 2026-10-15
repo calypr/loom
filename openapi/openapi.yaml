@@ -2534,7 +2534,7 @@ components:
         projectionMode: {type: string, enum: [VALUE, INDEXED, FIRST, ALL, DISTINCT]}
         identifier: {$ref: '#/components/schemas/IdentifierBinding'}
         binding: {$ref: '#/components/schemas/CorrelatedBinding'}
-        key: {$ref: '#/components/schemas/TerminologyKey'}
+        key: {$ref: '#/components/schemas/CodedValueKey'}
         extension: {$ref: '#/components/schemas/ExtensionBinding'}
     IdentifierBinding:
       type: object
@@ -2573,6 +2573,15 @@ components:
         system: {type: string, minLength: 1}
         code: {type: string, minLength: 1}
         version: {type: string}
+    CodedValueKey:
+      type: object
+      additionalProperties: false
+      description: Exact coded-value bindings require a non-empty code. An empty code is reserved for a correlated binding with selectionScope SYSTEM_VERSION; runtime authoring validation enforces this pairing.
+      required: [system, code]
+      properties:
+        system: {type: string, minLength: 1}
+        code: {type: string, description: Empty only for a system/version category binding; exact code bindings are rejected without a value.}
+        version: {type: string}
     OwnerRecordsSource:
       type: object
       additionalProperties: false
@@ -2603,6 +2612,10 @@ components:
           type: string
           minLength: 1
           description: Relative path to Coding.version when valueScope is CODING; an empty key version matches an unversioned Coding exactly.
+        selectionScope:
+          type: string
+          enum: [EXACT, SYSTEM_VERSION]
+          description: Omitted for exact system/code/version matching. SYSTEM_VERSION selects every Coding in one exact system and version, including an empty version, and is valid only with CODING valueScope.
         valueScope:
           type: string
           enum: [CODING]
@@ -3271,6 +3284,7 @@ components:
         keySelector: {type: string}
         system: {type: string}
         version: {type: string}
+        sourceKind: {type: string, enum: [file, retained_vertex], description: Present only for an explicitly signed CODED_CATEGORY_V1 family selection.}
         code: {type: string}
         valueSelector: {type: string, minLength: 1}
         valueFallbacks:
@@ -5312,6 +5326,7 @@ components:
         outputId: {type: string, minLength: 1, description: "Required when frameId scopes the browse to one saved output."}
         frameId: {type: string, minLength: 1}
         sourceChoiceId: {type: string, minLength: 1, description: "Signed coded-source choice for browsing category values before creating a frame; exclusive with frameId."}
+        selectionMode: {type: string, enum: [EXACT_CONCEPT, SYSTEM_VERSION_CATEGORY], default: EXACT_CONCEPT, description: "EXACT_CONCEPT preserves legacy per-code browsing. SYSTEM_VERSION_CATEGORY returns one system/version family per source binding."}
         resourceType: {type: string}
         query: {type: string, maxLength: 256}
         cursor: {type: string, maxLength: 4096}
@@ -5352,6 +5367,8 @@ components:
         buildId: {type: string, minLength: 1}
         conceptId: {type: string, minLength: 1}
         bindingId: {type: string, minLength: 1}
+        choiceId: {type: string, minLength: 1, description: Signed category choice used to reauthorize the exact system/version family before route search.}
+        selectionMode: {type: string, enum: [SYSTEM_VERSION_CATEGORY], description: Present only when searching routes for a system/version category family.}
     ConstructionRouteStep:
       type: object
       additionalProperties: false
@@ -5736,6 +5753,8 @@ components:
       required: [conceptId, bindingId, resourceType, sourcePath, system, code, codingVersion, display, valueSelector, valueType, owningScope, occurrences, examplesTruncated, observedUnitsTruncated, readiness]
       properties:
         conceptId: {type: string}
+        selectionMode: {type: string, enum: [SYSTEM_VERSION_CATEGORY], description: Present only when conceptId identifies a system-version category family.}
+        familyId: {type: string, minLength: 1, description: Stable category family identity; code remains empty for this explicitly typed selection.}
         bindingId: {type: string}
         resourceType: {type: string}
         sourcePath: {type: string}

@@ -171,7 +171,7 @@ func TestResolveSemanticConstructionChoiceUsesFallbackCandidateOptionsAcrossOpti
 		resolved, _, err := resolveSemanticConstructionChoice(
 			context.Background(), AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
 			"explorer-a", "Medication", contextToken, buildID, buildID,
-			map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry},
+			map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry}, nil,
 			authoringv2.ConstructionChoiceSelection{ChoiceID: choice.ChoiceID, Form: option.Form}, identity,
 			semanticSource,
 		)
@@ -214,7 +214,7 @@ func TestResolveSemanticConstructionChoiceUsesFallbackCandidateOptionsAcrossOpti
 		resolved, _, err := resolveSemanticConstructionChoice(
 			context.Background(), AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
 			"explorer-a", "Medication", contextToken, buildID, buildID,
-			map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(scalarEntry.ConceptID, scalarEntry.BindingID): scalarEntry},
+			map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(scalarEntry.ConceptID, scalarEntry.BindingID): scalarEntry}, nil,
 			authoringv2.ConstructionChoiceSelection{ChoiceID: scalarChoice.ChoiceID, Form: option.Form}, scalarIdentity,
 			scalarSource,
 		)
@@ -253,7 +253,7 @@ func TestResolveSemanticConstructionChoiceUsesFallbackCandidateOptionsAcrossOpti
 	rootResolved, _, err := resolveSemanticConstructionChoice(
 		context.Background(), AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, rootCatalogSnapshot,
 		"explorer-a", "Observation", rootContextToken, buildID, buildID,
-		map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry},
+		map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry}, nil,
 		authoringv2.ConstructionChoiceSelection{ChoiceID: rootChoice.ChoiceID, Form: capability.ConstructionChoiceValue}, rootIdentity,
 		rootSemanticSource,
 	)
@@ -311,7 +311,7 @@ func TestResolveSemanticConstructionChoiceBuildsOwnerRecordSourceAfterCompilerPr
 	resolved, _, err := resolveSemanticConstructionChoice(
 		context.Background(), AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
 		"patients", "Observation", contextToken, buildID, buildID,
-		map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry},
+		map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry}, nil,
 		authoringv2.ConstructionChoiceSelection{ChoiceID: choice.ChoiceID, Form: capability.ConstructionChoiceOwnerRecords},
 		identity,
 		identity.Source.(capability.SemanticBindingChoiceSource),

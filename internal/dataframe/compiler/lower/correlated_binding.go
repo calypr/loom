@@ -22,8 +22,11 @@ func LowerCorrelatedBindingWithVersion(resourceType string, binding fhirschema.C
 	if err != nil {
 		return ir.PhysicalCorrelation{}, err
 	}
-	if strings.TrimSpace(systemBindKey) == "" || strings.TrimSpace(codeBindKey) == "" {
+	if strings.TrimSpace(systemBindKey) == "" || (checked.SelectionScope != fhirschema.CorrelatedSelectionScopeSystemVersion && strings.TrimSpace(codeBindKey) == "") {
 		return ir.PhysicalCorrelation{}, fmt.Errorf("correlated binding system and code bind keys are required")
+	}
+	if checked.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion && codeBindKey != "" {
+		return ir.PhysicalCorrelation{}, fmt.Errorf("SYSTEM_VERSION selection must not supply a code bind key")
 	}
 	if checked.VersionSelector != nil && strings.TrimSpace(versionBindKey) == "" {
 		return ir.PhysicalCorrelation{}, fmt.Errorf("correlated binding version bind key is required when versionPath is set")
@@ -61,7 +64,7 @@ func LowerCorrelatedBindingWithVersion(resourceType string, binding fhirschema.C
 		}
 	}
 	correlation := ir.PhysicalCorrelation{
-		Source: source, ResourceType: resourceType, OwnerResource: checked.OwnerResource, OwnerSelector: checked.OwnerSelector, ValueScope: checked.ValueScope, KeyResource: checked.KeyResource, KeyIsArray: checked.KeyIsArray,
+		Source: source, ResourceType: resourceType, OwnerResource: checked.OwnerResource, OwnerSelector: checked.OwnerSelector, ValueScope: checked.ValueScope, SelectionScope: checked.SelectionScope, KeyResource: checked.KeyResource, KeyIsArray: checked.KeyIsArray,
 		KeySelector: checked.KeySelector, SystemSelector: checked.SystemSelector, CodeSelector: checked.CodeSelector,
 		ValueSelector: checked.ValueSelector, ValueFallbacks: append([]spec.Selector(nil), checked.ValueFallbacks...),
 		FallbackOnBlankString: checked.FallbackOnBlankString,
@@ -140,6 +143,9 @@ func LowerCorrelatedPredicateWithIdentity(physical *ir.PhysicalPlan, resourceTyp
 	if physical == nil {
 		return ir.PhysicalPredicate{}, fmt.Errorf("physical plan is required")
 	}
+	if err := fhirschema.ValidateCorrelatedKey(binding.SelectionScope, fhirschema.CorrelatedKey{System: code.System, Code: code.Code, Version: code.Version}); err != nil {
+		return ir.PhysicalPredicate{}, err
+	}
 	suffix := sanitizeColumnName(source.Variable)
 	if strings.TrimSpace(identity) != "" {
 		suffix += "_" + sanitizeColumnName(identity)
@@ -147,7 +153,11 @@ func LowerCorrelatedPredicateWithIdentity(physical *ir.PhysicalPlan, resourceTyp
 	systemKey := "correlated_system_" + suffix
 	codeKey := "correlated_code_" + suffix
 	physical.BindVars[systemKey] = code.System
-	physical.BindVars[codeKey] = code.Code
+	if binding.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion {
+		codeKey = ""
+	} else {
+		physical.BindVars[codeKey] = code.Code
+	}
 	versionKey := ""
 	if strings.TrimSpace(binding.VersionPath) != "" {
 		versionKey = "correlated_version_" + suffix

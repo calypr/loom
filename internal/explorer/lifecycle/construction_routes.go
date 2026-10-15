@@ -22,12 +22,14 @@ import (
 )
 
 type ConstructionChoiceSearchSource struct {
-	Kind         capability.ConstructionChoiceSourceKind `json:"kind"`
-	CandidateID  string                                  `json:"candidateId,omitempty"`
-	ContextToken string                                  `json:"contextToken,omitempty"`
-	BuildID      string                                  `json:"buildId,omitempty"`
-	ConceptID    string                                  `json:"conceptId,omitempty"`
-	BindingID    string                                  `json:"bindingId,omitempty"`
+	Kind          capability.ConstructionChoiceSourceKind `json:"kind"`
+	CandidateID   string                                  `json:"candidateId,omitempty"`
+	ContextToken  string                                  `json:"contextToken,omitempty"`
+	BuildID       string                                  `json:"buildId,omitempty"`
+	ConceptID     string                                  `json:"conceptId,omitempty"`
+	BindingID     string                                  `json:"bindingId,omitempty"`
+	ChoiceID      string                                  `json:"choiceId,omitempty"`
+	SelectionMode catalog.SemanticInventorySelectionMode  `json:"selectionMode,omitempty"`
 }
 
 type ConstructionChoiceSearchRequest struct {
@@ -1049,10 +1051,20 @@ func (s *Service) SearchConstructionChoices(ctx context.Context, request Constru
 	}
 	var candidate capability.Candidate
 	var semanticEntry catalog.SemanticInventoryEntry
+	var semanticFamily *catalog.SemanticInventoryFamily
 	semanticContext := ""
 	buildID := ""
 	if request.Source.Kind == capability.ConstructionChoiceSourceSemantic {
-		semanticEntry, buildID, err = s.resolveConstructionSearchSemanticEntry(ctx, authorized, request)
+		if request.Source.SelectionMode == catalog.SemanticInventorySystemVersionCategory {
+			var family catalog.SemanticInventoryFamily
+			family, buildID, err = s.resolveConstructionSearchSemanticFamily(ctx, authorized, request)
+			if err == nil {
+				semanticFamily = &family
+				semanticEntry = semanticInventoryEntryForFamily(family)
+			}
+		} else {
+			semanticEntry, buildID, err = s.resolveConstructionSearchSemanticEntry(ctx, authorized, request)
+		}
 		if err != nil {
 			return result, err
 		}
@@ -1123,8 +1135,12 @@ func (s *Service) SearchConstructionChoices(ctx context.Context, request Constru
 			}
 			choice, err = capability.NewFieldConstructionChoiceForRoute(snapshot.Token, resolvedRoute, provenCandidate)
 		} else {
-			ownerRecords := proveOwnerRecordsForRoute(ctx, authorized, document.RootResourceType, semanticEntry.Observation, resolvedRoute)
-			choice, err = semanticInventoryConstructionChoiceForRoute(snapshot, semanticContext, buildID, resolvedRoute, semanticEntry, provenCandidate, ownerRecords)
+			if semanticFamily != nil {
+				choice, err = semanticCategoryConstructionChoiceForRoute(snapshot, semanticContext, buildID, resolvedRoute, *semanticFamily, provenCandidate)
+			} else {
+				ownerRecords := proveOwnerRecordsForRoute(ctx, authorized, document.RootResourceType, semanticEntry.Observation, resolvedRoute)
+				choice, err = semanticInventoryConstructionChoiceForRoute(snapshot, semanticContext, buildID, resolvedRoute, semanticEntry, provenCandidate, ownerRecords)
+			}
 		}
 		if err != nil {
 			if strings.TrimSpace(request.OccurrenceID) != "" {
@@ -1140,7 +1156,7 @@ func (s *Service) SearchConstructionChoices(ctx context.Context, request Constru
 func constructionSearchSourceKey(source ConstructionChoiceSearchSource) (string, error) {
 	switch source.Kind {
 	case capability.ConstructionChoiceSourceField:
-		if strings.TrimSpace(source.CandidateID) == "" || source.ContextToken != "" || source.BuildID != "" || source.ConceptID != "" || source.BindingID != "" {
+		if strings.TrimSpace(source.CandidateID) == "" || source.ContextToken != "" || source.BuildID != "" || source.ConceptID != "" || source.BindingID != "" || source.ChoiceID != "" || source.SelectionMode != "" {
 			return "", malformed("construction-choices", "FIELD source requires only candidateId", nil)
 		}
 		return "field:" + source.CandidateID, nil
@@ -1148,7 +1164,16 @@ func constructionSearchSourceKey(source ConstructionChoiceSearchSource) (string,
 		if strings.TrimSpace(source.ContextToken) == "" || strings.TrimSpace(source.BuildID) == "" || strings.TrimSpace(source.ConceptID) == "" || strings.TrimSpace(source.BindingID) == "" || source.CandidateID != "" {
 			return "", malformed("construction-choices", "SEMANTIC source requires contextToken, buildId, conceptId, and bindingId", nil)
 		}
-		return "semantic:" + source.ContextToken + "\x00" + source.BuildID + "\x00" + source.BindingID + "\x00" + source.ConceptID, nil
+		if source.SelectionMode == "" || source.SelectionMode == catalog.SemanticInventoryExactConcept {
+			if source.ChoiceID != "" {
+				return "", malformed("construction-choices", "exact SEMANTIC source cannot include a category choiceId", nil)
+			}
+			return "semantic:" + source.ContextToken + "\x00" + source.BuildID + "\x00" + source.BindingID + "\x00" + source.ConceptID, nil
+		}
+		if source.SelectionMode != catalog.SemanticInventorySystemVersionCategory || strings.TrimSpace(source.ChoiceID) == "" {
+			return "", malformed("construction-choices", "category SEMANTIC source requires a signed choiceId", nil)
+		}
+		return "semantic-category:" + source.ContextToken + "\x00" + source.BuildID + "\x00" + source.BindingID + "\x00" + source.ConceptID + "\x00" + source.ChoiceID, nil
 	default:
 		return "", malformed("construction-choices", "source kind must be FIELD or SEMANTIC", nil)
 	}
@@ -1212,4 +1237,44 @@ func (s *Service) resolveConstructionSearchSemanticEntry(ctx context.Context, au
 		return catalog.SemanticInventoryEntry{}, "", unprocessable("construction-choices", "INVALID_CONSTRUCTION_SOURCE", "the exact semantic source is unavailable in this authorized inventory", nil)
 	}
 	return match, expectedBuild, nil
+}
+
+func (s *Service) resolveConstructionSearchSemanticFamily(ctx context.Context, authorized AuthorizedCapability, request ConstructionChoiceSearchRequest) (catalog.SemanticInventoryFamily, string, error) {
+	var zero catalog.SemanticInventoryFamily
+	identity, err := capability.DecodeConstructionChoiceID(request.Source.ChoiceID)
+	if err != nil || identity.SnapshotToken != authorized.Snapshot.Token || identity.Kind != capability.ConstructionChoiceSourceSemantic ||
+		identity.SemanticContextToken != request.Source.ContextToken || identity.BuildID != request.Source.BuildID {
+		return zero, "", conflict("construction-choices", "STALE_SEMANTIC_CONTEXT", "reload the signed category choice for the current table root and inventory build", nil, err)
+	}
+	source, ok := identity.Source.(capability.SemanticBindingChoiceSource)
+	if !ok || source.RuleHint != catalog.SemanticRuleHintCodedCategoryV1 || source.ConceptID != request.Source.ConceptID ||
+		source.BindingID != request.Source.BindingID || source.System == "" || source.Code != "" ||
+		(source.SourceKind != catalog.SemanticInventorySourceFile && source.SourceKind != catalog.SemanticInventorySourceRetained) {
+		return zero, "", unprocessable("construction-choices", "INVALID_CONSTRUCTION_SOURCE", "the signed source is not a supported coded category family", nil)
+	}
+	if s.config.ResolveSemanticInventorySelections == nil {
+		return zero, "", unavailable("construction-choices", "CATALOG_UNAVAILABLE", "semantic inventory resolution is not configured", nil)
+	}
+	unrestricted := authorized.Scope.Mode == authscope.ReadScopeUnrestricted
+	reference := catalog.SemanticInventoryFamilyReference{
+		FamilyID: source.ConceptID, BindingID: source.BindingID, SourceKind: source.SourceKind,
+		ResourceType: source.ResourceType, SourcePath: source.SourcePath, System: source.System, Version: source.Version,
+	}
+	resolved, err := s.config.ResolveSemanticInventorySelections(ctx, catalog.SemanticInventoryResolveOptions{
+		Project: projectid.Legacy(authorized.Snapshot.Identity.Project), DatasetGeneration: authorized.Snapshot.Identity.Generation,
+		AuthResourcePathsUnrestricted: &unrestricted, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...),
+		FamilyReferences: []catalog.SemanticInventoryFamilyReference{reference},
+	})
+	if err != nil {
+		return zero, "", unavailable("construction-choices", "CATALOG_UNAVAILABLE", "the selected semantic category could not be resolved", err)
+	}
+	expectedBuild := catalog.SemanticInventoryBuildID(projectid.Legacy(authorized.Snapshot.Identity.Project), authorized.Snapshot.Identity.Generation)
+	if resolved.State != catalog.SemanticInventoryComplete || resolved.Build.State != catalog.SemanticInventoryComplete ||
+		resolved.Build.BuildID != expectedBuild || request.Source.BuildID != expectedBuild {
+		return zero, "", conflict("construction-choices", "STALE_SEMANTIC_CONTEXT", "the semantic category belongs to a different or incomplete inventory build", nil, nil)
+	}
+	if len(resolved.Families) != 1 || resolved.Families[0].SemanticInventoryFamilyReference != reference {
+		return zero, "", unprocessable("construction-choices", "INVALID_CONSTRUCTION_SOURCE", "the exact semantic category is unavailable in this authorized inventory", nil)
+	}
+	return resolved.Families[0], expectedBuild, nil
 }

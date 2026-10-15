@@ -111,6 +111,7 @@ type SemanticBindingChoiceSource struct {
 	ExtensionURLPath      []string                     `json:"extensionUrlPath,omitempty"`
 	KeySelector           string                       `json:"keySelector,omitempty"`
 	System                string                       `json:"system,omitempty"`
+	SourceKind            string                       `json:"sourceKind,omitempty"`
 	Version               string                       `json:"version,omitempty"`
 	Code                  string                       `json:"code,omitempty"`
 	ValueSelector         string                       `json:"valueSelector"`
@@ -126,6 +127,20 @@ type SemanticBindingChoiceSource struct {
 }
 
 func (SemanticBindingChoiceSource) constructionChoiceSource() {}
+
+func validateSemanticCategoryChoiceSource(source SemanticBindingChoiceSource) error {
+	if source.RuleHint != "CODED_CATEGORY_V1" {
+		if source.SourceKind != "" {
+			return fmt.Errorf("sourceKind is reserved for an explicit coded category selection")
+		}
+		return nil
+	}
+	if strings.TrimSpace(source.System) == "" || strings.TrimSpace(source.Code) != "" ||
+		(source.SourceKind != "file" && source.SourceKind != "retained_vertex") {
+		return fmt.Errorf("coded category identity requires system, source kind, and no exact code")
+	}
+	return nil
+}
 
 // SemanticFrameFamily is the metadata identity of one correlated code/value
 // binding, independent of any one observed code. It is persisted with a frame
@@ -526,6 +541,9 @@ func NewSemanticConstructionChoiceForRoute(snapshotToken, semanticContextToken, 
 	if err := validateSemanticFallback(source.LogicalType, source.ValueFallbacks, source.FallbackOnBlankString); err != nil {
 		return ConstructionChoice{}, err
 	}
+	if err := validateSemanticCategoryChoiceSource(source); err != nil {
+		return ConstructionChoice{}, err
+	}
 	resolvedValuePath := canonicalPath(source.FieldPath)
 	selectorPath := canonicalOwnedSemanticPath(source.OwningScope, source.ValueSelector)
 	candidatePath := canonicalPath(candidate.FieldPath)
@@ -730,6 +748,9 @@ func DecodeConstructionChoiceID(choiceID string) (ConstructionChoiceIdentity, er
 			strings.TrimSpace(source.FieldPath) == "" || strings.TrimSpace(source.ValueSelector) == "" ||
 			strings.TrimSpace(source.RuleVersion) == "" || source.SchemaVersion <= 0 {
 			return ConstructionChoiceIdentity{}, fmt.Errorf("semantic choice source identity is incomplete")
+		}
+		if err := validateSemanticCategoryChoiceSource(source); err != nil {
+			return ConstructionChoiceIdentity{}, fmt.Errorf("semantic choice source identity is invalid: %w", err)
 		}
 		identity.Source = source
 	case ConstructionChoiceSourceSemanticFrame:

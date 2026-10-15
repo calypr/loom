@@ -99,6 +99,9 @@ func applySemanticSelections(workspace *Workspace, catalogSnapshot CatalogSnapsh
 		}
 		if !found {
 			label := strings.TrimSpace(selection.Title)
+			if label == "" && observation.RuleHint == catalog.SemanticRuleHintCodedCategoryV1 {
+				label = semanticCategoryDefaultTitle(observation.Source.Type, observation.Source.Path, observation.Key.System)
+			}
 			if label == "" {
 				label = strings.TrimSpace(observation.Key.Display)
 			}
@@ -118,6 +121,44 @@ func applySemanticSelections(workspace *Workspace, catalogSnapshot CatalogSnapsh
 		})
 	}
 	return result, nil
+}
+
+func semanticCategoryDefaultTitle(resourceType, sourcePath, system string) string {
+	system = strings.TrimRight(strings.TrimSpace(system), "/")
+	if index := strings.LastIndex(system, "/"); index >= 0 {
+		tail := system[index+1:]
+		if strings.ContainsAny(tail, "_-") {
+			words := strings.FieldsFunc(tail, func(r rune) bool { return r == '_' || r == '-' })
+			for index, word := range words {
+				word = strings.ToLower(word)
+				if index == 0 && word != "" {
+					word = strings.ToUpper(word[:1]) + word[1:]
+				}
+				words[index] = word
+			}
+			if len(words) > 0 {
+				return strings.Join(words, " ")
+			}
+		}
+	}
+	resourceType = strings.TrimSpace(resourceType)
+	field := strings.TrimSpace(sourcePath)
+	field = strings.TrimPrefix(field, resourceType+".")
+	field = strings.TrimSuffix(field, ".coding[]")
+	field = strings.TrimSuffix(field, "coding[]")
+	field = strings.Trim(field, ".[]")
+	if index := strings.LastIndex(field, "."); index >= 0 {
+		field = field[index+1:]
+	}
+	field = strings.ReplaceAll(strings.ReplaceAll(field, "_", " "), "-", " ")
+	field = strings.TrimSpace(field)
+	if field != "" {
+		field = strings.ToLower(field[:1]) + field[1:]
+	}
+	if resourceType == "" {
+		return field
+	}
+	return strings.TrimSpace(resourceType + " " + field)
 }
 
 // ResolveSemanticSelectionPlan validates the observed FHIR structure and
@@ -143,6 +184,8 @@ func ResolveSemanticSelectionPlan(observation catalog.SemanticObservation) Seman
 		return resolveExtensionSelectionPlan(observation)
 	case catalog.SemanticRuleHintCodedConceptV1:
 		return resolveCodedConceptSelectionPlan(observation)
+	case catalog.SemanticRuleHintCodedCategoryV1:
+		return resolveCodedCategorySelectionPlan(observation)
 	case catalog.SemanticRuleHintCodedValueV1:
 		return resolveCodedValueSelectionPlan(observation)
 	default:
@@ -279,10 +322,21 @@ func resolveCodedValueSelectionPlan(observation catalog.SemanticObservation) Sem
 }
 
 func resolveCodedConceptSelectionPlan(observation catalog.SemanticObservation) SemanticSelectionPlan {
+	return resolveCodedCodingSelectionPlan(observation, false)
+}
+
+func resolveCodedCategorySelectionPlan(observation catalog.SemanticObservation) SemanticSelectionPlan {
+	return resolveCodedCodingSelectionPlan(observation, true)
+}
+
+func resolveCodedCodingSelectionPlan(observation catalog.SemanticObservation, category bool) SemanticSelectionPlan {
 	if observation.Status == "UNRESOLVED_SYSTEM" || strings.TrimSpace(observation.Key.System) == "" {
 		return semanticNeedsMapping("CODED_CONCEPT_SYSTEM_MISSING", "This Coding has no system URI to select; map its terminology identity before adding it.")
 	}
-	if observation.Status == "UNRESOLVED_CODE" || strings.TrimSpace(observation.Key.Code) == "" {
+	if category && strings.TrimSpace(observation.Key.Code) != "" {
+		return semanticUnsupported("CODED_CATEGORY_HAS_EXACT_CODE", "A coded category selection must identify a Coding system and version, not one code.")
+	}
+	if !category && (observation.Status == "UNRESOLVED_CODE" || strings.TrimSpace(observation.Key.Code) == "") {
 		return semanticNeedsMapping("CODED_CONCEPT_CODE_MISSING", "This Coding has no code to select; map its terminology identity before adding it.")
 	}
 	if observation.Status != "SUPPORTED" && observation.Status != "DATA_QUALITY_WARNING" {
@@ -313,6 +367,9 @@ func resolveCodedConceptSelectionPlan(observation catalog.SemanticObservation) S
 		VersionPath: "version",
 		ValuePath:   valuePathInCoding, ValueFallback: fallbacks, FallbackOnBlankString: true,
 		LogicalType: "string", ValueScope: fhirschema.CorrelatedValueScopeCoding,
+	}
+	if category {
+		binding.SelectionScope = fhirschema.CorrelatedSelectionScopeSystemVersion
 	}
 	checked, err := fhirschema.ValidateCorrelatedBinding(observation.Source.Type, binding)
 	if err != nil {

@@ -3533,6 +3533,7 @@ const BuilderWorkspaceContent = ({
                       routeContext={addSourceRouteContext}
                       layout="panel"
                       view={addColumnsView}
+                      semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
                       sourceControls={addColumnsSourceControls}
                       catalog={state.catalog}
                       sourceProjectionAvailability={sourceAvailability}
@@ -4130,6 +4131,8 @@ const BuilderWorkspaceContent = ({
                 onRenameTable={renameTableById}
                 rowSetup={(
                   <RowDefinitionSettingsPanel
+                    triggerPresentation="source-chip"
+                    triggerLabel={table.document.rootResourceType || 'Choose records'}
                     client={loomClient}
                     project={projectId}
                     explorerId={state.explorerId}
@@ -4248,7 +4251,7 @@ const BuilderWorkspaceContent = ({
                     }])}
                   />
                 )}
-                history={persistedConstructionHistory.length > 0 ? {
+                history={{
                   resourceType: table.document.rootResourceType,
                   steps: persistedConstructionHistory,
                   selected: constructionHistorySelection,
@@ -4256,7 +4259,7 @@ const BuilderWorkspaceContent = ({
                   onSelect: selectConstructionHistory,
                   onEditStep: editConstructionStep,
                   onRemoveStep: removeConstructionStep,
-                } : undefined}
+                }}
                 actionsDisabled={
                   !table.document.rootResourceType ||
                   pendingCommands > 0 ||
@@ -4400,6 +4403,7 @@ const BuilderWorkspaceContent = ({
                   snapshotToken={state.catalog.snapshotToken}
                   outputId={table.outputId}
                   rowRoot={table.document.rootResourceType}
+                  semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
                   schemaDiscoveryEnabled={sourceSetupOpen || !table?.document.rootResourceType}
                   catalog={state.catalog}
                   sourceProjectionAvailability={sourceAvailability}

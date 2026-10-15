@@ -265,7 +265,10 @@ type FieldCatalogDocument struct {
 // claim that a concept is clinically equivalent to another label.
 type SemanticObservationCompleteness string
 
-const SemanticRuleHintCodedConceptV1 = "CODED_CONCEPT_V1"
+const (
+	SemanticRuleHintCodedConceptV1  = "CODED_CONCEPT_V1"
+	SemanticRuleHintCodedCategoryV1 = "CODED_CATEGORY_V1"
+)
 
 const (
 	SemanticComplete   SemanticObservationCompleteness = "complete"

@@ -699,8 +699,11 @@ func (s ColumnSource) validate(path string) error {
 			return nil
 		}
 		if s.Kind == SourceCodedValue {
-			if s.Lookup.Binding == nil || s.Lookup.Key == nil || strings.TrimSpace(s.Lookup.Key.System) == "" || strings.TrimSpace(s.Lookup.Key.Code) == "" {
-				return fmt.Errorf("%s codedValue source requires lookup.binding and lookup.key.system/code", path)
+			if s.Lookup.Binding == nil || s.Lookup.Key == nil {
+				return fmt.Errorf("%s codedValue source requires lookup.binding and lookup.key", path)
+			}
+			if err := fhirschema.ValidateCorrelatedKey(s.Lookup.Binding.SelectionScope, *s.Lookup.Key); err != nil {
+				return fmt.Errorf("%s codedValue source key: %w", path, err)
 			}
 			if strings.TrimSpace(s.Lookup.Key.Version) != "" && strings.TrimSpace(s.Lookup.Binding.VersionPath) == "" {
 				return fmt.Errorf("%s codedValue key.version requires lookup.binding.versionPath", path)

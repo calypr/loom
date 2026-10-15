@@ -100,7 +100,7 @@ func TestStandaloneCodedConceptChoiceResolvesSameCodingValueAndStaysOutOfFrames(
 	resolved, _, err := resolveSemanticConstructionChoice(
 		context.Background(), AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
 		explorerID, "Condition", contextToken, buildID, buildID,
-		map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry},
+		map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry}, nil,
 		authoringv2.ConstructionChoiceSelection{ChoiceID: choice.ChoiceID, Form: capability.ConstructionChoiceAll},
 		identity, choiceSource,
 	)
@@ -250,7 +250,7 @@ func assertDirectCodingChoiceRoundTrip(t *testing.T, tc struct {
 	resolved, _, err := resolveSemanticConstructionChoice(
 		context.Background(), AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
 		tc.explorerID, tc.resourceType, contextToken, buildID, buildID,
-		map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry},
+		map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry}, nil,
 		authoringv2.ConstructionChoiceSelection{ChoiceID: choice.ChoiceID, Form: capability.ConstructionChoiceAll},
 		identity, choiceSource,
 	)

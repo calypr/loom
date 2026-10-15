@@ -36,9 +36,11 @@ export type CatalogChoiceIntent = {
 
 export const CODED_VALUE_RULE_HINT = 'CODED_VALUE_V1';
 export const CODED_CONCEPT_RULE_HINT = 'CODED_CONCEPT_V1';
+export const CODED_CATEGORY_RULE_HINT = 'CODED_CATEGORY_V1';
 export const CODED_SEMANTIC_RULE_HINTS = [
   CODED_VALUE_RULE_HINT,
   CODED_CONCEPT_RULE_HINT,
+  CODED_CATEGORY_RULE_HINT,
 ] as const;
 export type CodedSemanticRuleHint = (typeof CODED_SEMANTIC_RULE_HINTS)[number];
 

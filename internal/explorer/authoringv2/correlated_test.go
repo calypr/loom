@@ -94,7 +94,7 @@ func TestCorrelatedLookupRequiresClosedSelectedKey(t *testing.T) {
 	}
 	missingKey := validCorrelatedLookup()
 	missingKey.Key = nil
-	if err := correlatedAuthoringDocument(missingKey).Validate(); err == nil || !strings.Contains(err.Error(), "lookup.key.system/code") {
+	if err := correlatedAuthoringDocument(missingKey).Validate(); err == nil || !strings.Contains(err.Error(), "lookup.key") {
 		t.Fatalf("missing correlated key error = %v", err)
 	}
 	legacyKey := &LookupSource{Match: "shared", Key: &fhirschema.CorrelatedKey{System: "urn:study:A", Code: "shared"}}

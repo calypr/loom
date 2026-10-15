@@ -222,10 +222,15 @@ func physicalPivotProjections(physical *ir.PhysicalPlan, resourceType string, so
 		}
 		sharedExpression.Pivot.Correlation = &correlation
 	} else if pivot.Correlation != nil {
+		if err := fhirschema.ValidateCorrelatedKey(pivot.Correlation.SelectionScope, fhirschema.CorrelatedKey{System: pivot.CorrelationSystem, Code: pivot.CorrelationCode, Version: pivot.CorrelationVersion}); err != nil {
+			return nil, err
+		}
 		systemKey := columnsBindKey + "_system"
 		codeKey := columnsBindKey + "_code"
 		physical.BindVars[systemKey] = pivot.CorrelationSystem
-		physical.BindVars[codeKey] = pivot.CorrelationCode
+		if pivot.Correlation.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion {
+			codeKey = ""
+		}
 		versionKey := ""
 		if strings.TrimSpace(pivot.Correlation.VersionPath) != "" {
 			versionKey = columnsBindKey + "_version"
@@ -235,6 +240,10 @@ func physicalPivotProjections(physical *ir.PhysicalPlan, resourceType string, so
 		if err != nil {
 			return nil, err
 		}
+		// Exact correlated pivots match their code against the bounded pivot
+		// columns array in AQL; unlike filters and owner-record predicates they
+		// do not use a scalar code bind. Avoid emitting an undeclared/unused bind.
+		correlation.CodeBindKey = ""
 		sharedExpression.Pivot.Correlation = &correlation
 	}
 	physical.DeferredExpressionLets = append(physical.DeferredExpressionLets, ir.PhysicalOperation{Kind: ir.PhysicalExpressionLetOp, Source: ir.PhysicalSource{ResourceType: resourceType, SemanticField: "pivot_family"}, ExpressionLet: &ir.PhysicalExpressionLet{Variable: familyVariable, Expression: sharedExpression}})

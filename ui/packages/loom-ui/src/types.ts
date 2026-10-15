@@ -18,6 +18,11 @@ const projectionModeSchema = z.enum([
   'ALL',
   'DISTINCT',
 ]);
+export const semanticInventorySelectionModeSchema = z.enum([
+  'EXACT_CONCEPT',
+  'SYSTEM_VERSION_CATEGORY',
+]);
+export type SemanticInventorySelectionMode = z.infer<typeof semanticInventorySelectionModeSchema>;
 const unknownRecordSchema = z.record(z.string(), z.unknown());
 
 export const correlatedBindingSchema = z.object({
@@ -33,11 +38,17 @@ export const correlatedBindingSchema = z.object({
   unitPath: z.string().optional(),
   versionPath: opaqueIdSchema.optional(),
   valueScope: z.literal('CODING').optional(),
+  selectionScope: z.enum(['EXACT', 'SYSTEM_VERSION']).optional(),
 }).strict();
 
 const terminologyKeySchema = z.object({
   system: opaqueIdSchema,
   code: opaqueIdSchema,
+  version: z.string().optional(),
+}).strict();
+const codedValueKeySchema = z.object({
+  system: opaqueIdSchema,
+  code: z.string(),
   version: z.string().optional(),
 }).strict();
 
@@ -163,10 +174,40 @@ const lookupColumnSourceSchema = z.union([
     kind: z.literal('codedValue'),
     lookup: z.object({
       binding: correlatedBindingSchema,
-      key: terminologyKeySchema,
+      key: codedValueKeySchema,
       projectionMode: projectionModeSchema.optional(),
     }).strict(),
-  }).strict(),
+  }).strict().superRefine(({ lookup }, context) => {
+    const systemVersionScope = lookup.binding.selectionScope === 'SYSTEM_VERSION';
+    if (systemVersionScope && lookup.key.code !== '') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'System/version-scoped coded values must not persist an exact code.',
+        path: ['lookup', 'key', 'code'],
+      });
+    }
+    if (systemVersionScope && !lookup.binding.versionPath) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'System/version-scoped coded values require a Coding version path.',
+        path: ['lookup', 'binding', 'versionPath'],
+      });
+    }
+    if (systemVersionScope && lookup.binding.valueScope !== 'CODING') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'System/version-scoped coded values must match a specific Coding.',
+        path: ['lookup', 'binding', 'valueScope'],
+      });
+    }
+    if (!systemVersionScope && !lookup.key.code.trim()) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Exact coded values require a non-empty code.',
+        path: ['lookup', 'key', 'code'],
+      });
+    }
+  }),
 ]);
 const ownerRecordsColumnSourceSchema = z.object({
   kind: z.literal('ownerRecords'),
@@ -2059,6 +2100,7 @@ export type FieldChoiceSource = z.infer<typeof fieldChoiceSourceSchema>;
 export const semanticBindingChoiceSourceSchema = z
   .object({
     kind: z.literal('SEMANTIC'),
+    sourceKind: z.enum(['file', 'retained_vertex']).optional(),
     conceptId: opaqueIdSchema,
     bindingId: opaqueIdSchema,
     candidateId: opaqueIdSchema,
@@ -2092,10 +2134,17 @@ export type SemanticBindingChoiceSource = z.infer<
   typeof semanticBindingChoiceSourceSchema
 >;
 
-export const constructionChoiceSourceSchema = z.discriminatedUnion('kind', [
-  fieldChoiceSourceSchema,
-  semanticBindingChoiceSourceSchema,
-]);
+export const constructionChoiceSourceSchema = z
+  .discriminatedUnion('kind', [fieldChoiceSourceSchema, semanticBindingChoiceSourceSchema])
+  .superRefine((source, context) => {
+    if (source.kind === 'SEMANTIC' && source.sourceKind !== undefined && source.ruleHint !== 'CODED_CATEGORY_V1') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'A semantic source kind is only valid for coded category choices.',
+        path: ['sourceKind'],
+      });
+    }
+  });
 export type ConstructionChoiceSource = z.infer<
   typeof constructionChoiceSourceSchema
 >;
@@ -2124,22 +2173,30 @@ export const constructionChoiceSchema = z
   .strict();
 export type ConstructionChoice = z.infer<typeof constructionChoiceSchema>;
 
-export const constructionChoiceSearchSourceSchema = z.discriminatedUnion(
-  'kind',
-  [
-    z.object({
-      kind: z.literal('FIELD'),
-      candidateId: opaqueIdSchema,
-    }).strict(),
-    z.object({
-      kind: z.literal('SEMANTIC'),
-      contextToken: opaqueIdSchema,
-      buildId: opaqueIdSchema,
-      conceptId: opaqueIdSchema,
-      bindingId: opaqueIdSchema,
-    }).strict(),
-  ],
-);
+export const constructionChoiceSearchSourceSchema = z.union([
+  z.object({
+    kind: z.literal('FIELD'),
+    candidateId: opaqueIdSchema,
+  }).strict(),
+  z.object({
+    kind: z.literal('SEMANTIC'),
+    contextToken: opaqueIdSchema,
+    buildId: opaqueIdSchema,
+    conceptId: opaqueIdSchema,
+    bindingId: opaqueIdSchema,
+    selectionMode: z.literal('EXACT_CONCEPT').optional(),
+    choiceId: z.never().optional(),
+  }).strict(),
+  z.object({
+    kind: z.literal('SEMANTIC'),
+    contextToken: opaqueIdSchema,
+    buildId: opaqueIdSchema,
+    conceptId: opaqueIdSchema,
+    bindingId: opaqueIdSchema,
+    selectionMode: z.literal('SYSTEM_VERSION_CATEGORY'),
+    choiceId: opaqueIdSchema,
+  }).strict(),
+]);
 export type ConstructionChoiceSearchSource = z.infer<
   typeof constructionChoiceSearchSourceSchema
 >;
@@ -3080,30 +3137,67 @@ export const semanticSelectionReadinessSchema = z
   .strict();
 export type SemanticSelectionReadiness = z.infer<typeof semanticSelectionReadinessSchema>;
 
-export const semanticInventoryItemSchema = z
-  .object({
-    conceptId: z.string(),
-    bindingId: z.string(),
-    resourceType: z.string().min(1),
-    sourcePath: z.string(),
-    system: z.string(),
-    code: z.string(),
-    codingVersion: z.string(),
-    display: z.string(),
-    valueSelector: z.string(),
-    valueType: z.string(),
-    owningScope: z.string(),
-    // Counts observed source occurrences/events; one source record may contribute more than once.
-    occurrences: z.number().int().nonnegative(),
-    examples: z.array(z.string()).max(32).optional(),
-    examplesTruncated: z.boolean(),
-    observedUnits: z.array(z.string()).optional(),
-    observedUnitsTruncated: z.boolean(),
-    completeness: z.enum(['complete', 'partial', 'incomplete']).optional(),
-    readiness: semanticSelectionReadinessSchema,
-    constructionChoice: constructionChoiceSchema.optional(),
-  })
-  .strict();
+const semanticInventoryItemFields = {
+  conceptId: z.string(),
+  bindingId: z.string(),
+  resourceType: z.string().min(1),
+  sourcePath: z.string(),
+  system: z.string(),
+  code: z.string(),
+  codingVersion: z.string(),
+  display: z.string(),
+  valueSelector: z.string(),
+  valueType: z.string(),
+  owningScope: z.string(),
+  // Counts observed source occurrences/events; one source record may contribute more than once.
+  occurrences: z.number().int().nonnegative(),
+  examples: z.array(z.string()).max(32).optional(),
+  examplesTruncated: z.boolean(),
+  observedUnits: z.array(z.string()).optional(),
+  observedUnitsTruncated: z.boolean(),
+  completeness: z.enum(['complete', 'partial', 'incomplete']).optional(),
+  readiness: semanticSelectionReadinessSchema,
+  constructionChoice: constructionChoiceSchema.optional(),
+};
+export const semanticInventoryItemSchema = z.object({
+  ...semanticInventoryItemFields,
+  selectionMode: z.literal('SYSTEM_VERSION_CATEGORY').optional(),
+  familyId: opaqueIdSchema.optional(),
+}).strict().superRefine((item, context) => {
+  if (item.selectionMode === 'SYSTEM_VERSION_CATEGORY') {
+    const choice = item.constructionChoice;
+    if (!item.familyId || item.conceptId !== item.familyId || item.code !== '') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'A category inventory item must identify its family without an exact code.',
+        path: ['familyId'],
+      });
+    } else if (choice && (
+      choice.source.kind !== 'SEMANTIC' ||
+      choice.source.ruleHint !== 'CODED_CATEGORY_V1' ||
+      choice.source.conceptId !== item.familyId ||
+      choice.source.bindingId !== item.bindingId ||
+      choice.source.resourceType !== item.resourceType ||
+      choice.source.system !== item.system ||
+      (choice.source.version ?? '') !== item.codingVersion ||
+      (choice.source.code ?? '') !== '' ||
+      choice.source.sourcePath !== item.sourcePath
+    )) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'A category inventory choice must match its compiler-issued family.',
+        path: ['constructionChoice'],
+      });
+    }
+  } else if (item.familyId !== undefined || item.constructionChoice?.source.kind === 'SEMANTIC' &&
+    item.constructionChoice.source.ruleHint === 'CODED_CATEGORY_V1') {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Coded category identity is only valid in system/version category mode.',
+      path: ['selectionMode'],
+    });
+  }
+});
 export type SemanticInventoryItem = z.infer<typeof semanticInventoryItemSchema>;
 
 export const semanticInventoryBrowseResponseSchema = z

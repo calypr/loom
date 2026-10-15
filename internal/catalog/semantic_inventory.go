@@ -103,6 +103,49 @@ type SemanticInventoryEntry struct {
 	Observation SemanticObservation `json:"observation"`
 }
 
+type SemanticInventorySelectionMode string
+
+const (
+	SemanticInventoryExactConcept          SemanticInventorySelectionMode = "EXACT_CONCEPT"
+	SemanticInventorySystemVersionCategory SemanticInventorySelectionMode = "SYSTEM_VERSION_CATEGORY"
+)
+
+// SemanticInventoryFamilyReference selects every code in one binding, system,
+// and exact version. An empty Version selects only versionless Codings.
+type SemanticInventoryFamilyReference struct {
+	FamilyID     string `json:"family_id"`
+	BindingID    string `json:"binding_id"`
+	SourceKind   string `json:"source_kind"`
+	ResourceType string `json:"resource_type"`
+	SourcePath   string `json:"source_path"`
+	System       string `json:"system"`
+	Version      string `json:"version"`
+}
+
+// SemanticInventoryFamily carries a coding selector without an exact code.
+// It is a separate selection type; SemanticObservation.Key.Code retains its
+// existing exact-code meaning.
+type SemanticInventoryFamily struct {
+	SemanticInventoryFamilyReference
+	Source            SemanticObservationSource       `json:"source"`
+	KeySelector       string                          `json:"key_selector"`
+	Value             SemanticObservationValue        `json:"value"`
+	OwningScope       string                          `json:"owning_scope,omitempty"`
+	LogicalType       string                          `json:"logical_type,omitempty"`
+	SchemaVersion     int                             `json:"schema_version"`
+	RuleVersion       string                          `json:"rule_version"`
+	Completeness      SemanticObservationCompleteness `json:"completeness"`
+	Status            string                          `json:"status,omitempty"`
+	Population        int64                           `json:"population"`
+	Examples          []string                        `json:"examples,omitempty"`
+	ExamplesTruncated bool                            `json:"examples_truncated"`
+}
+
+func SemanticInventoryFamilyID(reference SemanticInventoryFamilyReference) string {
+	return catalogIdentityDigest("semantic-inventory-family/v1", reference.BindingID,
+		reference.SourceKind, reference.ResourceType, reference.SourcePath, reference.System, reference.Version)
+}
+
 type SemanticInventoryPageOptions struct {
 	Project                       string
 	DatasetGeneration             string
@@ -110,6 +153,7 @@ type SemanticInventoryPageOptions struct {
 	AuthResourcePaths             []string
 	ResourceType                  string
 	BindingID                     string
+	SelectionMode                 SemanticInventorySelectionMode
 	Query                         string
 	Cursor                        string
 	Limit                         int
@@ -130,19 +174,22 @@ type SemanticInventoryResolveOptions struct {
 	AuthResourcePathsUnrestricted *bool
 	AuthResourcePaths             []string
 	References                    []SemanticInventoryReference
+	FamilyReferences              []SemanticInventoryFamilyReference
 }
 
 type SemanticInventoryResolveResult struct {
-	Build   SemanticInventoryBuild
-	State   SemanticInventoryState
-	Entries []SemanticInventoryEntry
+	Build    SemanticInventoryBuild
+	State    SemanticInventoryState
+	Entries  []SemanticInventoryEntry
+	Families []SemanticInventoryFamily
 }
 
 type SemanticInventoryPage struct {
-	Entries    []SemanticInventoryEntry `json:"entries"`
-	Build      SemanticInventoryBuild   `json:"build"`
-	State      SemanticInventoryState   `json:"state"`
-	NextCursor string                   `json:"next_cursor,omitempty"`
+	Entries    []SemanticInventoryEntry  `json:"entries"`
+	Families   []SemanticInventoryFamily `json:"families,omitempty"`
+	Build      SemanticInventoryBuild    `json:"build"`
+	State      SemanticInventoryState    `json:"state"`
+	NextCursor string                    `json:"next_cursor,omitempty"`
 }
 
 type SemanticInventoryObservationSink func(SemanticInventoryContribution)
@@ -360,6 +407,11 @@ func SemanticInventoryPageDigest(opts SemanticInventoryPageOptions, buildID stri
 		opts.BindingID,
 		opts.Query,
 		strconv.Itoa(limit),
+	}
+	// Keep legacy exact cursors valid, including callers that explicitly name
+	// their previous default mode.
+	if opts.SelectionMode != "" && opts.SelectionMode != SemanticInventoryExactConcept {
+		parts[0] = "semantic-inventory-page/" + string(opts.SelectionMode) + "/v1"
 	}
 	parts = append(parts, paths...)
 	return catalogIdentityDigest(parts...)

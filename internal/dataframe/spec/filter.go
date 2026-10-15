@@ -120,7 +120,8 @@ func (f TypedFilter) Validate() error {
 		return fmt.Errorf("operator %s is not compatible with %s", f.Operator, f.FieldKind)
 	}
 	for i, value := range f.Values {
-		if err := value.Validate(); err != nil {
+		requireCode := f.Correlation == nil || f.Correlation.SelectionScope != fhirschema.CorrelatedSelectionScopeSystemVersion
+		if err := value.validate(requireCode); err != nil {
 			return fmt.Errorf("filter value %d: %w", i, err)
 		}
 		if value.Kind != f.FieldKind {
@@ -142,6 +143,10 @@ func (f TypedFilter) Validate() error {
 		}
 		if len(f.Values) != 1 || f.Values[0].Code == nil || strings.TrimSpace(f.Values[0].Code.System) == "" {
 			return errors.New("correlated filter requires one CODE value with system")
+		}
+		code := f.Values[0].Code
+		if err := fhirschema.ValidateCorrelatedKey(f.Correlation.SelectionScope, fhirschema.CorrelatedKey{System: code.System, Code: code.Code, Version: code.Version}); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -187,6 +192,10 @@ func OperatorSupportsKind(op FilterOperator, kind FilterValueKind) bool {
 }
 
 func (v FilterValue) Validate() error {
+	return v.validate(true)
+}
+
+func (v FilterValue) validate(requireCode bool) error {
 	if !v.Kind.Valid() {
 		return fmt.Errorf("unknown value kind %q", v.Kind)
 	}
@@ -205,7 +214,7 @@ func (v FilterValue) Validate() error {
 			return errors.New("STRING requires string")
 		}
 	case FilterCode:
-		if v.Code == nil || strings.TrimSpace(v.Code.Code) == "" {
+		if v.Code == nil || (requireCode && strings.TrimSpace(v.Code.Code) == "") {
 			return errors.New("CODE requires a non-empty code")
 		}
 	case FilterBoolean:

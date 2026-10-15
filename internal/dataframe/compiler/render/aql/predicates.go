@@ -6,6 +6,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func (r *physicalPlanRenderer) renderPredicate(predicate ir.PhysicalPredicate) (string, error) {
@@ -82,8 +83,12 @@ func (r *physicalPlanRenderer) renderCorrelationPredicate(correlation ir.Physica
 	if err != nil {
 		return "", err
 	}
-	if correlation.SystemBindKey == "" || correlation.CodeBindKey == "" {
+	if correlation.SystemBindKey == "" || (correlation.SelectionScope != fhirschema.CorrelatedSelectionScopeSystemVersion && correlation.CodeBindKey == "") {
 		return "", fmt.Errorf("correlation match binds are required")
+	}
+	codeClause := fmt.Sprintf("FILTER __correlation_code == @%s", correlation.CodeBindKey)
+	if correlation.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion {
+		codeClause = ""
 	}
 	valueSource := correlationValueSource(correlation, owner, coding)
 	values, err := r.renderCorrelationValues(valueSource, correlation.ValueSelector, correlation.ValueFallbacks, correlation.FallbackOnBlankString)
@@ -102,14 +107,14 @@ func (r *physicalPlanRenderer) renderCorrelationPredicate(correlation ir.Physica
       FILTER __correlation_system != null AND __correlation_system != ""
       FILTER __correlation_code != null AND __correlation_code != ""
       FILTER __correlation_system == @%s
-	      FILTER __correlation_code == @%s%s
+	      %s%s
 	      LET __correlation_values = %s
 	      LET __correlation_unsupported_values = %s
 	      FILTER LENGTH(__correlation_unsupported_values) == 0
 	      FILTER LENGTH(FLATTEN(__correlation_values)) > 0
 	      LIMIT 1
 	      RETURN 1
-) > 0`, owner, owners, coding, codings, system, code, correlation.SystemBindKey, correlation.CodeBindKey, versionClause, values, unsupportedValues), nil
+) > 0`, owner, owners, coding, codings, system, code, correlation.SystemBindKey, codeClause, versionClause, values, unsupportedValues), nil
 }
 
 func (r *physicalPlanRenderer) renderCorrelationOwners(source ir.PhysicalValue, ownerSelector spec.Selector) (string, error) {

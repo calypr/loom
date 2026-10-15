@@ -90,6 +90,33 @@ func TestLowerRecipeCorrelatedPivotPreservesSelectedVersion(t *testing.T) {
 	}
 }
 
+func TestLowerRecipeCorrelatedCategoryPreservesExplicitScope(t *testing.T) {
+	binding := &fhirschema.CorrelatedBinding{
+		KeyPath: "code.coding[]", VersionPath: "version", ValueScope: fhirschema.CorrelatedValueScopeCoding,
+		SelectionScope: fhirschema.CorrelatedSelectionScopeSystemVersion,
+		SystemPath:     "system", CodePath: "code", ValuePath: "display", ValueFallback: []string{"code"}, LogicalType: "string",
+	}
+	pivots, err := lowerRecipePivots("Condition", "root", newRootScope("Condition"), []recipe.Pivot{{
+		Name: "diagnosis", Columns: []string{"category"}, Correlation: binding, CorrelationSystem: "urn:test",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pivots) != 1 || pivots[0].Correlation.SelectionScope != fhirschema.CorrelatedSelectionScopeSystemVersion || pivots[0].CorrelationCode != "" || pivots[0].CorrelationVersion != "" {
+		t.Fatalf("semantic category = %#v", pivots)
+	}
+	if _, err := lowerRecipeOwnerRecords("Condition", []recipe.OwnerRecordProjection{{
+		Name: "records", Binding: *binding, Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "normal"},
+	}}); err == nil || !strings.Contains(err.Error(), "SYSTEM_VERSION") {
+		t.Fatalf("category owner-record error = %v", err)
+	}
+	if _, err := lowerRecipePivots("Condition", "root", newRootScope("Condition"), []recipe.Pivot{{
+		Name: "diagnosis", Columns: []string{"normal", "tumor"}, Correlation: binding, CorrelationSystem: "urn:test",
+	}}); err == nil {
+		t.Fatal("category semantic projection accepted multiple columns")
+	}
+}
+
 func TestLowerRecipePivotsRejectsUnsupportedPairAndDuplicateColumn(t *testing.T) {
 	scope := newRootScope("Patient")
 	_, err := lowerRecipePivots("Patient", "root", scope, []recipe.Pivot{{

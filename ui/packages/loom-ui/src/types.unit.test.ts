@@ -15,10 +15,13 @@ import {
   explorerBuilderCandidateSchema,
   explorerBuilderCatalogEdgeSchema,
   constructionChoiceSchema,
+  constructionChoiceSearchSourceSchema,
   correlatedBindingSchema,
   explorerBuilderCommandSchema,
   explorerBuilderDocumentSchema,
+  explorerBuilderWorkspaceSchema,
   explorerColumnSourceSchema,
+  semanticInventoryItemSchema,
   relatedExpandContributorSearchResponseSchema,
   rowDefinitionChoicesResponseSchema,
   rowDefinitionProposalSchema,
@@ -849,12 +852,221 @@ describe('correlatedBindingSchema', () => {
     expect(explorerColumnSourceSchema.parse(versionedSource)).toEqual(versionedSource);
   });
 
+  it('round-trips system/version category scope while keeping exact coding keys non-empty', () => {
+    const binding = {
+      ownerPath: 'code',
+      keyPath: 'coding[]',
+      systemPath: 'system',
+      codePath: 'code',
+      valuePath: 'display',
+      logicalType: 'string',
+      versionPath: 'version',
+      valueScope: 'CODING',
+      selectionScope: 'SYSTEM_VERSION',
+    } as const;
+    const source = {
+      kind: 'codedValue',
+      lookup: {
+        binding,
+        key: { system: 'urn:compound-codes', code: '', version: 'v1' },
+      },
+    } as const;
+
+    expect(explorerColumnSourceSchema.parse(source)).toEqual(source);
+    expect(explorerColumnSourceSchema.parse(JSON.parse(JSON.stringify(source)))).toEqual(source);
+    expect(explorerColumnSourceSchema.safeParse({
+      ...source,
+      lookup: { ...source.lookup, binding: { ...binding, selectionScope: 'EXACT' } },
+    }).success).toBe(false);
+    expect(explorerColumnSourceSchema.safeParse({
+      ...source,
+      lookup: { ...source.lookup, key: { ...source.lookup.key, code: 'specific-code' } },
+    }).success).toBe(false);
+    expect(explorerColumnSourceSchema.safeParse({
+      ...source,
+      lookup: { ...source.lookup, binding: { ...binding, versionPath: undefined } },
+    }).success).toBe(false);
+    expect(explorerColumnSourceSchema.safeParse({
+      ...source,
+      lookup: { ...source.lookup, binding: { ...binding, valueScope: undefined } },
+    }).success).toBe(false);
+
+    const exact = { ...source, lookup: { ...source.lookup, binding: { ...binding, selectionScope: undefined }, key: { ...source.lookup.key, code: 'specific-code' } } };
+    expect(explorerColumnSourceSchema.parse(exact)).toEqual(exact);
+    expect(explorerColumnSourceSchema.safeParse({
+      ...exact,
+      lookup: { ...exact.lookup, key: { ...exact.lookup.key, code: '' } },
+    }).success).toBe(false);
+  });
+
+  it('retains system/version category scope through workspace JSON reload', () => {
+    const binding = {
+      keyPath: 'coding[]',
+      systemPath: 'system',
+      codePath: 'code',
+      valuePath: 'display',
+      logicalType: 'string',
+      versionPath: 'version',
+      valueScope: 'CODING',
+      selectionScope: 'SYSTEM_VERSION',
+    } as const;
+    const workspace = {
+      apiVersion: 'loom.calypr.org/explorer-authoring/v2',
+      kind: 'ExplorerBuilderWorkspace',
+      explorer: { title: 'Compounds' },
+      documents: [{
+        kind: 'ExplorerBuilderDocument',
+        output: { id: 'compounds', title: 'Compounds' },
+        rootResourceType: 'Patient',
+        route: { occurrenceId: 'base', resourceType: 'Patient' },
+        rows: { kind: 'RECORDS', records: {} },
+        columns: [{
+          columnId: 'column_compound',
+          column: 'compound_name',
+          label: 'Compound name',
+          occurrenceId: 'base',
+          source: {
+            kind: 'codedValue',
+            lookup: { binding, key: { system: 'urn:compound-codes', code: '', version: 'v1' } },
+          },
+        }],
+        construction: { version: 1, steps: [] },
+      }],
+      tabs: [{ id: 'tab_compounds', title: 'Compounds', outputId: 'compounds', order: 0 }],
+    } as const;
+    const parsed = explorerBuilderWorkspaceSchema.parse(workspace);
+    const reloaded = explorerBuilderWorkspaceSchema.parse(JSON.parse(JSON.stringify(parsed)));
+    const reloadedSource = reloaded.documents[0]?.columns[0]?.source;
+
+    expect(reloadedSource).toEqual(workspace.documents[0]?.columns[0]?.source);
+    if (reloadedSource?.kind !== 'codedValue') throw new Error('The reloaded category source was not codedValue.');
+    expect(reloadedSource.lookup.binding.selectionScope).toBe('SYSTEM_VERSION');
+  });
+
   it('rejects unknown binding keys while allowing fallbackOnBlankString', () => {
     expect(correlatedBindingSchema.safeParse({
       ...binding,
       fallbackOnBlankString: true,
       unrelatedServerField: 'not in the wire contract',
     }).success).toBe(false);
+  });
+});
+
+describe('constructionChoiceSearchSourceSchema', () => {
+  it('requires the signed source choice witness for system/version category routing', () => {
+    const exact = {
+      kind: 'SEMANTIC',
+      contextToken: 'context-1',
+      buildId: 'build-1',
+      conceptId: 'concept-1',
+      bindingId: 'binding-1',
+    } as const;
+    const category = {
+      ...exact,
+      selectionMode: 'SYSTEM_VERSION_CATEGORY',
+      choiceId: 'signed-category-choice',
+    } as const;
+
+    expect(constructionChoiceSearchSourceSchema.parse(exact)).toEqual(exact);
+    expect(constructionChoiceSearchSourceSchema.parse(category)).toEqual(category);
+    expect(constructionChoiceSearchSourceSchema.safeParse({
+      ...category,
+      choiceId: undefined,
+    }).success).toBe(false);
+    expect(constructionChoiceSearchSourceSchema.safeParse({
+      ...exact,
+      choiceId: 'unexpected-exact-choice',
+    }).success).toBe(false);
+  });
+});
+
+describe('semanticInventoryItemSchema category mode', () => {
+  it('accepts a family without a route choice when inventory is not output-scoped', () => {
+    const family = {
+      conceptId: 'family-compound-name',
+      familyId: 'family-compound-name',
+      selectionMode: 'SYSTEM_VERSION_CATEGORY',
+      bindingId: 'binding-compound-name',
+      resourceType: 'Observation',
+      sourcePath: 'code',
+      system: 'urn:compound-codes',
+      code: '',
+      codingVersion: 'v1',
+      display: 'Compound name',
+      valueSelector: 'coding[].display',
+      valueType: 'string',
+      owningScope: 'Observation',
+      occurrences: 3,
+      examplesTruncated: false,
+      observedUnitsTruncated: false,
+      readiness: { status: 'NEEDS_MAPPING', code: 'NO_OUTPUT_ROUTE', message: 'No route is selected.' },
+    } as const;
+
+    expect(semanticInventoryItemSchema.parse(family)).toEqual(family);
+    expect(semanticInventoryItemSchema.safeParse({ ...family, familyId: 'different-family' }).success).toBe(false);
+    expect(semanticInventoryItemSchema.safeParse({ ...family, code: 'one-specific-code' }).success).toBe(false);
+  });
+
+  it('accepts a relative item selector with its canonical nested-owner choice selector', () => {
+    const family = {
+      conceptId: 'family-observation-category',
+      familyId: 'family-observation-category',
+      selectionMode: 'SYSTEM_VERSION_CATEGORY',
+      bindingId: 'binding-observation-category',
+      resourceType: 'Observation',
+      sourcePath: 'category[].coding[]',
+      system: 'http://terminology.hl7.org/CodeSystem/observation-category',
+      code: '',
+      codingVersion: '',
+      display: 'Observation category',
+      valueSelector: 'coding[].display',
+      valueType: 'string',
+      owningScope: 'category[]',
+      occurrences: 1,
+      examplesTruncated: false,
+      observedUnitsTruncated: false,
+      readiness: { status: 'READY', code: 'READY', message: 'The category family can be added.' },
+      constructionChoice: {
+        choiceId: 'signed-category-choice',
+        route: [],
+        presentation: { summary: 'Observation category', facts: [] },
+        source: {
+          kind: 'SEMANTIC',
+          sourceKind: 'retained_vertex',
+          conceptId: 'family-observation-category',
+          bindingId: 'binding-observation-category',
+          candidateId: 'candidate-observation-category',
+          nodeId: 'observation-node',
+          resourceType: 'Observation',
+          sourcePath: 'category[].coding[]',
+          fieldPath: 'category[].coding[].display',
+          owningScope: 'category[]',
+          keySelector: 'coding[]',
+          system: 'http://terminology.hl7.org/CodeSystem/observation-category',
+          valueSelector: 'category[].coding[].display',
+          logicalType: 'string',
+          ruleHint: 'CODED_CATEGORY_V1',
+          ruleVersion: '5',
+          schemaVersion: 4,
+          cardinality: 'many',
+          repeatedBoundaries: [
+            { path: 'category[]', maxItems: 1 },
+            { path: 'category[].coding[]', maxItems: 1 },
+          ],
+        },
+        options: [{
+          form: 'ALL',
+          shape: 'LIST',
+          decision: 'DEFAULT',
+          preservation: 'PRESERVING',
+          rowEffect: 'PRESERVES_ROW_GRAIN',
+          support: 'SUPPORTED',
+          reason: 'The selected coding family preserves the row grain.',
+        }],
+      },
+    } as const;
+
+    expect(semanticInventoryItemSchema.parse(family)).toEqual(family);
   });
 });
 

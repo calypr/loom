@@ -661,6 +661,80 @@ describe('Loom project paths', () => {
     );
   });
 
+  it('sends the system/version category mode for general coded inventory browsing', async () => {
+    const response = {
+      contextToken: 'category-context',
+      buildId: 'build-1',
+      state: 'complete',
+      sourceAvailability: 'verified',
+      entries: [],
+    } as const;
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } }),
+    );
+    const client = createLoomClient({ fetch });
+
+    await expect(client.browseSemanticInventory({
+      project: 'NCPI_ACCEPTANCE',
+      explorerId: 'default',
+      snapshotToken: 'snapshot-1',
+      rowRoot: 'Patient',
+      outputId: 'patients',
+      selectionMode: 'SYSTEM_VERSION_CATEGORY',
+      limit: 50,
+    })).resolves.toEqual(response);
+
+    const requestBody = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+    expect(requestBody).toEqual({
+      snapshotToken: 'snapshot-1',
+      rowRoot: 'Patient',
+      selectionMode: 'SYSTEM_VERSION_CATEGORY',
+      outputId: 'patients',
+      limit: 50,
+    });
+  });
+
+  it('resolves a category family with its signed choice witness', async () => {
+    const response = {
+      snapshotToken: 'snapshot-1',
+      outputId: 'patients',
+      complete: true,
+      truncated: false,
+      choices: [],
+    } as const;
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } }),
+    );
+    const client = createLoomClient({ fetch });
+
+    await expect(client.searchConstructionChoices({
+      project: 'NCPI_ACCEPTANCE',
+      explorerId: 'default',
+      snapshotToken: 'snapshot-1',
+      outputId: 'patients',
+      source: {
+        kind: 'SEMANTIC',
+        contextToken: 'context-1',
+        buildId: 'build-1',
+        conceptId: 'family-compound-name',
+        bindingId: 'binding-compound-name',
+        selectionMode: 'SYSTEM_VERSION_CATEGORY',
+        choiceId: 'signed-family-choice',
+      },
+      limit: 50,
+    })).resolves.toEqual(response);
+
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject({
+      source: {
+        kind: 'SEMANTIC',
+        conceptId: 'family-compound-name',
+        bindingId: 'binding-compound-name',
+        selectionMode: 'SYSTEM_VERSION_CATEGORY',
+        choiceId: 'signed-family-choice',
+      },
+    });
+  });
+
   it('loads a server-described column source without sending FHIR selectors', async () => {
     const response = {
       snapshotToken: 'snapshot-1',

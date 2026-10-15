@@ -93,8 +93,11 @@ func lowerRecipePivots(resourceType, alias string, scope scopeFrame, pivots []re
 			if bindingErr != nil {
 				return nil, fmt.Errorf("%s correlation: %w", path, bindingErr)
 			}
-			if strings.TrimSpace(input.CorrelationSystem) == "" || strings.TrimSpace(input.CorrelationCode) == "" {
-				return nil, fmt.Errorf("%s correlation requires selected system and code", path)
+			if err := fhirschema.ValidateCorrelatedKey(checked.SelectionScope, fhirschema.CorrelatedKey{System: input.CorrelationSystem, Code: input.CorrelationCode, Version: input.CorrelationVersion}); err != nil {
+				return nil, fmt.Errorf("%s correlation: %w", path, err)
+			}
+			if checked.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion && len(columns) != 1 {
+				return nil, fmt.Errorf("%s SYSTEM_VERSION selection requires exactly one output column", path)
 			}
 			if strings.TrimSpace(input.CorrelationVersion) != "" && strings.TrimSpace(input.Correlation.VersionPath) == "" {
 				return nil, fmt.Errorf("%s correlation version requires versionPath", path)
@@ -252,6 +255,9 @@ func lowerRecipeOwnerRecords(resourceType string, inputs []recipe.OwnerRecordPro
 	result := make([]SemanticOwnerRecords, 0, len(inputs))
 	for index, input := range inputs {
 		path := fmt.Sprintf("ownerRecords[%d]", index)
+		if input.Binding.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion {
+			return nil, fmt.Errorf("%s does not support SYSTEM_VERSION selection scope", path)
+		}
 		if err := validateRecipeRichName(input.Name, path+".name"); err != nil {
 			return nil, err
 		}

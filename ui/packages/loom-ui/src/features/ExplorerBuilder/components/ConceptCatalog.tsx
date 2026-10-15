@@ -7,6 +7,7 @@ import type {
   FieldChoiceSource,
   SemanticInventoryBrowseResponse,
   SemanticInventoryItem,
+  SemanticInventorySelectionMode,
   SchemaFieldOption,
 } from '../../../types';
 import {
@@ -561,6 +562,7 @@ const ConceptCatalogContent = ({
   view = 'all',
   sourceControls,
   suppressUnavailableNotices = false,
+  semanticSelectionMode,
   initialSelection,
   initialFieldSource,
   pairedColumnSuggestion,
@@ -588,6 +590,7 @@ const ConceptCatalogContent = ({
   readonly view?: ConceptCatalogView;
   readonly sourceControls?: React.ReactNode;
   readonly suppressUnavailableNotices?: boolean;
+  readonly semanticSelectionMode?: SemanticInventorySelectionMode;
   readonly initialSelection?: CatalogInitialSelection;
   readonly initialFieldSource?: Pick<FieldChoiceSource, 'candidateId' | 'nodeId' | 'path'>;
   readonly pairedColumnSuggestion?: PairedColumnSuggestion;
@@ -654,6 +657,7 @@ const ConceptCatalogContent = ({
     browseSourceNodeId ?? '',
     browseRouteContext?.occurrenceId ?? '',
     browseRouteContext?.nodeId ?? '',
+    semanticSelectionMode ?? '',
     sourceProjectionAvailability?.available ?? true,
     sourceProjectionAvailability?.reason ?? '',
     relatedSourceAvailability?.supported ?? true,
@@ -666,6 +670,7 @@ const ConceptCatalogContent = ({
     snapshotToken,
     outputId,
     rowRoot,
+    semanticSelectionMode ?? '',
   ]);
   if (semanticContextRef.current.scopeKey !== semanticContextScopeKey || semanticContextRef.current.client !== client) {
     semanticContextRef.current = { scopeKey: semanticContextScopeKey, client };
@@ -678,6 +683,7 @@ const ConceptCatalogContent = ({
     rowRoot,
     outputId,
     browseResourceType ?? '',
+    semanticSelectionMode ?? '',
     query,
     searchGeneration,
   ]);
@@ -706,6 +712,7 @@ const ConceptCatalogContent = ({
         snapshotToken,
         rowRoot,
         outputId,
+        selectionMode: semanticSelectionMode,
         resourceType: browseResourceType,
         query,
         cursor,
@@ -972,13 +979,26 @@ const ConceptCatalogContent = ({
       if (!effectiveContext) {
         throw new Error('Loom has not provided a complete concept catalog for this result.');
       }
-      source = {
-        kind: 'SEMANTIC',
-        contextToken: effectiveContext.contextToken,
-        buildId: effectiveContext.buildId,
-        conceptId: item.item.conceptId,
-        bindingId: item.item.bindingId,
-      };
+      if (item.item.selectionMode === 'SYSTEM_VERSION_CATEGORY') {
+        if (!existingChoice) throw new Error('Loom did not provide a signed choice for this coded family.');
+        source = {
+          kind: 'SEMANTIC',
+          contextToken: effectiveContext.contextToken,
+          buildId: effectiveContext.buildId,
+          conceptId: item.item.conceptId,
+          bindingId: item.item.bindingId,
+          selectionMode: item.item.selectionMode,
+          choiceId: existingChoice.choiceId,
+        };
+      } else {
+        source = {
+          kind: 'SEMANTIC',
+          contextToken: effectiveContext.contextToken,
+          buildId: effectiveContext.buildId,
+          conceptId: item.item.conceptId,
+          bindingId: item.item.bindingId,
+        };
+      }
     }
     const resolved = await client.searchConstructionChoices({
       project,

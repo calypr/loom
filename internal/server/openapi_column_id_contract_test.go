@@ -6,6 +6,7 @@ import (
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestAuthoringWorkspaceColumnIDMatchesOpenAPIContract(t *testing.T) {
@@ -80,6 +81,91 @@ func TestAuthoringWorkspaceColumnIDMatchesOpenAPIContract(t *testing.T) {
 	}
 	if err := spec.ValidateSchemaJSON(columnSchemaRef.Value, legacyColumn); err != nil {
 		t.Fatalf("legacy saved source column without columnId is rejected by OpenAPI: %v", err)
+	}
+}
+
+func TestSystemVersionCategoryColumnPassesOpenAPIAndExactEmptyCodeIsRejected(t *testing.T) {
+	column := authoringv2.Column{
+		Column: "condition_category", Label: "Condition category", OccurrenceID: authoringv2.RootOccurrenceID,
+		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceCodedValue, Lookup: &authoringv2.LookupSource{
+			Binding: &fhirschema.CorrelatedBinding{
+				KeyPath: "code.coding[]", ValueScope: fhirschema.CorrelatedValueScopeCoding,
+				SelectionScope: fhirschema.CorrelatedSelectionScopeSystemVersion, VersionPath: "version",
+				SystemPath: "system", CodePath: "code", ValuePath: "display", LogicalType: "string",
+				ValueFallback: []string{"code"}, FallbackOnBlankString: true,
+			},
+			Key: &fhirschema.CorrelatedKey{System: "https://example.org/condition", Code: "", Version: ""},
+		}},
+	}
+	document := authoringv2.Document{
+		Rows: authoringv2.RecordsRowDefinition(), Kind: authoringv2.Kind,
+		Output: authoringv2.Output{ID: "conditions", Title: "Conditions"}, RootResourceType: "Condition",
+		Route:   authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Condition"},
+		Columns: []authoringv2.Column{column},
+	}
+	if err := document.Validate(); err != nil {
+		t.Fatalf("SYSTEM_VERSION category document rejected by authoring validation: %v", err)
+	}
+	encoded, err := json.Marshal(column)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var generated loomapi.Column
+	if err := json.Unmarshal(encoded, &generated); err != nil {
+		t.Fatalf("generated Column rejects SYSTEM_VERSION key.code empty: %v", err)
+	}
+	payload, err := json.Marshal(generated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var columnJSON map[string]any
+	if err := json.Unmarshal(payload, &columnJSON); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := loomapi.GetSpec()
+	if err != nil {
+		t.Fatal(err)
+	}
+	columnSchema := spec.Components.Schemas["Column"]
+	if columnSchema == nil || columnSchema.Value == nil {
+		t.Fatal("OpenAPI Column schema is missing")
+	}
+	if err := spec.ValidateSchemaJSON(columnSchema.Value, columnJSON); err != nil {
+		t.Fatalf("encoded SYSTEM_VERSION category is rejected by the OpenAPI Column schema: %v", err)
+	}
+	workspace := authoringv2.Workspace{
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
+		Explorer: authoringv2.ExplorerMetadata{Title: "Builder"}, Documents: []authoringv2.Document{document},
+		Tabs: []authoringv2.Tab{{ID: "conditions_tab", Title: "Conditions", OutputID: "conditions", Order: 0, Visible: true}},
+	}
+	if err := workspace.Validate(); err != nil {
+		t.Fatalf("SYSTEM_VERSION category workspace rejected by authoring validation: %v", err)
+	}
+	workspacePayload, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workspaceJSON map[string]any
+	if err := json.Unmarshal(workspacePayload, &workspaceJSON); err != nil {
+		t.Fatal(err)
+	}
+	workspaceSchema := spec.Components.Schemas["Workspace"]
+	if workspaceSchema == nil || workspaceSchema.Value == nil {
+		t.Fatal("OpenAPI Workspace schema is missing")
+	}
+	if err := spec.ValidateSchemaJSON(workspaceSchema.Value, workspaceJSON); err != nil {
+		t.Fatalf("encoded SYSTEM_VERSION category workspace is rejected by the OpenAPI schema: %v", err)
+	}
+
+	exact := column
+	lookup := *column.Source.Lookup
+	binding := *lookup.Binding
+	binding.SelectionScope = ""
+	lookup.Binding = &binding
+	exact.Source.Lookup = &lookup
+	document.Columns = []authoringv2.Column{exact}
+	if err := document.Validate(); err == nil {
+		t.Fatal("exact coded-value key with an empty code passed authoring validation")
 	}
 }
 

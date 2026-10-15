@@ -654,6 +654,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
       snapshotToken: 'snapshot-1',
       outputId: 'patients',
       rowRoot: 'Patient',
+      selectionMode: 'SYSTEM_VERSION_CATEGORY',
       limit: 50,
     });
     expect(request.resourceType).toBeUndefined();

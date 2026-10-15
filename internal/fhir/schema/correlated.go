@@ -7,6 +7,13 @@ import (
 
 type CorrelatedValueScope string
 
+type CorrelatedSelectionScope string
+
+const (
+	CorrelatedSelectionScopeExact         CorrelatedSelectionScope = "EXACT"
+	CorrelatedSelectionScopeSystemVersion CorrelatedSelectionScope = "SYSTEM_VERSION"
+)
+
 const (
 	CorrelatedValueScopeOwner  CorrelatedValueScope = "OWNER"
 	CorrelatedValueScopeCoding CorrelatedValueScope = "CODING"
@@ -21,6 +28,9 @@ type CorrelatedBinding struct {
 	OwnerPath   string `json:"ownerPath,omitempty"`
 	KeyPath     string `json:"keyPath"`
 	VersionPath string `json:"versionPath,omitempty"`
+	// Empty and EXACT match a selected code. SYSTEM_VERSION matches every
+	// code within one exact system and version, including an empty version.
+	SelectionScope CorrelatedSelectionScope `json:"selectionScope,omitempty"`
 	// ValueScope selects the object that owns ValuePath and ValueFallback.
 	// Empty and OWNER preserve the legacy owner-relative binding; CODING uses
 	// the exact Coding item matched by KeyPath.
@@ -76,6 +86,7 @@ type CorrelatedBindingSpec struct {
 	KeyIsArray            bool
 	VersionSelector       *Selector
 	ValueScope            CorrelatedValueScope
+	SelectionScope        CorrelatedSelectionScope
 	SystemSelector        Selector
 	CodeSelector          Selector
 	ValueSelector         Selector
@@ -211,11 +222,42 @@ func ValidateCorrelatedBinding(resourceType string, binding CorrelatedBinding) (
 	default:
 		return CorrelatedBindingSpec{}, fmt.Errorf("correlated valueScope %q is unsupported", binding.ValueScope)
 	}
+	switch binding.SelectionScope {
+	case "", CorrelatedSelectionScopeExact:
+	case CorrelatedSelectionScopeSystemVersion:
+		if binding.ValueScope != CorrelatedValueScopeCoding || versionSelector == nil {
+			return CorrelatedBindingSpec{}, fmt.Errorf("SYSTEM_VERSION selection scope requires CODING value scope and versionPath")
+		}
+		if system.CanonicalPath() != "system" || code.CanonicalPath() != "code" {
+			return CorrelatedBindingSpec{}, fmt.Errorf("SYSTEM_VERSION selection requires Coding.system and Coding.code selectors")
+		}
+	default:
+		return CorrelatedBindingSpec{}, fmt.Errorf("correlated selectionScope %q is unsupported", binding.SelectionScope)
+	}
 	value, valueErr := validateBindingValue(valueResource, binding.ValuePath, binding.ValueFallback, binding.FallbackOnBlankString, binding.ChoiceArms, binding.LogicalType, binding.UnitPath)
 	if valueErr != nil {
 		return CorrelatedBindingSpec{}, valueErr
 	}
-	return CorrelatedBindingSpec{ResourceType: resourceType, OwnerSelector: ownerSelector, OwnerResource: ownerResource, KeySelector: mustParseSelector(keyRelative), KeyResource: keyResource, KeyIsArray: keyIsArray, VersionSelector: versionSelector, ValueScope: binding.ValueScope, SystemSelector: system, CodeSelector: code, ValueSelector: value.ValueSelector, ValueFallbacks: value.ValueFallbacks, FallbackOnBlankString: value.FallbackOnBlankString, ChoiceArms: value.ChoiceArms, LogicalType: value.LogicalType, ValuePrimitive: value.ValuePrimitive, UnitSelector: value.UnitSelector}, nil
+	return CorrelatedBindingSpec{ResourceType: resourceType, OwnerSelector: ownerSelector, OwnerResource: ownerResource, KeySelector: mustParseSelector(keyRelative), KeyResource: keyResource, KeyIsArray: keyIsArray, VersionSelector: versionSelector, ValueScope: binding.ValueScope, SelectionScope: binding.SelectionScope, SystemSelector: system, CodeSelector: code, ValueSelector: value.ValueSelector, ValueFallbacks: value.ValueFallbacks, FallbackOnBlankString: value.FallbackOnBlankString, ChoiceArms: value.ChoiceArms, LogicalType: value.LogicalType, ValuePrimitive: value.ValuePrimitive, UnitSelector: value.UnitSelector}, nil
+}
+
+func ValidateCorrelatedKey(scope CorrelatedSelectionScope, key CorrelatedKey) error {
+	if strings.TrimSpace(key.System) == "" {
+		return fmt.Errorf("correlated selection requires a non-empty system")
+	}
+	switch scope {
+	case "", CorrelatedSelectionScopeExact:
+		if strings.TrimSpace(key.Code) == "" {
+			return fmt.Errorf("exact correlated selection requires a non-empty code")
+		}
+	case CorrelatedSelectionScopeSystemVersion:
+		if key.Code != "" {
+			return fmt.Errorf("SYSTEM_VERSION selection must not supply a code")
+		}
+	default:
+		return fmt.Errorf("correlated selectionScope %q is unsupported", scope)
+	}
+	return nil
 }
 
 type checkedBindingValue struct {

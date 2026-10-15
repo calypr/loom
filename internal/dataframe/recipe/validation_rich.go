@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	fhir "github.com/calypr/loom/generated/fhir"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 const (
@@ -216,8 +217,11 @@ func (p Pivot) validateAt(path string, budget *int) error {
 		if p.Discovery != nil {
 			return validationError("ambiguous_correlation", path, "correlated pivot cannot use discovery")
 		}
-		if strings.TrimSpace(p.CorrelationSystem) == "" || strings.TrimSpace(p.CorrelationCode) == "" {
-			return validationError("invalid_correlation", path+".correlation", "selected system and code are required")
+		if err := fhirschema.ValidateCorrelatedKey(p.Correlation.SelectionScope, fhirschema.CorrelatedKey{System: p.CorrelationSystem, Code: p.CorrelationCode, Version: p.CorrelationVersion}); err != nil {
+			return validationError("invalid_correlation", path+".correlation", err.Error())
+		}
+		if p.Correlation.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion && len(p.Columns) != 1 {
+			return validationError("invalid_correlation", path+".columns", "SYSTEM_VERSION selection requires exactly one output column")
 		}
 		if strings.TrimSpace(p.CorrelationVersion) != "" && strings.TrimSpace(p.Correlation.VersionPath) == "" {
 			return validationError("invalid_correlation", path+".correlation", "selected version requires a versionPath")
@@ -540,6 +544,9 @@ func validateNodeShape(fields []Field, filters []Filter, pivots []Pivot, ownerRe
 		}
 		if err := check(projection.Name, p); err != nil {
 			return err
+		}
+		if projection.Binding.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion {
+			return validationError("invalid_owner_records", p, "owner records does not support SYSTEM_VERSION selection scope")
 		}
 		if strings.TrimSpace(projection.Binding.OwnerPath) == "" || strings.TrimSpace(projection.Key.System) == "" || strings.TrimSpace(projection.Key.Code) == "" {
 			return validationError("invalid_owner_records", p, "binding.ownerPath and key.system/code are required")

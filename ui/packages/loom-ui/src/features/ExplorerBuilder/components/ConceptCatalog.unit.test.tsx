@@ -942,6 +942,129 @@ describe('ConceptCatalog', () => {
     });
   });
 
+  it('browses coded system/version families and routes them with the signed family choice', async () => {
+    const base = item('', 'Compound name', 18, 'Observation', 'CODED_CATEGORY_V1');
+    const baseChoice = base.constructionChoice;
+    if (!baseChoice || baseChoice.source.kind !== 'SEMANTIC') {
+      throw new Error('The category fixture requires a compiler-issued semantic choice.');
+    }
+    const route = {
+      edgeId: 'patient-observation',
+      fromNodeId: 'patient-node',
+      toNodeId: 'observation-node',
+      fromResourceType: 'Patient',
+      toResourceType: 'Observation',
+      relationship: 'observations',
+      storageDirection: 'OUTBOUND',
+      matchMode: 'OPTIONAL',
+    } as const;
+    const familyChoice: ConstructionChoice = {
+      ...baseChoice,
+      choiceId: 'signed-compound-family-choice',
+      route: [route],
+      options: [
+        choiceOption('VALUE', 'REQUIRES_DECISION'),
+        choiceOption('ALL', 'REQUIRES_DECISION'),
+      ],
+      source: {
+        ...baseChoice.source,
+        sourceKind: 'file',
+        conceptId: 'family-compound-name',
+        bindingId: 'binding-compound-name',
+        nodeId: 'observation-node',
+        resourceType: 'Observation',
+        sourcePath: 'code',
+        fieldPath: 'code',
+        system: 'urn:compound-codes',
+        version: 'v1',
+        code: undefined,
+        valueSelector: 'coding[].display',
+        logicalType: 'string',
+        ruleHint: 'CODED_CATEGORY_V1',
+      },
+    };
+    const family: SemanticInventoryItem = {
+      ...base,
+      conceptId: 'family-compound-name',
+      familyId: 'family-compound-name',
+      selectionMode: 'SYSTEM_VERSION_CATEGORY',
+      bindingId: 'binding-compound-name',
+      resourceType: 'Observation',
+      sourcePath: 'code',
+      system: 'urn:compound-codes',
+      code: '',
+      codingVersion: 'v1',
+      display: 'Compound name',
+      valueSelector: 'coding[].display',
+      valueType: 'string',
+      owningScope: 'Observation',
+      constructionChoice: familyChoice,
+    };
+    const resolvedChoice: ConstructionChoice = {
+      ...familyChoice,
+      choiceId: 'route-compound-family-choice',
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async input => {
+      if (String(input).endsWith('/construction-choices')) {
+        return new Response(JSON.stringify({
+          snapshotToken: 'snapshot-a',
+          outputId: 'patients',
+          complete: true,
+          truncated: false,
+          choices: [resolvedChoice],
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response(JSON.stringify(page([family])), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    const client = createLoomClient({ fetch });
+    render(
+      <LoomProvider client={client}>
+        <ConceptCatalog
+          project="project-a"
+          explorerId="explorer-a"
+          snapshotToken="snapshot-a"
+          outputId="patients"
+          rowRoot="Patient"
+          catalog={catalog}
+          view="coded"
+          semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
+          onAddSelected={vi.fn().mockResolvedValue(undefined)}
+        />
+      </LoomProvider>,
+    );
+
+    expect(await screen.findByRole('button', { name: 'Select Compound name' })).toBeEnabled();
+    const inventoryRequest = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+    expect(inventoryRequest).toMatchObject({
+      rowRoot: 'Patient',
+      outputId: 'patients',
+      selectionMode: 'SYSTEM_VERSION_CATEGORY',
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select Compound name' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
+    expect(within(dialog).getByRole('heading', { name: /Compound name/ })).toBeInTheDocument();
+    expect(within(dialog).getByRole('radio', { name: 'Compound name: Use the matching value' })).toBeInTheDocument();
+
+    const routeRequest = fetch.mock.calls.find(([input]) => String(input).endsWith('/construction-choices'));
+    expect(routeRequest).toBeDefined();
+    expect(JSON.parse(String(routeRequest?.[1]?.body))).toMatchObject({
+      source: {
+        kind: 'SEMANTIC',
+        conceptId: 'family-compound-name',
+        bindingId: 'binding-compound-name',
+        selectionMode: 'SYSTEM_VERSION_CATEGORY',
+        choiceId: 'signed-compound-family-choice',
+      },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog', { name: 'Choose how to add these fields' })).not.toBeInTheDocument();
+  });
+
   it('groups populated compiler fields by source and skips generated schema-only fields', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       new Response(JSON.stringify(page([item('hidden-code', 'Diagnostic Method', 4)])), {

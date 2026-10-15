@@ -8,6 +8,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func (r *physicalPlanRenderer) renderObject(expression ir.PhysicalExpression) (string, error) {
@@ -292,6 +293,9 @@ func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorr
 	if !ok || len(columns) == 0 {
 		return "", fmt.Errorf("pivot columns bind %q is not a non-empty []string", columnsBindKey)
 	}
+	if correlation.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion && len(columns) != 1 {
+		return "", fmt.Errorf("SYSTEM_VERSION pivot requires exactly one output column")
+	}
 	owners, err := r.renderCorrelationOwners(correlation.Source, correlation.OwnerSelector)
 	if err != nil {
 		return "", err
@@ -327,6 +331,12 @@ func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorr
 	if err != nil {
 		return "", err
 	}
+	codeClause := fmt.Sprintf("FILTER POSITION(@%s, __correlation_code)", columnsBindKey)
+	pairKey := "__correlation_code"
+	if correlation.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion {
+		codeClause = ""
+		pairKey = "FIRST(@" + columnsBindKey + ")"
+	}
 	// Reduce repeated Coding aliases within each owner before the outer
 	// reduction. Distinct owners remain separate, so ALL retains multiplicity
 	// across components while duplicate Coding entries cannot duplicate a
@@ -339,12 +349,12 @@ func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorr
       FILTER __correlation_system != null AND __correlation_system != ""
       FILTER __correlation_code != null AND __correlation_code != ""
       FILTER __correlation_system == @%s
-      FILTER POSITION(@%s, __correlation_code)%s
+      %s%s
       LET __correlation_values = %s
       LET __correlation_flat_values = FLATTEN(__correlation_values)
       LET __correlation_unsupported_values = %s
       FILTER LENGTH(__correlation_flat_values) > 0 OR LENGTH(__correlation_unsupported_values) > 0
-      RETURN { key: __correlation_code, values: __correlation_values, unsupported: __correlation_unsupported_values }
+      RETURN { key: %s, values: __correlation_values, unsupported: __correlation_unsupported_values }
   )
   FOR __correlation_owner_pair IN (
     FOR __correlation_candidate IN __correlation_owner_pairs
@@ -353,7 +363,7 @@ func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorr
         LET __correlation_owner_unsupported = UNIQUE(FLATTEN(__correlation_owner_group[*].__correlation_candidate.unsupported))
         RETURN { key: __correlation_owner_key, values: __correlation_owner_values, unsupported: __correlation_owner_unsupported }
   )
-    RETURN __correlation_owner_pair`, owner, owners, coding, codings, system, code, correlation.SystemBindKey, columnsBindKey, versionClause, values, unsupportedValues)
+    RETURN __correlation_owner_pair`, owner, owners, coding, codings, system, code, correlation.SystemBindKey, codeClause, versionClause, values, unsupportedValues, pairKey)
 	if flattenSingle {
 		return fmt.Sprintf(`FIRST(
 	  FOR __correlation_pair IN (

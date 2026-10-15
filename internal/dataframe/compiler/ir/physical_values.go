@@ -275,6 +275,7 @@ type PhysicalCorrelation struct {
 	OwnerResource         string
 	OwnerSelector         spec.Selector
 	ValueScope            fhirschema.CorrelatedValueScope
+	SelectionScope        fhirschema.CorrelatedSelectionScope
 	KeyResource           string
 	KeySelector           spec.Selector
 	KeyIsArray            bool

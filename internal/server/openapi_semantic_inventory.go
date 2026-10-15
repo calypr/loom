@@ -18,6 +18,9 @@ func (h *explorerHTTPHandlers) browseSemanticInventoryDirect(ctx context.Context
 		return result, malformedRouteError("catalog", errors.New("request body is required"))
 	}
 	req := lifecycle.BrowseSemanticInventoryRequest{Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken, RowRoot: body.RowRoot}
+	if body.SelectionMode != nil {
+		req.SelectionMode = string(*body.SelectionMode)
+	}
 	if body.OutputId != nil {
 		req.OutputID = *body.OutputId
 	}

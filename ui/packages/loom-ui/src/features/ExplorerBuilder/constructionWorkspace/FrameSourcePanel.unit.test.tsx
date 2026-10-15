@@ -174,5 +174,6 @@ describe('FrameSourcePanel query ownership', () => {
     expect(await screen.findByTestId('frame-categories-frame-new')).toBeInTheDocument();
     expect(mockClient.browseSemanticInventory).toHaveBeenCalledWith(
       expect.objectContaining({ frameId: 'frame-new', outputId: 'output-a' }), expect.any(AbortSignal));
+    expect(mockClient.browseSemanticInventory.mock.calls.at(-1)?.[0].selectionMode).toBeUndefined();
   });
 });
