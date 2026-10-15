@@ -1613,7 +1613,14 @@ const ConceptCatalogContent = ({
             {loadingOptions && !advancedOpen ? (
               <p className="m-0 text-sm text-slate-600" role="status">Checking route and form defaults…</p>
             ) : null}
-            {actionMessage && !advancedOpen ? <p className="m-0 text-sm text-slate-700" role="status">{actionMessage}</p> : null}
+            {actionMessage && !advancedOpen ? (
+              <p
+                className={`m-0 text-sm ${selected.size > 0 ? 'font-medium text-red-800' : 'text-slate-700'}`}
+                role={selected.size > 0 ? 'alert' : 'status'}
+              >
+                {actionMessage}
+              </p>
+            ) : null}
           </aside>
         ) : null}
       </div>

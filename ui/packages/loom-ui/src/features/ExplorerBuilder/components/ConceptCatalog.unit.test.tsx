@@ -2,7 +2,7 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { createLoomClient as createFullLoomClient, type LoomClient } from '../../../api';
+import { createLoomClient as createFullLoomClient, LoomRequestError, type LoomClient } from '../../../api';
 
 // These existing fixtures contain observed inventory only. Generated-field
 // requests have their own route-aware fixture below.
@@ -2125,6 +2125,53 @@ describe('ConceptCatalog', () => {
       },
     });
     expect(JSON.stringify(constructionRequest)).not.toContain('edgeId');
+  });
+
+  it('announces a direct preview timeout beside the selected-feature action', async () => {
+    const hemoglobin = item('718-7', 'Hemoglobin', 64);
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(page([hemoglobin])), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const onAddSelected = vi.fn().mockRejectedValue(new LoomRequestError({
+      status: 504,
+      code: 'PREVIEW_TIMEOUT',
+      message: 'preview exceeded its execution deadline',
+      requestId: '18af4cde-7754-4203-93ae-86cd03c66df7',
+      retryable: true,
+    }));
+    renderCatalog(fetch, onAddSelected);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Hemoglobin' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
+
+    const action = screen.getByLabelText('Selected feature action');
+    expect(await within(action).findByRole('alert')).toHaveTextContent('preview exceeded its execution deadline');
+    expect(onAddSelected).toHaveBeenCalledWith([{
+      constructionChoice: { choiceId: 'choice-718-7', form: 'VALUE' },
+      title: 'Hemoglobin',
+    }]);
+  });
+
+  it('keeps a successful add notice as status after clearing the selection', async () => {
+    const hemoglobin = item('718-7', 'Hemoglobin', 64);
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(page([hemoglobin])), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const onAddSelected = vi.fn().mockResolvedValue(undefined);
+    renderCatalog(fetch, onAddSelected);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Hemoglobin' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('1 feature was added to your table.');
+    expect(screen.queryByLabelText('Selected feature action')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('filters field and concept discovery to the selected catalog node', async () => {
