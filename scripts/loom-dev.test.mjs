@@ -257,16 +257,20 @@ test('verify-fast creates its Observation and Patient tables through the current
   const rowPicker = readFileSync(join(process.cwd(), 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx'), 'utf8');
   const catalog = readFileSync(join(process.cwd(), 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx'), 'utf8');
   const actionBar = readFileSync(join(process.cwd(), 'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx'), 'utf8');
-  const choiceDialog = readFileSync(join(process.cwd(), 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/CatalogSelectionDialog.tsx'), 'utf8');
+  const selectionOptions = readFileSync(join(process.cwd(), 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/CatalogSelectionOptions.tsx'), 'utf8');
   const start = driver.indexOf('export const verifyBrowserScenario =');
   const end = driver.indexOf('\nconst measureHotReload =', start);
   assert.ok(start >= 0 && end > start, 'generic verify-fast scenario must remain identifiable');
   const scenario = driver.slice(start, end);
   const ownerStart = scenario.indexOf("fill('first-table-name', 'Observation owner records'");
   const patientStart = scenario.indexOf("fill('first-table-name', 'Patients with observations'");
+  const j04AuthorStart = driver.indexOf('const authorCatalogFields =');
+  const j04AuthorEnd = driver.indexOf('\n  const clickTestID', j04AuthorStart);
   assert.ok(ownerStart >= 0 && patientStart > ownerStart, 'both fixture table setup flows must remain in order');
+  assert.ok(j04AuthorStart >= 0 && j04AuthorEnd > j04AuthorStart, 'J04 catalog field flow must remain identifiable');
   const ownerFlow = scenario.slice(ownerStart, patientStart);
   const patientFlow = scenario.slice(patientStart);
+  const j04AuthorFlow = driver.slice(j04AuthorStart, j04AuthorEnd);
   const addColumnsReadyStart = driver.indexOf('export const addColumnsActionReadinessCondition =');
   const addColumnsReadyEnd = driver.indexOf('\n};', addColumnsReadyStart);
   assert.ok(addColumnsReadyStart >= 0 && addColumnsReadyEnd > addColumnsReadyStart, 'Add columns readiness wait must be identifiable');
@@ -285,19 +289,25 @@ test('verify-fast creates its Observation and Patient tables through the current
   assert.match(builder, /state\.reconciliation === 'resolved'/);
   assert.match(builder, /tablePreview\.receiptId === state\.receipt\.receiptId/);
   assert.match(actionBar, /label: 'Add columns'/);
-  assert.match(builder, /Fields and related data/);
+  assert.match(builder, /Other fields/);
   assert.match(catalog, /data-testid="feature-catalog-raw-fields"/);
-  assert.match(choiceDialog, /Choose how to add these fields/);
-  assert.match(choiceDialog, /`Add \$\{groups\.length\} \$\{groups\.length === 1 \? 'column' : 'columns'\}`/);
+  assert.match(selectionOptions, /role="region"/);
+  assert.match(selectionOptions, /aria-label="Advanced route and form choices"/);
+  assert.match(selectionOptions, /`Add \$\{groups\.length\} selected \$\{groups\.length === 1 \? 'feature' : 'features'\}`/);
+  assert.match(selectionOptions, /onClick=\{\(\) => inspectRouteCoverage\(group, routeChoice\)\}/);
+  assert.doesNotMatch(selectionOptions, /useEffect/);
 
   assert.doesNotMatch(scenario, /clickButton\('Create table'\)|clickButton\('Preview'\)|textContent\.trim\(\) === 'Preview'|One row per|Source and column setup|Search fields and concepts|Choose output forms/);
   assert.match(ownerFlow, /getByRole\('button', \{ name: 'Choose Observation rows', exact: true \}\)/);
   assert.match(ownerFlow, /await waitForAddColumnsAction\(page, 'Observation owner records'\)/);
   assert.match(ownerFlow, /construction-action-add-columns/);
   assert.match(ownerFlow, /getByTestId\('construction-action-add-columns'\)/);
-  assert.match(ownerFlow, /clickButton\('Fields and related data'\)/);
+  assert.match(ownerFlow, /clickButton\('Other fields'\)/);
+  assert.ok(ownerFlow.indexOf("clickButton('Advanced options')") >= 0 &&
+    ownerFlow.indexOf("clickButton('Advanced options')") < ownerFlow.indexOf("clickButton('Add 1 selected feature', ownerAdvancedOptions)"),
+  'the owner-record flow opens inline Advanced options before choosing its explicit form');
   assert.match(ownerFlow, /shared: Keep each matching record/);
-  assert.match(ownerFlow, /clickButton\('Add 1 column', ownerChoiceDialog\)/);
+  assert.match(ownerFlow, /clickButton\('Add 1 selected feature', ownerAdvancedOptions\)/);
   assert.match(ownerFlow, /clickButton\('Apply columns'\)/);
   assert.match(ownerFlow, /builder-persists-owner-record-construction/);
   assert.match(ownerFlow, /const ownerRecordsStateIsApplied = \(builder\) =>/);
@@ -355,6 +365,8 @@ test('verify-fast creates its Observation and Patient tables through the current
   assert.match(patientFlow, /Feature authoring view/);
   assert.match(patientFlow, /builder-catalog-adds-default-root-field-without-graph/);
   assert.match(patientFlow, /builder-configures-exact-root-fields/);
+  assert.match(j04AuthorFlow, /await clickButton\('Advanced options'\);[\s\S]*?await advancedOptions\.waitFor\(\{ state: 'visible', timeout: 5000 \}\);[\s\S]*?await clickButton\('Add 1 selected feature', advancedOptions\)/,
+    'J04 opens inline Advanced options before choosing each requested output form');
   assert.match(patientFlow, /RELATIONSHIP_CARDINALITY_VIOLATION/);
   assert.match(patientFlow, /TEMPORAL_TIE_AMBIGUOUS/);
   assert.match(patientFlow, /preview-shows-exact-fixture-table/);

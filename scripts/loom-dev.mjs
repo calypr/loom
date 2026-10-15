@@ -5680,20 +5680,19 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
     recordAssertion(report, 'owner-records-first-table-uses-verified-root-id-field', true, Boolean(ownerRecordsInitialIDColumn));
     await click('open Add columns editor', page.getByTestId('construction-action-add-columns'));
     await waitForDOMCondition(`Boolean(document.querySelector('[aria-label="Add columns editor"]'))`);
-    await clickButton('Fields and related data');
-    await waitForDOMCondition(`Boolean(document.querySelector('input[aria-label="Search features by field name, concept, or code"]')) && Boolean(document.querySelector('details[data-testid="feature-catalog-raw-fields"]'))`);
+    await clickButton('Other fields');
+    await waitForDOMCondition(`Boolean(document.querySelector('input[aria-label="Search features by field name, concept, or code"]')) && Boolean(document.querySelector('[data-testid="feature-catalog-raw-fields"]'))`);
     await waitForDOMCondition(`Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Search' && !button.disabled))`);
     await fill('Search features by field name, concept, or code', 'shared');
     await clickButton('Search');
     await waitForDOMCondition(`Boolean([...document.querySelectorAll('article')].find((article) => article.textContent.includes('urn:study:A · shared') && article.textContent.includes('valueQuantity.value') && article.querySelector('input[type="checkbox"]:not(:disabled)')))`);
     const sharedArticle = page.locator('article').filter({ hasText: 'urn:study:A · shared' }).filter({ hasText: 'valueQuantity.value' });
     await click('select Study A shared feature', sharedArticle.getByRole('checkbox'));
-    await waitForDOMCondition(`Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Add 1 selected feature' && !button.disabled))`);
-    await clickButton('Add 1 selected feature');
-    await waitForDOMCondition(`Boolean([...document.querySelectorAll('[role="dialog"]')].find((dialog) => dialog.innerText.includes('Choose how to add these fields') && dialog.querySelector('[aria-label="shared: Keep each matching record"]')))`);
-    const ownerChoiceDialog = page.getByRole('dialog').filter({ hasText: 'Choose how to add these fields' });
-    await click('select shared owner-record form', ownerChoiceDialog.getByLabel('shared: Keep each matching record', { exact: true }));
-    await clickButton('Add 1 column', ownerChoiceDialog);
+    await clickButton('Advanced options');
+    await waitForDOMCondition(`Boolean(document.querySelector('[role="region"][aria-label="Advanced route and form choices"] [aria-label="shared: Keep each matching record"]'))`);
+    const ownerAdvancedOptions = page.getByRole('region', { name: 'Advanced route and form choices', exact: true });
+    await click('select shared owner-record form', ownerAdvancedOptions.getByLabel('shared: Keep each matching record', { exact: true }));
+    await clickButton('Add 1 selected feature', ownerAdvancedOptions);
     await waitForDOMCondition(`Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Apply columns' && !button.disabled))`);
     const ownerPreviewBaseline = await captureBuilderPreviewBaseline(target, page, ownerRecordsExplorerId);
     await clickButton('Apply columns');
@@ -5822,21 +5821,19 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
     const patientInitialIDColumn = patientInitialIDColumns[0];
     await click('open Add columns editor', page.getByTestId('construction-action-add-columns'));
     await waitForDOMCondition(`Boolean(document.querySelector('[aria-label="Add columns editor"]'))`);
-    await clickButton('Fields and related data');
-    await waitForDOMCondition(`Boolean(document.querySelector('input[aria-label="Search features by field name, concept, or code"]')) && Boolean(document.querySelector('details[data-testid="feature-catalog-raw-fields"]'))`);
+    await clickButton('Other fields');
+    await waitForDOMCondition(`Boolean(document.querySelector('input[aria-label="Search features by field name, concept, or code"]')) && Boolean(document.querySelector('[data-testid="feature-catalog-raw-fields"]'))`);
     await fill('Search features by field name, concept, or code', 'id');
     await waitForDOMCondition(`Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Search' && !button.disabled))`);
     await clickButton('Search');
-    const rawFieldsDetails = page.getByTestId('feature-catalog-raw-fields');
-    if (!await rawFieldsDetails.evaluate((details) => details.open)) await click('expand raw FHIR fields', rawFieldsDetails.locator(':scope > summary'));
     await waitForDOMCondition(`Boolean(document.querySelector('input[aria-label="Select Patient.id"]:not(:disabled)'))`);
     await click('select Patient.id root field', page.getByRole('checkbox', { name: 'Select Patient.id', exact: true }));
     await waitForDOMCondition(`Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Add 1 selected feature' && !button.disabled))`);
     await clickButton('Add 1 selected feature');
-    await waitForDOMCondition(`document.querySelector('[role="dialog"] h2')?.textContent.trim() === 'Choose how to add these fields' || Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Apply columns' && !button.disabled))`);
-    const patientNeedsFormChoice = await page.evaluate(`document.querySelector('[role="dialog"] h2')?.textContent.trim() === 'Choose how to add these fields'`);
+    await waitForDOMCondition(`Boolean(document.querySelector('[role="region"][aria-label="Advanced route and form choices"]')) || Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Apply columns' && !button.disabled))`);
+    const patientNeedsFormChoice = await page.getByRole('region', { name: 'Advanced route and form choices', exact: true }).count() > 0;
     if (patientNeedsFormChoice) {
-      await clickButton('Add 1 column', page.getByRole('dialog'));
+      await clickButton('Add 1 selected feature', page.getByRole('region', { name: 'Advanced route and form choices', exact: true }));
     }
     await waitForDOMCondition(`Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Apply columns' && !button.disabled))`);
     await clickButton('Apply columns');
@@ -8460,6 +8457,15 @@ export const verifyJ04BrowserScenario = async (target, report, entryTarget, fixt
     return { ...column, candidate, selection: { choiceId: candidate.constructionChoice.choiceId, form: selectedOptions[0].form } };
   });
   const authorCatalogFields = async (explorerId, outputId, resourceType, fields, initialColumnCount) => {
+    const formLabels = {
+      VALUE: 'Use the matching value',
+      FIRST: 'Use the first value',
+      ALL: 'Keep all matching values',
+      DISTINCT: 'Keep unique values',
+      COUNT: 'Count matching records',
+      PRESENCE: 'Show whether a match exists',
+      OWNER_RECORDS: 'Keep each matching record',
+    };
     for (let index = 0; index < fields.length; index += 1) {
       const field = fields[index];
       await fill('Search features by field name, concept, or code', field.path);
@@ -8468,16 +8474,16 @@ export const verifyJ04BrowserScenario = async (target, report, entryTarget, fixt
       await choice.waitFor({ state: 'visible', timeout: 60000 });
       await performAction(diagnostics, `select ${resourceType}.${field.path}`, choice,
         (targetLocator, { timeout }) => targetLocator.check({ timeout }), { timeout: 5000 });
-      await clickButton('Add 1 selected feature');
+      await clickButton('Advanced options');
       const expectedCount = initialColumnCount + index + 1;
-      const formDialog = page.getByRole('dialog', { name: 'Choose how to add these fields', exact: true });
-      const outputFormDialog = await formDialog.waitFor({ state: 'visible', timeout: 5000 }).then(() => true, () => false);
-      if (outputFormDialog) {
-        const form = formDialog.locator(`input[type="radio"][aria-label$=${JSON.stringify(` · ${field.selection.form}`)}]`);
-        await performAction(diagnostics, `select output form ${field.selection.form}`, form,
-          (targetLocator, { timeout }) => targetLocator.check({ timeout }), { timeout: 5000 });
-        await clickButton('Add 1 selected feature', formDialog);
-      }
+      const advancedOptions = page.getByRole('region', { name: 'Advanced route and form choices', exact: true });
+      await advancedOptions.waitFor({ state: 'visible', timeout: 5000 });
+      const formLabel = formLabels[field.selection.form];
+      if (!formLabel) throw new Error(`J04 has no accessible label for construction form ${field.selection.form}`);
+      const form = advancedOptions.getByRole('radio', { name: new RegExp(`: ${formLabel}$`) });
+      await performAction(diagnostics, `select output form ${field.selection.form}`, form,
+        (targetLocator, { timeout }) => targetLocator.check({ timeout }), { timeout: 5000 });
+      await clickButton('Add 1 selected feature', advancedOptions);
       await waitForColumnCount(explorerId, outputId, expectedCount);
       await page.getByText(`${expectedCount} configured`, { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
     }

@@ -1305,7 +1305,7 @@ export const registry = Object.freeze([
       'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/preview',
     ],
     requiredTransitions: [
-      'create a fresh Observation-root RECORDS table with exact fixture rows and add Observation.status through native Fields and related data',
+      'create a fresh Observation-root RECORDS table with exact fixture rows and add Observation.status through native Other fields',
       'use native RelatedExpand to follow Observation.subject_Patient then the reverse MedicationAdministration.subject_Patient route with PRESERVE_PARENT',
       'Apply the native RelatedExpand proposal and verify two exact MedicationAdministration matches plus one unmatched Observation row',
       'add a native Filter step using the public Observation.status is-present rule and preserve all matched plus unmatched rows',
@@ -3618,7 +3618,7 @@ export const registry = Object.freeze([
           'native blank Explorer selected in the fresh semantic fixture project',
           'native Medication root Preview renders the three exact fixture rows',
           'native Add columns editor opens within five seconds',
-          'native Fields and related data tab exposes the ConceptCatalog search within five seconds',
+          'native Other fields tab exposes the ConceptCatalog search within five seconds',
           'ConceptCatalog search returns the exact semantic code within five seconds',
           'ConceptCatalog choice binds exact semantic value and three optional route edges',
           'native ConceptCatalog route lookup completes within five seconds',
@@ -6111,7 +6111,7 @@ export const registry = Object.freeze([
       'select one bounded project/generation-scoped Specimen with one Patient and two through twenty-four exact related Observation records, then verify the raw relationship edges',
       'author Specimen→Patient→Observation rows through the native Related editor and verify every visible row against the exact raw identities',
       'preview Group by Specimen ID with COUNT_ROWS, Cancel while preserving the exact expanded draft, then Apply and reload the exact grouped row',
-      'add Specimen.resourceType through the native Fields and related data chooser, compare its proposal with the raw source value, Cancel to preserve Group, then Apply and reload',
+      'add Specimen.resourceType through the native Other fields chooser, compare its proposal with the raw source value, Cancel to preserve Group, then Apply and reload',
       'edit the saved field label through the native Columns control while preserving the exact field binding and column identity, reload, then remove it and restore the original Group construction and rows',
       'complete each native lifecycle action within five seconds; drain owned-origin browser/network diagnostics, capture native requests only under the server-assigned Explorer path, and verify unchanged source/API identity',
     ],
@@ -6304,7 +6304,7 @@ export const registry = Object.freeze([
     requiredTransitions: [
       'use the project/generation-scoped raw oracle to identify two distinct Specimen IDs and resource identities linked to one Patient',
       'create a fresh server-assigned Explorer, root a Specimen table, and author the related Patient and grouped COUNT_ROWS result through native Builder controls',
-      'open Fields and related data, choose Specimen.id with ONE, and verify the exact 422 leaves the saved Group unchanged while the field and policy remain in the open Add Columns editor',
+      'open Other fields, choose Specimen.id with ONE, and verify the exact 422 leaves the saved Group unchanged while the field and policy remain in the open Add Columns editor',
       'switch the same Add Columns editor to ALL, compare its preview with the exact two raw Specimen IDs, Apply, and verify the saved result after reload',
       'remove the added field and reload the exact original Group, with all native action-to-render checkpoints under five seconds',
     ],
@@ -8123,10 +8123,10 @@ export const registry = Object.freeze([
             cwd: 'ui/packages/loom-ui',
             command: [
               'vitest', 'run', '--config', 'vitest.config.ts',
-              'ui/packages/loom-ui/src/features/ExplorerBuilder/components/CatalogSelectionDialog.unit.test.tsx',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/components/CatalogSelectionOptions.unit.test.tsx',
             ],
             sourceFiles: [
-              'ui/packages/loom-ui/src/features/ExplorerBuilder/components/CatalogSelectionDialog.tsx',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/components/CatalogSelectionOptions.tsx',
               'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedSourceStepEditor.tsx',
               'scripts/verify-ui/specs/standalone-cda-other.spec.mjs',
               'scripts/verify-ui/workflows/verify-cda-named-cohort-related-count-browser.mjs',
@@ -8160,10 +8160,10 @@ export const registry = Object.freeze([
             cwd: 'ui/packages/loom-ui',
             command: [
               'vitest', 'run', '--config', 'vitest.config.ts',
-              'ui/packages/loom-ui/src/features/ExplorerBuilder/components/CatalogSelectionDialog.unit.test.tsx',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/components/CatalogSelectionOptions.unit.test.tsx',
             ],
             sourceFiles: [
-              'ui/packages/loom-ui/src/features/ExplorerBuilder/components/CatalogSelectionDialog.tsx',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/components/CatalogSelectionOptions.tsx',
               'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedSourceStepEditor.tsx',
               'scripts/verify-ui/specs/standalone-cda-other.spec.mjs',
               'scripts/verify-ui/workflows/verify-cda-named-cohort-related-count-browser.mjs',
