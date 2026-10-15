@@ -624,17 +624,27 @@ describe('BuilderWorkspace Add columns source selection', () => {
     );
 
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
-    expect(await screen.findByRole('heading', { name: 'Add coded values to this table' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Add coded values to this table' })).not.toBeInTheDocument();
     const tabs = screen.getByRole('tablist', { name: 'Column types' });
     const codedTab = within(tabs).getByRole('tab', { name: 'Coded values' });
     const fieldsTab = within(tabs).getByRole('tab', { name: 'Other fields' });
     expect(codedTab).toHaveAttribute('aria-selected', 'true');
     expect(fieldsTab).toHaveAttribute('aria-selected', 'false');
-    expect(screen.getByText('Selected fields and coded values stay in the add list as you switch tabs.')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Coded values for this table' })).toBeInTheDocument();
+    expect(screen.queryByText('Selected fields and coded values stay in the add list as you switch tabs.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Coded values for this table' })).not.toBeInTheDocument();
+    expect(screen.queryByText('How coded columns work')).not.toBeInTheDocument();
+    expect(screen.queryByText('Availability and coverage notes')).not.toBeInTheDocument();
+    expect(screen.getByRole('searchbox', { name: 'Search coded values by code or label' })).toBeInTheDocument();
     expect(screen.queryByTestId('feature-catalog-raw-fields')).not.toBeInTheDocument();
-    const sourceScopes = screen.getByRole('group', { name: 'Search scope' });
-    expect(within(sourceScopes).getByRole('button', { name: 'All accessible resources, Search coded concepts and fields across the dataset' })).toHaveAttribute('aria-pressed', 'true');
+    const source = screen.getByRole('group', { name: 'Add columns source' });
+    const sourceScopes = within(source).getByRole('group', { name: 'Search scope' });
+    const patientScope = within(sourceScopes).getByRole('button', { name: 'Patient, Current table rows' });
+    expect(patientScope).toHaveAttribute('aria-pressed', 'true');
+    expect(within(sourceScopes).queryByRole('button', { name: /All accessible resources/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('searchbox', { name: 'Search coded values by code or label' })
+      .compareDocumentPosition(source) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(source).queryByRole('group', { name: 'Related resources' })).not.toBeInTheDocument();
+    expect(within(source).queryByRole('searchbox', { name: 'Search related resources' })).not.toBeInTheDocument();
     await waitFor(() => expect(mockLoomClient.browseSemanticInventory.mock.calls.some(([args]) => args.outputId === 'patients')).toBe(true));
     const request = mockLoomClient.browseSemanticInventory.mock.calls.find(([args]) => args.outputId === 'patients')?.[0];
     if (!request) throw new Error('The coded browser did not request the current table inventory.');
@@ -654,18 +664,35 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(screen.queryByRole('button', { name: 'Browse sources' })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Ready-to-add paired concepts' })).not.toBeInTheDocument();
 
+    const codedSearch = screen.getByRole('searchbox', { name: 'Search coded values by code or label' });
+    fireEvent.change(codedSearch, { target: { value: 'diagnostic' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(mockLoomClient.browseSemanticInventory.mock.calls.some(
+      ([args]) => args.outputId === 'patients' && args.query === 'diagnostic',
+    )).toBe(true));
+    const globalSearchRequest = mockLoomClient.browseSemanticInventory.mock.calls.find(
+      ([args]) => args.outputId === 'patients' && args.query === 'diagnostic',
+    )?.[0];
+    expect(globalSearchRequest?.query).toBe('diagnostic');
+    expect(globalSearchRequest?.resourceType).toBeUndefined();
+
     const semanticRequestCount = mockLoomClient.browseSemanticInventory.mock.calls.length;
     fireEvent.click(fieldsTab);
     expect(fieldsTab).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('heading', { name: 'Add other fields to this table' })).toBeInTheDocument();
     expect(screen.getByRole('searchbox', { name: 'Search dataset fields by name or type' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Add other fields to this table' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Browse available dataset fields such as dates, text, numbers, booleans, or identifiers.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Available dataset fields' })).not.toBeInTheDocument();
+    expect(screen.getByText(/^\d+ available$/)).toBeInTheDocument();
+    const fieldsSource = screen.getByRole('group', { name: 'Add columns source' });
+    expect(screen.getByRole('searchbox', { name: 'Search dataset fields by name or type' })
+      .compareDocumentPosition(fieldsSource) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByTestId('feature-catalog-raw-fields').tagName).not.toBe('DETAILS');
-    expect(await screen.findByRole('checkbox', { name: 'Select Patient.birthDate' })).toBeEnabled();
-    expect(screen.queryByRole('heading', { name: 'Coded values for this table' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Select Patient.birthDate' })).toBeEnabled();
+    expect(screen.queryByRole('region', { name: 'Coded values' })).not.toBeInTheDocument();
     expect(mockLoomClient.browseSemanticInventory).toHaveBeenCalledTimes(semanticRequestCount);
-    expect(within(screen.getByRole('group', { name: 'Search scope' })).getByRole('button', {
-      name: 'All accessible resources, Search coded concepts and fields across the dataset',
-    })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(screen.getByRole('group', { name: 'Search scope' })).getByRole('button', { name: 'Patient, Current table rows' }))
+      .toHaveAttribute('aria-pressed', 'true');
     unmount();
     await act(async () => {
       await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
@@ -674,6 +701,13 @@ describe('BuilderWorkspace Add columns source selection', () => {
 
   it('shows populated root and exact active related fields without exposing unsupported related scopes', async () => {
     const patientBirthDate = fieldCandidate('patient-birth-date', 'patient-node', 'Patient', 'birthDate');
+    const medicationAdministrationNode = {
+      nodeId: 'medicationadministration-node',
+      resourceType: 'MedicationAdministration',
+      rowRootEligible: false,
+      populated: true,
+      documentCount: 2,
+    };
     const relatedExpandConstruction: Construction = {
       version: 1,
       steps: [{
@@ -705,7 +739,17 @@ describe('BuilderWorkspace Add columns source selection', () => {
             construction: relatedExpandConstruction,
           })),
         },
-        catalog: { ...catalog, candidates: [patientBirthDate] },
+        catalog: {
+          ...catalog,
+          nodes: [...catalog.nodes, medicationAdministrationNode],
+          edges: [...catalog.edges, {
+            edgeId: 'patient-medicationadministration',
+            fromNodeId: 'patient-node',
+            toNodeId: medicationAdministrationNode.nodeId,
+            label: 'medication administrations',
+          }],
+          candidates: [patientBirthDate],
+        },
       },
       isLoading: false,
       refetch: vi.fn(),
@@ -797,67 +841,53 @@ describe('BuilderWorkspace Add columns source selection', () => {
     const source = await screen.findByRole('group', { name: 'Add columns source' });
     const searchScope = within(source).getByRole('group', { name: 'Search scope' });
     const codedTab = screen.getByRole('tab', { name: 'Coded values' });
-    fireEvent.click(codedTab);
     expect(codedTab).toHaveAttribute('aria-selected', 'true');
-    const exactRelated = within(searchScope).getByRole('button', {
-      name: 'MedicationAdministration — this row’s related record, Related record for this row',
+    const codedRelatedScope = within(searchScope).getByRole('button', {
+      name: 'MedicationAdministration, Related resource',
     });
+    expect(codedRelatedScope).toHaveAttribute('data-source-kind', 'RELATED');
+    expect(within(searchScope).queryByRole('button', { name: /this row’s related record/ })).not.toBeInTheDocument();
 
-    expect(exactRelated.textContent).toContain('MedicationAdministration — this row’s related record');
-    expect(exactRelated.getAttribute('data-source-kind')).toBe('EXACT_RELATED');
-    const relatedResourceMenu = within(source).getByRole('group', { name: 'Related resources' });
-    fireEvent.click(within(relatedResourceMenu).getByText('Related resources (2)'));
-    const codedRelatedScope = within(relatedResourceMenu).getByRole('button', { name: /DiagnosticReport/ });
-    fireEvent.click(codedRelatedScope);
-    expect(codedRelatedScope).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(screen.getByRole('tab', { name: 'Other fields' }));
-    expect(within(searchScope).getByRole('button', {
-      name: 'All accessible resources, Search coded concepts and fields across the dataset',
-    })).toHaveAttribute('aria-pressed', 'true');
-    expect(await screen.findByRole('checkbox', { name: 'Select Patient.birthDate' })).toBeEnabled();
-    const activeRelatedGroup = await screen.findByTestId('construction-add-columns-active-related-fields');
-    expect(activeRelatedGroup).toHaveAttribute('data-source-node-id', 'medicationadministration-node');
-    expect(activeRelatedGroup.textContent).toContain('Fields from MedicationAdministration');
+    expect(within(searchScope).getByRole('button', { name: 'Patient, Current table rows' })).toHaveAttribute('aria-pressed', 'true');
+    const exactRelated = within(searchScope).getByRole('button', {
+      name: 'MedicationAdministration, This row’s related record',
+    });
+    expect(exactRelated.textContent).toBe('MedicationAdministration');
+    expect(exactRelated).toHaveAttribute('data-source-kind', 'EXACT_RELATED');
+    expect(within(searchScope).queryByRole('button', { name: 'MedicationAdministration, Related resource' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Select Patient.birthDate' })).toBeEnabled();
+
+    fireEvent.click(exactRelated);
+    expect(screen.getByRole('tab', { name: 'Other fields' })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByRole('heading', { name: 'From this row’s MedicationAdministration' })).toBeInTheDocument();
     await waitFor(() => expect(mockLoomClient.searchRelatedFieldChoices).toHaveBeenCalledTimes(1));
-    const relatedFieldsList = within(activeRelatedGroup).getByRole('group', { name: 'Fields from this related record' });
+    const relatedFieldsList = screen.getByRole('group', { name: 'Fields from this related record' });
     expect(within(relatedFieldsList).getByRole('button', { name: /Medication/ })).toBeInTheDocument();
     expect(within(relatedFieldsList).getByRole('button', { name: /Effective date/ })).toBeInTheDocument();
-    expect(within(searchScope).queryByRole('button', { name: /DiagnosticReport/ })).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Coded values' }));
-    expect(within(screen.getByRole('group', { name: 'Related resources' })).getByRole('button', { name: /DiagnosticReport/ })).toBeInTheDocument();
-    const codedExactRelated = within(screen.getByRole('group', { name: 'Search scope' })).getByRole('button', {
-      name: 'MedicationAdministration — this row’s related record, Related record for this row',
-    });
-    fireEvent.click(codedExactRelated);
-    expect(screen.getByRole('tab', { name: 'Other fields' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.queryByTestId('construction-add-columns-active-related-fields')).not.toBeInTheDocument();
-    expect(await screen.findByRole('heading', { name: 'From this row’s MedicationAdministration' })).toBeInTheDocument();
-    await waitFor(() => expect(mockLoomClient.searchRelatedFieldChoices).toHaveBeenCalledTimes(2));
-    expect(codedExactRelated).toHaveAttribute('aria-pressed', 'true');
 
     fireEvent.click(screen.getByTestId('construction-close-operation-editor'));
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
     const reopenedCodedTab = screen.getByRole('tab', { name: 'Coded values' });
     expect(reopenedCodedTab).toHaveAttribute('aria-selected', 'true');
     const reopenedSource = screen.getByRole('group', { name: 'Search scope' });
-    expect(within(reopenedSource).getByRole('button', {
-      name: 'All accessible resources, Search coded concepts and fields across the dataset',
-    })).toHaveAttribute('aria-pressed', 'true');
-
-    const reopenedExactRelated = within(reopenedSource).getByRole('button', {
-      name: 'MedicationAdministration — this row’s related record, Related record for this row',
+    expect(within(reopenedSource).getByRole('button', { name: 'Patient, Current table rows' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(reopenedSource).queryByRole('button', { name: /this row’s related record/ })).not.toBeInTheDocument();
+    expect(within(reopenedSource).getByRole('button', { name: 'MedicationAdministration, Related resource' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Other fields' }));
+    const reopenedExactRelated = within(screen.getByRole('group', { name: 'Search scope' })).getByRole('button', {
+      name: 'MedicationAdministration, This row’s related record',
     });
     fireEvent.click(reopenedExactRelated);
     expect(screen.getByRole('tab', { name: 'Other fields' })).toHaveAttribute('aria-selected', 'true');
-    await waitFor(() => expect(mockLoomClient.searchRelatedFieldChoices).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(mockLoomClient.searchRelatedFieldChoices).toHaveBeenCalledTimes(2));
     fireEvent.click(screen.getByRole('tab', { name: 'Coded values' }));
     expect(screen.getByRole('tab', { name: 'Coded values' })).toHaveAttribute('aria-selected', 'true');
-    expect(reopenedExactRelated).toHaveAttribute('aria-pressed', 'false');
+    expect(within(screen.getByRole('group', { name: 'Search scope' })).queryByRole('button', { name: /this row’s related record/ })).not.toBeInTheDocument();
     expect(within(screen.getByRole('group', { name: 'Search scope' })).getByRole('button', {
-      name: 'All accessible resources, Search coded concepts and fields across the dataset',
+      name: 'Patient, Current table rows',
     })).toHaveAttribute('aria-pressed', 'true');
-    expect(await screen.findByRole('heading', { name: 'Coded values for this table' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Coded values for this table' })).not.toBeInTheDocument();
     await act(async () => {
       await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
     });
@@ -982,7 +1012,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
     });
   });
 
-  it('inspects an Observation route without a saved occurrence id and does not apply an unsupported source choice', async () => {
+  it('omits fields for an unsupported related source without offering a dead-end add action', async () => {
     render(
       <BuilderWorkspace
         organization="HTAN_INT"
@@ -998,43 +1028,32 @@ describe('BuilderWorkspace Add columns source selection', () => {
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
 
     const source = await screen.findByRole('group', { name: 'Add columns source' });
-    const currentRows = within(source).getByRole('group', { name: 'Search scope' });
-    const relatedSources = within(source).getByRole('group', { name: 'Related resources' });
-    expect(within(currentRows).getByRole('button', { name: 'Patient, Current table rows' })).toBeInTheDocument();
-    const reportSource = within(relatedSources).getByRole('button', {
+    const sourceOptions = within(source).getByRole('group', { name: 'Search scope' });
+    expect(within(sourceOptions).getByRole('button', { name: 'Patient, Current table rows' })).toBeInTheDocument();
+    const reportSource = within(sourceOptions).getByRole('button', {
       name: 'DiagnosticReport, Related resource, selected occurrence',
     });
-    expect(reportSource).toHaveAttribute('aria-pressed', 'true');
-    const observationSource = within(relatedSources).getByRole('button', {
+    expect(reportSource).toHaveAttribute('aria-pressed', 'false');
+    expect(within(sourceOptions).getByRole('button', { name: 'Patient, Current table rows' })).toHaveAttribute('aria-pressed', 'true');
+    const observationSource = within(sourceOptions).getByRole('button', {
       name: 'Observation, Related resource',
     });
     fireEvent.click(observationSource);
     expect(observationSource).toHaveAttribute('aria-pressed', 'true');
     expect(reportSource).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(screen.getByRole('tab', { name: 'Other fields' }));
 
-    const relatedField = await screen.findByRole('checkbox', { name: 'Select Observation.status' });
-    expect(relatedField).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Select Observation.status' })).not.toBeInTheDocument();
     expect(within(screen.getByTestId('construction-operation-editor')).queryByRole(
-      'checkbox',
+      'button',
       { name: 'Select DiagnosticReport.status' },
     )).not.toBeInTheDocument();
-    const constructionEditor = within(screen.getByTestId('construction-operation-editor'));
-    fireEvent.click(constructionEditor.getByText('Inspect meaning, evidence, and construction choices'));
-    fireEvent.click(constructionEditor.getByRole('button', { name: 'Load choices for these table rows' }));
-
-    await waitFor(() => expect(mockLoomClient.searchConstructionChoices).toHaveBeenCalledTimes(1));
-    const searchArgs = mockLoomClient.searchConstructionChoices.mock.calls[0]?.[0];
-    expect(searchArgs).toEqual(expect.objectContaining({
-      outputId: 'patients',
-      snapshotToken: 'snapshot-1',
-      source: { kind: 'FIELD', candidateId: 'observation-status' },
-    }));
-    expect(searchArgs).not.toHaveProperty('occurrenceId');
-
+    expect(mockLoomClient.searchConstructionChoices).not.toHaveBeenCalled();
+    expect(mockLoomClient.proposeConstruction).not.toHaveBeenCalled();
     expect(applyExplorerCommands).not.toHaveBeenCalled();
   });
 
-  it('shows metadata-driven related sources and keeps the current row source available while searching', async () => {
+  it('shows all metadata-driven related sources in the visible source row', async () => {
     const syntheticNodes = Array.from({ length: 8 }, (_, index) => ({
       nodeId: `synthetic-node-${index}`,
       resourceType: `SyntheticResource${index}`,
@@ -1086,29 +1105,23 @@ describe('BuilderWorkspace Add columns source selection', () => {
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
 
     const source = await screen.findByRole('group', { name: 'Add columns source' });
-    const currentRows = within(source).getByRole('group', { name: 'Search scope' });
-    const relatedSources = within(source).getByRole('group', { name: 'Related resources' });
-    expect(within(currentRows).getByRole('button', { name: 'All accessible resources, Search coded concepts and fields across the dataset' })).toHaveAttribute('aria-pressed', 'true');
-    expect(within(currentRows).getByRole('button', { name: 'Patient, Current table rows' })).toBeInTheDocument();
-    fireEvent.click(within(relatedSources).getByText('Related resources (11)'));
-    expect(within(relatedSources).getAllByTestId('construction-add-columns-source-option')).toHaveLength(11);
+    const sourceOptions = within(source).getByRole('group', { name: 'Search scope' });
+    expect(within(sourceOptions).getByRole('button', { name: 'Patient, Current table rows' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(sourceOptions).getByRole('button', { name: 'Patient, Current table rows' })).toBeInTheDocument();
+    expect(source.querySelectorAll('[data-source-kind="RELATED"]')).toHaveLength(11);
+    expect(within(sourceOptions).queryByRole('button', { name: /All accessible resources/ })).not.toBeInTheDocument();
+    expect(within(source).queryByRole('group', { name: 'Related resources' })).not.toBeInTheDocument();
+    expect(within(source).queryByRole('searchbox', { name: 'Search related resources' })).not.toBeInTheDocument();
 
-    const search = within(relatedSources).getByRole('searchbox', { name: 'Search related resources' });
-    fireEvent.change(search, { target: { value: 'SyntheticResource7' } });
-    expect(within(relatedSources).getAllByTestId('construction-add-columns-source-option')).toHaveLength(2);
-    expect(within(currentRows).getByRole('button', { name: 'Patient, Current table rows' })).toBeInTheDocument();
-
-    const matchingSource = within(relatedSources).getByRole('button', {
+    const matchingSource = within(sourceOptions).getByRole('button', {
       name: 'SyntheticResource7, Related resource · source synthetic-node-7',
     });
-    expect(within(relatedSources).getByRole('button', {
+    expect(within(sourceOptions).getByRole('button', {
       name: 'SyntheticResource7, Related resource · source synthetic-node-7-secondary',
     })).toBeInTheDocument();
     fireEvent.click(matchingSource);
     expect(matchingSource).toHaveAttribute('aria-pressed', 'true');
     expect(matchingSource).toHaveAttribute('data-source-key', 'node:synthetic-node-7');
-    expect((search as HTMLInputElement).value).toBe('');
-    expect(within(relatedSources).getAllByTestId('construction-add-columns-source-option')).toHaveLength(11);
   });
 
   it('offers per-column repair for unsupported saved fields across all tables and suppresses repeated 422s', async () => {
@@ -1341,7 +1354,8 @@ describe('BuilderWorkspace Add columns source selection', () => {
     fireEvent.click(screen.getByText('Advanced source setup'));
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
     fireEvent.click(await screen.findByRole('button', { name: 'Observation, Related resource' }));
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Observation.status' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Other fields' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Observation.status' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
 
     const selectionDialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
@@ -1620,8 +1634,9 @@ describe('BuilderWorkspace Add columns source selection', () => {
     fireEvent.click(screen.getByText('Advanced source setup'));
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
     fireEvent.click(await screen.findByRole('button', { name: 'Observation, Related resource' }));
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Observation.id' }));
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Observation.valueQuantity.value' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Other fields' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Observation.id' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Observation.valueQuantity.value' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add 2 selected features' }));
 
     const selectionDialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
@@ -1981,14 +1996,11 @@ describe('BuilderWorkspace Add columns source selection', () => {
       />,
     );
 
-    await screen.findByTestId('construction-column-selection');
-    expect(screen.getByRole('button', { name: 'Select Observation status (string)' }))
-      .toBeInTheDocument();
+    await screen.findByTestId('construction-history');
     fireEvent.click(screen.getByTestId('construction-history-step-related-observation'));
     expect(screen.getByTestId('construction-edit-step-related-observation')).toBeInTheDocument();
     expect(screen.getByTestId('construction-remove-step-related-observation')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('construction-edit-step-related-observation'));
-
     expect(await screen.findByTestId('related-source-step-editor')).toBeInTheDocument();
     const outputName = screen.getByRole('textbox', { name: 'Output column name' });
     const outputLabel = screen.getByRole('textbox', { name: 'Output column label' });
@@ -2007,7 +2019,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
       target: { value: 'DiagnosticReport' },
     });
     fireEvent.click(editor.getByRole('button', { name: 'Search' }));
-    fireEvent.click(await editor.findByRole('checkbox', { name: 'Select DiagnosticReport.status' }));
+    fireEvent.click(await editor.findByRole('button', { name: 'Select DiagnosticReport.status' }));
     fireEvent.click(editor.getByRole('button', { name: 'Add 1 selected feature' }));
     await waitFor(() => expect(mockLoomClient.proposeConstruction).toHaveBeenCalledOnce());
     const proposalArgs = mockLoomClient.proposeConstruction.mock.calls[0]?.[0];

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import {
   ConstructionActionBar,
@@ -215,7 +215,6 @@ describe('ConstructionWorkspace', () => {
     const onSelectTable = vi.fn();
     const onNewTable = vi.fn();
     const onRenameTable = vi.fn();
-    const onMoveTable = vi.fn();
     render(
       <>
         <ConstructionTableNavigation
@@ -229,9 +228,9 @@ describe('ConstructionWorkspace', () => {
           onDuplicateTable={vi.fn()}
           onDeleteTable={vi.fn()}
           onRenameTable={onRenameTable}
-          onMoveTable={onMoveTable}
         />
         <ConstructionHistory
+          resourceType="Patient"
           steps={[]}
           selected={{ kind: 'source' }}
           onSelect={vi.fn()}
@@ -250,19 +249,29 @@ describe('ConstructionWorkspace', () => {
     expect(screen.queryByTestId('construction-rename-table-visits')).toBeNull();
     fireEvent.click(screen.getByTestId('construction-rename-table-patients'));
     expect(onRenameTable).toHaveBeenCalledWith('patients');
-    fireEvent.click(screen.getByRole('button', { name: 'Move Patients down' }));
-    expect(onMoveTable).toHaveBeenCalledWith('patients', undefined);
+    expect(screen.queryByRole('button', { name: 'Move Patients down' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Move Patients up' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('construction-history')).not.toBeInTheDocument();
   });
 
-  it('keeps the table history compact until a step is selected', () => {
+  it('keeps row operations compact until selected, then exposes their existing edit and remove actions', () => {
     const step = { id: 'filter', title: 'Filter rows', summary: 'Keep matching observations.', editable: true };
-    const view = render(<ConstructionHistory steps={[step]} selected={{ kind: 'source' }} onSelect={vi.fn()} onEditStep={vi.fn()} />);
+    const onSelect = vi.fn();
+    const onEditStep = vi.fn();
+    const onRemoveStep = vi.fn();
+    const view = render(<ConstructionHistory resourceType="Patient" steps={[step]} selected={{ kind: 'source' }} onSelect={onSelect} onEditStep={onEditStep} onRemoveStep={onRemoveStep} />);
+    expect(screen.getByRole('region', { name: 'Row operations' })).toBeInTheDocument();
     expect(screen.getByTestId('construction-history-step-filter')).toHaveTextContent('Filter rows');
-    expect(screen.queryByText(step.summary)).toBeNull();
-    view.rerender(<ConstructionHistory steps={[step]} selected={{ kind: 'step', stepId: 'filter' }} onSelect={vi.fn()} onEditStep={vi.fn()} />);
-    expect(screen.getByText(step.summary)).toBeInTheDocument();
+    expect(screen.queryByTestId('construction-edit-step-filter')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('construction-history-step-filter'));
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'step', stepId: 'filter' });
+    expect(onEditStep).not.toHaveBeenCalled();
+    view.rerender(<ConstructionHistory resourceType="Patient" steps={[step]} selected={{ kind: 'step', stepId: 'filter' }} onSelect={onSelect} onEditStep={onEditStep} onRemoveStep={onRemoveStep} />);
     expect(screen.getByTestId('construction-edit-step-filter')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('construction-edit-step-filter'));
+    expect(onEditStep).toHaveBeenCalledWith('filter');
+    fireEvent.click(screen.getByTestId('construction-remove-step-filter'));
+    expect(onRemoveStep).toHaveBeenCalledWith('filter');
   });
 
   it('exposes preview status and its receipt identity separately from the current draft', () => {
@@ -276,17 +285,12 @@ describe('ConstructionWorkspace', () => {
         onDuplicateTable={vi.fn()}
         onDeleteTable={vi.fn()}
         onRenameTable={vi.fn()}
-        onMoveTable={vi.fn()}
-        title="Patients"
-        rowMeaning="One row per patient."
         activeFamily="CALCULATE"
         onSelectFamily={onSelectFamily}
         rowSetup={<button type="button">Configure rows</button>}
         preview={<div role="table">Current rows</div>}
         editor={<div>Calculate editor</div>}
         previewStatus="ready"
-        previewRowCount={25}
-        previewSampled
         previewReceiptId="receipt-123"
         previewOutputId="patients"
         proposalId="proposal-456"
@@ -301,15 +305,42 @@ describe('ConstructionWorkspace', () => {
     expect(preview).toHaveAttribute('data-preview-proposal-id', 'proposal-456');
     expect(preview).toHaveAttribute('data-current-draft-version', '7');
     expect(preview).toHaveAttribute('data-current-draft-digest', 'digest-789');
-    expect(screen.getByText('Preview rows')).toBeInTheDocument();
-    expect(screen.getByText('25')).toBeInTheDocument();
-    expect(screen.getByText('Full count not measured')).toBeInTheDocument();
+    expect(screen.queryByText('Preview rows')).not.toBeInTheDocument();
+    expect(screen.queryByText('Full count not measured')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('construction-undo')).not.toBeInTheDocument();
     expect(screen.getByText('Calculate editor').closest('[aria-label="Change editor"]')).toBeInTheDocument();
-    expect(screen.getByTestId('construction-row-meaning')).toHaveTextContent('One row per patient.');
-    expect(screen.getByRole('heading', { name: 'What each row represents' })).toBeInTheDocument();
+    expect(screen.queryByTestId('construction-row-meaning')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'What each row represents' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('construction-row-setup')).toBeNull();
     expect(screen.queryByTestId('construction-action-add-columns')).toBeNull();
     expect(screen.getByText('Current rows')).toBeInTheDocument();
+  });
+
+  it('places the horizontal row-operation strip beside the table result instead of Tables', () => {
+    render(<ConstructionWorkspace
+      tables={[{ outputId: 'patients', title: 'Patients' }]}
+      selectedOutputId="patients"
+      onSelectTable={vi.fn()}
+      onNewTable={vi.fn()}
+      onDuplicateTable={vi.fn()}
+      onDeleteTable={vi.fn()}
+      onRenameTable={vi.fn()}
+      onSelectFamily={vi.fn()}
+      history={{
+        resourceType: 'Patient',
+        steps: [{ id: 'filter', title: 'Filter rows', summary: 'Keep active patients.', editable: true }],
+        selected: { kind: 'source' },
+        onSelect: vi.fn(),
+      }}
+      preview={<div>Preview table</div>}
+      previewStatus="ready"
+      draftVersion={1}
+      draftDigest="digest-1"
+    />);
+
+    expect(within(screen.getByTestId('construction-preview')).getByTestId('construction-history')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-history-source')).toHaveTextContent('Patient');
+    expect(within(screen.getByRole('navigation', { name: 'Tables' })).queryByTestId('construction-history')).not.toBeInTheDocument();
   });
 
   it('summarizes actual typed construction steps using stable source and stage column identities', () => {

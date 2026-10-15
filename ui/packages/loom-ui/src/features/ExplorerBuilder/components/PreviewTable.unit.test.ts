@@ -181,6 +181,68 @@ describe('formatPreviewCell', () => {
   });
 });
 
+describe('PreviewTable header controls', () => {
+  it('keeps controls in the table header and opens column settings only on demand', () => {
+    const onLimitChange = vi.fn();
+    render(React.createElement(PreviewTable, {
+      preview,
+      table,
+      limit: 25,
+      onLimitChange,
+      onColumnChange: vi.fn(),
+      onColumnsChange: vi.fn(),
+    }));
+
+    const controls = screen.getByTestId('preview-table-header-controls');
+    const tableContent = screen.getByTestId('preview-table-content');
+    const tableElement = within(tableContent).getByRole('table');
+    const headerRow = within(tableElement).getAllByRole('row')[0];
+    expect(controls.parentElement).toBe(tableContent);
+    expect(tableContent.firstElementChild).toBe(controls);
+    expect(controls).toHaveClass('sticky', 'right-0', 'top-0');
+    expect(controls.style.width).toBe('192px');
+    expect(controls).toHaveClass('h-[42px]');
+    expect(headerRow.style.height).toBe('42px');
+    expect(headerRow.contains(controls)).toBe(false);
+    expect(screen.getByTestId('preview-table-header-columns').getAttribute('style'))
+      .toContain('width: 832px');
+    expect(screen.queryByRole('heading', { name: 'Preview and configure' })).toBeNull();
+    expect(screen.getAllByRole('columnheader').map((header) => header.textContent)).toEqual([
+      'First column', 'Second column',
+    ]);
+
+    const columnsButton = within(controls).getByRole('button', { name: 'Columns' });
+    expect(columnsButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('list', { name: 'Table columns' })).toBeNull();
+    fireEvent.click(columnsButton);
+    expect(columnsButton).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('list', { name: 'Table columns' })).toBeTruthy();
+    expect(screen.getByTestId('preview-table-column-settings')).toHaveClass('fixed');
+    fireEvent.click(columnsButton);
+    expect(screen.queryByRole('list', { name: 'Table columns' })).toBeNull();
+
+    const rowLimit = within(controls).getByRole('combobox', { name: 'Preview row limit' });
+    fireEvent.change(rowLimit, { target: { value: '50' } });
+    expect(onLimitChange).toHaveBeenCalledWith(50);
+  });
+
+  it('keeps compact Columns and Rows controls available before a preview loads', () => {
+    render(React.createElement(PreviewTable, {
+      table,
+      limit: 25,
+      onLimitChange: vi.fn(),
+      onColumnChange: vi.fn(),
+      onColumnsChange: vi.fn(),
+    }));
+
+    expect(screen.getByText('Loading your table…')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Columns' })).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Preview row limit' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Preview and configure' })).toBeNull();
+    expect(screen.queryByRole('table')).toBeNull();
+  });
+});
+
 describe('PreviewTable construction output order', () => {
   it('keeps Pivot lineage columns from inheriting the source column presentation order', () => {
     const source = { ...column('specimen_id', 'Specimen ID', 0), columnId: 'specimen-id' };

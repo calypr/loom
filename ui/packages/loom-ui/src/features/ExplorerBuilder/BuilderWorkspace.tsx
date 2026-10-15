@@ -549,11 +549,6 @@ const BuilderWorkspaceContent = ({
     readonly context: string;
     readonly key: string;
   }>();
-  const [addSourceSearch, setAddSourceSearch] = useState<{
-    readonly context: string;
-    readonly query: string;
-  }>({ context: '', query: '' });
-  const [relatedSourceMenuOpen, setRelatedSourceMenuOpen] = useState(false);
   const [constructionHistorySelection, setConstructionHistorySelection] =
     useState<ConstructionHistorySelection>({ kind: 'source' });
   const [editingConstructionStepId, setEditingConstructionStepId] =
@@ -1140,6 +1135,19 @@ const BuilderWorkspaceContent = ({
     columnSelection.outputId === table?.outputId
       ? columnSelection.columnIds
       : [];
+  const toggleSelectedColumn = (columnId: string) => {
+    setColumnSelection((current) => {
+      const currentIds = current.kind === 'selected' && current.outputId === table?.outputId
+        ? current.columnIds
+        : [];
+      const nextIds = currentIds.includes(columnId)
+        ? currentIds.filter((candidate) => candidate !== columnId)
+        : [...currentIds, columnId];
+      return nextIds.length > 0 && table
+        ? { kind: 'selected', outputId: table.outputId, columnIds: nextIds }
+        : { kind: 'empty' };
+    });
+  };
   const currentStage = constructionLifecycle.capabilities.status === 'ready'
     ? constructionLifecycle.capabilities.response.stages.at(-1)
     : undefined;
@@ -1316,25 +1324,32 @@ const BuilderWorkspaceContent = ({
     const currentStage = current.status === 'ready' ? current.response.selectedStage : undefined;
     const appendStageIsCurrent = current.status === 'ready' && currentStage?.id ===
       constructionAppendStageFor(current.response.baseConstruction, table?.document.rows);
+    const activeRelatedRecord = current.status === 'ready' &&
+      !hasUnsupportedSavedSourceColumns && !editingConstructionStep && appendStageIsCurrent &&
+      currentStage?.capabilities.some((capability) => capability.kind === 'RELATED_FIELD' && capability.supported)
+      ? currentStage.activeRelatedRecord
+      : undefined;
     const relatedSourceSupported = !hasUnsupportedSavedSourceColumns && !editingConstructionStep && appendStageIsCurrent &&
       currentStage?.rowIdentityColumn &&
       currentStage.capabilities.some((capability) => capability.kind === 'RELATED_SOURCE' && capability.supported);
     const visibleSources = addColumnsView === 'fields' && !relatedSourceSupported
       ? sources.filter((source) => source.kind === 'ROOT')
       : sources;
-    const searchableSources = [{ kind: 'ALL' as const, key: 'all', label: 'All accessible resources' }, ...visibleSources];
-    if (current.status !== 'ready' ||
-        !appendStageIsCurrent ||
-        !current.response.selectedStage.activeRelatedRecord ||
-        !current.response.selectedStage.capabilities.some((capability) => capability.kind === 'RELATED_FIELD' && capability.supported)) return searchableSources;
-    const anchor = current.response.selectedStage.activeRelatedRecord;
-    return [{
-      kind: 'EXACT_RELATED' as const,
-      key: `exact:${current.response.selectedStage.id}:${anchor.targetNodeId}`,
-      label: `${anchor.targetResourceType} — this row’s related record`,
-      resourceType: anchor.targetResourceType,
-      sourceNodeId: undefined,
-    }, ...searchableSources];
+    const exactRelatedOption = addColumnsView === 'fields' && activeRelatedRecord
+      ? {
+          kind: 'EXACT_RELATED' as const,
+          key: `exact:${currentStage?.id}:${activeRelatedRecord.targetNodeId}`,
+          label: activeRelatedRecord.targetResourceType,
+          resourceType: activeRelatedRecord.targetResourceType,
+          sourceNodeId: undefined,
+        }
+      : undefined;
+    const resourceSources = exactRelatedOption
+      ? visibleSources.filter((source) =>
+          source.kind !== 'RELATED' || source.sourceNodeId !== activeRelatedRecord?.targetNodeId)
+      : visibleSources;
+    const searchableSources = [{ kind: 'ALL' as const, key: 'all', label: 'All accessible resources' }, ...resourceSources];
+    return exactRelatedOption ? [...searchableSources, exactRelatedOption] : searchableSources;
   }, [state.catalog, table?.document.rootResourceType, table?.document.rows, selectedRouteContext?.nodeId, constructionLifecycle.capabilities, addColumnsView, hasUnsupportedSavedSourceColumns, editingConstructionStep]);
   const addSourceContext = JSON.stringify([
     state.explorerId,
@@ -1342,17 +1357,14 @@ const BuilderWorkspaceContent = ({
     table?.outputId ?? '',
     selectedRouteContext?.occurrenceId ?? '',
   ]);
+  const storedAddSourceKey = addColumnsSource?.context === addSourceContext ? addColumnsSource.key : undefined;
   const selectedAddSource = addSourceOptions.find(
-    (source) => source.key === (addColumnsSource?.context === addSourceContext
-      ? addColumnsSource.key
-      : addSourceOptions.find((option) => (option.kind === 'RELATED' || option.kind === 'SAVED_OCCURRENCE') && option.sourceNodeId === selectedRouteContext?.nodeId)?.key ??
-        addSourceOptions.find((option) => option.kind === 'ALL')?.key ??
-        addSourceOptions.find((option) => option.kind === 'EXACT_RELATED')?.key),
-  ) ?? addSourceOptions.find((option) => option.kind === 'ALL') ?? addSourceOptions[0];
+    (source) => source.kind !== 'ALL' && source.key === storedAddSourceKey,
+  ) ?? addSourceOptions.find((option) => option.kind === 'ROOT') ?? addSourceOptions[0];
   const selectAddColumnsView = (view: Exclude<ConceptCatalogView, 'all'>) => {
     if (view === 'coded' && selectedAddSource?.kind === 'EXACT_RELATED') {
-      const allSource = addSourceOptions.find((source) => source.kind === 'ALL');
-      if (allSource) setAddColumnsSource({ context: addSourceContext, key: allSource.key });
+      const rootSource = addSourceOptions.find((source) => source.kind === 'ROOT');
+      if (rootSource) setAddColumnsSource({ context: addSourceContext, key: rootSource.key });
     }
     setAddColumnsView(view);
   };
@@ -1376,15 +1388,13 @@ const BuilderWorkspaceContent = ({
     }
     return counts;
   }, new Map<string, number>());
-  const addSourceOptionItems = addSourceOptions.map((source) => {
+  const addSourceOptionItems = addSourceOptions.filter((source) => source.kind !== 'ALL').map((source) => {
     const isCurrentOccurrence = source.sourceNodeId !== undefined && source.sourceNodeId === selectedRouteContext?.nodeId;
     const label = source.kind === 'EXACT_RELATED' ? source.label : source.resourceType ?? source.label;
-    const baseDescription = source.kind === 'ALL'
-      ? 'Search coded concepts and fields across the dataset'
-      : source.kind === 'ROOT'
+    const baseDescription = source.kind === 'ROOT'
       ? 'Current table rows'
       : source.kind === 'EXACT_RELATED'
-        ? 'Related record for this row'
+        ? 'This row’s related record'
         : source.kind === 'SAVED_OCCURRENCE'
           ? 'Selected occurrence'
           : isCurrentOccurrence
@@ -1398,16 +1408,43 @@ const BuilderWorkspaceContent = ({
       label,
       description,
       selected: source.key === selectedAddSource?.key,
-      isSearchScope: source.kind === 'ROOT' || source.kind === 'ALL' || source.kind === 'EXACT_RELATED',
     };
+  }).sort((left, right) => {
+    const priority = (kind: typeof left.source.kind): number =>
+      kind === 'ROOT' ? 0 : kind === 'EXACT_RELATED' ? 3 : 1;
+    return priority(left.source.kind) - priority(right.source.kind);
   });
-  const scopeSourceOptions = addSourceOptionItems.filter((option) => option.isSearchScope);
-  const relatedSourceOptions = addSourceOptionItems.filter((option) => !option.isSearchScope);
-  const addSourceSearchQuery = addSourceSearch.context === addSourceContext
-    ? addSourceSearch.query.trim().toLowerCase()
-    : '';
-  const visibleRelatedSourceOptions = relatedSourceOptions.filter(({ source, label }) =>
-    `${label} ${source.label}`.toLowerCase().includes(addSourceSearchQuery),
+  const addColumnsSourceControls = (
+    <fieldset
+      aria-label="Add columns source"
+      data-testid="construction-add-columns-source"
+      className="rounded-lg border border-slate-200 bg-white px-2 py-1"
+    >
+      <legend className="sr-only">Browse from</legend>
+      <div role="group" aria-label="Search scope">
+        <div className="flex flex-wrap gap-1.5">
+          {addSourceOptionItems.map(({ source, label, description, selected }) => (
+            <button
+              key={source.key}
+              type="button"
+              aria-label={`${label}, ${description}`}
+              aria-pressed={selected}
+              data-testid="construction-add-columns-source-option"
+              data-source-key={source.key}
+              data-source-kind={source.kind}
+              onClick={() => {
+                setAddColumnsSource({ context: addSourceContext, key: source.key });
+                if (source.kind === 'EXACT_RELATED') setAddColumnsView('fields');
+              }}
+              title={description}
+              className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${selected ? 'border-blue-700 bg-blue-50 text-blue-950' : 'border-slate-300 bg-white text-slate-800 hover:border-slate-500'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </fieldset>
   );
   const addSourceRouteContext = selectedAddSource?.sourceNodeId !== undefined && selectedAddSource.sourceNodeId === selectedRouteContext?.nodeId
     ? selectedRouteContext
@@ -3330,20 +3367,6 @@ const BuilderWorkspaceContent = ({
               : 'Loom is checking whether this stage supports related-source fields.'
         ),
       };
-  const activeRelatedFieldCapability = capabilityStage?.capabilities.find(
-    (candidate) => candidate.kind === 'RELATED_FIELD',
-  );
-  const activeRelatedFieldGroupAvailable = !relatedSourceUnavailableReason &&
-    capabilityIsForAppendStage &&
-    Boolean(capabilityStage?.activeRelatedRecord) &&
-    activeRelatedFieldCapability?.supported === true;
-  const activeRelatedRecordForFields = activeRelatedFieldGroupAvailable
-    ? capabilityStage?.activeRelatedRecord
-    : undefined;
-  const showActiveRelatedFieldGroup = addColumnsView === 'fields' &&
-    selectedAddSource?.kind === 'ALL' &&
-    !relatedSourceAvailability.supported &&
-    activeRelatedFieldGroupAvailable;
   const sourceSelectionDisabledReason = pendingCommands > 0
     ? 'Loom is finishing the previous table update. Field selection will return when the draft refresh completes.'
     : state.reconciliation === 'pending'
@@ -3408,7 +3431,17 @@ const BuilderWorkspaceContent = ({
             Back to table
           </button>
         </div>
-        {selectedColumnIds.length > 0 ? (
+        {activeOperation.family === 'KEEP_ROWS' || activeOperation.family === 'CALCULATE' || activeOperation.family === 'RESHAPE' ? (
+          <div className="mt-3">
+            <ConstructionColumnSelection
+              columns={selectableColumns}
+              selectedColumnIds={selectedColumnIds}
+              disabled={pendingCommands > 0 || !currentStage}
+              onToggleColumn={toggleSelectedColumn}
+              onClear={() => setColumnSelection({ kind: 'empty' })}
+            />
+          </div>
+        ) : selectedColumnIds.length > 0 ? (
           <p className="mt-3 rounded bg-slate-50 px-2.5 py-2 text-xs text-slate-600">
             Inputs from your selection:{' '}
             <span className="font-medium text-slate-800">
@@ -3469,85 +3502,7 @@ const BuilderWorkspaceContent = ({
                     Other fields
                   </button>
                 </div>
-                <p className="text-xs text-slate-500">Selected fields and coded values stay in the add list as you switch tabs.</p>
                 <div id="add-columns-tabpanel" role="tabpanel" aria-labelledby={addColumnsView === 'coded' ? 'add-columns-tab-coded' : 'add-columns-tab-fields'} tabIndex={0}>
-                <fieldset
-                  aria-label="Add columns source"
-                  data-testid="construction-add-columns-source"
-                  className="rounded-lg border border-slate-200 bg-white p-2"
-                >
-                  <legend className="px-1 text-xs font-semibold text-slate-700">Browse from</legend>
-                  <div role="group" aria-label="Search scope">
-                    <div className="flex flex-wrap gap-1.5">
-                      {scopeSourceOptions.map(({ source, label, description, selected }) => (
-                        <button
-                          key={source.key}
-                          type="button"
-                          aria-label={`${label}, ${description}`}
-                          aria-pressed={selected}
-                          data-testid="construction-add-columns-source-option"
-                          data-source-key={source.key}
-                          data-source-kind={source.kind}
-                          onClick={() => {
-                            setAddColumnsSource({ context: addSourceContext, key: source.key });
-                            setAddSourceSearch({ context: addSourceContext, query: '' });
-                            if (source.kind === 'EXACT_RELATED') setAddColumnsView('fields');
-                          }}
-                          title={description}
-                          className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${selected ? 'border-blue-700 bg-blue-50 text-blue-950' : 'border-slate-300 bg-white text-slate-800 hover:border-slate-500'}`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  {relatedSourceOptions.length > 0 ? (
-                    <details role="group" aria-label="Related resources" open={relatedSourceMenuOpen || selectedAddSource?.kind === 'EXACT_RELATED'} className="mt-2 border-t border-slate-100 pt-2">
-                      <summary className="cursor-pointer text-xs font-medium text-blue-800" onClick={(event) => { event.preventDefault(); setRelatedSourceMenuOpen((open) => !open); }}>
-                        Related resources ({relatedSourceOptions.length})
-                      </summary>
-                      {relatedSourceOptions.length >= 6 ? (
-                        <input
-                          type="search"
-                          aria-label="Search related resources"
-                          data-testid="construction-add-columns-source-search"
-                          value={addSourceSearch.context === addSourceContext ? addSourceSearch.query : ''}
-                          onChange={(event) => setAddSourceSearch({
-                            context: addSourceContext,
-                            query: event.currentTarget.value,
-                          })}
-                          placeholder="Search resource types"
-                          className="mb-2 w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 placeholder:text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
-                        />
-                      ) : null}
-                      <div className="flex flex-wrap gap-1.5">
-                        {visibleRelatedSourceOptions.map(({ source, label, description, selected }) => (
-                          <button
-                            key={source.key}
-                            type="button"
-                            aria-label={`${label}, ${description}`}
-                            aria-pressed={selected}
-                            data-testid="construction-add-columns-source-option"
-                            data-source-key={source.key}
-                            data-source-kind={source.kind}
-                            onClick={() => {
-                              setAddColumnsSource({ context: addSourceContext, key: source.key });
-                              setAddSourceSearch({ context: addSourceContext, query: '' });
-                              if (source.kind === 'EXACT_RELATED') setAddColumnsView('fields');
-                            }}
-                            title={description}
-                            className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${selected ? 'border-blue-700 bg-blue-50 text-blue-950' : 'border-slate-300 bg-white text-slate-800 hover:border-slate-500'}`}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                      {visibleRelatedSourceOptions.length === 0 ? (
-                        <p role="status" className="text-sm text-slate-600">No related resources match this search.</p>
-                      ) : null}
-                    </details>
-                  ) : null}
-                </fieldset>
                 {selectedAddSource?.kind === 'EXACT_RELATED' && constructionLifecycle.capabilities.status === 'ready' ? (
                   <RelatedFieldEditor
                     key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${constructionLifecycle.capabilities.response.selectedStage.id}`}
@@ -3561,11 +3516,12 @@ const BuilderWorkspaceContent = ({
                     capabilities={constructionLifecycle.capabilities.response}
                     disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
                     onCandidateChange={constructionLifecycle.onCandidateChange}
+                    sourceControls={addColumnsSourceControls}
                   />
                 ) : (
                   <>
                     <ConceptCatalog
-                      key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${selectedAddSource?.key ?? 'root'}:${addSourceRouteContext?.occurrenceId ?? 'unscoped'}`}
+                      key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}`}
                       project={projectId}
                       explorerId={state.explorerId}
                       authResourcePath={authResourcePath}
@@ -3577,6 +3533,7 @@ const BuilderWorkspaceContent = ({
                       routeContext={addSourceRouteContext}
                       layout="panel"
                       view={addColumnsView}
+                      sourceControls={addColumnsSourceControls}
                       catalog={state.catalog}
                       sourceProjectionAvailability={sourceAvailability}
                       relatedSourceAvailability={relatedSourceAvailability}
@@ -3587,30 +3544,6 @@ const BuilderWorkspaceContent = ({
                       onAddSelected={addSelectedFeatures}
                       onInspectRouteCoverage={inspectRelatedRouteCoverage}
                     />
-                    {showActiveRelatedFieldGroup && constructionCapabilitiesResponse && activeRelatedRecordForFields ? (
-                      <section
-                        className="mx-3 mb-4 rounded-lg border border-slate-200 bg-white p-4 sm:mx-5"
-                        data-source-node-id={activeRelatedRecordForFields.targetNodeId}
-                        data-testid="construction-add-columns-active-related-fields"
-                      >
-                        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Fields from {activeRelatedRecordForFields.targetResourceType}
-                        </h3>
-                        <RelatedFieldEditor
-                          key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${constructionCapabilitiesResponse.selectedStage.id}`}
-                          presentation="source-group"
-                          project={projectId}
-                          explorerId={state.explorerId}
-                          authResourcePath={authResourcePath}
-                          snapshotToken={state.catalog.snapshotToken}
-                          outputId={table.outputId}
-                          construction={table.document.construction ?? constructionCapabilitiesResponse.baseConstruction}
-                          capabilities={constructionCapabilitiesResponse}
-                          disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-                          onCandidateChange={constructionLifecycle.onCandidateChange}
-                        />
-                      </section>
-                    ) : null}
                   </>
                 )}
                 {addColumnsView === 'coded' && table.document.frames?.length ? (
@@ -4195,9 +4128,6 @@ const BuilderWorkspaceContent = ({
                 onDuplicateTable={duplicateTable}
                 onDeleteTable={deleteSelectedTable}
                 onRenameTable={renameTableById}
-                onMoveTable={reorderTable}
-                title={table.title}
-                rowMeaning={rowMeaning}
                 rowSetup={(
                   <RowDefinitionSettingsPanel
                     client={loomClient}
@@ -4318,17 +4248,8 @@ const BuilderWorkspaceContent = ({
                     }])}
                   />
                 )}
-                onUndo={previousDraftRevisionId ? () => void restorePreviousDraft() : undefined}
-                undoDisabled={
-                  pendingCommands > 0 ||
-                  publishing ||
-                  state.reconciliation === 'pending' ||
-                  constructionLifecycle.proposal.status === 'applying'
-                }
-                previewRowCount={workspacePreviewIsCurrent ? workspacePreview?.rowCount : undefined}
-                previewSampled={workspacePreviewIsCurrent ? workspacePreview?.sampled : undefined}
-                previewColumnCount={workspacePreviewIsCurrent ? workspacePreview?.columns.length : undefined}
                 history={persistedConstructionHistory.length > 0 ? {
+                  resourceType: table.document.rootResourceType,
                   steps: persistedConstructionHistory,
                   selected: constructionHistorySelection,
                   disabled: pendingCommands > 0 || publishing || constructionLifecycle.proposal.status === 'applying',
@@ -4367,32 +4288,6 @@ const BuilderWorkspaceContent = ({
                         The table refreshes automatically when your changes are saved.
                       </p>
                     ) : null}
-                    <ConstructionColumnSelection
-                      columns={selectableColumns}
-                      selectedColumnIds={selectedColumnIds}
-                      disabled={!table.document.rootResourceType || pendingCommands > 0 || !currentStage}
-                      onToggleColumn={(columnId) =>
-                        setColumnSelection((current) => {
-                          const currentIds =
-                            current.kind === 'selected' &&
-                            current.outputId === table.outputId
-                              ? current.columnIds
-                              : [];
-                          const nextIds = currentIds.includes(columnId)
-                            ? currentIds.filter((candidate) => candidate !== columnId)
-                            : [...currentIds, columnId];
-                          return nextIds.length > 0
-                            ? {
-                                kind: 'selected',
-                                outputId: table.outputId,
-                                columnIds: nextIds,
-                              }
-                            : { kind: 'empty' };
-                        })
-                      }
-                      onClear={() => setColumnSelection({ kind: 'empty' })}
-                      onOpenFamily={selectConstructionFamily}
-                    />
                     {candidatePreview ? (
                       <ConstructionProposalPreview
                         preview={candidatePreview}

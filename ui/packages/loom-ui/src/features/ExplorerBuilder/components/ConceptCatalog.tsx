@@ -335,43 +335,59 @@ const CatalogItemRow = ({
   const fieldConcepts = item.kind === 'FIELD'
     ? item.candidate.conceptCandidates ?? []
     : [];
-  return (
-    <article className="py-2 first:pt-0">
-      <div className="flex items-start gap-2">
-        <input
-          type="checkbox"
-          aria-label={selectionLabel}
-          aria-describedby={describedBy}
-          checked={checked}
-          disabled={disabled || selectionDisabled || !availability.selectable}
-          onChange={onToggle}
-          className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-700"
-        />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div className="min-w-0">
-              <h3 className="font-semibold text-slate-900">{label}</h3>
-              <p className="text-xs text-slate-600">
-                {item.kind === 'FIELD' ? (
-                  <><span>{item.constructionChoice.source.resourceType}</span> · {item.candidate.logicalType}</>
-                ) : (
-                  <><span>{item.item.resourceType}</span> · <span>{item.item.occurrences.toLocaleString()} observed source {item.item.occurrences === 1 ? 'occurrence' : 'occurrences'}</span></>
-                )}
-              </p>
-            </div>
-            {item.kind === 'SEMANTIC' ? (
-              <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium ${readinessPresentation(item.item.readiness).badge}`}>
-                {readinessPresentation(item.item.readiness).label}
-              </span>
-            ) : null}
-          </div>
-          {item.kind === 'SEMANTIC' && !availability.selectable ? (
-            <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-950" role="status">
-              {availability.reason}
-            </p>
-          ) : null}
-          <details className="mt-2 text-xs text-slate-600">
-            <summary className="cursor-pointer font-medium text-blue-700">Inspect meaning, evidence, and construction choices</summary>
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const detailsId = useId();
+  const [detailsPosition, setDetailsPosition] = useState({ left: 0, top: 24, width: 320, maxHeight: 448 });
+  const openDetails = (trigger: HTMLElement) => {
+    const rect = trigger.getBoundingClientRect();
+    const width = Math.max(0, Math.min(320, window.innerWidth - 32));
+    const horizontalMargin = 16;
+    const viewportLeft = Math.max(horizontalMargin, Math.min(window.innerWidth - width - horizontalMargin, rect.left));
+    const maxHeight = Math.max(96, Math.min(448, window.innerHeight * 0.7));
+    const spaceBelow = window.innerHeight - rect.bottom - 8;
+    const openBelow = spaceBelow >= Math.min(160, maxHeight);
+    const height = openBelow ? Math.min(maxHeight, spaceBelow) : Math.min(maxHeight, Math.max(0, rect.top - 8));
+    const viewportTop = openBelow ? rect.bottom : rect.top - height;
+    setDetailsPosition({ left: viewportLeft - rect.left, top: viewportTop - rect.top, width, maxHeight: height });
+    setDetailsOpen(true);
+  };
+  const detailsPopover = (
+      <div
+        className="relative z-20 inline-flex shrink-0 pointer-events-auto"
+        onMouseEnter={(event) => openDetails(event.currentTarget)}
+        onMouseLeave={(event) => {
+          if (!event.currentTarget.contains(document.activeElement)) setDetailsOpen(false);
+        }}
+        onFocus={(event) => openDetails(event.currentTarget)}
+        onBlur={(event) => {
+          if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) {
+            setDetailsOpen(false);
+          }
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.stopPropagation();
+            setDetailsOpen(false);
+          }
+        }}
+      >
+        <button
+          type="button"
+          aria-label={`Details for ${label}`}
+          aria-describedby={detailsId}
+          aria-expanded={detailsOpen}
+          onClick={(event) => openDetails(event.currentTarget.parentElement ?? event.currentTarget)}
+          className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700"
+        >
+          <span aria-hidden="true">i</span>
+        </button>
+        <div
+          id={detailsId}
+          role="tooltip"
+          hidden={!detailsOpen}
+          style={detailsPosition}
+          className="absolute z-30 overflow-auto rounded-lg border border-slate-300 bg-white p-3 text-xs text-slate-700 shadow-xl"
+        >
             <p className="mt-2 break-all font-mono">
               {item.kind === 'FIELD'
                 ? `${item.candidate.fieldPath} · ${item.candidate.logicalType} · ${item.constructionChoice.source.cardinality}`
@@ -474,9 +490,53 @@ const CatalogItemRow = ({
                 No server-supported construction was included for this result.
               </p>
             )}
-          </details>
         </div>
       </div>
+  );
+  return (
+    <article className={`relative rounded-lg border p-3 transition-shadow hover:z-20 focus-within:z-20 ${checked
+      ? 'border-blue-500 bg-blue-50/60 shadow-sm'
+      : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'}`}>
+      <button
+        type="button"
+        aria-label={selectionLabel}
+        aria-describedby={describedBy}
+        aria-pressed={checked}
+        disabled={disabled || selectionDisabled || !availability.selectable}
+        onClick={onToggle}
+        className="absolute inset-0 z-0 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:cursor-not-allowed"
+      >
+        <span className="sr-only">{selectionLabel}</span>
+      </button>
+      <div className={`relative z-10 flex items-start gap-2 pointer-events-none ${disabled || selectionDisabled || !availability.selectable ? 'opacity-60' : ''}`}>
+        {checked ? <span aria-hidden="true" className="mt-0.5 shrink-0 font-semibold text-blue-800">✓</span> : null}
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-start justify-between gap-2">
+            <span className="min-w-0">
+              <span className="block font-semibold text-slate-900">{label}</span>
+              <span data-testid="catalog-item-metadata" className="flex flex-wrap items-center gap-x-1 text-xs text-slate-600">
+                {item.kind === 'FIELD' ? (
+                  <><span>{item.constructionChoice.source.resourceType}</span><span aria-hidden="true">·</span><span>{item.candidate.logicalType}</span></>
+                ) : (
+                  <><span>{item.item.resourceType}</span><span aria-hidden="true">·</span><span>{item.item.occurrences.toLocaleString()} observed source {item.item.occurrences === 1 ? 'occurrence' : 'occurrences'}</span></>
+                )}
+                {detailsPopover}
+              </span>
+            </span>
+            {item.kind === 'SEMANTIC' ? (
+              <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium ${readinessPresentation(item.item.readiness).badge}`}>
+                {readinessPresentation(item.item.readiness).label}
+              </span>
+            ) : null}
+          </span>
+        </span>
+      </div>
+      {item.kind === 'SEMANTIC' && !availability.selectable ? (
+        <p className="relative z-10 mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-950 pointer-events-none" role="status">
+          {availability.reason}
+        </p>
+      ) : null}
+
     </article>
   );
 };
@@ -499,6 +559,7 @@ const ConceptCatalogContent = ({
   sourceProjectionAvailability,
   relatedSourceAvailability,
   view = 'all',
+  sourceControls,
   suppressUnavailableNotices = false,
   initialSelection,
   initialFieldSource,
@@ -525,6 +586,7 @@ const ConceptCatalogContent = ({
   readonly sourceProjectionAvailability?: CatalogSourceProjectionAvailability;
   readonly relatedSourceAvailability?: CatalogRelatedSourceAvailability;
   readonly view?: ConceptCatalogView;
+  readonly sourceControls?: React.ReactNode;
   readonly suppressUnavailableNotices?: boolean;
   readonly initialSelection?: CatalogInitialSelection;
   readonly initialFieldSource?: Pick<FieldChoiceSource, 'candidateId' | 'nodeId' | 'path'>;
@@ -539,6 +601,10 @@ const ConceptCatalogContent = ({
   const client = useLoomClient();
   const [queryInput, setQueryInput] = useState('');
   const [query, setQuery] = useState('');
+  const searchAcrossSources = query.trim().length > 0;
+  const browseResourceType = searchAcrossSources ? undefined : resourceType;
+  const browseSourceNodeId = searchAcrossSources ? undefined : sourceNodeId;
+  const browseRouteContext = searchAcrossSources ? undefined : routeContext;
   const [rawFieldsExpanded, setRawFieldsExpanded] = useState(layout !== 'panel');
   const [pageNavigation, setPageNavigation] = useState<{
     readonly scopeKey: string;
@@ -584,10 +650,10 @@ const ConceptCatalogContent = ({
     snapshotToken,
     outputId,
     rowRoot,
-    resourceType ?? '*',
-    sourceNodeId ?? '',
-    routeContext?.occurrenceId ?? '',
-    routeContext?.nodeId ?? '',
+    browseResourceType ?? '*',
+    browseSourceNodeId ?? '',
+    browseRouteContext?.occurrenceId ?? '',
+    browseRouteContext?.nodeId ?? '',
     sourceProjectionAvailability?.available ?? true,
     sourceProjectionAvailability?.reason ?? '',
     relatedSourceAvailability?.supported ?? true,
@@ -600,10 +666,6 @@ const ConceptCatalogContent = ({
     snapshotToken,
     outputId,
     rowRoot,
-    resourceType ?? '*',
-    sourceNodeId ?? '',
-    routeContext?.occurrenceId ?? '',
-    routeContext?.nodeId ?? '',
   ]);
   if (semanticContextRef.current.scopeKey !== semanticContextScopeKey || semanticContextRef.current.client !== client) {
     semanticContextRef.current = { scopeKey: semanticContextScopeKey, client };
@@ -615,7 +677,7 @@ const ConceptCatalogContent = ({
     snapshotToken,
     rowRoot,
     outputId,
-    resourceType ?? '',
+    browseResourceType ?? '',
     query,
     searchGeneration,
   ]);
@@ -644,7 +706,7 @@ const ConceptCatalogContent = ({
         snapshotToken,
         rowRoot,
         outputId,
-        resourceType,
+        resourceType: browseResourceType,
         query,
         cursor,
         limit: PAGE_SIZE,
@@ -671,7 +733,7 @@ const ConceptCatalogContent = ({
     outputId,
     project,
     query,
-    resourceType,
+    browseResourceType,
     rowRoot,
     searchGeneration,
     snapshotToken,
@@ -814,20 +876,20 @@ const ConceptCatalogContent = ({
       const catalogFields = fieldCatalogItems(
         catalog,
         rowRoot,
-        resourceType,
+        browseResourceType,
         query,
-        sourceNodeId,
+        browseSourceNodeId,
         view === 'fields',
       ).filter((item) => item.kind === 'FIELD' && (view !== 'fields' || item.candidate.populated === true));
       const schemaFields = view === 'all' ? schemaFieldCatalogItems(generatedFields) : [];
       return [...catalogFields, ...schemaFields].filter(
         (item) => item.kind === 'FIELD' &&
-          (!routeContext || item.candidate.nodeId === routeContext.nodeId) &&
-          (routeContext || item.constructionChoice.source.resourceType === rowRoot || reachableSourceNodeIds.has(item.candidate.nodeId)) &&
+          (!browseRouteContext || item.candidate.nodeId === browseRouteContext.nodeId) &&
+          (browseRouteContext || item.constructionChoice.source.resourceType === rowRoot || reachableSourceNodeIds.has(item.candidate.nodeId)) &&
           canAddCatalogItem(item) && catalogItemAvailability(item).selectable,
       );
     },
-    [catalog, query, resourceType, routeContext, rowRoot, sourceNodeId, generatedFields, relatedSourceAvailability, sourceProjectionAvailability, view],
+    [browseResourceType, browseRouteContext, browseSourceNodeId, catalog, query, rowRoot, generatedFields, relatedSourceAvailability, sourceProjectionAvailability, view],
   );
   const appliedInitialSelection = useRef(false);
   useEffect(() => {
@@ -843,13 +905,13 @@ const ConceptCatalogContent = ({
   const semanticItems = useMemo(
     () => semanticCatalogItems(
       response?.entries ?? [],
-      resourceType,
-      sourceNodeId,
+      browseResourceType,
+      browseSourceNodeId,
       view === 'coded' ? CODED_SEMANTIC_RULE_HINTS : undefined,
     )
       .filter((item) => view !== 'fields')
       .filter((item) => canAddCatalogItem(item) && catalogItemAvailability(item).selectable),
-    [canAddFromSourceProjection, view, relatedSourceAvailability, response?.entries, resourceType, rowRoot, sourceNodeId],
+    [browseResourceType, browseSourceNodeId, canAddFromSourceProjection, view, relatedSourceAvailability, response?.entries, rowRoot],
   );
   const fieldGroups = useMemo(
     () => catalogSourceGroups(fieldItems, rowRoot),
@@ -885,7 +947,7 @@ const ConceptCatalogContent = ({
     if (
       !cursor &&
       existingChoice &&
-      !routeContext &&
+      !browseRouteContext &&
       existingChoice.source.resourceType === rowRoot &&
       existingChoice.route.length === 0
     ) {
@@ -924,7 +986,7 @@ const ConceptCatalogContent = ({
       authResourcePath,
       snapshotToken,
       outputId,
-      ...(routeContext ? { occurrenceId: routeContext.occurrenceId } : {}),
+      ...(browseRouteContext ? { occurrenceId: browseRouteContext.occurrenceId } : {}),
       source,
       limit: ROUTE_PAGE_SIZE,
       ...(cursor ? { cursor } : {}),
@@ -1140,17 +1202,17 @@ const ConceptCatalogContent = ({
   };
 
   const fieldSection = (
-    <section className="mt-3" aria-labelledby="feature-catalog-fields-title">
-      <div className="flex items-center justify-between gap-3">
-        <h3 id="feature-catalog-fields-title" className="text-sm font-semibold text-slate-800">
-          {resourceType
-            ? `Fields on ${resourceType}`
-            : view === 'fields'
-              ? query ? 'Fields matching this search' : 'Available dataset fields'
+    <section className="mt-3" aria-label={view === 'fields' ? 'Dataset fields' : 'Available fields'}>
+      {view !== 'fields' ? (
+        <div className="flex items-center justify-between gap-3">
+          <h3 id="feature-catalog-fields-title" className="text-sm font-semibold text-slate-800">
+            {resourceType
+              ? `Fields on ${resourceType}`
               : query ? 'Fields matching this search' : `Fields on ${rowRoot}`}
-        </h3>
-        <span className="text-xs text-slate-500">{fieldItems.length} available</span>
-      </div>
+          </h3>
+          <span className="text-xs text-slate-500">{fieldItems.length} available</span>
+        </div>
+      ) : null}
       <div className="mt-3 divide-y divide-slate-200">
         {schemaFields.error ? (
           <p role="alert" className="text-red-700">{schemaFields.error instanceof Error ? schemaFields.error.message : 'Generated field discovery failed.'}</p>
@@ -1174,7 +1236,7 @@ const ConceptCatalogContent = ({
                 item={item}
                 rowRoot={rowRoot}
                 currentResourceType={resourceType}
-                hasRouteContext={routeContext !== undefined}
+                hasRouteContext={browseRouteContext !== undefined}
                 checked={selected.has(catalogItemKey(item))}
                 disabled={disabled || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
                 selectionDisabled={!canAddCatalogItem(item)}
@@ -1221,18 +1283,7 @@ const ConceptCatalogContent = ({
           onConfirm={(selections) => void commitSelections(selections)}
         />
       ) : null}
-      <div className="border-b border-slate-200 px-3 py-3">
-        <h2 className="text-base font-semibold text-slate-950">
-          {view === 'fields' ? 'Add other fields to this table' : 'Add coded values to this table'}
-        </h2>
-        <p className="mt-1 text-xs text-slate-600">
-          {view === 'fields'
-            ? `Browse fields Loom can add from ${resourceType ?? rowRoot} records.`
-            : resourceType
-              ? `Find coded values available on ${resourceType} for the current table.`
-              : `Find coded values Loom can construct from ${rowRoot} table rows.`}
-        </p>
-        <form className="mt-2 flex gap-2" onSubmit={submitSearch}>
+      <form className="flex gap-2 border-b border-slate-200 px-3 py-2" onSubmit={submitSearch}>
           <label className="sr-only" htmlFor="feature-catalog-search">
             {view === 'fields' ? 'Search dataset fields by name or type' : 'Search coded values by code or label'}
           </label>
@@ -1252,15 +1303,17 @@ const ConceptCatalogContent = ({
           >
             Search
           </button>
+          {view === 'fields' ? (
+            <span className="shrink-0 self-center text-xs text-slate-500" aria-live="polite">
+              {fieldItems.length} available
+            </span>
+          ) : null}
         </form>
-        {view !== 'fields' ? (
-          <details className="mt-2 text-xs text-slate-600">
-            <summary className="cursor-pointer font-medium text-blue-800">How coded columns work</summary>
-            <p className="mt-1">The code label names the column; its paired value fills the cells. Loom keeps the exact code, system, and source behind the label.</p>
-            <p className="mt-1">Concept counts describe observed source occurrences. This catalog does not report a per-code denominator or coverage across the current table rows.</p>
-          </details>
-        ) : null}
-      </div>
+      {sourceControls ? (
+        <div className="border-b border-slate-200 px-3 py-2">
+          {sourceControls}
+        </div>
+      ) : null}
 
       {warning ? (
         <div className="mx-4 mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 sm:mx-5" role="status">
@@ -1272,33 +1325,15 @@ const ConceptCatalogContent = ({
           Related fields are unavailable until the saved source fields are repaired.
         </span>
       ) : null}
-      {(response?.state === 'complete' && response.sourceAvailability === 'verified') ||
-        (!suppressUnavailableNotices && (relatedSourceAvailability?.supported === false || sourceProjectionAvailability)) ? (
-        <details className="mx-3 mt-2 text-xs text-slate-600">
-          <summary className="cursor-pointer font-medium text-blue-800">
-            {!suppressUnavailableNotices && (relatedSourceAvailability?.supported === false || sourceProjectionAvailability?.available === false)
-              ? 'Some column sources are unavailable · see why'
-              : 'Availability and coverage notes'}
-          </summary>
-          {response?.state === 'complete' && response.sourceAvailability === 'verified' ? (
-            <p className="mt-2" role="status">Source availability is verified for this inventory. Per-code denominators and coverage of current table rows are not provided.</p>
-          ) : null}
-          {relatedSourceAvailability?.supported === false && !suppressUnavailableNotices ? (
-            <p id={relatedSourceAvailabilityId} className="mt-2" role="status">
-              Adding fields from related resources is unavailable here: {relatedSourceAvailability.reason?.trim() || 'Loom has not confirmed that this stage supports related-source fields.'}
-            </p>
-          ) : null}
-          {sourceProjectionAvailability && !sourceProjectionAvailability.available && !suppressUnavailableNotices ? (
-            <p className="mt-2" role="status">
-              Add from source is unavailable here: {sourceProjectionReason || 'Loom has not confirmed that source columns retain this stage’s row identity.'}{' '}
-              {view === 'all'
-                ? 'You can still inspect fields, concepts, evidence, and the source choices Loom provides.'
-                : 'You can still inspect the available choices in this tab.'}
-            </p>
-          ) : sourceProjectionAvailability?.available && !suppressUnavailableNotices ? (
-            <p className="mt-2" role="status">You can add columns while keeping the current rows. Preview the result to see which rows have values.</p>
-          ) : null}
-        </details>
+      {!suppressUnavailableNotices && relatedSourceAvailability?.supported === false ? (
+        <p id={relatedSourceAvailabilityId} className="mx-3 mt-2 text-xs text-amber-900" role="status">
+          Related fields are unavailable here: {relatedSourceAvailability.reason?.trim() || 'Loom has not confirmed that this stage supports related-source fields.'}
+        </p>
+      ) : null}
+      {!suppressUnavailableNotices && sourceProjectionAvailability && !sourceProjectionAvailability.available ? (
+        <p className="mx-3 mt-2 text-xs text-amber-900" role="status">
+          Source fields are unavailable here: {sourceProjectionReason || 'Loom has not confirmed that source columns retain this stage’s row identity.'}
+        </p>
       ) : null}
       {disabled && disabledReason?.trim() ? (
         <p id={disabledReasonId} className="mx-4 mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 sm:mx-5" role="status">
@@ -1310,19 +1345,16 @@ const ConceptCatalogContent = ({
           {loadState.message}
         </div>
       ) : null}
+      {!pendingSelection && selected.size === 0 && actionMessage ? (
+        <p className="mx-3 mt-2 text-sm text-slate-700" role="status">{actionMessage}</p>
+      ) : null}
 
-      <div className={layout === 'panel' ? 'grid min-h-[14rem]' : 'grid min-h-[24rem]'}>
+      <div className={`${layout === 'panel' ? 'grid min-h-[14rem]' : 'grid min-h-[24rem]'} ${selected.size > 0 ? 'pb-32 md:pb-0 md:pr-[20rem]' : ''}`}>
         <div className={layout === 'panel'
           ? 'min-w-0 border-b border-slate-200 p-4'
           : 'min-w-0 border-b border-slate-200 p-4 sm:p-5'}>
-          {view !== 'fields' ? <section aria-labelledby="feature-catalog-concepts-title">
-            <div className="flex items-center justify-between gap-3">
-              <h3 id="feature-catalog-concepts-title" className="text-sm font-semibold text-slate-800">
-                {query ? `Coded values for “${query}”` : resourceType ? `Coded values on ${resourceType} for this table` : 'Coded values for this table'}
-              </h3>
-              <span className="text-xs text-slate-500">{semanticItems.length} on this page</span>
-            </div>
-          <div className="mt-3 divide-y divide-slate-200">
+          {view !== 'fields' ? <section aria-label="Coded values">
+          <div className="divide-y divide-slate-200">
             {loadState.status === 'loading' && !response ? (
                 <p className="py-8 text-center text-sm text-slate-500">Loading concepts…</p>
             ) : null}
@@ -1344,7 +1376,7 @@ const ConceptCatalogContent = ({
                       item={item}
                       rowRoot={rowRoot}
                       currentResourceType={resourceType}
-                      hasRouteContext={routeContext !== undefined}
+                      hasRouteContext={browseRouteContext !== undefined}
                       checked={selected.has(catalogItemKey(item))}
                       disabled={disabled || !canBrowseConcepts || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
                       selectionDisabled={!canAddCatalogItem(item)}
@@ -1401,7 +1433,6 @@ const ConceptCatalogContent = ({
 
           {view === 'fields' ? (
             <div data-testid="feature-catalog-raw-fields" className="p-4">
-              <p className="text-xs text-slate-600">Browse available dataset fields such as dates, text, numbers, booleans, or identifiers.</p>
               {fieldSection}
             </div>
           ) : view === 'all' ? (
@@ -1414,13 +1445,13 @@ const ConceptCatalogContent = ({
           ) : null}
         </div>
 
-        {!pendingSelection ? (
-          <aside aria-label="Selected feature action" className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 bg-slate-50/70 p-3 sm:p-4">
+        {!pendingSelection && selected.size > 0 ? (
+          <aside aria-label="Selected feature action" className="fixed inset-x-4 bottom-4 z-30 grid w-auto gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-lg md:inset-x-auto md:right-4 md:top-1/2 md:bottom-auto md:w-[min(18rem,calc(100vw-2rem))] md:-translate-y-1/2 lg:translate-x-0">
             <p className="m-0 text-sm font-medium text-slate-700" role="status">
               {selected.size} {selected.size === 1 ? 'feature' : 'features'} selected
             </p>
             {selectedItems.length > 0 ? (
-              <ul aria-label="Selected fields and coded values" className="col-span-2 grid max-h-24 gap-1 overflow-auto rounded-md border border-slate-200 bg-white p-2 text-xs">
+              <ul aria-label="Selected fields and coded values" className="grid max-h-28 gap-1 overflow-auto rounded-md border border-slate-200 bg-slate-50 p-2 text-xs">
                 {selectedItems.map((item) => {
                   const label = catalogItemLabel(item);
                   return (
@@ -1447,12 +1478,12 @@ const ConceptCatalogContent = ({
               type="button"
               disabled={disabled || adding || selected.size === 0 || !onAddSelected || !selectedItems.every(canAddCatalogItem)}
               onClick={() => void openSelection()}
-              className="rounded-md bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
+              className="rounded-md bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
               {selected.size === 0
                 ? 'Add selected features'
                 : `Add ${selected.size} selected ${selected.size === 1 ? 'feature' : 'features'}`}
             </button>
-            {actionMessage ? <p className="col-span-2 m-0 text-sm text-slate-700" role="status">{actionMessage}</p> : null}
+            {actionMessage ? <p className="m-0 text-sm text-slate-700" role="status">{actionMessage}</p> : null}
           </aside>
         ) : null}
       </div>
@@ -1464,8 +1495,7 @@ export const ConceptCatalog = (props: React.ComponentProps<typeof ConceptCatalog
   <ConceptCatalogContent
     key={JSON.stringify([
       props.project, props.explorerId, props.authResourcePath ?? '', props.snapshotToken,
-      props.outputId, props.rowRoot, props.resourceType ?? '', props.sourceNodeId ?? '',
-      props.routeContext?.occurrenceId ?? '', props.routeContext?.nodeId ?? '',
+      props.outputId, props.rowRoot,
     ])}
     {...props}
   />

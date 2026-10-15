@@ -93,6 +93,7 @@ export const RelatedFieldEditor = ({
   disabled,
   onCandidateChange,
   onCancel,
+  sourceControls,
 }: {
   readonly presentation: 'standalone' | 'source-group';
   readonly project: string;
@@ -106,6 +107,7 @@ export const RelatedFieldEditor = ({
   readonly disabled: boolean;
   readonly onCandidateChange: (candidate: CandidateIntent | undefined) => void;
   readonly onCancel?: () => void;
+  readonly sourceControls?: React.ReactNode;
 }) => {
   const client = useLoomClient();
   const stage = capabilities.selectedStage;
@@ -227,6 +229,7 @@ export const RelatedFieldEditor = ({
           setCursor(undefined);
         }} placeholder="Search field name or path" className="rounded border border-slate-300 bg-white px-3 py-2 font-normal" />
       </label>
+      {sourceControls}
       {error ? <p role="alert" className="text-sm text-red-800">{error}</p> : null}
       {loading ? <p role="status" className="text-sm text-slate-600">Loading available fields…</p> : null}
       <div role="group" aria-label="Fields from this related record" className="max-h-64 space-y-2 overflow-auto">

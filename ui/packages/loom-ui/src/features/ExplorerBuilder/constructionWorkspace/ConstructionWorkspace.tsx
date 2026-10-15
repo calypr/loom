@@ -24,6 +24,7 @@ export interface ConstructionHistoryStep {
 }
 
 export interface ConstructionHistoryProps {
+  readonly resourceType: string;
   readonly steps: ReadonlyArray<ConstructionHistoryStep>;
   readonly selected: ConstructionHistorySelection;
   readonly disabled?: boolean;
@@ -130,7 +131,6 @@ export const ConstructionTableNavigation = ({
   onDuplicateTable,
   onDeleteTable,
   onRenameTable,
-  onMoveTable,
 }: {
   readonly tables: ReadonlyArray<ConstructionWorkspaceTable>;
   readonly selectedOutputId?: string;
@@ -140,13 +140,11 @@ export const ConstructionTableNavigation = ({
   readonly onDuplicateTable: () => void;
   readonly onDeleteTable: () => void;
   readonly onRenameTable: (outputId: string) => void;
-  readonly onMoveTable: (outputId: string, beforeOutputId?: string) => void;
 }) => {
-  const selectedIndex = tables.findIndex((table) => table.outputId === selectedOutputId);
-  const selectedTable = tables[selectedIndex];
+  const selectedTable = tables.find((table) => table.outputId === selectedOutputId);
   return (
-  <nav aria-label="Tables" className="grid gap-1">
-    <div className="mb-1 flex items-center justify-between gap-2 px-2">
+  <nav aria-label="Tables" className="flex flex-wrap items-center gap-3">
+    <div className="flex shrink-0 items-center gap-2">
       <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
         Tables
       </h2>
@@ -160,9 +158,9 @@ export const ConstructionTableNavigation = ({
         New table
       </button>
     </div>
-    <div className="flex snap-x snap-mandatory gap-1 overflow-x-auto pb-1 lg:grid lg:snap-none lg:overflow-visible lg:pb-0">
+    <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
       {tables.map((table) => (
-        <div key={table.outputId} className="flex min-w-48 shrink-0 snap-start items-center lg:min-w-0">
+        <div key={table.outputId} className="flex max-w-64 shrink-0 items-center">
           <button
             type="button"
             aria-current={table.outputId === selectedOutputId ? 'page' : undefined}
@@ -182,7 +180,7 @@ export const ConstructionTableNavigation = ({
         </div>
       ))}
     </div>
-    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-slate-200 px-1 pt-1.5">
+    <div className="flex shrink-0 items-center gap-2 border-l border-slate-200 pl-3">
       <button
         type="button"
         aria-label={`Rename ${selectedTable?.title || selectedTable?.outputId || 'table'}`}
@@ -193,20 +191,6 @@ export const ConstructionTableNavigation = ({
       >
         Rename
       </button>
-      <button
-        type="button"
-        aria-label={`Move ${selectedTable?.title || selectedTable?.outputId || 'table'} up`}
-        disabled={disabled || selectedIndex <= 0}
-        onClick={() => selectedTable && onMoveTable(selectedTable.outputId, tables[selectedIndex - 1]?.outputId)}
-        className="rounded px-1 py-1 text-xs text-slate-600 hover:bg-white disabled:opacity-30"
-      >↑</button>
-      <button
-        type="button"
-        aria-label={`Move ${selectedTable?.title || selectedTable?.outputId || 'table'} down`}
-        disabled={disabled || selectedIndex < 0 || selectedIndex === tables.length - 1}
-        onClick={() => selectedTable && onMoveTable(selectedTable.outputId, tables[selectedIndex + 2]?.outputId)}
-        className="rounded px-1 py-1 text-xs text-slate-600 hover:bg-white disabled:opacity-30"
-      >↓</button>
       <button
         type="button"
         aria-label="Duplicate table"
@@ -233,6 +217,7 @@ export const ConstructionTableNavigation = ({
 };
 
 export const ConstructionHistory = ({
+  resourceType,
   steps,
   selected,
   disabled = false,
@@ -243,45 +228,45 @@ export const ConstructionHistory = ({
   if (steps.length === 0) return null;
 
   return (
-    <section aria-label="Construction history" data-testid="construction-history" className="mt-4">
-      <h2 className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-        How this table is made
-      </h2>
-      <ol className="grid gap-0.5">
-        <li>
+    <section aria-label="Row operations" data-testid="construction-history" className="mt-1 border-t border-slate-200 pt-1">
+      <h2 className="sr-only">Row operations</h2>
+      <ol className="m-0 flex list-none items-center gap-1 overflow-x-auto p-0">
+        <li className="shrink-0">
           <button
             type="button"
             aria-pressed={selected.kind === 'source'}
             data-testid="construction-history-source"
             disabled={disabled}
             onClick={() => onSelect({ kind: 'source' })}
-            className={`w-full rounded px-2 py-1.5 text-left text-xs ${
-              selected.kind === 'source' ? 'bg-white font-semibold text-emerald-950' : 'text-slate-700 hover:bg-white/70'
+            className={`rounded-md px-2.5 py-1 text-left text-xs whitespace-nowrap ${
+              selected.kind === 'source' ? 'bg-emerald-100 font-semibold text-emerald-950' : 'text-slate-700 hover:bg-white/70'
             }`}
           >
-            Starting records
+            {resourceType}
           </button>
         </li>
-        {steps.map((step, index) => (
-          <li key={step.id}>
-            <div className="rounded px-1 py-0.5">
+        {steps.map((step) => (
+          <li key={step.id} className="flex shrink-0 items-center gap-1">
+            <span aria-hidden="true" className="px-1 text-xs text-slate-400">→</span>
+            <div className="flex items-center rounded-md border border-slate-200 bg-white/60">
               <button
                 type="button"
                 aria-pressed={selected.kind === 'step' && selected.stepId === step.id}
                 data-testid={`construction-history-step-${step.id}`}
                 disabled={disabled}
+                title={step.summary}
                 onClick={() => onSelect({ kind: 'step', stepId: step.id })}
-                className={`w-full rounded px-2 py-1.5 text-left text-xs ${
+                className={`rounded-md px-2.5 py-1 text-left text-xs whitespace-nowrap ${
                   selected.kind === 'step' && selected.stepId === step.id
-                    ? 'bg-white font-semibold text-emerald-950'
+                    ? 'bg-emerald-100 font-semibold text-emerald-950'
                     : 'text-slate-700 hover:bg-white/70'
                 }`}
               >
-                <span className="font-medium">{index + 1}. {step.title}</span>
-                {selected.kind === 'step' && selected.stepId === step.id ? <span className="mt-1 block text-slate-600">{step.summary}</span> : null}
+                <span className="font-medium">{step.title}</span>
+                {selected.kind === 'step' && selected.stepId === step.id ? <span className="sr-only">{step.summary}</span> : null}
               </button>
               {selected.kind === 'step' && selected.stepId === step.id && ((onEditStep && step.editable) || onRemoveStep) ? (
-                <div className="mt-1 flex gap-1">
+                <div className="flex gap-1 border-l border-slate-200 px-1">
                   {onEditStep && step.editable ? (
                     <button type="button" disabled={disabled} data-testid={`construction-edit-step-${step.id}`} onClick={() => onEditStep(step.id)} className="rounded px-1.5 py-1 text-[11px] text-emerald-800 hover:bg-emerald-50 disabled:opacity-45">Edit</button>
                   ) : null}
@@ -298,13 +283,6 @@ export const ConstructionHistory = ({
   );
 };
 
-const CurrentRowMeaning = ({ rowMeaning }: { readonly rowMeaning: string }) => (
-  <section aria-label="Current row meaning" data-testid="construction-row-meaning" className="mt-2 rounded-md border border-emerald-200 bg-emerald-50/50 px-3 py-2">
-    <h2 className="text-[11px] font-semibold uppercase tracking-wide text-emerald-900">What each row represents</h2>
-    <p className="mt-0.5 text-sm text-slate-800">{rowMeaning}</p>
-  </section>
-);
-
 export const ConstructionWorkspace = ({
   tables,
   selectedOutputId,
@@ -314,14 +292,6 @@ export const ConstructionWorkspace = ({
   onDuplicateTable,
   onDeleteTable,
   onRenameTable,
-  onMoveTable,
-  title,
-  rowMeaning,
-  onUndo,
-  undoDisabled = false,
-  previewRowCount,
-  previewSampled,
-  previewColumnCount,
   actionsDisabled,
   activeFamily,
   addColumnsDisabled = false,
@@ -347,14 +317,6 @@ export const ConstructionWorkspace = ({
   readonly onDuplicateTable: () => void;
   readonly onDeleteTable: () => void;
   readonly onRenameTable: (outputId: string) => void;
-  readonly onMoveTable: (outputId: string, beforeOutputId?: string) => void;
-  readonly title: string;
-  readonly rowMeaning: string;
-  readonly onUndo?: () => void;
-  readonly undoDisabled?: boolean;
-  readonly previewRowCount?: number;
-  readonly previewSampled?: boolean;
-  readonly previewColumnCount?: number;
   readonly actionsDisabled?: boolean;
   readonly activeFamily?: ConstructionOperationFamily;
   readonly addColumnsDisabled?: boolean;
@@ -378,9 +340,9 @@ export const ConstructionWorkspace = ({
     data-draft-digest={draftDigest}
     className={editor
       ? 'mx-auto grid max-w-6xl grid-cols-1 gap-3'
-      : 'mx-auto grid max-w-[1920px] grid-cols-1 gap-3 xl:grid-cols-[13rem_minmax(0,1fr)]'}
+      : 'mx-auto grid max-w-[1920px] grid-cols-1 gap-1'}
   >
-    {!editor ? <aside className="min-w-0 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-[#edf2ed] p-3 xl:sticky xl:top-3 xl:max-h-[calc(100dvh-1.5rem)] xl:self-start">
+    {!editor ? <div className="min-w-0 rounded-xl border border-slate-200 bg-[#edf2ed] px-3 py-2">
       <ConstructionTableNavigation
         tables={tables}
         selectedOutputId={selectedOutputId}
@@ -390,54 +352,23 @@ export const ConstructionWorkspace = ({
         onDuplicateTable={onDuplicateTable}
         onDeleteTable={onDeleteTable}
         onRenameTable={onRenameTable}
-        onMoveTable={onMoveTable}
       />
-      {history ? <ConstructionHistory {...history} /> : null}
-    </aside> : null}
+    </div> : null}
 
     <section className="min-w-0 space-y-3">
-      <header className={editor
-        ? 'flex flex-wrap items-center gap-3 border-b border-slate-200 px-1 py-2'
-        : 'flex flex-wrap items-start gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:px-5'}>
-        <div className="min-w-0 flex-1">
-          {editor ? <>
-            <h1 className="truncate text-sm font-semibold text-slate-900">Editing {title}</h1>
-            <CurrentRowMeaning rowMeaning={rowMeaning} />
-          </> : (
-            <>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Dataset workspace</p>
-              <h1 className="mt-0.5 truncate text-xl font-semibold tracking-tight text-slate-950">{title}</h1>
-              <CurrentRowMeaning rowMeaning={rowMeaning} />
-              {rowSetup ? <div aria-label="Define table rows" data-testid="construction-row-setup" className="mt-2 max-w-xl">{rowSetup}</div> : null}
-            </>
-          )}
-        </div>
-        <div className="flex items-center gap-4">
-          <dl className="flex gap-5 text-right text-xs text-slate-500">
-            <div>
-              <dt>{previewRowCount !== undefined && previewSampled === false ? 'Total rows' : 'Preview rows'}</dt>
-              <dd className="text-lg font-semibold text-slate-900">{previewRowCount === undefined ? '—' : previewRowCount.toLocaleString()}</dd>
-              {previewRowCount !== undefined && previewSampled ? <p className="text-[10px] text-slate-500">Full count not measured</p> : null}
-            </div>
-            <div>
-              <dt>Columns</dt>
-              <dd className="text-lg font-semibold text-slate-900">{previewColumnCount ?? '—'}</dd>
-            </div>
-          </dl>
-          {onUndo ? (
-            <ConstructionUndoButton onUndo={onUndo} disabled={undoDisabled} />
-          ) : null}
-        </div>
-      </header>
+      {!editor ? <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Configure table">
+        {rowSetup ? <div aria-label="Define table rows" data-testid="construction-row-setup">{rowSetup}</div> : null}
+        <ConstructionActionBar
+          activeFamily={activeFamily}
+          disabled={actionsDisabled}
+          addColumnsDisabled={addColumnsDisabled}
+          combineDisabled={combineDisabled}
+          calculateAvailable={calculateAvailable}
+          onSelect={onSelectFamily}
+        />
+      </div> : null}
 
-      {!editor ? <ConstructionActionBar
-        activeFamily={activeFamily}
-        disabled={actionsDisabled}
-        addColumnsDisabled={addColumnsDisabled}
-        combineDisabled={combineDisabled}
-        calculateAvailable={calculateAvailable}
-        onSelect={onSelectFamily}
-      /> : null}
+
 
       <div className="grid min-w-0 items-start gap-3">
         {editor ? <section aria-label="Change editor" className="min-w-0">{editor}</section> : null}
@@ -452,6 +383,7 @@ export const ConstructionWorkspace = ({
           data-current-draft-digest={draftDigest}
           className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
         >
+          {history ? <ConstructionHistory {...history} /> : null}
           {preview}
         </section>
       </div>

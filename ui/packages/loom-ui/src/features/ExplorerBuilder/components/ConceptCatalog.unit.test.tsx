@@ -345,7 +345,7 @@ describe('ConceptCatalog', () => {
     const onAddSelected = vi.fn().mockRejectedValue(new Error('preview exceeded its execution deadline'));
     renderCatalog(fetch, onAddSelected);
 
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select AJCC pathological M category' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select AJCC pathological M category' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
     const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
     expect(screen.queryByRole('heading', { name: 'Selected features' })).not.toBeInTheDocument();
@@ -402,9 +402,9 @@ describe('ConceptCatalog', () => {
       headers: { 'content-type': 'application/json' },
     }));
     expect(await screen.findByText('No concepts match this search.')).toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: 'Select Availability scope result' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Availability scope result' })).not.toBeInTheDocument();
     view.rerender(renderWithAvailability(true, 'Ready again.'));
-    expect(await screen.findByRole('checkbox', { name: 'Select Availability scope result' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Select Availability scope result' })).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
@@ -431,7 +431,14 @@ describe('ConceptCatalog', () => {
     const view = render(renderAtScope('snapshot-a', 'Patient'));
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Patient.id' }));
+    const patientId = await screen.findByRole('button', { name: 'Select Patient.id' });
+    fireEvent.click(patientId);
+    expect(patientId).toHaveAttribute('aria-pressed', 'true');
+    const patientIdCard = patientId.closest('article');
+    expect(patientIdCard).not.toBeNull();
+    if (!patientIdCard) throw new Error('The selectable field card is missing.');
+    fireEvent.focus(within(patientIdCard).getByRole('button', { name: 'Details for Patient ID' }));
+    expect(patientId).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'Add 1 selected feature' })).toBeEnabled();
     view.rerender(renderAtScope('snapshot-b', 'Observation'));
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
@@ -447,7 +454,7 @@ describe('ConceptCatalog', () => {
     };
     expect(firstRequest).toMatchObject({ snapshotToken: 'snapshot-a', rowRoot: 'Patient' });
     expect(secondRequest).toMatchObject({ snapshotToken: 'snapshot-b', rowRoot: 'Observation' });
-    expect(screen.getByRole('button', { name: 'Add selected features' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Add selected features' })).not.toBeInTheDocument();
 
     pending[1]?.resolve(new Response(JSON.stringify(page([
       item('new-scope', 'New scope result', 3),
@@ -455,7 +462,7 @@ describe('ConceptCatalog', () => {
       status: 200,
       headers: { 'content-type': 'application/json' },
     }));
-    expect(await screen.findByRole('checkbox', { name: 'Select New scope result' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Select New scope result' })).toBeInTheDocument();
 
     pending[0]?.resolve(new Response(JSON.stringify(page([
       item('old-scope', 'Old scope result', 1),
@@ -463,8 +470,8 @@ describe('ConceptCatalog', () => {
       status: 200,
       headers: { 'content-type': 'application/json' },
     }));
-    await waitFor(() => expect(screen.queryByRole('checkbox', { name: 'Select Old scope result' })).not.toBeInTheDocument());
-    expect(screen.getByRole('checkbox', { name: 'Select New scope result' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Select Old scope result' })).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Select New scope result' })).toBeInTheDocument();
   });
 
   it('aborts both inventory and generated-field reads when their scope owner changes', async () => {
@@ -534,8 +541,8 @@ describe('ConceptCatalog', () => {
       status: 200,
       headers: { 'content-type': 'application/json' },
     }));
-    expect(await screen.findByRole('checkbox', { name: 'Select Current scope result' })).toBeInTheDocument();
-    expect(await screen.findByRole('checkbox', { name: 'Select Patient.gender' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Select Current scope result' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Select Patient.gender' })).toBeInTheDocument();
 
     pending[0]?.resolve(new Response(JSON.stringify(page([
       item('old-scope', 'Old scope result', 1),
@@ -545,11 +552,11 @@ describe('ConceptCatalog', () => {
       headers: { 'content-type': 'application/json' },
     }));
     await waitFor(() => {
-      expect(screen.queryByRole('checkbox', { name: 'Select Old scope result' })).not.toBeInTheDocument();
-      expect(screen.queryByRole('checkbox', { name: 'Select Patient.old_marker' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Select Old scope result' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Select Patient.old_marker' })).not.toBeInTheDocument();
     });
-    expect(screen.getByRole('checkbox', { name: 'Select Current scope result' })).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: 'Select Patient.gender' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select Current scope result' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select Patient.gender' })).toBeInTheDocument();
   });
 
   it('opens the existing route and result-form dialog for a ready-to-add paired concept without adding it', async () => {
@@ -624,21 +631,24 @@ describe('ConceptCatalog', () => {
     const onAddSelected = renderCatalog(fetch);
 
     expect(await screen.findByRole('searchbox', { name: 'Search coded values by code or label' })).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: 'Select Patient.id' })).toBeEnabled();
-    expect(await screen.findByRole('checkbox', { name: 'Select Hemoglobin A1c' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Select Patient.id' })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: 'Select Hemoglobin A1c' })).toBeEnabled();
     expect(
-      screen.getByRole('heading', { name: 'Coded values for this table' })
+      screen.getByRole('region', { name: 'Coded values' })
         .compareDocumentPosition(screen.getByRole('heading', { name: 'Fields on Patient' })) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(screen.queryByRole('checkbox', { name: 'Select Observation id' })).not.toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: 'Select Off-root concept' })).toBeEnabled();
+    expect(screen.queryByRole('heading', { name: 'Coded values for this table' })).not.toBeInTheDocument();
+    expect(screen.queryByText('How coded columns work')).not.toBeInTheDocument();
+    expect(screen.queryByText('Availability and coverage notes')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Observation id' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select Off-root concept' })).toBeEnabled();
 
     const request = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as { resourceType?: string; rowRoot?: string; outputId?: string };
     expect(request).toMatchObject({ rowRoot: 'Patient', outputId: 'patients' });
     expect(request).not.toHaveProperty('resourceType');
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Patient.id' }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Hemoglobin A1c' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select Patient.id' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select Hemoglobin A1c' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add 2 selected features' }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
@@ -691,7 +701,7 @@ describe('ConceptCatalog', () => {
     );
     const onAddSelected = renderCatalog(fetch);
 
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select All forms' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select All forms' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
     const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
     const countRadio = within(dialog).getByRole('radio', { name: 'All forms: Count matching records' });
@@ -730,7 +740,7 @@ describe('ConceptCatalog', () => {
     renderCatalog(fetch);
 
     expect(await screen.findByText('No concepts match this search.')).toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: 'Select Case identifier' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Case identifier' })).not.toBeInTheDocument();
   });
 
   it('keeps only table-applicable semantic identifiers and sends the current output scope', async () => {
@@ -750,9 +760,9 @@ describe('ConceptCatalog', () => {
 
     renderCatalog(fetch);
 
-    expect(await screen.findByRole('checkbox', { name: 'Select Medication identifier' })).toBeEnabled();
-    expect(screen.getByRole('checkbox', { name: 'Select ResearchStudy identifier' })).toBeEnabled();
-    expect(screen.queryByRole('checkbox', { name: 'Select Substance identifier' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Select Medication identifier' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Select ResearchStudy identifier' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Select Substance identifier' })).not.toBeInTheDocument();
     const request = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as { outputId?: string };
     expect(request.outputId).toBe('patients');
   });
@@ -869,27 +879,29 @@ describe('ConceptCatalog', () => {
 
     expect(await screen.findByText('No coded values on this page. Use Next to continue through the catalog.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled();
-    expect(screen.queryByRole('checkbox', { name: 'Select Patient identifier' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: /us-core-race/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: 'Select Unproven code' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: 'Select Mismatched code' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Patient identifier' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /us-core-race/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Unproven code' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Mismatched code' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('feature-catalog-raw-fields')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
-    expect(await screen.findByRole('checkbox', { name: 'Select Diagnostic Method' })).toBeEnabled();
-    expect(screen.getByRole('checkbox', { name: 'Select Condition Alpha' })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: 'Select Diagnostic Method' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Select Condition Alpha' })).toBeEnabled();
     expect(screen.getByRole('heading', { name: 'Coded values from Condition' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Coded values from Observation' })).toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: 'Select Patient identifier' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: /us-core-race/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: 'Select Unproven code' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: 'Select Mismatched code' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Patient identifier' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /us-core-race/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Unproven code' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Mismatched code' })).not.toBeInTheDocument();
     expect(JSON.parse(String(fetch.mock.calls[1]?.[1]?.body))).toMatchObject({ cursor: 'coded-page-2' });
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Diagnostic Method' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select Diagnostic Method' }));
     expect(screen.getByText('1 feature selected')).toBeInTheDocument();
     const requestCountBeforeFields = fetch.mock.calls.length;
     rerender(renderView('fields'));
-    expect(await screen.findByRole('heading', { name: 'Available dataset fields' })).toBeInTheDocument();
+    expect(await screen.findByTestId('feature-catalog-raw-fields')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Available dataset fields' })).not.toBeInTheDocument();
+    expect(screen.getByText(/^\d+ available$/)).toBeInTheDocument();
     expect(screen.getByText('1 feature selected')).toBeInTheDocument();
     const selectedItems = screen.getByRole('list', { name: 'Selected fields and coded values' });
     expect(within(selectedItems).getByText('Coded value')).toBeInTheDocument();
@@ -898,7 +910,7 @@ describe('ConceptCatalog', () => {
       target: { value: 'id' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-    const fieldCheckbox = await screen.findByRole('checkbox', { name: 'Select Patient.id' });
+    const fieldCheckbox = await screen.findByRole('button', { name: 'Select Patient.id' });
     expect(fieldCheckbox).toBeEnabled();
     fireEvent.click(fieldCheckbox);
     expect(screen.getByText('2 features selected')).toBeInTheDocument();
@@ -1008,18 +1020,19 @@ describe('ConceptCatalog', () => {
 
     const fields = await screen.findByTestId('feature-catalog-raw-fields');
     expect(fields.tagName).toBe('DIV');
-    expect(await screen.findByRole('heading', { name: 'Available dataset fields' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Available dataset fields' })).not.toBeInTheDocument();
+    expect(screen.getByText(/^\d+ available$/)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Fields from Patient' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Fields from Observation' })).toBeInTheDocument();
-    expect(await screen.findByRole('checkbox', { name: 'Select Patient.id' })).toBeEnabled();
-    expect(screen.getByRole('checkbox', { name: 'Select Observation.status' })).toBeEnabled();
-    expect(screen.queryByRole('checkbox', { name: 'Select Patient.gender' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: 'Select Patient city' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: 'Select Patient.birthDate' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: 'Select DocumentReference.id' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Select Patient.id' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Select Observation.status' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Select Patient.gender' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Patient city' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Patient.birthDate' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select DocumentReference.id' })).not.toBeInTheDocument();
     expect(screen.getByRole('searchbox', { name: 'Search dataset fields by name or type' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Coded values for this table' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: 'Select Diagnostic Method' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Diagnostic Method' })).not.toBeInTheDocument();
     expect(searchSchemaFields).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -1036,8 +1049,8 @@ describe('ConceptCatalog', () => {
       target: { value: 'id' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-    expect(await screen.findByRole('checkbox', { name: 'Select Observation.identifier' })).toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: 'Select DocumentReference.id' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Select Observation.identifier' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select DocumentReference.id' })).not.toBeInTheDocument();
   });
 
   it('omits raw and semantic fields rejected by the current stage', async () => {
@@ -1058,8 +1071,8 @@ describe('ConceptCatalog', () => {
       />
     </LoomProvider>);
     expect(await screen.findByText('No concepts match this search.')).toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: 'Select Patient.id' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: 'Select Current concept' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Patient.id' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Current concept' })).not.toBeInTheDocument();
   });
 
   it('shows observed source scope and server-supported forms before adding a root concept', async () => {
@@ -1073,18 +1086,26 @@ describe('ConceptCatalog', () => {
     renderCatalog(fetch);
 
     expect(await screen.findByText('91 observed source occurrences')).toBeInTheDocument();
-    expect(screen.getByText(/does not report a per-code denominator/)).toBeInTheDocument();
-
-    const resultRow = screen.getByRole('checkbox', { name: 'Select Hemoglobin A1c' }).closest('article');
+    const resultRow = screen.getByRole('button', { name: 'Select Hemoglobin A1c' }).closest('article');
     expect(resultRow).not.toBeNull();
     if (!resultRow) throw new Error('The concept result row is missing.');
+    const selectionButton = within(resultRow).getByRole('button', { name: 'Select Hemoglobin A1c' });
+    const detailsButton = within(resultRow).getByRole('button', { name: 'Details for Hemoglobin A1c' });
+    expect(within(resultRow).getByTestId('catalog-item-metadata').contains(detailsButton)).toBe(true);
+    expect(selectionButton.contains(detailsButton)).toBe(false);
+    detailsButton.focus();
+    fireEvent.focus(detailsButton);
+    expect(detailsButton).toHaveAttribute('aria-expanded', 'true');
+    expect(within(resultRow).getByText(/does not provide a denominator or coverage of the current table rows/)).toBeInTheDocument();
     expect(within(resultRow).getByText(/Available results: One value/)).toBeInTheDocument();
-    fireEvent.click(within(resultRow).getByText('Inspect meaning, evidence, and construction choices'));
     expect(within(resultRow).getByText('Completeness: partial.')).toBeInTheDocument();
     expect(within(resultRow).getByText(/Observed units: g\/dL · additional units exist/)).toBeInTheDocument();
     expect(within(resultRow).getByText(/Observed examples: 10\.2, 11\.0 · additional examples exist/)).toBeInTheDocument();
     expect(within(resultRow).getByText('Server choice uses the Patient root resource; no route steps')).toBeInTheDocument();
     expect(within(resultRow).getByText(/Loom proves the VALUE output form preserves the row grain\./)).toBeInTheDocument();
+    fireEvent.keyDown(detailsButton, { key: 'Escape' });
+    expect(detailsButton).toHaveAttribute('aria-expanded', 'false');
+    expect(document.activeElement).toBe(detailsButton);
   });
 
   it('omits semantic fields when the selected stage cannot retain source identity', async () => {
@@ -1102,9 +1123,9 @@ describe('ConceptCatalog', () => {
     });
 
     expect(await screen.findByText('No concepts match this search.')).toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: 'Select Hemoglobin A1c' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Hemoglobin A1c' })).not.toBeInTheDocument();
     expect(screen.getByText(/selected stage has a different row identity after pivoting/)).toBeInTheDocument();
-    expect(screen.getByText('Add selected features')).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Add selected features' })).not.toBeInTheDocument();
 
     expect(onAddSelected).not.toHaveBeenCalled();
   });
@@ -1155,12 +1176,13 @@ describe('ConceptCatalog', () => {
       nodeId: 'observation-node',
     });
 
-    const result = await screen.findByRole('checkbox', { name: 'Select Hemoglobin' });
+    const result = await screen.findByRole('button', { name: 'Select Hemoglobin' });
     const resultRow = result.closest('article');
     expect(resultRow).not.toBeNull();
     if (!resultRow) throw new Error('The related concept result row is missing.');
-    fireEvent.click(within(resultRow).getByText('Inspect meaning, evidence, and construction choices'));
+    fireEvent.focus(within(resultRow).getByRole('button', { name: 'Details for Hemoglobin' }));
     fireEvent.click(within(resultRow).getByRole('button', { name: 'Load choices for these table rows' }));
+    expect(result).toHaveAttribute('aria-pressed', 'false');
 
     expect(await within(resultRow).findByText('Observation through subject')).toBeInTheDocument();
     expect(within(resultRow).getByText(/via subject \(optional, inbound\)/)).toBeInTheDocument();
@@ -1178,7 +1200,7 @@ describe('ConceptCatalog', () => {
     );
     const onAddSelected = renderCatalog(fetch);
 
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Patient.id' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Patient.id' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
 
     await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([{
@@ -1277,12 +1299,12 @@ describe('ConceptCatalog', () => {
       </LoomProvider>,
     );
 
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Patient.id' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Patient.id' }));
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search coded values by code or label' }), {
       target: { value: 'amount' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select DiagnosticReport.amount' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select DiagnosticReport.amount' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add 2 selected features' }));
     expect(await screen.findByRole('dialog', { name: 'Choose how to add these fields' })).toBeInTheDocument();
 
@@ -1318,7 +1340,7 @@ describe('ConceptCatalog', () => {
       reason: 'The selected stage retains the source row identity.',
     }, {}, catalog, { supported: false, reason });
 
-    const rootField = await screen.findByRole('checkbox', { name: 'Select Patient.id' });
+    const rootField = await screen.findByRole('button', { name: 'Select Patient.id' });
     expect(rootField).toBeEnabled();
     expect(screen.getByText(new RegExp(reason))).toBeInTheDocument();
 
@@ -1326,7 +1348,7 @@ describe('ConceptCatalog', () => {
       target: { value: 'identifier' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-    await waitFor(() => expect(screen.queryByRole('checkbox', { name: 'Select Observation.identifier' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Select Observation.identifier' })).not.toBeInTheDocument());
     expect(onAddSelected).not.toHaveBeenCalled();
   });
 
@@ -1390,12 +1412,12 @@ describe('ConceptCatalog', () => {
 
     expect(await screen.findByText('No concepts match this search.')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Search' })).toBeEnabled());
-    expect(screen.queryByRole('checkbox', { name: 'Select Patient.id' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Patient.id' })).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search coded values by code or label' }), {
       target: { value: 'identifier' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-    const relatedField = await screen.findByRole('checkbox', { name: 'Select Observation.identifier' });
+    const relatedField = await screen.findByRole('button', { name: 'Select Observation.identifier' });
     expect(relatedField).toBeEnabled();
     fireEvent.click(relatedField);
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
@@ -1487,7 +1509,7 @@ describe('ConceptCatalog', () => {
     };
     render(<RelatedCatalog />);
 
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Observation.identifier' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Observation.identifier' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
     const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
     fireEvent.click(within(dialog).getByRole('radio', { name: 'Observation id: Keep all matching values' }));
@@ -1539,7 +1561,7 @@ describe('ConceptCatalog', () => {
     );
 
     expect(await screen.findByText('No concepts match this search.')).toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: 'Select Patient.id' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Patient.id' })).not.toBeInTheDocument();
     expect(screen.queryByText(/Add from source is unavailable here:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Adding fields from related resources is unavailable here:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/INVALID_RECIPE/)).not.toBeInTheDocument();
@@ -1571,7 +1593,7 @@ describe('ConceptCatalog', () => {
       </LoomProvider>
     );
     const view = render(renderPending(true));
-    const field = await screen.findByRole('checkbox', { name: 'Select Patient.id' });
+    const field = await screen.findByRole('button', { name: 'Select Patient.id' });
     expect(field).toBeDisabled();
     expect(screen.getByText(
       'Loom is finishing the previous table update. Field selection will return when the draft refresh completes.',
@@ -1580,7 +1602,7 @@ describe('ConceptCatalog', () => {
 
     view.rerender(renderPending(false));
 
-    expect(screen.getByRole('checkbox', { name: 'Select Patient.id' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Select Patient.id' })).toBeEnabled();
   });
 
   it('searches ordinary fields from the active row-root candidates', async () => {
@@ -1595,15 +1617,15 @@ describe('ConceptCatalog', () => {
     expect(await screen.findByText('No concepts match this search.')).toBeInTheDocument();
     const search = await screen.findByRole('searchbox', { name: 'Search coded values by code or label' });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Search' })).toBeEnabled());
-    expect(screen.getByRole('checkbox', { name: 'Select Patient.id' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select Patient.id' })).toBeInTheDocument();
     fireEvent.change(search, { target: { value: 'missing' } });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-    expect(screen.queryByRole('checkbox', { name: 'Select Patient.id' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Patient.id' })).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Search' })).toBeEnabled());
 
     fireEvent.change(search, { target: { value: 'id' } });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-    expect(await screen.findByRole('checkbox', { name: 'Select Patient.id' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Select Patient.id' })).toBeInTheDocument();
   });
 
   it('puts row-root fields first and identifies each searched field by resource', async () => {
@@ -1622,7 +1644,9 @@ describe('ConceptCatalog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
     await waitFor(() => {
-      const names = screen.getAllByRole('checkbox').map((checkbox) => checkbox.getAttribute('aria-label'));
+      const names = screen.getAllByRole('button')
+        .map((button) => button.getAttribute('aria-label'))
+        .filter((name): name is string => Boolean(name?.startsWith('Select ')));
       expect(names[0]).toBe('Select Patient.id');
       expect(names).toEqual(expect.arrayContaining([
         'Select Observation.identifier',
@@ -1654,14 +1678,14 @@ describe('ConceptCatalog', () => {
     });
     const onAddSelected = renderCatalog(fetch);
 
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Hemoglobin A1c' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Hemoglobin A1c' }));
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Hemoglobin' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Hemoglobin' }));
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search coded values by code or label' }), {
       target: { value: 'glucose' },
   });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Glucose' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Glucose' }));
     expect(screen.getByLabelText('Selected feature action')).toHaveTextContent('3 features selected');
 
     fireEvent.click(screen.getByRole('button', { name: 'Add 3 selected features' }));
@@ -1743,7 +1767,7 @@ describe('ConceptCatalog', () => {
     });
     const onAddSelected = renderCatalog(fetch);
 
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Hemoglobin' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Hemoglobin' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
@@ -1840,7 +1864,7 @@ describe('ConceptCatalog', () => {
       { choiceId: subjectChoice.choiceId, form: 'COUNT' },
     );
 
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Route count' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Route count' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
     const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
     const countRadio = within(dialog).getByRole('radio', { name: 'Route count: Count matching records' });
@@ -1912,7 +1936,7 @@ describe('ConceptCatalog', () => {
       nodeId: 'observation-node',
     });
 
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Hemoglobin' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Hemoglobin' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
 
     await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([{
@@ -1956,7 +1980,7 @@ describe('ConceptCatalog', () => {
         },
       },
     };
-    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () =>
       new Response(JSON.stringify(page([patientConcept, observationConcept, otherObservationNodeConcept, unscopedConcept])), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -1967,15 +1991,37 @@ describe('ConceptCatalog', () => {
       nodeId: 'observation-node',
     });
 
-    expect(await screen.findByRole('checkbox', { name: 'Select Observation.identifier' })).toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: 'Select Patient.id' })).not.toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: 'Select Observation concept' })).toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: 'Select Other observation source' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: 'Select Unscoped observation concept' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Select Observation.identifier' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Patient.id' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select Observation concept' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Other observation source' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Unscoped observation concept' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('construction-operation-unscoped-concepts')).not.toBeInTheDocument();
 
     const inventoryRequest = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
     expect(inventoryRequest).toMatchObject({ rowRoot: 'Patient', resourceType: 'Observation' });
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search coded values by code or label' }), {
+      target: { value: 'all resources' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    expect(await screen.findByRole('button', { name: 'Select Patient concept' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select Other observation source' })).toBeInTheDocument();
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    const globalSearchRequest = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body)) as Record<string, unknown>;
+    expect(globalSearchRequest).toMatchObject({ rowRoot: 'Patient', query: 'all resources' });
+    expect(globalSearchRequest.resourceType).toBeUndefined();
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search coded values by code or label' }), {
+      target: { value: 'id' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    expect(await screen.findByRole('button', { name: 'Select Patient.id' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select Observation.identifier' })).toBeInTheDocument();
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+    const globalFieldSearchRequest = JSON.parse(String(fetch.mock.calls[2]?.[1]?.body)) as Record<string, unknown>;
+    expect(globalFieldSearchRequest).toMatchObject({ rowRoot: 'Patient', query: 'id' });
+    expect(globalFieldSearchRequest.resourceType).toBeUndefined();
   });
 
   it('keeps a related field out of Add when Loom returns no valid route', async () => {
@@ -2004,7 +2050,7 @@ describe('ConceptCatalog', () => {
       nodeId: 'observation-node',
     });
 
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Observation.identifier' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Observation.identifier' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
@@ -2039,7 +2085,7 @@ it.each(['COUNT', 'PRESENCE'] as const)('keeps signed related %s ownership when 
     catalog={{ ...catalog, candidates: [candidate] }} sourceProjectionAvailability={{ available: false, reason: 'Grouped rows' }}
     relatedSourceAvailability={{ supported: true }} groupedRowValuePolicy={{ value: 'ALL', onChange: vi.fn() }} onAddSelected={onAddSelected}
   /></LoomProvider>);
-  fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Observation.identifier' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Select Observation.identifier' }));
   fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
   await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([{
     constructionChoice: { choiceId: choice.choiceId, form }, title: candidate.label,
@@ -2066,10 +2112,10 @@ it('offers a compiler-issued missing schema field in the existing related-field 
     rowRoot="Patient" resourceType="Patient" sourceNodeId="patient-node" catalog={catalog}
     onAddSelected={vi.fn().mockResolvedValue(undefined)}
   /></LoomProvider>);
-  const control = await screen.findByRole('checkbox', { name: 'Select Patient.gender' });
+  const control = await screen.findByRole('button', { name: 'Select Patient.gender' });
   expect(control).not.toBeDisabled();
   fireEvent.click(control);
-  expect(control instanceof HTMLInputElement && control.checked).toBe(true);
+  expect(control).toHaveAttribute('aria-pressed', 'true');
   const request = fetch.mock.calls.find(([url]) => String(url).endsWith('/schema-fields'));
   expect(JSON.parse(String(request?.[1]?.body))).toMatchObject({ snapshotToken: 'snapshot-a', nodeId: 'patient-node' });
 });

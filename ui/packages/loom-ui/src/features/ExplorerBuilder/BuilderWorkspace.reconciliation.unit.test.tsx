@@ -3606,19 +3606,15 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(screen.queryByTestId('construction-action-calculate')).not.toBeInTheDocument();
     expect(screen.getByTestId('construction-action-combine')).toBeEnabled();
 
-    const selectedColumn = screen.getByTestId('construction-column-specimen_identifier_id');
+    expect(screen.queryByTestId('construction-column-selection')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('construction-action-keep-rows'));
+    const selectedColumn = await screen.findByTestId('construction-column-specimen_identifier_id');
     expect(selectedColumn.tagName).toBe('BUTTON');
     selectedColumn.focus();
     expect(document.activeElement).toBe(selectedColumn);
     fireEvent.click(selectedColumn);
     expect(selectedColumn).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.queryByTestId('construction-selection-calculate')).not.toBeInTheDocument();
-    const keepRowsShortcut = screen.getByTestId('construction-selection-keep-rows');
-    expect(keepRowsShortcut).toHaveTextContent('Filter rows');
-    expect(keepRowsShortcut.tagName).toBe('BUTTON');
-    keepRowsShortcut.focus();
-    expect(document.activeElement).toBe(keepRowsShortcut);
-    fireEvent.click(keepRowsShortcut);
+    expect(screen.queryByTestId('construction-selection-keep-rows')).not.toBeInTheDocument();
     expect(screen.getByTestId('construction-operation-editor')).toHaveAttribute(
       'data-operation-family',
       'KEEP_ROWS',

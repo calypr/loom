@@ -1,6 +1,4 @@
 import React from 'react';
-import type { ConstructionOperationFamily } from './ConstructionWorkspace';
-
 export interface ConstructionSelectableColumn {
   readonly id: string;
   readonly label: string;
@@ -13,23 +11,34 @@ export const ConstructionColumnSelection = ({
   disabled = false,
   onToggleColumn,
   onClear,
-  onOpenFamily,
 }: {
   readonly columns: ReadonlyArray<ConstructionSelectableColumn>;
   readonly selectedColumnIds: ReadonlyArray<string>;
   readonly disabled?: boolean;
   readonly onToggleColumn: (columnId: string) => void;
   readonly onClear: () => void;
-  readonly onOpenFamily: (family: ConstructionOperationFamily) => void;
 }) => {
   const hasSelection = selectedColumnIds.length > 0;
 
   return (
-    <section aria-label="Selected columns" data-testid="construction-column-selection" className="rounded-lg border border-slate-200 bg-white px-3 py-2.5">
+    <section aria-label="Operation input columns" data-testid="construction-column-selection" className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+      <div className="mb-1 flex items-center gap-2">
+        <h3 className="text-xs font-semibold text-slate-700">Choose input columns</h3>
+        <span className="text-xs text-slate-500">{hasSelection ? `${selectedColumnIds.length} selected` : 'Select the fields this operation uses'}</span>
+        {hasSelection ? (
+          <button
+            type="button"
+            aria-label="Clear selected input columns"
+            data-testid="construction-clear-selection"
+            disabled={disabled}
+            onClick={onClear}
+            className="ml-auto rounded px-1.5 py-0.5 text-xs text-slate-500 hover:bg-white disabled:opacity-50"
+          >
+            Clear
+          </button>
+        ) : null}
+      </div>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="mr-1 text-xs font-semibold text-slate-600">
-          {hasSelection ? 'Selected columns' : 'Select columns for an action'}
-        </span>
         {columns.length > 0 ? columns.map((column) => {
           const selected = selectedColumnIds.includes(column.id);
           return (
@@ -52,33 +61,8 @@ export const ConstructionColumnSelection = ({
             </button>
           );
         }) : (
-          <span className="text-xs text-slate-500">Add a column before selecting inputs.</span>
+          <span className="text-xs text-slate-500">No columns are available to this operation.</span>
         )}
-
-        {hasSelection ? (
-          <div className="ml-auto flex flex-wrap items-center gap-1.5">
-            <span className="text-xs text-slate-500">Use selection</span>
-            <button
-              type="button"
-              data-testid="construction-selection-keep-rows"
-              disabled={disabled}
-              onClick={() => onOpenFamily('KEEP_ROWS')}
-              className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            >
-              Filter rows
-            </button>
-            <button
-              type="button"
-              aria-label="Clear selected columns"
-              data-testid="construction-clear-selection"
-              disabled={disabled}
-              onClick={onClear}
-              className="rounded px-1.5 py-1 text-xs text-slate-500 hover:bg-slate-100 disabled:opacity-50"
-            >
-              Clear
-            </button>
-          </div>
-        ) : null}
       </div>
     </section>
   );

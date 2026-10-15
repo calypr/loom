@@ -23,6 +23,7 @@ const PREVIEW_ROW_HEIGHT = 44;
 const PREVIEW_HEADER_HEIGHT = 42;
 const PREVIEW_COLUMN_WIDTH = 180;
 const PREVIEW_ROW_GUTTER_WIDTH = 64;
+const PREVIEW_HEADER_CONTROLS_WIDTH = 192;
 
 type OwnerRecordInspectorState = {
   readonly columnLabel: string;
@@ -170,6 +171,38 @@ export const PreviewTable = ({
     columnsOpen,
     setColumnsOpen,
   );
+  const columnsButtonRef = useRef<HTMLButtonElement>(null);
+  const [columnsMenuPosition, setColumnsMenuPosition] = useState<{
+    readonly top: number;
+    readonly right: number;
+  }>();
+  useEffect(() => {
+    if (!columnsOpen) {
+      setColumnsMenuPosition(undefined);
+      return undefined;
+    }
+    const updatePosition = () => {
+      const button = columnsButtonRef.current;
+      if (!button) return;
+      const bounds = button.getBoundingClientRect();
+      const panelHeight = Math.min(window.innerHeight * 0.6, 448) + 72;
+      const below = bounds.bottom + 4;
+      const top = below + panelHeight <= window.innerHeight - 8
+        ? below
+        : Math.max(8, bounds.top - panelHeight - 4);
+      setColumnsMenuPosition({
+        top,
+        right: Math.max(8, window.innerWidth - bounds.right),
+      });
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [columnsOpen]);
   const [draggedColumn, setDraggedColumn] = useState<string>();
   const [dropIndex, setDropIndex] = useState<number>();
   const [ownerRecordInspector, setOwnerRecordInspector] =
@@ -404,10 +437,27 @@ export const PreviewTable = ({
     );
   });
   const rows = preview?.rows ?? [];
+  const previewTableWidth = Math.max(
+    viewport.width,
+    PREVIEW_ROW_GUTTER_WIDTH +
+      columns.length * PREVIEW_COLUMN_WIDTH +
+      PREVIEW_HEADER_CONTROLS_WIDTH,
+  );
+  const headerColumnViewportWidth = Math.max(
+    0,
+    Math.min(
+      previewTableWidth,
+      viewport.scrollLeft + viewport.width - PREVIEW_HEADER_CONTROLS_WIDTH,
+    ),
+  );
   const columnRange = virtualRange({
     count: columns.length,
     offset: Math.max(0, viewport.scrollLeft - PREVIEW_ROW_GUTTER_WIDTH),
-    viewport: Math.max(0, viewport.width - PREVIEW_ROW_GUTTER_WIDTH),
+    viewport: Math.max(
+      0,
+      viewport.width - PREVIEW_HEADER_CONTROLS_WIDTH -
+        Math.max(0, PREVIEW_ROW_GUTTER_WIDTH - viewport.scrollLeft),
+    ),
     itemSize: PREVIEW_COLUMN_WIDTH,
     overscan: 2,
   });
@@ -459,249 +509,257 @@ export const PreviewTable = ({
     });
     if (updates.length > 0) onColumnsChange(updates);
   };
+  const tableControls = (
+    <div
+      ref={columnsMenuRef}
+      data-testid="preview-table-header-controls"
+      className="sticky right-0 top-0 z-20 ml-auto flex h-[42px] shrink-0 items-center justify-end gap-2 border-b border-slate-200 bg-slate-100 px-2 text-slate-700"
+      style={{ width: PREVIEW_HEADER_CONTROLS_WIDTH }}
+    >
+      <button
+        type="button"
+        ref={columnsButtonRef}
+        aria-expanded={columnsOpen}
+        className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+        onClick={() => setColumnsOpen((value) => !value)}
+      >
+        Columns
+      </button>
+      {columnsOpen && (
+        <div
+          data-testid="preview-table-column-settings"
+          className="fixed z-[120] w-[min(32rem,calc(100vw-2rem))] rounded-lg border border-slate-200 bg-white p-2 shadow-lg"
+          style={columnsMenuPosition ?? { visibility: 'hidden' }}
+        >
+          <p className="border-b border-slate-100 px-2 pb-2 text-[11px] text-slate-500">
+            Rename or recode column values here. Uncheck to hide a column; drag to change its order.
+          </p>
+          <div
+            role="list"
+            aria-label="Table columns"
+            className="max-h-[min(60dvh,28rem)] overflow-y-auto overflow-x-hidden py-1 pr-1"
+          >
+            {configuredColumns.map((column, index) => {
+              const visible = column.table?.visible ?? column.visibleByDefault;
+              const removeTarget = removableColumnName(column);
+              const authoredColumn = column.change.kind === 'AUTHORED_COLUMN'
+                ? column.change.column
+                : undefined;
+              const transformation = authoredColumn?.valueTransformation;
+              const recodeCandidate = authoredColumn
+                ? candidateForColumn?.(authoredColumn)
+                : undefined;
+              const recodeCapability = authoredColumn?.source.kind === 'codedValue'
+                ? recodeCandidate?.valueTransformations.codedValueRecoding
+                : recodeCandidate?.valueTransformations.exactCategoryRecode;
+              const canEditCategoryRecode = Boolean(
+                authoredColumn && onTransformationChange && (
+                  transformation?.kind === 'EXACT_CATEGORY_RECODE' ||
+                  recodeCapability?.available
+                ),
+              );
+              const sourceProjectionMode = authoredColumn?.source.kind === 'field'
+                ? authoredColumn.source.field?.projectionMode?.toUpperCase()
+                : undefined;
+              const rowValueTransformationSupported = transformation === undefined || (
+                transformation.kind === 'EXACT_CATEGORY_RECODE' &&
+                authoredColumn?.logicalType?.toLowerCase() === 'string' &&
+                (sourceProjectionMode === undefined || sourceProjectionMode === 'VALUE' || sourceProjectionMode === 'FIRST')
+              );
+              const rowValueBinding = authoredColumn?.columnId &&
+                authoredColumn.occurrenceId === 'base' &&
+                authoredColumn.source.kind === 'field' &&
+                authoredColumn.source.field &&
+                rowValueTransformationSupported &&
+                table?.document.rows.kind === 'GROUPS' &&
+                table.document.rows.groups.source.kind === 'EXPLICIT'
+                ? table.document.rows.groups.rowValues?.find(
+                    (binding) => binding.columnId === authoredColumn.columnId,
+                  )
+                : undefined;
+              return (
+                <div
+                  key={column.name}
+                  role="listitem"
+                  data-column-name={column.name}
+                  onDragOver={(event) => {
+                    if (disabled || !draggedColumnRef.current) return;
+                    event.preventDefault();
+                    const bounds = event.currentTarget.getBoundingClientRect();
+                    setDropIndex(
+                      index +
+                        (event.clientY > bounds.top + bounds.height / 2
+                          ? 1
+                          : 0),
+                    );
+                  }}
+                  onDrop={(event) => {
+                    if (disabled) return;
+                    event.preventDefault();
+                    const columnName =
+                      draggedColumnRef.current ??
+                      event.dataTransfer.getData('text/plain');
+                    if (columnName) {
+                      const bounds = event.currentTarget.getBoundingClientRect();
+                      const insertionIndex =
+                        index +
+                        (event.clientY > bounds.top + bounds.height / 2
+                          ? 1
+                          : 0);
+                      reorderColumns(columnName, insertionIndex);
+                    }
+                    resetDrag();
+                  }}
+                  className={`relative flex items-center gap-2 rounded px-2 py-2 text-xs hover:bg-slate-50 ${draggedColumn === column.name ? 'opacity-50' : ''}`}
+                >
+                  {draggedColumn && dropIndex === index && (
+                    <span className="pointer-events-none absolute inset-x-1 -top-px h-0.5 rounded bg-blue-500" />
+                  )}
+                  <span
+                    aria-label={`Drag ${column.label}`}
+                    draggable={!disabled}
+                    onDragStart={(event) => {
+                      event.dataTransfer.effectAllowed = 'move';
+                      event.dataTransfer.setData('text/plain', column.name);
+                      draggedColumnRef.current = column.name;
+                      setDraggedColumn(column.name);
+                      setDropIndex(index);
+                    }}
+                    onDragEnd={resetDrag}
+                    className="cursor-grab select-none text-base leading-none text-slate-400 active:cursor-grabbing"
+                  >
+                    ⋮⋮
+                  </span>
+                  <div className="flex min-w-0 flex-1 flex-col gap-1 leading-5">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 shrink-0"
+                        aria-label={column.label}
+                        disabled={disabled}
+                        checked={visible}
+                        onChange={(event) =>
+                          onColumnChange(
+                            withPresentationTable(column, {
+                              ...(column.table ?? {}),
+                              visible: event.currentTarget.checked,
+                              order: column.table?.order ?? index,
+                            }),
+                          )
+                        }
+                      />
+                      <input
+                        key={column.label}
+                        aria-label={`Column name for ${column.label}`}
+                        defaultValue={column.label}
+                        disabled={disabled}
+                        className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1.5 py-1 text-xs text-slate-800 hover:border-slate-300 focus:border-blue-500 focus:bg-white focus:outline-none disabled:opacity-50"
+                        onBlur={(event) => {
+                          const label = event.currentTarget.value.trim();
+                          if (!label) {
+                            event.currentTarget.value = column.label;
+                            return;
+                          }
+                          if (label === column.label) return;
+                          if (column.change.kind === 'AUTHORED_COLUMN') {
+                            onColumnChange({
+                              kind: 'AUTHORED_COLUMN',
+                              column: { ...column.change.column, label },
+                            });
+                          } else {
+                            onColumnChange({
+                              ...column.change,
+                              column: { ...column.change.column, label },
+                            });
+                          }
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Escape') {
+                            event.currentTarget.value = column.label;
+                          }
+                          if (event.key === 'Enter' || event.key === 'Escape') {
+                            event.currentTarget.blur();
+                          }
+                        }}
+                      />
+                    </div>
+                    {rowValueBinding && onRowValuePolicyChange ? (
+                      <label className="ml-6 flex min-w-0 items-center gap-2 text-[10px] text-slate-600">
+                        <span className="shrink-0">Cohort member values</span>
+                        <select
+                          aria-label={`Values per cohort member for ${column.label} (${column.name})`}
+                          className="min-w-0 flex-1 rounded border border-slate-300 bg-white px-1.5 py-1 text-[10px]"
+                          value={rowValueBinding.policy}
+                          disabled={disabled}
+                          onChange={(event) => {
+                            const policy = event.currentTarget.value;
+                            if ((policy === 'ALL' || policy === 'ONE') && authoredColumn) {
+                              onRowValuePolicyChange(authoredColumn.column, policy);
+                            }
+                          }}
+                        >
+                          <option value="ONE">One unique value</option>
+                          <option value="ALL">All unique values</option>
+                        </select>
+                      </label>
+                    ) : null}
+                    {canEditCategoryRecode && authoredColumn ? (
+                      <ExactCategoryRecodeEditor
+                        column={authoredColumn}
+                        candidate={recodeCandidate}
+                        disabled={disabled}
+                        onChange={(change) => onTransformationChange?.(authoredColumn.column, change)}
+                      />
+                    ) : null}
+                  </div>
+                  {onRemoveColumn && removeTarget ? (
+                    <button
+                      type="button"
+                      aria-label={`Remove ${column.label} column`}
+                      disabled={disabled}
+                      onClick={() => onRemoveColumn(removeTarget)}
+                      className="shrink-0 rounded px-1.5 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50"
+                    >
+                      Remove
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
+            {draggedColumn && dropIndex === configuredColumns.length && (
+              <div className="mx-1 h-0.5 rounded bg-blue-500" />
+            )}
+          </div>
+        </div>
+      )}
+      <label className="flex items-center gap-1 text-xs font-medium text-slate-600">
+        Rows
+        <select
+          aria-label="Preview row limit"
+          className="min-w-16 rounded-md border border-slate-300 bg-white py-1.5 pl-2 pr-6 text-right font-normal tabular-nums text-slate-800"
+          value={limit}
+          onChange={(event) =>
+            onLimitChange(
+              Number(event.currentTarget.value) as 25 | 50 | 100 | 500 | 1000,
+            )
+          }
+        >
+          <option value={25}>25</option>
+          <option value={50}>50</option>
+          <option value={100}>100</option>
+          <option value={500}>500</option>
+          <option value={1000}>1,000</option>
+        </select>
+      </label>
+    </div>
+  );
   return (
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50/80 px-4 py-2">
-        <h3 className="text-sm font-semibold text-slate-900">
-          Preview and configure
-        </h3>
-        <div ref={columnsMenuRef} className="relative ml-auto">
-          <button
-            type="button"
-            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-            onClick={() => setColumnsOpen((value) => !value)}
-          >
-            Columns
-          </button>
-          {columnsOpen && (
-            <div className="absolute right-0 z-20 mt-1 w-[min(32rem,calc(100vw-2rem))] rounded-lg border border-slate-200 bg-white p-2 shadow-lg">
-              <p className="border-b border-slate-100 px-2 pb-2 text-[11px] text-slate-500">
-                Rename or recode column values here. Uncheck to hide a column; drag to change its order.
-              </p>
-              <div
-                role="list"
-                aria-label="Table columns"
-                className="max-h-[min(60dvh,28rem)] overflow-y-auto overflow-x-hidden py-1 pr-1"
-              >
-                {configuredColumns.map((column, index) => {
-                  const visible = column.table?.visible ?? column.visibleByDefault;
-                  const removeTarget = removableColumnName(column);
-                  const authoredColumn = column.change.kind === 'AUTHORED_COLUMN'
-                    ? column.change.column
-                    : undefined;
-                  const transformation = authoredColumn?.valueTransformation;
-                  const recodeCandidate = authoredColumn
-                    ? candidateForColumn?.(authoredColumn)
-                    : undefined;
-                  const recodeCapability = authoredColumn?.source.kind === 'codedValue'
-                    ? recodeCandidate?.valueTransformations.codedValueRecoding
-                    : recodeCandidate?.valueTransformations.exactCategoryRecode;
-                  const canEditCategoryRecode = Boolean(
-                    authoredColumn && onTransformationChange && (
-                      transformation?.kind === 'EXACT_CATEGORY_RECODE' ||
-                      recodeCapability?.available
-                    ),
-                  );
-                  const sourceProjectionMode = authoredColumn?.source.kind === 'field'
-                    ? authoredColumn.source.field?.projectionMode?.toUpperCase()
-                    : undefined;
-                  const rowValueTransformationSupported = transformation === undefined || (
-                    transformation.kind === 'EXACT_CATEGORY_RECODE' &&
-                    authoredColumn?.logicalType?.toLowerCase() === 'string' &&
-                    (sourceProjectionMode === undefined || sourceProjectionMode === 'VALUE' || sourceProjectionMode === 'FIRST')
-                  );
-                  const rowValueBinding = authoredColumn?.columnId &&
-                    authoredColumn.occurrenceId === 'base' &&
-                    authoredColumn.source.kind === 'field' &&
-                    authoredColumn.source.field &&
-                    rowValueTransformationSupported &&
-                    table?.document.rows.kind === 'GROUPS' &&
-                    table.document.rows.groups.source.kind === 'EXPLICIT'
-                    ? table.document.rows.groups.rowValues?.find(
-                        (binding) => binding.columnId === authoredColumn.columnId,
-                      )
-                    : undefined;
-                  return (
-                    <div
-                      key={column.name}
-                      role="listitem"
-                      data-column-name={column.name}
-                      onDragOver={(event) => {
-                        if (disabled || !draggedColumnRef.current) return;
-                        event.preventDefault();
-                        const bounds =
-                          event.currentTarget.getBoundingClientRect();
-                        setDropIndex(
-                          index +
-                            (event.clientY > bounds.top + bounds.height / 2
-                              ? 1
-                              : 0),
-                        );
-                      }}
-                      onDrop={(event) => {
-                        if (disabled) return;
-                        event.preventDefault();
-                        const columnName =
-                          draggedColumnRef.current ??
-                          event.dataTransfer.getData('text/plain');
-                        if (columnName) {
-                          const bounds =
-                            event.currentTarget.getBoundingClientRect();
-                          const insertionIndex =
-                            index +
-                            (event.clientY > bounds.top + bounds.height / 2
-                              ? 1
-                              : 0);
-                          reorderColumns(columnName, insertionIndex);
-                        }
-                        resetDrag();
-                      }}
-                      className={`relative flex items-center gap-2 rounded px-2 py-2 text-xs hover:bg-slate-50 ${draggedColumn === column.name ? 'opacity-50' : ''}`}
-                    >
-                      {draggedColumn && dropIndex === index && (
-                        <span className="pointer-events-none absolute inset-x-1 -top-px h-0.5 rounded bg-blue-500" />
-                      )}
-                      <span
-                        aria-label={`Drag ${column.label}`}
-                        draggable={!disabled}
-                        onDragStart={(event) => {
-                          event.dataTransfer.effectAllowed = 'move';
-                          event.dataTransfer.setData(
-                            'text/plain',
-                            column.name,
-                          );
-                          draggedColumnRef.current = column.name;
-                          setDraggedColumn(column.name);
-                          setDropIndex(index);
-                        }}
-                        onDragEnd={resetDrag}
-                        className="cursor-grab select-none text-base leading-none text-slate-400 active:cursor-grabbing"
-                      >
-                        ⋮⋮
-                      </span>
-                      <div className="flex min-w-0 flex-1 flex-col gap-1 leading-5">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <input
-                            type="checkbox"
-                            className="mt-0.5 shrink-0"
-                            aria-label={column.label}
-                            disabled={disabled}
-                            checked={visible}
-                            onChange={(event) =>
-                              onColumnChange(
-                                withPresentationTable(column, {
-                                  ...(column.table ?? {}),
-                                  visible: event.currentTarget.checked,
-                                  order: column.table?.order ?? index,
-                                }),
-                              )
-                            }
-                          />
-                          <input
-                            key={column.label}
-                            aria-label={`Column name for ${column.label}`}
-                            defaultValue={column.label}
-                            disabled={disabled}
-                            className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1.5 py-1 text-xs text-slate-800 hover:border-slate-300 focus:border-blue-500 focus:bg-white focus:outline-none disabled:opacity-50"
-                            onBlur={(event) => {
-                              const label = event.currentTarget.value.trim();
-                              if (!label) {
-                                event.currentTarget.value = column.label;
-                                return;
-                              }
-                              if (label === column.label) return;
-                              if (column.change.kind === 'AUTHORED_COLUMN') {
-                                onColumnChange({
-                                  kind: 'AUTHORED_COLUMN',
-                                  column: { ...column.change.column, label },
-                                });
-                              } else {
-                                onColumnChange({
-                                  ...column.change,
-                                  column: { ...column.change.column, label },
-                                });
-                              }
-                            }}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Escape') {
-                                event.currentTarget.value = column.label;
-                              }
-                              if (event.key === 'Enter' || event.key === 'Escape') {
-                                event.currentTarget.blur();
-                              }
-                            }}
-                          />
-                        </div>
-                        {rowValueBinding && onRowValuePolicyChange ? (
-                          <label className="ml-6 flex min-w-0 items-center gap-2 text-[10px] text-slate-600">
-                            <span className="shrink-0">Cohort member values</span>
-                            <select
-                              aria-label={`Values per cohort member for ${column.label} (${column.name})`}
-                              className="min-w-0 flex-1 rounded border border-slate-300 bg-white px-1.5 py-1 text-[10px]"
-                              value={rowValueBinding.policy}
-                              disabled={disabled}
-                              onChange={(event) => {
-                                const policy = event.currentTarget.value;
-                                if ((policy === 'ALL' || policy === 'ONE') && authoredColumn) {
-                                  onRowValuePolicyChange(authoredColumn.column, policy);
-                                }
-                              }}
-                            >
-                              <option value="ONE">One unique value</option>
-                              <option value="ALL">All unique values</option>
-                            </select>
-                          </label>
-                        ) : null}
-                        {canEditCategoryRecode && authoredColumn ? (
-                          <ExactCategoryRecodeEditor
-                            column={authoredColumn}
-                            candidate={recodeCandidate}
-                            disabled={disabled}
-                            onChange={(change) => onTransformationChange?.(authoredColumn.column, change)}
-                          />
-                        ) : null}
-                      </div>
-                      {onRemoveColumn && removeTarget ? (
-                        <button
-                          type="button"
-                          aria-label={`Remove ${column.label} column`}
-                          disabled={disabled}
-                          onClick={() => onRemoveColumn(removeTarget)}
-                          className="shrink-0 rounded px-1.5 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50"
-                        >
-                          Remove
-                        </button>
-                      ) : null}
-                    </div>
-                  );
-                })}
-                {draggedColumn && dropIndex === configuredColumns.length && (
-                  <div className="mx-1 h-0.5 rounded bg-blue-500" />
-                )}
-              </div>
-            </div>
-          )}
+      {preview && !previewErrorMessage ? null : (
+        <div className="flex justify-end border-b border-slate-200 bg-slate-50/80">
+          {tableControls}
         </div>
-        <label className="text-xs font-medium text-slate-600">
-          Rows{' '}
-          <select
-            aria-label="Preview row limit"
-            className="min-w-20 rounded-md border border-slate-300 bg-white py-1.5 pl-2 pr-8 text-right font-normal tabular-nums text-slate-800"
-            value={limit}
-            onChange={(event) =>
-              onLimitChange(
-                Number(event.currentTarget.value) as 25 | 50 | 100 | 500 | 1000,
-              )
-            }
-          >
-            <option value={25}>25</option>
-            <option value={50}>50</option>
-            <option value={100}>100</option>
-            <option value={500}>500</option>
-            <option value={1000}>1,000</option>
-          </select>
-        </label>
-      </div>
+      )}
       <div
         ref={previewScrollRef}
         data-testid="preview-table-scroll"
@@ -721,51 +779,68 @@ export const PreviewTable = ({
           </p>
         ) : (
           <div
-            role="table"
-            aria-rowcount={rows.length + 1}
-            aria-colcount={columns.length}
-            className="relative text-left text-xs"
+            data-testid="preview-table-content"
+            className="relative"
             style={{
-              width: Math.max(viewport.width, PREVIEW_ROW_GUTTER_WIDTH + columns.length * PREVIEW_COLUMN_WIDTH),
+              width: previewTableWidth,
               height: PREVIEW_HEADER_HEIGHT + rows.length * PREVIEW_ROW_HEIGHT,
             }}
           >
+            {tableControls}
+            <div
+              role="table"
+              aria-rowcount={rows.length + 1}
+              aria-colcount={columns.length}
+              className="absolute left-0 top-0 text-left text-xs"
+              style={{
+                width: previewTableWidth,
+                height: PREVIEW_HEADER_HEIGHT + rows.length * PREVIEW_ROW_HEIGHT,
+              }}
+            >
             <div
               role="row"
               className="sticky top-0 z-10 bg-slate-100 text-[11px] uppercase tracking-wide text-slate-600"
               style={{ height: PREVIEW_HEADER_HEIGHT }}
             >
-              <div className="absolute left-0 top-0 border-b border-slate-200 px-2 py-2.5" style={{ width: PREVIEW_ROW_GUTTER_WIDTH, height: PREVIEW_HEADER_HEIGHT }}>
-                Row
-              </div>
-              {visibleColumns.map((column, visibleIndex) => {
-                const columnIndex = columnRange.start + visibleIndex;
-                return (
-                  <div
-                    role="columnheader"
-                    key={column.emissionId}
-                    aria-label={column.resultUnit
-                      ? `${column.label} (${column.resultUnit.code})`
-                      : undefined}
-                    className="absolute top-0 overflow-hidden whitespace-nowrap border-b border-slate-200 px-4 py-2.5 font-semibold"
-                    style={{
-                      left: PREVIEW_ROW_GUTTER_WIDTH + columnIndex * PREVIEW_COLUMN_WIDTH,
-                      width: PREVIEW_COLUMN_WIDTH,
-                      height: PREVIEW_HEADER_HEIGHT,
-                    }}
-                  >
-                    {column.label}
-                    {column.resultUnit ? (
-                      <span
-                        className="font-normal normal-case text-slate-500"
-                        title={resultUnitTitle(column.resultUnit)}
-                      >
-                        {' '}({column.resultUnit.code})
-                      </span>
-                    ) : null}
+              <div
+                data-testid="preview-table-header-columns"
+                className="absolute inset-y-0 left-0 overflow-hidden"
+                style={{ width: headerColumnViewportWidth }}
+              >
+                <div className="relative h-full" style={{ width: previewTableWidth }}>
+                  <div className="absolute left-0 top-0 border-b border-slate-200 px-2 py-2.5" style={{ width: PREVIEW_ROW_GUTTER_WIDTH, height: PREVIEW_HEADER_HEIGHT }}>
+                    Row
                   </div>
-                );
-              })}
+                  {visibleColumns.map((column, visibleIndex) => {
+                    const columnIndex = columnRange.start + visibleIndex;
+                    return (
+                      <div
+                        role="columnheader"
+                        key={column.emissionId}
+                        aria-label={column.resultUnit
+                          ? `${column.label} (${column.resultUnit.code})`
+                          : undefined}
+                        className="absolute top-0 overflow-hidden whitespace-nowrap border-b border-slate-200 px-4 py-2.5 font-semibold"
+                        style={{
+                          left: PREVIEW_ROW_GUTTER_WIDTH + columnIndex * PREVIEW_COLUMN_WIDTH,
+                          width: PREVIEW_COLUMN_WIDTH,
+                          height: PREVIEW_HEADER_HEIGHT,
+                        }}
+                      >
+                        {column.label}
+                        {column.resultUnit ? (
+                          <span
+                            className="font-normal normal-case text-slate-500"
+                            title={resultUnitTitle(column.resultUnit)}
+                          >
+                            {' '}({column.resultUnit.code})
+                          </span>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
             {rows.slice(rowRange.start, rowRange.end).map((row, visibleRowIndex) => {
               const rowIndex = rowRange.start + visibleRowIndex;
@@ -853,6 +928,7 @@ export const PreviewTable = ({
                 </div>
               );
             })}
+            </div>
           </div>
         )}
       </div>
