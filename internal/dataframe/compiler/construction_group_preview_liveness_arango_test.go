@@ -12,6 +12,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/fhir/schema"
 	store "github.com/calypr/loom/internal/store/arango"
@@ -163,11 +164,13 @@ func TestSourceGroupPruningKeepsCorrelatedPivotALLValuesAgainstArango(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	groupStage := strings.Index(preview.Query, "LET __loom_construction_stage_1 = (")
-	previewLimit := strings.LastIndex(preview.Query, "LIMIT @limit")
-	if groupStage < 0 || previewLimit < groupStage {
-		t.Fatalf("preview limit must follow source group aggregation:\n%s", preview.Query)
+	if sequence := preview.PhysicalPlan.StageSequence; sequence == nil || sequence.PreviewLimitBindKey == "" ||
+		len(sequence.Stages) != 1 || sequence.Stages[0].Kind != ir.PhysicalStageGroupOp ||
+		sequence.Stages[0].Group == nil || len(sequence.Stages[0].Group.RowValues) == 0 {
+		t.Fatalf("limit-1 output is not the exact typed terminal GROUP row-value plan: %#v", preview.PhysicalPlan.StageSequence)
 	}
+	assertTumorGroupLivenessPreviewFrontier(t, preview.Query)
+
 	if strings.Contains(preview.Query, "child_set_3") || strings.Contains(preview.Query, "child_set_4") || strings.Contains(preview.Query, "subject_Patient") {
 		t.Fatalf("unselected optional Patient→ResearchSubject path survived source projection liveness:\n%s", preview.Query)
 	}
@@ -205,14 +208,26 @@ func TestSourceGroupPruningKeepsCorrelatedPivotALLValuesAgainstArango(t *testing
 		t.Fatalf("limit-1 ALL values = %#v, want %#v (late value must survive post-GROUP limit)", got, want)
 	}
 
-	allRowsQuery, err := CompileRecipeOutputWithPolicy(compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	// Render the same finalized typed GROUP plan without its preview window.
+	// This is the generic full-source reference for the optimized root-key
+	// frontier query above, independent of the fixture's hand-written oracle.
+	genericPlan := clonePhysicalPlan(preview.PhysicalPlan)
+	genericPlan.StageSequence.PreviewLimitBindKey = ""
+	genericRendered, err := aql.RenderPhysicalPlan(genericPlan)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("render generic full-source typed GROUP plan: %v", err)
 	}
-	allRows := executeReshapeOracleQuery(t, ctx, client, allRowsQuery)
+	allRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{
+		PhysicalPlan: genericPlan,
+		Query:        genericRendered.Query,
+		BindVars:     genericRendered.BindVars,
+	})
 	t.Logf("compiled all-groups AQL rows: %#v", allRows)
 	if len(allRows) != 2 {
 		t.Fatalf("all Group rows = %#v, want grouped and missing-edge rows", allRows)
+	}
+	if !reflect.DeepEqual(rows[0], allRows[0]) {
+		t.Fatalf("optimized preview row = %#v, want first generic full-source GROUP row %#v", rows[0], allRows[0])
 	}
 	byOnset := map[string]map[string]any{}
 	for _, row := range allRows {
@@ -225,6 +240,34 @@ func TestSourceGroupPruningKeepsCorrelatedPivotALLValuesAgainstArango(t *testing
 	}
 	if values, ok := byOnset["2"]["tumor_values"].([]any); !ok || len(values) != 0 || !constructionNumericEqual(byOnset["2"]["source_records"], 1) {
 		t.Fatalf("missing optional edge group = %#v, want one row with empty ALL values", byOnset["2"])
+	}
+}
+
+func assertTumorGroupLivenessPreviewFrontier(t *testing.T, query string) {
+	t.Helper()
+
+	frontier := strings.Index(query, "COLLECT __loom_physical_construction_group_preview_group_key")
+	if frontier < 0 {
+		t.Fatalf("terminalGroupRowValuePreviewWindowFor did not activate for the captured typed plan; query has no Group-key frontier:\n%s", query)
+	}
+	frontierLimitOffset := strings.Index(query[frontier:], "LIMIT @limit")
+	selectedRootKeys := strings.Index(query, "LET __loom_physical_construction_group_preview_selected_root_keys = FLATTEN(")
+	rootKeyWindow := strings.Index(query, "LET root = DOCUMENT(@@root_collection, __loom_physical_preview_root_key)")
+	correlatedMapWork := strings.Index(query, "LET __correlation_owner_pairs = (")
+	groupStage := strings.Index(query, "LET __loom_construction_stage_1 = (")
+	groupCollect := strings.LastIndex(query, "COLLECT ")
+	finalPreviewLimit := strings.LastIndex(query, "LIMIT @limit")
+	if frontierLimitOffset < 0 {
+		t.Fatalf("Group-key frontier has no preview LIMIT:\n%s", query)
+	}
+	frontierLimit := frontier + frontierLimitOffset
+	if selectedRootKeys < frontierLimit || rootKeyWindow < selectedRootKeys || correlatedMapWork < rootKeyWindow {
+		t.Fatalf("key frontier must select complete root-key sets before correlated map work; frontier=%d limit=%d selected-root-keys=%d root-window=%d correlation=%d:\n%s",
+			frontier, frontierLimit, selectedRootKeys, rootKeyWindow, correlatedMapWork, query)
+	}
+	if groupStage < correlatedMapWork || groupCollect < groupStage || finalPreviewLimit < groupCollect || finalPreviewLimit == frontierLimit {
+		t.Fatalf("correlated map work and complete GROUP must precede the separate final preview LIMIT; correlation=%d stage=%d collect=%d final-limit=%d frontier-limit=%d:\n%s",
+			correlatedMapWork, groupStage, groupCollect, finalPreviewLimit, frontierLimit, query)
 	}
 }
 
