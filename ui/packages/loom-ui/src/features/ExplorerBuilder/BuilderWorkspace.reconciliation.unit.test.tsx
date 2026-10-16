@@ -1001,7 +1001,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(await screen.findByRole('button', { name: 'Change rows' })).toBeInTheDocument();
   });
 
-  it('sends selected fields and concepts as one construction-choice command batch', async () => {
+  it('hands a successful coded-column proposal to Apply and returns to the catalog on Cancel', async () => {
     render(
       <BuilderWorkspace
         organization="HTAN_INT"
@@ -1010,9 +1010,28 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
+    fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
     fireEvent.click(await screen.findByRole('button', { name: 'Add catalog fixture' }));
 
+    const firstProposalPanel = await screen.findByTestId('construction-choice-proposal-panel');
     await screen.findByRole('button', { name: 'Apply columns' });
+    expect(firstProposalPanel).toHaveAttribute('data-proposal-status', 'ready');
+    expect(document.activeElement).toBe(firstProposalPanel);
+    expect(screen.queryByRole('button', { name: 'Add catalog fixture' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('construction-proposal-preview')).toHaveTextContent('Feature A');
+    expect(applyCommands).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel', exact: true }));
+    expect(await screen.findByRole('button', { name: 'Add catalog fixture' })).toBeInTheDocument();
+    expect(screen.queryByTestId('construction-choice-proposal-panel')).not.toBeInTheDocument();
+    expect(applyCommands).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add catalog fixture' }));
+    const proposalPanel = await screen.findByTestId('construction-choice-proposal-panel');
+    await screen.findByRole('button', { name: 'Apply columns' });
+    expect(proposalPanel).toHaveAttribute('data-proposal-status', 'ready');
+    expect(document.activeElement).toBe(proposalPanel);
+    expect(screen.queryByRole('button', { name: 'Add catalog fixture' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('construction-proposal-preview')).toHaveTextContent('Feature A');
     expect(mockLoomClient.proposeConstructionChoices).toHaveBeenCalledWith(expect.objectContaining({
       outputId: 'specimens',
       constructionChoices: [
@@ -1024,6 +1043,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Apply columns' }));
 
     await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByTestId('construction-choice-proposal-panel')).not.toBeInTheDocument());
+    expect(screen.getByTestId('construction-action-add-columns')).toBeInTheDocument();
     expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
       commands: [
         {

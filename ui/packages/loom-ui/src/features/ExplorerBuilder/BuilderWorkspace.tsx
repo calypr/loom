@@ -520,6 +520,7 @@ const BuilderWorkspaceContent = ({
     useState<FirstTableProgress>({ kind: 'idle' });
   const [previewLimit, setPreviewLimit] = useState<PreviewLimit>(25);
   const [choiceProposal, setChoiceProposal] = useState<ChoiceProposalState>({ status: 'idle' });
+  const choiceProposalPanelRef = useRef<HTMLElement | null>(null);
   const choiceProposalRequest = useRef<AbortController | undefined>(undefined);
   const appliedChoicePreview = useRef<AppliedChoicePreview | undefined>(undefined);
   const [featureMode, setFeatureMode] = useState<'catalog' | 'graph'>('catalog');
@@ -931,6 +932,15 @@ const BuilderWorkspaceContent = ({
     choiceProposalRequest.current = undefined;
     setChoiceProposal({ status: 'idle' });
   }, [state.explorerId, table?.outputId, state.catalog.snapshotToken, state.draftVersion, state.draftDigest]);
+  useEffect(() => {
+    if (choiceProposal.status !== 'ready') return;
+    const panel = choiceProposalPanelRef.current;
+    if (!panel) return;
+    if (typeof panel.scrollIntoView === 'function') {
+      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    panel.focus({ preventScroll: true });
+  }, [choiceProposal.status]);
   const unsupportedColumns = unsupportedSavedSourceColumns(state.tables);
   const hasUnsupportedSavedSourceColumns = unsupportedColumns.length > 0;
   const construction = table?.document.construction;
@@ -3402,7 +3412,9 @@ const BuilderWorkspaceContent = ({
     pendingCommands === 0 &&
     !publishing &&
     state.reconciliation !== 'pending';
-  const operationEditor = table && activeOperation ? (
+  const operationEditor = table && activeOperation && !(
+    activeOperation.family === 'ADD_COLUMNS' && choiceProposal.status === 'ready'
+  ) ? (
     <section
       aria-label={`${activeOperation.label} editor`}
       data-testid="construction-operation-editor"
@@ -3829,12 +3841,21 @@ const BuilderWorkspaceContent = ({
         preview: response.preview,
       };
       setChoiceProposal({ status: 'idle' });
+      setConstructionHistorySelection({ kind: 'source' });
+      setEditingConstructionStepId(undefined);
+      setActiveConstructionFamily(undefined);
     } else {
       appliedChoicePreview.current = undefined;
     }
   };
   const choiceProposalPanel = choiceProposal.status === 'idle' ? null : (
-    <section data-testid="construction-choice-proposal-panel" data-proposal-status={choiceProposal.status} className="rounded-xl border border-blue-200 bg-white p-4 shadow-sm">
+    <section
+      ref={choiceProposalPanelRef}
+      data-testid="construction-choice-proposal-panel"
+      data-proposal-status={choiceProposal.status}
+      tabIndex={-1}
+      className="rounded-xl border border-blue-200 bg-white p-4 shadow-sm focus:outline-none"
+    >
       <h3 className="text-base font-semibold text-slate-900">Preview new columns</h3>
       {choiceProposal.status === 'previewing' ? <p role="status" className="mt-2 text-sm text-slate-600">Rendering rows with the selected columns…</p> : null}
       {choiceProposal.status === 'error' ? <p role="alert" className="mt-2 text-sm text-red-800">{choiceProposal.message}</p> : null}
