@@ -38,6 +38,21 @@ const MAX_EXECUTE_HOST_TIMEOUT_MS = MAX_RUNTIME_SECONDS * 1000 + HOST_STARTUP_MA
 const MARKER = '__LOOM_OWNED_QUERY_PROBE__';
 const SAFE_ARANGO_ERROR = 'Arango reported a query error.';
 const SAFE_ARANGO_WARNING = 'Arango reported a query warning.';
+const SAFE_LOCAL_EXECUTION_MESSAGES = Object.freeze({
+  'query-creation': 'Local query creation failed safely.',
+  'row-capture': 'Local query row capture failed safely.',
+  'stats-shaping': 'Local query statistics shaping failed safely.',
+  'output-shaping': 'Local query output shaping failed safely.',
+});
+const EXECUTION_PHASES = new Set([...Object.keys(SAFE_LOCAL_EXECUTION_MESSAGES), 'complete']);
+const EXECUTION_ERROR_CLASSES = new Set([
+  'arango-query',
+  'local-execution',
+  'local-query-creation',
+  'local-row-capture',
+  'local-stats-shaping',
+  'local-output-shaping',
+]);
 const WRITE_NODE_TYPES = new Set([
   'InsertNode',
   'ModifyNode',
@@ -256,6 +271,7 @@ export function buildExecuteRequestScript({ query, bindVars, maxRuntimeSeconds, 
   const queryLiteral = quoteJavaScript(query);
   const bindLiteral = quoteJavaScript(bindVars);
   const marker = quoteJavaScript(MARKER);
+  const localMessages = quoteJavaScript(SAFE_LOCAL_EXECUTION_MESSAGES);
   const captureSetup = captureRows ? `
   let capturedRows = [];
   let capturedRowsBytes = 2;
@@ -280,6 +296,7 @@ export function buildExecuteRequestScript({ query, bindVars, maxRuntimeSeconds, 
   const captureResult = captureRows ? '\n  result.rows = capturedRows;' : '';
   const script = `
 const started = Date.now();
+let phase = 'query-creation';
 try {
   const cursor = db._query(${queryLiteral}, ${bindLiteral}, {
     maxRuntime: ${maxRuntimeSeconds}, memoryLimit: ${memoryLimitBytes}, profile: 2,
@@ -296,6 +313,7 @@ try {
   }
   let resultCount = 0;
   let safeIntegerCounts = null;${captureSetup}
+  phase = 'row-capture';
   while (cursor.hasNext()) {
     const row = cursor.next();
     resultCount += 1;${captureRow}
@@ -316,34 +334,43 @@ try {
   if (${safeIntegerCounts} && resultCount !== 1) {
     throw new Error('query did not return one integer-count object');
   }
-  let stats = null;
-  let warnings = [];
-  try {
-    const extra = cursor.getExtra();
-    const source = extra && extra.stats;
-    warnings = (extra && Array.isArray(extra.warnings) ? extra.warnings : []).map(value => ({
-      code: Number.isFinite(value && value.code) ? value.code : null,
-      message: ${quoteJavaScript(SAFE_ARANGO_WARNING)},
-    }));
-    if (source) stats = {
-      scannedIndex: Number.isFinite(source.scannedIndex) ? source.scannedIndex : null,
-      scannedFull: Number.isFinite(source.scannedFull) ? source.scannedFull : null,
-      peakMemoryUsage: Number.isFinite(source.peakMemoryUsage) ? source.peakMemoryUsage : null,
-      executionTime: Number.isFinite(source.executionTime) ? source.executionTime : null,
-      documentLookups: safeCount(source.documentLookups),
-      nodes: Array.isArray(source.nodes) ? source.nodes.map(safeProfileNode).filter(Boolean) : [],
-    };
-  } catch (_) {}
+  phase = 'stats-shaping';
+  const extra = cursor.getExtra();
+  const source = extra && extra.stats;
+  const warnings = (extra && Array.isArray(extra.warnings) ? extra.warnings : []).map(value => ({
+    code: Number.isFinite(value && value.code) ? value.code : null,
+    message: ${quoteJavaScript(SAFE_ARANGO_WARNING)},
+  }));
+  const stats = source ? {
+    scannedIndex: Number.isFinite(source.scannedIndex) ? source.scannedIndex : null,
+    scannedFull: Number.isFinite(source.scannedFull) ? source.scannedFull : null,
+    peakMemoryUsage: Number.isFinite(source.peakMemoryUsage) ? source.peakMemoryUsage : null,
+    executionTime: Number.isFinite(source.executionTime) ? source.executionTime : null,
+    documentLookups: safeCount(source.documentLookups),
+    nodes: Array.isArray(source.nodes) ? source.nodes.map(safeProfileNode).filter(Boolean) : [],
+  } : null;
+  phase = 'output-shaping';
   const result = {ok:true, elapsedMs:Date.now()-started, resultCount, stats, warnings};
   if (${safeIntegerCounts}) result.safeIntegerCounts = safeIntegerCounts;
   ${captureResult}
+  result.phase = 'complete';
+  result.errorClass = null;
   print(${marker} + JSON.stringify(result));
 } catch (error) {
+  const arangoQueryError = Number.isFinite(error && error.errorNum);
+  const errorClass = arangoQueryError ? 'arango-query' : ({
+    'query-creation': 'local-query-creation',
+    'row-capture': 'local-row-capture',
+    'stats-shaping': 'local-stats-shaping',
+    'output-shaping': 'local-output-shaping',
+  }[phase] || 'local-output-shaping');
   print(${marker} + JSON.stringify({
     ok:false, elapsedMs:Date.now()-started,
-    errorNum: Number.isFinite(error && error.errorNum) ? error.errorNum : null,
-    errorCode: Number.isFinite(error && error.code) ? error.code : null,
-    message: ${quoteJavaScript(SAFE_ARANGO_ERROR)},
+    phase,
+    errorClass,
+    errorNum: arangoQueryError ? error.errorNum : null,
+    errorCode: arangoQueryError && Number.isFinite(error && error.code) ? error.code : null,
+    message: arangoQueryError ? ${quoteJavaScript(SAFE_ARANGO_ERROR)} : ${localMessages}[phase] || 'Local query output shaping failed safely.',
   }));
 }`;
   return escapeScriptAtSigns(script);
@@ -466,9 +493,13 @@ function baseReport(options) {
   };
 }
 
-function fail(report, stage, message, errorNum = null, errorCode = null) {
+function fail(report, stage, message, errorNum = null, errorCode = null, executionDiagnostic = null) {
   report.status = 'failed';
   report.failure = { stage, message };
+  const phase = safeExecutionPhase(executionDiagnostic?.phase);
+  const errorClass = safeExecutionErrorClass(executionDiagnostic?.errorClass);
+  if (phase !== null) report.failure.phase = phase;
+  if (errorClass !== null) report.failure.errorClass = errorClass;
   report.response = {
     ...report.response,
     errorNum: finiteNumberOrNull(errorNum),
@@ -476,6 +507,36 @@ function fail(report, stage, message, errorNum = null, errorCode = null) {
     message,
   };
   return report;
+}
+
+function safeExecutionPhase(value) {
+  return typeof value === 'string' && EXECUTION_PHASES.has(value) ? value : null;
+}
+
+function safeExecutionErrorClass(value) {
+  return typeof value === 'string' && EXECUTION_ERROR_CLASSES.has(value) ? value : null;
+}
+
+function executionFailureStage(phase, errorClass) {
+  if (errorClass === 'arango-query') return 'execute';
+  if (phase === 'query-creation') return 'query-creation';
+  if (phase === 'row-capture') return 'row-capture';
+  if (phase === 'stats-shaping') return 'stats-shaping';
+  if (phase === 'output-shaping') return 'output-shaping';
+  return 'execute';
+}
+
+function localExecutionErrorClass(phase) {
+  if (phase === 'query-creation') return 'local-query-creation';
+  if (phase === 'row-capture') return 'local-row-capture';
+  if (phase === 'stats-shaping') return 'local-stats-shaping';
+  if (phase === 'output-shaping') return 'local-output-shaping';
+  return 'local-execution';
+}
+
+function executionFailureMessage(phase, errorClass) {
+  if (errorClass === 'arango-query') return SAFE_ARANGO_ERROR;
+  return SAFE_LOCAL_EXECUTION_MESSAGES[phase] ?? 'Local query execution failed safely.';
 }
 
 function validateBindScope(query, bindVars) {
@@ -716,9 +777,21 @@ async function main() {
                 if (!executeEnvelope) {
                   fail(report, 'execute-transport', executeResult.error ? safeProcessError(executeResult) : 'Arango result marker was missing or invalid');
                 } else {
+                  const phase = safeExecutionPhase(executeEnvelope.phase);
+                  const isArangoQueryError = Number.isFinite(executeEnvelope.errorNum);
+                  const errorClass = executeEnvelope.ok === true
+                    ? null
+                    : isArangoQueryError
+                      ? 'arango-query'
+                      : safeExecutionErrorClass(executeEnvelope.errorClass)
+                        ?? localExecutionErrorClass(phase);
+                  const errorNum = isArangoQueryError ? finiteNumberOrNull(executeEnvelope.errorNum) : null;
+                  const errorCode = isArangoQueryError ? finiteNumberOrNull(executeEnvelope.errorCode) : null;
                   report.timing.executeServerElapsedMs = finiteNumberOrNull(executeEnvelope.elapsedMs);
                   report.execution = {
                     completed: executeEnvelope.ok === true,
+                    phase: phase ?? (executeEnvelope.ok === true ? 'complete' : null),
+                    errorClass,
                     resultCount: finiteNumberOrNull(executeEnvelope.resultCount),
                     scannedIndex: finiteNumberOrNull(executeEnvelope.stats?.scannedIndex),
                     scannedFull: finiteNumberOrNull(executeEnvelope.stats?.scannedFull),
@@ -730,15 +803,23 @@ async function main() {
                   };
                   report.response = {
                     ...report.response,
-                    errorNum: finiteNumberOrNull(executeEnvelope.errorNum),
-                    errorCode: finiteNumberOrNull(executeEnvelope.errorCode),
-                    message: executeEnvelope.ok === true ? null : SAFE_ARANGO_ERROR,
+                    errorNum,
+                    errorCode,
+                    message: executeEnvelope.ok === true ? null : executionFailureMessage(phase, errorClass),
                     warnings: Array.isArray(executeEnvelope.warnings)
                       ? [...report.response.warnings, ...executeEnvelope.warnings]
                       : report.response.warnings,
                   };
                   if (executeEnvelope.ok !== true) {
-                    fail(report, 'execute', SAFE_ARANGO_ERROR, executeEnvelope.errorNum, executeEnvelope.errorCode);
+                    const message = executionFailureMessage(phase, errorClass);
+                    fail(
+                      report,
+                      executionFailureStage(phase, errorClass),
+                      message,
+                      errorNum,
+                      errorCode,
+                      { phase, errorClass },
+                    );
                   } else if (options.safeIntegerCounts) {
                     const counts = executeEnvelope.safeIntegerCounts;
                     const validCounts = isRecord(counts)

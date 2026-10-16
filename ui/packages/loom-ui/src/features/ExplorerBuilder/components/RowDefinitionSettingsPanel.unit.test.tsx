@@ -329,6 +329,8 @@ const selectionPage = {
 };
 
 const renderSettings = (overrides: {
+  triggerPresentation?: 'source-chip';
+  triggerLabel?: string;
   draftVersion?: number;
   draftDigest?: string;
   proposalValue?: RowDefinitionProposal;
@@ -352,9 +354,9 @@ const renderSettings = (overrides: {
   onEditConstructionStep?: (stepId: string) => void;
   onRemoveConstructionStep?: (stepId: string) => void;
   sourceCollectionAction?: ReactNode;
+  startingCollectionSettings?: ReactNode;
   currentRowMeaning?: string;
   renderRootSettings?: typeof relatedRowProps.renderRootSettings;
-  startingCollectionSettings?: ReactNode;
   workspaceTables?: ReadonlyArray<DraftTable>;
   replacementAssessment?: RowChangeAssessment;
   replacementPreview?: ExplorerBuilderPreviewResult;
@@ -375,6 +377,8 @@ const renderSettings = (overrides: {
   const onRemoveConstructionStep = overrides.onRemoveConstructionStep ?? vi.fn();
   const view = render(
     <RowDefinitionSettingsPanel
+      triggerPresentation={overrides.triggerPresentation}
+      triggerLabel={overrides.triggerLabel}
       {...idleRootChangeProps()}
       {...relatedRowProps}
       renderRootSettings={overrides.renderRootSettings ?? relatedRowProps.renderRootSettings}
@@ -391,11 +395,11 @@ const renderSettings = (overrides: {
       onChooseRelatedRows={onChooseRelatedRows}
       onChooseReshape={onChooseReshape}
       sourceCollectionAction={overrides.sourceCollectionAction}
+      startingCollectionSettings={overrides.startingCollectionSettings ?? relatedRowProps.startingCollectionSettings}
       client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision, assessRowChange, preview }}
       project="project-a"
       explorerId="explorer-a"
       snapshotToken="snapshot-1"
-      startingCollectionSettings={overrides.startingCollectionSettings ?? relatedRowProps.startingCollectionSettings}
       draftVersion={overrides.draftVersion ?? 4}
       draftDigest={overrides.draftDigest ?? 'draft-digest-4'}
       table={overrides.tableValue ?? table}
@@ -645,7 +649,7 @@ describe('RowDefinitionSettingsPanel', () => {
     renderSettings();
 
     const trigger = screen.getByTestId('construction-rows-settings-trigger');
-    expect(trigger).toHaveTextContent('Change current rows');
+    expect(trigger).toHaveTextContent('Change rows');
     expect(trigger).not.toHaveTextContent('One row per source record');
     expect(trigger).not.toHaveTextContent('Starting collection');
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -685,6 +689,18 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.click(within(collectionFooter).getByText('Starting collection'));
     expect(collectionFooter).toHaveAttribute('open');
     expect(within(collectionFooter).getByText('Collection controls')).toBeInTheDocument();
+  });
+
+  it('opens the existing row settings from a compact starting-record chip', async () => {
+    renderSettings({ triggerPresentation: 'source-chip', triggerLabel: 'Patient' });
+
+    const trigger = screen.getByTestId('construction-rows-settings-trigger');
+    expect(trigger).toHaveTextContent('Patient');
+    expect(trigger).not.toHaveTextContent('Change rows');
+    expect(trigger).toHaveAttribute('aria-label', 'Change starting records for Patient');
+    expect(trigger).toHaveClass('construction-source-chip');
+    fireEvent.click(trigger);
+    expect(await screen.findByRole('dialog', { name: 'Row definition settings' })).toBeInTheDocument();
   });
 
   it('opens executable related rows from the Rows settings dialog', async () => {
@@ -944,7 +960,7 @@ describe('RowDefinitionSettingsPanel', () => {
 
   it('previews and applies only the server-issued explicit-group proposal', async () => {
     const { listRowDefinitionChoices, proposeRowDefinition, onApply } = renderSettings();
-    expect(screen.getByTestId('construction-rows-settings-trigger')).toHaveTextContent('Change current rows');
+    expect(screen.getByTestId('construction-rows-settings-trigger')).toHaveTextContent('Change rows');
     fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
     const select = await screen.findByRole('combobox', { name: 'Rows per starting record' });
     expect(screen.getByRole('option', { name: 'One row per source record' })).toBeTruthy();

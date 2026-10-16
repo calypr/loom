@@ -2119,8 +2119,11 @@ export const J05_REQUIRED_ASSERTIONS = Object.freeze([
   'j05-published-viewer-data-survives-reload',
   'j05-viewer-action-to-render-within-five-seconds',
   'j05-viewer-reload-action-to-render-within-five-seconds',
+  'j05-reloaded-viewer-selects-published-output-identity',
+  'j05-reloaded-viewer-retains-exact-fixture-rows',
   'j05-viewer-renders-all-published-patient-rows',
   'j05-cell-explanation-action-to-render-within-five-seconds',
+  'j05-cell-explanation-source-details-action-to-render-within-five-seconds',
   'j05-viewer-explains-a-rendered-cell-with-fixture-evidence',
   'j05-close-explanation-action-to-render-within-five-seconds',
   'j05-load-values-action-to-render-within-five-seconds',
@@ -3194,6 +3197,7 @@ export const verifyJ05BrowserScenario = async (target, report, entryTarget = tar
     let previewBody;
     let previewExpected;
     let output;
+    let fixtureExpectedRowsByID;
     await action('preview-and-review-saved-output', async () => {
       const previousPreviewCount = previewResponses.length;
       const previewResponsePromise = page.waitForResponse((response) => {
@@ -3292,6 +3296,12 @@ export const verifyJ05BrowserScenario = async (target, report, entryTarget = tar
         familyCount: patient.name?.length ?? 0,
         gender: patient.gender ?? null,
       })).sort((left, right) => String(left.id).localeCompare(String(right.id)));
+      fixtureExpectedRowsByID = new Map(fixturePatients.map((patient) => [patient.id, new Map([
+        [idColumn.column, patient.id],
+        [genderColumn.column, patient.gender ?? null],
+        [familyCountColumn.column, patient.name?.length ?? 0],
+        ...familyColumns.map((column, index) => [column.column, patient.name?.[index]?.family ?? null]),
+      ])]));
       recordAssertion(report, 'j05-preview-preserves-fixture-literal-values-and-patient-identity', fixtureLiterals, previewLiterals);
       report.target.preview = { columns: previewColumns.map((column) => ({ column: column.column, label: column.label })), rows: previewExpected };
       await captureDOM('j05-preview');
@@ -3412,8 +3422,47 @@ export const verifyJ05BrowserScenario = async (target, report, entryTarget = tar
         });
       const viewerBody = await page.locator('body').innerText();
       recordAssertion(report, 'j05-published-viewer-data-survives-reload', ['dev-patient-001', 'dev-patient-002'], ['dev-patient-001', 'dev-patient-002'].filter((id) => viewerBody.includes(id)));
-      const tableBeforeFilter = await page.locator('table[aria-label$=" results"]').evaluate((table) => ({ headers: [...table.querySelectorAll('thead th')].map((cell) => cell.textContent.trim()), ids: [...table.querySelectorAll('tbody tr')].map((row) => row.querySelector('td')?.textContent.trim()) }));
-      recordAssertion(report, 'j05-viewer-renders-all-published-patient-rows', report.target.publishedRows.map((row) => row.values[report.target.columnIds.id]).sort(), tableBeforeFilter.ids.sort());
+      const tableBeforeFilter = await page.locator('table[aria-label$=" results"]').evaluate((table) => ({
+        headers: [...table.querySelectorAll('thead th')].map((cell) => cell.textContent.trim()),
+        rows: [...table.querySelectorAll('tbody tr')].map((row) => [...row.querySelectorAll('td')].map((cell) => cell.textContent.trim())),
+      }));
+      const identityColumnIndex = output.columns.findIndex((column) => column.column === report.target.previewIdentityColumn);
+      if (identityColumnIndex < 0) throw new Error('J05 reloaded Viewer output omitted the selected Patient identity column');
+      const activeOutputTabs = await page.locator('[role="tab"][aria-selected="true"]').evaluateAll((tabs) => tabs.map((tab) => ({
+        title: tab.innerText.trim().split(/\r?\n/)[0],
+        panelID: tab.getAttribute('aria-controls') ?? '',
+      })));
+      const activeOutputTab = activeOutputTabs[0];
+      const activeOutputID = activeOutputTab?.panelID.endsWith(`-panel-${output.outputId}`) ? output.outputId : undefined;
+      recordAssertion(report, 'j05-reloaded-viewer-selects-published-output-identity', {
+        outputId: output.outputId, title: output.title, active: true,
+      }, {
+        outputId: activeOutputTabs.length === 1 ? activeOutputID : undefined,
+        title: activeOutputTabs.length === 1 ? activeOutputTab.title : undefined,
+        active: activeOutputTabs.length === 1,
+      });
+      recordAssertion(report, 'j05-viewer-renders-all-published-patient-rows', report.target.publishedRows.map((row) => row.values[report.target.columnIds.id]).sort(),
+        tableBeforeFilter.rows.map((row) => row[identityColumnIndex]).sort());
+
+      const expectedReloadRows = fixturePatients.map((patient) => {
+        const values = fixtureExpectedRowsByID.get(patient.id);
+        if (!values || output.columns.some((column) => !values.has(column.column))) {
+          throw new Error(`J05 raw Patient fixture cannot supply every reloaded Viewer column for ${patient.id}`);
+        }
+        return output.columns.map((column) => {
+          const value = values.get(column.column);
+          return value === null || value === undefined ? '—' : String(value).trim();
+        });
+      }).sort((left, right) => left[identityColumnIndex].localeCompare(right[identityColumnIndex]));
+      const actualReloadRows = [...tableBeforeFilter.rows].sort((left, right) =>
+        String(left[identityColumnIndex]).localeCompare(String(right[identityColumnIndex])));
+      recordAssertion(report, 'j05-reloaded-viewer-retains-exact-fixture-rows', {
+        headers: output.columns.map((column) => column.label),
+        rows: expectedReloadRows,
+      }, {
+        headers: tableBeforeFilter.headers,
+        rows: actualReloadRows,
+      });
 
       const familyColumn = outputColumnForPath(builder, output, 'name[].family');
       const patientRow = page.getByRole('row').filter({ has: page.getByRole('cell', { name: 'dev-patient-001', exact: true }) });
@@ -3421,10 +3470,30 @@ export const verifyJ05BrowserScenario = async (target, report, entryTarget = tar
       const explanationDialog = page.getByRole('dialog').filter({ hasText: familyColumn.label });
       await click(`Explain ${familyColumn.label} for row dev-patient-001`, 'j05-cell-explanation-action-to-render-within-five-seconds',
         (timeout) => explanationDialog.waitFor({ state: 'visible', timeout }), explain);
-      const explanationText = await explanationDialog.innerText();
-      recordAssertion(report, 'j05-viewer-explains-a-rendered-cell-with-fixture-evidence', true,
-        explanationText.includes('Example') || explanationText.includes('dev-patient-001'));
-      report.target.cellExplanation = { column: familyColumn.label, containsFixtureEvidence: explanationText.includes('Example') || explanationText.includes('dev-patient-001') };
+      const familyOccurrence = familyColumn.label.match(/name\[\]\.family \[(\d+)\]$/);
+      const patientOneFixture = fixturePatients.find((patient) => patient.id === 'dev-patient-001');
+      if (!familyOccurrence || !patientOneFixture) throw new Error('J05 family explanation could not map its rendered column to the raw Patient fixture');
+      const expectedFamilyValue = patientOneFixture.name?.[Number(familyOccurrence[1])]?.family;
+      if (typeof expectedFamilyValue !== 'string') throw new Error(`J05 raw Patient fixture has no family value for ${familyColumn.label}`);
+      const sourceDetailsSummary = explanationDialog.locator('details').locator(':scope > summary')
+        .filter({ hasText: /^Source details \(1\)$/ });
+      const sourceDetails = sourceDetailsSummary.locator('xpath=..');
+      const expectedContributor = `Patient / ${patientOneFixture.id}`;
+      const contributorText = sourceDetails.getByText(expectedContributor, { exact: true });
+      const familyValueText = sourceDetails.getByText(expectedFamilyValue, { exact: true });
+      await click('expand Source details (1)', 'j05-cell-explanation-source-details-action-to-render-within-five-seconds',
+        (timeout) => Promise.all([
+          contributorText.waitFor({ state: 'visible', timeout }),
+          familyValueText.waitFor({ state: 'visible', timeout }),
+        ]), sourceDetailsSummary);
+      recordAssertion(report, 'j05-viewer-explains-a-rendered-cell-with-fixture-evidence', {
+        contributor: expectedContributor,
+        value: expectedFamilyValue,
+      }, {
+        contributor: await contributorText.innerText(),
+        value: await familyValueText.innerText(),
+      });
+      report.target.cellExplanation = { column: familyColumn.label, contributor: expectedContributor, value: expectedFamilyValue };
       await captureDOM('j05-viewer-cell-explanation');
       await click('Close cell explanation', 'j05-close-explanation-action-to-render-within-five-seconds',
         (timeout) => explanationDialog.waitFor({ state: 'hidden', timeout }));
@@ -4157,6 +4226,7 @@ export const verifyJ01BrowserScenario = async (target, report, entryTarget = tar
   report.requests = [];
   report.actions = [];
   let previewRowsForArtifact = [];
+  let publishedRuntimeOutput;
 
   const network = [];
   const pendingBodies = new Set();
@@ -4501,39 +4571,81 @@ export const verifyJ01BrowserScenario = async (target, report, entryTarget = tar
     });
 
     await action('preview_literal_scalar_and_owner_evidence', async () => {
+      const ownerSelectionIDs = ['dev-pair-001'];
+      const ownerSelectionEndpoint = `${target.apiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers/${encodeURIComponent(report.target.explorerId)}/selections`;
+      const ownerSelection = await requestJSON(ownerSelectionEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 30000,
+        body: JSON.stringify({
+          idempotencyKey: `loom-dev-j01-owner-inspector-${report.target.explorerId}-${runID}`,
+          snapshotToken: state.catalog.snapshotToken,
+          source: {
+            kind: 'resources',
+            resources: {
+              resourceType: 'Observation',
+              refs: ownerSelectionIDs.map((id) => ({
+                project: target.fixtureProject,
+                generation: target.fixtureGeneration,
+                resourceType: 'Observation',
+                id,
+              })),
+            },
+          },
+        }),
+      });
+      const ownerSelectionID = ownerSelection.value?.id;
+      if (ownerSelection.response.status !== 201 || ownerSelection.value?.complete !== true ||
+          ownerSelection.value?.resourceType !== 'Observation' || ownerSelection.value?.memberCount !== ownerSelectionIDs.length ||
+          !ownerSelectionID) {
+        throw new Error(`J01 exact owner inspection selection returned HTTP ${ownerSelection.response.status}: ${JSON.stringify(ownerSelection.value).slice(0, 500)}`);
+      }
+      const ownerSelectionPage = await requestJSON(`${ownerSelectionEndpoint}/${encodeURIComponent(ownerSelectionID)}?limit=10`, { timeout: 30000 });
+      const ownerSelectionMembers = (ownerSelectionPage.value?.members ?? []).map(({ ref }) => ref.id).sort();
+      if (!ownerSelectionPage.response.ok || ownerSelectionPage.value?.revision?.id !== ownerSelectionID ||
+          ownerSelectionPage.value?.revision?.complete !== true || ownerSelectionPage.value?.nextCursor) {
+        throw new Error(`J01 exact owner inspection selection could not be read back: ${JSON.stringify(ownerSelectionPage.value).slice(0, 500)}`);
+      }
+      recordAssertion(report, 'j01-owner-inspection-selection-has-exact-fixture-identity', ownerSelectionIDs, ownerSelectionMembers);
+      report.target.ownerInspectionSelection = { selectionRevisionId: ownerSelectionID, resourceType: 'Observation', ids: ownerSelectionMembers };
+      const ownerSelectionURL = new URL(`${target.uiUrl}/`);
+      ownerSelectionURL.searchParams.set('project', target.fixtureProject);
+      ownerSelectionURL.searchParams.set('explorer', report.target.explorerId);
+      ownerSelectionURL.searchParams.set('selection', ownerSelectionID);
+      ownerSelectionURL.searchParams.set('mode', 'builder');
+      await navigatePage(ownerSelectionURL.toString());
+      await waitForDOMCondition(`document.querySelector('.demo-controls span')?.textContent.trim() === ${JSON.stringify(`${target.fixtureProject} / ${report.target.explorerId}`)} && (${builderDOMReadyCondition})`, 60000);
+      await clickButton('Configure rows');
+      const ownerRowsDialog = page.getByRole('dialog', { name: 'Row definition settings', exact: true });
+      await ownerRowsDialog.waitFor({ state: 'visible', timeout: 30000 });
+      await waitForDOMCondition(`Boolean([...document.querySelectorAll('[role="dialog"] button')].find((button) => button.textContent.trim() === 'Use selected resources' && !button.disabled))`);
+      await clickButton('Use selected resources', ownerRowsDialog);
+      await waitForDOMCondition(`document.querySelector('section[aria-label="Starting collection"]')?.getAttribute('data-attached-selection-revision-id') === ${JSON.stringify(ownerSelectionID)}`);
+      state = await waitForState((value) => value.workspace?.documents?.find((candidate) => candidate.output?.id === outputId)?.population?.selectionRevisionId === ownerSelectionID, 'exact owner fixture selection attached');
+      recordAssertion(report, 'j01-owner-inspection-selection-is-applied-through-builder', ownerSelectionID,
+        state.workspace.documents.find((candidate) => candidate.output?.id === outputId)?.population?.selectionRevisionId);
+      await clickButton('Back to table', ownerRowsDialog);
+      await waitForDOMCondition(`!document.querySelector('[role="dialog"][aria-label="Row definition settings"]')`);
+
       let previewStartIndex = network.length - 1;
       await clickButton('Preview');
       await waitForDOMCondition(`document.body.innerText.includes('Preview and configure') && Boolean(document.querySelector('button[aria-label^="Inspect shared for row "]'))`, 60000);
-      await waitForNetworkResponse('/preview', previewStartIndex, 60000);
-      previewStartIndex = network.length - 1;
-      await select('Preview row limit', '1,000');
       const previewResponse = await waitForNetworkResponse('/preview', previewStartIndex, 60000);
       if (previewResponse.response.status !== 200 || !Array.isArray(previewResponse.responseBody?.rows)) {
-        throw new Error(`J01 preview API did not return a live row preview: HTTP ${previewResponse.response?.status} ${JSON.stringify(previewResponse.responseBody).slice(0, 300)}`);
+        throw new Error(`J01 exact owner selection preview failed: HTTP ${previewResponse.response?.status} ${JSON.stringify(previewResponse.responseBody).slice(0, 300)}`);
       }
       const previewRows = previewResponse.responseBody.rows;
-      previewRowsForArtifact = previewRows;
-      const zeroRow = previewRows.find((row) => Object.values(row ?? {}).some((value) => String(value) === 'dev-j01-concept-0000'));
       const previewValueColumn = previewResponse.responseBody.columns?.find((column) => column.authoredColumns?.includes(valueColumn.column) || column.column === valueColumn.column);
       const previewIdColumn = previewResponse.responseBody.columns?.find((column) => column.authoredColumns?.includes(idColumn.column) || column.column === idColumn.column);
-      if (!zeroRow || !previewValueColumn || !previewIdColumn) {
-        throw new Error(`J01 preview omitted the exact zero-valued generated row or selected columns: ${JSON.stringify({ rowCount: previewRows.length, columns: previewResponse.responseBody.columns?.map((column) => ({ column: column.column, label: column.label, authoredColumns: column.authoredColumns })) })}`);
+      if (previewRows.length !== 1 || !previewValueColumn || !previewIdColumn) {
+        throw new Error(`J01 exact owner selection preview omitted the selected row or columns: ${JSON.stringify({ rowCount: previewRows.length, columns: previewResponse.responseBody.columns?.map((column) => ({ column: column.column, label: column.label, authoredColumns: column.authoredColumns })) })}`);
       }
-      recordAssertion(report, 'j01-preview-preserves-literal-zero-not-missing', { identifier: 'dev-j01-concept-0000', value: 0 }, {
-        identifier: zeroRow[previewIdColumn.column],
-        value: zeroRow[previewValueColumn.column],
-      });
       const ownerRowIndex = previewRows.findIndex((row) => row[previewIdColumn.column] === 'dev-pair-001');
-      if (ownerRowIndex < 0) throw new Error('J01 1,000-row preview omitted the Study A owner-record fixture');
+      if (ownerRowIndex !== 0) throw new Error(`J01 exact owner selection preview omitted dev-pair-001: ${JSON.stringify(previewRows.map((row) => row[previewIdColumn.column]))}`);
+      recordAssertion(report, 'j01-owner-inspection-preview-shows-exact-selected-resource', ownerSelectionIDs,
+        previewRows.map((row) => row[previewIdColumn.column]).sort());
       const ownerButtonLabel = `Inspect shared for row ${ownerRowIndex + 1}`;
-      const previewScroll = page.getByTestId('preview-table-scroll');
-      const scrollBox = await previewScroll.boundingBox();
-      if (!scrollBox) throw new Error('J01 preview table scroll region is not visible');
-      await page.mouse.move(scrollBox.x + scrollBox.width / 2, scrollBox.y + scrollBox.height / 2);
-      for (let attempt = 0; attempt < 80 && await page.getByRole('button', { name: ownerButtonLabel, exact: true }).count() === 0; attempt += 1) {
-        await page.mouse.wheel(0, 900);
-      }
-      await waitForDOMCondition(`Boolean([...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')].find((button) => button.getAttribute('aria-label') === ${JSON.stringify(ownerButtonLabel)}))`, 60000);
+      await page.getByRole('button', { name: ownerButtonLabel, exact: true }).waitFor({ state: 'visible', timeout: 5000 });
       const previewTable = await page.evaluate(`(() => {
         const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
         const rows = [...(table?.querySelectorAll('[role="row"]') || [])];
@@ -4546,9 +4658,9 @@ export const verifyJ01BrowserScenario = async (target, report, entryTarget = tar
       })()`);
       recordAssertion(report, 'j01-preview-renders-only-the-three-selected-columns', 3, previewTable.tableColumns);
       recordAssertion(report, 'j01-preview-has-the-saved-column-order-and-name', ['valueInteger', 'shared', 'Observation identifier'], previewTable.headers);
-      report.target.preview = { rowSample: previewRows.length, countBasis: 'sampled-preview-limit', literalZero: 0, headers: previewTable.headers };
-      await captureDOM('j01-preview-table');
-      await saveScreenshot('j01-preview-table');
+      report.target.ownerInspectionPreview = { rowSample: previewRows.length, countBasis: 'exact-one-row-selection', headers: previewTable.headers };
+      await captureDOM('j01-owner-inspection-preview');
+      await saveScreenshot('j01-owner-inspection-preview');
       const ownerButton = await page.evaluate(`(() => { const button = [...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')].find((candidate) => candidate.getAttribute('aria-label') === ${JSON.stringify(ownerButtonLabel)}); return button ? { label: button.getAttribute('aria-label'), title: button.title } : undefined; })()`);
       if (!ownerButton) throw new Error('J01 Preview has no inspectable Study A owner-record cell for dev-pair-001');
       await click(`inspect shared for row ${ownerRowIndex + 1}`, page.getByRole('button', { name: ownerButtonLabel, exact: true }));
@@ -4585,6 +4697,59 @@ export const verifyJ01BrowserScenario = async (target, report, entryTarget = tar
       report.timings.uiAcknowledgements = summarizeTimingSamples(acknowledgementSamples);
       report.target.uiAcknowledgementSamples = acknowledgementSamples;
       recordAssertion(report, 'j01-captures-thirty-ui-acknowledgements', 30, acknowledgementSamples.length);
+
+      await clickButton('Configure rows');
+      const restoreRowsDialog = page.getByRole('dialog', { name: 'Row definition settings', exact: true });
+      await restoreRowsDialog.waitFor({ state: 'visible', timeout: 30000 });
+      await waitForDOMCondition(`Boolean([...document.querySelectorAll('[role="dialog"] button')].find((button) => button.textContent.trim() === 'Use all authorized rows' && !button.disabled))`);
+      await clickButton('Use all authorized rows', restoreRowsDialog);
+      await waitForDOMCondition(`document.querySelector('section[aria-label="Starting collection"]')?.getAttribute('data-attached-selection-revision-id') === null`);
+      state = await waitForState((value) => {
+        const table = value.workspace?.documents?.find((candidate) => candidate.output?.id === outputId);
+        return table?.population === undefined && table.rows?.kind === 'RECORDS';
+      }, 'all authorized Observation rows restored');
+      const restoredRows = state.workspace.documents.find((candidate) => candidate.output?.id === outputId);
+      recordAssertion(report, 'j01-owner-inspection-restores-full-authorized-record-population', {
+        population: null,
+        rows: { kind: 'RECORDS', records: {} },
+      }, {
+        population: restoredRows.population ?? null,
+        rows: restoredRows.rows,
+      });
+      await clickButton('Back to table', restoreRowsDialog);
+      await waitForDOMCondition(`!document.querySelector('[role="dialog"][aria-label="Row definition settings"]')`);
+
+      previewStartIndex = network.length - 1;
+      await clickButton('Preview');
+      await waitForDOMCondition(`document.body.innerText.includes('Preview and configure')`, 60000);
+      await waitForNetworkResponse('/preview', previewStartIndex, 60000);
+      previewStartIndex = network.length - 1;
+      await select('Preview row limit', '1,000');
+      const fullPopulationPreview = await waitForNetworkResponse('/preview', previewStartIndex, 60000);
+      if (fullPopulationPreview.response.status !== 200 || !Array.isArray(fullPopulationPreview.responseBody?.rows)) {
+        throw new Error(`J01 restored full-population preview failed: HTTP ${fullPopulationPreview.response?.status} ${JSON.stringify(fullPopulationPreview.responseBody).slice(0, 300)}`);
+      }
+      previewRowsForArtifact = fullPopulationPreview.responseBody.rows;
+      const zeroRow = previewRowsForArtifact.find((row) => Object.values(row ?? {}).some((value) => String(value) === 'dev-j01-concept-0000'));
+      const fullPopulationValueColumn = fullPopulationPreview.responseBody.columns?.find((column) => column.authoredColumns?.includes(valueColumn.column) || column.column === valueColumn.column);
+      const fullPopulationIDColumn = fullPopulationPreview.responseBody.columns?.find((column) => column.authoredColumns?.includes(idColumn.column) || column.column === idColumn.column);
+      if (!zeroRow || !fullPopulationValueColumn || !fullPopulationIDColumn) {
+        throw new Error(`J01 restored 1,000-row preview omitted the exact zero-valued generated row or selected columns: ${JSON.stringify({ rowCount: previewRowsForArtifact.length, columns: fullPopulationPreview.responseBody.columns?.map((column) => ({ column: column.column, label: column.label, authoredColumns: column.authoredColumns })) })}`);
+      }
+      recordAssertion(report, 'j01-preview-preserves-literal-zero-not-missing', { identifier: 'dev-j01-concept-0000', value: 0 }, {
+        identifier: zeroRow[fullPopulationIDColumn.column],
+        value: zeroRow[fullPopulationValueColumn.column],
+      });
+      recordAssertion(report, 'j01-restored-preview-keeps-original-sample-limit', 1000,
+        Number(await page.getByLabel('Preview row limit', { exact: true }).inputValue()));
+      report.target.preview = {
+        rowSample: previewRowsForArtifact.length,
+        countBasis: 'sampled-preview-limit',
+        literalZero: 0,
+        headers: fullPopulationPreview.responseBody.columns.map((column) => column.label),
+      };
+      await captureDOM('j01-preview-table');
+      await saveScreenshot('j01-preview-table');
     });
 
     const timingPath = join(evidenceDir, 'request-ui-timings.json');
@@ -4615,6 +4780,7 @@ export const verifyJ01BrowserScenario = async (target, report, entryTarget = tar
       recordAssertion(report, 'j01-published-explorer-has-only-one-output', 1, runtime.outputs.length);
       const output = runtime.outputs.find((candidate) => candidate.outputId === outputId);
       if (!output) throw new Error(`J01 publication omitted selected output ${outputId}`);
+      publishedRuntimeOutput = output;
       const runtimeColumnLabels = output.columns.map((column) => column.label);
       recordAssertion(report, 'j01-published-output-has-exact-renamed-selected-columns', ['valueInteger', 'shared', 'Observation identifier'], runtimeColumnLabels);
       const emittedSources = output.columns.map((column) => {
@@ -4626,7 +4792,7 @@ export const verifyJ01BrowserScenario = async (target, report, entryTarget = tar
       report.target.publication = {
         revisionId: explorerState.active?.revisionId ?? explorerState.publication?.revisionId,
         outputId: output.outputId,
-        outputs: runtime.outputs.map((candidate) => ({ outputId: candidate.outputId, columns: candidate.columns.map((column) => ({ column: column.column, label: column.label })) })),
+        outputs: runtime.outputs.map((candidate) => ({ outputId: candidate.outputId, title: candidate.title, columns: candidate.columns.map((column) => ({ column: column.column, label: column.label })) })),
         emittedSources,
       };
       const materializedRows = await graphQLRows(target, output.selector, output.columns.map((column) => column.column));
@@ -4734,6 +4900,99 @@ export const verifyJ01BrowserScenario = async (target, report, entryTarget = tar
       report.target.export = { path: archivePath, bytes: statSync(archivePath).size, rows: manifest.rows, features: manifest.features, countBasis: 'exact-exported-fixture-membership' };
       await captureDOM('j01-viewer-published-export');
       await saveScreenshot('j01-viewer-published-export');
+    });
+
+    await action('reload_published_viewer_and_verify_exact_fixture_rows', async () => {
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
+      await waitForDOMCondition(`document.readyState === 'complete' && document.body.innerText.includes('Published') && Boolean(document.querySelector('table[aria-label$=" results"] tbody tr'))`, 60000);
+      const viewerTable = page.locator('table[aria-label$=" results"]');
+      const identityColumn = publishedRuntimeOutput?.columns.find((column) => column.column === report.target.columnIds.id);
+      const valueColumn = publishedRuntimeOutput?.columns.find((column) => column.column === report.target.columnIds.valueInteger);
+      if (!publishedRuntimeOutput || !identityColumn || !valueColumn) throw new Error('J01 reloaded Viewer has no published output identity or scalar-value column');
+      const selectedOutputTabs = await page.locator('[role="tab"][aria-selected="true"]').evaluateAll((tabs) => tabs.map((tab) => ({
+        title: tab.innerText.trim().split(/\r?\n/)[0],
+        panelID: tab.getAttribute('aria-controls') ?? '',
+      })));
+      const activeTab = selectedOutputTabs[0];
+      const selectedOutputID = activeTab?.panelID.endsWith(`-panel-${publishedRuntimeOutput.outputId}`)
+        ? publishedRuntimeOutput.outputId
+        : undefined;
+      await click('open Viewer rows-per-page selector', page.getByRole('combobox', { name: 'Rows per page', exact: true }));
+      await click('select 100 Viewer rows per page', page.getByRole('option', { name: '100', exact: true }));
+      await waitForDOMCondition(`document.querySelector('input[aria-label="Rows per page"]')?.value === '100' && document.querySelectorAll('table[aria-label$=" results"] tbody tr').length === 100`, 60000);
+      const firstPage = await viewerTable.evaluate((table) => ({
+        headers: [...table.querySelectorAll('thead th')].map((cell) => cell.textContent.trim()),
+        rows: [...table.querySelectorAll('tbody tr')].map((row) => [...row.querySelectorAll('td')].map((cell) => cell.textContent.trim())),
+      }));
+      const identityHeaderIndex = firstPage.headers.indexOf(identityColumn.label);
+      const valueHeaderIndex = firstPage.headers.indexOf(valueColumn.label);
+      if (identityHeaderIndex < 0 || valueHeaderIndex < 0) throw new Error(`J01 reloaded Viewer omitted selected identity/scalar headers: ${JSON.stringify(firstPage.headers)}`);
+      const allViewerRows = [];
+      let pageRows = firstPage.rows;
+      const sourceObservations = readFileSync(join(target.fixtureDir, 'Observation.ndjson'), 'utf8')
+        .split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+      const generatedObservations = generatedJ01ConceptNDJSON(target.fixtureDir)?.trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line)) ?? [];
+      const expectedSourceRows = [...sourceObservations, ...generatedObservations]
+        .map((record) => ({ id: record.id, valueInteger: record.valueInteger ?? null }))
+        .sort((left, right) => left.id.localeCompare(right.id));
+      const pageCount = Math.ceil(expectedSourceRows.length / 100);
+      for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+        if (pageRows.length !== (pageNumber < pageCount ? 100 : expectedSourceRows.length - (pageCount - 1) * 100)) {
+          throw new Error(`J01 reloaded Viewer page ${pageNumber}/${pageCount} rendered ${pageRows.length} rows at 100 rows per page`);
+        }
+        allViewerRows.push(...pageRows);
+        if (pageNumber < pageCount) {
+          const previousPageIDs = pageRows.map((row) => row[identityHeaderIndex]);
+          await click(`next Viewer page ${pageNumber + 1}`, page.getByRole('button', { name: 'Next', exact: true }));
+          await waitForDOMCondition(`document.querySelector('[aria-label="Table controls"]')?.innerText.includes(${JSON.stringify(`Page ${pageNumber + 1}`)})`, 30000);
+          await waitForDOMCondition(`(() => {
+            const table = document.querySelector('table[aria-label$=" results"]');
+            const ids = [...(table?.querySelectorAll('tbody tr') || [])].map((row) => row.querySelectorAll('td')[${identityHeaderIndex}]?.textContent.trim());
+            return ids.length > 0 && JSON.stringify(ids) !== ${JSON.stringify(JSON.stringify(previousPageIDs))};
+          })()`, 30000);
+          pageRows = await viewerTable.evaluate((table) => [...table.querySelectorAll('tbody tr')]
+            .map((row) => [...row.querySelectorAll('td')].map((cell) => cell.textContent.trim())));
+        }
+      }
+      const reloadedRows = allViewerRows.map((row) => ({
+        id: row[identityHeaderIndex],
+        valueInteger: row[valueHeaderIndex] === '—' ? null : Number(row[valueHeaderIndex]),
+      })).sort((left, right) => left.id.localeCompare(right.id));
+      recordAssertion(report, 'j01-viewer-reload-preserves-exact-fixture-rows', expectedSourceRows, reloadedRows);
+      const selectedIdentityColumnMatches = selectedOutputTabs.length === 1
+        && selectedOutputID === report.target.outputId
+        && activeTab?.title === publishedRuntimeOutput.title
+        && firstPage.headers[identityHeaderIndex] === identityColumn.label
+        && identityColumn.label === 'Observation identifier';
+      recordAssertion(report, 'j01-viewer-reload-preserves-selected-identity-column', {
+        outputId: report.target.outputId,
+        title: publishedRuntimeOutput.title,
+        columnId: report.target.columnIds.id,
+        label: 'Observation identifier',
+      }, selectedIdentityColumnMatches ? {
+        outputId: selectedOutputID,
+        title: activeTab.title,
+        columnId: identityColumn.column,
+        label: firstPage.headers[identityHeaderIndex],
+      } : {
+        outputId: selectedOutputID,
+        title: activeTab?.title,
+        columnId: identityColumn.column,
+        label: firstPage.headers[identityHeaderIndex],
+      });
+      const artifact = inspectJ01ArtifactRows(readStoredZip(report.target.export.path), report.target.columnIds.id);
+      const previewByID = new Map(previewRowsForArtifact.map((row) => [row[report.target.columnIds.id], row]));
+      const reloadedViewerMatchesArtifact = j01ViewerValuesAgree({
+        viewerTable: { headers: firstPage.headers, rows: allViewerRows },
+        columns: publishedRuntimeOutput.columns,
+        previewByID,
+        artifactByID: artifact.rowsByID,
+        idColumn: report.target.columnIds.id,
+        structuredColumn: report.target.columnIds.ownerRecords,
+      });
+      recordAssertion(report, 'j01-viewer-reload-values-agree-with-preview-and-typed-artifact', true, reloadedViewerMatchesArtifact);
+      recordAssertion(report, 'j01-viewer-reload-renders-entire-export-membership', report.target.export.rows, allViewerRows.length);
+      await captureDOM('j01-viewer-after-reload');
     });
 
     recordLimitation(report, 'authorization-denial-local-stack', 'This isolated verification Compose stack uses the local AllowAll authorizer; the run proves exact fixture identity coverage and absence of examples/global counts from browse responses, but cannot exercise an unauthorized principal.');

@@ -4,6 +4,7 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import vm from 'node:vm';
 import {
@@ -92,6 +93,7 @@ process.stdout.write(JSON.stringify([${JSON.stringify(ownedContainer)}]));
 `;
   const rtkSource = `#!${node}
 import { appendFileSync } from 'node:fs';
+import vm from 'node:vm';
 const args = process.argv.slice(2);
 const shellCommand = args.at(-1) ?? '';
 const operation = shellCommand.includes('db._query(') ? 'execute' : 'explain';
@@ -149,10 +151,30 @@ if (operation === 'explain') {
 } else {
   const scenario = process.env.PROBE_EXECUTE_SCENARIO ?? 'normal';
   const captureRows = process.env.PROBE_CAPTURE_ROWS === '1';
+  if (scenario === 'generated-capture-throw') {
+    const { buildExecuteRequestScript } = await import(process.env.PROBE_MODULE_URL);
+    const script = buildExecuteRequestScript({
+      query: 'RETURN 1', bindVars: {}, maxRuntimeSeconds: 8,
+      memoryLimitBytes: 268435456, captureRows: true,
+    });
+    const generatedOutput = [];
+    let rowPending = true;
+    vm.runInNewContext(script, {
+      Date, JSON, Number, Object, Array,
+      print: value => generatedOutput.push(value),
+      db: { _query: () => ({
+        hasNext: () => rowPending,
+        next: () => { rowPending = false; return undefined; },
+        getExtra: () => ({ stats: null }),
+      }) },
+    });
+    process.stdout.write(generatedOutput[0] + '\\n');
+    process.exit(0);
+  }
   const envelope = scenario === 'no-stats'
     ? { ok: true, elapsedMs: 7, resultCount: 2, stats: null }
     : scenario === 'error'
-      ? { ok: false, elapsedMs: 7, errorNum: 32, errorCode: 400, message: 'Arango reported a query error.', rawError: 'PRIVATE_QUERY_ERROR_DETAIL' }
+      ? { ok: false, elapsedMs: 7, phase: 'row-capture', errorClass: 'arango-query', errorNum: 32, errorCode: 400, message: 'Arango reported a query error.', rawError: 'PRIVATE_QUERY_ERROR_DETAIL' }
       : scenario === 'malformed-envelope'
         ? { elapsedMs: 7, resultCount: 1, safeIntegerCounts: { scoped_roots: 7 }, errorNum: 32, errorCode: 400, message: 'PRIVATE_QUERY_ERROR_DETAIL', rawError: 'PRIVATE_QUERY_ERROR_DETAIL', rows: [{ category: ${JSON.stringify(sensitiveCategory)} }] }
         : scenario === 'safe-counts-zero'
@@ -223,6 +245,7 @@ async function runProbe(t, {
     PROBE_DOCKER_CALLS: harness.dockerCallsPath,
     PROBE_EVENTS: harness.eventsPath,
     PROBE_DOCKER_FAIL: dockerFail ? '1' : '0',
+    PROBE_MODULE_URL: pathToFileURL(cliPath).href,
     PROBE_EXPLAIN_SCENARIO: explainScenario,
     PROBE_EXECUTE_SCENARIO: executeScenario,
     PROBE_CAPTURE_ROWS: args.includes('--capture-rows') ? '1' : '0',
@@ -379,6 +402,26 @@ test('capture mode exposes no rows on query failure or malformed success envelop
   assertNoSensitiveValues(withoutExecute);
 });
 
+test('generated local capture failure reports its bounded phase and local class', async (t) => {
+  const run = await runProbe(t, {
+    args: ['--execute', '--capture-rows'],
+    executeScenario: 'generated-capture-throw',
+  });
+  assert.notEqual(run.command.status, 0);
+  assert.deepEqual(run.events.map(event => event.operation), ['explain', 'execute']);
+  assert.equal(run.report.execution.completed, false);
+  assert.equal(run.report.execution.phase, 'row-capture');
+  assert.equal(run.report.execution.errorClass, 'local-row-capture');
+  assert.equal(run.report.failure.stage, 'row-capture');
+  assert.equal(run.report.failure.phase, 'row-capture');
+  assert.equal(run.report.failure.errorClass, 'local-row-capture');
+  assert.equal(run.report.response.errorNum, null);
+  assert.equal(run.report.response.errorCode, null);
+  assert.equal(run.report.response.message, 'Local query row capture failed safely.');
+  assert.equal(Object.hasOwn(run.report.execution, 'rows'), false);
+  assertNoSensitiveValues(run);
+});
+
 test('generated capture script enforces both caps and drops all rows on serialization or query failure', () => {
   const script = buildExecuteRequestScript({
     query: queryText,
@@ -410,8 +453,10 @@ test('generated capture script enforces both caps and drops all rows on serializ
   ]) {
     const envelope = runRows(rows);
     assert.equal(envelope.ok, false);
+    assert.equal(envelope.phase, 'row-capture');
+    assert.equal(envelope.errorClass, 'local-row-capture');
     assert.equal(Object.hasOwn(envelope, 'rows'), false);
-    assert.equal(envelope.message, 'Arango reported a query error.');
+    assert.equal(envelope.message, 'Local query row capture failed safely.');
   }
   const printed = [];
   let offset = 0;
@@ -426,6 +471,8 @@ test('generated capture script enforces both caps and drops all rows on serializ
   });
   const failed = JSON.parse(printed[0].slice(printed[0].indexOf('__LOOM_OWNED_QUERY_PROBE__') + '__LOOM_OWNED_QUERY_PROBE__'.length));
   assert.equal(failed.ok, false);
+  assert.equal(failed.phase, 'row-capture');
+  assert.equal(failed.errorClass, 'local-row-capture');
   assert.equal(Object.hasOwn(failed, 'rows'), false);
   assert.equal(JSON.stringify(failed).includes('PRIVATE_QUERY_ERROR_DETAIL'), false);
 });
@@ -683,6 +730,10 @@ test('query errors retain numeric diagnostics and expose only the safe message',
   assert.equal(run.report.response.errorNum, 32);
   assert.equal(run.report.response.errorCode, 400);
   assert.equal(run.report.response.message, 'Arango reported a query error.');
+  assert.equal(run.report.execution.phase, 'row-capture');
+  assert.equal(run.report.execution.errorClass, 'arango-query');
+  assert.equal(run.report.failure.stage, 'execute');
+  assert.equal(run.report.failure.errorClass, 'arango-query');
   assertNoSensitiveValues(run);
 });
 

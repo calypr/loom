@@ -222,6 +222,10 @@ describe('PreviewTable header controls', () => {
     expect(screen.queryByRole('list', { name: 'Table columns' })).toBeNull();
 
     const rowLimit = within(controls).getByRole('combobox', { name: 'Preview row limit' });
+    const rowLimitLabel = rowLimit.closest('label');
+    expect(rowLimitLabel?.textContent).toContain('Show');
+    expect(rowLimitLabel?.textContent).toContain('rows');
+    expect(controls.querySelector('option:checked')?.textContent).toBe('25');
     fireEvent.change(rowLimit, { target: { value: '50' } });
     expect(onLimitChange).toHaveBeenCalledWith(50);
   });

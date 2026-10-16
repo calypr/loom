@@ -72,7 +72,7 @@ const resolveActionLocator = async (page, selector, identity = {}) => {
   return requireUnique(candidates.nth(matches[0]), `${selector} ${name ?? includes}`);
 };
 
-const inspectPage = (_page, body) => page.evaluate(body);
+const inspectPage = (_page, callback, argument) => page.evaluate(callback, argument);
 const performAction = async (_tracker, label, locator, action, options = {}) => cda.action(
   label, locator, target => action(target, { timeout: options.timeout ?? 5000 }), options);
 const waitForBrowser = (_page, condition, timeout = 30000) => waitForCondition(page, condition, Math.min(timeout, 5000));
@@ -102,8 +102,9 @@ const api = async (path, body) => {
   const startedAt = Date.now();
   const headers = { 'Content-Type': 'application/json', 'X-Request-ID': requestId };
   if (apiToken) headers.Authorization = `Bearer ${apiToken}`;
+  const method = body === undefined ? 'GET' : 'POST';
   const response = await fetch(apiOrigin + path, {
-    method: body === undefined ? 'GET' : 'POST',
+    method,
     headers,
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     signal: AbortSignal.timeout(30000),
@@ -111,7 +112,7 @@ const api = async (path, body) => {
   const text = await response.text();
   let responseBody;
   try { responseBody = text ? JSON.parse(text) : undefined; } catch { responseBody = text; }
-  report.requests.push({ path, requestId, status: response.status, durationMs: Date.now() - startedAt });
+  report.requests.push({ path, method, requestId, status: response.status, durationMs: Date.now() - startedAt });
   assert(response.ok, `${response.status} ${path}: ${JSON.stringify(responseBody)}`);
   return responseBody;
 };
@@ -176,7 +177,7 @@ const command = async (commands) => {
 const document = () => builder.workspace.documents.find(doc => doc.output.id === outputId);
 const previewTableSelector = '[data-testid="preview-table-scroll"] [role="table"]';
 const rowsReady = count => ({ kind: 'rows', selector: previewTableSelector, count });
-const domText = () => inspectPage(page, 'return document.body.innerText;');
+const domText = () => inspectPage(page, () => document.body.innerText);
 const scalarCell = cell => {
   let value = cell?.raw;
   if (value) {
@@ -193,7 +194,20 @@ const sortedPairs = pairs => pairs.map(pair => [String(pair[0]), String(pair[1])
   .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
 const expectedPairs = () => report.oracle.expectedRows.map(({ id, value }) => [id, value]);
 
-const fieldPreviewRows = async () => inspectPage(page, `const proposalRow=document.querySelector('[data-testid="construction-proposal-preview-row"]');const root=proposalRow?.closest('table')??document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');if(!root)return null;const proposal=Boolean(proposalRow);const headers=[...root.querySelectorAll(proposal?'thead th':'[role="columnheader"]')].map(cell=>cell.innerText.trim());const rows=[...root.querySelectorAll(proposal?'[data-testid="construction-proposal-preview-row"]':'[role="row"]')].slice(proposal?0:1).map(row=>[...row.querySelectorAll(proposal?'td':'[role="cell"]')].map(cell=>({text:cell.innerText.trim(),raw:cell.title}))).filter(row=>row.length);return {headers,rows,rowCount:root.getAttribute('aria-rowcount')};`);
+const fieldPreviewRows = async () => inspectPage(page, () => {
+  const proposalRow = document.querySelector('[data-testid="construction-proposal-preview-row"]');
+  const root = proposalRow?.closest('table') ?? document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+  if (!root) return null;
+  const proposal = Boolean(proposalRow);
+  const headers = [...root.querySelectorAll(proposal ? 'thead th' : '[role="columnheader"]')]
+    .map(cell => cell.innerText.trim());
+  const rows = [...root.querySelectorAll(proposal ? '[data-testid="construction-proposal-preview-row"]' : '[role="row"]')]
+    .slice(proposal ? 0 : 1)
+    .map(row => [...row.querySelectorAll(proposal ? 'td' : '[role="cell"]')]
+      .map(cell => ({ text: cell.innerText.trim(), raw: cell.title })))
+    .filter(row => row.length);
+  return { headers, rows, rowCount: root.getAttribute('aria-rowcount') };
+});
 
 const verifyRenderedPairs = async (label) => {
   const preview = await fieldPreviewRows();
@@ -330,7 +344,7 @@ const selectExpandedAndPreview = async () => measure('native-component-row-previ
   const policySelect = 'select[aria-label="Unmatched record policy"]';
   await fastWait(startedAt, { kind: 'enabled', selector: policySelect }, 'Expansion policy discovery');
   const wanted = `expanded:${componentChoice.choiceId}:PRESERVE_PARENT`;
-  const selected = await inspectPage(page, `return document.querySelector(${JSON.stringify(policySelect)})?.value;`);
+  const selected = await inspectPage(page, selector => document.querySelector(selector)?.value, policySelect);
   if (selected !== wanted) await selectOption(page, policySelect, wanted);
   const expectedCount = report.oracle.expectedRows.length;
   await fastWait(startedAt, { kind: 'any', conditions: [
@@ -340,7 +354,8 @@ const selectExpandedAndPreview = async () => measure('native-component-row-previ
     ] },
     { kind: 'present', selector: '[aria-label="Row definition settings"] [role="alert"]' },
   ] }, 'Automatic row definition proposal');
-  const proposalError = await inspectPage(page, `return document.querySelector('[aria-label="Row definition settings"] [role="alert"]')?.innerText;`);
+  const proposalError = await inspectPage(page,
+    () => document.querySelector('[aria-label="Row definition settings"] [role="alert"]')?.innerText);
   assert(!proposalError, `Row definition proposal failed: ${proposalError}`);
   const proposal = await waitForNativeResponse('/row-definition-proposals', priorProposalCount, remaining(startedAt));
   assert.equal(proposal.status, 200, `Native row proposal failed: ${JSON.stringify(proposal.response)}`);
@@ -351,7 +366,20 @@ const selectExpandedAndPreview = async () => measure('native-component-row-previ
   report.rowProposal = proposal;
 });
 
-const viewerSnapshot = async () => inspectPage(page, `const normalize=value=>String(value??'').replace(/\\s+/g,' ').trim();const tables=[...document.querySelectorAll('[role="table"],table')];const readTable=table=>{const headerNodes=[...table.querySelectorAll('[role="columnheader"],thead th')];const headers=headerNodes.map(cell=>normalize(cell.innerText||cell.textContent));const rows=[...table.querySelectorAll('[role="row"],tbody tr')].filter(row=>!row.querySelector('[role="columnheader"],th'));const cells=rows.map(row=>[...row.querySelectorAll('[role="cell"],td')].map(cell=>({text:normalize(cell.innerText||cell.textContent),raw:cell.title})));return {headers,cells,ariaRowCount:table.getAttribute('aria-rowcount')};};return {url:location.href,body:document.body.innerText.slice(0,1800),tables:tables.map(readTable)};`);
+const viewerSnapshot = async () => inspectPage(page, () => {
+  const normalize = value => String(value ?? '').replace(/\s+/g, ' ').trim();
+  const tables = [...document.querySelectorAll('[role="table"],table')];
+  const readTable = table => {
+    const headerNodes = [...table.querySelectorAll('[role="columnheader"],thead th')];
+    const headers = headerNodes.map(cell => normalize(cell.innerText || cell.textContent));
+    const rows = [...table.querySelectorAll('[role="row"],tbody tr')]
+      .filter(row => !row.querySelector('[role="columnheader"],th'));
+    const cells = rows.map(row => [...row.querySelectorAll('[role="cell"],td')]
+      .map(cell => ({ text: normalize(cell.innerText || cell.textContent), raw: cell.title })));
+    return { headers, cells, ariaRowCount: table.getAttribute('aria-rowcount') };
+  };
+  return { url: location.href, body: document.body.innerText.slice(0, 1800), tables: tables.map(readTable) };
+});
 
 const verifyViewerPairs = (snapshot, label) => {
   const table = snapshot.tables.find(candidate => candidate.headers.some(header => header.toUpperCase() === 'OBSERVATION ID') && candidate.headers.some(header => /component.*value.?string/i.test(header)));
@@ -364,24 +392,54 @@ const verifyViewerPairs = (snapshot, label) => {
   return { headers: table.headers, rowCount: table.cells.length, pairs: actual, ariaRowCount: table.ariaRowCount };
 };
 
+const assertPublishedRuntimeIdentity = async (phase) => {
+  const envelope = await api(explorerPath);
+  const runtime = envelope?.runtime;
+  const generation = runtime?.generation ?? runtime?.publication?.generation;
+  const revisionId = runtime?.publication?.revisionId;
+  const output = runtime?.outputs?.find(candidate => candidate.outputId === outputId);
+  const expectedRevisionId = report.publication?.revisionId;
+
+  assert.equal(envelope?.project, values.project, `${phase} runtime project differs from the selected CDA project`);
+  assert.equal(envelope?.explorerId, explorer, `${phase} runtime Explorer differs from the run-owned Explorer`);
+  assert.equal(generation, datasetGeneration, `${phase} runtime generation differs from the raw CDA oracle generation`);
+  assert.equal(typeof expectedRevisionId, 'string');
+  assert.notEqual(expectedRevisionId, '');
+  assert.equal(revisionId, expectedRevisionId, `${phase} runtime revision differs from Native Publish`);
+  assert(output, `${phase} runtime does not expose the exact published output`);
+
+  return { project: envelope.project, explorerId: envelope.explorerId, generation, revisionId, outputId: output.outputId };
+};
+
 const verifyViewerAndReload = async () => {
   let viewerURL;
   await measure('native-viewer-open-and-data-render', async startedAt => {
-    const control = await inspectPage(page, `const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Viewer');return {visible:Boolean(button&&button.offsetParent!==null),disabled:button?.disabled};`);
+    const control = await inspectPage(page, () => {
+      const button = [...document.querySelectorAll('button')]
+        .find(candidate => candidate.textContent?.trim() === 'Viewer');
+      return { visible: Boolean(button && button.offsetParent !== null), disabled: button?.disabled };
+    });
     assert(control.visible && !control.disabled, 'Native Viewer control is missing or disabled after publication');
     await click(page, 'button', { name: 'Viewer' }, 1500);
     await fastWait(startedAt, { kind: 'query', values: { mode: 'viewer', project: values.project, explorer } }, 'Native Viewer navigation');
     await fastWait(startedAt, { kind: 'viewer-pairs', pairs: expectedPairs() }, 'Viewer rendered exact published rows');
-    viewerURL = await inspectPage(page, 'return location.href;');
+    viewerURL = await inspectPage(page, () => location.href);
     report.viewer = verifyViewerPairs(await viewerSnapshot(), 'Viewer');
   });
   report.viewerURL = viewerURL;
+  report.runtimeIdentity ??= {};
+  report.runtimeIdentity.initialViewer = await assertPublishedRuntimeIdentity('Initial Viewer');
 
   await measure('native-viewer-reload-and-data-render', async startedAt => {
     await navigate(page, viewerURL);
     await fastWait(startedAt, { kind: 'query', values: { mode: 'viewer' } }, 'Reloaded Viewer navigation');
     await fastWait(startedAt, { kind: 'viewer-pairs', pairs: expectedPairs() }, 'Reloaded Viewer rendered exact published rows');
     report.viewerReload = verifyViewerPairs(await viewerSnapshot(), 'Reloaded Viewer');
+  });
+  report.runtimeIdentity.reload = await assertPublishedRuntimeIdentity('Reloaded Viewer');
+  recordAssertion('published runtime identity matches the selected project, Explorer, generation, Native Publish revision, and output before and after reload', {
+    initial: report.runtimeIdentity.initialViewer,
+    reload: report.runtimeIdentity.reload,
   });
 };
 
@@ -438,10 +496,33 @@ const prepareExplorer = async () => {
   assert(!explorer.includes(protectedExplorer), 'Protected Explorer cannot be targeted');
   await api(root, { name: explorer, title: `CDA expanded publication QA ${explorer}` });
   builder = await readBuilder();
-  datasetGeneration = builder.catalog?.generation;
-  assert.equal(typeof datasetGeneration, 'string');
-  assert(datasetGeneration.length > 0, 'Fresh Builder catalog has no active CDA generation');
-  report.target.generation = datasetGeneration;
+  const expectedCatalogPath = explorerPath + '/authoring/v2/builder';
+  const initialBuilderRequest = report.requests.at(-1);
+  assert.equal(initialBuilderRequest?.method, 'GET', 'Initial Builder catalog read was not a GET');
+  assert.equal(initialBuilderRequest?.path, expectedCatalogPath, 'Initial Builder catalog GET targeted a different project or Explorer');
+  assert.equal(initialBuilderRequest?.status, 200, 'Initial Builder catalog GET did not succeed');
+
+  const expectedGeneration = cda.target.generation;
+  assert.equal(typeof expectedGeneration, 'string', 'Configured CDA target generation is missing');
+  assert(expectedGeneration.trim().length > 0, 'Configured CDA target generation is empty');
+  assert.equal(builder.catalog?.generation, expectedGeneration, 'Initial Builder catalog generation differs from the configured target');
+  assert.equal(builder.catalog?.complete, true, 'Initial Builder catalog is incomplete');
+  assert.equal(typeof builder.catalog?.snapshotToken, 'string', 'Initial Builder catalog has no snapshot token');
+  assert(builder.catalog.snapshotToken.trim().length > 0, 'Initial Builder catalog has an empty snapshot token');
+  datasetGeneration = expectedGeneration;
+  report.target.generation = builder.catalog.generation;
+  report.nativeCatalogIdentity = {
+    project: values.project,
+    explorerId: explorer,
+    builderGetPath: initialBuilderRequest.path,
+    expectedGeneration,
+    observedGeneration: builder.catalog.generation,
+    snapshotToken: builder.catalog.snapshotToken,
+    complete: builder.catalog.complete,
+    authorizationScopeDigest: builder.catalog.authorizationScopeDigest ?? null,
+    resolvedSchemaDigest: builder.catalog.resolvedSchemaDigest ?? null,
+  };
+  recordAssertion('expanded-publication-initial-catalog-identity-matches-configured-target', report.nativeCatalogIdentity);
 
   const oracleQuery = `FOR r IN Observation FILTER r.project == ${JSON.stringify(values.project)} AND r.dataset_generation == ${JSON.stringify(datasetGeneration)} FILTER IS_ARRAY(r.payload.component) SORT r.id LIMIT 1000 RETURN {id:r.id,generation:r.dataset_generation,payload:r.payload}`;
   const rawStartedAt = Date.now();
@@ -583,7 +664,15 @@ const main = async () => {
   } else {
     report.gaps.push({ assertion: 'stable expanded row identity', status: 'untested', reason: 'The native preview did not expose __loom_row_id for every expanded row.' });
   }
-  const previewPanel = await inspectPage(page, `const panel=document.querySelector('[data-testid="construction-preview"]');return {status:panel?.dataset.previewStatus,outputId:panel?.dataset.previewOutputId,receiptId:panel?.dataset.previewReceiptId,currentDraftDigest:panel?.dataset.currentDraftDigest};`);
+  const previewPanel = await inspectPage(page, () => {
+    const panel = document.querySelector('[data-testid="construction-preview"]');
+    return {
+      status: panel?.dataset.previewStatus,
+      outputId: panel?.dataset.previewOutputId,
+      receiptId: panel?.dataset.previewReceiptId,
+      currentDraftDigest: panel?.dataset.currentDraftDigest,
+    };
+  });
   report.preview = { ...nativePreview(reloadedPreviewEntry), ...previewPanel };
   assert.equal(previewPanel.outputId, outputId, 'Automatic preview targets a different output');
   assert.equal(previewPanel.status, 'ready', 'Automatic native preview is not ready');
@@ -592,7 +681,11 @@ const main = async () => {
   recordAssertion('saved reload renders exact raw component tuples in the native preview', { rowCount: expandedCount, pairs: report.reloadedPreview.pairs });
   await saveDOM('component-rows-reloaded');
 
-  const publishControl = await inspectPage(page, `const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Publish');return {disabled:button?.disabled,visible:Boolean(button)};`);
+  const publishControl = await inspectPage(page, () => {
+    const button = [...document.querySelectorAll('button')]
+      .find(candidate => candidate.textContent?.trim() === 'Publish');
+    return { disabled: button?.disabled, visible: Boolean(button) };
+  });
   assert(publishControl.visible && !publishControl.disabled, 'Publish is not enabled after the ready expanded preview');
   const priorPublishCount = protocol.length;
   let publication;

@@ -370,6 +370,8 @@ const requestFailureMessage = (error: unknown, fallback: string): string => {
 };
 
 export const RowDefinitionSettingsPanel = ({
+  triggerPresentation,
+  triggerLabel,
   client,
   project,
   explorerId,
@@ -401,6 +403,8 @@ export const RowDefinitionSettingsPanel = ({
   onEditConstructionStep,
   onRemoveConstructionStep,
 }: {
+  readonly triggerPresentation?: 'source-chip';
+  readonly triggerLabel?: string;
   readonly client: Pick<LoomClient, 'listRowDefinitionChoices' | 'proposeRowDefinition' | 'getSelection' | 'createExplicitGroupRevision'> &
     Partial<Pick<LoomClient, 'assessRowChange' | 'preview'>>;
   readonly project: string;
@@ -796,15 +800,19 @@ export const RowDefinitionSettingsPanel = ({
       <button
         type="button"
         data-testid="construction-rows-settings-trigger"
-        aria-label="Change current rows"
+        aria-label={triggerPresentation === 'source-chip'
+          ? `Change starting records for ${triggerLabel || table.document.rootResourceType || 'this table'}`
+          : 'Change current rows'}
         aria-haspopup="dialog"
         aria-expanded={settings.kind !== 'closed'}
-        className="inline-flex max-w-full items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-left text-xs text-slate-700 hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+        className={triggerPresentation === 'source-chip'
+          ? 'construction-source-chip inline-flex h-7 max-w-full items-center rounded-md bg-white px-2.5 text-left text-xs font-medium text-blue-950 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60'
+          : 'inline-flex h-9 max-w-full items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-left text-xs text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60'}
         disabled={disabled || settings.kind === 'loading'}
         onClick={() => void openSettings()}
       >
-        <span className="shrink-0 font-semibold text-slate-900">Change current rows</span>
-        <span className="shrink-0 font-medium text-blue-800" aria-hidden="true">→</span>
+        <span className="shrink-0">{triggerLabel ?? 'Change rows'}</span>
+        {triggerPresentation === 'source-chip' ? null : <span className="shrink-0 font-medium text-blue-800" aria-hidden="true">→</span>}
       </button>
       {settings.kind !== 'closed' ? (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-white">

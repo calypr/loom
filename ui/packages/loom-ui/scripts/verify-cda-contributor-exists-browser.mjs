@@ -290,7 +290,7 @@ const applyProposal = async (expectedRows, name) => {
   builder = await api(base + '/builder');
 };
 
-const expectedErrorProposal = async (name, startedAt) => {
+const expectedErrorProposal = async (name, startedAt, requestStart) => {
   await waitFor(() => document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus === 'error');
   const result = await page.locator('[data-testid="construction-proposal-panel"]').evaluate(panel => ({
     status: panel?.dataset.proposalStatus, text: panel?.innerText,
@@ -310,14 +310,10 @@ const expectedErrorProposal = async (name, startedAt) => {
     assert(repair.options.some((item) => item.value === option && !item.disabled), `${option} repair choice is unavailable`);
   }
 
-  const requestEntry = await nativeTracker.waitFor((item) => item.path === `${base}/construction-proposals`
-    && item.startedAt >= startedAt, { timeoutMs: 5000 });
-  const request = await cda.waitForCapturedResponse(nativeTracker, item => item === requestEntry, 5000);
-  const rawResponse = nativeTracker.rawResponseBody(request);
-  const response = typeof rawResponse === 'string'
-    ? (() => { try { return JSON.parse(rawResponse); } catch { return null; } })()
-    : rawResponse;
-  assert([400, 422].includes(request.status), `${name}: expected a validation response, got ${request.status}: ${JSON.stringify(response)}`);
+  const requestEntry = await nativeTracker.waitForResponse((item) => item.path === `${base}/construction-proposals`
+    && item.startedAt >= startedAt, { fromIndex: requestStart, timeoutMs: 5000 });
+  const response = await nativeTracker.responseBody(requestEntry);
+  assert([400, 422].includes(requestEntry.status), `${name}: expected a validation response, got ${requestEntry.status}: ${JSON.stringify(response)}`);
   const code = response?.error?.code ?? response?.code ?? response?.errorCode ?? response?.error?.errorCode;
   const diagnostic = `${JSON.stringify(response)} ${result.alert ?? result.text}`;
   assert.notEqual(code, 'INTERNAL_ERROR', `${name}: ERROR policy returned INTERNAL_ERROR: ${diagnostic}`);
@@ -352,8 +348,8 @@ const expectedErrorProposal = async (name, startedAt) => {
   report.expectedHttpFailure = expectedFailure;
   const durationMs = Date.now() - startedAt;
   assert(durationMs <= 5000, `${name} took ${durationMs}ms`);
-  report.cases.push({ name, durationMs, status: request.status, code, message: result.alert, repairOptions: repair.options });
-  report.expectedPolicyError = { status: request.status, code, response, message: result.alert };
+  report.cases.push({ name, durationMs, status: requestEntry.status, code, message: result.alert, repairOptions: repair.options });
+  report.expectedPolicyError = { status: requestEntry.status, code, response, message: result.alert };
   report.expectedErrorWindow.active = false;
 };
 
@@ -462,8 +458,8 @@ try {
   await proposal('all-matching-contributor-baseline-preview', startedAt, allMatchingRows);
   const baselineRequest = report.nativeRequests.findLast((request) => request.path === `${base}/construction-proposals`
     && request.startedAt >= startedAt);
-  assert(baselineRequest?.body?.candidateConstruction?.steps, 'Native ALL_MATCHES baseline proposal was not captured');
-  const baselineStep = baselineRequest.body.candidateConstruction.steps.find((step) => step.operation.kind === 'RELATED_EXPAND');
+  assert(baselineRequest?.request?.candidateConstruction?.steps, 'Native ALL_MATCHES baseline proposal was not captured');
+  const baselineStep = baselineRequest.request.candidateConstruction.steps.find((step) => step.operation.kind === 'RELATED_EXPAND');
   assert.deepEqual(baselineStep?.operation.relatedExpand.contributorRule, { policy: 'ALL_MATCHES' },
     'All matching baseline must omit the contributor predicate');
   report.allMatchingBaseline = { contributorRule: baselineStep.operation.relatedExpand.contributorRule, rows: allMatchingRows };
@@ -484,8 +480,9 @@ try {
   const policySelector = '[data-testid="construction-related-expand-editor"] select[aria-label="If a current row has no matches"]';
   startedAt = Date.now();
   report.expectedErrorWindow = { active: true, startedAt, policy: 'ERROR' };
+  const expectedValidationFromIndex = nativeTracker.requests.length;
   await selectOption(policySelector, 'ERROR');
-  await expectedErrorProposal('exists-error-policy-repair', startedAt);
+  await expectedErrorProposal('exists-error-policy-repair', startedAt, expectedValidationFromIndex);
 
   startedAt = Date.now();
   await selectOption(policySelector, 'PRESERVE_PARENT');
@@ -592,8 +589,6 @@ try {
   throw error;
 } finally {
   report.finished = new Date().toISOString();
-  await nativeTracker.flush();
-  await cda.includeBrowserDiagnostics();
   report.diagnostics = cda.diagnostics;
   await cda.attachReport('contributor-exists-browser', report);
 }

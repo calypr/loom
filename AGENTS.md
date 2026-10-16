@@ -138,10 +138,12 @@ already-owned problem.
 - Measure progress by closed user-visible failures and fully verified lifecycles,
   with elapsed time. Commits, scripts, worker activity, and partial assertions
   do not establish completion.
-- Sol chooses one failing user workflow as the current integration priority.
-  Carry it through diagnosis, root-cause fix, and a passing rerun of the same
-  browser case before integrating another substantial thread. Keep the full
-  goal and coverage inventory intact; this is sequencing, not reduced scope.
+- Sol chooses a bounded batch from `docs/BUILDER_WORKLIST.tsv`, following
+  `docs/BUILDER_WORKLIST.md`. Independent owners implement and run focused
+  regressions in parallel. Review and integrate ready patches serially, then
+  freeze the combined source for complete browser cases. Do not wait for one
+  full browser lifecycle before integrating another reviewed independent fix.
+  Keep the full goal and coverage inventory intact.
 - Continue useful parallel Luna work on independent investigations and staged
   patches. Delegate aggressively, but prioritize integration-ready work and
   review completed submissions before creating more implementation backlog.
@@ -150,8 +152,9 @@ already-owned problem.
   freezing, failure evidence, and reruns. Keep testing procedures in that skill
   rather than duplicating them here.
 - Distinguish harness corrections from product fixes and selected assertions
-  from a complete lifecycle pass. Commit a verified coherent unit before
-  integrating the next substantial unit; do not bulk-stage unrelated backlog.
+  from a complete lifecycle pass. Commit each reviewed coherent patch with its
+  focused evidence; close its lifecycle only after full browser acceptance.
+  Do not bulk-stage unrelated backlog.
 - A live process is a reason to poll its handle, not to end work with a status
   update. Continue through the result and next safe action unless the user
   interrupts, a real dependency prevents progress, or the unit is complete.

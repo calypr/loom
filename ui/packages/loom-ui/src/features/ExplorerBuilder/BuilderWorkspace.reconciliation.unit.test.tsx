@@ -1010,7 +1010,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Advanced graph' }));
-    expect(await screen.findByRole('button', { name: 'Change rows' })).toBeInTheDocument();
+    expect(await screen.findByTestId('construction-rows-settings-trigger')).toBeInTheDocument();
   });
 
   it('saves a coded-column proposal from one Add action and returns to the table', async () => {
@@ -3597,8 +3597,9 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
 
+    fireEvent.click(await screen.findByTestId('construction-more-actions'));
     const calculate = await screen.findByTestId('construction-action-calculate');
-    expect(calculate).toHaveTextContent('Add a calculated column');
+    expect(calculate).toHaveTextContent('Calculate');
     expect(calculate).toBeEnabled();
     expect(mockLoomClient.getConstructionCapabilities).toHaveBeenCalledWith(
       expect.objectContaining({ outputId: 'specimens', stageId: 'group_rows' }),
@@ -3627,6 +3628,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(screen.getByTestId('construction-action-keep-rows')).toHaveTextContent('Filter rows');
     expect(screen.getByTestId('construction-rows-settings-trigger')).toBeInTheDocument();
     expect(screen.queryByTestId('construction-action-calculate')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('construction-more-actions'));
     expect(screen.getByTestId('construction-action-combine')).toBeEnabled();
 
     expect(screen.queryByTestId('construction-column-selection')).not.toBeInTheDocument();
@@ -3711,6 +3713,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
+    fireEvent.click(await screen.findByTestId('construction-more-actions'));
     const action = await screen.findByTestId('construction-action-combine');
     expect(action).toBeEnabled();
     fireEvent.click(action);
@@ -3894,6 +3897,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
     await waitFor(() => expect(reconcile).toHaveBeenCalled());
+    fireEvent.click(await screen.findByTestId('construction-more-actions'));
     const combineAction = await screen.findByTestId('construction-action-combine');
     expect(combineAction).toBeEnabled();
     fireEvent.click(combineAction);

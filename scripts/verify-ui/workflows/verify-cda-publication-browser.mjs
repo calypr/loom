@@ -92,9 +92,37 @@ const seedOwnedExplorer = async () => {
   assert(!explorerId.includes('cda-builder-full-qa-1790440983382'), 'Protected Explorer cannot be targeted');
   await api(explorerRoot, { name: explorerId, title: `CDA publication QA ${explorerId}` });
   builder = await readBuilder();
-  datasetGeneration = builder.catalog?.generation;
-  assert.equal(typeof datasetGeneration, 'string');
-  assert(datasetGeneration.length > 0, 'Fresh Builder catalog has no active dataset generation');
+  const expectedCatalogPath = explorerPath + '/authoring/v2/builder';
+  const initialBuilderRequest = report.setup.at(-1);
+  assert.equal(initialBuilderRequest?.method, 'GET', 'Initial Builder catalog read was not a GET');
+  assert.equal(initialBuilderRequest?.path, expectedCatalogPath, 'Initial Builder catalog GET targeted a different project or Explorer');
+  assert.equal(initialBuilderRequest?.status, 200, 'Initial Builder catalog GET did not succeed');
+
+  const expectedGeneration = cda.target.generation;
+  assert.equal(typeof expectedGeneration, 'string', 'Configured CDA target generation is missing');
+  assert(expectedGeneration.trim().length > 0, 'Configured CDA target generation is empty');
+  assert.equal(builder.catalog?.generation, expectedGeneration, 'Initial Builder catalog generation differs from the configured target');
+  assert.equal(builder.catalog?.complete, true, 'Initial Builder catalog is incomplete');
+  assert.equal(typeof builder.catalog?.snapshotToken, 'string', 'Initial Builder catalog has no snapshot token');
+  assert(builder.catalog.snapshotToken.trim().length > 0, 'Initial Builder catalog has an empty snapshot token');
+  datasetGeneration = expectedGeneration;
+  report.nativeCatalogIdentity = {
+    project,
+    explorerId,
+    builderGetPath: initialBuilderRequest.path,
+    expectedGeneration,
+    observedGeneration: builder.catalog.generation,
+    snapshotToken: builder.catalog.snapshotToken,
+    complete: builder.catalog.complete,
+    authorizationScopeDigest: builder.catalog.authorizationScopeDigest ?? null,
+    resolvedSchemaDigest: builder.catalog.resolvedSchemaDigest ?? null,
+  };
+  report.assertions ??= [];
+  report.assertions.push({
+    name: 'publication-initial-catalog-identity-matches-configured-target',
+    status: 'passed',
+    evidence: report.nativeCatalogIdentity,
+  });
 
   const oracleQuery = `FOR s IN Specimen FILTER s.project == ${JSON.stringify(project)} AND s.dataset_generation == ${JSON.stringify(datasetGeneration)} SORT s._key LIMIT 3 RETURN {id:s.id,key:s._key}`;
   const oracleRows = rawCdaOracle(oracleQuery, {});
@@ -195,6 +223,25 @@ const assertExactIds = (actualIds, expectedIds, label) => {
   assert.deepEqual([...actualIds].sort(), [...expectedIds].sort(), `${label} source ID membership differs from the scoped CDA oracle`);
 };
 
+const assertPublishedRuntimeIdentity = async (phase) => {
+  const envelope = await api(explorerPath);
+  const runtime = envelope?.runtime;
+  const generation = runtime?.generation ?? runtime?.publication?.generation;
+  const revisionId = runtime?.publication?.revisionId;
+  const output = runtime?.outputs?.find((candidate) => candidate.outputId === outputId);
+  const expectedRevisionId = report.publication?.revisionId;
+
+  assert.equal(envelope?.project, project, `${phase} runtime project differs from the selected CDA project`);
+  assert.equal(envelope?.explorerId, explorerId, `${phase} runtime Explorer differs from the run-owned Explorer`);
+  assert.equal(generation, datasetGeneration, `${phase} runtime generation differs from the raw CDA oracle generation`);
+  assert.equal(typeof expectedRevisionId, 'string');
+  assert.notEqual(expectedRevisionId, '');
+  assert.equal(revisionId, expectedRevisionId, `${phase} runtime revision differs from Native Publish`);
+  assert(output, `${phase} runtime does not expose the exact published output`);
+
+  return { project: envelope.project, explorerId: envelope.explorerId, generation, revisionId, outputId: output.outputId };
+};
+
 const readPublishedMaterialization = (publication) => {
   assert.equal(publication.state, 'ACTIVE', `Native Publish did not activate the revision: ${JSON.stringify(publication)}`);
   assert(publication.revisionId, 'Native Publish omitted its revision ID');
@@ -260,6 +307,8 @@ const verifyViewerAndReload = async () => {
   report.viewer = { first, exactMembership: true, reload: undefined };
   report.timingsMs.viewerOpen = Date.now() - openedAt;
   assert(report.timingsMs.viewerOpen <= 5000, `Native Viewer open and exact membership exceeded 5000 ms (${report.timingsMs.viewerOpen} ms)`);
+  report.runtimeIdentity ??= {};
+  report.runtimeIdentity.initialViewer = await assertPublishedRuntimeIdentity('Initial Viewer');
 
   const reloadStarted = Date.now();
   await cda.navigate(currentViewerURL);
@@ -273,6 +322,13 @@ const verifyViewerAndReload = async () => {
   report.viewer.reload = { ...reloaded, exactMembership: true };
   report.timingsMs.viewerReload = Date.now() - reloadStarted;
   assert(report.timingsMs.viewerReload <= 5000, `Viewer reload and exact membership exceeded 5000 ms (${report.timingsMs.viewerReload} ms)`);
+  report.runtimeIdentity.reload = await assertPublishedRuntimeIdentity('Reloaded Viewer');
+  report.assertions ??= [];
+  report.assertions.push({
+    name: 'published runtime identity matches the selected project, Explorer, generation, Native Publish revision, and output before and after reload',
+    status: 'passed',
+    evidence: { initial: report.runtimeIdentity.initialViewer, reload: report.runtimeIdentity.reload },
+  });
 };
 
 const main = async () => {

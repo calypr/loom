@@ -121,7 +121,7 @@ const formatStep = (
       const suffix = values.length > 0 ? ` ${values.join(', ')}` : '';
       return {
         id: step.id,
-        title: 'Filter rows',
+        title: `Filter ${columnLabel(filter.columnId)}`,
         summary: `Filter output rows where ${columnLabel(filter.columnId)} ${operators[filter.operator]}${suffix}.`,
         editable: true,
       };
@@ -159,7 +159,7 @@ const formatStep = (
       const measures = aggregates.length > 0 ? `; ${aggregates.join('; ')}` : '';
       return {
         id: step.id,
-        title: 'Group',
+        title: keys.length > 0 ? `Group by ${keys.join(', ')}` : 'Group rows',
         summary: `Group rows${grouping}${measures}.`,
         editable: true,
       };

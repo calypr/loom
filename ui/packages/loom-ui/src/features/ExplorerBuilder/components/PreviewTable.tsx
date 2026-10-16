@@ -513,7 +513,7 @@ export const PreviewTable = ({
     <div
       ref={columnsMenuRef}
       data-testid="preview-table-header-controls"
-      className="sticky right-0 top-0 z-20 ml-auto flex h-[42px] shrink-0 items-center justify-end gap-2 border-b border-slate-200 bg-slate-100 px-2 text-slate-700"
+      className="sticky right-0 top-0 z-20 ml-auto flex h-[42px] shrink-0 items-center justify-end gap-2 bg-slate-50 px-2 text-slate-700"
       style={{ width: PREVIEW_HEADER_CONTROLS_WIDTH }}
     >
       <button
@@ -733,7 +733,7 @@ export const PreviewTable = ({
         </div>
       )}
       <label className="flex items-center gap-1 text-xs font-medium text-slate-600">
-        Rows
+        Show
         <select
           aria-label="Preview row limit"
           className="min-w-16 rounded-md border border-slate-300 bg-white py-1.5 pl-2 pr-6 text-right font-normal tabular-nums text-slate-800"
@@ -750,13 +750,14 @@ export const PreviewTable = ({
           <option value={500}>500</option>
           <option value={1000}>1,000</option>
         </select>
+        rows
       </label>
     </div>
   );
   return (
-    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+    <section className="construction-preview-surface overflow-hidden bg-white">
       {preview && !previewErrorMessage ? null : (
-        <div className="flex justify-end border-b border-slate-200 bg-slate-50/80">
+        <div className="flex justify-end border-b border-slate-200 bg-white">
           {tableControls}
         </div>
       )}
@@ -799,7 +800,7 @@ export const PreviewTable = ({
             >
             <div
               role="row"
-              className="sticky top-0 z-10 bg-slate-100 text-[11px] uppercase tracking-wide text-slate-600"
+              className="construction-preview-header-row sticky top-0 z-10 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-600"
               style={{ height: PREVIEW_HEADER_HEIGHT }}
             >
               <div
@@ -808,7 +809,7 @@ export const PreviewTable = ({
                 style={{ width: headerColumnViewportWidth }}
               >
                 <div className="relative h-full" style={{ width: previewTableWidth }}>
-                  <div className="absolute left-0 top-0 border-b border-slate-200 px-2 py-2.5" style={{ width: PREVIEW_ROW_GUTTER_WIDTH, height: PREVIEW_HEADER_HEIGHT }}>
+                  <div className="absolute left-0 top-0 bg-slate-50 px-2 py-2.5" style={{ width: PREVIEW_ROW_GUTTER_WIDTH, height: PREVIEW_HEADER_HEIGHT }}>
                     Row
                   </div>
                   {visibleColumns.map((column, visibleIndex) => {
@@ -820,7 +821,7 @@ export const PreviewTable = ({
                         aria-label={column.resultUnit
                           ? `${column.label} (${column.resultUnit.code})`
                           : undefined}
-                        className="absolute top-0 overflow-hidden whitespace-nowrap border-b border-slate-200 px-4 py-2.5 font-semibold"
+                        className="absolute top-0 overflow-hidden whitespace-nowrap px-4 py-2.5 font-semibold"
                         style={{
                           left: PREVIEW_ROW_GUTTER_WIDTH + columnIndex * PREVIEW_COLUMN_WIDTH,
                           width: PREVIEW_COLUMN_WIDTH,
@@ -854,7 +855,7 @@ export const PreviewTable = ({
                 <div
                   role="row"
                   key={rowIndex}
-                  className="absolute left-0 right-0 odd:bg-white even:bg-slate-50/70 hover:bg-blue-50/60"
+                  className="construction-preview-data-row absolute left-0 right-0 bg-white hover:bg-slate-50"
                   style={{
                     top: PREVIEW_HEADER_HEIGHT + rowIndex * PREVIEW_ROW_HEIGHT,
                     height: PREVIEW_ROW_HEIGHT,
@@ -864,7 +865,7 @@ export const PreviewTable = ({
                     <button
                       type="button"
                       aria-label={`Inspect row ${rowIndex + 1} identity`}
-                      className="absolute left-0 top-0 border-b border-slate-100 px-2 py-2.5 text-left font-medium text-blue-700 hover:underline"
+                      className="absolute left-0 top-0 bg-transparent px-2 py-2.5 text-left font-medium text-blue-700 hover:underline"
                       style={{ width: PREVIEW_ROW_GUTTER_WIDTH, height: PREVIEW_ROW_HEIGHT }}
                       onClick={() => {
                         lineageAbortRef.current?.abort();
@@ -882,7 +883,7 @@ export const PreviewTable = ({
                       {rowIndex + 1}
                     </button>
                   ) : (
-                    <span className="absolute left-0 top-0 border-b border-slate-100 px-2 py-2.5 text-slate-500" style={{ width: PREVIEW_ROW_GUTTER_WIDTH, height: PREVIEW_ROW_HEIGHT }}>
+                    <span className="absolute left-0 top-0 px-2 py-2.5 text-slate-500" style={{ width: PREVIEW_ROW_GUTTER_WIDTH, height: PREVIEW_ROW_HEIGHT }}>
                       {rowIndex + 1}
                     </span>
                   )}
@@ -896,7 +897,7 @@ export const PreviewTable = ({
                       <div
                         role="cell"
                         key={column.emissionId}
-                        className="absolute top-0 max-w-56 overflow-hidden border-b border-slate-100 px-4 py-2.5 text-slate-700"
+                        className="absolute top-0 max-w-56 overflow-hidden px-4 py-2.5 text-slate-700"
                         style={{
                           left: PREVIEW_ROW_GUTTER_WIDTH + columnIndex * PREVIEW_COLUMN_WIDTH,
                           width: PREVIEW_COLUMN_WIDTH,
@@ -907,7 +908,7 @@ export const PreviewTable = ({
                           <button
                             type="button"
                             aria-label={`Inspect ${column.label} for row ${rowIndex + 1}`}
-                            className="flex w-full items-center justify-between gap-2 truncate whitespace-nowrap text-left text-blue-700 hover:text-blue-900"
+                            className="flex w-full items-center justify-between gap-2 truncate whitespace-nowrap bg-transparent text-left text-blue-700 hover:text-blue-900"
                             title={titledCell(rowIndex, column, rawValue)}
                             onClick={() => setOwnerRecordInspector({ columnLabel: column.label, value: rawValue })}
                           >

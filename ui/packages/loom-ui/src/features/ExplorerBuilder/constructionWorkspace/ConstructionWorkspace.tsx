@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useDismissibleLayer } from '../components/useDismissibleLayer';
 
 export type ConstructionOperationFamily =
   | 'ADD_COLUMNS'
@@ -25,6 +26,7 @@ export interface ConstructionHistoryStep {
 
 export interface ConstructionHistoryProps {
   readonly resourceType: string;
+  readonly sourceControl?: React.ReactNode;
   readonly steps: ReadonlyArray<ConstructionHistoryStep>;
   readonly selected: ConstructionHistorySelection;
   readonly disabled?: boolean;
@@ -46,7 +48,7 @@ const allOperationFamilies = [
   },
   {
     family: 'CALCULATE',
-    label: 'Add a calculated column',
+    label: 'Calculate',
     description: 'Create a value from existing columns.',
   },
   {
@@ -56,7 +58,7 @@ const allOperationFamilies = [
   },
   {
     family: 'COMBINE',
-    label: 'Combine tables',
+    label: 'Combine',
     description: 'Create a new table by joining or stacking table versions.',
   },
 ] satisfies ReadonlyArray<{
@@ -95,32 +97,88 @@ export const ConstructionActionBar = ({
   readonly combineDisabled?: boolean;
   readonly calculateAvailable?: boolean;
   readonly onSelect: (family: ConstructionOperationFamily) => void;
-}) => (
-  <nav aria-label="Table actions" className="flex flex-wrap items-center gap-2">
-    {allOperationFamilies.filter(({ family }) =>
-      family === 'ADD_COLUMNS' || family === 'KEEP_ROWS' || family === 'COMBINE' ||
-      (family === 'CALCULATE' && calculateAvailable)
-    ).map(({ family, label, description }) => (
+}) => {
+  const [moreActionsOpen, setMoreActionsOpen] = useState(false);
+  const moreActionsRef = useDismissibleLayer<HTMLDivElement>(moreActionsOpen, setMoreActionsOpen);
+  const moreActionsButtonRef = useRef<HTMLButtonElement>(null);
+  const primaryFamilies = allOperationFamilies.filter(({ family }) =>
+    family === 'ADD_COLUMNS' || family === 'KEEP_ROWS'
+  );
+  const secondaryFamilies = allOperationFamilies.filter(({ family }) =>
+    family === 'RESHAPE' || family === 'COMBINE' ||
+    (family === 'CALCULATE' && calculateAvailable)
+  );
+  const renderAction = (family: ConstructionOperationFamily, inMenu = false) => {
+    const operation = allOperationFamilies.find((candidate) => candidate.family === family);
+    if (!operation) return null;
+    const { label, description } = operation;
+    return (
       <button
         key={family}
         type="button"
-        aria-label={`${label}: ${description}`}
+        aria-label={`${family === 'CALCULATE' ? 'Add a calculated column' : family === 'COMBINE' ? 'Combine tables' : label}: ${description}`}
         aria-pressed={activeFamily === family}
         data-testid={`construction-action-${family.toLowerCase().replace('_', '-')}`}
         disabled={disabled || (family === 'ADD_COLUMNS' && addColumnsDisabled) || (family === 'COMBINE' && combineDisabled)}
-        onClick={() => onSelect(family)}
+        onClick={() => {
+          if (inMenu) setMoreActionsOpen(false);
+          onSelect(family);
+        }}
         title={description}
-        className={`min-w-0 rounded-md border px-3 py-2 text-left text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-          activeFamily === family
-            ? 'border-emerald-700 bg-emerald-50 text-emerald-950 ring-1 ring-emerald-700'
-            : 'border-slate-200 bg-white text-slate-900 hover:border-emerald-300 hover:bg-emerald-50/50'
-        }`}
+        className={inMenu
+          ? 'rounded px-2.5 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50'
+          : `h-8 min-w-0 rounded-md px-3 text-left text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+            activeFamily === family
+              ? 'bg-blue-100 text-blue-950'
+              : 'bg-transparent text-slate-700 hover:bg-blue-50'
+          }`}
       >
         {label}
       </button>
-    ))}
-  </nav>
-);
+    );
+  };
+
+  return (
+    <nav aria-label="Table actions" className="flex flex-wrap items-center gap-1.5">
+      {primaryFamilies.map(({ family }) => renderAction(family))}
+      <div
+        ref={moreActionsRef}
+        className="relative"
+        onKeyDown={(event) => {
+          if (event.key !== 'Escape' || !moreActionsOpen) return;
+          event.preventDefault();
+          event.stopPropagation();
+          setMoreActionsOpen(false);
+          moreActionsButtonRef.current?.focus();
+        }}
+      >
+        <button
+          ref={moreActionsButtonRef}
+          type="button"
+          aria-haspopup="true"
+          aria-expanded={moreActionsOpen}
+          aria-label="More actions"
+          data-testid="construction-more-actions"
+          disabled={disabled}
+          onClick={() => setMoreActionsOpen((open) => !open)}
+          className="h-8 rounded-md bg-transparent px-3 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          More actions
+        </button>
+        {moreActionsOpen ? (
+          <div
+            role="group"
+            aria-label="More table actions"
+            data-testid="construction-more-actions-menu"
+            className="construction-more-actions-menu absolute right-0 top-full z-30 mt-1 grid min-w-40 rounded-md border border-slate-200 bg-white p-1 shadow-lg"
+          >
+            {secondaryFamilies.map(({ family }) => renderAction(family, true))}
+          </div>
+        ) : null}
+      </div>
+    </nav>
+  );
+};
 
 export const ConstructionTableNavigation = ({
   tables,
@@ -142,75 +200,155 @@ export const ConstructionTableNavigation = ({
   readonly onRenameTable: (outputId: string) => void;
 }) => {
   const selectedTable = tables.find((table) => table.outputId === selectedOutputId);
+  const [tableActionsOpen, setTableActionsOpen] = useState(false);
+  const tableActionsRef = useDismissibleLayer<HTMLDivElement>(tableActionsOpen, setTableActionsOpen);
+  const tableActionsButtonRef = useRef<HTMLButtonElement>(null);
+  const [tableActionsPosition, setTableActionsPosition] = useState<{
+    readonly top: number;
+    readonly right: number;
+  }>();
+  useEffect(() => {
+    if (!tableActionsOpen) {
+      setTableActionsPosition(undefined);
+      return undefined;
+    }
+    const updatePosition = () => {
+      const button = tableActionsButtonRef.current;
+      if (!button) return;
+      const bounds = button.getBoundingClientRect();
+      const below = bounds.bottom + 4;
+      const top = below + 120 <= window.innerHeight - 8
+        ? below
+        : Math.max(8, bounds.top - 124);
+      setTableActionsPosition({
+        top,
+        right: Math.max(8, window.innerWidth - bounds.right),
+      });
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [tableActionsOpen]);
   return (
-  <nav aria-label="Tables" className="flex flex-wrap items-center gap-3">
-    <div className="flex shrink-0 items-center gap-2">
-      <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-        Tables
-      </h2>
-      <button
-        type="button"
-        data-testid="construction-new-table"
-        className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-        disabled={disabled}
-        onClick={onNewTable}
-      >
-        New table
-      </button>
-    </div>
-    <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-      {tables.map((table) => (
-        <div key={table.outputId} className="flex max-w-64 shrink-0 items-center">
-          <button
-            type="button"
-            aria-current={table.outputId === selectedOutputId ? 'page' : undefined}
-            aria-pressed={table.outputId === selectedOutputId}
-            data-testid={`construction-table-${table.outputId}`}
-            onClick={() => onSelectTable(table.outputId)}
-            disabled={disabled}
-            className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors disabled:opacity-50 ${
-              table.outputId === selectedOutputId
-                ? 'bg-emerald-100 font-semibold text-emerald-950'
-                : 'text-slate-700 hover:bg-white'
-            }`}
-          >
-            <span aria-hidden="true" className="shrink-0 text-emerald-800">▤</span>
-            <span className="min-w-0 truncate">{table.title || table.outputId}</span>
-          </button>
-        </div>
-      ))}
-    </div>
-    <div className="flex shrink-0 items-center gap-2 border-l border-slate-200 pl-3">
-      <button
-        type="button"
-        aria-label={`Rename ${selectedTable?.title || selectedTable?.outputId || 'table'}`}
-        data-testid={selectedOutputId ? `construction-rename-table-${selectedOutputId}` : undefined}
-        disabled={disabled || !selectedTable}
-        onClick={() => selectedTable && onRenameTable(selectedTable.outputId)}
-        className="rounded px-1 py-1 text-xs font-medium text-slate-700 hover:bg-white disabled:opacity-45"
-      >
-        Rename
-      </button>
-      <button
-        type="button"
-        aria-label="Duplicate table"
-        data-testid="construction-duplicate-table"
-        disabled={disabled || !selectedOutputId}
-        onClick={onDuplicateTable}
-        className="rounded px-1 py-1 text-xs font-medium text-slate-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-45"
-      >
-        Duplicate
-      </button>
-      <button
-        type="button"
-        aria-label="Delete table"
-        data-testid="construction-delete-table"
-        disabled={disabled || !selectedOutputId}
-        onClick={onDeleteTable}
-        className="rounded px-1 py-1 text-xs font-medium text-slate-700 hover:bg-red-50 hover:text-red-800 disabled:cursor-not-allowed disabled:opacity-45"
-      >
-        Delete
-      </button>
+  <nav aria-label="Tables" className="construction-table-tabs flex min-w-0 flex-wrap items-center gap-3 py-1">
+    <h2 className="sr-only">Tables</h2>
+    <button
+      type="button"
+      data-testid="construction-new-table"
+      aria-label="New table"
+      title="New table"
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-transparent text-lg font-normal leading-none text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+      disabled={disabled}
+      onClick={onNewTable}
+    >
+      +
+    </button>
+    <div className="flex min-w-0 flex-1 items-center gap-3 overflow-x-auto">
+      {tables.map((table) => {
+        const selected = table.outputId === selectedOutputId;
+        const title = table.title || table.outputId;
+        return (
+          <div key={table.outputId} className="flex max-w-64 shrink-0 items-center gap-1">
+            <button
+              type="button"
+              aria-current={selected ? 'page' : undefined}
+              aria-pressed={selected}
+              data-testid={`construction-table-${table.outputId}`}
+              onClick={() => {
+                setTableActionsOpen(false);
+                onSelectTable(table.outputId);
+              }}
+              disabled={disabled}
+              className={`construction-table-tab bg-transparent h-8 min-w-0 border-b-2 px-2 text-left text-sm transition-colors disabled:opacity-50 ${
+                selected
+                  ? 'font-semibold text-slate-950'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <span className="min-w-0 truncate">{title}</span>
+            </button>
+            {selected ? (
+              <div
+                ref={tableActionsRef}
+                className="relative shrink-0"
+                onKeyDown={(event) => {
+                  if (event.key !== 'Escape' || !tableActionsOpen) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setTableActionsOpen(false);
+                  tableActionsButtonRef.current?.focus();
+                }}
+              >
+                <button
+                  type="button"
+                  ref={tableActionsButtonRef}
+                  aria-label={`Actions for ${title}`}
+                  aria-haspopup="true"
+                  aria-expanded={tableActionsOpen}
+                  data-testid={`construction-table-actions-${table.outputId}`}
+                  disabled={disabled}
+                  onClick={() => setTableActionsOpen((open) => !open)}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-lg leading-none text-slate-600 hover:bg-slate-100 hover:text-slate-950 disabled:opacity-50"
+                  title={`Actions for ${title}`}
+                >
+                  ⋯
+                </button>
+                {tableActionsOpen ? (
+                  <div
+                    data-testid="construction-table-actions-menu"
+                    className="fixed z-[120] grid min-w-36 rounded-md border border-slate-200 bg-white p-1 shadow-lg"
+                    style={tableActionsPosition ?? { visibility: 'hidden' }}
+                  >
+                    <button
+                      type="button"
+                      aria-label={`Rename ${title}`}
+                      data-testid={`construction-rename-table-${table.outputId}`}
+                      disabled={disabled}
+                      onClick={() => {
+                        setTableActionsOpen(false);
+                        onRenameTable(table.outputId);
+                      }}
+                      className="rounded px-2 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-45"
+                    >
+                      Rename
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Duplicate table"
+                      data-testid="construction-duplicate-table"
+                      disabled={disabled}
+                      onClick={() => {
+                        setTableActionsOpen(false);
+                        onDuplicateTable();
+                      }}
+                      className="rounded px-2 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-45"
+                    >
+                      Duplicate
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Delete table"
+                      data-testid="construction-delete-table"
+                      disabled={disabled}
+                      onClick={() => {
+                        setTableActionsOpen(false);
+                        onDeleteTable();
+                      }}
+                      className="rounded px-2 py-1.5 text-left text-xs text-red-700 hover:bg-red-50 disabled:opacity-45"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   </nav>
   );
@@ -218,6 +356,7 @@ export const ConstructionTableNavigation = ({
 
 export const ConstructionHistory = ({
   resourceType,
+  sourceControl,
   steps,
   selected,
   disabled = false,
@@ -225,41 +364,51 @@ export const ConstructionHistory = ({
   onEditStep,
   onRemoveStep,
 }: ConstructionHistoryProps) => {
-  if (steps.length === 0) return null;
+  if (steps.length === 0 && !sourceControl && !resourceType) return null;
 
   return (
-    <section aria-label="Row operations" data-testid="construction-history" className="mt-1 border-t border-slate-200 pt-1">
+    <section aria-label="Row operations" data-testid="construction-history" className="min-w-0">
       <h2 className="sr-only">Row operations</h2>
       <ol className="m-0 flex list-none items-center gap-1 overflow-x-auto p-0">
         <li className="shrink-0">
-          <button
+          {sourceControl ? (
+            <div onClickCapture={() => onSelect({ kind: 'source' })}>
+              {sourceControl}
+            </div>
+          ) : <button
             type="button"
             aria-pressed={selected.kind === 'source'}
             data-testid="construction-history-source"
             disabled={disabled}
             onClick={() => onSelect({ kind: 'source' })}
-            className={`rounded-md px-2.5 py-1 text-left text-xs whitespace-nowrap ${
-              selected.kind === 'source' ? 'bg-emerald-100 font-semibold text-emerald-950' : 'text-slate-700 hover:bg-white/70'
+            className={`rounded px-2 py-1 text-left text-xs whitespace-nowrap ${
+              selected.kind === 'source' ? 'bg-blue-100 font-semibold text-blue-950' : 'text-slate-700 hover:bg-blue-50'
             }`}
           >
             {resourceType}
-          </button>
+          </button>}
         </li>
         {steps.map((step) => (
           <li key={step.id} className="flex shrink-0 items-center gap-1">
             <span aria-hidden="true" className="px-1 text-xs text-slate-400">→</span>
-            <div className="flex items-center rounded-md border border-slate-200 bg-white/60">
+            <div className={`construction-query-step flex items-center border-b-2 ${selected.kind === 'step' && selected.stepId === step.id ? 'border-blue-700' : 'border-transparent'}`}>
               <button
                 type="button"
                 aria-pressed={selected.kind === 'step' && selected.stepId === step.id}
                 data-testid={`construction-history-step-${step.id}`}
                 disabled={disabled}
                 title={step.summary}
-                onClick={() => onSelect({ kind: 'step', stepId: step.id })}
-                className={`rounded-md px-2.5 py-1 text-left text-xs whitespace-nowrap ${
+                onClick={() => {
+                  if (onEditStep && step.editable) {
+                    onEditStep(step.id);
+                  } else {
+                    onSelect({ kind: 'step', stepId: step.id });
+                  }
+                }}
+                className={`rounded px-2 py-1 text-left text-xs whitespace-nowrap ${
                   selected.kind === 'step' && selected.stepId === step.id
-                    ? 'bg-emerald-100 font-semibold text-emerald-950'
-                    : 'text-slate-700 hover:bg-white/70'
+                    ? 'bg-blue-100 font-semibold text-blue-950'
+                    : 'bg-transparent text-slate-700 hover:bg-blue-50 hover:text-slate-950'
                 }`}
               >
                 <span className="font-medium">{step.title}</span>
@@ -338,12 +487,9 @@ export const ConstructionWorkspace = ({
     data-testid="construction-workspace"
     data-draft-version={draftVersion}
     data-draft-digest={draftDigest}
-    className={editor
-      ? 'mx-auto grid max-w-6xl grid-cols-1 gap-3'
-      : 'mx-auto grid max-w-[1920px] grid-cols-1 gap-1'}
+    className="mx-auto grid w-full max-w-[1920px] grid-cols-1 gap-2"
   >
-    {!editor ? <div className="min-w-0 rounded-xl border border-slate-200 bg-[#edf2ed] px-3 py-2">
-      <ConstructionTableNavigation
+    {!editor ? <ConstructionTableNavigation
         tables={tables}
         selectedOutputId={selectedOutputId}
         disabled={tableActionsDisabled}
@@ -352,12 +498,10 @@ export const ConstructionWorkspace = ({
         onDuplicateTable={onDuplicateTable}
         onDeleteTable={onDeleteTable}
         onRenameTable={onRenameTable}
-      />
-    </div> : null}
-
-    <section className="min-w-0 space-y-3">
-      {!editor ? <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Configure table">
-        {rowSetup ? <div aria-label="Define table rows" data-testid="construction-row-setup">{rowSetup}</div> : null}
+      /> : null}
+      {(history || !editor) ? <div className="construction-query-toolbar flex min-w-0 flex-wrap items-center gap-3 py-2">
+        {history ? <div className="min-w-0 flex-1"><ConstructionHistory {...history} sourceControl={rowSetup} /></div> : null}
+        {!editor ? <div className="ml-auto shrink-0" role="group" aria-label="Configure table">
         <ConstructionActionBar
           activeFamily={activeFamily}
           disabled={actionsDisabled}
@@ -366,11 +510,9 @@ export const ConstructionWorkspace = ({
           calculateAvailable={calculateAvailable}
           onSelect={onSelectFamily}
         />
+        </div> : null}
       </div> : null}
-
-
-
-      <div className="grid min-w-0 items-start gap-3">
+      <div className="min-w-0">
         {editor ? <section aria-label="Change editor" className="min-w-0">{editor}</section> : null}
         <section
           aria-label="Table result"
@@ -381,13 +523,10 @@ export const ConstructionWorkspace = ({
           data-preview-proposal-id={proposalId ?? ''}
           data-current-draft-version={draftVersion}
           data-current-draft-digest={draftDigest}
-          className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+          className="min-w-0 bg-white"
         >
-          {history ? <ConstructionHistory {...history} /> : null}
           {preview}
         </section>
       </div>
-
-    </section>
   </div>
 );

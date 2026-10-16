@@ -155,7 +155,7 @@ describe('ConstructionWorkspace', () => {
     ])).toBe('For each current row (one row per distinct combination of Status), one row per matching MedicationAdministration through the same Patient; existing row fields repeat on each match; keep the current row once with an empty MedicationAdministration FHIR resource ID when no match exists.');
   });
 
-  it('keeps column and filter actions above the table while row reshaping lives in Rows', () => {
+  it('keeps Add columns and Filter rows visible and groups secondary actions under More actions', () => {
     const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
 
     render(<ConstructionActionBar onSelect={onSelect} />);
@@ -163,7 +163,6 @@ describe('ConstructionWorkspace', () => {
     const actions = [
       ['ADD_COLUMNS', 'Add columns'],
       ['KEEP_ROWS', 'Filter rows'],
-      ['COMBINE', 'Combine tables'],
     ] as const;
     for (const [family, label] of actions) {
       const button = screen.getByTestId(
@@ -174,16 +173,30 @@ describe('ConstructionWorkspace', () => {
       expect(onSelect).toHaveBeenLastCalledWith(family);
     }
     expect(screen.queryByTestId('construction-action-calculate')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('construction-action-combine')).not.toBeInTheDocument();
     expect(screen.queryByTestId('construction-action-reshape')).not.toBeInTheDocument();
+    const moreActions = screen.getByTestId('construction-more-actions');
+    fireEvent.click(moreActions);
+    expect(moreActions).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.keyDown(moreActions, { key: 'Escape' });
+    expect(screen.queryByTestId('construction-more-actions-menu')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(moreActions);
+    fireEvent.click(moreActions);
+    const menu = screen.getByRole('group', { name: 'More table actions' });
+    expect(within(menu).getByTestId('construction-action-combine')).toBeEnabled();
+    expect(within(menu).getByTestId('construction-action-reshape')).toBeEnabled();
+    fireEvent.click(within(menu).getByTestId('construction-action-combine'));
+    expect(onSelect).toHaveBeenLastCalledWith('COMBINE');
   });
 
   it('offers calculations only when the selected constructed stage supports them', () => {
     const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
     render(<ConstructionActionBar onSelect={onSelect} calculateAvailable />);
 
+    fireEvent.click(screen.getByTestId('construction-more-actions'));
     const calculate = screen.getByTestId('construction-action-calculate');
     expect(calculate).toBeEnabled();
-    expect(calculate).toHaveTextContent('Add a calculated column');
+    expect(calculate).toHaveTextContent('Calculate');
     fireEvent.click(calculate);
     expect(onSelect).toHaveBeenCalledWith('CALCULATE');
   });
@@ -204,6 +217,7 @@ describe('ConstructionWorkspace', () => {
     const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
     render(<ConstructionActionBar onSelect={onSelect} />);
 
+    fireEvent.click(screen.getByTestId('construction-more-actions'));
     const combine = screen.getByTestId('construction-action-combine');
     expect(combine).toBeEnabled();
     expect(combine).toHaveAttribute('aria-label', 'Combine tables: Create a new table by joining or stacking table versions.');
@@ -211,10 +225,12 @@ describe('ConstructionWorkspace', () => {
     expect(onSelect).toHaveBeenCalledWith('COMBINE');
   });
 
-  it('navigates named tables and keeps a history panel absent when there are no authored steps', () => {
+  it('navigates named tables and keeps the source row available when there are no authored steps', () => {
     const onSelectTable = vi.fn();
     const onNewTable = vi.fn();
     const onRenameTable = vi.fn();
+    const onDuplicateTable = vi.fn();
+    const onDeleteTable = vi.fn();
     render(
       <>
         <ConstructionTableNavigation
@@ -225,8 +241,8 @@ describe('ConstructionWorkspace', () => {
           selectedOutputId="patients"
           onSelectTable={onSelectTable}
           onNewTable={onNewTable}
-          onDuplicateTable={vi.fn()}
-          onDeleteTable={vi.fn()}
+          onDuplicateTable={onDuplicateTable}
+          onDeleteTable={onDeleteTable}
           onRenameTable={onRenameTable}
         />
         <ConstructionHistory
@@ -246,15 +262,39 @@ describe('ConstructionWorkspace', () => {
     expect(onSelectTable).toHaveBeenCalledWith('visits');
     fireEvent.click(screen.getByTestId('construction-new-table'));
     expect(onNewTable).toHaveBeenCalledOnce();
+    expect(screen.getByRole('button', { name: 'New table' })).toHaveTextContent('+');
     expect(screen.queryByTestId('construction-rename-table-visits')).toBeNull();
+    const tableActions = screen.getByTestId('construction-table-actions-patients');
+    expect(tableActions).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByTestId('construction-table-patients')).toHaveClass('construction-table-tab', 'bg-transparent');
+    expect(screen.getByTestId('construction-table-patients')).not.toHaveClass('bg-emerald-100');
+    expect(screen.queryByTestId('construction-rename-table-patients')).toBeNull();
+    fireEvent.click(tableActions);
+    expect(tableActions).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('construction-table-patients').parentElement?.contains(tableActions)).toBe(true);
+    expect(screen.getByTestId('construction-table-actions-menu')).toBeInTheDocument();
+    fireEvent.keyDown(tableActions, { key: 'Escape' });
+    expect(screen.queryByTestId('construction-table-actions-menu')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(tableActions);
+    fireEvent.click(tableActions);
     fireEvent.click(screen.getByTestId('construction-rename-table-patients'));
     expect(onRenameTable).toHaveBeenCalledWith('patients');
+    fireEvent.click(tableActions);
+    fireEvent.click(screen.getByTestId('construction-duplicate-table'));
+    expect(onDuplicateTable).toHaveBeenCalledOnce();
+    fireEvent.click(tableActions);
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByTestId('construction-table-actions-menu')).not.toBeInTheDocument();
+    fireEvent.click(tableActions);
+    fireEvent.click(screen.getByTestId('construction-delete-table'));
+    expect(onDeleteTable).toHaveBeenCalledOnce();
     expect(screen.queryByRole('button', { name: 'Move Patients down' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Move Patients up' })).not.toBeInTheDocument();
-    expect(screen.queryByTestId('construction-history')).not.toBeInTheDocument();
+    expect(screen.getByTestId('construction-history')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-history-source')).toHaveTextContent('Patient');
   });
 
-  it('keeps row operations compact until selected, then exposes their existing edit and remove actions', () => {
+  it('opens an editable query step directly and retains its existing edit and remove controls', () => {
     const step = { id: 'filter', title: 'Filter rows', summary: 'Keep matching observations.', editable: true };
     const onSelect = vi.fn();
     const onEditStep = vi.fn();
@@ -264,12 +304,12 @@ describe('ConstructionWorkspace', () => {
     expect(screen.getByTestId('construction-history-step-filter')).toHaveTextContent('Filter rows');
     expect(screen.queryByTestId('construction-edit-step-filter')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('construction-history-step-filter'));
-    expect(onSelect).toHaveBeenCalledWith({ kind: 'step', stepId: 'filter' });
-    expect(onEditStep).not.toHaveBeenCalled();
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onEditStep).toHaveBeenCalledWith('filter');
     view.rerender(<ConstructionHistory resourceType="Patient" steps={[step]} selected={{ kind: 'step', stepId: 'filter' }} onSelect={onSelect} onEditStep={onEditStep} onRemoveStep={onRemoveStep} />);
     expect(screen.getByTestId('construction-edit-step-filter')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('construction-edit-step-filter'));
-    expect(onEditStep).toHaveBeenCalledWith('filter');
+    expect(onEditStep).toHaveBeenCalledTimes(2);
     fireEvent.click(screen.getByTestId('construction-remove-step-filter'));
     expect(onRemoveStep).toHaveBeenCalledWith('filter');
   });
@@ -338,9 +378,34 @@ describe('ConstructionWorkspace', () => {
       draftDigest="digest-1"
     />);
 
-    expect(within(screen.getByTestId('construction-preview')).getByTestId('construction-history')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-history')).toBeInTheDocument();
     expect(screen.getByTestId('construction-history-source')).toHaveTextContent('Patient');
     expect(within(screen.getByRole('navigation', { name: 'Tables' })).queryByTestId('construction-history')).not.toBeInTheDocument();
+    expect(screen.getByTestId('construction-history').compareDocumentPosition(screen.getByTestId('construction-action-add-columns')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId('construction-action-add-columns').compareDocumentPosition(screen.getByTestId('construction-preview')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('keeps the starting-record source chip visible when there are no saved row operations', () => {
+    render(<ConstructionWorkspace
+      tables={[{ outputId: 'patients', title: 'Patients' }]}
+      selectedOutputId="patients"
+      onSelectTable={vi.fn()}
+      onNewTable={vi.fn()}
+      onDuplicateTable={vi.fn()}
+      onDeleteTable={vi.fn()}
+      onRenameTable={vi.fn()}
+      onSelectFamily={vi.fn()}
+      rowSetup={<button type="button" data-testid="source-settings">Patient</button>}
+      history={{ resourceType: 'Patient', steps: [], selected: { kind: 'source' }, onSelect: vi.fn() }}
+      preview={<div>Preview table</div>}
+      previewStatus="ready"
+      draftVersion={1}
+      draftDigest="digest-1"
+    />);
+
+    expect(screen.getByTestId('construction-history')).toBeInTheDocument();
+    expect(screen.getByTestId('source-settings')).toHaveTextContent('Patient');
+    expect(screen.queryByTestId(/^construction-history-step-/)).not.toBeInTheDocument();
   });
 
   it('summarizes actual typed construction steps using stable source and stage column identities', () => {
@@ -393,7 +458,7 @@ describe('ConstructionWorkspace', () => {
       { id: 'height', name: 'height', label: 'Height', type: 'decimal' },
     ])).toEqual([
       { id: 'derive_bmi', title: 'Calculate', summary: 'BMI = Weight ÷ Height.', editable: true },
-      { id: 'filter_bmi', title: 'Filter rows', summary: 'Filter output rows where BMI is at least 25.', editable: true },
+      { id: 'filter_bmi', title: 'Filter BMI', summary: 'Filter output rows where BMI is at least 25.', editable: true },
     ]);
   });
 
@@ -535,7 +600,7 @@ describe('ConstructionWorkspace', () => {
     ])).toEqual([
       {
         id: 'group_cohorts',
-        title: 'Group',
+        title: 'Group by Cohort ID',
         summary: 'Group rows by Cohort ID; Total score sums Score.',
         editable: true,
       },
