@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/fhir/schema"
+	fhirsemantic "github.com/calypr/loom/internal/fhir/semantic"
 )
 
 func TestSemanticCoverageCensusCountsOwnersAndCodingsByConcretePath(t *testing.T) {
@@ -373,6 +374,24 @@ func semanticCoveragePath(census SemanticCoverageCensus, kind SemanticCoverageOc
 	return SemanticCoveragePathAggregate{}, false
 }
 
+func findMemberFactForCoverage(facts []fhirsemantic.MemberFact, canonicalPath string) (fhirsemantic.MemberFact, bool) {
+	for _, fact := range facts {
+		if fact.CanonicalPath == canonicalPath {
+			return fact, true
+		}
+	}
+	return fhirsemantic.MemberFact{}, false
+}
+
+func hasWalkDiagnostic(diagnostics []fhirsemantic.WalkDiagnostic, code fhirsemantic.WalkDiagnosticCode, canonicalPath string) bool {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == code && diagnostic.CanonicalPath == canonicalPath {
+			return true
+		}
+	}
+	return false
+}
+
 func TestSemanticCoverageCensusRetainsMissingNullEmptyAndBlankEvidence(t *testing.T) {
 	index, err := schema.GeneratedIndex()
 	if err != nil {
@@ -450,7 +469,7 @@ func TestSemanticCoverageCensusRejectsMalformedJSON(t *testing.T) {
 	}
 }
 
-func TestSemanticCoverageRetainsResourceUnionGapWithoutCountingNestedConcepts(t *testing.T) {
+func TestSemanticCoverageCensusDispatchesContainedResourceAndLegacyWalkerStaysAbstract(t *testing.T) {
 	index, err := schema.GeneratedIndex()
 	if err != nil {
 		t.Fatalf("load generated FHIR schema: %v", err)
@@ -465,21 +484,31 @@ func TestSemanticCoverageRetainsResourceUnionGapWithoutCountingNestedConcepts(t 
 	if err != nil {
 		t.Fatalf("census contained Resource union: %v", err)
 	}
-	if census.Counts.CodeableConceptOwners != 1 || census.Counts.CodingOccurrences != 0 {
-		t.Fatalf("union-dispatched nested payload was falsely counted as generated schema facts: %#v", census.Counts)
+	if census.Counts.CodeableConceptOwners != 2 || census.Counts.CodingOccurrences != 1 {
+		t.Fatalf("resource-aware census counts = %#v, want 2 CodeableConcept owners and 1 Coding", census.Counts)
 	}
-	if !containsCoverageGap(census.IncompleteGaps, SemanticCoverageGapUnknownSubtrees) {
-		t.Fatal("census omitted the known unknown-subtree reconciliation gap")
+	if census.Status != SemanticCoverageCensusComplete || len(census.IncompleteGaps) != 0 {
+		t.Fatalf("resolved contained Observation was incomplete: status=%q gaps=%#v", census.Status, census.IncompleteGaps)
 	}
-	unknownNestedMember := false
-	for _, diagnostic := range census.Diagnostics {
-		if diagnostic.Code == "UNKNOWN_MEMBER" && diagnostic.Member == "code" {
-			unknownNestedMember = true
-			break
-		}
+	containedCode := findSemanticCoveragePath(t, census, SemanticCoverageCodeableConcept, "contained[].code")
+	if containedCode.ResourceBoundarySignature == "" || containedCode.OccurrenceCount != 1 ||
+		!containsString(containedCode.OwnerPathWitnesses, "contained[0].code") {
+		t.Fatalf("contained code aggregate lost its exact owner/boundary: %#v", containedCode)
 	}
-	if !unknownNestedMember {
-		t.Fatalf("nested resourceType union gap was not retained as an unknown-member diagnostic: %#v", census.Diagnostics)
+
+	var legacyFacts []fhirsemantic.MemberFact
+	legacyDiagnostics, err := fhirsemantic.WalkMembers(index, "Observation", payload, func(fact fhirsemantic.MemberFact) error {
+		legacyFacts = append(legacyFacts, fact)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("legacy WalkMembers: %v", err)
+	}
+	if _, found := findMemberFactForCoverage(legacyFacts, "contained[].code"); found {
+		t.Fatalf("legacy emitter walker crossed abstract Resource boundary: %#v", legacyFacts)
+	}
+	if !hasWalkDiagnostic(legacyDiagnostics, fhirsemantic.WalkUnknownMember, "contained[].code") {
+		t.Fatalf("legacy abstract Resource diagnostic missing: %#v", legacyDiagnostics)
 	}
 
 	definitions := index.Definitions()
@@ -491,24 +520,274 @@ func TestSemanticCoverageRetainsResourceUnionGapWithoutCountingNestedConcepts(t 
 	if err != nil {
 		t.Fatalf("build Bundle/Resource union fixture schema: %v", err)
 	}
-	bundleCensus, err := CensusSemanticCoverage(unionIndex, "Bundle", "bundle-source", json.RawMessage(`{
+	var bundleFacts []fhirsemantic.MemberFact
+	bundleDiagnostics, err := fhirsemantic.WalkMembers(unionIndex, "Bundle", json.RawMessage(`{
 		"resourceType":"Bundle","type":"collection","entry":[{"resource":{"resourceType":"Observation","status":"final","code":{"coding":[{"system":"urn:test","code":"nested"}]}}}]
-	}`))
+	}`), func(fact fhirsemantic.MemberFact) error {
+		bundleFacts = append(bundleFacts, fact)
+		return nil
+	})
 	if err != nil {
-		t.Fatalf("census Bundle Resource union: %v", err)
+		t.Fatalf("legacy Bundle fixture walk: %v", err)
 	}
-	if bundleCensus.Counts.CodeableConceptOwners != 0 || bundleCensus.Counts.CodingOccurrences != 0 {
-		t.Fatalf("Bundle union-dispatched nested payload was falsely counted: %#v", bundleCensus.Counts)
+	if _, found := findMemberFactForCoverage(bundleFacts, "entry[].resource.code"); found ||
+		!hasWalkDiagnostic(bundleDiagnostics, fhirsemantic.WalkUnknownMember, "entry[].resource.code") {
+		t.Fatalf("synthetic Bundle fixture established unsupported union traversal: facts=%#v diagnostics=%#v", bundleFacts, bundleDiagnostics)
 	}
-	unknownBundleMember := false
-	for _, diagnostic := range bundleCensus.Diagnostics {
-		if diagnostic.Code == "UNKNOWN_MEMBER" && diagnostic.Member == "code" {
-			unknownBundleMember = true
+}
+
+func TestSemanticCoverageResourceBoundarySignatureKeepsRepeatedAndHeterogeneousOwnersDistinct(t *testing.T) {
+	index, err := schema.GeneratedIndex()
+	if err != nil {
+		t.Fatalf("load generated FHIR schema: %v", err)
+	}
+	payload := json.RawMessage(`{
+		"resourceType":"Observation",
+		"status":"final",
+		"contained":[
+			{"resourceType":"Observation","status":"final","code":{"coding":[{"system":"urn:same","version":"1","code":"same"}]}},
+			{"resourceType":"Observation","status":"final","code":{"coding":[{"system":"urn:same","version":"1","code":"same"}]}},
+			{"resourceType":"Condition","code":{"coding":[{"system":"urn:same","version":"1","code":"same"}]},"subject":{}}
+		]
+	}`)
+	census, err := CensusSemanticCoverage(index, "Observation", "repeated-contained-source", payload)
+	if err != nil {
+		t.Fatalf("census repeated contained resources: %v", err)
+	}
+	if census.Counts.CodeableConceptOwners != 3 || census.Counts.CodingOccurrences != 3 {
+		t.Fatalf("same-code contained multiplicity was lost: %#v", census.Counts)
+	}
+	var observation, condition SemanticCoveragePathAggregate
+	for _, path := range census.Paths {
+		if path.Kind != SemanticCoverageCodeableConcept || path.CanonicalPath != "contained[].code" {
+			continue
+		}
+		switch path.ResourceBoundarySignature {
+		case semanticCoverageResourceBoundarySignature([]fhirsemantic.ResourceBoundary{{
+			CanonicalPath: "contained[]", ResourceType: "Observation",
+		}}):
+			observation = path
+		case semanticCoverageResourceBoundarySignature([]fhirsemantic.ResourceBoundary{{
+			CanonicalPath: "contained[]", ResourceType: "Condition",
+		}}):
+			condition = path
+		default:
+			t.Errorf("unexpected boundary signature %q", path.ResourceBoundarySignature)
+		}
+	}
+	if observation.ResourceBoundarySignature == "" || observation.OccurrenceCount != 2 || observation.OwnerCount != 2 ||
+		!containsString(observation.OwnerPathWitnesses, "contained[0].code") || !containsString(observation.OwnerPathWitnesses, "contained[1].code") {
+		t.Errorf("repeated Observation owners were not preserved: %#v", observation)
+	}
+	if condition.ResourceBoundarySignature == "" || condition.OccurrenceCount != 1 || condition.OwnerCount != 1 ||
+		!containsString(condition.OwnerPathWitnesses, "contained[2].code") {
+		t.Errorf("heterogeneous Condition owner was not separated: %#v", condition)
+	}
+	if observation.ResourceBoundarySignature == condition.ResourceBoundarySignature {
+		t.Fatal("heterogeneous subtype boundaries shared an aggregate signature")
+	}
+	census.Identity.SchemaIdentity = "generated-test-schema"
+	contribution, err := ReconcileSemanticCoverage(census, nil, nil)
+	if err != nil {
+		t.Fatalf("reconcile heterogeneous contained owners: %v", err)
+	}
+	if !contribution.Complete {
+		t.Fatalf("fully enumerated unsupported selectors did not produce complete source accounting: %#v", contribution.IncompleteGaps)
+	}
+	var reconciledBoundarySignatures []string
+	for _, path := range contribution.Paths {
+		if path.Kind == SemanticCoverageCodeableConcept && path.CanonicalPath == "contained[].code" {
+			reconciledBoundarySignatures = append(reconciledBoundarySignatures, path.ResourceBoundarySignature)
+		}
+	}
+	if len(reconciledBoundarySignatures) != 2 || reconciledBoundarySignatures[0] == reconciledBoundarySignatures[1] {
+		t.Fatalf("reconciled path groups lost subtype boundaries: %#v", reconciledBoundarySignatures)
+	}
+}
+
+func TestSemanticCoverageResourceBoundarySignatureRetainsNestedChain(t *testing.T) {
+	index, err := schema.GeneratedIndex()
+	if err != nil {
+		t.Fatalf("load generated FHIR schema: %v", err)
+	}
+	payload := json.RawMessage(`{
+		"resourceType":"Observation",
+		"status":"final",
+		"contained":[{
+			"resourceType":"Observation",
+			"status":"final",
+			"contained":[{
+				"resourceType":"Condition",
+				"clinicalStatus":{"text":"active"},
+				"code":{"coding":[{"system":"urn:nested","code":"nested"}]},
+				"subject":{}
+			}]
+		}]
+	}`)
+	census, err := CensusSemanticCoverage(index, "Observation", "nested-contained-source", payload)
+	if err != nil {
+		t.Fatalf("census nested contained resources: %v", err)
+	}
+	want := semanticCoverageResourceBoundarySignature([]fhirsemantic.ResourceBoundary{
+		{CanonicalPath: "contained[]", ResourceType: "Observation"},
+		{CanonicalPath: "contained[].contained[]", ResourceType: "Condition"},
+	})
+	var found *SemanticCoveragePathAggregate
+	for index := range census.Paths {
+		path := &census.Paths[index]
+		if path.Kind == SemanticCoverageCodeableConcept && path.CanonicalPath == "contained[].contained[].code" {
+			found = path
 			break
 		}
 	}
-	if !unknownBundleMember || !containsCoverageGap(bundleCensus.IncompleteGaps, SemanticCoverageGapUnknownSubtrees) {
-		t.Fatalf("Bundle Resource union gap was not explicitly retained: %#v", bundleCensus.Diagnostics)
+	if found == nil {
+		t.Fatal("nested CodeableConcept owner was not discovered")
+	}
+	if found.ResourceBoundarySignature != want || found.OccurrenceCount != 1 ||
+		!containsString(found.OwnerPathWitnesses, "contained[0].contained[0].code") {
+		t.Fatalf("nested boundary chain/signature was lost: got %#v, want signature %q", found, want)
+	}
+}
+
+func TestSemanticCoverageUnresolvedResourceDiscriminatorsStayPartial(t *testing.T) {
+	index, err := schema.GeneratedIndex()
+	if err != nil {
+		t.Fatalf("load generated FHIR schema: %v", err)
+	}
+	cases := []struct {
+		name     string
+		resource string
+	}{
+		{name: "missing", resource: `{"code":{"text":"not dispatched"}}`},
+		{name: "nonstring", resource: `{"resourceType":7,"code":{"text":"not dispatched"}}`},
+		{name: "unknown", resource: `{"resourceType":"MadeUp","code":{"text":"not dispatched"}}`},
+		{name: "abstract", resource: `{"resourceType":"Resource","code":{"text":"not dispatched"}}`},
+		{name: "datatype", resource: `{"resourceType":"Coding","code":{"text":"not dispatched"}}`},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			payload := json.RawMessage(fmt.Sprintf(`{"resourceType":"Observation","status":"final","contained":[%s]}`, test.resource))
+			census, err := CensusSemanticCoverage(index, "Observation", "unresolved-resource", payload)
+			if err != nil {
+				t.Fatalf("census unresolved Resource: %v", err)
+			}
+			if census.Counts.CodeableConceptOwners != 0 || census.Counts.CodingOccurrences != 0 {
+				t.Fatalf("unresolved subtype was dispatched: %#v", census.Counts)
+			}
+			if census.Status != SemanticCoverageCensusPartial || !containsCoverageGap(census.IncompleteGaps, SemanticCoverageGapUnknownSubtrees) {
+				t.Fatalf("unresolved subtype did not retain a partial gap: status=%q gaps=%#v", census.Status, census.IncompleteGaps)
+			}
+			if !hasWalkDiagnostic(census.Diagnostics, fhirsemantic.WalkUnresolvedResourceType, "contained[]") {
+				t.Fatalf("unresolved discriminator diagnostic missing: %#v", census.Diagnostics)
+			}
+		})
+	}
+
+	unknownPayload := json.RawMessage(`{"resourceType":"Observation","status":"final","mystery":{"resourceType":"Observation","code":{"text":"not dispatched"}}}`)
+	unknownCensus, err := CensusSemanticCoverage(index, "Observation", "unknown-object", unknownPayload)
+	if err != nil {
+		t.Fatalf("census unknown object: %v", err)
+	}
+	if unknownCensus.Counts.CodeableConceptOwners != 0 || !hasWalkDiagnostic(unknownCensus.Diagnostics, fhirsemantic.WalkUnknownMember, "mystery") {
+		t.Fatalf("unknown object was dispatched based on a discriminator: counts=%#v diagnostics=%#v", unknownCensus.Counts, unknownCensus.Diagnostics)
+	}
+}
+
+func TestSemanticCoverageResourceBoundaryOccurrencesCannotBecomeSemanticOrRaw(t *testing.T) {
+	index, err := schema.GeneratedIndex()
+	if err != nil {
+		t.Fatalf("load generated FHIR schema: %v", err)
+	}
+	payload := json.RawMessage(`{
+		"resourceType":"Observation",
+		"status":"final",
+		"code":{"text":"outer"},
+		"contained":[{"resourceType":"Observation","status":"final","code":{"coding":[{"system":"urn:test","version":"1","code":"same"}]}}]
+	}`)
+	census, err := CensusSemanticCoverage(index, "Observation", "contained-source", payload)
+	if err != nil {
+		t.Fatalf("census contained source: %v", err)
+	}
+	census.Identity.SchemaIdentity = "generated-test-schema"
+	evidence := SemanticCoverageEmissionEvidence{
+		Owner:       SemanticCoverageOwnerLocator{SourceID: "contained-source", ResourceType: "Observation", CanonicalPath: "contained[].code", OwnerPath: "contained[0].code"},
+		KeyOwner:    SemanticCoverageOwnerLocator{SourceID: "contained-source", ResourceType: "Observation", CanonicalPath: "contained[].code.coding[]", OwnerPath: "contained[0].code.coding[0]"},
+		KeySelector: "code.coding[].code", KeySystem: "urn:test", KeyVersion: "1", KeyCode: "same",
+		SourceKind: "RESOURCE", SourcePath: "contained[].code.coding[]", RuleHint: "CODED_CONCEPT",
+		ConceptID: "concept-same", BindingID: "binding-same", Status: "SUPPORTED",
+		Roles: []SemanticCoverageRole{SemanticCoverageRoleConceptKey, SemanticCoverageRoleCodingMetadata},
+	}
+	contribution, err := ReconcileSemanticCoverage(census, []SemanticCoverageEmissionEvidence{evidence}, map[string]struct{}{
+		"contained[].code":                       {},
+		"contained[].code.coding[]":              {},
+		"contained[].code.coding[].system":       {},
+		"contained[].code.coding[].version":      {},
+		"contained[].code.coding[].code":         {},
+		"contained[].code.coding[].display":      {},
+		"contained[].code.coding[].userSelected": {},
+	})
+	if err != nil {
+		t.Fatalf("reconcile contained Resource source: %v", err)
+	}
+	if contribution.SourceRecordCount != 1 || contribution.Identity.ResourceType != "Observation" || !contribution.Complete {
+		t.Fatalf("outer source identity/count or source completeness changed: %#v", contribution)
+	}
+	var containedConcept *SemanticCoveragePathAggregate
+	for index := range contribution.Paths {
+		path := &contribution.Paths[index]
+		if path.CanonicalPath == "contained[].code" && path.Kind == SemanticCoverageCodeableConcept {
+			containedConcept = path
+			break
+		}
+	}
+	if containedConcept == nil {
+		t.Fatal("contained CodeableConcept aggregate missing")
+	}
+	if containedConcept.Disposition != SemanticCoverageUnsupportedDisposition ||
+		containedConcept.Reason != SemanticCoverageReasonUnsupportedSelector || len(containedConcept.References) != 0 ||
+		containedConcept.ResourceBoundarySignature == "" {
+		t.Fatalf("crossed boundary acquired semantic/raw proof: %#v", containedConcept)
+	}
+	for _, facet := range containedConcept.Facets {
+		if facet.ResourceBoundarySignature != containedConcept.ResourceBoundarySignature ||
+			facet.Disposition != SemanticCoverageUnsupportedDisposition || facet.Reason != SemanticCoverageReasonUnsupportedSelector || len(facet.References) != 0 {
+			t.Errorf("crossed boundary facet acquired proof: %#v", facet)
+		}
+	}
+}
+
+func TestSemanticCoverageWalkerLimitRetainsPartialCounts(t *testing.T) {
+	index, err := schema.GeneratedIndex()
+	if err != nil {
+		t.Fatalf("load generated FHIR schema: %v", err)
+	}
+	var payload strings.Builder
+	payload.WriteString(`{"resourceType":"Observation","status":"final","component":[`)
+	for component := 0; component < 40000; component++ {
+		if component != 0 {
+			payload.WriteByte(',')
+		}
+		payload.WriteString(`{"code":{"coding":[{"system":"urn:test","code":"x"}]}}`)
+	}
+	payload.WriteString(`]}`)
+	census, err := CensusSemanticCoverage(index, "Observation", "walker-limit-source", []byte(payload.String()))
+	if err != nil {
+		t.Fatalf("walker processing limit escaped as a census failure: %v", err)
+	}
+	if census.Status != SemanticCoverageCensusPartial || !containsCoverageGap(census.IncompleteGaps, SemanticCoverageGapWalkerLimit) {
+		t.Fatalf("walker limit was not represented as partial coverage: status=%q gaps=%#v", census.Status, census.IncompleteGaps)
+	}
+	if census.Counts.CodeableConceptOwners == 0 || census.Counts.CodingOccurrences == 0 || len(census.Paths) == 0 {
+		t.Fatalf("walker limit discarded already enumerated counts: counts=%#v paths=%d", census.Counts, len(census.Paths))
+	}
+	census.Identity.SchemaIdentity = "generated-test-schema"
+	contribution, err := ReconcileSemanticCoverage(census, nil, nil)
+	if err != nil {
+		t.Fatalf("reconcile partial walker census: %v", err)
+	}
+	if contribution.Complete || !containsCoverageGap(contribution.IncompleteGaps, SemanticCoverageGapWalkerLimit) ||
+		contribution.Counts.CodeableConceptOwners != census.Counts.CodeableConceptOwners {
+		t.Fatalf("walker limit was not preserved as incomplete source evidence: %#v", contribution)
 	}
 }
 
