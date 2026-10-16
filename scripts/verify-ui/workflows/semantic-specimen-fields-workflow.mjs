@@ -365,6 +365,10 @@ export async function semanticSpecimenFieldsWorkflow({ page, cda, caseOptions = 
       });
 
       await selectTab('Coded values');
+      const categoryCancelBrowseFrom = nativeIndex();
+      await setSearch('type.coding[]');
+      await waitNative((entry) => entry.path.endsWith('/semantic-inventory') &&
+        entry.request?.outputId === outputId && entry.request?.query === 'type.coding[]', categoryCancelBrowseFrom);
       const categoryCardForCancel = await itemArticle(categoryIdentity, accessibleCategoryLabel);
       const semanticButton = categoryCardForCancel.locator('button[aria-pressed]');
       if (await semanticButton.getAttribute('aria-pressed') !== 'true') await semanticButton.click({ timeout: 5000 });
