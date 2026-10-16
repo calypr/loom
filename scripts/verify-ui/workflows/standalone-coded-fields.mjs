@@ -4,9 +4,10 @@ import { configureNativePage } from '../helpers/playwright-authoring-page.mjs';
 import { readStandaloneCodedFieldFixture } from '../helpers/standalone-coded-field-fixture.mjs';
 
 const ACTION_TIMEOUT_MS = 10_000;
-const CODED_RULES = new Set(['CODED_CONCEPT_V1', 'CODED_VALUE_V1']);
+const CODED_RULES = new Set(['CODED_CATEGORY_V1', 'CODED_VALUE_V1']);
 const normalize = value => String(value ?? '').replace(/\s+/g, ' ').trim();
 const normalizeHeader = value => normalize(value).toLowerCase();
+const semanticIdentity = item => `${item.conceptId}\u0000${item.bindingId}`;
 
 const waitFor = (page, predicate, argument, timeoutMs = ACTION_TIMEOUT_MS) => page.waitForFunction(
   ({ predicateSource, argument: value }) => Boolean(Function('argument', `return (${predicateSource})(argument);`)(value)),
@@ -31,7 +32,50 @@ const fixtureItem = (entries, label, predicate) => {
   return item;
 };
 
-const semanticLabel = item => item.display?.trim() || item.code;
+const codedCategoryItem = (entries, label, predicate) => {
+  const item = fixtureItem(entries, label, candidate => candidate.selectionMode === 'SYSTEM_VERSION_CATEGORY' &&
+    candidate.familyId === candidate.conceptId && candidate.code === '' &&
+    candidate.constructionChoice?.source.ruleHint === 'CODED_CATEGORY_V1' && predicate(candidate));
+  const source = item.constructionChoice.source;
+  assert.equal(source.system, item.system, `${label} must retain its exact Coding system.`);
+  assert.equal(source.version ?? '', item.codingVersion, `${label} must retain its exact Coding version.`);
+  assert.equal(source.code ?? '', '', `${label} must identify a system/version family, not one exact code.`);
+  return item;
+};
+
+const selectionButtonForItem = async (page, item) => {
+  const source = item.constructionChoice.source;
+  const sourceGroup = page.locator(`[data-source-node-id="${source.nodeId}"]`);
+  assert.equal(await sourceGroup.count(), 1, `${semanticLabel(item)} must resolve to its exact source-node group.`);
+  const accessibleNames = await sourceGroup.locator('button[aria-pressed]').evaluateAll(buttons =>
+    buttons.map(button => button.getAttribute('aria-label') ?? ''));
+  const versionQualifier = `version ${semanticVersion(item) || 'unversioned'}`;
+  const matches = accessibleNames.filter(name => name.startsWith(`Select ${item.resourceType} `) &&
+    name.includes(`system ${item.system}`) && name.includes(versionQualifier));
+  assert.equal(matches.length, 1,
+    `${semanticLabel(item)} must have one accessible card name containing its exact system and version: ${JSON.stringify(accessibleNames)}`);
+  return {
+    button: sourceGroup.getByRole('button', { name: matches[0], exact: true }),
+    accessibleName: matches[0],
+  };
+};
+
+const addSourceOptionForResource = async (page, resourceType) => {
+  const options = await page.getByTestId('construction-add-columns-source-option').evaluateAll(buttons =>
+    buttons.map(button => ({
+      kind: button.dataset.sourceKind,
+      key: button.dataset.sourceKey,
+      label: button.textContent?.trim() ?? '',
+      accessibleName: button.getAttribute('aria-label') ?? '',
+    })));
+  const matches = options.filter(option => option.kind === 'RELATED' && option.label === resourceType);
+  assert.equal(matches.length, 1,
+    `${resourceType} must have one related-source scope in the fresh fixture: ${JSON.stringify(options)}`);
+  return matches[0];
+};
+
+const semanticLabel = item => item.display?.trim() || item.code || item.sourcePath;
+const semanticVersion = item => item.codingVersion || item.constructionChoice?.source.version || '';
 const formLabel = form => ({
   VALUE: 'Use the matching value',
   FIRST: 'Use the first value',
@@ -95,30 +139,6 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
       editable: true,
       ...(after ? { after } : {}),
     });
-  const checkboxForItem = async item => {
-    const label = semanticLabel(item);
-    const source = item.constructionChoice.source;
-    if (source.ruleHint !== 'CODED_VALUE_V1') {
-      return page.getByRole('checkbox', { name: `Select ${label}`, exact: true });
-    }
-    const valueField = `${source.resourceType}.${source.fieldPath}`;
-    const sourceGroup = page.locator(`[data-source-node-id="${source.nodeId}"]`);
-    assert.equal(await sourceGroup.count(), 1, `${label} must resolve to its exact compiler source-node group.`);
-    const card = sourceGroup.locator(':scope > article').filter({ hasText: valueField });
-    assert.equal(await card.count(), 1, `${label} must resolve to one card by its exact typed value field.`);
-    const sourceFacts = card.locator(':scope > div > .min-w-0.flex-1 > details > dl');
-    assert.equal(await sourceFacts.count(), 1, `${label} must expose one top-level source-facts list.`);
-    const valueFieldFact = sourceFacts.getByText(valueField, { exact: true });
-    if (!(await valueFieldFact.isVisible())) {
-      await click('inspect the paired Observation value field',
-        card.getByText('Inspect meaning, evidence, and construction choices', { exact: true }),
-        () => valueFieldFact.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }));
-    }
-    assert.equal(await valueFieldFact.isVisible(), true,
-      `${label} must expose its exact ${valueField} source fact before selection.`);
-    return card.getByRole('checkbox', { name: `Select ${label}`, exact: true });
-  };
-
   await page.goto(browserURL(target, target.fixtureProject, target.bootstrapExplorerId, 'builder'), {
     waitUntil: 'domcontentloaded', timeout: ACTION_TIMEOUT_MS,
   });
@@ -274,133 +294,206 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
   assert(baselineDraft.version > draftBeforeFilter.version && baselineDraft.digest !== draftBeforeFilter.digest,
     'The saved Patient ID Filter must establish the coded-browse baseline draft.');
 
-  const openCatalogAndReadInventory = async label => {
-    const editor = page.locator('[aria-label="Add columns editor"]');
-    const fromIndex = networkObserver.requests.length;
+  const readInventoryRequest = async (label, resourceType, fromIndex) => {
     const inventoryPromise = networkObserver.waitForResponse(entry => entry.index >= fromIndex &&
-      entry.path.endsWith('/semantic-inventory') && entry.request?.outputId === outputId,
+      entry.path.endsWith('/semantic-inventory') && entry.request?.outputId === outputId &&
+      entry.request?.resourceType === resourceType,
     { fromIndex, timeoutMs: ACTION_TIMEOUT_MS });
-    await click(`${label}: open Add columns`, page.getByTestId('construction-action-add-columns'),
-      () => editor.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }));
     const inventoryRequest = await inventoryPromise;
-    assert.equal(inventoryRequest.status, 200, 'The native semantic inventory request must succeed.');
-    assert.equal(inventoryRequest.request.outputId, outputId, 'Coded browsing must be scoped to the current Patient output.');
-    assert.equal(inventoryRequest.request.resourceType, undefined, 'The initial coded browse must include all eligible resource types.');
-    assert.equal(inventoryRequest.request.sourceNodeId, undefined, 'The initial coded browse must not require a source-node filter.');
-    assert.equal(String(inventoryRequest.request.query ?? '').trim(), '', 'The initial coded browse must not require typed search.');
+    assert.equal(inventoryRequest.status, 200, `${label}: the native semantic inventory request must succeed.`);
+    assert.equal(inventoryRequest.request.outputId, outputId, `${label}: coded browsing must be scoped to the current Patient output.`);
+    assert.equal(inventoryRequest.request.resourceType, resourceType, `${label}: browse must retain its selected source scope.`);
+    assert.equal(inventoryRequest.request.selectionMode, 'SYSTEM_VERSION_CATEGORY', `${label}: browse must request compiler-issued system/version families.`);
+    assert.equal(String(inventoryRequest.request.query ?? '').trim(), '', `${label}: source selection must not require typed search.`);
     assert.equal(typeof inventoryRequest.response.contextToken, 'string');
-    assert(inventoryRequest.response.contextToken.trim(), 'The output-scoped catalog response must bind its compiler choices to a context token.');
+    assert(inventoryRequest.response.contextToken.trim(), `${label}: output-scoped choices must bind to a context token.`);
     assert.equal(typeof inventoryRequest.response.buildId, 'string');
-    assert(inventoryRequest.response.buildId.trim(), 'The output-scoped catalog response must identify its semantic build.');
+    assert(inventoryRequest.response.buildId.trim(), `${label}: the catalog response must identify its semantic build.`);
     assert.equal(inventoryRequest.response.state, 'complete');
     return inventoryRequest;
   };
 
-  const inventory = await openCatalogAndReadInventory('first browse');
-  const entries = inventory.response.entries;
-  const allowedEntries = entries.filter(item => CODED_RULES.has(item.constructionChoice?.source.ruleHint));
-  const conditionV1 = fixtureItem(allowedEntries, 'Condition v1 Coding', item => item.resourceType === 'Condition' &&
-    item.system === 'urn:loom:basic-coded-semantic:condition' && item.code === 'condition-shared' &&
-    item.constructionChoice?.source.version === 'v1' && item.constructionChoice.source.ruleHint === 'CODED_CONCEPT_V1');
-  const conditionUnversioned = fixtureItem(allowedEntries, 'unversioned Condition Coding', item => item.resourceType === 'Condition' &&
-    item.system === 'urn:loom:basic-coded-semantic:condition' && item.code === 'condition-shared' &&
-    (item.constructionChoice?.source.version ?? '') === '' && item.constructionChoice.source.ruleHint === 'CODED_CONCEPT_V1');
-  const medicationBeta = fixtureItem(allowedEntries, 'Medication Beta Coding', item => item.resourceType === 'Medication' &&
-    item.system === 'urn:loom:basic-coded-semantic:medication' && item.code === 'medication-beta' &&
-    item.constructionChoice?.source.ruleHint === 'CODED_CONCEPT_V1');
-  const specimenCode = fixtureItem(allowedEntries, 'Specimen code-only Coding', item => item.resourceType === 'Specimen' &&
-    item.system === 'urn:loom:basic-coded-semantic:specimen' && item.code === 'specimen-type-no-display' &&
-    item.constructionChoice?.source.ruleHint === 'CODED_CONCEPT_V1');
-  const observationPair = fixtureItem(allowedEntries, 'paired Observation value', item => item.resourceType === 'Observation' &&
-    item.system === 'urn:loom:basic-coded-semantic:observation' && item.code === 'diagnostic-method' &&
-    item.constructionChoice?.source.ruleHint === 'CODED_VALUE_V1' &&
+  const initialInventoryFrom = networkObserver.requests.length;
+  const editor = page.locator('[aria-label="Add columns editor"]');
+  await click('open Add columns in the starting Patient scope', page.getByTestId('construction-action-add-columns'),
+    () => editor.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }));
+  const rootScope = page.locator('button[data-source-key="root:Patient"]');
+  assert.equal(await rootScope.getAttribute('aria-pressed'), 'true',
+    'Coded browsing must start scoped to the current Patient table rows.');
+  const rootInventory = await readInventoryRequest('starting Patient scope', 'Patient', initialInventoryFrom);
+  assert.equal(rootInventory.request.sourceNodeId, undefined, 'The starting table scope must not require a source-node filter.');
+  assert(rootInventory.response.entries.every(item => item.resourceType === 'Patient'),
+    'The starting Patient scope must not display categories from other resources.');
+
+  const browseResource = async resourceType => {
+    const option = await addSourceOptionForResource(page, resourceType);
+    const fromIndex = networkObserver.requests.length;
+    await click(`switch coded browse to ${resourceType}`, page.locator(`button[data-source-key="${option.key}"]`), async () => {
+      await waitFor(page, expectedKey => document.querySelector(`button[data-source-key="${expectedKey}"]`)?.getAttribute('aria-pressed') === 'true', option.key);
+      await page.getByRole('heading', { name: `Coded values from ${resourceType}`, exact: true })
+        .waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
+    });
+    const inventory = await readInventoryRequest(`${resourceType} source scope`, resourceType, fromIndex);
+    assert(inventory.response.entries.every(item => item.resourceType === resourceType),
+      `${resourceType} source scope must keep its compiler entries within that resource.`);
+    return { inventory, option };
+  };
+
+  const selectedItems = [];
+  const selectedNames = [];
+  const selectedList = page.getByRole('list', { name: 'Selected fields and coded values', exact: true });
+  const selectCurrentItem = async (phase, item, sourceOption) => {
+    const source = item.constructionChoice.source;
+    assert.equal(source.resourceType, item.resourceType);
+    assert.equal(sourceOption.key, `node:${source.nodeId}`,
+      `${semanticLabel(item)} must be selected from the exact related-source node returned by the compiler.`);
+    const { button, accessibleName } = await selectionButtonForItem(page, item);
+    await button.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
+    assert.equal(await button.isEnabled(), true, `${accessibleName} must be selectable in its exact source scope.`);
+    await click(`${phase}: select ${accessibleName}`, button, async () => assert.equal(await button.getAttribute('aria-pressed'), 'true'));
+    selectedItems.push(item);
+    selectedNames.push(accessibleName);
+    await selectedList.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
+    assert.equal(await selectedList.locator('li').count(), selectedItems.length,
+      'Selections must accumulate in the action list when browsing source scopes changes.');
+    const listText = await selectedList.innerText();
+    assert(listText.includes(semanticLabel(item)), `${accessibleName} must remain visible in the selected feature list.`);
+  };
+  const assertSelectionCount = async expected => {
+    assert.equal(await selectedList.locator('li').count(), expected,
+      'Switching the related-resource scope must preserve selections from earlier source tabs.');
+  };
+
+  const { inventory: conditionInventory, option: conditionOption } = await browseResource('Condition');
+  await assertSelectionCount(0);
+  const conditionEntries = conditionInventory.response.entries.filter(item => item.resourceType === 'Condition');
+  const conditionV1 = codedCategoryItem(conditionEntries, 'Condition v1 Coding family', item =>
+    item.system === 'urn:loom:basic-coded-semantic:condition' && item.codingVersion === 'v1');
+  const conditionUnversioned = codedCategoryItem(conditionEntries, 'unversioned Condition Coding family', item =>
+    item.system === 'urn:loom:basic-coded-semantic:condition' && item.codingVersion === '');
+  const conditionV2 = codedCategoryItem(conditionEntries, 'Condition v2 Coding family', item =>
+    item.system === 'urn:loom:basic-coded-semantic:condition' && item.codingVersion === 'v2');
+  assert.notEqual(conditionV1.familyId, conditionV2.familyId,
+    'The same Condition system at v1 and v2 must remain separate family identities.');
+  await selectCurrentItem('Condition family', conditionV1, conditionOption);
+  await selectCurrentItem('unversioned Condition family', conditionUnversioned, conditionOption);
+
+  const { inventory: medicationInventory, option: medicationOption } = await browseResource('Medication');
+  await assertSelectionCount(2);
+  const medicationFamily = codedCategoryItem(medicationInventory.response.entries, 'Medication Coding family', item =>
+    item.resourceType === 'Medication' && item.system === 'urn:loom:basic-coded-semantic:medication' && item.codingVersion === '1');
+  await selectCurrentItem('Medication family', medicationFamily, medicationOption);
+
+  const { inventory: specimenInventory, option: specimenOption } = await browseResource('Specimen');
+  await assertSelectionCount(3);
+  const specimenFamily = codedCategoryItem(specimenInventory.response.entries, 'Specimen code-fallback family', item =>
+    item.resourceType === 'Specimen' && item.system === 'urn:loom:basic-coded-semantic:specimen' && item.codingVersion === '1');
+  await selectCurrentItem('Specimen family', specimenFamily, specimenOption);
+
+  const { inventory: observationInventory, option: observationOption } = await browseResource('Observation');
+  await assertSelectionCount(4);
+  const observationPair = fixtureItem(observationInventory.response.entries, 'paired Observation value', item =>
+    item.resourceType === 'Observation' && item.system === 'urn:loom:basic-coded-semantic:observation' &&
+    item.code === 'diagnostic-method' && item.constructionChoice?.source.ruleHint === 'CODED_VALUE_V1' &&
     item.constructionChoice.source.fieldPath === 'valueQuantity.value');
-  const selectedItems = [conditionV1, conditionUnversioned, medicationBeta, specimenCode, observationPair];
+  assert.equal(observationPair.selectionMode, undefined,
+    'The existing paired Observation value must remain an exact semantic value, not a system/version category.');
+  await selectCurrentItem('paired Observation value', observationPair, observationOption);
+  await assertSelectionCount(5);
+  const selectedItemNames = selectedNames;
   const expectedGroups = ['Condition', 'Medication', 'Observation', 'Specimen'];
-  for (const resourceType of expectedGroups) {
-    assert(entries.some(item => item.resourceType === resourceType && CODED_RULES.has(item.constructionChoice?.source.ruleHint)),
-      `The output-scoped coded inventory must include an eligible ${resourceType} source.`);
-    await page.getByRole('heading', { name: `Coded values from ${resourceType}`, exact: true })
-      .waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
-  }
-  assert(entries.some(item => item.resourceType === 'Condition' && item.constructionChoice?.source.version === 'v2'),
-    'The UI inventory must keep the same system/code at the distinct v2 Coding.');
-  for (const item of selectedItems) {
-    const label = semanticLabel(item);
-    const checkbox = await checkboxForItem(item);
-    assert.equal(await checkbox.count(), 1, `${label} must resolve to one card for its exact value source.`);
-    await checkbox.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
-    assert.equal(await checkbox.isEnabled(), true, `${label} must be selectable from the current coded inventory.`);
-  }
-  check('correctness', 'native Coded values browse after the exact Patient Filter shows compiler-proven entries from all eligible source resources without search',
-    selectedItems.every(item => CODED_RULES.has(item.constructionChoice.source.ruleHint)) &&
-      expectedGroups.every(resourceType => entries.some(item => item.resourceType === resourceType && CODED_RULES.has(item.constructionChoice?.source.ruleHint))) &&
+  check('correctness', 'native Coded values start in the Patient scope, switch among exact related-resource scopes, preserve accumulated family selections, and keep v1, v2, and unversioned family identities distinct',
+    selectedItems.length === 5 && selectedNames.length === 5 &&
+      selectedItems.every(item => CODED_RULES.has(item.constructionChoice.source.ruleHint)) &&
+      conditionV1.familyId !== conditionV2.familyId &&
       savedFilterStep.operation.kind === 'FILTER' && savedFilterStep.operation.filter.columnId === idColumn.columnId &&
       savedFilterStep.operation.filter.operator === 'EXISTS' && filterCapabilityEntry.response.selectedStage.id === savedFilterStep.id,
-    { outputId, request: inventory.request, groups: expectedGroups, selectedLabels: selectedItems.map(semanticLabel),
+    { outputId, initialRequest: rootInventory.request, sourceRequests: [conditionInventory, medicationInventory, specimenInventory, observationInventory].map(result => result.inventory.request),
+      groups: expectedGroups, selectedLabels: selectedItems.map(semanticLabel), selectedAccessibleNames: selectedItemNames,
       filterStepId: savedFilterStep.id, filterOperation: savedFilterStep.operation, filterCapabilityStageId: filterCapabilityEntry.response.selectedStage.id });
 
-  const selectAndAdd = async (phase, { cancelBeforeSubmit = false } = {}) => {
-    for (const item of selectedItems) {
-      const label = semanticLabel(item);
-      const checkbox = await checkboxForItem(item);
-      if (!(await checkbox.isChecked())) await click(`${phase}: select ${label}`, checkbox,
-        async () => assert.equal(await checkbox.isChecked(), true));
-    }
+  const selectAndAdd = async (phase, { cancelBeforeSubmit = false, reuseChoiceResponses } = {}) => {
     const addButton = page.getByRole('button', { name: 'Advanced options', exact: true });
     const choiceStart = networkObserver.requests.length;
-    const choicePromises = selectedItems.map(item => networkObserver.waitForResponse(entry =>
-      entry.index >= choiceStart && entry.path.endsWith('/construction-choices') &&
-      entry.request?.outputId === outputId && entry.request?.source?.kind === 'SEMANTIC' &&
-      entry.request.source.conceptId === item.conceptId && entry.request.source.bindingId === item.bindingId,
-    { fromIndex: choiceStart, timeoutMs: ACTION_TIMEOUT_MS }));
+    const choicePromises = reuseChoiceResponses ? undefined : selectedItems.map(item => networkObserver.waitForResponse(entry =>
+        entry.index >= choiceStart && entry.path.endsWith('/construction-choices') &&
+        entry.request?.outputId === outputId && entry.request?.source?.kind === 'SEMANTIC' &&
+        entry.request.source.conceptId === item.conceptId && entry.request.source.bindingId === item.bindingId,
+      { fromIndex: choiceStart, timeoutMs: ACTION_TIMEOUT_MS }));
     await click(`${phase}: resolve selected source routes`, addButton, async () => {
       await page.getByTestId('catalog-selection-options')
         .waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
     });
     const selectionOptions = page.getByTestId('catalog-selection-options');
-    const choiceResponses = await Promise.all(choicePromises);
-    const selectedChoiceByLabel = new Map();
-    for (const item of selectedItems) {
+    const choiceResponses = reuseChoiceResponses ?? await Promise.all(choicePromises);
+    const selectedChoiceByIdentity = new Map();
+    for (const [index, item] of selectedItems.entries()) {
+      const identity = semanticIdentity(item);
       const label = semanticLabel(item);
       const response = choiceResponses.find(entry => entry.request.source.conceptId === item.conceptId &&
         entry.request.source.bindingId === item.bindingId);
-      assert(response, `${label} must have an output-specific route search.`);
-      assert.equal(response.status, 200, `${label} route search must return HTTP 200.`);
+      assert(response, `${selectedNames[index]} must have an output-specific route search.`);
+      assert.equal(response.status, 200, `${selectedNames[index]} route search must return HTTP 200.`);
       assert.equal(response.response.outputId, outputId);
+      if (item.selectionMode === 'SYSTEM_VERSION_CATEGORY') {
+        assert.equal(response.request.source.selectionMode, 'SYSTEM_VERSION_CATEGORY');
+        assert.equal(response.request.source.choiceId, item.constructionChoice.choiceId,
+          `${selectedNames[index]} must use its signed system/version family choice.`);
+      }
       const routeChoices = response.response.choices.filter(choice =>
         choice.source.kind === 'SEMANTIC' && choice.source.conceptId === item.conceptId &&
         choice.source.bindingId === item.bindingId && choice.source.nodeId === item.constructionChoice.source.nodeId);
-      assert(routeChoices.length > 0, `${label} must retain an exact compiler route for its catalog node.`);
+      assert(routeChoices.length > 0, `${selectedNames[index]} must retain an exact compiler route for its catalog node.`);
       const shortest = Math.min(...routeChoices.map(choice => choice.route.length));
       const selectedChoice = routeChoices.find(choice => choice.route.length === shortest);
-      assert(selectedChoice, `${label} must have a selectable shortest route.`);
+      assert(selectedChoice, `${selectedNames[index]} must have a selectable shortest route.`);
       assert.equal(selectedChoice.source.resourceType, item.resourceType);
       assert.equal(selectedChoice.source.ruleHint, item.constructionChoice.source.ruleHint);
+      if (item.selectionMode === 'SYSTEM_VERSION_CATEGORY') {
+        assert.equal(selectedChoice.source.system, item.system);
+        assert.equal(selectedChoice.source.version ?? '', item.codingVersion);
+        assert.equal(selectedChoice.source.code ?? '', '');
+      } else {
+        assert.equal(selectedChoice.source.system, item.system);
+        assert.equal(selectedChoice.source.code, item.code);
+        assert.equal(selectedChoice.source.fieldPath, 'valueQuantity.value');
+      }
       if (selectedChoice.route.length > 0) {
         assert.equal(selectedChoice.route.at(-1)?.toNodeId, item.constructionChoice.source.nodeId,
-          `${label} route must end at the exact inventory source node.`);
+          `${selectedNames[index]} route must end at the exact inventory source node.`);
       }
-      const routeRadioName = `${label}: ${routePath(selectedChoice.route)}`;
-      const routeRadio = selectionOptions.getByRole('radio', { name: routeRadioName, exact: true });
-      if (await routeRadio.count()) {
-        if (!(await routeRadio.isChecked())) await click(`${phase}: choose ${item.resourceType} route for ${label}`, routeRadio);
+      const itemOptions = selectionOptions.locator('article').nth(index);
+      const routeNames = await itemOptions.getByRole('radio').evaluateAll(radios =>
+        radios.map(radio => radio.getAttribute('aria-label') ?? ''));
+      const routeName = routeNames.find(name => name.includes(routePath(selectedChoice.route)));
+      if (routeName) {
+        const routeRadio = itemOptions.getByRole('radio', { name: routeName, exact: true });
+        if (!(await routeRadio.isChecked())) await click(`${phase}: choose exact route for ${selectedNames[index]}`, routeRadio);
       }
       const allOption = selectedChoice.options.find(option => option.form === 'ALL' && option.support === 'SUPPORTED');
       const defaultOption = selectedChoice.options.find(option => option.decision === 'DEFAULT' && option.support === 'SUPPORTED')
         ?? selectedChoice.options.find(option => option.support === 'SUPPORTED');
-      const form = allOption?.form ?? defaultOption?.form;
-      assert(form, `${label} must have a compiler-supported result form.`);
-      const formRadio = selectionOptions.getByRole('radio', { name: `${label}: ${formLabel(form)}`, exact: true });
-      assert.equal(await formRadio.count(), 1, `${label} must expose the selected supported ${form} form.`);
-      if (!(await formRadio.isChecked())) await click(`${phase}: choose ${form} for ${label}`, formRadio);
-      selectedChoiceByLabel.set(label, { item, choice: selectedChoice, form });
+      const form = item.selectionMode === 'SYSTEM_VERSION_CATEGORY'
+        ? allOption?.form
+        : allOption?.form ?? defaultOption?.form;
+      assert(form, `${selectedNames[index]} must have a compiler-supported result form.`);
+      if (item.selectionMode === 'SYSTEM_VERSION_CATEGORY') {
+        assert.equal(form, 'ALL', `${selectedNames[index]} must retain every code in its exact system/version family.`);
+      }
+      const formNames = await itemOptions.getByRole('radio').evaluateAll(radios =>
+        radios.map(radio => radio.getAttribute('aria-label') ?? ''));
+      const matchingFormNames = formNames.filter(name => name.includes(formLabel(form)));
+      assert.equal(matchingFormNames.length, 1,
+        `${selectedNames[index]} must expose one supported ${form} form: ${JSON.stringify(formNames)}`);
+      const formRadio = itemOptions.getByRole('radio', { name: matchingFormNames[0], exact: true });
+      if (!(await formRadio.isChecked())) await click(`${phase}: choose ${form} for ${selectedNames[index]}`, formRadio);
+      selectedChoiceByIdentity.set(identity, { item, choice: selectedChoice, form, accessibleName: selectedNames[index] });
     }
     if (cancelBeforeSubmit) {
       await click(`${phase}: cancel before saving the selected coded columns`,
         selectionOptions.getByRole('button', { name: 'Cancel', exact: true }),
         () => selectionOptions.waitFor({ state: 'detached', timeout: ACTION_TIMEOUT_MS }));
-      return { selectedChoiceByLabel };
+      return { selectedChoiceByIdentity, choiceResponses };
     }
 
     const addStart = networkObserver.requests.length;
@@ -425,52 +518,60 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
     assert.equal(proposal.response.previewStatus, 'READY');
     assert.equal(proposal.response.preview.outputId, outputId);
     assert.equal(proposal.response.preview.rowCount, oracle.patientIDs.length);
-    assert.deepEqual(proposal.response.constructionChoices.map(choice => choice.title).sort(),
-      selectedItems.map(semanticLabel).sort(), 'The proposal must contain the exact five selected source labels.');
-    for (const choice of proposal.response.constructionChoices) {
-      const selected = selectedChoiceByLabel.get(choice.title);
-      assert(selected, `The proposal must retain the selected compiler choice for ${choice.title}.`);
-      assert.equal(choice.choiceId, selected.choice.choiceId);
+    assert.equal(proposal.response.constructionChoices.length, selectedItems.length);
+    assert.deepEqual(proposal.response.constructionChoices.map(choice => choice.choiceId),
+      selectedItems.map(item => selectedChoiceByIdentity.get(semanticIdentity(item)).choice.choiceId),
+      'The proposal must retain the exact selected family and paired-value identities in selection order.');
+    for (const [index, choice] of proposal.response.constructionChoices.entries()) {
+      const selected = selectedChoiceByIdentity.get(semanticIdentity(selectedItems[index]));
+      assert(selected, `The proposal must retain the selected compiler choice for ${selectedNames[index]}.`);
+      assert.equal(choice.title, semanticLabel(selected.item), `${selectedNames[index]} must retain its source-derived base title.`);
       assert.equal(choice.form, selected.form);
     }
     const preview = proposal.response.preview;
-    const previewColumns = new Map(preview.columns.map(column => [column.label, column]));
-    for (const label of selectedItems.map(semanticLabel)) assert(previewColumns.has(label), `Proposal preview must include ${label}.`);
+    assert.equal(proposal.response.candidateColumnIds.length, selectedItems.length,
+      'The proposal must identify one output column per selected family or paired value.');
+    const previewColumnsById = new Map(preview.columns.map(column => [column.column, column]));
+    for (const columnId of proposal.response.candidateColumnIds) {
+      assert(previewColumnsById.has(columnId), `Proposal preview must include candidate output ${columnId}.`);
+    }
     const rowByPatient = new Map(preview.rows.map(row => [row[idColumn.column], row]));
     assert.deepEqual([...rowByPatient.keys()].sort(), oracle.patientIDs, 'Proposal rows must preserve both Patient identities.');
-    const expectedValueByLabel = new Map([
-      [semanticLabel(conditionV1), { 'coded-catalog-patient-01': 'Condition v1 display', 'coded-catalog-patient-02': null }],
-      [semanticLabel(conditionUnversioned), { 'coded-catalog-patient-01': 'Condition unversioned display', 'coded-catalog-patient-02': null }],
-      [semanticLabel(medicationBeta), { 'coded-catalog-patient-01': 'Medication Beta', 'coded-catalog-patient-02': null }],
-      [semanticLabel(specimenCode), { 'coded-catalog-patient-01': 'specimen-type-no-display', 'coded-catalog-patient-02': null }],
-      [semanticLabel(observationPair), { 'coded-catalog-patient-01': 42, 'coded-catalog-patient-02': null }],
+    const expectedValueByIdentity = new Map([
+      [semanticIdentity(conditionV1), { 'coded-catalog-patient-01': ['Condition v1 display'], 'coded-catalog-patient-02': null }],
+      [semanticIdentity(conditionUnversioned), { 'coded-catalog-patient-01': ['Condition unversioned display'], 'coded-catalog-patient-02': null }],
+      [semanticIdentity(medicationFamily), { 'coded-catalog-patient-01': ['Medication Alpha', 'Medication Beta'], 'coded-catalog-patient-02': null }],
+      [semanticIdentity(specimenFamily), { 'coded-catalog-patient-01': ['specimen-type-no-display'], 'coded-catalog-patient-02': null }],
+      [semanticIdentity(observationPair), { 'coded-catalog-patient-01': 42, 'coded-catalog-patient-02': null }],
     ]);
-    for (const [label, expectedByPatient] of expectedValueByLabel) {
-      const column = previewColumns.get(label);
-      const { form } = selectedChoiceByLabel.get(label);
+    for (const [index, item] of selectedItems.entries()) {
+      const identity = semanticIdentity(item);
+      const columnId = proposal.response.candidateColumnIds[index];
+      const column = previewColumnsById.get(columnId);
+      const { form, accessibleName } = selectedChoiceByIdentity.get(identity);
       for (const patientID of oracle.patientIDs) {
         const value = rowByPatient.get(patientID)?.[column.column];
-        const expected = expectedByPatient[patientID];
+        const expected = expectedValueByIdentity.get(identity)[patientID];
         if (form === 'ALL') {
           if (expected === null) {
             assert(value === null || (Array.isArray(value) && value.length === 0),
-              `${label} must remain empty when no Coding matches ${patientID}.`);
+              `${accessibleName} must remain empty when no Coding matches ${patientID}.`);
           } else {
-            assert.deepEqual(value, [expected],
-              `${label} must return only its exact matched Coding value for ${patientID}.`);
+            assert.deepEqual(value, expected,
+              `${accessibleName} must return only its exact system/version values for ${patientID}.`);
           }
         } else {
           assert.equal(value ?? null, expected,
-            `${label} must return only its exact matched Coding value for ${patientID}.`);
+            `${accessibleName} must return only its exact paired value for ${patientID}.`);
         }
       }
     }
-    return { proposal, applyRequest, preview, selectedChoiceByLabel, expectedValueByLabel };
+    return { proposal, applyRequest, preview, selectedChoiceByIdentity, expectedValueByIdentity, choiceResponses };
   };
 
   const choiceProposalsBeforeCancel = networkObserver.requests.filter(entry => entry.path.endsWith('/construction-choice-proposals')).length;
   const commandsBeforeCancel = networkObserver.requests.filter(entry => entry.path.endsWith('/commands') && entry.isMutation).length;
-  await selectAndAdd('Cancel proof', { cancelBeforeSubmit: true });
+  const cancelReview = await selectAndAdd('Cancel proof', { cancelBeforeSubmit: true });
   const afterCancel = await readBuilder();
   assert.equal(afterCancel.draftVersion, baselineDraft.version, 'Cancel must not change the saved draft version.');
   assert.equal(afterCancel.draftDigest, baselineDraft.digest, 'Cancel must not change the saved draft digest.');
@@ -478,61 +579,86 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
     'Cancel must not send an authoring command.');
   assert.equal(networkObserver.requests.filter(entry => entry.path.endsWith('/construction-choice-proposals')).length,
     choiceProposalsBeforeCancel, 'Cancel before Add/Save must not request a coded-column proposal.');
-  check('correctness', 'Pre-submit Cancel leaves the saved Patient table and draft unchanged',
+  check('correctness', 'pre-submit Cancel leaves the saved Patient table and draft unchanged without a coded-column proposal or authoring command',
     afterCancel.draftVersion === baselineDraft.version && afterCancel.draftDigest === baselineDraft.digest &&
       networkObserver.requests.filter(entry => entry.path.endsWith('/commands') && entry.isMutation).length === commandsBeforeCancel &&
       networkObserver.requests.filter(entry => entry.path.endsWith('/construction-choice-proposals')).length === choiceProposalsBeforeCancel,
     { draft: baselineDraft, afterCancel: { version: afterCancel.draftVersion, digest: afterCancel.draftDigest }, commandsBeforeCancel });
 
-  const appliedPreview = await selectAndAdd('Add/Save proof');
+  const appliedPreview = await selectAndAdd('Add/Save proof', { reuseChoiceResponses: cancelReview.choiceResponses });
   const applyRequest = appliedPreview.applyRequest;
   assert.equal(applyRequest.status, 200, 'Applying the selected coded columns must persist successfully.');
   builder = await readBuilder();
   document = documentFor(builder);
   assert(document, 'The applied Patient root table must remain in the Builder workspace.');
   const savedColumns = document.columns ?? [];
-  const sourceForLabel = label => {
-    const matches = savedColumns.filter(column => column.label === label);
-    assert.equal(matches.length, 1, `The saved table must contain one ${label} column.`);
-    assert.equal(matches[0].source?.kind, 'codedValue', `${label} must persist as a coded-value column.`);
+  const sourceForItem = item => {
+    const matches = savedColumns.filter(column => {
+      const source = column.source;
+      const lookup = source?.kind === 'codedValue' ? source.lookup : undefined;
+      if (!lookup || lookup.key.system !== item.system) return false;
+      if (item.selectionMode === 'SYSTEM_VERSION_CATEGORY') {
+        return lookup.binding.selectionScope === 'SYSTEM_VERSION' &&
+          (lookup.key.version ?? '') === item.codingVersion && lookup.key.code === '';
+      }
+      return lookup.key.code === item.code && (lookup.key.version ?? '') === item.codingVersion;
+    });
+    assert.equal(matches.length, 1,
+      `${semanticLabel(item)} must persist under its exact semantic identity, independent of display-label uniqueness.`);
     return matches[0];
   };
-  for (const item of [conditionV1, conditionUnversioned, medicationBeta, specimenCode]) {
+  const categoryItems = [conditionV1, conditionUnversioned, medicationFamily, specimenFamily];
+  for (const item of categoryItems) {
     const label = semanticLabel(item);
-    const column = sourceForLabel(label);
+    const column = sourceForItem(item);
+    assert.equal(column.source.lookup.binding.selectionScope, 'SYSTEM_VERSION', `${label} must use the exact system/version family scope.`);
     assert.equal(column.source.lookup.binding.valueScope, 'CODING');
     assert.equal(column.source.lookup.binding.versionPath, 'version', `${label} must match Coding.version exactly.`);
     assert.equal(column.source.lookup.key.system, item.system);
-    assert.equal(column.source.lookup.key.code, item.code);
-    assert.equal(column.source.lookup.key.version ?? '', item.constructionChoice.source.version ?? '',
-      `${label} must persist the exact version, including the empty unversioned value.`);
+    assert.equal(column.source.lookup.key.code, '', `${label} must not be narrowed to one code inside its family.`);
+    assert.equal(column.source.lookup.key.version ?? '', item.codingVersion,
+      `${label} must persist the exact version, including the empty unversioned family.`);
   }
-  const pairedColumn = sourceForLabel(semanticLabel(observationPair));
+  const pairedColumn = sourceForItem(observationPair);
+  assert.equal(pairedColumn.source.lookup.binding.selectionScope, undefined,
+    'The existing paired Observation value must remain an exact Coding identity.');
   assert.equal(pairedColumn.source.lookup.binding.valueScope, undefined,
     'Legacy paired Observation values must remain owner-scoped.');
   assert.equal(pairedColumn.source.lookup.binding.versionPath, undefined,
     'Legacy paired Observation values must not acquire Coding-scoped version behavior.');
+  assert.equal(pairedColumn.source.lookup.key.system, observationPair.system);
+  assert.equal(pairedColumn.source.lookup.key.code, observationPair.code);
   assert.equal(pairedColumn.source.lookup.key.version, undefined);
   const persistedFilterSteps = (document.construction?.steps ?? []).filter(step => step.operation?.kind === 'FILTER');
   assert.equal(persistedFilterSteps.length, 1, 'Applying coded values must preserve the existing Patient Filter only.');
   assert.equal(persistedFilterSteps[0].id, savedFilterStep.id);
   assert.equal(persistedFilterSteps[0].operation.filter.operator, 'EXISTS');
-  check('correctness', 'Apply persists CODING-scoped version-aware sources and leaves paired values owner-scoped',
-    [conditionV1, conditionUnversioned, medicationBeta, specimenCode].every(item => {
-      const source = sourceForLabel(semanticLabel(item)).source.lookup;
-      return source.binding.valueScope === 'CODING' && source.binding.versionPath === 'version' &&
-        source.key.system === item.system && source.key.code === item.code &&
-        (source.key.version ?? '') === (item.constructionChoice.source.version ?? '');
+  check('correctness', 'one Add/Save action persists CODING-scoped system/version families and leaves the paired Observation value exact and owner-scoped',
+    categoryItems.every(item => {
+      const source = sourceForItem(item).source.lookup;
+      return source.binding.selectionScope === 'SYSTEM_VERSION' && source.binding.valueScope === 'CODING' &&
+        source.binding.versionPath === 'version' && source.key.system === item.system && source.key.code === '' &&
+        (source.key.version ?? '') === item.codingVersion;
     }) && pairedColumn.source.lookup.binding.valueScope === undefined &&
       persistedFilterSteps.length === 1 && persistedFilterSteps[0].id === savedFilterStep.id &&
       persistedFilterSteps[0].operation.filter.operator === 'EXISTS',
-    { outputId, savedLabels: savedColumns.map(column => column.label), versionedLabels: [semanticLabel(conditionV1), semanticLabel(conditionUnversioned)] });
+    { outputId, savedLabels: savedColumns.map(column => column.label),
+      familyIdentities: categoryItems.map(item => ({ resourceType: item.resourceType, system: item.system, version: item.codingVersion })) });
 
+  const addedColumns = appliedPreview.proposal.response.candidateColumnIds.map(columnId => {
+    const matches = savedColumns.filter(column => column.column === columnId);
+    assert.equal(matches.length, 1, `Saved document must retain proposal candidate column ${columnId}.`);
+    return matches[0];
+  });
+  for (const [index, item] of selectedItems.entries()) {
+    assert.equal(sourceForItem(item).column, appliedPreview.proposal.response.candidateColumnIds[index],
+      `${selectedNames[index]} must remain aligned with its exact saved output identity.`);
+  }
   const expectedVisibleRows = oracle.patientIDs.map(patientID => {
     const cells = [patientID];
-    for (const label of appliedPreview.expectedValueByLabel.keys()) {
-      const expected = appliedPreview.expectedValueByLabel.get(label)[patientID];
-      cells.push(expected === null ? '—' : normalize(expected));
+    for (const item of selectedItems) {
+      const expected = appliedPreview.expectedValueByIdentity.get(semanticIdentity(item))[patientID];
+      cells.push(expected === null ? '—' : normalize(Array.isArray(expected) ? expected.join('; ') : expected));
     }
     return cells;
   }).sort((left, right) => left[0].localeCompare(right[0]));
@@ -542,14 +668,16 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
       return preview?.dataset.previewStatus === 'ready' && preview.dataset.previewOutputId === expectedOutput;
     }, outputId);
     const grid = await readVisibleGrid(page);
-    const expectedLabels = [idColumn.label, ...appliedPreview.expectedValueByLabel.keys()];
+    const expectedLabels = [idColumn.label, ...addedColumns.map(column => column.label)];
     const normalizedExpectedLabels = expectedLabels.map(normalizeHeader);
     assert.deepEqual([...grid.headers].sort(), [...normalizedExpectedLabels].sort(), `${label} must display the exact root ID and five coded columns.`);
+    const usedIndices = new Set();
     const columnIndices = expectedLabels.map(header => {
       const expectedHeader = normalizeHeader(header);
-      const matches = grid.headers.flatMap((actual, index) => actual === expectedHeader ? [index] : []);
-      assert.equal(matches.length, 1, `${label} must render one exact ${header} column.`);
-      return matches[0];
+      const match = grid.headers.findIndex((actual, index) => actual === expectedHeader && !usedIndices.has(index));
+      assert(match >= 0, `${label} must render one exact ${header} column, including repeated readable labels.`);
+      usedIndices.add(match);
+      return match;
     });
     const actualRows = grid.rows.map(row => columnIndices.map(index => row[index]));
     assert.deepEqual(actualRows.sort((left, right) => left[0].localeCompare(right[0])), expectedVisibleRows,
@@ -572,7 +700,8 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
   await assertAppliedGrid('Reloaded standalone coded values');
   check('correctness', 'Applied coded fields and exact per-patient values survive Builder reload',
     builder.draftVersion === savedVersion && builder.draftDigest === savedDigest && savedColumns.length === 6,
-    { outputId, version: builder.draftVersion, digest: builder.draftDigest, headers: (await readVisibleGrid(page)).headers });
+    { outputId, version: builder.draftVersion, digest: builder.draftDigest, headers: (await readVisibleGrid(page)).headers,
+      families: categoryItems.map(item => ({ system: item.system, version: item.codingVersion, column: sourceForItem(item).column })) });
 
   const finalOracle = readStandaloneCodedFieldFixture(target.fixtureDir);
   const sourceFilesAfter = Object.fromEntries(Object.entries(finalOracle.sourceFiles).map(([resourceType, file]) => [resourceType, file.sha256]));

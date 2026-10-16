@@ -1564,9 +1564,10 @@ export const registry = Object.freeze([
     ],
     requiredTransitions: [
       'create a fresh Basic Patient table from the six-resource literal fixture',
-      'browse all output-scoped coded values without a source-type or typed-search gate and select Condition, Medication, Specimen, and paired Observation choices',
+      'open Coded values in the starting Patient source scope, switch to Condition, Medication, Specimen, and Observation related-resource scopes, and keep earlier family selections in the shared action list',
+      'select exact compiler-issued system/version categories for standalone CodeableConcept Coding and keep the paired Observation value as its existing exact semantic identity',
       'cancel the configured route and result-form choices before Add/Save without changing the saved Patient table',
-      'use one Add/Save action for the coded choices and verify exact display, code fallback, and version correlation by Patient',
+      'use one Add/Save action for the selected families and paired value and verify exact version, display, code fallback, and per-Patient correlation',
       'reload the applied table and verify the persisted CODING bindings and exact source-derived rows',
     ],
     gateReasons: [
@@ -1614,9 +1615,9 @@ export const registry = Object.freeze([
         ],
         requiredChecks: [
           'literal fixture proves standalone Coding versions and the unversioned paired Observation 42/null values',
-          'native Coded values browse after the exact Patient Filter shows compiler-proven entries from all eligible source resources without search',
+          'native Coded values start in the Patient scope, switch among exact related-resource scopes, preserve accumulated family selections, and keep v1, v2, and unversioned family identities distinct',
           'pre-submit Cancel leaves the saved Patient table and draft unchanged without a coded-column proposal or authoring command',
-          'one Add/Save action persists CODING-scoped version-aware sources and leaves paired values owner-scoped',
+          'one Add/Save action persists CODING-scoped system/version families and leaves the paired Observation value exact and owner-scoped',
           'Applied coded fields and exact per-patient values survive Builder reload',
           'independent FHIR source fixture remains unchanged through the lifecycle',
         ],
@@ -1627,7 +1628,7 @@ export const registry = Object.freeze([
         feature: 'Basic native standalone Coding values across Condition, Medication, Specimen and paired Observation values',
         acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', case: 'coded-fields', checks: { choice: 2, proposal: 1, cancel: 1, apply: 1, savedRows: 2, reload: 2, edit: 0, restoration: 0 } },
         status: 'untested',
-        reason: 'The registered fresh Basic fixture has an independent six-resource source oracle; the driver now uses pre-submit Cancel and one Add/Save action, but the native browse, exact version-aware save, and reload lifecycle remain pending.',
+        reason: 'The registered fresh Basic fixture has an independent six-resource source oracle; the driver now reflects Patient-first related-resource browsing and SYSTEM_VERSION_CATEGORY family selection, but the full native browser lifecycle remains pending.',
       },
     ],
   }),
