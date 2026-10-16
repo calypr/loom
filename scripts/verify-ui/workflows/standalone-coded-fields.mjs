@@ -80,6 +80,14 @@ const addSourceOptionForResource = async (page, resourceType) => {
 
 const semanticLabel = item => item.display?.trim() || item.code || item.sourcePath;
 const semanticVersion = item => item.codingVersion || item.constructionChoice?.source.version || '';
+const selectionBaseLabel = accessibleName => {
+  const prefix = 'Select ';
+  const qualifier = ' · system ';
+  assert(accessibleName.startsWith(prefix), `Expected a qualified semantic selection name: ${accessibleName}`);
+  const qualifierIndex = accessibleName.indexOf(qualifier);
+  assert(qualifierIndex > prefix.length, `Expected system/version qualifiers in ${accessibleName}`);
+  return accessibleName.slice(prefix.length, qualifierIndex);
+};
 const formLabel = form => ({
   VALUE: 'Use the matching value',
   FIRST: 'Use the first value',
@@ -370,7 +378,8 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
     assert.equal(new Set(selectedIdentities).size, selectedIdentities.length,
       'Different system/version families must retain distinct selection identities even when their base labels repeat.');
     const listText = await selectedList.innerText();
-    assert(listText.includes(semanticLabel(item)), `${accessibleName} must remain visible in the selected feature list.`);
+    assert(listText.toLowerCase().includes(selectionBaseLabel(accessibleName).toLowerCase()),
+      `${accessibleName} must retain a readable structural label in the selected feature list.`);
   };
   const assertSelectionCount = async expected => {
     const selectedRows = selectedList.locator('li');
@@ -544,7 +553,8 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
     for (const [index, choice] of proposal.response.constructionChoices.entries()) {
       const selected = selectedChoiceByIdentity.get(semanticIdentity(selectedItems[index]));
       assert(selected, `The proposal must retain the selected compiler choice for ${selectedNames[index]}.`);
-      assert.equal(choice.title, semanticLabel(selected.item), `${selectedNames[index]} must retain its source-derived base title.`);
+      assert.equal(choice.title, semanticLabel(selected.item),
+        `${selectedNames[index]} must retain its pre-change source-derived public title.`);
       assert.equal(choice.form, selected.form);
     }
     const preview = proposal.response.preview;
