@@ -1,0 +1,305 @@
+{
+  "epoch": 91,
+  "status": "CLOSED_FAILED_UNCLASSIFIED",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "7a463f157a52d85485fe31f375e7bf3f8fd55b7a20ce166cd191e8389ccd381a",
+        "files": 1526
+      },
+      "after": {
+        "sha256": "7a463f157a52d85485fe31f375e7bf3f8fd55b7a20ce166cd191e8389ccd381a",
+        "files": 1526
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave91/source-before.json",
+        "sha256": "5705ca74a67222cf5bb17df9bee405cf959d43f1725a8d0afd1db82ca218d268"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave91/source-after.json",
+        "sha256": "51440bf94e9ece1d504dedbcef452aa0a27c92425c3128c13c7b7014218ad0e9"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "7fd9d6ba97715e9da5d9cb0e005ec50f41e5f145b63ca26d194cfebc0609de6b",
+        "files": 211
+      },
+      "after": {
+        "sha256": "7fd9d6ba97715e9da5d9cb0e005ec50f41e5f145b63ca26d194cfebc0609de6b",
+        "files": 211
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave91/docs-before.json",
+        "sha256": "328fe52ba35d4c2f1441a1e59f51c310f0a3dcea3d36766c14cc2355c7852eae"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave91/docs-after.json",
+        "sha256": "c05fa58bcfe8a767be199d481351dafd731402c57b42a661d4dd84c2732b7bb1"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true,
+      "precheck": null,
+      "precheckStatus": "NOT_RUN_BY_PLAN",
+      "precheckReason": "Root explicitly authorized before-capture and health without a redundant precheck; before/after identities match.",
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave91/api-identity-before.json",
+        "sha256": "e099a3caa87c407a5e6f0439e356f05b9fc74b540d3b60754e30a79ad5458cbd"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave91/api-identity-after.json",
+        "sha256": "2deeea290f6f061b0a769b41e0e143937a7b233806fc5374e30ce4db5efc31d4"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave91/owned-mounts-before.json",
+        "sha256": "f3c9eeb266f96073fcc8ca212c223564ccace9daafc58a4dd7b14d0eefaf0901"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave91/owned-mounts-after.json",
+        "sha256": "41236121ffd6526c28dc882077d42c8bb7a626334bbb44be4d2ccd05eabe933c"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave91/health-before.json",
+        "sha256": "5d119ac1f63110f478369a7dc53cd1a09b4266e1287a1651ee4daf0a463d7977"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave91/health-after.json",
+        "sha256": "89770712b257752ec19154e0825849fe09c5b263b2f24348680446be93a7580f"
+      }
+    }
+  },
+  "case": {
+    "scenarioId": "cda-workspace-combine",
+    "caseName": "group-pivot-join",
+    "title": "CDA current-draft Group→Pivot→Join exact Observation Groups feed a native Pivot and editable current-draft Join",
+    "status": "failed_unclassified",
+    "failureAttribution": "UNVERIFIED_EMPTY_TARGET_REPRESENTATION",
+    "requiredChecks": {
+      "total": 30,
+      "passed": 25,
+      "missingOrFailed": 0,
+      "missingOrUnrun": 5,
+      "evidence": [
+        {
+          "name": "Bounded scoped raw Observation witness has exact A,A,B shared and left-only identities",
+          "status": "passed"
+        },
+        {
+          "name": "left Group immutable selection and direct population bind exact scoped FHIR IDs",
+          "status": "passed"
+        },
+        {
+          "name": "left Group native GROUP proposal matches raw group counts",
+          "status": "passed"
+        },
+        {
+          "name": "left Group proposal carries exact direct Group keys and COUNT_ROWS",
+          "status": "passed"
+        },
+        {
+          "name": "left Group saved Group survives reload",
+          "status": "passed"
+        },
+        {
+          "name": "Left native Group produces the exact shared count 3 and left-only count 1",
+          "status": "passed"
+        },
+        {
+          "name": "right Group Pivot immutable selection and direct population bind exact scoped FHIR IDs",
+          "status": "passed"
+        },
+        {
+          "name": "right Group Pivot native GROUP proposal matches raw group counts",
+          "status": "passed"
+        },
+        {
+          "name": "right Group Pivot proposal carries exact direct Group keys and COUNT_ROWS",
+          "status": "passed"
+        },
+        {
+          "name": "right Group Pivot saved Group survives reload",
+          "status": "passed"
+        },
+        {
+          "name": "Right native Group preserves subject/code-category multiplicity as two COUNT_ROWS groups",
+          "status": "passed"
+        },
+        {
+          "name": "Right native Pivot proposal preserves exact code category multiplicity 2 and 1",
+          "status": "passed"
+        },
+        {
+          "name": "Right Group→Pivot rows survive reload with exact code category multiplicity",
+          "status": "passed"
+        },
+        {
+          "name": "Exact source outputs persist as one GROUP and one ordered GROUP→PIVOT",
+          "status": "passed"
+        },
+        {
+          "name": "LEFT Join preview matches exact Group/Pivot oracle",
+          "status": "passed"
+        },
+        {
+          "name": "LEFT native Join binds exact Group/Pivot inputs, keys, mappings, and current CAS",
+          "status": "passed"
+        },
+        {
+          "name": "Join proposal Cancel preserves the exact full workspace and draft CAS after reload",
+          "status": "passed"
+        },
+        {
+          "name": "Apply native Group/Pivot LEFT Join persists exact visible values",
+          "status": "passed"
+        },
+        {
+          "name": "Edited INNER proposal matches exact shared-key rows",
+          "status": "passed"
+        },
+        {
+          "name": "Cancel saved LEFT Join edit to INNER preserves existing target rows",
+          "status": "passed"
+        },
+        {
+          "name": "Canceled INNER edit retains LEFT values",
+          "status": "passed"
+        },
+        {
+          "name": "INNER Join proposal matches exact shared-key rows",
+          "status": "passed"
+        },
+        {
+          "name": "Apply saved LEFT Join edit as INNER persists exact visible values",
+          "status": "passed"
+        },
+        {
+          "name": "all native lifecycle actions complete within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "CDA watched source and API build stayed unchanged",
+          "status": "passed"
+        }
+      ]
+    },
+    "assertions": {
+      "passed": 187,
+      "failed": 0,
+      "total": 187
+    },
+    "actions": {
+      "passed": 107,
+      "failed": 0,
+      "total": 107,
+      "maxElapsedMs": 1394
+    },
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "passed",
+      "performance": "passed"
+    },
+    "expectedSelectionCancellation": {
+      "count": 1,
+      "method": "GET",
+      "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/cda-group-pivot-join-75fa9a04-4937-4873-8199-5564b7ced4cf/selections/selection_eb8483455d25e4b27949604607dd241141b57eb9689d4b3b7a869d81903db55a",
+      "requestId": "cda-request-376",
+      "expected": true,
+      "reason": "Selecting the right Group Pivot output retires the previous left attached-selection query.",
+      "proof": {
+        "project": "loom_dev_cda_fhir",
+        "explorer": "cda-group-pivot-join-75fa9a04-4937-4873-8199-5564b7ced4cf",
+        "generation": "cda-fhir-v1",
+        "previousOutputId": "out_380da8d3018549b002b99afd",
+        "previousSelectionRevisionId": "selection_eb8483455d25e4b27949604607dd241141b57eb9689d4b3b7a869d81903db55a",
+        "nextOutputId": "out_66ac4485cfedfd8925cbd851",
+        "nextSelectionRevisionId": "selection_83e7a9ca49d5f4199045805ae5bf53bca8092867dfd7a8f3a3c8762dd3745930",
+        "query": {
+          "method": "GET",
+          "limit": 1
+        },
+        "retirement": "BuilderWorkspace replaces the keyed active-table population selection query; resourceFor aborts its stale getSelection AbortSignal when the selected table changes.",
+        "scopeAction": "Select right Group Pivot exact source population",
+        "scopeRequest": {
+          "requestId": null,
+          "draftVersion": null,
+          "draftDigest": null,
+          "outputId": null,
+          "stageId": null
+        }
+      },
+      "replacementRead": {
+        "selectionId": "selection_83e7a9ca49d5f4199045805ae5bf53bca8092867dfd7a8f3a3c8762dd3745930",
+        "status": 200,
+        "limit": "1"
+      },
+      "unexpectedNetworkErrors": 0
+    },
+    "nativeRequests": {
+      "recordedEntries": 149,
+      "http200": 147,
+      "non200OrNoStatus": 2,
+      "unexpectedNetworkErrors": 0,
+      "expectedCancellationEvents": 1,
+      "note": "Two native request entries have no completion status; the raw report separately proves one expected stale-selection cancellation. Do not infer that both incomplete entries were cancellations."
+    },
+    "primaryFailure": {
+      "classification": "unverified-empty-target-representation-mismatch",
+      "description": "Deep equality failed because the candidate is rooted empty construction while the target baseline document omits construction.",
+      "workflow": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+      "workflowLine": 1002,
+      "action": "final Join removal",
+      "actualCandidateConstruction": {
+        "version": 1,
+        "steps": []
+      },
+      "expectedTargetBaselineConstruction": null,
+      "attribution": "Unresolved: the workflow observed a rooted empty candidate while the target baseline omitted construction. This capture does not establish whether that difference is a valid empty representation or a product defect.",
+      "interpretation": "Group, Pivot, LEFT Join, and INNER edit/apply/reload checks passed. The run stopped at the final removal oracle before removal cancellation/apply; do not call the full lifecycle passed."
+    }
+  },
+  "coordinatorClosure": {
+    "status": "CLOSED_INTEGRITY_PASS_BROWSER_FAIL",
+    "sha256": "be62ae83a3beabb21cfae5aea84616722c670098c531aa2e14863d493524213a",
+    "rootAcceptance": {
+      "baselineAccepted": true,
+      "browserReleased": true,
+      "closureAccepted": false
+    }
+  }
+}

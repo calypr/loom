@@ -1,0 +1,44 @@
+{
+  "sources": [
+    {
+      "sourcePath": "scripts/verify-ui/workflows/verify-cda-starting-collection-handoff.mjs",
+      "ownerPartition": "native-standalone-cda-other",
+      "kind": "standalone-browser-entrypoint",
+      "disposition": "native-spec-mapped-source",
+      "reason": "New native CDA lifecycle uses the official standalone Other spec and preserves raw membership, host handoff, route application, preview, and reload assertions.",
+      "sourceStillPresent": true,
+      "nativeSpecPaths": [
+        "scripts/verify-ui/specs/standalone-cda-other.spec.mjs"
+      ],
+      "workflowPaths": [
+        "scripts/verify-ui/workflows/verify-cda-starting-collection-handoff.mjs"
+      ],
+      "nativeCases": [
+        {
+          "scenarioID": "cda-starting-collection-handoff",
+          "caseName": "initial-selection-handoff-route-preview-apply-reload",
+          "caseTitle": "hand off a starting collection, attach its route, preview, and reload",
+          "workflow": "scripts/verify-ui/workflows/verify-cda-starting-collection-handoff.mjs::startingCollectionHandoffWorkflow",
+          "nativeSpecPaths": [
+            "scripts/verify-ui/specs/standalone-cda-other.spec.mjs"
+          ],
+          "preservedAssertions": [
+            "Bounded project/generation-scoped Arango oracle selects exact Observation IDs and distinct Patient subjects.",
+            "Direct immutable-selection API membership matches the raw Observation refs and carries the Builder authorization scope.",
+            "The existing standalone selection URL ingress loads the exact revision through LoomExplorerBuilder and discovers route choices in the browser.",
+            "Native Use selected resources applies the exact subject route; the saved selection, authored columns/construction, and automatic Patient preview are checked against raw membership.",
+            "Reload retains the URL handoff, saved route, columns/construction, and exact preview; source/API freeze and required diagnostics are checked by the native CDA fixture."
+          ]
+        }
+      ],
+      "legacyBrowserOwnershipRemoved": true,
+      "runtimeEvidence": {
+        "status": "passed",
+        "epoch": 101,
+        "report": "docs/verification/playwright/runtime/starting-collection-handoff-epoch101-report.json",
+        "closure": "docs/verification/playwright/runtime/starting-collection-handoff-epoch101-closure.json",
+        "scope": "Direct selection handoff, route attachment, preview, and reload; Cancel is not applicable; other route/selection variants are not covered."
+      }
+    }
+  ]
+}

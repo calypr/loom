@@ -1,0 +1,128 @@
+{
+  "wave": 6,
+  "case": "CDA contributor exists",
+  "target": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiPort": "8188",
+    "uiPort": "30008",
+    "explorer": "contributor-exists-browser-1791216461288",
+    "outputId": "out_0dee1eb46eede6323a64f38b"
+  },
+  "officialRun": {
+    "command": "/private/tmp/loom-native-parallel-wave6/exists/command.txt",
+    "runnerLog": "/private/tmp/loom-native-parallel-wave6/exists/runner.log",
+    "playwrightJson": "/private/tmp/loom-native-parallel-wave6/exists/results.json",
+    "cdaReport": "/private/tmp/loom-native-parallel-wave6/exists/results/standalone-cda-fields-CDA--7cbad-ists-CDA-contributor-exists/cda-report.json",
+    "exitCode": 0,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0,
+    "durationMs": 32573,
+    "testStatus": "passed"
+  },
+  "frozenIdentity": {
+    "baselineFile": "/private/tmp/loom-native-parallel-wave6/source-before.json",
+    "sourceBefore": {
+      "sha256": "2a9e0cfb2b4a48ab8984033241dd00922613bfeb8f4a147bfcec78b172b12c66",
+      "files": 1484
+    },
+    "sourceAfter": {
+      "sha256": "2a9e0cfb2b4a48ab8984033241dd00922613bfeb8f4a147bfcec78b172b12c66",
+      "files": 1484
+    },
+    "changedPaths": [],
+    "sourceMatches": true,
+    "apiBefore": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+    "apiAfter": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+    "apiMatches": true,
+    "fixtureWatchedFileCount": 1114
+  },
+  "independentRawOracle": {
+    "relationship": "Observation --subject_Patient--> Patient",
+    "distinctPatientWitnesses": 3,
+    "relatedObservationCountsByBucket": {
+      "zero": 0,
+      "one": 1,
+      "many": 7
+    },
+    "baselineRows": 9,
+    "existsPreserveParentRows": 9,
+    "existsExcludeRows": 8
+  },
+  "lifecycle": {
+    "passedAssertions": 34,
+    "failedAssertions": 0,
+    "checkpoints": [
+      "source-selection-zero-one-many",
+      "open-related-expand-editor",
+      "all-matching-contributor-baseline-preview",
+      "cancel-all-matching-preview",
+      "all-matching-cancel-preserves-source",
+      "open-related-expand-editor",
+      "configure-exists-contributor-rule",
+      "exists-error-policy-repair",
+      "exists-preserve-parent-repair-preview",
+      "apply-exists-preserve-parent-to-render",
+      "reload-exists-preserve-parent",
+      "edit-saved-step-to-policy-control",
+      "edit-exists-policy-exclude-preview",
+      "apply-exists-exclude-to-render",
+      "reload-edited-exists-exclude",
+      "remove-exists-contributor-preview",
+      "cancel-exists-remove-to-render",
+      "exists-remove-cancel-preserves-contributor-rule",
+      "remove-exists-contributor-preview",
+      "apply-exists-remove-to-render",
+      "reload-restored-source-table"
+    ],
+    "actionTimingCount": 19,
+    "maxActionMs": 203,
+    "latencyUnderConcurrentWave": "provisional"
+  },
+  "expectedDiagnostics": {
+    "errorCount": 3,
+    "unexpectedErrorCount": 0,
+    "http422": {
+      "requestId": "construction-proposal-8e9f147f-ef19-4ae1-b835-7356193fd4f2",
+      "status": 422,
+      "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/contributor-exists-browser-1791216461288/authoring/v2/construction-proposals",
+      "expected": true,
+      "diagnosticCode": "CONSTRUCTION_EXPANSION_EMPTY",
+      "consoleStatus": 422,
+      "consoleFixtureDiagnostic": true,
+      "requestCaptureError": false
+    },
+    "cancellationCount": 2,
+    "cancelRoute": {
+      "requestId": "related-expand-choices-d228009f-eec6-489b-a688-bbf7c3484a7f",
+      "browserRequestId": "playwright-19",
+      "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/contributor-exists-browser-1791216461288/authoring/v2/related-expand-choices",
+      "method": "POST",
+      "action": "Cancel",
+      "outputId": "out_0dee1eb46eede6323a64f38b",
+      "stageId": "source_projection",
+      "anchorColumnId": "_key",
+      "targetResourceType": "Observation",
+      "snapshotToken": "sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7",
+      "expectedDraftVersion": 3,
+      "expectedDraftDigest": "sha256:66e7bf4dcffbbea0a3a0d310627da3b3bb5f5f7697275225b13a6d25373347fc",
+      "limit": 50,
+      "cursorPresent": true,
+      "error": "net::ERR_ABORTED",
+      "nativeCancellationAction": "Cancel",
+      "nativeExpected": true,
+      "precedingPageStatus": 200,
+      "precedingCursorDifferent": true
+    }
+  },
+  "reportMetadata": {
+    "fixtureReportStatus": "unverified",
+    "runnerStatus": "passed",
+    "requiredChecks": [],
+    "missingRequiredChecks": [],
+    "note": "Fixture metadata remains unverified because this case has no registered required checks; all 34 recorded assertions passed and the official runner passed."
+  }
+}

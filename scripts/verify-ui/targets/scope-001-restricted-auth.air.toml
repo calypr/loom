@@ -1,0 +1,26 @@
+root = "/workspace"
+tmp_dir = "tmp"
+
+[build]
+  cmd = "/workspace/loom-dev-build.sh"
+  bin = "./tmp/arango-fhir-server"
+  full_bin = "./tmp/arango-fhir-server --config /workspace/scope-001-restricted-auth.server.yaml"
+  include_ext = ["go", "mod", "sum", "json", "yaml", "graphqls"]
+  include_dir = ["cmd", "internal", "generated", "schemas"]
+  exclude_dir = ["tmp", "node_modules", "META", "META_SMALL", "CDA-FHIR", "graphify-out", ".git", ".audit"]
+  exclude_regex = ["_test\\.go$", "(^|/)testdata(/|$)"]
+  delay = 500
+  stop_on_error = true
+  send_interrupt = true
+  kill_delay = "500ms"
+
+[log]
+  time = true
+  main_only = true
+
+[screen]
+  clear_on_rebuild = false
+  keep_scroll = true
+
+[misc]
+  clean_on_exit = true

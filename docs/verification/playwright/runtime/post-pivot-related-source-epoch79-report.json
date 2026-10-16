@@ -1,0 +1,88 @@
+{
+  "scenario": "standalone-reshape-related-source-after-pivot",
+  "case": "related-source-after-pivot",
+  "title": "standalone CDA reshape workflows related-source-after-pivot related-source-after-pivot",
+  "target": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiPort": "8188",
+    "uiPort": "30008"
+  },
+  "epoch": 79,
+  "status": "untested",
+  "coverageStatus": "untested",
+  "runnerStatus": "failed_before_test_execution",
+  "classification": "Playwright exited before the registered case executed because the supplied title grep matched no tests. No product behavior, required-check assertions, or native actions ran; this is a harness discovery failure, not a product result.",
+  "browserProcess": {
+    "session": 89507,
+    "exitCode": 1
+  },
+  "registeredRequiredChecks": {
+    "expected": 25,
+    "executed": false
+  },
+  "playwrightDiscovery": {
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0,
+    "errors": 1
+  },
+  "nativeActions": {
+    "passed": 0,
+    "failed": 0,
+    "total": 0,
+    "interpretation": "No test case was discovered; lifecycle actions are untested."
+  },
+  "timing": {
+    "playwrightRunnerDurationMs": 172.38400000000001,
+    "testDurationMs": null,
+    "processDurationMs": null
+  },
+  "failure": {
+    "classification": "HARNESS_TEST_DISCOVERY_NO_TESTS_FOUND",
+    "message": "Playwright Error: No tests found; suites=[]; no test case executed.",
+    "productBehaviorExercised": false
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "source": {
+      "sha256": "fbb157236d7df3392bf009b1a235f0d26d1b0db4ac67a5f4bb71d90644c70f3e",
+      "files": 1521,
+      "unchanged": true,
+      "changedPaths": []
+    },
+    "docs": {
+      "sha256": "ac031159f2e642ec8dda59a7633d0789e570ebb455ac0f8648ba0f1ea0d14478",
+      "files": 187,
+      "unchanged": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentityUnchanged": true,
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  },
+  "command": "set -euo pipefail\nsource '/private/tmp/loom-native-parallel-wave79/browser-environment.sh'\nexport LOOM_ARANGO_CONTAINER=\"$LOOM_CDA_ARANGO_CONTAINER\"\nexport LOOM_ARANGO_DATABASE='loom_dev'\nunset LOOM_CDA_EXPLORER_ID LOOM_CDA_EXPLORER LOOM_QA_EXPLORER\nmkdir -p '/private/tmp/loom-native-parallel-wave79/standalone-reshape-related-source-after-pivot/attempt1'\nPLAYWRIGHT_JSON_OUTPUT_FILE='/private/tmp/loom-native-parallel-wave79/standalone-reshape-related-source-after-pivot/attempt1/results.json' npm --prefix scripts run test:browser -- 'verify-ui/specs/standalone-reshape.spec.mjs' --grep '^standalone CDA reshape workflows related-source-after-pivot related-source-after-pivot$' --output '/private/tmp/loom-native-parallel-wave79/standalone-reshape-related-source-after-pivot/attempt1/artifacts' 2>&1 | tee '/private/tmp/loom-native-parallel-wave79/standalone-reshape-related-source-after-pivot/attempt1/runner.log'",
+  "nextCheck": "Correct the title grep to select exactly one registered case; verify discovery before executing its lifecycle.",
+  "playwrightResultsPath": "/private/tmp/loom-native-parallel-wave79/standalone-reshape-related-source-after-pivot/attempt1/results.json",
+  "playwrightResultsSha256": "89ea958726736401e0b9b656e0bcdae7e357aea6188c2c1dae5f197e88217594",
+  "runnerLogPath": "/private/tmp/loom-native-parallel-wave79/standalone-reshape-related-source-after-pivot/attempt1/runner.log",
+  "runnerLogSha256": "1b2e45f994d330f5e887a3f619c51e15841ed7b6d1cb873df79736020247acf4",
+  "coordinatorClosurePath": "/private/tmp/loom-native-parallel-wave79/closure.json",
+  "coordinatorClosureSha256": "f9ac23a02313c325fe6ae74cd6ddca3509796a9224b548accc371a97d303d3a8",
+  "durableClosurePath": "docs/verification/playwright/runtime/post-pivot-related-source-epoch79-closure.json"
+}

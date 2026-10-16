@@ -58,7 +58,8 @@ type Filter struct {
 
 // Chart describes an optional candidate chart/aggregate operation.
 type Chart struct {
-	Operation recipe.AggregateOperation
+	Operation      recipe.AggregateOperation
+	RequiredValues []string
 }
 
 // RootRequest asks whether one concrete generated resource can be a row root.
@@ -89,6 +90,17 @@ type CandidateRequest struct {
 	Projection       spec.ProjectionMode
 	Filter           *Filter
 	Chart            *Chart
+}
+
+// OwnerRecordsRequest asks whether one repeated FHIR owner binding can be
+// preserved as an ordered list of structured records at an occurrence.
+type OwnerRecordsRequest struct {
+	Scope
+	RootResourceType string
+	ResourceType     string
+	Route            []Traversal
+	Binding          fhirschema.CorrelatedBinding
+	Key              fhirschema.CorrelatedKey
 }
 
 // Options controls the explicitly authorized physical rewrite. The default is
@@ -133,26 +145,35 @@ type TraversalCapability struct {
 }
 
 type CandidateCapability struct {
-	ResourceType    string
-	FieldRef        string
-	Selector        string
-	FieldKind       fhirschema.FieldKind
-	Primitive       fhirschema.PrimitiveKind
-	Cardinality     spec.Cardinality
-	Repeated        bool
-	ProjectionModes []spec.ProjectionMode
-	FilterOperators []spec.FilterOperator
-	ChartOperations []recipe.AggregateOperation
-	Filterable      bool
-	Chartable       bool
-	Rendered        Rendered
+	ResourceType             string
+	FieldRef                 string
+	Selector                 string
+	FieldKind                fhirschema.FieldKind
+	Primitive                fhirschema.PrimitiveKind
+	Cardinality              spec.Cardinality
+	Repeated                 bool
+	ProjectionModes          []spec.ProjectionMode
+	FilterOperators          []spec.FilterOperator
+	ChartOperations          []recipe.AggregateOperation
+	ValueAggregateOperations []recipe.AggregateOperation
+	Filterable               bool
+	Chartable                bool
+	Rendered                 Rendered
+}
+
+type OwnerRecordsCapability struct {
+	ResourceType string
+	Binding      fhirschema.CorrelatedBinding
+	Key          fhirschema.CorrelatedKey
+	Rendered     Rendered
 }
 
 type Result struct {
-	Root      *RootCapability
-	Traversal *TraversalCapability
-	Candidate *CandidateCapability
-	Rendered  Rendered
+	Root         *RootCapability
+	Traversal    *TraversalCapability
+	Candidate    *CandidateCapability
+	OwnerRecords *OwnerRecordsCapability
+	Rendered     Rendered
 }
 
 // ProbeRoot compiles and renders a zero-hop concrete row root.
@@ -214,6 +235,30 @@ func ProbeTraversal(ctx context.Context, request TraversalRequest, options ...Op
 	return Result{Traversal: &capability, Rendered: rendered}, nil
 }
 
+// ProbeProjection proves the requested projection without probing unrelated
+// filter and chart operations during field discovery.
+func ProbeProjection(ctx context.Context, request CandidateRequest, options ...Options) (Result, error) {
+	prepared, err := prepareCandidate(request)
+	if err != nil {
+		return Result{}, err
+	}
+	mode := request.Projection
+	if mode == "" {
+		mode = defaultProjection(prepared.repeated)
+	}
+	_, rendered, err := compileCandidate(ctx, prepared, mode, nil, nil, optionsFor(options))
+	if err != nil {
+		return Result{}, err
+	}
+	metadata := CandidateCapability{
+		ResourceType: prepared.resourceType, FieldRef: prepared.fieldRef,
+		Selector: prepared.selector.CanonicalPath(), FieldKind: prepared.fieldKind,
+		Primitive: prepared.primitive, Cardinality: prepared.cardinality, Repeated: prepared.repeated,
+		ProjectionModes: []spec.ProjectionMode{mode}, Rendered: rendered,
+	}
+	return Result{Candidate: &metadata, Rendered: rendered}, nil
+}
+
 // ProbeCandidate compiles a candidate projection, filter, or chart operation.
 // It also probes every operation supported by the shared compiler so the
 // returned metadata can be used directly by a capability builder.
@@ -251,6 +296,20 @@ func ProbeCandidate(ctx context.Context, request CandidateRequest, options ...Op
 			metadata.ChartOperations = append(metadata.ChartOperations, operation)
 		}
 	}
+	for _, operation := range []recipe.AggregateOperation{
+		recipe.AggregateCount, recipe.AggregateCountDistinct, recipe.AggregateExists,
+		recipe.AggregateDistinctValues, recipe.AggregateMin, recipe.AggregateMax,
+		recipe.AggregateSum, recipe.AggregateMean, recipe.AggregateContainsAll,
+		recipe.AggregateRequireOne, recipe.AggregateCollect,
+	} {
+		chart := &Chart{Operation: operation}
+		if operation == recipe.AggregateContainsAll {
+			chart.RequiredValues = []string{"__loom_probe_value__"}
+		}
+		if _, _, err := compileCandidate(ctx, prepared, defaultProjection(prepared.repeated), nil, chart, optionsValue); err == nil {
+			metadata.ValueAggregateOperations = append(metadata.ValueAggregateOperations, operation)
+		}
+	}
 	metadata.Filterable = len(metadata.FilterOperators) != 0
 	metadata.Chartable = len(metadata.ChartOperations) != 0
 	mode := request.Projection
@@ -270,6 +329,39 @@ func ProbeCandidate(ctx context.Context, request CandidateRequest, options ...Op
 	}
 	metadata.Rendered = rendered
 	return Result{Candidate: &metadata, Rendered: rendered}, nil
+}
+
+// ProbeOwnerRecords compiles the exact binding and terminology key through
+// semantic lowering, physical validation, optimization, and AQL rendering.
+func ProbeOwnerRecords(ctx context.Context, request OwnerRecordsRequest, options ...Options) (Result, error) {
+	if err := contextErr(ctx); err != nil {
+		return Result{}, err
+	}
+	root, target, resourceType, err := routedRoot(request.RootResourceType, request.ResourceType, request.Route)
+	if err != nil {
+		return Result{}, err
+	}
+	checked, err := fhirschema.ValidateCorrelatedBinding(resourceType, request.Binding)
+	if err != nil {
+		return Result{}, fmt.Errorf("owner records binding: %w", err)
+	}
+	if checked.OwnerSelector.CanonicalPath() == "" {
+		return Result{}, fmt.Errorf("owner records require a repeated owner selector")
+	}
+	if strings.TrimSpace(request.Key.System) == "" || strings.TrimSpace(request.Key.Code) == "" {
+		return Result{}, fmt.Errorf("owner records require a terminology system and code")
+	}
+	target.OwnerRecords = []semantic.SemanticOwnerRecords{{
+		Name: "owner_records", FieldRef: resourceType + "." + checked.ValueSelector.CanonicalPath(),
+		Binding: request.Binding, Key: request.Key,
+	}}
+	physical, rendered, err := compile(ctx, request.Scope, semantic.OutputPlan{RootResourceType: root.ResourceType, Root: *root}, optionsFor(options))
+	if err != nil {
+		return Result{}, err
+	}
+	_ = physical
+	capability := OwnerRecordsCapability{ResourceType: resourceType, Binding: request.Binding, Key: request.Key, Rendered: rendered}
+	return Result{OwnerRecords: &capability, Rendered: rendered}, nil
 }
 
 type preparedCandidate struct {
@@ -322,28 +414,47 @@ func prepareCandidate(request CandidateRequest) (preparedCandidate, error) {
 	if repeated {
 		cardinality = spec.CardinalityMany
 	}
-	root := semantic.SemanticNode{Alias: "root", ResourceType: canonicalRoot}
-	current := &root
-	for index, route := range request.Route {
-		if strings.TrimSpace(route.FromResourceType) == "" {
-			route.FromResourceType = current.ResourceType
-		}
-		if err := validateTraversalRequest(current.ResourceType, route); err != nil {
-			return preparedCandidate{}, err
-		}
-		toType, _ := fhirschema.ConcreteResourceType(route.ToResourceType)
-		child := semantic.SemanticNode{Alias: routeAlias(route.Alias, index+1), ResourceType: toType, EdgeLabel: route.EdgeLabel, MatchMode: route.MatchMode}
-		current.Children = append(current.Children, child)
-		current = &current.Children[len(current.Children)-1]
-	}
-	if current.ResourceType != resourceType {
-		return preparedCandidate{}, fmt.Errorf("candidate resource type %q does not match route terminal %q", resourceType, current.ResourceType)
+	root, _, _, err := routedRoot(canonicalRoot, resourceType, request.Route)
+	if err != nil {
+		return preparedCandidate{}, err
 	}
 	fieldRef := strings.TrimSpace(request.FieldRef)
 	if fieldRef == "" {
 		fieldRef = resourceType + "." + selector.CanonicalPath()
 	}
-	return preparedCandidate{scope: request.Scope, resourceType: resourceType, fieldRef: fieldRef, selector: selector, fieldKind: fieldKind, primitive: terminal.Primitive, cardinality: cardinality, repeated: repeated, root: root}, nil
+	return preparedCandidate{scope: request.Scope, resourceType: resourceType, fieldRef: fieldRef, selector: selector, fieldKind: fieldKind, primitive: terminal.Primitive, cardinality: cardinality, repeated: repeated, root: *root}, nil
+}
+
+func routedRoot(rootResourceType, resourceType string, route []Traversal) (*semantic.SemanticNode, *semantic.SemanticNode, string, error) {
+	rootType := strings.TrimSpace(rootResourceType)
+	if rootType == "" {
+		rootType = strings.TrimSpace(resourceType)
+	}
+	canonicalRoot, ok := fhirschema.ConcreteResourceType(rootType)
+	if !ok {
+		return nil, nil, "", fmt.Errorf("resource type %q is not a concrete generated FHIR resource", rootType)
+	}
+	canonicalResource, ok := fhirschema.ConcreteResourceType(resourceType)
+	if !ok {
+		return nil, nil, "", fmt.Errorf("candidate resource type %q is not a concrete generated FHIR resource", resourceType)
+	}
+	root := semantic.SemanticNode{Alias: "root", ResourceType: canonicalRoot}
+	current := &root
+	for index, traversal := range route {
+		if strings.TrimSpace(traversal.FromResourceType) == "" {
+			traversal.FromResourceType = current.ResourceType
+		}
+		if err := validateTraversalRequest(current.ResourceType, traversal); err != nil {
+			return nil, nil, "", err
+		}
+		toType, _ := fhirschema.ConcreteResourceType(traversal.ToResourceType)
+		current.Children = append(current.Children, semantic.SemanticNode{Alias: routeAlias(traversal.Alias, index+1), ResourceType: toType, EdgeLabel: traversal.EdgeLabel, MatchMode: traversal.MatchMode})
+		current = &current.Children[len(current.Children)-1]
+	}
+	if current.ResourceType != canonicalResource {
+		return nil, nil, "", fmt.Errorf("candidate resource type %q does not match route terminal %q", canonicalResource, current.ResourceType)
+	}
+	return &root, current, canonicalResource, nil
 }
 
 func compileCandidate(ctx context.Context, prepared preparedCandidate, mode spec.ProjectionMode, filter *Filter, chart *Chart, options Options) (ir.PhysicalPlan, Rendered, error) {
@@ -383,7 +494,7 @@ func compileCandidate(ctx context.Context, prepared preparedCandidate, mode spec
 			return ir.PhysicalPlan{}, Rendered{}, fmt.Errorf("chart operation is required")
 		}
 		selector := prepared.selector
-		target.Aggregates = []semantic.SemanticAggregate{{Name: "chart", Operation: string(chart.Operation), FieldRef: prepared.fieldRef, Selector: &selector}}
+		target.Aggregates = []semantic.SemanticAggregate{{Name: "chart", Operation: string(chart.Operation), FieldRef: prepared.fieldRef, Selector: &selector, RequiredValues: append([]string(nil), chart.RequiredValues...)}}
 	}
 	output := semantic.OutputPlan{RootResourceType: root.ResourceType, Root: root}
 	physical, rendered, err := compile(ctx, prepared.scope, output, options)

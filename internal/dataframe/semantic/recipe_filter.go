@@ -150,7 +150,7 @@ func recipeFilterValues(values []recipe.FilterValue) ([]spec.FilterValue, error)
 			DateTime: input.DateTime,
 		}
 		if input.Code != nil {
-			value.Code = &spec.CodeValue{System: input.Code.System, Code: input.Code.Code, Display: input.Code.Display}
+			value.Code = &spec.CodeValue{System: input.Code.System, Code: input.Code.Code, Display: input.Code.Display, Version: input.Code.Version}
 		}
 		if err := value.Validate(); err != nil {
 			return nil, fmt.Errorf("filter value %d: %w", index, err)

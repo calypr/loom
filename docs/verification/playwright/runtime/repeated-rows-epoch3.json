@@ -1,0 +1,136 @@
+{
+  "case": {
+    "spec": "scripts/playwright/standalone-cda-rows.spec.mjs",
+    "title": "applies source expansion, verifies item values, and restores original Observation rows",
+    "scenario": "cda-repeated-rows",
+    "caseName": "component-array-source-expand-field-remove-and-row-restoration"
+  },
+  "execution": {
+    "runnerExit": 0,
+    "preflightExit": 0,
+    "postflightExit": 0,
+    "playwrightVersion": "1.63.0",
+    "workers": 1,
+    "testDurationMs": 26555,
+    "totalRunnerDurationMs": 27797,
+    "concurrentTimingProvisional": true
+  },
+  "outcomes": {
+    "playwrightTest": "passed",
+    "standaloneWorkflowStatus": "passed",
+    "assertions": {
+      "passed": 12,
+      "total": 12
+    },
+    "gaps": 0,
+    "failures": 0,
+    "aggregateCdaReportStatus": "unverified",
+    "aggregateUnverifiedDimensions": [
+      "persistence",
+      "performance"
+    ],
+    "aggregateMissingRequiredChecks": []
+  },
+  "oracle": {
+    "source": "ArangoDB raw Observation payloads",
+    "queryLimit": 1000,
+    "scanned": 1000,
+    "selectedObservations": 3,
+    "expectedComponentItems": 6,
+    "selectedIds": [
+      "00004888-0740-540e-bc75-68b5192fbf5a",
+      "00008c9a-64db-55f9-96bf-7a0db4e32551",
+      "0000961c-775c-52cf-b25c-c71ee28c423f"
+    ]
+  },
+  "lifecycleChecks": [
+    {
+      "name": "bounded independent raw CDA oracle selected at most three Observations",
+      "status": "passed"
+    },
+    {
+      "name": "modern row-definition choice binds root Observation.component[]",
+      "status": "passed"
+    },
+    {
+      "name": "native row-definition Cancel preserves source-record rows",
+      "status": "passed"
+    },
+    {
+      "name": "native row-definition Apply persists exact component[] scope and policy",
+      "status": "passed"
+    },
+    {
+      "name": "reload renders the applied repeated component rows",
+      "status": "passed"
+    },
+    {
+      "name": "native sibling field preview matches exact raw Observation/component tuples",
+      "status": "passed"
+    },
+    {
+      "name": "native Apply persists canonical component[].valueString at base occurrence",
+      "status": "passed"
+    },
+    {
+      "name": "native field removal restores prior columns and preserves repeated rows",
+      "status": "passed"
+    },
+    {
+      "name": "row-definition edit and reload restore one row per selected Observation",
+      "status": "passed"
+    },
+    {
+      "name": "expanded item identities are unique and stable across proposals and saved reload",
+      "status": "passed"
+    },
+    {
+      "name": "source restoration preserves original population, route, field bindings and exact CDA members",
+      "status": "passed"
+    },
+    {
+      "name": "browser lifecycle had no runtime, module, console, or HTTP errors",
+      "status": "passed"
+    }
+  ],
+  "browser": {
+    "exceptions": 0,
+    "console": 0,
+    "modules": 0,
+    "unexpectedHttp": 0,
+    "incidental": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ]
+  },
+  "identity": {
+    "sourceBefore": {
+      "sha256": "a0aaa3bbf00335239bdb399b82481a4dbb92afb5a1a8a4c7080bb83d4cb36d51",
+      "files": 1481
+    },
+    "sourceAfter": {
+      "sha256": "a0aaa3bbf00335239bdb399b82481a4dbb92afb5a1a8a4c7080bb83d4cb36d51",
+      "files": 1481
+    },
+    "sourceUnchanged": true,
+    "apiBuildBefore": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+    "apiBuildAfter": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+    "apiUnchanged": true
+  },
+  "target": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "workflowExplorer": "cda-repeated-rows-1791213417940"
+  },
+  "evidence": {
+    "runnerLog": "/private/tmp/loom-native-parallel-wave4/repeated-rows/runner.log",
+    "jsonReporter": "/private/tmp/loom-native-parallel-wave4/repeated-rows/results.json",
+    "standaloneReport": "/private/tmp/loom-native-parallel-wave4/repeated-rows/artifacts/standalone-cda-rows-CDA-re-72fb1-s-original-Observation-rows/attachments/standalone-cda-repeated-rows.json",
+    "aggregateReport": "/private/tmp/loom-native-parallel-wave4/repeated-rows/artifacts/standalone-cda-rows-CDA-re-72fb1-s-original-Observation-rows/attachments/cda-domain-report-json-60c2155dabd5076f03a448e332c64da83b7e301f.json",
+    "postflight": "/private/tmp/loom-native-parallel-wave4/repeated-rows/postflight.json"
+  }
+}

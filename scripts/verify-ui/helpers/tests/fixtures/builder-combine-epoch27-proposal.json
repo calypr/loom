@@ -1,0 +1,168 @@
+{
+  "requestConstruction": {
+    "version": 1,
+    "steps": [
+      {
+        "id": "combine_1b447d5b-c158-4d87-b36e-5b7c03602951",
+        "inputs": [
+          {
+            "kind": "WORKSPACE_OUTPUT",
+            "outputId": "out_a42c4d3d0bf2938359daae8b"
+          },
+          {
+            "kind": "WORKSPACE_OUTPUT",
+            "outputId": "out_7f9bfbf11d51273cebf8ebbd"
+          }
+        ],
+        "operation": {
+          "kind": "COMBINE",
+          "combine": {
+            "kind": "KEY_JOIN",
+            "keys": [
+              {
+                "leftColumnId": "group-key_3dfd2266-8e2f-4a00-865b-d302b2cb69e2",
+                "rightColumnId": "group-key_79d2449a-cda5-4674-aee7-7a3ad09128ab"
+              }
+            ],
+            "projections": [
+              {
+                "outputColumnId": "combine_output_f1a7212b-4edb-4868-9a22-5d65a870ce98",
+                "inputIndex": 0,
+                "inputColumnId": "group-key_3dfd2266-8e2f-4a00-865b-d302b2cb69e2"
+              },
+              {
+                "outputColumnId": "combine_output_a737f6e9-6f0f-4f34-aa80-1fdd3cc6c8d0",
+                "inputIndex": 0,
+                "inputColumnId": "group-column_fed38658-78c1-4f32-af45-d3a51fa6b0dd"
+              },
+              {
+                "outputColumnId": "combine_output_45186fc1-5c0c-43f0-b2fe-d2525dfb5291",
+                "inputIndex": 1,
+                "inputColumnId": "group-key_79d2449a-cda5-4674-aee7-7a3ad09128ab"
+              },
+              {
+                "outputColumnId": "combine_output_a037fa36-43db-421e-9c52-2e91208b0a09",
+                "inputIndex": 1,
+                "inputColumnId": "group-column_f508b81f-88ea-493b-ba98-72b976d90fb7"
+              }
+            ],
+            "joinType": "INNER",
+            "rightMatchPolicy": "PRESERVE_ALL"
+          }
+        },
+        "outputs": [
+          {
+            "id": "combine_output_f1a7212b-4edb-4868-9a22-5d65a870ce98",
+            "name": "observation_status",
+            "label": "Observation status",
+            "type": "string",
+            "nullable": true
+          },
+          {
+            "id": "combine_output_a737f6e9-6f0f-4f34-aa80-1fdd3cc6c8d0",
+            "name": "observation_count",
+            "label": "Observation rows",
+            "type": "integer",
+            "nullable": false
+          },
+          {
+            "id": "combine_output_45186fc1-5c0c-43f0-b2fe-d2525dfb5291",
+            "name": "report_status",
+            "label": "Report status",
+            "type": "string",
+            "nullable": true
+          },
+          {
+            "id": "combine_output_a037fa36-43db-421e-9c52-2e91208b0a09",
+            "name": "report_count",
+            "label": "Report rows",
+            "type": "integer",
+            "nullable": false
+          }
+        ]
+      }
+    ]
+  },
+  "responseConstruction": {
+    "steps": [
+      {
+        "id": "combine_1b447d5b-c158-4d87-b36e-5b7c03602951",
+        "inputs": [
+          {
+            "kind": "WORKSPACE_OUTPUT",
+            "outputId": "out_a42c4d3d0bf2938359daae8b"
+          },
+          {
+            "kind": "WORKSPACE_OUTPUT",
+            "outputId": "out_7f9bfbf11d51273cebf8ebbd"
+          }
+        ],
+        "operation": {
+          "combine": {
+            "joinType": "INNER",
+            "keys": [
+              {
+                "leftColumnId": "group-key_3dfd2266-8e2f-4a00-865b-d302b2cb69e2",
+                "rightColumnId": "group-key_79d2449a-cda5-4674-aee7-7a3ad09128ab"
+              }
+            ],
+            "kind": "KEY_JOIN",
+            "projections": [
+              {
+                "inputColumnId": "group-key_3dfd2266-8e2f-4a00-865b-d302b2cb69e2",
+                "inputIndex": 0,
+                "outputColumnId": "combine_output_f1a7212b-4edb-4868-9a22-5d65a870ce98"
+              },
+              {
+                "inputColumnId": "group-column_fed38658-78c1-4f32-af45-d3a51fa6b0dd",
+                "inputIndex": 0,
+                "outputColumnId": "combine_output_a737f6e9-6f0f-4f34-aa80-1fdd3cc6c8d0"
+              },
+              {
+                "inputColumnId": "group-key_79d2449a-cda5-4674-aee7-7a3ad09128ab",
+                "inputIndex": 1,
+                "outputColumnId": "combine_output_45186fc1-5c0c-43f0-b2fe-d2525dfb5291"
+              },
+              {
+                "inputColumnId": "group-column_f508b81f-88ea-493b-ba98-72b976d90fb7",
+                "inputIndex": 1,
+                "outputColumnId": "combine_output_a037fa36-43db-421e-9c52-2e91208b0a09"
+              }
+            ],
+            "rightMatchPolicy": "PRESERVE_ALL"
+          },
+          "kind": "COMBINE"
+        },
+        "outputs": [
+          {
+            "id": "combine_output_f1a7212b-4edb-4868-9a22-5d65a870ce98",
+            "label": "Observation status",
+            "name": "observation_status",
+            "nullable": true,
+            "type": "string"
+          },
+          {
+            "id": "combine_output_a737f6e9-6f0f-4f34-aa80-1fdd3cc6c8d0",
+            "label": "Observation rows",
+            "name": "observation_count",
+            "type": "integer"
+          },
+          {
+            "id": "combine_output_45186fc1-5c0c-43f0-b2fe-d2525dfb5291",
+            "label": "Report status",
+            "name": "report_status",
+            "nullable": true,
+            "type": "string"
+          },
+          {
+            "id": "combine_output_a037fa36-43db-421e-9c52-2e91208b0a09",
+            "label": "Report rows",
+            "name": "report_count",
+            "type": "integer"
+          }
+        ]
+      }
+    ],
+    "version": 1
+  }
+}

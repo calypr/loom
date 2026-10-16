@@ -1,0 +1,124 @@
+{
+  "epoch": 69,
+  "scenario": "cda-current-draft-membership",
+  "case": "membership",
+  "title": "native INCLUDE and EXCLUDE Membership use two exact grouped Observation ID populations",
+  "status": "failed",
+  "classification": "HARNESS_REFERENCE_ERROR_IN_REMOVAL_PREVIEW_EVIDENCE",
+  "requiredChecks": {
+    "completed": 41,
+    "total": 48,
+    "missing": 7,
+    "missingNames": [
+      "canceled Membership removal proposal renders the rooted target with no visible columns",
+      "Cancel removal preserves exact EXCLUDE Membership, full workspace, and CAS after reload",
+      "applied Membership removal proposal renders the rooted target with no visible columns",
+      "applied removal proposal targets only the exact saved Membership step and draft CAS",
+      "applying Membership removal and reloading restores the exact rooted empty target",
+      "removing Membership preserves both exact immutable GROUP source populations after reload",
+      "CDA Membership lifecycle makes no Publish request or pinned table revision reference"
+    ]
+  },
+  "assertions": {
+    "passed": 146,
+    "failed": 0,
+    "total": 146,
+    "byDimension": {
+      "correctness": 33,
+      "persistence": 11,
+      "usability": 51,
+      "performance": 51
+    }
+  },
+  "nativeActions": {
+    "passed": 51,
+    "failed": 0,
+    "maxElapsedMs": 1416
+  },
+  "rawOracle": {
+    "maxRows": 2000,
+    "scannedRows": 2000,
+    "selectedCount": 3,
+    "leftCount": 2,
+    "rightCount": 2,
+    "includeCount": 1,
+    "excludeCount": 1,
+    "exactRawRereadCount": 3
+  },
+  "firstFailure": {
+    "location": "scripts/verify-ui/workflows/cda-current-draft-membership-workflow.mjs:711",
+    "error": "ReferenceError: rawRootReread is not defined",
+    "cause": "The evidence object references rawRootReread, but the populated array is named rootReread. This throws before the removal-preview assertion is registered.",
+    "classification": "Harness diagnostic/evidence serialization error. The removal response was HTTP 200 READY with empty candidate steps, exact saved step removal, matching request/CAS/output/receipt identities, 25 sampled root rows and zero columns. No product defect established."
+  },
+  "lifecycle": {
+    "verifiedBeforeFailure": "Bounded raw CDA oracle; exact immutable left/right Observation selections; GROUP COUNT_ROWS preview/apply/reload; Membership INCLUDE and EXCLUDE preview/apply/edit/reload; removal proposal request/CAS binding and READY response metadata.",
+    "notVerified": "Complete zero-column removal-preview assertion, removal Cancel and Apply/reload restoration, and final no-Publish/pinned-revision check."
+  },
+  "network": {
+    "expectedCancellations": 2,
+    "unexpectedErrors": 0
+  },
+  "timing": {
+    "reportElapsedMs": 56081,
+    "runnerProcessSecondsReported": 57,
+    "actionBudgetMs": 5000
+  },
+  "rawReportPath": "/private/tmp/loom-native-parallel-wave69/cda-current-draft-membership/attempt1/artifacts/cda-current-draft-membersh-28043--Observation-ID-populations/cda-report.json",
+  "rawReportSha256": "a6b7385bc86254ede98dcbb40498fe14b7db12b8035593474c1fab1cf73fbe39",
+  "playwrightResultsPath": "/private/tmp/loom-native-parallel-wave69/cda-current-draft-membership/attempt1/results.json",
+  "playwrightResultsSha256": "5d24d06dbf38583361e77f88eee39ca169d6e85a35d3c4da9044632aee33c6d5",
+  "runnerLogPath": "/private/tmp/loom-native-parallel-wave69/cda-current-draft-membership/attempt1/runner.log",
+  "runnerLogSha256": "08ab1abbf105a21606ff0244100ccac5edf86d2af6e29b091fbb1cf9f1656967",
+  "ownedTarget": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorer": "cda-membership-41889cd2-f1bb-41f1-b13d-bd123c9ddbb6",
+    "composeProject": "loom-dev-6d7df93d6a37"
+  },
+  "baseline": {
+    "sourceFingerprint": {
+      "sha256": "e17d34ddbaeb841f4862f981faeadc8b7b1a7bf050a9efb9f12ecc433d05e254",
+      "files": 1508
+    },
+    "docsFingerprint": {
+      "sha256": "3904540a7755c20e1909fbbc2a3589aa94b895604d2cd84036e8089200525ff3",
+      "files": 167
+    },
+    "apiBuildIdentity": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+    "mountValidation": "PASS",
+    "healthBefore": "PASS 3/3"
+  },
+  "afterIntegrity": {
+    "sourceFingerprint": {
+      "sha256": "e17d34ddbaeb841f4862f981faeadc8b7b1a7bf050a9efb9f12ecc433d05e254",
+      "files": 1508
+    },
+    "docsFingerprint": {
+      "sha256": "3904540a7755c20e1909fbbc2a3589aa94b895604d2cd84036e8089200525ff3",
+      "files": 167
+    },
+    "apiBuildIdentity": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+    "mountValidation": "PASS",
+    "healthAfter": "PASS 3/3",
+    "sourceManifestUnchanged": true,
+    "docsManifestUnchanged": true,
+    "apiIdentityUnchanged": true,
+    "ownedTargetUnchanged": true
+  },
+  "artifacts": {
+    "runPlan": "/private/tmp/loom-native-parallel-wave69/run-plan.json",
+    "precheck": "/private/tmp/loom-native-parallel-wave69/api-build-precheck.json",
+    "sourceBefore": "/private/tmp/loom-native-parallel-wave69/source-before.json",
+    "sourceAfter": "/private/tmp/loom-native-parallel-wave69/source-after.json",
+    "docsBefore": "/private/tmp/loom-native-parallel-wave69/docs-before.json",
+    "docsAfter": "/private/tmp/loom-native-parallel-wave69/docs-after.json",
+    "apiBefore": "/private/tmp/loom-native-parallel-wave69/api-identity-before.json",
+    "apiAfter": "/private/tmp/loom-native-parallel-wave69/api-identity-after.json",
+    "mountsBefore": "/private/tmp/loom-native-parallel-wave69/owned-mounts-before.json",
+    "mountsAfter": "/private/tmp/loom-native-parallel-wave69/owned-mounts-after.json",
+    "healthBefore": "/private/tmp/loom-native-parallel-wave69/health-before.json",
+    "healthAfter": "/private/tmp/loom-native-parallel-wave69/health-after.json",
+    "errorContext": "/private/tmp/loom-native-parallel-wave69/cda-current-draft-membership/attempt1/artifacts/cda-current-draft-membersh-28043--Observation-ID-populations/error-context.md"
+  }
+}

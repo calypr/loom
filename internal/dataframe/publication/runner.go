@@ -36,19 +36,37 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 	if err != nil {
 		return Result{}, err
 	}
-	if tx.Idempotent() {
-		return Result{Outputs: tx.ExistingPublishedOutputs()}, nil
-	}
 	fail := func(cause error) (Result, error) {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
 		abortErr := tx.Abort(cleanupCtx, cause)
 		return Result{}, errors.Join(cause, abortErr)
 	}
+	if tx.Idempotent() {
+		return Result{Outputs: tx.ExistingPublishedOutputs(), QualityReports: tx.ExistingQualityReports()}, nil
+	}
+	if metadataWriter, ok := tx.(SourceRowMetadataWriter); ok {
+		for _, output := range normalizedOutputs {
+			if output.SourceRow == nil {
+				continue
+			}
+			if err := metadataWriter.SetSourceRowMetadata(ctx, output.Name, *output.SourceRow); err != nil {
+				return fail(fmt.Errorf("output %q source identity: %w", output.Name, err))
+			}
+		}
+	} else {
+		for _, output := range normalizedOutputs {
+			if output.SourceRow != nil {
+				return fail(fmt.Errorf("publication target cannot persist source row metadata"))
+			}
+		}
+	}
 	stats := make(map[string]PublishedOutput, len(normalizedOutputs))
 	populated := make(map[string]map[string]bool, len(normalizedOutputs))
+	qualityReports := make([]QualityReport, 0, len(normalizedOutputs))
 	for _, output := range normalizedOutputs {
 		stat := PublishedOutput{Name: output.Name}
+		quality := newQualityAccumulator(identity, output, limits.Quality)
 		batch := make([]map[string]any, 0, limits.BatchRows)
 		batchBytes := 0
 		populated[output.Name] = make(map[string]bool)
@@ -69,6 +87,9 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 			}
 			if err := validateRow(output.Columns, row, supportsObjects); err != nil {
 				return dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidData, "")
+			}
+			if err := quality.observe(row); err != nil {
+				return err
 			}
 			for _, column := range output.Columns {
 				if column.Provenance != ColumnDiscovered || column.LoomOwned || column.IsIdentity {
@@ -96,16 +117,40 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 			return nil
 		})
 		if err != nil {
+			evidenceErr := error(nil)
+			if quality != nil {
+				_, evidenceErr = quality.fail(err)
+			}
+			reports := qualityReportsFromError(qualityReports, evidenceErr)
+			if len(reports) > len(qualityReports) {
+				if evidenceErr := tx.SetQualityReports(context.WithoutCancel(ctx), reports); evidenceErr != nil {
+					err = errors.Join(err, fmt.Errorf("retain failed quality evidence: %w", evidenceErr))
+				}
+			}
+			if evidenceErr != nil {
+				err = errors.Join(err, evidenceErr)
+			}
 			return fail(fmt.Errorf("output %q stream: %w", output.Name, err))
 		}
 		if err := flush(); err != nil {
 			return fail(fmt.Errorf("output %q final batch: %w", output.Name, err))
 		}
+		if quality != nil {
+			report, qualityErr := quality.complete()
+			if qualityErr != nil {
+				reports := append(CloneQualityReports(qualityReports), report)
+				if evidenceErr := tx.SetQualityReports(context.WithoutCancel(ctx), reports); evidenceErr != nil {
+					qualityErr = errors.Join(qualityErr, fmt.Errorf("retain failed quality evidence: %w", evidenceErr))
+				}
+				return fail(fmt.Errorf("output %q quality: %w", output.Name, qualityErr))
+			}
+			qualityReports = append(qualityReports, report)
+		}
 		stats[output.Name] = stat
 	}
 	retained := make([]OutputSchema, 0, len(normalizedOutputs))
 	for _, output := range normalizedOutputs {
-		schema := OutputSchema{Name: output.Name}
+		schema := OutputSchema{Name: output.Name, SourceRow: output.SourceRow}
 		for _, column := range output.Columns {
 			if column.Provenance == ColumnDiscovered && !column.LoomOwned && !column.IsIdentity && !populated[output.Name][column.Name] {
 				continue
@@ -120,6 +165,9 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 	}
 	if err := tx.SetFinalSchemaDigest(finalDigest); err != nil {
 		return fail(fmt.Errorf("publication schema digest: %w", err))
+	}
+	if err := tx.SetQualityReports(ctx, qualityReports); err != nil {
+		return fail(fmt.Errorf("publication quality evidence: %w", err))
 	}
 	published, err := tx.Commit(ctx)
 	if err != nil {
@@ -138,7 +186,19 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 			}
 		}
 	}
-	return Result{Outputs: published}, nil
+	return Result{Outputs: published, QualityReports: qualityReports}, nil
+}
+
+func qualityReportsFromError(completed []QualityReport, err error) []QualityReport {
+	var incomplete *QualityIncompleteError
+	if errors.As(err, &incomplete) && len(incomplete.Reports) > 0 {
+		return append(CloneQualityReports(completed), CloneQualityReports(incomplete.Reports)...)
+	}
+	var failed *QualityFailedError
+	if errors.As(err, &failed) && len(failed.Reports) > 0 {
+		return append(CloneQualityReports(completed), CloneQualityReports(failed.Reports)...)
+	}
+	return CloneQualityReports(completed)
 }
 
 func injectPublicationMetadata(identity PublicationIdentity, outputs []OutputStream) ([]OutputStream, error) {
@@ -222,7 +282,7 @@ func validateOutputs(outputs []OutputStream, supportsObjects bool) ([]OutputSche
 			}
 			columnSeen[column.Name] = struct{}{}
 		}
-		schemas = append(schemas, OutputSchema{Name: name, Columns: columns})
+		schemas = append(schemas, OutputSchema{Name: name, Columns: columns, SourceRow: output.SourceRow})
 	}
 	return schemas, nil
 }

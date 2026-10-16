@@ -32,6 +32,7 @@ func TestBuildPhysicalTraversalUsesSchemaDerivedInboundRoute(t *testing.T) {
 	}
 	wantBinds := map[string]any{
 		"child_set_1_label":           "subject_Patient",
+		"child_set_1_source_type":     "Patient",
 		"child_set_1_target_type":     "Specimen",
 		"child_set_1_edge_collection": "fhir_edge",
 	}

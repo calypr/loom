@@ -1,0 +1,181 @@
+{
+  "epoch": 79,
+  "status": "CLOSED_HARNESS_NO_TESTS_FOUND",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "fbb157236d7df3392bf009b1a235f0d26d1b0db4ac67a5f4bb71d90644c70f3e",
+        "files": 1521
+      },
+      "after": {
+        "sha256": "fbb157236d7df3392bf009b1a235f0d26d1b0db4ac67a5f4bb71d90644c70f3e",
+        "files": 1521
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave79/source-before.json",
+        "sha256": "716c91d3ebe848ad94f8fa3e1857a79999662bd9dfe548715a5f7e0e39caa1c7"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave79/source-after.json",
+        "sha256": "88bd684a00fc310f0b059a21804633633a087f3d6705564262e8d8da976df442"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "ac031159f2e642ec8dda59a7633d0789e570ebb455ac0f8648ba0f1ea0d14478",
+        "files": 187
+      },
+      "after": {
+        "sha256": "ac031159f2e642ec8dda59a7633d0789e570ebb455ac0f8648ba0f1ea0d14478",
+        "files": 187
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave79/docs-before.json",
+        "sha256": "63d5bbfbecceca957ca0bbe32ca24e88d3e194469a1c1b7fb3d9b05bffd51c5b"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave79/docs-after.json",
+        "sha256": "71050fc806437774c7a3a1612019d8720f959b09db53c3f8d68ccb1c49dbbbbd"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "precheck": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave79/api-identity-before.json",
+        "sha256": "5f457ccf0b5b34adce5b180b47477fc9fda37fc93424efb060321bc8f17cfa35"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave79/api-identity-after.json",
+        "sha256": "2cef899c7a1995c2f60be151bbba11be4893735808442f0e90e62174f2bbd609"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave79/api-build-precheck-confirmed.json",
+        "sha256": "1f48dafc392f9bc52025b35ccb9dfc80f7d8970a232fd5d3441a9b975b4c0b16"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave79/owned-mounts-before.json",
+        "sha256": "b0c48c366c25c9ef43f6476484b57101673f4bc5f73a743d682a809dcac9f1b5"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave79/owned-mounts-after.json",
+        "sha256": "5b10d5a2e95b09468f68d514b57a01499521c2dc16d9f8262cb197cbf4255c15"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave79/health-before.json",
+        "sha256": "9564f0f8ca076490e717aa008040727163633eddafeb1d939330f7812ee5e33a"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave79/health-after.json",
+        "sha256": "70f66892d1265819bc4bb471825163e05c91fe7dbc0e26ab50f5ad66eb504163"
+      }
+    }
+  },
+  "case": {
+    "scenarioId": "standalone-reshape-related-source-after-pivot",
+    "caseName": "related-source-after-pivot",
+    "title": "standalone CDA reshape workflows related-source-after-pivot related-source-after-pivot",
+    "status": "not_executed_no_tests_found",
+    "failureClassification": "HARNESS_TEST_DISCOVERY_NO_TESTS_FOUND",
+    "testCaseExecuted": false,
+    "summary": "Playwright exited before test execution: no tests matched the supplied title grep; no product behavior was exercised.",
+    "registeredRequiredChecks": {
+      "expected": 25,
+      "executed": false
+    },
+    "playwrightDiscovery": {
+      "expected": 0,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0,
+      "errors": 1
+    },
+    "timings": {
+      "playwrightRunnerDurationMs": 172.38400000000001,
+      "testDurationMs": null,
+      "processDurationMs": null
+    },
+    "artifacts": {
+      "runPlan": {
+        "path": "/private/tmp/loom-native-parallel-wave79/run-plan.json",
+        "sha256": "ea89e0cf8177ef0601596494e5bc400df2757dd2502ac956bee6b7b815b76e10"
+      },
+      "precheck": {
+        "path": "/private/tmp/loom-native-parallel-wave79/api-build-precheck-confirmed.json",
+        "sha256": "1f48dafc392f9bc52025b35ccb9dfc80f7d8970a232fd5d3441a9b975b4c0b16"
+      },
+      "playwrightResults": {
+        "path": "/private/tmp/loom-native-parallel-wave79/standalone-reshape-related-source-after-pivot/attempt1/results.json",
+        "sha256": "89ea958726736401e0b9b656e0bcdae7e357aea6188c2c1dae5f197e88217594"
+      },
+      "runnerLog": {
+        "path": "/private/tmp/loom-native-parallel-wave79/standalone-reshape-related-source-after-pivot/attempt1/runner.log",
+        "sha256": "1b2e45f994d330f5e887a3f619c51e15841ed7b6d1cb873df79736020247acf4"
+      },
+      "captureIntegrity": {
+        "path": "/private/tmp/loom-native-parallel-wave79/closure-integrity.json",
+        "sha256": "41f8c10ffe98608cf2a11d6369888ff85b2da20a311f168c008383329a04010a"
+      }
+    }
+  },
+  "handles": {
+    "precheck": {
+      "session": 24200,
+      "exitCode": 0
+    },
+    "beforeCapture": {
+      "session": 60128,
+      "exitCode": 0
+    },
+    "beforeHealth": {
+      "session": 40534,
+      "exitCode": 0
+    },
+    "browser": {
+      "session": 89507,
+      "exitCode": 1
+    },
+    "afterCapture": {
+      "session": 70800,
+      "exitCode": 0
+    },
+    "afterHealth": {
+      "session": 43207,
+      "exitCode": 0
+    }
+  }
+}

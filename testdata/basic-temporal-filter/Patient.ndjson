@@ -1,0 +1,2 @@
+{"resourceType":"Patient","id":"dev-patient-001","birthDate":"1980-01-02","gender":"female"}
+{"resourceType":"Patient","id":"dev-patient-002","birthDate":"1985-03-04","gender":"male"}

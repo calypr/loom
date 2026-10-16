@@ -6,9 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataset"
 
 	"go.yaml.in/yaml/v3"
@@ -20,19 +22,31 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Listen                     string                      `yaml:"listen"`
-	URL                        string                      `yaml:"url"`
-	Database                   string                      `yaml:"database"`
-	Schema                     string                      `yaml:"schema"`
-	ClickHouse                 ClickHouseConfig            `yaml:"clickhouse"`
-	Dataframer                 DataframerConfig            `yaml:"dataframer"`
-	RecipeBatchRows            int                         `yaml:"recipe_batch_rows"`
-	RecipeBatchBytes           int                         `yaml:"recipe_batch_bytes"`
-	RecipeQueryPageRows        int                         `yaml:"recipe_query_page_rows"`
-	AllowUnauthenticated       bool                        `yaml:"allow_unauthenticated"`
-	RequiredDataframeSelectors []dataset.DataframeSelector `yaml:"required_dataframe_selectors"`
-	LocalWorkspaceWriteback    string                      `yaml:"local_workspace_writeback"`
-	LocalWorkspaceProject      string                      `yaml:"local_workspace_project"`
+	Listen                        string                      `yaml:"listen"`
+	URL                           string                      `yaml:"url"`
+	Database                      string                      `yaml:"database"`
+	Schema                        string                      `yaml:"schema"`
+	ClickHouse                    ClickHouseConfig            `yaml:"clickhouse"`
+	Dataframer                    DataframerConfig            `yaml:"dataframer"`
+	RecipeBatchRows               int                         `yaml:"recipe_batch_rows"`
+	RecipeBatchBytes              int                         `yaml:"recipe_batch_bytes"`
+	RecipeQueryPageRows           int                         `yaml:"recipe_query_page_rows"`
+	RecipeQualityMaxRows          int64                       `yaml:"recipe_quality_max_rows"`
+	RecipeQualityMaxDistinctKeys  int64                       `yaml:"recipe_quality_max_distinct_keys"`
+	ArtifactDirectory             string                      `yaml:"artifact_directory"`
+	ArtifactTTL                   time.Duration               `yaml:"artifact_ttl"`
+	ArtifactMaxRows               int64                       `yaml:"artifact_max_rows"`
+	ArtifactMaxBytes              int64                       `yaml:"artifact_max_bytes"`
+	PopulationMappingCursorSecret string                      `yaml:"population_mapping_cursor_secret"`
+	AllowUnauthenticated          bool                        `yaml:"allow_unauthenticated"`
+	RequiredDataframeSelectors    []dataset.DataframeSelector `yaml:"required_dataframe_selectors"`
+	LocalWorkspaceWriteback       string                      `yaml:"local_workspace_writeback"`
+	LocalWorkspaceProject         string                      `yaml:"local_workspace_project"`
+	// DevActivationConflictOnce is intentionally not configurable through YAML.
+	// It is a one-shot fault injector for the isolated, --no-auth development
+	// stack and is ignored unless both server and auth are unauthenticated.
+	DevActivationConflictOnce bool          `yaml:"-"`
+	DevArtifactRowDelay       time.Duration `yaml:"-"`
 }
 
 type ClickHouseConfig struct {
@@ -60,16 +74,22 @@ type BasicAuthConfig struct {
 }
 
 type CalyprAuthConfig struct {
+	TrustedIssuer  string        `yaml:"trusted_issuer"`
 	RequestTimeout time.Duration `yaml:"request_timeout"`
 	CacheTTL       time.Duration `yaml:"cache_ttl"`
 }
+
+const defaultRecipeQueryPageRows = 250
 
 func DefaultConfig() Config {
 	return Config{
 		Server: ServerConfig{
 			Listen: ":8080", URL: "http://127.0.0.1:8529", Database: "fhir_proto",
 			Schema: "schemas/graph-fhir.json", ClickHouse: ClickHouseConfig{Enabled: true, URL: "clickhouse://127.0.0.1:9000", Database: "loom", Username: "default"},
-			RecipeBatchRows: 1000, RecipeBatchBytes: 4 << 20, RecipeQueryPageRows: 25,
+			RecipeBatchRows: 1000, RecipeBatchBytes: 4 << 20, RecipeQueryPageRows: defaultRecipeQueryPageRows,
+			RecipeQualityMaxRows: 1_000_000, RecipeQualityMaxDistinctKeys: 1_000_000,
+			ArtifactDirectory: "/tmp/loom-artifacts", ArtifactTTL: 24 * time.Hour,
+			ArtifactMaxRows: 10_000_000, ArtifactMaxBytes: 2 << 30,
 		},
 		Auth: AuthConfig{Mode: "basic", Calypr: CalyprAuthConfig{RequestTimeout: 5 * time.Second, CacheTTL: 30 * time.Second}},
 	}
@@ -91,6 +111,8 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 		recipeBatchRows         int
 		recipeBatchBytes        int
 		recipeQueryPageRows     int
+		recipeQualityMaxRows    int64
+		recipeQualityMaxKeys    int64
 		localWorkspaceWriteback string
 		localWorkspaceProject   string
 	)
@@ -108,7 +130,9 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 	fs.StringVar(&dataframerRecipe, "dataframer-recipe", "", "dataframer recipe JSON file (required when ClickHouse is enabled)")
 	fs.IntVar(&recipeBatchRows, "recipe-batch-rows", 1000, "maximum recipe materialization rows per ClickHouse batch")
 	fs.IntVar(&recipeBatchBytes, "recipe-batch-bytes", 4<<20, "maximum recipe materialization bytes per ClickHouse batch")
-	fs.IntVar(&recipeQueryPageRows, "recipe-query-page-rows", 25, "root documents per bounded dataframe query page; zero disables paging")
+	fs.IntVar(&recipeQueryPageRows, "recipe-query-page-rows", defaultRecipeQueryPageRows, "root documents per bounded dataframe query page; zero disables paging")
+	fs.Int64Var(&recipeQualityMaxRows, "recipe-quality-max-rows", 1_000_000, "maximum rows accepted by the full-population publication quality scan")
+	fs.Int64Var(&recipeQualityMaxKeys, "recipe-quality-max-distinct-keys", 1_000_000, "maximum distinct row identities retained by publication quality checks")
 	fs.StringVar(&localWorkspaceWriteback, "local-workspace-writeback", "", "exact local CONFIG workspace file updated after successful publication (no-auth development only)")
 	fs.StringVar(&localWorkspaceProject, "local-workspace-project", "", "only this project may update the local CONFIG workspace")
 	if err := fs.Parse(args); err != nil {
@@ -127,6 +151,9 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 		if noAuth {
 			cfg.Server.AllowUnauthenticated = true
 			cfg.Auth.AllowUnauthenticated = true
+		}
+		if err := applyDevFaultOverrides(&cfg); err != nil {
+			return Config{}, err
 		}
 		if strings.TrimSpace(localWorkspaceWriteback) != "" {
 			cfg.Server.LocalWorkspaceWriteback = localWorkspaceWriteback
@@ -154,11 +181,16 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 	cfg.Server.RecipeBatchRows = recipeBatchRows
 	cfg.Server.RecipeBatchBytes = recipeBatchBytes
 	cfg.Server.RecipeQueryPageRows = recipeQueryPageRows
+	cfg.Server.RecipeQualityMaxRows = recipeQualityMaxRows
+	cfg.Server.RecipeQualityMaxDistinctKeys = recipeQualityMaxKeys
 	cfg.Server.LocalWorkspaceWriteback = localWorkspaceWriteback
 	cfg.Server.LocalWorkspaceProject = localWorkspaceProject
 	if noAuth {
 		cfg.Server.AllowUnauthenticated = true
 		cfg.Auth.AllowUnauthenticated = true
+	}
+	if err := applyDevFaultOverrides(&cfg); err != nil {
+		return Config{}, err
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, fmt.Errorf("invalid server config: %w", err)
@@ -184,11 +216,20 @@ func LoadConfig(path string) (Config, error) {
 }
 
 func applyEnvironment(cfg Config) (Config, error) {
+	if strings.TrimSpace(cfg.Auth.Calypr.TrustedIssuer) == "" {
+		cfg.Auth.Calypr.TrustedIssuer = strings.TrimSpace(os.Getenv("LOOM_AUTH_CALYPR_TRUSTED_ISSUER"))
+	}
 	if cfg.Auth.Basic.Username == "" {
 		cfg.Auth.Basic.Username = os.Getenv("LOOM_AUTH_BASIC_USERNAME")
 	}
 	if cfg.Auth.Basic.Password == "" {
 		cfg.Auth.Basic.Password = os.Getenv("LOOM_AUTH_BASIC_PASSWORD")
+	}
+	if cfg.Server.PopulationMappingCursorSecret == "" {
+		cfg.Server.PopulationMappingCursorSecret = os.Getenv("LOOM_POPULATION_MAPPING_CURSOR_SECRET")
+	}
+	if value := strings.TrimSpace(os.Getenv("LOOM_ARTIFACT_DIRECTORY")); value != "" {
+		cfg.Server.ArtifactDirectory = value
 	}
 	if raw := strings.TrimSpace(os.Getenv("LOOM_REQUIRED_DATAFRAME_SELECTORS")); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &cfg.Server.RequiredDataframeSelectors); err != nil {
@@ -198,10 +239,61 @@ func applyEnvironment(cfg Config) (Config, error) {
 	return cfg, nil
 }
 
+// applyDevFaultOverrides is deliberately gated by the local no-auth mode.
+// These switches provide deterministic fault scenarios for the isolated dev
+// Compose stack without creating a production request or OpenAPI surface.
+func applyDevFaultOverrides(cfg *Config) error {
+	if cfg == nil || !cfg.Server.AllowUnauthenticated || !cfg.Auth.AllowUnauthenticated {
+		return nil
+	}
+	if raw := strings.TrimSpace(os.Getenv("LOOM_DEV_RECIPE_QUALITY_MAX_ROWS")); raw != "" {
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || value <= 0 {
+			return fmt.Errorf("LOOM_DEV_RECIPE_QUALITY_MAX_ROWS must be a positive integer")
+		}
+		cfg.Server.RecipeQualityMaxRows = value
+	}
+	if raw := strings.TrimSpace(os.Getenv("LOOM_DEV_RECIPE_QUALITY_MAX_DISTINCT_KEYS")); raw != "" {
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || value <= 0 {
+			return fmt.Errorf("LOOM_DEV_RECIPE_QUALITY_MAX_DISTINCT_KEYS must be a positive integer")
+		}
+		cfg.Server.RecipeQualityMaxDistinctKeys = value
+	}
+	if raw := strings.TrimSpace(os.Getenv("LOOM_DEV_ACTIVATION_CONFLICT_ONCE")); raw != "" {
+		value, err := strconv.ParseBool(raw)
+		if err != nil {
+			return fmt.Errorf("LOOM_DEV_ACTIVATION_CONFLICT_ONCE must be boolean")
+		}
+		cfg.Server.DevActivationConflictOnce = value
+	}
+	if raw := strings.TrimSpace(os.Getenv("LOOM_DEV_ARTIFACT_MAX_ROWS")); raw != "" {
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || value <= 0 {
+			return fmt.Errorf("LOOM_DEV_ARTIFACT_MAX_ROWS must be a positive integer")
+		}
+		cfg.Server.ArtifactMaxRows = value
+	}
+	if raw := strings.TrimSpace(os.Getenv("LOOM_DEV_ARTIFACT_ROW_DELAY_MS")); raw != "" {
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || value < 0 {
+			return fmt.Errorf("LOOM_DEV_ARTIFACT_ROW_DELAY_MS must be a non-negative integer")
+		}
+		cfg.Server.DevArtifactRowDelay = time.Duration(value) * time.Millisecond
+	}
+	return nil
+}
+
 func (c Config) Validate() error {
 	cfg := c
 	if cfg.Server.RecipeQueryPageRows < 0 {
 		return errors.New("server.recipe_query_page_rows cannot be negative")
+	}
+	if cfg.Server.RecipeQualityMaxRows <= 0 || cfg.Server.RecipeQualityMaxDistinctKeys <= 0 {
+		return errors.New("server recipe quality limits must be positive")
+	}
+	if strings.TrimSpace(cfg.Server.ArtifactDirectory) == "" || cfg.Server.ArtifactTTL <= 0 || cfg.Server.ArtifactMaxRows <= 0 || cfg.Server.ArtifactMaxBytes <= 0 {
+		return errors.New("server artifact directory, TTL, row limit, and byte limit must be configured")
 	}
 	if strings.TrimSpace(cfg.Server.LocalWorkspaceWriteback) != "" && !(cfg.Server.AllowUnauthenticated || cfg.Auth.AllowUnauthenticated) {
 		return errors.New("server.local_workspace_writeback requires unauthenticated local-development mode")
@@ -233,6 +325,12 @@ func (c Config) Validate() error {
 		}
 	}
 	if cfg.Auth.Mode == "calypr" {
+		if strings.TrimSpace(cfg.Auth.Calypr.TrustedIssuer) == "" {
+			return fmt.Errorf("auth.calypr.trusted_issuer is required")
+		}
+		if err := authscope.ValidateTrustedFenceIssuer(cfg.Auth.Calypr.TrustedIssuer); err != nil {
+			return fmt.Errorf("auth.calypr.trusted_issuer: %w", err)
+		}
 		if cfg.Auth.Calypr.RequestTimeout <= 0 {
 			return fmt.Errorf("auth.calypr.request_timeout must be positive")
 		}

@@ -1,0 +1,290 @@
+{
+  "epoch": 81,
+  "status": "CLOSED_PRE_LIFECYCLE_EXPLORER_NOT_FOUND_ATTRIBUTION_PENDING",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "31d22c21e72c4f46456714b6c9cc9a181b3b5dbe43ee09ab8ca90ded9a462dfb",
+        "files": 1522
+      },
+      "after": {
+        "sha256": "31d22c21e72c4f46456714b6c9cc9a181b3b5dbe43ee09ab8ca90ded9a462dfb",
+        "files": 1522
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave81/source-before.json",
+        "sha256": "15151f636d6003dc0695ce27d8994b0b6b59056bbbec38ad997ba6ac03306606"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave81/source-after.json",
+        "sha256": "1c291a4826ff6aaeac0fc5ee28ec9b7d65560c2d45b09ef16d049f2de33674a1"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "38899e2f0c440cdbf6b8a9585e46c4c3aaa4d49348a30c3bc0151d07cd47d0c9",
+        "files": 191
+      },
+      "after": {
+        "sha256": "38899e2f0c440cdbf6b8a9585e46c4c3aaa4d49348a30c3bc0151d07cd47d0c9",
+        "files": 191
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave81/docs-before.json",
+        "sha256": "f59edf7559236fa32b70a45dd1414545dd916b8a9ac2bd679154278a0d90a581"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave81/docs-after.json",
+        "sha256": "c106295162d1c9ea15e040ff3b97c7218761e01a1890dcb649d16a4bf5b07c2d"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "precheck": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave81/api-identity-before.json",
+        "sha256": "936959a787ce35e6fc2e33fb2cc23cf3dafb2e5e69c14db138caeb73eaa1bfda"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave81/api-identity-after.json",
+        "sha256": "884168933d00231d74ecfcde676893c359cb3cbab86a7b4cdb4172c3c30190c0"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave81/api-build-precheck-confirmed.json",
+        "sha256": "7a57e66ef6fecfcbc1d397be513f2dbbb404b6fc620d65e0db03ba7a6859f102"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave81/owned-mounts-before.json",
+        "sha256": "b60b29863f2a27935ad897b40ab7024af9e9ab5eae5a50127cd1dbf2a9e22147"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave81/owned-mounts-after.json",
+        "sha256": "d1d111f69df5ec97843f5182d8d260e2474b99a409a53a10b4d493f71c512ef0"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave81/health-before.json",
+        "sha256": "73140ddaf9e96f89a98890a4e1733f032f5118fe42c40f2f49f4892d9faaad98"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave81/health-after.json",
+        "sha256": "70e0bc1728b4202cd95ff139783c79d72fc434e40166ba47c9124fb4241bd40b"
+      }
+    }
+  },
+  "case": {
+    "scenarioId": "standalone-reshape-related-source-after-pivot",
+    "caseName": "related-source-after-pivot",
+    "title": "standalone CDA reshape workflows related-source-after-pivot related-source-after-pivot",
+    "status": "failed_before_native_lifecycle",
+    "failureClassification": "PRE_LIFECYCLE_EXPLORER_NOT_FOUND_ATTRIBUTION_PENDING",
+    "summary": "The bounded raw Observation oracle and exact subject_Patient edge reread passed. The subsequent Builder GET for the fresh Explorer returned EXPLORER_NOT_FOUND before any native lifecycle action. Root cause is not attributed by this run.",
+    "testCaseExecuted": true,
+    "productLifecycleExercised": false,
+    "requiredChecks": {
+      "total": 25,
+      "passed": 3,
+      "missing": 22,
+      "missingNames": [
+        "Fresh Explorer binds the exact two-root Observation population to its direct source table",
+        "Native Pivot preview matches the two exact source categories and coalesces one row",
+        "Pivot Cancel preserves exact source workspace and rows after reload",
+        "Confirmed Pivot proposal retains exact typed category and value bindings",
+        "Applied Pivot persists typed categories and one independently verified coalesced row after reload",
+        "Pivot compiler stage exposes the exact row identity and RELATED_SOURCE capability",
+        "Post-Pivot Patient.id ALL proposal retains both source contributors",
+        "Native chooser and candidate bind Patient.id ALL through exact Observation.subject \u2192 Patient",
+        "Post-Pivot ALL returns both independently resolved Patient IDs on one Pivot row",
+        "Related-source Cancel preserves the exact saved Pivot and its raw values after reload",
+        "Confirmed post-Pivot Patient.id ALL preview",
+        "Applied post-Pivot RELATED_SOURCE retains exact ALL binding and contributors after reload",
+        "Edited related-source label keeps exact contributor values",
+        "Editing the saved related source and Cancel preserves its exact construction and ALL values",
+        "Apply related-source edit preserves the post-Pivot binding",
+        "Applied related-source edit changes only the label and survives reload with exact Patient values",
+        "Related-source removal preview restores exact Pivot values",
+        "Related-source removal Cancel preserves the edited binding and exact ALL values after reload",
+        "Confirmed related-source removal restores the exact Pivot row",
+        "Applying related-source removal restores the exact pre-source Pivot workspace and values",
+        "No unexpected native network, module, or browser errors occurred",
+        "All native lifecycle actions complete within five seconds"
+      ]
+    },
+    "assertions": {
+      "passed": 3,
+      "failed": 0,
+      "total": 3
+    },
+    "nativeActions": {
+      "passed": 0,
+      "failed": 0,
+      "total": 0
+    },
+    "firstFailure": {
+      "phase": "fresh Explorer Builder read",
+      "message": "AssertionError: /api/v1/projects/loom_dev_cda_fhir/explorers/qa-reshape-related-source-after-pivot-5bb03aa9-854a-4cd4-99b2-076555f7708e/authoring/v2/builder: {\"diagnostics\":[{\"code\":\"EXPLORER_NOT_FOUND\",\"message\":\"Explorer not found\",\"requestId\":\"related-source-after-pivot-6c63495a-a521-4130-ba88-5a2a58ca4fd9\",\"severity\":\"error\",\"stage\":\"builder\"}],\"error\":{\"code\":\"EXPLORER_NOT_FOUND\",\"diagnostic\":{\"code\":\"EXPLORER_NOT_FOUND\",\"message\":\"Explorer not found\",\"requestId\":\"related-source-after-pivot-6c63495a-a521-4130-ba88-5a2a58ca4fd9\",\"severity\":\"error\",\"stage\":\"builder\"},\"message\":\"Explorer not found\",\"requestId\":\"related-source-after-pivot-6c63495a-a521-4130-ba88-5a2a58ca4fd9\"}}",
+      "explorerId": "qa-reshape-related-source-after-pivot-5bb03aa9-854a-4cd4-99b2-076555f7708e",
+      "requestId": "related-source-after-pivot-6c63495a-a521-4130-ba88-5a2a58ca4fd9",
+      "httpPath": "/api/v1/projects/loom_dev_cda_fhir/explorers/qa-reshape-related-source-after-pivot-5bb03aa9-854a-4cd4-99b2-076555f7708e/authoring/v2/builder"
+    },
+    "timings": {
+      "testDurationMs": 10592,
+      "playwrightRunnerDurationMs": 12131.671,
+      "processDurationMs": null
+    },
+    "dimensions": {
+      "usability": {
+        "status": "untested",
+        "evidence": []
+      },
+      "correctness": {
+        "status": "passed",
+        "evidence": [
+          {
+            "name": "CDA raw oracle selects two same-status Observation roots with distinct Patient references",
+            "status": "final",
+            "scannedRows": 2000,
+            "selectedObservationIDs": [
+              "52f5e622-0181-5feb-936c-e9992ab26616",
+              "485e2567-b566-56f3-b5bd-5f025f37cd95"
+            ]
+          },
+          {
+            "name": "Exact scoped subject_Patient edges resolve the two roots to distinct Patient documents",
+            "status": "passed",
+            "observationIDs": [
+              "52f5e622-0181-5feb-936c-e9992ab26616",
+              "485e2567-b566-56f3-b5bd-5f025f37cd95"
+            ],
+            "patientIDs": [
+              "da65b4e6-3946-50d9-ab1a-65af2e560b1c",
+              "a6a10252-092e-5b93-976a-a625d478dca6"
+            ]
+          },
+          {
+            "name": "CDA watched source and API build stayed unchanged",
+            "status": "passed",
+            "sourceFingerprint": {
+              "before": {
+                "sha256": "31d22c21e72c4f46456714b6c9cc9a181b3b5dbe43ee09ab8ca90ded9a462dfb",
+                "files": 1522
+              },
+              "after": {
+                "sha256": "31d22c21e72c4f46456714b6c9cc9a181b3b5dbe43ee09ab8ca90ded9a462dfb",
+                "files": 1522
+              }
+            },
+            "apiBuildIdentity": {
+              "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+              "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51"
+            },
+            "sourceFreeze": {
+              "unchanged": true,
+              "watchedFileCount": 1117,
+              "changedPaths": [],
+              "invalidatesRun": false,
+              "productFailure": false
+            }
+          }
+        ]
+      },
+      "persistence": {
+        "status": "untested",
+        "evidence": []
+      },
+      "performance": {
+        "status": "untested",
+        "evidence": []
+      }
+    },
+    "artifacts": {
+      "runPlan": {
+        "path": "/private/tmp/loom-native-parallel-wave81/run-plan.json",
+        "sha256": "d0171b223060d42873880ceca43f4c8a0cc40af8df5cc6d25b6fc0a2dee3548a"
+      },
+      "precheck": {
+        "path": "/private/tmp/loom-native-parallel-wave81/api-build-precheck-confirmed.json",
+        "sha256": "7a57e66ef6fecfcbc1d397be513f2dbbb404b6fc620d65e0db03ba7a6859f102"
+      },
+      "domainReport": {
+        "path": "/private/tmp/loom-native-parallel-wave81/standalone-reshape-related-source-after-pivot/attempt1/artifacts/standalone-reshape-standal-689d5--related-source-after-pivot/cda-report.json",
+        "sha256": "ff71225f2dfe9fc9f8e4551fa64add697cfa4bfb1ff570dfa37bce969ba21167"
+      },
+      "errorContext": {
+        "path": "/private/tmp/loom-native-parallel-wave81/standalone-reshape-related-source-after-pivot/attempt1/artifacts/standalone-reshape-standal-689d5--related-source-after-pivot/error-context.md",
+        "sha256": "3f5348eb49e8b4880a7ed6bd77c32c8f5ed7b5ec4d3a0ab186e8974a1a5c4e55"
+      },
+      "playwrightResults": {
+        "path": "/private/tmp/loom-native-parallel-wave81/standalone-reshape-related-source-after-pivot/attempt1/results.json",
+        "sha256": "2187100927d5c0a5f8d6cb6f1c24339b76e7b3af3cfa26bb51462e2637b50705"
+      },
+      "runnerLog": {
+        "path": "/private/tmp/loom-native-parallel-wave81/standalone-reshape-related-source-after-pivot/attempt1/runner.log",
+        "sha256": "06fe4ed4f0b84f8dcfbe859dac569ee8ae18a360501933deecfe7ae0a011a368"
+      },
+      "captureIntegrity": {
+        "path": "/private/tmp/loom-native-parallel-wave81/closure-integrity.json",
+        "sha256": "eef55d51c1fdffa9288344debdf4e45e0800c9046bed19659bc009c7047368af"
+      }
+    }
+  },
+  "handles": {
+    "precheck": {
+      "session": 65330,
+      "exitCode": 0
+    },
+    "beforeCapture": {
+      "session": 53049,
+      "exitCode": 0
+    },
+    "beforeHealth": {
+      "session": 36546,
+      "exitCode": 0
+    },
+    "browser": {
+      "session": 54403,
+      "exitCode": 1
+    },
+    "afterCapture": {
+      "session": 72708,
+      "exitCode": 0
+    },
+    "afterHealth": {
+      "session": 51659,
+      "exitCode": 0
+    }
+  }
+}

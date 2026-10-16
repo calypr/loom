@@ -1,0 +1,256 @@
+{
+  "epoch": 77,
+  "scenario": "cda-current-draft-upstream-append",
+  "case": "upstream-append",
+  "title": "three exact CDA populations Group, edit Patient DERIVE, then Append with full restoration",
+  "status": "failed_strict_network_gate",
+  "runnerStatus": "failed",
+  "coverageStatus": "partial",
+  "classification": "Source review attributes the Patient selection GET abort to the frontend query lifecycle: reload restores the remembered Patient output, then the workflow selects the APPEND target; the active-table selection query loses its final subscriber and resourceFor aborts the in-flight request. This is not evidence of a backend rejection or product defect. The strict network gate still failed, and the exact abort-to-click causality is not proven because the retained event record has no separate target-click timestamp.",
+  "browserProcess": {
+    "session": 16326,
+    "exitCode": 1
+  },
+  "domainReportStatus": "failed",
+  "domainReportRunnerStatus": "passed",
+  "domainReportStatusInterpretation": "The internal browser-evaluation runnerStatus passed; the domain report and Playwright test failed at the strict final network-diagnostics gate.",
+  "requiredChecks": {
+    "passed": 26,
+    "failed": 0,
+    "unrun": 0,
+    "total": 26
+  },
+  "assertions": {
+    "passed": 215,
+    "failed": 2,
+    "total": 217,
+    "failedNames": [
+      "no unexpected network, module, or browser errors",
+      "CDA report has all required checks and no unexpected diagnostics"
+    ]
+  },
+  "rawReportedDimensions": {
+    "usability": "passed",
+    "correctness": "failed",
+    "persistence": "passed",
+    "performance": "passed"
+  },
+  "dimensionInterpretation": "Usability, persistence, and performance checkpoints passed. Correctness failed because the strict no-unexpected-network-errors assertion and final report gate each recorded the unexpected selection GET abort.",
+  "rawWitness": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "scanLimitPerResource": 2000,
+    "resources": [
+      {
+        "resourceType": "Patient",
+        "fieldPath": "id",
+        "returnedRows": 2000,
+        "eligibleRows": 2000,
+        "uniqueFHIRIDs": 2000
+      },
+      {
+        "resourceType": "Observation",
+        "fieldPath": "status",
+        "returnedRows": 2000,
+        "eligibleRows": 2000,
+        "selectedStatus": "final",
+        "eligibleSelectedRows": 2000,
+        "categoriesWithFourRecords": [
+          "final"
+        ]
+      }
+    ],
+    "selectionCounts": {
+      "observation-left": 2,
+      "observation-right": 2,
+      "patient-id": 2
+    },
+    "adaptation": "Patient FHIR IDs and two disjoint Observation.status=final pairs; no DiagnosticReport witness."
+  },
+  "nativeActions": {
+    "passed": 93,
+    "failed": 0,
+    "total": 93,
+    "maxElapsedMs": 1594,
+    "budgetMs": 5000
+  },
+  "lifecycleCompletion": "All 93 measured native actions reached the restored empty APPEND target and preserved Patient DERIVE; the strict final diagnostic gate failed, so this is not a passing browser run.",
+  "strictNetworkFailure": {
+    "classification": "UNEXPECTED_SELECTION_GET_ABORT_UNATTRIBUTED",
+    "kind": "network",
+    "method": "GET",
+    "errorText": "net::ERR_ABORTED",
+    "expected": false,
+    "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/cda-upstream-append-f87b5ca6-a6c7-4c41-99f2-2e59efd5f21e/selections/selection_382b0f7eafeac674cbb7c02c68d0bd219440f29e3a21e690605a5fddc1c0b459",
+    "playwrightRequestId": "cda-request-1280",
+    "requestScope": {
+      "expectedProject": "loom_dev_cda_fhir",
+      "generation": "cda-fhir-v1",
+      "configuredExplorer": "cda-upstream-append-f87b5ca6-a6c7-4c41-99f2-2e59efd5f21e",
+      "requestProject": "loom_dev_cda_fhir",
+      "requestExplorer": "cda-upstream-append-f87b5ca6-a6c7-4c41-99f2-2e59efd5f21e"
+    },
+    "requestMetadata": {
+      "requestId": null,
+      "draftVersion": null,
+      "draftDigest": null,
+      "outputId": null,
+      "stageId": null
+    },
+    "startedMs": 67277,
+    "failedAtMs": 67687,
+    "durationMs": 411,
+    "action": {
+      "id": "cda-action-84",
+      "label": "Reload dependent APPEND after current-draft Patient DERIVE edit"
+    },
+    "mainFrameNavigations": [],
+    "cause": "source_attributed_final_unsubscribe_cancellation; exact event trigger not independently timestamp-proven",
+    "coordinatorClassification": "UNEXPECTED_SELECTION_GET_ABORT_UNATTRIBUTED",
+    "sourceAttributionStatus": "source_confirmed_mechanism_event_proof_incomplete",
+    "eventProofLimit": "The retained request timing is correlated with the enclosing reload/select action; no distinct APPEND-target click timestamp was captured.",
+    "actionLocator": "getByTestId('construction-table-out_16010f4eee06cb9976d9f94e')"
+  },
+  "networkSummary": {
+    "unexpectedNetworkErrors": 1,
+    "incidentalAssetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ]
+  },
+  "timing": {
+    "browserLifecycleDurationMs": 79515,
+    "playwrightTestResultDurationMs": 81303,
+    "playwrightReporterDurationMs": 82741.23899999999,
+    "runnerProcessDurationMs": null,
+    "maxNativeActionMs": 1594,
+    "nativeActionBudgetMs": 5000
+  },
+  "target": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorer": "cda-upstream-append-f87b5ca6-a6c7-4c41-99f2-2e59efd5f21e",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008",
+    "sourceRoot": "/private/tmp/loom-construction-implementation"
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "sha256": "65401ebe93de6c6179a825398e4eb4e05ba85b8e4af23842454e13e6515b8456",
+      "files": 1517,
+      "unchanged": true,
+      "changedPaths": []
+    },
+    "docsBeforeAfter": {
+      "sha256": "29c4a899ad8dcf4afa4ffaf6d418f15ab5a10af506d921bdee18a14526ef7c61",
+      "files": 181,
+      "unchanged": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentityUnchanged": true,
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  },
+  "nextCheck": "Change the harness order to select the APPEND target before reloading, then assert reload restores the persisted APPEND target without reselecting it. Keep the strict network gate unchanged and rerun this same native CDA lifecycle; close only after the final gate passes.",
+  "rawReportPath": "/private/tmp/loom-native-parallel-wave77/cda-current-draft-upstream-append/attempt1/artifacts/cda-current-draft-upstream-d2dbe-ppend-with-full-restoration/cda-report.json",
+  "rawReportSha256": "9262deaede9f8b795c0d70d576f4be522051fc709bc7b31cabc173fb83e546dc",
+  "playwrightResultsPath": "/private/tmp/loom-native-parallel-wave77/cda-current-draft-upstream-append/attempt1/results.json",
+  "playwrightResultsSha256": "3aac2ec76e6a8d08e6b6ba68c584c045c7b00b9b76d4f697f8a672d75720d740",
+  "runnerLogPath": "/private/tmp/loom-native-parallel-wave77/cda-current-draft-upstream-append/attempt1/runner.log",
+  "runnerLogSha256": "bafa5fe883603e545f449ee7eb6b8f1d95a693ef19caca3e10c916cdc84404b2",
+  "errorContextPath": "/private/tmp/loom-native-parallel-wave77/cda-current-draft-upstream-append/attempt1/artifacts/cda-current-draft-upstream-d2dbe-ppend-with-full-restoration/error-context.md",
+  "errorContextSha256": "2f502a42a78bdf2941e7d7c422000d24842f613e215cb4b2424b148f3bc5dd6b",
+  "coordinatorClosurePath": "/private/tmp/loom-native-parallel-wave77/closure.json",
+  "coordinatorClosureSha256": "8103c805776ea8392f49eb2217ff1bdf8d046fac665aec67ea65072a25d625e4",
+  "durableClosurePath": "docs/verification/playwright/runtime/current-draft-cda-upstream-append-epoch77-closure.json",
+  "sourceAttribution": {
+    "status": "source_confirmed_mechanism_event_proof_incomplete",
+    "requestIdentity": {
+      "resource": "Patient",
+      "outputId": "out_0d2894ed27d01d8908ff8d19",
+      "selectionId": "selection_382b0f7eafeac674cbb7c02c68d0bd219440f29e3a21e690605a5fddc1c0b459"
+    },
+    "targetIdentity": {
+      "resource": "APPEND",
+      "outputId": "out_16010f4eee06cb9976d9f94e"
+    },
+    "mechanism": "The workflow reloads and waits for the APPEND target, while sessionStorage restores the previously selected Patient output. The subsequent APPEND table click switches the active output; that changes the active Patient selection query identity, removes its final subscription, and resourceFor aborts the in-flight getSelection call. Source-owner review attributes the abort to this client-side cancellation path, not a backend rejection or product defect.",
+    "eventEvidenceLimit": "The raw request is correlated to action84, whose locator is the APPEND target, and its timing is inside that action window. No separate target-click timestamp is retained, so the specific click-to-abort sequence is source-attributed but not independently proven by event timestamps.",
+    "sourceReviewBasis": "Epoch77 frozen source files and source-owner review. The coordinator closure retains the original UNEXPECTED_SELECTION_GET_ABORT_UNATTRIBUTED classification verbatim as historical run evidence.",
+    "sourceReferences": [
+      {
+        "path": "scripts/verify-ui/workflows/cda-current-draft-upstream-append-workflow.mjs",
+        "lines": "211-220, 793-795",
+        "sha256": "064db9c4f7b8ea8b9007abb76e5bca5cd73f55bb75e50006718e07e9be9da07f",
+        "finding": "reloadSelectTable reloads the page, waits for the target table, then clicks it; action84 targets the APPEND table after Patient DERIVE edit."
+      },
+      {
+        "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "lines": "396-403, 446-454",
+        "sha256": "a610e93a18d25a530c01a35d834e4f1c6bb6970a68ea8c765ca168d2efa584fd",
+        "finding": "the Builder remembers selected output in sessionStorage and restores it after reload."
+      },
+      {
+        "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "lines": "1171-1210",
+        "sha256": "a610e93a18d25a530c01a35d834e4f1c6bb6970a68ea8c765ca168d2efa584fd",
+        "finding": "the active table outputId and attached selection ID define the population selection query args/key."
+      },
+      {
+        "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "lines": "615-619",
+        "sha256": "a610e93a18d25a530c01a35d834e4f1c6bb6970a68ea8c765ca168d2efa584fd",
+        "finding": "selectTableFromUser changes the active output selection and remembers it."
+      },
+      {
+        "path": "ui/packages/loom-ui/src/react.tsx",
+        "lines": "219-275",
+        "sha256": "830aed5b453f1c33557b5749c86aa89e2e171602007f893c115555818a3c4774",
+        "finding": "useResolvePopulationSelectionQuery reads the active table selection and keys the query by outputId/selection identity."
+      },
+      {
+        "path": "ui/packages/loom-ui/src/react.tsx",
+        "lines": "248-254",
+        "sha256": "830aed5b453f1c33557b5749c86aa89e2e171602007f893c115555818a3c4774",
+        "finding": "the selection-detail request is getSelection for the attached selection ID and receives the query AbortSignal."
+      },
+      {
+        "path": "ui/packages/loom-ui/src/react.tsx",
+        "lines": "90-113",
+        "sha256": "830aed5b453f1c33557b5749c86aa89e2e171602007f893c115555818a3c4774",
+        "finding": "resourceFor aborts the request controller when the final listener unsubscribes; aborted/stale results are not committed."
+      }
+    ],
+    "traceCorrelation": {
+      "requestId": "cda-request-1280",
+      "actionId": "cda-action-84",
+      "actionLabel": "Reload dependent APPEND after current-draft Patient DERIVE edit",
+      "actionLocator": "getByTestId('construction-table-out_16010f4eee06cb9976d9f94e')",
+      "requestActionWindowMs": {
+        "start": 67277,
+        "failure": 67687,
+        "duration": 411
+      },
+      "mainFrameNavigations": [],
+      "separateTargetClickTimestampRetained": false
+    }
+  }
+}

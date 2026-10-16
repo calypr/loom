@@ -1,0 +1,70 @@
+{
+  "kind": "ExplorerBuilderDocument",
+  "output": {
+    "id": "out_c65a00f563a3e700edb027a8",
+    "title": "Patients"
+  },
+  "rootResourceType": "Patient",
+  "route": {
+    "occurrenceId": "base",
+    "resourceType": "Patient"
+  },
+  "rows": {
+    "kind": "RECORDS",
+    "records": {}
+  },
+  "columns": [
+    {
+      "columnId": "source_cf15eb0795b6cd0bb7623944",
+      "column": "col_68d9eb6991da91c407a3c56f",
+      "label": "Patient ID",
+      "logicalType": "string",
+      "occurrenceId": "base",
+      "source": {
+        "kind": "field",
+        "field": {
+          "path": "id",
+          "projectionMode": "VALUE"
+        }
+      },
+      "table": {
+        "visible": true,
+        "order": 0
+      }
+    }
+  ],
+  "construction": {
+    "version": 1,
+    "steps": [
+      {
+        "id": "group_c9b6e197-d4d6-4f28-a9f4-9bcb17167cdc",
+        "inputs": [
+          {
+            "kind": "SOURCE_PROJECTION"
+          }
+        ],
+        "operation": {
+          "kind": "GROUP",
+          "group": {
+            "constructionId": "group_c9b6e197-d4d6-4f28-a9f4-9bcb17167cdc",
+            "missingKeyPolicy": "GROUP",
+            "aggregates": [
+              {
+                "operation": "COUNT_ROWS",
+                "outputColumnId": "group-column_59228a86-9124-4255-aab4-940c3d3cb8f6"
+              }
+            ]
+          }
+        },
+        "outputs": [
+          {
+            "id": "group-column_59228a86-9124-4255-aab4-940c3d3cb8f6",
+            "name": "row_count",
+            "label": "Row count",
+            "type": "integer"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -13,6 +13,8 @@ type Registry struct {
 	batchSize int
 }
 
+const ExecutionReadPinsCollection = "loom_dataframe_execution_read_pins"
+
 func New(client Client) (*Registry, error) {
 	if client == nil {
 		return nil, fmt.Errorf("Arango bundle registry client is required")
@@ -30,5 +32,8 @@ func BootstrapSpec() arangostore.BootstrapSpec {
 	}, {
 		Name:    BundleLeasesCollection,
 		Indexes: [][]string{{"expiresAt"}},
+	}, {
+		Name:    ExecutionReadPinsCollection,
+		Indexes: [][]string{{"executionId"}},
 	}}}
 }

@@ -1,0 +1,269 @@
+{
+  "epoch": 108,
+  "status": "CLOSED_FAILED_PRODUCT",
+  "case": {
+    "scenarioId": "builder-combine",
+    "caseName": "join",
+    "title": "KEY_JOIN INNER/LEFT preview, apply, cancel, removal and reload",
+    "status": "failed_product",
+    "failureAttribution": "PRODUCT_CONSTRUCTION_INPUTS_READY_GUARD_REJECTED_ACTIVE_SUPERSEDED",
+    "classificationNote": "The native browser test published the Observation and DiagnosticReport source tables, then its project-scoped POST to construction-inputs returned HTTP 503 AUTHORING_UNAVAILABLE (request 983b201f-a296-4d3b-81eb-98038fdde731) before Combine started. The API log records getExplorerConstructionInputs and \"immutable source presentation does not match published revision\". Source review confirms the guard requires READY at construction_inputs_catalog.go:508-510 while activation marks the prior revision SUPERSEDED and the candidate/publication ACTIVE at activation.go:175,182,204. A candidate correction is staged; the same case must verify it in epoch109.",
+    "requiredChecks": {
+      "total": 32,
+      "passed": 6,
+      "failed": 0,
+      "unrun": 26,
+      "missingOrFailed": 0,
+      "missingOrUnrun": 26,
+      "evidence": [
+        {
+          "name": "fixture contains one bootstrap Patient, four Observations, and three DiagnosticReports",
+          "status": "passed"
+        },
+        {
+          "name": "Observation source starts with every literal fixture identity",
+          "status": "passed"
+        },
+        {
+          "name": "DiagnosticReport source starts with every literal fixture identity",
+          "status": "passed"
+        },
+        {
+          "name": "native source-table publication completed successfully",
+          "status": "passed"
+        },
+        {
+          "name": "Builder response matches the exact project-scoped route, workspace title, and source output identities",
+          "status": "passed"
+        },
+        {
+          "name": "source Builder snapshot is bound to the expected generation, draft, and authorization scope",
+          "status": "passed"
+        }
+      ]
+    },
+    "assertions": {
+      "passed": 49,
+      "failed": 1,
+      "total": 50
+    },
+    "actions": {
+      "passed": 24,
+      "failed": 0,
+      "total": 24,
+      "maxElapsedMs": 943
+    },
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "failed",
+      "persistence": "untested",
+      "performance": "passed"
+    },
+    "firstFailure": {
+      "method": "POST",
+      "path": "/api/v1/projects/loom_dev_verify_mux037g2-904bf96/explorers/verify-g2-904bf96-combine/authoring/v2/construction-inputs",
+      "status": 503,
+      "code": "AUTHORING_UNAVAILABLE",
+      "stage": "construction-inputs",
+      "requestId": "983b201f-a296-4d3b-81eb-98038fdde731",
+      "message": "published construction inputs are unavailable",
+      "testDurationMs": 7330,
+      "workflowLocation": {
+        "file": "scripts/verify-ui/workflows/builder-combine.mjs",
+        "line": 161,
+        "function": "readPublishedInputs"
+      },
+      "lifecycleBoundary": "after source table publication and source Builder binding, before Combine started",
+      "confirmedCause": "The construction-inputs readiness guard requires READY, while activation writes ACTIVE/SUPERSEDED.",
+      "responseDurationMs": 86,
+      "apiLog": {
+        "path": "/private/tmp/loom-native-combine-join-wave108/api-error-983b201f-a296-4d3b-81eb-98038fdde731.sanitized.log",
+        "sha256": "b0771f822c6fd821d794b0aa7db18488f922e9d11c7da9b1159834a8ff65cf8c",
+        "requestId": "983b201f-a296-4d3b-81eb-98038fdde731",
+        "operation": "getExplorerConstructionInputs",
+        "status": 503,
+        "cause": "immutable source presentation does not match published revision"
+      },
+      "sourceReferences": [
+        {
+          "path": "internal/server/construction_inputs_catalog.go",
+          "lines": [
+            508,
+            509,
+            510
+          ],
+          "sha256": "db273b779b3ceb8b540b46adb488ebdbf08e5ed630b5bcdf39555d01b675f223",
+          "fact": "source presentation is rejected unless revision.Status == READY"
+        },
+        {
+          "path": "internal/explorer/arango/activation.go",
+          "lines": [
+            175,
+            182,
+            204
+          ],
+          "sha256": "7a8b2881ff5c797ea29c38658498288387abc7357104dc232458f5ee27ce0453",
+          "fact": "activation marks prior revision SUPERSEDED and candidate/publication ACTIVE"
+        }
+      ],
+      "repairCandidate": {
+        "path": "/private/tmp/loom-combine-active-status-stage-20261006/handoff.patch",
+        "sha256": "2f5021b890aad2e6667687b93ddcfd9dd9b7c39ad14f18c00b289ee4549a6d78",
+        "status": "staged; verification pending epoch109"
+      }
+    },
+    "lifecycle": {
+      "status": "failed_before_combine",
+      "sourceTablesPublished": true,
+      "constructionInputs": "failed_product_http_503",
+      "combineChooser": "unrun",
+      "joinPreview": "unrun",
+      "cancel": "unrun",
+      "apply": "unrun",
+      "edit": "unrun",
+      "removal": "unrun",
+      "reload": "unrun",
+      "cause": "The construction-inputs readiness guard requires READY, while activation writes ACTIVE/SUPERSEDED.",
+      "fixPendingEpoch": 109
+    }
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "274ffdbf89822a5ad6d2972cedbcd9c431ef75de8aa5c366f6530f907a87727b",
+        "files": 1534
+      },
+      "after": {
+        "sha256": "274ffdbf89822a5ad6d2972cedbcd9c431ef75de8aa5c366f6530f907a87727b",
+        "files": 1534
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave108/source-before.json",
+        "sha256": "d0744d473fe1501262992698a920070cbc4927a2ca0408438d5eaada1b4ecad3"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave108/source-after.json",
+        "sha256": "8828cd7dab74ec1d5fc8863ad8e95cf05b79f6a017afbb9ec36fc0c66bea76ac"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "4160d62fefa064df5536838ef4eb40786fab4cf696af21645d81613cedcc89b7",
+        "files": 248
+      },
+      "after": {
+        "sha256": "4160d62fefa064df5536838ef4eb40786fab4cf696af21645d81613cedcc89b7",
+        "files": 248
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave108/docs-before.json",
+        "sha256": "b46a670b03be1585492b3a62543636246fd6a89bb10c2066ffb430a1c86ce1d0"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave108/docs-after.json",
+        "sha256": "c5a2ef8fd3fadb6c3a3210a94f46731d50dca4b9c256f34bfe8ba0b474b16f65"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:6249df280cc3597a7f2843aedc45d34270846a38ade91ae08295cc5d2ca0fa10",
+      "after": "515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:6249df280cc3597a7f2843aedc45d34270846a38ade91ae08295cc5d2ca0fa10",
+      "precheck": "515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:6249df280cc3597a7f2843aedc45d34270846a38ade91ae08295cc5d2ca0fa10",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave108/api-identity-before.json",
+        "sha256": "36024c6c1fae7e29ef17f4f4050fed2adae45aa230ecc53be9e22327c0b9bc1a"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave108/api-identity-after.json",
+        "sha256": "10ec4db0f15c67a939d9482a74ae5000d4a9d268988074452efa61c5bd731973"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave108/api-build-precheck.json",
+        "sha256": "def2fa6a38aa815f140cbcf59f15c8bb2ab3454e764be7c77b700a83e0bffbc2"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave108/owned-mounts-before.json",
+        "sha256": "2db9acc7018b9f852b904adeca596a0260c663daef88005ff1b78fcf61787acc"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave108/owned-mounts-after.json",
+        "sha256": "ab3f03781edb1cdbd558dc618d3a26e033a87d22c6e822ae23775c6c4432c7d7"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave108/health-before.json",
+        "sha256": "d80822ad9c21ecb7b860a5e1f8cdc61337d644740ca142752146dce47db861d5"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave108/health-after.json",
+        "sha256": "830102bb71010eb6129d7804f41401f942edc79fe2674e718b3d6562282ded69"
+      }
+    }
+  },
+  "rawArtifacts": {
+    "domainReport": {
+      "path": "/private/tmp/loom-native-combine-join-wave108/attempt1/artifacts/join-KEY-JOIN-INNER-LEFT-p-7f058-y-cancel-removal-and-reload/attachments/loom-verification-report-json-faad69b5f3eed0431f3e131fb145d6cf7db610c0.json",
+      "sha256": "390aac45da916661262ad5133b2cd34f1648cdc7c8584785d2255043eb96a087"
+    },
+    "playwrightResults": {
+      "path": "/private/tmp/loom-native-combine-join-wave108/attempt1/results.json",
+      "sha256": "6c1c6e83ec78f9236d16db7b7abcfc17816d21ed6ed00d2d36f9708a0cec06bb"
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-combine-join-wave108/attempt1/runner.log",
+      "sha256": "b79dd536ff83435b4a3239cdca547cd6e8e271438f35910b7b00cf936b156eb8"
+    },
+    "errorContext": {
+      "path": "/private/tmp/loom-native-combine-join-wave108/attempt1/artifacts/join-KEY-JOIN-INNER-LEFT-p-7f058-y-cancel-removal-and-reload/error-context.md",
+      "sha256": "6dd60f40b850df5fa649f2bcf5f49c493881fcbfdd12caf1afa3bac31879a885"
+    },
+    "strictIntegrityClosure": {
+      "path": "/private/tmp/loom-native-combine-join-wave108/closure.json",
+      "sha256": "982454504836072e78f7bd8e67cc0d567ae4fe930daac891e0c1771651da404e"
+    },
+    "apiErrorLog": {
+      "path": "/private/tmp/loom-native-combine-join-wave108/api-error-983b201f-a296-4d3b-81eb-98038fdde731.sanitized.log",
+      "sha256": "b0771f822c6fd821d794b0aa7db18488f922e9d11c7da9b1159834a8ff65cf8c",
+      "requestId": "983b201f-a296-4d3b-81eb-98038fdde731",
+      "operation": "getExplorerConstructionInputs",
+      "status": 503,
+      "cause": "immutable source presentation does not match published revision"
+    },
+    "repairCandidatePatch": {
+      "path": "/private/tmp/loom-combine-active-status-stage-20261006/handoff.patch",
+      "sha256": "2f5021b890aad2e6667687b93ddcfd9dd9b7c39ad14f18c00b289ee4549a6d78",
+      "status": "staged; verification pending epoch109"
+    }
+  }
+}

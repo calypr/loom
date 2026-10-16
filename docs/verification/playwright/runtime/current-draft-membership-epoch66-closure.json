@@ -1,0 +1,144 @@
+{
+  "epoch": 66,
+  "status": "CLOSED_WITH_CASE_PASS",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "beforeSha256": "b2ac66dec27775ab525776c55ab242701693216f0f5390742c8b16292a21a25d",
+      "afterSha256": "b2ac66dec27775ab525776c55ab242701693216f0f5390742c8b16292a21a25d",
+      "files": 1503,
+      "changedPaths": []
+    },
+    "docs": {
+      "beforeSha256": "d463e1c303527ecc9140c567e084e465e80f0f2ffceda9a15da5afa6c65afbe3",
+      "afterSha256": "d463e1c303527ecc9140c567e084e465e80f0f2ffceda9a15da5afa6c65afbe3",
+      "files": 161,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "beforeStatus": "PASS",
+      "afterStatus": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "beforeStatus": "PASS",
+      "beforeSamples": 3,
+      "afterStatus": "PASS",
+      "afterSamples": 3,
+      "allApiUiHealthy": true
+    },
+    "handles": {
+      "apiBuildPrecheck": {
+        "session": 13446,
+        "exitCode": 0,
+        "artifact": "/private/tmp/loom-native-parallel-wave66/api-build-precheck-attempt1.json",
+        "fresh": true
+      },
+      "beforeCapture": {
+        "session": 2878,
+        "exitCode": 0
+      },
+      "beforeHealth": {
+        "session": 18951,
+        "exitCode": 0
+      },
+      "browser": {
+        "session": 68662,
+        "exitCode": 0
+      },
+      "afterCapture": {
+        "session": 73425,
+        "exitCode": 0
+      },
+      "afterHealth": {
+        "session": 53141,
+        "exitCode": 0
+      }
+    }
+  },
+  "case": {
+    "owner": "membership_native_lifecycle",
+    "scenario": "builder-combine-draft/membership",
+    "title": "current-draft MEMBERSHIP supports INCLUDE, EXCLUDE edit, removal, restoration, and reload",
+    "runnerStatus": "passed",
+    "runnerExpected": 1,
+    "runnerUnexpected": 0,
+    "playwrightTestDurationMs": 11665,
+    "runnerProcessDurationMs": 16160.230000000001,
+    "reportStatus": "passed",
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "passed",
+      "performance": "passed"
+    },
+    "requiredChecks": {
+      "passed": 50,
+      "total": 50,
+      "missing": []
+    },
+    "assertions": {
+      "passed": 86,
+      "failed": 0
+    },
+    "nativeActions": {
+      "passed": 21,
+      "failed": 0,
+      "maxElapsedMs": 587
+    },
+    "workflowTimings": {
+      "measuredSteps": 20,
+      "maxStepMs": 587
+    },
+    "networkErrors": 0,
+    "runtimeErrors": 0,
+    "incidentalAssetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ],
+    "freshFixtureProject": "loom_dev_verify_muw9wqty-312c32a",
+    "explorer": "verify-ty-312c32a-draft-combine-membership",
+    "reportPath": "/private/tmp/loom-native-parallel-wave66/basic-membership/attempt1/artifacts/draft-combine-Builder-Comb-74e97-oval-restoration-and-reload/attachments/loom-verification-report-json-f71c8733c491aed7988260eeb398352a2c8c1fd4.json",
+    "reportSha256": "d71104240602b13a4ad03646bd8f28665b316f5f3c2969f69747cf8031b9e42c",
+    "playwrightResultsPath": "/private/tmp/loom-native-parallel-wave66/basic-membership/attempt1/results.json",
+    "playwrightResultsSha256": "095d3a6343b0aba4286c098a8cd302f7cf34d77eb6a27076d9d8f62c9f5581c3",
+    "noRetry": true,
+    "functionalScope": "The basic native Membership case passed exact capability metadata and binding, INCLUDE preview/apply/reload, saved Membership edit to EXCLUDE, exact output values after reload, removal/restoration, and reload. The accepted current-draft inputs and output remained scoped; no Publish or pinned revision reference."
+  },
+  "artifacts": {
+    "runPlan": "/private/tmp/loom-native-parallel-wave66/run-plan.json",
+    "browserEnvironment": "/private/tmp/loom-native-parallel-wave66/browser-environment.sh",
+    "captureEnvironment": "/private/tmp/loom-native-parallel-wave66/capture-environment.sh",
+    "precheck": "/private/tmp/loom-native-parallel-wave66/api-build-precheck-attempt1.json",
+    "sourceBefore": "/private/tmp/loom-native-parallel-wave66/source-before.json",
+    "sourceAfter": "/private/tmp/loom-native-parallel-wave66/source-after.json",
+    "docsBefore": "/private/tmp/loom-native-parallel-wave66/docs-before.json",
+    "docsAfter": "/private/tmp/loom-native-parallel-wave66/docs-after.json",
+    "apiBefore": "/private/tmp/loom-native-parallel-wave66/api-identity-before.json",
+    "apiAfter": "/private/tmp/loom-native-parallel-wave66/api-identity-after.json",
+    "mountsBefore": "/private/tmp/loom-native-parallel-wave66/owned-mounts-before.json",
+    "mountsAfter": "/private/tmp/loom-native-parallel-wave66/owned-mounts-after.json",
+    "healthBefore": "/private/tmp/loom-native-parallel-wave66/health-before.json",
+    "healthAfter": "/private/tmp/loom-native-parallel-wave66/health-after.json"
+  }
+}

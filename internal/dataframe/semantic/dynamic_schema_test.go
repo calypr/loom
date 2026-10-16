@@ -17,10 +17,19 @@ func TestFreezeIsBoundedDeterministicAndTyped(t *testing.T) {
 }
 
 func TestFreezeRejectsSanitizedCollisionAndLimit(t *testing.T) {
-	if _, err := Freeze(DynamicSpec{Name: "x"}, []Candidate{{Key: "a-b", ValueType: "string"}, {Key: "a_b", ValueType: "string"}}); err == nil {
+	if _, err := Freeze(DynamicSpec{Name: "x", MaxColumns: 4}, []Candidate{{Key: "a-b", ValueType: "string"}, {Key: "a_b", ValueType: "string"}}); err == nil {
 		t.Fatal("expected collision")
 	}
 	if _, err := Freeze(DynamicSpec{Name: "x", MaxColumns: 1}, []Candidate{{Key: "a", ValueType: "string"}, {Key: "b", ValueType: "string"}}); err == nil {
 		t.Fatal("expected limit")
+	}
+}
+
+func TestFreezeRequiresBoundForDiscoveredKeys(t *testing.T) {
+	if _, err := Freeze(DynamicSpec{Name: "x"}, []Candidate{{Key: "a", ValueType: "string"}}); err == nil {
+		t.Fatal("expected positive bound for discovered keys")
+	}
+	if _, err := Freeze(DynamicSpec{Name: "x", AllowedKeys: []string{"a"}}, []Candidate{{Key: "a", ValueType: "string"}}); err != nil {
+		t.Fatalf("finite allowed keys should not require max: %v", err)
 	}
 }

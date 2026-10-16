@@ -1,0 +1,2 @@
+{"resourceType":"Observation","id":"scope-001-auth-observation-allowed","status":"final","code":{"text":"SCOPE-001 restricted authorization witness"},"subject":{"reference":"Patient/scope-001-auth-patient-allowed"},"valueQuantity":{"value":111,"unit":"unit"}}
+{"resourceType":"Observation","id":"scope-001-auth-observation-blocked","status":"final","code":{"text":"SCOPE-001 restricted authorization witness"},"subject":{"reference":"Patient/scope-001-auth-patient-allowed"},"valueQuantity":{"value":999,"unit":"unit"}}

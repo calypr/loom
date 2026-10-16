@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/unit"
 )
 
 // CompiledRecipe is orchestration metadata around one canonical physical plan
@@ -23,29 +24,75 @@ import (
 // identity and bounded dynamic projections have been appended. Semantic
 // metadata is used only to enrich those already-finalized projections with
 // logical type/cardinality information.
-func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynamicMetadata []DynamicColumnMetadata) ([]CompiledOutputColumn, error) {
+func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynamicMetadata []DynamicColumnMetadata, derivedTypes map[string]derivedColumnMetadata) ([]CompiledOutputColumn, error) {
+	if output.GroupRows != nil {
+		columns := []CompiledOutputColumn{
+			{ID: "group_revision_id", Name: "group_revision_id", Label: "Group revision ID", SemanticPath: "groups.revision_id", Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Nullable: false, Internal: true, Identity: true},
+			{ID: "group_id", Name: "group_id", Label: "Group ID", SemanticPath: "groups.group_id", Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Nullable: false, Identity: true},
+			{ID: "group_label", Name: "group_label", Label: "Group label", SemanticPath: "groups.label", Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Nullable: false},
+			{ID: "group_ordinal", Name: "group_ordinal", Label: "Group ordinal", SemanticPath: "groups.ordinal", Kind: string(expression.KindInteger), Cardinality: string(expression.RequiredOne), Nullable: false},
+			{ID: "members", Name: "members", Label: "Group members", SemanticPath: "groups.members", Kind: string(expression.KindObject), Cardinality: string(expression.Many), Nullable: false},
+			{ID: "__loom_row_id", Name: "__loom_row_id", Label: "Group row identity", SemanticPath: "groups.identity", Kind: string(expression.KindObject), Cardinality: string(expression.RequiredOne), Nullable: false, Internal: true, Identity: true},
+		}
+		byID := make(map[string]semantic.SemanticField, len(output.Root.Fields))
+		for _, field := range output.Root.Fields {
+			byID[field.ColumnID] = field
+		}
+		seen := map[string]bool{"group_revision_id": true, "group_id": true, "group_label": true, "group_ordinal": true, "members": true, "__loom_row_id": true}
+		for _, selected := range output.GroupRows.RowValues {
+			field, ok := byID[selected.ColumnID]
+			if !ok {
+				return nil, fmt.Errorf("group row value column ID %q is missing from the root projection", selected.ColumnID)
+			}
+			if field.Expr.Expression.Selector == nil || field.Expr.Expression.Selector.Context != "" && field.Expr.Expression.Selector.Context != "root" || len(field.Fallbacks) != 0 {
+				return nil, fmt.Errorf("group row value column %q is not a direct root FHIR selector", selected.ColumnID)
+			}
+			if seen[field.Name] {
+				return nil, fmt.Errorf("group row value output %q collides with an existing group column", field.Name)
+			}
+			seen[field.Name] = true
+			cardinality := field.Expr.Type.Cardinality
+			nullable := cardinality.Optional()
+			if selected.Policy == recipe.ConstructionRowValueAll {
+				cardinality, nullable = expression.Many, false
+			} else {
+				cardinality, nullable = expression.OptionalOne, true
+			}
+			columns = append(columns, CompiledOutputColumn{
+				ID: field.ColumnID, Name: field.Name, Label: constructionFirstNonEmpty(field.Label, field.Name),
+				SemanticPath: recipeSemanticPath(output.RootResourceType, output.Root.ResourceType, field.FieldRef, field.Expr.Expression),
+				Kind:         string(field.Expr.Type.Kind), Cardinality: string(cardinality), Nullable: nullable,
+			})
+		}
+		return columns, nil
+	}
 	logical := make(map[string]CompiledOutputColumn)
+	fieldMetadata := make(map[string]struct{ id, label string })
 	for _, dynamic := range dynamicMetadata {
 		kind := dynamic.ValueType
 		if kind == "" || kind == "unknown" {
 			kind = string(expression.KindString)
 		}
-		logical[dynamic.Name] = CompiledOutputColumn{Name: dynamic.Name, SemanticPath: dynamic.SemanticPath, Kind: kind, Cardinality: string(expression.OptionalOne), Nullable: true, Discovered: dynamic.Discovered}
+		cardinality, nullable := string(expression.OptionalOne), true
+		if dynamic.Many {
+			cardinality, nullable = string(expression.Many), false
+		}
+		logical[dynamic.Name] = CompiledOutputColumn{Name: dynamic.Name, SemanticPath: dynamic.SemanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, Discovered: dynamic.Discovered}
 	}
-	addLogical := func(name, semanticPath, kind, cardinality string, nullable, discovered bool) {
+	addLogical := func(name, semanticPath, kind, cardinality string, nullable, discovered bool, normalizedUnit *unit.UnitIdentity) {
 		if strings.TrimSpace(name) == "" {
 			return
 		}
 		if existing, exists := logical[name]; exists {
 			// Explicit declarations win collisions under overwrite policies.
 			if existing.Discovered && !discovered {
-				logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, Discovered: false}
+				logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, NormalizedUnit: cloneUnitIdentity(normalizedUnit), Discovered: false}
 			}
 			return
 		}
-		logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, Discovered: discovered}
+		logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, NormalizedUnit: cloneUnitIdentity(normalizedUnit), Discovered: discovered}
 	}
-	addType := func(name, semanticPath string, typ expression.Type, discovered bool) {
+	addType := func(name, semanticPath string, typ expression.Type, discovered bool, normalizedUnit *unit.UnitIdentity) {
 		kind := string(typ.Kind)
 		if kind == "" {
 			kind = string(expression.KindString)
@@ -54,13 +101,14 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 		if cardinality == "" {
 			cardinality = string(expression.RequiredOne)
 		}
-		addLogical(name, semanticPath, kind, cardinality, typ.Cardinality.Optional(), discovered)
+		addLogical(name, semanticPath, kind, cardinality, typ.Cardinality.Optional(), discovered, normalizedUnit)
 	}
 	var addNode func(semantic.SemanticNode, string)
 	addNode = func(node semantic.SemanticNode, prefix string) {
 		for _, field := range node.Fields {
 			name := prefix + field.Name
-			addType(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, field.FieldRef, field.Expr.Expression), field.Expr.Type, field.Discovered)
+			addType(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, field.FieldRef, field.Expr.Expression), field.Expr.Type, field.Discovered, nil)
+			fieldMetadata[name] = struct{ id, label string }{field.ColumnID, field.Label}
 		}
 		for _, aggregate := range node.Aggregates {
 			name := aggregate.Name
@@ -77,32 +125,51 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 			if aggregate.Operation == string(recipe.AggregateDistinctValues) {
 				cardinality = expression.Many
 			}
-			if aggregate.Operation == string(recipe.AggregateMin) || aggregate.Operation == string(recipe.AggregateMax) {
+			if aggregate.Operation == string(recipe.AggregateMin) || aggregate.Operation == string(recipe.AggregateMax) || aggregate.Operation == string(recipe.AggregateSum) || aggregate.Operation == string(recipe.AggregateMean) {
 				cardinality = expression.OptionalOne
 			}
-			addLogical(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, aggregate.FieldRef, expression.Expression{}), string(kind), string(cardinality), true, false)
+			var normalizedUnit *unit.UnitIdentity
+			if aggregate.UnitNormalization != nil {
+				target := aggregate.UnitNormalization.Target
+				normalizedUnit = &target
+			}
+			addLogical(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, aggregate.FieldRef, expression.Expression{}), string(kind), string(cardinality), true, false, normalizedUnit)
 		}
 		for _, pivot := range node.Pivots {
 			kind := pivot.ValueKind
 			if kind == "" {
 				kind = expression.KindString
 			}
-			for _, column := range pivot.Columns {
-				addLogical(prefix+pivot.Name+"__"+sanitizeColumnName(column), recipeSemanticPath(output.RootResourceType, node.ResourceType, pivot.FieldRef, expression.Expression{})+"["+column+"]", string(kind), string(expression.RequiredOne), true, pivot.Discovered)
+			cardinality := expression.RequiredOne
+			switch strings.ToUpper(strings.TrimSpace(pivot.ProjectionMode)) {
+			case "ALL", "DISTINCT":
+				cardinality = expression.Many
 			}
+			for _, column := range pivot.Columns {
+				name := prefix + pivot.Name + "__" + sanitizeColumnName(column)
+				if alias, ok := pivot.ColumnAliases[column]; ok {
+					name = prefix + alias
+				}
+				addLogical(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, pivot.FieldRef, expression.Expression{})+"["+column+"]", string(kind), string(cardinality), true, pivot.Discovered, nil)
+			}
+		}
+		for _, ownerRecords := range node.OwnerRecords {
+			addLogical(prefix+ownerRecords.Name, recipeSemanticPath(output.RootResourceType, node.ResourceType, ownerRecords.FieldRef, expression.Expression{}), string(expression.KindObject), string(expression.Many), true, false, nil)
 		}
 		for _, slice := range node.Slices {
-			addLogical(prefix+slice.Name, recipeSemanticPath(output.RootResourceType, node.ResourceType, "", expression.Expression{})+"."+slice.Name, string(expression.KindObject), string(expression.RequiredOne), true, false)
+			addLogical(prefix+slice.Name, recipeSemanticPath(output.RootResourceType, node.ResourceType, "", expression.Expression{})+"."+slice.Name, string(expression.KindObject), string(expression.RequiredOne), true, false, nil)
 		}
 		for _, child := range node.Children {
-			childPrefix := child.Alias
-			if output.TraversalColumnNaming != recipe.TraversalColumnNamingAlias && prefix != "" {
-				childPrefix = strings.TrimSuffix(prefix, "__") + "__" + child.Alias
-			}
-			addNode(child, childPrefix+"__")
+			childPrefix := traversalColumnPrefix(output.TraversalColumnNaming, prefix, child.Alias)
+			addNode(child, traversalColumnNamePrefix(childPrefix))
 		}
 	}
 	addNode(output.Root, "")
+	for _, derived := range output.DerivedColumns {
+		if typ, ok := derivedTypes[derived.Name]; ok {
+			addType(derived.Name, "derived:"+derived.ConstructionID, typ.Type, false, typ.NormalizedUnit)
+		}
+	}
 
 	for _, operation := range plan.Operations {
 		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
@@ -115,17 +182,24 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 				column = CompiledOutputColumn{Name: projection.Name, SemanticPath: "recipe:" + output.Name + "/" + projection.Name, Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Nullable: true}
 			}
 			if projection.Expression != nil {
-				if column.Cardinality == string(expression.RequiredOne) && projection.Expression.Cardinality == ir.PhysicalArrayCardinality {
+				if projection.Expression.Cardinality == ir.PhysicalArrayCardinality && column.Cardinality != string(expression.Many) {
 					column.Cardinality = string(expression.Many)
 					column.Nullable = true
 				}
-				if projection.Expression.Kind == ir.PhysicalPivotExpression || projection.Expression.Kind == ir.PhysicalObjectExpression {
+				if projection.Expression.Kind == ir.PhysicalPivotExpression || projection.Expression.Kind == ir.PhysicalOwnerRecordsExpression || projection.Expression.Kind == ir.PhysicalObjectExpression {
 					column.Kind = string(expression.KindObject)
 				}
 			}
 			column.Name = projection.Name
+			if field, ok := fieldMetadata[projection.Name]; ok {
+				column.ID = field.id
+				column.Label = field.label
+			}
+			if column.Label == "" {
+				column.Label = column.Name
+			}
 			column.Internal = projection.Hidden || projection.Name == "_key" || strings.HasPrefix(projection.Name, "__loom_")
-			column.Identity = projection.Name == "_key" || projection.Name == "__loom_row_id"
+			column.Identity = projection.Name == "_key" || projection.Name == "__loom_row_id" || projection.Name == "__loom_expansion_identity"
 			result = append(result, column)
 		}
 		semanticCounts := make(map[string]int, len(result))

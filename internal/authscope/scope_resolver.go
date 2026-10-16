@@ -106,9 +106,6 @@ func NewScopeResolver(cfg ScopeResolverConfig) *ScopeResolver {
 	if cfg.CacheTTL <= 0 {
 		cfg.CacheTTL = 30 * time.Second
 	}
-	if cfg.ResourceAccess == nil {
-		cfg.ResourceAccess = NewFenceUserAccessClient(nil)
-	}
 	return &ScopeResolver{
 		resourceAccess: cfg.ResourceAccess,
 		listExisting:   cfg.ListExistingAuthResourcePaths,
@@ -281,7 +278,10 @@ func (r *ScopeResolver) resolveCallerPaths(ctx context.Context, principal *Princ
 		}
 		return nil, false, nil
 	}
-	if auth := strings.TrimSpace(principal.AuthorizationHeader); auth != "" && r.resourceAccess != nil {
+	if auth := strings.TrimSpace(principal.AuthorizationHeader); auth != "" {
+		if r.resourceAccess == nil {
+			return nil, true, fmt.Errorf("%w: Fence resource access client is not configured", ErrAuthorizationBackendUnavailable)
+		}
 		resources, err := r.resourceAccess.GetAllowedResources(ctx, auth, string(method), service)
 		if err != nil {
 			return nil, true, err
@@ -298,7 +298,7 @@ func (r *ScopeResolver) resolveCallerPaths(ctx context.Context, principal *Princ
 }
 
 func (r *ScopeResolver) listExistingPaths(ctx context.Context, project, datasetGeneration string) ([]string, error) {
-	project = strings.TrimSpace(project)
+	project = projectid.Canonical(project)
 	datasetGeneration = catalog.NormalizeDatasetGeneration(datasetGeneration)
 	if project == "" {
 		return []string{}, nil
@@ -315,7 +315,7 @@ func (r *ScopeResolver) listExistingPaths(ctx context.Context, project, datasetG
 		return nil, ErrAuthorizationBackendUnavailable
 	}
 	paths, err := r.listExisting(ctx, catalog.AuthResourcePathOptions{
-		Project:           project,
+		Project:           projectid.Legacy(project),
 		DatasetGeneration: datasetGeneration,
 	})
 	if err != nil {
@@ -332,7 +332,7 @@ func (r *ScopeResolver) listExistingPaths(ctx context.Context, project, datasetG
 }
 
 func (r *ScopeResolver) InvalidateProject(project string) {
-	project = strings.TrimSpace(project)
+	project = projectid.Canonical(project)
 	if project == "" {
 		r.mu.Lock()
 		r.cache = make(map[scopeCacheKey]cachedPaths)
@@ -353,7 +353,7 @@ func (r *ScopeResolver) InvalidateProject(project string) {
 // the active scope cache for every other immutable generation in the project.
 func (r *ScopeResolver) InvalidateGeneration(project, datasetGeneration string) {
 	key := scopeCacheKey{
-		project:           strings.TrimSpace(project),
+		project:           projectid.Canonical(project),
 		datasetGeneration: catalog.NormalizeDatasetGeneration(datasetGeneration),
 	}
 	if key.project == "" {

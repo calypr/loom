@@ -12,16 +12,55 @@ api_host=${LOOM_DEMO_API_HOST:-127.0.0.1}
 api_port=${LOOM_DEMO_API_PORT:-8080}
 ui_host=${LOOM_DEMO_UI_HOST:-127.0.0.1}
 ui_port=${LOOM_DEMO_UI_PORT:-3080}
+run_id=${LOOM_DEMO_RUN_ID:-d000000000000001}
+source_root=${LOOM_DEMO_SOURCE_ROOT:-$repo_root}
+if [[ "$source_root" != /* ]]; then source_root="$repo_root/$source_root"; fi
+api_build_context=${LOOM_API_BUILD_CONTEXT:-$source_root}
+ui_build_context=${LOOM_UI_BUILD_CONTEXT:-$source_root/ui}
+api_image=${LOOM_API_IMAGE:-loom-demo-api:local}
+ui_image=${LOOM_UI_IMAGE:-loom-demo-ui:local}
+seed=${LOOM_DEMO_SEED:-true}
+population_cursor_secret=${LOOM_POPULATION_MAPPING_CURSOR_SECRET:-}
+if [[ -z "$population_cursor_secret" ]]; then
+  population_cursor_secret=$(printf 'loom-demo-population-mapping-cursor\0%s\0%s' "$source_root" "$run_id" | shasum -a 256 | awk '{print $1}')
+fi
 
 [[ $compose_project =~ ^[a-z0-9][a-z0-9_-]*$ ]] || { echo "invalid LOOM_DEMO_COMPOSE_PROJECT: $compose_project" >&2; exit 2; }
 [[ $api_port =~ ^[0-9]+$ ]] && ((api_port >= 1 && api_port <= 65535)) || { echo "invalid LOOM_DEMO_API_PORT: $api_port" >&2; exit 2; }
 [[ $ui_port =~ ^[0-9]+$ ]] && ((ui_port >= 1 && ui_port <= 65535)) || { echo "invalid LOOM_DEMO_UI_PORT: $ui_port" >&2; exit 2; }
+[[ $run_id =~ ^[a-f0-9]{16}$ ]] || { echo "invalid LOOM_DEMO_RUN_ID: $run_id" >&2; exit 2; }
+[[ -d "$api_build_context" ]] || { echo "API build context does not exist: $api_build_context" >&2; exit 2; }
+[[ -f "$api_build_context/Dockerfile" ]] || { echo "API build context has no Dockerfile: $api_build_context" >&2; exit 2; }
+[[ -d "$ui_build_context" ]] || { echo "UI build context does not exist: $ui_build_context" >&2; exit 2; }
+[[ -f "$ui_build_context/apps/demo/Dockerfile" ]] || { echo "UI build context has no apps/demo/Dockerfile: $ui_build_context" >&2; exit 2; }
+case "$seed" in true|false) ;; *) echo "invalid LOOM_DEMO_SEED: $seed" >&2; exit 2 ;; esac
+
+# Acceptance scripts prewarm an explicit host cache. Go's MkdirTemp creates
+# content-addressed cache roots as 0700, and the bind mount masks the image's
+# arango-fhir ownership. Grant the container's matching supplementary group
+# read/traverse access only; keep the application process non-root.
+fixture_cache_dir=${LOOM_DEMO_FIXTURE_CACHE_DIR:-}
+if [[ -n "$fixture_cache_dir" ]]; then
+  [[ -d "$fixture_cache_dir" ]] || { echo "fixture cache directory does not exist: $fixture_cache_dir" >&2; exit 2; }
+  fixture_cache_dir=$(cd "$fixture_cache_dir" && pwd)
+  fixture_cache_gid=$(id -g)
+  chgrp -R "$fixture_cache_gid" "$fixture_cache_dir"
+  chmod -R g+rX "$fixture_cache_dir"
+  export LOOM_DEMO_FIXTURE_CACHE_DIR="$fixture_cache_dir"
+  export LOOM_DEMO_FIXTURE_CACHE_GID="$fixture_cache_gid"
+fi
 
 export LOOM_COMPOSE_PROJECT_NAME=$compose_project
 export LOOM_API_HOST=$api_host
 export LOOM_API_PORT=$api_port
 export LOOM_UI_HOST=$ui_host
 export LOOM_UI_PORT=$ui_port
+export LOOM_DEMO_RUN_ID=$run_id
+export LOOM_POPULATION_MAPPING_CURSOR_SECRET=$population_cursor_secret
+export LOOM_API_BUILD_CONTEXT=$api_build_context
+export LOOM_UI_BUILD_CONTEXT=$ui_build_context
+export LOOM_API_IMAGE=$api_image
+export LOOM_UI_IMAGE=$ui_image
 
 api_url_host=$api_host
 ui_url_host=$ui_host
@@ -41,7 +80,9 @@ for _ in $(seq 1 180); do
 done
 curl -fsS "$api_url/readyz" >/dev/null
 
-"${compose[@]}" run --rm --no-deps demo-seed
+if [[ "$seed" == true ]]; then
+  "${compose[@]}" run --rm --no-deps demo-seed
+fi
 "${compose[@]}" up --build -d loom-ui
 
 for _ in $(seq 1 120); do

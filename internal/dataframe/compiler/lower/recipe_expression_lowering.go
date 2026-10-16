@@ -11,6 +11,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/spec"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -18,12 +19,62 @@ import (
 // plan boundary, where the traversal walk has established the physical value
 // for every lexical alias. Selector-bearing fields deliberately delegate to
 // the existing selector lowerer so projection modes, fallbacks, and prepared
-// selector behavior remain unchanged.
+// selector behavior remain unchanged. Owner-relative siblings of a nested row
+// expansion bind through the exact captured repeated ancestor.
 func recipeFieldProjectionLowerer(output semantic.OutputPlan) semanticFieldProjectionLowerer {
 	contexts := recipeExpressionContexts(output)
 	return func(physical *ir.PhysicalPlan, node semantic.SemanticNode, index int, field semantic.SemanticField, source ir.PhysicalValue, bindings map[string]physicalSemanticBinding) (ir.PhysicalProjection, error) {
 		if field.Expr.Expression.Selector != nil {
-			return lowerSemanticFieldProjection(physical, node, index, field, source, bindings, nil)
+			selector := field.Expr.Expression.Selector
+			context := strings.TrimSpace(selector.Context)
+			if context == "" {
+				context = "root"
+			}
+			if expansion := recipeRowExpansion(output); expansion != nil && context == expansion.ItemBinding {
+				binding, ok := bindings[context]
+				if !ok {
+					return ir.PhysicalProjection{}, fmt.Errorf("field %q expansion item context %q is not in physical scope", field.Name, context)
+				}
+				itemNode := semantic.SemanticNode{Alias: context, ResourceType: binding.ResourceType}
+				projection, err := lowerSemanticFieldProjection(physical, itemNode, index, field, binding.Source, bindings, nil)
+				if err != nil {
+					return ir.PhysicalProjection{}, err
+				}
+				if err := bindRecipeFallbackSelectors(output, itemNode, field, binding.Source, bindings, contexts, projection.Expression); err != nil {
+					return ir.PhysicalProjection{}, err
+				}
+				return projection, nil
+			}
+			if output.RowExpansion != nil {
+				if ancestor, relative, resourceType, ok := recipeExpandedAncestorProjection(output.RowExpansion, context, selector.Path); ok {
+					projection, err := lowerSemanticFieldProjection(physical, node, index, field, source, bindings, nil)
+					if err != nil {
+						return ir.PhysicalProjection{}, err
+					}
+					if projection.Expression == nil || projection.Expression.Extract == nil {
+						return ir.PhysicalProjection{}, fmt.Errorf("field %q ancestor selector did not lower to an extract", field.Name)
+					}
+					extract := projection.Expression.Extract
+					extract.Source = ir.PhysicalValue{Variable: ancestor.Variable}
+					extract.ResourceType = resourceType
+					extract.Selector = relative
+					if len(extract.Fallbacks) == 0 {
+						extract.ExecutionMode = selectorExecutionModeForExpression(resourceType, relative, nil)
+					}
+					if err := bindRecipeFallbackSelectors(output, node, field, source, bindings, contexts, projection.Expression); err != nil {
+						return ir.PhysicalProjection{}, err
+					}
+					return projection, nil
+				}
+			}
+			projection, err := lowerSemanticFieldProjection(physical, node, index, field, source, bindings, nil)
+			if err != nil {
+				return ir.PhysicalProjection{}, err
+			}
+			if err := bindRecipeFallbackSelectors(output, node, field, source, bindings, contexts, projection.Expression); err != nil {
+				return ir.PhysicalProjection{}, err
+			}
+			return projection, nil
 		}
 		lowered, err := lowerRecipeExpressionScoped(field.Expr.Expression, physical.BindVars, output.RootResourceType, contexts)
 		if err != nil {
@@ -34,6 +85,165 @@ func recipeFieldProjectionLowerer(output semantic.OutputPlan) semanticFieldProje
 		}
 		return ir.PhysicalProjection{Name: field.Name, Expression: &lowered}, nil
 	}
+}
+
+func bindRecipeFallbackSelectors(
+	output semantic.OutputPlan,
+	node semantic.SemanticNode,
+	field semantic.SemanticField,
+	nodeSource ir.PhysicalValue,
+	bindings map[string]physicalSemanticBinding,
+	contexts map[string]string,
+	expression *ir.PhysicalExpression,
+) error {
+	if expression == nil || expression.Extract == nil {
+		return nil
+	}
+	extract := expression.Extract
+	if len(extract.Fallbacks) != len(field.Fallbacks) {
+		return fmt.Errorf("field %q lowered %d fallbacks for %d semantic alternatives", field.Name, len(extract.Fallbacks), len(field.Fallbacks))
+	}
+	for index, semanticFallback := range field.Fallbacks {
+		selectorExpression := semanticFallback.Expression.Selector
+		if selectorExpression == nil {
+			return fmt.Errorf("field %q fallback %d is not a selector", field.Name, index)
+		}
+		selector, err := spec.ParseSelector(selectorExpression.Path)
+		if err != nil {
+			return fmt.Errorf("field %q fallback %d selector: %w", field.Name, index, err)
+		}
+		context := strings.TrimSpace(semanticFallback.Context)
+		if context == "" {
+			context = strings.TrimSpace(selectorExpression.Context)
+		}
+		if context == "" {
+			context = "root"
+		}
+		resourceType, ok := contexts[context]
+		if !ok {
+			return fmt.Errorf("field %q fallback %d context %q is not in physical scope", field.Name, index, context)
+		}
+		fallbackSource := nodeSource
+		if context != node.Alias {
+			binding, exists := bindings[context]
+			if !exists {
+				return fmt.Errorf("field %q fallback %d context %q is not in physical scope", field.Name, index, context)
+			}
+			fallbackSource = binding.Source
+		}
+		if output.RowExpansion != nil {
+			if binding, relative, ok := recipeExpandedItemSelector(output.RowExpansion, context, selector, bindings); ok {
+				fallbackSource = binding.Source
+				resourceType = binding.ResourceType
+				selector = relative
+			} else if ancestor, relative, ancestorResourceType, ok := recipeExpandedAncestorSelector(output.RowExpansion, context, selector); ok {
+				fallbackSource = ir.PhysicalValue{Variable: ancestor.Variable}
+				resourceType = ancestorResourceType
+				selector = relative
+			}
+		}
+		extract.Fallbacks[index] = ir.PhysicalSelectorFallback{
+			Source: fallbackSource, ResourceType: resourceType, Selector: selector,
+		}
+	}
+	if len(extract.Fallbacks) != 0 {
+		extract.ExecutionMode = ir.PhysicalSelectorGeneric
+	}
+	return nil
+}
+
+func recipeExpandedItemSelector(
+	expansion *semantic.SemanticRowExpansion,
+	context string,
+	selector spec.Selector,
+	bindings map[string]physicalSemanticBinding,
+) (physicalSemanticBinding, spec.Selector, bool) {
+	if expansion == nil || context != expansion.Owner.Alias || expansion.Source.Expression.Selector == nil {
+		return physicalSemanticBinding{}, spec.Selector{}, false
+	}
+	expansionSelector, err := spec.ParseSelector(expansion.Source.Expression.Selector.Path)
+	if err != nil {
+		return physicalSemanticBinding{}, spec.Selector{}, false
+	}
+	expansionPath := expansionSelector.CanonicalPath()
+	selectorPath := selector.CanonicalPath()
+	prefix := expansionPath + "."
+	if !strings.HasPrefix(selectorPath, prefix) {
+		return physicalSemanticBinding{}, spec.Selector{}, false
+	}
+	binding, ok := bindings[expansion.ItemBinding]
+	if !ok {
+		return physicalSemanticBinding{}, spec.Selector{}, false
+	}
+	relative, err := spec.ParseSelector(strings.TrimPrefix(selectorPath, prefix))
+	if err != nil {
+		return physicalSemanticBinding{}, spec.Selector{}, false
+	}
+	return binding, relative, true
+}
+
+func recipeExpandedAncestorProjection(expansion *semantic.SemanticRowExpansion, context, fieldPath string) (ir.PhysicalUnnestAncestor, spec.Selector, string, bool) {
+	projectionSelector, err := spec.ParseSelector(fieldPath)
+	if err != nil {
+		return ir.PhysicalUnnestAncestor{}, spec.Selector{}, "", false
+	}
+	return recipeExpandedAncestorSelector(expansion, context, projectionSelector)
+}
+
+// recipeExpandedAncestorSelector finds the nearest repeated item shared by an
+// expanded source and an owner-relative sibling selector, then returns the
+// sibling suffix relative to that captured item.
+func recipeExpandedAncestorSelector(expansion *semantic.SemanticRowExpansion, context string, projectionSelector spec.Selector) (ir.PhysicalUnnestAncestor, spec.Selector, string, bool) {
+	if expansion == nil || context != expansion.Owner.Alias || expansion.Source.Expression.Selector == nil {
+		return ir.PhysicalUnnestAncestor{}, spec.Selector{}, "", false
+	}
+	expansionSelector, err := spec.ParseSelector(expansion.Source.Expression.Selector.Path)
+	if err != nil || len(expansionSelector.Steps) < 2 {
+		return ir.PhysicalUnnestAncestor{}, spec.Selector{}, "", false
+	}
+	projectionPath := projectionSelector.CanonicalPath()
+	expansionPath := expansionSelector.CanonicalPath()
+	if projectionPath == expansionPath || strings.HasPrefix(projectionPath, expansionPath+".") {
+		return ir.PhysicalUnnestAncestor{}, spec.Selector{}, "", false
+	}
+	bestStepIndex := -1
+	bestAncestorOrdinal := 0
+	bestPrefixLength := 0
+	var ancestorType string
+	for stepIndex, step := range expansionSelector.Steps[:len(expansionSelector.Steps)-1] {
+		if !step.Iterate {
+			continue
+		}
+		prefix := (spec.Selector{Steps: expansionSelector.Steps[:stepIndex+1]}).CanonicalPath()
+		if !strings.HasPrefix(projectionPath, prefix+".") || len(prefix) <= bestPrefixLength {
+			continue
+		}
+		semantics, ok := fhirschema.ResolveFieldSemantics(expansion.Owner.ResourceType, prefix)
+		if !ok || semantics.Kind != fhirschema.FieldKindArray || semantics.Reference == "" {
+			continue
+		}
+		ancestorOrdinal := 0
+		for _, candidate := range expansionSelector.Steps[:stepIndex] {
+			if candidate.Iterate {
+				ancestorOrdinal++
+			}
+		}
+		bestStepIndex = stepIndex
+		bestAncestorOrdinal = ancestorOrdinal
+		bestPrefixLength = len(prefix)
+		ancestorType = semantics.Reference
+	}
+	if bestPrefixLength == 0 {
+		return ir.PhysicalUnnestAncestor{}, spec.Selector{}, "", false
+	}
+	relative := spec.Selector{
+		Steps:  append([]spec.SelectorStep(nil), projectionSelector.Steps[bestStepIndex+1:]...),
+		Filter: projectionSelector.Filter,
+	}
+	if len(relative.Steps) == 0 {
+		return ir.PhysicalUnnestAncestor{}, spec.Selector{}, "", false
+	}
+	return ir.PhysicalUnnestAncestor{StepIndex: bestStepIndex, Variable: fmt.Sprintf("__loom_expansion_ancestor_%d", bestAncestorOrdinal)}, relative, ancestorType, true
 }
 
 func recipeSetVariables(plan ir.PhysicalPlan) map[string]string {
@@ -85,8 +295,15 @@ func rewriteRecipeExpressionVariable(value *ir.PhysicalExpression, from, to stri
 	if value.Value != nil && value.Value.Variable == from {
 		value.Value.Variable = to
 	}
-	if value.Extract != nil && value.Extract.Source.Variable == from {
-		value.Extract.Source.Variable = to
+	if value.Extract != nil {
+		if value.Extract.Source.Variable == from {
+			value.Extract.Source.Variable = to
+		}
+		for index := range value.Extract.Fallbacks {
+			if value.Extract.Fallbacks[index].Source.Variable == from {
+				value.Extract.Fallbacks[index].Source.Variable = to
+			}
+		}
 	}
 	if value.Call != nil {
 		for index := range value.Call.Args {
@@ -111,10 +328,21 @@ func rewriteRecipeExpressionBinding(value *ir.PhysicalExpression, from string, s
 	if value.Value != nil && value.Value.Variable == from {
 		value.Value.Variable = source.Variable
 	}
-	if value.Extract != nil && value.Extract.Source.Variable == from {
-		value.Extract.Source.Variable = source.Variable
-		if len(source.Path) != 0 {
-			value.Extract.Source.Path = append([]string(nil), source.Path...)
+	if value.Extract != nil {
+		if value.Extract.Source.Variable == from {
+			value.Extract.Source.Variable = source.Variable
+			if len(source.Path) != 0 {
+				value.Extract.Source.Path = append([]string(nil), source.Path...)
+			}
+		}
+		for index := range value.Extract.Fallbacks {
+			fallback := &value.Extract.Fallbacks[index]
+			if fallback.Source.Variable == from {
+				fallback.Source.Variable = source.Variable
+				if len(source.Path) != 0 {
+					fallback.Source.Path = append([]string(nil), source.Path...)
+				}
+			}
 		}
 	}
 	if value.Call != nil {
@@ -139,11 +367,11 @@ func recipeExpressionContexts(output semantic.OutputPlan) map[string]string {
 		}
 	}
 	walk(output.Root)
-	if unnest := recipeUnnest(output); unnest != nil && unnest.Source.Expression.Selector != nil {
-		selector := unnest.Source.Expression.Selector
+	if expansion := recipeRowExpansion(output); expansion != nil && expansion.Source.Expression.Selector != nil {
+		selector := expansion.Source.Expression.Selector
 		path := strings.TrimSuffix(strings.TrimPrefix(selector.Path, "."), "[]")
-		if semantics, ok := fhirschema.ResolveFieldSemantics(output.RootResourceType, path+"[]"); ok && semantics.Reference != "" {
-			contexts[unnest.As] = semantics.Reference
+		if semantics, ok := fhirschema.ResolveFieldSemantics(expansion.Owner.ResourceType, path+"[]"); ok && semantics.Reference != "" {
+			contexts[expansion.ItemBinding] = semantics.Reference
 		}
 	}
 	return contexts
@@ -242,36 +470,10 @@ func appendRecipeIdentity(plan *ir.PhysicalPlan, output semantic.OutputPlan) err
 	return fmt.Errorf("canonical plan has no RETURN operation for identity")
 }
 
-func recipeUnnest(output semantic.OutputPlan) *semantic.SemanticUnnest {
-	if output.Unnest != nil {
-		copy := *output.Unnest
+func recipeRowExpansion(output semantic.OutputPlan) *semantic.SemanticRowExpansion {
+	if output.RowExpansion != nil {
+		copy := *output.RowExpansion
 		return &copy
 	}
-	return nil
-}
-
-func appendRecipeUnnest(plan *ir.PhysicalPlan, unnest semantic.SemanticUnnest, resourceType string) error {
-	if err := unnest.Validate(); err != nil {
-		return fmt.Errorf("unnest: %w", err)
-	}
-	expression, err := lowerRecipeExpressionScoped(unnest.Source.Expression, plan.BindVars, resourceType, map[string]string{"root": resourceType})
-	if err != nil {
-		return fmt.Errorf("unnest source: %w", err)
-	}
-	joinMode := ir.PhysicalUnnestJoinMode(unnest.JoinMode)
-	operation := ir.PhysicalOperation{Kind: ir.PhysicalUnnestOp, Source: ir.PhysicalSource{ResourceType: resourceType, SemanticField: "expand"}, Unnest: &ir.PhysicalUnnest{InputVariable: "root", OutputVariable: unnest.As, Ordinality: unnest.Ordinality, Expression: expression, JoinMode: joinMode}}
-	// Place the cardinality barrier immediately after root qualification and
-	// before any child set materialization.  This ensures child operations can
-	// never accidentally consume an item binding from a later scope.
-	insert := len(plan.Operations)
-	for index, current := range plan.Operations {
-		if current.Kind == ir.PhysicalTraversalOp || current.Kind == ir.PhysicalSetOp || current.Kind == ir.PhysicalReturnOp {
-			insert = index
-			break
-		}
-	}
-	plan.Operations = append(plan.Operations, ir.PhysicalOperation{})
-	copy(plan.Operations[insert+1:], plan.Operations[insert:])
-	plan.Operations[insert] = operation
 	return nil
 }

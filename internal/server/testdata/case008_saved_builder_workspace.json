@@ -1,0 +1,55 @@
+{
+  "apiVersion": "loom.calypr.org/explorer-authoring/v2",
+  "kind": "ExplorerBuilderWorkspace",
+  "semanticsVersion": 10,
+  "explorer": {
+    "title": "Verify 44-bfd8829 cohort recode"
+  },
+  "documents": [
+    {
+      "kind": "ExplorerBuilderDocument",
+      "output": {
+        "id": "out_a8daf7635002468eb86169ed",
+        "title": "Patients"
+      },
+      "rootResourceType": "Patient",
+      "route": {
+        "occurrenceId": "base",
+        "resourceType": "Patient"
+      },
+      "rows": {
+        "kind": "RECORDS",
+        "records": {}
+      },
+      "columns": [
+        {
+          "columnId": "source_b53e31250a9b50288fe78dfc",
+          "column": "col_09f81323c7d363cb25381a05",
+          "label": "Patient ID",
+          "logicalType": "string",
+          "occurrenceId": "base",
+          "source": {
+            "kind": "field",
+            "field": {
+              "path": "id",
+              "projectionMode": "VALUE"
+            }
+          },
+          "table": {
+            "visible": true,
+            "order": 0
+          }
+        }
+      ]
+    }
+  ],
+  "tabs": [
+    {
+      "id": "tab_a8daf7635002468eb86169ed",
+      "title": "Patients",
+      "outputId": "out_a8daf7635002468eb86169ed",
+      "order": 0,
+      "visible": true
+    }
+  ]
+}

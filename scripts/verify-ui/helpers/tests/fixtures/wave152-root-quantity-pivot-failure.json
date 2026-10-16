@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 2,
+  "scenario": "root-quantity-pivot",
+  "caseName": "related-text-only-full-population-lifecycle",
+  "status": "failed",
+  "target": {
+    "kind": "owned-cda",
+    "project": "owned-project",
+    "explorer": "owned-explorer",
+    "uiUrl": "http://127.0.0.1:30008"
+  },
+  "failureEvidence": {
+    "reason": "Error: page.waitForFunction: Timeout 5000ms exceeded.",
+    "action": {}
+  },
+  "actions": [
+    {
+      "id": "action-select-sum",
+      "label": "Select SUM",
+      "status": "passed",
+      "elapsedMs": 36
+    }
+  ],
+  "nativeRequests": [
+    {
+      "requestId": "wave152-category-discovery",
+      "browserRequestId": "browser-wave152-category-discovery",
+      "path": "/api/v1/projects/owned-project/explorers/owned-explorer/authoring/v2/construction-category-discoveries",
+      "origin": "http://127.0.0.1:30008",
+      "method": "POST",
+      "startedAt": "2026-10-07T12:00:00.000Z"
+    }
+  ]
+}

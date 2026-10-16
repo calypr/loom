@@ -1,0 +1,287 @@
+{
+  "version": 1,
+  "provenance": {
+    "kind": "retained raw Arango witness from epoch126",
+    "attachment": "standalone-cda-related-one-all.json",
+    "attachmentSha256": "e54858a4338ff263b7c9d107ec92ab8e38a04306b73596aa89cc778522a68dde",
+    "report": "docs/verification/playwright/runtime/cda-related-one-all-specimen-reference-epoch126-report.json",
+    "reportSha256": "ea0ea13564597ed29f0e4dc27022e92ef494579c85e0e607b4d6fa779b1d31d1",
+    "queryKind": "exact project+generation scoped fhir_edge DOCUMENT traversal"
+  },
+  "scope": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "specimen": {
+      "id": "b7cad184-db67-5542-a975-10fffa3e89e7",
+      "_id": "Specimen/g_00003b7dca775d32e82a19f3c3c1227d234ca8d3486df068194137e93b1f796b",
+      "patientReference": "Patient/afcfb15e-7617-5691-ae2c-ab675322fb33"
+    },
+    "patient": {
+      "id": "afcfb15e-7617-5691-ae2c-ab675322fb33",
+      "_id": "Patient/g_1e07dda19360e97fd8380d3a631c4eb6df35aaa9cf0494415312c0e4c06e9895",
+      "reference": "Patient/afcfb15e-7617-5691-ae2c-ab675322fb33"
+    }
+  },
+  "routes": {
+    "direct": {
+      "signature": [
+        {
+          "fromResourceType": "Specimen",
+          "toResourceType": "Observation",
+          "relationship": "specimen_Specimen",
+          "storageDirection": "INBOUND"
+        }
+      ],
+      "displayLabel": "Specimen <-[specimen]- Observation",
+      "observationIds": [
+        "35cfec85-56e8-5257-af99-2e9345be2011"
+      ]
+    },
+    "viaPatient": {
+      "signature": [
+        {
+          "fromResourceType": "Specimen",
+          "toResourceType": "Patient",
+          "relationship": "subject_Patient",
+          "storageDirection": "OUTBOUND"
+        },
+        {
+          "fromResourceType": "Patient",
+          "toResourceType": "Observation",
+          "relationship": "subject_Patient",
+          "storageDirection": "INBOUND"
+        }
+      ],
+      "displayLabel": "Specimen -[subject]-> Patient <-[subject]- Observation",
+      "observationIds": [
+        "6ff35b3b-e7ac-5cc3-bdeb-302fb5f884da",
+        "6492371a-d5f9-587f-9831-4125e93b3f27",
+        "a48a433c-ec1a-556f-a290-2e50f427ba5b",
+        "93762216-8446-5dcb-8f2f-49b0121ff6af",
+        "55b30b90-abd4-512d-a6b5-1811c2a3cdeb",
+        "188d3dc1-b158-5ec0-b3b3-16e1a7c3ef1a",
+        "cc8f1cd8-9fef-5dfa-a01f-4e3fe2d2f15b",
+        "a3311948-e9ca-56ca-844d-483088b42eb0",
+        "ca03e833-16a1-5a02-8d3d-0b3ccec40c3e",
+        "be10e301-246e-5bc0-8e61-50d265534abb",
+        "9353b768-1b88-551e-bedc-b39040db1389",
+        "abff6aa5-6fea-5cd8-bab5-1fb80323e279",
+        "e263396d-042f-59f3-b40c-53065df1c850",
+        "e62941d8-128a-508b-9938-fae16f6a574f",
+        "62f622d2-159b-5499-a7c4-52d88144e3d0",
+        "4722193c-1950-525d-a933-d9fb7d917563",
+        "951e3c6d-b230-5cab-92a3-f3b4d58c1804",
+        "de3263be-a4fb-562f-88b6-d0a745299329",
+        "35cfec85-56e8-5257-af99-2e9345be2011",
+        "fa15aa93-f8da-5bda-a9aa-86ff0464a774",
+        "f7b32e25-c3f6-5622-9630-043bb7ab1189",
+        "50684507-37ed-5a69-9cdb-740076519bac",
+        "8928f41a-1bbd-5b42-8fc2-c0262eab7391",
+        "0361d267-24d2-5d7a-bfe0-d7d8123b3537",
+        "7baf5ac9-5068-5f47-bb6a-77ef34bd0888",
+        "819471be-6185-5442-9630-4cf1a2623cc8",
+        "404e4747-94fe-5eb3-ad37-f28c69019a21",
+        "4be9b538-33e3-542b-9700-a8afb824a42f",
+        "07dbb6b2-f1af-5201-b881-84fe46cd5a92",
+        "83cd71f2-65c5-552b-9648-ee97754e66cf",
+        "7ecf5e04-415e-55b0-b263-db61985b7253"
+      ]
+    }
+  },
+  "observations": [
+    {
+      "id": "6ff35b3b-e7ac-5cc3-bdeb-302fb5f884da",
+      "_id": "Observation/g_04e89f9f37a9e5dfdf720df385ac1710c3c734aa34f80d0a15b2470c4fd04514",
+      "specimenReference": "Specimen/24b5c3c1-5219-5912-90ca-91945aa3027c",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "6492371a-d5f9-587f-9831-4125e93b3f27",
+      "_id": "Observation/g_07d1f60931dd310651913ae33de5a138a15a02d24d0196485d5b0e276747b510",
+      "specimenReference": "Specimen/e651838f-ba1d-59d4-a55c-84f424cb0523",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "a48a433c-ec1a-556f-a290-2e50f427ba5b",
+      "_id": "Observation/g_0a012000ed13a88e5d712a24b4779ad4d9c9d2f6d53dc618fbbacc15086d4d52",
+      "specimenReference": "Specimen/073d264a-e622-5049-bea8-0e7997bbda5b",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "93762216-8446-5dcb-8f2f-49b0121ff6af",
+      "_id": "Observation/g_0e837aab7c2dbea9177c490017586c2257a00be79416c0ad62b60fc40f9d9bda",
+      "specimenReference": "Specimen/bcf7a5f9-46bf-5ad0-b557-29bdf5926eae",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "55b30b90-abd4-512d-a6b5-1811c2a3cdeb",
+      "_id": "Observation/g_12651a6ad823fb835959b1b1843c245e0b0a52a34f79c9eb57bcb06c4d347619",
+      "specimenReference": "Specimen/4b9e108c-1515-5c11-92ab-b038fec81959",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "188d3dc1-b158-5ec0-b3b3-16e1a7c3ef1a",
+      "_id": "Observation/g_17fc0724e2d2a96c5477c942da67fce120199f54330ecf2cee8081b9617d2350",
+      "specimenReference": "Specimen/91e0f671-bcd4-58f8-95ca-d30310acb53a",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "cc8f1cd8-9fef-5dfa-a01f-4e3fe2d2f15b",
+      "_id": "Observation/g_2421738de1db2abdd5cd891e8b530e7467f6d3c6e55bf87a1d7899644a919995",
+      "specimenReference": "Specimen/54930713-49ff-5b74-984a-135f62ec580e",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "a3311948-e9ca-56ca-844d-483088b42eb0",
+      "_id": "Observation/g_2a9c9be3f24ee9505650958675f288bc233b6b022f42b0b045f690066d7f2127",
+      "specimenReference": "Specimen/2fcfeec9-cc4b-5e87-9cfe-17cfd10c6871",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "ca03e833-16a1-5a02-8d3d-0b3ccec40c3e",
+      "_id": "Observation/g_34da21a01aefc7a5ac6eb5352282d0ccd419daa7590ea26d1b1fa4a7f7d6aa8f",
+      "specimenReference": null,
+      "specimenReferenceState": "null_or_missing"
+    },
+    {
+      "id": "be10e301-246e-5bc0-8e61-50d265534abb",
+      "_id": "Observation/g_3993dddd0643926a176a6f4af13f7d8a5bb79d00230f2abf5909c495d4539d08",
+      "specimenReference": "Specimen/8bece365-cbc5-5bc0-96f7-2b8d7112fd2b",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "9353b768-1b88-551e-bedc-b39040db1389",
+      "_id": "Observation/g_3c2cd1764ef54d35238355a8d39a47a18ee71a4c895fbf38c9427c9a7eff52cf",
+      "specimenReference": "Specimen/31b719e6-f991-5b00-b166-b6db578ca3d5",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "abff6aa5-6fea-5cd8-bab5-1fb80323e279",
+      "_id": "Observation/g_434fdc9d4c5fb37e32d50cb9dda5723f0a8fa7d4c12bf8903336f878314743b6",
+      "specimenReference": "Specimen/738f9929-9cc0-5551-b0de-75c397ea9fdd",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "e263396d-042f-59f3-b40c-53065df1c850",
+      "_id": "Observation/g_4358649a4baa2c33573ed5c3911569c9a561ff3414176dbcc6da4c7c76693753",
+      "specimenReference": "Specimen/6df4fa53-c057-5d91-803a-7f94c19f59cf",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "e62941d8-128a-508b-9938-fae16f6a574f",
+      "_id": "Observation/g_47854845928fb1af0b8cf9447a564e67769ddf46342db5f582add7a74d3ec83c",
+      "specimenReference": "Specimen/62e9c6af-1228-56cf-a2b7-b265e499d791",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "62f622d2-159b-5499-a7c4-52d88144e3d0",
+      "_id": "Observation/g_4f73a832b4dec736539321efc5712f63b354ae924dcf35cc96f5bbcab57f797a",
+      "specimenReference": "Specimen/c754a2bc-5b86-53fa-b443-28d5a3292a87",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "4722193c-1950-525d-a933-d9fb7d917563",
+      "_id": "Observation/g_71365a5f428dbbcff6f9a69a4dfb9346233ccd2dd90b5611c8a61952c56140a8",
+      "specimenReference": "Specimen/b8581761-bd09-5b4e-bb0e-445856ff023c",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "951e3c6d-b230-5cab-92a3-f3b4d58c1804",
+      "_id": "Observation/g_7816e466e84c883d9924cd1543ae05c7833ed4a0147372c4141362dbbe94cac1",
+      "specimenReference": "Specimen/9928073a-dd16-5fa3-a7d2-a107cce0b80b",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "de3263be-a4fb-562f-88b6-d0a745299329",
+      "_id": "Observation/g_7f50442e4ff5daf64076391703c3a5e1d1072b9967118bb70ce7550f1bdf94b6",
+      "specimenReference": "Specimen/f469c85e-59bd-59fe-b5a8-fe74143bcee7",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "35cfec85-56e8-5257-af99-2e9345be2011",
+      "_id": "Observation/g_85b10d7b462ddac3183d4c4d34da11be136db3388357a5969408557a1e871b34",
+      "specimenReference": "Specimen/b7cad184-db67-5542-a975-10fffa3e89e7",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "fa15aa93-f8da-5bda-a9aa-86ff0464a774",
+      "_id": "Observation/g_9994679027044bde93dfdcc2b78d32a0fff409e2323227391dd09cceedb577eb",
+      "specimenReference": "Specimen/a7a9069d-dc64-54bc-91fb-ae3eb482ea22",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "f7b32e25-c3f6-5622-9630-043bb7ab1189",
+      "_id": "Observation/g_9f40568d7debefc30ea0fe56dde0c95117eb4938cea8a7a8a36f300fd8f2a7b8",
+      "specimenReference": "Specimen/f6d19b13-f0e7-54ca-9e4b-984f8368d717",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "50684507-37ed-5a69-9cdb-740076519bac",
+      "_id": "Observation/g_aad76a064e9564c83d2a399811bc7b4890273b772636a6a5889221af5efb00e2",
+      "specimenReference": null,
+      "specimenReferenceState": "null_or_missing"
+    },
+    {
+      "id": "8928f41a-1bbd-5b42-8fc2-c0262eab7391",
+      "_id": "Observation/g_abccb15cc3c8f2157debe17745cf853155a9e93db3c982e681b39f3eafef5e42",
+      "specimenReference": "Specimen/26e1de11-85d5-5e1d-8376-c9c5acc80098",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "0361d267-24d2-5d7a-bfe0-d7d8123b3537",
+      "_id": "Observation/g_b15b10d53570f7e40c87141f70bb6b6224549b5193b11ab386665453d9d069bd",
+      "specimenReference": "Specimen/ac4dfb58-819f-5722-907c-45a1d111721b",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "7baf5ac9-5068-5f47-bb6a-77ef34bd0888",
+      "_id": "Observation/g_be4bb6d81e7de6af15903cc0c562ca0f46acc923fff4a6cda198a951293391bf",
+      "specimenReference": "Specimen/6fe06845-2f58-5be4-be57-300befc86f36",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "819471be-6185-5442-9630-4cf1a2623cc8",
+      "_id": "Observation/g_cbdc1d12c0b8817b5ba58af73d1b9c4680f9e8a1a92a6b50d4f93dbf715912b7",
+      "specimenReference": "Specimen/807914ec-317b-5b1c-96a9-5b82f213a43c",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "404e4747-94fe-5eb3-ad37-f28c69019a21",
+      "_id": "Observation/g_d4902e95dd8d1722812e40e88afdad784c31c9653d951deb0e3d392c73ba446a",
+      "specimenReference": "Specimen/9204fbdf-7369-5642-bb26-6233b1148562",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "4be9b538-33e3-542b-9700-a8afb824a42f",
+      "_id": "Observation/g_ea7417741812e47966d2506b25b70a43a1f716d5f2636f535003d52df0ed33db",
+      "specimenReference": "Specimen/0ef20f71-e08f-5778-bcfc-b7d170beacca",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "07dbb6b2-f1af-5201-b881-84fe46cd5a92",
+      "_id": "Observation/g_f1fff198f0028b3cfa9786c0de644a7c109546947bfbb78455894136a29cc0bd",
+      "specimenReference": "Specimen/0287338a-443a-5c7a-8d03-a85a7df9dd35",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "83cd71f2-65c5-552b-9648-ee97754e66cf",
+      "_id": "Observation/g_f2bfc956f3cc917e2b6a5741c5708076a6ef1a8657f0827bb6ece4e8608731d9",
+      "specimenReference": "Specimen/167bbf38-97af-5166-a72f-7c9ae06454f1",
+      "specimenReferenceState": "present"
+    },
+    {
+      "id": "7ecf5e04-415e-55b0-b263-db61985b7253",
+      "_id": "Observation/g_fb0f04ff04e68b5349f14c9667d7e023f5d4bb744a6d7ae81aa0d1d13ef0096f",
+      "specimenReference": "Specimen/4f8f62f9-8c52-5aba-8205-cf78a00370d9",
+      "specimenReferenceState": "present"
+    }
+  ],
+  "summary": {
+    "directObservationCount": 1,
+    "viaPatientObservationCount": 31,
+    "distinctObservationIdentityCount": 31,
+    "nonnullSpecimenReferenceCount": 29,
+    "distinctNonnullSpecimenReferenceCount": 29,
+    "nullOrMissingSpecimenReferenceCount": 2
+  }
+}

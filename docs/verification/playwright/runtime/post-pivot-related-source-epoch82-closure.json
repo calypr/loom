@@ -1,0 +1,400 @@
+{
+  "epoch": 82,
+  "status": "CLOSED_HARNESS_SAVED_PREVIEW_REQUEST_METHOD_MISMATCH",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "5103d1ba856c29fc249858ed0776f4ca780ac32a40440166671eefef83e9716b",
+        "files": 1522
+      },
+      "after": {
+        "sha256": "5103d1ba856c29fc249858ed0776f4ca780ac32a40440166671eefef83e9716b",
+        "files": 1522
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave82/source-before.json",
+        "sha256": "c4bbfb737564f557e50dfcd6bdfcecb64d6293b13bb7a91d87ef55cf60188078"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave82/source-after.json",
+        "sha256": "70fe5d566fc42f4422d0d980e45e332be79aafa8626f96236175265b1492ac5f"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "92ba14a1e49dc0f287ef6808b894d5b82889f7a44d5ce99fe7cc1558ebf39c16",
+        "files": 193
+      },
+      "after": {
+        "sha256": "92ba14a1e49dc0f287ef6808b894d5b82889f7a44d5ce99fe7cc1558ebf39c16",
+        "files": 193
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave82/docs-before.json",
+        "sha256": "2cfe8cda565bae27cc2ce2d3191c0325f573da2e446d1831121f31ec9f6ba6db"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave82/docs-after.json",
+        "sha256": "f83bfa5756625e8ce03fd4f175659cc765ff6cf84e29bf8096db77aaed0f3e4b"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "precheck": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave82/api-identity-before.json",
+        "sha256": "ae3f32faa062780fdeaa54c337f9d2e4ec06f0c6df8afa334b5ba8422248c4b8"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave82/api-identity-after.json",
+        "sha256": "28d53752ef676d8f88bfc153a5faf3e0e888b735703e390edd0a3c00659a23b2"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave82/api-build-precheck-confirmed.json",
+        "sha256": "11fa8a4a3e6c699457e8750aa5fc6d849f560c6ef2b76b03aed2a04031649113"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave82/owned-mounts-before.json",
+        "sha256": "b54614352c803f474f1c9722ab36ba3f5c2ee2fbfe33f91d72db5612f2a9c5da"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave82/owned-mounts-after.json",
+        "sha256": "d88e9c40441c38002da7afef6d1d9a6cc7472a700adb68a979a04a980390f7d9"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave82/health-before.json",
+        "sha256": "f46751269700aefe8fbe704519181a9770ff7b83a4fe3d374905729c805b63f2"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave82/health-after.json",
+        "sha256": "f34add6334236d3e5484bdc6eeaf16342ba997328b3e3d574046d72d1c239321"
+      }
+    }
+  },
+  "case": {
+    "scenarioId": "standalone-reshape-related-source-after-pivot",
+    "caseName": "related-source-after-pivot",
+    "title": "standalone CDA reshape workflows related-source-after-pivot related-source-after-pivot",
+    "status": "failed_partial_before_pivot_lifecycle",
+    "failureClassification": "HARNESS_SAVED_PREVIEW_REQUEST_METHOD_AND_BINDING_PREDICATE_MISMATCH",
+    "summary": "The corrected short Explorer ID was created and loaded. The bounded raw oracle, exact subject_Patient reread, fresh Explorer binding, and one native action passed. The harness then waited for a saved-preview GET with outputId in the query. The application issued the current automatic POST /preview with outputId in its JSON body and returned the exact two source rows (200). The obsolete wait predicate timed out before Pivot; the remainder of the registered lifecycle is unverified.",
+    "testCaseExecuted": true,
+    "productBehaviorExercised": "partial initial source table preview only; Pivot and related-source lifecycle not reached",
+    "requiredChecks": {
+      "total": 25,
+      "passed": 4,
+      "missing": 21,
+      "missingNames": [
+        "Native Pivot preview matches the two exact source categories and coalesces one row",
+        "Pivot Cancel preserves exact source workspace and rows after reload",
+        "Confirmed Pivot proposal retains exact typed category and value bindings",
+        "Applied Pivot persists typed categories and one independently verified coalesced row after reload",
+        "Pivot compiler stage exposes the exact row identity and RELATED_SOURCE capability",
+        "Post-Pivot Patient.id ALL proposal retains both source contributors",
+        "Native chooser and candidate bind Patient.id ALL through exact Observation.subject \u2192 Patient",
+        "Post-Pivot ALL returns both independently resolved Patient IDs on one Pivot row",
+        "Related-source Cancel preserves the exact saved Pivot and its raw values after reload",
+        "Confirmed post-Pivot Patient.id ALL preview",
+        "Applied post-Pivot RELATED_SOURCE retains exact ALL binding and contributors after reload",
+        "Edited related-source label keeps exact contributor values",
+        "Editing the saved related source and Cancel preserves its exact construction and ALL values",
+        "Apply related-source edit preserves the post-Pivot binding",
+        "Applied related-source edit changes only the label and survives reload with exact Patient values",
+        "Related-source removal preview restores exact Pivot values",
+        "Related-source removal Cancel preserves the edited binding and exact ALL values after reload",
+        "Confirmed related-source removal restores the exact Pivot row",
+        "Applying related-source removal restores the exact pre-source Pivot workspace and values",
+        "No unexpected native network, module, or browser errors occurred",
+        "All native lifecycle actions complete within five seconds"
+      ]
+    },
+    "assertions": {
+      "passed": 6,
+      "failed": 0,
+      "total": 6
+    },
+    "nativeActions": {
+      "passed": 1,
+      "failed": 0,
+      "total": 1,
+      "maxElapsedMs": 86,
+      "items": [
+        {
+          "label": "\u25a4 Post-Pivot related source",
+          "status": "passed",
+          "elapsedMs": 86
+        }
+      ]
+    },
+    "rawOracle": {
+      "status": "passed",
+      "scanLimit": 2000,
+      "selectedObservationIDs": [
+        "52f5e622-0181-5feb-936c-e9992ab26616",
+        "485e2567-b566-56f3-b5bd-5f025f37cd95"
+      ],
+      "patientReferences": {
+        "52f5e622-0181-5feb-936c-e9992ab26616": "Patient/a6a10252-092e-5b93-976a-a625d478dca6",
+        "485e2567-b566-56f3-b5bd-5f025f37cd95": "Patient/da65b4e6-3946-50d9-ab1a-65af2e560b1c"
+      }
+    },
+    "savedPreviewResponse": {
+      "method": "POST",
+      "status": 200,
+      "requestBody": {
+        "receiptId": "receipt_ba1b3d6ef29c302018fed01d7b206bbaec279ddcde6be07ea3f07c52030179c1",
+        "outputId": "out_5dc208f72efbc377b4ecf6fd",
+        "limit": 25
+      },
+      "receiptMatches": true,
+      "outputMatches": true,
+      "rowCount": 2,
+      "rowsMatchedExactRawOracle": true,
+      "rows": [
+        {
+          "__loom_row_id": "9985a2a07fa84aa62cbbabf0c8bb40da6f7402c361cbeb0b2fa9a323dec8d18f",
+          "col_40dee128e360ada08f4186fc": "final",
+          "col_71b804b5b0410e9b2f07590a": "Patient/a6a10252-092e-5b93-976a-a625d478dca6",
+          "col_b978dabf8650535d29f43b5a": "52f5e622-0181-5feb-936c-e9992ab26616"
+        },
+        {
+          "__loom_row_id": "d32f44b78e5fc335e512f089f40b352f2cc95a9cc33aa6b58bbed49790974b27",
+          "col_40dee128e360ada08f4186fc": "final",
+          "col_71b804b5b0410e9b2f07590a": "Patient/da65b4e6-3946-50d9-ab1a-65af2e560b1c",
+          "col_b978dabf8650535d29f43b5a": "485e2567-b566-56f3-b5bd-5f025f37cd95"
+        }
+      ]
+    },
+    "waitFailure": {
+      "helper": "scripts/verify-ui/workflows/verify-cda-related-source-after-pivot-browser.mjs:225-231",
+      "predicate": "GET /preview with outputId in query, started after openTable began",
+      "observed": "POST /preview with receiptId, outputId, and limit in JSON body; HTTP 200; 2 exact rows",
+      "timeoutMs": 5000
+    },
+    "dimensions": {
+      "usability": {
+        "status": "passed",
+        "evidence": [
+          {
+            "name": "\u25a4 Post-Pivot related source completed",
+            "status": "passed",
+            "elapsedMs": 86,
+            "afterMs": null,
+            "failurePhase": null,
+            "phases": {
+              "count": {
+                "completed": true,
+                "durationMs": 4
+              },
+              "trial": {
+                "completed": true,
+                "durationMs": 22
+              },
+              "perform": {
+                "completed": true,
+                "durationMs": 60
+              }
+            }
+          }
+        ]
+      },
+      "correctness": {
+        "status": "passed",
+        "evidence": [
+          {
+            "name": "CDA raw oracle selects two same-status Observation roots with distinct Patient references",
+            "status": "final",
+            "scannedRows": 2000,
+            "selectedObservationIDs": [
+              "52f5e622-0181-5feb-936c-e9992ab26616",
+              "485e2567-b566-56f3-b5bd-5f025f37cd95"
+            ]
+          },
+          {
+            "name": "Exact scoped subject_Patient edges resolve the two roots to distinct Patient documents",
+            "status": "passed",
+            "observationIDs": [
+              "52f5e622-0181-5feb-936c-e9992ab26616",
+              "485e2567-b566-56f3-b5bd-5f025f37cd95"
+            ],
+            "patientIDs": [
+              "da65b4e6-3946-50d9-ab1a-65af2e560b1c",
+              "a6a10252-092e-5b93-976a-a625d478dca6"
+            ]
+          },
+          {
+            "name": "Fresh Explorer binds the exact two-root Observation population to its direct source table",
+            "status": "passed",
+            "selectionRevisionId": "selection_2d5fea0bc58113d8b7aa5032985723cbdb7f8c480bc280a0e1a945a20cc2d168",
+            "memberCount": 2,
+            "selectedIDs": [
+              "52f5e622-0181-5feb-936c-e9992ab26616",
+              "485e2567-b566-56f3-b5bd-5f025f37cd95"
+            ],
+            "project": "loom_dev_cda_fhir",
+            "generation": "cda-fhir-v1",
+            "rowPopulationRoute": []
+          },
+          {
+            "name": "CDA watched source and API build stayed unchanged",
+            "status": "passed",
+            "sourceFingerprint": {
+              "before": {
+                "sha256": "5103d1ba856c29fc249858ed0776f4ca780ac32a40440166671eefef83e9716b",
+                "files": 1522
+              },
+              "after": {
+                "sha256": "5103d1ba856c29fc249858ed0776f4ca780ac32a40440166671eefef83e9716b",
+                "files": 1522
+              }
+            },
+            "apiBuildIdentity": {
+              "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+              "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51"
+            },
+            "sourceFreeze": {
+              "unchanged": true,
+              "watchedFileCount": 1117,
+              "changedPaths": [],
+              "invalidatesRun": false,
+              "productFailure": false
+            }
+          },
+          {
+            "name": "incidental asset failures are explicitly recorded",
+            "status": "passed",
+            "failures": [
+              {
+                "kind": "asset-failure",
+                "url": "http://127.0.0.1:30008/favicon.ico",
+                "status": 404
+              },
+              {
+                "kind": "console",
+                "url": "http://127.0.0.1:30008/favicon.ico",
+                "status": 404
+              }
+            ]
+          }
+        ]
+      },
+      "persistence": {
+        "status": "untested",
+        "evidence": []
+      },
+      "performance": {
+        "status": "untested",
+        "evidence": []
+      }
+    },
+    "incidentalAssetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      },
+      {
+        "kind": "console",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ],
+    "errors": [],
+    "network": [],
+    "timings": {
+      "testDurationMs": 18274,
+      "playwrightRunnerDurationMs": 20069.942000000003,
+      "processDurationMs": null
+    },
+    "artifacts": {
+      "runPlan": {
+        "path": "/private/tmp/loom-native-parallel-wave82/run-plan.json",
+        "sha256": "9976b175f080411a38745cc608d327c0e99a53c27d60c35acbf965a17589c508"
+      },
+      "precheck": {
+        "path": "/private/tmp/loom-native-parallel-wave82/api-build-precheck-confirmed.json",
+        "sha256": "11fa8a4a3e6c699457e8750aa5fc6d849f560c6ef2b76b03aed2a04031649113"
+      },
+      "domainReport": {
+        "path": "/private/tmp/loom-native-parallel-wave82/standalone-reshape-related-source-after-pivot/attempt1/artifacts/standalone-reshape-standal-689d5--related-source-after-pivot/cda-report.json",
+        "sha256": "da6883eb173f351ce57b12a9ee85ecbdb61e717dfe02d595000a842987cdae44"
+      },
+      "errorContext": {
+        "path": "/private/tmp/loom-native-parallel-wave82/standalone-reshape-related-source-after-pivot/attempt1/artifacts/standalone-reshape-standal-689d5--related-source-after-pivot/error-context.md",
+        "sha256": "9446e09ada2825fcbf4422c6c8d113179e525c50f9187ca5765af693c7541c47"
+      },
+      "playwrightResults": {
+        "path": "/private/tmp/loom-native-parallel-wave82/standalone-reshape-related-source-after-pivot/attempt1/results.json",
+        "sha256": "605af9ae9adb0a933a98a73832ae10cd22c356f192aa51b9fae2b5c6663a6624"
+      },
+      "runnerLog": {
+        "path": "/private/tmp/loom-native-parallel-wave82/standalone-reshape-related-source-after-pivot/attempt1/runner.log",
+        "sha256": "d9afe7e43521d283f422a8e6b94c714b8331f235c3312b478273eb548ac23a82"
+      },
+      "captureIntegrity": {
+        "path": "/private/tmp/loom-native-parallel-wave82/closure-integrity.json",
+        "sha256": "c05b550c9d8c5a326e4dcd1459e46095d1eabff77a976c5be8986c2293c05711"
+      }
+    }
+  },
+  "handles": {
+    "precheck": {
+      "session": 79536,
+      "exitCode": 0
+    },
+    "beforeCapture": {
+      "session": 36251,
+      "exitCode": 0
+    },
+    "beforeHealth": {
+      "session": 98399,
+      "exitCode": 0
+    },
+    "browser": {
+      "session": 9930,
+      "exitCode": 1
+    },
+    "afterCapture": {
+      "session": 74684,
+      "exitCode": 0
+    },
+    "afterHealth": {
+      "session": 29230,
+      "exitCode": 0
+    }
+  }
+}

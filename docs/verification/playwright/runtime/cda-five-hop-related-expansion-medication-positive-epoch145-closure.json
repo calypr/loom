@@ -1,0 +1,391 @@
+{
+  "epoch": 145,
+  "status": "CLOSED_PASS",
+  "acceptedCommit": {
+    "sha": "2bd1b72d8b402b9f5d52cb8e0284ef29c8991536",
+    "provenance": "Frozen source HEAD accepted for wave145 before run start; the raw runner summary does not carry a commit field or separate root-acceptance receipt."
+  },
+  "case": {
+    "scenarioId": "cda-five-hop-related-expansion",
+    "caseName": "medication-positive-fixture",
+    "title": "preserve and exclude exact positive Medication matches through native edit and reload",
+    "status": "passed",
+    "failureAttribution": null,
+    "classificationNote": "Wave145 passed the positive two-root fixture with exact five-hop Medication values and multiplicity, unmatched PRESERVE_PARENT null row, EXCLUDE behavior, Cancel, Apply, edit, removal, reload, and all registered checks. Waves143 and144 remain separate harness failures in report.priorAttempts; they are not relabeled or erased by this pass.",
+    "requiredChecks": {
+      "passed": 14,
+      "total": 14,
+      "missingOrFailed": 0,
+      "missingOrUnrun": 0,
+      "evidence": [
+        {
+          "name": "bounded independent raw CDA oracle proves the exact five-hop Medication route and records match availability",
+          "status": "passed",
+          "evidenceRef": {
+            "artifact": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/playwright-results/related-medication-positiv-d886e-ough-native-edit-and-reload/attachments/loom-verification-report-json-42c90220950ad6b9fe4a9b3c1464ed473647917e.json",
+            "sha256": "f440ff0dca0a69acb82980526c476e7cf19ba0aae6acdb2c76d2922d3876743c",
+            "assertionIndex": 2,
+            "dimension": "correctness",
+            "evidenceSha256": "3305e69a096c8347b4ff449a864a03b29ce43f326ecbc163e5fca7e614618cde"
+          }
+        },
+        {
+          "name": "fresh Specimen table has zero public columns and exact scoped selected membership",
+          "status": "passed",
+          "evidenceRef": {
+            "artifact": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/playwright-results/related-medication-positiv-d886e-ough-native-edit-and-reload/attachments/loom-verification-report-json-42c90220950ad6b9fe4a9b3c1464ed473647917e.json",
+            "sha256": "f440ff0dca0a69acb82980526c476e7cf19ba0aae6acdb2c76d2922d3876743c",
+            "assertionIndex": 3,
+            "dimension": "persistence",
+            "evidenceSha256": "4debfba6b03ef615a7d9d9367f8e0ee6afeda79ac36a7a590d472dd3b75321d8"
+          }
+        },
+        {
+          "name": "native RelatedExpand editor selects the exact five-hop route from root identity to Medication",
+          "status": "passed",
+          "evidenceRef": {
+            "artifact": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/playwright-results/related-medication-positiv-d886e-ough-native-edit-and-reload/attachments/loom-verification-report-json-42c90220950ad6b9fe4a9b3c1464ed473647917e.json",
+            "sha256": "f440ff0dca0a69acb82980526c476e7cf19ba0aae6acdb2c76d2922d3876743c",
+            "assertionIndex": 9,
+            "dimension": "correctness",
+            "evidenceSha256": "71c9a9aad3ef30cb0ac72e7d16236f0778b09539c66405a3f189e9cc5b8c1448"
+          }
+        },
+        {
+          "name": "PRESERVE_PARENT automatic proposal renders exact terminal Medication IDs and one null ID per unmatched parent",
+          "status": "passed",
+          "evidenceRef": {
+            "artifact": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/playwright-results/related-medication-positiv-d886e-ough-native-edit-and-reload/attachments/loom-verification-report-json-42c90220950ad6b9fe4a9b3c1464ed473647917e.json",
+            "sha256": "f440ff0dca0a69acb82980526c476e7cf19ba0aae6acdb2c76d2922d3876743c",
+            "assertionIndex": 10,
+            "dimension": "correctness",
+            "evidenceSha256": "7c00e1e14cd18a5df7744488dbba4a12ffec7785e6f5374dcad46bb9b0cd3407"
+          }
+        },
+        {
+          "name": "Cancel leaves the zero-column source population and saved draft unchanged",
+          "status": "passed",
+          "evidenceRef": {
+            "artifact": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/playwright-results/related-medication-positiv-d886e-ough-native-edit-and-reload/attachments/loom-verification-report-json-42c90220950ad6b9fe4a9b3c1464ed473647917e.json",
+            "sha256": "f440ff0dca0a69acb82980526c476e7cf19ba0aae6acdb2c76d2922d3876743c",
+            "assertionIndex": 12,
+            "dimension": "persistence",
+            "evidenceSha256": "f39501379456bcbf67661b2694f3ab2bbd5545759cdd00e3524e28973430a83f"
+          }
+        },
+        {
+          "name": "Apply saves the exact route and renders actual Medication table preview rows matching raw membership",
+          "status": "passed",
+          "evidenceRef": {
+            "artifact": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/playwright-results/related-medication-positiv-d886e-ough-native-edit-and-reload/attachments/loom-verification-report-json-42c90220950ad6b9fe4a9b3c1464ed473647917e.json",
+            "sha256": "f440ff0dca0a69acb82980526c476e7cf19ba0aae6acdb2c76d2922d3876743c",
+            "assertionIndex": 18,
+            "dimension": "persistence",
+            "evidenceSha256": "4af49c26b09f6631911eaf2f7dc3a0eef76d7fead2894566848c617b70d9efd2"
+          }
+        },
+        {
+          "name": "reload restores the exact route, policy, row identities, and Medication preview values",
+          "status": "passed",
+          "evidenceRef": {
+            "artifact": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/playwright-results/related-medication-positiv-d886e-ough-native-edit-and-reload/attachments/loom-verification-report-json-42c90220950ad6b9fe4a9b3c1464ed473647917e.json",
+            "sha256": "f440ff0dca0a69acb82980526c476e7cf19ba0aae6acdb2c76d2922d3876743c",
+            "assertionIndex": 20,
+            "dimension": "persistence",
+            "evidenceSha256": "22763ead73fef67bc38f34037d745a6b497811aa3b76670abb534d9c9772a9fb"
+          }
+        },
+        {
+          "name": "editing to EXCLUDE removes unmatched parents in preview and after reload",
+          "status": "passed",
+          "evidenceRef": {
+            "artifact": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/playwright-results/related-medication-positiv-d886e-ough-native-edit-and-reload/attachments/loom-verification-report-json-42c90220950ad6b9fe4a9b3c1464ed473647917e.json",
+            "sha256": "f440ff0dca0a69acb82980526c476e7cf19ba0aae6acdb2c76d2922d3876743c",
+            "assertionIndex": 31,
+            "dimension": "correctness",
+            "evidenceSha256": "2bf72cfd4ffbb137cae2d905dae9dac4a035d3321c67988ad9120aa82b6fe999"
+          }
+        },
+        {
+          "name": "removing RelatedExpand restores the zero-column Specimen table, selection, direct route, and no stale Medication output after reload",
+          "status": "passed",
+          "evidenceRef": {
+            "artifact": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/playwright-results/related-medication-positiv-d886e-ough-native-edit-and-reload/attachments/loom-verification-report-json-42c90220950ad6b9fe4a9b3c1464ed473647917e.json",
+            "sha256": "f440ff0dca0a69acb82980526c476e7cf19ba0aae6acdb2c76d2922d3876743c",
+            "assertionIndex": 40,
+            "dimension": "persistence",
+            "evidenceSha256": "4683c9412270ddc9ab1a10da21a62b8a8ee499de2c1bd6e628abf7b895be48f6"
+          }
+        },
+        {
+          "name": "native route, proposal, Apply, edit, removal, and reload checkpoints complete within five seconds",
+          "status": "passed",
+          "evidenceRef": {
+            "artifact": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/playwright-results/related-medication-positiv-d886e-ough-native-edit-and-reload/attachments/loom-verification-report-json-42c90220950ad6b9fe4a9b3c1464ed473647917e.json",
+            "sha256": "f440ff0dca0a69acb82980526c476e7cf19ba0aae6acdb2c76d2922d3876743c",
+            "assertionIndex": 41,
+            "dimension": "performance",
+            "evidenceSha256": "4de4e9ef071ddb34371f6ce8b8a813eadfc211bb27a0daef48d6059252310444"
+          }
+        },
+        {
+          "name": "Canceling the EXCLUDE edit preserves the saved PRESERVE_PARENT route, policy, exact Medication rows, and draft CAS before reopening and applying the edit",
+          "status": "passed",
+          "evidenceRef": {
+            "artifact": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/playwright-results/related-medication-positiv-d886e-ough-native-edit-and-reload/attachments/loom-verification-report-json-42c90220950ad6b9fe4a9b3c1464ed473647917e.json",
+            "sha256": "f440ff0dca0a69acb82980526c476e7cf19ba0aae6acdb2c76d2922d3876743c",
+            "assertionIndex": 25,
+            "dimension": "persistence",
+            "evidenceSha256": "6b02ad05572c67d66d16d751988317715bbaa09b7aded0fcc22840c941aee2b5"
+          }
+        },
+        {
+          "name": "Canceling removal preserves the saved EXCLUDE route, policy, exact Medication rows, and draft CAS before reopening and applying removal",
+          "status": "passed",
+          "evidenceRef": {
+            "artifact": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/playwright-results/related-medication-positiv-d886e-ough-native-edit-and-reload/attachments/loom-verification-report-json-42c90220950ad6b9fe4a9b3c1464ed473647917e.json",
+            "sha256": "f440ff0dca0a69acb82980526c476e7cf19ba0aae6acdb2c76d2922d3876743c",
+            "assertionIndex": 35,
+            "dimension": "persistence",
+            "evidenceSha256": "a7644afd8068344ff92b7d483c205c3f0903f142d776cdb011dab4389cea8c40"
+          }
+        },
+        {
+          "name": "watched source stayed unchanged during browser run",
+          "status": "passed",
+          "evidenceRef": {
+            "artifact": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/playwright-results/related-medication-positiv-d886e-ough-native-edit-and-reload/attachments/loom-verification-report-json-42c90220950ad6b9fe4a9b3c1464ed473647917e.json",
+            "sha256": "f440ff0dca0a69acb82980526c476e7cf19ba0aae6acdb2c76d2922d3876743c",
+            "assertionIndex": 43,
+            "dimension": "correctness",
+            "evidenceSha256": "f6346af211eb867a935ad50b50f071a6c3fc932c9cecc959467153991fa07a9c"
+          }
+        },
+        {
+          "name": "API build identity stayed unchanged during browser run",
+          "status": "passed",
+          "evidenceRef": {
+            "artifact": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/playwright-results/related-medication-positiv-d886e-ough-native-edit-and-reload/attachments/loom-verification-report-json-42c90220950ad6b9fe4a9b3c1464ed473647917e.json",
+            "sha256": "f440ff0dca0a69acb82980526c476e7cf19ba0aae6acdb2c76d2922d3876743c",
+            "assertionIndex": 44,
+            "dimension": "correctness",
+            "evidenceSha256": "f4e5ec89b021fcde91c2a058b39c849607f098873bc1796c721554bce8431e60"
+          }
+        }
+      ]
+    },
+    "assertions": {
+      "passed": 45,
+      "failed": 0,
+      "total": 45
+    },
+    "actions": {
+      "passed": 28,
+      "failed": 0,
+      "total": 28,
+      "maxElapsedMs": 121
+    },
+    "actionToRender": {
+      "passed": 23,
+      "failed": 0,
+      "total": 23,
+      "maxElapsedMs": 662,
+      "budgetMs": 5000
+    },
+    "rawReportedDimensions": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "passed",
+      "performance": "passed"
+    }
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "36608d54f7ba4c09afdece4d19054c5e804cc382ec083e1827346f954dda9401",
+        "files": 1589
+      },
+      "after": {
+        "sha256": "36608d54f7ba4c09afdece4d19054c5e804cc382ec083e1827346f954dda9401",
+        "files": 1589
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/source-before.json",
+        "sha256": "ce8fb05b4c77b0e68d6816c349d1da10a4bbd8e7e137e4571dfb25c9fd8eff6c"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/source-after.json",
+        "sha256": "a602ed441eb922f23bb171ccb45a995f36c9a30dc99025bab8e69ab8963ebc30"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "4d3ff5131ff56cf3f83e83e68a82c78cf11f985edc5b7155a800ad899a4eadd3",
+        "files": 294
+      },
+      "after": {
+        "sha256": "4d3ff5131ff56cf3f83e83e68a82c78cf11f985edc5b7155a800ad899a4eadd3",
+        "files": 294
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/docs-before.json",
+        "sha256": "ffeab8eff224df93d79b803bebd58b4b539303629a68004fc607d04bdcaf0619"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/docs-after.json",
+        "sha256": "fa3560b1f61a49aca79e409b9113e35205536486f1bbbc6eec66af6d8cf67a46"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "47ab963c82138165bf570b155bde5559fa83711ab2775ec5dc4fa4db25771111:47ab963c82138165bf570b155bde5559fa83711ab2775ec5dc4fa4db25771111:f9d819db0aa31b233b2a4cae5b43295713bd0662eb5616fd8b72b32dca0e9b77",
+      "after": "47ab963c82138165bf570b155bde5559fa83711ab2775ec5dc4fa4db25771111:47ab963c82138165bf570b155bde5559fa83711ab2775ec5dc4fa4db25771111:f9d819db0aa31b233b2a4cae5b43295713bd0662eb5616fd8b72b32dca0e9b77",
+      "precheck": "47ab963c82138165bf570b155bde5559fa83711ab2775ec5dc4fa4db25771111:47ab963c82138165bf570b155bde5559fa83711ab2775ec5dc4fa4db25771111:f9d819db0aa31b233b2a4cae5b43295713bd0662eb5616fd8b72b32dca0e9b77",
+      "unchanged": true,
+      "precheckFresh": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/api-identity-before.json",
+        "sha256": "c1d24617c909d7f0979f3d41c62f7d6882425c9098a38bc0581853b35ce3a469"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/api-identity-after.json",
+        "sha256": "0d7794164a07d8a011609209b0b40c7582974674443539287ee2624db203d26d"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_c89a69d7e137",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "group-pivot-append-wave142"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/owned-mounts-before.json",
+        "sha256": "7205d25a0206924226788264df2c11a45f62bc507fdb0b35ec8236a743c8e837"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/owned-mounts-after.json",
+        "sha256": "2f19a9190f360783cd7d90a497ebc10d9a25bc99e842deaa8a9fc4cff6150b44"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3,
+        "artifact": {
+          "path": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/health-before.json",
+          "sha256": "6d4475538dea858da2ee402bc8c3f6a2e82bccbe2592350ca0a365c69b2fc2cd"
+        }
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3,
+        "artifact": {
+          "path": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/health-after.json",
+          "sha256": "b758f0c4ba841f51a494f4ccb44fc1a306500d38942da17e261bd23a51d1b9f2"
+        }
+      }
+    }
+  },
+  "evidence": {
+    "summary": {
+      "path": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/summary.json",
+      "sha256": "e3a09087915f8fc4aa67ded0ee79574e54beead87cf93671fed446f122498f94"
+    },
+    "playwrightReport": {
+      "path": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/playwright-report.json",
+      "sha256": "643d14a03fab6bfe5b846e59b27448cb73ef619f0b6e99eebf2347be54a76928"
+    },
+    "workflowReport": {
+      "path": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/playwright-results/related-medication-positiv-d886e-ough-native-edit-and-reload/attachments/loom-verification-report-json-42c90220950ad6b9fe4a9b3c1464ed473647917e.json",
+      "sha256": "f440ff0dca0a69acb82980526c476e7cf19ba0aae6acdb2c76d2922d3876743c"
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/logs/playwright.stdout.log",
+      "sha256": "451954916bdeb34eed646d8a0ba0f57e2d94e6bd43bbb1aa4b2b22bfe70697e5"
+    },
+    "precheck": {
+      "path": "/private/tmp/loom-medication-positive-project-canonical-wave145/run-cda-five-hop-related-expansion-medication-positive-fixture-kkMHA0/api-build-precheck.json",
+      "sha256": "8386a00ee107482ab17bc4e8a0e0214d14b8182923477c141859aebbd29526e6"
+    },
+    "rootAcceptedCommit": {
+      "sha": "2bd1b72d8b402b9f5d52cb8e0284ef29c8991536",
+      "provenance": "Frozen source HEAD accepted for wave145 before run start; the raw runner summary does not carry a commit field or separate root-acceptance receipt."
+    },
+    "browserProject": {
+      "project": "loom_dev_verify_muxvd6nf-a9f6dae",
+      "generation": "cda-fhir-v1"
+    },
+    "ownedStackValidationTarget": {
+      "project": "loom_dev_c89a69d7e137",
+      "composeProject": "loom-dev-6d7df93d6a37",
+      "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+      "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+      "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+      "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+      "apiPort": "8188",
+      "uiPort": "30008",
+      "sourceRoot": "/private/tmp/loom-construction-implementation",
+      "generation": "group-pivot-append-wave142"
+    }
+  },
+  "priorAttempts": [
+    {
+      "epoch": 143,
+      "status": "failed",
+      "classification": "harness_failure",
+      "reason": "Harness expected CREATE_TABLE but the command response type was TABLE_CREATED.",
+      "summary": {
+        "path": "/private/tmp/loom-medication-positive-project-canonical-wave143/run-cda-five-hop-related-expansion-medication-positive-fixture-nXwaCG/summary.json",
+        "sha256": "7699dd353491fa65f48ddda793c4572fd8d120efb23dfcb60b56b7ae2a7e8b74"
+      },
+      "playwrightReport": {
+        "path": "/private/tmp/loom-medication-positive-project-canonical-wave143/run-cda-five-hop-related-expansion-medication-positive-fixture-nXwaCG/playwright-report.json",
+        "sha256": "c61daadae1bae80bd13d92947301115642cde70162e6dff1bd525f2ca641a927"
+      },
+      "workflowReport": {
+        "path": "/private/tmp/loom-medication-positive-project-canonical-wave143/run-cda-five-hop-related-expansion-medication-positive-fixture-nXwaCG/playwright-results/related-medication-positiv-d886e-ough-native-edit-and-reload/attachments/loom-verification-report-json-81d894eb6ff8cfc60a625d41744f57a4fac3dddd.json",
+        "sha256": "3ef6116df0354fccc9a7dd96e6db51fcd23f6bdd2d79ea050f4e4ea30c21572a"
+      },
+      "runnerLog": {
+        "path": "/private/tmp/loom-medication-positive-project-canonical-wave143/run-cda-five-hop-related-expansion-medication-positive-fixture-nXwaCG/logs/playwright.stdout.log",
+        "sha256": "ca9768a7dca498155801ace5417ef49ad83d0c106b59014810c61c70dd782f4f"
+      }
+    },
+    {
+      "epoch": 144,
+      "status": "failed",
+      "classification": "harness_failure",
+      "reason": "Harness expected the isolated project scope with a hyphen; selection-member refs returned the project scope with a slash.",
+      "summary": {
+        "path": "/private/tmp/loom-medication-positive-project-canonical-wave144/run-cda-five-hop-related-expansion-medication-positive-fixture-6jRTvr/summary.json",
+        "sha256": "db4e16d58e911c6f1b6d1ab717474644f303b99a3261848861f687cc00298e35"
+      },
+      "playwrightReport": {
+        "path": "/private/tmp/loom-medication-positive-project-canonical-wave144/run-cda-five-hop-related-expansion-medication-positive-fixture-6jRTvr/playwright-report.json",
+        "sha256": "2bde9743e353425fdfa0f16ded484699137a37241a6bfa68356fe302233e2603"
+      },
+      "workflowReport": {
+        "path": "/private/tmp/loom-medication-positive-project-canonical-wave144/run-cda-five-hop-related-expansion-medication-positive-fixture-6jRTvr/playwright-results/related-medication-positiv-d886e-ough-native-edit-and-reload/attachments/loom-verification-report-json-389479f428ff8f2cdf024a0aceec6d7c3315a95d.json",
+        "sha256": "078640a68404723ea36812a645f48b995542714456d822cf09ba89f665dc40ab"
+      },
+      "runnerLog": {
+        "path": "/private/tmp/loom-medication-positive-project-canonical-wave144/run-cda-five-hop-related-expansion-medication-positive-fixture-6jRTvr/logs/playwright.stdout.log",
+        "sha256": "5739d0c51eaafd55ade59dc69336b4570d8ac064db044b101c202d033aa8e985"
+      }
+    }
+  ]
+}

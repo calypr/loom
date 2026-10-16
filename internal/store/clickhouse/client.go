@@ -35,8 +35,9 @@ type Client struct {
 }
 
 type Column struct {
-	Name string
-	Type string
+	Name        string
+	Type        string
+	LogicalType string
 }
 
 var identifierRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -268,7 +269,7 @@ func normalizeInsertValue(column Column, value any) (any, error) {
 		if unwrapClickHouseType(itemType, "Nullable") == "JSON" {
 			normalized := make([]*ch.JSON, items.Len())
 			for index := 0; index < items.Len(); index++ {
-				item, err := normalizeInsertValue(Column{Name: column.Name, Type: itemType}, items.Index(index).Interface())
+				item, err := normalizeInsertValue(Column{Name: column.Name, Type: itemType, LogicalType: column.LogicalType}, items.Index(index).Interface())
 				if err != nil {
 					return nil, err
 				}
@@ -285,7 +286,7 @@ func normalizeInsertValue(column Column, value any) (any, error) {
 		}
 		normalized := make([]any, items.Len())
 		for index := 0; index < items.Len(); index++ {
-			item, err := normalizeInsertValue(Column{Name: column.Name, Type: itemType}, items.Index(index).Interface())
+			item, err := normalizeInsertValue(Column{Name: column.Name, Type: itemType, LogicalType: column.LogicalType}, items.Index(index).Interface())
 			if err != nil {
 				return nil, err
 			}
@@ -295,6 +296,20 @@ func normalizeInsertValue(column Column, value any) (any, error) {
 	}
 	if baseType == "JSON" {
 		return normalizeJSONInsertValue(column.Name, value)
+	}
+	if strings.EqualFold(strings.TrimSpace(column.LogicalType), "object") && baseType == "String" {
+		object, ok, err := jsonObjectMap(value)
+		if err != nil {
+			return nil, fmt.Errorf("ClickHouse column %q JSON text object: %w", column.Name, err)
+		}
+		if !ok {
+			return nil, fmt.Errorf("ClickHouse column %q expects a JSON object, got %T", column.Name, value)
+		}
+		encoded, err := json.Marshal(object)
+		if err != nil {
+			return nil, fmt.Errorf("ClickHouse column %q encode JSON text object: %w", column.Name, err)
+		}
+		return string(encoded), nil
 	}
 	text, isString := value.(string)
 	if !isString {
@@ -384,17 +399,16 @@ func normalizeNativeJSONField(value any) (any, error) {
 		return value, nil
 	}
 	items := make([]*ch.JSON, rv.Len())
+	allObjects := rv.Len() > 0
 	for index := 0; index < rv.Len(); index++ {
 		item := rv.Index(index).Interface()
-		if item == nil || (reflect.ValueOf(item).Kind() == reflect.Pointer && reflect.ValueOf(item).IsNil()) {
-			continue
-		}
 		object, ok, err := jsonObjectMap(item)
 		if err != nil {
 			return nil, err
 		}
 		if !ok {
-			return value, nil
+			allObjects = false
+			break
 		}
 		converted, err := buildNativeJSONObject(object)
 		if err != nil {
@@ -402,7 +416,112 @@ func normalizeNativeJSONField(value any) (any, error) {
 		}
 		items[index] = converted
 	}
-	return ch.NewDynamicWithType(items, "Array(JSON)"), nil
+	if allObjects {
+		return ch.NewDynamicWithType(items, "Array(JSON)"), nil
+	}
+
+	dynamicItems := make([]ch.Dynamic, rv.Len())
+	for index := 0; index < rv.Len(); index++ {
+		item, err := normalizeNativeJSONArrayItem(rv.Index(index).Interface())
+		if err != nil {
+			return nil, err
+		}
+		dynamicItems[index] = item
+	}
+	return ch.NewDynamicWithType(dynamicItems, "Array(Dynamic)"), nil
+}
+
+func normalizeNativeJSONArrayItem(value any) (ch.Dynamic, error) {
+	if value == nil {
+		return ch.NewDynamic(nil), nil
+	}
+	rv := reflect.ValueOf(value)
+	for rv.IsValid() && (rv.Kind() == reflect.Interface || rv.Kind() == reflect.Pointer) {
+		if rv.IsNil() {
+			return ch.NewDynamic(nil), nil
+		}
+		rv = rv.Elem()
+	}
+	if !rv.IsValid() {
+		return ch.NewDynamic(nil), nil
+	}
+	value = rv.Interface()
+	if object, ok, err := jsonObjectMap(value); err != nil {
+		return ch.Dynamic{}, err
+	} else if ok {
+		converted, err := buildNativeJSONObject(object)
+		if err != nil {
+			return ch.Dynamic{}, err
+		}
+		return ch.NewDynamicWithType(converted, "JSON"), nil
+	}
+
+	normalized, err := normalizeNativeJSONField(value)
+	if err != nil {
+		return ch.Dynamic{}, err
+	}
+	if dynamic, ok := normalized.(ch.Dynamic); ok {
+		return dynamic, nil
+	}
+	if normalized == nil {
+		return ch.NewDynamic(nil), nil
+	}
+	if _, ok := normalized.([]byte); ok {
+		return ch.NewDynamicWithType(normalized, "String"), nil
+	}
+	if jsonNumber, ok := normalized.(json.Number); ok {
+		if integer, err := jsonNumber.Int64(); err == nil {
+			return ch.NewDynamicWithType(integer, "Int64"), nil
+		}
+		if integer, err := strconv.ParseUint(string(jsonNumber), 10, 64); err == nil {
+			return ch.NewDynamicWithType(integer, "UInt64"), nil
+		}
+		if number, err := jsonNumber.Float64(); err == nil {
+			return ch.NewDynamicWithType(number, "Float64"), nil
+		}
+		return ch.Dynamic{}, fmt.Errorf("unsupported JSON number %q", jsonNumber)
+	}
+
+	typeName := nativeJSONDynamicType(normalized)
+	if typeName == "" {
+		return ch.Dynamic{}, fmt.Errorf("unsupported JSON array item type %T", normalized)
+	}
+	return ch.NewDynamicWithType(normalized, typeName), nil
+}
+
+func nativeJSONDynamicType(value any) string {
+	switch reflect.TypeOf(value).Kind() {
+	case reflect.Bool:
+		return "Bool"
+	case reflect.String:
+		return "String"
+	case reflect.Int:
+		return "Int64"
+	case reflect.Int8:
+		return "Int8"
+	case reflect.Int16:
+		return "Int16"
+	case reflect.Int32:
+		return "Int32"
+	case reflect.Int64:
+		return "Int64"
+	case reflect.Uint:
+		return "UInt64"
+	case reflect.Uint8:
+		return "UInt8"
+	case reflect.Uint16:
+		return "UInt16"
+	case reflect.Uint32:
+		return "UInt32"
+	case reflect.Uint64:
+		return "UInt64"
+	case reflect.Float32:
+		return "Float32"
+	case reflect.Float64:
+		return "Float64"
+	default:
+		return ""
+	}
 }
 
 func jsonObjectMap(value any) (map[string]any, bool, error) {

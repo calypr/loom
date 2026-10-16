@@ -1,0 +1,3 @@
+{"resourceType":"Condition","id":"condition-stage-route","clinicalStatus":{"text":"active"},"subject":{"reference":"Patient/patient-observation-anchor"},"stage":[{"assessment":[{"reference":"Observation/observation-stage-route"}]}]}
+{"resourceType":"Condition","id":"condition-focus-route","clinicalStatus":{"text":"active"},"subject":{"reference":"Patient/patient-focus-anchor"}}
+{"resourceType":"Condition","id":"condition-subject-route","clinicalStatus":{"text":"active"},"subject":{"reference":"Patient/patient-subject-anchor"}}

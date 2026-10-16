@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "scenario": "cda-workspace-combine",
+  "case": "group-join",
+  "status": "partial",
+  "classification": "HARNESS_GROUP_APPLY_OWNER_MARKER",
+  "scope": "Real CDA project loom_dev_cda_fhir, generation cda-fhir-v1. The raw witness, Explorer scope, and ten native actions passed; the case stopped at a harness Group Apply owner-marker locator before Join lifecycle assertions.",
+  "workflowResult": {
+    "requiredChecksPassed": 5,
+    "requiredChecksTotal": 16,
+    "nativeActionsPassed": 10,
+    "nativeActionsFailed": 0,
+    "recordedAssertionsPassed": 21,
+    "recordedAssertionsFailed": 0,
+    "maxActionMs": 692,
+    "fullGroupJoinLifecycleReached": false,
+    "browserTestDurationMs": 22799,
+    "runnerProcessDurationMs": null
+  },
+  "firstFailure": {
+    "name": "Group Apply owner-marker locator",
+    "locator": "getByTestId('construction-table-out_ccf120b79619e5de43f88962')",
+    "detail": "Timed out while the Group editor was open; no Join lifecycle assertions ran.",
+    "classificationEvidence": "Root reviewed retained DOM and source and confirmed the owner-marker assertion was a harness defect, not a product failure."
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "beforeSha256": "515e5e9009dc6d9fb6356d49449a9a4b081e5151bfe9128045dfe53c390a57a7",
+      "afterSha256": "515e5e9009dc6d9fb6356d49449a9a4b081e5151bfe9128045dfe53c390a57a7",
+      "files": 1498,
+      "changedPaths": []
+    },
+    "docs": {
+      "beforeSha256": "d6403ed9a24aca7c8548e900093f25d099b742497086204e37323532c74787bd",
+      "afterSha256": "d6403ed9a24aca7c8548e900093f25d099b742497086204e37323532c74787bd",
+      "files": 143,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+    "ownedMounts": "PASS unchanged",
+    "health": "PASS 3/3 before and after",
+    "browserSession": {
+      "handle": 23802,
+      "exitCode": 1
+    }
+  },
+  "artifacts": {
+    "fullReport": {
+      "path": "/private/tmp/loom-native-parallel-wave57/cda-workspace-combine/artifacts/cda-current-draft-group-jo-424dc-the-current-draft-lifecycle/cda-report.json",
+      "sha256": "75a1b97562b6de836c03a25b5ee7143fe8ae030bdbec01792d21ba15ef86bfe9"
+    },
+    "closure": {
+      "path": "docs/verification/playwright/runtime/current-draft-cda-group-join-epoch57-closure.json"
+    },
+    "playwrightResults": {
+      "path": "/private/tmp/loom-native-parallel-wave57/cda-workspace-combine/results.json",
+      "sha256": "a346db6ebeae607bc575c9238f42058b05d864e62eac6fa54b3ec798f4aea75d"
+    },
+    "runPlan": "/private/tmp/loom-native-parallel-wave57/run-plan.json"
+  },
+  "nextCheck": "Rerun this exact real-CDA case after the integrated Group Apply owner-marker harness correction; keep the lifecycle unverified until the strict run passes."
+}

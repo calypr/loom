@@ -1,0 +1,2 @@
+{"resourceType":"Observation","id":"replacement-observation-001","status":"final","subject":{"reference":"Patient/replacement-patient-001"},"code":{"text":"Connected preservation route"}}
+{"resourceType":"Observation","id":"replacement-observation-002","status":"final","subject":{"reference":"Patient/replacement-patient-002"},"code":{"text":"Connected preservation route"}}

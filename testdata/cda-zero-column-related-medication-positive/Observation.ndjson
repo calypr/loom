@@ -1,0 +1,1 @@
+{"resourceType":"Observation","id":"route-observation","status":"final","code":{"text":"Medication route fixture"},"focus":[{"reference":"Specimen/positive-specimen"}]}

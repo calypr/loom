@@ -1,0 +1,385 @@
+{
+  "case": "compound-coded-group-basic",
+  "runner": "@playwright/test",
+  "status": "passed",
+  "scope": "basic synthetic fixture; CDA follow-up remains unverified",
+  "evidenceDirectory": "/private/tmp/loom-native-compound-handoff-fix-evidence",
+  "sourceFingerprint": {
+    "sha256": "c62fd107f21a4ee93a9081ea06d1ffffba6c2bdbf88919314a8472c1488ce8d0",
+    "files": 1481
+  },
+  "sourceUnchanged": true,
+  "apiBuildFreeze": {
+    "before": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+    "after": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114"
+  },
+  "dimensions": {
+    "usability": "passed",
+    "correctness": "passed",
+    "persistence": "passed",
+    "performance": "passed"
+  },
+  "requiredChecks": [
+    "raw synthetic source oracle matches dev-observation-001 height value",
+    "Builder generation is bound to the raw synthetic source record",
+    "Initial GROUP preview counts the independently selected Observation population",
+    "Initial coded preview matches the raw height and row-count oracle",
+    "Apply persists the coded extraction and GROUP as one construction",
+    "Edit preserves the exact population and binds Observation ID through the coded output",
+    "Edited coded group and exact rows survive a fresh Builder reload",
+    "Cancel preserves the edited grouped draft",
+    "Applying GROUP removal restores the source schema without either owned step",
+    "Restored source workspace and exact Observation ID survive reload"
+  ],
+  "missingRequiredChecks": [],
+  "oracle": {
+    "generation": "devloop-v1",
+    "status": "final",
+    "values": [
+      "172.5"
+    ],
+    "specimenType": "172.5",
+    "count": 1,
+    "codingPairs": [
+      {
+        "system": "https://example.test/codes",
+        "code": "height"
+      }
+    ]
+  },
+  "timingsMs": {
+    "openPicker": 1461,
+    "openToCountPreview": 1470,
+    "selectToPreview": 1075,
+    "applyFirstCodedGroup": 571,
+    "ordinaryKeyToPreview": 1263,
+    "applyEditedCodedGroup": 593,
+    "reloadEditedCodedGroup": 1474,
+    "removeToPreview": 924,
+    "cancelGroupRemoval": 469,
+    "confirmedRemovalToPreview": 898,
+    "applyGroupRemoval": 442,
+    "reloadRestoredSource": 923
+  },
+  "unexpectedErrors": [],
+  "lifecycleChecks": [
+    {
+      "dimension": "correctness",
+      "name": "watched source fingerprint baseline captured before browser lifecycle",
+      "status": "passed",
+      "evidence": {
+        "fingerprint": {
+          "sha256": "c62fd107f21a4ee93a9081ea06d1ffffba6c2bdbf88919314a8472c1488ce8d0",
+          "files": 1481
+        }
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "API build identity baseline captured before browser lifecycle",
+      "status": "passed",
+      "evidence": {
+        "identity": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114"
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "raw synthetic source oracle matches dev-observation-001 height value",
+      "status": "passed",
+      "evidence": {
+        "project": "loom_dev_verify_muupeclm-985c051",
+        "generation": "devloop-v1",
+        "id": "dev-observation-001",
+        "resourceType": "Observation",
+        "status": "final",
+        "values": [
+          "172.5"
+        ],
+        "codingPairs": [
+          {
+            "system": "https://example.test/codes",
+            "code": "height"
+          }
+        ]
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "Builder generation is bound to the raw synthetic source record",
+      "status": "passed",
+      "evidence": {
+        "project": "loom_dev_verify_muupeclm-985c051",
+        "builderGeneration": "devloop-v1",
+        "sourceGeneration": "devloop-v1"
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "openToCountPreview completes within five seconds",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 1470,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "Initial GROUP preview counts the independently selected Observation population",
+      "status": "passed",
+      "evidence": {
+        "headers": [
+          "Row count"
+        ],
+        "rows": [
+          [
+            "1"
+          ]
+        ],
+        "selectedIDs": [
+          "dev-observation-001"
+        ],
+        "expectedCount": 1
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "selectToPreview completes within five seconds",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 1075,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "Initial coded preview matches the raw height and row-count oracle",
+      "status": "passed",
+      "evidence": {
+        "headers": [
+          "Height",
+          "Row count"
+        ],
+        "rows": [
+          [
+            "172.5",
+            "1"
+          ]
+        ],
+        "expectedHeight": "172.5",
+        "expectedCount": "1"
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "applyFirstCodedGroup completes within five seconds",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 571,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "persistence",
+      "name": "Apply persists the coded extraction and GROUP as one construction",
+      "status": "passed",
+      "evidence": {
+        "stepKinds": [
+          "CODED_PIVOT",
+          "GROUP"
+        ],
+        "helperStepId": "group-coded-input_03c28f21-6286-4e33-9742-9ce7537181b7",
+        "groupStepId": "group_77576f0a-9a3f-4fbf-8b8d-47332b119afc",
+        "ownerStepId": "group_77576f0a-9a3f-4fbf-8b8d-47332b119afc",
+        "columns": 1
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "ordinaryKeyToPreview completes within five seconds",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 1263,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "applyEditedCodedGroup completes within five seconds",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 593,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "persistence",
+      "name": "Edit preserves the exact population and binds Observation ID through the coded output",
+      "status": "passed",
+      "evidence": {
+        "population": {
+          "selectionRevisionId": "selection_0f4d0ee0bd7efa41645447c39d07c9db71ce248df2228a956971a579a300eba6",
+          "route": []
+        },
+        "selectionRevisionId": "selection_0f4d0ee0bd7efa41645447c39d07c9db71ce248df2228a956971a579a300eba6",
+        "groupKeyOutputColumnId": "coded-row-value_9915c530-0a07-4bd7-b79a-8d299cb56dd9",
+        "groupKeyInputColumnIds": [
+          "coded-group-input_a890288e-36c2-4bcc-a2fe-dbd230f1dd8c",
+          "coded-row-value_9915c530-0a07-4bd7-b79a-8d299cb56dd9"
+        ]
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "reloadEditedCodedGroup completes within five seconds",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 1474,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "persistence",
+      "name": "Edited coded group and exact rows survive a fresh Builder reload",
+      "status": "passed",
+      "evidence": {
+        "draftDigest": "sha256:c38fd6ee824c3e39d66d6ef0ab449e06f912c35cd898bd22e67379b5267f1451",
+        "rowCount": 1,
+        "row": [
+          "172.5",
+          "dev-observation-001",
+          "1"
+        ],
+        "expectedObservationId": "dev-observation-001",
+        "expectedHeight": "172.5"
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "removeToPreview completes within five seconds",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 924,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "cancelGroupRemoval completes within five seconds",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 469,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "persistence",
+      "name": "Cancel preserves the edited grouped draft",
+      "status": "passed",
+      "evidence": {
+        "beforeDigest": "sha256:c38fd6ee824c3e39d66d6ef0ab449e06f912c35cd898bd22e67379b5267f1451",
+        "afterCancelDigest": "sha256:c38fd6ee824c3e39d66d6ef0ab449e06f912c35cd898bd22e67379b5267f1451",
+        "constructionSteps": [
+          "CODED_PIVOT",
+          "GROUP"
+        ]
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "confirmedRemovalToPreview completes within five seconds",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 898,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "applyGroupRemoval completes within five seconds",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 442,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "persistence",
+      "name": "Applying GROUP removal restores the source schema without either owned step",
+      "status": "passed",
+      "evidence": {
+        "restoredConstructionSteps": 0,
+        "restoredColumns": [
+          "Observation ID"
+        ],
+        "sourceColumns": [
+          "Observation ID"
+        ]
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "reloadRestoredSource completes within five seconds",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 923,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "persistence",
+      "name": "Restored source workspace and exact Observation ID survive reload",
+      "status": "passed",
+      "evidence": {
+        "rowCount": 1,
+        "headers": [
+          "OBSERVATION ID"
+        ],
+        "restoredObservationIDs": [
+          "dev-observation-001"
+        ],
+        "expectedObservationId": "dev-observation-001",
+        "constructionSteps": 0
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "watched source stayed unchanged during browser run",
+      "status": "passed",
+      "evidence": {
+        "before": {
+          "sha256": "c62fd107f21a4ee93a9081ea06d1ffffba6c2bdbf88919314a8472c1488ce8d0",
+          "files": 1481
+        },
+        "after": {
+          "sha256": "c62fd107f21a4ee93a9081ea06d1ffffba6c2bdbf88919314a8472c1488ce8d0",
+          "files": 1481
+        },
+        "changedPaths": []
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "API build identity stayed unchanged during browser run",
+      "status": "passed",
+      "evidence": {
+        "before": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+        "after": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114"
+      }
+    }
+  ],
+  "runDurationSeconds": 31.6,
+  "accounting": {
+    "productFixes": [
+      "Selected-population Group source materialization",
+      "Duplicate selection load during outer Builder handoff"
+    ],
+    "harnessCorrections": [
+      "Blank Builder GET readiness",
+      "Accessible row-choice name",
+      "Decimal Height identity",
+      "Typed public snapshot metadata",
+      "Response completion in capture unit"
+    ],
+    "repairTimeSeconds": null
+  }
+}

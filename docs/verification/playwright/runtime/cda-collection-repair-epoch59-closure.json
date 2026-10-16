@@ -1,0 +1,150 @@
+{
+  "epoch": 59,
+  "status": "CLOSED_WITH_CASE_PASS_REPORT_UNVERIFIED_DIMENSIONS",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "beforeSha256": "65f07aba24b1782034a17d310e0a7962548c7068dc1333cdef03547aee3dfc97",
+      "afterSha256": "65f07aba24b1782034a17d310e0a7962548c7068dc1333cdef03547aee3dfc97",
+      "files": 1498,
+      "changedPaths": []
+    },
+    "docs": {
+      "beforeSha256": "65ea6fb9f0999696657aea23e9546c1e29a1ab0e9243e0155d7f5a6f070cfbcc",
+      "afterSha256": "65ea6fb9f0999696657aea23e9546c1e29a1ab0e9243e0155d7f5a6f070cfbcc",
+      "files": 147,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+      "after": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "beforeStatus": "PASS",
+      "afterStatus": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "beforeStatus": "PASS",
+      "beforeSamples": 3,
+      "afterStatus": "PASS",
+      "afterSamples": 3,
+      "allApiUiHealthy": true
+    },
+    "handles": {
+      "apiBuildPrecheck": {
+        "terminalExitCode": 0,
+        "artifact": "/private/tmp/loom-native-parallel-wave59/api-build-precheck.json"
+      },
+      "beforeCapture": {
+        "session": 79949,
+        "exitCode": 0
+      },
+      "beforeHealth": {
+        "session": 35887,
+        "exitCode": 0
+      },
+      "browser": {
+        "session": 23411,
+        "exitCode": 0
+      },
+      "afterCapture": {
+        "session": 20623,
+        "exitCode": 0
+      },
+      "afterHealth": {
+        "session": 74908,
+        "exitCode": 0
+      }
+    }
+  },
+  "case": {
+    "owner": "release_cda_epoch19",
+    "scenario": "cda-collection-repair/partial-long-route-repair-and-reload",
+    "title": "remove an unmapped selected resource, verify the saved route, and reload",
+    "runnerStatus": "passed",
+    "runnerExpected": 1,
+    "runnerUnexpected": 0,
+    "playwrightTestDurationMs": 27232,
+    "runnerProcessDurationMs": 29123,
+    "domainReportStatus": "passed",
+    "verificationReportStatus": "unverified",
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "untested",
+      "performance": "untested"
+    },
+    "requiredChecks": {
+      "passed": 0,
+      "total": 0,
+      "missing": []
+    },
+    "note": "The CDA fixture report has no registered required checks for this scenario, so its overall status and persistence/performance dimensions remain unverified despite the passing native test and domain workflow report.",
+    "domainAssertions": {
+      "passed": 16,
+      "failed": 0
+    },
+    "nativeActions": {
+      "passed": 16,
+      "failed": 0,
+      "maxElapsedMs": 245
+    },
+    "workflowTimings": {
+      "measuredCases": 13,
+      "maxCaseDurationMs": 2919,
+      "removeUnmappedMs": 2919,
+      "reattachRouteWaitMs": 798,
+      "tableLoadToSettingsMaxMs": 1549
+    },
+    "networkErrors": 0,
+    "runtimeErrors": 0,
+    "incidentalAssetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ],
+    "reportPath": "/private/tmp/loom-native-parallel-wave59/cda-collection-repair-partial-long-route/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/cda-report.json",
+    "reportSha256": "8d5dfd9775b1164bb2f75abc10c1b1341586686e40f468a46401da9fef0463d8",
+    "domainReportPath": "/private/tmp/loom-native-parallel-wave59/cda-collection-repair-partial-long-route/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/attachments/collection-repair-domain-report.json",
+    "domainReportSha256": "c36bf2b0f248750fad36e2bc581ad87d97c696d4973be316d0b8867bd7eacc46",
+    "playwrightResultsPath": "/private/tmp/loom-native-parallel-wave59/cda-collection-repair-partial-long-route/results.json",
+    "playwrightResultsSha256": "af07871f5580927411d35c89c566d3e352c4bbf567b526d40dde9af7a2116383",
+    "noRetry": true,
+    "functionalScope": "The bounded partial-long-route case removed the one unmapped selected Specimen, reloaded and verified the remaining Observation rows against raw IDs, cleared to authorized rows, reattached the repaired multi-member route, and verified it again after reload. This is the selected workflow only; the generic persistence/performance dimensions remain unverified.",
+    "classification": "CASE_SPECIFIC_FUNCTIONAL_PASS_WITH_UNVERIFIED_REPORT_DIMENSIONS",
+    "durableReportPath": "docs/verification/playwright/runtime/cda-collection-repair-epoch59-report.json",
+    "durableReportSha256": "deffdba633c945f0f288dccd43f9472f3f4f80432d17a631a9c1ae8802eef751"
+  },
+  "artifacts": {
+    "runPlan": "/private/tmp/loom-native-parallel-wave59/run-plan.json",
+    "environment": "/private/tmp/loom-native-parallel-wave59/environment.sh",
+    "sourceBefore": "/private/tmp/loom-native-parallel-wave59/source-before.json",
+    "sourceAfter": "/private/tmp/loom-native-parallel-wave59/source-after.json",
+    "docsBefore": "/private/tmp/loom-native-parallel-wave59/docs-before.json",
+    "docsAfter": "/private/tmp/loom-native-parallel-wave59/docs-after.json",
+    "apiBefore": "/private/tmp/loom-native-parallel-wave59/api-identity-before.json",
+    "apiAfter": "/private/tmp/loom-native-parallel-wave59/api-identity-after.json",
+    "mountsBefore": "/private/tmp/loom-native-parallel-wave59/owned-mounts-before.json",
+    "mountsAfter": "/private/tmp/loom-native-parallel-wave59/owned-mounts-after.json",
+    "healthBefore": "/private/tmp/loom-native-parallel-wave59/health-before.json",
+    "healthAfter": "/private/tmp/loom-native-parallel-wave59/health-after.json"
+  },
+  "durableReportPath": "docs/verification/playwright/runtime/cda-collection-repair-epoch59-report.json",
+  "durableReportSha256": "deffdba633c945f0f288dccd43f9472f3f4f80432d17a631a9c1ae8802eef751"
+}

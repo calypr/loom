@@ -1,0 +1,194 @@
+{
+  "schemaVersion": 1,
+  "epoch": 107,
+  "scenario": "builder-combine",
+  "case": "join",
+  "title": "KEY_JOIN INNER/LEFT preview, apply, cancel, removal and reload",
+  "status": "failed_harness_setup",
+  "runnerStatus": "failed",
+  "coverageStatus": "failed_harness_setup",
+  "classification": "HARNESS_CHROMIUM_LAUNCH_SIGABRT_KILL_EPERM",
+  "classificationReason": "The Playwright test failed during browserType.launch before browser context, page, fixture setup, or native UI actions. Chromium exited with SIGABRT; Playwright cleanup reported kill EPERM. This is a browser-launch environment failure and provides no product behavior result.",
+  "startedAt": "2026-10-06T18:13:07.348Z",
+  "finishedAt": "2026-10-06T18:13:08.539Z",
+  "durableClosurePath": "docs/verification/playwright/runtime/published-join-epoch107-closure.json",
+  "target": {
+    "kind": "basic-devloop-browser-fixture",
+    "project": "loom_dev_c89a69d7e137",
+    "generation": "fixture-v1",
+    "fixtureContext": {
+      "baseProject": "loom_dev_c89a69d7e137",
+      "generation": "fixture-v1",
+      "freshExplorerPerRun": true,
+      "freshExplorerCreated": false,
+      "note": "Browser launch failed before the native case fixture setup ran."
+    },
+    "fixtureSetupStatus": "not-started",
+    "cdaDatasetClaim": false
+  },
+  "requiredChecks": {
+    "total": 32,
+    "passed": 0,
+    "failed": 0,
+    "unrun": 32,
+    "passedNames": [],
+    "unrunNames": [
+      "fixture contains one bootstrap Patient, four Observations, and three DiagnosticReports",
+      "Observation source starts with every literal fixture identity",
+      "DiagnosticReport source starts with every literal fixture identity",
+      "native source-table publication completed successfully",
+      "Builder response matches the exact project-scoped route, workspace title, and source output identities",
+      "source Builder snapshot is bound to the expected generation, draft, and authorization scope",
+      "source revisions are published in the exact project, generation, and authorization scope",
+      "source schemas expose compatible nullable scalar ID keys, scalar status fields, and a numeric Observation value",
+      "published source API and schema fingerprint captured within five seconds",
+      "native Combine creates a rooted empty Observation target without adding an authored step or output column",
+      "native Combine inputs pin the exact current Observation and DiagnosticReport revisions",
+      "published Join source labels match independently authored columns and source previews",
+      "pinned published source cards show immutable authored output and column labels",
+      "Join output names and labels default from selected pinned fields without manual entry",
+      "INNER preview returns the three exact rows matched on shared required IDs",
+      "INNER Apply preserves the exact joined rows",
+      "INNER table reload retains the three exact rows",
+      "Canceling the LEFT edit leaves the saved INNER operation unchanged",
+      "LEFT preview retains the unmatched Observation with empty right-side values",
+      "LEFT preview before Apply includes null projections for the unmatched row",
+      "LEFT Apply preserves exact matches and unmatched null fields",
+      "LEFT rows and nulls survive Builder reload",
+      "KEY_JOIN removal proposal is ready for the rooted empty target",
+      "removing KEY_JOIN and reloading restores the rooted empty target",
+      "published Observation and DiagnosticReport source tables remain unchanged",
+      "project, generation, Explorer, and authorization scope remain stable",
+      "open Combine operation chooser action-to-render within budget",
+      "choose KEY_JOIN and load the initial two input selectors action-to-render within budget",
+      "render INNER Join preview action-to-render within budget",
+      "open saved Combine editor and load pinned sources action-to-render within budget",
+      "render LEFT Join preview action-to-render within budget",
+      "repreview LEFT Join before Apply action-to-render within budget"
+    ],
+    "note": "Playwright could not launch Chromium, so fixture creation and every registered native check remained unrun. The external source/API/mount/health integrity closure passed separately; that closure is not counted as a case assertion."
+  },
+  "assertions": {
+    "passed": 0,
+    "failed": 0,
+    "total": 0,
+    "note": "No workflow assertions ran."
+  },
+  "nativeActions": {
+    "passed": 0,
+    "failed": 0,
+    "total": 0,
+    "maxElapsedMs": 0,
+    "actions": []
+  },
+  "dimensions": {
+    "usability": "untested",
+    "correctness": "untested",
+    "persistence": "untested",
+    "performance": "untested"
+  },
+  "browserLaunchFailure": {
+    "kind": "browserType.launch",
+    "message": "Error: browserType.launch: Target page, context or browser has been closed",
+    "browserProcessExitSignal": "SIGABRT",
+    "cleanupKillError": "EPERM",
+    "testDurationMs": 1,
+    "runnerDurationMs": 1191.306,
+    "fixtureSetupStarted": false,
+    "freshExplorerCreated": false,
+    "nativeUIActions": 0,
+    "networkRequests": 0,
+    "failureAttribution": "environment/harness setup; not a product finding"
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "274ffdbf89822a5ad6d2972cedbcd9c431ef75de8aa5c366f6530f907a87727b",
+        "files": 1534
+      },
+      "after": {
+        "sha256": "274ffdbf89822a5ad6d2972cedbcd9c431ef75de8aa5c366f6530f907a87727b",
+        "files": 1534
+      },
+      "unchanged": true
+    },
+    "apiBuildIdentity": {
+      "before": "515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:6249df280cc3597a7f2843aedc45d34270846a38ade91ae08295cc5d2ca0fa10",
+      "after": "515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:6249df280cc3597a7f2843aedc45d34270846a38ade91ae08295cc5d2ca0fa10",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave107/health-before.json",
+        "sha256": "e253f71f9cb0bf285576ba62086d1c9a39a2be77c0c3eae0d885f3154bc76ad6"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave107/health-after.json",
+        "sha256": "d300d1639239113766b6b9269e3079a3f10b51a5e230e456ec56828bd86d1f76"
+      }
+    },
+    "targetRoleNote": "Integrity target records the owned stack used for source/API/build/health/mount validation. It is not the browser fixture project; see target for the basic devloop fixture."
+  },
+  "rawArtifacts": {
+    "playwrightResults": {
+      "path": "/private/tmp/loom-native-combine-join-wave107/attempt1/results.json",
+      "sha256": "5597f7d24c1a0ff62e910c9b97fc6ecb81ed33021859818ea15c25577e141f26"
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-combine-join-wave107/attempt1/runner.log",
+      "sha256": "965228438b04adfe7fc86040bae1982cc92880b4b98e4477cd50a3f11068ab0e"
+    },
+    "errorContext": {
+      "path": "/private/tmp/loom-native-combine-join-wave107/attempt1/artifacts/join-KEY-JOIN-INNER-LEFT-p-7f058-y-cancel-removal-and-reload/error-context.md",
+      "sha256": "e6475831c33b46280af62f6183de7663dc94541da9f7753db3d7ad61264adcad"
+    },
+    "strictIntegrityClosure": {
+      "path": "/private/tmp/loom-native-combine-join-wave107/closure.json",
+      "sha256": "8ee9f414ad35e2ab472d5f2f36821874ad22cd67b740619ffe73b1a584b5db5f"
+    }
+  },
+  "ownedStackValidationTarget": {
+    "kind": "isolated",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "sourceFingerprint": {
+      "sha256": "274ffdbf89822a5ad6d2972cedbcd9c431ef75de8aa5c366f6530f907a87727b",
+      "files": 1534
+    },
+    "apiBuildIdentity": "515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:6249df280cc3597a7f2843aedc45d34270846a38ade91ae08295cc5d2ca0fa10",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008"
+  },
+  "verificationScope": "Native browser fixture uses the basic devloop fixture; the CDA/FHIR project is only the owned stack validation target."
+}

@@ -1,0 +1,3 @@
+{"resourceType":"Observation","id":"verify-repeat-two","status":"final","subject":{"reference":"Patient/verify-repeated-patient"},"code":{"text":"two component values"},"component":[{"code":{"text":"component-alpha"},"valueString":"value-alpha"},{"code":{"text":"component-beta"},"valueString":"value-beta"}]}
+{"resourceType":"Observation","id":"verify-repeat-empty","status":"final","subject":{"reference":"Patient/verify-repeated-patient"},"code":{"text":"literal empty component list"},"component":[]}
+{"resourceType":"Observation","id":"verify-repeat-missing","status":"final","subject":{"reference":"Patient/verify-repeated-patient"},"code":{"text":"component field omitted"}}

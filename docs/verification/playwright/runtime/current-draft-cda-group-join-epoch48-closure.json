@@ -1,0 +1,112 @@
+{
+  "epoch": 48,
+  "status": "CLOSED_WITH_CASE_FAILURE",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "beforeSha256": "17a3440fb11504223d63e9136e906f6b3cd089740d5444c2ddf097d415e406fa",
+      "afterSha256": "17a3440fb11504223d63e9136e906f6b3cd089740d5444c2ddf097d415e406fa",
+      "files": 1498,
+      "changedPaths": []
+    },
+    "docs": {
+      "beforeSha256": "ec226ec008e4bb019e0fb7f983fb998a3a5dbe8157b319549ad4dbde3182463e",
+      "afterSha256": "ec226ec008e4bb019e0fb7f983fb998a3a5dbe8157b319549ad4dbde3182463e",
+      "files": 127,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+      "after": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "beforeStatus": "PASS",
+      "afterStatus": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "beforeStatus": "PASS",
+      "beforeSamples": 3,
+      "afterStatus": "PASS",
+      "afterSamples": 3,
+      "allApiUiHealthy": true
+    },
+    "handles": {
+      "beforeCapture": {
+        "session": 34070,
+        "exitCode": 0
+      },
+      "beforeHealth": {
+        "session": 80950,
+        "exitCode": 0
+      },
+      "browser": {
+        "session": 69838,
+        "exitCode": 1
+      },
+      "afterCapture": {
+        "session": 36764,
+        "exitCode": 0
+      },
+      "afterHealth": {
+        "session": 3424,
+        "exitCode": 0
+      }
+    }
+  },
+  "case": {
+    "owner": "legacy_workspace_browser_case",
+    "scenario": "cda-workspace-combine/group-join",
+    "title": "two independent native Observation Groups join through the current draft lifecycle",
+    "result": "FAILED_HARNESS_READINESS_HEADER",
+    "causeClassification": "HARNESS_READINESS_HEADER",
+    "durationMs": 22687,
+    "runnerExpected": 0,
+    "runnerUnexpected": 1,
+    "reportStatus": "failed",
+    "reportPath": "/private/tmp/loom-native-parallel-wave48/cda-workspace-combine/artifacts/cda-current-draft-group-jo-424dc-the-current-draft-lifecycle/cda-report.json",
+    "targetProject": "loom_dev_cda_fhir",
+    "targetGeneration": "cda-fhir-v1",
+    "firstFailure": "The native Group COUNT_ROWS action timed out in its post-click readiness predicate: it compared a first-span label with the full-text label plus type. The retained Group preview completed in 27 ms and contained the two exact oracle groups; this is classified as HARNESS_READINESS_HEADER, not product performance.",
+    "rawOracle": "PASS: bounded 2,000-row scan; left/right selected members 3/1; shared-key count 2; exact raw ID/scope assertions passed.",
+    "actionsPassed": 9,
+    "actionsFailed": 1,
+    "nativeRequests": 0,
+    "requiredChecksPassed": 5,
+    "requiredChecksTotal": 16,
+    "missingRequiredChecks": 11,
+    "browserLifecycleStarted": true,
+    "groupJoinLifecycleReached": false,
+    "reportSha256": "92db7b093f23d5e914cfb04ab297ca99ce0062e8663bee644b7d25ecb0dfa5ce",
+    "errorContextSha256": "02f3d1984b76794dc6483aaf642ae2d80040e4a224a323805f644d96bbca55b6",
+    "playwrightResultsSha256": "2f4d0ecdfcaf7c5ca289ddc3a799508bcd4e8a4cdc9705aa9b64dd525990ce8c"
+  },
+  "retryPerformed": false,
+  "artifacts": {
+    "sourceBefore": "/private/tmp/loom-native-parallel-wave48/source-before.json",
+    "sourceAfter": "/private/tmp/loom-native-parallel-wave48/source-after.json",
+    "docsBefore": "/private/tmp/loom-native-parallel-wave48/docs-before.json",
+    "docsAfter": "/private/tmp/loom-native-parallel-wave48/docs-after.json",
+    "apiBefore": "/private/tmp/loom-native-parallel-wave48/api-identity-before.json",
+    "apiAfter": "/private/tmp/loom-native-parallel-wave48/api-identity-after.json",
+    "mountsBefore": "/private/tmp/loom-native-parallel-wave48/owned-mounts-before.json",
+    "mountsAfter": "/private/tmp/loom-native-parallel-wave48/owned-mounts-after.json",
+    "healthBefore": "/private/tmp/loom-native-parallel-wave48/health-before.json",
+    "healthAfter": "/private/tmp/loom-native-parallel-wave48/health-after.json",
+    "playwrightResults": "/private/tmp/loom-native-parallel-wave48/cda-workspace-combine/results.json",
+    "runPlan": "/private/tmp/loom-native-parallel-wave48/run-plan.json"
+  }
+}

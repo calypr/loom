@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "authorization": {
+    "kind": "local-cda-preview-index-verification-migration",
+    "composeProjectLabel": "loom-dev-6d7df93d6a37",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "database": "loom_dev",
+    "collection": "Observation",
+    "projectLabel": "loom_dev_cda_fhir",
+    "datasetGeneration": "cda-fhir-v1",
+    "notCompilerInferredSupersedence": true
+  },
+  "expectedOwnedIndexes": [
+    {
+      "name": "loom_pivot_preview_46a620d918ffe1d6",
+      "id": "Observation/3903331518",
+      "type": "persistent",
+      "fields": ["project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status", "payload.subject.reference", "payload.valueQuantity.value"],
+      "storedValues": [],
+      "sparse": false,
+      "unique": false
+    },
+    {
+      "name": "loom_pivot_preview_1d784c12d48ef59e",
+      "id": "Observation/4003671588",
+      "type": "persistent",
+      "fields": ["project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status", "payload.subject.reference"],
+      "storedValues": [],
+      "sparse": false,
+      "unique": false
+    },
+    {
+      "name": "loom_pivot_preview_8ab3637d7bcc1d7e",
+      "id": "Observation/4003678682",
+      "type": "persistent",
+      "fields": ["project", "dataset_generation", "payload.status", "auth_resource_path"],
+      "storedValues": [],
+      "sparse": false,
+      "unique": false
+    },
+    {
+      "name": "loom_pivot_preview_601548896a95cbf8",
+      "id": "Observation/4097745091",
+      "type": "persistent",
+      "fields": ["project", "dataset_generation", "resourceType", "payload.valueQuantity.code", "auth_resource_path"],
+      "storedValues": [],
+      "sparse": false,
+      "unique": false
+    }
+  ]
+}

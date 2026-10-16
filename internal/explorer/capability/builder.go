@@ -21,6 +21,7 @@ type RelationshipObservation struct {
 	TargetResourceType   string
 	Label                string
 	StorageDirection     string
+	BuilderDirection     string
 	ObservedEdgeCount    int64
 	AllowsRepeatedTarget bool
 }
@@ -30,22 +31,30 @@ type FieldObservation struct {
 	Path                  string
 	Label                 string
 	LogicalType           string
+	ObservedShapeKind     string
 	Cardinality           string
+	RepeatedBoundaries    []RepeatedBoundary
 	Observed              bool
 	ObservedDocumentCount int64
 	Populated             bool
+	Examples              []string
+	ExamplesTruncated     bool
 	SuggestedValues       []string
 	SuggestionsComplete   bool
 	SuggestionsTruncated  bool
+	ConceptCandidates     []ConceptCandidate
 }
 
 // Evidence is the complete catalog evidence set used to build a capability
 // snapshot. Availability is explicit because an empty result is valid evidence
 // for some generations, while an unavailable source must fail closed.
 type Evidence struct {
-	Resources     []ResourceObservation
-	Relationships []RelationshipObservation
-	Fields        []FieldObservation
+	Resources             []ResourceObservation
+	Relationships         []RelationshipObservation
+	Fields                []FieldObservation
+	ObservedFields        []ObservedField
+	ObservedRelationships []ObservedRelationship
+	AvailabilityReadiness AvailabilityReadiness
 
 	ResourcesAvailable     bool
 	RelationshipsAvailable bool
@@ -73,6 +82,7 @@ type CandidateProof struct {
 	FilterOperators     []FilterOperator
 	ChartAggregations   []ChartAggregation
 	SupportedOperations []Operation
+	AggregateOperations []AggregateOperationCapability
 	Reason              string
 }
 
@@ -86,10 +96,14 @@ type CompilerCallbacks struct {
 }
 
 type Builder struct {
-	Identity  SnapshotIdentity
-	Policy    Policy
-	Complete  bool
-	Truncated bool
+	Identity SnapshotIdentity
+	// EntityIdentity is the pre-availability semantic identity used only to
+	// mint stable node, edge, and candidate IDs. Cache-only metadata belongs
+	// in Identity so it can invalidate snapshots without rewriting authored IDs.
+	EntityIdentity SnapshotIdentity
+	Policy         Policy
+	Complete       bool
+	Truncated      bool
 
 	Evidence Evidence
 	Compiler CompilerCallbacks
@@ -125,6 +139,23 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 	fields := append([]FieldObservation(nil), b.Evidence.Fields...)
 	for i := range fields {
 		fields[i].SuggestedValues = append([]string(nil), fields[i].SuggestedValues...)
+		fields[i].Examples = append([]string(nil), fields[i].Examples...)
+		fields[i].RepeatedBoundaries = append([]RepeatedBoundary(nil), fields[i].RepeatedBoundaries...)
+		fields[i].ConceptCandidates = cloneConceptCandidates(fields[i].ConceptCandidates)
+	}
+	observedFields := append([]ObservedField(nil), b.Evidence.ObservedFields...)
+	if len(observedFields) == 0 {
+		for _, field := range fields {
+			observedFields = append(observedFields, ObservedField{
+				ResourceType: field.ResourceType, Path: field.Path, ShapeKind: field.ObservedShapeKind,
+				PathObservedCount: field.ObservedDocumentCount, Examples: append([]string(nil), field.Examples...),
+				ExamplesTruncated: field.ExamplesTruncated, SemanticObservations: cloneConceptCandidates(field.ConceptCandidates),
+			})
+		}
+	}
+	for i := range observedFields {
+		observedFields[i].Examples = append([]string(nil), observedFields[i].Examples...)
+		observedFields[i].SemanticObservations = cloneConceptCandidates(observedFields[i].SemanticObservations)
 	}
 
 	policy := b.Policy
@@ -147,7 +178,12 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 	}
 	identity.TraversalPolicyVersion = first(identity.TraversalPolicyVersion, policy.Route.Version)
 	identity.ProjectionPolicyVersion = first(identity.ProjectionPolicyVersion, policy.Projection.Version)
-	idSeed := identityDigest(identity)
+	entityIdentity := b.EntityIdentity
+	if strings.TrimSpace(entityIdentity.Project) == "" {
+		entityIdentity = identity
+		entityIdentity.CacheVersion = ""
+	}
+	idSeed := identityDigest(entityIdentity)
 
 	// A resource type is a concrete generated FHIR type, not a collection or
 	// arbitrary path. Deduplicate only exact resource observations; their
@@ -257,10 +293,11 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 		base := t + "\x00" + path
 		ord := candOrd[base]
 		candOrd[base] = ord + 1
-		c := Candidate{ID: digestID("c_", idSeed, base, fmt.Sprint(ord)), NodeID: digestID("n_", idSeed, t), ResourceType: t, FieldPath: path, Label: first(strings.TrimSpace(f.Label), path), LogicalType: f.LogicalType, Cardinality: f.Cardinality, Observed: f.Observed, ObservedDocumentCount: f.ObservedDocumentCount, Populated: f.Populated}
+		c := Candidate{ID: digestID("c_", idSeed, base, fmt.Sprint(ord)), NodeID: digestID("n_", idSeed, t), ResourceType: t, FieldPath: path, Label: first(strings.TrimSpace(f.Label), path), LogicalType: f.LogicalType, Cardinality: f.Cardinality, RepeatedBoundaries: append([]RepeatedBoundary(nil), f.RepeatedBoundaries...), Observed: f.Observed, ObservedDocumentCount: f.ObservedDocumentCount, Populated: f.Populated}
 		c.SuggestedValues = append([]string(nil), f.SuggestedValues...)
 		c.SuggestionsComplete = f.SuggestionsComplete
 		c.SuggestionsTruncated = f.SuggestionsTruncated
+		c.ConceptCandidates = cloneConceptCandidates(f.ConceptCandidates)
 		sort.Strings(c.SuggestedValues)
 		if policy.Projection.SuggestionLimit > 0 && len(c.SuggestedValues) > policy.Projection.SuggestionLimit {
 			c.SuggestedValues = c.SuggestedValues[:policy.Projection.SuggestionLimit]
@@ -290,9 +327,13 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 		c.LogicalType = first(proof.LogicalType, c.LogicalType)
 		c.Cardinality = first(proof.Cardinality, c.Cardinality)
 		c.ProjectionModes = append([]ProjectionMode(nil), proof.ProjectionModes...)
+		if len(c.RepeatedBoundaries) > 0 {
+			c.ProjectionModes = append([]ProjectionMode{ProjectionIndexed}, c.ProjectionModes...)
+		}
 		c.FilterOperators = append([]FilterOperator(nil), proof.FilterOperators...)
 		c.ChartAggregations = append([]ChartAggregation(nil), proof.ChartAggregations...)
 		c.SupportedOperations = append([]Operation(nil), proof.SupportedOperations...)
+		c.AggregateOperations = cloneAggregateOperationCapabilities(proof.AggregateOperations)
 		candidates = append(candidates, c)
 	}
 	status := StatusReady
@@ -302,12 +343,114 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 	if len(diags) > 0 && !b.Evidence.FieldsAvailable {
 		status = StatusFailed
 	}
+	availability := buildAvailability(b.Evidence, resources, relationships, observedFields, b.Complete, b.Truncated)
 	s := NewSnapshot(identity, policy, status, b.Complete, b.Truncated, nodes, edges, candidates, diags)
+	s.Availability = &availability
 	s.AuditNodes = auditNodes
 	s.AuditEdges = auditEdges
 	s.AuditCandidates = auditCandidates
 	s = rehash(s)
 	return s, nil
+}
+
+func buildAvailability(evidence Evidence, resources []ResourceObservation, relationships []RelationshipObservation, fields []ObservedField, complete, truncated bool) Availability {
+	readiness := evidence.AvailabilityReadiness
+	if readiness.ResourceInventory.Status == "" {
+		readiness.ResourceInventory = inferredReadiness(evidence.ResourcesAvailable)
+	}
+	if readiness.Relationships.Status == "" {
+		readiness.Relationships = inferredReadiness(evidence.RelationshipsAvailable)
+	}
+	if readiness.FieldProfiles.Status == "" {
+		readiness.FieldProfiles = inferredReadiness(evidence.FieldsAvailable)
+	}
+	if readiness.Status == "" {
+		readiness.Status = "COMPLETE"
+		for _, source := range []AvailabilitySourceReadiness{readiness.ResourceInventory, readiness.Relationships, readiness.FieldProfiles} {
+			if source.Status != "COMPLETE" {
+				readiness.Status = "UNKNOWN"
+				break
+			}
+		}
+	}
+	if readiness.Reason == "" {
+		for _, source := range []AvailabilitySourceReadiness{readiness.ResourceInventory, readiness.Relationships, readiness.FieldProfiles} {
+			if source.Reason != "" {
+				readiness.Reason = source.Reason
+				break
+			}
+		}
+	}
+	if !complete || truncated {
+		readiness.Status = "UNKNOWN"
+		for _, source := range []*AvailabilitySourceReadiness{&readiness.ResourceInventory, &readiness.Relationships, &readiness.FieldProfiles} {
+			if source.Status == "COMPLETE" {
+				source.Status = "UNKNOWN"
+				if source.Reason == "" {
+					source.Reason = "source completeness is not established"
+				}
+			}
+		}
+		if readiness.Reason == "" {
+			readiness.Reason = "one or more observation sources are incomplete or truncated"
+		}
+	}
+
+	resourceFacts := make([]ObservedResource, 0, len(resources))
+	for _, resource := range resources {
+		if resource.DocumentCount <= 0 {
+			continue
+		}
+		resourceFacts = append(resourceFacts, ObservedResource{ResourceType: resource.ResourceType, DocumentCount: resource.DocumentCount, Populated: true})
+	}
+	sort.Slice(resourceFacts, func(i, j int) bool { return resourceFacts[i].ResourceType < resourceFacts[j].ResourceType })
+
+	fieldFacts := append([]ObservedField(nil), fields...)
+	sort.Slice(fieldFacts, func(i, j int) bool {
+		return fieldFacts[i].ResourceType+"\x00"+fieldFacts[i].Path < fieldFacts[j].ResourceType+"\x00"+fieldFacts[j].Path
+	})
+
+	relationshipFacts := append([]ObservedRelationship(nil), evidence.ObservedRelationships...)
+	if len(relationshipFacts) == 0 {
+		for _, relationship := range relationships {
+			direction := relationship.BuilderDirection
+			if direction == "" {
+				direction = relationship.StorageDirection
+			}
+			relationshipFacts = append(relationshipFacts, ObservedRelationship{
+				SourceResourceType: relationship.SourceResourceType, TargetResourceType: relationship.TargetResourceType,
+				Label: relationship.Label, StorageDirection: relationship.StorageDirection,
+				BuilderDirection: direction, ObservedEdgeCount: relationship.ObservedEdgeCount,
+			})
+		}
+	}
+	sort.Slice(relationshipFacts, func(i, j int) bool {
+		a, b := relationshipFacts[i], relationshipFacts[j]
+		return a.SourceResourceType+"\x00"+a.Label+"\x00"+a.TargetResourceType+"\x00"+a.StorageDirection+"\x00"+a.BuilderDirection < b.SourceResourceType+"\x00"+b.Label+"\x00"+b.TargetResourceType+"\x00"+b.StorageDirection+"\x00"+b.BuilderDirection
+	})
+
+	return Availability{Readiness: readiness, Resources: resourceFacts, Fields: fieldFacts, Relationships: relationshipFacts}
+}
+
+func inferredReadiness(available bool) AvailabilitySourceReadiness {
+	if available {
+		return AvailabilitySourceReadiness{Status: "COMPLETE"}
+	}
+	return AvailabilitySourceReadiness{Status: "BLOCKED", Reason: "observation source is unavailable"}
+}
+
+func cloneConceptCandidates(in []ConceptCandidate) []ConceptCandidate {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]ConceptCandidate, len(in))
+	for i := range in {
+		out[i] = in[i]
+		out[i].ExtensionURLPath = append([]string(nil), in[i].ExtensionURLPath...)
+		out[i].ObservedUnits = append([]string(nil), in[i].ObservedUnits...)
+		out[i].Examples = append([]string(nil), in[i].Examples...)
+	}
+	return out
 }
 
 func (b Builder) failed(identity SnapshotIdentity, code, message string) Snapshot {
@@ -354,7 +497,8 @@ func fieldKey(f FieldObservation) string {
 func fieldSortKey(f FieldObservation) string {
 	values := append([]string(nil), f.SuggestedValues...)
 	sort.Strings(values)
-	return fieldKey(f) + "\x00" + f.Cardinality + fmt.Sprintf("\x00%d\x00%d\x00%d\x00%d\x00%d\x00%s", f.ObservedDocumentCount, boolInt(f.Observed), boolInt(f.Populated), boolInt(f.SuggestionsComplete), boolInt(f.SuggestionsTruncated), strings.Join(values, "\x01"))
+	boundaries, _ := json.Marshal(f.RepeatedBoundaries)
+	return fieldKey(f) + "\x00" + f.Cardinality + fmt.Sprintf("\x00%d\x00%d\x00%d\x00%d\x00%d\x00%s\x00%s", f.ObservedDocumentCount, boolInt(f.Observed), boolInt(f.Populated), boolInt(f.SuggestionsComplete), boolInt(f.SuggestionsTruncated), strings.Join(values, "\x01"), boundaries)
 }
 func boolInt(v bool) int {
 	if v {

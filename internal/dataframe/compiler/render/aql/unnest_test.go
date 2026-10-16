@@ -10,15 +10,17 @@ import (
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
-func TestRenderPhysicalPlanInnerUnnestUsesCanonicalCorrelatedLoop(t *testing.T) {
-	plan := genericUnnestPlan(t, ir.PhysicalUnnestInner, "")
+func TestRenderPhysicalPlanExcludeUnnestUsesCanonicalCorrelatedLoop(t *testing.T) {
+	plan := genericUnnestPlan(t, ir.PhysicalUnnestExclude, "")
 	rendered, err := aql.RenderPhysicalPlan(plan)
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan() error = %v", err)
 	}
 	for _, want := range []string{
 		"LET __loom_physical_unnest_source_0 = (root.payload.identifier == null ? [] : FLATTEN(root.payload.identifier))",
-		"FOR item IN __loom_physical_unnest_source_0",
+		"FOR __loom_physical_unnest_index_0 IN (LENGTH(__loom_physical_unnest_source_0) == 0 ? [] : RANGE(0, LENGTH(__loom_physical_unnest_source_0) - 1))",
+		"LET item = __loom_physical_unnest_index_0 == null ? null : __loom_physical_unnest_source_0[__loom_physical_unnest_index_0]",
+		"LET has_item = __loom_physical_unnest_index_0 != null",
 		"RETURN { [@__loom_physical_projection_0_name]: item }",
 	} {
 		if !strings.Contains(rendered.Query, want) {
@@ -30,8 +32,8 @@ func TestRenderPhysicalPlanInnerUnnestUsesCanonicalCorrelatedLoop(t *testing.T) 
 	}
 }
 
-func TestRenderPhysicalPlanOuterUnnestPreservesEmptyParentAndOrdinality(t *testing.T) {
-	plan := genericUnnestPlan(t, ir.PhysicalUnnestOuter, "item_index")
+func TestRenderPhysicalPlanPreserveParentUnnestAndOrdinality(t *testing.T) {
+	plan := genericUnnestPlan(t, ir.PhysicalUnnestPreserveParent, "item_index")
 	rendered, err := aql.RenderPhysicalPlan(plan)
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan() error = %v", err)
@@ -39,6 +41,7 @@ func TestRenderPhysicalPlanOuterUnnestPreservesEmptyParentAndOrdinality(t *testi
 	for _, want := range []string{
 		"FOR __loom_physical_unnest_index_0 IN (LENGTH(__loom_physical_unnest_source_0) == 0 ? [null] : RANGE(0, LENGTH(__loom_physical_unnest_source_0) - 1))",
 		"LET item = __loom_physical_unnest_index_0 == null ? null : __loom_physical_unnest_source_0[__loom_physical_unnest_index_0]",
+		"LET has_item = __loom_physical_unnest_index_0 != null",
 		"LET item_index = __loom_physical_unnest_index_0",
 	} {
 		if !strings.Contains(rendered.Query, want) {
@@ -47,12 +50,26 @@ func TestRenderPhysicalPlanOuterUnnestPreservesEmptyParentAndOrdinality(t *testi
 	}
 }
 
+func TestRenderPhysicalPlanErrorUnnestUsesAssertAtOwnerBoundary(t *testing.T) {
+	plan := genericUnnestPlan(t, ir.PhysicalUnnestError, "item_index")
+	rendered, err := aql.RenderPhysicalPlan(plan)
+	if err != nil {
+		t.Fatalf("RenderPhysicalPlan() error = %v", err)
+	}
+	if !strings.Contains(rendered.Query, "FILTER ASSERT(LENGTH(__loom_physical_unnest_source_0) > 0") || !strings.Contains(rendered.Query, "root._key") || !strings.Contains(rendered.Query, "CONSTRUCTION_EXPANSION_EMPTY: row expansion occurrence") {
+		t.Fatalf("ERROR unnest did not assert a nonempty source with owner evidence:\n%s", rendered.Query)
+	}
+	if got := rendered.BindVars["unnest_error_occurrence_0"]; got != "root-occurrence" {
+		t.Fatalf("ERROR occurrence bind = %#v", got)
+	}
+}
+
 func TestRenderPhysicalPlanRejectsUnnestAfterRootWindow(t *testing.T) {
-	plan := genericUnnestPlan(t, ir.PhysicalUnnestInner, "")
+	plan := genericUnnestPlan(t, ir.PhysicalUnnestExclude, "")
 	last := len(plan.Operations) - 1
 	window := ir.PhysicalOperation{
 		Kind: ir.PhysicalSortOp,
-		Sort: &ir.PhysicalSort{Value: ir.PhysicalValue{Variable: "root", Path: []string{"_key"}}},
+		Sort: &ir.PhysicalSort{Keys: []ir.PhysicalValue{{Variable: "root", Path: []string{"_key"}}}},
 	}
 	unnest := plan.Operations[last-1]
 	plan.Operations = append(append(append([]ir.PhysicalOperation{}, plan.Operations[:last-1]...), window, unnest), plan.Operations[last])
@@ -61,7 +78,7 @@ func TestRenderPhysicalPlanRejectsUnnestAfterRootWindow(t *testing.T) {
 	}
 }
 
-func genericUnnestPlan(t *testing.T, mode ir.PhysicalUnnestJoinMode, ordinality string) ir.PhysicalPlan {
+func genericUnnestPlan(t *testing.T, policy ir.PhysicalUnnestEmptyPolicy, ordinality string) ir.PhysicalPlan {
 	t.Helper()
 	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(
 		semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"}},
@@ -79,16 +96,17 @@ func genericUnnestPlan(t *testing.T, mode ir.PhysicalUnnestJoinMode, ordinality 
 	unnest := ir.PhysicalOperation{
 		Kind: ir.PhysicalUnnestOp,
 		Unnest: &ir.PhysicalUnnest{
-			InputVariable:  "root",
-			OutputVariable: "item",
-			Ordinality:     ordinality,
+			Owner:           ir.PhysicalUnnestOwner{OccurrenceID: "root-occurrence", ResourceType: "Patient", RootVariable: "root", OwnerVariable: "root"},
+			OutputVariable:  "item",
+			HasItemVariable: "has_item",
+			Ordinality:      ordinality,
 			Expression: ir.PhysicalExpression{
 				Kind:         ir.PhysicalValueExpression,
 				Cardinality:  ir.PhysicalArrayCardinality,
 				NullBehavior: ir.PhysicalEmptyOnNull,
 				Value:        &ir.PhysicalValue{Variable: "root", Path: []string{"payload", "identifier"}},
 			},
-			JoinMode: mode,
+			EmptyPolicy: policy,
 		},
 	}
 	plan.Operations = append(append(append([]ir.PhysicalOperation{}, plan.Operations[:last]...), unnest), plan.Operations[last])

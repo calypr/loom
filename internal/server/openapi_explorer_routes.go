@@ -137,6 +137,37 @@ func (r *HTTPRoutes) SearchExplorerCandidates(ctx context.Context, request looma
 	}
 }
 
+func (r *HTTPRoutes) SearchExplorerSchemaFields(ctx context.Context, request loomapi.SearchExplorerSchemaFieldsRequestObject) (loomapi.SearchExplorerSchemaFieldsResponseObject, error) {
+	if r == nil || r.explorer == nil {
+		status, failure := authoringErrorForOpenAPI(ctx, "searchExplorerSchemaFields", explorerUnavailable("schema-fields", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
+		if status == http.StatusServiceUnavailable {
+			return loomapi.SearchExplorerSchemaFields503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+		}
+		return nil, unexpectedResponseStatus("searchExplorerSchemaFields", status)
+	}
+	value, err := r.explorer.searchAuthoringSchemaFieldsDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
+	if err == nil {
+		return loomapi.SearchExplorerSchemaFields200JSONResponse(value), nil
+	}
+	status, failure := authoringErrorForOpenAPI(ctx, "searchExplorerSchemaFields", err)
+	switch status {
+	case http.StatusBadRequest:
+		return loomapi.SearchExplorerSchemaFields400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
+	case http.StatusForbidden:
+		return loomapi.SearchExplorerSchemaFields403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusConflict:
+		return loomapi.SearchExplorerSchemaFields409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
+	case http.StatusUnprocessableEntity:
+		return loomapi.SearchExplorerSchemaFields422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
+	case http.StatusInternalServerError:
+		return loomapi.SearchExplorerSchemaFields500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.SearchExplorerSchemaFields503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	default:
+		return nil, unexpectedResponseStatus("searchExplorerSchemaFields", status)
+	}
+}
+
 func (r *HTTPRoutes) GetExplorerBuilder(ctx context.Context, request loomapi.GetExplorerBuilderRequestObject) (loomapi.GetExplorerBuilderResponseObject, error) {
 	if r == nil || r.explorer == nil {
 		status, failure := authoringErrorForOpenAPI(ctx, "getExplorerBuilder", explorerUnavailable("builder", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
@@ -194,6 +225,39 @@ func (r *HTTPRoutes) ApplyExplorerBuilderCommands(ctx context.Context, request l
 		return loomapi.ApplyExplorerBuilderCommands503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
 	default:
 		return nil, unexpectedResponseStatus("applyExplorerBuilderCommands", status)
+	}
+}
+
+func (r *HTTPRoutes) AssessExplorerRowChange(ctx context.Context, request loomapi.AssessExplorerRowChangeRequestObject) (loomapi.AssessExplorerRowChangeResponseObject, error) {
+	if r == nil || r.explorer == nil {
+		status, failure := authoringErrorForOpenAPI(ctx, "assessExplorerRowChange", explorerUnavailable("row-change", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
+		if status == http.StatusServiceUnavailable {
+			return loomapi.AssessExplorerRowChange503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+		}
+		return nil, unexpectedResponseStatus("assessExplorerRowChange", status)
+	}
+	value, err := r.explorer.assessAuthoringRowChangeDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
+	if err == nil {
+		return loomapi.AssessExplorerRowChange200JSONResponse(value), nil
+	}
+	status, failure := authoringErrorForOpenAPI(ctx, "assessExplorerRowChange", err)
+	switch status {
+	case http.StatusBadRequest:
+		return loomapi.AssessExplorerRowChange400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
+	case http.StatusForbidden:
+		return loomapi.AssessExplorerRowChange403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusNotFound:
+		return loomapi.AssessExplorerRowChange404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
+	case http.StatusConflict:
+		return loomapi.AssessExplorerRowChange409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
+	case http.StatusUnprocessableEntity:
+		return loomapi.AssessExplorerRowChange422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
+	case http.StatusInternalServerError:
+		return loomapi.AssessExplorerRowChange500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.AssessExplorerRowChange503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	default:
+		return nil, unexpectedResponseStatus("assessExplorerRowChange", status)
 	}
 }
 
@@ -269,6 +333,112 @@ func (r *HTTPRoutes) PreviewExplorer(ctx context.Context, request loomapi.Previe
 	}
 }
 
+func (r *HTTPRoutes) TraceExplorerCell(ctx context.Context, request loomapi.TraceExplorerCellRequestObject) (loomapi.TraceExplorerCellResponseObject, error) {
+	if r == nil || r.explorer == nil {
+		status, failure := authoringErrorForOpenAPI(ctx, "traceExplorerCell", explorerUnavailable("trace", "TRACE_UNAVAILABLE", "Explorer cell tracing is not configured"))
+		if status == http.StatusServiceUnavailable {
+			return loomapi.TraceExplorerCell503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+		}
+		return nil, unexpectedResponseStatus("traceExplorerCell", status)
+	}
+	value, err := r.explorer.traceExplorerCellDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
+	if err == nil {
+		return loomapi.TraceExplorerCell200JSONResponse(value), nil
+	}
+	status, failure := authoringErrorForOpenAPI(ctx, "traceExplorerCell", err)
+	switch status {
+	case http.StatusUnauthorized:
+		return loomapi.TraceExplorerCell401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
+	case http.StatusBadRequest:
+		return loomapi.TraceExplorerCell400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
+	case http.StatusForbidden:
+		return loomapi.TraceExplorerCell403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusNotFound:
+		return loomapi.TraceExplorerCell404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
+	case http.StatusConflict:
+		return loomapi.TraceExplorerCell409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
+	case http.StatusUnprocessableEntity:
+		return loomapi.TraceExplorerCell422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
+	case http.StatusInternalServerError:
+		return loomapi.TraceExplorerCell500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.TraceExplorerCell503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	default:
+		return nil, unexpectedResponseStatus("traceExplorerCell", status)
+	}
+}
+
+func (r *HTTPRoutes) TraceExplorerRowLineage(ctx context.Context, request loomapi.TraceExplorerRowLineageRequestObject) (loomapi.TraceExplorerRowLineageResponseObject, error) {
+	if r == nil || r.explorer == nil {
+		status, failure := authoringErrorForOpenAPI(ctx, "traceExplorerRowLineage", explorerUnavailable("rowLineage", "ROW_LINEAGE_UNAVAILABLE", "Explorer row lineage is not configured"))
+		if status == http.StatusServiceUnavailable {
+			return loomapi.TraceExplorerRowLineage503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+		}
+		return nil, unexpectedResponseStatus("traceExplorerRowLineage", status)
+	}
+	value, err := r.explorer.traceExplorerRowLineageDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
+	if err == nil {
+		return loomapi.TraceExplorerRowLineage200JSONResponse(value), nil
+	}
+	status, failure := authoringErrorForOpenAPI(ctx, "traceExplorerRowLineage", err)
+	switch status {
+	case http.StatusUnauthorized:
+		return loomapi.TraceExplorerRowLineage401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
+	case http.StatusBadRequest:
+		return loomapi.TraceExplorerRowLineage400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
+	case http.StatusForbidden:
+		return loomapi.TraceExplorerRowLineage403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusNotFound:
+		return loomapi.TraceExplorerRowLineage404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
+	case http.StatusConflict:
+		return loomapi.TraceExplorerRowLineage409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
+	case http.StatusUnprocessableEntity:
+		return loomapi.TraceExplorerRowLineage422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
+	case http.StatusInternalServerError:
+		return loomapi.TraceExplorerRowLineage500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.TraceExplorerRowLineage503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	case http.StatusGatewayTimeout:
+		return loomapi.TraceExplorerRowLineage504JSONResponse{AuthoringGatewayTimeoutJSONResponse: loomapi.AuthoringGatewayTimeoutJSONResponse(failure)}, nil
+	default:
+		return nil, unexpectedResponseStatus("traceExplorerRowLineage", status)
+	}
+}
+
+func (r *HTTPRoutes) CheckExplorerPopulationMapping(ctx context.Context, request loomapi.CheckExplorerPopulationMappingRequestObject) (loomapi.CheckExplorerPopulationMappingResponseObject, error) {
+	project := string(request.Project)
+	explorerID := string(request.ExplorerId)
+	if r == nil || r.explorer == nil {
+		_, failure := authoringErrorForOpenAPI(ctx, "checkExplorerPopulationMapping", explorerUnavailable("populationMapping", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
+		return loomapi.CheckExplorerPopulationMapping503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	}
+	value, err := r.explorer.populationMappingDirect(ctx, project, explorerID, request.Body)
+	if err == nil {
+		return loomapi.CheckExplorerPopulationMapping200JSONResponse(value), nil
+	}
+	status, failure := authoringErrorForOpenAPI(ctx, "checkExplorerPopulationMapping", err)
+	switch status {
+	case http.StatusBadRequest:
+		return loomapi.CheckExplorerPopulationMapping400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
+	case http.StatusForbidden:
+		return loomapi.CheckExplorerPopulationMapping403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusNotFound:
+		return loomapi.CheckExplorerPopulationMapping404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
+	case http.StatusConflict:
+		return loomapi.CheckExplorerPopulationMapping409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
+	case http.StatusUnprocessableEntity:
+		return loomapi.CheckExplorerPopulationMapping422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
+	case http.StatusInternalServerError:
+		return loomapi.CheckExplorerPopulationMapping500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.CheckExplorerPopulationMapping503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	case http.StatusGatewayTimeout:
+		return loomapi.CheckExplorerPopulationMapping504JSONResponse{AuthoringGatewayTimeoutJSONResponse: loomapi.AuthoringGatewayTimeoutJSONResponse(failure)}, nil
+	default:
+		return nil, unexpectedResponseStatus("checkExplorerPopulationMapping", status)
+	}
+}
+
 func (r *HTTPRoutes) PublishExplorer(ctx context.Context, request loomapi.PublishExplorerRequestObject) (loomapi.PublishExplorerResponseObject, error) {
 	project := string(request.Project)
 	explorerID := string(request.ExplorerId)
@@ -298,5 +468,203 @@ func (r *HTTPRoutes) PublishExplorer(ctx context.Context, request loomapi.Publis
 		return loomapi.PublishExplorer503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
 	default:
 		return nil, unexpectedResponseStatus("publishExplorer", status)
+	}
+}
+
+func authoringUnauthorizedResponse(failure loomapi.ErrorResponse) loomapi.ServiceUnauthorizedJSONResponse {
+	body := loomapi.ServiceErrorResponse{Error: loomapi.ServiceErrorBody{Code: failure.Error.Code, Message: failure.Error.Message, RequestId: failure.Error.RequestId}}
+	if failure.Error.AdditionalProperties != nil {
+		details := map[string]interface{}{}
+		for key, value := range failure.Error.AdditionalProperties {
+			details[key] = value
+		}
+		body.Error.Details = &details
+	}
+	return loomapi.ServiceUnauthorizedJSONResponse(body)
+}
+
+func (r *HTTPRoutes) ListInterpretationLibraries(ctx context.Context, request loomapi.ListInterpretationLibrariesRequestObject) (loomapi.ListInterpretationLibrariesResponseObject, error) {
+	if r == nil || r.explorer == nil {
+		_, failure := authoringErrorForOpenAPI(ctx, "listInterpretationLibraries", explorerUnavailable("interpretations", "INTERPRETATION_UNAVAILABLE", "Explorer authoring is not configured"))
+		return loomapi.ListInterpretationLibraries503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	}
+	value, err := r.explorer.listInterpretationLibrariesDirect(ctx, string(request.Project))
+	if err == nil {
+		return loomapi.ListInterpretationLibraries200JSONResponse(value), nil
+	}
+	status, failure := authoringErrorForOpenAPI(ctx, "listInterpretationLibraries", err)
+	switch status {
+	case http.StatusUnauthorized:
+		return loomapi.ListInterpretationLibraries401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
+	case http.StatusForbidden:
+		return loomapi.ListInterpretationLibraries403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusInternalServerError:
+		return loomapi.ListInterpretationLibraries500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.ListInterpretationLibraries503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	default:
+		return nil, unexpectedResponseStatus("listInterpretationLibraries", status)
+	}
+}
+
+func (r *HTTPRoutes) CreateInterpretationRevision(ctx context.Context, request loomapi.CreateInterpretationRevisionRequestObject) (loomapi.CreateInterpretationRevisionResponseObject, error) {
+	if r == nil || r.explorer == nil {
+		_, failure := authoringErrorForOpenAPI(ctx, "createInterpretationRevision", explorerUnavailable("interpretations", "INTERPRETATION_UNAVAILABLE", "Explorer authoring is not configured"))
+		return loomapi.CreateInterpretationRevision503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	}
+	value, err := r.explorer.createInterpretationRevisionDirect(ctx, string(request.Project), authResourcePathFromParam(request.Params.AuthResourcePath), request.Body)
+	if err == nil {
+		return loomapi.CreateInterpretationRevision201JSONResponse(value), nil
+	}
+	status, failure := authoringErrorForOpenAPI(ctx, "createInterpretationRevision", err)
+	switch status {
+	case http.StatusUnauthorized:
+		return loomapi.CreateInterpretationRevision401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
+	case http.StatusBadRequest:
+		return loomapi.CreateInterpretationRevision400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
+	case http.StatusNotFound:
+		return loomapi.CreateInterpretationRevision404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
+	case http.StatusForbidden:
+		return loomapi.CreateInterpretationRevision403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusConflict:
+		return loomapi.CreateInterpretationRevision409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
+	case http.StatusUnprocessableEntity:
+		return loomapi.CreateInterpretationRevision422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
+	case http.StatusInternalServerError:
+		return loomapi.CreateInterpretationRevision500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.CreateInterpretationRevision503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	default:
+		return nil, unexpectedResponseStatus("createInterpretationRevision", status)
+	}
+}
+
+func (r *HTTPRoutes) GetInterpretationRevision(ctx context.Context, request loomapi.GetInterpretationRevisionRequestObject) (loomapi.GetInterpretationRevisionResponseObject, error) {
+	if r == nil || r.explorer == nil {
+		_, failure := authoringErrorForOpenAPI(ctx, "getInterpretationRevision", explorerUnavailable("interpretations", "INTERPRETATION_UNAVAILABLE", "Explorer authoring is not configured"))
+		return loomapi.GetInterpretationRevision503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	}
+	value, err := r.explorer.getInterpretationRevisionDirect(ctx, string(request.Project), request.RevisionId)
+	if err == nil {
+		return loomapi.GetInterpretationRevision200JSONResponse(value), nil
+	}
+	status, failure := authoringErrorForOpenAPI(ctx, "getInterpretationRevision", err)
+	switch status {
+	case http.StatusUnauthorized:
+		return loomapi.GetInterpretationRevision401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
+	case http.StatusForbidden:
+		return loomapi.GetInterpretationRevision403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusNotFound:
+		return loomapi.GetInterpretationRevision404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
+	case http.StatusInternalServerError:
+		return loomapi.GetInterpretationRevision500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.GetInterpretationRevision503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	default:
+		return nil, unexpectedResponseStatus("getInterpretationRevision", status)
+	}
+}
+
+func (r *HTTPRoutes) PreviewInterpretationCandidate(ctx context.Context, request loomapi.PreviewInterpretationCandidateRequestObject) (loomapi.PreviewInterpretationCandidateResponseObject, error) {
+	if r == nil || r.explorer == nil {
+		_, failure := authoringErrorForOpenAPI(ctx, "previewInterpretationCandidate", explorerUnavailable("interpretation-preview", "PREVIEW_UNAVAILABLE", "Explorer authoring is not configured"))
+		return loomapi.PreviewInterpretationCandidate503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	}
+	value, err := r.explorer.previewInterpretationCandidateDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
+	if err == nil {
+		return loomapi.PreviewInterpretationCandidate200JSONResponse(value), nil
+	}
+	status, failure := authoringErrorForOpenAPI(ctx, "previewInterpretationCandidate", err)
+	switch status {
+	case http.StatusUnauthorized:
+		return loomapi.PreviewInterpretationCandidate401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
+	case http.StatusBadRequest:
+		return loomapi.PreviewInterpretationCandidate400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
+	case http.StatusForbidden:
+		return loomapi.PreviewInterpretationCandidate403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusNotFound:
+		return loomapi.PreviewInterpretationCandidate404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
+	case http.StatusConflict:
+		return loomapi.PreviewInterpretationCandidate409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
+	case http.StatusRequestEntityTooLarge:
+		return loomapi.PreviewInterpretationCandidate413JSONResponse{AuthoringPayloadTooLargeJSONResponse: loomapi.AuthoringPayloadTooLargeJSONResponse(failure)}, nil
+	case http.StatusUnprocessableEntity:
+		return loomapi.PreviewInterpretationCandidate422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
+	case http.StatusTooManyRequests:
+		return loomapi.PreviewInterpretationCandidate429JSONResponse{AuthoringTooManyRequestsJSONResponse: loomapi.AuthoringTooManyRequestsJSONResponse(failure)}, nil
+	case 499:
+		return loomapi.PreviewInterpretationCandidate499JSONResponse{AuthoringClientClosedRequestJSONResponse: loomapi.AuthoringClientClosedRequestJSONResponse(failure)}, nil
+	case http.StatusInternalServerError:
+		return loomapi.PreviewInterpretationCandidate500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.PreviewInterpretationCandidate503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	case http.StatusGatewayTimeout:
+		return loomapi.PreviewInterpretationCandidate504JSONResponse{AuthoringGatewayTimeoutJSONResponse: loomapi.AuthoringGatewayTimeoutJSONResponse(failure)}, nil
+	default:
+		return nil, unexpectedResponseStatus("previewInterpretationCandidate", status)
+	}
+}
+
+func (r *HTTPRoutes) ResolveConfiguredColumnContext(ctx context.Context, request loomapi.ResolveConfiguredColumnContextRequestObject) (loomapi.ResolveConfiguredColumnContextResponseObject, error) {
+	if r == nil || r.explorer == nil {
+		_, failure := authoringErrorForOpenAPI(ctx, "resolveConfiguredColumnContext", explorerUnavailable("interpretation-context", "INTERPRETATION_UNAVAILABLE", "Explorer authoring is not configured"))
+		return loomapi.ResolveConfiguredColumnContext503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	}
+	value, err := r.explorer.resolveConfiguredColumnContextDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
+	if err == nil {
+		return loomapi.ResolveConfiguredColumnContext200JSONResponse(value), nil
+	}
+	status, failure := authoringErrorForOpenAPI(ctx, "resolveConfiguredColumnContext", err)
+	switch status {
+	case http.StatusUnauthorized:
+		return loomapi.ResolveConfiguredColumnContext401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
+	case http.StatusBadRequest:
+		return loomapi.ResolveConfiguredColumnContext400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
+	case http.StatusForbidden:
+		return loomapi.ResolveConfiguredColumnContext403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusNotFound:
+		return loomapi.ResolveConfiguredColumnContext404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
+	case http.StatusConflict:
+		return loomapi.ResolveConfiguredColumnContext409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
+	case http.StatusUnprocessableEntity:
+		return loomapi.ResolveConfiguredColumnContext422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
+	case http.StatusInternalServerError:
+		return loomapi.ResolveConfiguredColumnContext500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.ResolveConfiguredColumnContext503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	default:
+		return nil, unexpectedResponseStatus("resolveConfiguredColumnContext", status)
+	}
+}
+
+func (r *HTTPRoutes) CreateInterpretationRevisionFromColumn(ctx context.Context, request loomapi.CreateInterpretationRevisionFromColumnRequestObject) (loomapi.CreateInterpretationRevisionFromColumnResponseObject, error) {
+	if r == nil || r.explorer == nil {
+		_, failure := authoringErrorForOpenAPI(ctx, "createInterpretationRevisionFromColumn", explorerUnavailable("interpretation-create", "INTERPRETATION_UNAVAILABLE", "Explorer authoring is not configured"))
+		return loomapi.CreateInterpretationRevisionFromColumn503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	}
+	value, err := r.explorer.createInterpretationRevisionFromColumnDirect(ctx, string(request.Project), string(request.ExplorerId), authResourcePathFromParam(request.Params.AuthResourcePath), request.Body)
+	if err == nil {
+		return loomapi.CreateInterpretationRevisionFromColumn201JSONResponse(value), nil
+	}
+	status, failure := authoringErrorForOpenAPI(ctx, "createInterpretationRevisionFromColumn", err)
+	switch status {
+	case http.StatusUnauthorized:
+		return loomapi.CreateInterpretationRevisionFromColumn401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
+	case http.StatusBadRequest:
+		return loomapi.CreateInterpretationRevisionFromColumn400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
+	case http.StatusForbidden:
+		return loomapi.CreateInterpretationRevisionFromColumn403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusNotFound:
+		return loomapi.CreateInterpretationRevisionFromColumn404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
+	case http.StatusConflict:
+		return loomapi.CreateInterpretationRevisionFromColumn409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
+	case http.StatusUnprocessableEntity:
+		return loomapi.CreateInterpretationRevisionFromColumn422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
+	case http.StatusInternalServerError:
+		return loomapi.CreateInterpretationRevisionFromColumn500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.CreateInterpretationRevisionFromColumn503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	default:
+		return nil, unexpectedResponseStatus("createInterpretationRevisionFromColumn", status)
 	}
 }

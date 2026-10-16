@@ -1,0 +1,3 @@
+{"resourceType":"Patient","id":"replacement-patient-001","birthDate":"1980-01-02","gender":"female"}
+{"resourceType":"Patient","id":"replacement-patient-002","birthDate":"1990-05-06","gender":"male"}
+{"resourceType":"Patient","id":"replacement-patient-003","birthDate":"2000-12-31","gender":"other"}

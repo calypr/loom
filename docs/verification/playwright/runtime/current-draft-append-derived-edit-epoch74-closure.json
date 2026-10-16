@@ -1,0 +1,218 @@
+{
+  "epoch": 74,
+  "status": "CLOSED_PASS_DIAGNOSTIC_NOT_REPRODUCED",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "1db9db9655000f18a0cf208c92ee953ebed47cc509fd4e11e5645866114e7152",
+        "files": 1511
+      },
+      "after": {
+        "sha256": "1db9db9655000f18a0cf208c92ee953ebed47cc509fd4e11e5645866114e7152",
+        "files": 1511
+      },
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "docs": {
+      "before": {
+        "sha256": "775f5ec6fbafa532f3ef253c2a1a8c9d3c545bf6974da339fce7987d5137e9a6",
+        "files": 177
+      },
+      "after": {
+        "sha256": "775f5ec6fbafa532f3ef253c2a1a8c9d3c545bf6974da339fce7987d5137e9a6",
+        "files": 177
+      },
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "precheck": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    },
+    "handles": {
+      "precheck": {
+        "session": 45315,
+        "exitCode": 0,
+        "fresh": true,
+        "artifact": "/private/tmp/loom-native-parallel-wave74/api-build-precheck-confirmed.json"
+      },
+      "beforeCapture": {
+        "session": 48845,
+        "exitCode": 0
+      },
+      "beforeHealth": {
+        "session": 80155,
+        "exitCode": 0
+      },
+      "browser": {
+        "session": 12186,
+        "exitCode": 0
+      },
+      "afterCapture": {
+        "session": 85313,
+        "exitCode": 0
+      },
+      "afterHealth": {
+        "session": 60338,
+        "exitCode": 0
+      }
+    }
+  },
+  "case": {
+    "scenarioID": "builder-combine-draft",
+    "caseName": "append-derived-edit",
+    "title": "upstream Group→DERIVE edit recomputes APPEND and removal restores its current-draft sources",
+    "status": "passed",
+    "requiredChecks": {
+      "passed": 44,
+      "total": 44,
+      "missing": 0
+    },
+    "assertions": {
+      "passed": 140,
+      "failed": 0,
+      "total": 140
+    },
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "passed",
+      "performance": "passed"
+    },
+    "nativeActions": {
+      "count": 42,
+      "timedCheckpoints": 40,
+      "maxElapsedMs": 690,
+      "budgetMs": 5000
+    },
+    "ownerReportedTestElapsedMs": 21817,
+    "playwrightResultsDurationMs": 26743.003999999997,
+    "unexpectedErrors": 0,
+    "diagnosticConclusion": {
+      "epoch73ReconcileAbort": "NOT_REPRODUCED; epoch73 POST request-450 /authoring/v2/reconcile net::ERR_ABORTED remains unattributed",
+      "epoch74ObservedCapabilityAbort": {
+        "requestId": "request-1310",
+        "route": "http://127.0.0.1:30008/api/v1/projects/loom_dev_verify_muwfjfis-57a006d/explorers/verify-is-57a006d-draft-combine-append/authoring/v2/construction-capabilities",
+        "canceled": true,
+        "classification": "superseded capability binding has a later successful replacement",
+        "replacementStatus": 200,
+        "replacementResponseMatches": true
+      },
+      "causalClaim": "none; passing epoch74 does not establish that the epoch73 failure was fixed"
+    },
+    "incidentalAssetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ],
+    "domainReportPath": "/private/tmp/loom-native-parallel-wave74/basic-append-derived-edit/attempt1/artifacts/draft-combine-Builder-Comb-807a0-s-its-current-draft-sources/attachments/loom-verification-report-json-97d648c315608ffe33c4e7800f24c4ee08305cdf.json",
+    "domainReportSha256": "0db5a12fccfb7f524b328ba4e0694eab4b2960e9758eae5d078ed48941b7563f",
+    "playwrightResultsPath": "/private/tmp/loom-native-parallel-wave74/basic-append-derived-edit/attempt1/results.json",
+    "playwrightResultsSha256": "7bf339610c64c7943ccc510078aaeaaed7cfe95cd6a7b8446212e401a604698d",
+    "runnerLogPath": "/private/tmp/loom-native-parallel-wave74/basic-append-derived-edit/attempt1/runner.log",
+    "runnerLogSha256": "d090bdaeef52e0a58d4b285ce870689617aeb5ec8bf042bffe393020b6325b29"
+  },
+  "artifacts": {
+    "runPlan": {
+      "path": "/private/tmp/loom-native-parallel-wave74/run-plan.json",
+      "sha256": "50f3b1814fcfa4d858ffedc5cdf0884ff4bed52ae05405468ef84e47c78e57dc"
+    },
+    "apiBuildPrecheck": {
+      "path": "/private/tmp/loom-native-parallel-wave74/api-build-precheck-confirmed.json",
+      "sha256": "faa137e2184007ef778ea1b7ec7e66e04eebbba94603f44168276ae96a5b1d04"
+    },
+    "sourceBefore": {
+      "path": "/private/tmp/loom-native-parallel-wave74/source-before.json",
+      "sha256": "e51c514b737fd9d8aa40804fb030fc06d8103dfc5b10576fc71d0267f17d7945"
+    },
+    "sourceAfter": {
+      "path": "/private/tmp/loom-native-parallel-wave74/source-after.json",
+      "sha256": "81b642a15543c3c17d46f20f2bb8b4dc31a39da5eb25a7464134a2dbd5c549fb"
+    },
+    "docsBefore": {
+      "path": "/private/tmp/loom-native-parallel-wave74/docs-before.json",
+      "sha256": "7a3d57725ec17bd04f9b09c27e0f73eb844f9dea2bf70b2bcd2f0dabc589a4dd"
+    },
+    "docsAfter": {
+      "path": "/private/tmp/loom-native-parallel-wave74/docs-after.json",
+      "sha256": "1f9871c4a71176b8534361d14b01a4f55a3e89457d55e5da5326dad1e09d93f8"
+    },
+    "apiIdentityBefore": {
+      "path": "/private/tmp/loom-native-parallel-wave74/api-identity-before.json",
+      "sha256": "017be4b443ac956ef3a88ab3ccc1cdabd285ae0d49792bc5d0512c307b1ed85f"
+    },
+    "apiIdentityAfter": {
+      "path": "/private/tmp/loom-native-parallel-wave74/api-identity-after.json",
+      "sha256": "d209846a59c0b3423df2e43e080fb7dfa6c72116988dfb055171af9b38ad627c"
+    },
+    "ownedMountsBefore": {
+      "path": "/private/tmp/loom-native-parallel-wave74/owned-mounts-before.json",
+      "sha256": "a747073751e120ce9a43ce5539b63e3bab7064ab0fababc2ddf15e69635512fb"
+    },
+    "ownedMountsAfter": {
+      "path": "/private/tmp/loom-native-parallel-wave74/owned-mounts-after.json",
+      "sha256": "3b2c9008c41aab5b57ad5df4b6304535a2b370199b1ee9c573c2fce01c5df72c"
+    },
+    "healthBefore": {
+      "path": "/private/tmp/loom-native-parallel-wave74/health-before.json",
+      "sha256": "e82fab3b0d9673bdb161a3b81c5e6d9af630ed05db5be3fbc140e1f1628c3349"
+    },
+    "healthAfter": {
+      "path": "/private/tmp/loom-native-parallel-wave74/health-after.json",
+      "sha256": "c5b613faa7d22abdccb07208065f30121c83c429e8564e558943369ec076f441"
+    },
+    "playwrightResults": {
+      "path": "/private/tmp/loom-native-parallel-wave74/basic-append-derived-edit/attempt1/results.json",
+      "sha256": "7bf339610c64c7943ccc510078aaeaaed7cfe95cd6a7b8446212e401a604698d"
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave74/basic-append-derived-edit/attempt1/runner.log",
+      "sha256": "d090bdaeef52e0a58d4b285ce870689617aeb5ec8bf042bffe393020b6325b29"
+    },
+    "coordinatorClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave74/closure.json",
+      "sha256": "f7660f81a7a1100b0a1dcfbf5403018bbfc53e540b0152aba0e8538704064674"
+    },
+    "rawVerificationReport": {
+      "path": "/private/tmp/loom-native-parallel-wave74/basic-append-derived-edit/attempt1/artifacts/draft-combine-Builder-Comb-807a0-s-its-current-draft-sources/attachments/loom-verification-report-json-97d648c315608ffe33c4e7800f24c4ee08305cdf.json",
+      "sha256": "0db5a12fccfb7f524b328ba4e0694eab4b2960e9758eae5d078ed48941b7563f"
+    }
+  },
+  "lifecycleReport": "docs/verification/playwright/runtime/current-draft-append-derived-edit-epoch74-report.json",
+  "lifecycleReportSha256": "5f6a095d8129dd007d0a26e98960d43229f9f0e2a885d28d88756a3ae74f553a",
+  "rawReportPath": "/private/tmp/loom-native-parallel-wave74/basic-append-derived-edit/attempt1/artifacts/draft-combine-Builder-Comb-807a0-s-its-current-draft-sources/attachments/loom-verification-report-json-97d648c315608ffe33c4e7800f24c4ee08305cdf.json",
+  "rawReportSha256": "0db5a12fccfb7f524b328ba4e0694eab4b2960e9758eae5d078ed48941b7563f"
+}

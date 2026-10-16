@@ -2,6 +2,18 @@
 .gocache/
 .cache/
 .artifacts/
+.gitnexus/
+.codex/config.toml
+.audit/
+/docs/prototypes/construction-workspace/
+/docs/product/ml-dataframer/evidence/J04_UI04.md
+/docs/product/ml-dataframer/evidence/S05_UI05.md
+/TODO.md
+/CDA-FHIR/
+/META_SMALL/
+/compiler.test
+/loom
+/loom-DocumentReference.csv
 bin/
 data/
 META/
@@ -9,5 +21,9 @@ META/
 /arango-fhir-server
 /ui/node_modules/
 /ui/**/node_modules/
+/scripts/node_modules/
 /ui/apps/*/dist/
 /ui/packages/*/dist/
+
+# Explicit machine-local native CDA target configuration.
+/.codex/owned-cda-target.json

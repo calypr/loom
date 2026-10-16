@@ -1,0 +1,499 @@
+{
+  "schemaVersion": 1,
+  "epoch": 130,
+  "status": "CLOSED_PASS",
+  "rawCoordinatorStatus": "CLOSED_INTEGRITY_PASS_BROWSER_PASS",
+  "rawCoordinatorClosurePath": "/private/tmp/loom-native-parallel-wave130/closure.json",
+  "rawCoordinatorClosureSha256": "7ace0859106e3df4ca5348bb1fee7046e6b30dd8e37a803ca41ec307abb6f45e",
+  "rootReviewStatus": "ACCEPTED_FULL_LIFECYCLE_PASS",
+  "rootAcceptanceReceipt": {
+    "path": "/private/tmp/loom-native-parallel-wave130/root-acceptance.json",
+    "sha256": "c5db5734d5e678e6bcb52b754afeb28b0e36b9f4ef7db0ef79b9fa5d5a91554f",
+    "status": "ACCEPTED_FULL_LIFECYCLE_PASS",
+    "lifecycleAccepted": true,
+    "classification": null,
+    "sourceFreezeReleased": true,
+    "coordinatorClosureSha256": "7ace0859106e3df4ca5348bb1fee7046e6b30dd8e37a803ca41ec307abb6f45e"
+  },
+  "case": {
+    "scenarioId": "standalone-reshape-related-unpivot",
+    "caseName": "related-unpivot",
+    "title": "related-unpivot",
+    "status": "passed",
+    "classification": null,
+    "requiredChecks": {
+      "passed": 17,
+      "total": 17,
+      "missingOrFailed": 0,
+      "missingOrUnrun": 0,
+      "passedNames": [
+        "bounded raw CDA oracle selects a complete two-to-twenty-four-row Specimen Related chain",
+        "fresh Explorer and direct Specimen ID column bind the exact project and generation-scoped source",
+        "native Related choices preserve exact raw rows and stage identities at every chain hop",
+        "saved Related rows expose an enabled Unpivot action and the exact Specimen ID input",
+        "Unpivot preview matches the exact transformed raw multiset and retains related columns",
+        "Cancel preserves the exact Related workspace, draft CAS, construction, and rows",
+        "Apply persists Unpivot with the exact source-column and compiler-stage binding",
+        "applied Unpivot rows and output identities match the complete bounded source oracle",
+        "Builder reload preserves exact Unpivot schema, bindings, step identity, and rows",
+        "saved Unpivot edit reopens its exact source and previews the replacement null policy",
+        "edited Unpivot policy applies and reloads with exact schema and raw rows",
+        "Canceling Unpivot removal preserves the saved construction and exact rows",
+        "removing Unpivot and reloading restores exact Related construction, schema, bindings, and rows",
+        "Unpivot Value missing/equality Filter lifecycle remains exact through reload and restoration",
+        "All native action and action-to-render checkpoints complete within five seconds",
+        "No unexpected native network, module, or browser errors occurred",
+        "CDA watched source and API build stayed unchanged"
+      ],
+      "failedNames": [],
+      "unrunNames": [],
+      "outcomes": [
+        {
+          "name": "bounded raw CDA oracle selects a complete two-to-twenty-four-row Specimen Related chain",
+          "status": "passed"
+        },
+        {
+          "name": "fresh Explorer and direct Specimen ID column bind the exact project and generation-scoped source",
+          "status": "passed"
+        },
+        {
+          "name": "native Related choices preserve exact raw rows and stage identities at every chain hop",
+          "status": "passed"
+        },
+        {
+          "name": "saved Related rows expose an enabled Unpivot action and the exact Specimen ID input",
+          "status": "passed"
+        },
+        {
+          "name": "Unpivot preview matches the exact transformed raw multiset and retains related columns",
+          "status": "passed"
+        },
+        {
+          "name": "Cancel preserves the exact Related workspace, draft CAS, construction, and rows",
+          "status": "passed"
+        },
+        {
+          "name": "Apply persists Unpivot with the exact source-column and compiler-stage binding",
+          "status": "passed"
+        },
+        {
+          "name": "applied Unpivot rows and output identities match the complete bounded source oracle",
+          "status": "passed"
+        },
+        {
+          "name": "Builder reload preserves exact Unpivot schema, bindings, step identity, and rows",
+          "status": "passed"
+        },
+        {
+          "name": "saved Unpivot edit reopens its exact source and previews the replacement null policy",
+          "status": "passed"
+        },
+        {
+          "name": "edited Unpivot policy applies and reloads with exact schema and raw rows",
+          "status": "passed"
+        },
+        {
+          "name": "Canceling Unpivot removal preserves the saved construction and exact rows",
+          "status": "passed"
+        },
+        {
+          "name": "removing Unpivot and reloading restores exact Related construction, schema, bindings, and rows",
+          "status": "passed"
+        },
+        {
+          "name": "Unpivot Value missing/equality Filter lifecycle remains exact through reload and restoration",
+          "status": "passed"
+        },
+        {
+          "name": "All native action and action-to-render checkpoints complete within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "No unexpected native network, module, or browser errors occurred",
+          "status": "passed"
+        },
+        {
+          "name": "CDA watched source and API build stayed unchanged",
+          "status": "passed"
+        }
+      ],
+      "evidence": [
+        {
+          "name": "bounded raw CDA oracle selects a complete two-to-twenty-four-row Specimen Related chain",
+          "status": "passed"
+        },
+        {
+          "name": "fresh Explorer and direct Specimen ID column bind the exact project and generation-scoped source",
+          "status": "passed"
+        },
+        {
+          "name": "native Related choices preserve exact raw rows and stage identities at every chain hop",
+          "status": "passed"
+        },
+        {
+          "name": "saved Related rows expose an enabled Unpivot action and the exact Specimen ID input",
+          "status": "passed"
+        },
+        {
+          "name": "Unpivot preview matches the exact transformed raw multiset and retains related columns",
+          "status": "passed"
+        },
+        {
+          "name": "Cancel preserves the exact Related workspace, draft CAS, construction, and rows",
+          "status": "passed"
+        },
+        {
+          "name": "Apply persists Unpivot with the exact source-column and compiler-stage binding",
+          "status": "passed"
+        },
+        {
+          "name": "applied Unpivot rows and output identities match the complete bounded source oracle",
+          "status": "passed"
+        },
+        {
+          "name": "Builder reload preserves exact Unpivot schema, bindings, step identity, and rows",
+          "status": "passed"
+        },
+        {
+          "name": "saved Unpivot edit reopens its exact source and previews the replacement null policy",
+          "status": "passed"
+        },
+        {
+          "name": "edited Unpivot policy applies and reloads with exact schema and raw rows",
+          "status": "passed"
+        },
+        {
+          "name": "Canceling Unpivot removal preserves the saved construction and exact rows",
+          "status": "passed"
+        },
+        {
+          "name": "removing Unpivot and reloading restores exact Related construction, schema, bindings, and rows",
+          "status": "passed"
+        },
+        {
+          "name": "Unpivot Value missing/equality Filter lifecycle remains exact through reload and restoration",
+          "status": "passed"
+        },
+        {
+          "name": "All native action and action-to-render checkpoints complete within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "No unexpected native network, module, or browser errors occurred",
+          "status": "passed"
+        },
+        {
+          "name": "CDA watched source and API build stayed unchanged",
+          "status": "passed"
+        }
+      ]
+    }
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "dfa2bce29c6c102f79bec2dc56eea6b19c484ebf2f19fb4f6335178e37f06800",
+        "files": 1554
+      },
+      "after": {
+        "sha256": "dfa2bce29c6c102f79bec2dc56eea6b19c484ebf2f19fb4f6335178e37f06800",
+        "files": 1554
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave130/source-before.json",
+        "sha256": "7ef71c68e37798ee718d49ac7b446981702cf0da849d92195ea84dc7383155d1"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave130/source-after.json",
+        "sha256": "e9f4712679026cd761be736732ec583e3dc6f80f07f9e765331ac0428df04682"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "42e7c9be075a587d6f20927086f79cc7a032af8ffb86f4ed1885409032283402",
+        "files": 276
+      },
+      "after": {
+        "sha256": "42e7c9be075a587d6f20927086f79cc7a032af8ffb86f4ed1885409032283402",
+        "files": 276
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave130/docs-before.json",
+        "sha256": "a9823fd14c3452e17107283ab4c866adc49f2a0619d542895c51306f42374a03"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave130/docs-after.json",
+        "sha256": "3b3a6f78dd77f1818b6a75007b178423b90c3bba191cab2d53ca29dc54f2fd14"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "precheck": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave130/api-identity-before.json",
+        "sha256": "4eaae8a29a30e1c02bc32b8404ac37c60fd02eed8c3e7274df2b8f712b6ac53f"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave130/api-identity-after.json",
+        "sha256": "a52178ae0f3ea61edb0588ac64bc53e938f7b90f1afc42035b017bd88d22d023"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave130/api-build-precheck.json",
+        "sha256": "165cdda93504eff9e5b2365f0f611ba3c09843f1664f3b5cea21fa2bff776926"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave130/owned-mounts-before.json",
+        "sha256": "51f989226a0a2aa6ef83a7eb2949b9ccb974a517dccf8017794639f9ecf83561"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave130/owned-mounts-after.json",
+        "sha256": "874316ae306c9a7d7810433482daa9bd8bd49ecf727c0fe8d05dffb408c84da9"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave130/health-before.json",
+        "sha256": "ace2ba2cf3a3a9e9d01f63a4181661f796c9b593c642cd8bb08689e811658355"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave130/health-after.json",
+        "sha256": "714a214a2b66a6c800bed2405813311f2678b0fc85d1a86f6b1fb44acd8096ad"
+      }
+    }
+  },
+  "runner": {
+    "status": "passed",
+    "exitCode": 0,
+    "durationMs": 54358,
+    "suiteDurationMs": 55951.310000000005,
+    "results": null,
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave130/standalone-reshape-related-unpivot/attempt1/runner.log",
+      "sha256": "e2bfb6e5e566980fe193f94196f1ae7e68912fc3e414d36b7580e71c75559898",
+      "sizeBytes": 670
+    },
+    "terminalRecord": {
+      "path": "/private/tmp/loom-native-parallel-wave130/standalone-reshape-related-unpivot/attempt1/terminal.json",
+      "sha256": "3edd82d4e49f89c30270dee752ac018539f4dc6848d7a33b1553404e6f8b58af",
+      "sizeBytes": 15
+    }
+  },
+  "lifecycleReport": {
+    "path": "/private/tmp/loom-native-parallel-wave130/standalone-reshape-related-unpivot/attempt1/artifacts/standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/cda-report.json",
+    "sha256": "8ae5332c903afce8888822571f1cbcced7a1d134be2d600d5b88384772f0d1b1",
+    "sizeBytes": 1085265,
+    "status": "passed"
+  },
+  "lifecycleReportCreated": true,
+  "strictIntegrityClosure": {
+    "path": "/private/tmp/loom-native-parallel-wave130/integrity-closure.json",
+    "sha256": "167a94fbdb51f4e5865920e58c290c47d919141ed76d52ba4bfafccd9ae3e837",
+    "sizeBytes": 4500
+  },
+  "jsonAttachments": [
+    {
+      "name": ".last-run.json",
+      "path": "/private/tmp/loom-native-parallel-wave130/standalone-reshape-related-unpivot/attempt1/artifacts/.last-run.json",
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "sizeBytes": 45
+    },
+    {
+      "name": "standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/attachments/cda-domain-report-json-e2e14ed24bb3dcededdb6fbabcbdc13251efd79d.json",
+      "path": "/private/tmp/loom-native-parallel-wave130/standalone-reshape-related-unpivot/attempt1/artifacts/standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/attachments/cda-domain-report-json-e2e14ed24bb3dcededdb6fbabcbdc13251efd79d.json",
+      "sha256": "8ae5332c903afce8888822571f1cbcced7a1d134be2d600d5b88384772f0d1b1",
+      "sizeBytes": 1085265
+    },
+    {
+      "name": "standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/cda-evidence/report.json",
+      "path": "/private/tmp/loom-native-parallel-wave130/standalone-reshape-related-unpivot/attempt1/artifacts/standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/cda-evidence/report.json",
+      "sha256": "0f7c3651e85017efe1d9c63e8745c3ba9904c8d9a9125f98f87b987bbbb5444d",
+      "sizeBytes": 28513116
+    },
+    {
+      "name": "standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/cda-report.json",
+      "path": "/private/tmp/loom-native-parallel-wave130/standalone-reshape-related-unpivot/attempt1/artifacts/standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/cda-report.json",
+      "sha256": "8ae5332c903afce8888822571f1cbcced7a1d134be2d600d5b88384772f0d1b1",
+      "sizeBytes": 1085265
+    }
+  ],
+  "performance": {
+    "completeActionToRender": {
+      "source": {
+        "path": "/private/tmp/loom-native-parallel-wave130/standalone-reshape-related-unpivot/attempt1/artifacts/standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/cda-evidence/report.json",
+        "sha256": "0f7c3651e85017efe1d9c63e8745c3ba9904c8d9a9125f98f87b987bbbb5444d",
+        "sizeBytes": 28513116
+      },
+      "timedCompleteCheckpoints": 28,
+      "maximumDurationMs": 1378,
+      "thresholdMs": 5000,
+      "withinThreshold": true,
+      "checkpoints": [
+        {
+          "name": "load-to-render",
+          "durationMs": 1378
+        },
+        {
+          "name": "expand-Specimen-Patient",
+          "durationMs": 1185
+        },
+        {
+          "name": "apply-to-render",
+          "durationMs": 615
+        },
+        {
+          "name": "expand-Patient-Condition",
+          "durationMs": 1179
+        },
+        {
+          "name": "apply-to-render",
+          "durationMs": 458
+        },
+        {
+          "name": "expand-Condition-Observation",
+          "durationMs": 1200
+        },
+        {
+          "name": "apply-to-render",
+          "durationMs": 473
+        },
+        {
+          "name": "expand-Observation-Patient",
+          "durationMs": 1226
+        },
+        {
+          "name": "apply-to-render",
+          "durationMs": 500
+        },
+        {
+          "name": "load-to-render",
+          "durationMs": 1305
+        },
+        {
+          "name": "related-chain-unpivot-preview",
+          "durationMs": 1008
+        },
+        {
+          "name": "confirmed-related-chain-unpivot-preview",
+          "durationMs": 906
+        },
+        {
+          "name": "apply-to-render",
+          "durationMs": 553
+        },
+        {
+          "name": "load-to-render",
+          "durationMs": 1309
+        },
+        {
+          "name": "edit-unpivot-policy-preview",
+          "durationMs": 1207
+        },
+        {
+          "name": "apply-to-render",
+          "durationMs": 488
+        },
+        {
+          "name": "load-to-render",
+          "durationMs": 1315
+        },
+        {
+          "name": "unpivot-value-missing-preview",
+          "durationMs": 949
+        },
+        {
+          "name": "confirmed-unpivot-value-missing-preview",
+          "durationMs": 970
+        },
+        {
+          "name": "apply-to-render",
+          "durationMs": 546
+        },
+        {
+          "name": "load-to-render",
+          "durationMs": 1309
+        },
+        {
+          "name": "unpivot-value-equality-preview",
+          "durationMs": 1270
+        },
+        {
+          "name": "apply-to-render",
+          "durationMs": 538
+        },
+        {
+          "name": "load-to-render",
+          "durationMs": 1329
+        },
+        {
+          "name": "remove-unpivot-and-dependent-filter-preview",
+          "durationMs": 857
+        },
+        {
+          "name": "remove-unpivot-and-dependent-filter-preview",
+          "durationMs": 895
+        },
+        {
+          "name": "apply-to-render",
+          "durationMs": 505
+        },
+        {
+          "name": "load-to-render",
+          "durationMs": 1328
+        }
+      ]
+    },
+    "nativeControlOnly": {
+      "actionsTotal": 62,
+      "maximumActionElapsedMs": 202,
+      "usedForPerformanceClaim": false
+    }
+  },
+  "checks": {
+    "required": 17,
+    "passed": 17,
+    "failed": 0,
+    "unrun": 0,
+    "assertions": 80,
+    "passedAssertions": 80,
+    "failedAssertions": 0,
+    "actions": 62,
+    "maxNativeControlMs": 202,
+    "timedCompleteCheckpoints": 28,
+    "maxCheckpointMs": 1378,
+    "budgetMs": 5000
+  },
+  "noRawPayloadsEmbedded": true,
+  "scope": "standalone-reshape-related-unpivot/related-unpivot"
+}

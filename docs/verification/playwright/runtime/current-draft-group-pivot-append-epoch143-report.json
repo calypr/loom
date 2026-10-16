@@ -1,0 +1,403 @@
+{
+  "schemaVersion": 1,
+  "epoch": 143,
+  "scenario": "builder-combine-draft",
+  "case": "group-pivot-append",
+  "title": "GROUP-to-PIVOT current-draft APPEND supports cancel, apply, edit, removal, and reload",
+  "status": "passed",
+  "runnerStatus": "passed",
+  "coverageStatus": "passed",
+  "sourceCommit": "d120b68c7bf172ef2a0979052802f7108158363b",
+  "startedAt": "2026-10-07T05:13:15.027Z",
+  "finishedAt": "2026-10-07T05:13:59.312Z",
+  "bracketDurationMs": 44284,
+  "browserDurationMs": 23579,
+  "nativeLifecycleDurationMs": 18725,
+  "requiredChecks": {
+    "passed": 31,
+    "failed": 0,
+    "unrun": 0,
+    "total": 31
+  },
+  "assertions": {
+    "passed": 115,
+    "failed": 0,
+    "total": 115
+  },
+  "actions": {
+    "passed": 34,
+    "total": 34,
+    "maximumLatencyMs": 1071
+  },
+  "renderCheckpoints": {
+    "count": 5,
+    "maximumLatencyMs": 567,
+    "budgetMs": 5000
+  },
+  "dimensions": {
+    "usability": "passed",
+    "correctness": "passed",
+    "persistence": "passed",
+    "performance": "passed"
+  },
+  "network": {
+    "unexpectedErrors": 0,
+    "domainErrors": 0,
+    "assetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ]
+  },
+  "scope": {
+    "fixtureKind": "basic synthetic verification fixture",
+    "fixtureDirectory": "testdata/verify-combine",
+    "fixtureProject": "loom_dev_verify_muxnjk9u-f146ae1",
+    "fixtureGeneration": "group-pivot-append-wave142",
+    "cdaDatasetClaim": false,
+    "publishedSourceClaim": false,
+    "independentOracle": {
+      "patientRecords": 1,
+      "observations": 4,
+      "diagnosticReports": 3,
+      "appendedRows": 7,
+      "sharedIDs": 3,
+      "unmatchedObservationRows": 1,
+      "exactNullPadding": true
+    },
+    "lifecycle": [
+      "automatic preview",
+      "Cancel",
+      "Apply",
+      "reload",
+      "edit",
+      "Cancel edit",
+      "Apply edit",
+      "reload",
+      "removal",
+      "restoration"
+    ]
+  },
+  "target": {
+    "kind": "basic-devloop-browser-fixture",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "project": "loom_dev_verify_muxnjk9u-f146ae1",
+    "generation": "group-pivot-append-wave142",
+    "sourceFingerprint": {
+      "sha256": "21893273801d182ee5f35beb2f6a17e8fbe3222c8d93694b4a9ba40e8f8257b6",
+      "files": 1574
+    },
+    "apiBuildIdentity": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+    "cdaDatasetClaim": false
+  },
+  "ownedStackValidationTarget": {
+    "project": "loom_dev_c89a69d7e137",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiPort": "8188",
+    "uiPort": "30008",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "generation": "group-pivot-append-wave142"
+  },
+  "apiBuildIdentity": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "21893273801d182ee5f35beb2f6a17e8fbe3222c8d93694b4a9ba40e8f8257b6",
+        "files": 1574
+      },
+      "after": {
+        "sha256": "21893273801d182ee5f35beb2f6a17e8fbe3222c8d93694b4a9ba40e8f8257b6",
+        "files": 1574
+      },
+      "changedPaths": [],
+      "unchanged": true,
+      "manifestsEqual": true
+    },
+    "docsBeforeAfter": {
+      "before": {
+        "sha256": "91abcf0069a05180fcf8d6bfb4cc5a06364360af9de17a1dbbcec9b78e1d9c9d",
+        "files": 288
+      },
+      "after": {
+        "sha256": "91abcf0069a05180fcf8d6bfb4cc5a06364360af9de17a1dbbcec9b78e1d9c9d",
+        "files": 288
+      },
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+      "after": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+      "unchanged": true
+    },
+    "apiBuildIdentityUnchanged": true,
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  },
+  "priorAttempts": [
+    {
+      "id": "wave138-attempt1",
+      "status": "failed",
+      "startedAt": "2026-10-07T03:32:36.651Z",
+      "finishedAt": "2026-10-07T03:32:57.054Z",
+      "dimensions": {
+        "usability": "passed",
+        "correctness": "failed",
+        "persistence": "passed",
+        "performance": "passed"
+      },
+      "requiredChecks": {
+        "total": 31,
+        "passed": 31,
+        "failed": 0,
+        "unrun": 0
+      },
+      "assertions": {
+        "total": 116,
+        "passed": 115,
+        "failed": 1
+      },
+      "actions": {
+        "total": 34,
+        "maximumLatencyMs": 623
+      },
+      "firstFailure": {
+        "assertion": "no unexpected network, module, or browser errors",
+        "classification": "strict network failure retained; request cause remained unattributed, not accepted as an expected cancellation",
+        "request": {
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{fresh-project}/explorers/{fresh-explorer}/authoring/v2/preview",
+          "errorText": "net::ERR_ABORTED",
+          "requestId": "request-426",
+          "outputId": "out_dedfb2d4f01f857fa3a47ea3",
+          "durationMs": 83,
+          "action": "open native Combine and create a separate empty target"
+        }
+      },
+      "integrity": {
+        "source": {
+          "before": {
+            "sha256": "0b090cefea063bc2d36b85ac0bbf57ceb686ec5fec6fdb8ea42bed0a1b786a7c",
+            "files": 1565
+          },
+          "after": {
+            "sha256": "0b090cefea063bc2d36b85ac0bbf57ceb686ec5fec6fdb8ea42bed0a1b786a7c",
+            "files": 1565
+          },
+          "unchanged": true
+        },
+        "docs": {
+          "before": {
+            "sha256": "08e7227e76f32f3760a3227c925a6d2daff62176e78c44dcf8379d13fab35ca6",
+            "files": 286
+          },
+          "after": {
+            "sha256": "08e7227e76f32f3760a3227c925a6d2daff62176e78c44dcf8379d13fab35ca6",
+            "files": 286
+          },
+          "unchanged": true
+        },
+        "apiBuildIdentity": {
+          "before": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+          "after": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+          "unchanged": true
+        },
+        "mounts": {
+          "before": "PASS",
+          "after": "PASS",
+          "unchanged": true
+        },
+        "health": {
+          "before": {
+            "status": "PASS",
+            "samples": 3
+          },
+          "after": {
+            "status": "PASS",
+            "samples": 3
+          }
+        }
+      },
+      "evidence": {
+        "rawReport": {
+          "path": "/private/tmp/loom-native-combine-group-pivot-append-wave138/attempt1/browser-artifacts/draft-combine-Builder-Comb-1bbfe-ply-edit-removal-and-reload/attachments/loom-verification-report-json-666ac008515d6b536e23a005b947b415657a6b76.json",
+          "sha256": "a63584160a1aad33328c18498b7eca1b99da386bdd359527c1ce6f0895574192"
+        },
+        "errorContext": {
+          "path": "/private/tmp/loom-native-combine-group-pivot-append-wave138/attempt1/browser-artifacts/draft-combine-Builder-Comb-1bbfe-ply-edit-removal-and-reload/error-context.md",
+          "sha256": "6f28a23231991043d6646dcb9173a58b897242aa6eb47029289b09dcef6d1c86"
+        },
+        "runnerLog": {
+          "path": "/private/tmp/loom-native-combine-group-pivot-append-wave138/attempt1/runner.log",
+          "sha256": "606ef7b6bf65dd82ddf89e5f519f8633ad2641272a150b27b47c53a43776e3e4"
+        }
+      }
+    },
+    {
+      "id": "wave142-attempt1",
+      "status": "failed",
+      "startedAt": "2026-10-07T04:54:21.291Z",
+      "finishedAt": "2026-10-07T04:54:33.121Z",
+      "requiredChecks": {
+        "total": 31,
+        "passed": 13,
+        "failed": 1,
+        "unrun": 17
+      },
+      "assertions": {
+        "total": 57,
+        "passed": 54,
+        "failed": 3
+      },
+      "actions": {
+        "total": 14,
+        "maximumLatencyMs": 582
+      },
+      "firstFailure": {
+        "assertion": "automatic Combine proposal is bound to this exact draft CAS and UI proxy scope",
+        "classification": "harness false-negative: during COMBINE editor mode the Tables nav is hidden; selectedOutputId stayed null although proposal output and receipt matched the target and no user-visible preview error appeared",
+        "selectedOutput": {
+          "targetOutputId": "out_8ae0f5f73c2811f3077c2a74",
+          "responseOutputId": "out_8ae0f5f73c2811f3077c2a74",
+          "domSelectedOutputId": null,
+          "userVisiblePreviewError": false,
+          "domSelectedOutputUnavailable": true
+        }
+      },
+      "integrity": {
+        "source": {
+          "before": {
+            "sha256": "c3f873d491fb899aa53845ecb716aa711c8d95dc16b90a50dd194b4f9d4b6e58",
+            "files": 1569
+          },
+          "after": {
+            "sha256": "c3f873d491fb899aa53845ecb716aa711c8d95dc16b90a50dd194b4f9d4b6e58",
+            "files": 1569
+          },
+          "unchanged": true
+        },
+        "docs": {
+          "before": {
+            "sha256": "baf5e4a0d5b80f8ce3c43df6f2b6449f372276d3db59cb41bc7ea1bb475ee1d0",
+            "files": 286
+          },
+          "after": {
+            "sha256": "baf5e4a0d5b80f8ce3c43df6f2b6449f372276d3db59cb41bc7ea1bb475ee1d0",
+            "files": 286
+          },
+          "unchanged": true
+        },
+        "apiBuildIdentity": {
+          "before": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+          "after": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+          "unchanged": true
+        },
+        "mounts": {
+          "before": "PASS",
+          "after": "PASS",
+          "unchanged": true
+        },
+        "health": {
+          "before": {
+            "status": "PASS",
+            "samples": 3
+          },
+          "after": {
+            "status": "PASS",
+            "samples": 3
+          }
+        }
+      },
+      "evidence": {
+        "rawReport": {
+          "path": "/private/tmp/loom-native-combine-group-pivot-append-wave142/attempt1/artifacts/draft-combine-Builder-Comb-1bbfe-ply-edit-removal-and-reload/attachments/loom-verification-report-json-753d2627389a7e2be4c46a080059f561a491cad4.json",
+          "sha256": "d2626122ff1a753f76e49ead349a3e7a436da6232d30e238e51244933282a467"
+        },
+        "errorContext": {
+          "path": "/private/tmp/loom-native-combine-group-pivot-append-wave142/attempt1/artifacts/draft-combine-Builder-Comb-1bbfe-ply-edit-removal-and-reload/error-context.md",
+          "sha256": "2bb99484a78edd31432ae9bf7a4821d9c3547331064b7dd9cc0b8af666a8e9db"
+        },
+        "runnerLog": {
+          "path": "/private/tmp/loom-native-combine-group-pivot-append-wave142/attempt1/runner.log",
+          "sha256": "bee322cd5d78bbe672afbf2bb3f8462a981dca0d6f0a84a618330f7b31f19941"
+        },
+        "requiredCheckResults": {
+          "path": "/private/tmp/loom-native-combine-group-pivot-append-wave142/attempt1/required-check-results.tsv",
+          "sha256": "250ba5318b0f714b6f7ee9ecdf15dea94e1e3cd33847654e76648ced4372e6ee"
+        }
+      },
+      "rawReportDimensions": {
+        "usability": "passed",
+        "correctness": "failed",
+        "persistence": "passed",
+        "performance": "passed"
+      },
+      "dimensionInterpretation": "Preserved exactly as the raw report labels; persistence and performance labels do not establish lifecycle phases that were not run after the proposal-binding failure.",
+      "unverifiedLifecyclePhases": [
+        "post-preview Cancel and reload preservation",
+        "Apply preview, saved output binding, and reload persistence",
+        "open saved editor, edit preview, cancel/apply, and edit reload persistence",
+        "removal cancellation and empty-target restoration",
+        "no-publish/no-source-pinning lifecycle assertion"
+      ]
+    }
+  ],
+  "evidence": {
+    "runtimeRunDirectory": "/private/tmp/loom-append-bracket.rQAKVF/run-builder-combine-draft-group-pivot-append-kel07h",
+    "bracketSummary": {
+      "path": "/private/tmp/loom-append-bracket.rQAKVF/run-builder-combine-draft-group-pivot-append-kel07h/summary.json",
+      "sha256": "43cb02867e3629d8152e524cfeb76dd3de42dd83fbf60ac88790dca255f404fd"
+    },
+    "rawDomainReport": {
+      "path": "/private/tmp/loom-append-bracket.rQAKVF/run-builder-combine-draft-group-pivot-append-kel07h/playwright-results/draft-combine-Builder-Comb-1bbfe-ply-edit-removal-and-reload/attachments/loom-verification-report-json-3f93c857804b78b5c2b9dec159b6ba0ea75940d7.json",
+      "sha256": "3ec03cc6411e87411cba7801478b30047fed3dd8e34513e77f1c2a2f17cd5e0b"
+    },
+    "playwrightJson": {
+      "path": "/private/tmp/loom-append-bracket.rQAKVF/run-builder-combine-draft-group-pivot-append-kel07h/playwright-report.json",
+      "sha256": "3d2bf3e5eaa28a16f7c6072ee7b46906507fec8b14534bb968ba60e04afcea76"
+    },
+    "browserEnvironment": {
+      "path": "/private/tmp/loom-native-combine-group-pivot-append-wave142/browser-environment.sh",
+      "sha256": "05a4580b0e0f24cc7e01df85f1db3819ad28f882a4b6249559bb38f81006f237"
+    },
+    "captureEnvironment": {
+      "path": "/private/tmp/loom-native-combine-group-pivot-append-wave142/capture-environment.sh",
+      "sha256": "3fe8dac956c7671dbc73962391cc61cbe05f5a5201eec3926de64458cd0606ea"
+    },
+    "before": {
+      "precheck": "/private/tmp/loom-append-bracket.rQAKVF/run-builder-combine-draft-group-pivot-append-kel07h/api-build-precheck.json",
+      "source": "/private/tmp/loom-append-bracket.rQAKVF/run-builder-combine-draft-group-pivot-append-kel07h/source-before.json",
+      "docs": "/private/tmp/loom-append-bracket.rQAKVF/run-builder-combine-draft-group-pivot-append-kel07h/docs-before.json",
+      "api": "/private/tmp/loom-append-bracket.rQAKVF/run-builder-combine-draft-group-pivot-append-kel07h/api-identity-before.json",
+      "mounts": "/private/tmp/loom-append-bracket.rQAKVF/run-builder-combine-draft-group-pivot-append-kel07h/owned-mounts-before.json",
+      "health": "/private/tmp/loom-append-bracket.rQAKVF/run-builder-combine-draft-group-pivot-append-kel07h/health-before.json"
+    },
+    "after": {
+      "source": "/private/tmp/loom-append-bracket.rQAKVF/run-builder-combine-draft-group-pivot-append-kel07h/source-after.json",
+      "docs": "/private/tmp/loom-append-bracket.rQAKVF/run-builder-combine-draft-group-pivot-append-kel07h/docs-after.json",
+      "api": "/private/tmp/loom-append-bracket.rQAKVF/run-builder-combine-draft-group-pivot-append-kel07h/api-identity-after.json",
+      "mounts": "/private/tmp/loom-append-bracket.rQAKVF/run-builder-combine-draft-group-pivot-append-kel07h/owned-mounts-after.json",
+      "health": "/private/tmp/loom-append-bracket.rQAKVF/run-builder-combine-draft-group-pivot-append-kel07h/health-after.json"
+    }
+  },
+  "durableClosurePath": "docs/verification/playwright/runtime/current-draft-group-pivot-append-epoch143-closure.json"
+}

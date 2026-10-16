@@ -1,0 +1,82 @@
+{
+  "epoch": 60,
+  "status": "passed",
+  "scope": "Native Group-to-Group CDA lifecycle after verification directory reorganization",
+  "requiredChecks": [
+    "CDA raw oracle finds independent bounded Observation memberships with shared and left-only subject.reference Group keys",
+    "fresh CDA Explorer matches project, generation, snapshot, authorization scope, and empty baseline",
+    "immutable Observation selections and root populations match exact raw IDs, project, generation, and scope",
+    "native Observation GROUP outputs equal exact raw counts including shared-key COUNT_ROWS 2",
+    "native Combine target is a fresh rooted empty current-draft document",
+    "native LEFT Join preview matches the independent grouped oracle and exact current-draft proposal",
+    "canceling the first LEFT Join leaves both Groups, target, and draft CAS unchanged after reload",
+    "applied LEFT Join retains exact current-draft inputs, key IDs, mappings, and preview after reload",
+    "saved LEFT Join edit Cancel preserves exact construction, rows, and CAS after reload",
+    "saved LEFT Join edit to INNER preserves exact current-draft construction and preview after reload",
+    "upstream Group COUNT_DISTINCT edit recomputes the downstream Join from raw values after reload",
+    "Join removal Cancel preserves saved INNER construction and output after reload",
+    "applying Join removal restores the exact empty target while preserving both Group populations",
+    "CDA current-draft lifecycle never publishes or pins table revisions",
+    "all native lifecycle actions complete within five seconds",
+    "CDA watched source and API build stayed unchanged"
+  ],
+  "missingRequiredChecks": [],
+  "assertionCount": 195,
+  "nativeActionCount": 107,
+  "maxActionMs": 1439,
+  "dimensions": {
+    "usability": "passed",
+    "correctness": "passed",
+    "persistence": "passed",
+    "performance": "passed"
+  },
+  "unexpectedErrors": [],
+  "expectedCancellationCount": 2,
+  "sourceFingerprint": {
+    "sha256": "c73d8c26ecbb1c3c5a645569c62babe7e2764bc21db03dc501cd6de66feccdc5",
+    "files": 1499
+  },
+  "docsFingerprint": {
+    "sha256": "dbb9bc047eb17ce01343123a4dd30f9c67e8e3495d5a1a858b81d0c2b9a583f0",
+    "files": 147
+  },
+  "apiBuildIdentity": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+  "ownedTarget": {
+    "project": "loom_dev_cda_fhir",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiPort": "8188",
+    "uiPort": "30008",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "generation": "cda-fhir-v1"
+  },
+  "rawReport": "/private/tmp/loom-native-parallel-wave60/cda-workspace-combine/artifacts/cda-current-draft-group-jo-424dc-the-current-draft-lifecycle/cda-report.json",
+  "rawReportSha256": "3f607bb622400876f478ea996ecdd4817e56db0b15fb004853cda6f1bf581e27",
+  "verificationIdentity": {
+    "sourceFingerprint": {
+      "before": {
+        "sha256": "c73d8c26ecbb1c3c5a645569c62babe7e2764bc21db03dc501cd6de66feccdc5",
+        "files": 1499
+      },
+      "after": {
+        "sha256": "c73d8c26ecbb1c3c5a645569c62babe7e2764bc21db03dc501cd6de66feccdc5",
+        "files": 1499
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+      "after": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0"
+    },
+    "sourceFreeze": {
+      "unchanged": true,
+      "watchedFileCount": 1116,
+      "changedPaths": [],
+      "invalidatesRun": false,
+      "productFailure": false
+    }
+  },
+  "runnerDurationMs": 66678.809
+}

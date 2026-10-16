@@ -103,8 +103,11 @@ func (e *Expression) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("expression must be an object: %w", err)
 	}
 	var extra any
-	if err := dec.Decode(&extra); err == nil {
-		return fmt.Errorf("expression contains trailing JSON")
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("expression contains trailing JSON")
+		}
+		return fmt.Errorf("expression contains invalid trailing JSON: %w", err)
 	}
 	if len(object) == 0 {
 		return fmt.Errorf("expression must contain an operator")
@@ -180,16 +183,17 @@ func (e *Expression) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// UnmarshalJSON accepts the small amount of field metadata emitted by the
-// Explorer Builder while keeping that presentation metadata out of the
-// executable recipe. The Builder historically included catalog information
-// alongside the semantic field declaration; those values are useful to the
-// UI, but the recipe compiler derives them from the expression and schema.
+// UnmarshalJSON accepts the small amount of metadata emitted by the Explorer
+// Builder while keeping catalog-only fields out of the executable recipe.
+// Label and ColumnID are durable recipe metadata; logical type and selection
+// details are resolved by the compiler from the expression and schema.
 // Keep this compatibility surface explicit so unrelated recipe typos remain
 // strict parse errors.
 func (f *Field) UnmarshalJSON(data []byte) error {
 	type fieldJSON struct {
 		Name      string       `json:"name"`
+		ColumnID  string       `json:"columnId,omitempty"`
+		Label     string       `json:"label,omitempty"`
 		FieldRef  string       `json:"fieldRef,omitempty"`
 		Expr      Expression   `json:"expr"`
 		Fallbacks []Expression `json:"fallbacks,omitempty"`
@@ -219,7 +223,8 @@ func (f *Field) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*f = Field{
-		Name: value.Name, FieldRef: value.FieldRef, Expr: value.Expr,
+		Name: value.Name, ColumnID: value.ColumnID, Label: value.Label,
+		FieldRef: value.FieldRef, Expr: value.Expr,
 		Fallbacks: value.Fallbacks, ValueMode: value.ValueMode,
 	}
 	return nil
@@ -237,8 +242,11 @@ func Parse(data []byte) (Bundle, error) {
 		return Bundle{}, validationError("parse_error", "$", err.Error())
 	}
 	var trailing any
-	if err := dec.Decode(&trailing); err == nil {
-		return Bundle{}, validationError("parse_error", "$", "multiple JSON values")
+	if err := dec.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return Bundle{}, validationError("parse_error", "$", "multiple JSON values")
+		}
+		return Bundle{}, validationError("parse_error", "$", "invalid trailing JSON: "+err.Error())
 	}
 	if err := b.Validate(); err != nil {
 		return Bundle{}, err

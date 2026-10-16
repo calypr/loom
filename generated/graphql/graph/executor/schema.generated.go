@@ -3,10 +3,10 @@
 package executor
 
 import (
+	"io"
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"math"
 	"strconv"
 	"sync/atomic"
@@ -6001,6 +6001,29 @@ func (ec *executionContext) _DataframeRowConnection_rows(ctx context.Context, fi
 }
 func (ec *executionContext) fieldContext_DataframeRowConnection_rows(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("DataframeRowConnection", field, false, false, errors.New("field of type JSON does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeRowConnection_rowIds(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRowConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeRowConnection_rowIds(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RowIds, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []string) graphql.Marshaler {
+			return ec.marshalNString2ᚕstringᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeRowConnection_rowIds(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeRowConnection", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
 func (ec *executionContext) _DataframeRowConnection_totalCount(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRowConnection) (ret graphql.Marshaler) {
@@ -12770,6 +12793,11 @@ func (ec *executionContext) _DataframeRowConnection(ctx context.Context, sel ast
 			}
 		case "rows":
 			out.Values[i] = ec._DataframeRowConnection_rows(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "rowIds":
+			out.Values[i] = ec._DataframeRowConnection_rowIds(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

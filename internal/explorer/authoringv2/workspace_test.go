@@ -9,7 +9,7 @@ import (
 
 func workspaceDocument(id string) Document {
 	visible := true
-	return Document{Kind: Kind, Output: Output{ID: id, Title: id}, RootResourceType: "Patient", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"}, Columns: []Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, FieldPath: "id", ProjectionMode: "VALUE"}, Table: &TablePresentation{Visible: &visible}}}}
+	return Document{Kind: Kind, Output: Output{ID: id, Title: id}, RootResourceType: "Patient", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"}, Rows: RecordsRowDefinition(), Columns: []Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &TablePresentation{Visible: &visible}}}}
 }
 
 func TestWorkspaceCanonicalizesDuplicateTableOrdersByStableColumnIdentity(t *testing.T) {
@@ -124,6 +124,46 @@ func TestBuilderAllowsVisibleTableWithNoColumnsUntilPublication(t *testing.T) {
 	}
 }
 
+func TestWorkspacePublicationAcceptsFinalConstructionOutputsWithoutPublicSourceColumns(t *testing.T) {
+	w := fiveTableWorkspace()
+	document := &w.Documents[0]
+	document.RootResourceType = "BodyStructure"
+	document.Route = RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "BodyStructure"}
+	document.Columns = []Column{}
+	document.Construction = &Construction{
+		Version: ConstructionVersion,
+		SourceProjections: []ConstructionSourceProjection{{
+			ColumnID: "source_active", OccurrenceID: RootOccurrenceID, FieldPath: "active",
+			FHIRType: "boolean", LogicalType: "boolean", Label: "Whether this record is in active use",
+		}},
+		Steps: []ConstructionStep{{
+			ID: "group_by_active", Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
+			Operation: ConstructionOperation{Kind: ConstructionOperationGroup, Group: &ConstructionGroup{
+				ConstructionID: "group_by_active",
+				Keys:           []ConstructionGroupKey{{InputColumnID: "source_active", OutputColumnID: "active_key"}},
+				Aggregates:     []ConstructionGroupAggregate{{Operation: ConstructionGroupCountRows, OutputColumnID: "record_count"}},
+			}},
+			Outputs: []StageColumn{
+				{ID: "active_key", Name: "active", Label: "Whether this record is in active use", Type: "boolean"},
+				{ID: "record_count", Name: "record_count", Label: "Record count", Type: "integer"},
+			},
+		}},
+	}
+	if err := w.Validate(); err != nil {
+		t.Fatalf("row-first grouped workspace is invalid: %v", err)
+	}
+	if err := w.ValidateForPublication(); err != nil {
+		t.Fatalf("publication rejected final GROUP outputs without public source columns: %v", err)
+	}
+	hidden := false
+	for index := range document.Construction.Steps[0].Outputs {
+		document.Construction.Steps[0].Outputs[index].Table = &TablePresentation{Visible: &hidden}
+	}
+	if err := w.ValidateForPublication(); err == nil || !strings.Contains(err.Error(), "NO_VISIBLE_COLUMNS: documents[0]") {
+		t.Fatalf("publication accepted a GROUP with all final outputs hidden: %v", err)
+	}
+}
+
 func TestDecodeWorkspaceRejectsUnknownFields(t *testing.T) {
 	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","documents":[],"tabs":[],"recipe":{}}`
 	if _, err := DecodeWorkspace([]byte(raw)); err == nil || !strings.Contains(err.Error(), "unknown field") {
@@ -157,40 +197,118 @@ func TestDecodeWorkspaceRepairsPreviouslyOmittedEmptyColumns(t *testing.T) {
 	}
 }
 
-func TestDecodeWorkspaceAcceptsOnlyFirstProjectionForPersistedProjectID(t *testing.T) {
-	for _, tt := range []struct {
-		name    string
-		mode    string
-		wantErr bool
-	}{
-		{name: "omitted"},
-		{name: "explicit first", mode: "FIRST"},
-		{name: "value", mode: "VALUE", wantErr: true},
-		{name: "all", mode: "ALL", wantErr: true},
-		{name: "distinct", mode: "DISTINCT", wantErr: true},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
+func TestDecodeWorkspacePreservesArrayProjectionModesAcrossPersistedVersions(t *testing.T) {
+	visible := true
+	for _, semanticsVersion := range []int{0, CurrentSemanticsVersion} {
+		t.Run(fmt.Sprintf("semantics-%d", semanticsVersion), func(t *testing.T) {
 			workspace := Workspace{
-				APIVersion: APIVersion,
-				Kind:       WorkspaceKind,
-				Explorer:   ExplorerMetadata{Title: "Persisted"},
-				Documents:  []Document{workspaceDocument("patients")},
-				Tabs:       []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+				APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: semanticsVersion,
+				Explorer: ExplorerMetadata{Title: "Projection modes"},
+				Documents: []Document{{
+					Kind: Kind, Output: Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+					Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"},
+					Rows:  RecordsRowDefinition(),
+					Columns: []Column{
+						{Column: "all_names", Label: "All names", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "name[]", ProjectionMode: "ALL"}}, Table: &TablePresentation{Visible: &visible}},
+						{Column: "distinct_names", Label: "Distinct names", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "name[]", ProjectionMode: "DISTINCT"}}, Table: &TablePresentation{Visible: &visible}},
+					},
+				}},
+				Tabs: []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
 			}
-			workspace.Documents[0].Columns[0].Column = "project_id"
-			workspace.Documents[0].Columns[0].Source = ColumnSource{Kind: SourceProjectID, ProjectionMode: tt.mode}
 			raw, err := json.Marshal(workspace)
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = DecodeWorkspace(raw)
-			if tt.wantErr && err == nil {
-				t.Fatalf("projectionMode %q was accepted", tt.mode)
+			decoded, err := DecodeWorkspace(raw)
+			if err != nil {
+				t.Fatal(err)
 			}
-			if !tt.wantErr && err != nil {
-				t.Fatalf("projectionMode %q was rejected: %v", tt.mode, err)
+			columns := decoded.Documents[0].Columns
+			if columns[0].Source.ProjectionMode() != "ALL" || columns[1].Source.ProjectionMode() != "DISTINCT" {
+				t.Fatalf("projection modes after persisted round trip = %#v, want ALL and DISTINCT", columns)
 			}
 		})
+	}
+}
+
+func TestDecodeWorkspaceMigratesRetiredCodedLookupKinds(t *testing.T) {
+	for _, kind := range []string{"codingBySystem", "observationComponentByCode"} {
+		t.Run(kind, func(t *testing.T) {
+			raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","semanticsVersion":` + fmt.Sprint(CurrentSemanticsVersion) + `,"explorer":{"title":"Observations"},"documents":[{"kind":"` + Kind + `","output":{"id":"observations","title":"Observations"},"rootResourceType":"Observation","route":{"occurrenceId":"base","resourceType":"Observation"},"rows":{"kind":"RECORDS","records":{}},"columns":[{"column":"height","label":"Height","occurrenceId":"base","source":{"kind":"` + kind + `","lookup":{"binding":{"ownerPath":"","keyPath":"code.coding[]","systemPath":"system","codePath":"code","valuePath":"valueQuantity.value","choiceArms":["valueQuantity"],"logicalType":"decimal"},"key":{"system":"urn:study","code":"height"},"projectionMode":"VALUE"}}}]}],"tabs":[{"id":"observations","title":"Observations","outputId":"observations","order":0,"visible":true}]}`
+			workspace, err := DecodeWorkspace([]byte(raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			column := workspace.Documents[0].Columns[0]
+			if column.Source.Kind != SourceCodedValue || column.Source.Lookup == nil || column.Source.Lookup.Key == nil || column.Source.Lookup.Key.Code != "height" {
+				t.Fatalf("decoded source = %#v", column.Source)
+			}
+			canonical, err := workspace.CanonicalJSON()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(canonical), `"kind":"codedValue"`) || strings.Contains(string(canonical), kind) {
+				t.Fatalf("canonical persisted source = %s", canonical)
+			}
+		})
+	}
+}
+
+func TestDecodeWorkspaceRejectsProjectIDPayload(t *testing.T) {
+	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","explorer":{"title":"Persisted"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient"},"columns":[{"column":"project_id","label":"Project","occurrenceId":"base","source":{"kind":"projectId","field":{"path":"id"}}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
+	if _, err := DecodeWorkspace([]byte(raw)); err == nil {
+		t.Fatal("projectId payload was accepted")
+	}
+}
+
+func TestDecodeWorkspaceRejectsUnknownNestedSourceFields(t *testing.T) {
+	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","semanticsVersion":3,"explorer":{"title":"Persisted"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient"},"columns":[{"column":"patient_id","label":"Patient","occurrenceId":"base","source":{"kind":"field","field":{"path":"id","projectionMode":"VALUE","unknown":true}}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
+	if _, err := DecodeWorkspace([]byte(raw)); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("error=%v, want unknown nested source field", err)
+	}
+}
+
+func TestDecodeWorkspaceRejectsLegacyAggregateWhereAtCurrentSemantics(t *testing.T) {
+	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","semanticsVersion":` + fmt.Sprint(CurrentSemanticsVersion) + `,"explorer":{"title":"Persisted"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient"},"rows":{"kind":"RECORDS","records":{}},"columns":[{"column":"patient_count","label":"Patients","occurrenceId":"base","source":{"kind":"aggregate","aggregate":{"operation":"COUNT","where":{"path":"id","equals":"active"}}}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","visible":true}]}`
+	if _, err := DecodeWorkspace([]byte(raw)); err == nil || !strings.Contains(err.Error(), "not writable") {
+		t.Fatalf("error=%v, want current semantics aggregate where rejection", err)
+	}
+}
+
+func TestDecodeWorkspaceRejectsUnsupportedFutureSemanticsVersion(t *testing.T) {
+	w := workspaceDocument("patients")
+	workspace := Workspace{APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: CurrentSemanticsVersion + 1, Explorer: ExplorerMetadata{Title: "Future"}, Documents: []Document{w}, Tabs: []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}}
+	raw, err := json.Marshal(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeWorkspace(raw); err == nil || !strings.Contains(err.Error(), "UNSUPPORTED_SEMANTICS_VERSION") {
+		t.Fatalf("error=%v, want unsupported semantics version", err)
+	}
+}
+
+func TestDecodeLegacySourceMigratesIdempotentlyAndAddsRelatedDecision(t *testing.T) {
+	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","semanticsVersion":0,"explorer":{"title":"Persisted"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient"},"columns":[{"column":"names","label":"Names","occurrenceId":"base","source":{"kind":"field","fieldPath":"name[].family","projectionMode":"FIRST"}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
+	decoded, err := DecodeWorkspace([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Documents[0].Columns[0].Source.Field == nil || decoded.Documents[0].Columns[0].Source.Field.Path != "name[].family" {
+		t.Fatalf("legacy source=%#v", decoded.Documents[0].Columns[0].Source)
+	}
+	catalog := CatalogSnapshot{Nodes: []CatalogNode{{ID: "patient", ResourceType: "Patient"}}, Candidates: []CatalogCandidate{{ID: "names", NodeID: "patient", FieldPath: "name[].family", ProjectionModes: []string{"INDEXED", "FIRST"}, DefaultProjectionMode: "INDEXED", RepeatedBoundaries: []RepeatedBoundary{{Path: "name[]", MaxItems: 2}}}}}
+	first := MigrateLosslessDefaults(decoded, catalog)
+	second := MigrateLosslessDefaults(first, catalog)
+	firstJSON, err := first.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondJSON, err := second.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(firstJSON) != string(secondJSON) || len(second.MigrationDecisions) != 1 {
+		t.Fatalf("migration was not idempotent:\nfirst=%s\nsecond=%s", firstJSON, secondJSON)
 	}
 }
 
@@ -200,14 +318,14 @@ func TestAggregateColumnSourceAcceptsClosedAggregateShape(t *testing.T) {
 	document.Route.Children = []RouteNode{{OccurrenceID: "condition", ResourceType: "Condition", Relationship: "subject_Patient"}}
 	document.Columns = append(document.Columns, Column{
 		Column: "condition_count", Label: "Condition count", OccurrenceID: "condition",
-		Source: ColumnSource{Kind: SourceAggregate, Operation: "COUNT", WherePath: "code.coding[].code", WhereEquals: "C50"},
+		Source: ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "COUNT"}},
 		Table:  &TablePresentation{Visible: &visible},
 	})
 	if err := document.Validate(); err != nil {
 		t.Fatal(err)
 	}
 
-	document.Columns[1].Source.Operation = "NOT_AN_AGGREGATE"
+	document.Columns[1].Source.Aggregate.Operation = "NOT_AN_AGGREGATE"
 	if err := document.Validate(); err == nil {
 		t.Fatal("unsupported aggregate operation was accepted")
 	}

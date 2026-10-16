@@ -1,0 +1,792 @@
+{
+  "schemaVersion": 2,
+  "planRevision": 4,
+  "status": "in_progress",
+  "baseline": {
+    "branch": "arch/integration",
+    "sha": "1301c3b30ceb26e4e37344b61afb890bd6d64564",
+    "date": "2026-09-19",
+    "requiresCheckpoint": true
+  },
+  "specification": "docs/product/ML_DATAFRAMER_DELIVERY_PLAN.md",
+  "acceptance": "docs/product/ml-dataframer/ACCEPTANCE.md",
+  "archiveManifest": "docs/product/history/20260919-superseded/manifest.json",
+  "requiredGates": [
+    "focused_tests",
+    "live_dom",
+    "literal_output",
+    "negative_cases",
+    "performance",
+    "review"
+  ],
+  "prioritySubgoal": {
+    "id": "BUILDER-UI",
+    "title": "Make the dataframe table the primary Builder workspace",
+    "status": "in_progress",
+    "tasks": [
+      {
+        "id": "BUILDER-UI-01",
+        "title": "Move coded-value discovery and source editing into Add columns",
+        "status": "in_progress"
+      },
+      {
+        "id": "BUILDER-UI-02",
+        "title": "Unify row definition and reshape entry in one compact Rows editor",
+        "status": "in_progress"
+      },
+      {
+        "id": "BUILDER-UI-02A",
+        "title": "Discover Group and Pivot keys and values inside Rows before regular column selection",
+        "status": "in_progress",
+        "acceptance": "Choose row keys, category and value from existing columns or populated source fields within Pivot. Acquire missing inputs internally; one Apply persists one editable operation, and removal restores its input table. No separate Add columns workflow.",
+        "remainingBoundary": "Ordinary pivot category discovery currently scans only persisted stages. Candidate input acquisition and category discovery must share the existing compiler execution path before atomic Apply; related multiplicity remains an explicit choice when ambiguous."
+      },
+      {
+        "id": "BUILDER-UI-03",
+        "title": "Use full-width editors with clear Apply and Back to table actions",
+        "status": "in_progress"
+      },
+      {
+        "id": "BUILDER-UI-04",
+        "title": "Compact table navigation and disclose history detail on selection",
+        "status": "in_progress"
+      },
+      {
+        "id": "BUILDER-UI-05",
+        "title": "Verify each building action on CDA in the browser, including reload, removal, layout, and preview time",
+        "status": "in_progress"
+      }
+    ],
+    "latestEvidence": {
+      "feature": "Rows: group by direct-source scalar field",
+      "status": "browser_path_passed",
+      "domUsability": "passed_for_condition_source_group_path",
+      "resultCorrectness": "12_rendered_counts_matched_independent_cda_source_query",
+      "persistence": "applied_reloaded_edited_removed_and_reloaded",
+      "artifact": ".artifacts/cda-builder/2026-09-28-rows-priority/condition-source-group-browser.json",
+      "cdaResource": "Condition",
+      "sourceField": "onsetString",
+      "displayedCountsChecked": 12,
+      "editorToPreviewMs": 4484,
+      "rowsOpenToPreviewMs": 6769,
+      "browserClicks": 15,
+      "directSourceGroupChoice": true,
+      "verification": "7 focused Go tests, 24 focused Rows UI tests, TypeScript check, and OpenAPI check passed; broader Go run had two failures in catalog cardinality and a server timeout",
+      "remaining": "Pivot and related-source keys still require row-first authoring; full priority subgoal remains in progress"
+    },
+    "layoutEvidence": {
+      "feature": "Rows editor page layout",
+      "status": "desktop_and_phone_browser_path_passed",
+      "desktopScreenshot": ".artifacts/cda-builder/2026-09-28-rows-priority/rows-editor-desktop.png",
+      "phoneScreenshot": ".artifacts/cda-builder/2026-09-28-rows-priority/rows-editor-phone.png",
+      "result": "The editor occupies the viewport, related-row unavailability appears in its choice, the current record-row shape is selected, and Back to table restores the Builder",
+      "remaining": "Simplify the row choices and bring Pivot keys into the same flow"
+    },
+    "operationEditorEvidence": {
+      "feature": "Focused Add columns editor layout",
+      "status": "desktop_and_phone_browser_path_passed",
+      "desktopScreenshot": ".artifacts/cda-builder/2026-09-28-rows-priority/add-columns-editor-desktop.png",
+      "phoneScreenshot": ".artifacts/cda-builder/2026-09-28-rows-priority/add-columns-editor-phone.png",
+      "result": "Opening Add columns hides table navigation and actions, retains preview and row counts, and Back to table restores navigation",
+      "remaining": "The Add columns choices and their applied values still need the feature-by-feature CDA audit"
+    },
+    "addColumnsEvidence": {
+      "feature": "Add a paired coded column from CDA Specimen",
+      "status": "browser_ui_and_persistence_passed",
+      "domUsability": "Three ready-to-add coded suggestions have readable labels; Browse sources reveals the longer picker; two equally populated direct routes require an explicit choice",
+      "resultCorrectness": "Five saved preview values matched independently queried CDA Observation.component specimen_type values through the selected Focus relationship",
+      "persistence": "Applied Specimen type column and confirmed its readable title and values after reload; disposable table deleted",
+      "suggestionWaitMs": 3680,
+      "routeChoiceWaitMs": 2300,
+      "artifact": ".artifacts/cda-builder/2026-09-28-rows-priority/specimen-coded-column-browser.json",
+      "sourceArtifact": ".artifacts/cda-builder/2026-09-28-rows-priority/specimen-coded-column-source-oracle.json",
+      "screenshot": ".artifacts/cda-builder/2026-09-28-rows-priority/specimen-coded-column-browser.png",
+      "remaining": "Verify edit or remove in the full CDA browser rerun"
+    },
+    "codedPivotImplementation": {
+      "feature": "Choose coded source categories in Rows before adding visible columns",
+      "status": "browser_apply_reload_edit_remove_passed",
+      "domUsability": "Rows \u2192 Categories to columns offered direct Observation component values by type. The full integer lifecycle took 26 clicks; the two-column string lifecycle took 27 clicks, including setup, saved editing, preview, reload, removal, and table cleanup.",
+      "resultCorrectness": "One selected CDA Observation produced Days to collection = 162 and, in a separate string family, Specimen type = analyte and Primary disease type = Ductal and lobular neoplasms. Independent Arango reads matched all three code/value pairings.",
+      "persistence": "Applied integer and string coded Pivots, reloaded and previewed source-correct values, reopened each saved operation, changed missing-value handling to ERROR, applied, reloaded, confirmed the saved policy and unchanged values, removed the operation, and reloaded with no construction steps. Both disposable tables were deleted.",
+      "proposalBrowserMs": 3247,
+      "savedPreviewBrowserMs": 2574,
+      "stringProposalBrowserMs": 3259,
+      "stringSavedPreviewBrowserMs": 2505,
+      "artifacts": [
+        ".artifacts/cda-builder/bounded-coded-pivot-integer.json",
+        ".artifacts/cda-builder/bounded-coded-pivot-string.json"
+      ],
+      "remaining": "Full-table performance and other source families need separate measurement. Bounded integer and string saved-edit lifecycles passed.",
+      "integerEditProposalBrowserMs": 3246,
+      "integerEditedPreviewBrowserMs": 2134,
+      "stringEditProposalBrowserMs": 3246,
+      "stringEditedPreviewBrowserMs": 2282
+    },
+    "pivotCategoryDiscovery": {
+      "feature": "Find category values in the Rows pivot editor",
+      "status": "browser_complete_and_refusal_paths_passed",
+      "domUsability": "The bounded BodyStructure path found and selected 135 categories in 1.834 seconds; Specimen ID overflow and sparse body-site refusal messages appeared in the editor",
+      "resultCorrectness": "Arango confirms 135 distinct BodyStructure IDs. The high-cardinality Specimen ID request returned LIMIT_EXCEEDED with a 257-row overflow witness and skipped the full category query.",
+      "persistence": "The bounded table pivot applied, survived reload, and was removed through the saved-step UI",
+      "performance": "BodyStructure discovery took 1.834 seconds in Chrome. A warm Specimen overflow request took 2.54 seconds, including a 675 ms witness. One cold request took 8.55 seconds; the earlier timeout cause remains unconfirmed.",
+      "artifact": ".artifacts/cda-builder/2026-09-29-bounded-pivot/summary.json",
+      "remaining": "Measure cold and concurrent category requests"
+    },
+    "codedPivotAvailability": {
+      "feature": "Check direct coded-source availability before offering a Rows pivot",
+      "status": "superseded_by_clickable_pivot_entry",
+      "domUsability": "The BodyStructure Rows menu now disables Categories to columns and explains that no direct code and paired value source is available",
+      "resultCorrectness": "The editor's source inventory returned no direct paired source for the 135 authorized BodyStructure records",
+      "persistence": "No edit was made; this is an availability decision",
+      "artifact": ".artifacts/cda-builder/2026-09-28-category-discovery/bodystructure-choice.json",
+      "remaining": "Pivot entry opens its flow. Source fields can now be selected internally; unsupported combinations are explained inside the editor."
+    },
+    "directSourceColumnsEvidence": {
+      "feature": "Add direct BodyStructure fields to a constructed CDA table",
+      "status": "browser_apply_reload_passed",
+      "domUsability": "The Fields and related data picker enabled direct fields after capability loading; it initially displayed disabled checkboxes while checking row identity",
+      "resultCorrectness": "patient.reference and resourceType were populated in all 25 preview rows; the source collection has 135 BodyStructure records and every resourceType value is BodyStructure",
+      "persistence": "Applied two columns and confirmed both after reload; edit or removal of those columns remains unverified",
+      "artifact": ".artifacts/cda-builder/2026-09-29-bounded-pivot/summary.json",
+      "remaining": "Verify direct-column edit or removal and improve the capability-loading cue"
+    },
+    "tablePivotEvidence": {
+      "feature": "Pivot bounded CDA rows using existing table columns",
+      "status": "browser_apply_reload_remove_passed",
+      "domUsability": "Rows led to Categories to columns; the editor discovered and selected 135 categories. Numeric-leading IDs no longer block proposal creation. Saved history now summarizes large category sets by count.",
+      "resultCorrectness": "The proposal and reloaded table showed 25 preview rows and 136 columns. Arango has 135 distinct BodyStructure IDs, 132 distinct patient references, and only BodyStructure resourceType values.",
+      "persistence": "Applied, reloaded, removed through saved step history, and reloaded with source-record rows restored",
+      "discoveryBrowserMs": 1834,
+      "proposalBrowserMs": 3651,
+      "proposalBackendMs": 647,
+      "removalProposalBackendMs": 534,
+      "artifact": ".artifacts/cda-builder/2026-09-29-bounded-pivot/summary.json",
+      "remaining": "Check the saved-step summary in a live browser with a large pivot; coded-source pivot remains separate"
+    },
+    "codedColumnLifecycleEvidence": {
+      "feature": "Add, rename, and remove a readable CDA coded column from the table",
+      "status": "browser_apply_reload_edit_remove_passed",
+      "domUsability": "Added Primary disease type through the paired suggestion and direct route. Renamed and removed it in the compact table Columns menu. Desktop menu remained within the viewport.",
+      "resultCorrectness": "The selected CDA Observation 008a5c3c-b733-506f-ad82-9ca42070d1be rendered Nevi and melanomas, matching the independent source pairing; renaming retained that value and removal restored only Observation ID.",
+      "persistence": "Applied, reloaded, renamed, reloaded, removed, reloaded, and confirmed restoration. Disposable table deleted.",
+      "previewBrowserMs": {
+        "initial": 632,
+        "saved": 876,
+        "renamed": 830,
+        "restored": 626
+      },
+      "artifact": ".artifacts/cda-builder/2026-09-29T17-39-07.260Z/bounded-observation-concept-inspection.json",
+      "screenshot": ".artifacts/cda-builder/column-menu/desktop.png",
+      "verification": "21 PreviewTable tests and test TypeScript check passed.",
+      "remaining": "This path covers a direct coded source. Related route selection and construction-output removal remain separate cases."
+    },
+    "indirectRelatedColumnEvidence": {
+      "feature": "Add a two-hop Patient column to CDA Specimen rows",
+      "status": "browser_apply_reload_edit_remove_passed",
+      "domUsability": "Add columns \u2192 Fields and related data exposed Patient beyond the direct Specimen fields. The route chooser offered Specimen \u2192 Observation \u2192 Patient and showed match coverage before selection. Full lifecycle used 35 clicks including bounded table setup, editing, restoration, and cleanup.",
+      "resultCorrectness": "The selected Specimen b7cad184-db67-5542-a975-10fffa3e89e7 returned Patient afcfb15e-7617-5691-ae2c-ab675322fb33 through specimen_Specimen then subject_Patient. Independent Arango edge traversal confirmed the route and value. Coverage showed one displayed row with one match.",
+      "persistence": "Applied, reloaded and previewed, reopened the exact saved route, changed the output label, applied, reloaded and previewed unchanged values, removed the step, and reloaded the restored Specimen table. Disposable table deleted.",
+      "previewBrowserMs": {
+        "initial": 373,
+        "addProposal": 2075,
+        "saved": 1544,
+        "editProposal": 2054,
+        "editedSaved": 1568,
+        "removeProposal": 2049,
+        "restored": 1555
+      },
+      "coverageBrowserMs": 2101,
+      "artifact": ".artifacts/cda-builder/2026-09-29T17-52-50.678Z/indirect-specimen-patient-journey.json",
+      "remaining": "This case has one match. Zero and many related matches require their separate CDA cases; reducing route-selection clicks remains a usability opportunity."
+    },
+    "relatedMultiplicityEvidence": {
+      "feature": "Choose zero/many related values and restrict contributing records",
+      "status": "browser_apply_reload_edit_remove_passed",
+      "domUsability": "Fields and related data offered Count matching records, all matching values, and presence. Advanced matching choices accepted one Observation ID. Saved route, result form, and equality value reopened correctly. The combined lifecycle used 67 recorded interactions across four operations, filter editing, reloads, removal, and cleanup.",
+      "resultCorrectness": "A fresh Arango oracle restricted edges to Observation resources and confirmed 38 Subject matches for the many Patient and zero for the other. All 38 rendered IDs matched that oracle. The zero Patient remained a row with count 0, an empty all-values cell, and presence false. Contributor filtering reduced the many count to 1; editing the selected ID retained 1.",
+      "persistence": "Each operation was applied and reloaded. The saved contributor rule was edited and reloaded, then an earlier Patient filter was edited to the zero-match Patient. Each of the four related steps was removed individually, with reload and preview after each removal. Restoration showed only Patient ID, and the temporary table was deleted.",
+      "previewBrowserMs": {
+        "many": 1098,
+        "manyForms": 1062,
+        "contributor": 1086,
+        "editedContributor": 1241,
+        "zero": 1057
+      },
+      "proposalBrowserMs": {
+        "count": 1678,
+        "all": 2044,
+        "presence": 2283,
+        "contributor": 2246
+      },
+      "removalPreviewBrowserMs": [
+        1264,
+        1036,
+        1034,
+        1053
+      ],
+      "artifact": ".artifacts/cda-builder/2026-09-29T18-01-29.132Z/patient-related-forms-many-zero.json",
+      "sourceArtifact": ".artifacts/cda-builder/2026-09-29T18-01-29.132Z/related-observation-source-oracle.json",
+      "remaining": "This proves the bounded direct Subject route. Multi-hop zero/many cases, row expansion, full-table performance, and the final combined CDA rerun remain separate."
+    },
+    "pivotAuthoringRequirement": {
+      "desiredFlow": [
+        "Choose row identity or grouping",
+        "Choose category source",
+        "Choose paired value or value field",
+        "Resolve meaningful multiplicity",
+        "Apply one editable operation"
+      ],
+      "inputAcquisition": "Pivot inputs may come from populated source fields even when not visible columns; acquire them internally without a separate Add columns action.",
+      "currentLimitation": "Implicit scalar inputs are implemented for root fields and the active related resource where the current stage preserves source identity. Repeated/non-scalar fields still require an explicit row/multiplicity decision; this slice does not add arbitrary graph traversal inside Pivot."
+    },
+    "rowsMenuCleanup": {
+      "status": "browser_path_passed",
+      "artifact": ".artifacts/cda-builder/pivot-entry-cleanup/report.json",
+      "screenshot": ".artifacts/cda-builder/pivot-entry-cleanup/define-rows.png",
+      "checked": "Existing CDA Specimen table expanded to Medication: open Rows, inspect all settings without disclosures, select Categories to columns, read missing-input explanation, confirm incomplete Apply unavailable, return to table. No saved changes.",
+      "remaining": "Implicit scalar acquisition and owned-input removal are now verified in the separate implicitPivotInputs ledger entry. Broader editor cleanup remains part of the goal.",
+      "regression": {
+        "unitTests": "67 passed across five focused UI files",
+        "typecheck": "passed",
+        "codedPivotArtifact": ".artifacts/cda-builder/bounded-coded-pivot-integer.json",
+        "lifecycle": "bounded real CDA integer pivot applied, reloaded, edited, reloaded, removed, restored; zero API errors",
+        "clicks": 23,
+        "timingsMs": {
+          "proposal": 4458,
+          "preview": 3477,
+          "editProposal": 4458
+        }
+      }
+    },
+    "implicitPivotInputs": {
+      "feature": "Choose row, category, and value fields inside Pivot without adding public columns first",
+      "status": "browser_path_passed",
+      "domUsability": "Root, related values, and all three roles from an active related record pass fresh-page selection, rendered proposal, Apply, reload, edit, remove, and restoration. Generated input helpers remain hidden from history; each Pivot is one editable operation. No manual Preview button.",
+      "resultCorrectness": "Rendered specimen-reference and patient-reference cells match the independently read Arango Observation record 485e2567-b566-56f3-b5bd-5f025f37cd95. No failed requests in the passing cases.",
+      "persistence": "Saved roles and readable field labels survive reload. Removing root Pivot restores its original Observation ID column; removing related Pivot retains preceding Observation row expansion and removes owned inputs.",
+      "performance": "All measured proposal requests in these bounded cases are below five seconds. Full-CDA/cold/concurrent performance is not established by these checks.",
+      "cases": [
+        {
+          "case": "root",
+          "artifact": ".artifacts/cda-builder/implicit-pivot-inputs-root.json",
+          "clicksFullLifecycle": 25,
+          "categoryDiscoveryMs": 3855,
+          "proposalRequestsMs": [
+            3974,
+            4371,
+            3891
+          ],
+          "result": {
+            "headers": [
+              "OBSERVATION.SPECIMEN.REFERENCE",
+              "FINAL"
+            ],
+            "rows": [
+              [
+                "Specimen/230b352c-99de-50f3-a3b1-a4f6680615ab",
+                "Patient/da65b4e6-3946-50d9-ab1a-65af2e560b1c"
+              ]
+            ]
+          },
+          "restoration": {
+            "historyCount": 0,
+            "headers": [
+              "OBSERVATION ID"
+            ]
+          },
+          "failedRequests": []
+        },
+        {
+          "case": "related",
+          "artifact": ".artifacts/cda-builder/implicit-pivot-inputs-related.json",
+          "clicksFullLifecycle": 28,
+          "categoryDiscoveryMs": 3053,
+          "proposalRequestsMs": [
+            2773,
+            2987,
+            2830,
+            2821
+          ],
+          "result": {
+            "headers": [
+              "SPECIMEN ID",
+              "FINAL"
+            ],
+            "rows": [
+              [
+                "230b352c-99de-50f3-a3b1-a4f6680615ab",
+                "Patient/da65b4e6-3946-50d9-ab1a-65af2e560b1c"
+              ]
+            ]
+          },
+          "restoration": {
+            "historyCount": 1,
+            "headers": [
+              "SPECIMEN ID",
+              "OBSERVATION FHIR RESOURCE ID"
+            ]
+          },
+          "failedRequests": []
+        },
+        {
+          "case": "related-source-key",
+          "artifact": ".artifacts/cda-builder/implicit-pivot-inputs-related-source-key.json",
+          "clicksFullLifecycle": 29,
+          "categoryDiscoveryMs": 3045,
+          "proposalRequestsMs": [
+            2784,
+            2988,
+            2960,
+            3006
+          ],
+          "result": {
+            "headers": [
+              "OBSERVATION.SPECIMEN.REFERENCE",
+              "FINAL"
+            ],
+            "rows": [
+              [
+                "Specimen/230b352c-99de-50f3-a3b1-a4f6680615ab",
+                "Patient/da65b4e6-3946-50d9-ab1a-65af2e560b1c"
+              ]
+            ]
+          },
+          "restoration": {
+            "historyCount": 1,
+            "headers": [
+              "SPECIMEN ID",
+              "OBSERVATION FHIR RESOURCE ID"
+            ]
+          },
+          "failedRequests": []
+        }
+      ],
+      "checks": {
+        "UI": "108 focused tests passed; final Pivot editor 28 passed; TypeScript passed",
+        "backend": "authoringv2, lifecycle, schema owning packages passed; server contract and promoted row-key metadata checks passed",
+        "review": "Sol review PASS"
+      },
+      "remaining": "Repeated-field acquisition and arbitrary new related routes are not introduced by this slice; select the row/multiplicity or related-record operation first.",
+      "codedPivotRegression": {
+        "status": "browser_path_passed",
+        "artifact": ".artifacts/cda-builder/bounded-coded-pivot-integer.json",
+        "checked": "Fresh-page bounded CDA integer code/value pivot; Apply, reload, edit, remove, and restoration; no failed requests",
+        "timingsMs": {
+          "proposal": 4452,
+          "preview": 3693,
+          "editProposal": 4455
+        }
+      },
+      "commit": "95f738370"
+    }
+  },
+  "executionOrder": [
+    "S01",
+    "S02",
+    "S03",
+    "S04",
+    "S05"
+  ],
+  "workPackages": [
+    {
+      "id": "S01",
+      "title": "Add a real column from schema-derived choices",
+      "status": "in_progress",
+      "dependsOn": [],
+      "sourcePaths": [
+        "internal/fhir/schema/index.go",
+        "internal/fhir/semantic/walk.go",
+        "internal/catalog/semantic.go",
+        "internal/server/explorer_capability.go",
+        "internal/explorer/capability/domain.go",
+        "internal/dataframe/compiler/capability/probe.go",
+        "internal/explorer/lifecycle/semantic_catalog.go",
+        "internal/explorer/authoringv2/semantic_command.go",
+        "internal/dataframe/compiler/ir/physical_values.go",
+        "openapi/openapi.yaml",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/CatalogSelectionDialog.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx"
+      ],
+      "tasks": [
+        {
+          "id": "S01-01",
+          "title": "Connect schema structure and owner-aware discovery",
+          "status": "accepted"
+        },
+        {
+          "id": "S01-02",
+          "title": "Compile preserving records and construction choices",
+          "status": "accepted"
+        },
+        {
+          "id": "S01-03",
+          "title": "UI01: Ship Add columns, the visible table, and Column details through atomic authoring",
+          "status": "accepted"
+        },
+        {
+          "id": "S01-04",
+          "title": "Close UI01/J01 with generic and CDA columns; remove migrated branches",
+          "status": "in_progress"
+        }
+      ],
+      "kpis": [
+        {
+          "id": "K-S01-a",
+          "result": "unmeasured"
+        },
+        {
+          "id": "K-S01-b",
+          "result": "unmeasured"
+        },
+        {
+          "id": "K-S01-c",
+          "result": "unmeasured"
+        }
+      ],
+      "journeys": [
+        "J01"
+      ],
+      "evidence": [
+        ".artifacts/loom-dev/6d7df93d6a37/report.json",
+        ".artifacts/loom-dev/6d7df93d6a37/mu9738g1-0e4030ff/owner-record-evidence.html"
+      ],
+      "verification": {
+        "status": "partial",
+        "summary": "Schema-derived construction, generic coded values, OWNER_RECORDS compilation/trace, catalog-first UI, and the dedicated live repeated-record journey pass. Broader J01/CDA, three-column reload/export, latency, and final review remain."
+      }
+    },
+    {
+      "id": "S02",
+      "title": "Choose relationships automatically or author them in the graph",
+      "status": "in_progress",
+      "dependsOn": [
+        "S01"
+      ],
+      "sourcePaths": [
+        "internal/fhir/schema/traversals.go",
+        "internal/explorer/authoringv2/semantic_command.go",
+        "internal/dataframe/compiler/capability/probe.go",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RouteExtensionPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/CatalogSelectionDialog.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx"
+      ],
+      "tasks": [
+        {
+          "id": "S02-01",
+          "title": "Generate compiler-checked relationship choices",
+          "status": "in_progress"
+        },
+        {
+          "id": "S02-02",
+          "title": "Resolve defaults and preserve explicit routes",
+          "status": "in_progress"
+        },
+        {
+          "id": "S02-03",
+          "title": "UI02: Ship Inspect source, editable graph routes, and node-local code selection",
+          "status": "in_progress"
+        },
+        {
+          "id": "S02-04",
+          "title": "Close UI02/J02 with cancel/apply and editor parity; retire frontend planning",
+          "status": "in_progress"
+        }
+      ],
+      "kpis": [
+        {
+          "id": "K-S02-a",
+          "result": "unmeasured"
+        },
+        {
+          "id": "K-S02-b",
+          "result": "unmeasured"
+        },
+        {
+          "id": "K-S02-c",
+          "result": "unmeasured"
+        }
+      ],
+      "journeys": [
+        "J02"
+      ],
+      "evidence": [],
+      "verification": {
+        "status": "partial",
+        "summary": "Exact route identity, source inspection, graph editing, and the J02 driver are implemented. The integrated live J02 browser journey has not run."
+      }
+    },
+    {
+      "id": "S03",
+      "title": "Define rows by records, groups, or expansion",
+      "status": "in_progress",
+      "dependsOn": [
+        "S01"
+      ],
+      "sourcePaths": [
+        "internal/explorer/authoringv2/row_change.go",
+        "internal/explorer/authoringv2/semantic_types.go",
+        "internal/explorer/lifecycle/selection.go",
+        "internal/dataframe/compiler/lower/population.go",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowChangeRepairPanel.tsx"
+      ],
+      "tasks": [
+        {
+          "id": "S03-01",
+          "title": "Model resource, grouped, and expanded rows",
+          "status": "in_progress"
+        },
+        {
+          "id": "S03-02",
+          "title": "Compile row membership with column contributors",
+          "status": "in_progress"
+        },
+        {
+          "id": "S03-03",
+          "title": "UI03: Ship starting-record selection and Records/Groups/Expand controls",
+          "status": "in_progress"
+        },
+        {
+          "id": "S03-04",
+          "title": "Close UI03/J03 with membership previews, cancel/apply, and reconstruction",
+          "status": "in_progress"
+        }
+      ],
+      "kpis": [
+        {
+          "id": "K-S03-a",
+          "result": "unmeasured"
+        },
+        {
+          "id": "K-S03-b",
+          "result": "unmeasured"
+        },
+        {
+          "id": "K-S03-c",
+          "result": "unmeasured"
+        }
+      ],
+      "journeys": [
+        "J03"
+      ],
+      "evidence": [],
+      "verification": {
+        "status": "partial",
+        "summary": "Resource, expanded, and explicit grouped-row execution is implemented with focused compiler tests. The UI03 contract, live Arango proof, and J03 browser journey remain open."
+      }
+    },
+    {
+      "id": "S04",
+      "title": "Apply explicit typed transformations",
+      "status": "in_progress",
+      "dependsOn": [
+        "S02",
+        "S03"
+      ],
+      "sourcePaths": [
+        "internal/explorer/authoringv2/semantic_types.go",
+        "internal/explorer/compilation/interpretation.go",
+        "internal/dataframe/compiler/lower/recipe_expression_lowering.go",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/FeaturePolicyEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx"
+      ],
+      "tasks": [
+        {
+          "id": "S04-01",
+          "title": "UI04: Connect Values controls to compiler-supported typed operations",
+          "status": "in_progress"
+        },
+        {
+          "id": "S04-02",
+          "title": "UI04: Connect Time and units controls and exact recoding",
+          "status": "in_progress"
+        },
+        {
+          "id": "S04-03",
+          "title": "UI04: Ship Table shape controls for explicit pivots and typed derived columns",
+          "status": "planned"
+        },
+        {
+          "id": "S04-04",
+          "title": "Close UI04/J04 with before/after values, stable identities, and declared loss",
+          "status": "planned"
+        }
+      ],
+      "kpis": [
+        {
+          "id": "K-S04-a",
+          "result": "unmeasured"
+        },
+        {
+          "id": "K-S04-b",
+          "result": "unmeasured"
+        },
+        {
+          "id": "K-S04-c",
+          "result": "unmeasured"
+        }
+      ],
+      "journeys": [
+        "J04"
+      ],
+      "evidence": [],
+      "verification": {
+        "status": "partial",
+        "summary": "Typed aggregate, temporal, and unit capabilities are implemented with focused backend and UI tests. Exact recoding is in progress. Pivot, derived-column controls, and J04 remain open."
+      }
+    },
+    {
+      "id": "S05",
+      "title": "Publish and export the exact constructed dataframe",
+      "status": "in_progress",
+      "dependsOn": [
+        "S01",
+        "S02",
+        "S03",
+        "S04"
+      ],
+      "sourcePaths": [
+        "internal/explorer/output_contract.go",
+        "internal/dataframe/published/artifact.go",
+        "internal/dataframe/publication/runner.go",
+        "scripts/loom-dev.mjs",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DataframeContractPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerViewer/ViewerChrome.tsx",
+        "ui/packages/loom-ui/src/Viewer.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerViewer/components.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerViewer/CellExplanationDialog.tsx"
+      ],
+      "tasks": [
+        {
+          "id": "S05-01",
+          "title": "UI05: Connect Review dataset to pinned publication meaning",
+          "status": "in_progress"
+        },
+        {
+          "id": "S05-02",
+          "title": "UI05: Ship explicit Download dataset representation and scope",
+          "status": "in_progress"
+        },
+        {
+          "id": "S05-03",
+          "title": "UI05: Expose complete checks and truthful publication progress/failure",
+          "status": "in_progress"
+        },
+        {
+          "id": "S05-04",
+          "title": "Close UI05/J05 and integrated CDA, browser, artifact, and performance acceptance",
+          "status": "planned"
+        }
+      ],
+      "kpis": [
+        {
+          "id": "K-S05-a",
+          "result": "unmeasured"
+        },
+        {
+          "id": "K-S05-b",
+          "result": "unmeasured"
+        },
+        {
+          "id": "K-S05-c",
+          "result": "unmeasured"
+        }
+      ],
+      "journeys": [
+        "J05"
+      ],
+      "evidence": [],
+      "verification": {
+        "status": "partial",
+        "summary": "Dataset review, shape-safe artifacts, structured row identity, and explicit Viewer download details are implemented with focused tests. J05 and the integrated full gate remain open."
+      }
+    }
+  ],
+  "reusedImplementation": [
+    {
+      "description": "Generated FHIR index and owner-preserving walker; new production integration remains unaccepted",
+      "commit": "1301c3b30ceb26e4e37344b61afb890bd6d64564"
+    }
+  ],
+  "supersedes": [
+    "F1-F4",
+    "B01-B08",
+    "C01-C12",
+    "F00"
+  ],
+  "automaticTableRefresh": {
+    "status": "passed",
+    "behavior": "Saved additions, edits, removals, selected-table changes and row-limit changes refresh automatically; no Preview button. Superseded reads are cancelled.",
+    "domEvidence": [
+      {
+        "artifact": ".artifacts/cda-builder/2026-09-29T18-15-07.568Z/bounded-observation-concept-inspection.json",
+        "paths": [
+          "add",
+          "reload",
+          "rename",
+          "reload",
+          "remove",
+          "reload"
+        ],
+        "renderMs": [
+          1862,
+          1850,
+          2080,
+          1676
+        ]
+      },
+      {
+        "artifact": ".artifacts/cda-builder/bounded-coded-pivot-integer.json",
+        "paths": [
+          "apply pivot",
+          "reload",
+          "edit pivot",
+          "reload",
+          "remove pivot",
+          "reload"
+        ],
+        "proposalMs": 4463,
+        "renderMs": 3474,
+        "editProposalMs": 4269
+      }
+    ],
+    "correctness": "Real CDA values matched independent source records; restored source columns after removal.",
+    "regressionNote": "Nine failures in the existing reconciliation test file also reproduce unchanged at HEAD."
+  },
+  "pivotPerformanceVerification": {
+    "date": "2026-09-29",
+    "dataset": "full CDA, loom_dev_cda_fhir/cda-fhir-v1",
+    "status": "improved; remaining initial and first-use latency",
+    "verified": {
+      "categoryAqlMs": 270,
+      "pivotRowsAqlMs": 3,
+      "categoryBrowserMs": 2845,
+      "initialCategoriesToRenderedProposalMs": 5473,
+      "editRenderedProposalMs": 2815,
+      "removeRenderedProposalMs": 2734,
+      "existingSpecimenCategoryBrowserMs": 2968
+    },
+    "dom": "Full related-expansion/Pivot Apply, edit, reload, removal and restoration passed; visible values matched independent source oracle; no failed requests.",
+    "evidence": [
+      ".artifacts/cda-builder/full-related-pivot-perf.json",
+      ".artifacts/cda-builder/full-pivot-perf.json",
+      ".artifacts/cda-builder/current-pivot-category-perf.json"
+    ],
+    "remaining": [
+      "Initial category plus proposal flow remains about 5.5 seconds.",
+      "First-use category index creation can exceed the scan timeout.",
+      "Fast paths cover direct scalar root categories and root-ID grouping with parent-preserving related stages; other shapes still need measurement.",
+      "The existing Specimen bodySite category is absent in many records; Pivot reports that limitation instead of timing out once its index is prepared."
+    ],
+    "verificationNote": "Focused compiler/execution/server/index checks and full authoringv2 package pass. Earlier broad lower package run exposed an unrelated existing query-variable spelling expectation failure in TestRelatedEligibilityCountRowsUsesScopedReverseRoute."
+  }
+}

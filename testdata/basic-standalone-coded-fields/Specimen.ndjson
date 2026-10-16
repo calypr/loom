@@ -1,0 +1,2 @@
+{"resourceType":"Specimen","id":"coded-catalog-specimen-01","status":"available","subject":{"reference":"Patient/coded-catalog-patient-01"},"type":{"coding":[{"system":"urn:loom:basic-coded-semantic:specimen","version":"1","code":"specimen-type-no-display"}]}}
+{"resourceType":"Specimen","id":"coded-catalog-specimen-02","status":"available","subject":{"reference":"Patient/coded-catalog-patient-02"}}

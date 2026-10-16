@@ -1,0 +1,290 @@
+{
+  "epoch": 110,
+  "status": "CLOSED_PASS",
+  "rawCoordinatorStatus": "CLOSED_INTEGRITY_PASS_BROWSER_PASS",
+  "rawCoordinatorClosurePath": "/private/tmp/loom-native-combine-join-wave110/closure.json",
+  "rawCoordinatorClosureSha256": "e4e7cbd1feca73dc8a6e012dc02f688789c91ae42f49709f8abe476c5159eaed",
+  "case": {
+    "scenarioId": "builder-combine",
+    "caseName": "join",
+    "title": "KEY_JOIN INNER/LEFT preview, apply, cancel, removal and reload",
+    "status": "passed",
+    "requiredChecks": {
+      "passed": 36,
+      "total": 36,
+      "missingOrFailed": 0,
+      "missingOrUnrun": 0,
+      "evidence": [
+        {
+          "name": "fixture contains one bootstrap Patient, four Observations, and three DiagnosticReports",
+          "status": "passed"
+        },
+        {
+          "name": "Observation source starts with every literal fixture identity",
+          "status": "passed"
+        },
+        {
+          "name": "DiagnosticReport source starts with every literal fixture identity",
+          "status": "passed"
+        },
+        {
+          "name": "native source-table publication completed successfully",
+          "status": "passed"
+        },
+        {
+          "name": "Builder response matches the exact project-scoped route, workspace title, and source output identities",
+          "status": "passed"
+        },
+        {
+          "name": "source Builder snapshot is bound to the expected generation, draft, and authorization scope",
+          "status": "passed"
+        },
+        {
+          "name": "source revisions are published in the exact project, generation, and authorization scope",
+          "status": "passed"
+        },
+        {
+          "name": "source schemas expose compatible nullable scalar ID keys, scalar status fields, and a numeric Observation value",
+          "status": "passed"
+        },
+        {
+          "name": "published source API and schema fingerprint captured within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "native Combine creates a rooted empty Observation target without adding an authored step or output column",
+          "status": "passed"
+        },
+        {
+          "name": "native Combine inputs pin the exact current Observation and DiagnosticReport revisions",
+          "status": "passed"
+        },
+        {
+          "name": "published Join source labels match independently authored columns and source previews",
+          "status": "passed"
+        },
+        {
+          "name": "pinned published source cards show immutable authored output and column labels",
+          "status": "passed"
+        },
+        {
+          "name": "Join output names and labels default from selected pinned fields without manual entry",
+          "status": "passed"
+        },
+        {
+          "name": "INNER preview returns the three exact rows matched on shared required IDs",
+          "status": "passed"
+        },
+        {
+          "name": "INNER Apply preserves the exact joined rows",
+          "status": "passed"
+        },
+        {
+          "name": "INNER table reload retains the three exact rows",
+          "status": "passed"
+        },
+        {
+          "name": "Canceling the LEFT edit leaves the saved INNER operation unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "LEFT preview retains the unmatched Observation with empty right-side values",
+          "status": "passed"
+        },
+        {
+          "name": "LEFT preview before Apply includes null projections for the unmatched row",
+          "status": "passed"
+        },
+        {
+          "name": "LEFT Apply preserves exact matches and unmatched null fields",
+          "status": "passed"
+        },
+        {
+          "name": "LEFT rows and nulls survive Builder reload",
+          "status": "passed"
+        },
+        {
+          "name": "KEY_JOIN removal proposal is ready for the rooted empty target",
+          "status": "passed"
+        },
+        {
+          "name": "removing KEY_JOIN and reloading restores the rooted empty target",
+          "status": "passed"
+        },
+        {
+          "name": "published Observation and DiagnosticReport source tables remain unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "project, generation, Explorer, and authorization scope remain stable",
+          "status": "passed"
+        },
+        {
+          "name": "open Combine operation chooser action-to-render within budget",
+          "status": "passed"
+        },
+        {
+          "name": "choose KEY_JOIN and load the initial two input selectors action-to-render within budget",
+          "status": "passed"
+        },
+        {
+          "name": "render INNER Join preview action-to-render within budget",
+          "status": "passed"
+        },
+        {
+          "name": "open saved Combine editor and load pinned sources action-to-render within budget",
+          "status": "passed"
+        },
+        {
+          "name": "render LEFT Join preview action-to-render within budget",
+          "status": "passed"
+        },
+        {
+          "name": "repreview LEFT Join before Apply action-to-render within budget",
+          "status": "passed"
+        },
+        {
+          "name": "INNER Apply reload through exact saved rows within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "Cancel reload through saved INNER state and exact rows within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "LEFT Apply reload through exact saved rows and nulls within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "KEY_JOIN removal reload through exact rooted empty restoration within five seconds",
+          "status": "passed"
+        }
+      ]
+    },
+    "assertions": {
+      "passed": 124,
+      "failed": 0,
+      "total": 124
+    },
+    "actions": {
+      "passed": 52,
+      "failed": 0,
+      "total": 52,
+      "maxElapsedMs": 901,
+      "maxMeasuredActionToRenderMs": 594
+    },
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "passed",
+      "performance": "passed"
+    },
+    "lifecycle": {
+      "independentOracle": {
+        "patientIds": [
+          "combine-fixture-patient"
+        ],
+        "observationIds": [
+          "combine-observation-final-1",
+          "combine-observation-final-2",
+          "combine-observation-preliminary",
+          "combine-observation-unmatched"
+        ],
+        "diagnosticReportIds": [
+          "combine-observation-final-1",
+          "combine-observation-final-2",
+          "combine-observation-preliminary"
+        ],
+        "expectedInnerRows": 3,
+        "expectedLeftRows": 4,
+        "unmatchedObservationId": "combine-observation-unmatched"
+      },
+      "inner": {
+        "previewRows": 3,
+        "applyRows": 3,
+        "reloadRows": 3,
+        "allExact": true
+      },
+      "left": {
+        "cancelPreservedInner": true,
+        "previewRows": 4,
+        "applyRows": 4,
+        "reloadRows": 4,
+        "unmatchedObservationHasNullRightFields": true
+      },
+      "removal": {
+        "proposalReady": true,
+        "removedAndReloaded": true,
+        "rootedEmptyTargetRestored": true,
+        "sameAsPreCombineDocument": true
+      },
+      "sourceTablesUnchanged": true,
+      "projectGenerationExplorerAndAuthorizationScopeStable": true
+    },
+    "performanceEvidence": {
+      "dimension": "passed",
+      "registeredActionToRenderChecksPassed": true,
+      "measuredActions": 52,
+      "maxActionElapsedMs": 901,
+      "maxMeasuredActionToRenderMs": 594,
+      "budgetMs": 5000,
+      "reloadLatencyMs": {
+        "INNER Apply reload through exact saved rows within five seconds": 899,
+        "Cancel reload through saved INNER state and exact rows within five seconds": 1061,
+        "LEFT Apply reload through exact saved rows and nulls within five seconds": 890,
+        "KEY_JOIN removal reload through exact rooted empty restoration within five seconds": 1015
+      },
+      "maxReloadLatencyMs": 1061,
+      "allReloadTimingChecksWithinBudget": true,
+      "note": "Four named full-reload measurements cover INNER Apply, Cancel restoring INNER, LEFT Apply, and KEY_JOIN removal/restoration."
+    }
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "8c6ae5be088f6b1b5ba408ce9a00418155e758d0e780ed2095de57606b1f2d7b",
+        "files": 1534
+      },
+      "after": {
+        "sha256": "8c6ae5be088f6b1b5ba408ce9a00418155e758d0e780ed2095de57606b1f2d7b",
+        "files": 1534
+      },
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "precheck": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  }
+}

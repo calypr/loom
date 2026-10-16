@@ -1,0 +1,2 @@
+{"resourceType":"Observation","id":"field-lifecycle-observation-matched","status":"final","code":{"coding":[{"system":"urn:loom:related-expand-field-lifecycle","code":"matched"}]},"subject":{"reference":"Patient/field-lifecycle-patient-matched"}}
+{"resourceType":"Observation","id":"field-lifecycle-observation-unmatched","status":"preliminary","code":{"coding":[{"system":"urn:loom:related-expand-field-lifecycle","code":"unmatched"}]},"subject":{"reference":"Patient/field-lifecycle-patient-unmatched"}}

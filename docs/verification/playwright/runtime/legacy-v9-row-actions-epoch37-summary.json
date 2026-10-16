@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 1,
+  "epoch": 37,
+  "workflow": "Persisted semantics v9 row actions",
+  "scenario": "builder-authoring",
+  "case": "legacy-v9-rows",
+  "status": "partial",
+  "scope": "Native isolated basic Patient fixture only; passed checks do not close the omitted transitions or real CDA lifecycle.",
+  "run": {
+    "runnerStatus": "passed",
+    "runnerExitCode": 0,
+    "expectedCases": 1,
+    "unexpectedCases": 0,
+    "skippedCases": 0,
+    "flakyCases": 0,
+    "durationMs": 13364,
+    "browserLifecycleDurationMs": 13061,
+    "assertions": 64,
+    "requiredChecks": {
+      "passed": 12,
+      "total": 12,
+      "missing": []
+    },
+    "actions": 28,
+    "maximumActionToRenderMs": 886,
+    "actionToRenderBudgetMs": 5000,
+    "dimensionsWithinScope": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "passed",
+      "performance": "passed"
+    }
+  },
+  "verified": {
+    "fixture": {
+      "source": "fresh project Patient.ndjson",
+      "generation": "fixture-v1",
+      "patientIds": [
+        "dev-patient-001",
+        "dev-patient-002"
+      ]
+    },
+    "savedLegacyDraft": {
+      "semanticsVersion": 9,
+      "draftVersion": 3,
+      "digest": "sha256:a08e8b2b64bc7b1f8f86b60b5188631503eecfc67695ce811604e9dfd5485387",
+      "reloadPreservedExactDigest": true
+    },
+    "capabilities": {
+      "assertionStatus": "passed",
+      "httpStatus": 200,
+      "exactLegacyOutputStageSnapshotVersionDigest": true
+    },
+    "relatedExpandAndListExpand": {
+      "enabledAndActionable": true,
+      "opened": true,
+      "cancelled": true,
+      "apply": "not-run",
+      "v9DigestUnchangedAfterCancel": true
+    },
+    "group": {
+      "previewStatus": "ready",
+      "preview": {
+        "operation": "COUNT_ROWS",
+        "header": "Row count",
+        "value": "2"
+      },
+      "cancelPreservedV9Digest": true,
+      "applyAndReloadPassed": true,
+      "appliedDraft": {
+        "semanticsVersion": 10,
+        "draftVersion": 4,
+        "digest": "sha256:ae959257d3ede75d7f94230b82ddac778e2b48bb34d5f586ae02d2d49d472390",
+        "reloadPreservedExactDigest": true,
+        "renderedValue": "2"
+      }
+    },
+    "environmentClosure": {
+      "sourceFingerprint": {
+        "sha256": "991be8732dbb106004a329d3f35efc54e0f0d33c74c5d7fe18ffcfcf9730a5e9",
+        "files": 1493,
+        "unchanged": true
+      },
+      "docsFingerprint": {
+        "sha256": "c590d4aee2fd16a52a0ff867e1eced775844b42fe3ee9e147be21d44731baea7",
+        "files": 110,
+        "unchanged": true
+      },
+      "apiBuildIdentity": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8",
+      "apiIdentityUnchanged": true,
+      "ownedMounts": "PASS; target unchanged",
+      "health": "PASS; three samples before and after",
+      "closureChecksPass": true
+    }
+  },
+  "notRun": {
+    "relatedExpandApply": true,
+    "listExpandApply": true,
+    "groupEdit": true,
+    "groupRemovalAndRestoration": true,
+    "realCdaFollowUp": true
+  },
+  "historicalFailure": {
+    "path": "docs/verification/playwright/runtime/legacy-v9-row-actions-epoch34.json",
+    "sha256": "4cfbefe205938ec5e4065ca06e10f790b7b76a3cba21ed152dbb869db6018020",
+    "retainedUnchanged": true,
+    "runnerFirstFailure": "timeout waiting for scoped table-shape-capabilities response while opening legacy Patient row settings",
+    "recordedProductResponse": "construction-capabilities returned HTTP 409 INVALID_COMPILATION_RECEIPT before lifecycle completion; historical response, superseded by the passing epoch37 basic case."
+  },
+  "durableEvidence": {
+    "assertionsAndTimings": {
+      "path": "docs/verification/playwright/runtime/legacy-v9-row-actions-epoch37-report.json",
+      "sha256": "dd76e57e04f1abc809e18a3b21e7ed8f8ba2e700574f09b7d48f93aeaca69a75"
+    },
+    "authoritativeClosure": {
+      "path": "docs/verification/playwright/runtime/legacy-v9-row-actions-epoch37-closure.json",
+      "sha256": "62e0fdc54d492257bdcdbd64bbb07b7ce4a370edd1cea555cb1bd763158a9a12"
+    },
+    "fullNativeRunnerReport": {
+      "path": "/private/tmp/loom-native-parallel-wave37/legacy-v9-workspace/artifacts/verify-ui/builder-authoring-legacy-v9-rows-muvvs6zl-0522c98.json",
+      "sha256": "a37fa5b109d8d5e06f6218ffefd69face12f3723d0b7f7a65be52e55ffddb582"
+    }
+  }
+}

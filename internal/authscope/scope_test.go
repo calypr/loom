@@ -51,6 +51,18 @@ func TestScopeResolverResolveReadScopeIntersectsDBPaths(t *testing.T) {
 	}
 }
 
+func TestScopeResolverRejectsBearerAuthorizationWithoutResourceAccessClient(t *testing.T) {
+	resolver := NewScopeResolver(ScopeResolverConfig{})
+	principal := &Principal{AuthorizationHeader: "Bearer header.payload.signature"}
+
+	if _, err := resolver.ResolveReadScope(context.Background(), principal, "P1", nil); !errors.Is(err, ErrAuthorizationBackendUnavailable) {
+		t.Fatalf("ResolveReadScope() error = %v, want ErrAuthorizationBackendUnavailable", err)
+	}
+	if err := resolver.AuthorizeWrite(context.Background(), principal, "P1", "example-project"); !errors.Is(err, ErrAuthorizationBackendUnavailable) {
+		t.Fatalf("AuthorizeWrite() error = %v, want ErrAuthorizationBackendUnavailable", err)
+	}
+}
+
 func TestScopeResolverRejectsRequestedPathOutsideIntersection(t *testing.T) {
 	resolver := NewScopeResolver(ScopeResolverConfig{
 		ResourceAccess: fakeResourceAccessClient{
@@ -148,6 +160,32 @@ func TestScopeResolverCachesExistingPathsPerNormalizedGeneration(t *testing.T) {
 	}
 	if calls[0].Project != "P1" || calls[0].DatasetGeneration != "generation-a" || calls[1].Project != "P1" || calls[1].DatasetGeneration != "generation-b" {
 		t.Fatalf("generation-aware catalog options = %#v", calls)
+	}
+}
+
+func TestScopeResolverSharesCanonicalAndLegacyProjectCacheKeys(t *testing.T) {
+	var calls []catalog.AuthResourcePathOptions
+	resolver := NewScopeResolver(ScopeResolverConfig{
+		ResourceAccess: fakeResourceAccessClient{resources: []string{"/programs/HTAN_INT/projects/BForePC"}},
+		ListExistingAuthResourcePaths: func(_ context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
+			calls = append(calls, opts)
+			return []string{"HTAN_INT-BForePC"}, nil
+		},
+	})
+	principal := &Principal{AuthorizationHeader: "Bearer header.payload.signature"}
+	canonical, err := resolver.ResolveReadScopeForGeneration(context.Background(), principal, "HTAN_INT/BForePC", "generation", nil)
+	if err != nil {
+		t.Fatalf("canonical scope = %v", err)
+	}
+	legacy, err := resolver.ResolveReadScopeForGeneration(context.Background(), principal, "HTAN_INT-BForePC", "generation", nil)
+	if err != nil {
+		t.Fatalf("legacy scope = %v", err)
+	}
+	if len(calls) != 1 || calls[0].Project != "HTAN_INT-BForePC" {
+		t.Fatalf("scope catalog calls = %#v, want one legacy storage lookup", calls)
+	}
+	if !reflect.DeepEqual(canonical, legacy) {
+		t.Fatalf("canonical scope = %#v, legacy scope = %#v, want equal", canonical, legacy)
 	}
 }
 

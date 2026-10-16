@@ -23,6 +23,10 @@ const (
 // boolean, or object. Object values are rejected by the generic MVP runner
 // unless a target explicitly opts into a serialization policy.
 type LogicalColumn struct {
+	// ID is the stable compiler identity used by constructed-table inputs. It
+	// is persisted with the exact published revision, never inferred from a
+	// mutable display name.
+	ID   string
 	Name string
 	// SemanticPath is the stable FHIR/provenance identity. It is persisted
 	// alongside the physical schema but never used to name ClickHouse columns.
@@ -36,16 +40,18 @@ type LogicalColumn struct {
 }
 
 type OutputSchema struct {
-	Name    string
-	Columns []LogicalColumn
+	Name      string
+	Columns   []LogicalColumn
+	SourceRow *SourceRowMetadata
 }
 
 // OutputStream is consumed exactly once. The callback must invoke visit for
 // each row and must stop when visit returns an error.
 type OutputStream struct {
-	Name    string
-	Columns []LogicalColumn
-	Stream  func(context.Context, func(map[string]any) error) error
+	Name      string
+	Columns   []LogicalColumn
+	SourceRow *SourceRowMetadata
+	Stream    func(context.Context, func(map[string]any) error) error
 }
 
 type PublicationIdentity struct {
@@ -59,6 +65,7 @@ type PublicationIdentity struct {
 	DatasetGeneration string
 	RecipeDigest      string
 	SchemaDigest      string
+	ReceiptID         string
 	ScopeDigest       string
 	EngineVersion     string
 	AuthScopeMode     string
@@ -81,16 +88,19 @@ type Transaction interface {
 	WriteBatch(context.Context, string, []map[string]any) error
 	FinalizeSchema(context.Context, []OutputSchema) error
 	SetFinalSchemaDigest(string) error
+	SetQualityReports(context.Context, []QualityReport) error
 	Commit(context.Context) ([]PublishedOutput, error)
 	Abort(context.Context, error) error
 	Idempotent() bool
 	ExistingPublishedOutputs() []PublishedOutput
+	ExistingQualityReports() []QualityReport
 }
 
 // FinalSchemaDigest computes the versioned digest for the schema actually
 // staged. Physical names and discovery provenance are deliberately excluded.
 func FinalSchemaDigest(identity PublicationIdentity, schemas []OutputSchema) string {
 	type contract struct {
+		ID           string `json:"id,omitempty"`
 		Name         string `json:"name"`
 		Kind         string `json:"kind"`
 		SemanticPath string `json:"semanticPath,omitempty"`
@@ -99,15 +109,17 @@ func FinalSchemaDigest(identity PublicationIdentity, schemas []OutputSchema) str
 		Identity     bool   `json:"identity,omitempty"`
 	}
 	type output struct {
-		Name    string     `json:"name"`
-		Columns []contract `json:"columns"`
+		Name      string             `json:"name"`
+		Columns   []contract         `json:"columns"`
+		SourceRow *SourceRowMetadata `json:"sourceRow,omitempty"`
 	}
 	ordered := make([]output, 0, len(schemas))
 	for _, schema := range schemas {
 		item := output{Name: schema.Name, Columns: make([]contract, 0, len(schema.Columns))}
 		for _, column := range schema.Columns {
-			item.Columns = append(item.Columns, contract{Name: column.Name, Kind: column.Kind, SemanticPath: column.SemanticPath, Repeated: column.Repeated, Nullable: column.Nullable, Identity: column.IsIdentity})
+			item.Columns = append(item.Columns, contract{ID: column.ID, Name: column.Name, Kind: column.Kind, SemanticPath: column.SemanticPath, Repeated: column.Repeated, Nullable: column.Nullable, Identity: column.IsIdentity})
 		}
+		item.SourceRow = schema.SourceRow
 		ordered = append(ordered, item)
 	}
 	payload := struct {
@@ -125,6 +137,7 @@ func FinalSchemaDigest(identity PublicationIdentity, schemas []OutputSchema) str
 type Limits struct {
 	BatchRows  int
 	BatchBytes int
+	Quality    QualityPolicy
 }
 
 func (l Limits) normalized() Limits {
@@ -138,5 +151,6 @@ func (l Limits) normalized() Limits {
 }
 
 type Result struct {
-	Outputs []PublishedOutput
+	Outputs        []PublishedOutput
+	QualityReports []QualityReport
 }

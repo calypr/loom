@@ -1,0 +1,416 @@
+{
+  "epoch": 77,
+  "status": "CLOSED_FAILED_UNEXPECTED_NETWORK_ABORT",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "65401ebe93de6c6179a825398e4eb4e05ba85b8e4af23842454e13e6515b8456",
+        "files": 1517
+      },
+      "after": {
+        "sha256": "65401ebe93de6c6179a825398e4eb4e05ba85b8e4af23842454e13e6515b8456",
+        "files": 1517
+      },
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "docs": {
+      "before": {
+        "sha256": "29c4a899ad8dcf4afa4ffaf6d418f15ab5a10af506d921bdee18a14526ef7c61",
+        "files": 181
+      },
+      "after": {
+        "sha256": "29c4a899ad8dcf4afa4ffaf6d418f15ab5a10af506d921bdee18a14526ef7c61",
+        "files": 181
+      },
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "precheck": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    },
+    "handles": {
+      "precheck": {
+        "session": 89844,
+        "exitCode": 0,
+        "fresh": true,
+        "artifact": "/private/tmp/loom-native-parallel-wave77/api-build-precheck-confirmed.json"
+      },
+      "beforeCapture": {
+        "session": 43854,
+        "exitCode": 0
+      },
+      "beforeHealth": {
+        "session": 23089,
+        "exitCode": 0
+      },
+      "browser": {
+        "session": 16326,
+        "exitCode": 1
+      },
+      "afterCapture": {
+        "session": 34928,
+        "exitCode": 0
+      },
+      "afterHealth": {
+        "session": 24038,
+        "exitCode": 0
+      }
+    }
+  },
+  "case": {
+    "scenarioId": "cda-current-draft-upstream-append",
+    "caseName": "upstream-append",
+    "title": "three exact CDA populations Group, edit Patient DERIVE, then Append with full restoration",
+    "status": "failed_unexpected_network_abort",
+    "failureClassification": "UNEXPECTED_SELECTION_GET_ABORT_UNATTRIBUTED",
+    "requiredChecks": {
+      "passed": 26,
+      "total": 26,
+      "missingOrFailed": 0,
+      "evidence": [
+        {
+          "name": "bounded raw CDA witnesses select two Patient FHIR IDs and two disjoint Observation.status final pairs with duplicate APPEND categories",
+          "status": "passed"
+        },
+        {
+          "name": "fresh CDA Explorer preserves exact project, generation, snapshot, baseline scope digest, and empty draft",
+          "status": "passed"
+        },
+        {
+          "name": "Observation final-status source A immutable current-draft population binds exactly its scoped raw FHIR witnesses",
+          "status": "passed"
+        },
+        {
+          "name": "Observation final-status source B immutable current-draft population binds exactly its scoped raw FHIR witnesses",
+          "status": "passed"
+        },
+        {
+          "name": "Patient FHIR ID source immutable current-draft population binds exactly its scoped raw FHIR witnesses",
+          "status": "passed"
+        },
+        {
+          "name": "three immutable populations preserve disjoint Observation pairs and exact Patient FHIR IDs",
+          "status": "passed"
+        },
+        {
+          "name": "Observation final-status source A root preview equals its exact immutable raw population",
+          "status": "passed"
+        },
+        {
+          "name": "Observation final-status source B root preview equals its exact immutable raw population",
+          "status": "passed"
+        },
+        {
+          "name": "Patient FHIR ID source root preview equals its exact immutable raw population",
+          "status": "passed"
+        },
+        {
+          "name": "Observation final-status source A native GROUP binds its exact raw field and COUNT_ROWS",
+          "status": "passed"
+        },
+        {
+          "name": "Observation final-status source B native GROUP binds its exact raw field and COUNT_ROWS",
+          "status": "passed"
+        },
+        {
+          "name": "Patient FHIR ID source native GROUP binds its exact raw field and COUNT_ROWS",
+          "status": "passed"
+        },
+        {
+          "name": "Patient native Group\u2192DERIVE +1 saves exact Group lineage and integer arithmetic",
+          "status": "passed"
+        },
+        {
+          "name": "Cancel leaves exact APPEND candidate, source workspace, empty target, and draft CAS unchanged after reload",
+          "status": "passed"
+        },
+        {
+          "name": "three-source APPEND proposal row multiset matches raw concatenation with duplicate category multiplicity",
+          "status": "passed"
+        },
+        {
+          "name": "applied APPEND persists Observation A, Observation B, Patient FHIR ID DERIVE inputs in that order with stable step identity",
+          "status": "passed"
+        },
+        {
+          "name": "Canceling saved DERIVE +2 preserves the complete source and APPEND workspace with the same draft CAS",
+          "status": "passed"
+        },
+        {
+          "name": "saved Patient DERIVE +2 proposal retains exact stable step, input, output, and integer expression",
+          "status": "passed"
+        },
+        {
+          "name": "dependent APPEND keeps ordered current-draft inputs while recomputing a fresh receipt, version, and digest",
+          "status": "passed"
+        },
+        {
+          "name": "exact selected raw witnesses reread unchanged after Group, DERIVE edit, and APPEND recompute",
+          "status": "passed"
+        },
+        {
+          "name": "Cancel APPEND removal preserves complete recomputed output and current-draft source workspace after reload",
+          "status": "passed"
+        },
+        {
+          "name": "applying APPEND removal restores its exact empty target and preserves every full current-draft source",
+          "status": "passed"
+        },
+        {
+          "name": "CDA Group\u2192DERIVE\u2192APPEND uses no pinned table revisions or Publish",
+          "status": "passed"
+        },
+        {
+          "name": "full lifecycle never publishes and retains the exact immutable source populations",
+          "status": "passed"
+        },
+        {
+          "name": "all native CDA Group\u2192DERIVE\u2192APPEND lifecycle actions complete within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "CDA watched source and API build stayed unchanged",
+          "status": "passed"
+        }
+      ]
+    },
+    "assertions": {
+      "passed": 215,
+      "failed": 2,
+      "total": 217,
+      "failedEvidence": [
+        {
+          "name": "no unexpected network, module, or browser errors",
+          "evidence": {
+            "count": 1
+          }
+        },
+        {
+          "name": "CDA report has all required checks and no unexpected diagnostics",
+          "evidence": {
+            "message": "CDA verification evidence is incomplete: {\"missingRequiredChecks\":[],\"failedAssertions\":[{\"dimension\":\"correctness\",\"name\":\"no unexpected network, module, or browser errors\",\"evidence\":{\"count\":1}}],\"unexpectedNetwork\":[{\"kind\":\"network\",\"method\":\"GET\",\"url\":\"http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/cda-upstream-append-f87b5ca6-a6c7-4c41-99f2-2e59efd5f21e/selections/selection_382b0f7eafeac674cbb7c02c68d0bd219440f29e3a21e690605a5fddc1c0b459\",\"errorText\":\"net::ERR_ABORTED\"}],\"unexpectedErrors\":[{\"kind\":\"network\"},{\"kind\":\"network\",\"method\":\"GET\",\"url\":\"http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/cda-upstream-append-f87b5ca6-a6c7-4c41-99f2-2e59efd5f21e/selections/selection_382b0f7eafeac674cbb7c02c68d0bd219440f29e3a21e690605a5fddc1c0b459\"}]}"
+          }
+        }
+      ]
+    },
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "failed",
+      "persistence": "passed",
+      "performance": "passed"
+    },
+    "rawWitness": {
+      "project": "loom_dev_cda_fhir",
+      "generation": "cda-fhir-v1",
+      "scanLimitPerResource": 2000,
+      "resources": [
+        {
+          "resourceType": "Patient",
+          "fieldPath": "id",
+          "returnedRows": 2000,
+          "eligibleRows": 2000,
+          "excludedMissingNullNonStringOrMismatchedFHIRID": 0,
+          "uniqueFHIRIDs": 2000
+        },
+        {
+          "resourceType": "Observation",
+          "fieldPath": "status",
+          "returnedRows": 2000,
+          "eligibleRows": 2000,
+          "excludedMissingNullOrNonString": 0,
+          "categoriesWithFourRecords": [
+            "final"
+          ],
+          "selectedStatus": "final",
+          "selectedFinalStatusRows": 2000
+        }
+      ],
+      "selectionCounts": {
+        "observation-left": 2,
+        "observation-right": 2,
+        "patient-id": 2
+      }
+    },
+    "nativeActions": {
+      "passed": 93,
+      "failed": 0,
+      "total": 93,
+      "maxElapsedMs": 1594,
+      "budgetMs": 5000
+    },
+    "lifecycleCompletion": "All 93 measured native actions reached the restored empty APPEND target and preserved Patient DERIVE; the strict final diagnostic gate failed, so this is not a passing browser run.",
+    "unexpectedNetwork": [
+      {
+        "kind": "network",
+        "method": "GET",
+        "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/cda-upstream-append-f87b5ca6-a6c7-4c41-99f2-2e59efd5f21e/selections/selection_382b0f7eafeac674cbb7c02c68d0bd219440f29e3a21e690605a5fddc1c0b459",
+        "resourceType": "fetch",
+        "errorText": "net::ERR_ABORTED",
+        "requestDetails": {
+          "requestId": null,
+          "draftVersion": null,
+          "draftDigest": null,
+          "outputId": null,
+          "stageId": null
+        },
+        "requestScope": {
+          "expectedProject": "loom_dev_cda_fhir",
+          "generation": "cda-fhir-v1",
+          "configuredExplorer": "cda-upstream-append-f87b5ca6-a6c7-4c41-99f2-2e59efd5f21e",
+          "requestProject": "loom_dev_cda_fhir",
+          "requestExplorer": "cda-upstream-append-f87b5ca6-a6c7-4c41-99f2-2e59efd5f21e"
+        },
+        "requestTimeline": {
+          "requestStartedMs": 67277,
+          "failedAtMs": 67687,
+          "durationMs": 411,
+          "action": {
+            "id": "cda-action-84",
+            "label": "Reload dependent APPEND after current-draft Patient DERIVE edit"
+          },
+          "mainFrameNavigations": []
+        },
+        "requestAction": {
+          "id": "cda-action-84",
+          "label": "Reload dependent APPEND after current-draft Patient DERIVE edit"
+        },
+        "failureAction": {
+          "id": "cda-action-84",
+          "label": "Reload dependent APPEND after current-draft Patient DERIVE edit"
+        },
+        "triggerAction": "Reload dependent APPEND after current-draft Patient DERIVE edit",
+        "requestId": null,
+        "playwrightRequestId": "cda-request-1280",
+        "expected": false
+      }
+    ],
+    "networkFailureTimeline": {
+      "requestStartedMs": 67277,
+      "failedAtMs": 67687,
+      "durationMs": 411,
+      "action": {
+        "id": "cda-action-84",
+        "label": "Reload dependent APPEND after current-draft Patient DERIVE edit"
+      },
+      "mainFrameNavigations": []
+    },
+    "unexpectedErrors": [
+      {
+        "kind": "network",
+        "path": "http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/cda-upstream-append-f87b5ca6-a6c7-4c41-99f2-2e59efd5f21e/selections/selection_382b0f7eafeac674cbb7c02c68d0bd219440f29e3a21e690605a5fddc1c0b459",
+        "failure": "net::ERR_ABORTED",
+        "requestId": null,
+        "playwrightRequestId": "cda-request-1280"
+      },
+      {
+        "kind": "network",
+        "method": "GET",
+        "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/cda-upstream-append-f87b5ca6-a6c7-4c41-99f2-2e59efd5f21e/selections/selection_382b0f7eafeac674cbb7c02c68d0bd219440f29e3a21e690605a5fddc1c0b459",
+        "resourceType": "fetch",
+        "errorText": "net::ERR_ABORTED",
+        "requestDetails": {
+          "requestId": null,
+          "draftVersion": null,
+          "draftDigest": null,
+          "outputId": null,
+          "stageId": null
+        },
+        "requestScope": {
+          "expectedProject": "loom_dev_cda_fhir",
+          "generation": "cda-fhir-v1",
+          "configuredExplorer": "cda-upstream-append-f87b5ca6-a6c7-4c41-99f2-2e59efd5f21e",
+          "requestProject": "loom_dev_cda_fhir",
+          "requestExplorer": "cda-upstream-append-f87b5ca6-a6c7-4c41-99f2-2e59efd5f21e"
+        },
+        "requestTimeline": {
+          "requestStartedMs": 67277,
+          "failedAtMs": 67687,
+          "durationMs": 411,
+          "action": {
+            "id": "cda-action-84",
+            "label": "Reload dependent APPEND after current-draft Patient DERIVE edit"
+          },
+          "mainFrameNavigations": []
+        },
+        "requestAction": {
+          "id": "cda-action-84",
+          "label": "Reload dependent APPEND after current-draft Patient DERIVE edit"
+        },
+        "failureAction": {
+          "id": "cda-action-84",
+          "label": "Reload dependent APPEND after current-draft Patient DERIVE edit"
+        },
+        "triggerAction": "Reload dependent APPEND after current-draft Patient DERIVE edit",
+        "requestId": null,
+        "playwrightRequestId": "cda-request-1280",
+        "expected": false
+      },
+      {
+        "kind": "verification-gate",
+        "message": "CDA verification evidence is incomplete: {\"missingRequiredChecks\":[],\"failedAssertions\":[{\"dimension\":\"correctness\",\"name\":\"no unexpected network, module, or browser errors\",\"evidence\":{\"count\":1}}],\"unexpectedNetwork\":[{\"kind\":\"network\",\"method\":\"GET\",\"url\":\"http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/cda-upstream-append-f87b5ca6-a6c7-4c41-99f2-2e59efd5f21e/selections/selection_382b0f7eafeac674cbb7c02c68d0bd219440f29e3a21e690605a5fddc1c0b459\",\"errorText\":\"net::ERR_ABORTED\"}],\"unexpectedErrors\":[{\"kind\":\"network\"},{\"kind\":\"network\",\"method\":\"GET\",\"url\":\"http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/cda-upstream-append-f87b5ca6-a6c7-4c41-99f2-2e59efd5f21e/selections/selection_382b0f7eafeac674cbb7c02c68d0bd219440f29e3a21e690605a5fddc1c0b459\"}]}"
+      }
+    ],
+    "incidentalErrors": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ],
+    "testElapsedMs": 81303,
+    "playwrightResultsDurationMs": 82741.23899999999,
+    "processDurationMs": null,
+    "domainReportPath": "/private/tmp/loom-native-parallel-wave77/cda-current-draft-upstream-append/attempt1/artifacts/cda-current-draft-upstream-d2dbe-ppend-with-full-restoration/attachments/cda-domain-report-json-4478ea9c5441ca609310615b05cadc9090a8b309.json",
+    "domainReportSha256": "9262deaede9f8b795c0d70d576f4be522051fc709bc7b31cabc173fb83e546dc",
+    "playwrightResultsPath": "/private/tmp/loom-native-parallel-wave77/cda-current-draft-upstream-append/attempt1/results.json",
+    "playwrightResultsSha256": "3aac2ec76e6a8d08e6b6ba68c584c045c7b00b9b76d4f697f8a672d75720d740",
+    "runnerLogPath": "/private/tmp/loom-native-parallel-wave77/cda-current-draft-upstream-append/attempt1/runner.log",
+    "runnerLogSha256": "bafa5fe883603e545f449ee7eb6b8f1d95a693ef19caca3e10c916cdc84404b2"
+  },
+  "artifacts": {
+    "run-plan.json": "/private/tmp/loom-native-parallel-wave77/run-plan.json",
+    "api-build-precheck-confirmed.json": "/private/tmp/loom-native-parallel-wave77/api-build-precheck-confirmed.json",
+    "source-before.json": "/private/tmp/loom-native-parallel-wave77/source-before.json",
+    "source-after.json": "/private/tmp/loom-native-parallel-wave77/source-after.json",
+    "docs-before.json": "/private/tmp/loom-native-parallel-wave77/docs-before.json",
+    "docs-after.json": "/private/tmp/loom-native-parallel-wave77/docs-after.json",
+    "api-identity-before.json": "/private/tmp/loom-native-parallel-wave77/api-identity-before.json",
+    "api-identity-after.json": "/private/tmp/loom-native-parallel-wave77/api-identity-after.json",
+    "owned-mounts-before.json": "/private/tmp/loom-native-parallel-wave77/owned-mounts-before.json",
+    "owned-mounts-after.json": "/private/tmp/loom-native-parallel-wave77/owned-mounts-after.json",
+    "health-before.json": "/private/tmp/loom-native-parallel-wave77/health-before.json",
+    "health-after.json": "/private/tmp/loom-native-parallel-wave77/health-after.json"
+  }
+}

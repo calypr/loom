@@ -1,0 +1,28 @@
+services:
+  loom-api:
+    command:
+      - --listen
+      - :8080
+      - --no-auth
+      - --url
+      - http://arangodb:8529
+      - --database
+      - loom_acceptance_d000000000000001
+      - --schema
+      - /app/schemas/graph-fhir.json
+      - --clickhouse-url
+      - clickhouse://clickhouse:9000
+      - --clickhouse-database
+      - loom_acceptance_d000000000000001
+      - --clickhouse-username
+      - loom_demo
+      - --clickhouse-password
+      - loom_demo_password
+      - --dataframer-recipe
+      - /app/testdata/recipe.json
+      - --local-workspace-writeback
+      - /repository-config/${LOOM_REPOSITORY_CONFIG_NAME:?set LOOM_REPOSITORY_CONFIG_NAME}
+      - --local-workspace-project
+      - ${LOOM_REPOSITORY_PROJECT:?set LOOM_REPOSITORY_PROJECT}
+    volumes:
+      - ${LOOM_REPOSITORY_CONFIG_DIR:?set LOOM_REPOSITORY_CONFIG_DIR}:/repository-config

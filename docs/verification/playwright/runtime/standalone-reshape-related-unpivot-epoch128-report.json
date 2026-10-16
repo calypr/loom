@@ -1,0 +1,804 @@
+{
+  "schemaVersion": 1,
+  "epoch": 128,
+  "scenario": "standalone-reshape-related-unpivot",
+  "case": "related-unpivot",
+  "title": "related-unpivot",
+  "status": "failed_harness",
+  "runnerStatus": "failed",
+  "coverageStatus": "failed",
+  "durableClosurePath": "docs/verification/playwright/runtime/standalone-reshape-related-unpivot-epoch128-closure.json",
+  "rawCoordinatorStatus": "CLOSED_INTEGRITY_PASS_HARNESS_FAILURE",
+  "rootAcceptanceStatus": "ACCEPTED_HARNESS_FAILURE",
+  "classification": "HARNESS_ORACLE_ORDER_MISMATCH",
+  "target": {
+    "kind": "owned-cda",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorer": "qa-reshape-related-unpivot-d2b0851f-e6fe-46f2-a992-0469835f5734",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "sourceRoot": "$TMP/<path>",
+    "sourceFingerprint": {
+      "sha256": "6d1ffffa569bde452a273ed4da4c8bbdc408e723c22478aa58d0770dbd349663",
+      "files": 1554
+    },
+    "apiBuildIdentity": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135"
+  },
+  "ownedStackValidationTarget": {
+    "project": "loom_dev_cda_fhir",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiPort": "8188",
+    "uiPort": "30008",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "generation": "cda-fhir-v1"
+  },
+  "apiBuildIdentity": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+  "requiredChecks": {
+    "total": 17,
+    "passed": 3,
+    "failed": 0,
+    "unrun": 14,
+    "passedNames": [
+      "bounded raw CDA oracle selects a complete two-to-twenty-four-row Specimen Related chain",
+      "fresh Explorer and direct Specimen ID column bind the exact project and generation-scoped source",
+      "CDA watched source and API build stayed unchanged"
+    ],
+    "failedNames": [],
+    "unrunNames": [
+      "native Related choices preserve exact raw rows and stage identities at every chain hop",
+      "saved Related rows expose an enabled Unpivot action and the exact Specimen ID input",
+      "Unpivot preview matches the exact transformed raw multiset and retains related columns",
+      "Cancel preserves the exact Related workspace, draft CAS, construction, and rows",
+      "Apply persists Unpivot with the exact source-column and compiler-stage binding",
+      "applied Unpivot rows and output identities match the complete bounded source oracle",
+      "Builder reload preserves exact Unpivot schema, bindings, step identity, and rows",
+      "saved Unpivot edit reopens its exact source and previews the replacement null policy",
+      "edited Unpivot policy applies and reloads with exact schema and raw rows",
+      "Canceling Unpivot removal preserves the saved construction and exact rows",
+      "removing Unpivot and reloading restores exact Related construction, schema, bindings, and rows",
+      "Unpivot Value missing/equality Filter lifecycle remains exact through reload and restoration",
+      "All native action and action-to-render checkpoints complete within five seconds",
+      "No unexpected native network, module, or browser errors occurred"
+    ],
+    "outcomes": [
+      {
+        "name": "bounded raw CDA oracle selects a complete two-to-twenty-four-row Specimen Related chain",
+        "status": "passed"
+      },
+      {
+        "name": "fresh Explorer and direct Specimen ID column bind the exact project and generation-scoped source",
+        "status": "passed"
+      },
+      {
+        "name": "native Related choices preserve exact raw rows and stage identities at every chain hop",
+        "status": "unrun"
+      },
+      {
+        "name": "saved Related rows expose an enabled Unpivot action and the exact Specimen ID input",
+        "status": "unrun"
+      },
+      {
+        "name": "Unpivot preview matches the exact transformed raw multiset and retains related columns",
+        "status": "unrun"
+      },
+      {
+        "name": "Cancel preserves the exact Related workspace, draft CAS, construction, and rows",
+        "status": "unrun"
+      },
+      {
+        "name": "Apply persists Unpivot with the exact source-column and compiler-stage binding",
+        "status": "unrun"
+      },
+      {
+        "name": "applied Unpivot rows and output identities match the complete bounded source oracle",
+        "status": "unrun"
+      },
+      {
+        "name": "Builder reload preserves exact Unpivot schema, bindings, step identity, and rows",
+        "status": "unrun"
+      },
+      {
+        "name": "saved Unpivot edit reopens its exact source and previews the replacement null policy",
+        "status": "unrun"
+      },
+      {
+        "name": "edited Unpivot policy applies and reloads with exact schema and raw rows",
+        "status": "unrun"
+      },
+      {
+        "name": "Canceling Unpivot removal preserves the saved construction and exact rows",
+        "status": "unrun"
+      },
+      {
+        "name": "removing Unpivot and reloading restores exact Related construction, schema, bindings, and rows",
+        "status": "unrun"
+      },
+      {
+        "name": "Unpivot Value missing/equality Filter lifecycle remains exact through reload and restoration",
+        "status": "unrun"
+      },
+      {
+        "name": "All native action and action-to-render checkpoints complete within five seconds",
+        "status": "unrun"
+      },
+      {
+        "name": "No unexpected native network, module, or browser errors occurred",
+        "status": "unrun"
+      },
+      {
+        "name": "CDA watched source and API build stayed unchanged",
+        "status": "passed"
+      }
+    ]
+  },
+  "assertions": [
+    {
+      "name": "bounded raw CDA oracle selects a complete two-to-twenty-four-row Specimen Related chain",
+      "status": "passed"
+    },
+    {
+      "name": "fresh Explorer and direct Specimen ID column bind the exact project and generation-scoped source",
+      "status": "passed"
+    },
+    {
+      "name": "▤ Related Unpivot QA completed",
+      "status": "passed"
+    },
+    {
+      "name": "Configure rows completed",
+      "status": "passed"
+    },
+    {
+      "name": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations → 2 rows, each describing Patient A and one Observation completed",
+      "status": "passed"
+    },
+    {
+      "name": "Select Patient completed",
+      "status": "passed"
+    },
+    {
+      "name": "Specimen -[subject]-> Patient completed",
+      "status": "passed"
+    },
+    {
+      "name": "Apply change completed",
+      "status": "passed"
+    },
+    {
+      "name": "Configure rows completed",
+      "status": "passed"
+    },
+    {
+      "name": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations → 2 rows, each describing Patient A and one Observation completed",
+      "status": "passed"
+    },
+    {
+      "name": "Select Condition completed",
+      "status": "passed"
+    },
+    {
+      "name": "Patient <-[subject]- Condition completed",
+      "status": "passed"
+    },
+    {
+      "name": "Apply change completed",
+      "status": "passed"
+    },
+    {
+      "name": "Configure rows completed",
+      "status": "passed"
+    },
+    {
+      "name": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations → 2 rows, each describing Patient A and one Observation completed",
+      "status": "passed"
+    },
+    {
+      "name": "Select Observation completed",
+      "status": "passed"
+    },
+    {
+      "name": "Condition <-[focus]- Observation completed",
+      "status": "passed"
+    },
+    {
+      "name": "CDA watched source and API build stayed unchanged",
+      "status": "passed"
+    },
+    {
+      "name": "incidental asset failures are explicitly recorded",
+      "status": "passed"
+    }
+  ],
+  "assertionSummary": {
+    "passed": 19,
+    "failed": 0,
+    "total": 19
+  },
+  "dimensions": {
+    "usability": {
+      "status": "passed",
+      "evidence": [
+        {
+          "name": "▤ Related Unpivot QA completed",
+          "status": "passed",
+          "elapsedMs": 110,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 4
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 50
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 57
+            }
+          }
+        },
+        {
+          "name": "Configure rows completed",
+          "status": "passed",
+          "elapsedMs": 83,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 28
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 52
+            }
+          }
+        },
+        {
+          "name": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations → 2 rows, each describing Patient A and one Observation completed",
+          "status": "passed",
+          "elapsedMs": 118,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 35
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 80
+            }
+          }
+        },
+        {
+          "name": "Select Patient completed",
+          "status": "passed",
+          "elapsedMs": 51,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 40
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 9
+            }
+          }
+        },
+        {
+          "name": "Specimen -[subject]-> Patient completed",
+          "status": "passed",
+          "elapsedMs": 85,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 18
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 66
+            }
+          }
+        },
+        {
+          "name": "Apply change completed",
+          "status": "passed",
+          "elapsedMs": 85,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 23
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 60
+            }
+          }
+        },
+        {
+          "name": "Configure rows completed",
+          "status": "passed",
+          "elapsedMs": 64,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 22
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 40
+            }
+          }
+        },
+        {
+          "name": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations → 2 rows, each describing Patient A and one Observation completed",
+          "status": "passed",
+          "elapsedMs": 105,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 25
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 78
+            }
+          }
+        },
+        {
+          "name": "Select Condition completed",
+          "status": "passed",
+          "elapsedMs": 36,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 25
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 8
+            }
+          }
+        },
+        {
+          "name": "Patient <-[subject]- Condition completed",
+          "status": "passed",
+          "elapsedMs": 90,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 20
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 68
+            }
+          }
+        },
+        {
+          "name": "Apply change completed",
+          "status": "passed",
+          "elapsedMs": 78,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 13
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 63
+            }
+          }
+        },
+        {
+          "name": "Configure rows completed",
+          "status": "passed",
+          "elapsedMs": 60,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 18
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 40
+            }
+          }
+        },
+        {
+          "name": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations → 2 rows, each describing Patient A and one Observation completed",
+          "status": "passed",
+          "elapsedMs": 107,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 26
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 78
+            }
+          }
+        },
+        {
+          "name": "Select Observation completed",
+          "status": "passed",
+          "elapsedMs": 36,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 27
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 7
+            }
+          }
+        },
+        {
+          "name": "Condition <-[focus]- Observation completed",
+          "status": "passed",
+          "elapsedMs": 88,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 21
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 65
+            }
+          }
+        }
+      ]
+    },
+    "correctness": {
+      "status": "passed",
+      "evidence": [
+        {
+          "name": "bounded raw CDA oracle selects a complete two-to-twenty-four-row Specimen Related chain",
+          "status": "passed",
+          "sourceID": "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+          "candidateCount": 4,
+          "rowCount": 3,
+          "matchedEdges": 9,
+          "project": "loom_dev_cda_fhir",
+          "generation": "cda-fhir-v1"
+        },
+        {
+          "name": "fresh Explorer and direct Specimen ID column bind the exact project and generation-scoped source",
+          "status": "passed",
+          "outputId": "out_4de48031f8bff02a08c3a912",
+          "selectionRevisionId": "selection_582d5ccaf5693b038ffd43c9c7a53421713058d4068d619d24e4d72622d46e8d",
+          "routeChoiceId": "pr1.eyJ2ZXJzaW9uIjoxLCJzbmFwc2hvdFRva2VuIjoic2hhMjU2OjdlOWEwMjVlYzI1NTUwMzNmZDEzOGEzY2JmOWVhZWNlYmIyNGY4NzBhNmIzN2NmNWU4NmUwMzU1Yzg0YjQwZjciLCJvdXRwdXRJZCI6Im91dF80ZGU0ODAzMWY4YmZmMDJhMDhjM2E5MTIiLCJzZWxlY3Rpb25SZXZpc2lvbklkIjoic2VsZWN0aW9uXzU4MmQ1Y2NhZjU2OTNiMDM4ZmZkNDNjOWM3YTUzNDIxNzEzMDU4ZDQwNjhkNjE5ZDI0ZTRkNzI2MjJkNDZlOGQiLCJyb3V0ZSI6W119.f46b4ac75300002522f53c4c93bbc28b0f3d9c1ea821fccdff036236ff6e0243",
+          "source": {
+            "project": "loom_dev_cda_fhir",
+            "generation": "cda-fhir-v1",
+            "resourceType": "Specimen",
+            "id": "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+          },
+          "column": {
+            "columnId": "source_5addb94e161cbfae8852d860",
+            "column": "col_84d849c3490e8700405d9888",
+            "label": "Specimen ID",
+            "logicalType": "string",
+            "occurrenceId": "base",
+            "source": {
+              "kind": "field",
+              "field": {
+                "path": "id",
+                "projectionMode": "VALUE"
+              }
+            },
+            "table": {
+              "visible": true,
+              "order": 0
+            }
+          }
+        },
+        {
+          "name": "CDA watched source and API build stayed unchanged",
+          "status": "passed",
+          "sourceFingerprint": {
+            "before": {
+              "sha256": "6d1ffffa569bde452a273ed4da4c8bbdc408e723c22478aa58d0770dbd349663",
+              "files": 1554
+            },
+            "after": {
+              "sha256": "6d1ffffa569bde452a273ed4da4c8bbdc408e723c22478aa58d0770dbd349663",
+              "files": 1554
+            }
+          },
+          "apiBuildIdentity": {
+            "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+            "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135"
+          },
+          "sourceFreeze": {
+            "unchanged": true,
+            "watchedFileCount": 1118,
+            "changedPaths": [],
+            "invalidatesRun": false,
+            "productFailure": false
+          }
+        },
+        {
+          "name": "incidental asset failures are explicitly recorded",
+          "status": "passed",
+          "failures": [
+            {
+              "kind": "asset-failure",
+              "url": "http://127.0.0.1:30008/favicon.ico",
+              "status": 404
+            },
+            {
+              "kind": "console",
+              "url": "http://127.0.0.1:30008/favicon.ico",
+              "status": 404
+            }
+          ]
+        }
+      ]
+    },
+    "persistence": {
+      "status": "untested",
+      "evidence": []
+    },
+    "performance": {
+      "status": "untested",
+      "evidence": []
+    }
+  },
+  "lifecycle": null,
+  "performanceEvidence": {
+    "completeActionToRender": {
+      "source": {
+        "path": "/private/tmp/loom-native-parallel-wave128/standalone-reshape-related-unpivot/attempt1/artifacts/standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/cda-evidence/report.json",
+        "sha256": "e76378cf66511d0f3b42d1d794538179818fc93a9e867c0e90ee41fb46a88fcd",
+        "sizeBytes": 8403749
+      },
+      "timedCompleteCheckpoints": 5,
+      "maximumDurationMs": 1458,
+      "thresholdMs": 5000,
+      "withinThreshold": true,
+      "checkpoints": [
+        {
+          "name": "load-to-render",
+          "durationMs": 1458
+        },
+        {
+          "name": "expand-Specimen-Patient",
+          "durationMs": 1200
+        },
+        {
+          "name": "apply-to-render",
+          "durationMs": 609
+        },
+        {
+          "name": "expand-Patient-Condition",
+          "durationMs": 1194
+        },
+        {
+          "name": "apply-to-render",
+          "durationMs": 515
+        }
+      ]
+    },
+    "nativeControlOnly": {
+      "actionsTotal": 15,
+      "maximumActionElapsedMs": 118,
+      "usedForPerformanceClaim": false
+    }
+  },
+  "nativeActions": {
+    "total": 15,
+    "maximumNativeControlElapsedMs": 118
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "6d1ffffa569bde452a273ed4da4c8bbdc408e723c22478aa58d0770dbd349663",
+        "files": 1554
+      },
+      "after": {
+        "sha256": "6d1ffffa569bde452a273ed4da4c8bbdc408e723c22478aa58d0770dbd349663",
+        "files": 1554
+      },
+      "unchanged": true,
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "unchanged": true
+    },
+    "apiBuildIdentityUnchanged": true,
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  },
+  "rootAcceptanceReceipt": {
+    "path": "/private/tmp/loom-native-parallel-wave128/root-acceptance.json",
+    "sha256": "859c32f2713aaa85fcb89f940c62c59540bdbdfbada30e04f94b8f3ada2ce636",
+    "status": "ACCEPTED_HARNESS_FAILURE",
+    "lifecycleAccepted": false,
+    "classification": "HARNESS_ORACLE_ORDER_MISMATCH",
+    "sourceFreezeReleased": true,
+    "coordinatorClosureSha256": "8d218bd5658a11eb80df1fed0d4bcd1e7a84144085b5580d82888e68a1dac780"
+  },
+  "rawArtifacts": {
+    "coordinatorClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave128/closure.json",
+      "sha256": "8d218bd5658a11eb80df1fed0d4bcd1e7a84144085b5580d82888e68a1dac780"
+    },
+    "rootAcceptance": {
+      "path": "/private/tmp/loom-native-parallel-wave128/root-acceptance.json",
+      "sha256": "859c32f2713aaa85fcb89f940c62c59540bdbdfbada30e04f94b8f3ada2ce636",
+      "status": "ACCEPTED_HARNESS_FAILURE",
+      "lifecycleAccepted": false,
+      "classification": "HARNESS_ORACLE_ORDER_MISMATCH",
+      "sourceFreezeReleased": true,
+      "coordinatorClosureSha256": "8d218bd5658a11eb80df1fed0d4bcd1e7a84144085b5580d82888e68a1dac780"
+    },
+    "integrityClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave128/integrity-closure.json",
+      "sha256": "7d712a8582b4de9e5052881d736e118de7aa0521119b5a22d7b8a040d18aa2cd",
+      "sizeBytes": 4500
+    },
+    "lifecycleReport": {
+      "path": "/private/tmp/loom-native-parallel-wave128/standalone-reshape-related-unpivot/attempt1/artifacts/standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/cda-report.json",
+      "sha256": "107f4d42f32287a819427d89f4889e3e6fae88a4ae5b668ed0c10f247eb84615",
+      "sizeBytes": 332968,
+      "status": "failed"
+    },
+    "lifecycleReportCreated": true,
+    "timingAttachment": {
+      "path": "/private/tmp/loom-native-parallel-wave128/standalone-reshape-related-unpivot/attempt1/artifacts/standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/cda-evidence/report.json",
+      "sha256": "e76378cf66511d0f3b42d1d794538179818fc93a9e867c0e90ee41fb46a88fcd",
+      "sizeBytes": 8403749
+    },
+    "jsonAttachments": [
+      {
+        "name": ".last-run.json",
+        "path": "/private/tmp/loom-native-parallel-wave128/standalone-reshape-related-unpivot/attempt1/artifacts/.last-run.json",
+        "sha256": "76202a8ab75fed131c1839a4714ec08f2233f230ce751c587a546680ebf9ab84",
+        "sizeBytes": 96
+      },
+      {
+        "name": "standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/attachments/cda-domain-report-json-8f9fec5751a58d3a37520e20dace0b4fc6d2b36a.json",
+        "path": "/private/tmp/loom-native-parallel-wave128/standalone-reshape-related-unpivot/attempt1/artifacts/standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/attachments/cda-domain-report-json-8f9fec5751a58d3a37520e20dace0b4fc6d2b36a.json",
+        "sha256": "107f4d42f32287a819427d89f4889e3e6fae88a4ae5b668ed0c10f247eb84615",
+        "sizeBytes": 332968
+      },
+      {
+        "name": "standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/cda-evidence/report.json",
+        "path": "/private/tmp/loom-native-parallel-wave128/standalone-reshape-related-unpivot/attempt1/artifacts/standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/cda-evidence/report.json",
+        "sha256": "e76378cf66511d0f3b42d1d794538179818fc93a9e867c0e90ee41fb46a88fcd",
+        "sizeBytes": 8403749
+      },
+      {
+        "name": "standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/cda-report.json",
+        "path": "/private/tmp/loom-native-parallel-wave128/standalone-reshape-related-unpivot/attempt1/artifacts/standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/cda-report.json",
+        "sha256": "107f4d42f32287a819427d89f4889e3e6fae88a4ae5b668ed0c10f247eb84615",
+        "sizeBytes": 332968
+      }
+    ],
+    "runnerResults": null,
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave128/standalone-reshape-related-unpivot/attempt1/runner.log",
+      "sha256": "50782340aefbd21e1b5029db44bc2751eefa16cdb7ce2713427f4c8febaa70a7",
+      "sizeBytes": 6324
+    },
+    "terminalRecord": {
+      "path": "/private/tmp/loom-native-parallel-wave128/standalone-reshape-related-unpivot/attempt1/terminal.json",
+      "sha256": "018bc9ce1a1c106b11db0d761975753d1fafe5c0de30ab5b6f1c6352a9349fbe",
+      "sizeBytes": 1874
+    }
+  },
+  "scopeNote": "standalone-reshape-related-unpivot/related-unpivot"
+}

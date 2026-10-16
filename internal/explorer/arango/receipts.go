@@ -4,9 +4,18 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"strings"
+	"time"
 
+	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	"github.com/calypr/loom/internal/explorer"
+)
+
+const (
+	compilationReceiptInsertMaxAttempts  = 4
+	compilationReceiptConflictRetryDelay = 5 * time.Millisecond
 )
 
 func (s *Store) InsertCompilationReceipt(ctx context.Context, receipt explorer.CompilationReceipt) (*explorer.CompilationReceipt, error) {
@@ -17,14 +26,52 @@ func (s *Store) InsertCompilationReceipt(ctx context.Context, receipt explorer.C
 	if err != nil {
 		return nil, err
 	}
-	// INSERT with overwriteMode=ignore makes the key immutable under retries
-	// and concurrent requests. The read below is authoritative and compares
-	// the content-addressed identity, detecting a corrupted key collision.
-	err = s.client.QueryRows(ctx, `INSERT @doc INTO @@c OPTIONS { overwriteMode: "ignore" } RETURN NEW`, 1, map[string]any{"@c": CompilationReceiptsCollection, "doc": doc}, func(map[string]any) error { return nil })
+	for attempt := 0; attempt < compilationReceiptInsertMaxAttempts; attempt++ {
+		err = s.client.QueryRows(ctx, `INSERT @doc INTO @@c OPTIONS { overwriteMode: "ignore" } RETURN NEW`, 1, map[string]any{"@c": CompilationReceiptsCollection, "doc": doc}, func(map[string]any) error { return nil })
+		if err == nil {
+			return s.getVerifiedCompilationReceipt(ctx, receipt)
+		}
+		if !shared.IsArangoErrorWithErrorNum(err, shared.ErrArangoConflict) {
+			return nil, err
+		}
+
+		stored, readErr := s.getVerifiedCompilationReceipt(ctx, receipt)
+		if readErr == nil {
+			return stored, nil
+		}
+		if !errors.Is(readErr, explorer.ErrNotFound) {
+			return nil, fmt.Errorf("read compilation receipt after insert conflict: %w", errors.Join(err, readErr))
+		}
+		if attempt == compilationReceiptInsertMaxAttempts-1 {
+			return nil, err
+		}
+		if waitErr := waitForCompilationReceiptRetry(ctx, time.Duration(attempt+1)*compilationReceiptConflictRetryDelay); waitErr != nil {
+			return nil, fmt.Errorf("retry compilation receipt insert: %w", errors.Join(err, waitErr))
+		}
+	}
+	return nil, errors.New("unreachable compilation receipt insert state")
+}
+
+func (s *Store) getVerifiedCompilationReceipt(ctx context.Context, receipt explorer.CompilationReceipt) (*explorer.CompilationReceipt, error) {
+	stored, err := s.GetCompilationReceiptForExplorer(ctx, receipt.Project, receipt.ExplorerID, receipt.ID)
 	if err != nil {
 		return nil, err
 	}
-	return s.GetCompilationReceiptForExplorer(ctx, receipt.Project, receipt.ExplorerID, receipt.ID)
+	if !sameReceipt(*stored, receipt) {
+		return nil, explorer.ErrCorruptReceipt
+	}
+	return stored, nil
+}
+
+func waitForCompilationReceiptRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (s *Store) GetCompilationReceiptForExplorer(ctx context.Context, project, explorerID, id string) (*explorer.CompilationReceipt, error) {

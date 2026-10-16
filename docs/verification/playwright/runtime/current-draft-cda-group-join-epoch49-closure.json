@@ -1,0 +1,130 @@
+{
+  "epoch": 49,
+  "status": "CLOSED_WITH_CASE_FAILURE",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "beforeSha256": "9fdeac3b1243b74d54a2c4636b097e13e6e4f4e3d03bbe10c06836ac51dd97a0",
+      "afterSha256": "9fdeac3b1243b74d54a2c4636b097e13e6e4f4e3d03bbe10c06836ac51dd97a0",
+      "files": 1498,
+      "changedPaths": []
+    },
+    "docs": {
+      "beforeSha256": "2a9c5e4d06d6399b4f9b85da42b6daebc6cf3ac8b4fe70fc379ff40e151db1c3",
+      "afterSha256": "2a9c5e4d06d6399b4f9b85da42b6daebc6cf3ac8b4fe70fc379ff40e151db1c3",
+      "files": 129,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+      "after": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "beforeStatus": "PASS",
+      "afterStatus": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "beforeStatus": "PASS",
+      "beforeSamples": 3,
+      "afterStatus": "PASS",
+      "afterSamples": 3,
+      "allApiUiHealthy": true
+    },
+    "handles": {
+      "apiBuildPrecheck": {
+        "status": "PASS",
+        "exitCode": 0
+      },
+      "beforeCapture": {
+        "session": 44701,
+        "exitCode": 0
+      },
+      "beforeHealth": {
+        "session": 14054,
+        "exitCode": 0
+      },
+      "browser": {
+        "session": 10925,
+        "exitCode": 1
+      },
+      "afterCapture": {
+        "session": 26541,
+        "exitCode": 0
+      },
+      "afterHealth": {
+        "session": 44996,
+        "exitCode": 0
+      }
+    }
+  },
+  "case": {
+    "owner": "legacy_workspace_browser_case",
+    "scenario": "cda-workspace-combine/group-join",
+    "title": "two independent native Observation Groups join through the current draft lifecycle",
+    "result": "FAILED_HARNESS_COLUMN_IDENTITY",
+    "causeClassification": "HARNESS_COLUMN_IDENTITY",
+    "durationMs": 18071,
+    "runnerProcessDurationMs": null,
+    "runnerExpected": 0,
+    "runnerUnexpected": 1,
+    "reportStatus": "failed",
+    "reportPath": "/private/tmp/loom-native-parallel-wave49/cda-workspace-combine/artifacts/cda-current-draft-group-jo-424dc-the-current-draft-lifecycle/cda-report.json",
+    "targetProject": "loom_dev_cda_fhir",
+    "targetGeneration": "cda-fhir-v1",
+    "firstFailure": "After Group COUNT_ROWS Apply, the harness expected the saved inputColumnId to equal the public physical column name; the saved inputColumnId equals the source columnId instead.",
+    "observedMismatch": {
+      "actualInputColumnId": "source_c9559a0f4d561cc00e44e407b52da22360f",
+      "expectedPhysicalColumnName": "col_9e039914de44e407b522230f"
+    },
+    "classificationNote": "Owner-confirmed Builder GET summary shows columnId=source_c9559a0f4d561cc00e44e407b52da22360f, column=col_9e039914de44e407b522230f, and saved Group inputColumnId=columnId. The strict harness expectation compared against column rather than columnId.",
+    "rawOracle": "PASS: bounded 2,000-row scan; left/right selected members 3/1; shared-key count 2; exact selected IDs and scope passed.",
+    "groupPreview": "Group COUNT_ROWS preview/action and Apply completed; Join was not reached.",
+    "actionsPassed": 11,
+    "actionsFailed": 0,
+    "nativeRequests": 0,
+    "requiredChecksPassed": 5,
+    "requiredChecksTotal": 16,
+    "missingRequiredChecks": 11,
+    "recordedAssertionsPassed": 23,
+    "recordedAssertionsFailed": 0,
+    "groupJoinLifecycleReached": false,
+    "reportSha256": "61d0c2c2f8eec9c8522196b0c17d96e9ca50e51f4a734e6cfbcd1c0de80bd3f8",
+    "errorContextSha256": "109096618a0a1d4739d59ffcac244ee21be3346c06f796ac63c990467667e192",
+    "playwrightResultsSha256": "034165dff67bacc7e90151645636ce7d7d722f874ad7716aa67d66e99b74c179",
+    "rawReadbackSummary": {
+      "path": "/private/tmp/loom-cda-group-columnid-fix/epoch49-builder-readback-summary.json",
+      "sha256": "2fc3c4e2295be864b77ac3051c61c6f7b6d278e192dc41d94c4b4065d09f861e",
+      "kind": "focused summary of read-only GET; not raw response"
+    }
+  },
+  "retryPerformed": false,
+  "artifacts": {
+    "sourceBefore": "/private/tmp/loom-native-parallel-wave49/source-before.json",
+    "sourceAfter": "/private/tmp/loom-native-parallel-wave49/source-after.json",
+    "docsBefore": "/private/tmp/loom-native-parallel-wave49/docs-before.json",
+    "docsAfter": "/private/tmp/loom-native-parallel-wave49/docs-after.json",
+    "apiBefore": "/private/tmp/loom-native-parallel-wave49/api-identity-before.json",
+    "apiAfter": "/private/tmp/loom-native-parallel-wave49/api-identity-after.json",
+    "mountsBefore": "/private/tmp/loom-native-parallel-wave49/owned-mounts-before.json",
+    "mountsAfter": "/private/tmp/loom-native-parallel-wave49/owned-mounts-after.json",
+    "healthBefore": "/private/tmp/loom-native-parallel-wave49/health-before.json",
+    "healthAfter": "/private/tmp/loom-native-parallel-wave49/health-after.json",
+    "playwrightResults": "/private/tmp/loom-native-parallel-wave49/cda-workspace-combine/results.json",
+    "apiBuildPrecheck": "/private/tmp/loom-native-parallel-wave49/api-build-precheck.json",
+    "runPlan": "/private/tmp/loom-native-parallel-wave49/run-plan.json"
+  }
+}
