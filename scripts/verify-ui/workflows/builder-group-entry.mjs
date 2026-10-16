@@ -138,6 +138,7 @@ export const openFreshPatientTable = async ({ page, report, check, action }, con
 
 export const groupEntryWorkflow = async (workflow, context) => {
   const { page, report, check, action } = workflow;
+  await page.setViewportSize({ width: 1440, height: 1000 });
   const { fixtureIDs, explorer, apiRoot, builder, outputId, sourceIdColumn, sourceIdColumnId } =
     await openFreshPatientTable(workflow, context, 'group entry');
 
@@ -318,6 +319,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
       rows: initialView.rows,
       expectedCount: fixtureIDs.length,
     });
+  await page.screenshot({ path: join(report.evidenceDirectory, 'group-entry-initial-count-rows.png') });
 
   const directGroupCheckNames = [
     'direct standard Group entry defaults to empty-key COUNT_ROWS without an edit',
