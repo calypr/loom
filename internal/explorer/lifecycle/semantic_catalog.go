@@ -662,7 +662,7 @@ func (s *Service) semanticInventoryPresentationForOutput(
 		}
 		return nil, nil, internal("catalog", "FIELD_PRESENTATION_LOOKUP_FAILED", "semantic field coverage could not be read", err)
 	}
-	if lookup.State != catalogarango.SemanticCoverageBuildComplete {
+	if lookup.State != catalogarango.SemanticCoverageBuildComplete && lookup.State != catalogarango.SemanticCoverageBuildPartial {
 		reason := FieldPresentationCoverageUnavailable
 		if lookup.State == catalogarango.SemanticCoverageBuildBuilding || lookup.State == catalogarango.SemanticCoverageBuildFailed {
 			reason = FieldPresentationIncompleteCoverage
@@ -719,6 +719,12 @@ func (s *Service) semanticInventoryPresentationForOutput(
 		coverage := coverageByPath[semanticCoverageCandidatePathKey(catalogarango.SemanticCoverageCandidatePath{
 			ResourceType: candidate.ResourceType, CanonicalPath: candidate.FieldPath,
 		})]
+		if coverage.ResourceState != catalogarango.SemanticCoverageBuildComplete {
+			decisions = append(decisions, FieldPresentationKeepRaw{
+				Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: FieldPresentationIncompleteCoverage,
+			})
+			continue
+		}
 		switch coverage.Status {
 		case catalogarango.SemanticCoverageCandidateKeepRaw:
 			reason, ok := fieldPresentationCoverageReason(string(coverage.Reason))
