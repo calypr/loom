@@ -65,6 +65,18 @@ func (p *Profiler) observeSchemaSemantics(
 	profile string,
 	emit func(SemanticObservation, []any),
 ) error {
+	return p.observeSchemaSemanticsWithEvidence(index, payload, profile, "", func(observation SemanticObservation, examples []any, _ SemanticCoverageEmissionEvidence) {
+		emit(observation, examples)
+	})
+}
+
+func (p *Profiler) observeSchemaSemanticsWithEvidence(
+	index *schema.Index,
+	payload map[string]any,
+	profile string,
+	sourceID string,
+	emit semanticCoverageObservationEmitter,
+) error {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("encode FHIR payload for semantic discovery: %w", err)
@@ -132,11 +144,11 @@ func (p *Profiler) observeSchemaSemantics(
 		association, hasAssociation := semanticDatatypeAssociations[scope.definition]
 		switch {
 		case hasAssociation && scope.definition == "Identifier":
-			p.emitIdentifierScope(scope, association, profile, emit)
+			p.emitIdentifierScope(scope, association, profile, sourceID, emit)
 		case hasAssociation && scope.definition == "Extension":
-			p.emitExtensionScope(scope, association, extensionURLs, profile, emit)
+			p.emitExtensionScope(scope, association, extensionURLs, profile, sourceID, emit)
 		default:
-			p.emitCodedChoiceScope(scope, profile, func(observation SemanticObservation, examples []any) {
+			p.emitCodedChoiceScope(scope, profile, sourceID, func(observation SemanticObservation, examples []any, evidence SemanticCoverageEmissionEvidence) {
 				if observation.RuleHint == SemanticRuleHintCodedValueV1 {
 					if strings.HasSuffix(observation.Key.Selector, ".coding[]") {
 						conceptPath := strings.TrimSuffix(observation.Key.Selector, ".coding[]")
@@ -147,7 +159,7 @@ func (p *Profiler) observeSchemaSemantics(
 						pairedCodeableConcepts[appendSemanticPath(scope.ownerPath, conceptPath)] = struct{}{}
 					}
 				}
-				emit(observation, examples)
+				emit(observation, examples, evidence)
 			})
 		}
 	}
@@ -163,7 +175,7 @@ func (p *Profiler) observeSchemaSemantics(
 				continue
 			}
 		}
-		p.emitStandaloneCodingScope(scope, profile, emit)
+		p.emitStandaloneCodingScope(scope, profile, sourceID, emit)
 	}
 	return nil
 }
@@ -171,7 +183,8 @@ func (p *Profiler) observeSchemaSemantics(
 func (p *Profiler) emitStandaloneCodingScope(
 	scope *semanticScope,
 	profile string,
-	emit func(SemanticObservation, []any),
+	sourceID string,
+	emit semanticCoverageObservationEmitter,
 ) {
 	system := stringValue(scope.value["system"])
 	code := stringValue(scope.value["code"])
@@ -219,7 +232,7 @@ func (p *Profiler) emitStandaloneCodingScope(
 		RuleHint:     SemanticRuleHintCodedConceptV1,
 		RuleVersion:  strconv.Itoa(SemanticObservationRuleVersion),
 	}
-	p.recordSchemaSemanticObservation(scope.canonicalPath, observation, []any{example}, emit)
+	p.recordSchemaSemanticObservation(scope.canonicalPath, scope, scope.ownerPath, scope.ownerPath, scope.ownerPath, observation, []any{example}, emit, sourceID)
 }
 
 func semanticScopeIsBelowAny(path string, ancestors []string) bool {
@@ -262,7 +275,8 @@ func (p *Profiler) emitIdentifierScope(
 	scope *semanticScope,
 	association semanticDatatypeAssociation,
 	profile string,
-	emit func(SemanticObservation, []any),
+	sourceID string,
+	emit semanticCoverageObservationEmitter,
 ) {
 	valueFact, ok := directSemanticFact(scope, association.valueMember)
 	if !ok || valueFact.Null {
@@ -301,7 +315,7 @@ func (p *Profiler) emitIdentifierScope(
 	if strings.TrimSpace(system) == "" {
 		observation.Status = "UNRESOLVED_SYSTEM"
 	}
-	p.recordSchemaSemanticObservation(scope.canonicalPath, observation, []any{value}, emit)
+	p.recordSchemaSemanticObservation(scope.canonicalPath, scope, scope.ownerPath, scope.ownerPath, valueFact.OwnerPath, observation, []any{value}, emit, sourceID)
 }
 
 func (p *Profiler) emitExtensionScope(
@@ -309,7 +323,8 @@ func (p *Profiler) emitExtensionScope(
 	association semanticDatatypeAssociation,
 	extensionURLs map[string]string,
 	profile string,
-	emit func(SemanticObservation, []any),
+	sourceID string,
+	emit semanticCoverageObservationEmitter,
 ) {
 	keyFact, ok := directSemanticFact(scope, association.keyMember)
 	if !ok {
@@ -363,14 +378,15 @@ func (p *Profiler) emitExtensionScope(
 			RuleHint:         association.ruleHint,
 			RuleVersion:      strconv.Itoa(SemanticObservationRuleVersion),
 		}
-		p.recordSchemaSemanticObservation(scope.canonicalPath, observation, semanticExampleValues(value), emit)
+		p.recordSchemaSemanticObservation(scope.canonicalPath, scope, scope.ownerPath, scope.ownerPath, value.OwnerPath, observation, semanticExampleValues(value), emit, sourceID)
 	}
 }
 
 func (p *Profiler) emitCodedChoiceScope(
 	scope *semanticScope,
 	profile string,
-	emit func(SemanticObservation, []any),
+	sourceID string,
+	emit semanticCoverageObservationEmitter,
 ) {
 	concepts := make([]fhirsemantic.MemberFact, 0, 1)
 	values := make([]semanticChoiceValue, 0, 2)
@@ -402,13 +418,14 @@ func (p *Profiler) emitCodedChoiceScope(
 	codings := semanticCodings(conceptValue)
 	if len(codings) == 0 {
 		for _, value := range values {
-			p.emitSchemaCodedValue(scope, conceptPath, conceptValue, nil, value, profile, emit)
+			p.emitSchemaCodedValue(scope, conceptPath, concepts[0].OwnerPath, concepts[0].OwnerPath, conceptValue, nil, value, profile, sourceID, emit)
 		}
 		return
 	}
-	for _, coding := range codings {
+	for codingIndex, coding := range codings {
+		keyOwnerPath := fmt.Sprintf("%s.coding[%d]", concepts[0].OwnerPath, codingIndex)
 		for _, value := range values {
-			p.emitSchemaCodedValue(scope, conceptPath, conceptValue, coding, value, profile, emit)
+			p.emitSchemaCodedValue(scope, conceptPath, concepts[0].OwnerPath, keyOwnerPath, conceptValue, coding, value, profile, sourceID, emit)
 		}
 	}
 }
@@ -416,11 +433,14 @@ func (p *Profiler) emitCodedChoiceScope(
 func (p *Profiler) emitSchemaCodedValue(
 	scope *semanticScope,
 	conceptPath string,
+	conceptOwnerPath string,
+	keyOwnerPath string,
 	concept map[string]any,
 	coding map[string]any,
 	value semanticChoiceValue,
 	profile string,
-	emit func(SemanticObservation, []any),
+	sourceID string,
+	emit semanticCoverageObservationEmitter,
 ) {
 	key := SemanticObservationKey{Selector: appendSemanticPath(conceptPath, "coding[]")}
 	if coding == nil {
@@ -473,19 +493,24 @@ func (p *Profiler) emitSchemaCodedValue(
 		RuleHint:      SemanticRuleHintCodedValueV1,
 		RuleVersion:   strconv.Itoa(SemanticObservationRuleVersion),
 	}
-	p.recordSchemaSemanticObservation(storagePath, observation, semanticExampleValues(value), emit)
+	p.recordSchemaSemanticObservation(storagePath, scope, conceptOwnerPath, keyOwnerPath, value.OwnerPath, observation, semanticExampleValues(value), emit, sourceID)
 }
 
 func (p *Profiler) recordSchemaSemanticObservation(
 	storagePath string,
+	scope *semanticScope,
+	conceptOwnerPath string,
+	keyOwnerPath string,
+	valueOwnerPath string,
 	observation SemanticObservation,
 	examples []any,
-	emit func(SemanticObservation, []any),
+	emit semanticCoverageObservationEmitter,
+	sourceID string,
 ) {
 	if stat := p.ensureSemanticStat(storagePath); stat != nil {
 		stat.addSemanticObservation(observation, examples)
 	}
-	emit(observation, examples)
+	emit(observation, examples, semanticCoverageEmissionEvidence(p.resourceType, p.semanticSourceKind, sourceID, scope, conceptOwnerPath, keyOwnerPath, valueOwnerPath, observation))
 }
 
 func directSemanticFact(scope *semanticScope, member string) (fhirsemantic.MemberFact, bool) {
@@ -524,6 +549,7 @@ func semanticChoiceValueFromFact(resourceType string, fact fhirsemantic.MemberFa
 	}
 	return semanticChoiceValue{
 		Arm:                   fact.Element.Name,
+		OwnerPath:             fact.OwnerPath,
 		Selector:              selector,
 		FallbackSelectors:     fallbackSelectors,
 		FallbackOnBlankString: fallbackOnBlankString,
