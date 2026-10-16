@@ -84,7 +84,7 @@ describe('CodedPivotEditor', () => {
     }), expect.any(AbortSignal));
   });
 
-  it('distinguishes duplicate display labels by visible system and code without changing their outputs', async () => {
+  it('shows only the context needed to distinguish selected labels without changing their outputs', async () => {
     const browseFrameSourceOptions = browseDirectSourceOptions();
     const categories = [
       {
@@ -97,11 +97,19 @@ describe('CodedPivotEditor', () => {
       },
       {
         conceptId: 'panel-specimen-type', bindingId: 'component-binding', resourceType: 'Observation',
-        sourcePath: 'component[]', system: 'https://example.org/panel-codes', code: 'specimen-type',
+        sourcePath: 'component[]', system: 'https://example.org/panel-codes', code: 'specimen_type',
         codingVersion: '', display: 'Specimen type', valueSelector: 'component[].valueString', valueType: 'string',
         owningScope: 'component[]', occurrences: 7, examplesTruncated: false, observedUnitsTruncated: false,
         readiness: { status: 'READY' as const, code: 'READY', message: 'Ready' },
         constructionChoice: { choiceId: 'panel-choice' },
+      },
+      {
+        conceptId: 'observation-specimen-type-alternate', bindingId: 'component-binding', resourceType: 'Observation',
+        sourcePath: 'component[]', system: 'https://example.org/observation-codes', code: 'specimen-type',
+        codingVersion: '', display: 'Specimen type', valueSelector: 'component[].valueString', valueType: 'string',
+        owningScope: 'component[]', occurrences: 3, examplesTruncated: false, observedUnitsTruncated: false,
+        readiness: { status: 'READY' as const, code: 'READY', message: 'Ready' },
+        constructionChoice: { choiceId: 'observation-alternate-choice' },
       },
     ];
     const onCandidateChange = vi.fn();
@@ -118,23 +126,27 @@ describe('CodedPivotEditor', () => {
     />);
 
     const categoryChoices = await screen.findAllByRole('checkbox', { name: /Specimen type/ });
-    expect(categoryChoices).toHaveLength(2);
+    expect(categoryChoices).toHaveLength(3);
     fireEvent.click(categoryChoices[0]!);
     fireEvent.click((await screen.findAllByRole('checkbox', { name: /Specimen type/ }))[1]!);
+    fireEvent.click((await screen.findAllByRole('checkbox', { name: /Specimen type/ }))[2]!);
 
     expect(await screen.findByText('System https://example.org/observation-codes · Code specimen_type')).toBeInTheDocument();
-    expect(screen.getByText('System https://example.org/panel-codes · Code specimen-type')).toBeInTheDocument();
+    expect(screen.getByText('System https://example.org/panel-codes · Code specimen_type')).toBeInTheDocument();
+    expect(screen.getByText('Code specimen-type')).toBeInTheDocument();
     await waitFor(() => expect(onCandidateChange).toHaveBeenLastCalledWith(expect.objectContaining({
       candidateConstruction: expect.objectContaining({ steps: [expect.objectContaining({
         operation: expect.objectContaining({ codedPivot: expect.objectContaining({
           categories: [
             expect.objectContaining({ choiceId: 'observation-choice' }),
             expect.objectContaining({ choiceId: 'panel-choice' }),
+            expect.objectContaining({ choiceId: 'observation-alternate-choice' }),
           ],
         }) }),
         outputs: [
           expect.objectContaining({ name: 'specimen_type', label: 'Specimen type' }),
           expect.objectContaining({ name: 'specimen_type_2', label: 'Specimen type' }),
+          expect.objectContaining({ name: 'specimen_type_3', label: 'Specimen type' }),
         ],
       })] }),
     })));
@@ -144,7 +156,7 @@ describe('CodedPivotEditor', () => {
     if (step?.operation.kind === 'CODED_PIVOT') {
       expect(step.operation.codedPivot.categories.map(({ outputColumnId }) => outputColumnId))
         .toEqual(step.outputs.map(({ id }) => id));
-      expect(new Set(step.outputs.map(({ id }) => id)).size).toBe(2);
+      expect(new Set(step.outputs.map(({ id }) => id)).size).toBe(3);
     }
   });
 
@@ -192,8 +204,14 @@ describe('CodedPivotEditor', () => {
         outputs: [{ id: 'specimen-column', name: 'specimen_type', label: 'Specimen type', type: 'INFER' }],
       })] }),
     })));
-    expect(screen.getByText('System https://cda.readthedocs.io · Code specimen_type')).toBeInTheDocument();
+    const savedSelection = screen.getByRole('listitem', {
+      name: 'Specimen type; system https://cda.readthedocs.io; code specimen_type',
+    });
+    expect(savedSelection).toHaveAttribute('title', 'Specimen type; system https://cda.readthedocs.io; code specimen_type');
+    expect(screen.queryByText('Code specimen_type')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Coded values as columns', exact: true })).not.toBeInTheDocument();
+    const editor = screen.getByRole('region', { name: 'Coded values as columns' });
+    expect([...editor.querySelectorAll('p')].every((paragraph) => paragraph.classList.contains('m-0'))).toBe(true);
   });
 
   it('finds legal coded values on later pages without requiring search or a More click', async () => {

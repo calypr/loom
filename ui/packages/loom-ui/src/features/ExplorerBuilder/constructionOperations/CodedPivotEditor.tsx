@@ -45,6 +45,14 @@ type CodedPivotEditorProps = {
 };
 
 const categoryKey = (system: string, code: string) => `${system}\u0000${code}`;
+const selectedCategoryContext = (category: Category, categories: ReadonlyArray<Category>) => {
+  const sameLabel = categories.filter((candidate) =>
+    candidate.outputColumnId !== category.outputColumnId && candidate.label === category.label);
+  return {
+    showCode: sameLabel.length > 0,
+    showSystem: sameLabel.some((candidate) => candidate.code === category.code && candidate.system !== category.system),
+  };
+};
 const isAvailableCodedValue = (item: SemanticInventoryItem) =>
   Boolean(item.code) && !item.codingVersion && Boolean(item.constructionChoice) &&
   (item.readiness.status === 'READY' || item.readiness.status === 'READY_WITH_WARNING');
@@ -268,8 +276,8 @@ const CodedPivotEditorBody = ({
 
   return (
     <section aria-label="Coded values as columns" className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
-      {unavailableReason ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{unavailableReason}</p> : null}
-      <p className="text-sm text-slate-600">Keep one row per {rowRoot} record. Each selected code becomes a column filled by its paired value.</p>
+      {unavailableReason ? <p role="status" className="m-0 rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{unavailableReason}</p> : null}
+      <p className="m-0 text-sm text-slate-600">Keep one row per {rowRoot} record. Each selected code becomes a column filled by its paired value.</p>
       <label className="block text-sm font-medium text-slate-800">Find a coded source
         <input type="search" value={sourceQuery} onChange={(event) => {
           setSourceQuery(event.target.value);
@@ -278,9 +286,9 @@ const CodedPivotEditorBody = ({
         }}
           disabled={disabled} placeholder="Search sources" className="mt-1 block w-full rounded border border-slate-300 px-3 py-2" />
       </label>
-      {sourcesLoading ? <p role="status" className="text-sm text-slate-600">Finding coded sources…</p> : null}
-      {sourceError ? <p role="alert" className="text-sm text-red-700">{sourceError}</p> : null}
-      {!sourcesLoading && !sourceError && visibleSources.length === 0 ? <p className="text-sm text-slate-600">{
+      {sourcesLoading ? <p role="status" className="m-0 text-sm text-slate-600">Finding coded sources…</p> : null}
+      {sourceError ? <p role="alert" className="m-0 text-sm text-red-700">{sourceError}</p> : null}
+      {!sourcesLoading && !sourceError && visibleSources.length === 0 ? <p className="m-0 text-sm text-slate-600">{
           sourceNextCursor ? 'No direct coded source appears on this page. Browse more sources or search by name.'
           : sourceQuery ? 'No direct coded source matches this search.'
             : 'No direct coded source is available on these starting records. Use category and value fields already in this table, or add a coded-value column from a related record and then reopen Categories to columns.'
@@ -304,8 +312,8 @@ const CodedPivotEditorBody = ({
           }}
             disabled={disabled} placeholder="Search coded values" className="mt-1 block w-full rounded border border-slate-300 px-3 py-2" />
         </label>
-        {categoriesLoading ? <p role="status" className="text-sm text-slate-600">Finding coded values…</p> : null}
-        {categoryError ? <p role="alert" className="text-sm text-red-700">{categoryError}</p> : null}
+        {categoriesLoading ? <p role="status" className="m-0 text-sm text-slate-600">Finding coded values…</p> : null}
+        {categoryError ? <p role="alert" className="m-0 text-sm text-red-700">{categoryError}</p> : null}
         <div className="grid max-h-72 gap-1 overflow-y-auto sm:grid-cols-2">
           {displayedInventory.map((item) => {
             const key = categoryKey(item.system, item.code);
@@ -327,21 +335,27 @@ const CodedPivotEditorBody = ({
         }}
           className="rounded border border-slate-300 px-2 py-1 text-sm text-blue-800 disabled:opacity-50">More coded values</button> : null}
         {!categoriesLoading && !categoryError && inventory.length === 0 ? <p role={inventoryState !== 'complete' || inventorySourceAvailability !== 'verified' ? 'status' : undefined}
-          className="text-sm text-slate-600">{inventoryState !== 'complete' || inventorySourceAvailability !== 'verified'
+          className="m-0 text-sm text-slate-600">{inventoryState !== 'complete' || inventorySourceAvailability !== 'verified'
             ? 'Coded-value availability has not been confirmed for this source.'
             : categoryQuery ? 'No coded values match this search.'
               : 'No coded values are available for this source.'}</p> : null}
-        <p className="text-sm font-medium text-slate-800">{selected.length} of 50 columns selected</p>
-        {selected.length > 0 ? <ul className="flex flex-wrap gap-1">{selected.map((category) =>
-          <li key={category.outputColumnId}
-            aria-label={`${category.label}; system ${category.system.trim() || 'not specified'}; code ${category.code.trim() || 'not specified'}`}
-            title={`${category.system} · ${category.code}`}
-            className="max-w-72 rounded bg-emerald-50 px-2 py-1 text-xs text-emerald-950">
-            <span className="block truncate font-medium">{category.label}</span>
-            <span className="block break-all text-[10px] leading-tight text-emerald-800">
-              System {category.system.trim() || 'not specified'} · Code {category.code.trim() || 'not specified'}
-            </span>
-          </li>)}</ul> : null}
+        <p className="m-0 text-sm font-medium text-slate-800">{selected.length} of 50 columns selected</p>
+        {selected.length > 0 ? <ul className="flex flex-wrap gap-1">{selected.map((category) => {
+          const context = selectedCategoryContext(category, selected);
+          const system = category.system || 'not specified';
+          const code = category.code || 'not specified';
+          const identity = `system ${system}; code ${code}`;
+          return (
+            <li key={category.outputColumnId}
+              aria-label={`${category.label}; ${identity}`}
+              title={`${category.label}; ${identity}`}
+              className="max-w-72 rounded bg-emerald-50 px-2 py-1 text-xs text-emerald-950">
+              <span className="block truncate font-medium">{category.label}</span>
+              {context.showSystem ? <span className="block break-all text-[10px] leading-tight text-emerald-800">System {system} · Code {code}</span>
+                : context.showCode ? <span className="block break-all text-[10px] leading-tight text-emerald-800">Code {code}</span> : null}
+            </li>
+          );
+        })}</ul> : null}
         <details className="text-sm text-slate-700"><summary className="cursor-pointer font-medium">Advanced value handling</summary>
           <div className="mt-2 grid gap-3 sm:grid-cols-2">
             <label>When several values match
