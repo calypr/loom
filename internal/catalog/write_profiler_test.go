@@ -369,6 +369,54 @@ func TestFieldCatalogObservationPivotMetadata(t *testing.T) {
 	}
 }
 
+func TestProfilerCoverageRetainsRawCodingPathWithUnrepresentedMetadata(t *testing.T) {
+	profiler := NewProfilerForGeneration("project", "generation", "scope-a", "Observation", nil)
+	inventoryProfiler := NewProfilerForGeneration("project", "generation", "scope-a", "Observation", nil)
+	payload := map[string]any{
+		"resourceType": "Observation",
+		"status":       "final",
+		"code": map[string]any{"coding": []any{map[string]any{
+			"system": "urn:test", "version": "v1", "code": "one", "userSelected": true,
+		}}},
+	}
+	var contribution SemanticCoverageSourceContribution
+	var coverageSemantic []SemanticInventoryContribution
+	err := profiler.ObservePayloadWithCoverage(
+		payload,
+		map[string]float64{},
+		"retained:Observation/raw-coding",
+		"schema-sha256-test",
+		func(value SemanticInventoryContribution) { coverageSemantic = append(coverageSemantic, value) },
+		nil,
+		func(value SemanticCoverageSourceContribution) error {
+			contribution = value
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("observe payload with coverage: %v", err)
+	}
+	var inventorySemantic []SemanticInventoryContribution
+	inventoryProfiler.ObservePayloadWithInventory(payload, map[string]float64{}, "retained:Observation/raw-coding", func(value SemanticInventoryContribution) {
+		inventorySemantic = append(inventorySemantic, value)
+	})
+	if !reflect.DeepEqual(profiler.Documents(), inventoryProfiler.Documents()) {
+		t.Fatalf("coverage field documents differ from inventory-only output\ncoverage: %#v\ninventory: %#v", profiler.Documents(), inventoryProfiler.Documents())
+	}
+	if !reflect.DeepEqual(coverageSemantic, inventorySemantic) {
+		t.Fatalf("coverage semantic inventory differs from inventory-only output\ncoverage: %#v\ninventory: %#v", coverageSemantic, inventorySemantic)
+	}
+	for _, path := range contribution.Paths {
+		if path.Kind == SemanticCoverageCoding && path.CanonicalPath == "code.coding[]" {
+			if path.Disposition != SemanticCoverageRawRetainedDisposition || path.Reason != SemanticCoverageReasonUnrepresentedMetadata {
+				t.Fatalf("coding path disposition/reason = %q/%q, want raw retained for unrepresented metadata", path.Disposition, path.Reason)
+			}
+			return
+		}
+	}
+	t.Fatalf("coverage omitted raw-retained code.coding[] path: %#v", contribution.Paths)
+}
+
 func TestGenerationProfilerSeparatesCatalogDocumentsAndKeys(t *testing.T) {
 	cache := NewShapePlanCache()
 	payload := map[string]any{"id": "patient-1"}

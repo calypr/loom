@@ -30,15 +30,16 @@ func NewProfilerForGenerationWithLimits(project, datasetGeneration, authResource
 		cache = NewShapePlanCacheWithLimits(limits.MaxShapePlans, limits.MaxRetainedBytes)
 	}
 	return &Profiler{
-		project:            project,
-		datasetGeneration:  NormalizeDatasetGeneration(datasetGeneration),
-		authResourcePath:   authResourcePath,
-		resourceType:       resourceType,
-		semanticSourceKind: SemanticInventorySourceFile,
-		limits:             limits,
-		shapeCache:         cache,
-		stats:              make(map[string]*fieldCatalogStats),
-		budget:             cache.retentionBudget(limits.MaxRetainedBytes),
+		project:                  project,
+		datasetGeneration:        NormalizeDatasetGeneration(datasetGeneration),
+		semanticInventoryBuildID: SemanticInventoryBuildID(project, datasetGeneration),
+		authResourcePath:         authResourcePath,
+		resourceType:             resourceType,
+		semanticSourceKind:       SemanticInventorySourceFile,
+		limits:                   limits,
+		shapeCache:               cache,
+		stats:                    make(map[string]*fieldCatalogStats),
+		budget:                   cache.retentionBudget(limits.MaxRetainedBytes),
 	}
 }
 
@@ -91,13 +92,18 @@ func (p *Profiler) observePayload(
 	timings["field_shape_plan"] += time.Since(planStart).Seconds()
 
 	observeStart := time.Now()
-	rawPaths := make(map[string]struct{}, len(plan.fields))
+	var rawPaths map[string]struct{}
+	if coverageSink != nil {
+		rawPaths = make(map[string]struct{}, len(plan.fields))
+	}
 	for _, field := range plan.fields {
 		values, ok := extractAccessorValues(payload, field.Accessor)
 		if !ok {
 			continue
 		}
-		rawPaths[field.Path] = struct{}{}
+		if rawPaths != nil {
+			rawPaths[field.Path] = struct{}{}
+		}
 		stat := p.ensureStat(field)
 		if stat == nil {
 			continue
