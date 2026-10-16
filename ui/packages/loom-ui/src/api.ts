@@ -30,6 +30,7 @@ import {
   rowDefinitionChoicesResponseSchema,
   rowDefinitionProposalSchema,
   tableShapeCapabilitiesSchema,
+  fieldPresentationSchema,
   tableShapeCategoryDiscoveryRequestSchema,
   tableShapeCategoryDiscoverySchema,
   tableShapeProposalRequestSchema,
@@ -40,7 +41,7 @@ import {
   explicitGroupRevisionSummarySchema,
   explorerBuilderPreviewResultSchema,
   rowChangeAssessmentSchema,
-  semanticInventoryBrowseResponseSchema,
+  semanticInventoryBrowseCoreResponseSchema,
   semanticInventoryBrowseRequestSchema,
   frameSourceOptionsResponseSchema,
   explorerBuilderRowLineageResponseSchema,
@@ -1232,6 +1233,23 @@ const bindPresentationResponseToRequest = (
   return response;
 };
 
+const splitSemanticInventoryBrowseResponse = (value: unknown): {
+  readonly core: unknown;
+  readonly hasFieldPresentation: boolean;
+  readonly fieldPresentation: unknown;
+} => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return { core: value, hasFieldPresentation: false, fieldPresentation: undefined };
+  }
+  const response = value as Record<string, unknown>;
+  const { fieldPresentation, ...core } = response;
+  return {
+    core,
+    hasFieldPresentation: Object.prototype.hasOwnProperty.call(response, 'fieldPresentation'),
+    fieldPresentation,
+  };
+};
+
 export const createLoomClient = (options: LoomClientOptions = {}): LoomClient => {
   const fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
   const baseUrl = options.baseUrl ?? '/';
@@ -1493,12 +1511,25 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       signal,
       args.requestId,
     )).then((value) => {
-      const response = semanticInventoryBrowseResponseSchema.parse(value);
-      if (!fieldPresentation) return response;
-      if (!args.outputId) {
-        return { ...response, fieldPresentation: presentationUnavailable('STALE_CONTEXT') };
+      const split = splitSemanticInventoryBrowseResponse(value);
+      const response = semanticInventoryBrowseCoreResponseSchema.parse(split.core);
+      const parsedPresentation = fieldPresentationSchema.safeParse(split.fieldPresentation);
+      if (!fieldPresentation) {
+        return parsedPresentation.success && split.hasFieldPresentation
+          ? { ...response, fieldPresentation: parsedPresentation.data }
+          : response;
       }
-      return bindPresentationResponseToRequest(response, {
+      if (!split.hasFieldPresentation) {
+        return { ...response, fieldPresentation: presentationUnavailable('COVERAGE_UNAVAILABLE') };
+      }
+      if (!parsedPresentation.success) {
+        return { ...response, fieldPresentation: presentationUnavailable('INCOMPLETE_COVERAGE') };
+      }
+      const responseWithPresentation = { ...response, fieldPresentation: parsedPresentation.data };
+      if (!args.outputId) {
+        return { ...responseWithPresentation, fieldPresentation: presentationUnavailable('STALE_CONTEXT') };
+      }
+      return bindPresentationResponseToRequest(responseWithPresentation, {
         ...args,
         outputId: args.outputId,
         fieldPresentation,
