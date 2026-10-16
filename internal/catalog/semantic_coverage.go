@@ -15,6 +15,7 @@ import (
 type SemanticCoverageOccurrenceKind string
 
 const SemanticCoverageRuleVersion = 1
+const SemanticCoverageStorageFormatVersion = 1
 
 const (
 	SemanticCoverageCodeableConcept  SemanticCoverageOccurrenceKind = "CODEABLE_CONCEPT"

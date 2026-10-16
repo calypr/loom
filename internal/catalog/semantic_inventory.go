@@ -202,10 +202,15 @@ type semanticInventoryCursor struct {
 }
 
 func SemanticInventoryBuildID(project, datasetGeneration string) string {
-	return semanticInventoryBuildIDWithCoverageRuleVersion(project, datasetGeneration, SemanticCoverageRuleVersion)
+	return semanticInventoryBuildIDWithVersions(
+		project,
+		datasetGeneration,
+		SemanticCoverageRuleVersion,
+		SemanticCoverageStorageFormatVersion,
+	)
 }
 
-func semanticInventoryBuildIDWithCoverageRuleVersion(project, datasetGeneration string, coverageRuleVersion int) string {
+func semanticInventoryBuildIDWithVersions(project, datasetGeneration string, coverageRuleVersion, storageFormatVersion int) string {
 	return catalogIdentityDigest(
 		"semantic-inventory-build/v1",
 		project,
@@ -215,6 +220,7 @@ func semanticInventoryBuildIDWithCoverageRuleVersion(project, datasetGeneration 
 		strconv.Itoa(SemanticObservationRuleVersion),
 		strconv.Itoa(SemanticInventoryEmitterVersion),
 		strconv.Itoa(coverageRuleVersion),
+		strconv.Itoa(storageFormatVersion),
 	)
 }
 

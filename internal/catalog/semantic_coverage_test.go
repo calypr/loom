@@ -1145,14 +1145,18 @@ func TestSemanticCoverageClassifiesIdentifierExtensionAndPrimitiveCode(t *testin
 	}
 }
 
-func TestSemanticCoverageRuleVersionChangesOnlyInventoryBuildIdentity(t *testing.T) {
+func TestCoverageVersionsChangeInventoryBuildIDOnly(t *testing.T) {
 	project, generation := "coverage-version-test", "generation-1"
 	currentBuildID := SemanticInventoryBuildID(project, generation)
-	nextCoverageBuildID := semanticInventoryBuildIDWithCoverageRuleVersion(project, generation, SemanticCoverageRuleVersion+1)
-	if currentBuildID == nextCoverageBuildID {
+	nextCoverageRuleBuildID := semanticInventoryBuildIDWithVersions(project, generation, SemanticCoverageRuleVersion+1, SemanticCoverageStorageFormatVersion)
+	if currentBuildID == nextCoverageRuleBuildID {
 		t.Fatal("coverage-rule version change did not invalidate the inventory build")
 	}
-	if currentBuildID != semanticInventoryBuildIDWithCoverageRuleVersion(project, generation, SemanticCoverageRuleVersion) {
+	nextStorageFormatBuildID := semanticInventoryBuildIDWithVersions(project, generation, SemanticCoverageRuleVersion, SemanticCoverageStorageFormatVersion+1)
+	if currentBuildID == nextStorageFormatBuildID {
+		t.Fatal("coverage storage format version change did not invalidate the inventory build")
+	}
+	if currentBuildID != semanticInventoryBuildIDWithVersions(project, generation, SemanticCoverageRuleVersion, SemanticCoverageStorageFormatVersion) {
 		t.Fatal("public inventory build ID does not use the declared coverage-rule version")
 	}
 	observation := SemanticObservation{
@@ -1169,6 +1173,14 @@ func TestSemanticCoverageRuleVersionChangesOnlyInventoryBuildIdentity(t *testing
 	}
 	if contribution.BindingID != "f023b734da3591fdc95dd4cb380e85db8f53c8aa3c3f9ce6109f36deda91a710" {
 		t.Fatalf("coverage-only update changed stable binding identity: %s", contribution.BindingID)
+	}
+	familyID := SemanticInventoryFamilyID(SemanticInventoryFamilyReference{
+		BindingID: contribution.BindingID, SourceKind: contribution.SourceKind,
+		ResourceType: contribution.Observation.Source.Type, SourcePath: contribution.Observation.Source.Path,
+		System: contribution.Observation.Key.System, Version: contribution.Observation.Key.Version,
+	})
+	if familyID != "5a1d0687a60a4bf110b1b1bdb1901cf8b59d172a26474881adf7991154e3204d" {
+		t.Fatalf("coverage-only update changed stable family identity: %s", familyID)
 	}
 	if contribution.BuildID != currentBuildID {
 		t.Fatalf("semantic contribution build ID = %q, want current coverage build %q", contribution.BuildID, currentBuildID)
