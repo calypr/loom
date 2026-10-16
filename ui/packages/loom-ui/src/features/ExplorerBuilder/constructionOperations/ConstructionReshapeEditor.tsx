@@ -2095,52 +2095,48 @@ const SourceGroupEditor = (props: {
   };
 
   return (
-  <section aria-label="Group by a source field" data-testid="construction-reshape-source-group" className="grid content-start gap-3 rounded-lg border border-slate-200 p-3">
-    <header>
-      <h4 className="m-0 text-sm font-semibold text-slate-900">Group rows</h4>
-      <p className="mb-0 mt-1 text-sm text-slate-600">Choose fields that records must share to belong to one row. Add columns afterward from those contributing records.</p>
-    </header>
-    {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
-    <fieldset disabled={props.disabled || !props.supported} className="grid gap-2">
-      <legend className="text-sm font-medium text-slate-800">Available dataset fields</legend>
-      {props.fields.map((field) => {
-        const isSelected = selected(field.choice.choiceId);
-        const cannotClearLast = isSelected && selectedCount === 1 && !props.canClear;
-        return (
-          <label key={field.choice.choiceId} className="flex items-start gap-2 rounded border border-slate-200 bg-white p-2">
-            <input type="checkbox" aria-label={`Group by ${field.choice.label}`} checked={isSelected}
-              disabled={cannotClearLast}
-              onChange={(event) => toggleChoice(field, event.currentTarget.checked)} />
-            <SourceFieldDescription field={field} />
-          </label>
-        );
-      })}
-      {selectedCount === 1 && !props.canClear ? <p className="m-0 text-xs text-slate-600">Keep at least one grouping field while editing this step.</p> : null}
-    </fieldset>
-    <p role="status" data-testid="construction-source-group-summary" className="m-0 text-xs text-slate-600">One row per distinct combination of {[props.form.keyOutput.label, ...(props.form.additionalKeys ?? []).map((key) => key.keyOutput.label)].join(' and ')}. Each row retains its contributing records for Add columns.</p>
-    <details className="rounded border border-slate-200 p-2 text-sm">
-      <summary className="cursor-pointer font-medium text-slate-800">Advanced: missing values</summary>
-      <label className="mt-2 grid gap-1 text-slate-700">
-        When a source record has no value for this field
-        <select
-          data-testid="construction-source-group-missing"
-          value={props.form.missingKeyPolicy}
-          disabled={props.disabled || !props.supported}
-          onChange={(event) => {
-            const value = event.currentTarget.value;
-            if (value === 'GROUP' || value === 'EXCLUDE' || value === 'ERROR') {
-              props.onChange({ ...props.form, missingKeyPolicy: value });
-            }
-          }}
-          className="rounded border border-slate-300 bg-white px-2 py-2"
-        >
-          <option value="GROUP">Count them in a missing-value row</option>
-          <option value="EXCLUDE">Leave them out</option>
-          <option value="ERROR">Stop if a value is missing</option>
-        </select>
-      </label>
-    </details>
-  </section>
+    <section aria-label="Group by a source field" data-testid="construction-reshape-source-group" className="grid content-start gap-2">
+      {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
+      <fieldset disabled={props.disabled || !props.supported} className="grid gap-1">
+        <legend className="m-0 text-sm font-medium text-slate-800">Available dataset fields</legend>
+        {props.fields.map((field) => {
+          const isSelected = selected(field.choice.choiceId);
+          const cannotClearLast = isSelected && selectedCount === 1 && !props.canClear;
+          return (
+            <label key={field.choice.choiceId} className="flex min-w-0 items-start gap-2 rounded px-2 py-1.5 hover:bg-slate-50">
+              <input type="checkbox" aria-label={`Group by ${field.choice.label}`} checked={isSelected}
+                disabled={cannotClearLast}
+                onChange={(event) => toggleChoice(field, event.currentTarget.checked)} />
+              <SourceFieldDescription field={field} />
+            </label>
+          );
+        })}
+        {selectedCount === 1 && !props.canClear ? <p className="m-0 text-xs text-slate-600">Keep at least one grouping field while editing this step.</p> : null}
+      </fieldset>
+      <p role="status" data-testid="construction-source-group-summary" className="m-0 text-xs text-slate-600">One row per distinct combination of {[props.form.keyOutput.label, ...(props.form.additionalKeys ?? []).map((key) => key.keyOutput.label)].join(' and ')}. Each row retains its contributing records for Add columns.</p>
+      <details className="rounded border border-slate-200 p-2 text-sm">
+        <summary className="cursor-pointer font-medium text-slate-800">Advanced: missing values</summary>
+        <label className="mt-2 grid gap-1 text-slate-700">
+          When a source record has no value for this field
+          <select
+            data-testid="construction-source-group-missing"
+            value={props.form.missingKeyPolicy}
+            disabled={props.disabled || !props.supported}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              if (value === 'GROUP' || value === 'EXCLUDE' || value === 'ERROR') {
+                props.onChange({ ...props.form, missingKeyPolicy: value });
+              }
+            }}
+            className="rounded border border-slate-300 bg-white px-2 py-2"
+          >
+            <option value="GROUP">Count them in a missing-value row</option>
+            <option value="EXCLUDE">Leave them out</option>
+            <option value="ERROR">Stop if a value is missing</option>
+          </select>
+        </label>
+      </details>
+    </section>
   );
 };
 
@@ -2914,11 +2910,8 @@ const ExpandEditor = (props: {
   };
 
   return (
-    <section aria-label="Expand repeated values" data-testid="construction-reshape-expand" className="grid gap-4 rounded-lg border border-slate-200 p-3">
-      <header>
-        <h4 className="text-sm font-semibold text-slate-900">Expand a list into rows</h4>
-        <p className="mt-1 text-sm text-slate-600">Each list item becomes a row. Loom keeps the other columns from its parent row.</p>
-      </header>
+    <section aria-label="Expand repeated values" data-testid="construction-reshape-expand" className="grid content-start gap-3">
+      <p className="m-0 text-sm text-slate-600">Each list item becomes a row; other columns stay with its parent.</p>
       {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
       {columns.length === 0 ? (
         <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">Loom has not returned any list-valued columns for this stage.</p>
@@ -2930,7 +2923,7 @@ const ExpandEditor = (props: {
               {columns.map((column) => <option key={column.id} value={column.id}>{column.label} ({column.type ?? 'unknown item type'})</option>)}
             </select>
           </label>
-          <p data-testid="construction-reshape-expand-empty-effect" className="text-sm text-slate-600">
+          <p data-testid="construction-reshape-expand-empty-effect" className="m-0 text-sm text-slate-600">
             For an empty or missing list, {props.form.emptyPolicy === 'PRESERVE_PARENT'
               ? 'keep the original row with an empty item.'
               : props.form.emptyPolicy === 'EXCLUDE'
@@ -3521,27 +3514,23 @@ const UnpivotEditor = (props: {
       : 'Rows with missing values are left out.'}`;
 
   return (
-    <section aria-label="Turn columns into rows" data-testid="construction-reshape-unpivot" className="grid gap-4 rounded-lg border border-slate-200 p-3">
-      <header>
-        <h4 className="text-sm font-semibold text-slate-900">Turn columns into rows</h4>
-        <p className="mt-1 text-sm text-slate-600">Choose the columns to stack. Each selected column makes a row with its field name and value.</p>
-      </header>
+    <section aria-label="Turn columns into rows" data-testid="construction-reshape-unpivot" className="grid content-start gap-3">
       {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
-      <fieldset className="grid gap-3 rounded border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
-        <legend className="px-1 text-sm font-semibold text-slate-800">Columns to turn into rows</legend>
-        {scalarColumnsFor(props.stage).map((column) => {
-          const input = props.form.inputs.find((candidate) => candidate.columnId === column.id);
-          return (
-            <div key={column.id} className="rounded bg-slate-50 p-2">
-              <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
+      <fieldset className="grid gap-1" disabled={props.disabled || !props.supported}>
+        <legend className="m-0 text-sm font-semibold text-slate-800">Columns to turn into rows</legend>
+        <div className="grid gap-1 sm:grid-cols-2">
+          {scalarColumnsFor(props.stage).map((column) => {
+            const input = props.form.inputs.find((candidate) => candidate.columnId === column.id);
+            return (
+              <label key={column.id} className="flex items-center gap-2 rounded px-2 py-1.5 text-sm text-slate-800 hover:bg-slate-50">
                 <input type="checkbox" aria-label={`Unpivot ${column.label}`} checked={Boolean(input)} disabled={props.disabled || !props.supported} onChange={(event) => toggleInput(column, event.currentTarget.checked)} />
                 {column.label}
               </label>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </fieldset>
-      <p data-testid="construction-unpivot-effect" className="text-sm text-slate-600">
+      <p data-testid="construction-unpivot-effect" className="m-0 text-sm text-slate-600">
         {rowEffect}
       </p>
       <details data-testid="construction-unpivot-advanced" className="rounded border border-slate-200 p-3">

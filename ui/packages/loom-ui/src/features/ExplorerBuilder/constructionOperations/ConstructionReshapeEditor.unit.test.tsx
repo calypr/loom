@@ -333,6 +333,39 @@ describe('ConstructionReshapeEditor', () => {
     }
   });
 
+  it('keeps Expand, Unpivot, and source-group editors inline under one operation heading', () => {
+    renderEditor({ initialKind: 'expand' });
+    expect(screen.getAllByRole('heading', { name: 'Expand repeated values' })).toHaveLength(1);
+    expect(screen.queryByRole('heading', { name: 'Expand a list into rows' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('construction-reshape-expand')).not.toHaveClass('rounded-lg');
+    expect(screen.getByLabelText('Repeated field')).toBeInTheDocument();
+    expect(screen.getByText('Each list item becomes a row; other columns stay with its parent.')).toBeInTheDocument();
+
+    cleanup();
+    renderEditor({ initialKind: 'unpivot' });
+    expect(screen.getAllByRole('heading', { name: 'Turn columns into rows' })).toHaveLength(1);
+    expect(screen.getByTestId('construction-reshape-unpivot')).not.toHaveClass('rounded-lg');
+    expect(screen.getByLabelText('Unpivot Site')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-unpivot-effect')).toHaveTextContent('Choose columns to see how many rows each original record will create.');
+
+    cleanup();
+    const sourceChoice = {
+      choiceId: 'gender-choice', occurrenceId: 'root-1', fieldPath: 'gender', label: 'Gender',
+      fhirType: 'code', logicalType: 'string', valueType: 'string',
+      isIdentifier: false, isReference: false, isPopulated: true,
+    };
+    const capabilities = {
+      ...capabilitiesFor(),
+      sourceInput: { supported: true, stageId: sourceStage.id, choices: [sourceChoice] },
+    } satisfies ConstructionReshapeEditorProps['capabilities'];
+    renderEditor({ capabilities, initialKind: 'source-group' });
+    expect(screen.getAllByRole('heading', { name: 'Group by source field' })).toHaveLength(1);
+    expect(screen.queryByRole('heading', { name: 'Group rows' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('construction-reshape-source-group')).not.toHaveClass('rounded-lg');
+    expect(screen.getByLabelText('Group by Gender')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-source-group-summary')).toHaveTextContent('One row per distinct combination of Gender.');
+  });
+
   it('reports the current form kind when the user changes reshape operations', () => {
     const onFormKindChange = vi.fn<NonNullable<ConstructionReshapeEditorProps['onFormKindChange']>>();
     renderEditor({ initialKind: 'pivot', onFormKindChange });
