@@ -37,6 +37,10 @@ const codedCategoryItem = (entries, label, predicate) => {
     candidate.familyId === candidate.conceptId && candidate.code === '' &&
     candidate.constructionChoice?.source.ruleHint === 'CODED_CATEGORY_V1' && predicate(candidate));
   const source = item.constructionChoice.source;
+  assert.equal(source.conceptId, item.familyId, `${label} must route by its opaque current family identity.`);
+  assert.equal(source.bindingId, item.bindingId, `${label} must retain its exact structural binding.`);
+  assert.equal(source.resourceType, item.resourceType);
+  assert.equal(source.sourcePath, item.sourcePath, `${label} must retain its exact source field path.`);
   assert.equal(source.system, item.system, `${label} must retain its exact Coding system.`);
   assert.equal(source.version ?? '', item.codingVersion, `${label} must retain its exact Coding version.`);
   assert.equal(source.code ?? '', '', `${label} must identify a system/version family, not one exact code.`);
@@ -354,14 +358,30 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
     selectedItems.push(item);
     selectedNames.push(accessibleName);
     await selectedList.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
-    assert.equal(await selectedList.locator('li').count(), selectedItems.length,
+    const selectedRows = selectedList.locator('li');
+    assert.equal(await selectedRows.count(), selectedItems.length,
       'Selections must accumulate in the action list when browsing source scopes changes.');
+    const selectedRow = selectedRows.nth(selectedItems.length - 1);
+    assert.equal(await selectedRow.getAttribute('aria-label'),
+      `Selected ${accessibleName.replace(/^Select\s+/, '')}`,
+      `${accessibleName} must remain accessible with its exact family qualifiers in the selected summary.`);
+    const selectedIdentities = await selectedRows.evaluateAll(rows => rows.map(row => row.getAttribute('data-semantic-identity') ?? ''));
+    assert(selectedIdentities.every(Boolean), 'Every selected semantic row must retain its current exact semantic identity.');
+    assert.equal(new Set(selectedIdentities).size, selectedIdentities.length,
+      'Different system/version families must retain distinct selection identities even when their base labels repeat.');
     const listText = await selectedList.innerText();
     assert(listText.includes(semanticLabel(item)), `${accessibleName} must remain visible in the selected feature list.`);
   };
   const assertSelectionCount = async expected => {
-    assert.equal(await selectedList.locator('li').count(), expected,
+    const selectedRows = selectedList.locator('li');
+    assert.equal(await selectedRows.count(), expected,
       'Switching the related-resource scope must preserve selections from earlier source tabs.');
+    const summaryNames = await selectedRows.evaluateAll(rows => rows.map(row => row.getAttribute('aria-label') ?? ''));
+    assert.deepEqual(summaryNames, selectedNames.map(name => `Selected ${name.replace(/^Select\s+/, '')}`),
+      'The shared selected list must retain each qualified accessible family name across source switches.');
+    const identities = await selectedRows.evaluateAll(rows => rows.map(row => row.getAttribute('data-semantic-identity') ?? ''));
+    assert(identities.every(Boolean) && new Set(identities).size === expected,
+      'The shared selected list must retain distinct current semantic identities across source switches.');
   };
 
   const { inventory: conditionInventory, option: conditionOption } = await browseResource('Condition');
@@ -400,7 +420,6 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
     'The existing paired Observation value must remain an exact semantic value, not a system/version category.');
   await selectCurrentItem('paired Observation value', observationPair, observationOption);
   await assertSelectionCount(5);
-  const selectedItemNames = selectedNames;
   const expectedGroups = ['Condition', 'Medication', 'Observation', 'Specimen'];
   check('correctness', 'native Coded values start in the Patient scope, switch among exact related-resource scopes, preserve accumulated family selections, and keep v1, v2, and unversioned family identities distinct',
     selectedItems.length === 5 && selectedNames.length === 5 &&
@@ -409,7 +428,7 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
       savedFilterStep.operation.kind === 'FILTER' && savedFilterStep.operation.filter.columnId === idColumn.columnId &&
       savedFilterStep.operation.filter.operator === 'EXISTS' && filterCapabilityEntry.response.selectedStage.id === savedFilterStep.id,
     { outputId, initialRequest: rootInventory.request, sourceRequests: [conditionInventory, medicationInventory, specimenInventory, observationInventory].map(result => result.inventory.request),
-      groups: expectedGroups, selectedLabels: selectedItems.map(semanticLabel), selectedAccessibleNames: selectedItemNames,
+      groups: expectedGroups, selectedLabels: selectedItems.map(semanticLabel), selectedAccessibleNames: selectedNames,
       filterStepId: savedFilterStep.id, filterOperation: savedFilterStep.operation, filterCapabilityStageId: filterCapabilityEntry.response.selectedStage.id });
 
   const selectAndAdd = async (phase, { cancelBeforeSubmit = false, reuseChoiceResponses } = {}) => {
@@ -557,7 +576,7 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
             assert(value === null || (Array.isArray(value) && value.length === 0),
               `${accessibleName} must remain empty when no Coding matches ${patientID}.`);
           } else {
-            assert.deepEqual(value, expected,
+            assert.deepEqual(value, Array.isArray(expected) ? expected : [expected],
               `${accessibleName} must return only its exact system/version values for ${patientID}.`);
           }
         } else {
