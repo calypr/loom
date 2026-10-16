@@ -3,6 +3,8 @@ package arango
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -256,7 +258,7 @@ func openSemanticCoverageResourceIntegration(t *testing.T) (context.Context, *ar
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	t.Cleanup(cancel)
-	if !semanticCoverageIntegrationDatabaseExists(ctx, endpoint, database) {
+	if !semanticCoverageResourceIntegrationDatabaseExists(ctx, endpoint, database) {
 		t.Fatal("isolated SC02 database is unavailable; refusing Open because it may create a database")
 	}
 	client, err := arangostore.Open(ctx, endpoint, database)
@@ -301,6 +303,24 @@ func openSemanticCoverageResourceIntegration(t *testing.T) (context.Context, *ar
 		}
 	})
 	return ctx, client, adapter, identity
+}
+
+func semanticCoverageResourceIntegrationDatabaseExists(ctx context.Context, endpoint, database string) bool {
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return false
+	}
+	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/_db/" + database + "/_api/version"
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		return false
+	}
+	response, err := (&http.Client{Timeout: 5 * time.Second}).Do(request)
+	if err != nil {
+		return false
+	}
+	defer response.Body.Close()
+	return response.StatusCode == http.StatusOK
 }
 
 func semanticCoverageResourceExpectation(
