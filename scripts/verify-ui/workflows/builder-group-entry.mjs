@@ -319,7 +319,14 @@ export const groupEntryWorkflow = async (workflow, context) => {
       rows: initialView.rows,
       expectedCount: fixtureIDs.length,
     });
+  const groupEditor = page.getByTestId('construction-reshape-group');
+  await groupEditor.scrollIntoViewIfNeeded();
   await page.screenshot({ path: join(report.evidenceDirectory, 'group-entry-initial-count-rows.png') });
+  await page.setViewportSize({ width: 700, height: 1000 });
+  await groupEditor.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: join(report.evidenceDirectory, 'group-entry-initial-count-rows-narrow.png') });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await groupEditor.scrollIntoViewIfNeeded();
 
   const directGroupCheckNames = [
     'direct standard Group entry defaults to empty-key COUNT_ROWS without an edit',
