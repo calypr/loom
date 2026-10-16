@@ -31,7 +31,7 @@ func TestSemanticCoverageCollectionHasEnvelopeAndCertificateIndexes(t *testing.T
 	}
 }
 
-func TestPrepareSemanticInventoryBackfillBootstrapsCoverageIndexes(t *testing.T) {
+func TestPrepareSemanticInventoryBackfillDoesNotBootstrapCoverage(t *testing.T) {
 	client := &semanticCoverageTestClient{}
 	adapter, err := New(client)
 	if err != nil {
@@ -40,18 +40,10 @@ func TestPrepareSemanticInventoryBackfillBootstrapsCoverageIndexes(t *testing.T)
 	if err := adapter.PrepareSemanticInventoryBackfill(context.Background()); err != nil {
 		t.Fatalf("prepare semantic inventory backfill: %v", err)
 	}
-	var found bool
 	for _, collection := range client.bootstrapSpec.Collections {
 		if collection.Name == SemanticCoverageCollection {
-			found = true
-			if collection.Truncate {
-				t.Fatal("coverage bootstrap requested truncation")
-			}
-			break
+			t.Fatalf("semantic inventory backfill bootstrapped optional coverage collection: %#v", collection)
 		}
-	}
-	if !found {
-		t.Fatalf("backfill bootstrap omitted %s: %#v", SemanticCoverageCollection, client.bootstrapSpec.Collections)
 	}
 }
 

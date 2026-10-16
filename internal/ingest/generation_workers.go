@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/catalog"
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 
 	"github.com/bmeg/jsonschemagraph/graph"
@@ -60,10 +59,6 @@ type fileLoadResult struct {
 	VertexBatches            int
 	EdgeBatches              int
 	SemanticInventoryBatches int
-	SemanticCoverageBatches  int
-	SemanticCoverageRows     int64
-	SemanticCoverageBytes    int64
-	SemanticCoverageSources  int64
 	StageSeconds             map[string]float64
 	Catalog                  *catalog.Profiler
 	RelationshipCounts       map[catalog.RelationshipKey]int64
@@ -82,19 +77,6 @@ type fileWriteTask struct {
 	docs               []json.RawMessage
 	relationshipCounts map[catalog.RelationshipKey]int64
 	replace            bool
-	coverageBuildID    string
-	coverageSources    []catalog.SemanticCoverageSourceContribution
-	coverageWriter     semanticCoverageContributionWriter
-}
-
-type semanticCoverageContributionWriter interface {
-	WriteSemanticCoverageContributions(context.Context, string, []catalog.SemanticCoverageSourceContribution, int) (catalogarango.SemanticCoverageWriteStats, error)
-}
-
-type semanticCoverageLoadContext struct {
-	Identity  catalogarango.SemanticCoverageBuildIdentity
-	Writer    semanticCoverageContributionWriter
-	SourceSet *catalogarango.SemanticCoverageSourceSetAccumulator
 }
 
 type documentInserter func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error
@@ -114,21 +96,10 @@ func loadFile(
 	priorVertices int,
 	priorEdges int,
 	insert documentInserter,
-	coverageContexts ...semanticCoverageLoadContext,
 ) (result fileLoadResult, err error) {
 	resourceType := ResourceTypeFromPath(file)
 	result.ResourceType = resourceType
 	semanticSourceFile := ""
-	var coverageIdentity catalogarango.SemanticCoverageBuildIdentity
-	var coverageWriter semanticCoverageContributionWriter
-	coverageEnabled := len(coverageContexts) > 0
-	if coverageEnabled {
-		coverageIdentity = coverageContexts[0].Identity
-		coverageWriter = coverageContexts[0].Writer
-		if coverageWriter == nil || coverageIdentity.BuildID == "" || coverageContexts[0].SourceSet == nil {
-			return result, errors.New("semantic coverage load context is incomplete")
-		}
-	}
 	if catalog.NormalizeDatasetGeneration(datasetGeneration) != "" {
 		semanticSourceFile = semanticInventorySourceFileID(opts.MetaDir, file)
 	}
@@ -214,7 +185,6 @@ func loadFile(
 	var validationErrors int64
 	var generationErrors int64
 	var edgeErrors int64
-	var fileCoverageSources int64
 	var rowErrorsMu sync.Mutex
 	rowErrors := make([]RowErrorSample, 0, rowErrorSampleLimit)
 	recordRowError := func(line int, category rowErrorType, buildErr error) {
@@ -251,7 +221,6 @@ func loadFile(
 			vertexBatch := make([]json.RawMessage, 0, opts.BatchSize)
 			edgeBatch := make([]json.RawMessage, 0, opts.BatchSize)
 			semanticInventoryBatch := make([]json.RawMessage, 0, opts.BatchSize)
-			semanticCoverageBatch := make([]catalog.SemanticCoverageSourceContribution, 0, opts.BatchSize)
 			semanticInventoryFailed := false
 
 			flushVertexBatch := func() bool {
@@ -307,30 +276,13 @@ func loadFile(
 					return false
 				}
 			}
-			flushSemanticCoverageBatch := func() bool {
-				if len(semanticCoverageBatch) == 0 {
-					return true
-				}
-				waitStart := time.Now()
-				select {
-				case writeChan <- fileWriteTask{collection: catalogarango.SemanticCoverageCollection, coverageBuildID: coverageIdentity.BuildID, coverageSources: semanticCoverageBatch, coverageWriter: coverageWriter, replace: true}:
-					localTimings["semantic_coverage_queue_wait"] += time.Since(waitStart).Seconds()
-					localTimings["semantic_coverage_batches"]++
-					semanticCoverageBatch = make([]catalog.SemanticCoverageSourceContribution, 0, opts.BatchSize)
-					return true
-				case <-fileCtx.Done():
-					localTimings["semantic_coverage_queue_wait"] += time.Since(waitStart).Seconds()
-					return false
-				}
-			}
-
 			for {
 				select {
 				case <-fileCtx.Done():
 					return
 				case line, open := <-linesChan:
 					if !open {
-						if !flushVertexBatch() || !flushEdgeBatch() || !flushSemanticInventoryBatch() || !flushSemanticCoverageBatch() {
+						if !flushVertexBatch() || !flushEdgeBatch() || !flushSemanticInventoryBatch() {
 							return
 						}
 						select {
@@ -383,31 +335,9 @@ func loadFile(
 								semanticInventoryFailed = true
 							}
 						}
-						if coverageEnabled {
-							observeErr := localCatalog.ObservePayloadWithCoverage(built.payload, localTimings, sourceID, coverageIdentity.SchemaIdentity, semanticSink, nil, func(contribution catalog.SemanticCoverageSourceContribution) error {
-								if semanticInventoryFailed || fileCtx.Err() != nil {
-									return fileCtx.Err()
-								}
-								if addErr := coverageContexts[0].SourceSet.AddSource(sourceID, opts.AuthResourcePath); addErr != nil {
-									return fmt.Errorf("record semantic coverage source for %s row %d: %w", filepath.Base(file), line.number, addErr)
-								}
-								semanticCoverageBatch = append(semanticCoverageBatch, contribution)
-								atomic.AddInt64(&fileCoverageSources, 1)
-								if len(semanticCoverageBatch) >= opts.BatchSize && !flushSemanticCoverageBatch() {
-									semanticInventoryFailed = true
-									return fileCtx.Err()
-								}
-								return nil
-							})
-							if observeErr != nil {
-								semanticInventoryFailed = true
-								setPipelineErr(fmt.Errorf("observe semantic coverage for %s row %d: %w", filepath.Base(file), line.number, observeErr))
-							}
-						} else {
-							if observeErr := localCatalog.ObservePayloadWithInventory(built.payload, localTimings, sourceID, semanticSink); observeErr != nil {
-								semanticInventoryFailed = true
-								setPipelineErr(fmt.Errorf("observe semantic inventory for %s row %d: %w", filepath.Base(file), line.number, observeErr))
-							}
+						if observeErr := localCatalog.ObservePayloadWithInventory(built.payload, localTimings, sourceID, semanticSink); observeErr != nil {
+							semanticInventoryFailed = true
+							setPipelineErr(fmt.Errorf("observe semantic inventory for %s row %d: %w", filepath.Base(file), line.number, observeErr))
 						}
 						if fileCtx.Err() != nil {
 							return
@@ -455,8 +385,6 @@ func loadFile(
 	type writerResult struct {
 		timings            map[string]float64
 		relationshipCounts map[catalog.RelationshipKey]int64
-		coverageRows       int64
-		coverageBytes      int64
 	}
 	writerTimingsChan := make(chan writerResult, opts.WriterCount)
 	for writer := 0; writer < opts.WriterCount; writer++ {
@@ -465,7 +393,6 @@ func loadFile(
 			defer writersWG.Done()
 			localTimings := make(map[string]float64)
 			localRelationships := make(map[catalog.RelationshipKey]int64)
-			var localCoverageRows, localCoverageBytes int64
 			for {
 				select {
 				case <-fileCtx.Done():
@@ -473,22 +400,15 @@ func loadFile(
 				case task, open := <-writeChan:
 					if !open {
 						select {
-						case writerTimingsChan <- writerResult{timings: localTimings, relationshipCounts: localRelationships, coverageRows: localCoverageRows, coverageBytes: localCoverageBytes}:
+						case writerTimingsChan <- writerResult{timings: localTimings, relationshipCounts: localRelationships}:
 						case <-ctx.Done():
 						}
 						return
 					}
 					insertStart := time.Now()
 					var insertErr error
-					if len(task.coverageSources) > 0 {
-						stats, writeErr := task.coverageWriter.WriteSemanticCoverageContributions(fileCtx, task.coverageBuildID, task.coverageSources, opts.BatchSize)
-						insertErr = writeErr
-						localCoverageRows += stats.Rows
-						localCoverageBytes += stats.SerializedBytes
-					} else {
-						taskOverwrite := overwrite || task.replace
-						insertErr = insert(fileCtx, client, task.collection, task.docs, taskOverwrite, opts.WriteAPI)
-					}
+					taskOverwrite := overwrite || task.replace
+					insertErr = insert(fileCtx, client, task.collection, task.docs, taskOverwrite, opts.WriteAPI)
 					if insertErr != nil {
 						setPipelineErr(insertErr)
 						return
@@ -501,8 +421,6 @@ func loadFile(
 						catalog.MergeRelationshipCounts(localRelationships, task.relationshipCounts)
 					case catalog.SemanticInventoryCollection:
 						localTimings["semantic_inventory_insert"] += elapsed
-					case catalogarango.SemanticCoverageCollection:
-						localTimings["semantic_coverage_insert"] += elapsed
 					default:
 						localTimings["vertex_insert"] += elapsed
 						atomic.AddInt64(&verticesInserted, int64(len(task.docs)))
@@ -549,8 +467,6 @@ func loadFile(
 				result.EdgeBatches += int(value)
 			case "semantic_inventory_batches":
 				result.SemanticInventoryBatches += int(value)
-			case "semantic_coverage_batches":
-				result.SemanticCoverageBatches += int(value)
 			default:
 				result.StageSeconds[key] += value
 			}
@@ -566,10 +482,7 @@ func loadFile(
 			result.StageSeconds[key] += value
 		}
 		catalog.MergeRelationshipCounts(result.RelationshipCounts, writerResult.relationshipCounts)
-		result.SemanticCoverageRows += writerResult.coverageRows
-		result.SemanticCoverageBytes += writerResult.coverageBytes
 	}
-	result.SemanticCoverageSources = atomic.LoadInt64(&fileCoverageSources)
 	result.Catalog = mergedCatalog
 	return result, nil
 }

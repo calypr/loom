@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 
 	"github.com/calypr/loom/internal/catalog"
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
@@ -121,7 +120,6 @@ func bootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter E
 				{"project", "dataset_generation"},
 			},
 		},
-		catalogarango.SemanticCoverageCollectionSpec(),
 		arangostore.CollectionSpec{
 			Name: catalog.ResourceInventoryCollection,
 			Indexes: [][]string{
