@@ -772,10 +772,10 @@ const runFixtureLifecycle = async (discovery, oracle, prePivotWorkspace, prePivo
   measure('quantity Pivot preview cancel', cancelStarted);
 
   await openPivotEditor();
-  await selectPivotSource('Add pivot group field', 'Observation.status');
-  await selectPivotSource('Pivot category field', 'Observation.valueQuantity.code');
+  const groupSourceValue = await selectPivotSource('Add pivot group field', 'Observation.status');
+  const categorySourceValue = await selectPivotSource('Pivot category field', 'Observation.valueQuantity.code');
   const requestOffset = requestCheckpoint();
-  await selectPivotSource('Pivot values field', 'Observation.valueQuantity.value');
+  const valueSourceValue = await selectPivotSource('Pivot values field', 'Observation.valueQuantity.value');
   await waitForObservable(page, () => Boolean(Boolean(document.querySelector('[data-testid="construction-reshape-pivot-category-summary"]'))&&!document.querySelector('[data-testid="construction-reshape-pivot"]')?.innerText.includes('Finding categories')), 5000);
   const configuredEditor = page.locator('[data-testid="construction-reshape-pivot"]');
   await configuredEditor.scrollIntoViewIfNeeded({ timeout: 5000 });
