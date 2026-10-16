@@ -192,6 +192,24 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	if err = catalogStore.BeginSemanticInventoryBuild(ctx, inventoryBuild); err != nil {
 		return summary, err
 	}
+	coverageIdentity := catalogarango.SemanticCoverageBuildIdentity{
+		Project: inventoryBuild.Project, DatasetGeneration: inventoryBuild.DatasetGeneration,
+		BuildID: inventoryBuild.BuildID, SchemaIdentity: schemaIdentity.SchemaSHA256,
+		SourceKind: inventoryBuild.SourceKind,
+	}
+	if err = catalogStore.BeginSemanticCoverageBuild(ctx, coverageIdentity); err != nil {
+		return summary, fmt.Errorf("begin semantic coverage build: %w", err)
+	}
+	coverageComplete := false
+	defer func() {
+		if err == nil || coverageComplete {
+			return
+		}
+		diagnostic := err.Error()
+		err = generationCleanupError(ctx, generationCleanupTimeout, err, "mark semantic coverage build failed", func(cleanupCtx context.Context) error {
+			return catalogStore.FailSemanticCoverageBuild(cleanupCtx, coverageIdentity, diagnostic)
+		})
+	}()
 	inventoryComplete := false
 	defer func() {
 		if err == nil || inventoryComplete {
@@ -225,6 +243,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 			summary.VerticesInserted,
 			summary.EdgesInserted,
 			insertRawDocuments,
+			semanticCoverageLoadContext{Identity: coverageIdentity, Writer: catalogStore},
 		)
 		if fileErr != nil {
 			return summary, fileErr
@@ -248,6 +267,15 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 			summary.StageSeconds[name] += seconds
 		}
 		summary.BatchCounts["semantic_inventory"] += result.SemanticInventoryBatches
+		summary.BatchCounts["semantic_coverage"] += result.SemanticCoverageBatches
+		emitEvent(opts.EventSink, "go_semantic_coverage_file_complete", map[string]any{
+			"dataset_generation":            plan.Dataset.Generation,
+			"resource_type":                 result.ResourceType,
+			"source_records":                result.SemanticCoverageSources,
+			"rows_written":                  result.SemanticCoverageRows,
+			"serialized_json_bytes_written": result.SemanticCoverageBytes,
+			"batches":                       result.SemanticCoverageBatches,
+		})
 		lastInventoryCheckpoint = semanticInventorySourceFileID(opts.MetaDir, file)
 		if err = catalogStore.AdvanceSemanticInventoryBuild(ctx, inventoryBuild, totalResourceRows(summary.Resources), lastInventoryCheckpoint); err != nil {
 			return summary, fmt.Errorf("advance semantic inventory checkpoint: %w", err)
@@ -339,6 +367,10 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		"resource_type_count": resourceInventorySummary.ResourceTypeCount, "count_row_count": resourceInventorySummary.CountRowCount,
 		"document_count": resourceInventorySummary.DocumentCount,
 	})
+	if err = catalogStore.CompleteSemanticCoverageBuild(ctx, coverageIdentity, totalResourceRows(summary.Resources), true, "", opts.BatchSize); err != nil {
+		return summary, fmt.Errorf("complete semantic coverage build: %w", err)
+	}
+	coverageComplete = true
 	if err = catalogStore.CompleteSemanticInventoryBuild(ctx, inventoryBuild, totalResourceRows(summary.Resources), lastInventoryCheckpoint); err != nil {
 		return summary, fmt.Errorf("complete semantic inventory build: %w", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/catalog"
+	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -111,6 +112,25 @@ func TestBootstrapSpecAddsGenerationScopedIndexesWithoutTraversalSpeculation(t *
 		t.Fatalf("semantic inventory build collection = %#v found=%v, want persistent non-truncated collection", builds, found)
 	}
 
+}
+
+func TestBootstrapSpecAddsPersistentSemanticCoverageCollection(t *testing.T) {
+	spec := bootstrapSpecWithReporter([]string{"Patient"}, true, nil)
+	coverage, found := bootstrapCollection(spec, catalogarango.SemanticCoverageCollection)
+	if !found || coverage.Truncate {
+		t.Fatalf("semantic coverage collection = %#v found=%v, want persistent non-truncated collection", coverage, found)
+	}
+	for _, required := range [][]string{
+		{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "record_kind", "auth_resource_path", "resource_type", "canonical_path", "resource_boundary_signature", "source_id", "_key"},
+		{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "record_kind", "resource_type", "canonical_path", "resource_boundary_signature", "auth_resource_path"},
+		{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "record_kind", "auth_resource_path", "resource_type"},
+		{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "resource_type", "source_id", "record_kind"},
+		{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "record_kind"},
+	} {
+		if !containsIndex(coverage.Indexes, required) {
+			t.Fatalf("semantic coverage indexes %#v do not include %#v", coverage.Indexes, required)
+		}
+	}
 }
 
 func TestLifecycleBootstrapNeverTruncatesMetadata(t *testing.T) {

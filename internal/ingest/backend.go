@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/calypr/loom/internal/catalog"
+	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
@@ -16,7 +17,7 @@ func openBackend(ctx context.Context, opts arangostore.ConnectionOptions) (*aran
 }
 
 func bootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter EventSink) arangostore.BootstrapSpec {
-	collections := make([]arangostore.CollectionSpec, 0, len(resourceTypes)+3)
+	collections := make([]arangostore.CollectionSpec, 0, len(resourceTypes)+4)
 	for _, name := range resourceTypes {
 		// Every generated FHIR resource is a possible dataframe root. The
 		// compiler applies project and optional authorization scope before a
@@ -120,6 +121,7 @@ func bootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter E
 				{"project", "dataset_generation"},
 			},
 		},
+		catalogarango.SemanticCoverageCollectionSpec(),
 		arangostore.CollectionSpec{
 			Name: catalog.ResourceInventoryCollection,
 			Indexes: [][]string{
