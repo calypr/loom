@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { pivotSourceSelectionReady } from '../../workflows/root-quantity-pivot-workflow.mjs';
+import {
+  pivotSourceSelectionReady,
+  rootQuantityPivotAuthoringPath,
+} from '../../workflows/root-quantity-pivot-workflow.mjs';
 
 const installDocument = ({ controls, checkboxes = [] }) => {
   const previous = globalThis.document;
@@ -42,6 +45,21 @@ test('Pivot source postcondition accepts the exact reset group and generated cat
   } finally {
     restore();
   }
+});
+
+test('native Pivot proposal route uses the canonical generated-project URL shape', () => {
+  assert.equal(
+    rootQuantityPivotAuthoringPath(
+      'loom_dev_verify_mvbfmbpf-d8db7f0',
+      'root-quantity-category-1792183227912',
+      'construction-proposals',
+    ),
+    '/api/v1/projects/loom_dev_verify_mvbfmbpf%252Fd8db7f0/explorers/root-quantity-category-1792183227912/authoring/v2/construction-proposals',
+  );
+  assert.equal(
+    rootQuantityPivotAuthoringPath('loom_dev_cda_fhir', 'qa-root-pivot', 'construction-proposals'),
+    '/api/v1/projects/loom_dev_cda_fhir/explorers/qa-root-pivot/authoring/v2/construction-proposals',
+  );
 });
 
 test('Pivot source postcondition rejects a retained source choice, wrong group, and wrong remapped field', () => {

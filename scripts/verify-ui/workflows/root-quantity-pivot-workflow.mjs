@@ -11,7 +11,7 @@ import { assertBoundedPreviewCount, assertPreviewRowsMatchRawObservations, asser
 import { builderCapabilitiesIdentityFromState, readBuilderCapabilitiesIdentity, watchConstructionCapabilitiesReadiness } from '../helpers/construction-capabilities-readiness.mjs';
 import { sourceFingerprint } from '../helpers/source-fingerprint.mjs';
 import { captureApiBuildFreeze, checkContainerApiBuildStamp } from '../helpers/api-build-freeze.mjs';
-import { fixtureSourceDigest } from '../../loom-dev.mjs';
+import { canonicalProjectID, fixtureSourceDigest } from '../../loom-dev.mjs';
 import { browserURL } from './builder-url.mjs';
 import { scenarioCaseFor } from '../registry.mjs';
 import { actionToRenderBudgetMs, observerTimeoutMs, requestTimeoutMs } from '../helpers/quantity-pivot-budget.mjs';
@@ -33,6 +33,10 @@ export function readProposalPanelSnapshot() {
 
 export const pivotOutputLabelLocator = (page, outputLabel) =>
   page.getByLabel(`Pivot output label ${outputLabel}`, { exact: true });
+
+export const rootQuantityPivotAuthoringPath = (project, explorer, endpoint) =>
+  `/api/v1/projects/${encodeURIComponent(encodeURIComponent(canonicalProjectID(project)))}`
+    + `/explorers/${encodeURIComponent(explorer)}/authoring/v2/${endpoint}`;
 
 export function assertProposalPanelHeaders(actualHeaders, columns, label) {
   const expectedHeaders = columns.map(column => {
@@ -498,7 +502,8 @@ const waitForProposal = async (requestOffset, previousProposalId, name) => {
   assert(request, `${name} must issue a native construction proposal`);
   assert.equal(request.status, 200, `${name} proposal failed: ${JSON.stringify(request.response)}`);
   assert(request.response && typeof request.response === 'object', `${name} proposal response must be readable`);
-  assert(request.pathname.includes(`/projects/${project}/explorers/${explorer}/authoring/v2/construction-proposals`), `${name} must remain in the same owned project and Explorer`);
+  assert.equal(request.pathname, rootQuantityPivotAuthoringPath(project, explorer, 'construction-proposals'),
+    `${name} must remain in the same owned project and Explorer`);
   assert.equal(request.request?.outputId, outputId, `${name} must target the exact root Observation output`);
   assert.equal(request.request?.snapshotToken, builder.catalog.snapshotToken, `${name} must use the current fixture snapshot`);
   assert.equal(request.request?.expectedDraftVersion, builder.draftVersion, `${name} must use the current saved draft version`);
@@ -652,7 +657,8 @@ const panel=document.querySelector('[data-testid="construction-proposal-error"]'
     assert.deepEqual(rejection.response?.diagnostics?.map(diagnostic => diagnostic.code), ['TABLE_PIVOT_CELL_CARDINALITY'], `${name} must report only the expected cardinality diagnostic`);
     assert.equal(rejection.response?.error?.diagnostic?.stage, 'preview');
     assert.equal(rejection.response?.error?.diagnostic?.severity, 'error');
-    assert.equal(rejection.pathname, `${base}/construction-proposals`, `${name} validation must come from the exact owned project and Explorer route`);
+    assert.equal(rejection.pathname, rootQuantityPivotAuthoringPath(project, explorer, 'construction-proposals'),
+      `${name} validation must come from the exact owned project and Explorer route`);
     assert.equal(rejection.request?.outputId, outputId, `${name} validation must be scoped to the exact root output`);
     assert.equal(rejection.request?.snapshotToken, builder.catalog.snapshotToken, `${name} validation must use the active fixture snapshot`);
     assert.equal(rejection.request?.expectedDraftVersion, builder.draftVersion, `${name} validation must use the current saved draft version`);
