@@ -23,19 +23,175 @@ import (
 )
 
 type BrowseSemanticInventoryRequest struct {
-	Project        string
-	ExplorerID     string
-	SnapshotToken  string
-	RowRoot        string
-	SelectionMode  string
-	FrameID        string
-	SourceChoiceID string
-	OutputID       string
-	ResourceType   string
-	Query          string
-	Cursor         string
-	Limit          int
+	Project           string
+	ExplorerID        string
+	SnapshotToken     string
+	RowRoot           string
+	SelectionMode     string
+	FrameID           string
+	SourceChoiceID    string
+	OutputID          string
+	ResourceType      string
+	Query             string
+	Cursor            string
+	Limit             int
+	FieldPresentation *FieldPresentationRequest
 }
+
+const (
+	semanticFieldPresentationRevision = "semantic-field-presentation/v1"
+	fieldPresentationCandidateLimit   = 50
+	fieldPresentationReplacementLimit = 100
+)
+
+// FieldPresentationRequest scopes one bounded batch of raw candidates to an
+// exact current output, draft, source node, and saved route occurrence.
+type FieldPresentationRequest struct {
+	ExpectedDraftVersion int64
+	ExpectedDraftDigest  string
+	SourceNodeID         string
+	OccurrenceID         string
+	StageID              *string
+	CandidateIDs         []string
+}
+
+func (request FieldPresentationRequest) validate() error {
+	if request.ExpectedDraftVersion < 1 || strings.TrimSpace(request.ExpectedDraftDigest) == "" || request.ExpectedDraftDigest != strings.TrimSpace(request.ExpectedDraftDigest) {
+		return errors.New("fieldPresentation requires a positive expectedDraftVersion and exact expectedDraftDigest")
+	}
+	if strings.TrimSpace(request.SourceNodeID) == "" || request.SourceNodeID != strings.TrimSpace(request.SourceNodeID) {
+		return errors.New("fieldPresentation requires an exact sourceNodeId")
+	}
+	if strings.TrimSpace(request.OccurrenceID) == "" || request.OccurrenceID != strings.TrimSpace(request.OccurrenceID) {
+		return errors.New("fieldPresentation requires an exact occurrenceId")
+	}
+	if request.StageID != nil && (strings.TrimSpace(*request.StageID) == "" || *request.StageID != strings.TrimSpace(*request.StageID)) {
+		return errors.New("fieldPresentation stageId must be a non-empty exact identifier when present")
+	}
+	if len(request.CandidateIDs) < 1 || len(request.CandidateIDs) > fieldPresentationCandidateLimit {
+		return errors.New("fieldPresentation candidateIds must contain between 1 and 50 opaque candidate IDs")
+	}
+	seen := make(map[string]struct{}, len(request.CandidateIDs))
+	for _, candidateID := range request.CandidateIDs {
+		if strings.TrimSpace(candidateID) == "" || candidateID != strings.TrimSpace(candidateID) {
+			return errors.New("fieldPresentation candidateIds must be exact non-empty opaque IDs")
+		}
+		if _, exists := seen[candidateID]; exists {
+			return errors.New("fieldPresentation candidateIds must be unique")
+		}
+		seen[candidateID] = struct{}{}
+	}
+	return nil
+}
+
+type FieldPresentationReason string
+
+const (
+	FieldPresentationMissingSystem              FieldPresentationReason = "MISSING_SYSTEM"
+	FieldPresentationMissingCode                FieldPresentationReason = "MISSING_CODE"
+	FieldPresentationTextOnly                   FieldPresentationReason = "TEXT_ONLY"
+	FieldPresentationAmbiguousAnchor            FieldPresentationReason = "AMBIGUOUS_ANCHOR"
+	FieldPresentationMixedChoice                FieldPresentationReason = "MIXED_CHOICE"
+	FieldPresentationUnsupportedValueProjection FieldPresentationReason = "UNSUPPORTED_VALUE_PROJECTION"
+	FieldPresentationUnsupportedVersion         FieldPresentationReason = "UNSUPPORTED_VERSION"
+	FieldPresentationUnknownSchemaMember        FieldPresentationReason = "UNKNOWN_SCHEMA_MEMBER"
+	FieldPresentationUnknownCodeClassification  FieldPresentationReason = "UNKNOWN_CODE_CLASSIFICATION"
+	FieldPresentationUnsupportedSelector        FieldPresentationReason = "UNSUPPORTED_SELECTOR"
+	FieldPresentationIncompleteSource           FieldPresentationReason = "INCOMPLETE_SOURCE"
+	FieldPresentationWalkFailed                 FieldPresentationReason = "WALK_FAILED"
+	FieldPresentationTruncatedEvidence          FieldPresentationReason = "TRUNCATED_EVIDENCE"
+	FieldPresentationUnrepresentedMetadata      FieldPresentationReason = "UNREPRESENTED_METADATA"
+	FieldPresentationCoverageUnavailable        FieldPresentationReason = "COVERAGE_UNAVAILABLE"
+	FieldPresentationIncompleteCoverage         FieldPresentationReason = "INCOMPLETE_COVERAGE"
+	FieldPresentationNoExactRoute               FieldPresentationReason = "NO_EXACT_ROUTE"
+	FieldPresentationUnsupportedCurrentStage    FieldPresentationReason = "UNSUPPORTED_CURRENT_STAGE"
+	FieldPresentationStaleContext               FieldPresentationReason = "STALE_CONTEXT"
+	FieldPresentationReplacementUnavailable     FieldPresentationReason = "REPLACEMENT_UNAVAILABLE"
+	FieldPresentationSourceFieldsInaccessible   FieldPresentationReason = "SOURCE_FIELDS_INACCESSIBLE"
+	FieldPresentationCandidateNotPopulated      FieldPresentationReason = "CANDIDATE_NOT_POPULATED"
+	FieldPresentationCandidateNotAddable        FieldPresentationReason = "CANDIDATE_NOT_ADDABLE"
+)
+
+type fieldPresentationResult interface {
+	fieldPresentationResult()
+}
+
+type FieldPresentationUnavailable struct {
+	Kind   string                  `json:"kind"`
+	Reason FieldPresentationReason `json:"reason"`
+}
+
+func (FieldPresentationUnavailable) fieldPresentationResult() {}
+
+type FieldPresentationReady struct {
+	Kind         string                      `json:"kind"`
+	Context      FieldPresentationContext    `json:"context"`
+	Decisions    []fieldPresentationDecision `json:"decisions"`
+	Replacements []SemanticInventoryItem     `json:"replacements"`
+}
+
+func (FieldPresentationReady) fieldPresentationResult() {}
+
+type FieldPresentationContext struct {
+	Project                  string                             `json:"project"`
+	AuthorizationScopeDigest string                             `json:"authorizationScopeDigest"`
+	SnapshotToken            string                             `json:"snapshotToken"`
+	DatasetGeneration        string                             `json:"datasetGeneration"`
+	InventoryBuildID         string                             `json:"inventoryBuildId"`
+	CoverageBuildID          string                             `json:"coverageBuildId"`
+	ExplorerID               string                             `json:"explorerId"`
+	OutputID                 string                             `json:"outputId"`
+	DraftVersion             int64                              `json:"draftVersion"`
+	DraftDigest              string                             `json:"draftDigest"`
+	SourceNodeID             string                             `json:"sourceNodeId"`
+	OccurrenceID             string                             `json:"occurrenceId"`
+	Route                    []capability.ConstructionRouteStep `json:"route"`
+	StageID                  string                             `json:"stageId,omitempty"`
+	PresentationRevision     string                             `json:"presentationRevision"`
+	CandidateBatchDigest     string                             `json:"candidateBatchDigest"`
+}
+
+type fieldPresentationDecision interface {
+	fieldPresentationDecision()
+}
+
+type FieldPresentationKeepRaw struct {
+	Kind        string                  `json:"kind"`
+	CandidateID string                  `json:"candidateId"`
+	Reason      FieldPresentationReason `json:"reason"`
+}
+
+func (FieldPresentationKeepRaw) fieldPresentationDecision() {}
+
+type semanticInventoryItemIdentity interface {
+	semanticInventoryItemIdentity()
+}
+
+type ExactSemanticInventoryItemIdentity struct {
+	Kind      string `json:"kind"`
+	ConceptID string `json:"conceptId"`
+	BindingID string `json:"bindingId"`
+}
+
+func (ExactSemanticInventoryItemIdentity) semanticInventoryItemIdentity() {}
+
+type FamilySemanticInventoryItemIdentity struct {
+	Kind      string `json:"kind"`
+	FamilyID  string `json:"familyId"`
+	BindingID string `json:"bindingId"`
+}
+
+func (FamilySemanticInventoryItemIdentity) semanticInventoryItemIdentity() {}
+
+type FieldPresentationGroupUnderSemantic struct {
+	Kind           string                          `json:"kind"`
+	CandidateID    string                          `json:"candidateId"`
+	CoverageID     string                          `json:"coverageId"`
+	ReplacementIDs []semanticInventoryItemIdentity `json:"replacementIds"`
+	Access         string                          `json:"access"`
+}
+
+func (FieldPresentationGroupUnderSemantic) fieldPresentationDecision() {}
 
 type SemanticInventoryItem struct {
 	ConceptID              string                                  `json:"conceptId"`
@@ -70,6 +226,7 @@ type BrowseSemanticInventoryResponse struct {
 	SourceAvailability string                         `json:"sourceAvailability"`
 	Entries            []SemanticInventoryItem        `json:"entries"`
 	NextCursor         string                         `json:"nextCursor,omitempty"`
+	FieldPresentation  fieldPresentationResult        `json:"fieldPresentation,omitempty"`
 }
 
 type semanticBrowseCursor struct {
@@ -83,6 +240,17 @@ type semanticBrowseCursor struct {
 
 func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanticInventoryRequest) (BrowseSemanticInventoryResponse, error) {
 	var result BrowseSemanticInventoryResponse
+	if req.FieldPresentation != nil {
+		if err := req.FieldPresentation.validate(); err != nil {
+			return result, malformed("catalog", err.Error(), err)
+		}
+		if req.OutputID == "" || req.OutputID != strings.TrimSpace(req.OutputID) {
+			return result, malformed("catalog", "outputId is required and must be exact with fieldPresentation", nil)
+		}
+		if req.FrameID != "" || req.SourceChoiceID != "" {
+			return result, malformed("catalog", "fieldPresentation cannot be combined with frameId or sourceChoiceId", nil)
+		}
+	}
 	if req.SelectionMode == "" {
 		req.SelectionMode = string(catalog.SemanticInventoryExactConcept)
 	}

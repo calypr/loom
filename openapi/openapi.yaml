@@ -5331,6 +5331,25 @@ components:
         query: {type: string, maxLength: 256}
         cursor: {type: string, maxLength: 4096}
         limit: {type: integer, minimum: 1, maximum: 50, default: 50}
+        fieldPresentation:
+          $ref: '#/components/schemas/FieldPresentationRequest'
+          description: "Requires the top-level outputId. This request is independent of query and cursor and presents only this bounded candidate batch."
+    FieldPresentationRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedDraftVersion, expectedDraftDigest, sourceNodeId, occurrenceId, candidateIds]
+      properties:
+        expectedDraftVersion: {type: integer, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        sourceNodeId: {type: string, minLength: 1}
+        occurrenceId: {type: string, minLength: 1, description: "Exact saved occurrence in the output route; use the literal base identity for the root occurrence."}
+        stageId: {type: string, minLength: 1, description: "Optional current compiler stage identity. Unsupported stages yield UNAVAILABLE and keep raw fields eligible under normal guards."}
+        candidateIds:
+          type: array
+          minItems: 1
+          maxItems: 50
+          uniqueItems: true
+          items: {type: string, minLength: 1}
     ConstructionChoiceSearchRequest:
       type: object
       additionalProperties: false
@@ -5746,6 +5765,146 @@ components:
           type: array
           maxItems: 50
           items: {$ref: '#/components/schemas/SemanticInventoryItem'}
+        fieldPresentation: {$ref: '#/components/schemas/FieldPresentation'}
+    FieldPresentation:
+      oneOf:
+        - {$ref: '#/components/schemas/FieldPresentationUnavailable'}
+        - {$ref: '#/components/schemas/FieldPresentationReady'}
+      discriminator:
+        propertyName: kind
+        mapping:
+          UNAVAILABLE: '#/components/schemas/FieldPresentationUnavailable'
+          READY: '#/components/schemas/FieldPresentationReady'
+    FieldPresentationUnavailable:
+      type: object
+      additionalProperties: false
+      required: [kind, reason]
+      properties:
+        kind: {type: string, enum: [UNAVAILABLE]}
+        reason: {$ref: '#/components/schemas/FieldPresentationReason'}
+    FieldPresentationReady:
+      type: object
+      additionalProperties: false
+      required: [kind, context, decisions, replacements]
+      description: "A complete result has exactly one decision for every requested candidate. Clients must retain raw fields when any requested candidate is missing or the batch identity does not match."
+      properties:
+        kind: {type: string, enum: [READY]}
+        context: {$ref: '#/components/schemas/FieldPresentationContext'}
+        decisions:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: {$ref: '#/components/schemas/FieldPresentationDecision'}
+        replacements:
+          type: array
+          maxItems: 100
+          items: {$ref: '#/components/schemas/SemanticInventoryItem'}
+    FieldPresentationContext:
+      type: object
+      additionalProperties: false
+      required: [project, authorizationScopeDigest, snapshotToken, datasetGeneration, inventoryBuildId, coverageBuildId, explorerId, outputId, draftVersion, draftDigest, sourceNodeId, occurrenceId, route, presentationRevision, candidateBatchDigest]
+      properties:
+        project: {type: string, minLength: 1}
+        authorizationScopeDigest: {type: string, minLength: 1}
+        snapshotToken: {type: string, minLength: 1}
+        datasetGeneration: {type: string, minLength: 1}
+        inventoryBuildId: {type: string, minLength: 1}
+        coverageBuildId: {type: string, minLength: 1}
+        explorerId: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        draftVersion: {type: integer, minimum: 1}
+        draftDigest: {type: string, minLength: 1}
+        sourceNodeId: {type: string, minLength: 1}
+        occurrenceId: {type: string, minLength: 1}
+        route:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionRouteStep'}
+        stageId: {type: string, minLength: 1}
+        presentationRevision: {type: string, minLength: 1}
+        candidateBatchDigest: {type: string, minLength: 1}
+    FieldPresentationDecision:
+      oneOf:
+        - {$ref: '#/components/schemas/FieldPresentationKeepRaw'}
+        - {$ref: '#/components/schemas/FieldPresentationGroupUnderSemantic'}
+      discriminator:
+        propertyName: kind
+        mapping:
+          KEEP_RAW: '#/components/schemas/FieldPresentationKeepRaw'
+          GROUP_UNDER_SEMANTIC: '#/components/schemas/FieldPresentationGroupUnderSemantic'
+    FieldPresentationKeepRaw:
+      type: object
+      additionalProperties: false
+      required: [kind, candidateId, reason]
+      properties:
+        kind: {type: string, enum: [KEEP_RAW]}
+        candidateId: {type: string, minLength: 1}
+        reason: {$ref: '#/components/schemas/FieldPresentationReason'}
+    FieldPresentationGroupUnderSemantic:
+      type: object
+      additionalProperties: false
+      required: [kind, candidateId, coverageId, replacementIds, access]
+      properties:
+        kind: {type: string, enum: [GROUP_UNDER_SEMANTIC]}
+        candidateId: {type: string, minLength: 1}
+        coverageId: {type: string, minLength: 1}
+        replacementIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/SemanticInventoryItemIdentity'}
+        access: {type: string, enum: [SOURCE_FIELDS]}
+    SemanticInventoryItemIdentity:
+      oneOf:
+        - {$ref: '#/components/schemas/ExactSemanticInventoryItemIdentity'}
+        - {$ref: '#/components/schemas/FamilySemanticInventoryItemIdentity'}
+      discriminator:
+        propertyName: kind
+        mapping:
+          EXACT_CONCEPT: '#/components/schemas/ExactSemanticInventoryItemIdentity'
+          SYSTEM_VERSION_CATEGORY: '#/components/schemas/FamilySemanticInventoryItemIdentity'
+    ExactSemanticInventoryItemIdentity:
+      type: object
+      additionalProperties: false
+      required: [kind, conceptId, bindingId]
+      properties:
+        kind: {type: string, enum: [EXACT_CONCEPT]}
+        conceptId: {type: string, minLength: 1}
+        bindingId: {type: string, minLength: 1}
+    FamilySemanticInventoryItemIdentity:
+      type: object
+      additionalProperties: false
+      required: [kind, familyId, bindingId]
+      properties:
+        kind: {type: string, enum: [SYSTEM_VERSION_CATEGORY]}
+        familyId: {type: string, minLength: 1}
+        bindingId: {type: string, minLength: 1}
+    FieldPresentationReason:
+      type: string
+      enum:
+        - MISSING_SYSTEM
+        - MISSING_CODE
+        - TEXT_ONLY
+        - AMBIGUOUS_ANCHOR
+        - MIXED_CHOICE
+        - UNSUPPORTED_VALUE_PROJECTION
+        - UNSUPPORTED_VERSION
+        - UNKNOWN_SCHEMA_MEMBER
+        - UNKNOWN_CODE_CLASSIFICATION
+        - UNSUPPORTED_SELECTOR
+        - INCOMPLETE_SOURCE
+        - WALK_FAILED
+        - TRUNCATED_EVIDENCE
+        - UNREPRESENTED_METADATA
+        - COVERAGE_UNAVAILABLE
+        - INCOMPLETE_COVERAGE
+        - NO_EXACT_ROUTE
+        - UNSUPPORTED_CURRENT_STAGE
+        - STALE_CONTEXT
+        - REPLACEMENT_UNAVAILABLE
+        - SOURCE_FIELDS_INACCESSIBLE
+        - CANDIDATE_NOT_POPULATED
+        - CANDIDATE_NOT_ADDABLE
     SemanticInventoryItem:
       type: object
       additionalProperties: false
