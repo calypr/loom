@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { browserURL } from './builder-url.mjs';
 import { configureNativePage } from '../helpers/playwright-authoring-page.mjs';
 import { findRenderedBuilderHeaderIndex, waitForBuilderRenderedGrid } from '../helpers/builder-rendered-grid.mjs';
+import { fixtureProjectExplorerCollectionPath } from '../helpers/fixture-context.mjs';
 
 const expectedPatientIDs = ['dev-patient-001', 'dev-patient-002'];
 const proposalPanel = '[data-testid="construction-proposal-panel"]';
@@ -51,8 +52,8 @@ export const openFreshPatientTable = async ({ page, report, check, action }, con
     JSON.stringify(fixtureIDs) === JSON.stringify(expectedPatientIDs), fixtureOracle);
 
   const explorerName = `Verify ${context.runID.slice(-10)} ${purpose}`;
-  const bootstrapBuilderPath = `/api/v1/projects/${encodeURIComponent(context.target.fixtureProject)}`
-    + `/explorers/${encodeURIComponent(context.target.bootstrapExplorerId)}/authoring/v2/builder`;
+  const bootstrapBuilderPath = `${fixtureProjectExplorerCollectionPath(context.target.fixtureProject)}`
+    + `/${encodeURIComponent(context.target.bootstrapExplorerId)}/authoring/v2/builder`;
   const bootstrapResponsePromise = page.waitForResponse(response => {
     const url = new URL(response.url());
     return url.origin === new URL(context.target.uiUrl).origin
@@ -114,8 +115,8 @@ export const openFreshPatientTable = async ({ page, report, check, action }, con
   });
   report.target.qaIsolation.workflowMutations.push('native UI created a Patient root table from the two fixture Patient records');
 
-  const apiRoot = `/api/v1/projects/${encodeURIComponent(context.target.fixtureProject)}`
-    + `/explorers/${encodeURIComponent(explorer)}`;
+  const apiRoot = `${fixtureProjectExplorerCollectionPath(context.target.fixtureProject)}`
+    + `/${encodeURIComponent(explorer)}`;
   const builderResponse = await fetch(context.target.apiUrl + `${apiRoot}/authoring/v2/builder`, {
     signal: AbortSignal.timeout(30000),
   });
