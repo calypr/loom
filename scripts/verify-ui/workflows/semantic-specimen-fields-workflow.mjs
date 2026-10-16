@@ -53,6 +53,11 @@ export async function semanticSpecimenFieldsWorkflow({ page, cda, caseOptions = 
     nativeRequests: cda.report.nativeRequests,
     assertions: [],
     errors: [],
+    knownLifecycleGaps: [{
+      id: 'reopen-saved-raw-source-binding-in-picker',
+      status: 'not-supported-by-current-direct-column-ui',
+      reason: 'Saved direct root columns expose label editing and removal, but no source-binding editor that reopens the raw field picker. This workflow verifies the exact binding survives rename and reload; source rebinding remains a separate UI lifecycle gap.',
+    }],
   };
   let builder;
   let outputId;
@@ -358,7 +363,7 @@ export async function semanticSpecimenFieldsWorkflow({ page, cda, caseOptions = 
     await sourceFields.click({ timeout: 5000 });
     const rawCodeButton = await fieldButton('type.coding[].code');
     assert(rawCodeButton, 'The grouped raw Coding path must be reachable under the semantic Source fields disclosure.');
-    const sourceButtons = categoryCard.locator('button[aria-pressed]');
+    const sourceButtons = categoryGroup.locator('details button[aria-pressed]');
     const inDisclosure = await sourceButtons.evaluateAll((elements) => elements.some((element) =>
       element.getAttribute('aria-label') === 'Select Specimen.type.coding[].code' &&
       element.closest('details')?.querySelector('summary')?.innerText.trim() === 'Source fields',
@@ -472,7 +477,7 @@ export async function semanticSpecimenFieldsWorkflow({ page, cda, caseOptions = 
     assert.equal(editedRawColumn?.source.field.path, rawColumn.source.field.path,
       'Editing the existing raw field label must preserve its physical source binding.');
     assert.equal(editedRawColumn?.source.field.projectionMode, 'ALL');
-    record('persistence', 'reopening and editing the raw output preserves the saved physical field identity', {
+    record('persistence', 'reopening the saved column settings and renaming the raw output preserves its physical source identity', {
       columnId: rawColumnId,
       before: { label: oldRawLabel, source: rawColumn.source.field },
       after: { label: editedRawColumn.label, source: editedRawColumn.source.field },
@@ -535,7 +540,14 @@ export async function semanticSpecimenFieldsWorkflow({ page, cda, caseOptions = 
     });
 
     report.finished = new Date().toISOString();
-    report.final = { status: 'passed', outputId, explorer, witnessId: witness.source.id, rowRoot: 'Specimen' };
+    report.final = {
+      status: 'partial',
+      outputId,
+      explorer,
+      witnessId: witness.source.id,
+      rowRoot: 'Specimen',
+      knownLifecycleGaps: report.knownLifecycleGaps,
+    };
   } finally {
     report.finished ??= new Date().toISOString();
     await cda.attachReport('semantic-specimen-fields-domain.json', { ...cda.report, domain: report });
