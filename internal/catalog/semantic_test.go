@@ -112,8 +112,8 @@ func TestStandaloneCodingScopesObserveEachIdentifiedCodingAtItsOwnerScope(t *tes
 			byCode[contribution.Observation.Key.Code] = contribution
 		}
 	}
-	if len(byCode) != 4 {
-		t.Fatalf("standalone coded concept contributions = %d, want root, security, alpha, and beta: %#v", len(byCode), byCode)
+	if len(byCode) != 5 {
+		t.Fatalf("standalone coded concept contributions = %d, want root, security, Identifier.type, alpha, and beta: %#v", len(byCode), byCode)
 	}
 
 	root := byCode["root-code"].Observation
@@ -124,6 +124,13 @@ func TestStandaloneCodingScopesObserveEachIdentifiedCodingAtItsOwnerScope(t *tes
 	security := byCode["security-code"].Observation
 	if security.OwningScope != "" || security.Source.Path != "meta.security[]" || security.Source.Canonical != "Observation.meta.security[]" || security.Key.Selector != "meta.security[]" || security.Value.Selector != "meta.security[].display" || !reflect.DeepEqual(security.Value.FallbackSelectors, []string{"meta.security[].code"}) {
 		t.Fatalf("direct Coding observation = %#v", security)
+	}
+
+	identifierType := byCode["identifier-type"].Observation
+	if identifierType.OwningScope != "identifier[]" || identifierType.Source.Path != "identifier[].type.coding[]" ||
+		identifierType.Key.Selector != "type.coding[]" || identifierType.Key.System != "urn:identifier-type" ||
+		identifierType.Value.Selector != "type.coding[].display" || !reflect.DeepEqual(identifierType.Value.FallbackSelectors, []string{"type.coding[].code"}) {
+		t.Fatalf("Identifier.type coded concept observation = %#v", identifierType)
 	}
 
 	alpha := byCode["alpha"]
@@ -146,7 +153,7 @@ func TestStandaloneCodingScopesObserveEachIdentifiedCodingAtItsOwnerScope(t *tes
 	}
 }
 
-func TestStandaloneScalarCodingChoiceUsesRepeatedOwnerAndExcludesIdentifierAndExtension(t *testing.T) {
+func TestStandaloneScalarCodingChoiceUsesRepeatedOwnerAndExcludesExtension(t *testing.T) {
 	payload := map[string]any{
 		"resourceType": "Task",
 		"status":       "requested",
@@ -188,11 +195,18 @@ func TestStandaloneScalarCodingChoiceUsesRepeatedOwnerAndExcludesIdentifierAndEx
 			standalone = append(standalone, contribution)
 		}
 	}
-	if len(standalone) != 1 {
-		t.Fatalf("standalone Task Coding contributions = %d, want only valueCoding: %#v", len(standalone), standalone)
+	if len(standalone) != 2 {
+		t.Fatalf("standalone Task Coding contributions = %d, want valueCoding and Identifier.type only: %#v", len(standalone), standalone)
 	}
 
-	contribution := standalone[0]
+	byPath := make(map[string]SemanticInventoryContribution, len(standalone))
+	for _, contribution := range standalone {
+		byPath[contribution.Observation.Source.Path] = contribution
+	}
+	contribution, ok := byPath["input[].valueCoding"]
+	if !ok {
+		t.Fatalf("scalar Coding valueCoding contribution is missing: %#v", standalone)
+	}
 	observation := contribution.Observation
 	if observation.Source.Type != "Task" || observation.Source.Path != "input[].valueCoding" || observation.Source.Canonical != "Task.input[].valueCoding" ||
 		observation.OwningScope != "input[]" || observation.Key.Selector != "valueCoding" ||
@@ -201,6 +215,10 @@ func TestStandaloneScalarCodingChoiceUsesRepeatedOwnerAndExcludesIdentifierAndEx
 	}
 	if observation.Key.System != "urn:task-result" || observation.Key.Version != "2025" || observation.Key.Code != "approved" || observation.Key.Display != "Approved" || contribution.Example != "Approved" || observation.Population != 1 {
 		t.Fatalf("scalar Coding identity/display = %#v", contribution)
+	}
+	identifierType, ok := byPath["identifier[].type.coding[]"]
+	if !ok || identifierType.Observation.OwningScope != "identifier[]" || identifierType.Observation.Key.Selector != "type.coding[]" || identifierType.Observation.Key.System != "urn:identifier-type" {
+		t.Fatalf("Identifier.type coded concept contribution = %#v", identifierType)
 	}
 }
 

@@ -135,9 +135,22 @@ func (p *Profiler) observeSchemaSemanticsWithEvidence(
 
 	pairedCodeableConcepts := make(map[string]struct{})
 	identifierOrExtensionOwners := make([]string, 0)
+	extensionOwners := make([]string, 0)
+	identifierTypeCodeableConceptOwners := make(map[string]struct{})
 	for _, scope := range scopes {
-		if scope.definition == "Identifier" || scope.definition == "Extension" {
+		if scope.definition == "Identifier" {
 			identifierOrExtensionOwners = append(identifierOrExtensionOwners, scope.ownerPath)
+		} else if scope.definition == "Extension" {
+			identifierOrExtensionOwners = append(identifierOrExtensionOwners, scope.ownerPath)
+			extensionOwners = append(extensionOwners, scope.ownerPath)
+		}
+	}
+	for _, scope := range scopes {
+		if scope.definition != "Identifier" || semanticScopeIsBelowAny(scope.ownerPath, extensionOwners) {
+			continue
+		}
+		if typeFact, ok := directSemanticFact(scope, "type"); ok && !typeFact.Null && typeFact.ReferencedType == "CodeableConcept" {
+			identifierTypeCodeableConceptOwners[typeFact.OwnerPath] = struct{}{}
 		}
 	}
 	for _, scope := range scopes {
@@ -168,7 +181,9 @@ func (p *Profiler) observeSchemaSemanticsWithEvidence(
 			continue
 		}
 		if semanticScopeIsBelowAny(scope.ownerPath, identifierOrExtensionOwners) {
-			continue
+			if _, identifierTypeCoding := identifierTypeCodeableConceptOwners[semanticCodingConceptPath(scope)]; !identifierTypeCoding {
+				continue
+			}
 		}
 		if conceptPath := semanticCodingConceptPath(scope); conceptPath != "" {
 			if _, paired := pairedCodeableConcepts[conceptPath]; paired {
