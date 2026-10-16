@@ -36,7 +36,7 @@ const constructionCapabilitiesResponse = {
   workspaceInputs: [],
 } as const;
 const fieldPresentationContext = {
-  project: 'NCPI_ACCEPTANCE',
+  project: 'project-1',
   authorizationScopeDigest: 'scope-1',
   snapshotToken: 'snapshot-1',
   datasetGeneration: 'generation-1',
@@ -739,7 +739,7 @@ describe('Loom project paths', () => {
     const client = createLoomClient({ fetch });
 
     await expect(client.browseSemanticInventory({
-      project: 'NCPI_ACCEPTANCE',
+      project: 'project-1',
       explorerId: 'default',
       snapshotToken: 'snapshot-1',
       rowRoot: 'Specimen',
@@ -777,7 +777,7 @@ describe('Loom project paths', () => {
     const client = createLoomClient({ fetch });
 
     const response = await client.browseSemanticInventory({
-      project: 'NCPI_ACCEPTANCE',
+      project: 'project-1',
       explorerId: 'default',
       snapshotToken: 'snapshot-1',
       rowRoot: 'Specimen',
@@ -828,7 +828,7 @@ describe('Loom project paths', () => {
       const client = createLoomClient({ fetch });
 
       const response = await client.browseSemanticInventory({
-        project: 'NCPI_ACCEPTANCE',
+        project: 'project-1',
         explorerId: 'default',
         snapshotToken: 'snapshot-1',
         rowRoot: 'Specimen',
@@ -865,7 +865,7 @@ describe('Loom project paths', () => {
     const client = createLoomClient({ fetch });
 
     const result = await client.browseSemanticInventory({
-      project: 'NCPI_ACCEPTANCE',
+      project: 'project-1',
       explorerId: 'default',
       snapshotToken: 'snapshot-1',
       rowRoot: 'Specimen',
