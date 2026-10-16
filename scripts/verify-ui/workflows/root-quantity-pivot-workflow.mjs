@@ -76,17 +76,16 @@ export function authoringRequestsFromNative(nativeRequests) {
     }));
 }
 
-export const pivotSourceSelectionReady = ({ selector, sourceValue, role, outputLabel, outputType }) => {
+export const pivotSourceSelectionReady = ({ selector, sourceValue, role, expectedLabel }) => {
   const control = document.querySelector(selector);
   const sourceOptionRemains = control && [...control.options].some(option => option.value === sourceValue);
   if (sourceOptionRemains) return false;
   if (role === 'group') {
     return [...document.querySelectorAll('input[type="checkbox"]')].some(input =>
-      input.getAttribute('aria-label') === `Pivot group ${outputLabel}` && input.checked);
+      input.getAttribute('aria-label') === `Pivot group ${expectedLabel}` && input.checked);
   }
   if (!control || !control.value.startsWith('pivot-input_')) return false;
   const selectedOption = control.selectedOptions?.[0];
-  const expectedLabel = role === 'value' ? `${outputLabel} (${outputType})` : outputLabel;
   return selectedOption?.value === control.value && selectedOption.textContent.trim() === expectedLabel;
 };
 
@@ -456,27 +455,30 @@ const command = async commands => {
   builder = await api(base + '/builder');
 };
 
+const selectedPivotSourceLabels = new Map();
 const selectPivotSource = async (label, path) => {
   const selector = `select[aria-label=${JSON.stringify(label)}]`;
-  const options = await inspectPage(page, selector => [...document.querySelector(selector).options].map(option=>({label:option.textContent,value:option.value})), selector);
-  const matches = options.filter(option => option.value.startsWith('source:') && option.label.includes(path));
+  const options = await inspectPage(page, selector => [...document.querySelector(selector).options].map(option=>({label:option.textContent.trim(),value:option.value,title:option.title})), selector);
+  const [resourceType, ...fieldPathSegments] = path.split('.');
+  const fieldPath = fieldPathSegments.length > 0 ? fieldPathSegments.join('.') : path;
+  const matches = options.filter(option => {
+    const optionFieldPath = String(option.title ?? '').replace(/^root\./, '');
+    return option.value.startsWith('source:')
+      && (optionFieldPath === path || optionFieldPath === fieldPath)
+      && (!option.label.includes(' · ') || option.label.startsWith(`${resourceType} ·`));
+  });
   assert.equal(matches.length, 1, `Expected one exact root source option for ${path}: ${JSON.stringify(options)}`);
   const role = label === 'Add pivot group field' ? 'group'
     : label === 'Pivot category field' ? 'category'
       : label === 'Pivot values field' ? 'value' : undefined;
   assert(role, `Unexpected Pivot source role ${label}`);
-  const valueType = role === 'value' ? matches[0].label.match(/\s+\(([^()]*)\)$/) : undefined;
-  assert(role !== 'value' || valueType, `Expected a typed Pivot value choice for ${path}: ${matches[0].label}`);
-  const sourceLabel = valueType ? matches[0].label.slice(0, valueType.index) : matches[0].label;
-  const pathSuffix = ` (${path})`;
-  const outputLabel = sourceLabel.endsWith(pathSuffix) ? sourceLabel.slice(0, -pathSuffix.length) : sourceLabel;
+  selectedPivotSourceLabels.set(matches[0].value, matches[0].label);
   await action(`select ${label} ${path}`, page.locator(selector), target => target.selectOption(matches[0].value, { timeout: 5000 }), {
     after: () => waitForObservable(page, pivotSourceSelectionReady, {
       selector,
       sourceValue: matches[0].value,
       role,
-      outputLabel,
-      outputType: valueType?.[1],
+      expectedLabel: matches[0].label,
     }, 5000),
   });
   return matches[0].value;
@@ -611,11 +613,16 @@ const assertProposalPanel = async (pivot, label) => {
 };
 
 const openPivotEditor = async () => {
+  if (isFixture) await page.setViewportSize({ width: 1440, height: 1000 });
   await clickNative(page, '[data-testid="construction-rows-settings-trigger"]');
   await waitForObservable(page, () => Boolean(document.querySelector('[data-testid="construction-action-table-pivot-rows"]')?.disabled===false));
   await clickNative(page, '[data-testid="construction-action-table-pivot-rows"]');
   await waitForObservable(page, () => Boolean(Boolean(document.querySelector('[data-testid="construction-reshape-pivot"] select[aria-label="Pivot category field"]'))));
-  if (isFixture) await page.screenshot({ path: join(nativeReport.evidenceDirectory, 'root-quantity-pivot-initial-choice.png') });
+  if (isFixture) {
+    const editor = page.locator('[data-testid="construction-reshape-pivot"]');
+    await editor.scrollIntoViewIfNeeded({ timeout: 5000 });
+    await page.screenshot({ path: join(nativeReport.evidenceDirectory, 'root-quantity-pivot-initial-choice.png') });
+  }
 };
 
 const setPivotDuplicatePolicy = async (policy, requestOffset, name) => {
@@ -770,6 +777,9 @@ const runFixtureLifecycle = async (discovery, oracle, prePivotWorkspace, prePivo
   const requestOffset = requestCheckpoint();
   await selectPivotSource('Pivot values field', 'Observation.valueQuantity.value');
   await waitForObservable(page, () => Boolean(Boolean(document.querySelector('[data-testid="construction-reshape-pivot-category-summary"]'))&&!document.querySelector('[data-testid="construction-reshape-pivot"]')?.innerText.includes('Finding categories')), 5000);
+  const configuredEditor = page.locator('[data-testid="construction-reshape-pivot"]');
+  await configuredEditor.scrollIntoViewIfNeeded({ timeout: 5000 });
+  await page.screenshot({ path: join(nativeReport.evidenceDirectory, 'root-quantity-pivot-configured.png') });
   const applyPreview = await setPivotDuplicatePolicy('SUM', requestOffset, 'Reopened bounded Pivot preview');
   const applyPivot = expectedPivot(applyPreview.request, oracle, 'SUM');
   await assertProposalPanel(applyPivot, 'Reopened bounded Pivot preview');
@@ -838,9 +848,9 @@ return [...document.querySelectorAll('[data-testid^="construction-history-step-"
 const root=document.querySelector('[data-testid="construction-reshape-pivot"]');return {policy:root.querySelector('select[aria-label="Pivot duplicate policy"]')?.value,groups:[...root.querySelectorAll('input[aria-label^="Pivot group"]')].filter(input=>input.checked).map(input=>input.getAttribute('aria-label')),category:root.querySelector('select[aria-label="Pivot category field"]')?.selectedOptions[0]?.textContent,value:root.querySelector('select[aria-label="Pivot values field"]')?.selectedOptions[0]?.textContent,labels:[...root.querySelectorAll('input[aria-label^="Pivot output label "]')].map(input=>({ariaLabel:input.getAttribute('aria-label'),value:input.value}))};
 });
   assert.equal(editorBefore.policy, 'SUM', 'Saved Pivot edit must restore SUM duplicate policy');
-  assert(editorBefore.groups.some(label => label.includes('Observation.status')) || editorBefore.groups.some(label => /Observation status/i.test(label)), `Saved Pivot edit must retain its exact status grouping: ${JSON.stringify(editorBefore.groups)}`);
-  assert(editorBefore.category?.includes('Observation.valueQuantity.code'));
-  assert(editorBefore.value?.includes('Observation.valueQuantity.value'));
+  assert(editorBefore.groups.includes(`Pivot group ${selectedPivotSourceLabels.get(groupSourceValue)}`), `Saved Pivot edit must retain the displayed status grouping for its exact source choice: ${JSON.stringify(editorBefore.groups)}`);
+  assert.equal(editorBefore.category, selectedPivotSourceLabels.get(categorySourceValue), 'Saved Pivot edit must retain the selected category source label');
+  assert.equal(editorBefore.value, selectedPivotSourceLabels.get(valueSourceValue), 'Saved Pivot edit must retain the selected value source label');
   const dLabel = editorBefore.labels.find(item => item.value === 'd');
   assert(dLabel, `Saved Pivot edit must expose the d output label: ${JSON.stringify(editorBefore.labels)}`);
   const editRequestOffset = requestCheckpoint();
@@ -1124,9 +1134,9 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
   const editedHeading = `${originalHeading} maximum`;
   const editorBefore = await browserEval(page, `const root=document.querySelector('[data-testid="construction-reshape-pivot"]');return {policy:root.querySelector('select[aria-label="Pivot duplicate policy"]')?.value,groups:[...root.querySelectorAll('input[aria-label^="Pivot group"]')].filter(input=>input.checked).map(input=>input.getAttribute('aria-label')),category:root.querySelector('select[aria-label="Pivot category field"]')?.selectedOptions[0]?.textContent,value:root.querySelector('select[aria-label="Pivot values field"]')?.selectedOptions[0]?.textContent,labels:[...root.querySelectorAll('input[aria-label^="Pivot output label "]')].map(input=>({ariaLabel:input.getAttribute('aria-label'),value:input.value}))};`);
   assert.equal(editorBefore.policy, 'SUM', 'Saved full CDA Pivot edit must restore SUM');
-  assert(editorBefore.groups.some(label => label.includes('Observation.status')) || editorBefore.groups.some(label => /Observation status/i.test(label)), `Saved full CDA Pivot edit must retain status grouping: ${JSON.stringify(editorBefore.groups)}`);
-  assert(editorBefore.category?.includes('Observation.valueQuantity.code'));
-  assert(editorBefore.value?.includes('Observation.valueQuantity.value'));
+  assert(editorBefore.groups.includes(`Pivot group ${selectedPivotSourceLabels.get(groupSourceValue)}`), `Saved full CDA Pivot edit must retain the displayed status grouping for its exact source choice: ${JSON.stringify(editorBefore.groups)}`);
+  assert.equal(editorBefore.category, selectedPivotSourceLabels.get(categorySourceValue), 'Saved full CDA Pivot edit must retain the selected category source label');
+  assert.equal(editorBefore.value, selectedPivotSourceLabels.get(valueSourceValue), 'Saved full CDA Pivot edit must retain the selected value source label');
   assert(editorBefore.labels.some(item => item.value === originalHeading), `Saved Pivot editor must expose category label ${originalHeading}`);
   const editRequestOffset = requestCheckpoint();
   const priorEditProposal = await browserEval(page, `return document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId??'';`);

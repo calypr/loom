@@ -24,24 +24,24 @@ test('Pivot source postcondition accepts the exact reset group and generated cat
   const valueSelector = 'select[aria-label="Pivot values field"]';
   const groupControl = { options: [{ value: '' }, { value: 'source:choice-other' }], value: '' };
   const categoryControl = {
-    options: [{ value: 'pivot-input_code', textContent: 'Code' }],
+    options: [{ value: 'pivot-input_code', textContent: 'Observation · Value Quantity Code' }],
     value: 'pivot-input_code',
-    selectedOptions: [{ value: 'pivot-input_code', textContent: 'Code' }],
+    selectedOptions: [{ value: 'pivot-input_code', textContent: 'Observation · Value Quantity Code' }],
   };
   const valueControl = {
-    options: [{ value: 'pivot-input_value', textContent: 'Quantity (decimal)' }],
+    options: [{ value: 'pivot-input_value', textContent: 'Observation · Value Quantity Value (decimal)' }],
     value: 'pivot-input_value',
-    selectedOptions: [{ value: 'pivot-input_value', textContent: 'Quantity (decimal)' }],
+    selectedOptions: [{ value: 'pivot-input_value', textContent: 'Observation · Value Quantity Value (decimal)' }],
   };
-  const checkedGroup = { getAttribute: name => name === 'aria-label' ? 'Pivot group Status' : null, checked: true };
+  const checkedGroup = { getAttribute: name => name === 'aria-label' ? 'Pivot group Observation · Status' : null, checked: true };
   const restore = installDocument({
     controls: new Map([[groupSelector, groupControl], [categorySelector, categoryControl], [valueSelector, valueControl]]),
     checkboxes: [checkedGroup],
   });
   try {
-    assert.equal(pivotSourceSelectionReady({ selector: groupSelector, sourceValue: 'source:choice-status', role: 'group', outputLabel: 'Status' }), true);
-    assert.equal(pivotSourceSelectionReady({ selector: categorySelector, sourceValue: 'source:choice-code', role: 'category', outputLabel: 'Code' }), true);
-    assert.equal(pivotSourceSelectionReady({ selector: valueSelector, sourceValue: 'source:choice-value', role: 'value', outputLabel: 'Quantity', outputType: 'decimal' }), true);
+    assert.equal(pivotSourceSelectionReady({ selector: groupSelector, sourceValue: 'source:choice-status', role: 'group', expectedLabel: 'Observation · Status' }), true);
+    assert.equal(pivotSourceSelectionReady({ selector: categorySelector, sourceValue: 'source:choice-code', role: 'category', expectedLabel: 'Observation · Value Quantity Code' }), true);
+    assert.equal(pivotSourceSelectionReady({ selector: valueSelector, sourceValue: 'source:choice-value', role: 'value', expectedLabel: 'Observation · Value Quantity Value (decimal)' }), true);
   } finally {
     restore();
   }
@@ -72,17 +72,17 @@ test('Pivot source postcondition rejects a retained source choice, wrong group, 
     value: 'pivot-input_other',
     selectedOptions: [{ value: 'pivot-input_other', textContent: 'Other' }],
   };
-  const uncheckedGroup = { getAttribute: name => name === 'aria-label' ? 'Pivot group Other' : null, checked: true };
+  const uncheckedGroup = { getAttribute: name => name === 'aria-label' ? 'Pivot group Observation · Other' : null, checked: true };
   const restore = installDocument({ controls: new Map([[groupSelector, groupControl], [categorySelector, categoryControl]]), checkboxes: [uncheckedGroup] });
   try {
-    assert.equal(pivotSourceSelectionReady({ selector: groupSelector, sourceValue: sourceChoice, role: 'group', outputLabel: 'Status' }), false);
+    assert.equal(pivotSourceSelectionReady({ selector: groupSelector, sourceValue: sourceChoice, role: 'group', expectedLabel: 'Observation · Status' }), false);
     groupControl.options = [{ value: '' }];
-    assert.equal(pivotSourceSelectionReady({ selector: groupSelector, sourceValue: sourceChoice, role: 'group', outputLabel: 'Status' }), false);
-    assert.equal(pivotSourceSelectionReady({ selector: categorySelector, sourceValue: 'source:choice-code', role: 'category', outputLabel: 'Code' }), false);
+    assert.equal(pivotSourceSelectionReady({ selector: groupSelector, sourceValue: sourceChoice, role: 'group', expectedLabel: 'Observation · Status' }), false);
+    assert.equal(pivotSourceSelectionReady({ selector: categorySelector, sourceValue: 'source:choice-code', role: 'category', expectedLabel: 'Observation · Value Quantity Code' }), false);
     categoryControl.options = [{ value: 'pivot-input_code', textContent: 'Code' }];
     categoryControl.value = 'source:choice-code';
     categoryControl.selectedOptions = [{ value: 'source:choice-code', textContent: 'Code' }];
-    assert.equal(pivotSourceSelectionReady({ selector: categorySelector, sourceValue: 'source:choice-code', role: 'category', outputLabel: 'Code' }), false);
+    assert.equal(pivotSourceSelectionReady({ selector: categorySelector, sourceValue: 'source:choice-code', role: 'category', expectedLabel: 'Observation · Value Quantity Code' }), false);
   } finally {
     restore();
   }

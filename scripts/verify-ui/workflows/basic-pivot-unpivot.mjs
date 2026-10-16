@@ -328,18 +328,21 @@ export async function basicPivotUnpivotWorkflow({ page, report, action, check, n
   };
   const choosePivotSource = async (label, path, afterSelection) => {
     const selector = `select[aria-label=${JSON.stringify(label)}]`;
-    const options = await page.locator(selector).locator('option').evaluateAll(items => items.map(item => ({ label: item.textContent.trim(), value: item.value })));
-    const match = options.filter(option => option.value.startsWith('source:') && option.label.includes(path));
+    const options = await page.locator(selector).locator('option').evaluateAll(items => items.map(item => ({ label: item.textContent.trim(), value: item.value, title: item.title })));
+    const [resourceType, ...fieldPathSegments] = path.split('.');
+    const fieldPath = fieldPathSegments.length > 0 ? fieldPathSegments.join('.') : path;
+    const match = options.filter(option => {
+      const optionFieldPath = String(option.title ?? '').replace(/^root\./, '');
+      return option.value.startsWith('source:')
+        && (optionFieldPath === path || optionFieldPath === fieldPath)
+        && (!option.label.includes(' · ') || option.label.startsWith(`${resourceType} ·`));
+    });
     assert.equal(match.length, 1, `${label}: expected one native source choice for ${path}: ${JSON.stringify(options)}`);
     const role = label === 'Add pivot group field' ? 'group' : label === 'Pivot category field' ? 'category' : 'value';
-    const typedLabel = role === 'value' ? match[0].label.match(/\s+\(([^()]*)\)$/) : undefined;
-    const sourceLabel = typedLabel ? match[0].label.slice(0, typedLabel.index) : match[0].label;
-    const suffix = ` (${path})`;
-    const outputLabel = sourceLabel.endsWith(suffix) ? sourceLabel.slice(0, -suffix.length) : sourceLabel;
     await select(`select ${label} ${path}`, page.locator(selector), match[0].value,
       async () => {
         await waitFor(page, pivotSourceSelectionReady, {
-          selector, sourceValue: match[0].value, role, outputLabel, outputType: typedLabel?.[1],
+          selector, sourceValue: match[0].value, role, expectedLabel: match[0].label,
         });
         if (afterSelection) await afterSelection();
       });
