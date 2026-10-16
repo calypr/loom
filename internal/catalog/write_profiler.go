@@ -42,19 +42,45 @@ func NewProfilerForGenerationWithLimits(project, datasetGeneration, authResource
 	}
 }
 
-func (p *Profiler) ObservePayload(payload map[string]any, timings map[string]float64) {
-	p.observePayload(payload, timings, "", nil)
+func (p *Profiler) ObservePayload(payload map[string]any, timings map[string]float64) error {
+	return p.observePayload(payload, timings, "", nil, nil, "", nil)
 }
 
 // ObservePayloadWithInventory profiles a source record and emits each semantic
 // observation through the same extractor used by the bounded field summary.
-func (p *Profiler) ObservePayloadWithInventory(payload map[string]any, timings map[string]float64, sourceID string, sink SemanticInventoryObservationSink) {
-	p.observePayload(payload, timings, sourceID, sink)
+func (p *Profiler) ObservePayloadWithInventory(payload map[string]any, timings map[string]float64, sourceID string, sink SemanticInventoryObservationSink) error {
+	return p.observePayload(payload, timings, sourceID, sink, nil, "", nil)
 }
 
-func (p *Profiler) observePayload(payload map[string]any, timings map[string]float64, sourceID string, sink SemanticInventoryObservationSink) {
+// ObservePayloadWithCoverage profiles one source record, emits semantic
+// observations and ephemeral concrete-owner evidence, then writes exactly one
+// aggregated source coverage contribution through coverageSink.
+func (p *Profiler) ObservePayloadWithCoverage(
+	payload map[string]any,
+	timings map[string]float64,
+	sourceID string,
+	schemaIdentity string,
+	semanticSink SemanticInventoryObservationSink,
+	emissionSink SemanticCoverageEmissionSink,
+	coverageSink SemanticCoverageSourceSink,
+) error {
+	if coverageSink == nil {
+		return fmt.Errorf("semantic coverage source sink is required")
+	}
+	return p.observePayload(payload, timings, sourceID, semanticSink, emissionSink, schemaIdentity, coverageSink)
+}
+
+func (p *Profiler) observePayload(
+	payload map[string]any,
+	timings map[string]float64,
+	sourceID string,
+	semanticSink SemanticInventoryObservationSink,
+	emissionSink SemanticCoverageEmissionSink,
+	schemaIdentity string,
+	coverageSink SemanticCoverageSourceSink,
+) error {
 	if payload == nil {
-		return
+		return nil
 	}
 	fingerprintStart := time.Now()
 	fingerprint := shapeFingerprintForValue(payload)
@@ -65,11 +91,13 @@ func (p *Profiler) observePayload(payload map[string]any, timings map[string]flo
 	timings["field_shape_plan"] += time.Since(planStart).Seconds()
 
 	observeStart := time.Now()
+	rawPaths := make(map[string]struct{}, len(plan.fields))
 	for _, field := range plan.fields {
 		values, ok := extractAccessorValues(payload, field.Accessor)
 		if !ok {
 			continue
 		}
+		rawPaths[field.Path] = struct{}{}
 		stat := p.ensureStat(field)
 		if stat == nil {
 			continue
@@ -98,8 +126,14 @@ func (p *Profiler) observePayload(payload map[string]any, timings map[string]flo
 	}
 	p.observeObservationCodePivot(payload)
 	p.observeExtensionValues(payload)
-	p.observeSemanticObservations(payload, sourceID, sink)
+	var semanticErr error
+	if coverageSink != nil {
+		semanticErr = p.observeSemanticObservationsWithCoverage(payload, sourceID, schemaIdentity, semanticSink, emissionSink, coverageSink, rawPaths)
+	} else {
+		semanticErr = p.observeSemanticObservations(payload, sourceID, semanticSink)
+	}
 	timings["field_profile"] += time.Since(observeStart).Seconds()
+	return semanticErr
 }
 
 // ErrProfilerIdentityMismatch reports an attempted merge between independently

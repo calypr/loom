@@ -7,6 +7,7 @@ package catalog
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"sort"
 	"strconv"
@@ -24,24 +25,93 @@ const (
 	SemanticStatusUnsupportedValueProjection = "UNSUPPORTED_VALUE_PROJECTION"
 )
 
-func (p *Profiler) observeSemanticObservations(payload map[string]any, sourceID string, sink SemanticInventoryObservationSink) {
+func (p *Profiler) observeSemanticObservations(payload map[string]any, sourceID string, sink SemanticInventoryObservationSink) error {
+	return p.observeSemanticObservationsWithCoverage(payload, sourceID, "", sink, nil, nil, nil)
+}
+
+func (p *Profiler) observeSemanticObservationsWithCoverage(
+	payload map[string]any,
+	sourceID string,
+	schemaIdentity string,
+	sink SemanticInventoryObservationSink,
+	emissionSink SemanticCoverageEmissionSink,
+	coverageSink SemanticCoverageSourceSink,
+	rawPaths map[string]struct{},
+) error {
 	ordinal := 0
-	emit := func(observation SemanticObservation, examples []any) {
+	emissions := make([]SemanticCoverageEmissionEvidence, 0)
+	emissionsTruncated := false
+	emit := func(observation SemanticObservation, examples []any, evidence SemanticCoverageEmissionEvidence) {
 		if sourceID != "" && sink != nil {
 			sink(p.semanticInventoryContribution(sourceID, ordinal, observation, examples))
 			ordinal++
+		}
+		if emissionSink != nil {
+			emissionSink(evidence)
+		}
+		if coverageSink != nil {
+			if len(emissions) < SemanticCoverageMaxReconciliationItemsPerSource {
+				emissions = append(emissions, evidence)
+			} else {
+				emissionsTruncated = true
+			}
 		}
 	}
 	profile := semanticProfileForPayload(payload)
 	index, err := fhirschema.GeneratedIndex()
 	if err != nil {
-		return
+		return fmt.Errorf("load generated FHIR schema for semantic observations: %w", err)
 	}
-	_ = p.observeSchemaSemantics(index, payload, profile, emit)
+	if coverageSink != nil {
+		if sourceID == "" {
+			return fmt.Errorf("semantic coverage source ID is required")
+		}
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("encode payload for semantic coverage census: %w", err)
+		}
+		census, err := CensusSemanticCoverage(index, p.resourceType, sourceID, raw)
+		if err != nil {
+			return err
+		}
+		census.Identity = SemanticCoverageSourceIdentity{
+			Project:           p.project,
+			DatasetGeneration: NormalizeDatasetGeneration(p.datasetGeneration),
+			AuthResourcePath:  p.authResourcePath,
+			SchemaIdentity:    schemaIdentity,
+			SourceKind:        semanticInventorySourceKind(p.semanticSourceKind),
+			SourceID:          sourceID,
+			ResourceType:      p.resourceType,
+		}
+		if err := p.observeSchemaSemanticsWithEvidence(index, payload, profile, sourceID, emit); err != nil {
+			return fmt.Errorf("walk semantic observations for %q source %q: %w", p.resourceType, sourceID, err)
+		}
+		if emissionsTruncated {
+			census.EvidenceTruncated = true
+			if !hasSemanticCoverageGap(census.IncompleteGaps, SemanticCoverageGapEmissionEvidence) {
+				census.IncompleteGaps = append(census.IncompleteGaps, SemanticCoverageGapEmissionEvidence)
+			}
+		}
+		contribution, err := ReconcileSemanticCoverage(census, emissions, rawPaths)
+		if err != nil {
+			return err
+		}
+		if err := coverageSink(contribution); err != nil {
+			return fmt.Errorf("write semantic coverage source contribution: %w", err)
+		}
+		return nil
+	}
+	return p.observeSchemaSemantics(index, payload, profile, func(observation SemanticObservation, examples []any) {
+		if sourceID != "" && sink != nil {
+			sink(p.semanticInventoryContribution(sourceID, ordinal, observation, examples))
+			ordinal++
+		}
+	})
 }
 
 type semanticChoiceValue struct {
 	Arm                   string
+	OwnerPath             string
 	Selector              string
 	FallbackSelectors     []string
 	FallbackOnBlankString bool

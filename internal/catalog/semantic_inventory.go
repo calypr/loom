@@ -202,6 +202,10 @@ type semanticInventoryCursor struct {
 }
 
 func SemanticInventoryBuildID(project, datasetGeneration string) string {
+	return semanticInventoryBuildIDWithCoverageRuleVersion(project, datasetGeneration, SemanticCoverageRuleVersion)
+}
+
+func semanticInventoryBuildIDWithCoverageRuleVersion(project, datasetGeneration string, coverageRuleVersion int) string {
 	return catalogIdentityDigest(
 		"semantic-inventory-build/v1",
 		project,
@@ -210,6 +214,7 @@ func SemanticInventoryBuildID(project, datasetGeneration string) string {
 		strconv.Itoa(SemanticObservationSchemaVersion),
 		strconv.Itoa(SemanticObservationRuleVersion),
 		strconv.Itoa(SemanticInventoryEmitterVersion),
+		strconv.Itoa(coverageRuleVersion),
 	)
 }
 
@@ -258,9 +263,9 @@ func semanticInventorySourceKind(kind string) string {
 	return SemanticInventorySourceFile
 }
 
-func (e SemanticInventoryEmitter) ObservePayload(payload map[string]any, resourceType, authResourcePath, sourceID string, sink SemanticInventoryObservationSink) {
+func (e SemanticInventoryEmitter) ObservePayload(payload map[string]any, resourceType, authResourcePath, sourceID string, sink SemanticInventoryObservationSink) error {
 	if payload == nil || sourceID == "" || sink == nil {
-		return
+		return nil
 	}
 	p := Profiler{
 		project:            e.project,
@@ -270,7 +275,44 @@ func (e SemanticInventoryEmitter) ObservePayload(payload map[string]any, resourc
 		semanticOnly:       true,
 		semanticSourceKind: SemanticInventorySourceRetained,
 	}
-	p.observeSemanticObservations(payload, sourceID, sink)
+	return p.observeSemanticObservations(payload, sourceID, sink)
+}
+
+// ObservePayloadWithCoverage emits the same semantic observations as
+// ObservePayload and adds one aggregated independent coverage contribution,
+// including for sources that produce no semantic observations.
+func (e SemanticInventoryEmitter) ObservePayloadWithCoverage(
+	payload map[string]any,
+	resourceType string,
+	authResourcePath string,
+	sourceID string,
+	schemaIdentity string,
+	semanticSink SemanticInventoryObservationSink,
+	emissionSink SemanticCoverageEmissionSink,
+	coverageSink SemanticCoverageSourceSink,
+) error {
+	if payload == nil {
+		return nil
+	}
+	if sourceID == "" {
+		return fmt.Errorf("semantic coverage source ID is required")
+	}
+	if coverageSink == nil {
+		return fmt.Errorf("semantic coverage source sink is required")
+	}
+	p := Profiler{
+		project:            e.project,
+		datasetGeneration:  e.datasetGeneration,
+		authResourcePath:   authResourcePath,
+		resourceType:       resourceType,
+		semanticOnly:       true,
+		semanticSourceKind: SemanticInventorySourceRetained,
+	}
+	rawPaths := make(map[string]struct{})
+	for _, field := range buildShapePlan(payload).fields {
+		rawPaths[field.Path] = struct{}{}
+	}
+	return p.observeSemanticObservationsWithCoverage(payload, sourceID, schemaIdentity, semanticSink, emissionSink, coverageSink, rawPaths)
 }
 
 func (p *Profiler) semanticInventoryContribution(sourceID string, ordinal int, observation SemanticObservation, examples []any) SemanticInventoryContribution {
