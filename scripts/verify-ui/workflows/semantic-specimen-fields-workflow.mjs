@@ -22,6 +22,7 @@ export async function semanticSpecimenFieldsWorkflow({ page, cda, caseOptions = 
   const apiOrigin = String(cda.apiOrigin).replace(/\/$/, '');
   const uiOrigin = String(cda.uiOrigin).replace(/\/$/, '');
   const witnessReportPath = caseOptions.witnessReportPath;
+  const availabilityFallback = caseOptions.availabilityFallback === true;
   assert(project && generation && apiOrigin && uiOrigin, 'The owned CDA fixture must bind project, generation, API, and UI origins.');
   assert.equal(generation, 'cda-fhir-v1');
   assert(witnessReportPath, 'Set LOOM_CDA_SPECIMEN_SEMANTIC_WITNESS_REPORT to the independent bounded source-read report.');
@@ -32,7 +33,7 @@ export async function semanticSpecimenFieldsWorkflow({ page, cda, caseOptions = 
       'The retained Specimen witness must match the owned CDA authorization scope.');
   }
 
-  const explorer = `semantic-specimen-${Date.now()}-${randomUUID().slice(0, 8)}`;
+  const explorer = `${availabilityFallback ? 'semantic-specimen-fallback' : 'semantic-specimen'}-${Date.now()}-${randomUUID().slice(0, 8)}`;
   const explorerPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
   const rootPath = `${explorerPath}/${encodeURIComponent(explorer)}`;
   const authoringPath = `${rootPath}/authoring/v2`;
@@ -53,7 +54,7 @@ export async function semanticSpecimenFieldsWorkflow({ page, cda, caseOptions = 
     nativeRequests: cda.report.nativeRequests,
     assertions: [],
     errors: [],
-    scopeNotes: [{
+    scopeNotes: availabilityFallback ? [] : [{
       id: 'reopen-saved-raw-source-binding-in-picker',
       status: 'out-of-scope-for-existing-root-column-lifecycle',
       reason: 'Saved direct root columns expose label editing and removal, but no source-binding editor that reopens the raw field picker. This SC05 case verifies the exact binding across add, rename, remove, and reload; reopening an existing related-field source belongs to SC09 and initialFieldItem coverage.',
@@ -276,7 +277,9 @@ export async function semanticSpecimenFieldsWorkflow({ page, cda, caseOptions = 
     assert.equal(sourceDocument.columns.length, 1);
     originalWorkspace = structuredClone(builder.workspace);
     requestView = cda.captureRequests(`${explorerPath}/${encodeURIComponent(explorer)}`, {
-      responsePaths: /semantic-inventory|construction-choices|construction-choice-proposals|\/commands|\/preview/,
+      responsePaths: availabilityFallback
+        ? /semantic-inventory|construction-choices|construction-choice-proposals|\/commands|\/preview|\/audit|\/rebuild/
+        : /semantic-inventory|construction-choices|construction-choice-proposals|\/commands|\/preview/,
     });
 
     const initial = await openTable(1, 'initial exact Specimen row');
@@ -295,10 +298,206 @@ export async function semanticSpecimenFieldsWorkflow({ page, cda, caseOptions = 
     await openAddColumns();
     await selectTab('Coded values');
     const codeBrowse = await waitNative((entry) => entry.path.endsWith('/semantic-inventory') &&
+      entry.request?.outputId === outputId && (availabilityFallback ||
       entry.request?.fieldPresentation?.sourceNodeId === specimenNode.nodeId &&
       entry.request?.fieldPresentation?.occurrenceId === 'base' &&
-      entry.request?.fieldPresentation?.candidateIds?.includes(rawCodeCandidate.candidateId), 0);
+      entry.request?.fieldPresentation?.candidateIds?.includes(rawCodeCandidate.candidateId)), 0);
     assert.equal(codeBrowse.request.outputId, outputId);
+    if (availabilityFallback) {
+      const proof = codeBrowse.response.fieldPresentation;
+      assert(proof === undefined || proof.kind === 'UNAVAILABLE',
+        'The availability case must not receive a READY field-coverage proof.');
+      const categoryBrowseFrom = nativeIndex();
+      await setSearch('type.coding[]');
+      const categoryBrowse = await waitNative((entry) => entry.path.endsWith('/semantic-inventory') &&
+        entry.request?.outputId === outputId && entry.request?.query === 'type.coding[]', categoryBrowseFrom);
+      const categoryProof = categoryBrowse.response.fieldPresentation;
+      assert(categoryProof === undefined || categoryProof.kind === 'UNAVAILABLE',
+        'Searching the existing semantic inventory must not produce a READY field-coverage proof.');
+      const categoryEntries = (categoryBrowse.response.entries ?? []).filter((item) =>
+        item.resourceType === 'Specimen' && item.sourcePath === 'type.coding[]' &&
+        item.selectionMode === 'SYSTEM_VERSION_CATEGORY' && item.familyId &&
+        item.system === witness.coding.system && item.codingVersion === (witness.coding.version ?? ''),
+      );
+      assert.equal(categoryEntries.length, 1,
+        'The existing Specimen.type semantic inventory category must remain available without a field-coverage proof.');
+      const categoryEntry = categoryEntries[0];
+      const categoryIdentity = JSON.stringify(['SYSTEM_VERSION_CATEGORY', categoryEntry.familyId, categoryEntry.bindingId]);
+      const categoryTitle = semanticTitle(categoryEntry);
+      const accessibleCategoryLabel = `${categoryTitle} · system ${witness.coding.system} · version ${witness.coding.version?.trim() || 'unversioned'}`;
+      await itemArticle(categoryIdentity, accessibleCategoryLabel);
+      record('correctness', 'CDA semantic inventory retains the exact Specimen.type category without READY field proof', {
+        outputId,
+        categoryIdentity,
+        sourcePath: categoryEntry.sourcePath,
+        system: categoryEntry.system,
+        version: categoryEntry.codingVersion,
+        fieldPresentationKinds: [proof?.kind ?? 'OMITTED', categoryProof?.kind ?? 'OMITTED'],
+      });
+
+      assert.equal(witness.noncoded.path, 'subject.reference',
+        'The independent retained Specimen witness must include the required noncoded subject.reference field.');
+      await selectTab('Other fields');
+      const rawCodeBrowseFrom = nativeIndex();
+      await setSearch('type.coding[].code');
+      await waitNative((entry) => entry.path.endsWith('/semantic-inventory') &&
+        entry.request?.outputId === outputId && entry.request?.query === 'type.coding[].code', rawCodeBrowseFrom);
+      const rawCodeButton = await fieldButton('type.coding[].code');
+      assert.equal(await rawCodeButton.isVisible(), true, 'The eligible Specimen.type Coding leaf must remain visible when field proof is unavailable.');
+      assert.equal(await rawCodeButton.isEnabled(), true, 'The eligible Specimen.type Coding leaf must remain selectable without field proof.');
+      const noncodedBrowseFrom = nativeIndex();
+      await setSearch(witness.noncoded.path);
+      await waitNative((entry) => entry.path.endsWith('/semantic-inventory') &&
+        entry.request?.outputId === outputId && entry.request?.query === witness.noncoded.path, noncodedBrowseFrom);
+      const noncodedButton = await fieldButton(witness.noncoded.path);
+      assert.equal(await noncodedButton.isVisible(), true, 'The populated subject.reference field must remain visible in Other fields.');
+      assert.equal(await noncodedButton.isEnabled(), true, 'The populated subject.reference field must remain selectable.');
+      const auditOrRebuildRequests = requestView.requests.filter((entry) =>
+        /\/(?:audit|rebuild)(?:\/|$)/i.test(entry.path),
+      );
+      assert.equal(auditOrRebuildRequests.length, 0,
+        'Catalog browsing must not call a separate audit or inventory-rebuild API route.');
+      record('usability', 'CDA inventory browse keeps eligible raw fields and avoids a separate audit or rebuild route', {
+        inventoryRequestStatus: codeBrowse.status,
+        rawCodingPath: 'type.coding[].code',
+        noncodedPath: witness.noncoded.path,
+        auditOrRebuildRequestCount: auditOrRebuildRequests.length,
+      });
+
+      await selectTab('Coded values');
+      const categoryCardForCancel = await itemArticle(categoryIdentity, accessibleCategoryLabel);
+      const semanticButton = categoryCardForCancel.locator('button[aria-pressed]');
+      if (await semanticButton.getAttribute('aria-pressed') !== 'true') await semanticButton.click({ timeout: 5000 });
+      const selectedList = page.getByRole('list', { name: 'Selected fields and coded values', exact: true });
+      await selectTab('Other fields');
+      const noncodedCancelBrowseFrom = nativeIndex();
+      await setSearch(witness.noncoded.path);
+      await waitNative((entry) => entry.path.endsWith('/semantic-inventory') &&
+        entry.request?.outputId === outputId && entry.request?.query === witness.noncoded.path, noncodedCancelBrowseFrom);
+      const noncodedButtonForCancel = await fieldButton(witness.noncoded.path);
+      await noncodedButtonForCancel.click({ timeout: 5000 });
+      await waitForBrowser(page, () => document.querySelector('[aria-label="Selected fields and coded values"] li:nth-child(2)') !== null, [], 10000);
+      assert.equal(await selectedList.locator('li').count(), 2,
+        'Cancel test must preserve one selected semantic family plus the noncoded raw field.');
+      const preCancelBuilder = await api(`${authoringPath}/builder`);
+      const commandCountBeforeCancel = requestView.requests.filter((entry) => entry.path.endsWith('/commands')).length;
+      await click(page, '[data-testid="construction-close-operation-editor"]');
+      await waitForBrowser(page, () => !document.querySelector('[data-testid="construction-operation-editor"]'), [], 10000);
+      builder = await api(`${authoringPath}/builder`);
+      assert.deepEqual(builder.workspace, preCancelBuilder.workspace,
+        'Canceling selected semantic and raw fields must leave the saved Specimen table unchanged.');
+      assert.equal(requestView.requests.filter((entry) => entry.path.endsWith('/commands')).length, commandCountBeforeCancel,
+        'Pre-submit Cancel must not send an authoring command.');
+      record('persistence', 'pre-submit Cancel leaves the unavailable-proof Specimen draft unchanged', {
+        draftDigest: builder.draftDigest,
+        commandCount: commandCountBeforeCancel,
+      });
+
+      const semanticBrowseFrom = nativeIndex();
+      await openAddColumns();
+      await selectTab('Coded values');
+      await setSearch('type.coding[]');
+      await waitNative((entry) => entry.path.endsWith('/semantic-inventory') &&
+        entry.request?.outputId === outputId && entry.request?.query === 'type.coding[]', semanticBrowseFrom);
+      const semanticCardAgain = await itemArticle(categoryIdentity, accessibleCategoryLabel);
+      const semanticSelection = semanticCardAgain.locator('button[aria-pressed]');
+      if (await semanticSelection.getAttribute('aria-pressed') !== 'true') await semanticSelection.click({ timeout: 5000 });
+      const semanticAddStart = Date.now();
+      const semanticAdd = await applyOneSelection(categoryTitle);
+      builder = await api(`${authoringPath}/builder`);
+      const semanticColumn = currentDocument().columns.find((column) =>
+        column.source?.kind === 'codedValue' && column.source.lookup?.key?.system === witness.coding.system &&
+        column.source.lookup?.binding?.selectionScope === 'SYSTEM_VERSION' &&
+        (column.source.lookup.key.version ?? '') === (witness.coding.version ?? '') &&
+        column.source.lookup.key.code === '',
+      );
+      assert(semanticColumn, 'The no-proof lifecycle must retain the independent system/version semantic category binding.');
+      const semanticColumnId = columnKey(semanticColumn);
+      const semanticChoice = semanticAdd.proposal.request.constructionChoices[0];
+      assert.equal(semanticChoice.form, 'ALL');
+      assert.equal(semanticChoice.source.system, witness.coding.system);
+      assert.equal(semanticChoice.source.version ?? '', witness.coding.version ?? '');
+      const semanticPreview = nativePreview(semanticAdd.proposal.response);
+      assert.deepEqual(semanticPreview.rows[0]?.[semanticAdd.proposal.response.candidateColumnIds[0]], witness.expectedSemanticValues,
+        'The fallback semantic value must equal the independent raw Specimen.type Coding oracle.');
+      record('correctness', 'Add preserves the exact semantic Specimen.type values without grouping raw fields', {
+        categoryIdentity,
+        source: semanticColumn.source,
+        expectedSemanticValues: witness.expectedSemanticValues,
+        preview: semanticPreview.rows[0]?.[semanticAdd.proposal.response.candidateColumnIds[0]],
+        durationMs: Date.now() - semanticAddStart,
+      });
+
+      await openAddColumns();
+      await selectTab('Other fields');
+      const rawBrowseFrom = nativeIndex();
+      await setSearch(witness.noncoded.path);
+      await waitNative((entry) => entry.path.endsWith('/semantic-inventory') &&
+        entry.request?.outputId === outputId && entry.request?.query === witness.noncoded.path, rawBrowseFrom);
+      const rawFieldButton = await fieldButton(witness.noncoded.path);
+      await rawFieldButton.click({ timeout: 5000 });
+      const rawAdd = await applyOneSelection();
+      builder = await api(`${authoringPath}/builder`);
+      const rawColumn = currentDocument().columns.find((column) =>
+        column.source?.kind === 'field' && column.source.field?.path === witness.noncoded.path,
+      );
+      assert(rawColumn, 'The fallback case must save the physical subject.reference source binding.');
+      const rawColumnId = columnKey(rawColumn);
+      const rawPreview = nativePreview(rawAdd.proposal.response);
+      assert.deepEqual(rawPreview.rows[0]?.[rawAdd.proposal.response.candidateColumnIds[0]], witness.noncoded.value,
+        'The physical subject.reference preview must equal the independent retained witness value.');
+      record('correctness', 'Add preserves the exact noncoded subject.reference source value', {
+        rawPath: rawColumn.source.field.path,
+        expectedValue: witness.noncoded.value,
+        preview: rawPreview.rows[0]?.[rawAdd.proposal.response.candidateColumnIds[0]],
+      });
+
+      const reloaded = await openTable(currentDocument().columns.length, 'reload semantic and noncoded Specimen fields without proof');
+      const reloadedDocument = currentDocument(await api(`${authoringPath}/builder`));
+      const semanticSaved = reloadedDocument.columns.find((column) => columnKey(column) === semanticColumnId);
+      const rawSaved = reloadedDocument.columns.find((column) => columnKey(column) === rawColumnId);
+      const identitySaved = reloadedDocument.columns.find((column) => columnKey(column) === idColumnId);
+      assert(semanticSaved && rawSaved && identitySaved);
+      assert.equal(rawSaved.source.field.path, 'subject.reference');
+      assert.deepEqual(reloaded.preview.rows[0]?.[semanticColumnId], witness.expectedSemanticValues);
+      assert.deepEqual(reloaded.preview.rows[0]?.[rawColumnId], witness.noncoded.value);
+      assert.equal(reloaded.preview.rows[0]?.[idColumnId], witness.source.id);
+      record('persistence', 'Reload preserves the semantic category, subject.reference, and exact source identity', {
+        semanticSource: semanticSaved.source,
+        rawSource: rawSaved.source,
+        row: reloaded.preview.rows[0],
+      });
+
+      const removeColumn = async (column) => {
+        const id = columnKey(column);
+        const from = nativeIndex();
+        if (!(await page.locator('[aria-label="Table columns"]').count())) {
+          await page.getByRole('button', { name: 'Columns', exact: true }).click({ timeout: 5000 });
+        }
+        await page.getByRole('button', { name: `Remove ${column.label} column`, exact: true }).click({ timeout: 5000 });
+        await waitNative((entry) => entry.path.endsWith('/commands') &&
+          entry.request?.commands?.some((item) => item.type === 'REMOVE_COLUMN' && item.column === id), from);
+        builder = await api(`${authoringPath}/builder`);
+      };
+      await removeColumn(rawSaved);
+      const semanticAfterRawRemoval = currentDocument().columns.find((column) => columnKey(column) === semanticColumnId);
+      assert(semanticAfterRawRemoval, 'Removing subject.reference must leave the semantic category intact.');
+      await removeColumn(semanticAfterRawRemoval);
+      builder = await api(`${authoringPath}/builder`);
+      assert.deepEqual(builder.workspace, originalWorkspace,
+        'Removing semantic and noncoded fields must restore the original Specimen table and population.');
+      const restored = await openTable(1, 'reload restored Specimen table after fallback lifecycle');
+      assert.equal(restored.preview.rows[0]?.[idColumnId], witness.source.id);
+      record('persistence', 'Removal and reload restore the exact original Specimen table', {
+        outputId,
+        restoredColumns: currentDocument().columns.map((column) => ({ id: columnKey(column), source: column.source })),
+        restoredRow: restored.preview.rows[0],
+      });
+
+      report.finished = new Date().toISOString();
+      report.final = { status: 'passed', mode: 'inventory-fallback', outputId, explorer, witnessId: witness.source.id, rowRoot: 'Specimen' };
+      return;
+    }
     assert.equal(codeBrowse.request.fieldPresentation.expectedDraftVersion, builder.draftVersion);
     assert.equal(codeBrowse.request.fieldPresentation.expectedDraftDigest, builder.draftDigest);
     assert(codeBrowse.request.fieldPresentation.candidateIds.length <= 50,

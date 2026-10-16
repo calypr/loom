@@ -20,3 +20,24 @@ test.describe('CDA semantic Specimen fields', () => {
     await expect(page).toHaveURL(/mode=builder/);
   });
 });
+
+test.describe('CDA semantic Specimen inventory fallback', () => {
+  test.use({
+    cdaScenarioID: 'cda-semantic-specimen-inventory-fallback',
+    cdaCaseName: 'inventory-fallback',
+    cdaRequireSourceFixture: true,
+  });
+
+  test('CDA Specimen inventory remains selectable without field proof', async ({ page, cda }) => {
+    test.setTimeout(300_000);
+    await semanticSpecimenFieldsWorkflow({
+      page,
+      cda,
+      caseOptions: {
+        witnessReportPath: process.env.LOOM_CDA_SPECIMEN_SEMANTIC_WITNESS_REPORT,
+        availabilityFallback: true,
+      },
+    });
+    await expect(page).toHaveURL(/mode=builder/);
+  });
+});

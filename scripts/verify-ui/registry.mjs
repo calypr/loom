@@ -8085,6 +8085,73 @@ export const registry = Object.freeze([
     coverage: [],
   }),
   Object.freeze({
+    id: 'cda-semantic-specimen-inventory-fallback',
+    workflow: 'native-cda-semantic-specimen-inventory-fallback',
+    hooks: [],
+    endpoints: [
+      'POST /api/v1/projects/{project}/explorers',
+      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/selections',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/population-routes',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/semantic-inventory',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-choices',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-choice-proposals',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/preview',
+    ],
+    requiredTransitions: [
+      'read the one exact retained Specimen witness with an indexed project/generation/auth-scoped LIMIT 1 query and independently retain its type Coding plus subject.reference value',
+      'create a fresh owned Explorer and a one-row Specimen table for only the witnessed source record',
+      'load the current Specimen.type semantic inventory category while field-presentation proof is omitted or UNAVAILABLE',
+      'keep populated Specimen.type.coding[].code and subject.reference selectable in Other fields while field proof is unavailable',
+      'pre-submit Cancel both selected values without changing the saved Specimen draft or issuing an authoring command',
+      'Add the semantic Specimen.type category and direct subject.reference field, then compare their previews with the literal retained witness',
+      'reload and verify the exact category value, raw reference value, and source row identity',
+      'remove both additions and reload the original Specimen table and population',
+    ],
+    gateReasons: [
+      'the case uses the owned CDA project loom_dev_cda_fhir and generation cda-fhir-v1, plus a fresh Explorer and the independently retained Specimen witness',
+      'the backend lifecycle regression owns the zero source-page/audit-work proof; browser evidence is limited to successful inventory requests, absence of a separate audit/rebuild route, and visible raw fallback',
+      'this case does not assert that an unproved raw Coding leaf is hidden or exposed through Source fields; the separate SC05 READY case retains those assertions unchanged',
+    ],
+    script: 'semantic-specimen-fields-workflow.mjs',
+    cases: {
+      'inventory-fallback': {
+        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-semantic-specimen.spec.mjs',
+        playwrightGrep: 'CDA Specimen inventory remains selectable without field proof$',
+        expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
+        focusedChecks: [
+          {
+            id: 'semantic-specimen-witness-input-contract',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/semantic-specimen-witness.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/helpers/semantic-specimen-witness.mjs',
+            ],
+          },
+        ],
+        requiredChecks: [
+          'native Specimen table rendered the exact bounded source witness',
+          'CDA semantic inventory retains the exact Specimen.type category without READY field proof',
+          'Other fields keeps populated type.coding[].code and subject.reference visible and selectable',
+          'CDA catalog browsing does not call a separate audit or inventory-rebuild API route',
+          'pre-submit Cancel leaves the Specimen draft unchanged and sends no authoring command',
+          'Add preserves exact semantic Specimen.type values and direct subject.reference value',
+          'reload preserves both values, physical raw binding, and exact source row identity',
+          'removal and reload restore the original Specimen table and population',
+        ],
+      },
+    },
+    coverage: [
+      {
+        feature: 'CDA semantic inventory and raw-field fallback when field coverage is unavailable',
+        acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', case: 'inventory-fallback', checks: { choice: 2, proposal: 2, cancel: 1, apply: 2, savedRows: 2, reload: 2, edit: 0, restoration: 1 } },
+        status: 'untested',
+        reason: 'The native case is prepared against one independently retained Specimen witness. It requires fallback-visible raw values and does not establish proof-gated Source fields behavior; browser verification is pending promoted-source freeze.',
+      },
+    ],
+  }),
+  Object.freeze({
     id: 'cda-source-fields',
     workflow: 'native-cda-source-fields-lifecycle',
     hooks: [],
