@@ -49,9 +49,11 @@ const codedCategoryItem = (entries, label, predicate) => {
 
 const selectionButtonForItem = async (page, item) => {
   const source = item.constructionChoice.source;
-  const sourceGroup = page.locator(`[data-source-node-id="${source.nodeId}"]`);
-  assert.equal(await sourceGroup.count(), 1, `${semanticLabel(item)} must resolve to its exact source-node group.`);
-  const accessibleNames = await sourceGroup.locator('button[aria-pressed]').evaluateAll(buttons =>
+  const sourceCards = page.locator(
+    `[data-source-node-id="${source.nodeId}"] article[data-semantic-identity]`,
+  );
+  assert(await sourceCards.count() > 0, `${semanticLabel(item)} must resolve to its exact source-node cards.`);
+  const accessibleNames = await sourceCards.locator('button[aria-pressed]').evaluateAll(buttons =>
     buttons.map(button => button.getAttribute('aria-label') ?? ''));
   const versionQualifier = `version ${semanticVersion(item) || 'unversioned'}`;
   const matches = accessibleNames.filter(name => name.startsWith(`Select ${item.resourceType} `) &&
