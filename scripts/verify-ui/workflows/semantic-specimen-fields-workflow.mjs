@@ -84,7 +84,7 @@ export async function semanticSpecimenFieldsWorkflow({ page, cda, caseOptions = 
   const currentDocument = (state = builder) =>
     state.workspace.documents.find((document) => document.output.id === outputId);
   const command = async (commands) => {
-    await api(`${authoringPath}/commands`, {
+    const response = await api(`${authoringPath}/commands`, {
       commandId: randomUUID(),
       semanticsVersion: builder.workspace?.semanticsVersion ?? 10,
       snapshotToken: builder.catalog.snapshotToken,
@@ -93,6 +93,7 @@ export async function semanticSpecimenFieldsWorkflow({ page, cda, caseOptions = 
       commands,
     });
     builder = await api(`${authoringPath}/builder`);
+    return response;
   };
   const nativeIndex = () => requestView.requests.length;
   const waitNative = async (predicate, fromIndex = 0, timeoutMs = 10000) => {
@@ -149,7 +150,12 @@ export async function semanticSpecimenFieldsWorkflow({ page, cda, caseOptions = 
     if (await tab.getAttribute('aria-selected') !== 'true') await tab.click({ timeout: 5000 });
   };
   const setSearch = async (value) => {
-    const search = page.getByRole('searchbox', { name: 'Search features by field name, concept, or code', exact: true });
+    const activeView = await page.locator('[role="tab"][aria-selected="true"]').getAttribute('data-view');
+    assert(['coded', 'fields'].includes(activeView), 'Search requires an active Coded values or Other fields tab.');
+    const searchName = activeView === 'fields'
+      ? 'Search dataset fields by name or type'
+      : 'Search coded values by code or label';
+    const search = page.getByRole('searchbox', { name: searchName, exact: true });
     await search.waitFor({ state: 'visible', timeout: 10000 });
     await search.fill(value, { timeout: 5000 });
     await page.getByRole('button', { name: 'Search', exact: true }).click({ timeout: 5000 });
@@ -238,9 +244,14 @@ export async function semanticSpecimenFieldsWorkflow({ page, cda, caseOptions = 
     assert(rawSystemCandidate?.populated === true, 'The independently populated Specimen.type Coding system must remain an eligible raw field.');
     assert(noncodedCandidate?.populated === true, `Specimen.${witness.noncoded.path} must remain an eligible noncoded raw field.`);
 
-    await command([{ type: 'CREATE_TABLE', title: 'Semantic Specimen source rows', rootNodeId: specimenNode.nodeId }]);
+    const createTableResponse = await command([
+      { type: 'CREATE_TABLE', title: 'Semantic Specimen source rows', rootNodeId: specimenNode.nodeId },
+    ]);
+    const createdTable = createTableResponse.results?.find((result) => result.type === 'TABLE_CREATED');
+    assert(createdTable?.outputId, 'CREATE_TABLE must return its authoritative TABLE_CREATED outputId.');
+    outputId = createdTable.outputId;
     const document = currentDocument();
-    outputId = document.output.id;
+    assert(document, 'The builder must retain the table returned by TABLE_CREATED.');
     await command([{
       type: 'ADD_COLUMN',
       outputId,
