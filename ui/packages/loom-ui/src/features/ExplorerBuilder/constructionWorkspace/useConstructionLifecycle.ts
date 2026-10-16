@@ -371,23 +371,38 @@ export const useConstructionLifecycle = ({
     const controller = new AbortController();
     pivotDiscoveryController.current = controller;
     setPivotDiscoveryLoad({ key: discoveryKey, state: { ...request, status: 'loading' } });
-    const discoveryArgs: DiscoverConstructionCategoriesArgs = {
-      project: args.project,
-      explorerId: args.explorerId,
-      ...(args.authResourcePath ? { authResourcePath: args.authResourcePath } : {}),
-      snapshotToken: args.snapshotToken,
-      expectedDraftVersion: args.expectedDraftVersion,
-      expectedDraftDigest: args.expectedDraftDigest,
-      outputId: args.outputId,
-      stageId: request.stageId,
-      pivotStepId: request.pivotStepId,
-      groupKeyIds: request.groupKeyIds,
-      categoryColumnId: request.categoryColumnId,
-      valueColumnId: request.valueColumnId,
-      ...(request.pivotSources?.length ? { pivotSources: request.pivotSources, candidateConstruction: request.candidateConstruction } : {}),
-      requestId: `construction-categories-${window.crypto.randomUUID()}`,
-    };
-    void client.discoverConstructionCategories(discoveryArgs, controller.signal).then(
+    let discoveryRequest: Promise<ConstructionCategoryDiscoveryResponse>;
+    try {
+      const discoveryArgs: DiscoverConstructionCategoriesArgs = {
+        project: args.project,
+        explorerId: args.explorerId,
+        ...(args.authResourcePath ? { authResourcePath: args.authResourcePath } : {}),
+        snapshotToken: args.snapshotToken,
+        expectedDraftVersion: args.expectedDraftVersion,
+        expectedDraftDigest: args.expectedDraftDigest,
+        outputId: args.outputId,
+        stageId: request.stageId,
+        pivotStepId: request.pivotStepId,
+        groupKeyIds: request.groupKeyIds,
+        categoryColumnId: request.categoryColumnId,
+        valueColumnId: request.valueColumnId,
+        ...(request.pivotSources?.length ? { pivotSources: request.pivotSources, candidateConstruction: request.candidateConstruction } : {}),
+        requestId: `construction-categories-${window.crypto.randomUUID()}`,
+      };
+      discoveryRequest = client.discoverConstructionCategories(discoveryArgs, controller.signal);
+    } catch (error: unknown) {
+      if (controller.signal.aborted || pivotDiscoveryGeneration.current !== generation) return;
+      setPivotDiscoveryLoad({
+        key: discoveryKey,
+        state: {
+          ...request,
+          status: 'failed',
+          reason: errorMessage(error, 'Loom could not find category values for this pair.'),
+        },
+      });
+      return;
+    }
+    void discoveryRequest.then(
       (response: ConstructionCategoryDiscoveryResponse) => {
         if (controller.signal.aborted || pivotDiscoveryGeneration.current !== generation) return;
         const matchesRequest =

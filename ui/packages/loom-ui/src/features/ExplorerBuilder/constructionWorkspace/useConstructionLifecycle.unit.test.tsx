@@ -420,6 +420,78 @@ describe('useConstructionLifecycle', () => {
     unmount();
   });
 
+  it('terminates a synchronous category discovery failure and permits a retry', async () => {
+    const failureMessage = 'The category request could not be constructed.';
+    const rejectedMessage = 'The category service rejected the request.';
+    let attempts = 0;
+    const discoverConstructionCategories = vi.fn((args: DiscoverConstructionCategoriesArgs) => {
+      attempts += 1;
+      if (attempts === 1) throw new Error(failureMessage);
+      if (attempts === 2) return Promise.reject(new Error(rejectedMessage));
+      return Promise.resolve(categoriesFor(args));
+    });
+    const client = {
+      getConstructionCapabilities: vi.fn(async (args: GetConstructionCapabilitiesArgs) => capabilitiesFor(args)),
+      discoverConstructionCategories,
+      proposeConstruction: vi.fn(async () => proposalResponse()),
+      preview: vi.fn(async () => proposalPreview),
+    } satisfies ConstructionLifecycleClient;
+    const { result, unmount } = renderHook(() => useConstructionLifecycle({
+      client,
+      capabilitiesRequest: request,
+    }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const pair = {
+      stageId: request.stageId,
+      categoryColumnId: 'category-id',
+      valueColumnId: 'value-id',
+    };
+    let synchronousError: unknown;
+    act(() => {
+      try {
+        result.current.onDiscoverCategories(pair);
+      } catch (error) {
+        synchronousError = error;
+      }
+    });
+
+    expect(result.current.pivotDiscovery).toMatchObject({
+      ...pair,
+      status: 'failed',
+      reason: failureMessage,
+    });
+    expect(synchronousError).toBeUndefined();
+
+    act(() => result.current.onDiscoverCategories(pair));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.pivotDiscovery).toMatchObject({
+      ...pair,
+      status: 'failed',
+      reason: rejectedMessage,
+    });
+
+    act(() => result.current.onDiscoverCategories(pair));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(discoverConstructionCategories).toHaveBeenCalledTimes(3);
+    expect(result.current.pivotDiscovery).toMatchObject({
+      ...pair,
+      status: 'complete',
+      categories: categoriesFor({ ...request, ...pair }).categories,
+    });
+    unmount();
+  });
+
   it('surfaces the structured category limit outcome without treating it as a failed request', async () => {
     const message = 'This field has more than 256 category values in the current rows. Choose another category field or filter rows before pivoting.';
     const client = {
