@@ -442,19 +442,20 @@ type RelationshipKey struct {
 
 // Write-side field profiling state.
 type Profiler struct {
-	project             string
-	datasetGeneration   string
-	authResourcePath    string
-	resourceType        string
-	semanticSourceKind  string
-	semanticOnly        bool
-	limits              ProfileLimits
-	shapeCache          *ShapePlanCache
-	stats               map[string]*fieldCatalogStats
-	retainedBytes       int
-	truncated           bool
-	enrichmentTruncated bool
-	budget              *retentionBudget
+	project                  string
+	datasetGeneration        string
+	semanticInventoryBuildID string
+	authResourcePath         string
+	resourceType             string
+	semanticSourceKind       string
+	semanticOnly             bool
+	limits                   ProfileLimits
+	shapeCache               *ShapePlanCache
+	stats                    map[string]*fieldCatalogStats
+	retainedBytes            int
+	truncated                bool
+	enrichmentTruncated      bool
+	budget                   *retentionBudget
 }
 
 type fieldCatalogStats struct {

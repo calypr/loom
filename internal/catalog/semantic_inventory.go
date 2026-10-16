@@ -245,10 +245,23 @@ func NewSemanticInventoryBuild(project, datasetGeneration, authResourcePath stri
 type SemanticInventoryEmitter struct {
 	project           string
 	datasetGeneration string
+	buildID           string
 }
 
 func NewSemanticInventoryEmitter(project, datasetGeneration string) SemanticInventoryEmitter {
-	return SemanticInventoryEmitter{project: project, datasetGeneration: NormalizeDatasetGeneration(datasetGeneration)}
+	datasetGeneration = NormalizeDatasetGeneration(datasetGeneration)
+	return SemanticInventoryEmitter{
+		project:           project,
+		datasetGeneration: datasetGeneration,
+		buildID:           SemanticInventoryBuildID(project, datasetGeneration),
+	}
+}
+
+func (e SemanticInventoryEmitter) semanticBuildID() string {
+	if e.buildID != "" {
+		return e.buildID
+	}
+	return SemanticInventoryBuildID(e.project, e.datasetGeneration)
 }
 
 func semanticInventorySourceKind(kind string) string {
@@ -263,12 +276,13 @@ func (e SemanticInventoryEmitter) ObservePayload(payload map[string]any, resourc
 		return nil
 	}
 	p := Profiler{
-		project:            e.project,
-		datasetGeneration:  e.datasetGeneration,
-		authResourcePath:   authResourcePath,
-		resourceType:       resourceType,
-		semanticOnly:       true,
-		semanticSourceKind: SemanticInventorySourceRetained,
+		project:                  e.project,
+		datasetGeneration:        e.datasetGeneration,
+		semanticInventoryBuildID: e.semanticBuildID(),
+		authResourcePath:         authResourcePath,
+		resourceType:             resourceType,
+		semanticOnly:             true,
+		semanticSourceKind:       SemanticInventorySourceRetained,
 	}
 	return p.observeSemanticObservations(payload, sourceID, sink)
 }
@@ -296,12 +310,13 @@ func (e SemanticInventoryEmitter) ObservePayloadWithCoverage(
 		return fmt.Errorf("semantic coverage source sink is required")
 	}
 	p := Profiler{
-		project:            e.project,
-		datasetGeneration:  e.datasetGeneration,
-		authResourcePath:   authResourcePath,
-		resourceType:       resourceType,
-		semanticOnly:       true,
-		semanticSourceKind: SemanticInventorySourceRetained,
+		project:                  e.project,
+		datasetGeneration:        e.datasetGeneration,
+		semanticInventoryBuildID: e.semanticBuildID(),
+		authResourcePath:         authResourcePath,
+		resourceType:             resourceType,
+		semanticOnly:             true,
+		semanticSourceKind:       SemanticInventorySourceRetained,
 	}
 	rawPaths := make(map[string]struct{})
 	for _, field := range buildShapePlan(payload).fields {
@@ -330,7 +345,7 @@ func (p *Profiler) semanticInventoryContribution(sourceID string, ordinal int, o
 	if len(observation.Examples) > 0 {
 		example = observation.Examples[0]
 	}
-	buildID := SemanticInventoryBuildID(p.project, p.datasetGeneration)
+	buildID := p.semanticInventoryBuildID
 	keyParts := []string{
 		"semantic-inventory-contribution/v1",
 		p.project,

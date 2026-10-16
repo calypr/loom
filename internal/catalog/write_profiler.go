@@ -30,15 +30,16 @@ func NewProfilerForGenerationWithLimits(project, datasetGeneration, authResource
 		cache = NewShapePlanCacheWithLimits(limits.MaxShapePlans, limits.MaxRetainedBytes)
 	}
 	return &Profiler{
-		project:            project,
-		datasetGeneration:  NormalizeDatasetGeneration(datasetGeneration),
-		authResourcePath:   authResourcePath,
-		resourceType:       resourceType,
-		semanticSourceKind: SemanticInventorySourceFile,
-		limits:             limits,
-		shapeCache:         cache,
-		stats:              make(map[string]*fieldCatalogStats),
-		budget:             cache.retentionBudget(limits.MaxRetainedBytes),
+		project:                  project,
+		datasetGeneration:        NormalizeDatasetGeneration(datasetGeneration),
+		semanticInventoryBuildID: SemanticInventoryBuildID(project, datasetGeneration),
+		authResourcePath:         authResourcePath,
+		resourceType:             resourceType,
+		semanticSourceKind:       SemanticInventorySourceFile,
+		limits:                   limits,
+		shapeCache:               cache,
+		stats:                    make(map[string]*fieldCatalogStats),
+		budget:                   cache.retentionBudget(limits.MaxRetainedBytes),
 	}
 }
 
