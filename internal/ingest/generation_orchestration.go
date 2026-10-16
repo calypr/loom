@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/calypr/loom/internal/catalog"
@@ -25,6 +26,127 @@ func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 }
 
 const generationCleanupTimeout = 10 * time.Second
+
+type semanticCoverageResourceLifecycle interface {
+	BeginSemanticCoverageResource(context.Context, catalogarango.SemanticCoverageBuildIdentity, string) error
+	MarkSemanticCoverageResourceMissing(context.Context, catalogarango.SemanticCoverageBuildIdentity, string) error
+	CompleteSemanticCoverageResource(context.Context, catalogarango.SemanticCoverageBuildIdentity, catalogarango.SemanticCoverageResourceExpectation, int) error
+	FailSemanticCoverageResource(context.Context, catalogarango.SemanticCoverageBuildIdentity, string, string) error
+	FinalizeSemanticCoverageBuild(context.Context, catalogarango.SemanticCoverageBuildIdentity, []string) error
+}
+
+type generationSemanticCoverageResource struct {
+	sourceSet   *catalogarango.SemanticCoverageSourceSetAccumulator
+	sourceCount int64
+	complete    bool
+}
+
+func beginGenerationSemanticCoverageResources(
+	ctx context.Context,
+	store semanticCoverageResourceLifecycle,
+	identity catalogarango.SemanticCoverageBuildIdentity,
+	expectedResourceTypes []string,
+	files []string,
+) (map[string]*generationSemanticCoverageResource, []string, error) {
+	expected := append([]string(nil), expectedResourceTypes...)
+	sort.Strings(expected)
+	for index, resourceType := range expected {
+		if resourceType == "" {
+			return nil, nil, fmt.Errorf("semantic coverage expected resource type is empty")
+		}
+		if index > 0 && resourceType == expected[index-1] {
+			return nil, nil, fmt.Errorf("duplicate semantic coverage resource type %q", resourceType)
+		}
+	}
+	present := make(map[string]struct{}, len(expected))
+	for _, file := range files {
+		present[ResourceTypeFromPath(file)] = struct{}{}
+	}
+	resources := make(map[string]*generationSemanticCoverageResource, len(expected))
+	for _, resourceType := range expected {
+		if _, exists := present[resourceType]; !exists {
+			if err := store.MarkSemanticCoverageResourceMissing(ctx, identity, resourceType); err != nil {
+				return resources, expected, fmt.Errorf("mark semantic coverage resource %s missing: %w", resourceType, err)
+			}
+			continue
+		}
+		if err := store.BeginSemanticCoverageResource(ctx, identity, resourceType); err != nil {
+			return resources, expected, fmt.Errorf("begin semantic coverage resource %s: %w", resourceType, err)
+		}
+		resources[resourceType] = &generationSemanticCoverageResource{
+			sourceSet: catalogarango.NewSemanticCoverageSourceSetAccumulator(resourceType, true),
+		}
+	}
+	return resources, expected, nil
+}
+
+func completeGenerationSemanticCoverageResources(
+	ctx context.Context,
+	store semanticCoverageResourceLifecycle,
+	identity catalogarango.SemanticCoverageBuildIdentity,
+	expectedResourceTypes []string,
+	resources map[string]*generationSemanticCoverageResource,
+	batchSize int,
+) error {
+	for _, resourceType := range expectedResourceTypes {
+		resource := resources[resourceType]
+		if resource == nil {
+			continue
+		}
+		expectation, err := resource.sourceSet.Snapshot(true)
+		if err != nil {
+			return fmt.Errorf("snapshot semantic coverage source set for %s: %w", resourceType, err)
+		}
+		if expectation.ResourceType != resourceType || expectation.SourceCount != resource.sourceCount {
+			return fmt.Errorf("semantic coverage source count for %s is %d, accumulator observed %d", resourceType, expectation.SourceCount, resource.sourceCount)
+		}
+		if err := store.CompleteSemanticCoverageResource(ctx, identity, expectation, batchSize); err != nil {
+			return fmt.Errorf("complete semantic coverage resource %s: %w", resourceType, err)
+		}
+		resource.complete = true
+	}
+	return nil
+}
+
+func finalizeGenerationSemanticCoverageResources(
+	ctx context.Context,
+	store semanticCoverageResourceLifecycle,
+	identity catalogarango.SemanticCoverageBuildIdentity,
+	expectedResourceTypes []string,
+	resources map[string]*generationSemanticCoverageResource,
+	batchSize int,
+) error {
+	if err := completeGenerationSemanticCoverageResources(ctx, store, identity, expectedResourceTypes, resources, batchSize); err != nil {
+		return err
+	}
+	if err := store.FinalizeSemanticCoverageBuild(ctx, identity, expectedResourceTypes); err != nil {
+		return fmt.Errorf("finalize semantic coverage build: %w", err)
+	}
+	return nil
+}
+
+func failGenerationSemanticCoverageResources(
+	ctx context.Context,
+	store semanticCoverageResourceLifecycle,
+	identity catalogarango.SemanticCoverageBuildIdentity,
+	resources map[string]*generationSemanticCoverageResource,
+	reason string,
+) error {
+	resourceTypes := make([]string, 0, len(resources))
+	for resourceType, resource := range resources {
+		if resource != nil && !resource.complete {
+			resourceTypes = append(resourceTypes, resourceType)
+		}
+	}
+	sort.Strings(resourceTypes)
+	var failures []error
+	for _, resourceType := range resourceTypes {
+		if err := store.FailSemanticCoverageResource(ctx, identity, resourceType, reason); err != nil {
+			failures = append(failures, fmt.Errorf("mark semantic coverage resource %s failed: %w", resourceType, err))
+		}
+	}
+	return errors.Join(failures...)
+}
 
 func totalResourceRows(resources map[string]int) int64 {
 	var total int64
@@ -220,6 +342,21 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 			return catalogStore.FailSemanticInventoryBuild(cleanupCtx, inventoryBuild, diagnostic)
 		})
 	}()
+	coverageResources, expectedCoverageResources, resourceErr := beginGenerationSemanticCoverageResources(
+		ctx, catalogStore, coverageIdentity, schemaIdentity.GeneratedResourceTypes, files,
+	)
+	defer func() {
+		if err == nil || coverageComplete {
+			return
+		}
+		diagnostic := err.Error()
+		err = generationCleanupError(ctx, generationCleanupTimeout, err, "mark semantic coverage resources failed", func(cleanupCtx context.Context) error {
+			return failGenerationSemanticCoverageResources(cleanupCtx, catalogStore, coverageIdentity, coverageResources, diagnostic)
+		})
+	}()
+	if resourceErr != nil {
+		return summary, resourceErr
+	}
 	catalogs := make(map[generationCatalogKey]*catalog.Profiler)
 	relationshipCounts := make(map[catalog.RelationshipKey]int64)
 	lastInventoryCheckpoint := ""
@@ -231,6 +368,12 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		resourceType := ResourceTypeFromPath(file)
 		emitEvent(opts.EventSink, "go_load_file_start", map[string]any{"file": file, "resource": resourceType})
 
+		coverageContext := []semanticCoverageLoadContext(nil)
+		if resource := coverageResources[resourceType]; resource != nil {
+			coverageContext = append(coverageContext, semanticCoverageLoadContext{
+				Identity: coverageIdentity, Writer: catalogStore, SourceSet: resource.sourceSet,
+			})
+		}
 		result, fileErr := loadFile(
 			ctx,
 			opts,
@@ -243,10 +386,16 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 			summary.VerticesInserted,
 			summary.EdgesInserted,
 			insertRawDocuments,
-			semanticCoverageLoadContext{Identity: coverageIdentity, Writer: catalogStore},
+			coverageContext...,
 		)
 		if fileErr != nil {
 			return summary, fileErr
+		}
+		if resource := coverageResources[result.ResourceType]; resource != nil {
+			if result.SemanticCoverageSources > (1<<63-1)-resource.sourceCount {
+				return summary, fmt.Errorf("semantic coverage source count overflow for %s", result.ResourceType)
+			}
+			resource.sourceCount += result.SemanticCoverageSources
 		}
 
 		summary.VerticesInserted += result.VerticesInserted
@@ -367,8 +516,8 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		"resource_type_count": resourceInventorySummary.ResourceTypeCount, "count_row_count": resourceInventorySummary.CountRowCount,
 		"document_count": resourceInventorySummary.DocumentCount,
 	})
-	if err = catalogStore.CompleteSemanticCoverageBuild(ctx, coverageIdentity, totalResourceRows(summary.Resources), true, "", opts.BatchSize); err != nil {
-		return summary, fmt.Errorf("complete semantic coverage build: %w", err)
+	if err = finalizeGenerationSemanticCoverageResources(ctx, catalogStore, coverageIdentity, expectedCoverageResources, coverageResources, opts.BatchSize); err != nil {
+		return summary, err
 	}
 	coverageComplete = true
 	if err = catalogStore.CompleteSemanticInventoryBuild(ctx, inventoryBuild, totalResourceRows(summary.Resources), lastInventoryCheckpoint); err != nil {

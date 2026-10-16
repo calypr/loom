@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -462,27 +463,62 @@ func TestFieldPresentationGroupsExactRelatedOccurrenceAndAppliesCurrentChoice(t 
 }
 
 func TestFieldPresentationGroupsRawCodingFacetUnderExistingCategoryFamily(t *testing.T) {
+	assertFieldPresentationCodedFamilyProof(
+		t, "Observation", "code", catalogarango.SemanticCoverageBuildComplete,
+		catalogarango.SemanticCoverageBuildComplete, catalogarango.SemanticCoverageCandidateGroupable, true,
+	)
+}
+
+func TestFieldPresentationGroupsSpecimenCandidateDuringPartialAudit(t *testing.T) {
+	assertFieldPresentationCodedFamilyProof(
+		t, "Specimen", "type", catalogarango.SemanticCoverageBuildPartial,
+		catalogarango.SemanticCoverageBuildComplete, catalogarango.SemanticCoverageCandidateGroupable, true,
+	)
+}
+
+func TestFieldPresentationKeepsTaskCandidateRawWithoutResourceCertificate(t *testing.T) {
+	assertFieldPresentationCodedFamilyProof(
+		t, "Task", "code", catalogarango.SemanticCoverageBuildPartial,
+		catalogarango.SemanticCoverageBuildMissing, catalogarango.SemanticCoverageCandidateUnavailable, false,
+	)
+}
+
+func assertFieldPresentationCodedFamilyProof(
+	t *testing.T,
+	resourceType, ownerField string,
+	globalState, resourceState catalogarango.SemanticCoverageBuildState,
+	candidateStatus catalogarango.SemanticCoverageCandidateStatus,
+	wantGroup bool,
+) {
+	t.Helper()
 	const (
 		project    = "project-a"
 		generation = "generation-a"
 	)
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := readySnapshot(project, generation, "field-presentation-family-snapshot", scope)
-	snapshot.Nodes = []capability.Node{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}}
+	const sourceNodeID = "semantic-source"
+	ownerPath := ownerField + ".coding[]"
+	codePath := ownerPath + ".code"
+	displayPath := ownerPath + ".display"
+	snapshot.Nodes = []capability.Node{{ID: sourceNodeID, ResourceType: resourceType, RowRootEligible: true}}
 	codeCandidate := capability.Candidate{
-		ID: "opaque-coding-code", NodeID: "observation", ResourceType: "Observation", FieldPath: "code.coding[].code",
-		Label: "Observation coding code", LogicalType: "string", Cardinality: "many",
-		RepeatedBoundaries: []capability.RepeatedBoundary{{Path: "code.coding[]", MaxItems: 8}},
+		ID: "opaque-coding-code", NodeID: sourceNodeID, ResourceType: resourceType, FieldPath: codePath,
+		Label: resourceType + " coding code", LogicalType: "string", Cardinality: "many",
+		RepeatedBoundaries: []capability.RepeatedBoundary{{Path: ownerPath, MaxItems: 8}},
 		ProjectionModes:    []capability.ProjectionMode{capability.ProjectionArray}, Populated: true,
 	}
 	displayCandidate := capability.Candidate{
-		ID: "observation-coding-display", NodeID: "observation", ResourceType: "Observation", FieldPath: "code.coding[].display",
-		Label: "Observation coding display", LogicalType: "string", Cardinality: "many",
-		RepeatedBoundaries: []capability.RepeatedBoundary{{Path: "code.coding[]", MaxItems: 8}},
+		ID: "semantic-coding-display", NodeID: sourceNodeID, ResourceType: resourceType, FieldPath: displayPath,
+		Label: resourceType + " coding display", LogicalType: "string", Cardinality: "many",
+		RepeatedBoundaries: []capability.RepeatedBoundary{{Path: ownerPath, MaxItems: 8}},
 		ProjectionModes:    []capability.ProjectionMode{capability.ProjectionFirst, capability.ProjectionArray}, Populated: true,
 	}
 	snapshot.Candidates = []capability.Candidate{codeCandidate, displayCandidate}
-	family := testCodedCategoryFamily(catalog.SemanticInventorySourceFile, "Observation", "Observation.code.coding[]", "urn:example:observation-code", "")
+	family := testCodedCategoryFamily(catalog.SemanticInventorySourceFile, resourceType, resourceType+"."+ownerPath, "urn:example:"+strings.ToLower(resourceType)+"-code", "")
+	family.KeySelector = ownerPath
+	family.Value.Selector = displayPath
+	family.Value.FallbackSelectors = []string{codePath}
 	buildID := catalog.SemanticInventoryBuildID(project, generation)
 	build := catalog.SemanticInventoryBuild{
 		BuildID: buildID, State: catalog.SemanticInventoryComplete, SourceKind: catalog.SemanticInventorySourceFile,
@@ -502,8 +538,8 @@ func TestFieldPresentationGroupsRawCodingFacetUnderExistingCategoryFamily(t *tes
 		t.Fatal(err)
 	}
 	document := &workspace.Documents[0]
-	document.RootResourceType = "Observation"
-	document.Route = authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation", Children: []authoringv2.RouteNode{}}
+	document.RootResourceType = resourceType
+	document.Route = authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: resourceType, Children: []authoringv2.RouteNode{}}
 	document.Columns = []authoringv2.Column{}
 	document.FixedFilters = []authoringv2.FixedFilter{}
 	document.Actions = []authoringv2.Action{}
@@ -512,7 +548,7 @@ func TestFieldPresentationGroupsRawCodingFacetUnderExistingCategoryFamily(t *tes
 		APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: project, ExplorerID: "patients",
 		SourceGeneration: generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
 		SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
-		Nodes: []authoringv2.CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}},
+		Nodes: []authoringv2.CatalogNode{{ID: sourceNodeID, ResourceType: resourceType, RowRootEligible: true}},
 		Candidates: []authoringv2.CatalogCandidate{
 			{ID: codeCandidate.ID, NodeID: codeCandidate.NodeID, FieldPath: codeCandidate.FieldPath, Label: codeCandidate.Label, LogicalType: codeCandidate.LogicalType, Cardinality: codeCandidate.Cardinality, Repeated: true, ProjectionModes: []string{"ARRAY"}, DefaultProjectionMode: "ARRAY", ConstructionChoice: &codeChoice},
 			{ID: displayCandidate.ID, NodeID: displayCandidate.NodeID, FieldPath: displayCandidate.FieldPath, Label: displayCandidate.Label, LogicalType: displayCandidate.LogicalType, Cardinality: displayCandidate.Cardinality, Repeated: true, ProjectionModes: []string{"FIRST", "ARRAY"}, DefaultProjectionMode: "FIRST", ConstructionChoice: &displayChoice},
@@ -520,11 +556,13 @@ func TestFieldPresentationGroupsRawCodingFacetUnderExistingCategoryFamily(t *tes
 	}
 	coverage := catalogarango.SemanticCoverageCandidateResult{
 		ResourceType: codeCandidate.ResourceType, CanonicalPath: codeCandidate.FieldPath, CoverageID: "coding-code-coverage",
-		Status: catalogarango.SemanticCoverageCandidateGroupable,
-		References: []catalog.SemanticCoverageReference{{
+		ResourceState: resourceState, Status: candidateStatus, Reason: catalog.SemanticCoverageReasonIncompleteSource,
+	}
+	if candidateStatus == catalogarango.SemanticCoverageCandidateGroupable {
+		coverage.References = []catalog.SemanticCoverageReference{{
 			Kind: catalog.SemanticCoverageFamilyReference, BindingID: family.BindingID,
 			Family: family.SemanticInventoryFamilyReference, CandidatePath: codeCandidate.FieldPath, ResourceType: codeCandidate.ResourceType,
-		}},
+		}}
 	}
 	service := newTestService(t, store, Config{
 		Capability: CapabilityResolver{
@@ -540,7 +578,7 @@ func TestFieldPresentationGroupsRawCodingFacetUnderExistingCategoryFamily(t *tes
 			if len(options.Candidates) != 1 || options.Candidates[0] != (catalogarango.SemanticCoverageCandidatePath{ResourceType: codeCandidate.ResourceType, CanonicalPath: codeCandidate.FieldPath}) {
 				t.Fatalf("coverage lookup did not use the exact Coding leaf facet: %#v", options)
 			}
-			return catalogarango.SemanticCoverageLookupResult{State: catalogarango.SemanticCoverageBuildComplete, Candidates: []catalogarango.SemanticCoverageCandidateResult{coverage}}, nil
+			return catalogarango.SemanticCoverageLookupResult{State: globalState, Candidates: []catalogarango.SemanticCoverageCandidateResult{coverage}}, nil
 		},
 		ResolveSemanticInventorySelections: func(_ context.Context, options catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error) {
 			if len(options.FamilyReferences) != 1 || options.FamilyReferences[0] != family.SemanticInventoryFamilyReference || len(options.References) != 0 {
@@ -550,10 +588,10 @@ func TestFieldPresentationGroupsRawCodingFacetUnderExistingCategoryFamily(t *tes
 		},
 	})
 	request := BrowseSemanticInventoryRequest{
-		Project: project, ExplorerID: "patients", SnapshotToken: snapshot.Token, RowRoot: "Observation", OutputID: "patients",
+		Project: project, ExplorerID: "patients", SnapshotToken: snapshot.Token, RowRoot: resourceType, OutputID: "patients",
 		FieldPresentation: &FieldPresentationRequest{
 			ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
-			SourceNodeID: "observation", OccurrenceID: authoringv2.RootOccurrenceID, CandidateIDs: []string{codeCandidate.ID},
+			SourceNodeID: sourceNodeID, OccurrenceID: authoringv2.RootOccurrenceID, CandidateIDs: []string{codeCandidate.ID},
 		},
 	}
 	response, err := service.BrowseSemanticInventory(context.Background(), request)
@@ -561,23 +599,39 @@ func TestFieldPresentationGroupsRawCodingFacetUnderExistingCategoryFamily(t *tes
 		t.Fatal(err)
 	}
 	ready, ok := response.FieldPresentation.(FieldPresentationReady)
-	if !ok || len(ready.Decisions) != 1 || len(ready.Replacements) != 1 {
-		t.Fatalf("presentation=%#v, want one existing category-family replacement", response.FieldPresentation)
+	if !ok || len(ready.Decisions) != 1 {
+		t.Fatalf("presentation=%#v, want one exact resource-certificate decision", response.FieldPresentation)
 	}
-	group, ok := ready.Decisions[0].(FieldPresentationGroupUnderSemantic)
-	if !ok || len(group.ReplacementIDs) != 1 {
-		t.Fatalf("decision=%#v, want one category-family identity", ready.Decisions[0])
-	}
-	familyIdentity, ok := group.ReplacementIDs[0].(FamilySemanticInventoryItemIdentity)
-	if !ok || familyIdentity.FamilyID != family.FamilyID || familyIdentity.BindingID != family.BindingID {
-		t.Fatalf("replacement identity=%#v, want existing system-version family", group.ReplacementIDs[0])
-	}
-	replacement := ready.Replacements[0]
-	choiceSource, ok := replacement.ConstructionChoice.Source.(capability.SemanticBindingChoiceSource)
-	if !ok || replacement.SelectionMode != string(catalog.SemanticInventorySystemVersionCategory) ||
-		replacement.FamilyID != family.FamilyID || choiceSource.RuleHint != catalog.SemanticRuleHintCodedCategoryV1 ||
-		choiceSource.SourceKind != family.SourceKind || choiceSource.System != family.System || choiceSource.Version != family.Version {
-		t.Fatalf("replacement is not a rendered existing coded category: %#v", replacement)
+	if wantGroup {
+		if len(ready.Replacements) != 1 {
+			t.Fatalf("presentation=%#v, want one existing category-family replacement", ready)
+		}
+		group, ok := ready.Decisions[0].(FieldPresentationGroupUnderSemantic)
+		if !ok || len(group.ReplacementIDs) != 1 {
+			t.Fatalf("decision=%#v, want one category-family identity", ready.Decisions[0])
+		}
+		familyIdentity, ok := group.ReplacementIDs[0].(FamilySemanticInventoryItemIdentity)
+		if !ok || familyIdentity.FamilyID != family.FamilyID || familyIdentity.BindingID != family.BindingID {
+			t.Fatalf("replacement identity=%#v, want existing system-version family", group.ReplacementIDs[0])
+		}
+		replacement := ready.Replacements[0]
+		choiceSource, ok := replacement.ConstructionChoice.Source.(capability.SemanticBindingChoiceSource)
+		if !ok || replacement.SelectionMode != string(catalog.SemanticInventorySystemVersionCategory) ||
+			replacement.FamilyID != family.FamilyID || choiceSource.RuleHint != catalog.SemanticRuleHintCodedCategoryV1 ||
+			choiceSource.SourceKind != family.SourceKind || choiceSource.System != family.System || choiceSource.Version != family.Version {
+			t.Fatalf("replacement is not a rendered existing coded category: %#v", replacement)
+		}
+	} else {
+		if len(ready.Replacements) != 0 {
+			t.Fatalf("presentation=%#v, incomplete Task certificate must not return replacements", ready.Replacements)
+		}
+		decision, ok := ready.Decisions[0].(FieldPresentationKeepRaw)
+		if !ok || decision.CandidateID != codeCandidate.ID || decision.Reason != FieldPresentationIncompleteCoverage {
+			t.Fatalf("decision=%#v, want KEEP_RAW / INCOMPLETE_COVERAGE", ready.Decisions[0])
+		}
+		if len(response.Entries) != 1 || response.Entries[0].ConstructionChoice == nil {
+			t.Fatalf("incomplete Task certificate removed the existing coded browse choice: %#v", response.Entries)
+		}
 	}
 }
 
@@ -748,7 +802,7 @@ func newFieldPresentationTestFixture(t *testing.T, related bool) *fieldPresentat
 	persistTestWorkspace(t, store, workspace)
 	coverage := catalogarango.SemanticCoverageCandidateResult{
 		ResourceType: candidate.ResourceType, CanonicalPath: candidate.FieldPath, CoverageID: "coverage-id",
-		Status: catalogarango.SemanticCoverageCandidateGroupable,
+		ResourceState: catalogarango.SemanticCoverageBuildComplete, Status: catalogarango.SemanticCoverageCandidateGroupable,
 		References: []catalog.SemanticCoverageReference{{
 			Kind: catalog.SemanticCoverageExactReference, ConceptID: entry.ConceptID, BindingID: entry.BindingID,
 			CandidatePath: candidate.FieldPath, ResourceType: candidate.ResourceType,
