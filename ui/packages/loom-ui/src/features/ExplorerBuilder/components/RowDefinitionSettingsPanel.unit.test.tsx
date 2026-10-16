@@ -290,9 +290,8 @@ const relatedRowProps = {
     onReplaceRoot: (rootNodeId: string) => void,
   ) => (
     <section aria-label="Starting record type">
-      <h4>Starting record type</h4>
       <label>
-        <span>Record type</span>
+        <span>Starting record type</span>
         <select aria-label="Record type" value="base" onChange={(event) => {
           if (event.currentTarget.value === 'patient-observation') {
             onRootChange({ kind: 'authored-occurrence', nodeId: 'observation', occurrenceId: 'patient-observation' });
@@ -335,6 +334,10 @@ const renderSettings = (overrides: {
   proposalValue?: RowDefinitionProposal;
   choicesValue?: RowDefinitionChoicesResponse;
   relatedRowsSupported?: boolean;
+  relatedRowsReason?: string;
+  groupSupported?: boolean;
+  groupReason?: string;
+  expandReason?: string;
   pivotSupported?: boolean;
   pivotPending?: boolean;
   expandSupported?: boolean;
@@ -376,13 +379,13 @@ const renderSettings = (overrides: {
       renderRootSettings={overrides.renderRootSettings ?? relatedRowProps.renderRootSettings}
       currentRowMeaning={overrides.currentRowMeaning ?? relatedRowProps.currentRowMeaning}
       onChangeRootSelection={onChangeRootSelection}
-      relatedRows={{ supported: overrides.relatedRowsSupported ?? false, reason: 'No executable route' }}
-      reshapeRows={{ group: { supported: true }, groupEntry: overrides.codedGroupDefault ? 'coded-group' : 'group',
+      relatedRows={{ supported: overrides.relatedRowsSupported ?? false, reason: overrides.relatedRowsReason ?? 'No executable route' }}
+      reshapeRows={{ group: { supported: overrides.groupSupported ?? true, reason: overrides.groupReason ?? 'No executable grouping operation' }, groupEntry: overrides.codedGroupDefault ? 'coded-group' : 'group',
         groupAlternatives: overrides.sourceGroupAlternative ? [{ kind: 'source-group', label: 'By source field' }] : [],
         pivotEntry: overrides.codedPivotDefault ? 'coded-pivot' : 'pivot', pivot: {
         supported: overrides.pivotSupported ?? true,
         reason: 'No executable category-to-column operation',
-      }, expand: { supported: overrides.expandSupported ?? true, reason: 'No list column is available in this table.' },
+      }, expand: { supported: overrides.expandSupported ?? true, reason: overrides.expandReason ?? 'No list column in this table. Use a repeated source field before current row changes.' },
       pivotPending: overrides.pivotPending ?? false, ...(overrides.tablePivotAlternative ? { pivotAlternative: 'pivot' as const } : {}) }}
       onChooseRelatedRows={onChooseRelatedRows}
       onChooseReshape={onChooseReshape}
@@ -569,10 +572,11 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(screen.queryByRole('dialog', { name: 'Replace this table’s current setup?' })).toBeNull();
   });
 
-  it('separates starting-record expansion from current row changes', async () => {
+  it('keeps source-field expansion adjacent to current row changes as a separate action', async () => {
+    const onExpandSource = vi.fn();
     const { onChooseReshape } = renderSettings({
       sourceCollectionAction: (
-        <button type="button" data-testid="construction-reshape-expand-source">
+        <button type="button" data-testid="construction-reshape-expand-source" onClick={onExpandSource}>
           Expand a repeated source field
         </button>
       ),
@@ -580,29 +584,38 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(table.document.columns).toHaveLength(0);
 
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
-    const rowChangeMenu = await screen.findByRole('region', { name: 'Choose a row change' });
-    const startingRows = await screen.findByRole('region', { name: 'Starting-record rows' });
-    expect(startingRows.contains(await screen.findByTestId('construction-reshape-expand-source'))).toBe(true);
-    expect(rowChangeMenu.contains(screen.getByTestId('construction-reshape-expand-source'))).toBe(false);
-    expect(startingRows).toHaveTextContent('before the current row changes');
+    const rowChanges = await screen.findByRole('region', { name: 'Choose a row change' });
+    const startingRecordRows = within(rowChanges).getByRole('region', { name: 'Starting-record rows' });
+    const sourceExpansion = await within(rowChanges).findByTestId('construction-reshape-expand-source');
+    const tableExpansion = within(rowChanges).getByTestId('construction-action-expand-rows');
+    expect(startingRecordRows.contains(sourceExpansion)).toBe(true);
+    expect(startingRecordRows.contains(tableExpansion)).toBe(false);
+    fireEvent.click(sourceExpansion);
+    expect(onExpandSource).toHaveBeenCalledOnce();
     expect(onChooseReshape).not.toHaveBeenCalled();
   });
 
   it('opens authored list expansion separately from source collection expansion', async () => {
+    const onExpandSource = vi.fn();
     const { onChooseReshape } = renderSettings({
       sourceCollectionAction: (
-        <button type="button" data-testid="construction-reshape-expand-source">
+        <button type="button" data-testid="construction-reshape-expand-source" onClick={onExpandSource}>
           Expand a repeated source field
         </button>
       ),
     });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
-    const rowChangeMenu = await screen.findByRole('region', { name: 'Choose a row change' });
-    const startingRows = await screen.findByRole('region', { name: 'Starting-record rows' });
-    expect(within(rowChangeMenu).getByTestId('construction-action-expand-rows')).toHaveTextContent('Make one row per list value');
-    expect(within(startingRows).getByTestId('construction-reshape-expand-source')).toHaveTextContent('Expand a repeated source field');
+    const rowChanges = await screen.findByRole('region', { name: 'Choose a row change' });
+    const tableExpansion = within(rowChanges).getByTestId('construction-action-expand-rows');
+    const startingRecordRows = within(rowChanges).getByRole('region', { name: 'Starting-record rows' });
+    const sourceExpansion = within(startingRecordRows).getByTestId('construction-reshape-expand-source');
+    expect(tableExpansion).toHaveTextContent('Make one row per list value');
+    expect(sourceExpansion).toHaveTextContent('Expand a repeated source field');
+    expect(startingRecordRows.contains(tableExpansion)).toBe(false);
 
-    fireEvent.click(within(rowChangeMenu).getByTestId('construction-action-expand-rows'));
+    fireEvent.click(sourceExpansion);
+    expect(onExpandSource).toHaveBeenCalledOnce();
+    fireEvent.click(tableExpansion);
     expect(onChooseReshape).toHaveBeenCalledWith('expand');
   });
 
@@ -612,7 +625,18 @@ describe('RowDefinitionSettingsPanel', () => {
     const expand = await screen.findByTestId('construction-action-expand-rows');
 
     expect(expand).toBeDisabled();
-    expect(expand).toHaveTextContent('No list column is available in this table.');
+    expect(expand).toHaveTextContent('No list column in this table. Use a repeated source field before current row changes.');
+    expect(expand.querySelector('.sr-only')).toBeNull();
+    expect(expand.querySelector('span.text-xs')).not.toHaveClass('truncate');
+  });
+
+  it('shows non-array capability errors in the disabled table expansion action', async () => {
+    renderSettings({ expandSupported: false, expandReason: 'Capability lookup failed. Retry after refreshing row capabilities.' });
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    const expand = await screen.findByTestId('construction-action-expand-rows');
+    expect(expand).toBeDisabled();
+    expect(expand).toHaveTextContent('Capability lookup failed. Retry after refreshing row capabilities.');
+    expect(expand.querySelector('span.text-xs')).not.toHaveClass('truncate');
   });
 
   it('shows one compact Rows card and opens its row and starting-collection settings', async () => {
@@ -627,13 +651,15 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.click(trigger);
     const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
     expect(within(dialog).getByRole('heading', { name: 'Change current rows' })).toBeInTheDocument();
-    expect(dialog.contains(screen.getByRole('region', { name: 'Starting record settings' }))).toBe(true);
     expect(dialog.contains(screen.getByRole('region', { name: 'Starting record type' }))).toBe(true);
-    expect(dialog.contains(screen.getByRole('region', { name: 'Starting-record row shape' }))).toBe(true);
-    expect(dialog.contains(screen.getByRole('heading', { name: 'Current row changes' }))).toBe(true);
-    expect(dialog.contains(screen.getByRole('region', { name: 'Starting collection' }))).toBe(true);
+    expect(dialog.contains(screen.getByRole('region', { name: 'Choose a row change' }))).toBe(true);
     expect(screen.getByText('All authorized Patient records')).toBeInTheDocument();
-    expect(dialog.querySelectorAll('details')).toHaveLength(0);
+    const collectionFooter = within(dialog).getByTestId('construction-starting-collection-footer');
+    expect(dialog.querySelectorAll('details')).toHaveLength(1);
+    expect(collectionFooter).not.toHaveAttribute('open');
+    fireEvent.click(within(collectionFooter).getByText('Starting collection'));
+    expect(collectionFooter).toHaveAttribute('open');
+    expect(within(collectionFooter).getByText('Collection controls')).toBeInTheDocument();
     expect(dialog.contains(await screen.findByRole('combobox', { name: 'Rows per starting record' }))).toBe(true);
   });
 
@@ -641,11 +667,8 @@ describe('RowDefinitionSettingsPanel', () => {
     const { onChooseRelatedRows } = renderSettings({ relatedRowsSupported: true });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const related = await screen.findByRole('button', { name: /Make a row for each related record/ });
-    expect(related).toHaveTextContent('Follow a relationship to another record type, such as Patient to Observation');
-    expect(related).toHaveTextContent('Make a row for each match, with existing values repeated');
-    expect(related).toHaveTextContent('By default, keep a current row once when no records match');
-    expect(related).toHaveTextContent('Fields from each matched record become available in Add columns');
-    expect(related).toHaveTextContent('Patient A with 2 Observations → 2 rows');
+    expect(related).toHaveTextContent('Follow a relationship; make one row for each match.');
+    expect(related.getAttribute('title')).toContain('unmatched rows follow the selected policy');
     fireEvent.click(related);
     expect(onChooseRelatedRows).toHaveBeenCalledOnce();
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -670,7 +693,7 @@ describe('RowDefinitionSettingsPanel', () => {
     const history = await screen.findByTestId('construction-row-operation-history');
     expect(history).toHaveTextContent('1');
     expect(history).toHaveTextContent('Group rows by Status.');
-    expect(screen.getByRole('heading', { name: 'Named cohorts' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Named cohorts' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Create groups from this selection' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('construction-row-edit-group-step'));
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -692,8 +715,8 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const group = await screen.findByTestId('construction-action-group-rows');
     expect(group).toHaveTextContent('Combine rows into groups');
-    expect(group).toHaveTextContent('one row for each combination of matching values in the fields you choose');
-    expect(group).toHaveTextContent('3 rows with Status=active and Unit=north → 1 group row for active + north');
+    expect(group).toHaveTextContent('Group by matching values in selected fields.');
+    expect(group).not.toHaveTextContent('Example:');
     fireEvent.click(group);
     expect(onChooseReshape).toHaveBeenCalledWith('group');
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -704,8 +727,8 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const group = await screen.findByTestId('construction-action-group-rows');
     expect(group).toHaveTextContent('Combine rows into groups');
-    expect(group).toHaveTextContent('one row for each distinct recorded code');
-    expect(group).toHaveTextContent('3 rows with diagnosis code A → 1 group row for diagnosis A');
+    expect(group).toHaveTextContent('Group rows by one recorded code.');
+    expect(group).not.toHaveTextContent('Example:');
     fireEvent.click(group);
     expect(onChooseReshape).toHaveBeenCalledWith('coded-group');
   });
@@ -749,8 +772,9 @@ describe('RowDefinitionSettingsPanel', () => {
     const { onChooseReshape } = renderSettings({ codedPivotDefault: true, tablePivotAlternative: true });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const pivot = await screen.findByTestId('construction-action-pivot-rows');
-    expect(pivot).toHaveTextContent('Make a column for each category. Choose which values fill those columns.');
-    expect(pivot).toHaveTextContent('group by person. Height=170 and Weight=60 in two rows → one row with Height=170 and Weight=60 columns');
+    expect(pivot).toHaveTextContent('Make columns from distinct categories.');
+    expect(pivot.querySelector('span[title]')?.getAttribute('title')).toBe('Make a column for each category. Choose which values fill those columns.');
+    expect(pivot).not.toHaveTextContent('Example:');
     expect(pivot).toBeEnabled();
     fireEvent.click(await screen.findByTestId('construction-action-table-pivot-rows'));
     expect(onChooseReshape).toHaveBeenCalledWith('pivot');
@@ -775,13 +799,11 @@ describe('RowDefinitionSettingsPanel', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
 
     const summary = within(dialog).getByText('One row per Patient record.');
-    const startingSettings = within(dialog).getByRole('region', { name: 'Starting record settings' });
     const startingType = within(dialog).getByRole('region', { name: 'Starting record type' });
     const rowChanges = within(dialog).getByRole('region', { name: 'Choose a row change' });
     const select = within(startingType).getByRole('combobox', { name: 'Record type' });
-    expect(summary.nextElementSibling).toBe(startingSettings);
-    expect(startingSettings.contains(startingType)).toBe(true);
-    expect(startingSettings.compareDocumentPosition(rowChanges) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(summary.closest('header')?.nextElementSibling?.firstElementChild).toBe(startingType);
+    expect(startingType.compareDocumentPosition(rowChanges) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(select instanceof HTMLSelectElement && select.value).toBe('base');
     const patientOption = within(startingType).getByRole('option', { name: 'Patient (current)' });
     expect(patientOption instanceof HTMLOptionElement && patientOption.value).toBe('base');
@@ -796,9 +818,20 @@ describe('RowDefinitionSettingsPanel', () => {
   it('explains when the backend has no executable related row path', async () => {
     const { onChooseRelatedRows } = renderSettings();
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
-    expect(screen.getByRole('button', { name: /Make a row for each related record/ })).toBeDisabled();
-    expect(screen.getByText('No executable route')).toBeInTheDocument();
+    const related = screen.getByRole('button', { name: /Make a row for each related record/ });
+    expect(related).toBeDisabled();
+    expect(related).toHaveTextContent('No executable route');
+    expect(related.querySelector('span.text-xs')).not.toHaveClass('truncate');
     expect(onChooseRelatedRows).not.toHaveBeenCalled();
+  });
+
+  it('keeps unavailable grouping reasons visible on the disabled action', async () => {
+    renderSettings({ groupSupported: false, groupReason: 'Grouping needs a selected value field.' });
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    const group = await screen.findByTestId('construction-action-group-rows');
+    expect(group).toBeDisabled();
+    expect(group).toHaveTextContent('Grouping needs a selected value field.');
+    expect(group.querySelector('span.text-xs')).not.toHaveClass('truncate');
   });
 
   it('restores the saved expansion using occurrence, path, and empty policy', async () => {

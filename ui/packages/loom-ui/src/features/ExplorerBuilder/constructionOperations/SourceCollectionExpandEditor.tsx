@@ -245,19 +245,21 @@ export const SourceCollectionExpandEditor = ({
   const applying = state.kind === 'editing' && state.proposalState === 'applying';
   return (
     <>
-      <div className="border-t border-slate-200 px-3 py-2">
+      <div data-testid="construction-source-expansion-card" className={`min-w-0 rounded-lg border border-slate-200 bg-white transition-colors ${disabled || disabledByRows ? '' : 'hover:border-blue-400 hover:bg-blue-50'}`}>
         <button
           type="button"
           data-testid="construction-reshape-expand-source"
           disabled={disabled || disabledByRows}
           onClick={() => void open()}
-          className="text-left text-xs font-semibold text-blue-800 hover:underline disabled:cursor-not-allowed disabled:text-slate-500"
+          className="flex min-h-[4.5rem] w-full min-w-0 flex-col justify-center rounded-lg px-3 py-2 text-left disabled:cursor-not-allowed disabled:opacity-50"
           aria-describedby={disabledByRows ? 'source-expansion-grouped-rows-reason' : undefined}
         >
-          Expand a repeated source field
+          <span className="text-sm font-semibold text-slate-900">Expand a repeated source field</span>
+          <span className="block truncate text-xs text-slate-600" title="Choose a repeated field to start rows before current row changes.">
+            Start rows from a repeated field before current row changes.
+          </span>
         </button>
-        <p className="mt-1 text-xs text-slate-600">Create one row per item in a repeated source field, then run the existing row operations.</p>
-        {disabledByRows ? <p id="source-expansion-grouped-rows-reason" className="mt-1 text-xs text-amber-900">Source expansion cannot replace grouped rows. Change the row definition separately first.</p> : null}
+        {disabledByRows ? <p id="source-expansion-grouped-rows-reason" className="px-3 pb-2 text-xs text-amber-900">Source expansion cannot replace grouped rows. Change the row definition separately first.</p> : null}
       </div>
       {state.kind !== 'closed' ? (
         <div className="fixed inset-0 z-[60] overflow-y-auto bg-white">

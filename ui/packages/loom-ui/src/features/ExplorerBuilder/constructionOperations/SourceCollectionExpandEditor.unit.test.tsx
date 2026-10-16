@@ -74,6 +74,7 @@ describe('SourceCollectionExpandEditor', () => {
 
     fireEvent.click(screen.getByTestId('construction-reshape-expand-source'));
     await screen.findByRole('dialog', { name: 'Expand a repeated source field' });
+    expect(screen.getByTestId('construction-source-expansion-card')).toBeInTheDocument();
     expect(context.client.listRowDefinitionChoices).toHaveBeenCalledWith({
       project: 'org/project',
       explorerId: 'explorer-1',
@@ -81,7 +82,7 @@ describe('SourceCollectionExpandEditor', () => {
       snapshotToken: 'snapshot-1',
       outputId: 'observations',
     }, expect.any(AbortSignal));
-    expect(screen.getByText('Create one row per item in a repeated source field, then run the existing row operations.')).toBeInTheDocument();
+    expect(screen.getByText('Start rows from a repeated field before current row changes.')).toBeInTheDocument();
     expect(screen.getByText("This changes the table's source rows. Review the preview before applying.")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Repeated source field'), { target: { value: 'component-scope-choice' } });

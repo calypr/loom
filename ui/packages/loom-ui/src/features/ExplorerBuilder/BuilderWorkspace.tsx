@@ -3307,7 +3307,7 @@ const BuilderWorkspaceContent = ({
     : constructionLifecycle.capabilities.status !== 'ready' || !capabilityIsForAppendStage
       ? 'Checking this table’s available row operations…'
       : expandCapability?.reasonCode === 'NO_ARRAY_COLUMNS'
-        ? 'This table has no list-valued column to split. To expand a repeated field from the starting records, use Starting-record rows below.'
+        ? 'No list column in this table. Use a repeated source field before current row changes.'
         : 'List expansion is unavailable for the current table.';
   const expandRowsAvailability = capabilityIsForAppendStage && expandCapability?.supported && hasPublicScalarListColumn(capabilityStage)
     ? { supported: true }

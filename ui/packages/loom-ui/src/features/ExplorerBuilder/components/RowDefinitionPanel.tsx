@@ -134,16 +134,12 @@ const RootTypePicker = ({
   };
 
   return (
-    <section aria-label="Starting record type" className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-slate-800">
-      <h4 className="font-semibold text-slate-900">Starting record type</h4>
-      <p className="mt-1 text-xs text-slate-600">
-        Choose a record type. Loom will show how this changes your rows and whether existing columns or filters need updating.
-      </p>
-      <label className="mt-2 block font-medium text-slate-900">
-        <span>Record type</span>
+    <section aria-label="Starting record type" className="min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800">
+      <label className="flex min-w-0 flex-col gap-1 font-medium text-slate-900 sm:flex-row sm:items-center sm:gap-3">
+        <span className="shrink-0 text-xs">Starting record type</span>
         <select
           aria-label="Record type"
-          className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 outline-blue-500 disabled:opacity-50"
+          className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm outline-blue-500 disabled:opacity-50"
           value={selectedChoiceKey}
           disabled={disabled}
           onChange={(event) => handleSelection(event.currentTarget.value)}
@@ -175,22 +171,22 @@ const RootTypePicker = ({
       </label>
 
       {rootChangeState.kind === 'assessing' ? (
-        <p className="mt-2 text-xs text-slate-700" role="status">
+        <p className="mt-1 text-xs text-slate-700" role="status">
           Checking how the selected rows connect to this table…
         </p>
       ) : null}
       {rootChangeState.kind === 'previewing' ? (
-        <p className="mt-2 text-xs text-slate-700" role="status">
+        <p className="mt-1 text-xs text-slate-700" role="status">
           Loading the receipt-bound row preview…
         </p>
       ) : null}
       {rootChangeState.kind === 'failed' ? (
-        <p className="mt-2 text-xs text-amber-900" role="alert">
+        <p className="mt-1 text-xs text-amber-900" role="alert">
           {rootChangeState.message}
         </p>
       ) : null}
       {rootChangeState.kind === 'blocked' ? (
-        <div className="mt-2 space-y-1" aria-label="Record type choices">
+        <div className="mt-1 space-y-1" aria-label="Record type choices">
           {rootChangeState.assessment.unresolved.map((reference) => (
             <p key={`${reference.code}:${reference.id}`} className="text-xs text-amber-900" role="status">
               {reference.message}
@@ -200,7 +196,7 @@ const RootTypePicker = ({
       ) : null}
 
       {showRefresh ? (
-        <div className="mt-2 flex flex-wrap items-center gap-3">
+        <div className="mt-1 flex flex-wrap items-center gap-3">
           <button type="button" className="text-xs font-semibold text-slate-700 underline" disabled={disabled} onClick={() => {
             setLocalChoiceKey(currentChoiceKey);
             onKeepCurrent();
@@ -216,7 +212,7 @@ const RootTypePicker = ({
       {selectedRootNodeId && selectedRootResourceType && onReplace ? (
         <button
           type="button"
-          className="mt-2 rounded-md border border-amber-700 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-50 disabled:opacity-50"
+          className="mt-1 rounded-md border border-amber-700 px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-50 disabled:opacity-50"
           disabled={disabled}
           onClick={() => {
             if (rootChangeState.kind !== 'idle') onKeepCurrent();

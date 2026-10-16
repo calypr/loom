@@ -186,7 +186,8 @@ describe('RowDefinitionPanel', () => {
     const section = screen.getByRole('region', { name: 'Starting record type' });
     expect(within(section).getAllByRole('combobox')).toHaveLength(1);
     expect(within(section).getByRole('combobox', { name: 'Record type' })).toBeTruthy();
-    expect(within(section).getByText('Choose a record type. Loom will show how this changes your rows and whether existing columns or filters need updating.')).toBeTruthy();
+    expect(within(section).getByText('Starting record type')).toBeTruthy();
+    expect(within(section).queryByText(/Choose a record type/)).toBeNull();
     expect(within(section).getByRole('option', { name: 'Specimen (current)' })).toHaveProperty('disabled', true);
     expect(within(section).queryByRole('button', { name: 'Review changes' })).toBeNull();
     expect(within(section).queryByRole('combobox', { name: 'Choose replacement starting type' })).toBeNull();
