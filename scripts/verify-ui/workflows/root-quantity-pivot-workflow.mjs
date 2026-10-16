@@ -170,6 +170,8 @@ const clickNative = (page, selector, identity = {}) => {
     : page.locator(selector);
   return action(`click ${identity.name ?? selector}`, locator, target => target.click({ timeout: 5000 }));
 };
+const openPivotDuplicatePolicySettings = () => clickNative(page,
+  '[data-testid="construction-reshape-pivot"] details:has(select[aria-label="Pivot duplicate policy"]) > summary');
 const selectNative = async (page, selector, value) => {
   const locator = page.locator(selector);
   await action(`select ${selector}`, locator, target => target.selectOption(value, { timeout: 5000 }));
@@ -613,11 +615,12 @@ const openPivotEditor = async () => {
   await waitForObservable(page, () => Boolean(document.querySelector('[data-testid="construction-action-table-pivot-rows"]')?.disabled===false));
   await clickNative(page, '[data-testid="construction-action-table-pivot-rows"]');
   await waitForObservable(page, () => Boolean(Boolean(document.querySelector('[data-testid="construction-reshape-pivot"] select[aria-label="Pivot category field"]'))));
+  if (isFixture) await page.screenshot({ path: join(nativeReport.evidenceDirectory, 'root-quantity-pivot-initial-choice.png') });
 };
 
 const setPivotDuplicatePolicy = async (policy, requestOffset, name) => {
   const startedAt = Date.now();
-  await clickNative(page, '[data-testid="construction-reshape-pivot-advanced"] > summary');
+  await openPivotDuplicatePolicySettings();
   if (policy === 'SUM') {
     const rejectionEntry = await waitForAuthoringEntry(requestOffset, 'construction-proposals', observerTimeoutBudgetMs);
     const rejection = authoringRequestsFromNative([rejectionEntry])[0];
@@ -845,7 +848,7 @@ const root=document.querySelector('[data-testid="construction-reshape-pivot"]');
 return document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId??'';
 });
   const editStarted = Date.now();
-  await clickNative(page, '[data-testid="construction-reshape-pivot-advanced"] > summary');
+  await openPivotDuplicatePolicySettings();
   await selectNative(page, 'select[aria-label="Pivot duplicate policy"]', 'MAX');
   const categoryLabel = page.getByLabel('Pivot output label d', { exact: true });
   await action('fill Pivot category label d', categoryLabel, locator => locator.fill('d maximum', { timeout: 5000 }), { editable: true });
@@ -1128,7 +1131,7 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
   const editRequestOffset = requestCheckpoint();
   const priorEditProposal = await browserEval(page, `return document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId??'';`);
   const editStarted = Date.now();
-  await click(page, '[data-testid="construction-reshape-pivot-advanced"] > summary');
+  await openPivotDuplicatePolicySettings();
   await selectOption(page, 'select[aria-label="Pivot duplicate policy"]', 'MAX', {
     settledWhen: `document.querySelector('select[aria-label="Pivot duplicate policy"]')?.value==='MAX'`,
   });
