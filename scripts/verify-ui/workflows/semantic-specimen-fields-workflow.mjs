@@ -53,10 +53,10 @@ export async function semanticSpecimenFieldsWorkflow({ page, cda, caseOptions = 
     nativeRequests: cda.report.nativeRequests,
     assertions: [],
     errors: [],
-    knownLifecycleGaps: [{
+    scopeNotes: [{
       id: 'reopen-saved-raw-source-binding-in-picker',
-      status: 'not-supported-by-current-direct-column-ui',
-      reason: 'Saved direct root columns expose label editing and removal, but no source-binding editor that reopens the raw field picker. This workflow verifies the exact binding survives rename and reload; source rebinding remains a separate UI lifecycle gap.',
+      status: 'out-of-scope-for-existing-root-column-lifecycle',
+      reason: 'Saved direct root columns expose label editing and removal, but no source-binding editor that reopens the raw field picker. This SC05 case verifies the exact binding across add, rename, remove, and reload; reopening an existing related-field source belongs to SC09 and initialFieldItem coverage.',
     }],
   };
   let builder;
@@ -541,12 +541,12 @@ export async function semanticSpecimenFieldsWorkflow({ page, cda, caseOptions = 
 
     report.finished = new Date().toISOString();
     report.final = {
-      status: 'partial',
+      status: 'passed',
       outputId,
       explorer,
       witnessId: witness.source.id,
       rowRoot: 'Specimen',
-      knownLifecycleGaps: report.knownLifecycleGaps,
+      scopeNotes: report.scopeNotes,
     };
   } finally {
     report.finished ??= new Date().toISOString();

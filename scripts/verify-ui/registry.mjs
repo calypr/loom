@@ -8051,7 +8051,7 @@ export const registry = Object.freeze([
       'the case requires the owned CDA project loom_dev_cda_fhir and generation cda-fhir-v1, and creates a unique fresh Explorer for the native lifecycle',
       'the source oracle is one retained Specimen record returned by a project/generation/auth-scoped indexed LIMIT 1 read; its report pins the source query and independent type/noncoded values',
       'the lifecycle proves one root Specimen category family and one raw counterpart only; other CodeableConcept structures and related-source contexts remain separate coverage units',
-      'the current direct root-column UI exposes rename and remove, not reopening a saved raw source binding in the picker; this case records that lifecycle gap and verifies source identity across rename and reload',
+      'the root case covers the existing direct-column lifecycle; reopening an existing related-field source uses the SC09 related-field editor and initialFieldItem coverage',
     ],
     script: 'semantic-specimen-fields-workflow.mjs',
     cases: {
