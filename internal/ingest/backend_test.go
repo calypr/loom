@@ -121,11 +121,10 @@ func TestBootstrapSpecAddsPersistentSemanticCoverageCollection(t *testing.T) {
 		t.Fatalf("semantic coverage collection = %#v found=%v, want persistent non-truncated collection", coverage, found)
 	}
 	for _, required := range [][]string{
-		{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "record_kind", "auth_resource_path", "resource_type", "canonical_path", "resource_boundary_signature", "source_id", "_key"},
-		{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "record_kind", "resource_type", "canonical_path", "resource_boundary_signature", "auth_resource_path"},
-		{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "record_kind", "auth_resource_path", "resource_type"},
-		{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "resource_type", "source_id", "record_kind"},
-		{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "record_kind"},
+		{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "record_kind", "resource_type", "_key"},
+		{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "record_kind", "summary_kind", "resource_type", "canonical_path", "resource_boundary_signature", "auth_resource_path"},
+		{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "record_kind", "resource_type", "auth_resource_path", "_key"},
+		{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "record_kind", "_key"},
 	} {
 		if !containsIndex(coverage.Indexes, required) {
 			t.Fatalf("semantic coverage indexes %#v do not include %#v", coverage.Indexes, required)

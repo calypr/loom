@@ -86,10 +86,11 @@ func TestLoadFilePersistsCoverageSentinelBeforeReturningForCheckpoint(t *testing
 		Project: "project", DatasetGeneration: "generation-1", BuildID: buildID,
 		SchemaIdentity: strings.Repeat("a", 64), SourceKind: catalog.SemanticInventorySourceFile,
 	}
-	opts := normalizeLoadOptions(LoadOptions{Project: "project", MetaDir: root, BatchSize: 1, WorkerCount: 1, WriterCount: 1})
+	opts := normalizeLoadOptions(LoadOptions{Project: "project", MetaDir: root, AuthResourcePath: "scope-a", BatchSize: 1, WorkerCount: 1, WriterCount: 1})
+	sourceSet := catalogarango.NewSemanticCoverageSourceSetAccumulator("Patient", true)
 	result, err := loadFile(context.Background(), opts, nil, schema, file, "generation-1", false, time.Now(), 0, 0,
 		func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error { return nil },
-		semanticCoverageLoadContext{Identity: identity, Writer: coverageWriter},
+		semanticCoverageLoadContext{Identity: identity, Writer: coverageWriter, SourceSet: sourceSet},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -110,8 +111,15 @@ func TestLoadFilePersistsCoverageSentinelBeforeReturningForCheckpoint(t *testing
 			t.Fatalf("coverage rows=%d paths=%d facets=%d, want source/path/facet aggregates", result.SemanticCoverageRows, len(contribution.Paths), facetRows)
 		}
 	}
-	if contribution.Identity.SourceID != "Patient.ndjson#1" || contribution.Identity.SchemaIdentity != identity.SchemaIdentity || contribution.BuildID != buildID || contribution.SourceRecordCount != 1 {
+	if contribution.Identity.SourceID != "Patient.ndjson#1" || contribution.Identity.AuthResourcePath != "scope-a" || contribution.Identity.SchemaIdentity != identity.SchemaIdentity || contribution.BuildID != buildID || contribution.SourceRecordCount != 1 {
 		t.Fatalf("coverage source identity = %+v build=%q, want exact file/build/schema identity", contribution.Identity, contribution.BuildID)
+	}
+	expectation, err := sourceSet.Snapshot(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if expectation.SourceCount != 1 || len(expectation.Partitions) != 1 || expectation.Partitions[0].AuthResourcePath != "scope-a" || expectation.Partitions[0].SourceCount != 1 {
+		t.Fatalf("file source set expectation = %+v, want one exact source in scope-a", expectation)
 	}
 }
 
@@ -153,7 +161,7 @@ func TestLoadFileMissingSchemaKeepsInventoryWorkerRunningWithIncompleteCoverage(
 	opts := normalizeLoadOptions(LoadOptions{Project: "project", MetaDir: root, BatchSize: 1, WorkerCount: 1, WriterCount: 1})
 	result, err := loadFile(context.Background(), opts, nil, schema, file, "generation-1", false, time.Now(), 0, 0,
 		func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error { return nil },
-		semanticCoverageLoadContext{Identity: identity, Writer: coverageWriter},
+		semanticCoverageLoadContext{Identity: identity, Writer: coverageWriter, SourceSet: catalogarango.NewSemanticCoverageSourceSetAccumulator("Patient", true)},
 	)
 	if err != nil {
 		t.Fatalf("load file with absent coverage schema identity: %v", err)

@@ -44,41 +44,45 @@ type SemanticInventoryBackfillCollectionResult struct {
 }
 
 type SemanticInventoryBackfillReport struct {
-	Project                    string                                               `json:"project"`
-	DatasetGeneration          string                                               `json:"dataset_generation"`
-	BuildID                    string                                               `json:"build_id"`
-	State                      catalog.SemanticInventoryState                       `json:"state"`
-	NoOp                       bool                                                 `json:"no_op"`
-	EntriesMaterialized        bool                                                 `json:"entries_materialized,omitempty"`
-	ScannedThisRun             int64                                                `json:"scanned_this_run"`
-	ScannedTotal               int64                                                `json:"scanned_total"`
-	Contributions              int64                                                `json:"contributions_written"`
-	CoverageContributions      int64                                                `json:"coverage_contributions_written"`
-	CoverageRows               int64                                                `json:"coverage_rows_written"`
-	CoverageSerializedBytes    int64                                                `json:"coverage_serialized_bytes"`
-	CoverageSourceReads        int64                                                `json:"coverage_source_reads"`
-	Checkpoint                 catalog.SemanticInventoryCheckpoint                  `json:"checkpoint"`
-	SourceAvailability         string                                               `json:"source_availability"`
-	SourceAvailabilityRepaired bool                                                 `json:"source_availability_repaired,omitempty"`
-	MissingCollections         []string                                             `json:"source_availability_unproven_collections,omitempty"`
-	Collections                map[string]SemanticInventoryBackfillCollectionResult `json:"collections"`
-	ElapsedSeconds             float64                                              `json:"elapsed_seconds"`
-	coverageIdentity           catalogarango.SemanticCoverageBuildIdentity
+	Project                         string                                               `json:"project"`
+	DatasetGeneration               string                                               `json:"dataset_generation"`
+	BuildID                         string                                               `json:"build_id"`
+	State                           catalog.SemanticInventoryState                       `json:"state"`
+	NoOp                            bool                                                 `json:"no_op"`
+	EntriesMaterialized             bool                                                 `json:"entries_materialized,omitempty"`
+	ScannedThisRun                  int64                                                `json:"scanned_this_run"`
+	ScannedTotal                    int64                                                `json:"scanned_total"`
+	Contributions                   int64                                                `json:"contributions_written"`
+	CoverageContributions           int64                                                `json:"coverage_contributions_written"`
+	CoverageRows                    int64                                                `json:"coverage_rows_written"`
+	CoverageSerializedBytes         int64                                                `json:"coverage_serialized_bytes"`
+	CoverageEmissionSourceRows      int64                                                `json:"coverage_emission_source_rows"`
+	CoverageCertificationSourceRows int64                                                `json:"coverage_certification_source_rows"`
+	Checkpoint                      catalog.SemanticInventoryCheckpoint                  `json:"checkpoint"`
+	SourceAvailability              string                                               `json:"source_availability"`
+	SourceAvailabilityRepaired      bool                                                 `json:"source_availability_repaired,omitempty"`
+	MissingCollections              []string                                             `json:"source_availability_unproven_collections,omitempty"`
+	Collections                     map[string]SemanticInventoryBackfillCollectionResult `json:"collections"`
+	ElapsedSeconds                  float64                                              `json:"elapsed_seconds"`
+	coverageIdentity                catalogarango.SemanticCoverageBuildIdentity
+	coverageResourcesOpen           map[string]struct{}
 }
 
 type semanticInventoryBackfillBackend interface {
 	PrepareSemanticInventoryBackfill(context.Context) error
 	ReadRetainedSemanticInventoryPage(context.Context, string, string, string, string, int) (catalogarango.RetainedSemanticInventoryPage, error)
-	DiscoverResourceInventory(context.Context, catalog.ResourceInventoryOptions) (catalog.ResourceInventoryResult, error)
 	ClaimSemanticInventoryBackfill(context.Context, catalog.SemanticInventoryBuild, string, time.Duration) (catalog.SemanticInventoryBuild, bool, error)
-	RefreshSemanticInventorySourceAvailability(context.Context, catalog.SemanticInventoryBuild) (catalog.SemanticInventoryBuild, bool, error)
 	AdvanceSemanticInventoryBackfill(context.Context, catalog.SemanticInventoryBuild, string, catalog.SemanticInventoryCheckpoint, catalog.SemanticInventoryCheckpoint, int64, time.Duration) (catalog.SemanticInventoryBuild, error)
 	CompleteSemanticInventoryBackfill(context.Context, catalog.SemanticInventoryBuild, string, catalog.SemanticInventoryCheckpoint, int64) (catalog.SemanticInventoryBuild, error)
 	FailSemanticInventoryBackfill(context.Context, catalog.SemanticInventoryBuild, string, string) error
 	WriteSemanticInventoryContributions(context.Context, []catalog.SemanticInventoryContribution, int) error
 	BeginSemanticCoverageBuild(context.Context, catalogarango.SemanticCoverageBuildIdentity) error
+	BeginSemanticCoverageResource(context.Context, catalogarango.SemanticCoverageBuildIdentity, string) error
+	MarkSemanticCoverageResourceMissing(context.Context, catalogarango.SemanticCoverageBuildIdentity, string) error
+	CompleteRetainedSemanticCoverageResource(context.Context, catalogarango.SemanticCoverageBuildIdentity, string, int, int) (int64, error)
 	WriteSemanticCoverageContributions(context.Context, string, []catalog.SemanticCoverageSourceContribution, int) (catalogarango.SemanticCoverageWriteStats, error)
-	CompleteSemanticCoverageBuild(context.Context, catalogarango.SemanticCoverageBuildIdentity, int64, bool, string, int) error
+	FinalizeSemanticCoverageBuild(context.Context, catalogarango.SemanticCoverageBuildIdentity, []string) error
+	FailSemanticCoverageResource(context.Context, catalogarango.SemanticCoverageBuildIdentity, string, string) error
 	FailSemanticCoverageBuild(context.Context, catalogarango.SemanticCoverageBuildIdentity, string) error
 	EnsureSemanticInventoryEntries(context.Context, catalog.SemanticInventoryBuild) (catalog.SemanticInventoryBuild, error)
 }
@@ -124,12 +128,13 @@ func BackfillSemanticInventory(ctx context.Context, backend semanticInventoryBac
 		return SemanticInventoryBackfillReport{}, err
 	}
 	report := SemanticInventoryBackfillReport{
-		Project:            opts.Project,
-		DatasetGeneration:  catalog.NormalizeDatasetGeneration(opts.DatasetGeneration),
-		BuildID:            build.BuildID,
-		State:              build.State,
-		SourceAvailability: build.SourceAvailability,
-		Collections:        map[string]SemanticInventoryBackfillCollectionResult{},
+		Project:               opts.Project,
+		DatasetGeneration:     catalog.NormalizeDatasetGeneration(opts.DatasetGeneration),
+		BuildID:               build.BuildID,
+		State:                 build.State,
+		SourceAvailability:    build.SourceAvailability,
+		Collections:           map[string]SemanticInventoryBackfillCollectionResult{},
+		coverageResourcesOpen: map[string]struct{}{},
 		coverageIdentity: catalogarango.SemanticCoverageBuildIdentity{
 			Project: build.Project, DatasetGeneration: build.DatasetGeneration, BuildID: build.BuildID,
 			SchemaIdentity: manifest.SchemaIdentity.SchemaSHA256, SourceKind: build.SourceKind,
@@ -148,33 +153,25 @@ func BackfillSemanticInventory(ctx context.Context, backend semanticInventoryBac
 		report.ScannedTotal = build.ScannedResources
 		report.Checkpoint = build.SourceCheckpoint
 		report.SourceAvailability = build.SourceAvailability
-		if repairedBuild, repaired, missing, refreshErr := repairCompletedSemanticInventoryAvailability(ctx, backend, build, opts, collections); refreshErr != nil {
-			return report, refreshErr
-		} else {
-			report.MissingCollections = missing
-			if repaired {
-				build = repairedBuild
-				report.NoOp = false
-				report.SourceAvailability = build.SourceAvailability
-				report.SourceAvailabilityRepaired = true
-			}
-		}
-		coverageAvailable := build.SourceAvailability != catalog.SemanticInventorySourceAvailabilityUnproven
-		coverageReason := ""
-		if !coverageAvailable {
-			coverageReason = "SOURCE_AVAILABILITY_UNPROVEN"
-		}
 		if err := backend.BeginSemanticCoverageBuild(ctx, report.coverageIdentity); err != nil {
 			if failErr := backend.FailSemanticCoverageBuild(context.WithoutCancel(ctx), report.coverageIdentity, err.Error()); failErr != nil {
 				err = errors.Join(err, fmt.Errorf("mark semantic coverage build failed: %w", failErr))
 			}
 			return report, fmt.Errorf("begin semantic coverage rebuild: %w", err)
 		}
-		if err := backend.CompleteSemanticCoverageBuild(ctx, report.coverageIdentity, build.ScannedResources, coverageAvailable, coverageReason, opts.BatchSize); err != nil {
-			if failErr := backend.FailSemanticCoverageBuild(context.WithoutCancel(ctx), report.coverageIdentity, err.Error()); failErr != nil {
-				err = errors.Join(err, fmt.Errorf("mark semantic coverage build failed: %w", failErr))
+		if err := beginRetainedSemanticCoverageResources(ctx, backend, report.coverageIdentity, collections, report.coverageResourcesOpen); err != nil {
+			return failSemanticCoverageRebuild(backend, report, err)
+		}
+		for _, collection := range collections {
+			readCount, err := backend.CompleteRetainedSemanticCoverageResource(ctx, report.coverageIdentity, collection, opts.PageSize, opts.BatchSize)
+			if err != nil {
+				return failSemanticCoverageRebuild(backend, report, fmt.Errorf("reconcile retained semantic coverage resource %s: %w", collection, err))
 			}
-			return report, err
+			report.CoverageCertificationSourceRows += readCount
+			delete(report.coverageResourcesOpen, collection)
+		}
+		if err := backend.FinalizeSemanticCoverageBuild(ctx, report.coverageIdentity, collections); err != nil {
+			return failSemanticCoverageRebuild(backend, report, err)
 		}
 		report.ElapsedSeconds = time.Since(started).Seconds()
 		return report, nil
@@ -183,6 +180,9 @@ func BackfillSemanticInventory(ctx context.Context, backend semanticInventoryBac
 		build.SourceAvailability = catalog.SemanticInventorySourceAvailabilityVerified
 	}
 	if err := backend.BeginSemanticCoverageBuild(ctx, report.coverageIdentity); err != nil {
+		return failSemanticInventoryBackfill(backend, build, token, report, err)
+	}
+	if err := beginRetainedSemanticCoverageResources(ctx, backend, report.coverageIdentity, collections, report.coverageResourcesOpen); err != nil {
 		return failSemanticInventoryBackfill(backend, build, token, report, err)
 	}
 	emitter := catalog.NewSemanticInventoryEmitter(opts.Project, opts.DatasetGeneration)
@@ -195,11 +195,6 @@ func BackfillSemanticInventory(ctx context.Context, backend semanticInventoryBac
 		}
 	}
 	var scannedThisRun, eventsThisRun int64
-	var inventoryCounts map[string]int64
-	var inventoryTotal int64
-	inventoryProofChecked := false
-	inventoryProofValid := false
-	missingSourceCollections := make([]string, 0)
 	for collectionIndex, collection := range collections {
 		if _, ok := fhirschema.ConcreteResourceType(collection); !ok {
 			return failSemanticInventoryBackfill(backend, build, token, report, fmt.Errorf("invalid retained resource collection %q", collection))
@@ -218,22 +213,18 @@ func BackfillSemanticInventory(ctx context.Context, backend semanticInventoryBac
 				return failSemanticInventoryBackfill(backend, build, token, report, readErr)
 			}
 			if !page.SourceExists {
-				missingSourceCollections = append(missingSourceCollections, collection)
-				if !inventoryProofChecked {
-					inventoryProofChecked = true
-					inventoryCounts, inventoryTotal, inventoryProofValid = readCompleteResourceInventoryProof(ctx, backend, opts.Project, opts.DatasetGeneration, collections)
+				if err := backend.MarkSemanticCoverageResourceMissing(ctx, report.coverageIdentity, collection); err != nil {
+					return failSemanticInventoryBackfill(backend, build, token, report, fmt.Errorf("mark retained semantic coverage resource %s missing: %w", collection, err))
 				}
-				if !inventoryProofValid || inventoryCounts[collection] != 0 {
-					build.SourceAvailability = catalog.SemanticInventorySourceAvailabilityUnproven
-					report.SourceAvailability = build.SourceAvailability
-					report.MissingCollections = append(report.MissingCollections, collection)
-				}
+				delete(report.coverageResourcesOpen, collection)
+				build.SourceAvailability = catalog.SemanticInventorySourceAvailabilityUnproven
+				report.SourceAvailability = build.SourceAvailability
+				report.MissingCollections = append(report.MissingCollections, collection)
 				break
 			}
 			if len(page.Rows) == 0 {
 				break
 			}
-			report.CoverageSourceReads += int64(len(page.Rows))
 			pageEvents := int64(0)
 			pageCoverageEvents := int64(0)
 			buffer := make([]catalog.SemanticInventoryContribution, 0, opts.BatchSize)
@@ -298,6 +289,7 @@ func BackfillSemanticInventory(ctx context.Context, backend semanticInventoryBac
 				if persistErr != nil {
 					break
 				}
+				report.CoverageEmissionSourceRows++
 			}
 			flush()
 			flushCoverage()
@@ -345,17 +337,18 @@ func BackfillSemanticInventory(ctx context.Context, backend semanticInventoryBac
 			}
 		}
 	}
-	if inventoryProofValid && build.SourceAvailability != catalog.SemanticInventorySourceAvailabilityUnproven && build.ScannedResources != inventoryTotal {
-		build.SourceAvailability = catalog.SemanticInventorySourceAvailabilityUnproven
-		report.SourceAvailability = build.SourceAvailability
-		report.MissingCollections = append(report.MissingCollections, missingSourceCollections...)
+	for _, collection := range collections {
+		if containsSemanticInventoryString(report.MissingCollections, collection) {
+			continue
+		}
+		readCount, err := backend.CompleteRetainedSemanticCoverageResource(ctx, report.coverageIdentity, collection, opts.PageSize, opts.BatchSize)
+		if err != nil {
+			return failSemanticInventoryBackfill(backend, build, token, report, fmt.Errorf("reconcile retained semantic coverage resource %s: %w", collection, err))
+		}
+		report.CoverageCertificationSourceRows += readCount
+		delete(report.coverageResourcesOpen, collection)
 	}
-	coverageAvailable := build.SourceAvailability != catalog.SemanticInventorySourceAvailabilityUnproven
-	coverageReason := ""
-	if !coverageAvailable {
-		coverageReason = "SOURCE_AVAILABILITY_UNPROVEN"
-	}
-	if err := backend.CompleteSemanticCoverageBuild(ctx, report.coverageIdentity, build.ScannedResources, coverageAvailable, coverageReason, opts.BatchSize); err != nil {
+	if err := backend.FinalizeSemanticCoverageBuild(ctx, report.coverageIdentity, collections); err != nil {
 		return failSemanticInventoryBackfill(backend, build, token, report, err)
 	}
 	completed, err := backend.CompleteSemanticInventoryBackfill(ctx, build, token, currentCheckpoint, build.ScannedResources)
@@ -370,84 +363,6 @@ func BackfillSemanticInventory(ctx context.Context, backend semanticInventoryBac
 	report.SourceAvailability = completed.SourceAvailability
 	report.ElapsedSeconds = time.Since(started).Seconds()
 	return report, nil
-}
-
-func readCompleteResourceInventoryProof(ctx context.Context, backend semanticInventoryBackfillBackend, project, datasetGeneration string, resourceTypes []string) (map[string]int64, int64, bool) {
-	if len(resourceTypes) == 0 {
-		return nil, 0, false
-	}
-	result, err := backend.DiscoverResourceInventory(ctx, catalog.ResourceInventoryOptions{
-		Project: project, DatasetGeneration: datasetGeneration, ResourceTypes: append([]string(nil), resourceTypes...),
-		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(true),
-	})
-	if err != nil || !result.Available || !result.Complete || result.Truncated || result.Status != catalog.EvidenceAvailable || len(result.Diagnostics) != 0 || len(result.Values) != len(resourceTypes) {
-		return nil, 0, false
-	}
-	digest, err := catalog.ResourceInventoryDigest(result.Values)
-	if err != nil || digest == "" || digest != result.Digest {
-		return nil, 0, false
-	}
-	allowed := make(map[string]struct{}, len(resourceTypes))
-	for _, resourceType := range resourceTypes {
-		allowed[resourceType] = struct{}{}
-	}
-	counts := make(map[string]int64, len(resourceTypes))
-	var total int64
-	for _, observation := range result.Values {
-		if observation.Project != project || catalog.NormalizeDatasetGeneration(observation.DatasetGeneration) != catalog.NormalizeDatasetGeneration(datasetGeneration) || observation.AuthResourcePath != "" || observation.DocumentCount < 0 {
-			return nil, 0, false
-		}
-		if _, ok := allowed[observation.ResourceType]; !ok {
-			return nil, 0, false
-		}
-		if _, duplicate := counts[observation.ResourceType]; duplicate {
-			return nil, 0, false
-		}
-		if observation.DocumentCount > (1<<63-1)-total {
-			return nil, 0, false
-		}
-		counts[observation.ResourceType] = observation.DocumentCount
-		total += observation.DocumentCount
-	}
-	if len(counts) != len(resourceTypes) {
-		return nil, 0, false
-	}
-	return counts, total, true
-}
-
-func repairCompletedSemanticInventoryAvailability(ctx context.Context, backend semanticInventoryBackfillBackend, build catalog.SemanticInventoryBuild, opts SemanticInventoryBackfillOptions, resourceTypes []string) (catalog.SemanticInventoryBuild, bool, []string, error) {
-	if build.State != catalog.SemanticInventoryComplete || build.SourceKind != catalog.SemanticInventorySourceRetained ||
-		build.SourceAvailability != catalog.SemanticInventorySourceAvailabilityUnproven || len(build.Diagnostics) != 0 ||
-		build.AuthResourcePath != "" ||
-		build.Project != opts.Project || catalog.NormalizeDatasetGeneration(build.DatasetGeneration) != catalog.NormalizeDatasetGeneration(opts.DatasetGeneration) ||
-		catalog.ValidateSemanticInventoryBuild(build) != nil {
-		return build, false, nil, nil
-	}
-	counts, total, valid := readCompleteResourceInventoryProof(ctx, backend, opts.Project, opts.DatasetGeneration, resourceTypes)
-	if !valid || total != build.ScannedResources {
-		return build, false, nil, nil
-	}
-	missing := make([]string, 0)
-	for _, resourceType := range resourceTypes {
-		page, err := backend.ReadRetainedSemanticInventoryPage(ctx, opts.Project, opts.DatasetGeneration, resourceType, "", 1)
-		if err != nil {
-			return build, false, nil, nil
-		}
-		if !page.SourceExists {
-			missing = append(missing, resourceType)
-			if counts[resourceType] != 0 {
-				return build, false, missing, nil
-			}
-		}
-	}
-	if len(missing) == 0 {
-		return build, false, nil, nil
-	}
-	refreshed, updated, err := backend.RefreshSemanticInventorySourceAvailability(ctx, build)
-	if err != nil || !updated {
-		return build, false, missing, err
-	}
-	return refreshed, true, nil, nil
 }
 
 func validateSemanticInventoryBackfillRequest(manifest publication.Manifest, opts SemanticInventoryBackfillOptions) error {
@@ -467,6 +382,70 @@ func validateSemanticInventoryBackfillRequest(manifest publication.Manifest, opt
 		return errors.New("semantic inventory backfill page or batch size is outside supported bounds")
 	}
 	return nil
+}
+
+func beginRetainedSemanticCoverageResources(
+	ctx context.Context,
+	backend semanticInventoryBackfillBackend,
+	identity catalogarango.SemanticCoverageBuildIdentity,
+	resourceTypes []string,
+	open map[string]struct{},
+) error {
+	for _, resourceType := range resourceTypes {
+		if _, ok := fhirschema.ConcreteResourceType(resourceType); !ok {
+			return fmt.Errorf("invalid retained semantic coverage resource %q", resourceType)
+		}
+		if err := backend.BeginSemanticCoverageResource(ctx, identity, resourceType); err != nil {
+			return fmt.Errorf("begin retained semantic coverage resource %s: %w", resourceType, err)
+		}
+		open[resourceType] = struct{}{}
+	}
+	return nil
+}
+
+func failOpenRetainedSemanticCoverageResources(
+	ctx context.Context,
+	backend semanticInventoryBackfillBackend,
+	report SemanticInventoryBackfillReport,
+	reason string,
+) error {
+	resourceTypes := make([]string, 0, len(report.coverageResourcesOpen))
+	for resourceType := range report.coverageResourcesOpen {
+		resourceTypes = append(resourceTypes, resourceType)
+	}
+	sort.Strings(resourceTypes)
+	var failures []error
+	for _, resourceType := range resourceTypes {
+		if err := backend.FailSemanticCoverageResource(ctx, report.coverageIdentity, resourceType, reason); err != nil {
+			failures = append(failures, fmt.Errorf("mark retained semantic coverage resource %s failed: %w", resourceType, err))
+		}
+	}
+	return errors.Join(failures...)
+}
+
+func failSemanticCoverageRebuild(
+	backend semanticInventoryBackfillBackend,
+	report SemanticInventoryBackfillReport,
+	cause error,
+) (SemanticInventoryBackfillReport, error) {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := failOpenRetainedSemanticCoverageResources(cleanupCtx, backend, report, cause.Error()); err != nil {
+		cause = errors.Join(cause, err)
+	}
+	if err := backend.FailSemanticCoverageBuild(cleanupCtx, report.coverageIdentity, cause.Error()); err != nil {
+		cause = errors.Join(cause, fmt.Errorf("mark semantic coverage build failed: %w", err))
+	}
+	return report, cause
+}
+
+func containsSemanticInventoryString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func retainedSemanticPayload(source catalogarango.RetainedSemanticInventoryRow, resourceType string) (map[string]any, error) {
@@ -491,6 +470,9 @@ func failSemanticInventoryBackfill(backend semanticInventoryBackfillBackend, bui
 	defer cancel()
 	if err := backend.FailSemanticInventoryBackfill(cleanupCtx, build, token, cause.Error()); err != nil {
 		cause = errors.Join(cause, fmt.Errorf("mark semantic inventory backfill failed: %w", err))
+	}
+	if err := failOpenRetainedSemanticCoverageResources(cleanupCtx, backend, report, cause.Error()); err != nil {
+		cause = errors.Join(cause, err)
 	}
 	if err := backend.FailSemanticCoverageBuild(cleanupCtx, report.coverageIdentity, cause.Error()); err != nil {
 		cause = errors.Join(cause, fmt.Errorf("mark semantic coverage build failed: %w", err))

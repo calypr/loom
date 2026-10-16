@@ -92,8 +92,9 @@ type semanticCoverageContributionWriter interface {
 }
 
 type semanticCoverageLoadContext struct {
-	Identity catalogarango.SemanticCoverageBuildIdentity
-	Writer   semanticCoverageContributionWriter
+	Identity  catalogarango.SemanticCoverageBuildIdentity
+	Writer    semanticCoverageContributionWriter
+	SourceSet *catalogarango.SemanticCoverageSourceSetAccumulator
 }
 
 type documentInserter func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error
@@ -124,7 +125,7 @@ func loadFile(
 	if coverageEnabled {
 		coverageIdentity = coverageContexts[0].Identity
 		coverageWriter = coverageContexts[0].Writer
-		if coverageWriter == nil || coverageIdentity.BuildID == "" {
+		if coverageWriter == nil || coverageIdentity.BuildID == "" || coverageContexts[0].SourceSet == nil {
 			return result, errors.New("semantic coverage load context is incomplete")
 		}
 	}
@@ -386,6 +387,9 @@ func loadFile(
 							observeErr := localCatalog.ObservePayloadWithCoverage(built.payload, localTimings, sourceID, coverageIdentity.SchemaIdentity, semanticSink, nil, func(contribution catalog.SemanticCoverageSourceContribution) error {
 								if semanticInventoryFailed || fileCtx.Err() != nil {
 									return fileCtx.Err()
+								}
+								if addErr := coverageContexts[0].SourceSet.AddSource(sourceID, opts.AuthResourcePath); addErr != nil {
+									return fmt.Errorf("record semantic coverage source for %s row %d: %w", filepath.Base(file), line.number, addErr)
 								}
 								semanticCoverageBatch = append(semanticCoverageBatch, contribution)
 								atomic.AddInt64(&fileCoverageSources, 1)
