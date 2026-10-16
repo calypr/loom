@@ -186,12 +186,22 @@ vi.mock('./components/ConceptCatalog', () => ({
     ) => Promise<void>;
     readonly disabled?: boolean;
     readonly disabledReason?: string;
-  }) => (
-    <>
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => void onAddSelected?.([
+  }) => {
+    const [actionError, setActionError] = React.useState<string>();
+    const submit = async (selections: Parameters<NonNullable<typeof onAddSelected>>[0]) => {
+      setActionError(undefined);
+      try {
+        await onAddSelected?.(selections);
+      } catch (error) {
+        setActionError(error instanceof Error ? error.message : 'Loom could not add the selected features.');
+      }
+    };
+    return (
+      <section data-testid="mock-concept-catalog">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => void submit([
           {
             constructionChoice: { choiceId: 'field-choice-a', form: 'VALUE' },
             title: 'Field A',
@@ -200,23 +210,25 @@ vi.mock('./components/ConceptCatalog', () => ({
             constructionChoice: { choiceId: 'semantic-choice-a', form: 'ALL' },
             title: 'Feature A',
           },
-        ])}
-      >
-        Add catalog fixture
-      </button>
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => void onAddSelected?.([{
-          constructionChoice: { choiceId: 'resource-type-choice', form: 'VALUE' },
-          title: 'Resource Type',
-        }])}
-      >
-        Add Group row-value fixture
-      </button>
-      {disabled && disabledReason ? <p role="status">{disabledReason}</p> : null}
-    </>
-  ),
+          ])}
+        >
+          Add catalog fixture
+        </button>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => void submit([{
+            constructionChoice: { choiceId: 'resource-type-choice', form: 'VALUE' },
+            title: 'Resource Type',
+          }])}
+        >
+          Add Group row-value fixture
+        </button>
+        {disabled && disabledReason ? <p role="status">{disabledReason}</p> : null}
+        {actionError ? <p role="alert">{actionError}</p> : null}
+      </section>
+    );
+  },
 }));
 
 vi.mock('./components/ColumnSelector', () => ({
@@ -1001,7 +1013,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(await screen.findByRole('button', { name: 'Change rows' })).toBeInTheDocument();
   });
 
-  it('hands a successful coded-column proposal to Apply and returns to the catalog on Cancel', async () => {
+  it('saves a coded-column proposal from one Add action and returns to the table', async () => {
     render(
       <BuilderWorkspace
         organization="HTAN_INT"
@@ -1011,27 +1023,19 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     );
 
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
-    fireEvent.click(await screen.findByRole('button', { name: 'Add catalog fixture' }));
-
-    const firstProposalPanel = await screen.findByTestId('construction-choice-proposal-panel');
-    await screen.findByRole('button', { name: 'Apply columns' });
-    expect(firstProposalPanel).toHaveAttribute('data-proposal-status', 'ready');
-    expect(document.activeElement).toBe(firstProposalPanel);
-    expect(screen.queryByRole('button', { name: 'Add catalog fixture' })).not.toBeInTheDocument();
-    expect(screen.getByTestId('construction-proposal-preview')).toHaveTextContent('Feature A');
+    mockLoomClient.proposeConstructionChoices.mockRejectedValueOnce(new Error('coded preview failed; retry from the picker'));
+    const addSelected = await screen.findByRole('button', { name: 'Add catalog fixture' });
+    fireEvent.click(addSelected);
+    expect(await screen.findByRole('alert')).toHaveTextContent('coded preview failed; retry from the picker');
+    expect(within(screen.getByTestId('mock-concept-catalog')).getByRole('button', { name: 'Add catalog fixture' })).toBeEnabled();
     expect(applyCommands).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel', exact: true }));
-    expect(await screen.findByRole('button', { name: 'Add catalog fixture' })).toBeInTheDocument();
+    fireEvent.click(within(screen.getByTestId('mock-concept-catalog')).getByRole('button', { name: 'Add catalog fixture' }));
+
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
     expect(screen.queryByTestId('construction-choice-proposal-panel')).not.toBeInTheDocument();
-    expect(applyCommands).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Add catalog fixture' }));
-    const proposalPanel = await screen.findByTestId('construction-choice-proposal-panel');
-    await screen.findByRole('button', { name: 'Apply columns' });
-    expect(proposalPanel).toHaveAttribute('data-proposal-status', 'ready');
-    expect(document.activeElement).toBe(proposalPanel);
-    expect(screen.queryByRole('button', { name: 'Add catalog fixture' })).not.toBeInTheDocument();
-    expect(screen.getByTestId('construction-proposal-preview')).toHaveTextContent('Feature A');
+    expect(screen.queryByRole('button', { name: 'Apply columns' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('construction-operation-editor')).not.toBeInTheDocument();
+    expect(screen.getByTestId('construction-action-add-columns')).toBeInTheDocument();
     expect(mockLoomClient.proposeConstructionChoices).toHaveBeenCalledWith(expect.objectContaining({
       outputId: 'specimens',
       constructionChoices: [
@@ -1039,12 +1043,6 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         { choiceId: 'semantic-choice-a', form: 'ALL', title: 'Feature A' },
       ],
     }), expect.any(AbortSignal));
-    expect(applyCommands).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Apply columns' }));
-
-    await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.queryByTestId('construction-choice-proposal-panel')).not.toBeInTheDocument());
-    expect(screen.getByTestId('construction-action-add-columns')).toBeInTheDocument();
     expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
       commands: [
         {
@@ -1060,7 +1058,11 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
           title: 'Feature A',
         },
       ],
+      commandId: expect.any(String),
     }));
+    expect(mockLoomClient.proposeConstructionChoices.mock.calls.at(-1)?.[0].commandId).toBe(
+      applyCommands.mock.calls[0]?.[0].commandId,
+    );
   });
 
   it('renders a Group choice proposal in the current table output order', async () => {

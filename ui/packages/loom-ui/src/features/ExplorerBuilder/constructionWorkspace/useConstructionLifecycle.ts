@@ -44,6 +44,7 @@ type CapabilitiesLoad = {
 };
 
 type ProposalOutcome = Extract<ConstructionProposalViewState, { readonly status: 'ready' | 'needs-repair' }>;
+type ReadyProposalOutcome = Extract<ProposalOutcome, { readonly status: 'ready' }>;
 type ProposalResource = ReturnType<typeof resourceFor<ProposalOutcome>>;
 type ProposalOwner = {
   readonly id: number;
@@ -329,9 +330,10 @@ export const useConstructionLifecycle = ({
     void startCandidateProposal(intent).catch(() => undefined);
   }, [invalidateProposalRequest, startCandidateProposal]);
 
-  const proposeCandidateAndWait = useCallback(async (intent: ConstructionCandidateIntent) => {
-    await startCandidateProposal(intent);
-    return 'preview-ready' as const;
+  const proposeCandidateAndWait = useCallback(async (intent: ConstructionCandidateIntent): Promise<ReadyProposalOutcome> => {
+    const outcome = await startCandidateProposal(intent);
+    if (outcome.status !== 'ready') throw new Error('This construction change needs repair before it can be applied.');
+    return outcome;
   }, [startCandidateProposal]);
 
   const retry = useCallback(() => {
@@ -423,20 +425,39 @@ export const useConstructionLifecycle = ({
     });
   }, [capabilitiesLoad, client, invalidatePivotDiscovery, requestKey]);
 
-  const beginApply = useCallback(() => {
-    const state = activeProposal;
-    if (!capabilitiesRequest || state.status !== 'ready' || !activeProposalOwner) return undefined;
+  const beginApply = useCallback((expectedProposal?: ReadyProposalOutcome) => {
+    const owner = proposalOwnerRef.current;
+    const currentRequest = capabilitiesRequestRef.current;
+    if (!owner || !currentRequest || owner.requestKey !== capabilitiesIdentity(currentRequest) ||
+      owner.generation !== proposalGeneration.current) return undefined;
+    let state: ConstructionProposalViewState;
+    if (expectedProposal) {
+      const snapshot = owner.resource.getSnapshot();
+      const current = snapshot.loading ? undefined : snapshot.data;
+      if (current?.status !== 'ready' ||
+        current.response.proposalId !== expectedProposal.response.proposalId ||
+        current.response.outputId !== expectedProposal.response.outputId ||
+        current.response.snapshotToken !== expectedProposal.response.snapshotToken ||
+        current.response.draftVersion !== expectedProposal.response.draftVersion ||
+        current.response.draftDigest !== expectedProposal.response.draftDigest ||
+        current.preview.receiptId !== expectedProposal.preview.receiptId) return undefined;
+      state = current;
+    } else {
+      if (activeProposalOwner?.id !== owner.id) return undefined;
+      state = activeProposal;
+    }
+    if (state.status !== 'ready') return undefined;
     const identity = {
-      outputId: capabilitiesRequest.outputId,
-      snapshotToken: capabilitiesRequest.snapshotToken,
-      draftVersion: capabilitiesRequest.expectedDraftVersion,
-      draftDigest: capabilitiesRequest.expectedDraftDigest,
+      outputId: currentRequest.outputId,
+      snapshotToken: currentRequest.snapshotToken,
+      draftVersion: currentRequest.expectedDraftVersion,
+      draftDigest: currentRequest.expectedDraftDigest,
     };
     if (!constructionProposalIsApplicable(state, identity)) return undefined;
-    setProposalOverride({ ownerId: activeProposalOwner.id,
+    setProposalOverride({ ownerId: owner.id,
       state: { status: 'applying', response: state.response, preview: state.preview } });
     return state.response.proposalId;
-  }, [activeProposal, activeProposalOwner, capabilitiesRequest]);
+  }, [activeProposal, activeProposalOwner]);
 
   const finishApply = useCallback((applied: boolean) => {
     if (applied) {

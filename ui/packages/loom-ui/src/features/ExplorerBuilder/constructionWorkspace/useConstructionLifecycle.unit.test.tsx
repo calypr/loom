@@ -216,7 +216,7 @@ describe('useConstructionLifecycle', () => {
       await Promise.resolve();
     });
 
-    let firstAttempt!: Promise<'preview-ready'>;
+    let firstAttempt!: ReturnType<typeof result.current.proposeCandidateAndWait>;
     act(() => {
       firstAttempt = result.current.proposeCandidateAndWait({
         candidateConstruction: { version: 1, steps: [] },
@@ -230,7 +230,7 @@ describe('useConstructionLifecycle', () => {
     });
     expect(result.current.proposal).toMatchObject({ status: 'error', message: 'ONE has multiple distinct values.' });
 
-    let repairedAttempt!: Promise<'preview-ready'>;
+    let repairedAttempt!: ReturnType<typeof result.current.proposeCandidateAndWait>;
     act(() => {
       repairedAttempt = result.current.proposeCandidateAndWait({
         candidateConstruction: { version: 1, steps: [] },
@@ -239,11 +239,18 @@ describe('useConstructionLifecycle', () => {
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(300);
-      await expect(repairedAttempt).resolves.toBe('preview-ready');
+      await expect(repairedAttempt).resolves.toMatchObject({ status: 'ready', response: { proposalId: 'proposal-1' } });
     });
     expect(proposeConstruction).toHaveBeenCalledTimes(2);
     expect(result.current.proposal.status).toBe('ready');
     expect(result.current.canApply).toBe(true);
+    let proposalId: string | undefined;
+    await act(async () => {
+      const ready = await repairedAttempt;
+      proposalId = result.current.beginApply(ready);
+    });
+    expect(proposalId).toBe('proposal-1');
+    expect(result.current.proposal.status).toBe('applying');
     unmount();
   });
 
@@ -265,7 +272,7 @@ describe('useConstructionLifecycle', () => {
       await Promise.resolve();
     });
 
-    let navigated!: Promise<'preview-ready'>;
+    let navigated!: ReturnType<typeof result.current.proposeCandidateAndWait>;
     act(() => {
       navigated = result.current.proposeCandidateAndWait({
         candidateConstruction: { version: 1, steps: [] },
@@ -280,7 +287,7 @@ describe('useConstructionLifecycle', () => {
     });
     await navigationAbort;
 
-    let unmounted!: Promise<'preview-ready'>;
+    let unmounted!: ReturnType<typeof result.current.proposeCandidateAndWait>;
     act(() => {
       unmounted = result.current.proposeCandidateAndWait({
         candidateConstruction: { version: 1, steps: [] },

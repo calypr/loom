@@ -35,7 +35,6 @@ import type {
   ConstructionOperation,
   ConstructionStep,
   ConstructionChoiceSelection,
-  ConstructionChoiceProposalResponse,
   RowChangeAssessment,
 } from '../../types';
 import { BuilderToolbar, NewExplorerControl } from './components/BuilderToolbar';
@@ -108,7 +107,6 @@ import {
   ConstructionProposalPanel,
 } from './constructionWorkspace/ConstructionProposalPanel';
 import { ConstructionProposalPreview } from './constructionWorkspace/ConstructionProposalPreview';
-import { PreviewValueCoverage } from './constructionWorkspace/PreviewValueCoverage';
 import {
   constructionHistorySteps,
   constructionRowMeaning,
@@ -174,18 +172,6 @@ const receiptContainsOutputIds = (
 
 const isRelatedFieldStep = (step: ConstructionStep): step is RelatedFieldStep =>
   step.operation.kind === 'RELATED_FIELD';
-
-type ChoiceProposalState =
-  | { readonly status: 'idle' }
-  | { readonly status: 'previewing' }
-  | {
-      readonly status: 'ready';
-      readonly selections: ReadonlyArray<CatalogChoiceIntent>;
-      readonly ownerKey: string;
-      readonly limit: PreviewLimit;
-      readonly response: ConstructionChoiceProposalResponse;
-    }
-  | { readonly status: 'error'; readonly message: string };
 
 type ConstructionCombineCatalogLoad = {
   readonly identity: string;
@@ -519,9 +505,7 @@ const BuilderWorkspaceContent = ({
   const [firstTableProgress, setFirstTableProgress] =
     useState<FirstTableProgress>({ kind: 'idle' });
   const [previewLimit, setPreviewLimit] = useState<PreviewLimit>(25);
-  const [choiceProposal, setChoiceProposal] = useState<ChoiceProposalState>({ status: 'idle' });
-  const choiceProposalPanelRef = useRef<HTMLElement | null>(null);
-  const choiceProposalRequest = useRef<AbortController | undefined>(undefined);
+  const addColumnsRequest = useRef<AbortController | undefined>(undefined);
   const appliedChoicePreview = useRef<AppliedChoicePreview | undefined>(undefined);
   const [featureMode, setFeatureMode] = useState<'catalog' | 'graph'>('catalog');
   const [sourceSetupOpen, setSourceSetupOpen] = useState(false);
@@ -928,19 +912,9 @@ const BuilderWorkspaceContent = ({
   }, [authResourcePath, projectId, state.explorerId, state.catalog.snapshotToken,
     state.draftVersion, state.draftDigest, table?.outputId, pendingRowChangePreview]);
   useEffect(() => {
-    choiceProposalRequest.current?.abort();
-    choiceProposalRequest.current = undefined;
-    setChoiceProposal({ status: 'idle' });
+    addColumnsRequest.current?.abort();
+    addColumnsRequest.current = undefined;
   }, [state.explorerId, table?.outputId, state.catalog.snapshotToken, state.draftVersion, state.draftDigest]);
-  useEffect(() => {
-    if (choiceProposal.status !== 'ready') return;
-    const panel = choiceProposalPanelRef.current;
-    if (!panel) return;
-    if (typeof panel.scrollIntoView === 'function') {
-      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-    panel.focus({ preventScroll: true });
-  }, [choiceProposal.status]);
   const unsupportedColumns = unsupportedSavedSourceColumns(state.tables);
   const hasUnsupportedSavedSourceColumns = unsupportedColumns.length > 0;
   const construction = table?.document.construction;
@@ -1388,9 +1362,8 @@ const BuilderWorkspaceContent = ({
       ?.focus();
   };
   useEffect(() => {
-    choiceProposalRequest.current?.abort();
-    choiceProposalRequest.current = undefined;
-    setChoiceProposal({ status: 'idle' });
+    addColumnsRequest.current?.abort();
+    addColumnsRequest.current = undefined;
   }, [selectedAddSource?.key, activeConstructionFamily]);
   const relatedSourceTypeCounts = addSourceOptions.reduce((counts, source) => {
     if (source.kind === 'RELATED') {
@@ -1715,9 +1688,40 @@ const BuilderWorkspaceContent = ({
       sampled: preview.sampled !== false || preview.partialValidation === true,
     };
   };
+  const applyConstructionProposal = async (
+    expectedProposal?: Parameters<typeof constructionLifecycle.beginApply>[0],
+    fromColumnPicker = false,
+  ): Promise<boolean> => {
+    if (cancelingConstructionProposalRef.current) {
+      if (fromColumnPicker) constructionLifecycle.cancel();
+      return false;
+    }
+    const proposalId = constructionLifecycle.beginApply(expectedProposal);
+    if (!proposalId || !table) {
+      if (fromColumnPicker) constructionLifecycle.cancel();
+      return false;
+    }
+    const applied = await applyCommands([{
+      type: 'APPLY_CONSTRUCTION_PROPOSAL',
+      outputId: table.outputId,
+      proposalId,
+    }]);
+    constructionLifecycle.finishApply(applied);
+    if (applied) {
+      const closeEditor = !fromColumnPicker || activeConstructionFamily === 'ADD_COLUMNS';
+      if (closeEditor) {
+        cancelCombineCatalogRequest();
+        setActiveConstructionFamily(undefined);
+        setConstructionHistorySelection({ kind: 'source' });
+        setEditingConstructionStepId(undefined);
+      }
+    } else if (fromColumnPicker) {
+      constructionLifecycle.cancel();
+    }
+    return applied;
+  };
   const addSelectedFeatures = async (
     selections: ReadonlyArray<CatalogChoiceIntent>,
-    saveImmediately = false,
   ) => {
     if (!table) throw new Error('Choose a table before adding features.');
     const relatedSelections = selections.filter((selection) => selection.relatedSource);
@@ -1739,8 +1743,10 @@ const BuilderWorkspaceContent = ({
           step: candidate.step,
         });
       }
-      await constructionLifecycle.proposeCandidateAndWait(candidate.intent);
-      return 'preview-ready' as const;
+      const readyProposal = await constructionLifecycle.proposeCandidateAndWait(candidate.intent);
+      const applied = await applyConstructionProposal(readyProposal, true);
+      if (!applied) throw new Error('Loom could not save these related columns. The table was not changed.');
+      return;
     }
     const current = latestState.current;
     const proposalOwnerKey = ownerKey;
@@ -1748,10 +1754,9 @@ const BuilderWorkspaceContent = ({
     if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest) {
       throw new Error('The current table is still loading. Try adding the columns again.');
     }
-    choiceProposalRequest.current?.abort();
+    addColumnsRequest.current?.abort();
     const controller = new AbortController();
-    choiceProposalRequest.current = controller;
-    if (!saveImmediately) setChoiceProposal({ status: 'previewing' });
+    addColumnsRequest.current = controller;
     try {
       const response = await loomClient.proposeConstructionChoices({
         project: projectId,
@@ -1783,24 +1788,31 @@ const BuilderWorkspaceContent = ({
       if (response.preview.rows === null || response.preview.outputId !== table.outputId) {
         throw new Error('Loom did not render rows for these columns. The table was not changed.');
       }
-      if (saveImmediately) {
-        const applied = await applyCommands(response.constructionChoices.map((choice) => ({
-          type: 'APPLY_CONSTRUCTION_CHOICE',
-          outputId: response.outputId,
-          constructionChoice: { choiceId: choice.choiceId, form: choice.form, ...(choice.frameId ? { frameId: choice.frameId } : {}), ...(choice.rowValuePolicy ? { rowValuePolicy: choice.rowValuePolicy } : {}) },
-          ...(choice.title ? { title: choice.title } : {}),
-        } satisfies ExplorerBuilderCommand)), response.commandId);
-        if (!applied) throw new Error('Loom could not save these coded-value columns. The table was not changed.');
-        return;
+      const applied = await applyCommands(response.constructionChoices.map((choice) => ({
+        type: 'APPLY_CONSTRUCTION_CHOICE',
+        outputId: response.outputId,
+        constructionChoice: { choiceId: choice.choiceId, form: choice.form, ...(choice.frameId ? { frameId: choice.frameId } : {}), ...(choice.rowValuePolicy ? { rowValuePolicy: choice.rowValuePolicy } : {}) },
+        ...(choice.title ? { title: choice.title } : {}),
+      } satisfies ExplorerBuilderCommand)), response.commandId);
+      if (!applied) {
+        appliedChoicePreview.current = undefined;
+        throw new Error('Loom could not save these coded-value columns. The table was not changed.');
       }
-      setChoiceProposal({ status: 'ready', selections, ownerKey: proposalOwnerKey, limit: proposalLimit, response });
-      return 'preview-ready' as const;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Loom could not preview the selected columns.';
-      if (!controller.signal.aborted && !saveImmediately) setChoiceProposal({ status: 'error', message });
-      throw error;
+      appliedChoicePreview.current = {
+        ownerKey: proposalOwnerKey,
+        outputId: response.outputId,
+        limit: proposalLimit,
+        snapshotToken: response.snapshotToken,
+        candidateWorkspaceDigest: response.candidateWorkspaceDigest,
+        preview: response.preview,
+      };
+      if (activeConstructionFamily === 'ADD_COLUMNS') {
+        setConstructionHistorySelection({ kind: 'source' });
+        setEditingConstructionStepId(undefined);
+        setActiveConstructionFamily(undefined);
+      }
     } finally {
-      if (choiceProposalRequest.current === controller) choiceProposalRequest.current = undefined;
+      if (addColumnsRequest.current === controller) addColumnsRequest.current = undefined;
     }
   };
 
@@ -3189,24 +3201,6 @@ const BuilderWorkspaceContent = ({
     setEditingConstructionStepId(undefined);
     setActiveConstructionFamily(undefined);
   };
-  const applyConstructionProposal = async () => {
-    if (cancelingConstructionProposalRef.current) return;
-    const proposalId = constructionLifecycle.beginApply();
-    if (!proposalId || !table) return;
-    const applied = await applyCommands([{
-      type: 'APPLY_CONSTRUCTION_PROPOSAL',
-      outputId: table.outputId,
-      proposalId,
-    }]);
-    constructionLifecycle.finishApply(applied);
-    if (applied) {
-      cancelCombineCatalogRequest();
-      setActiveConstructionFamily(undefined);
-      setConstructionHistorySelection({ kind: 'source' });
-      setEditingConstructionStepId(undefined);
-    }
-  };
-
   const restorePreviousDraft = async () => {
     if (!previousDraftRevisionId) return;
     constructionLifecycle.cancel();
@@ -3412,9 +3406,7 @@ const BuilderWorkspaceContent = ({
     pendingCommands === 0 &&
     !publishing &&
     state.reconciliation !== 'pending';
-  const operationEditor = table && activeOperation && !(
-    activeOperation.family === 'ADD_COLUMNS' && choiceProposal.status === 'ready'
-  ) ? (
+  const operationEditor = table && activeOperation ? (
     <section
       aria-label={`${activeOperation.label} editor`}
       data-testid="construction-operation-editor"
@@ -3578,7 +3570,7 @@ const BuilderWorkspaceContent = ({
                       onRemove={(frameId) => applyCommands([{
                         type: 'REMOVE_FRAME_SOURCE', outputId: table.outputId, frameId,
                       }])}
-                      onAddSelected={(selections) => addSelectedFeatures(selections, true)}
+                      onAddSelected={addSelectedFeatures}
                       onRemoveColumn={(column) => applyCommands([{
                         type: 'REMOVE_COLUMN', outputId: table.outputId, column,
                       }])}
@@ -3809,107 +3801,36 @@ const BuilderWorkspaceContent = ({
       onRetry={constructionLifecycle.retry}
     />
   );
-  const choicePreview = choiceProposal.status === 'ready' ? choiceProposal.response.preview : undefined;
-  const applyChoiceProposal = async () => {
-    if (choiceProposal.status !== 'ready' || pendingCommands > 0) return;
-    const { response } = choiceProposal;
-    const latest = latestState.current;
-    if (
-      ownerKey !== choiceProposal.ownerKey ||
-      previewLimit !== choiceProposal.limit ||
-      latest.catalog.snapshotToken !== response.snapshotToken ||
-      latest.draftVersion !== response.draftVersion ||
-      latest.draftDigest !== response.draftDigest ||
-      selectedTable(latest)?.outputId !== response.outputId
-    ) {
-      setChoiceProposal({ status: 'error', message: 'The table changed since this preview. Choose the columns again.' });
-      return;
-    }
-    const applied = await applyCommands(response.constructionChoices.map((choice) => ({
-      type: 'APPLY_CONSTRUCTION_CHOICE',
-      outputId: response.outputId,
-      constructionChoice: { choiceId: choice.choiceId, form: choice.form, ...(choice.frameId ? { frameId: choice.frameId } : {}), ...(choice.rowValuePolicy ? { rowValuePolicy: choice.rowValuePolicy } : {}) },
-      ...(choice.title ? { title: choice.title } : {}),
-    } satisfies ExplorerBuilderCommand)), response.commandId);
-    if (applied) {
-      appliedChoicePreview.current = {
-        ownerKey: choiceProposal.ownerKey,
-        outputId: response.outputId,
-        limit: choiceProposal.limit,
-        snapshotToken: response.snapshotToken,
-        candidateWorkspaceDigest: response.candidateWorkspaceDigest,
-        preview: response.preview,
-      };
-      setChoiceProposal({ status: 'idle' });
-      setConstructionHistorySelection({ kind: 'source' });
-      setEditingConstructionStepId(undefined);
-      setActiveConstructionFamily(undefined);
-    } else {
-      appliedChoicePreview.current = undefined;
-    }
-  };
-  const choiceProposalPanel = choiceProposal.status === 'idle' ? null : (
-    <section
-      ref={choiceProposalPanelRef}
-      data-testid="construction-choice-proposal-panel"
-      data-proposal-status={choiceProposal.status}
-      tabIndex={-1}
-      className="rounded-xl border border-blue-200 bg-white p-4 shadow-sm focus:outline-none"
-    >
-      <h3 className="text-base font-semibold text-slate-900">Preview new columns</h3>
-      {choiceProposal.status === 'previewing' ? <p role="status" className="mt-2 text-sm text-slate-600">Rendering rows with the selected columns…</p> : null}
-      {choiceProposal.status === 'error' ? <p role="alert" className="mt-2 text-sm text-red-800">{choiceProposal.message}</p> : null}
-      {choiceProposal.status === 'ready' ? (
-        <>
-          <p className="mt-2 text-sm text-slate-700">
-            {choiceProposal.response.candidateColumnIds.length} new {choiceProposal.response.candidateColumnIds.length === 1 ? 'column' : 'columns'} in the rendered row preview. Apply saves them to this table.
-          </p>
-          <PreviewValueCoverage preview={choiceProposal.response.preview} columnIds={choiceProposal.response.candidateColumnIds} />
-        </>
-      ) : null}
-      <div className="mt-4 flex gap-2">
-        {choiceProposal.status === 'ready' ? (
-          <button type="button" onClick={() => void applyChoiceProposal()} disabled={pendingCommands > 0} className="rounded bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">Apply columns</button>
-        ) : null}
-        <button type="button" onClick={() => {
-          choiceProposalRequest.current?.abort();
-          setChoiceProposal({ status: 'idle' });
-        }} className="rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700">Cancel</button>
-      </div>
-    </section>
-  );
-  const workspaceEditor = operationEditor || relatedSourceStepEditor || relatedFieldStepEditor || constructionLifecycle.proposal.status !== 'idle' || choiceProposal.status !== 'idle'
-    ? <>{choiceProposalPanel}{operationEditor}{relatedSourceStepEditor}{relatedFieldStepEditor}{proposalPanel}</>
+  const workspaceEditor = operationEditor || relatedSourceStepEditor || relatedFieldStepEditor || constructionLifecycle.proposal.status !== 'idle'
+    ? <>{operationEditor}{relatedSourceStepEditor}{relatedFieldStepEditor}{proposalPanel}</>
     : undefined;
-  const candidatePreview = choicePreview ?? ((constructionLifecycle.proposal.status === 'ready' ||
+  const candidatePreview = constructionLifecycle.proposal.status === 'ready' ||
     constructionLifecycle.proposal.status === 'applying'
     ? constructionLifecycle.proposal.preview
-    : undefined));
+    : undefined;
   const proposalResponse = 'response' in constructionLifecycle.proposal
     ? constructionLifecycle.proposal.response
     : undefined;
-  const proposalPresentationTable = choicePreview && table
-    ? table
-    : table && proposalResponse
-      ? {
-          ...table,
-          document: {
-            ...table.document,
-            construction: proposalResponse.candidateConstruction,
-          },
-        }
-      : undefined;
+  const proposalPresentationTable = table && proposalResponse
+    ? {
+        ...table,
+        document: {
+          ...table.document,
+          construction: proposalResponse.candidateConstruction,
+        },
+      }
+    : undefined;
   const workspacePreview = candidatePreview ?? tablePreview;
   const workspacePreviewIsCurrent = Boolean(candidatePreview) || previewIsCurrent;
   const workspacePreviewStatus = candidatePreview
     ? 'ready'
     : automaticPreviewQuery.error
       ? 'error'
-      : choiceProposal.status === 'previewing' || constructionLifecycle.proposal.status === 'previewing'
+      : constructionLifecycle.proposal.status === 'previewing'
       ? 'previewing'
       : constructionLifecycle.proposal.status === 'needs-repair'
         ? 'needs-repair'
-        : choiceProposal.status === 'error' || constructionLifecycle.proposal.status === 'error'
+        : constructionLifecycle.proposal.status === 'error'
           ? 'error'
           : currentPreviewStatus;
   const workspacePreviewProposalId = candidatePreview?.receiptId ?? proposalResponse?.proposalId;
