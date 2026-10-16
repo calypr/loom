@@ -1565,8 +1565,8 @@ export const registry = Object.freeze([
     requiredTransitions: [
       'create a fresh Basic Patient table from the six-resource literal fixture',
       'browse all output-scoped coded values without a source-type or typed-search gate and select Condition, Medication, Specimen, and paired Observation choices',
-      'cancel the first native coded-column preview without changing the saved Patient table',
-      'apply the same coded choices and verify exact display, code fallback, and version correlation by Patient',
+      'cancel the configured route and result-form choices before Add/Save without changing the saved Patient table',
+      'use one Add/Save action for the coded choices and verify exact display, code fallback, and version correlation by Patient',
       'reload the applied table and verify the persisted CODING bindings and exact source-derived rows',
     ],
     gateReasons: [
@@ -1615,8 +1615,8 @@ export const registry = Object.freeze([
         requiredChecks: [
           'literal fixture proves standalone Coding versions and the unversioned paired Observation 42/null values',
           'native Coded values browse after the exact Patient Filter shows compiler-proven entries from all eligible source resources without search',
-          'Cancel leaves the saved Patient table and draft unchanged',
-          'Apply persists CODING-scoped version-aware sources and leaves paired values owner-scoped',
+          'pre-submit Cancel leaves the saved Patient table and draft unchanged without a coded-column proposal or authoring command',
+          'one Add/Save action persists CODING-scoped version-aware sources and leaves paired values owner-scoped',
           'Applied coded fields and exact per-patient values survive Builder reload',
           'independent FHIR source fixture remains unchanged through the lifecycle',
         ],
@@ -1625,9 +1625,9 @@ export const registry = Object.freeze([
     coverage: [
       {
         feature: 'Basic native standalone Coding values across Condition, Medication, Specimen and paired Observation values',
-        acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', case: 'coded-fields', checks: { choice: 2, proposal: 2, cancel: 1, apply: 1, savedRows: 2, reload: 2, edit: 0, restoration: 0 } },
+        acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', case: 'coded-fields', checks: { choice: 2, proposal: 1, cancel: 1, apply: 1, savedRows: 2, reload: 2, edit: 0, restoration: 0 } },
         status: 'untested',
-        reason: 'The registered fresh Basic fixture has an independent six-resource source oracle; native browse, exact version-aware apply, and reload remain pending.',
+        reason: 'The registered fresh Basic fixture has an independent six-resource source oracle; the driver now uses pre-submit Cancel and one Add/Save action, but the native browse, exact version-aware save, and reload lifecycle remain pending.',
       },
     ],
   }),

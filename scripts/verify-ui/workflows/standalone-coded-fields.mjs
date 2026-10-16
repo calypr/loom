@@ -340,14 +340,14 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
     { outputId, request: inventory.request, groups: expectedGroups, selectedLabels: selectedItems.map(semanticLabel),
       filterStepId: savedFilterStep.id, filterOperation: savedFilterStep.operation, filterCapabilityStageId: filterCapabilityEntry.response.selectedStage.id });
 
-  const selectAndPreview = async phase => {
+  const selectAndAdd = async (phase, { cancelBeforeSubmit = false } = {}) => {
     for (const item of selectedItems) {
       const label = semanticLabel(item);
       const checkbox = await checkboxForItem(item);
       if (!(await checkbox.isChecked())) await click(`${phase}: select ${label}`, checkbox,
         async () => assert.equal(await checkbox.isChecked(), true));
     }
-    const addButton = page.getByRole('button', { name: 'Add 5 selected features', exact: true });
+    const addButton = page.getByRole('button', { name: 'Advanced options', exact: true });
     const choiceStart = networkObserver.requests.length;
     const choicePromises = selectedItems.map(item => networkObserver.waitForResponse(entry =>
       entry.index >= choiceStart && entry.path.endsWith('/construction-choices') &&
@@ -355,10 +355,10 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
       entry.request.source.conceptId === item.conceptId && entry.request.source.bindingId === item.bindingId,
     { fromIndex: choiceStart, timeoutMs: ACTION_TIMEOUT_MS }));
     await click(`${phase}: resolve selected source routes`, addButton, async () => {
-      await page.getByRole('dialog', { name: 'Choose how to add these fields', exact: true })
+      await page.getByTestId('catalog-selection-options')
         .waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
     });
-    const selectionDialog = page.getByRole('dialog', { name: 'Choose how to add these fields', exact: true });
+    const selectionOptions = page.getByTestId('catalog-selection-options');
     const choiceResponses = await Promise.all(choicePromises);
     const selectedChoiceByLabel = new Map();
     for (const item of selectedItems) {
@@ -382,7 +382,7 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
           `${label} route must end at the exact inventory source node.`);
       }
       const routeRadioName = `${label}: ${routePath(selectedChoice.route)}`;
-      const routeRadio = selectionDialog.getByRole('radio', { name: routeRadioName, exact: true });
+      const routeRadio = selectionOptions.getByRole('radio', { name: routeRadioName, exact: true });
       if (await routeRadio.count()) {
         if (!(await routeRadio.isChecked())) await click(`${phase}: choose ${item.resourceType} route for ${label}`, routeRadio);
       }
@@ -391,18 +391,37 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
         ?? selectedChoice.options.find(option => option.support === 'SUPPORTED');
       const form = allOption?.form ?? defaultOption?.form;
       assert(form, `${label} must have a compiler-supported result form.`);
-      const formRadio = selectionDialog.getByRole('radio', { name: `${label}: ${formLabel(form)}`, exact: true });
+      const formRadio = selectionOptions.getByRole('radio', { name: `${label}: ${formLabel(form)}`, exact: true });
       assert.equal(await formRadio.count(), 1, `${label} must expose the selected supported ${form} form.`);
       if (!(await formRadio.isChecked())) await click(`${phase}: choose ${form} for ${label}`, formRadio);
       selectedChoiceByLabel.set(label, { item, choice: selectedChoice, form });
     }
-    const proposalStart = networkObserver.requests.length;
-    await click(`${phase}: submit the selected coded columns`, selectionDialog.getByRole('button', { name: 'Add 5 columns', exact: true }),
-      () => page.getByTestId('construction-choice-proposal-panel').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }));
-    const proposal = await networkObserver.waitForResponse(entry => entry.index >= proposalStart &&
+    if (cancelBeforeSubmit) {
+      await click(`${phase}: cancel before saving the selected coded columns`,
+        selectionOptions.getByRole('button', { name: 'Cancel', exact: true }),
+        () => selectionOptions.waitFor({ state: 'detached', timeout: ACTION_TIMEOUT_MS }));
+      return { selectedChoiceByLabel };
+    }
+
+    const addStart = networkObserver.requests.length;
+    const proposalPromise = networkObserver.waitForResponse(entry => entry.index >= addStart &&
       entry.path.endsWith('/construction-choice-proposals') && entry.request?.outputId === outputId,
-    { fromIndex: proposalStart, timeoutMs: ACTION_TIMEOUT_MS });
+    { fromIndex: addStart, timeoutMs: ACTION_TIMEOUT_MS });
+    const applyPromise = networkObserver.waitForResponse(entry => entry.index >= addStart &&
+      entry.path.endsWith('/commands') && entry.request?.commands?.some(command => command.type === 'APPLY_CONSTRUCTION_CHOICE'),
+    { fromIndex: addStart, timeoutMs: ACTION_TIMEOUT_MS });
+    await click(`${phase}: Add and save the selected coded columns`,
+      selectionOptions.getByRole('button', { name: 'Add 5 selected features', exact: true }),
+      async () => {
+        await selectionOptions.waitFor({ state: 'detached', timeout: ACTION_TIMEOUT_MS });
+        await waitFor(page, expectedOutput => {
+          const preview = document.querySelector('[data-testid="construction-preview"]');
+          return preview?.dataset.previewStatus === 'ready' && preview.dataset.previewOutputId === expectedOutput;
+        }, outputId);
+      });
+    const [proposal, applyRequest] = await Promise.all([proposalPromise, applyPromise]);
     assert.equal(proposal.status, 200, 'The native choice proposal must return HTTP 200.');
+    assert.equal(applyRequest.status, 200, 'The single Add/Save action must persist the selected coded columns.');
     assert.equal(proposal.response.previewStatus, 'READY');
     assert.equal(proposal.response.preview.outputId, outputId);
     assert.equal(proposal.response.preview.rowCount, oracle.patientIDs.length);
@@ -446,39 +465,27 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
         }
       }
     }
-    return { proposal, preview, selectedChoiceByLabel, expectedValueByLabel };
+    return { proposal, applyRequest, preview, selectedChoiceByLabel, expectedValueByLabel };
   };
 
-  const firstPreview = await selectAndPreview('Cancel proof');
-  const cancelBaseline = await readBuilder();
-  assert.equal(cancelBaseline.draftVersion, baselineDraft.version);
-  assert.equal(cancelBaseline.draftDigest, baselineDraft.digest);
+  const choiceProposalsBeforeCancel = networkObserver.requests.filter(entry => entry.path.endsWith('/construction-choice-proposals')).length;
   const commandsBeforeCancel = networkObserver.requests.filter(entry => entry.path.endsWith('/commands') && entry.isMutation).length;
-  await click('cancel coded-column preview without saving', page.getByTestId('construction-choice-proposal-panel').getByRole('button', { name: 'Cancel', exact: true }),
-    () => page.getByTestId('construction-choice-proposal-panel').waitFor({ state: 'detached', timeout: ACTION_TIMEOUT_MS }));
+  await selectAndAdd('Cancel proof', { cancelBeforeSubmit: true });
   const afterCancel = await readBuilder();
   assert.equal(afterCancel.draftVersion, baselineDraft.version, 'Cancel must not change the saved draft version.');
   assert.equal(afterCancel.draftDigest, baselineDraft.digest, 'Cancel must not change the saved draft digest.');
   assert.equal(networkObserver.requests.filter(entry => entry.path.endsWith('/commands') && entry.isMutation).length, commandsBeforeCancel,
     'Cancel must not send an authoring command.');
-  check('correctness', 'Cancel leaves the saved Patient table and draft unchanged',
+  assert.equal(networkObserver.requests.filter(entry => entry.path.endsWith('/construction-choice-proposals')).length,
+    choiceProposalsBeforeCancel, 'Cancel before Add/Save must not request a coded-column proposal.');
+  check('correctness', 'Pre-submit Cancel leaves the saved Patient table and draft unchanged',
     afterCancel.draftVersion === baselineDraft.version && afterCancel.draftDigest === baselineDraft.digest &&
-      networkObserver.requests.filter(entry => entry.path.endsWith('/commands') && entry.isMutation).length === commandsBeforeCancel,
+      networkObserver.requests.filter(entry => entry.path.endsWith('/commands') && entry.isMutation).length === commandsBeforeCancel &&
+      networkObserver.requests.filter(entry => entry.path.endsWith('/construction-choice-proposals')).length === choiceProposalsBeforeCancel,
     { draft: baselineDraft, afterCancel: { version: afterCancel.draftVersion, digest: afterCancel.draftDigest }, commandsBeforeCancel });
 
-  const appliedPreview = await selectAndPreview('Apply proof');
-  const applyStart = networkObserver.requests.length;
-  await click('apply standalone coded columns', page.getByTestId('construction-choice-proposal-panel').getByRole('button', { name: 'Apply columns', exact: true }),
-    async () => {
-      await page.getByTestId('construction-choice-proposal-panel').waitFor({ state: 'detached', timeout: ACTION_TIMEOUT_MS });
-      await waitFor(page, expectedOutput => {
-        const preview = document.querySelector('[data-testid="construction-preview"]');
-        return preview?.dataset.previewStatus === 'ready' && preview.dataset.previewOutputId === expectedOutput;
-      }, outputId);
-    });
-  const applyRequest = await networkObserver.waitForResponse(entry => entry.index >= applyStart &&
-    entry.path.endsWith('/commands') && entry.request?.commands?.some(command => command.type === 'APPLY_CONSTRUCTION_CHOICE'),
-  { fromIndex: applyStart, timeoutMs: ACTION_TIMEOUT_MS });
+  const appliedPreview = await selectAndAdd('Add/Save proof');
+  const applyRequest = appliedPreview.applyRequest;
   assert.equal(applyRequest.status, 200, 'Applying the selected coded columns must persist successfully.');
   builder = await readBuilder();
   document = documentFor(builder);
