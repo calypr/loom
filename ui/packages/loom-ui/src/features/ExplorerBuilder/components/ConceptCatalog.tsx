@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useLoomClient, useQuery } from '../../../react';
 import type {
+  ConstructionChoice,
   ConstructionChoiceOption,
   ConstructionChoiceSearchSource,
   ExplorerBuilderCatalog,
@@ -8,7 +9,6 @@ import type {
   SemanticInventoryBrowseResponse,
   SemanticInventoryItem,
   SemanticInventorySelectionMode,
-  SchemaFieldOption,
 } from '../../../types';
 import {
   CODED_SEMANTIC_RULE_HINTS,
@@ -19,7 +19,6 @@ import {
   catalogItemConstructionChoice,
   catalogSourceOptions,
   fieldCatalogItems,
-  schemaFieldCatalogItems,
   isRelatedFieldCatalogItem,
   semanticCatalogItems,
   semanticItemMatchesAnyRule,
@@ -169,6 +168,13 @@ const addActionMessage = (intents: ReadonlyArray<CatalogChoiceIntent>): string =
   intents.some((intent) => intent.relatedSource)
     ? 'Related-source proposal submitted. Review the preview before applying.'
     : `${intents.length} ${intents.length === 1 ? 'feature was' : 'features were'} added to your table.`;
+
+const unavailableSelectionMessage = (items: ReadonlyArray<CatalogItem>): string => {
+  const labels = items.map(catalogItemLabel);
+  return labels.length === 1
+    ? `${labels[0]} is not available for this table and was removed from your selection.`
+    : `${labels.join(', ')} are not available for this table and were removed from your selection.`;
+};
 
 const sourceDetails = (item: CatalogItem): ReadonlyArray<readonly [string, string]> => {
   const choice = catalogItemConstructionChoice(item);
@@ -547,10 +553,10 @@ const ConceptCatalogContent = ({
   authResourcePath,
   snapshotToken,
   outputId,
+  tableContextKey = '',
   rowRoot,
   resourceType,
   sourceNodeId,
-  schemaDiscoveryEnabled = true,
   routeContext,
   layout = 'workspace',
   catalog,
@@ -575,10 +581,10 @@ const ConceptCatalogContent = ({
   readonly authResourcePath?: string;
   readonly snapshotToken: string;
   readonly outputId: string;
+  readonly tableContextKey?: string;
   readonly rowRoot: string;
   readonly resourceType?: string;
   readonly sourceNodeId?: string;
-  readonly schemaDiscoveryEnabled?: boolean;
   readonly routeContext?: CatalogRouteContext;
   readonly layout?: 'workspace' | 'panel';
   readonly catalog: ExplorerBuilderCatalog;
@@ -633,6 +639,12 @@ const ConceptCatalogContent = ({
     ? disabledReasonId
     : undefined;
   const activeChoiceRequest = useRef<AbortController | undefined>(undefined);
+  const activeMoreRouteRequest = useRef<{
+    readonly controller: AbortController;
+    readonly tableContextKey: string;
+  } | undefined>(undefined);
+  const currentTableContextKey = useRef(tableContextKey);
+  currentTableContextKey.current = tableContextKey;
   const selectionContext = useRef<string | undefined>(undefined);
   const semanticContextRef = useRef<{
     readonly scopeKey: string;
@@ -640,7 +652,14 @@ const ConceptCatalogContent = ({
     readonly value?: { readonly contextToken: string; readonly buildId: string };
   }>({ scopeKey: '', client });
   const previousView = useRef(view);
+  const previousTableContext = useRef(tableContextKey);
   const handledSuggestionRequests = useRef<Set<string>>(new Set());
+  const cancelLoadMoreRoutes = () => {
+    activeMoreRouteRequest.current?.controller.abort();
+    activeMoreRouteRequest.current = undefined;
+    setLoadingMoreRoutes(undefined);
+    setRouteLoadError(undefined);
+  };
   useEffect(() => {
     if (previousView.current === view) return;
     previousView.current = view;
@@ -648,12 +667,26 @@ const ConceptCatalogContent = ({
     setQueryInput('');
     setPageNavigation(undefined);
   }, [view]);
+  useEffect(() => {
+    if (previousTableContext.current === tableContextKey) return;
+    previousTableContext.current = tableContextKey;
+    activeChoiceRequest.current?.abort();
+    activeChoiceRequest.current = undefined;
+    cancelLoadMoreRoutes();
+    setSelectionPhase('idle');
+    setSelected(new Map());
+    setChoiceDetails(new Map());
+    setPendingSelection(undefined);
+    setAdvancedOpen(false);
+    setActionMessage('The table changed. Choose fields for the current table.');
+  }, [tableContextKey]);
   const contextKey = JSON.stringify([
     project,
     explorerId,
     authResourcePath ?? '',
     snapshotToken,
     outputId,
+    tableContextKey,
     rowRoot,
     browseResourceType ?? '*',
     browseSourceNodeId ?? '',
@@ -843,41 +876,19 @@ const ConceptCatalogContent = ({
   const pageIndex = currentPageNavigation.index;
   const warning = response ? availabilityMessage(response) : undefined;
   const canBrowseConcepts = response?.state === 'complete';
-  const schemaNodeId = sourceNodeId ?? catalog.nodes.find((node) => node.resourceType === (resourceType ?? rowRoot) && node.rowRootEligible)?.nodeId;
-  const schemaScopeKey = JSON.stringify([project, explorerId, authResourcePath ?? '', snapshotToken, schemaNodeId, query]);
-  const [schemaProgress, setSchemaProgress] = useState<{
-    readonly key: string; readonly client: typeof client; readonly fields: ReadonlyArray<SchemaFieldOption>;
-  }>();
-  const schemaFields = useQuery(async (signal) => {
-    if (!client.searchSchemaFields || !schemaNodeId) return [];
-    const fields: SchemaFieldOption[] = [];
-    const seen = new Set<string>();
-    let nextCursor: string | undefined;
-    do {
-      if (signal.aborted) return [];
-      const page = await client.searchSchemaFields({
-        project, explorerId, authResourcePath, snapshotToken, nodeId: schemaNodeId,
-        query, cursor: nextCursor, limit: 50,
-        requestId: `schema-fields-${window.crypto.randomUUID()}`,
-      }, signal);
-      if (signal.aborted) return [];
-      if (page.snapshotToken !== snapshotToken || page.nodeId !== schemaNodeId) {
-        throw new Error('Loom returned generated fields for another source.');
-      }
-      fields.push(...page.fields);
-      setSchemaProgress({ key: schemaScopeKey, client, fields: [...fields] });
-      nextCursor = page.nextCursor;
-      if (nextCursor && seen.has(nextCursor)) throw new Error('Generated field pagination repeated a page.');
-      if (nextCursor) seen.add(nextCursor);
-      if (!nextCursor && !page.complete) throw new Error('Generated field discovery did not finish.');
-    } while (nextCursor);
-    return fields;
-  }, [client, project, explorerId, authResourcePath, snapshotToken, schemaNodeId, query], Boolean(
-    schemaDiscoveryEnabled && schemaNodeId && client.searchSchemaFields &&
-    view === 'all' && (layout !== 'panel' || rawFieldsExpanded),
-  ));
-  const generatedFields = schemaProgress?.key === schemaScopeKey && schemaProgress.client === client
-    ? schemaProgress.fields : schemaFields.data ?? [];
+  const choiceDetailsKey = (item: CatalogItem): string =>
+    JSON.stringify([
+      contextKey,
+      item.kind === 'SEMANTIC' ? semanticResponse?.contextToken ?? '' : '',
+      catalogItemKey(item),
+    ]);
+  const choicesForCurrentTable = (group: CatalogChoiceGroup): ReadonlyArray<ConstructionChoice> =>
+    choiceGroupsForRelatedSource([group], rowRoot, relatedSourceAvailability)[0]?.choices ?? [];
+  const hasNoCompilerRoute = (item: CatalogItem): boolean => {
+    const details = choiceDetails.get(choiceDetailsKey(item));
+    return details?.status === 'ready' && choicesForCurrentTable(details.group).length === 0 &&
+      details.group.complete && !details.group.truncated && !details.group.nextCursor;
+  };
   const fieldItems = useMemo(
     () => {
       if (view === 'coded') return [];
@@ -890,16 +901,16 @@ const ConceptCatalogContent = ({
         query,
         browseSourceNodeId,
         view === 'fields',
-      ).filter((item) => item.kind === 'FIELD' && (view !== 'fields' || item.candidate.populated === true));
-      const schemaFields = view === 'all' ? schemaFieldCatalogItems(generatedFields) : [];
-      return [...catalogFields, ...schemaFields].filter(
+      ).filter((item) => item.kind === 'FIELD' && item.candidate.populated === true);
+      return catalogFields.filter(
         (item) => item.kind === 'FIELD' &&
+          !hasNoCompilerRoute(item) &&
           (!browseRouteContext || item.candidate.nodeId === browseRouteContext.nodeId) &&
           (browseRouteContext || item.constructionChoice.source.resourceType === rowRoot || reachableSourceNodeIds.has(item.candidate.nodeId)) &&
           canAddCatalogItem(item) && catalogItemAvailability(item).selectable,
       );
     },
-    [browseResourceType, browseRouteContext, browseSourceNodeId, catalog, query, rowRoot, generatedFields, relatedSourceAvailability, sourceProjectionAvailability, view],
+    [browseResourceType, browseRouteContext, browseSourceNodeId, catalog, choiceDetails, contextKey, query, rowRoot, relatedSourceAvailability, sourceProjectionAvailability, view],
   );
   const appliedInitialSelection = useRef(false);
   useEffect(() => {
@@ -920,8 +931,9 @@ const ConceptCatalogContent = ({
       view === 'coded' ? CODED_SEMANTIC_RULE_HINTS : undefined,
     )
       .filter((item) => view !== 'fields')
+      .filter((item) => !hasNoCompilerRoute(item))
       .filter((item) => canAddCatalogItem(item) && catalogItemAvailability(item).selectable),
-    [browseResourceType, browseSourceNodeId, canAddFromSourceProjection, view, relatedSourceAvailability, response?.entries, rowRoot],
+    [browseResourceType, browseSourceNodeId, canAddFromSourceProjection, choiceDetails, contextKey, view, relatedSourceAvailability, response?.entries, rowRoot],
   );
   const fieldGroups = useMemo(
     () => catalogSourceGroups(fieldItems, rowRoot),
@@ -944,15 +956,13 @@ const ConceptCatalogContent = ({
     });
     setPendingSelection(undefined);
     setAdvancedOpen(false);
+    cancelLoadMoreRoutes();
     const pendingChoiceRequest = activeChoiceRequest.current;
     activeChoiceRequest.current = undefined;
     pendingChoiceRequest?.abort();
     if (pendingChoiceRequest) setSelectionPhase('idle');
     setActionMessage(undefined);
   };
-
-  const choiceDetailsKey = (item: CatalogItem): string =>
-    JSON.stringify([contextKey, semanticResponse?.contextToken ?? '', catalogItemKey(item)]);
 
   const resolveChoiceGroup = async (
     item: CatalogItem,
@@ -1010,30 +1020,74 @@ const ConceptCatalogContent = ({
         };
       }
     }
-    const resolved = await client.searchConstructionChoices({
-      project,
-      explorerId,
-      authResourcePath,
-      snapshotToken,
-      outputId,
-      ...(browseRouteContext ? { occurrenceId: browseRouteContext.occurrenceId } : {}),
-      source,
-      limit: ROUTE_PAGE_SIZE,
-      ...(cursor ? { cursor } : {}),
-      requestId: `construction-choices-${window.crypto.randomUUID()}`,
-    }, signal);
-    if (
-      resolved.snapshotToken !== snapshotToken ||
-      resolved.outputId !== outputId
-    ) {
-      throw new Error('Loom returned construction choices for another table or catalog snapshot.');
+    const choicesById = new Map<string, ConstructionChoice>();
+    const seenCursors = new Set(cursor ? [cursor] : []);
+    let pageCursor = cursor;
+    let nextCursor: string | undefined;
+    let resolved: Awaited<ReturnType<typeof client.searchConstructionChoices>> | undefined;
+    let choices: ReadonlyArray<ConstructionChoice> = [];
+    do {
+      if (signal?.aborted) throw new Error('Construction choice search was cancelled.');
+      resolved = await client.searchConstructionChoices({
+        project,
+        explorerId,
+        authResourcePath,
+        snapshotToken,
+        outputId,
+        ...(browseRouteContext ? { occurrenceId: browseRouteContext.occurrenceId } : {}),
+        source,
+        limit: ROUTE_PAGE_SIZE,
+        ...(pageCursor ? { cursor: pageCursor } : {}),
+        requestId: `construction-choices-${window.crypto.randomUUID()}`,
+      }, signal);
+      if (
+        resolved.snapshotToken !== snapshotToken ||
+        resolved.outputId !== outputId
+      ) {
+        throw new Error('Loom returned construction choices for another table or catalog snapshot.');
+      }
+      for (const choice of resolved.choices) {
+        if (!choicesById.has(choice.choiceId)) choicesById.set(choice.choiceId, choice);
+      }
+      choices = [...choicesById.values()];
+      nextCursor = resolved.nextCursor;
+      const usableChoices = item.kind === 'FIELD'
+        ? choiceGroupsForRelatedSource([{
+            item,
+            choices,
+            complete: resolved.complete,
+            truncated: resolved.truncated,
+            ...(resolved.nextCursor ? { nextCursor: resolved.nextCursor } : {}),
+          }], rowRoot, relatedSourceAvailability)[0]?.choices ?? []
+        : choices;
+      if (usableChoices.length > 0) {
+        if (nextCursor && seenCursors.has(nextCursor)) nextCursor = undefined;
+        break;
+      }
+      if (nextCursor && seenCursors.has(nextCursor)) {
+        throw new Error('Construction choice pagination repeated a page.');
+      }
+      if (!nextCursor) break;
+      seenCursors.add(nextCursor);
+      pageCursor = nextCursor;
+    } while (nextCursor);
+    if (!resolved) throw new Error('Loom did not return construction choices.');
+    const finalGroup: CatalogChoiceGroup = {
+      item,
+      choices,
+      complete: resolved.complete,
+      truncated: resolved.truncated,
+      ...(nextCursor ? { nextCursor } : {}),
+    };
+    if (!resolved.complete && !nextCursor && choicesForCurrentTable(finalGroup).length === 0) {
+      throw new Error('Loom could not finish checking construction choices.');
     }
     return {
       item,
-      choices: resolved.choices,
+      choices,
       complete: resolved.complete,
       truncated: resolved.truncated,
-      nextCursor: resolved.nextCursor,
+      ...(nextCursor ? { nextCursor } : {}),
       ...(item.kind === 'SEMANTIC' ? {
         semanticContext: semanticContext ?? (semanticResponse ? {
           contextToken: semanticResponse.contextToken,
@@ -1046,7 +1100,7 @@ const ConceptCatalogContent = ({
   const resolveSelectedGroups = async (
     items: ReadonlyArray<CatalogItem>,
     signal: AbortSignal,
-  ): Promise<ReadonlyArray<CatalogChoiceGroup> | undefined> => {
+  ): Promise<{ readonly groups: ReadonlyArray<CatalogChoiceGroup>; readonly unavailable: ReadonlyArray<CatalogItem> } | undefined> => {
     const groups = await Promise.all(items.map(async (item) => {
       const cached = choiceDetails.get(choiceDetailsKey(item));
       if (cached?.status === 'ready') return cached.group;
@@ -1060,7 +1114,14 @@ const ConceptCatalogContent = ({
       }
       return next;
     });
-    return groups;
+    const unavailable = groups.filter((group) =>
+      choicesForCurrentTable(group).length === 0 && group.complete &&
+      !group.truncated && !group.nextCursor,
+    ).map((group) => group.item);
+    return {
+      groups: groups.filter((group) => !unavailable.some((item) => catalogItemKey(item) === catalogItemKey(group.item))),
+      unavailable,
+    };
   };
 
   const defaultIntentForGroup = (group: CatalogChoiceGroup): CatalogChoiceIntent | undefined => {
@@ -1107,10 +1168,18 @@ const ConceptCatalogContent = ({
   const loadMoreChoices = async (group: CatalogChoiceGroup) => {
     if (!group.nextCursor || loadingMoreRoutes) return;
     const key = catalogItemKey(group.item);
+    activeMoreRouteRequest.current?.controller.abort();
+    const request = { controller: new AbortController(), tableContextKey };
+    activeMoreRouteRequest.current = request;
     setLoadingMoreRoutes(key);
     setRouteLoadError(undefined);
     try {
-      const page = await resolveChoiceGroup(group.item, undefined, group.nextCursor, group.semanticContext);
+      const page = await resolveChoiceGroup(group.item, request.controller.signal, group.nextCursor, group.semanticContext);
+      if (
+        request.controller.signal.aborted ||
+        activeMoreRouteRequest.current !== request ||
+        currentTableContextKey.current !== request.tableContextKey
+      ) return;
       const seen = new Set(group.choices.map((choice) => choice.choiceId));
       const updated = {
         ...group,
@@ -1130,12 +1199,20 @@ const ConceptCatalogContent = ({
         { status: 'ready', group: updated },
       ));
     } catch (error) {
+      if (
+        request.controller.signal.aborted ||
+        activeMoreRouteRequest.current !== request ||
+        currentTableContextKey.current !== request.tableContextKey
+      ) return;
       setRouteLoadError({
         key,
         message: error instanceof Error ? error.message : 'Loom could not load more routes.',
       });
     } finally {
-      setLoadingMoreRoutes(undefined);
+      if (activeMoreRouteRequest.current === request) {
+        activeMoreRouteRequest.current = undefined;
+        setLoadingMoreRoutes(undefined);
+      }
     }
   };
 
@@ -1224,9 +1301,15 @@ const ConceptCatalogContent = ({
     setSelectionPhase('loading-options');
     setActionMessage(undefined);
     try {
-      const groups = await resolveSelectedGroups(selectedItems, controller.signal);
-      if (!groups || controller.signal.aborted) return;
-      setPendingSelection(groups);
+      const resolution = await resolveSelectedGroups(selectedItems, controller.signal);
+      if (!resolution || controller.signal.aborted) return;
+      const unavailableKeys = new Set(resolution.unavailable.map(catalogItemKey));
+      if (unavailableKeys.size > 0) {
+        setSelected((current) => new Map([...current].filter(([key]) => !unavailableKeys.has(key))));
+        setActionMessage(unavailableSelectionMessage(resolution.unavailable));
+      }
+      setPendingSelection(resolution.groups.length > 0 ? resolution.groups : undefined);
+      if (resolution.groups.length === 0) setAdvancedOpen(false);
     } catch (error) {
       if (controller.signal.aborted) return;
       setActionMessage(
@@ -1256,9 +1339,23 @@ const ConceptCatalogContent = ({
     activeChoiceRequest.current = controller;
     setSelectionPhase('loading-options');
     try {
-      const groups = await resolveSelectedGroups(selectedItems, controller.signal);
-      if (!groups || controller.signal.aborted) return;
-      setPendingSelection(groups);
+      const resolution = await resolveSelectedGroups(selectedItems, controller.signal);
+      if (!resolution || controller.signal.aborted) return;
+      const unavailableKeys = new Set(resolution.unavailable.map(catalogItemKey));
+      if (unavailableKeys.size > 0) {
+        setSelected((current) => new Map([...current].filter(([key]) => !unavailableKeys.has(key))));
+        setActionMessage(unavailableSelectionMessage(resolution.unavailable));
+      }
+      const groups = resolution.groups;
+      setPendingSelection(groups.length > 0 ? groups : undefined);
+      if (groups.length === 0) {
+        setAdvancedOpen(false);
+        return;
+      }
+      if (unavailableKeys.size > 0) {
+        setAdvancedOpen(true);
+        return;
+      }
       const intents = groups.map(defaultIntentForGroup);
       const resolvedIntents = intents.filter(
         (intent): intent is CatalogChoiceIntent => intent !== undefined,
@@ -1305,11 +1402,6 @@ const ConceptCatalogContent = ({
         </div>
       ) : null}
       <div className="mt-3 divide-y divide-slate-200">
-        {schemaFields.error ? (
-          <p role="alert" className="text-red-700">{schemaFields.error instanceof Error ? schemaFields.error.message : 'Generated field discovery failed.'}</p>
-        ) : schemaFields.isLoading ? (
-          <p role="status" className="text-slate-600">Loading fields from the FHIR definitions…</p>
-        ) : null}
         {fieldItems.length === 0 ? (
           <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
             {view === 'fields'
@@ -1426,6 +1518,7 @@ const ConceptCatalogContent = ({
               if (advancedOpen) {
                 activeChoiceRequest.current?.abort();
                 activeChoiceRequest.current = undefined;
+                cancelLoadMoreRoutes();
                 setPendingSelection(undefined);
                 setSelectionPhase('idle');
                 setAdvancedOpen(false);
@@ -1460,6 +1553,7 @@ const ConceptCatalogContent = ({
                   onInspectRouteCoverage={onInspectRouteCoverage}
                   onCancel={() => {
                     activeChoiceRequest.current?.abort();
+                    cancelLoadMoreRoutes();
                     setPendingSelection(undefined);
                     setAdvancedOpen(false);
                     setActionMessage(undefined);

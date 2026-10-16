@@ -7,7 +7,6 @@ import type {
   ExplorerBuilderCandidate,
   FieldChoiceSource,
   SemanticInventoryItem,
-  SchemaFieldOption,
 } from '../../types';
 
 export type CatalogItem =
@@ -211,13 +210,27 @@ export const semanticConceptLabel = (item: SemanticInventoryItem): string => {
     : label;
 };
 
+const isRelatedFieldSource = (
+  sourceResourceType: string,
+  routeLength: number,
+  rowRoot: string,
+): boolean => sourceResourceType !== rowRoot || routeLength > 0;
+
 export const isRelatedFieldCatalogItem = (
   item: CatalogItem,
   rowRoot: string,
-): boolean => item.kind === 'FIELD' && (
-  item.constructionChoice.source.resourceType !== rowRoot ||
-  item.constructionChoice.route.length > 0
+): boolean => item.kind === 'FIELD' && isRelatedFieldSource(
+  item.constructionChoice.source.resourceType,
+  item.constructionChoice.route.length,
+  rowRoot,
 );
+
+const supportsRelatedFieldSource = (
+  cardinality: string,
+  repeatedBoundaries: ReadonlyArray<unknown> | undefined,
+): boolean =>
+  (cardinality === 'required_one' || cardinality === 'optional_one') &&
+  (repeatedBoundaries?.length ?? 0) === 0;
 
 export const catalogChoiceIntent = ({
   item,
@@ -242,7 +255,7 @@ export const catalogChoiceIntent = ({
     choice.source.resourceType === item.constructionChoice.source.resourceType &&
     choice.source.path === item.candidate.fieldPath &&
     choice.source.cardinality === item.candidate.cardinality &&
-    (choice.source.cardinality === 'required_one' || choice.source.cardinality === 'optional_one') &&
+    supportsRelatedFieldSource(choice.source.cardinality, choice.source.repeatedBoundaries) &&
     choice.options.some((option) => option.form === form && option.support === 'SUPPORTED')
       ? { choice, candidate: item.candidate }
       : undefined;
@@ -389,6 +402,7 @@ export const fieldCatalogItems = (
       (candidateNode) => candidateNode.nodeId === candidate.nodeId,
     );
     if (
+      candidate.populated !== true ||
       !node ||
       (resourceType
         ? node.resourceType !== resourceType
@@ -400,6 +414,13 @@ export const fieldCatalogItems = (
       source.resourceType !== node.resourceType ||
       source.path !== candidate.fieldPath ||
       source.cardinality !== candidate.cardinality
+    ) {
+      return [];
+    }
+
+    if (
+      isRelatedFieldSource(source.resourceType, choice.route.length, rowRoot) &&
+      !supportsRelatedFieldSource(candidate.cardinality, candidate.repeatedBoundaries)
     ) {
       return [];
     }
@@ -459,31 +480,3 @@ export const semanticCatalogItems = (
     item,
     constructionChoice: item.constructionChoice,
   }));
-
-export const schemaFieldCatalogItems = (fields: ReadonlyArray<SchemaFieldOption>): ReadonlyArray<CatalogItem> =>
-  fields.flatMap((field): CatalogItem[] => {
-    const choice = field.constructionChoice;
-    if (!choice || choice.source.kind !== 'FIELD') return [];
-    const source = choice.source;
-    const modes = choice.options.flatMap(({ form }) =>
-      form === 'VALUE' || form === 'FIRST' || form === 'ALL' || form === 'DISTINCT' ? [form] : []);
-    const defaultMode = modes[0];
-    if (!defaultMode) return [];
-    return [{
-      kind: 'FIELD', constructionChoice: { ...choice, source },
-      candidate: {
-        candidateId: source.candidateId, nodeId: field.nodeId, fieldPath: field.path,
-        label: `${field.resourceType}.${field.path}`, logicalType: field.primitiveType,
-        cardinality: field.cardinality, repeated: field.cardinality === 'many',
-        filterable: false, chartable: false, projectionModes: modes,
-        defaultProjectionMode: defaultMode, constructionChoice: choice, aggregateOperations: [],
-        transformations: {
-          temporalReduction: { available: false, timestampFields: [], anchorFields: [] },
-          unitNormalization: { available: false, presets: [] },
-        },
-        valueTransformations: {
-          exactCategoryRecode: { available: false }, codedValueRecoding: { available: false },
-        },
-      },
-    }];
-  });

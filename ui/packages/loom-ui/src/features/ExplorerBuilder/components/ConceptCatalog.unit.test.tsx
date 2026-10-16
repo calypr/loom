@@ -2,13 +2,9 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { createLoomClient as createFullLoomClient, LoomRequestError, type LoomClient } from '../../../api';
+import { createLoomClient as createFullLoomClient, LoomRequestError } from '../../../api';
 
-// These existing fixtures contain observed inventory only. Generated-field
-// requests have their own route-aware fixture below.
-const createLoomClient = (options: Parameters<typeof createFullLoomClient>[0]) => ({
-  ...createFullLoomClient(options), searchSchemaFields: undefined,
-});
+const createLoomClient = createFullLoomClient;
 import { LoomProvider } from '../../../react';
 import type {
   AggregateTransformationCapability,
@@ -19,7 +15,6 @@ import type {
   SemanticInventoryBrowseResponse,
   SemanticInventoryItem,
 } from '../../../types';
-import { EXPLORER_AUTHORING_API_VERSION } from '../../../types';
 import type { CatalogInitialSelection } from './CatalogSelectionOptions';
 import type { PairedColumnSuggestion } from '../constructionWorkspace/PairedColumnSuggestions';
 import {
@@ -299,35 +294,21 @@ const renderCatalogAtRoute = (
 };
 
 describe('ConceptCatalog', () => {
-  it('defers generated schema pagination until raw fields are opened in a panel', async () => {
+  it('uses indexed catalog fields without requesting generated schema fields', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       new Response(JSON.stringify(page([])), { status: 200, headers: { 'content-type': 'application/json' } }),
     );
-    const schemaPage: Awaited<ReturnType<NonNullable<LoomClient['searchSchemaFields']>>> = {
-      apiVersion: EXPLORER_AUTHORING_API_VERSION,
-      kind: 'ExplorerBuilderGeneratedSchemaFields',
-      snapshotToken: 'snapshot-a',
-      schemaDigest: 'a'.repeat(64),
-      nodeId: 'patient-node',
-      resourceType: 'Patient',
-      query: '',
-      fields: [],
-      complete: true,
-      truncated: false,
-    };
-    const searchSchemaFields = vi.fn<NonNullable<LoomClient['searchSchemaFields']>>().mockResolvedValue(schemaPage);
-    const client = { ...createFullLoomClient({ fetch }), searchSchemaFields } satisfies LoomClient;
     render(
-      <LoomProvider client={client}>
+      <LoomProvider client={createFullLoomClient({ fetch })}>
         <ConceptCatalog project="project-a" explorerId="explorer-a" snapshotToken="snapshot-a"
           outputId="patients" rowRoot="Patient" sourceNodeId="patient-node" catalog={catalog} layout="panel" />
       </LoomProvider>,
     );
 
     await screen.findByRole('searchbox', { name: 'Search coded values by code or label' });
-    expect(searchSchemaFields).not.toHaveBeenCalled();
     fireEvent.click(within(screen.getByTestId('feature-catalog-raw-fields')).getByText('Fields'));
-    await waitFor(() => expect(searchSchemaFields).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole('button', { name: 'Select Patient.id' })).toBeEnabled();
+    expect(fetch.mock.calls.some(([url]) => String(url).endsWith('/schema-fields'))).toBe(false);
   });
 
   it('keeps failed submissions in the choice dialog and clears the duplicate aside', async () => {
@@ -501,7 +482,7 @@ describe('ConceptCatalog', () => {
     expect(screen.getByRole('button', { name: 'Select New scope result' })).toBeInTheDocument();
   });
 
-  it('aborts both inventory and generated-field reads when their scope owner changes', async () => {
+  it('aborts inventory reads when their scope owner changes', async () => {
     const pending: Array<{
       readonly url: string;
       readonly resolve: (response: Response) => void;
@@ -511,28 +492,6 @@ describe('ConceptCatalog', () => {
       pending.push({ url: String(input), resolve, signal: init?.signal });
     }));
     const client = createFullLoomClient({ fetch });
-    const oldChoice = fieldChoice('old-generated-choice', 'old-generated-field', 'patient-node', 'Patient', 'old_marker');
-    const currentChoice = fieldChoice('current-generated-choice', 'current-generated-field', 'patient-node', 'Patient', 'gender');
-    const schemaResponse = (snapshotToken: string, path: string, constructionChoice: ConstructionChoice) => ({
-      apiVersion: 'loom.calypr.org/explorer-authoring/v2',
-      kind: 'ExplorerBuilderGeneratedSchemaFields',
-      snapshotToken,
-      schemaDigest: 'a'.repeat(64),
-      nodeId: 'patient-node',
-      resourceType: 'Patient',
-      query: '',
-      complete: true,
-      truncated: false,
-      fields: [{
-        origin: 'GENERATED_SCHEMA',
-        nodeId: 'patient-node',
-        resourceType: 'Patient',
-        path,
-        primitiveType: 'string',
-        cardinality: 'optional_one',
-        constructionChoice,
-      }],
-    });
     const renderAtScope = (snapshotToken: string) => (
       <LoomProvider client={client}>
         <ConceptCatalog
@@ -548,42 +507,28 @@ describe('ConceptCatalog', () => {
       </LoomProvider>
     );
     const view = render(renderAtScope('snapshot-a'));
-    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
     expect(pending[0]?.url.endsWith('/semantic-inventory')).toBe(true);
-    expect(pending[1]?.url.endsWith('/schema-fields')).toBe(true);
 
     view.rerender(renderAtScope('snapshot-b'));
-    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
     await waitFor(() => {
       expect(pending[0]?.signal?.aborted).toBe(true);
-      expect(pending[1]?.signal?.aborted).toBe(true);
     });
-    expect(pending[2]?.signal?.aborted).toBe(false);
-    expect(pending[3]?.signal?.aborted).toBe(false);
+    expect(pending[1]?.signal?.aborted).toBe(false);
 
-    pending[2]?.resolve(new Response(JSON.stringify(page([
+    pending[1]?.resolve(new Response(JSON.stringify(page([
       item('current-scope', 'Current scope result', 3),
     ])), { status: 200, headers: { 'content-type': 'application/json' } }));
-    pending[3]?.resolve(new Response(JSON.stringify(schemaResponse('snapshot-b', 'gender', currentChoice)), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    }));
     expect(await screen.findByRole('button', { name: 'Select Current scope result' })).toBeInTheDocument();
-    expect(await screen.findByRole('button', { name: 'Select Patient.gender' })).toBeInTheDocument();
 
     pending[0]?.resolve(new Response(JSON.stringify(page([
       item('old-scope', 'Old scope result', 1),
     ])), { status: 200, headers: { 'content-type': 'application/json' } }));
-    pending[1]?.resolve(new Response(JSON.stringify(schemaResponse('snapshot-a', 'old_marker', oldChoice)), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    }));
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: 'Select Old scope result' })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Select Patient.old_marker' })).not.toBeInTheDocument();
     });
     expect(screen.getByRole('button', { name: 'Select Current scope result' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Select Patient.gender' })).toBeInTheDocument();
   });
 
   it('opens the existing route and result-form dialog for a ready-to-add paired concept without adding it', async () => {
@@ -1135,30 +1080,7 @@ describe('ConceptCatalog', () => {
       ...catalog,
       candidates: [...(catalog.candidates ?? []), observationStatus, unpopulatedGender, unknownPopulationField],
     } satisfies ExplorerBuilderCatalog;
-    const schemaPage: Awaited<ReturnType<NonNullable<LoomClient['searchSchemaFields']>>> = {
-      apiVersion: EXPLORER_AUTHORING_API_VERSION,
-      kind: 'ExplorerBuilderGeneratedSchemaFields',
-      snapshotToken: 'snapshot-a',
-      schemaDigest: 'a'.repeat(64),
-      nodeId: 'patient-node',
-      resourceType: 'Patient',
-      query: '',
-      fields: [{
-        origin: 'GENERATED_SCHEMA',
-        constructionChoice: fieldChoice('field-choice-patient-birth-date', 'candidate-patient-birth-date', 'patient-node', 'Patient', 'birthDate'),
-        nodeId: 'patient-node',
-        resourceType: 'Patient',
-        path: 'birthDate',
-        primitiveType: 'date',
-        cardinality: 'optional_one',
-      }],
-      complete: true,
-      truncated: false,
-    };
-    const searchSchemaFields = vi.fn<NonNullable<LoomClient['searchSchemaFields']>>().mockResolvedValue(schemaPage);
-    const client = { ...createFullLoomClient({ fetch }), searchSchemaFields } satisfies LoomClient;
-
-    render(<LoomProvider client={client}>
+    render(<LoomProvider client={createFullLoomClient({ fetch })}>
       <ConceptCatalog
         project="project-a"
         explorerId="explorer-a"
@@ -1185,7 +1107,145 @@ describe('ConceptCatalog', () => {
     expect(screen.getByRole('searchbox', { name: 'Search dataset fields by name or type' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Coded values for this table' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Select Diagnostic Method' })).not.toBeInTheDocument();
-    expect(searchSchemaFields).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('hides repeated related fields while keeping root repeated and related scalar fields selectable', async () => {
+    const repeatedBoundaries = [{ path: 'identifier[]', maxItems: 9 }];
+    const repeatedChoice = (
+      choiceId: string,
+      candidateId: string,
+      nodeId: string,
+      resourceType: string,
+      path: string,
+      repeatedBoundary: { path: string; maxItems: number },
+    ): ConstructionChoice => {
+      const choice = fieldChoice(choiceId, candidateId, nodeId, resourceType, path);
+      return {
+        ...choice,
+        source: {
+          ...choice.source,
+          cardinality: 'many',
+          repeatedBoundaries: [repeatedBoundary],
+        },
+        options: [choiceOption('ALL', 'DEFAULT')],
+      };
+    };
+    const identifierValue: ExplorerBuilderCandidate = {
+      ...rootId,
+      candidateId: 'candidate-patient-identifier-value',
+      nodeId: 'patient-node',
+      fieldPath: 'identifier[].value',
+      label: 'Identifier Value',
+      cardinality: 'many',
+      repeated: true,
+      repeatedBoundaries,
+      constructionChoice: repeatedChoice(
+        'field-choice-patient-identifier-value',
+        'candidate-patient-identifier-value',
+        'patient-node',
+        'Patient',
+        'identifier[].value',
+        repeatedBoundaries[0]!,
+      ),
+    };
+    const patientBirthDate: ExplorerBuilderCandidate = {
+      ...rootId,
+      candidateId: 'candidate-patient-birth-date',
+      nodeId: 'patient-node',
+      fieldPath: 'birthDate',
+      label: 'Patient birth date',
+      constructionChoice: fieldChoice(
+        'field-choice-patient-birth-date',
+        'candidate-patient-birth-date',
+        'patient-node',
+        'Patient',
+        'birthDate',
+      ),
+    };
+    const observationComponentValue: ExplorerBuilderCandidate = {
+      ...rootId,
+      candidateId: 'candidate-observation-component-value',
+      nodeId: 'observation-node',
+      fieldPath: 'component[].value',
+      label: 'Observation component value',
+      cardinality: 'many',
+      repeated: true,
+      repeatedBoundaries: [{ path: 'component[]', maxItems: 3 }],
+      constructionChoice: repeatedChoice(
+        'field-choice-observation-component-value',
+        'candidate-observation-component-value',
+        'observation-node',
+        'Observation',
+        'component[].value',
+        { path: 'component[]', maxItems: 3 },
+      ),
+    };
+    const researchSubjectReferenceBoundary = { path: 'extension[]', maxItems: 3 };
+    const researchSubjectReferenceChoice = fieldChoice(
+      'field-choice-research-subject-reference',
+      'candidate-research-subject-reference',
+      'research-subject-node',
+      'ResearchSubject',
+      'extension[].valueReference.reference',
+    );
+    const researchSubjectReference: ExplorerBuilderCandidate = {
+      ...rootId,
+      candidateId: 'candidate-research-subject-reference',
+      nodeId: 'research-subject-node',
+      fieldPath: 'extension[].valueReference.reference',
+      label: 'Extension Value Reference Reference',
+      cardinality: 'optional_one',
+      repeated: true,
+      repeatedBoundaries: [researchSubjectReferenceBoundary],
+      constructionChoice: {
+        ...researchSubjectReferenceChoice,
+        source: {
+          ...researchSubjectReferenceChoice.source,
+          repeatedBoundaries: [researchSubjectReferenceBoundary],
+        },
+        options: [choiceOption('ALL', 'DEFAULT')],
+      },
+    };
+    const catalogWithFields = {
+      ...catalog,
+      nodes: [
+        ...catalog.nodes,
+        { nodeId: 'research-subject-node', resourceType: 'ResearchSubject', rowRootEligible: false, populated: true, documentCount: 1 },
+      ],
+      edges: [
+        ...catalog.edges,
+        { edgeId: 'observation-research-subject', fromNodeId: 'observation-node', toNodeId: 'research-subject-node', label: 'researchSubject' },
+      ],
+      candidates: [
+        ...(catalog.candidates ?? []),
+        identifierValue,
+        patientBirthDate,
+        observationComponentValue,
+        researchSubjectReference,
+      ],
+    } satisfies ExplorerBuilderCatalog;
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(page([])), { status: 200, headers: { 'content-type': 'application/json' } }),
+    );
+
+    render(<LoomProvider client={createFullLoomClient({ fetch })}>
+      <ConceptCatalog
+        project="project-a"
+        explorerId="explorer-a"
+        snapshotToken="snapshot-a"
+        outputId="observations"
+        rowRoot="Observation"
+        catalog={catalogWithFields}
+        view="fields"
+      />
+    </LoomProvider>);
+
+    expect(await screen.findByRole('button', { name: 'Select Patient.birthDate' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Select Patient.identifier[].value' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select Observation.component[].value' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Select ResearchSubject.extension[].valueReference.reference' }))
+      .not.toBeInTheDocument();
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -1203,6 +1263,56 @@ describe('ConceptCatalog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
     expect(await screen.findByRole('button', { name: 'Select Observation.identifier' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Select DocumentReference.id' })).not.toBeInTheDocument();
+  });
+
+  it('keeps all-view field search on populated index entries and preserves related-source search', async () => {
+    const observationStatus: ExplorerBuilderCandidate = {
+      ...rootId,
+      candidateId: 'candidate-observation-status',
+      nodeId: 'observation-node',
+      fieldPath: 'status',
+      label: 'Observation status',
+      populated: true,
+      constructionChoice: fieldChoice(
+        'field-choice-observation-status', 'candidate-observation-status', 'observation-node', 'Observation', 'status',
+      ),
+    };
+    const unpopulatedGender: ExplorerBuilderCandidate = {
+      ...rootId,
+      candidateId: 'candidate-patient-gender',
+      fieldPath: 'gender',
+      label: 'Patient gender',
+      populated: false,
+      constructionChoice: fieldChoice('field-choice-patient-gender', 'candidate-patient-gender', 'patient-node', 'Patient', 'gender'),
+    };
+    const unknownPopulationField: ExplorerBuilderCandidate = {
+      ...rootId,
+      candidateId: 'candidate-patient-city',
+      fieldPath: 'address.city',
+      label: 'Patient city',
+      populated: undefined,
+      constructionChoice: fieldChoice('field-choice-patient-city', 'candidate-patient-city', 'patient-node', 'Patient', 'address.city'),
+    };
+    const catalogWithFields = {
+      ...catalog,
+      candidates: [...(catalog.candidates ?? []), observationStatus, unpopulatedGender, unknownPopulationField],
+    } satisfies ExplorerBuilderCatalog;
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(page([])), { status: 200, headers: { 'content-type': 'application/json' } }),
+    );
+    renderCatalog(fetch, vi.fn().mockResolvedValue(undefined), undefined, {}, catalogWithFields);
+
+    expect(await screen.findByRole('button', { name: 'Select Patient.id' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Patient.gender' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Patient city' })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search coded values by code or label' }), {
+      target: { value: 'status' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    expect(await screen.findByRole('button', { name: 'Select Observation.status' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Patient.gender' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Patient city' })).not.toBeInTheDocument();
+    expect(fetch.mock.calls.some(([url]) => String(url).endsWith('/schema-fields'))).toBe(false);
   });
 
   it('omits raw and semantic fields rejected by the current stage', async () => {
@@ -2240,7 +2350,7 @@ describe('ConceptCatalog', () => {
     expect(globalFieldSearchRequest.resourceType).toBeUndefined();
   });
 
-  it('keeps a related field out of Add when Loom returns no valid route', async () => {
+  it('removes a field after route search exhausts without a current-table choice', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input) => {
       const url = String(input);
       const response = url.endsWith('/semantic-inventory')
@@ -2261,24 +2371,315 @@ describe('ConceptCatalog', () => {
       });
     });
     const onAddSelected = vi.fn().mockResolvedValue(undefined);
-    renderCatalog(fetch, onAddSelected, undefined, {
-      resourceType: 'Observation',
-      nodeId: 'observation-node',
-    });
+    const renderAtTableContext = (tableContextKey: string) => (
+      <LoomProvider client={createLoomClient({ fetch })}>
+        <ConceptCatalog
+          project="project-a" explorerId="explorer-a" snapshotToken="snapshot-a"
+          outputId="patients" tableContextKey={tableContextKey} rowRoot="Patient"
+          resourceType="Observation" sourceNodeId="observation-node" catalog={catalog}
+          relatedSourceAvailability={{ supported: true }} onAddSelected={onAddSelected}
+        />
+      </LoomProvider>
+    );
+    const view = render(renderAtTableContext('draft-1:digest-1'));
 
     fireEvent.click(await screen.findByRole('button', { name: 'Select Observation.identifier' }));
     fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
 
-    const dialog = await screen.findByRole('region', { name: 'Advanced route and form choices' });
-    expect(within(dialog).getByText('No verified path or table value is available for this field.')).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: 'Add 1 selected feature' })).toBeDisabled();
+    expect(await screen.findByText(/is not available for this table and was removed from your selection/)).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Advanced route and form choices' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Observation.identifier' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add 1 selected feature' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/No verified path or table value is available/)).not.toBeInTheDocument();
     expect(onAddSelected).not.toHaveBeenCalled();
-    const choiceRequest = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body)) as Record<string, unknown>;
+    const choiceRequestCall = fetch.mock.calls.find(([input]) => String(input).endsWith('/construction-choices'));
+    const choiceRequest = JSON.parse(String(choiceRequestCall?.[1]?.body)) as Record<string, unknown>;
     expect(choiceRequest).toMatchObject({
       outputId: 'patients',
       source: { kind: 'FIELD', candidateId: 'candidate-observation-id' },
     });
     expect(choiceRequest).not.toHaveProperty('route');
+
+    view.rerender(renderAtTableContext('draft-2:digest-2'));
+    expect(await screen.findByRole('button', { name: 'Select Observation.identifier' })).toBeInTheDocument();
+  });
+
+  it('keeps a field exclusion when semantic inventory finishes after the route search', async () => {
+    let resolveInventory: ((response: Response) => void) | undefined;
+    const fetch = vi.fn<typeof globalThis.fetch>((input) => {
+      const url = String(input);
+      if (url.endsWith('/semantic-inventory')) {
+        return new Promise<Response>((resolve) => { resolveInventory = resolve; });
+      }
+      if (url.endsWith('/construction-choices')) {
+        return Promise.resolve(new Response(JSON.stringify({
+          snapshotToken: 'snapshot-a', outputId: 'patients', complete: true, truncated: false, choices: [],
+        }), { status: 200, headers: { 'content-type': 'application/json' } }));
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    renderCatalog(fetch, vi.fn().mockResolvedValue(undefined), undefined, {
+      resourceType: 'Observation', nodeId: 'observation-node',
+    }, catalog, { supported: true });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Observation.identifier' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
+    expect(await screen.findByText(/is not available for this table and was removed from your selection/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Observation.identifier' })).not.toBeInTheDocument();
+
+    resolveInventory?.(new Response(JSON.stringify(page([])), { status: 200, headers: { 'content-type': 'application/json' } }));
+    expect(await screen.findByText('No concepts match this search.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select Observation.identifier' })).not.toBeInTheDocument();
+  });
+
+  it('continues an empty field-choice page until a usable current-table route is found', async () => {
+    const candidate = catalog.candidates?.find((entry) => entry.candidateId === 'candidate-observation-id');
+    if (!candidate) throw new Error('Missing related field fixture.');
+    const choice: ConstructionChoice = {
+      ...fieldChoice('observation-identifier-related-choice', candidate.candidateId, candidate.nodeId, 'Observation', 'identifier'),
+      route: [{
+        edgeId: 'patient-observation',
+        fromNodeId: 'patient-node',
+        toNodeId: 'observation-node',
+        fromResourceType: 'Patient',
+        toResourceType: 'Observation',
+        relationship: 'observations',
+        storageDirection: 'OUTBOUND',
+        matchMode: 'OPTIONAL',
+      }],
+      options: [{
+        form: 'COUNT', shape: 'SCALAR', decision: 'DEFAULT', preservation: 'REDUCING',
+        rowEffect: 'PRESERVES_ROW_GRAIN', support: 'SUPPORTED',
+        reason: 'Counts matching related values for each table row.',
+      }],
+    };
+    let routePageCount = 0;
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      const response = url.endsWith('/semantic-inventory')
+        ? page([])
+        : url.endsWith('/construction-choices')
+          ? (++routePageCount === 1
+            ? { snapshotToken: 'snapshot-a', outputId: 'patients', complete: false, truncated: true, nextCursor: 'route-page-2', choices: [] }
+            : { snapshotToken: 'snapshot-a', outputId: 'patients', complete: true, truncated: false, choices: [choice] })
+          : undefined;
+      if (!response) throw new Error(`Unexpected request: ${url}`);
+      return new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    renderCatalog(fetch, vi.fn().mockResolvedValue(undefined), undefined, {
+      resourceType: 'Observation', nodeId: 'observation-node',
+    }, catalog, { supported: true });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Observation.identifier' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
+
+    const dialog = await screen.findByRole('region', { name: 'Advanced route and form choices' });
+    expect(within(dialog).getByRole('heading', { name: /Observation · Observation id/ })).toBeInTheDocument();
+    expect(within(dialog).queryByText('No verified path or table value is available for this field.')).not.toBeInTheDocument();
+    const choiceRequests = fetch.mock.calls.filter(([input]) => String(input).endsWith('/construction-choices'));
+    expect(choiceRequests).toHaveLength(2);
+    expect(JSON.parse(String(choiceRequests[0]?.[1]?.body))).not.toHaveProperty('cursor');
+    expect(JSON.parse(String(choiceRequests[1]?.[1]?.body))).toMatchObject({ cursor: 'route-page-2' });
+    expect(choiceRequests[1]?.[1]?.signal).toBe(choiceRequests[0]?.[1]?.signal);
+  });
+
+  it('keeps supported choices from a truncated page even when no cursor remains', async () => {
+    const candidate = catalog.candidates?.find((entry) => entry.candidateId === 'candidate-observation-id');
+    if (!candidate) throw new Error('Missing related field fixture.');
+    const choice: ConstructionChoice = {
+      ...fieldChoice('observation-identifier-limited-choice', candidate.candidateId, candidate.nodeId, 'Observation', 'identifier'),
+      route: [{
+        edgeId: 'patient-observation', fromNodeId: 'patient-node', toNodeId: 'observation-node',
+        fromResourceType: 'Patient', toResourceType: 'Observation', relationship: 'observations',
+        storageDirection: 'OUTBOUND', matchMode: 'OPTIONAL',
+      }],
+      options: [{
+        form: 'COUNT', shape: 'SCALAR', decision: 'DEFAULT', preservation: 'REDUCING',
+        rowEffect: 'PRESERVES_ROW_GRAIN', support: 'SUPPORTED', reason: 'Counts matching related values.',
+      }],
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      const response = url.endsWith('/semantic-inventory')
+        ? page([])
+        : url.endsWith('/construction-choices')
+          ? { snapshotToken: 'snapshot-a', outputId: 'patients', complete: false, truncated: true, choices: [choice] }
+          : undefined;
+      if (!response) throw new Error(`Unexpected request: ${url}`);
+      return new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    renderCatalog(fetch, vi.fn().mockResolvedValue(undefined), undefined, {
+      resourceType: 'Observation', nodeId: 'observation-node',
+    }, catalog, { supported: true });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Observation.identifier' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
+    const dialog = await screen.findByRole('region', { name: 'Advanced route and form choices' });
+    expect(within(dialog).getByRole('heading', { name: /Observation · Observation id/ })).toBeInTheDocument();
+    expect(within(dialog).getByText('Path search reached its limit. Additional relationship paths may exist.')).toBeInTheDocument();
+    expect(screen.queryByText(/is not available for this table and was removed/)).not.toBeInTheDocument();
+  });
+
+  it('keeps a supported choice when its page repeats a cursor and stops further paging', async () => {
+    const candidate = catalog.candidates?.find((entry) => entry.candidateId === 'candidate-observation-id');
+    if (!candidate) throw new Error('Missing related field fixture.');
+    const choice: ConstructionChoice = {
+      ...fieldChoice('observation-identifier-repeated-cursor-choice', candidate.candidateId, candidate.nodeId, 'Observation', 'identifier'),
+      route: [{
+        edgeId: 'patient-observation', fromNodeId: 'patient-node', toNodeId: 'observation-node',
+        fromResourceType: 'Patient', toResourceType: 'Observation', relationship: 'observations',
+        storageDirection: 'OUTBOUND', matchMode: 'OPTIONAL',
+      }],
+      options: [{
+        form: 'COUNT', shape: 'SCALAR', decision: 'DEFAULT', preservation: 'REDUCING',
+        rowEffect: 'PRESERVES_ROW_GRAIN', support: 'SUPPORTED', reason: 'Counts matching related values.',
+      }],
+    };
+    let routePageCount = 0;
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      const response = url.endsWith('/semantic-inventory')
+        ? page([])
+        : url.endsWith('/construction-choices')
+          ? (++routePageCount === 1
+            ? { snapshotToken: 'snapshot-a', outputId: 'patients', complete: false, truncated: true, nextCursor: 'repeated-page', choices: [] }
+            : { snapshotToken: 'snapshot-a', outputId: 'patients', complete: false, truncated: true, nextCursor: 'repeated-page', choices: [choice] })
+          : undefined;
+      if (!response) throw new Error(`Unexpected request: ${url}`);
+      return new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    renderCatalog(fetch, vi.fn().mockResolvedValue(undefined), undefined, {
+      resourceType: 'Observation', nodeId: 'observation-node',
+    }, catalog, { supported: true });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Observation.identifier' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
+    const dialog = await screen.findByRole('region', { name: 'Advanced route and form choices' });
+    expect(within(dialog).getByRole('heading', { name: /Observation · Observation id/ })).toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: 'Load more paths' })).not.toBeInTheDocument();
+    expect(within(dialog).queryByText('No verified path or table value is available for this field.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/is not available for this table and was removed/)).not.toBeInTheDocument();
+    expect(routePageCount).toBe(2);
+  });
+
+  it.each(['repeated cursor', 'incomplete page'] as const)('keeps a field selectable after a %s response', async (failure) => {
+    const candidate = catalog.candidates?.find((entry) => entry.candidateId === 'candidate-observation-id');
+    if (!candidate) throw new Error('Missing related field fixture.');
+    const choice: ConstructionChoice = {
+      ...fieldChoice('observation-identifier-retry-choice', candidate.candidateId, candidate.nodeId, 'Observation', 'identifier'),
+      route: [{
+        edgeId: 'patient-observation', fromNodeId: 'patient-node', toNodeId: 'observation-node',
+        fromResourceType: 'Patient', toResourceType: 'Observation', relationship: 'observations',
+        storageDirection: 'OUTBOUND', matchMode: 'OPTIONAL',
+      }],
+      options: [{
+        form: 'COUNT', shape: 'SCALAR', decision: 'DEFAULT', preservation: 'REDUCING',
+        rowEffect: 'PRESERVES_ROW_GRAIN', support: 'SUPPORTED', reason: 'Counts matching related values.',
+      }],
+    };
+    let routePageCount = 0;
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/semantic-inventory')) {
+        return new Response(JSON.stringify(page([])), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (!url.endsWith('/construction-choices')) throw new Error(`Unexpected request: ${url}`);
+      routePageCount += 1;
+      const response = routePageCount === 1
+        ? {
+            snapshotToken: 'snapshot-a', outputId: 'patients', complete: false, truncated: true,
+            ...(failure === 'repeated cursor' ? { nextCursor: 'repeated-page' } : {}), choices: [],
+          }
+        : failure === 'repeated cursor' && routePageCount === 2
+          ? { snapshotToken: 'snapshot-a', outputId: 'patients', complete: false, truncated: true, nextCursor: 'repeated-page', choices: [] }
+          : { snapshotToken: 'snapshot-a', outputId: 'patients', complete: true, truncated: false, choices: [choice] };
+      return new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    renderCatalog(fetch, vi.fn().mockResolvedValue(undefined), undefined, {
+      resourceType: 'Observation', nodeId: 'observation-node',
+    }, catalog, { supported: true });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Observation.identifier' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select Observation.identifier' })).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close advanced options' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
+    expect(await screen.findByRole('region', { name: 'Advanced route and form choices' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select Observation.identifier' })).toBeInTheDocument();
+    expect(screen.queryByText(/is not available for this table and was removed/)).not.toBeInTheDocument();
+    expect(routePageCount).toBe(failure === 'repeated cursor' ? 3 : 2);
+  });
+
+  it('discards a delayed alternative page after the table context changes', async () => {
+    const candidate = catalog.candidates?.find((entry) => entry.candidateId === 'candidate-observation-id');
+    if (!candidate) throw new Error('Missing related field fixture.');
+    const choice: ConstructionChoice = {
+      ...fieldChoice('observation-identifier-choice', candidate.candidateId, candidate.nodeId, 'Observation', 'identifier'),
+      route: [{
+        edgeId: 'patient-observation', fromNodeId: 'patient-node', toNodeId: 'observation-node',
+        fromResourceType: 'Patient', toResourceType: 'Observation', relationship: 'observations',
+        storageDirection: 'OUTBOUND', matchMode: 'OPTIONAL',
+      }],
+      options: [{
+        form: 'COUNT', shape: 'SCALAR', decision: 'DEFAULT', preservation: 'REDUCING',
+        rowEffect: 'PRESERVES_ROW_GRAIN', support: 'SUPPORTED', reason: 'Counts matching related values.',
+      }],
+    };
+    let routePageCount = 0;
+    let delayedRoutePage: { readonly signal: AbortSignal | null | undefined; readonly resolve: (response: Response) => void } | undefined;
+    const fetch = vi.fn<typeof globalThis.fetch>((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/semantic-inventory')) {
+        return Promise.resolve(new Response(JSON.stringify(page([])), { status: 200, headers: { 'content-type': 'application/json' } }));
+      }
+      if (!url.endsWith('/construction-choices')) throw new Error(`Unexpected request: ${url}`);
+      routePageCount += 1;
+      if (routePageCount === 1) {
+        return Promise.resolve(new Response(JSON.stringify({
+          snapshotToken: 'snapshot-a', outputId: 'patients', complete: false, truncated: true,
+          nextCursor: 'route-page-2', choices: [choice],
+        }), { status: 200, headers: { 'content-type': 'application/json' } }));
+      }
+      if (routePageCount === 2) {
+        return new Promise<Response>((resolve) => {
+          delayedRoutePage = { signal: init?.signal, resolve };
+        });
+      }
+      return Promise.resolve(new Response(JSON.stringify({
+        snapshotToken: 'snapshot-a', outputId: 'patients', complete: true, truncated: false, choices: [choice],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    });
+    const renderAtTableContext = (tableContextKey: string) => (
+      <LoomProvider client={createLoomClient({ fetch })}>
+        <ConceptCatalog
+          project="project-a" explorerId="explorer-a" snapshotToken="snapshot-a"
+          outputId="patients" tableContextKey={tableContextKey} rowRoot="Patient"
+          resourceType="Observation" sourceNodeId="observation-node" catalog={catalog}
+          relatedSourceAvailability={{ supported: true }} onAddSelected={vi.fn().mockResolvedValue(undefined)}
+        />
+      </LoomProvider>
+    );
+    const view = render(renderAtTableContext('draft-1:digest-1'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Observation.identifier' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
+    const dialog = await screen.findByRole('region', { name: 'Advanced route and form choices' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Load more paths' }));
+    await waitFor(() => expect(delayedRoutePage).toBeDefined());
+
+    view.rerender(renderAtTableContext('draft-2:digest-2'));
+    expect(delayedRoutePage?.signal?.aborted).toBe(true);
+    delayedRoutePage?.resolve(new Response(JSON.stringify({
+      snapshotToken: 'snapshot-a', outputId: 'patients', complete: true, truncated: false, choices: [],
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    expect(await screen.findByRole('button', { name: 'Select Observation.identifier' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Advanced route and form choices' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select Observation.identifier' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
+    expect(await screen.findByRole('region', { name: 'Advanced route and form choices' })).toBeInTheDocument();
+    expect(routePageCount).toBe(3);
   });
 });
 
@@ -2307,123 +2708,4 @@ it.each(['COUNT', 'PRESENCE'] as const)('keeps signed related %s ownership when 
     constructionChoice: { choiceId: choice.choiceId, form }, title: candidate.label,
     relatedSource: { choice, candidate },
   }]));
-});
-
-
-it('offers a compiler-issued missing schema field in the existing related-field chooser', async () => {
-  const choice = fieldChoice('generated-gender-choice', 'generated-gender', 'patient-node', 'Patient', 'gender');
-  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (url, init) => {
-    if (String(url).endsWith('/schema-fields') && JSON.parse(String(init?.body)).cursor) return new Promise<Response>(() => {});
-    if (String(url).endsWith('/schema-fields')) return new Response(JSON.stringify({
-      apiVersion: 'loom.calypr.org/explorer-authoring/v2', kind: 'ExplorerBuilderGeneratedSchemaFields',
-      snapshotToken: 'snapshot-a', schemaDigest: 'a'.repeat(64), nodeId: 'patient-node',
-      resourceType: 'Patient', query: '', complete: false, truncated: true, nextCursor: 'later-fields',
-      fields: [{ origin: 'GENERATED_SCHEMA', nodeId: 'patient-node', resourceType: 'Patient',
-        path: 'gender', primitiveType: 'string', cardinality: 'optional_one', constructionChoice: choice }],
-    }), { status: 200, headers: { 'content-type': 'application/json' } });
-    return new Response(JSON.stringify(page([])), { status: 200, headers: { 'content-type': 'application/json' } });
-  });
-  render(<LoomProvider client={createFullLoomClient({ fetch })}><ConceptCatalog
-    project="project-a" explorerId="explorer-a" snapshotToken="snapshot-a" outputId="patients"
-    rowRoot="Patient" resourceType="Patient" sourceNodeId="patient-node" catalog={catalog}
-    onAddSelected={vi.fn().mockResolvedValue(undefined)}
-  /></LoomProvider>);
-  const control = await screen.findByRole('button', { name: 'Select Patient.gender' });
-  expect(control).not.toBeDisabled();
-  fireEvent.click(control);
-  expect(control).toHaveAttribute('aria-pressed', 'true');
-  const request = fetch.mock.calls.find(([url]) => String(url).endsWith('/schema-fields'));
-  expect(JSON.parse(String(request?.[1]?.body))).toMatchObject({ snapshotToken: 'snapshot-a', nodeId: 'patient-node' });
-});
-
-it('aborts the pending generated-field cursor request when its catalog owner unmounts', async () => {
-  const pendingSchemaRequests: Array<{
-    readonly body: string;
-    readonly signal: AbortSignal | null | undefined;
-    readonly resolve: (response: Response) => void;
-  }> = [];
-  const fetch = vi.fn<typeof globalThis.fetch>((input, init) => {
-    if (!String(input).endsWith('/schema-fields')) {
-      return Promise.resolve(new Response(JSON.stringify(page([])), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }));
-    }
-    return new Promise<Response>((resolve, reject) => {
-      const signal = init?.signal;
-      pendingSchemaRequests.push({ body: String(init?.body), signal, resolve });
-      signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
-    });
-  });
-  const client = createFullLoomClient({ fetch });
-  const view = render(
-    <LoomProvider client={client}>
-      <ConceptCatalog
-        project="project-a"
-        explorerId="explorer-a"
-        snapshotToken="snapshot-a"
-        outputId="patients"
-        rowRoot="Patient"
-        resourceType="Patient"
-        sourceNodeId="patient-node"
-        catalog={catalog}
-        schemaDiscoveryEnabled={true}
-        onAddSelected={vi.fn().mockResolvedValue(undefined)}
-      />
-    </LoomProvider>,
-  );
-
-  await waitFor(() => expect(pendingSchemaRequests).toHaveLength(1));
-  const firstPage = pendingSchemaRequests[0];
-  if (!firstPage) throw new Error('The first generated-field page was not requested.');
-  const firstPageRequest = JSON.parse(firstPage.body);
-  expect(firstPageRequest).toMatchObject({ limit: 50, nodeId: 'patient-node', snapshotToken: 'snapshot-a' });
-  expect(firstPageRequest).not.toHaveProperty('cursor');
-  firstPage.resolve(new Response(JSON.stringify({
-    apiVersion: 'loom.calypr.org/explorer-authoring/v2',
-    kind: 'ExplorerBuilderGeneratedSchemaFields',
-    snapshotToken: 'snapshot-a',
-    schemaDigest: 'a'.repeat(64),
-    nodeId: 'patient-node',
-    resourceType: 'Patient',
-    query: '',
-    fields: [],
-    complete: false,
-    truncated: true,
-    nextCursor: 'schema-fields-cursor-page-2',
-  }), { status: 200, headers: { 'content-type': 'application/json' } }));
-
-  await waitFor(() => expect(pendingSchemaRequests).toHaveLength(2));
-  const secondPage = pendingSchemaRequests[1];
-  if (!secondPage) throw new Error('The generated-field cursor page was not requested.');
-  const secondPageRequest = JSON.parse(secondPage.body);
-  expect(secondPageRequest).toMatchObject({
-    cursor: 'schema-fields-cursor-page-2',
-    nodeId: 'patient-node',
-    snapshotToken: 'snapshot-a',
-  });
-  expect(secondPage.signal).toBe(firstPage.signal);
-
-  view.unmount();
-  await waitFor(() => expect(secondPage.signal?.aborted).toBe(true));
-});
-
-it('starts generated-field discovery only when its containing panel is opened', async () => {
-  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (url) =>
-    new Response(JSON.stringify(String(url).endsWith('/schema-fields') ? {
-      apiVersion: 'loom.calypr.org/explorer-authoring/v2', kind: 'ExplorerBuilderGeneratedSchemaFields',
-      snapshotToken: 'snapshot-a', schemaDigest: 'a'.repeat(64), nodeId: 'patient-node',
-      resourceType: 'Patient', query: '', fields: [], complete: true, truncated: false,
-    } : page([])), { status: 200, headers: { 'content-type': 'application/json' } }));
-  const client = createFullLoomClient({ fetch });
-  const view = (enabled: boolean) => <LoomProvider client={client}><ConceptCatalog
-    project="project-a" explorerId="explorer-a" snapshotToken="snapshot-a" outputId="patients"
-    rowRoot="Patient" sourceNodeId="patient-node" resourceType="Patient" catalog={catalog}
-    schemaDiscoveryEnabled={enabled} onAddSelected={vi.fn()}
-  /></LoomProvider>;
-  const { rerender } = render(view(false));
-  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
-  expect(fetch.mock.calls.some(([url]) => String(url).endsWith('/schema-fields'))).toBe(false);
-  rerender(view(true));
-  await waitFor(() => expect(fetch.mock.calls.filter(([url]) => String(url).endsWith('/schema-fields'))).toHaveLength(1));
 });
