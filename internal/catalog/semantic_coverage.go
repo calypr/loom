@@ -112,14 +112,15 @@ type SemanticCoverageReference struct {
 }
 
 type SemanticCoverageFacetAggregate struct {
-	Path                string
-	Kind                string
-	Disposition         SemanticCoverageDispositionKind
-	Reason              SemanticCoverageReason
-	OccurrenceCount     int64
-	PresenceCounts      map[SemanticCoveragePresence]int64
-	References          []SemanticCoverageReference
-	ReferencesTruncated bool
+	Path                      string
+	Kind                      string
+	ResourceBoundarySignature string
+	Disposition               SemanticCoverageDispositionKind
+	Reason                    SemanticCoverageReason
+	OccurrenceCount           int64
+	PresenceCounts            map[SemanticCoveragePresence]int64
+	References                []SemanticCoverageReference
+	ReferencesTruncated       bool
 }
 
 type SemanticCoverageDiagnostic struct {
@@ -352,23 +353,24 @@ type SemanticCodeableConceptTemplate struct {
 // generated canonical path. Concrete owner paths are bounded witnesses for
 // diagnostics and tests; source values are never retained.
 type SemanticCoveragePathAggregate struct {
-	CanonicalPath       string
-	Kind                SemanticCoverageOccurrenceKind
-	Disposition         SemanticCoverageDispositionKind
-	Reason              SemanticCoverageReason
-	OccurrenceCount     int64
-	OwnerCount          int64
-	CodingCount         int64
-	PresenceCounts      map[SemanticCoveragePresence]int64
-	CollectionCounts    map[SemanticCoveragePresence]int64
-	FacetPresenceCounts map[string]map[SemanticCoveragePresence]int64
-	Facets              []SemanticCoverageFacetAggregate
-	References          []SemanticCoverageReference
-	CountsTruncated     bool
-	FacetsTruncated     bool
-	ReferencesTruncated bool
-	OwnerPathWitnesses  []string
-	WitnessesTruncated  bool
+	CanonicalPath             string
+	Kind                      SemanticCoverageOccurrenceKind
+	ResourceBoundarySignature string
+	Disposition               SemanticCoverageDispositionKind
+	Reason                    SemanticCoverageReason
+	OccurrenceCount           int64
+	OwnerCount                int64
+	CodingCount               int64
+	PresenceCounts            map[SemanticCoveragePresence]int64
+	CollectionCounts          map[SemanticCoveragePresence]int64
+	FacetPresenceCounts       map[string]map[SemanticCoveragePresence]int64
+	Facets                    []SemanticCoverageFacetAggregate
+	References                []SemanticCoverageReference
+	CountsTruncated           bool
+	FacetsTruncated           bool
+	ReferencesTruncated       bool
+	OwnerPathWitnesses        []string
+	WitnessesTruncated        bool
 }
 
 type SemanticCoverageCensus struct {
@@ -1215,7 +1217,7 @@ func ReconcileSemanticCoverage(
 		incompleteGaps = append(incompleteGaps, SemanticCoverageGapOccurrenceClassify)
 	}
 	complete := census.Status == SemanticCoverageCensusComplete && len(incompleteGaps) == 0 &&
-		identity.SchemaIdentity != "" && !countsTruncated && !facetsTruncated && !referencesTruncated && !diagnosticLocatorsTruncated
+		identity.SchemaIdentity != "" && !countsTruncated && !facetsTruncated && !referencesTruncated
 	contribution := SemanticCoverageSourceContribution{
 		Identity:                    identity,
 		SourceRecordCount:           1,
