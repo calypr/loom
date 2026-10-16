@@ -578,10 +578,10 @@ describe('ConstructionReshapeEditor', () => {
     expect(step?.operation.codedGroup.source.codingPath).toBe('type.coding[]');
     expect(screen.queryByTestId('construction-reshape-choice-group')).not.toBeInTheDocument();
   });
-  it('shows available dataset fields from the group menu and submits their compiler choice IDs', () => {
-    const idOnlyStage = { ...sourceStage, columns: [sourceColumns[0]] } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+  it('keeps table Group controls separate from the source-field grouping path', () => {
+    const tableStage = sourceStage;
     const capabilities = {
-      ...capabilitiesFor([idOnlyStage], idOnlyStage),
+      ...capabilitiesFor([tableStage], tableStage),
       sourceInput: {
         supported: true,
         stageId: 'source_projection',
@@ -599,6 +599,14 @@ describe('ConstructionReshapeEditor', () => {
       kind: 'GROUP',
       group: { keys: [], aggregates: [{ operation: 'COUNT_ROWS' }] },
     });
+    const seededGroupEntry = createReshapeEditorEntry({ construction: capabilities.baseConstruction, capabilities, kind: 'group', selectedColumns: ['site-id'] });
+    expect(seededGroupEntry?.form.kind).toBe('group');
+    if (!seededGroupEntry || seededGroupEntry.form.kind !== 'group') throw new Error('Expected the selected table field to seed Group by');
+    expect(seededGroupEntry.form.keys.map((key) => key.inputColumnId)).toEqual(['site-id']);
+    expect(seededGroupEntry.candidateIntent.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
+      kind: 'GROUP',
+      group: { keys: [{ inputColumnId: 'site-id' }], aggregates: [{ operation: 'COUNT_ROWS' }] },
+    });
     const relatedExpandContext = {
       project: 'project-1', explorerId: 'explorer-1', snapshotToken: 'snapshot-1', outputId: 'table-1',
       catalog: { availability: { fields: [
@@ -609,7 +617,7 @@ describe('ConstructionReshapeEditor', () => {
     } as unknown as NonNullable<ConstructionReshapeEditorProps['relatedExpandContext']>;
     const codedPivotContext = { rowRoot: 'Specimen' } as NonNullable<ConstructionReshapeEditorProps['codedPivotContext']>;
     const onCandidateChange = vi.fn();
-    renderEditor({ capabilities, initialKind: 'choose', relatedExpandContext, codedPivotContext, onCandidateChange });
+    renderEditor({ capabilities, initialKind: 'choose', selectedColumns: ['site-id'], relatedExpandContext, codedPivotContext, onCandidateChange });
     expect(screen.getByTestId('construction-reshape-choice-group')).toHaveTextContent('Summarize into groups');
     expect(screen.getByRole('region', { name: 'Available dataset fields' })).toBeInTheDocument();
     expect(screen.getByText('Status')).toBeInTheDocument();
@@ -617,10 +625,18 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByText('Examples: active · complete · in-progress')).toBeInTheDocument();
     expect(screen.queryByText(/ignored|wrong-resource|wrong-path/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('construction-reshape-choice-group'));
-    expect(screen.getByTestId('construction-reshape-source-field-choices')).toBeInTheDocument();
-    expect(screen.queryByTestId('construction-reshape-group')).not.toBeInTheDocument();
-    expect(onCandidateChange.mock.lastCall?.[0]).toBeUndefined();
+    expect(screen.getByTestId('construction-reshape-group')).toBeInTheDocument();
+    expect(screen.queryByTestId('construction-reshape-source-field-choices')).not.toBeInTheDocument();
+    expect(controlChecked('Group by Site')).toBe(true);
+    expect(screen.getByRole('checkbox', { name: 'Group by Age' })).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Group by Tags' })).not.toBeInTheDocument();
+    expect(controlValue('Summary 1')).toBe('COUNT_ROWS');
+    expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
+      kind: 'GROUP',
+      group: { keys: [{ inputColumnId: 'site-id' }], aggregates: [{ operation: 'COUNT_ROWS' }] },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Change row operation' }));
+    expect(screen.getByTestId('construction-reshape-source-field-choices')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Group by Gender' }));
     expect(screen.getByTestId('construction-reshape-source-group')).toBeInTheDocument();
     expect(controlChecked('Group by Gender')).toBe(true);
@@ -635,9 +651,11 @@ describe('ConstructionReshapeEditor', () => {
 
     cleanup();
     const groupPreview = vi.fn();
-    renderEditor({ capabilities, initialKind: 'group', relatedExpandContext, codedPivotContext, onCandidateChange: groupPreview });
-    expect(screen.getByRole('region', { name: 'Available dataset fields' })).toBeInTheDocument();
-    expect(screen.queryByTestId('construction-reshape-group')).not.toBeInTheDocument();
+    renderEditor({ capabilities, initialKind: 'group', selectedColumns: ['site-id'], relatedExpandContext, codedPivotContext, onCandidateChange: groupPreview });
+    expect(screen.getByTestId('construction-reshape-group')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Available dataset fields' })).not.toBeInTheDocument();
+    expect(controlChecked('Group by Site')).toBe(true);
+    expect(controlValue('Summary 1')).toBe('COUNT_ROWS');
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
     expect(groupPreview.mock.lastCall?.[0]).toBeUndefined();
 

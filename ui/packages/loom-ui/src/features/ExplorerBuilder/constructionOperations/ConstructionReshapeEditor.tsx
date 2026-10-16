@@ -1363,7 +1363,7 @@ const formForStep = (
   initialKind?: ReshapeEntryKind,
 ): ReshapeForm => {
   if (!editingStep) {
-    if (initialKind === 'group') return initialGroupForm(stage, [], undefined, construction);
+    if (initialKind === 'group') return initialGroupForm(stage, selectedColumns, undefined, construction);
     if (initialKind === 'source-group') return initialSourceGroupForm(construction, capabilities.sourceInput?.choices ?? [])
       ?? { kind: 'unsupported', message: 'No source field can group these rows.' };
     if (initialKind === 'coded-group') return initialCodedGroupForm(stage);
@@ -1687,9 +1687,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     }
     setForm(next);
     props.onFormKindChange?.(next.kind);
-    const evaluation = next.kind === 'group' && !editingStep && availableSourceFields.length > 0
-      ? { kind: 'incomplete' as const }
-      : evaluate(next);
+    const evaluation = evaluate(next);
     setContractUnavailable(evaluation.kind === 'schema-pending');
     onCandidateChange(evaluation.kind === 'ready' ? evaluation.intent : undefined);
   };
@@ -1904,22 +1902,17 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
       ) : null}
 
       {form.kind === 'group' ? (
-        <>
-          {!editingStep ? <SourceFieldChoices fields={availableSourceFields} disabled={disabled} onChoose={chooseSourceField} /> : null}
-          {(editingStep || availableSourceFields.length === 0) ? (
-            <GroupEditor
-              key={`${id}:group:${contextKey}`}
-              form={form}
-              stage={groupStage}
-              codedPivotContext={groupCodedValuesSupported ? props.codedPivotContext : undefined}
-              codedPivotSupported={groupCodedValuesSupported}
-              supported={groupSupport.supported || groupCodedValuesSupported}
-              reason={groupSupport.supported || groupCodedValuesSupported ? '' : groupSupport.reason}
-              disabled={disabled}
-              onChange={(next) => updateForm(next)}
-            />
-          ) : null}
-        </>
+        <GroupEditor
+          key={`${id}:group:${contextKey}`}
+          form={form}
+          stage={groupStage}
+          codedPivotContext={groupCodedValuesSupported ? props.codedPivotContext : undefined}
+          codedPivotSupported={groupCodedValuesSupported}
+          supported={groupSupport.supported || groupCodedValuesSupported}
+          reason={groupSupport.supported || groupCodedValuesSupported ? '' : groupSupport.reason}
+          disabled={disabled}
+          onChange={(next) => updateForm(next)}
+        />
       ) : null}
 
       {form.kind === 'coded-group' ? (

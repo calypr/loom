@@ -3162,6 +3162,7 @@ const BuilderWorkspaceContent = ({
             construction: construction ?? response.baseConstruction,
             capabilities: response,
             kind,
+            selectedColumns: selectedColumnIds,
           })
         : undefined;
       if (entry) {
