@@ -3337,7 +3337,7 @@ export const fieldPresentationSchema = z.discriminatedUnion('kind', [
 ]);
 export type FieldPresentation = z.infer<typeof fieldPresentationSchema>;
 
-export const semanticInventoryBrowseResponseSchema = z
+export const semanticInventoryBrowseCoreResponseSchema = z
   .object({
     frameId: opaqueIdSchema.optional(),
     frameSource: frameDefinitionSchema.optional(),
@@ -3354,8 +3354,10 @@ export const semanticInventoryBrowseResponseSchema = z
     sourceAvailability: z.enum(['unknown', 'verified', 'unproven']),
     entries: z.array(semanticInventoryItemSchema).max(50),
     nextCursor: z.string().min(1).optional(),
-    fieldPresentation: fieldPresentationSchema.optional(),
   })
+  .strict();
+export const semanticInventoryBrowseResponseSchema = semanticInventoryBrowseCoreResponseSchema
+  .extend({ fieldPresentation: fieldPresentationSchema.optional() })
   .strict();
 export type SemanticInventoryBrowseResponse = z.infer<
   typeof semanticInventoryBrowseResponseSchema

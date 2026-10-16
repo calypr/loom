@@ -794,6 +794,52 @@ describe('Loom project paths', () => {
     expect(response.fieldPresentation).toEqual({ kind: 'UNAVAILABLE', reason: 'COVERAGE_UNAVAILABLE' });
   });
 
+  it('preserves valid inventory entries when only the optional presentation proof is malformed', async () => {
+    const entry = {
+      conceptId: 'concept-1',
+      bindingId: 'binding-1',
+      resourceType: 'Observation',
+      sourcePath: 'code',
+      system: 'urn:example:system',
+      code: 'measurement',
+      codingVersion: '',
+      display: 'Measurement',
+      valueSelector: 'valueQuantity.value',
+      valueType: 'decimal',
+      owningScope: '',
+      occurrences: 4,
+      examplesTruncated: false,
+      observedUnitsTruncated: false,
+      readiness: { status: 'READY', code: 'READY', message: 'This semantic field is ready to add.' },
+    } as const;
+    const response = {
+      ...fieldPresentationBrowseResponse({ kind: 'UNAVAILABLE', reason: 'FUTURE_COVERAGE_REASON' }),
+      entries: [entry],
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } }),
+    );
+    const client = createLoomClient({ fetch });
+
+    const result = await client.browseSemanticInventory({
+      project: 'project-1',
+      explorerId: 'default',
+      snapshotToken: 'snapshot-1',
+      rowRoot: 'Observation',
+      outputId: 'observations',
+      fieldPresentation: {
+        expectedDraftVersion: 3,
+        expectedDraftDigest: 'draft-digest-3',
+        sourceNodeId: 'observation-node',
+        occurrenceId: 'base',
+        candidateIds: ['raw-code'],
+      },
+    });
+
+    expect(result.entries).toEqual([entry]);
+    expect(result.fieldPresentation).toEqual({ kind: 'UNAVAILABLE', reason: 'INCOMPLETE_COVERAGE' });
+  });
+
   it('downgrades partial, stale, and unknown-revision proofs to unavailable', async () => {
     const partialResponse = fieldPresentationBrowseResponse({
       kind: 'READY',
