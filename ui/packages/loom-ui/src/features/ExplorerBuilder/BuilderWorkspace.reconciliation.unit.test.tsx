@@ -317,6 +317,7 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', async (importOrigi
         {onFormKindChange ? <>
           <button type="button" data-testid="mock-reshape-form-pivot" onClick={() => onFormKindChange('pivot')}>Use Pivot form</button>
           <button type="button" data-testid="mock-reshape-form-group" onClick={() => onFormKindChange('group')}>Use Group form</button>
+          <button type="button" data-testid="mock-reshape-form-source-group" onClick={() => onFormKindChange('source-group')}>Use source Group form</button>
         </> : null}
         {onDiscoverCategories ? <button type="button" onClick={() => onDiscoverCategories({
           stageId: capabilities.selectedStage.id,
@@ -3615,7 +3616,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(await screen.findByTestId('construction-calculate-editor')).toBeInTheDocument();
   });
 
-  it('hides the generic selection for Pivot and restores it when switching reshape forms', async () => {
+  it('hides the generic selection for Pivot and table Group, then restores it for source Group', async () => {
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
     expect(await screen.findByTestId('construction-workspace')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-preview-status', 'ready'));
@@ -3632,6 +3633,9 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(screen.queryByText(/Inputs from your selection:/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('mock-reshape-form-group'));
+    expect(screen.queryByTestId('construction-column-selection')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('mock-reshape-form-source-group'));
     expect(screen.getByTestId('construction-column-selection')).toBeInTheDocument();
     expect(screen.getByTestId('construction-column-specimen_identifier_id')).toHaveAttribute('aria-pressed', 'true');
   });

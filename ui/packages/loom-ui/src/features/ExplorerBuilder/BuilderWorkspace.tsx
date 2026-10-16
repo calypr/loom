@@ -3258,7 +3258,9 @@ const BuilderWorkspaceContent = ({
     : reshapeEntryKind;
   const hideGenericReshapeSelection = activeOperation?.family === 'RESHAPE' && (
     reshapeFormKind === 'pivot'
+    || reshapeFormKind === 'group'
     || editingConstructionStep?.operation.kind === 'PIVOT'
+    || editingConstructionStep?.operation.kind === 'GROUP'
   );
   const editingRelatedSourceStep: RelatedSourceStep | undefined = editingConstructionStep?.operation.kind === 'RELATED_SOURCE'
     ? editingConstructionStep as RelatedSourceStep

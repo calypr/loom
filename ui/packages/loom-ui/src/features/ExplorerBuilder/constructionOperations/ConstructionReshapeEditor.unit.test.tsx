@@ -1422,6 +1422,46 @@ describe('ConstructionReshapeEditor', () => {
     });
   });
 
+  it('keeps every eligible scalar available for Group by and explains excluded list fields', () => {
+    const eligibleColumns = [
+      sourceColumns[0],
+      sourceColumns[1],
+      { id: 'status-id', name: 'status', label: 'Status', type: 'code', cardinality: 'optional_one' as const },
+      { id: 'visit-date-id', name: 'visit_date', label: 'Visit date', type: 'date', cardinality: 'required_one' as const },
+      { id: 'active-id', name: 'active', label: 'Active', type: 'boolean', cardinality: 'optional_one' as const },
+    ];
+    const stage = {
+      ...sourceStage,
+      columns: [
+        ...eligibleColumns,
+        sourceColumns[2],
+        { id: 'object-id', name: 'details', label: 'Details', type: 'object', cardinality: 'optional_one' as const },
+        { id: 'unknown-id', name: 'unknown', label: 'Unknown', type: 'unknown', cardinality: 'required_one' as const },
+      ],
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const capabilities = capabilitiesFor([stage], stage);
+    const onCandidateChange = vi.fn();
+    renderEditor({ initialKind: 'group', capabilities, onCandidateChange });
+
+    expect(screen.getByTestId('construction-reshape-group')).toHaveClass('construction-reshape-group-editor');
+    for (const column of eligibleColumns) {
+      const checkbox = screen.getByRole('checkbox', { name: `Group by ${column.label}` });
+      expect(checkbox).toBeEnabled();
+      fireEvent.click(checkbox);
+      expect(checkbox).toHaveProperty('checked', true);
+    }
+    expect(screen.queryByRole('checkbox', { name: 'Group by Tags' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Group by Details' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Group by Unknown' })).not.toBeInTheDocument();
+    expect(screen.getByText('1 list field cannot be grouped directly. Choose “Expand a repeated value” first to group by each item.')).toBeInTheDocument();
+
+    const intent = onCandidateChange.mock.lastCall?.[0];
+    expect(intent?.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
+      kind: 'GROUP',
+      group: { keys: eligibleColumns.map((column) => ({ inputColumnId: column.id })), aggregates: [{ operation: 'COUNT_ROWS' }] },
+    });
+  });
+
   it('uses selected scalar columns as group keys and restricts numeric summaries by type', () => {
     const onCandidateChange = vi.fn();
     renderEditor({ selectedColumns: ['site-id'], onCandidateChange });
@@ -1445,6 +1485,13 @@ describe('ConstructionReshapeEditor', () => {
     fireEvent.change(screen.getByLabelText('Summary 1'), { target: { value: 'MEAN' } });
     expect(advanced).not.toHaveAttribute('open');
     expect(screen.getByLabelText('Summary field 1')).toBeInTheDocument();
+    const summaryRow = screen.getByTestId('construction-reshape-aggregate-0');
+    for (const control of [
+      screen.getByLabelText('Summary 1'),
+      screen.getByLabelText('Summary field 1'),
+      screen.getByLabelText('Summary output name 1'),
+      screen.getByRole('button', { name: 'Remove summary 1' }),
+    ]) expect(summaryRow.contains(control)).toBe(true);
     fireEvent.click(screen.getByText('Advanced options'));
     fireEvent.change(screen.getByLabelText('Summary output name 1'), { target: { value: 'mean_age' } });
     fireEvent.click(screen.getByTestId('construction-reshape-add-summary'));
@@ -1523,7 +1570,7 @@ describe('ConstructionReshapeEditor', () => {
     fireEvent.click(screen.getByTestId('construction-reshape-choice-group'));
     fireEvent.click(screen.getByRole('button', { name: 'Remove summary 1' }));
 
-    expect(screen.getByRole('status')).toHaveTextContent('Add at least one summary before proposing this group.');
+    expect(screen.getByText('Add at least one summary before proposing this group.')).toBeInTheDocument();
     expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
   });
 

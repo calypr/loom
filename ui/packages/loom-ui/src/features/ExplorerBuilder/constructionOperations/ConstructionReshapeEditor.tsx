@@ -2209,6 +2209,7 @@ const GroupEditor = (props: {
   readonly onChange: (form: GroupForm) => void;
 }) => {
   const scalarColumns = scalarColumnsFor(props.stage);
+  const listColumns = listColumnsFor(props.stage);
   const usedNames = getUsedGroupNames(props.form);
   const changeKey = (index: number, update: Partial<GroupKey>) => {
     props.onChange({
@@ -2232,133 +2233,145 @@ const GroupEditor = (props: {
   };
 
   return (
-    <section aria-label="Summarize into groups" data-testid="construction-reshape-group" className="grid content-start gap-4 rounded-lg border border-slate-200 p-3">
-      <header>
-        <h4 className="m-0 text-sm font-semibold text-slate-900">Group rows</h4>
-        <p className="mb-0 mt-1 text-sm text-slate-600">Group fields become the new row labels. Each summary becomes another column.</p>
-      </header>
+    <section aria-label="Summarize into groups" data-testid="construction-reshape-group" className="construction-reshape-group-editor grid content-start gap-3 rounded-lg border border-slate-200 p-3">
       {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
 
-      <fieldset className="grid gap-2" disabled={props.disabled || !props.supported}>
-        <legend className="text-sm font-semibold text-slate-800">One row per</legend>
-        {scalarColumns.length === 0 ? (
-          <p role="status" className="text-sm text-slate-600">Loom has not returned scalar columns for this stage. A whole-table summary is still available.</p>
-        ) : (
-          <div className="grid gap-2 sm:grid-cols-2">
-            {scalarColumns.map((column) => {
-              const checked = props.form.keys.some((key) => key.inputColumnId === column.id);
-              return (
-                <label key={column.id} className="flex items-start gap-2 rounded border border-slate-200 px-3 py-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    aria-label={`Group by ${column.label}`}
-                    disabled={props.disabled || !props.supported}
-                    onChange={() => props.onChange(checked
-                      ? { ...props.form, keys: props.form.keys.filter((key) => key.inputColumnId !== column.id) }
-                      : addGroupKey(props.form, props.stage, column.id))}
-                    className="mt-0.5"
-                  />
-                  <span><span className="block font-medium text-slate-800">{column.label}</span><span className="block text-xs text-slate-500">{column.type ?? 'Unknown type'}</span></span>
-                </label>
-              );
-            })}
-          </div>
-        )}
-        {props.codedPivotSupported && props.codedPivotContext ? (
-          <GroupCodedValuePicker
-            context={props.codedPivotContext}
-            form={props.form}
-            stage={props.stage}
-            disabled={props.disabled || !props.supported}
-            onChange={props.onChange}
-          />
-        ) : null}
-      </fieldset>
+      <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
+        <fieldset className="grid min-w-0 content-start gap-2 rounded-lg border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
+          <legend className="m-0 px-1 text-sm font-semibold text-slate-800">Group by</legend>
+          <p className="m-0 text-xs text-slate-600">Choose values that define each output row.</p>
+          {scalarColumns.length === 0 ? (
+            <p role="status" className="m-0 text-sm text-slate-600">No scalar fields are available to group by. You can still summarize the whole table.</p>
+          ) : (
+            <div className="grid max-h-56 gap-1 overflow-y-auto sm:grid-cols-2">
+              {scalarColumns.map((column) => {
+                const checked = props.form.keys.some((key) => key.inputColumnId === column.id);
+                return (
+                  <label key={column.id} className="flex min-w-0 items-center gap-2 rounded px-2 py-1 text-sm text-slate-700 hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      aria-label={`Group by ${column.label}`}
+                      disabled={props.disabled || !props.supported}
+                      onChange={() => props.onChange(checked
+                        ? { ...props.form, keys: props.form.keys.filter((key) => key.inputColumnId !== column.id) }
+                        : addGroupKey(props.form, props.stage, column.id))}
+                    />
+                    <span className="min-w-0 truncate" title={column.label}>{column.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+          {listColumns.length > 0 ? (
+            <p role="status" className="m-0 text-xs text-amber-900">
+              {listColumns.length} {listColumns.length === 1 ? 'list field cannot' : 'list fields cannot'} be grouped directly. Choose “Expand a repeated value” first to group by each item.
+            </p>
+          ) : null}
+          {props.codedPivotSupported && props.codedPivotContext ? (
+            <GroupCodedValuePicker
+              context={props.codedPivotContext}
+              form={props.form}
+              stage={props.stage}
+              disabled={props.disabled || !props.supported}
+              onChange={props.onChange}
+            />
+          ) : null}
+          {props.form.keys.length > 0 ? (
+            <p data-testid="construction-reshape-group-missing-key-effect" className="m-0 text-xs text-slate-600">
+              If a group key is absent or null, {props.form.missingKeyPolicy === 'GROUP'
+                ? 'those rows stay together in one missing-key group.'
+                : props.form.missingKeyPolicy === 'EXCLUDE'
+                  ? 'rows with any missing key are excluded before summaries run.'
+                  : 'the operation stops before summaries run.'}
+            </p>
+          ) : null}
+        </fieldset>
 
-      {props.form.keys.length > 0 ? (
-        <p data-testid="construction-reshape-group-missing-key-effect" className="text-sm text-slate-600">
-          If a group key is absent or null, {props.form.missingKeyPolicy === 'GROUP'
-            ? 'those rows stay together in one missing-key group.'
-            : props.form.missingKeyPolicy === 'EXCLUDE'
-              ? 'rows with any missing key are excluded before summaries run.'
-              : 'the operation stops before summaries run.'}
-        </p>
-      ) : null}
-
-      <fieldset className="grid gap-3 rounded-lg border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
-        <legend className="px-1 text-sm font-semibold text-slate-800">Summaries</legend>
-        <p className="m-0 text-sm text-slate-600">Choose what each group should report. Count rows works without a selected field.</p>
-        {props.form.aggregates.length === 0 ? (
-          <p role="status" className="text-sm text-amber-900">Add at least one summary before proposing this group.</p>
-        ) : null}
-        {props.form.aggregates.map((aggregate, index) => {
-          const inputColumns = aggregateInputColumnsFor(props.stage, aggregate.operation);
-          const operation: GroupAggregateKind = aggregate.operation;
-          return (
-            <div key={aggregate.outputColumnId} data-testid={`construction-reshape-aggregate-${index}`} className="grid gap-2 rounded bg-slate-50 p-3 sm:grid-cols-2">
-              <label className="grid gap-1 text-sm font-medium text-slate-700">
-                Summary
-                <select
-                  aria-label={`Summary ${index + 1}`}
-                  value={operation}
-                  disabled={props.disabled || !props.supported}
-                  onChange={(event) => {
-                    const selected = groupAggregateKindFromInput(event.currentTarget.value);
-                    if (!selected) return;
-                    const replacement = replaceGroupAggregate(aggregate, selected, props.stage, getUsedGroupNames(props.form, aggregate.outputColumnId));
-                    changeAggregate(index, replacement);
-                  }}
-                  className="rounded border border-slate-300 bg-white px-2 py-1.5"
-                >
-                  <option value="COUNT_ROWS">Count rows</option>
-                  <option value="COUNT_NON_NULL">Count present values</option>
-                  <option value="COUNT_DISTINCT">Count distinct values</option>
-                  <option value="SUM" disabled={numericColumnsFor(props.stage).length === 0}>Sum numeric values</option>
-                  <option value="MEAN" disabled={numericColumnsFor(props.stage).length === 0}>Mean numeric values</option>
-                </select>
-              </label>
-              {aggregate.operation !== 'COUNT_ROWS' ? (
-                <label className="grid gap-1 text-sm font-medium text-slate-700">
-                  Field
+        <fieldset className="grid min-w-0 content-start gap-2 rounded-lg border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
+          <legend className="m-0 px-1 text-sm font-semibold text-slate-800">Summaries</legend>
+          <p className="m-0 text-xs text-slate-600">Count rows needs no field; other summaries use a compatible field.</p>
+          {props.form.aggregates.length === 0 ? (
+            <p role="status" className="m-0 text-sm text-amber-900">Add at least one summary before proposing this group.</p>
+          ) : null}
+          {props.form.aggregates.map((aggregate, index) => {
+            const inputColumns = aggregateInputColumnsFor(props.stage, aggregate.operation);
+            const operation: GroupAggregateKind = aggregate.operation;
+            return (
+              <div key={aggregate.outputColumnId} data-testid={`construction-reshape-aggregate-${index}`} className="grid items-end gap-2 rounded bg-slate-50 p-2 sm:grid-cols-[minmax(8rem,0.8fr)_minmax(8rem,1fr)_minmax(8rem,1fr)_auto]">
+                <label className="grid min-w-0 gap-1 text-xs font-medium text-slate-700">
+                  Summary
                   <select
-                    aria-label={`Summary field ${index + 1}`}
-                    value={aggregate.inputColumnId}
+                    aria-label={`Summary ${index + 1}`}
+                    value={operation}
                     disabled={props.disabled || !props.supported}
                     onChange={(event) => {
-                      const input = inputColumns.find((column) => column.id === event.currentTarget.value);
-                      if (!input) return;
-                      changeAggregate(index, {
-                        ...aggregate,
-                        inputColumnId: input.id,
-                        name: uniqueName(aggregateNameFor(aggregate.operation, input), getUsedGroupNames(props.form, aggregate.outputColumnId)),
-                        label: `${operationLabel(aggregate.operation)} of ${input.label}`,
-                      });
+                      const selected = groupAggregateKindFromInput(event.currentTarget.value);
+                      if (!selected) return;
+                      const replacement = replaceGroupAggregate(aggregate, selected, props.stage, getUsedGroupNames(props.form, aggregate.outputColumnId));
+                      changeAggregate(index, replacement);
                     }}
-                    className="rounded border border-slate-300 bg-white px-2 py-1.5"
+                    className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
                   >
-                    {inputColumns.map((column) => <option key={column.id} value={column.id}>{column.label} ({column.type ?? 'unknown type'})</option>)}
+                    <option value="COUNT_ROWS">Count rows</option>
+                    <option value="COUNT_NON_NULL">Count present values</option>
+                    <option value="COUNT_DISTINCT">Count distinct values</option>
+                    <option value="SUM" disabled={numericColumnsFor(props.stage).length === 0}>Sum numeric values</option>
+                    <option value="MEAN" disabled={numericColumnsFor(props.stage).length === 0}>Mean numeric values</option>
                   </select>
-                  {inputColumns.length === 0 ? <span role="status" className="text-xs text-amber-900">No compatible columns were returned for this summary.</span> : null}
                 </label>
-              ) : <span className="self-end text-xs text-slate-500">Counts every input row in the group.</span>}
-              <button type="button" aria-label={`Remove summary ${index + 1}`} disabled={props.disabled || !props.supported} onClick={() => props.onChange({ ...props.form, aggregates: props.form.aggregates.filter((_, itemIndex) => itemIndex !== index) })} className="justify-self-start rounded px-2 py-1 text-sm font-medium text-red-700 hover:bg-red-50">Remove summary</button>
-            </div>
-          );
-        })}
-        <button
-          type="button"
-          data-testid="construction-reshape-add-summary"
-          disabled={props.disabled || !props.supported}
-          onClick={() => {
-            const aggregate = makeAggregate('COUNT_ROWS', props.stage, usedNames);
-            props.onChange({ ...props.form, aggregates: [...props.form.aggregates, aggregate] });
-          }}
-          className="justify-self-start rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-white"
-        >
-          Add summary
-        </button>
-      </fieldset>
+                {aggregate.operation !== 'COUNT_ROWS' ? (
+                  <label className="grid min-w-0 gap-1 text-xs font-medium text-slate-700">
+                    Field
+                    <select
+                      aria-label={`Summary field ${index + 1}`}
+                      value={aggregate.inputColumnId}
+                      disabled={props.disabled || !props.supported}
+                      onChange={(event) => {
+                        const input = inputColumns.find((column) => column.id === event.currentTarget.value);
+                        if (!input) return;
+                        changeAggregate(index, {
+                          ...aggregate,
+                          inputColumnId: input.id,
+                          name: uniqueName(aggregateNameFor(aggregate.operation, input), getUsedGroupNames(props.form, aggregate.outputColumnId)),
+                          label: `${operationLabel(aggregate.operation)} of ${input.label}`,
+                        });
+                      }}
+                      className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
+                    >
+                      {inputColumns.map((column) => <option key={column.id} value={column.id}>{column.label} ({column.type ?? 'unknown type'})</option>)}
+                    </select>
+                    {inputColumns.length === 0 ? <span role="status" className="text-xs text-amber-900">No compatible columns were returned for this summary.</span> : null}
+                  </label>
+                ) : <span className="pb-2 text-xs text-slate-500">Counts every input row.</span>}
+                <label className="grid min-w-0 gap-1 text-xs font-medium text-slate-700">
+                  Output name
+                  <input
+                    aria-label={`Summary output name ${index + 1}`}
+                    value={aggregate.name}
+                    disabled={props.disabled || !props.supported}
+                    onChange={(event) => changeAggregate(index, { ...aggregate, name: event.currentTarget.value })}
+                    className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
+                  />
+                </label>
+                <button type="button" aria-label={`Remove summary ${index + 1}`} disabled={props.disabled || !props.supported} onClick={() => props.onChange({ ...props.form, aggregates: props.form.aggregates.filter((_, itemIndex) => itemIndex !== index) })} className="mb-0.5 justify-self-start whitespace-nowrap rounded px-2 py-1 text-sm font-medium text-red-700 hover:bg-red-50">Remove</button>
+              </div>
+            );
+          })}
+          <button
+            type="button"
+            data-testid="construction-reshape-add-summary"
+            disabled={props.disabled || !props.supported}
+            onClick={() => {
+              const aggregate = makeAggregate('COUNT_ROWS', props.stage, usedNames);
+              props.onChange({ ...props.form, aggregates: [...props.form.aggregates, aggregate] });
+            }}
+            className="justify-self-start rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-white"
+          >
+            Add summary
+          </button>
+        </fieldset>
+      </div>
 
       <details data-testid="construction-reshape-group-advanced" className="rounded-lg border border-slate-200">
         <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-slate-700">Advanced options</summary>
@@ -2388,7 +2401,7 @@ const GroupEditor = (props: {
 
           {props.form.keys.length > 0 ? (
             <fieldset className="grid gap-3 rounded-lg border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
-              <legend className="px-1 text-sm font-semibold text-slate-800">Group column names</legend>
+              <legend className="m-0 px-1 text-sm font-semibold text-slate-800">Group column names</legend>
               {props.form.keys.map((key, index) => (
                 <div key={key.outputColumnId} className="grid gap-2 sm:grid-cols-2">
                   <p className="sm:col-span-2 text-xs text-slate-500">Values from {groupKeyName(props.stage, key)} identify each group.</p>
@@ -2407,13 +2420,9 @@ const GroupEditor = (props: {
 
           {props.form.aggregates.length > 0 ? (
             <fieldset className="grid gap-3 rounded-lg border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
-              <legend className="px-1 text-sm font-semibold text-slate-800">Summary output names and labels</legend>
+              <legend className="m-0 px-1 text-sm font-semibold text-slate-800">Summary output labels</legend>
               {props.form.aggregates.map((aggregate, index) => (
-                <div key={aggregate.outputColumnId} className="grid gap-2 sm:grid-cols-2">
-                  <label className="grid gap-1 text-sm font-medium text-slate-700">
-                    Column name
-                    <input aria-label={`Summary output name ${index + 1}`} value={aggregate.name} disabled={props.disabled || !props.supported} onChange={(event) => changeAggregate(index, { ...aggregate, name: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
-                  </label>
+                <div key={aggregate.outputColumnId} className="grid gap-2">
                   <label className="grid gap-1 text-sm font-medium text-slate-700">
                     Column label
                     <input aria-label={`Summary output label ${index + 1}`} value={aggregate.label} disabled={props.disabled || !props.supported} onChange={(event) => changeAggregate(index, { ...aggregate, label: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
