@@ -154,18 +154,14 @@ export const TableShapeEditor = ({
   };
 
   return (
-    <section aria-label="Table shape editor" data-testid="ui04-table-shape-editor" className="grid gap-4 rounded-xl border border-slate-200 bg-white p-4 text-slate-800 shadow-sm">
-      <div>
-        <h2 className="text-base font-semibold text-slate-900">Table shape</h2>
-        <p className="mt-1 text-sm text-slate-600">Choose a server-supported reshape and author output names.</p>
-      </div>
+    <section aria-label="Table shape editor" data-testid="ui04-table-shape-editor" className="grid gap-3 text-slate-800 [&>section]:gap-2 [&>section]:p-2 [&>section>div:first-child>h3]:m-0 [&>section>div:first-child>p]:m-0 [&>section>div:first-child>div>h3]:m-0 [&>section>div:first-child>div>p]:m-0">
       {recoverableError ? (
         <p role="alert" data-testid="ui04-table-shape-error" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">
           {recoverableError}
         </p>
       ) : null}
       <ChoiceSelect
-        label="Table shape"
+        label="Reshape mode"
         testId="ui04-reshape-mode"
         choices={choices.reshapeModes}
         value={form.mode}

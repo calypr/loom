@@ -257,7 +257,7 @@ const selectPivotPolicies = () => {
 };
 
 const selectPivotColumns = () => {
-  selectOption('Table shape', 'shape-pivot');
+  selectOption('Reshape mode', 'shape-pivot');
   fireEvent.click(screen.getByRole('checkbox', { name: 'Pivot group columns: Patient ID' }));
   selectOption('Pivot category column', 'category-field');
   selectOption('Pivot value column', 'value-field');
@@ -319,7 +319,7 @@ describe('TableShapeEditor', () => {
   it('preserves a reshape choice dispatched during the initial editor commit', () => {
     const ChoosePivotDuringMount = () => {
       React.useLayoutEffect(() => {
-        const select = screen.getByRole('combobox', { name: 'Table shape' }) as HTMLSelectElement;
+        const select = screen.getByRole('combobox', { name: 'Reshape mode' }) as HTMLSelectElement;
         select.value = 'shape-pivot';
         select.dispatchEvent(new Event('change', { bubbles: true }));
       }, []);
@@ -337,6 +337,8 @@ describe('TableShapeEditor', () => {
 
     render(<ChoosePivotDuringMount />);
 
+    expect(screen.queryByRole('heading', { name: 'Table shape' })).toBeNull();
+    expect(screen.getByRole('region', { name: 'Table shape editor' })).toBeTruthy();
     expect(screen.getByRole('checkbox', { name: 'Pivot group columns: Patient ID' })).toBeTruthy();
   });
 
@@ -366,7 +368,7 @@ describe('TableShapeEditor', () => {
     };
     const { onCancel } = renderEditor({ proposalIntent });
 
-    expect(selectedValue('Table shape')).toBe('saved-mode-no-longer-offered');
+    expect(selectedValue('Reshape mode')).toBe('saved-mode-no-longer-offered');
     expect(screen.getByRole('option', { name: 'Saved selection is not in the current server choices' })).toBeTruthy();
     expect(screen.getByRole('status').textContent)
       .toBe('The saved selection is not present in the current server choices.');
@@ -375,7 +377,7 @@ describe('TableShapeEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
     expect(onCancel).toHaveBeenCalledTimes(1);
-    expect(selectedValue('Table shape')).toBe('saved-mode-no-longer-offered');
+    expect(selectedValue('Reshape mode')).toBe('saved-mode-no-longer-offered');
     expect(screen.getByRole('button', { name: 'Preview table shape' }).hasAttribute('disabled')).toBe(true);
   });
 
@@ -1045,7 +1047,7 @@ describe('TableShapeEditor', () => {
 
   it('preserves edits after recoverable errors and Cancel restores the saved reshape mode', () => {
     const { onCancel, rerender } = renderEditor();
-    selectOption('Table shape', 'shape-pivot');
+    selectOption('Reshape mode', 'shape-pivot');
     selectOption('Pivot category column', 'category-field');
 
     rerender(
@@ -1061,18 +1063,18 @@ describe('TableShapeEditor', () => {
     );
     expect(screen.getByTestId('ui04-table-shape-error').textContent)
       .toBe('The server could not preview this table shape.');
-    expect(selectedValue('Table shape')).toBe('shape-pivot');
+    expect(selectedValue('Reshape mode')).toBe('shape-pivot');
     expect(selectedValue('Pivot category column')).toBe('category-field');
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(onCancel).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('region', { name: 'Grouped pivot configuration' })).toBeNull();
-    expect(selectedValue('Table shape')).toBe('shape-none');
+    expect(selectedValue('Reshape mode')).toBe('shape-none');
   });
 
   it('keeps ordered unpivot inputs, editable names, server result types, and refusal reasons', () => {
     const { onApply } = renderEditor();
-    selectOption('Table shape', 'shape-unpivot');
+    selectOption('Reshape mode', 'shape-unpivot');
     expect(inputValue('Unpivot key output column')).toBe('measure_name');
     expect(inputValue('Unpivot key output label')).toBe('Measurement name');
     expect(inputValue('Unpivot value output column')).toBe('measure_value');
@@ -1081,8 +1083,8 @@ describe('TableShapeEditor', () => {
     enterText('Unpivot key output label', 'Draft key');
     enterText('Unpivot value output column', 'draft_value');
     enterText('Unpivot value output label', 'Draft value');
-    selectOption('Table shape', 'shape-none');
-    selectOption('Table shape', 'shape-unpivot');
+    selectOption('Reshape mode', 'shape-none');
+    selectOption('Reshape mode', 'shape-unpivot');
     expect(inputValue('Unpivot key output column')).toBe('draft_key');
     expect(inputValue('Unpivot key output label')).toBe('Draft key');
     expect(inputValue('Unpivot value output column')).toBe('draft_value');

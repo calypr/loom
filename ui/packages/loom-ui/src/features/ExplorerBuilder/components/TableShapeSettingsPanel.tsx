@@ -341,11 +341,10 @@ export const TableShapeSettingsPanel = (props: TableShapeSettingsPanelProps) => 
   const editorDisabled = props.disabled || editorIsBusy || Boolean(session && session.contextKey !== contextKey);
 
   return (
-    <section aria-label="Table shape settings" data-testid="ui04-table-shape-settings" className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-3">
+    <section aria-label="Table shape settings" data-testid="ui04-table-shape-settings" className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-2">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="font-semibold text-slate-900">Table shape</h2>
-          <p className="mt-1 text-xs text-slate-600">Pivot, unpivot, or add calculated columns. Loom previews the change before it reaches the saved draft.</p>
+          <p className="m-0 text-xs text-slate-600">Pivot, unpivot, or add calculated columns. Loom previews the change before it reaches the saved draft.</p>
         </div>
         {state.kind === 'closed' ? (
           <button
@@ -361,7 +360,7 @@ export const TableShapeSettingsPanel = (props: TableShapeSettingsPanelProps) => 
       </div>
 
       {state.kind !== 'closed' ? (
-        <div role="dialog" aria-modal="false" aria-labelledby="ui04-table-shape-dialog-title" data-testid="ui04-table-shape-dialog" className="mt-3 grid gap-3 rounded-lg border border-indigo-200 bg-white p-3">
+        <div role="dialog" aria-modal="false" aria-labelledby="ui04-table-shape-dialog-title" data-testid="ui04-table-shape-dialog" className="mt-2 grid gap-2 rounded-lg border border-indigo-200 bg-white p-2">
           <h3 id="ui04-table-shape-dialog-title" className="sr-only">Table shape settings</h3>
           {state.kind === 'loading' ? <p role="status">Loading table-shape choices…</p> : null}
           {state.kind === 'error' ? (

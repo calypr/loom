@@ -194,7 +194,7 @@ const discoverAndSelectSystolic = async () => {
   fireEvent.click(await screen.findByRole('checkbox', { name: 'Include Systolic category' }));
 };
 const choosePivot = () => {
-  choose('Table shape', 'mode-pivot');
+  choose('Reshape mode', 'mode-pivot');
   fireEvent.click(screen.getByRole('checkbox', { name: 'Pivot group columns: Patient ID' }));
   choose('Pivot category column', 'category');
   choose('Pivot value column', 'measure');
@@ -211,6 +211,8 @@ describe('TableShapeSettingsPanel receipt-driven controller', () => {
     renderPanel(client);
     await open();
 
+    expect(screen.queryByRole('heading', { name: 'Table shape' })).toBeNull();
+    expect(screen.getByRole('combobox', { name: 'Reshape mode' })).toBeTruthy();
     expect(client.getTableShapeCapabilities).toHaveBeenCalledWith(expect.objectContaining({
       project: args.project, explorerId: args.explorerId, authResourcePath: args.authResourcePath,
       snapshotToken: 'snapshot-1', expectedDraftVersion: 1, expectedDraftDigest: 'digest-1', outputId: 'table-1',
@@ -355,7 +357,7 @@ describe('TableShapeSettingsPanel receipt-driven controller', () => {
     });
     renderPanel(client);
     await open();
-    choose('Table shape', 'mode-unpivot');
+    choose('Reshape mode', 'mode-unpivot');
     fireEvent.click(screen.getByRole('checkbox', { name: 'Unpivot input columns: Measure' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Unpivot input columns: Measure 2' }));
     choose('Unpivot null-row policy', 'null-drop');
@@ -368,7 +370,7 @@ describe('TableShapeSettingsPanel receipt-driven controller', () => {
     fireEvent.click(screen.getByTestId('ui04-open-table-shape-settings'));
     const outputColumn = await screen.findByRole('textbox', { name: 'Systolic output column' });
     expect((outputColumn as HTMLInputElement).value).toBe('saved_sbp');
-    choose('Table shape', 'mode-none');
+    choose('Reshape mode', 'mode-none');
     fireEvent.click(screen.getByRole('button', { name: 'Preview table shape' }));
     await screen.findByTestId('ui04-table-shape-comparison');
     expect(client.proposeTableShape).toHaveBeenLastCalledWith(expect.objectContaining({
