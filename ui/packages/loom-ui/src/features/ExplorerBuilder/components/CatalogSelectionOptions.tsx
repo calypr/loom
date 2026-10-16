@@ -3,6 +3,7 @@ import type {
   ConstructionChoice,
   ConstructionChoiceForm,
   ConstructionChoiceSelection,
+  SemanticInventorySelectionMode,
 } from '../../../types';
 import {
   catalogItemDefaultForm,
@@ -10,6 +11,7 @@ import {
   catalogChoiceIntent,
   catalogItemKey,
   catalogItemLabel,
+  catalogItemSelectionLabel,
   catalogItemTitle,
   isRelatedFieldCatalogItem,
   type CatalogChoiceIntent,
@@ -108,6 +110,7 @@ export type GroupedRowValuePolicyControl = Readonly<{
 export const CatalogSelectionOptions = ({
   groups,
   rowRoot,
+  semanticSelectionMode,
   initialSelection,
   groupedRowValuePolicy,
   busy,
@@ -121,6 +124,7 @@ export const CatalogSelectionOptions = ({
 }: {
   readonly groups: ReadonlyArray<CatalogChoiceGroup>;
   readonly rowRoot: string;
+  readonly semanticSelectionMode?: SemanticInventorySelectionMode;
   readonly initialSelection?: CatalogInitialSelection;
   readonly groupedRowValuePolicy?: GroupedRowValuePolicyControl;
   readonly busy: boolean;
@@ -270,13 +274,14 @@ export const CatalogSelectionOptions = ({
           {groups.map((group) => {
             const { item } = group;
             const key = catalogItemKey(item);
+            const selectionLabel = catalogItemSelectionLabel(item, semanticSelectionMode);
             const choice = group.choices.find(
               (candidate) => candidate.choiceId === choiceIDs.get(key),
             );
             if (group.choices.length === 0) {
               return (
                 <article key={key} className="rounded-lg border border-slate-200 p-3">
-                  <h3 className="font-semibold text-slate-900">{catalogItemLabel(item)}</h3>
+                  <h3 aria-label={selectionLabel} className="font-semibold text-slate-900">{catalogItemLabel(item)}</h3>
                   <p className="mt-2 text-sm text-amber-900">No verified path or table value is available for this field.</p>
                   {group.nextCursor ? (
                     <button type="button" disabled={busy} onClick={() => onLoadMoreRoutes(group)} className="mt-3 rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-blue-700 disabled:opacity-50">
@@ -299,7 +304,7 @@ export const CatalogSelectionOptions = ({
             );
             return (
               <article key={key} className="rounded-lg border border-slate-200 p-3">
-                <h3 className="font-semibold text-slate-900">
+                <h3 aria-label={`${group.choices[0]?.source.resourceType ? `${group.choices[0].source.resourceType} · ` : ''}${selectionLabel}`} className="font-semibold text-slate-900">
                   {group.choices[0]?.source.resourceType ? `${group.choices[0].source.resourceType} · ` : ''}{catalogItemLabel(item)}
                 </h3>
                 {group.truncated ? (
@@ -338,7 +343,7 @@ export const CatalogSelectionOptions = ({
                               <input
                                 type="radio"
                                 name={`construction-route-${key}`}
-                                aria-label={`${catalogItemLabel(item)}: ${label}`}
+                                aria-label={`${selectionLabel}: ${label}`}
                                 checked={choice?.choiceId === routeChoice.choiceId}
                                 onChange={() => {
                                   const currentForm = choice ? forms.get(choice.choiceId) : undefined;
@@ -507,7 +512,7 @@ export const CatalogSelectionOptions = ({
                           <input
                             type="radio"
                             name={`construction-choice-${choice.choiceId}`}
-                            aria-label={`${catalogItemLabel(item)}: ${label}`}
+                            aria-label={`${selectionLabel}: ${label}`}
                             checked={selectedForm === option.form}
                             onChange={() => {
                               setForms((current) => new Map(current).set(choice.choiceId, option.form));
@@ -611,7 +616,7 @@ export const CatalogSelectionOptions = ({
                     ))}
                     {conditions.get(choice.choiceId)?.mode === 'EQUALS' ? (
                       <input
-                        aria-label={`${catalogItemLabel(item)} exact value`}
+                        aria-label={`${selectionLabel} exact value`}
                         value={conditions.get(choice.choiceId)?.value ?? ''}
                         onChange={(event) => {
                           const value = event.currentTarget.value;

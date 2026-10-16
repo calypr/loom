@@ -283,7 +283,6 @@ const fieldPathLabel = (path: string): string => {
 
 export const catalogItemLabel = (
   item: CatalogItem,
-  selectionMode?: SemanticInventorySelectionMode,
 ): string => {
   switch (item.kind) {
     case 'FIELD': {
@@ -295,7 +294,7 @@ export const catalogItemLabel = (
         : fieldPathLabel(path);
     }
     case 'SEMANTIC':
-      return semanticConceptLabel(item.item, selectionMode);
+      return semanticConceptLabel(item.item);
     default: {
       const exhaustive: never = item;
       return exhaustive;
@@ -315,20 +314,48 @@ export const semanticConceptTitle = (item: SemanticInventoryItem): string => {
     : label;
 };
 
-export const semanticConceptLabel = (
+export const semanticConceptLabel = (item: SemanticInventoryItem): string =>
+  semanticConceptTitle(item);
+
+export const semanticConceptSelectionLabel = (
   item: SemanticInventoryItem,
   selectionMode?: SemanticInventorySelectionMode,
 ): string => {
   if (item.selectionMode !== 'SYSTEM_VERSION_CATEGORY' && selectionMode !== 'SYSTEM_VERSION_CATEGORY') {
     return semanticConceptTitle(item);
   }
+  const categoryQualifier = item.selectionMode === 'SYSTEM_VERSION_CATEGORY' ? 'category' : undefined;
   const systemQualifier = item.system.trim()
     ? `system ${item.system.trim()}`
     : 'system not specified';
   const versionQualifier = item.codingVersion.trim()
     ? `version ${item.codingVersion.trim()}`
     : 'version unversioned';
-  return [semanticStructuralLabel(item), systemQualifier, versionQualifier].join(' · ');
+  const codeQualifier = item.code.trim() ? `code ${item.code.trim()}` : undefined;
+  return [
+    semanticConceptTitle(item),
+    categoryQualifier,
+    semanticStructuralLabel(item),
+    systemQualifier,
+    versionQualifier,
+    codeQualifier,
+  ].filter((qualifier): qualifier is string => qualifier !== undefined).join(' · ');
+};
+
+export const catalogItemSelectionLabel = (
+  item: CatalogItem,
+  selectionMode?: SemanticInventorySelectionMode,
+): string => {
+  switch (item.kind) {
+    case 'FIELD':
+      return catalogItemLabel(item);
+    case 'SEMANTIC':
+      return semanticConceptSelectionLabel(item.item, selectionMode);
+    default: {
+      const exhaustive: never = item;
+      return exhaustive;
+    }
+  }
 };
 
 export const catalogItemTitle = (item: CatalogItem): string =>

@@ -324,6 +324,7 @@ const readyFieldPresentation = (
     readonly stale?: boolean;
     readonly partial?: boolean;
     readonly missingReplacement?: boolean;
+  readonly buildId?: string;
   } = {},
 ): FieldPresentation => {
   const replacement = options.replacement ?? fieldPresentationReplacement();
@@ -358,7 +359,7 @@ const readyFieldPresentation = (
       authorizationScopeDigest: 'scope-a',
       snapshotToken: 'snapshot-a',
       datasetGeneration: 'generation-a',
-      inventoryBuildId: 'build-1',
+      inventoryBuildId: options.buildId ?? 'build-1',
       coverageBuildId: 'coverage-build-1',
       explorerId: 'explorer-a',
       outputId: 'patients',
@@ -384,9 +385,15 @@ const fieldPresentationRequestFromInit = (init: RequestInit | undefined): FieldP
   return browseRequest.fieldPresentation;
 };
 
-const semanticBrowseResponse = (fieldPresentation?: FieldPresentation): Response =>
+const semanticBrowseResponse = (
+  fieldPresentation?: FieldPresentation,
+  entries: ReadonlyArray<SemanticInventoryItem> = [],
+  nextCursor?: string,
+  buildId = 'build-1',
+): Response =>
   new Response(JSON.stringify({
-    ...page([]),
+    ...page(entries, nextCursor),
+    buildId,
     ...(fieldPresentation ? { fieldPresentation } : {}),
   }), { status: 200, headers: { 'content-type': 'application/json' } });
 
@@ -1165,6 +1172,25 @@ describe('ConceptCatalog', () => {
     });
     const familyV2 = familyVersion('v2', 'binding-compound-name-v2', 'signed-compound-family-choice-v2');
     const familyUnversioned = familyVersion('', 'binding-compound-name-unversioned', 'signed-compound-family-choice-unversioned');
+    const familyMethod: SemanticInventoryItem = {
+      ...family,
+      conceptId: 'family-method-category',
+      familyId: 'family-method-category',
+      bindingId: 'binding-method-category',
+      sourcePath: 'method',
+      display: 'Method category',
+      constructionChoice: {
+        ...familyChoice,
+        choiceId: 'signed-method-category-choice',
+        source: {
+          ...familySemanticSource,
+          conceptId: 'family-method-category',
+          bindingId: 'binding-method-category',
+          sourcePath: 'method',
+          fieldPath: 'method',
+        },
+      },
+    };
     const resolvedChoice: ConstructionChoice = {
       ...familyChoice,
       choiceId: 'route-compound-family-choice',
@@ -1179,7 +1205,7 @@ describe('ConceptCatalog', () => {
           choices: [resolvedChoice],
         }), { status: 200, headers: { 'content-type': 'application/json' } });
       }
-      return new Response(JSON.stringify(page([family, familyV2, familyUnversioned])), {
+      return new Response(JSON.stringify(page([family, familyV2, familyUnversioned, familyMethod])), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
@@ -1202,14 +1228,21 @@ describe('ConceptCatalog', () => {
       </LoomProvider>,
     );
 
-    const familyLabel = 'Observation Code · system urn:compound-codes · version v1';
+    const familyLabel = 'Compound name · category · Observation Code · system urn:compound-codes · version v1';
     expect(await screen.findByRole('button', { name: `Select ${familyLabel}` })).toBeEnabled();
     expect(screen.getByRole('button', {
-      name: 'Select Observation Code · system urn:compound-codes · version v2',
+      name: 'Select Compound name · category · Observation Code · system urn:compound-codes · version v2',
     })).toBeEnabled();
     expect(screen.getByRole('button', {
-      name: 'Select Observation Code · system urn:compound-codes · version unversioned',
+      name: 'Select Compound name · category · Observation Code · system urn:compound-codes · version unversioned',
     })).toBeEnabled();
+    expect(screen.getByRole('button', {
+      name: 'Select Method category · category · Observation Method · system urn:compound-codes · version v1',
+    })).toBeEnabled();
+    expect(screen.getAllByRole('heading', { name: 'Coded values from Observation' })).toHaveLength(1);
+    const familyCard = screen.getByRole('button', { name: `Select ${familyLabel}` }).closest('article');
+    if (!familyCard) throw new Error('The family selection control must be inside its visible card.');
+    expect(within(familyCard).getByText('Compound name')).toBeInTheDocument();
     const inventoryRequest = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
     expect(inventoryRequest).toMatchObject({
       rowRoot: 'Patient',
@@ -1245,11 +1278,49 @@ describe('ConceptCatalog', () => {
     })]));
   });
 
+  it('keeps exact concept meaning in accessible names when system and version are shared', async () => {
+    const height = item('height', 'Height', 3, 'Observation');
+    const diagnosticMethod = item('diagnostic-method', 'Diagnostic Method', 2, 'Observation');
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(page([height, diagnosticMethod])), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    render(
+      <LoomProvider client={createLoomClient({ fetch })}>
+        <ConceptCatalog
+          project="project-a"
+          explorerId="explorer-a"
+          snapshotToken="snapshot-a"
+          outputId="patients"
+          rowRoot="Patient"
+          catalog={catalog}
+          view="coded"
+          semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
+          onAddSelected={vi.fn().mockResolvedValue(undefined)}
+        />
+      </LoomProvider>,
+    );
+
+    const heightSelection = 'Height · Observation Extension Value Quantity · system http://loinc.org · version 2.77 · code height';
+    const methodSelection = 'Diagnostic Method · Observation Extension Value Quantity · system http://loinc.org · version 2.77 · code diagnostic-method';
+    const heightButton = await screen.findByRole('button', { name: `Select ${heightSelection}` });
+    const methodButton = screen.getByRole('button', { name: `Select ${methodSelection}` });
+    expect(heightButton).toBeEnabled();
+    expect(methodButton).toBeEnabled();
+    const heightCard = heightButton.closest('article');
+    const methodCard = methodButton.closest('article');
+    if (!heightCard || !methodCard) throw new Error('Each exact semantic selection control must have a card.');
+    expect(within(heightCard).getByText('Height')).toBeInTheDocument();
+    expect(within(methodCard).getByText('Diagnostic Method')).toBeInTheDocument();
+  });
+
   it('groups a fully covered raw field under its semantic card and keeps the exact FIELD choice reachable', async () => {
     const replacement = fieldPresentationReplacement();
     const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_input, init) => {
       const request = fieldPresentationRequestFromInit(init);
-      return semanticBrowseResponse(readyFieldPresentation(request, { replacement }));
+      return semanticBrowseResponse(readyFieldPresentation(request, { replacement }), [replacement]);
     });
     const onAddSelected = vi.fn().mockResolvedValue(undefined);
     render(
@@ -1270,8 +1341,9 @@ describe('ConceptCatalog', () => {
       </LoomProvider>,
     );
 
-    const replacementLabel = 'Patient Condition Code · system urn:condition-codes · version unversioned';
-    expect(await screen.findByRole('button', { name: `Select ${replacementLabel}` })).toBeEnabled();
+    const replacementSelectionLabel = 'Tumor · Patient Condition Code · system urn:condition-codes · version unversioned · code tumor';
+    expect(await screen.findByRole('button', { name: `Select ${replacementSelectionLabel}` })).toBeEnabled();
+    expect(screen.getByText('Tumor')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Source fields'));
     const rawField = await screen.findByRole('button', { name: 'Select Patient.condition.code' });
     expect(screen.getAllByRole('button', { name: 'Select Patient.condition.code' })).toHaveLength(1);
@@ -1291,8 +1363,11 @@ describe('ConceptCatalog', () => {
   it('searches a raw path, follows Included in across tabs, and focuses the exact semantic identity', async () => {
     const replacement = fieldPresentationReplacement();
     const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_input, init) => {
-      const request = fieldPresentationRequestFromInit(init);
-      return semanticBrowseResponse(readyFieldPresentation(request, { replacement }));
+      const browseRequest = semanticInventoryBrowseRequestSchema.parse(JSON.parse(String(init?.body)));
+      if ('fieldPresentation' in browseRequest && browseRequest.fieldPresentation) {
+        return semanticBrowseResponse(readyFieldPresentation(browseRequest.fieldPresentation, { replacement }));
+      }
+      return semanticBrowseResponse();
     });
     const client = createLoomClient({ fetch });
     const Picker = () => {
@@ -1324,12 +1399,17 @@ describe('ConceptCatalog', () => {
     };
     render(<Picker />);
 
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Select Patient.condition.code' })).not.toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: /Included in/ })).not.toBeInTheDocument();
+
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search dataset fields by name or type' }), {
       target: { value: 'condition.code' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
     const includedInLink = await screen.findByRole('button', {
-      name: 'Included in Patient Condition Code · system urn:condition-codes · version unversioned',
+      name: 'Included in Tumor · Patient Condition Code · system urn:condition-codes · version unversioned · code tumor',
     });
     expect(includedInLink).toHaveAttribute('data-semantic-identity', JSON.stringify([
       'EXACT_CONCEPT', 'concept-tumor', 'binding-tumor',
@@ -1337,13 +1417,259 @@ describe('ConceptCatalog', () => {
     fireEvent.click(includedInLink);
 
     const replacementCardButton = await screen.findByRole('button', {
-      name: 'Select Patient Condition Code · system urn:condition-codes · version unversioned',
+      name: 'Select Tumor · Patient Condition Code · system urn:condition-codes · version unversioned · code tumor',
     });
     const replacementCard = replacementCardButton.closest('article');
     expect(replacementCard).toHaveAttribute('data-semantic-identity', JSON.stringify([
       'EXACT_CONCEPT', 'concept-tumor', 'binding-tumor',
     ]));
     await waitFor(() => expect(document.activeElement).toBe(replacementCard));
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search coded values by code or label' }), {
+      target: { value: 'no-match' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    expect(await screen.findByText('No concepts match this search.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', {
+      name: 'Select Tumor · Patient Condition Code · system urn:condition-codes · version unversioned · code tumor',
+    })).not.toBeInTheDocument();
+  });
+
+  it('keeps an existing raw field visible and selected during its initial edit flow', async () => {
+    const replacement = fieldPresentationReplacement();
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_input, init) => {
+      const request = fieldPresentationRequestFromInit(init);
+      return semanticBrowseResponse(readyFieldPresentation(request, { replacement }));
+    });
+    render(
+      <LoomProvider client={createLoomClient({ fetch })}>
+        <ConceptCatalog
+          project="project-a"
+          explorerId="explorer-a"
+          snapshotToken="snapshot-a"
+          outputId="patients"
+          rowRoot="Patient"
+          sourceNodeId="patient-node"
+          catalog={fieldPresentationCatalog}
+          view="fields"
+          semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
+          presentationContext={fieldPresentationContext()}
+          initialFieldSource={{
+            candidateId: fieldPresentationCodeCandidate.candidateId,
+            nodeId: fieldPresentationCodeCandidate.nodeId,
+            path: fieldPresentationCodeCandidate.fieldPath,
+          }}
+          onAddSelected={vi.fn().mockResolvedValue(undefined)}
+        />
+      </LoomProvider>,
+    );
+
+    const rawField = await screen.findByRole('button', { name: 'Select Patient.condition.code' });
+    expect(rawField).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('listitem', { name: 'Selected Condition code' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Included in/ })).not.toBeInTheDocument();
+  });
+
+  it('keeps field presentation scoped to the active source and omits it from cross-source coded search', async () => {
+    const replacement = fieldPresentationReplacement();
+    const medicationReason: ExplorerBuilderCandidate = {
+      ...rootId,
+      candidateId: 'candidate-medication-reason',
+      nodeId: 'medication-node',
+      fieldPath: 'reasonCode',
+      label: 'Medication reason code',
+      logicalType: 'code',
+      constructionChoice: fieldChoice(
+        'field-choice-medication-reason',
+        'candidate-medication-reason',
+        'medication-node',
+        'Medication',
+        'reasonCode',
+      ),
+    };
+    const scopedCatalog: ExplorerBuilderCatalog = {
+      ...fieldPresentationCatalog,
+      nodes: [
+        ...fieldPresentationCatalog.nodes,
+        { nodeId: 'medication-node', resourceType: 'Medication', rowRootEligible: true, populated: true, documentCount: 1 },
+      ],
+      edges: [
+        ...(fieldPresentationCatalog.edges ?? []),
+        { edgeId: 'patient-medication', fromNodeId: 'patient-node', toNodeId: 'medication-node', label: 'medications' },
+      ],
+      candidates: [...(fieldPresentationCatalog.candidates ?? []), medicationReason],
+    };
+    const requests: Array<ReturnType<typeof semanticInventoryBrowseRequestSchema.parse>> = [];
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_input, init) => {
+      const request = semanticInventoryBrowseRequestSchema.parse(JSON.parse(String(init?.body)));
+      requests.push(request);
+      if (request.resourceType === 'Medication') return semanticBrowseResponse();
+      if (request.query === 'no-match') return semanticBrowseResponse();
+      if ('fieldPresentation' in request && request.fieldPresentation) {
+        return semanticBrowseResponse(
+          readyFieldPresentation(request.fieldPresentation, { replacement }),
+          [replacement],
+        );
+      }
+      return semanticBrowseResponse(undefined, [replacement]);
+    });
+    const client = createLoomClient({ fetch });
+    const Picker = () => {
+      const [resourceType, setResourceType] = React.useState('Patient');
+      const sourceNodeId = resourceType === 'Patient' ? 'patient-node' : 'medication-node';
+      return (
+        <LoomProvider client={client}>
+          <button type="button" onClick={() => setResourceType('Medication')}>Medication source</button>
+          <button type="button" onClick={() => setResourceType('Patient')}>Patient source</button>
+          <ConceptCatalog
+            project="project-a"
+            explorerId="explorer-a"
+            snapshotToken="snapshot-a"
+            outputId="patients"
+            rowRoot="Patient"
+            resourceType={resourceType}
+            sourceNodeId={sourceNodeId}
+            catalog={scopedCatalog}
+            view="all"
+            semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
+            presentationContext={fieldPresentationContext()}
+            onAddSelected={vi.fn().mockResolvedValue(undefined)}
+          />
+        </LoomProvider>
+      );
+    };
+    render(<Picker />);
+
+    const patientSemanticLabel = 'Tumor · Patient Condition Code · system urn:condition-codes · version unversioned · code tumor';
+    expect(await screen.findByRole('button', { name: `Select ${patientSemanticLabel}` })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Medication source' }));
+    expect(await screen.findByRole('button', { name: 'Select Medication.reasonCode' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: `Select ${patientSemanticLabel}` })).not.toBeInTheDocument();
+    const medicationRequest = requests.find((request) => request.resourceType === 'Medication');
+    expect(medicationRequest && 'fieldPresentation' in medicationRequest && medicationRequest.fieldPresentation).toBeFalsy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Patient source' }));
+    expect(await screen.findByRole('button', { name: `Select ${patientSemanticLabel}` })).toBeEnabled();
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search coded values by code or label' }), {
+      target: { value: 'no-match' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    expect(await screen.findByText('No concepts match this search.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: `Select ${patientSemanticLabel}` })).not.toBeInTheDocument();
+    const crossSourceSearch = requests.at(-1);
+    expect(crossSourceSearch?.query).toBe('no-match');
+    expect(crossSourceSearch && 'fieldPresentation' in crossSourceSearch && crossSourceSearch.fieldPresentation).toBeFalsy();
+  });
+
+  it('keeps proof replacements out of ordinary pages and coded no-match searches', async () => {
+    const replacement = fieldPresentationReplacement();
+    const firstPageItem = item('other-page-one', 'Other page one', 4);
+    const secondPageItem = item('other-page-two', 'Other page two', 3);
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_input, init) => {
+      const request = semanticInventoryBrowseRequestSchema.parse(JSON.parse(String(init?.body)));
+      if ('cursor' in request && request.cursor === 'coded-page-two') {
+        return semanticBrowseResponse(undefined, [secondPageItem]);
+      }
+      if (request.query === 'no-match') return semanticBrowseResponse();
+      if ('fieldPresentation' in request && request.fieldPresentation) {
+        return semanticBrowseResponse(
+          readyFieldPresentation(request.fieldPresentation, { replacement }),
+          [firstPageItem],
+          'coded-page-two',
+        );
+      }
+      return semanticBrowseResponse(undefined, [firstPageItem]);
+    });
+    render(
+      <LoomProvider client={createLoomClient({ fetch })}>
+        <ConceptCatalog
+          project="project-a"
+          explorerId="explorer-a"
+          snapshotToken="snapshot-a"
+          outputId="patients"
+          rowRoot="Patient"
+          sourceNodeId="patient-node"
+          catalog={fieldPresentationCatalog}
+          view="all"
+          semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
+          presentationContext={fieldPresentationContext()}
+          onAddSelected={vi.fn().mockResolvedValue(undefined)}
+        />
+      </LoomProvider>,
+    );
+
+    expect(await screen.findByText('Other page one')).toBeInTheDocument();
+    expect(screen.queryByText('Tumor')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(await screen.findByText('Other page two')).toBeInTheDocument();
+    expect(screen.queryByText('Tumor')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search coded values by code or label' }), {
+      target: { value: 'no-match' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    expect(await screen.findByText('No concepts match this search.')).toBeInTheDocument();
+    expect(screen.queryByText('Tumor')).not.toBeInTheDocument();
+    const browseRequests = fetch.mock.calls.map(([, init]) =>
+      semanticInventoryBrowseRequestSchema.parse(JSON.parse(String(init?.body))),
+    );
+    expect(browseRequests.filter((request) => 'fieldPresentation' in request && request.fieldPresentation)).toHaveLength(1);
+  });
+
+  it('refreshes cached proof once when a later browse observes a new build and on explicit refresh', async () => {
+    const replacement = fieldPresentationReplacement();
+    const firstPageItem = item('old-build-item', 'Old build item', 2);
+    const secondPageItem = item('new-build-item', 'New build item', 2);
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_input, init) => {
+      const request = semanticInventoryBrowseRequestSchema.parse(JSON.parse(String(init?.body)));
+      if ('cursor' in request && request.cursor === 'new-build-page' && request.fieldPresentation) {
+        return semanticBrowseResponse({ kind: 'UNAVAILABLE', reason: 'STALE_CONTEXT' }, [secondPageItem], undefined, 'build-2');
+      }
+      if ('cursor' in request && request.cursor === 'new-build-page') {
+        return semanticBrowseResponse(undefined, [secondPageItem], undefined, 'build-2');
+      }
+      if ('fieldPresentation' in request && request.fieldPresentation) {
+        const responseBuild = fetch.mock.calls.length > 1 ? 'build-2' : 'build-1';
+        return semanticBrowseResponse(
+          readyFieldPresentation(request.fieldPresentation, { replacement, buildId: responseBuild }),
+          responseBuild === 'build-1' ? [replacement, firstPageItem] : [secondPageItem],
+          responseBuild === 'build-1' ? 'new-build-page' : undefined,
+          responseBuild,
+        );
+      }
+      return semanticBrowseResponse(undefined, [firstPageItem], 'new-build-page', 'build-1');
+    });
+    render(
+      <LoomProvider client={createLoomClient({ fetch })}>
+        <ConceptCatalog
+          project="project-a"
+          explorerId="explorer-a"
+          snapshotToken="snapshot-a"
+          outputId="patients"
+          rowRoot="Patient"
+          sourceNodeId="patient-node"
+          catalog={fieldPresentationCatalog}
+          view="all"
+          semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
+          presentationContext={fieldPresentationContext()}
+          onAddSelected={vi.fn().mockResolvedValue(undefined)}
+        />
+      </LoomProvider>,
+    );
+
+    expect(await screen.findByText('Tumor')).toBeInTheDocument();
+    expect(await screen.findByText('Old build item')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(await screen.findByText('New build item')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Select Patient.condition.code' })).toBeEnabled();
+    expect(fetch).toHaveBeenCalledTimes(3);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(4));
+    const explicitRefresh = semanticInventoryBrowseRequestSchema.parse(
+      JSON.parse(String(fetch.mock.calls[3]?.[1]?.body)),
+    );
+    expect('fieldPresentation' in explicitRefresh && explicitRefresh.fieldPresentation).toBeTruthy();
   });
 
   it.each([
