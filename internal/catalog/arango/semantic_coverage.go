@@ -21,6 +21,9 @@ const (
 	semanticCoverageMaximumBatchSize            = 500
 	semanticCoverageMaximumPageSize             = 500
 	semanticCoverageMaximumRowBytes             = 1 << 20
+	semanticCoverageMaximumSourceScopesPerBatch = 10000
+	semanticCoverageMaximumSourceRowsPerBatch   = 100000
+	semanticCoverageMaximumSourceBytesPerBatch  = 64 << 20
 	semanticCoverageMaximumPartitions           = 10000
 	semanticCoverageMaximumSummaries            = 100000
 	semanticCoverageMaximumReferencesPerSummary = 1000
@@ -32,6 +35,7 @@ var (
 	ErrSemanticCoverageSourceSetIncomplete  = errors.New("semantic coverage source set is incomplete")
 	ErrSemanticCoverageLookupTooLarge       = errors.New("semantic coverage lookup exceeds its row limit")
 	ErrSemanticCoverageMaterializationLimit = errors.New("semantic coverage materialization exceeds its working-set limit")
+	ErrSemanticCoverageSourceBatchLimit     = errors.New("semantic coverage source batch exceeds its bounded write limit")
 )
 
 type SemanticCoverageBuildState string
@@ -429,41 +433,190 @@ func (s *Store) WriteSemanticCoverageContributions(ctx context.Context, buildID 
 	if len(contributions) == 0 {
 		return SemanticCoverageWriteStats{}, nil
 	}
+	batchSize = semanticCoverageBatchSize(batchSize)
 	stats := SemanticCoverageWriteStats{}
-	for index, contribution := range contributions {
-		encoded, err := EncodeSemanticCoverageContribution(buildID, contribution)
-		if err != nil {
-			return stats, fmt.Errorf("encode semantic coverage source %d: %w", index, err)
+	for start := 0; start < len(contributions); start += batchSize {
+		end := min(start+batchSize, len(contributions))
+		chunk := contributions[start:end]
+		encodedSets := make([][]json.RawMessage, 0, len(chunk))
+		newScopes := make([]semanticCoverageSourceScope, 0, len(chunk))
+		seenSourceIDs := make(map[semanticCoverageSourceScopeKey]string, len(chunk))
+		encodedRows := 0
+		encodedBytes := int64(0)
+		for index, contribution := range chunk {
+			sourceKey := semanticCoverageSourceScopeKey{sourceID: contribution.Identity.SourceID, resourceType: contribution.Identity.ResourceType}
+			if previousAuthPath, exists := seenSourceIDs[sourceKey]; exists {
+				if previousAuthPath != contribution.Identity.AuthResourcePath {
+					return stats, fmt.Errorf("semantic coverage source ID %q is ambiguous across authorization paths", contribution.Identity.SourceID)
+				}
+				return stats, fmt.Errorf("duplicate semantic coverage source ID %q in one write batch", contribution.Identity.SourceID)
+			}
+			seenSourceIDs[sourceKey] = contribution.Identity.AuthResourcePath
+			encoded, err := EncodeSemanticCoverageContribution(buildID, contribution)
+			if err != nil {
+				return stats, fmt.Errorf("encode semantic coverage source %d: %w", start+index, err)
+			}
+			for _, document := range encoded {
+				encodedRows++
+				encodedBytes += int64(len(document))
+			}
+			if encodedRows > semanticCoverageMaximumSourceRowsPerBatch || encodedBytes > semanticCoverageMaximumSourceBytesPerBatch {
+				return stats, ErrSemanticCoverageSourceBatchLimit
+			}
+			identity := contribution.Identity
+			newScopes = append(newScopes, semanticCoverageSourceScope{
+				SourceID: identity.SourceID, ResourceType: identity.ResourceType, AuthResourcePath: identity.AuthResourcePath,
+			})
+			encodedSets = append(encodedSets, encoded)
 		}
-		identity := contribution.Identity
-		if err := s.client.ExecuteAQL(ctx, deleteSemanticCoverageSourceSetAQL, map[string]interface{}{
-			"project":            identity.Project,
-			"dataset_generation": catalog.NormalizeDatasetGeneration(identity.DatasetGeneration),
+		for index, contribution := range chunk {
+			if contribution.Identity.Project != chunk[0].Identity.Project ||
+				contribution.Identity.DatasetGeneration != chunk[0].Identity.DatasetGeneration ||
+				contribution.Identity.SourceKind != chunk[0].Identity.SourceKind ||
+				contribution.Identity.SchemaIdentity != chunk[0].Identity.SchemaIdentity {
+				return stats, fmt.Errorf("semantic coverage source %d has a mixed build partition", start+index)
+			}
+		}
+		scopes, err := s.semanticCoverageSourceScopes(ctx, chunk[0].Identity, buildID, newScopes)
+		if err != nil {
+			return stats, fmt.Errorf("replace semantic coverage source batch: read existing source scopes: %w", err)
+		}
+		if err := s.client.ExecuteAQL(ctx, deleteSemanticCoverageSourceSetBatchAQL, map[string]interface{}{
+			"project":            chunk[0].Identity.Project,
+			"dataset_generation": catalog.NormalizeDatasetGeneration(chunk[0].Identity.DatasetGeneration),
 			"build_id":           buildID,
-			"source_kind":        identity.SourceKind,
-			"schema_identity":    identity.SchemaIdentity,
-			"resource_type":      identity.ResourceType,
-			"source_id":          identity.SourceID,
+			"source_kind":        chunk[0].Identity.SourceKind,
+			"schema_identity":    chunk[0].Identity.SchemaIdentity,
+			"source_scopes":      scopes,
 		}); err != nil {
-			return stats, fmt.Errorf("replace semantic coverage source %s: remove prior source set: %w", identity.SourceID, err)
+			return stats, fmt.Errorf("replace semantic coverage source batch: remove prior source sets: %w", err)
 		}
-		stats.SourceSetsReplaced++
-		pathDocuments := encoded[:len(encoded)-1]
-		sourceDocument := encoded[len(encoded)-1:]
-		pathStats, err := s.writeSemanticCoverageDocuments(ctx, pathDocuments, batchSize)
-		stats.Rows += pathStats.Rows
-		stats.SerializedBytes += pathStats.SerializedBytes
-		if err != nil {
-			return stats, fmt.Errorf("replace semantic coverage source %s: write path rows: %w", identity.SourceID, err)
+		stats.SourceSetsReplaced += int64(len(chunk))
+
+		pathBatch := make([]json.RawMessage, 0, batchSize)
+		for _, encoded := range encodedSets {
+			for _, document := range encoded[:len(encoded)-1] {
+				pathBatch = append(pathBatch, document)
+				if len(pathBatch) == batchSize {
+					written, writeErr := s.writeSemanticCoverageDocuments(ctx, pathBatch, batchSize)
+					stats.Rows += written.Rows
+					stats.SerializedBytes += written.SerializedBytes
+					if writeErr != nil {
+						return stats, fmt.Errorf("replace semantic coverage source batch: write path rows: %w", writeErr)
+					}
+					pathBatch = pathBatch[:0]
+				}
+			}
 		}
-		sourceStats, err := s.writeSemanticCoverageDocuments(ctx, sourceDocument, 1)
-		stats.Rows += sourceStats.Rows
-		stats.SerializedBytes += sourceStats.SerializedBytes
-		if err != nil {
-			return stats, fmt.Errorf("replace semantic coverage source %s: write source sentinel: %w", identity.SourceID, err)
+		if len(pathBatch) > 0 {
+			written, writeErr := s.writeSemanticCoverageDocuments(ctx, pathBatch, batchSize)
+			stats.Rows += written.Rows
+			stats.SerializedBytes += written.SerializedBytes
+			if writeErr != nil {
+				return stats, fmt.Errorf("replace semantic coverage source batch: write path rows: %w", writeErr)
+			}
+		}
+
+		sourceDocuments := make([]json.RawMessage, 0, len(encodedSets))
+		for _, encoded := range encodedSets {
+			sourceDocuments = append(sourceDocuments, encoded[len(encoded)-1])
+		}
+		written, writeErr := s.writeSemanticCoverageDocuments(ctx, sourceDocuments, batchSize)
+		stats.Rows += written.Rows
+		stats.SerializedBytes += written.SerializedBytes
+		if writeErr != nil {
+			return stats, fmt.Errorf("replace semantic coverage source batch: write source sentinels: %w", writeErr)
 		}
 	}
 	return stats, nil
+}
+
+type semanticCoverageSourceScope struct {
+	SourceID         string `json:"source_id"`
+	ResourceType     string `json:"resource_type"`
+	AuthResourcePath string `json:"auth_resource_path"`
+}
+
+type semanticCoverageSourceScopeKey struct {
+	sourceID     string
+	resourceType string
+}
+
+func (s *Store) semanticCoverageSourceScopes(ctx context.Context, first catalog.SemanticCoverageSourceIdentity, buildID string, current []semanticCoverageSourceScope) ([]semanticCoverageSourceScope, error) {
+	currentByID := make(map[semanticCoverageSourceScopeKey]struct{}, len(current))
+	resourceTypes := make(map[string]struct{}, len(current))
+	for _, scope := range current {
+		currentByID[semanticCoverageSourceScopeKey{sourceID: scope.SourceID, resourceType: scope.ResourceType}] = struct{}{}
+		resourceTypes[scope.ResourceType] = struct{}{}
+	}
+	sourceIDSet := make(map[string]struct{}, len(currentByID))
+	for scope := range currentByID {
+		sourceIDSet[scope.sourceID] = struct{}{}
+	}
+	sourceIDs := make([]string, 0, len(sourceIDSet))
+	for sourceID := range sourceIDSet {
+		sourceIDs = append(sourceIDs, sourceID)
+	}
+	resourceTypeList := make([]string, 0, len(resourceTypes))
+	for resourceType := range resourceTypes {
+		resourceTypeList = append(resourceTypeList, resourceType)
+	}
+	sort.Strings(sourceIDs)
+	sort.Strings(resourceTypeList)
+	rows := make([]semanticCoverageSourceScope, 0, len(current))
+	seen := make(map[string]struct{}, len(current))
+	oldAuthPaths := make(map[semanticCoverageSourceScopeKey]string, len(current))
+	queryErr := s.client.QueryRows(ctx, semanticCoverageSourceScopesAQL, semanticCoverageMaximumSourceScopesPerBatch+1, map[string]interface{}{
+		"project": first.Project, "dataset_generation": catalog.NormalizeDatasetGeneration(first.DatasetGeneration),
+		"build_id": buildID, "source_kind": first.SourceKind, "schema_identity": first.SchemaIdentity,
+		"source_ids": sourceIDs, "resource_types": resourceTypeList, "limit": semanticCoverageMaximumSourceScopesPerBatch + 1,
+	}, func(row map[string]any) error {
+		var scope semanticCoverageSourceScope
+		if err := decodeSemanticCoverageRow(row, &scope); err != nil {
+			return err
+		}
+		identity := semanticCoverageSourceScopeKey{sourceID: scope.SourceID, resourceType: scope.ResourceType}
+		if _, relevant := currentByID[identity]; !relevant {
+			return nil
+		}
+		if len(rows) >= semanticCoverageMaximumSourceScopesPerBatch {
+			return ErrSemanticCoverageSourceBatchLimit
+		}
+		if previousPath, exists := oldAuthPaths[identity]; exists && previousPath != scope.AuthResourcePath {
+			return fmt.Errorf("stored semantic coverage source %q is ambiguous across authorization paths", scope.SourceID)
+		}
+		oldAuthPaths[identity] = scope.AuthResourcePath
+		key := semanticCoverageDocumentKey(scope.SourceID, scope.ResourceType, scope.AuthResourcePath)
+		if _, exists := seen[key]; !exists {
+			seen[key] = struct{}{}
+			rows = append(rows, scope)
+		}
+		return nil
+	})
+	if queryErr != nil {
+		return nil, queryErr
+	}
+	for _, scope := range current {
+		key := semanticCoverageDocumentKey(scope.SourceID, scope.ResourceType, scope.AuthResourcePath)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		rows = append(rows, scope)
+	}
+	if len(rows) > semanticCoverageMaximumSourceScopesPerBatch {
+		return nil, ErrSemanticCoverageSourceBatchLimit
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].SourceID != rows[j].SourceID {
+			return rows[i].SourceID < rows[j].SourceID
+		}
+		if rows[i].ResourceType != rows[j].ResourceType {
+			return rows[i].ResourceType < rows[j].ResourceType
+		}
+		return rows[i].AuthResourcePath < rows[j].AuthResourcePath
+	})
+	return rows, nil
 }
 
 func validateSemanticCoverageContribution(buildID string, contribution catalog.SemanticCoverageSourceContribution) error {
@@ -1541,6 +1694,39 @@ FOR d IN fhir_semantic_coverage
   FILTER d.resource_type == @resource_type
   FILTER d.source_id == @source_id
   FILTER d.record_kind IN ["source", "path", "facet"]
+  REMOVE d IN fhir_semantic_coverage`
+
+const semanticCoverageSourceScopesAQL = `
+FOR d IN fhir_semantic_coverage
+  FILTER d.project == @project
+  FILTER d.dataset_generation == @dataset_generation
+  FILTER d.build_id == @build_id
+  FILTER d.source_kind == @source_kind
+  FILTER d.schema_identity == @schema_identity
+  FILTER d.resource_type IN @resource_types
+  FILTER d.source_id IN @source_ids
+  FILTER d.record_kind IN ["source", "path", "facet"]
+  COLLECT source_id = d.source_id, resource_type = d.resource_type, auth_resource_path = NOT_NULL(d.auth_resource_path, "")
+  SORT source_id, resource_type, auth_resource_path
+  LIMIT @limit
+  RETURN {source_id: source_id, resource_type: resource_type, auth_resource_path: auth_resource_path}`
+
+const deleteSemanticCoverageSourceSetBatchAQL = `
+FOR d IN fhir_semantic_coverage
+  FILTER d.project == @project
+  FILTER d.dataset_generation == @dataset_generation
+  FILTER d.build_id == @build_id
+  FILTER d.source_kind == @source_kind
+  FILTER d.schema_identity == @schema_identity
+  FILTER d.record_kind IN ["source", "path", "facet"]
+  FILTER LENGTH(
+    FOR source IN @source_scopes
+      FILTER source.source_id == d.source_id
+      FILTER source.resource_type == d.resource_type
+      FILTER source.auth_resource_path == NOT_NULL(d.auth_resource_path, "")
+      LIMIT 1
+      RETURN 1
+  ) > 0
   REMOVE d IN fhir_semantic_coverage`
 
 const deleteSemanticCoverageSummariesAQL = `

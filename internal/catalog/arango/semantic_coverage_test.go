@@ -295,7 +295,7 @@ func TestWriteSemanticCoverageContributionsWritesStableReplaceRows(t *testing.T)
 	if first.Rows != 4 || len(client.insertCalls) != 4 {
 		t.Fatalf("first write stats=%#v batches=%d, want source/path/two facet rows and bounded batches", first, len(client.insertCalls))
 	}
-	if first.SourceSetsReplaced != 1 || len(client.executeCalls) != 1 || client.executeCalls[0] != deleteSemanticCoverageSourceSetAQL {
+	if first.SourceSetsReplaced != 1 || len(client.executeCalls) != 1 || client.executeCalls[0] != deleteSemanticCoverageSourceSetBatchAQL {
 		t.Fatalf("source replacement calls=%d stats=%#v, want exact source-set cleanup before rows", len(client.executeCalls), first)
 	}
 	firstKeys := make([]string, 0, 4)
@@ -322,6 +322,51 @@ func TestWriteSemanticCoverageContributionsWritesStableReplaceRows(t *testing.T)
 		if document.Key != firstKeys[index] || !call.overwrite {
 			t.Fatalf("replay row %d = %#v overwrite=%v, want same key and replace", index, document, call.overwrite)
 		}
+	}
+}
+
+func TestWriteSemanticCoverageBatchesPathRowsBeforeEverySentinel(t *testing.T) {
+	client := newSemanticCoverageMemoryClient()
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := semanticCoverageFixtureContribution()
+	first.Identity.SourceID = "retained:Observation/key-a"
+	second := semanticCoverageFixtureContribution()
+	second.Identity.SourceID = "retained:Observation/key-b"
+	second.Identity.AuthResourcePath = "Patient/other"
+
+	stats, err := adapter.WriteSemanticCoverageContributions(context.Background(), first.BuildID, []catalog.SemanticCoverageSourceContribution{first, second}, 10)
+	if err != nil {
+		t.Fatalf("write two-source batch: %v", err)
+	}
+	wantEvents := []string{"delete", "path", "facet", "facet", "path", "facet", "facet", "source", "source"}
+	if !reflect.DeepEqual(client.events, wantEvents) {
+		t.Fatalf("batched write order = %v, want all path/facet rows before every sentinel", client.events)
+	}
+	if stats.SourceSetsReplaced != 2 || stats.Rows != 8 {
+		t.Fatalf("batched write stats = %+v, want two source sets and eight rows", stats)
+	}
+
+	interrupted := newSemanticCoverageMemoryClient()
+	interrupted.failInsertAt = 2
+	interruptedAdapter, err := New(interrupted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stats, err = interruptedAdapter.WriteSemanticCoverageContributions(context.Background(), first.BuildID, []catalog.SemanticCoverageSourceContribution{first, second}, 2)
+	if err == nil || !strings.Contains(err.Error(), "write path rows") || stats.Rows != 2 {
+		t.Fatalf("interrupted bounded path batch stats=%+v err=%v, want failure before any sentinel", stats, err)
+	}
+	for _, document := range interrupted.documents {
+		if document.RecordKind == "source" {
+			t.Fatalf("path batch failure wrote source sentinel: %+v", document)
+		}
+	}
+	page, err := interruptedAdapter.readSemanticCoveragePage(context.Background(), first.Identity.Project, first.Identity.DatasetGeneration, first.BuildID, first.Identity.SourceKind, first.Identity.SchemaIdentity, "path", []string{first.Identity.AuthResourcePath}, false, "", 10)
+	if err != nil || len(page.Rows) != 0 {
+		t.Fatalf("incomplete batch path rows=%d err=%v, want no visible path evidence", len(page.Rows), err)
 	}
 }
 
@@ -1132,6 +1177,31 @@ func (c *semanticCoverageMemoryClient) QueryRows(_ context.Context, query string
 	if c.queryErr != nil {
 		return c.queryErr
 	}
+	if query == semanticCoverageSourceScopesAQL {
+		sourceIDs, _ := vars["source_ids"].([]string)
+		resourceTypes, _ := vars["resource_types"].([]string)
+		seen := make(map[string]struct{})
+		for _, document := range c.documents {
+			if document.Project != vars["project"] || document.DatasetGeneration != vars["dataset_generation"] || document.BuildID != vars["build_id"] || document.SourceKind != vars["source_kind"] || document.SchemaIdentity != vars["schema_identity"] || (document.RecordKind != "source" && document.RecordKind != "path" && document.RecordKind != "facet") || !containsString(sourceIDs, document.SourceID) || !containsString(resourceTypes, document.ResourceType) {
+				continue
+			}
+			key := semanticCoverageDocumentKey(document.SourceID, document.ResourceType, document.AuthResourcePath)
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			row, err := semanticCoverageStoredDocumentMap(semanticCoverageStoredDocument{
+				SourceID: document.SourceID, ResourceType: document.ResourceType, AuthResourcePath: document.AuthResourcePath,
+			})
+			if err != nil {
+				return err
+			}
+			if err := visit(row); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	if query == semanticCoverageBuildMarkerAQL {
 		identity := SemanticCoverageBuildIdentity{
 			Project: vars["project"].(string), DatasetGeneration: vars["dataset_generation"].(string),
@@ -1307,6 +1377,22 @@ func (c *semanticCoverageMemoryClient) ExecuteAQL(_ context.Context, query strin
 			}
 		}
 		c.events = append(c.events, "delete summaries")
+		return nil
+	}
+	if query == deleteSemanticCoverageSourceSetBatchAQL {
+		c.events = append(c.events, "delete")
+		scopes, _ := vars["source_scopes"].([]semanticCoverageSourceScope)
+		for key, document := range c.documents {
+			if document.Project != vars["project"] || document.DatasetGeneration != vars["dataset_generation"] || document.BuildID != vars["build_id"] || document.SourceKind != vars["source_kind"] || document.SchemaIdentity != vars["schema_identity"] || (document.RecordKind != "source" && document.RecordKind != "path" && document.RecordKind != "facet") {
+				continue
+			}
+			for _, scope := range scopes {
+				if document.SourceID == scope.SourceID && document.ResourceType == scope.ResourceType && document.AuthResourcePath == scope.AuthResourcePath {
+					delete(c.documents, key)
+					break
+				}
+			}
+		}
 		return nil
 	}
 	if query != deleteSemanticCoverageSourceSetAQL {
