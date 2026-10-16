@@ -315,9 +315,15 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', async (importOrigi
         data-discovery-status={pivotDiscovery?.status ?? 'none'}
       >
         {onFormKindChange ? <>
+          <button type="button" data-testid="mock-reshape-form-choose" onClick={() => onFormKindChange('choose')}>Use reshape chooser</button>
           <button type="button" data-testid="mock-reshape-form-pivot" onClick={() => onFormKindChange('pivot')}>Use Pivot form</button>
           <button type="button" data-testid="mock-reshape-form-group" onClick={() => onFormKindChange('group')}>Use Group form</button>
           <button type="button" data-testid="mock-reshape-form-source-group" onClick={() => onFormKindChange('source-group')}>Use source Group form</button>
+          <button type="button" data-testid="mock-reshape-form-coded-group" onClick={() => onFormKindChange('coded-group')}>Use coded Group form</button>
+          <button type="button" data-testid="mock-reshape-form-expand" onClick={() => onFormKindChange('expand')}>Use Expand form</button>
+          <button type="button" data-testid="mock-reshape-form-related-expand" onClick={() => onFormKindChange('related-expand')}>Use related Expand form</button>
+          <button type="button" data-testid="mock-reshape-form-coded-pivot" onClick={() => onFormKindChange('coded-pivot')}>Use coded Pivot form</button>
+          <button type="button" data-testid="mock-reshape-form-unpivot" onClick={() => onFormKindChange('unpivot')}>Use Unpivot form</button>
         </> : null}
         {onDiscoverCategories ? <button type="button" onClick={() => onDiscoverCategories({
           stageId: capabilities.selectedStage.id,
@@ -3616,7 +3622,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(await screen.findByTestId('construction-calculate-editor')).toBeInTheDocument();
   });
 
-  it('hides the generic selection for Pivot and table Group, then restores it for source Group', async () => {
+  it('hides the generic selection when a reshape form owns inputs and restores the seeded selection in the chooser', async () => {
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
     expect(await screen.findByTestId('construction-workspace')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-preview-status', 'ready'));
@@ -3628,14 +3634,15 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     fireEvent.click(selectedField);
     expect(selectedField).toHaveAttribute('aria-pressed', 'true');
 
-    fireEvent.click(await screen.findByTestId('mock-reshape-form-pivot'));
-    expect(screen.queryByTestId('construction-column-selection')).not.toBeInTheDocument();
-    expect(screen.queryByText(/Inputs from your selection:/)).not.toBeInTheDocument();
+    for (const form of [
+      'pivot', 'group', 'source-group', 'coded-group', 'expand', 'related-expand', 'coded-pivot', 'unpivot',
+    ]) {
+      fireEvent.click(screen.getByTestId(`mock-reshape-form-${form}`));
+      expect(screen.queryByTestId('construction-column-selection')).not.toBeInTheDocument();
+      expect(screen.queryByText(/Inputs from your selection:/)).not.toBeInTheDocument();
+    }
 
-    fireEvent.click(screen.getByTestId('mock-reshape-form-group'));
-    expect(screen.queryByTestId('construction-column-selection')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId('mock-reshape-form-source-group'));
+    fireEvent.click(screen.getByTestId('mock-reshape-form-choose'));
     expect(screen.getByTestId('construction-column-selection')).toBeInTheDocument();
     expect(screen.getByTestId('construction-column-specimen_identifier_id')).toHaveAttribute('aria-pressed', 'true');
   });

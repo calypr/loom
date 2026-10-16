@@ -539,7 +539,14 @@ describe('ConstructionReshapeEditor', () => {
         ],
       },
     } satisfies ConstructionReshapeEditorProps['capabilities'];
-    expect(createReshapeEditorEntry({ construction: capabilities.baseConstruction, capabilities, kind: 'group' })).toBeUndefined();
+    const directGroupEntry = createReshapeEditorEntry({ construction: capabilities.baseConstruction, capabilities, kind: 'group' });
+    expect(directGroupEntry).toBeDefined();
+    if (!directGroupEntry || directGroupEntry.form.kind !== 'group') throw new Error('Expected direct Group entry to retain the empty-key row-count proposal');
+    expect(directGroupEntry.form.keys).toEqual([]);
+    expect(directGroupEntry.candidateIntent.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
+      kind: 'GROUP',
+      group: { keys: [], aggregates: [{ operation: 'COUNT_ROWS' }] },
+    });
     const relatedExpandContext = {
       project: 'project-1', explorerId: 'explorer-1', snapshotToken: 'snapshot-1', outputId: 'table-1',
       catalog: { availability: { fields: [

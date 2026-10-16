@@ -1545,9 +1545,6 @@ export const createReshapeEditorEntry = (args: {
   readonly selectedColumns?: ReadonlyArray<string>;
 }): ConstructionReshapeEditorEntry | undefined => {
   const stage = args.capabilities.selectedStage;
-  if (args.kind === 'group' && args.capabilities.sourceInput?.supported &&
-    sourceInputMatchesStage(args.capabilities.sourceInput.stageId, stage) &&
-    args.capabilities.sourceInput.choices.some((choice) => choice.isPopulated)) return undefined;
   if (args.kind === 'expand' && (!capabilityFor(stage, 'EXPAND').supported || !hasPublicScalarListColumn(stage))) return undefined;
   if (args.kind === 'group' && !capabilityFor(stage, 'GROUP').supported) return undefined;
   const form = args.kind === 'group'

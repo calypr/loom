@@ -3257,10 +3257,8 @@ const BuilderWorkspaceContent = ({
     ? 'choose'
     : reshapeEntryKind;
   const hideGenericReshapeSelection = activeOperation?.family === 'RESHAPE' && (
-    reshapeFormKind === 'pivot'
-    || reshapeFormKind === 'group'
-    || editingConstructionStep?.operation.kind === 'PIVOT'
-    || editingConstructionStep?.operation.kind === 'GROUP'
+    (reshapeFormKind !== 'choose' && reshapeFormKind !== 'unsupported')
+    || Boolean(editingConstructionStep && editableConstructionFamily(editingConstructionStep.operation) === 'RESHAPE')
   );
   const editingRelatedSourceStep: RelatedSourceStep | undefined = editingConstructionStep?.operation.kind === 'RELATED_SOURCE'
     ? editingConstructionStep as RelatedSourceStep
