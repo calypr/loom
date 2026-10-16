@@ -1195,19 +1195,17 @@ func TestSemanticCoverageClassifiesIdentifierExtensionAndPrimitiveCode(t *testin
 	}
 }
 
-func TestCoverageVersionsChangeInventoryBuildIDOnly(t *testing.T) {
+func TestCoverageAuditVersionsStayOutsideInventoryBuildIdentity(t *testing.T) {
 	project, generation := "coverage-version-test", "generation-1"
 	currentBuildID := SemanticInventoryBuildID(project, generation)
-	nextCoverageRuleBuildID := semanticInventoryBuildIDWithVersions(project, generation, SemanticCoverageRuleVersion+1, SemanticCoverageStorageFormatVersion)
-	if currentBuildID == nextCoverageRuleBuildID {
-		t.Fatal("coverage-rule version change did not invalidate the inventory build")
+	const completedBuildID = "0db6cdbf350b0873a8b40257fd56a7f6487930cd6f66bea53ac0d302a9eb7fb1"
+	if currentBuildID != completedBuildID {
+		t.Fatalf("coverage-only versioning changed the semantic-v3 inventory build ID: got %q, want completed build %q", currentBuildID, completedBuildID)
 	}
-	nextStorageFormatBuildID := semanticInventoryBuildIDWithVersions(project, generation, SemanticCoverageRuleVersion, SemanticCoverageStorageFormatVersion+1)
-	if currentBuildID == nextStorageFormatBuildID {
-		t.Fatal("coverage storage format version change did not invalidate the inventory build")
-	}
-	if currentBuildID != semanticInventoryBuildIDWithVersions(project, generation, SemanticCoverageRuleVersion, SemanticCoverageStorageFormatVersion) {
-		t.Fatal("public inventory build ID does not use the declared coverage-rule version")
+	// Coverage rule and storage versions remain explicit audit metadata. They
+	// intentionally do not participate in the semantic inventory identity.
+	if SemanticCoverageRuleVersion != 1 || SemanticCoverageStorageFormatVersion != 1 {
+		t.Fatalf("coverage audit versions = %d/%d, want separate v1 markers", SemanticCoverageRuleVersion, SemanticCoverageStorageFormatVersion)
 	}
 	observation := SemanticObservation{
 		SchemaVersion: SemanticObservationSchemaVersion,

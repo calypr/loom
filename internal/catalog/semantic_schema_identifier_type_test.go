@@ -1,12 +1,11 @@
 package catalog
 
 import (
-	"reflect"
 	"strings"
 	"testing"
 )
 
-func TestSemanticInventoryEmitsIdentifierTypeAsCodedConcept(t *testing.T) {
+func TestSemanticInventoryKeepsIdentifierTypeCodingRaw(t *testing.T) {
 	payload := map[string]any{
 		"resourceType": "Patient",
 		"identifier": []any{map[string]any{
@@ -40,53 +39,27 @@ func TestSemanticInventoryEmitsIdentifierTypeAsCodedConcept(t *testing.T) {
 		t.Fatalf("observe Identifier.type with coverage: %v", err)
 	}
 
-	var identifier, identifierType *SemanticInventoryContribution
+	var identifier *SemanticInventoryContribution
+	var identifierTypeEmission bool
 	for index := range semantic {
 		contribution := &semantic[index]
-		switch contribution.Observation.RuleHint {
-		case "IDENTIFIER_SYSTEM_VALUE":
+		if contribution.Observation.RuleHint == "IDENTIFIER_SYSTEM_VALUE" {
 			identifier = contribution
-		case SemanticRuleHintCodedConceptV1:
-			if contribution.Observation.Source.Path == "identifier[].type.coding[]" {
-				identifierType = contribution
-			}
+		}
+		if contribution.Observation.Source.Path == "identifier[].type.coding[]" {
+			identifierTypeEmission = true
 		}
 	}
 	if identifier == nil || identifier.Observation.Source.Path != "identifier[]" || identifier.Observation.Key.System != "urn:mrn" ||
 		identifier.Observation.Key.Selector != "identifier[].system" || identifier.Observation.Value.Selector != "identifier[].value" {
 		t.Fatalf("Identifier namespace/value family changed: %#v", identifier)
 	}
-	if identifierType == nil {
-		t.Fatalf("Identifier.type Coding (system=urn:identifier-type, version=v3, code=MR) has no separate coded family beside Identifier.system/value; contributions=%#v", semantic)
-	}
-	observation := identifierType.Observation
-	if observation.OwningScope != "identifier[]" || observation.Key.Selector != "type.coding[]" ||
-		observation.Key.System != "urn:identifier-type" || observation.Key.Version != "v3" || observation.Key.Code != "MR" ||
-		observation.Value.Selector != "type.coding[].display" ||
-		!reflect.DeepEqual(observation.Value.FallbackSelectors, []string{"type.coding[].code"}) ||
-		!observation.Value.FallbackOnBlankString || observation.Status != "SUPPORTED" || identifierType.Example != "MR" {
-		t.Fatalf("Identifier.type coded family lost exact key or same-Coding fallback: %#v", identifierType)
-	}
-
-	if len(semantic) != 2 {
-		t.Fatalf("semantic contributions = %d, want Identifier namespace and Identifier.type coded families: %#v", len(semantic), semantic)
+	if identifierTypeEmission || len(semantic) != 1 {
+		t.Fatalf("Identifier.type Coding must remain raw beside Identifier.system/value; contributions=%#v", semantic)
 	}
 	coding := findContributionCoveragePath(t, coverage, SemanticCoverageCoding, "identifier[].type.coding[]")
-	if coding.Disposition != SemanticCoverageSemanticDisposition || len(coding.References) != 1 ||
-		coding.References[0].Kind != SemanticCoverageFamilyReference || coding.References[0].Family.System != "urn:identifier-type" ||
-		coding.References[0].Family.Version != "v3" {
-		t.Fatalf("Identifier.type Coding coverage disposition/references = %q/%#v", coding.Disposition, coding.References)
-	}
-	var keyedIdentifierType bool
-	for _, evidence := range emissions {
-		if evidence.RuleHint == SemanticRuleHintCodedConceptV1 && evidence.SourcePath == "identifier[].type.coding[]" &&
-			evidence.KeySelector == "type.coding[]" && evidence.KeySystem == "urn:identifier-type" &&
-			evidence.KeyVersion == "v3" && evidence.KeyCode == "MR" {
-			keyedIdentifierType = true
-		}
-	}
-	if !keyedIdentifierType {
-		t.Fatalf("Identifier.type coded family lacks matching emission evidence: %#v", emissions)
+	if coding.Kind != SemanticCoverageCoding || coding.Disposition == SemanticCoverageSemanticDisposition || len(emissions) != 1 || emissions[0].SourcePath != "identifier[]" {
+		t.Fatalf("Identifier.type census/emission evidence = %#v/%#v, want one raw Coding owner and only Identifier system/value emission", coding, emissions)
 	}
 }
 

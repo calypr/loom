@@ -135,22 +135,9 @@ func (p *Profiler) observeSchemaSemanticsWithEvidence(
 
 	pairedCodeableConcepts := make(map[string]struct{})
 	identifierOrExtensionOwners := make([]string, 0)
-	extensionOwners := make([]string, 0)
-	identifierTypeCodeableConceptOwners := make(map[string]struct{})
 	for _, scope := range scopes {
-		if scope.definition == "Identifier" {
+		if scope.definition == "Identifier" || scope.definition == "Extension" {
 			identifierOrExtensionOwners = append(identifierOrExtensionOwners, scope.ownerPath)
-		} else if scope.definition == "Extension" {
-			identifierOrExtensionOwners = append(identifierOrExtensionOwners, scope.ownerPath)
-			extensionOwners = append(extensionOwners, scope.ownerPath)
-		}
-	}
-	for _, scope := range scopes {
-		if scope.definition != "Identifier" || semanticScopeIsBelowAny(scope.ownerPath, extensionOwners) {
-			continue
-		}
-		if typeFact, ok := directSemanticFact(scope, "type"); ok && !typeFact.Null && typeFact.ReferencedType == "CodeableConcept" {
-			identifierTypeCodeableConceptOwners[typeFact.OwnerPath] = struct{}{}
 		}
 	}
 	for _, scope := range scopes {
@@ -181,9 +168,7 @@ func (p *Profiler) observeSchemaSemanticsWithEvidence(
 			continue
 		}
 		if semanticScopeIsBelowAny(scope.ownerPath, identifierOrExtensionOwners) {
-			if _, identifierTypeCoding := identifierTypeCodeableConceptOwners[semanticCodingConceptPath(scope)]; !identifierTypeCoding {
-				continue
-			}
+			continue
 		}
 		if conceptPath := semanticCodingConceptPath(scope); conceptPath != "" {
 			if _, paired := pairedCodeableConcepts[conceptPath]; paired {
@@ -525,7 +510,11 @@ func (p *Profiler) recordSchemaSemanticObservation(
 	if stat := p.ensureSemanticStat(storagePath); stat != nil {
 		stat.addSemanticObservation(observation, examples)
 	}
-	emit(observation, examples, semanticCoverageEmissionEvidence(p.resourceType, p.semanticSourceKind, sourceID, scope, conceptOwnerPath, keyOwnerPath, valueOwnerPath, observation))
+	var evidence SemanticCoverageEmissionEvidence
+	if sourceID != "" {
+		evidence = semanticCoverageEmissionEvidence(p.resourceType, p.semanticSourceKind, sourceID, scope, conceptOwnerPath, keyOwnerPath, valueOwnerPath, observation)
+	}
+	emit(observation, examples, evidence)
 }
 
 func directSemanticFact(scope *semanticScope, member string) (fhirsemantic.MemberFact, bool) {

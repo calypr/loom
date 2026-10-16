@@ -61,23 +61,30 @@ func TestSemanticInventoryEmitterStillRejectsAmbiguousScalarConceptAnchors(t *te
 	}
 }
 
-func TestSemanticInventoryEmitterVersionChangesBuildIdentityWithoutBindingIdentity(t *testing.T) {
+func TestSemanticInventoryEmitterVersionThreeMatchesCompletedBuild(t *testing.T) {
 	const project = "loom_dev_cda_fhir"
 	const generation = "cda-fhir-v1"
-	const previousBuildID = "ca8ea62fdb8cc19ecfae1c23e286ae2dd082c38a297200cfc46c2c3124cc1858"
-	const previousBuildKey = "sib_e3ee57e08f7504a36f0ae8c108ff6612b01cd05d63d955e4a945a85165ddcea0"
+	const completedBuildID = "606e1763ce95aa39de168217ba8b584090bfe34e09741a7931da67cd0b8810bb"
+	const completedBuildKey = "sib_890163afc080cf6e9134a49b09667b93161a47c03862b39ac25459e1be2f6f27"
 
 	build := NewSemanticInventoryBuild(project, generation, "")
-	if build.BuildID == previousBuildID || build.BuildID != SemanticInventoryBuildID(project, generation) {
-		t.Fatalf("new emitter build ID = %q, prior = %q", build.BuildID, previousBuildID)
+	if SemanticInventoryEmitterVersion != 3 || build.BuildID != completedBuildID || build.BuildID != SemanticInventoryBuildID(project, generation) {
+		t.Fatalf("semantic-v3 build identity = %d/%q, want completed build %q", SemanticInventoryEmitterVersion, build.BuildID, completedBuildID)
 	}
-	if build.Key == previousBuildKey || build.Key != SemanticInventoryBuildKey(project, generation) {
-		t.Fatalf("new emitter build key = %q, prior = %q", build.Key, previousBuildKey)
+	if build.Key != completedBuildKey || build.Key != SemanticInventoryBuildKey(project, generation) {
+		t.Fatalf("semantic-v3 build key = %q, want completed build key %q", build.Key, completedBuildKey)
 	}
 
-	binding := inventoryTestObservation("v1", "label")
+	observation := inventoryTestObservation("v1", "label")
+	if observation.Source.Path != "component[]" || observation.Key.Selector != "code.coding[]" || observation.Key.System != "urn:inventory" || observation.Key.Version != "v1" || observation.Key.Code != "glucose" || observation.Value.Selector != "valueQuantity.value" {
+		t.Fatalf("semantic-v3 observation = %#v, want completed code/Quantity binding", observation)
+	}
+	const wantConceptID = "e7a9d88ce655cd0e8a3a8a293f68a87455049f579fbc1ba767d625faa1462133"
 	const wantBindingID = "45665d85e72ad3c6da5aba8c4554cfa7c194c8e3b9c95b8c43aee78724ee13b3"
-	if got := semanticBindingID(binding); got != wantBindingID {
-		t.Fatalf("emitter revision changed the saved semantic binding ID: got %q, want %q", got, wantBindingID)
+	if got := semanticConceptID(observation); got != wantConceptID {
+		t.Fatalf("semantic-v3 concept ID = %q, want completed ID %q", got, wantConceptID)
+	}
+	if got := semanticBindingID(observation); got != wantBindingID {
+		t.Fatalf("semantic-v3 binding ID = %q, want completed ID %q", got, wantBindingID)
 	}
 }
