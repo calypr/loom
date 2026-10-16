@@ -280,6 +280,7 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', async (importOrigi
     initialEntry,
     pivotDiscovery,
     onDiscoverCategories,
+    onFormKindChange,
     onCandidateChange,
     relatedExpandQueryOwnerRef,
   }: {
@@ -293,6 +294,7 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', async (importOrigi
     };
     readonly pivotDiscovery?: { readonly status: string };
     readonly onDiscoverCategories?: (request: { readonly stageId: string; readonly categoryColumnId: string; readonly valueColumnId: string }) => void;
+    readonly onFormKindChange?: (kind: string) => void;
     readonly onCandidateChange?: (intent: ConstructionCandidateIntent | undefined) => void;
     readonly relatedExpandQueryOwnerRef?: React.RefObject<RelatedExpandQueryOwner | null>;
   }) => {
@@ -312,6 +314,10 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', async (importOrigi
         data-construction-step-count={construction.steps.length}
         data-discovery-status={pivotDiscovery?.status ?? 'none'}
       >
+        {onFormKindChange ? <>
+          <button type="button" data-testid="mock-reshape-form-pivot" onClick={() => onFormKindChange('pivot')}>Use Pivot form</button>
+          <button type="button" data-testid="mock-reshape-form-group" onClick={() => onFormKindChange('group')}>Use Group form</button>
+        </> : null}
         {onDiscoverCategories ? <button type="button" onClick={() => onDiscoverCategories({
           stageId: capabilities.selectedStage.id,
           categoryColumnId: 'status-id',
@@ -3607,6 +3613,27 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     );
     fireEvent.click(calculate);
     expect(await screen.findByTestId('construction-calculate-editor')).toBeInTheDocument();
+  });
+
+  it('hides the generic selection for Pivot and restores it when switching reshape forms', async () => {
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    expect(await screen.findByTestId('construction-workspace')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-preview-status', 'ready'));
+
+    fireEvent.click(screen.getByTestId('construction-more-actions'));
+    fireEvent.click(screen.getByTestId('construction-action-reshape'));
+    await screen.findByTestId('construction-column-selection');
+    const selectedField = await screen.findByTestId('construction-column-specimen_identifier_id');
+    fireEvent.click(selectedField);
+    expect(selectedField).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(await screen.findByTestId('mock-reshape-form-pivot'));
+    expect(screen.queryByTestId('construction-column-selection')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Inputs from your selection:/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('mock-reshape-form-group'));
+    expect(screen.getByTestId('construction-column-selection')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-column-specimen_identifier_id')).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('keeps the preview visible, collapses source setup, supports focusable column selection, and applies only the reviewed receipt command', async () => {

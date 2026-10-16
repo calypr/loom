@@ -249,6 +249,7 @@ export interface ConstructionReshapeEditorProps {
   readonly initialKind?: ReshapeEntryKind;
   readonly initialEntry?: ConstructionReshapeEditorEntry;
   readonly selectedColumns?: ReadonlyArray<string>;
+  readonly onFormKindChange?: (kind: ReshapeForm['kind']) => void;
   readonly pivotDiscovery?: ConstructionReshapePivotDiscovery;
   readonly onDiscoverCategories?: (request: ConstructionReshapePivotDiscoveryRequest) => void;
   readonly disabled: boolean;
@@ -1267,13 +1268,12 @@ const initialPivotForm = (
 
   const scalar = scalarColumnsFor(stage);
   const groups = selectedColumns.filter((columnId) => scalar.some((column) => column.id === columnId));
-  const value = numericColumnsFor(stage).find((column) => !groups.includes(column.id));
   return {
     kind: 'pivot',
     stepId: createOpaqueId('pivot'),
     groupKeyIds: groups,
     categoryColumnId: '',
-    valueColumnId: value?.id ?? '',
+    valueColumnId: '',
     categories: [],
     duplicatePolicy: 'ERROR',
     missingCellPolicy: 'NULL',
@@ -1368,11 +1368,11 @@ const formForStep = (
       ?? { kind: 'unsupported', message: 'No source field can group these rows.' };
     if (initialKind === 'coded-group') return initialCodedGroupForm(stage);
     if (initialKind === 'expand') return initialExpandForm(stage);
-    if (initialKind === 'pivot') return initialPivotForm(stage, []);
+    if (initialKind === 'pivot') return initialPivotForm(stage, selectedColumns);
     if (initialKind === 'coded-pivot') return { kind: 'coded-pivot' };
     if (initialKind === 'unpivot') return initialUnpivotForm(stage, selectedColumns);
     if (initialKind === 'categories') {
-      return capabilityFor(stage, 'CODED_PIVOT').supported ? { kind: 'coded-pivot' } : initialPivotForm(stage, []);
+      return capabilityFor(stage, 'CODED_PIVOT').supported ? { kind: 'coded-pivot' } : initialPivotForm(stage, selectedColumns);
     }
     return { kind: initialKind ?? 'choose' };
   }
@@ -1626,6 +1626,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     if (props.initialEntry) return;
     const initialForm = formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind);
     setForm(initialForm);
+    props.onFormKindChange?.(initialForm.kind);
     setFormContextKey(contextKey);
     setContractUnavailable(false);
     const initialCandidate = !editingStep && (
@@ -1643,7 +1644,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
         })
       : undefined;
     onCandidateChange(initialCandidate?.kind === 'ready' ? initialCandidate.intent : undefined);
-  }, [contextKey, props.initialEntry]);
+  }, [contextKey, props.initialEntry, props.onFormKindChange]);
 
   const capabilityForForm = (next: ReshapeForm) => {
     switch (next.kind) {
@@ -1688,6 +1689,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
       automaticallySelectedPivotPairs.current.delete(pivotSelectionIdentity(form, stage.id));
     }
     setForm(next);
+    props.onFormKindChange?.(next.kind);
     const evaluation = next.kind === 'group' && !editingStep && availableSourceFields.length > 0
       ? { kind: 'incomplete' as const }
       : evaluate(next);
@@ -1745,7 +1747,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   }, [form, formContextKey, contextKey, editingStep, pivotDiscovery, stage.id]);
 
   const requestPivotCategories = (pivot: PivotForm) => {
-    if (!props.onDiscoverCategories || pivot.categoryColumnId === '' || pivot.valueColumnId === '') return;
+    if (!props.onDiscoverCategories || (pivot.pivotSources?.length && pivot.groupKeyIds.length === 0) || pivot.categoryColumnId === '' || pivot.valueColumnId === '') return;
     props.onDiscoverCategories({
       stageId: stage.id,
       ...(pivot.pivotSources?.length ? { pivotStepId: pivot.stepId, groupKeyIds: [...pivot.groupKeyIds], pivotSources: pivot.pivotSources, candidateConstruction: construction } : {}),
@@ -1787,11 +1789,11 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
         <p role="status" data-testid="construction-reshape-schema-unavailable" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">The construction schema did not accept this reshape, so Loom has not previewed it.</p>
       ) : null}
 
-      {!editingStep && form.kind !== 'choose' && form.kind !== 'unsupported' ? (
+      {form.kind !== 'choose' && form.kind !== 'unsupported' ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
-          <span className="font-semibold text-slate-900">{reshapeFormLabels[form.kind]}</span>
-          <button type="button" disabled={disabled} onClick={() => updateForm({ kind: 'choose' })}
-            className="font-medium text-blue-800 hover:underline disabled:opacity-50">Change row operation</button>
+          <h2 className="font-semibold text-slate-900">{reshapeFormLabels[form.kind]}</h2>
+          {!editingStep ? <button type="button" disabled={disabled} onClick={() => updateForm({ kind: 'choose' })}
+            className="font-medium text-blue-800 hover:underline disabled:opacity-50">Change row operation</button> : null}
         </div>
       ) : null}
 
@@ -3034,8 +3036,28 @@ const pivotUnlistedPolicyFromInput = (value: string): PivotForm['unlistedCategor
   }
 };
 
-const pivotSourceLabel = (choice: SourceInputChoice): string => choice.label.endsWith(choice.fieldPath)
-  ? choice.label : `${choice.label} (${choice.fieldPath})`;
+const pivotSourceFieldPathLabel = (path: string): string => {
+  const words: string[] = [];
+  for (const segment of path.replace(/^root\./, '').split('.')) {
+    const readable = segment.replace(/\[\]/g, '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim();
+    if (!readable) continue;
+    words.push(readable.toLowerCase() === 'id' ? 'ID' : readable[0].toUpperCase() + readable.slice(1));
+  }
+  return words.join(' ');
+};
+
+const pivotSourceLabel = (choice: SourceInputChoice): string => {
+  const rawPath = choice.fieldPath.replace(/^root\./, '');
+  const label = choice.label.trim().replace(/^root\./, '');
+  const prefixedPath = label.endsWith(`.${rawPath}`) ? label.slice(0, -rawPath.length - 1) : undefined;
+  const rawSegments = rawPath.split('.');
+  const rawPathResource = rawSegments.length > 1 && /^[A-Z]/.test(rawSegments[0] ?? '') ? rawSegments[0] : undefined;
+  const context = prefixedPath ?? (label === rawPath ? rawPathResource : undefined);
+  const fieldPath = rawPathResource && context === rawPathResource ? rawSegments.slice(1).join('.') : rawPath;
+  const labelIsPath = label === rawPath || Boolean(prefixedPath) || label === choice.fieldPath;
+  const field = labelIsPath ? pivotSourceFieldPathLabel(fieldPath) : label;
+  return context ? `${context} · ${field}` : field;
+};
 
 const pivotInputStage = (stage: ReshapeStage, form: PivotForm, choices: ReadonlyArray<SourceInputChoice>): ReshapeStage => {
   const usedNames = new Set(stage.columns.map((column) => column.name.toLowerCase()));
@@ -3066,11 +3088,21 @@ const PivotEditor = (props: {
 }) => {
   const [categorySearch, setCategorySearch] = useState('');
   const columns = scalarColumnsFor(props.stage);
+  const repeatedColumns = props.stage.columns.filter((column) => column.cardinality === 'many');
   const discoveryMatches = pivotDiscoveryMatches(props.form, props.stage.id, props.discovery);
   const discoveryComplete = discoveryMatches && props.discovery.status === 'complete';
   const pairUnchanged = props.form.originalPair?.categoryColumnId === props.form.categoryColumnId
     && props.form.originalPair.valueColumnId === props.form.valueColumnId;
   const categoriesKnown = pairUnchanged || discoveryComplete;
+  const discoveryEligible = props.canDiscover
+    && props.supported
+    && (!props.form.pivotSources?.length || props.form.groupKeyIds.length > 0)
+    && props.form.categoryColumnId !== ''
+    && props.form.valueColumnId !== ''
+    && !categoriesKnown;
+  const discoveryPending = discoveryEligible
+    && discoveryMatches
+    && props.discovery?.status === 'loading';
   const categoriesAvailable = discoveryComplete ? props.discovery.categories : [];
   const missingDiscoveredCategories = props.requireEveryDiscoveredCategory
     && discoveryComplete
@@ -3104,8 +3136,28 @@ const PivotEditor = (props: {
     const column = columns.find((candidate) => candidate.id === id);
     return column ? [column] : [];
   });
+  const sourceChoiceForColumn = (columnId: string): SourceInputChoice | undefined => {
+    const binding = props.form.pivotSources?.find((candidate) => candidate.columnId === columnId);
+    return binding ? props.sourceChoices.find((candidate) => candidate.choiceId === binding.choiceId) : undefined;
+  };
+  const pivotColumnLabel = (column: ReshapeColumn): string => {
+    const sourceChoice = sourceChoiceForColumn(column.id);
+    return sourceChoice ? pivotSourceLabel(sourceChoice) : column.label;
+  };
+  const pivotColumnTitle = (column: ReshapeColumn): string => {
+    const sourceChoice = sourceChoiceForColumn(column.id);
+    return sourceChoice?.fieldPath ?? (column.name === column.label ? column.name : `${column.name} · ${column.label}`);
+  };
   const outputNamesValid = outputNamesAreValid(pivotOutputsFor(props.form, props.stage));
   const numericValue = isNumericColumn(columns.find((column) => column.id === props.form.valueColumnId) ?? { id: '', name: '', label: '', cardinality: 'optional_one' });
+  const categoryColumn = columns.find((column) => column.id === props.form.categoryColumnId);
+  const valueColumn = columns.find((column) => column.id === props.form.valueColumnId);
+  const categoryColumnLabel = categoryColumn ? pivotColumnLabel(categoryColumn) : 'Column names';
+  const valueColumnLabel = valueColumn ? pivotColumnLabel(valueColumn) : 'Cell values';
+  const rowColumnLabels = groupColumns.map(pivotColumnLabel);
+  const roleSummary = rowColumnLabels.length > 0 && categoryColumn && valueColumn
+    ? `One row per ${rowColumnLabels.join(', ')}. Each ${categoryColumnLabel} value creates a column containing ${valueColumnLabel}.`
+    : 'Example: One row per Patient ID. Each Visit type value creates a column containing Score.';
 
   const chooseInput = (role: 'group' | 'category' | 'value', selected: string) => {
     if (role === 'group' && selected === '') return;
@@ -3125,7 +3177,7 @@ const PivotEditor = (props: {
     const used = new Set([...next.groupKeyIds, next.categoryColumnId, next.valueColumnId]);
     props.onChange({ ...next, pivotSources: bindings.filter((binding) => used.has(binding.columnId)) });
   };
-  const sourceOptions = props.sourceChoices.filter((choice) => !props.form.pivotSources?.some((binding) => binding.choiceId === choice.choiceId));
+  const sourceOptions = props.sourceChoices.filter((choice) => choice.isPopulated && !props.form.pivotSources?.some((binding) => binding.choiceId === choice.choiceId));
 
   const toggleGroup = (columnId: string, checked: boolean) => {
     const groupKeyIds = checked
@@ -3200,66 +3252,68 @@ const PivotEditor = (props: {
   };
 
   return (
-    <section aria-label="Pivot categories into columns" data-testid="construction-reshape-pivot" className="grid gap-4 rounded-lg border border-slate-200 p-3">
-      <header>
-        <h4 className="text-sm font-semibold text-slate-900">Turn categories into columns</h4>
-        <p className="mt-1 text-sm text-slate-600">Choose what identifies a row, what names the columns, and which values fill them. Source fields are included automatically.</p>
-      </header>
+    <section aria-label="Pivot categories into columns" data-testid="construction-reshape-pivot" className="grid gap-3 rounded-lg border border-slate-200 p-3">
       {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
       {columns.length === 0 && props.sourceChoices.length === 0 ? (
         <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">Loom has not returned scalar fields for this stage.</p>
       ) : (
         <>
-          <fieldset className="grid gap-2 rounded border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
-            <legend className="px-1 text-sm font-semibold text-slate-800">Keep one row per</legend>
-            {columns.map((column) => (
-              <label key={column.id} className="flex items-center gap-2 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  aria-label={`Pivot group ${column.label}`}
-                  checked={props.form.groupKeyIds.includes(column.id)}
-                  disabled={props.disabled || !props.supported || column.id === props.form.categoryColumnId || column.id === props.form.valueColumnId}
-                  onChange={(event) => toggleGroup(column.id, event.currentTarget.checked)}
-                />
-                {column.label}
-              </label>
-            ))}
-            {sourceOptions.length > 0 ? <select aria-label="Add pivot group field" value="" disabled={props.disabled || !props.supported} onChange={(event) => chooseInput('group', event.currentTarget.value)} className="rounded border border-slate-300 bg-white px-2 py-1.5">
-              <option value="">Add a field to identify each row</option>
-              {sourceOptions.map((choice) => <option key={choice.choiceId} value={`source:${choice.choiceId}`}>{pivotSourceLabel(choice)}</option>)}
-            </select> : null}
-          </fieldset>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid items-start gap-3 sm:grid-cols-3">
+            <fieldset className="grid min-w-0 content-start gap-2 rounded border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
+              <legend className="px-1 text-sm font-semibold text-slate-800">One row per</legend>
+              <div className="grid max-h-28 gap-1 overflow-auto">
+                {columns.map((column) => {
+                  const label = pivotColumnLabel(column);
+                  return (
+                    <label key={column.id} title={pivotColumnTitle(column)} className="flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        aria-label={`Pivot group ${label}`}
+                        checked={props.form.groupKeyIds.includes(column.id)}
+                        disabled={props.disabled || !props.supported || column.id === props.form.categoryColumnId || column.id === props.form.valueColumnId}
+                        onChange={(event) => toggleGroup(column.id, event.currentTarget.checked)}
+                      />
+                      {label}
+                    </label>
+                  );
+                })}
+              </div>
+              {sourceOptions.length > 0 ? <select aria-label="Add pivot group field" value="" disabled={props.disabled || !props.supported} onChange={(event) => chooseInput('group', event.currentTarget.value)} className="rounded border border-slate-300 bg-white px-2 py-1.5">
+                <option value="">Add another field</option>
+                {sourceOptions.map((choice) => <option key={choice.choiceId} value={`source:${choice.choiceId}`} title={choice.fieldPath}>{pivotSourceLabel(choice)}</option>)}
+              </select> : null}
+              {props.form.groupKeyIds.length === 0 && props.supported ? <p role="status" className="text-xs text-amber-900">Choose one or more fields to identify each row{props.form.pivotSources?.length ? '. Choose a row identity before finding categories from source fields.' : '.'}</p> : null}
+            </fieldset>
             <label className="grid gap-1 text-sm font-medium text-slate-700">
-              Category field
+              New column names
               <select aria-label="Pivot category field" value={props.form.categoryColumnId} disabled={props.disabled || !props.supported} onChange={(event) => chooseInput('category', event.currentTarget.value)} className="rounded border border-slate-300 bg-white px-2 py-1.5">
-                <option value="">Choose a category field</option>
-                {columns.filter((column) => !props.form.groupKeyIds.includes(column.id)).map((column) => <option key={column.id} value={column.id}>{column.label}</option>)}
-                <optgroup label="Available source fields">{sourceOptions.map((choice) => <option key={choice.choiceId} value={`source:${choice.choiceId}`}>{pivotSourceLabel(choice)}</option>)}</optgroup>
+                <option value="">Choose a column-name field</option>
+                {columns.filter((column) => !props.form.groupKeyIds.includes(column.id)).map((column) => <option key={column.id} value={column.id} title={pivotColumnTitle(column)}>{pivotColumnLabel(column)}</option>)}
+                {sourceOptions.length > 0 ? <optgroup label="Source fields">{sourceOptions.map((choice) => <option key={choice.choiceId} value={`source:${choice.choiceId}`} title={choice.fieldPath}>{pivotSourceLabel(choice)}</option>)}</optgroup> : null}
               </select>
             </label>
             <label className="grid gap-1 text-sm font-medium text-slate-700">
-              Values field
+              Cell values
               <select aria-label="Pivot values field" value={props.form.valueColumnId} disabled={props.disabled || !props.supported} onChange={(event) => chooseInput('value', event.currentTarget.value)} className="rounded border border-slate-300 bg-white px-2 py-1.5">
-                <option value="">Choose a values field</option>
-                {columns.filter((column) => !props.form.groupKeyIds.includes(column.id) && column.id !== props.form.categoryColumnId).map((column) => <option key={column.id} value={column.id}>{column.label} ({column.type ?? 'unknown type'})</option>)}
-                <optgroup label="Available source fields">{sourceOptions.map((choice) => <option key={choice.choiceId} value={`source:${choice.choiceId}`}>{pivotSourceLabel(choice)} ({choice.logicalType})</option>)}</optgroup>
-              </select>
-            </label>
-            <label className="grid gap-1 text-sm font-medium text-slate-700">
-              If a group has duplicate values
-              <select aria-label="Pivot duplicate policy" value={props.form.duplicatePolicy} disabled={props.disabled || !props.supported} onChange={(event) => { const policy = pivotDuplicatePolicyFromInput(event.currentTarget.value); if (policy) props.onChange({ ...props.form, duplicatePolicy: policy }); }} className="rounded border border-slate-300 bg-white px-2 py-1.5">
-                <option value="ERROR">Stop with an error</option>
-                <option value="SUM" disabled={!numericValue}>Add them together</option>
-                <option value="MIN" disabled={!numericValue}>Keep the smallest</option>
-                <option value="MAX" disabled={!numericValue}>Keep the largest</option>
+                <option value="">Choose a cell-values field</option>
+                {columns.filter((column) => !props.form.groupKeyIds.includes(column.id) && column.id !== props.form.categoryColumnId).map((column) => <option key={column.id} value={column.id} title={pivotColumnTitle(column)}>{pivotColumnLabel(column)} ({column.type ?? 'unknown type'})</option>)}
+                {sourceOptions.length > 0 ? <optgroup label="Source fields">{sourceOptions.map((choice) => <option key={choice.choiceId} value={`source:${choice.choiceId}`} title={choice.fieldPath}>{pivotSourceLabel(choice)} ({choice.logicalType})</option>)}</optgroup> : null}
               </select>
             </label>
           </div>
-          {props.form.pivotSources?.length && props.form.groupKeyIds.length === 0 ? <p className="text-sm text-slate-600">Choose a row field to continue.</p> : null}
+          <p data-testid="construction-reshape-pivot-role-summary" className="text-sm text-slate-600">
+            {roleSummary}
+          </p>
+          {repeatedColumns.length > 0 ? (
+            <details className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              <summary className="cursor-pointer">{repeatedColumns.length} {repeatedColumns.length === 1 ? 'column contains a list' : 'columns contain lists'}</summary>
+              <p className="mt-1">Use “Make one row per list value” to expand these columns before choosing Pivot fields.</p>
+            </details>
+          ) : null}
           {!props.canDiscover && !categoriesKnown ? <p role="status" className="text-sm text-amber-900">Category discovery is unavailable for this stage.</p> : null}
-          {props.canDiscover && props.form.categoryColumnId !== '' && props.form.valueColumnId !== '' && !categoriesKnown && (!props.discovery || !discoveryMatches || props.discovery.status === 'loading') ? <p role="status" className="text-sm text-slate-600">Finding categories…</p> : null}
-          {props.discovery && discoveryMatches && props.discovery.status === 'failed' ? <div role="status" className="text-sm text-amber-900"><p>{props.discovery.reason}</p><button type="button" onClick={props.onDiscover} disabled={props.disabled} className="mt-1 text-blue-800 underline">Retry finding categories</button></div> : null}
+          {props.canDiscover && props.supported && !categoriesKnown && (!props.form.pivotSources?.length || props.form.groupKeyIds.length > 0) && (props.form.categoryColumnId === '' || props.form.valueColumnId === '') ? <p role="status" className="text-sm text-slate-600">Choose fields for New column names and Cell values to find categories.</p> : null}
+          {discoveryPending ? <p role="status" className="text-sm text-slate-600">Finding categories…</p> : null}
+          {props.discovery && discoveryMatches && props.discovery.status === 'failed' ? <div role="status" className="text-sm text-amber-900"><p>{props.discovery.reason}</p><button type="button" onClick={props.onDiscover} disabled={props.disabled || !discoveryEligible} className="mt-1 text-blue-800 underline">Retry finding categories</button></div> : null}
           {props.discovery && discoveryMatches && props.discovery.status === 'limit-exceeded' ? <p role="status" className="text-sm text-amber-900">{props.discovery.reason} (Maximum supported categories: {props.discovery.limit}.)</p> : null}
           {props.discovery && discoveryMatches && props.discovery.status === 'missing-unsupported' ? <p role="status" className="text-sm text-amber-900">{props.discovery.reason}</p> : null}
           {categoriesKnown ? (
@@ -3267,6 +3321,7 @@ const PivotEditor = (props: {
               <p role="status" data-testid="construction-reshape-pivot-category-summary" className="rounded bg-slate-50 px-3 py-2 text-sm text-slate-700">
                 Selected {selectedCategoryLabels.length} of {categoryCount} categories{selectedCategoryLabels.length === 0 ? ': none' : showSelectedCategoryLabels ? `: ${displayedSelectedCategoryLabels.join(', ')}${additionalSelectedCategoryCount > 0 ? `, and ${additionalSelectedCategoryCount} more` : ''}` : '. Review the list to change them.'}
               </p>
+              {discoveryComplete && categoryCount === 0 ? <p role="status" className="text-sm text-slate-600">No categories were found for this pair. Choose another New column names field or adjust the rows before continuing.</p> : null}
               {missingDiscoveredCategories ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">Select every discovered category, or filter rows before pivoting.</p> : null}
               <p role="status" aria-live="polite" data-testid="construction-reshape-pivot-category-status" className="text-sm text-slate-600">
                 {props.form.categories.length} selected · Showing {shownCategoryCount} of {categoryCount} category values
@@ -3342,6 +3397,15 @@ const PivotEditor = (props: {
             <div className="mt-3 grid gap-4">
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="grid gap-1 text-sm font-medium text-slate-700">
+                  If a group has duplicate values
+                  <select aria-label="Pivot duplicate policy" value={props.form.duplicatePolicy} disabled={props.disabled || !props.supported} onChange={(event) => { const policy = pivotDuplicatePolicyFromInput(event.currentTarget.value); if (policy) props.onChange({ ...props.form, duplicatePolicy: policy }); }} className="rounded border border-slate-300 bg-white px-2 py-1.5">
+                    <option value="ERROR">Stop with an error</option>
+                    <option value="SUM" disabled={!numericValue}>Add them together</option>
+                    <option value="MIN" disabled={!numericValue}>Keep the smallest</option>
+                    <option value="MAX" disabled={!numericValue}>Keep the largest</option>
+                  </select>
+                </label>
+                <label className="grid gap-1 text-sm font-medium text-slate-700">
                   If a group has no value
                   <select aria-label="Pivot missing cell policy" value={props.form.missingCellPolicy} disabled={props.disabled || !props.supported} onChange={(event) => { const policy = pivotMissingPolicyFromInput(event.currentTarget.value); if (policy) props.onChange({ ...props.form, missingCellPolicy: policy }); }} className="rounded border border-slate-300 bg-white px-2 py-1.5">
                     <option value="NULL">Leave the new cell empty</option>
@@ -3380,7 +3444,6 @@ const PivotEditor = (props: {
           </details>
         </>
       )}
-      {props.form.groupKeyIds.length === 0 ? <p role="status" className="text-sm text-amber-900">Choose at least one group field for this pivot.</p> : null}
     </section>
   );
 };

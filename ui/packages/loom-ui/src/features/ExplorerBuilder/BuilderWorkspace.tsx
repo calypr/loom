@@ -126,7 +126,7 @@ import {
 } from './constructionWorkspace/appliedChoicePreview';
 import { ConstructionOperationEditor } from './constructionOperations/ConstructionOperationEditor';
 import { FilterRowsEditor } from './constructionOperations/FilterRowsEditor';
-import { ConstructionReshapeEditor, createReshapeEditorEntry, hasPublicScalarListColumn, type ConstructionReshapeEditorEntry, type ReshapeEntryKind } from './constructionOperations/ConstructionReshapeEditor';
+import { ConstructionReshapeEditor, createReshapeEditorEntry, hasPublicScalarListColumn, type ConstructionReshapeEditorEntry, type ReshapeEntryKind, type ReshapeForm } from './constructionOperations/ConstructionReshapeEditor';
 import {
   RelatedSourceStepEditor,
   type RelatedSourceStep,
@@ -526,6 +526,7 @@ const BuilderWorkspaceContent = ({
   const [rowValuePolicy, setRowValuePolicy] = useState<NonNullable<ConstructionChoiceSelection['rowValuePolicy']>>('ALL');
   const [reshapeEntry, setReshapeEntry] = useState(0);
   const [reshapeEntryKind, setReshapeEntryKind] = useState<ReshapeEntryKind>('choose');
+  const [reshapeFormKind, setReshapeFormKind] = useState<ReshapeForm['kind']>('choose');
   const [reshapeInitialEntry, setReshapeInitialEntry] = useState<{
     readonly editorKey: string;
     readonly entry: ConstructionReshapeEditorEntry;
@@ -3083,6 +3084,7 @@ const BuilderWorkspaceContent = ({
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
     setReshapeEntryKind('choose');
+    setReshapeFormKind('choose');
 
     const existingTitles = new Set(current.tables.map((candidate) => candidate.title.trim().toLocaleLowerCase()));
     const baseTitle = currentTable.title.trim() ? `${currentTable.title.trim()} combined` : 'Combined table';
@@ -3125,6 +3127,7 @@ const BuilderWorkspaceContent = ({
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
     setReshapeEntryKind('choose');
+    setReshapeFormKind('choose');
     setActiveConstructionFamily((current) => current === family ? undefined : family);
   };
   const chooseRelatedRows = () => {
@@ -3133,6 +3136,7 @@ const BuilderWorkspaceContent = ({
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
     setReshapeEntryKind('related-expand');
+    setReshapeFormKind('related-expand');
     setReshapeEntry((current) => current + 1);
     setActiveConstructionFamily('RESHAPE');
   };
@@ -3142,6 +3146,7 @@ const BuilderWorkspaceContent = ({
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
     setReshapeEntryKind(kind);
+    setReshapeFormKind(kind === 'categories' ? 'choose' : kind);
     const nextEntry = reshapeEntry + 1;
     if ((kind === 'expand' || kind === 'group') && table && constructionLifecycle.capabilities.status === 'ready') {
       const response = constructionLifecycle.capabilities.response;
@@ -3202,6 +3207,7 @@ const BuilderWorkspaceContent = ({
     setConstructionHistorySelection({ kind: 'step', stepId });
     setEditingConstructionStepId(stepId);
     setActiveConstructionFamily(family);
+    if (family === 'RESHAPE') setReshapeFormKind('choose');
   };
   const removeConstructionStep = (stepId: string) => {
     if (!construction?.steps.some((step) => step.id === stepId)) return;
@@ -3247,6 +3253,10 @@ const BuilderWorkspaceContent = ({
   const activeReshapeInitialKind = reshapeEntryKind === 'expand' && !activeReshapeInitialEntry
     ? 'choose'
     : reshapeEntryKind;
+  const hideGenericReshapeSelection = activeOperation?.family === 'RESHAPE' && (
+    reshapeFormKind === 'pivot'
+    || editingConstructionStep?.operation.kind === 'PIVOT'
+  );
   const editingRelatedSourceStep: RelatedSourceStep | undefined = editingConstructionStep?.operation.kind === 'RELATED_SOURCE'
     ? editingConstructionStep as RelatedSourceStep
     : undefined;
@@ -3433,7 +3443,7 @@ const BuilderWorkspaceContent = ({
       <header className="border-b border-slate-200 px-3 py-2.5">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-base font-semibold text-slate-950">{activeOperation.label}</h2>
+            {activeOperation.family !== 'RESHAPE' ? <h2 className="text-base font-semibold text-slate-950">{activeOperation.label}</h2> : null}
             {editingConstructionStep ? <p className="text-xs text-slate-500">Editing a saved step</p> : null}
           </div>
           <button
@@ -3451,7 +3461,7 @@ const BuilderWorkspaceContent = ({
             Back to table
           </button>
         </div>
-        {activeOperation.family === 'KEEP_ROWS' || activeOperation.family === 'CALCULATE' || activeOperation.family === 'RESHAPE' ? (
+        {hideGenericReshapeSelection ? null : activeOperation.family === 'KEEP_ROWS' || activeOperation.family === 'CALCULATE' || activeOperation.family === 'RESHAPE' ? (
           <div className="mt-3">
             <ConstructionColumnSelection
               columns={selectableColumns}
@@ -3655,6 +3665,7 @@ const BuilderWorkspaceContent = ({
               initialKind={activeReshapeInitialKind}
               initialEntry={activeReshapeInitialEntry}
               selectedColumns={selectedColumnIds}
+              onFormKindChange={setReshapeFormKind}
               pivotDiscovery={constructionLifecycle.pivotDiscovery}
               onDiscoverCategories={constructionLifecycle.onDiscoverCategories}
               relatedExpandContext={{

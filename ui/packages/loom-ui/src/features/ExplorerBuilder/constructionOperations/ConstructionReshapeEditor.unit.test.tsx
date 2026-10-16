@@ -52,6 +52,7 @@ const renderEditor = (args: {
   readonly initialKind?: ConstructionReshapeEditorProps['initialKind'];
   readonly initialEntry?: ConstructionReshapeEditorProps['initialEntry'];
   readonly selectedColumns?: ReadonlyArray<string>;
+  readonly onFormKindChange?: ConstructionReshapeEditorProps['onFormKindChange'];
   readonly onCandidateChange?: ConstructionReshapeEditorProps['onCandidateChange'];
   readonly onDiscoverCategories?: ConstructionReshapeEditorProps['onDiscoverCategories'];
   readonly codedPivotContext?: ConstructionReshapeEditorProps['codedPivotContext'];
@@ -69,6 +70,7 @@ const renderEditor = (args: {
       initialKind={args.initialKind}
       initialEntry={args.initialEntry}
       selectedColumns={args.selectedColumns}
+      onFormKindChange={args.onFormKindChange}
       onDiscoverCategories={args.onDiscoverCategories}
       codedPivotContext={args.codedPivotContext}
       relatedExpandContext={args.relatedExpandContext}
@@ -235,9 +237,14 @@ describe('ConstructionReshapeEditor', () => {
       onDiscoverCategories: vi.fn(),
     });
 
-    const duplicatePolicy = screen.getByLabelText('Pivot duplicate policy');
     const advanced = screen.getByTestId('construction-reshape-pivot-advanced');
-    expect(duplicatePolicy.closest('details')).toBeNull();
+    const duplicatePolicy = screen.getByLabelText('Pivot duplicate policy');
+    expect(duplicatePolicy.closest('details')).toBe(advanced);
+    expect(advanced).not.toHaveAttribute('open');
+    expect(controlValue('Pivot category field')).toBe('');
+    expect(controlValue('Pivot values field')).toBe('');
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
+    fireEvent.click(screen.getByText('Advanced settings'));
     expect(duplicatePolicy.closest('label')).toHaveTextContent('If a group has duplicate values');
     if (!(duplicatePolicy instanceof HTMLSelectElement)) throw new Error('Expected Pivot duplicate policy select');
     expect([...duplicatePolicy.options].map((option) => [option.value, option.textContent])).toEqual([
@@ -248,8 +255,7 @@ describe('ConstructionReshapeEditor', () => {
     ]);
     expect(controlValue('Pivot values field')).toBe('age-id');
     expect(controlValue('Pivot duplicate policy')).toBe('ERROR');
-    expect(advanced).not.toHaveAttribute('open');
-    expect(advanced.querySelector('[aria-label="Pivot duplicate policy"]')).toBeNull();
+    expect(advanced).toHaveAttribute('open');
     for (const policy of ['SUM', 'MIN', 'MAX']) {
       expect(duplicatePolicy.querySelector(`option[value="${policy}"]`)).toBeEnabled();
     }
@@ -305,6 +311,170 @@ describe('ConstructionReshapeEditor', () => {
     cleanup();
     renderEditor({ initialKind: 'pivot' });
     expect(screen.getByRole('region', { name: 'Pivot categories into columns' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Turn categories into columns' })).toBeInTheDocument();
+  });
+
+  it('reports the current form kind when the user changes reshape operations', () => {
+    const onFormKindChange = vi.fn<NonNullable<ConstructionReshapeEditorProps['onFormKindChange']>>();
+    renderEditor({ initialKind: 'pivot', onFormKindChange });
+
+    expect(onFormKindChange).toHaveBeenLastCalledWith('pivot');
+    fireEvent.click(screen.getByRole('button', { name: 'Change row operation' }));
+    expect(onFormKindChange).toHaveBeenLastCalledWith('choose');
+    fireEvent.click(screen.getByTestId('construction-reshape-choice-group'));
+    expect(onFormKindChange).toHaveBeenLastCalledWith('group');
+  });
+
+  it('keeps Pivot role fields empty by default, preserves selected Rows, and explains repeated fields', () => {
+    const stage = {
+      ...sourceStage,
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'PIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    renderEditor({
+      initialKind: 'pivot',
+      selectedColumns: ['site-id'],
+      capabilities: capabilitiesFor([stage], stage),
+      onDiscoverCategories: vi.fn(),
+    });
+
+    expect(controlChecked('Pivot group Site')).toBe(true);
+    expect(controlValue('Pivot category field')).toBe('');
+    expect(controlValue('Pivot values field')).toBe('');
+    expect(screen.getByText('1 column contains a list')).toBeInTheDocument();
+    expect(screen.getByText(/Make one row per list value/)).toBeInTheDocument();
+    expect(screen.queryByText('Finding categories…')).not.toBeInTheDocument();
+    expect(screen.getByText('Choose fields for New column names and Cell values to find categories.')).toBeInTheDocument();
+  });
+
+  it('preserves dotted current-column labels while keeping their technical names available', () => {
+    const rowColumn = {
+      id: 'specimen-path-id', name: 'specimen_collection_body_site',
+      label: 'Dr. name', type: 'string', cardinality: 'required_one' as const,
+    };
+    const categoryColumn = {
+      id: 'category-path-id', name: 'specimen_body_site_code',
+      label: 'Day 1.5 measurement', type: 'string', cardinality: 'optional_one' as const,
+    };
+    const stage = {
+      ...sourceStage,
+      columns: [rowColumn, categoryColumn, sourceColumns[1]],
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'PIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    renderEditor({ initialKind: 'pivot', selectedColumns: [rowColumn.id], capabilities: capabilitiesFor([stage], stage) });
+
+    const rowChoice = screen.getByLabelText('Pivot group Dr. name');
+    expect(rowChoice).toHaveProperty('checked', true);
+    expect(rowChoice.closest('label')).toHaveAttribute('title', `${rowColumn.name} · ${rowColumn.label}`);
+    const categoryOption = screen.getByLabelText('Pivot category field').querySelector(`option[value="${categoryColumn.id}"]`);
+    expect(categoryOption).toHaveTextContent('Day 1.5 measurement');
+    expect(categoryOption).toHaveAttribute('title', `${categoryColumn.name} · ${categoryColumn.label}`);
+  });
+
+  it('keeps source-backed category discovery idle without a Rows key even when matching loading state is present', () => {
+    const choices = ['Category', 'Value'].map((label, index) => ({
+      choiceId: `choice-${index}`, occurrenceId: 'base', fieldPath: label.toLowerCase(), label,
+      fhirType: 'string', logicalType: 'string', valueType: 'VALUE',
+      isIdentifier: false, isReference: false, isPopulated: true,
+    }));
+    const capabilities = {
+      ...capabilitiesFor(),
+      pivotSourceInput: { supported: true, stageId: sourceStage.id, choices },
+    };
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    const props: ConstructionReshapeEditorProps = {
+      construction: { version: 1, steps: [] }, capabilities, initialKind: 'pivot', disabled: false,
+      onCandidateChange: vi.fn(), onEditStep: vi.fn(), onDiscoverCategories,
+    };
+    const view = render(<ConstructionReshapeEditor {...props} />);
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'source:choice-0' } });
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'source:choice-1' } });
+    const categoryColumnId = controlValue('Pivot category field');
+    const valueColumnId = controlValue('Pivot values field');
+    const pivotSources = [
+      { choiceId: 'choice-0', columnId: categoryColumnId },
+      { choiceId: 'choice-1', columnId: valueColumnId },
+    ];
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={{
+      stageId: sourceStage.id, categoryColumnId, valueColumnId, pivotSources, status: 'loading',
+    }} />);
+
+    expect(screen.getByText(/Choose one or more fields to identify each row\. Choose a row identity before finding categories from source fields/)).toBeInTheDocument();
+    expect(screen.queryByText('Finding categories…')).not.toBeInTheDocument();
+    expect(onDiscoverCategories).not.toHaveBeenCalled();
+  });
+
+  it('offers only populated source fields for new choices and retains a saved empty source binding', () => {
+    const choices: NonNullable<ConstructionReshapeEditorProps['capabilities']['pivotSourceInput']>['choices'] = [
+      {
+        choiceId: 'empty-list', occurrenceId: 'source', fieldPath: 'collection.bodySite.reference.reference',
+        label: 'Specimen.collection.bodySite.reference.reference', fhirType: 'string', logicalType: 'string', valueType: 'VALUE',
+        isIdentifier: false, isReference: false, isPopulated: false,
+      },
+      {
+        choiceId: 'populated-value', occurrenceId: 'source', fieldPath: 'component.valueInteger',
+        label: 'Observation.component.valueInteger', fhirType: 'integer', logicalType: 'integer', valueType: 'VALUE',
+        isIdentifier: false, isReference: false, isPopulated: true,
+      },
+    ];
+    const pivotStage = {
+      ...sourceStage,
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'PIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const capabilities = {
+      ...capabilitiesFor([pivotStage], pivotStage),
+      pivotSourceInput: { supported: true, stageId: pivotStage.id, choices },
+    } satisfies ConstructionReshapeEditorProps['capabilities'];
+    renderEditor({ initialKind: 'pivot', capabilities, onDiscoverCategories: vi.fn() });
+
+    const groupChoices = screen.getByLabelText('Add pivot group field');
+    const categoryChoices = screen.getByLabelText('Pivot category field');
+    const valueChoices = screen.getByLabelText('Pivot values field');
+    for (const control of [groupChoices, categoryChoices, valueChoices]) {
+      expect([...control.querySelectorAll('option')].map((option) => option.value)).not.toContain('source:empty-list');
+      expect([...control.querySelectorAll('option')].map((option) => option.value)).toContain('source:populated-value');
+    }
+    const populatedOption = categoryChoices.querySelector('option[value="source:populated-value"]');
+    expect(populatedOption).toHaveTextContent('Observation · Component Value Integer');
+    expect(populatedOption).toHaveAttribute('title', 'component.valueInteger');
+
+    cleanup();
+    const savedStep: ConstructionReshapeStep = {
+      id: 'saved-source-pivot',
+      inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: { kind: 'PIVOT', pivot: {
+        constructionId: 'saved-source-pivot', groupKeyIds: ['site-id'], categoryColumnId: 'saved-list-column', valueColumnId: 'age-id',
+        categories: [{ key: { kind: 'STRING', string: 'baseline' }, outputColumnId: 'saved-output' }],
+        duplicatePolicy: 'ERROR', missingCellPolicy: 'NULL', unlistedCategoryPolicy: 'ERROR',
+      } },
+      outputs: [
+        { id: 'site-id', name: 'site', label: 'Site', type: 'string' },
+        { id: 'saved-output', name: 'baseline', label: 'Baseline', type: 'integer' },
+      ],
+    };
+    const savedCapabilities = {
+      ...capabilities,
+      pivotSourceInput: { ...capabilities.pivotSourceInput, choices: choices.map((choice) => choice.choiceId === 'empty-list'
+        ? { ...choice, columnId: 'saved-list-column' }
+        : choice) },
+    } satisfies ConstructionReshapeEditorProps['capabilities'];
+    const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    renderEditor({
+      construction: { version: 1, steps: [savedStep] },
+      capabilities: savedCapabilities,
+      editingStep: savedStep,
+      onCandidateChange,
+      onDiscoverCategories: vi.fn(),
+    });
+
+    const savedCategoryOption = screen.getByLabelText('Pivot category field').querySelector('option[value="saved-list-column"]');
+    expect(savedCategoryOption).toHaveTextContent('Specimen · Collection Body Site Reference');
+    expect(savedCategoryOption).toHaveAttribute('title', 'collection.bodySite.reference.reference');
+    fireEvent.click(screen.getByText('Advanced settings'));
+    fireEvent.change(screen.getByLabelText('Pivot output label baseline'), { target: { value: 'Baseline reading' } });
+    expect(onCandidateChange.mock.lastCall?.[0]?.pivotSources).toEqual([
+      { choiceId: 'empty-list', columnId: 'saved-list-column' },
+    ]);
+    expect(controlValue('Pivot category field')).toBe('saved-list-column');
   });
 
   it('offers only server-authorized Coding paths and reopens the saved row grouping', () => {
@@ -513,7 +683,9 @@ describe('ConstructionReshapeEditor', () => {
 
     expect(screen.getByLabelText('Pivot category field')).toBeInTheDocument();
     expect(screen.getByLabelText('Pivot values field')).toBeInTheDocument();
-    expect(screen.getByText(/Source fields are included automatically/)).toBeInTheDocument();
+    expect(screen.getByTestId('construction-reshape-pivot-role-summary')).toHaveTextContent(
+      'Example: One row per Patient ID. Each Visit type value creates a column containing Score.',
+    );
     expect(screen.queryByRole('button', { name: 'Add a paired coded concept' })).not.toBeInTheDocument();
   });
 
@@ -1700,12 +1872,14 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.queryByText('Not found in the latest category list')).not.toBeInTheDocument();
     const advanced = screen.getByTestId('construction-reshape-pivot-advanced');
     expect(advanced).not.toHaveAttribute('open');
-    expect(advanced.querySelector('[aria-label="Pivot duplicate policy"]')).toBeNull();
-    expect(screen.getByLabelText('Pivot duplicate policy').closest('details')).toBeNull();
-    expect(controlValue('Pivot duplicate policy')).toBe('SUM');
+    const duplicatePolicy = screen.getByLabelText('Pivot duplicate policy');
+    expect(duplicatePolicy.closest('details')).toBe(advanced);
     expect(screen.getByTestId('construction-reshape-pivot-policy-summary')).toHaveTextContent(
       'Duplicate values: be added together. Empty cells: stay empty. Unselected categories: be skipped and reported.',
     );
+    fireEvent.click(screen.getByText('Advanced settings'));
+    expect(screen.getByLabelText('Pivot duplicate policy').closest('details')).toBe(advanced);
+    expect(controlValue('Pivot duplicate policy')).toBe('SUM');
     const duplicatePolicies = [
       { policy: 'ERROR', effect: 'stop the pivot with an error' },
       { policy: 'SUM', effect: 'be added together' },
@@ -1721,7 +1895,6 @@ describe('ConstructionReshapeEditor', () => {
         pivot: { duplicatePolicy: policy },
       });
     }
-    fireEvent.click(screen.getByText('Advanced settings'));
     expect(controlValue('Pivot missing cell policy')).toBe('NULL');
     expect(controlValue('Pivot unlisted category policy')).toBe('EXCLUDE_WITH_EVIDENCE');
     expect(controlValue('Pivot output name baseline')).toBe('baseline_value');
@@ -1968,9 +2141,15 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.queryByRole('button', { name: 'Find category values' })).not.toBeInTheDocument();
     expect(onDiscoverCategories).not.toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
+    expect(onDiscoverCategories).not.toHaveBeenCalled();
+    expect(screen.getByText('Choose fields for New column names and Cell values to find categories.')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
     await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalled());
     expect(onDiscoverCategories).toHaveBeenCalledWith({ stageId: 'source_projection', categoryColumnId: 'site-id', valueColumnId: 'age-id' });
     expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
+    const request = onDiscoverCategories.mock.lastCall?.[0];
+    if (!request) throw new Error('Expected category discovery to be requested');
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={{ ...request, status: 'loading' }} />);
     expect(screen.getByText('Finding categories…')).toBeInTheDocument();
 
     view.rerender(
@@ -1989,6 +2168,7 @@ describe('ConstructionReshapeEditor', () => {
       />,
     );
     expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 2 of 2 categories: Site A, Site B');
+    expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
     fireEvent.click(screen.getByText('Change selected categories'));
     expect(controlChecked('Include category Site A')).toBe(true);
     expect(controlChecked('Include category Site B')).toBe(true);
@@ -2060,6 +2240,7 @@ describe('ConstructionReshapeEditor', () => {
 
     fireEvent.click(screen.getByTestId('construction-reshape-choice-pivot'));
     fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
 
     const intent = onCandidateChange.mock.lastCall?.[0];
     expect(intent).toBeDefined();
@@ -2105,6 +2286,7 @@ describe('ConstructionReshapeEditor', () => {
     );
     fireEvent.click(screen.getByTestId('construction-reshape-choice-pivot'));
     fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
     expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 2 of 2 categories');
     const candidate = onCandidateChange.mock.lastCall?.[0];
     expect(candidate).toBeDefined();
@@ -2137,6 +2319,7 @@ describe('ConstructionReshapeEditor', () => {
 
     fireEvent.click(screen.getByTestId('construction-reshape-choice-pivot'));
     fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
     view.rerender(
       <ConstructionReshapeEditor
         {...props}
@@ -2195,6 +2378,7 @@ describe('ConstructionReshapeEditor', () => {
 
     fireEvent.click(screen.getByTestId('construction-reshape-choice-pivot'));
     fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
     expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 2 of 2 categories');
     fireEvent.click(screen.getByText('Change selected categories'));
     expect(controlChecked('Include category Site A')).toBe(true);
@@ -2242,6 +2426,7 @@ describe('ConstructionReshapeEditor', () => {
 
     fireEvent.click(screen.getByTestId('construction-reshape-choice-pivot'));
     fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
     expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent(
       'Selected 3 of 3 categories: Site A, site B, Skeletal tissue',
     );
