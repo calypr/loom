@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import {
   builderCapabilitiesIdentityFromState,
   readBuilderCapabilitiesIdentity,
+  watchConstructionCapabilitiesReadiness,
 } from '../construction-capabilities-readiness.mjs';
 import { recordPlaywrightTiming } from '../playwright-authoring-page.mjs';
 import { createReport } from '../report.mjs';
@@ -68,6 +70,40 @@ test('builder identity read is bound to the exact project, Explorer, output, and
       }),
     }),
   }), /exactly one requested output/);
+});
+
+test('readiness watcher matches the browser route for a canonical slash project ID', async () => {
+  const project = 'loom_dev_verify_caps-abc123';
+  const canonicalProject = 'loom_dev_verify_caps/abc123';
+  const page = new EventEmitter();
+  const watcher = watchConstructionCapabilitiesReadiness({ ...scope, page, project });
+  const path = `/api/v1/projects/${encodeURIComponent(encodeURIComponent(canonicalProject))}` +
+    `/explorers/${encodeURIComponent(scope.explorer)}/authoring/v2/construction-capabilities`;
+  const request = {
+    url: () => `${scope.apiOrigin}${path}`,
+    method: () => 'POST',
+    headers: () => ({ 'x-request-id': 'construction-capabilities-12345678-1234-1234-1234-123456789abc' }),
+    postData: () => JSON.stringify({
+      snapshotToken: expected.snapshotToken,
+      expectedDraftVersion: expected.draftVersion,
+      expectedDraftDigest: expected.draftDigest,
+      outputId: expected.outputId,
+    }),
+  };
+
+  watcher.markActionStarted();
+  try {
+    page.emit('request', request);
+    page.emit('response', { request: () => request, status: () => 200 });
+    page.emit('requestfinished', request);
+    const readiness = await watcher.waitFor(expected, { timeoutMs: 100 });
+    assert.equal(readiness.project, project);
+    assert.equal(readiness.requests.length, 1);
+    assert.equal(readiness.requests[0]?.path, path);
+    assert.equal(readiness.requests[0]?.terminalEvent, 'requestfinished');
+  } finally {
+    watcher.dispose();
+  }
 });
 
 test('recordPlaywrightTiming passes only the remaining shared budget to readiness settlement', async () => {

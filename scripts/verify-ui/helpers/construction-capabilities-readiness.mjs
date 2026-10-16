@@ -1,10 +1,13 @@
+import { canonicalProjectID } from '../../loom-dev.mjs';
+
 const capabilitiesEndpoint = 'construction-capabilities';
 const requestIDPattern = /^(?:cda-request-|construction-capabilities-)[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 
 const exactRequestScope = (request, { project, explorer, origin }) => {
   let url;
   try { url = new URL(request.url()); } catch { return undefined; }
-  const path = `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorer)}/authoring/v2/${capabilitiesEndpoint}`;
+  const encodedCanonicalProject = encodeURIComponent(encodeURIComponent(canonicalProjectID(project)));
+  const path = `/api/v1/projects/${encodedCanonicalProject}/explorers/${encodeURIComponent(explorer)}/authoring/v2/${capabilitiesEndpoint}`;
   if (url.origin !== origin || url.pathname !== path || request.method() !== 'POST') return undefined;
 
   let headers;
