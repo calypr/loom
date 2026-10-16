@@ -7,6 +7,7 @@ import {
   readBasicPivotUnpivotSeedManifest,
 } from '../helpers/basic-pivot-unpivot-oracle.mjs';
 import { pivotSourceSelectionReady } from './root-quantity-pivot-workflow.mjs';
+import { fixtureProjectExplorerCollectionPath } from '../helpers/fixture-context.mjs';
 
 const ACTION_TIMEOUT_MS = 5_000;
 const PROPOSAL_SELECTOR = '[data-testid="construction-proposal-panel"]';
@@ -80,7 +81,7 @@ export async function basicPivotUnpivotWorkflow({ page, report, action, check, n
   const generation = target.fixtureGeneration;
   const apiOrigin = target.apiUrl.replace(/\/$/, '');
   const explorer = `basic-pivot-unpivot-${randomUUID()}`;
-  const explorerCollection = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
+  const explorerCollection = fixtureProjectExplorerCollectionPath(project);
   report.target.explorer = explorer;
   report.target.outputId = null;
   const apiReads = [];
