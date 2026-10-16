@@ -1052,13 +1052,15 @@ export const RowDefinitionSettingsPanel = ({
               </div>
                   ) : null}
               </div>
-              <details data-testid="construction-starting-collection-footer" className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
-                <summary className="flex cursor-pointer flex-wrap items-center gap-x-2 text-sm font-medium text-slate-800 hover:text-blue-800">
-                  <span>Starting collection</span>
-                  <span className="text-xs font-normal text-slate-600">{startingCollectionDescription}</span>
-                </summary>
-                <div className="pt-2">{startingCollectionSettings}</div>
-              </details>
+              {startingCollectionSettings ? (
+                <details data-testid="construction-starting-collection-footer" className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                  <summary className="flex cursor-pointer flex-wrap items-center gap-x-2 text-sm font-medium text-slate-800 hover:text-blue-800">
+                    <span>Starting collection</span>
+                    <span className="text-xs font-normal text-slate-600">{startingCollectionDescription}</span>
+                  </summary>
+                  <div className="pt-2">{startingCollectionSettings}</div>
+                </details>
+              ) : null}
             </div>
         </div>
       ) : null}

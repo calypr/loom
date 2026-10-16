@@ -304,7 +304,7 @@ const relatedRowProps = {
       <button type="button" onClick={() => onReplaceRoot('research-study-node')}>Replace current setup</button>
     </section>
   ),
-  startingCollectionSettings: <section aria-label="Starting collection">Collection controls</section>,
+  startingCollectionSettings: null,
   relatedRows: { supported: false, reason: 'No executable route' },
   reshapeRows: { group: { supported: true }, groupEntry: 'group' as const, groupAlternatives: [], pivot: { supported: true }, expand: { supported: true } },
   onChooseRelatedRows: vi.fn(),
@@ -354,6 +354,7 @@ const renderSettings = (overrides: {
   sourceCollectionAction?: ReactNode;
   currentRowMeaning?: string;
   renderRootSettings?: typeof relatedRowProps.renderRootSettings;
+  startingCollectionSettings?: ReactNode;
   workspaceTables?: ReadonlyArray<DraftTable>;
   replacementAssessment?: RowChangeAssessment;
   replacementPreview?: ExplorerBuilderPreviewResult;
@@ -394,6 +395,7 @@ const renderSettings = (overrides: {
       project="project-a"
       explorerId="explorer-a"
       snapshotToken="snapshot-1"
+      startingCollectionSettings={overrides.startingCollectionSettings ?? relatedRowProps.startingCollectionSettings}
       draftVersion={overrides.draftVersion ?? 4}
       draftDigest={overrides.draftDigest ?? 'draft-digest-4'}
       table={overrides.tableValue ?? table}
@@ -653,14 +655,36 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(within(dialog).getByRole('heading', { name: 'Change current rows' })).toBeInTheDocument();
     expect(dialog.contains(screen.getByRole('region', { name: 'Starting record type' }))).toBe(true);
     expect(dialog.contains(screen.getByRole('region', { name: 'Choose a row change' }))).toBe(true);
-    expect(screen.getByText('All authorized Patient records')).toBeInTheDocument();
+    expect(screen.queryByText('All authorized Patient records')).not.toBeInTheDocument();
+    expect(within(dialog).queryByTestId('construction-starting-collection-footer')).not.toBeInTheDocument();
+    expect(dialog.querySelectorAll('details')).toHaveLength(0);
+    expect(dialog.contains(await screen.findByRole('combobox', { name: 'Rows per starting record' }))).toBe(true);
+  });
+
+  it.each([
+    ['an active selection', { selection: sourceSelection }],
+    ['an attached population', {
+      tableValue: {
+        ...table,
+        document: {
+          ...table.document,
+          population: { selectionRevisionId: sourceSelection.id, route: [] },
+        },
+      },
+    }],
+  ] as const)('keeps starting collection controls for %s', async (_state, state) => {
+    renderSettings({
+      ...state,
+      startingCollectionSettings: <section aria-label="Starting collection">Collection controls</section>,
+    });
+
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
     const collectionFooter = within(dialog).getByTestId('construction-starting-collection-footer');
-    expect(dialog.querySelectorAll('details')).toHaveLength(1);
     expect(collectionFooter).not.toHaveAttribute('open');
     fireEvent.click(within(collectionFooter).getByText('Starting collection'));
     expect(collectionFooter).toHaveAttribute('open');
     expect(within(collectionFooter).getByText('Collection controls')).toBeInTheDocument();
-    expect(dialog.contains(await screen.findByRole('combobox', { name: 'Rows per starting record' }))).toBe(true);
   });
 
   it('opens executable related rows from the Rows settings dialog', async () => {

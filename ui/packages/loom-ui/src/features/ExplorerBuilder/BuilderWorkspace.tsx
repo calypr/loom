@@ -4159,6 +4159,11 @@ const BuilderWorkspaceContent = ({
                       />
                     )}
                     startingCollectionSettings={(
+                      activePopulationSelection ||
+                      table.document.population ||
+                      activePopulationSelectionLoading ||
+                      activePopulationSelectionError
+                    ) ? (
                       <PopulationPanel
                         table={table}
                         selection={activePopulationSelection}
@@ -4196,7 +4201,7 @@ const BuilderWorkspaceContent = ({
                           proposalId,
                         }])}
                       />
-                    )}
+                    ) : null}
                     selection={activePopulationSelection}
                     constructionHistory={persistedConstructionHistory}
                     disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
