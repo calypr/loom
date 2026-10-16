@@ -84,6 +84,70 @@ describe('CodedPivotEditor', () => {
     }), expect.any(AbortSignal));
   });
 
+  it('distinguishes duplicate display labels by visible system and code without changing their outputs', async () => {
+    const browseFrameSourceOptions = browseDirectSourceOptions();
+    const categories = [
+      {
+        conceptId: 'observation-specimen-type', bindingId: 'component-binding', resourceType: 'Observation',
+        sourcePath: 'component[]', system: 'https://example.org/observation-codes', code: 'specimen_type',
+        codingVersion: '', display: 'Specimen type', valueSelector: 'component[].valueString', valueType: 'string',
+        owningScope: 'component[]', occurrences: 12, examplesTruncated: false, observedUnitsTruncated: false,
+        readiness: { status: 'READY' as const, code: 'READY', message: 'Ready' },
+        constructionChoice: { choiceId: 'observation-choice' },
+      },
+      {
+        conceptId: 'panel-specimen-type', bindingId: 'component-binding', resourceType: 'Observation',
+        sourcePath: 'component[]', system: 'https://example.org/panel-codes', code: 'specimen-type',
+        codingVersion: '', display: 'Specimen type', valueSelector: 'component[].valueString', valueType: 'string',
+        owningScope: 'component[]', occurrences: 7, examplesTruncated: false, observedUnitsTruncated: false,
+        readiness: { status: 'READY' as const, code: 'READY', message: 'Ready' },
+        constructionChoice: { choiceId: 'panel-choice' },
+      },
+    ];
+    const onCandidateChange = vi.fn();
+    render(<CodedPivotEditor
+      client={{
+        browseFrameSourceOptions,
+        browseSemanticInventory: vi.fn().mockResolvedValue({
+          entries: categories, state: 'complete', sourceAvailability: 'verified',
+        }),
+      } as unknown as Pick<LoomClient, 'browseFrameSourceOptions' | 'browseSemanticInventory'>}
+      project="cda" explorerId="builder" snapshotToken="snapshot" outputId="observations"
+      rowRoot="Observation" construction={{ version: 1, steps: [] } satisfies Construction}
+      disabled={false} onCandidateChange={onCandidateChange}
+    />);
+
+    const categoryChoices = await screen.findAllByRole('checkbox', { name: /Specimen type/ });
+    expect(categoryChoices).toHaveLength(2);
+    fireEvent.click(categoryChoices[0]!);
+    fireEvent.click((await screen.findAllByRole('checkbox', { name: /Specimen type/ }))[1]!);
+
+    expect(await screen.findByText('System https://example.org/observation-codes · Code specimen_type')).toBeInTheDocument();
+    expect(screen.getByText('System https://example.org/panel-codes · Code specimen-type')).toBeInTheDocument();
+    await waitFor(() => expect(onCandidateChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      candidateConstruction: expect.objectContaining({ steps: [expect.objectContaining({
+        operation: expect.objectContaining({ codedPivot: expect.objectContaining({
+          categories: [
+            expect.objectContaining({ choiceId: 'observation-choice' }),
+            expect.objectContaining({ choiceId: 'panel-choice' }),
+          ],
+        }) }),
+        outputs: [
+          expect.objectContaining({ name: 'specimen_type', label: 'Specimen type' }),
+          expect.objectContaining({ name: 'specimen_type_2', label: 'Specimen type' }),
+        ],
+      })] }),
+    })));
+    const candidate = onCandidateChange.mock.calls.at(-1)?.[0];
+    const step = candidate?.candidateConstruction.steps[0];
+    expect(step?.operation.kind).toBe('CODED_PIVOT');
+    if (step?.operation.kind === 'CODED_PIVOT') {
+      expect(step.operation.codedPivot.categories.map(({ outputColumnId }) => outputColumnId))
+        .toEqual(step.outputs.map(({ id }) => id));
+      expect(new Set(step.outputs.map(({ id }) => id)).size).toBe(2);
+    }
+  });
+
   it('reopens a saved pivot using durable category keys without requiring a newly browsed category', async () => {
     const step = {
       id: 'saved-pivot', inputs: [{ kind: 'SOURCE_PROJECTION' as const }],
@@ -125,8 +189,11 @@ describe('CodedPivotEditor', () => {
           sourceChoiceId: 'signed-family',
           categories: [{ system: 'https://cda.readthedocs.io', code: 'specimen_type', outputColumnId: 'specimen-column' }],
         }) }),
+        outputs: [{ id: 'specimen-column', name: 'specimen_type', label: 'Specimen type', type: 'INFER' }],
       })] }),
     })));
+    expect(screen.getByText('System https://cda.readthedocs.io · Code specimen_type')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Coded values as columns', exact: true })).not.toBeInTheDocument();
   });
 
   it('finds legal coded values on later pages without requiring search or a More click', async () => {

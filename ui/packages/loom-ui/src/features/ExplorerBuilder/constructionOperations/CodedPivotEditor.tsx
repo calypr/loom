@@ -269,10 +269,7 @@ const CodedPivotEditorBody = ({
   return (
     <section aria-label="Coded values as columns" className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
       {unavailableReason ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{unavailableReason}</p> : null}
-      <div>
-        <h3 className="text-base font-semibold text-slate-950">Coded values as columns</h3>
-        <p className="text-sm text-slate-600">Keep one row per {rowRoot} record. Each selected code becomes a column filled by its paired value.</p>
-      </div>
+      <p className="text-sm text-slate-600">Keep one row per {rowRoot} record. Each selected code becomes a column filled by its paired value.</p>
       <label className="block text-sm font-medium text-slate-800">Find a coded source
         <input type="search" value={sourceQuery} onChange={(event) => {
           setSourceQuery(event.target.value);
@@ -336,8 +333,15 @@ const CodedPivotEditorBody = ({
               : 'No coded values are available for this source.'}</p> : null}
         <p className="text-sm font-medium text-slate-800">{selected.length} of 50 columns selected</p>
         {selected.length > 0 ? <ul className="flex flex-wrap gap-1">{selected.map((category) =>
-          <li key={category.outputColumnId} title={`${category.system} · ${category.code}`}
-            className="rounded bg-emerald-50 px-2 py-1 text-xs text-emerald-950">{category.label}</li>)}</ul> : null}
+          <li key={category.outputColumnId}
+            aria-label={`${category.label}; system ${category.system.trim() || 'not specified'}; code ${category.code.trim() || 'not specified'}`}
+            title={`${category.system} · ${category.code}`}
+            className="max-w-72 rounded bg-emerald-50 px-2 py-1 text-xs text-emerald-950">
+            <span className="block truncate font-medium">{category.label}</span>
+            <span className="block break-all text-[10px] leading-tight text-emerald-800">
+              System {category.system.trim() || 'not specified'} · Code {category.code.trim() || 'not specified'}
+            </span>
+          </li>)}</ul> : null}
         <details className="text-sm text-slate-700"><summary className="cursor-pointer font-medium">Advanced value handling</summary>
           <div className="mt-2 grid gap-3 sm:grid-cols-2">
             <label>When several values match
