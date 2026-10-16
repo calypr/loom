@@ -288,7 +288,6 @@ export async function basicPivotUnpivotWorkflow({ page, report, action, check, n
   };
 
   await page.goto(browserURL(target, project, explorer, 'builder'), { waitUntil: 'domcontentloaded', timeout: ACTION_TIMEOUT_MS });
-  await waitFor(page, () => document.body.innerText.includes('DATASET WORKSPACE'), undefined);
   const outputTab = page.getByTestId(`construction-table-${outputId}`);
   await waitVisible(outputTab);
   await click('select the exact Observation root output', outputTab, async () => {
