@@ -10,6 +10,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	dataframepublished "github.com/calypr/loom/internal/dataframe/published"
@@ -148,6 +149,7 @@ type Config struct {
 	SelectionMembersCollection         string
 	Capability                         CapabilityResolver
 	SemanticInventory                  func(context.Context, catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error)
+	SemanticCoverage                   func(context.Context, catalogarango.SemanticCoverageLookupOptions) (catalogarango.SemanticCoverageLookupResult, error)
 	ResolveSemanticInventorySelections func(context.Context, catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error)
 	// InterpretationRepository resolves exact immutable revision IDs. It is
 	// intentionally narrow so lifecycle cannot accidentally depend on heads or

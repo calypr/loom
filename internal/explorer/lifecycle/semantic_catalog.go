@@ -15,8 +15,11 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	compilerprobe "github.com/calypr/loom/internal/dataframe/compiler/capability"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/projectid"
@@ -86,6 +89,24 @@ func (request FieldPresentationRequest) validate() error {
 
 type FieldPresentationReason string
 
+type FieldPresentationResultKind string
+
+type FieldPresentationDecisionKind string
+
+type SemanticInventoryItemIdentityKind string
+
+type FieldPresentationAccess string
+
+const (
+	FieldPresentationResultUnavailable  FieldPresentationResultKind       = "UNAVAILABLE"
+	FieldPresentationResultReady        FieldPresentationResultKind       = "READY"
+	FieldPresentationDecisionKeepRaw    FieldPresentationDecisionKind     = "KEEP_RAW"
+	FieldPresentationDecisionGroup      FieldPresentationDecisionKind     = "GROUP_UNDER_SEMANTIC"
+	SemanticInventoryIdentityExact      SemanticInventoryItemIdentityKind = "EXACT_CONCEPT"
+	SemanticInventoryIdentityFamily     SemanticInventoryItemIdentityKind = "SYSTEM_VERSION_CATEGORY"
+	FieldPresentationAccessSourceFields FieldPresentationAccess           = "SOURCE_FIELDS"
+)
+
 const (
 	FieldPresentationMissingSystem              FieldPresentationReason = "MISSING_SYSTEM"
 	FieldPresentationMissingCode                FieldPresentationReason = "MISSING_CODE"
@@ -117,14 +138,14 @@ type fieldPresentationResult interface {
 }
 
 type FieldPresentationUnavailable struct {
-	Kind   string                  `json:"kind"`
-	Reason FieldPresentationReason `json:"reason"`
+	Kind   FieldPresentationResultKind `json:"kind"`
+	Reason FieldPresentationReason     `json:"reason"`
 }
 
 func (FieldPresentationUnavailable) fieldPresentationResult() {}
 
 type FieldPresentationReady struct {
-	Kind         string                      `json:"kind"`
+	Kind         FieldPresentationResultKind `json:"kind"`
 	Context      FieldPresentationContext    `json:"context"`
 	Decisions    []fieldPresentationDecision `json:"decisions"`
 	Replacements []SemanticInventoryItem     `json:"replacements"`
@@ -156,9 +177,9 @@ type fieldPresentationDecision interface {
 }
 
 type FieldPresentationKeepRaw struct {
-	Kind        string                  `json:"kind"`
-	CandidateID string                  `json:"candidateId"`
-	Reason      FieldPresentationReason `json:"reason"`
+	Kind        FieldPresentationDecisionKind `json:"kind"`
+	CandidateID string                        `json:"candidateId"`
+	Reason      FieldPresentationReason       `json:"reason"`
 }
 
 func (FieldPresentationKeepRaw) fieldPresentationDecision() {}
@@ -168,27 +189,27 @@ type semanticInventoryItemIdentity interface {
 }
 
 type ExactSemanticInventoryItemIdentity struct {
-	Kind      string `json:"kind"`
-	ConceptID string `json:"conceptId"`
-	BindingID string `json:"bindingId"`
+	Kind      SemanticInventoryItemIdentityKind `json:"kind"`
+	ConceptID string                            `json:"conceptId"`
+	BindingID string                            `json:"bindingId"`
 }
 
 func (ExactSemanticInventoryItemIdentity) semanticInventoryItemIdentity() {}
 
 type FamilySemanticInventoryItemIdentity struct {
-	Kind      string `json:"kind"`
-	FamilyID  string `json:"familyId"`
-	BindingID string `json:"bindingId"`
+	Kind      SemanticInventoryItemIdentityKind `json:"kind"`
+	FamilyID  string                            `json:"familyId"`
+	BindingID string                            `json:"bindingId"`
 }
 
 func (FamilySemanticInventoryItemIdentity) semanticInventoryItemIdentity() {}
 
 type FieldPresentationGroupUnderSemantic struct {
-	Kind           string                          `json:"kind"`
+	Kind           FieldPresentationDecisionKind   `json:"kind"`
 	CandidateID    string                          `json:"candidateId"`
 	CoverageID     string                          `json:"coverageId"`
 	ReplacementIDs []semanticInventoryItemIdentity `json:"replacementIds"`
-	Access         string                          `json:"access"`
+	Access         FieldPresentationAccess         `json:"access"`
 }
 
 func (FieldPresentationGroupUnderSemantic) fieldPresentationDecision() {}
@@ -296,6 +317,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 	var codedFamily *frameSourceFamilyCandidate
 	var codedRoute []capability.ConstructionRouteStep
 	var outputDocument *authoringv2.Document
+	var presentationCurrent *fieldPresentationCurrentContext
 	bindingFilter := ""
 	if req.FrameID != "" {
 		if strings.TrimSpace(req.OutputID) == "" || req.OutputID != strings.TrimSpace(req.OutputID) {
@@ -374,15 +396,25 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 		return result, malformed("catalog", "outputId must be an exact identifier", nil)
 	}
 	if req.OutputID != "" && frame == nil && codedFamily == nil {
-		workspace, workspaceErr := s.currentWorkspace(ctx, req.Project, req.ExplorerID)
-		if workspaceErr != nil {
-			return result, workspaceErr
+		if req.FieldPresentation != nil {
+			current, currentErr := s.fieldPresentationCurrentContext(ctx, req, snapshot)
+			if currentErr != nil {
+				return result, currentErr
+			}
+			presentationCurrent = &current
+			document := current.document
+			outputDocument = &document
+		} else {
+			workspace, workspaceErr := s.currentWorkspace(ctx, req.Project, req.ExplorerID)
+			if workspaceErr != nil {
+				return result, workspaceErr
+			}
+			document := findSemanticOutput(workspace, req.OutputID)
+			if document == nil || document.RootResourceType != req.RowRoot {
+				return result, notFound("catalog", "OUTPUT_NOT_FOUND", "the output was not found for this row root", nil)
+			}
+			outputDocument = document
 		}
-		document := findSemanticOutput(workspace, req.OutputID)
-		if document == nil || document.RootResourceType != req.RowRoot {
-			return result, notFound("catalog", "OUTPUT_NOT_FOUND", "the output was not found for this row root", nil)
-		}
-		outputDocument = document
 	}
 	var cursor semanticBrowseCursor
 	if req.Cursor != "" {
@@ -429,7 +461,14 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 	entries = append(entries, categoryEntries...)
 	var outputChoices map[string]capability.ConstructionChoice
 	if outputDocument != nil {
-		outputChoices, err = semanticInventoryChoicesForOutput(ctx, authorized, snapshot, *outputDocument, req.OutputID, result.ContextToken, result.BuildID, page.Entries, page.Families)
+		if presentationCurrent != nil {
+			outputChoices, result.FieldPresentation, err = s.semanticInventoryPresentationForOutput(
+				ctx, authorized, snapshot, *outputDocument, req.OutputID, result.ContextToken,
+				page.Build, page.Entries, page.Families, *presentationCurrent, *req.FieldPresentation,
+			)
+		} else {
+			outputChoices, err = semanticInventoryChoicesForOutput(ctx, authorized, snapshot, *outputDocument, req.OutputID, result.ContextToken, result.BuildID, page.Entries, page.Families)
+		}
 		if err != nil {
 			return result, err
 		}
@@ -475,6 +514,10 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 		if outputDocument != nil {
 			choice, ok := outputChoices[semanticChoiceKey(entry.ConceptID, entry.BindingID)]
 			if !ok {
+				if presentationCurrent == nil {
+					continue
+				}
+				result.Entries = append(result.Entries, item)
 				continue
 			}
 			item.ConstructionChoice = &choice
@@ -547,6 +590,687 @@ func semanticBrowseCursorSelectionMode(mode string) string {
 		return string(catalog.SemanticInventoryExactConcept)
 	}
 	return mode
+}
+
+type fieldPresentationCurrentContext struct {
+	owner          explorer.Explorer
+	document       authoringv2.Document
+	sourceNodeID   string
+	candidates     []capability.Candidate
+	route          []capability.ConstructionRouteStep
+	stageID        string
+	stageSupported bool
+}
+
+type semanticPresentationReference struct {
+	identity semanticInventoryItemIdentity
+	key      string
+	exact    *catalog.SemanticInventoryReference
+	family   *catalog.SemanticInventoryFamilyReference
+}
+
+func (s *Service) semanticInventoryPresentationForOutput(
+	ctx context.Context,
+	authorized AuthorizedCapability,
+	snapshot capability.Snapshot,
+	document authoringv2.Document,
+	outputID, contextToken string,
+	build catalog.SemanticInventoryBuild,
+	entries []catalog.SemanticInventoryEntry,
+	families []catalog.SemanticInventoryFamily,
+	current fieldPresentationCurrentContext,
+	request FieldPresentationRequest,
+) (map[string]capability.ConstructionChoice, fieldPresentationResult, error) {
+	proofCache := make(map[string]semanticCandidateRouteProof)
+	choices, err := semanticInventoryChoicesForExactOccurrence(
+		ctx, authorized, snapshot, document.RootResourceType, contextToken, build.BuildID,
+		entries, families, request.SourceNodeID, current.route, proofCache,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !current.stageSupported {
+		return choices, fieldPresentationUnavailable(FieldPresentationUnsupportedCurrentStage), nil
+	}
+	if s.config.SemanticCoverage == nil {
+		return choices, fieldPresentationUnavailable(FieldPresentationCoverageUnavailable), nil
+	}
+	if build.BuildID == "" || build.SourceKind == "" {
+		return choices, fieldPresentationUnavailable(FieldPresentationCoverageUnavailable), nil
+	}
+	coveragePaths := make([]catalogarango.SemanticCoverageCandidatePath, 0, len(current.candidates))
+	coveragePathKeys := make(map[string]struct{}, len(current.candidates))
+	for _, candidate := range current.candidates {
+		path := catalogarango.SemanticCoverageCandidatePath{ResourceType: candidate.ResourceType, CanonicalPath: candidate.FieldPath}
+		key := semanticCoverageCandidatePathKey(path)
+		if _, exists := coveragePathKeys[key]; exists {
+			continue
+		}
+		coveragePathKeys[key] = struct{}{}
+		coveragePaths = append(coveragePaths, path)
+	}
+	unrestricted := authorized.Scope.Mode == authscope.ReadScopeUnrestricted
+	lookup, err := s.config.SemanticCoverage(ctx, catalogarango.SemanticCoverageLookupOptions{
+		Project: projectid.Legacy(snapshot.Identity.Project), DatasetGeneration: snapshot.Identity.Generation,
+		BuildID: build.BuildID, SchemaIdentity: snapshot.Identity.SchemaDigest, SourceKind: build.SourceKind,
+		AuthResourcePaths:             append([]string(nil), authorized.Scope.AuthResourcePaths...),
+		AuthResourcePathsUnrestricted: unrestricted, Candidates: coveragePaths,
+	})
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+			return nil, nil, unavailable("catalog", "FIELD_PRESENTATION_LOOKUP_INTERRUPTED", "semantic field coverage lookup was interrupted", err)
+		}
+		return nil, nil, internal("catalog", "FIELD_PRESENTATION_LOOKUP_FAILED", "semantic field coverage could not be read", err)
+	}
+	if lookup.State != catalogarango.SemanticCoverageBuildComplete {
+		reason := FieldPresentationCoverageUnavailable
+		if lookup.State == catalogarango.SemanticCoverageBuildBuilding || lookup.State == catalogarango.SemanticCoverageBuildFailed {
+			reason = FieldPresentationIncompleteCoverage
+		}
+		return choices, fieldPresentationUnavailable(reason), nil
+	}
+	coverageByPath := make(map[string]catalogarango.SemanticCoverageCandidateResult, len(lookup.Candidates))
+	for _, candidate := range lookup.Candidates {
+		key := semanticCoverageCandidatePathKey(catalogarango.SemanticCoverageCandidatePath{
+			ResourceType: candidate.ResourceType, CanonicalPath: candidate.CanonicalPath,
+		})
+		if _, duplicate := coverageByPath[key]; duplicate {
+			return choices, fieldPresentationUnavailable(FieldPresentationIncompleteCoverage), nil
+		}
+		coverageByPath[key] = candidate
+	}
+	if len(coverageByPath) != len(coveragePaths) {
+		return choices, fieldPresentationUnavailable(FieldPresentationIncompleteCoverage), nil
+	}
+	for _, path := range coveragePaths {
+		if _, found := coverageByPath[semanticCoverageCandidatePathKey(path)]; !found {
+			return choices, fieldPresentationUnavailable(FieldPresentationIncompleteCoverage), nil
+		}
+	}
+	batchDigest, err := fieldPresentationCandidateBatchDigest(current.candidates)
+	if err != nil {
+		return nil, nil, internal("catalog", "FIELD_PRESENTATION_BATCH_IDENTITY_FAILED", "the candidate batch identity could not be encoded", err)
+	}
+	context := FieldPresentationContext{
+		Project:                  projectid.Legacy(snapshot.Identity.Project),
+		AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
+		SnapshotToken:            snapshot.Token, DatasetGeneration: snapshot.Identity.Generation,
+		InventoryBuildID: build.BuildID, CoverageBuildID: build.BuildID,
+		ExplorerID: current.owner.ExplorerID, OutputID: outputID,
+		DraftVersion: current.owner.DraftVersion, DraftDigest: current.owner.DraftDigest,
+		SourceNodeID: request.SourceNodeID, OccurrenceID: request.OccurrenceID,
+		Route: cloneConstructionRoute(current.route), StageID: current.stageID,
+		PresentationRevision: semanticFieldPresentationRevision, CandidateBatchDigest: batchDigest,
+	}
+	decisions := make([]fieldPresentationDecision, 0, len(current.candidates))
+	groupReferences := make(map[string][]semanticPresentationReference, len(current.candidates))
+	requestedReferences := make(map[string]semanticPresentationReference)
+	for _, candidate := range current.candidates {
+		if !candidate.Populated {
+			decisions = append(decisions, FieldPresentationKeepRaw{Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: FieldPresentationCandidateNotPopulated})
+			continue
+		}
+		if _, addable, addableErr := fieldPresentationRawCandidateChoice(ctx, authorized, snapshot, document.RootResourceType, candidate, current.route, proofCache); addableErr != nil {
+			return nil, nil, addableErr
+		} else if !addable {
+			decisions = append(decisions, FieldPresentationKeepRaw{Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: FieldPresentationCandidateNotAddable})
+			continue
+		}
+		coverage := coverageByPath[semanticCoverageCandidatePathKey(catalogarango.SemanticCoverageCandidatePath{
+			ResourceType: candidate.ResourceType, CanonicalPath: candidate.FieldPath,
+		})]
+		switch coverage.Status {
+		case catalogarango.SemanticCoverageCandidateKeepRaw:
+			reason, ok := fieldPresentationCoverageReason(string(coverage.Reason))
+			if !ok {
+				return choices, fieldPresentationUnavailable(FieldPresentationIncompleteCoverage), nil
+			}
+			decisions = append(decisions, FieldPresentationKeepRaw{Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: reason})
+		case catalogarango.SemanticCoverageCandidateUnavailable:
+			decisions = append(decisions, FieldPresentationKeepRaw{Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: FieldPresentationIncompleteCoverage})
+		case catalogarango.SemanticCoverageCandidateGroupable:
+			if strings.TrimSpace(coverage.CoverageID) == "" || len(coverage.References) == 0 {
+				return choices, fieldPresentationUnavailable(FieldPresentationIncompleteCoverage), nil
+			}
+			references := make([]semanticPresentationReference, 0, len(coverage.References))
+			seen := make(map[string]struct{}, len(coverage.References))
+			for _, reference := range coverage.References {
+				resolvedReference, valid := semanticPresentationReferenceFromCoverage(reference, candidate, build.SourceKind)
+				if !valid {
+					return choices, fieldPresentationUnavailable(FieldPresentationIncompleteCoverage), nil
+				}
+				if _, duplicate := seen[resolvedReference.key]; duplicate {
+					continue
+				}
+				seen[resolvedReference.key] = struct{}{}
+				references = append(references, resolvedReference)
+			}
+			if len(references) == 0 {
+				return choices, fieldPresentationUnavailable(FieldPresentationIncompleteCoverage), nil
+			}
+			newReferenceCount := 0
+			for _, reference := range references {
+				if _, exists := requestedReferences[reference.key]; !exists {
+					newReferenceCount++
+				}
+			}
+			if len(requestedReferences)+newReferenceCount > fieldPresentationReplacementLimit {
+				decisions = append(decisions, FieldPresentationKeepRaw{Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: FieldPresentationReplacementUnavailable})
+				continue
+			}
+			groupReferences[candidate.ID] = references
+			for _, reference := range references {
+				requestedReferences[reference.key] = reference
+			}
+			decisions = append(decisions, nil)
+		default:
+			return choices, fieldPresentationUnavailable(FieldPresentationIncompleteCoverage), nil
+		}
+	}
+	if len(groupReferences) == 0 {
+		return choices, FieldPresentationReady{Kind: FieldPresentationResultReady, Context: context, Decisions: decisions, Replacements: []SemanticInventoryItem{}}, nil
+	}
+	resolvedItems, replacementsComplete, err := s.resolveFieldPresentationReplacements(ctx, authorized, snapshot, document.RootResourceType, contextToken, build.BuildID, current, requestedReferences, proofCache)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !replacementsComplete {
+		return choices, fieldPresentationUnavailable(FieldPresentationReplacementUnavailable), nil
+	}
+	replacementByKey := resolvedItems
+	groupedReferences := make(map[string]semanticPresentationReference)
+	decisionIndex := 0
+	for _, candidate := range current.candidates {
+		if decisionIndex >= len(decisions) {
+			return choices, fieldPresentationUnavailable(FieldPresentationIncompleteCoverage), nil
+		}
+		if references, group := groupReferences[candidate.ID]; group {
+			identities := make([]semanticInventoryItemIdentity, 0, len(references))
+			available := true
+			for _, reference := range references {
+				if _, found := replacementByKey[reference.key]; !found {
+					available = false
+					break
+				}
+				identities = append(identities, reference.identity)
+			}
+			if available {
+				coverage := coverageByPath[semanticCoverageCandidatePathKey(catalogarango.SemanticCoverageCandidatePath{
+					ResourceType: candidate.ResourceType, CanonicalPath: candidate.FieldPath,
+				})]
+				decisions[decisionIndex] = FieldPresentationGroupUnderSemantic{
+					Kind: FieldPresentationDecisionGroup, CandidateID: candidate.ID, CoverageID: coverage.CoverageID,
+					ReplacementIDs: identities, Access: FieldPresentationAccessSourceFields,
+				}
+				for _, reference := range references {
+					groupedReferences[reference.key] = reference
+				}
+			} else {
+				decisions[decisionIndex] = FieldPresentationKeepRaw{Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: FieldPresentationReplacementUnavailable}
+			}
+		}
+		decisionIndex++
+	}
+	replacementKeys := make([]string, 0, len(groupedReferences))
+	for key := range groupedReferences {
+		replacementKeys = append(replacementKeys, key)
+	}
+	sort.Strings(replacementKeys)
+	replacements := make([]SemanticInventoryItem, 0, len(replacementKeys))
+	for _, key := range replacementKeys {
+		replacements = append(replacements, replacementByKey[key])
+	}
+	return choices, FieldPresentationReady{Kind: FieldPresentationResultReady, Context: context, Decisions: decisions, Replacements: replacements}, nil
+}
+
+func semanticInventoryChoicesForExactOccurrence(
+	ctx context.Context,
+	authorized AuthorizedCapability,
+	snapshot capability.Snapshot,
+	rootResourceType string,
+	contextToken, buildID string,
+	entries []catalog.SemanticInventoryEntry,
+	families []catalog.SemanticInventoryFamily,
+	sourceNodeID string,
+	route []capability.ConstructionRouteStep,
+	proofCache map[string]semanticCandidateRouteProof,
+) (map[string]capability.ConstructionChoice, error) {
+	choices := make(map[string]capability.ConstructionChoice)
+	add := func(entry catalog.SemanticInventoryEntry, family *catalog.SemanticInventoryFamily) error {
+		if !authoringv2.ResolveSemanticSelectionPlan(entry.Observation).Readiness.Addable() {
+			return nil
+		}
+		candidate, found := semanticConstructionCandidate(snapshot, entry.Observation)
+		if !found || candidate.NodeID != sourceNodeID || !candidate.Populated {
+			return nil
+		}
+		proof, err := proveSemanticCandidateForRoute(ctx, authorized, rootResourceType, candidate, route, proofCache)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+				return unavailable("catalog", "CONSTRUCTION_ROUTE_PROOF_INTERRUPTED", "compiler proof for the exact field-presentation route was interrupted", err)
+			}
+			return internal("catalog", "CONSTRUCTION_ROUTE_PROOF_FAILED", "compiler proof for the exact field-presentation route failed", err)
+		}
+		fieldChoice, err := capability.NewFieldConstructionChoiceForRoute(snapshot.Token, route, proof.candidate)
+		if err != nil || len(fieldChoice.Options) == 0 {
+			return nil
+		}
+		var choice capability.ConstructionChoice
+		ownerRecordsProved := family == nil && proveOwnerRecordsForRoute(ctx, authorized, rootResourceType, entry.Observation, route)
+		if family != nil {
+			choice, err = semanticCategoryConstructionChoiceForRoute(snapshot, contextToken, buildID, route, *family, proof.candidate)
+		} else {
+			choice, err = semanticInventoryConstructionChoiceForRoute(snapshot, contextToken, buildID, route, entry, proof.candidate, ownerRecordsProved)
+		}
+		if err == nil && len(choice.Options) > 0 && semanticChoiceFieldOptionsMatch(choice, fieldChoice) {
+			choices[semanticChoiceKey(entry.ConceptID, entry.BindingID)] = choice
+		}
+		return nil
+	}
+	for _, entry := range entries {
+		if err := add(entry, nil); err != nil {
+			return nil, err
+		}
+	}
+	for index := range families {
+		family := families[index]
+		if err := add(semanticInventoryEntryForFamily(family), &family); err != nil {
+			return nil, err
+		}
+	}
+	return choices, nil
+}
+
+func proveSemanticCandidateForRoute(
+	ctx context.Context,
+	authorized AuthorizedCapability,
+	rootResourceType string,
+	candidate capability.Candidate,
+	route []capability.ConstructionRouteStep,
+	cache map[string]semanticCandidateRouteProof,
+) (semanticCandidateRouteProof, error) {
+	key := semanticCandidateRouteProofCacheKey(candidate, route)
+	if proof, ok := cache[key]; ok {
+		return proof, nil
+	}
+	proof := semanticCandidateRouteProof{candidate: candidate, route: cloneConstructionRoute(route), ok: true}
+	if len(route) > 0 || strings.HasPrefix(candidate.ID, "schema_field.") {
+		proven, err := proveConstructionCandidate(ctx, authorized, rootResourceType, candidate, route)
+		if err != nil {
+			return semanticCandidateRouteProof{}, err
+		}
+		proof.candidate = proven
+	}
+	cache[key] = proof
+	return proof, nil
+}
+
+func fieldPresentationUnavailable(reason FieldPresentationReason) fieldPresentationResult {
+	return FieldPresentationUnavailable{Kind: FieldPresentationResultUnavailable, Reason: reason}
+}
+
+func semanticCoverageCandidatePathKey(path catalogarango.SemanticCoverageCandidatePath) string {
+	return path.ResourceType + "\x00" + path.CanonicalPath
+}
+
+func fieldPresentationCandidateBatchDigest(candidates []capability.Candidate) (string, error) {
+	identities := make([]struct {
+		ID           string
+		ResourceType string
+		FieldPath    string
+	}, 0, len(candidates))
+	for _, candidate := range candidates {
+		identities = append(identities, struct {
+			ID           string
+			ResourceType string
+			FieldPath    string
+		}{ID: candidate.ID, ResourceType: candidate.ResourceType, FieldPath: candidate.FieldPath})
+	}
+	raw, err := json.Marshal(identities)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(raw)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func fieldPresentationCoverageReason(reason string) (FieldPresentationReason, bool) {
+	value := FieldPresentationReason(reason)
+	switch value {
+	case FieldPresentationMissingSystem, FieldPresentationMissingCode, FieldPresentationTextOnly,
+		FieldPresentationAmbiguousAnchor, FieldPresentationMixedChoice, FieldPresentationUnsupportedValueProjection,
+		FieldPresentationUnsupportedVersion, FieldPresentationUnknownSchemaMember, FieldPresentationUnknownCodeClassification,
+		FieldPresentationUnsupportedSelector, FieldPresentationIncompleteSource, FieldPresentationWalkFailed,
+		FieldPresentationTruncatedEvidence, FieldPresentationUnrepresentedMetadata:
+		return value, true
+	default:
+		return FieldPresentationIncompleteCoverage, false
+	}
+}
+
+func semanticPresentationReferenceFromCoverage(reference catalog.SemanticCoverageReference, candidate capability.Candidate, sourceKind string) (semanticPresentationReference, bool) {
+	if reference.ResourceType != candidate.ResourceType || reference.CandidatePath != candidate.FieldPath {
+		return semanticPresentationReference{}, false
+	}
+	switch reference.Kind {
+	case catalog.SemanticCoverageExactReference:
+		if reference.ConceptID == "" || reference.BindingID == "" {
+			return semanticPresentationReference{}, false
+		}
+		identity := ExactSemanticInventoryItemIdentity{Kind: SemanticInventoryIdentityExact, ConceptID: reference.ConceptID, BindingID: reference.BindingID}
+		exact := catalog.SemanticInventoryReference{ConceptID: reference.ConceptID, BindingID: reference.BindingID}
+		return semanticPresentationReference{identity: identity, key: "EXACT\x00" + reference.BindingID + "\x00" + reference.ConceptID, exact: &exact}, true
+	case catalog.SemanticCoverageFamilyReference:
+		family := reference.Family
+		if family.FamilyID == "" || family.FamilyID != catalog.SemanticInventoryFamilyID(family) ||
+			family.BindingID == "" || family.BindingID != reference.BindingID || family.SourceKind != sourceKind ||
+			family.ResourceType != candidate.ResourceType || family.SourcePath == "" || family.System == "" {
+			return semanticPresentationReference{}, false
+		}
+		identity := FamilySemanticInventoryItemIdentity{Kind: SemanticInventoryIdentityFamily, FamilyID: family.FamilyID, BindingID: family.BindingID}
+		familyCopy := family
+		return semanticPresentationReference{identity: identity, key: "FAMILY\x00" + family.BindingID + "\x00" + family.FamilyID, family: &familyCopy}, true
+	default:
+		return semanticPresentationReference{}, false
+	}
+}
+
+func fieldPresentationRawCandidateChoice(
+	ctx context.Context,
+	authorized AuthorizedCapability,
+	snapshot capability.Snapshot,
+	rootResourceType string,
+	candidate capability.Candidate,
+	route []capability.ConstructionRouteStep,
+	proofCache map[string]semanticCandidateRouteProof,
+) (capability.ConstructionChoice, bool, error) {
+	if !candidate.Populated {
+		return capability.ConstructionChoice{}, false, nil
+	}
+	proof, err := proveSemanticCandidateForRoute(ctx, authorized, rootResourceType, candidate, route, proofCache)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+			return capability.ConstructionChoice{}, false, unavailable("catalog", "FIELD_PRESENTATION_CANDIDATE_PROOF_INTERRUPTED", "compiler proof for the raw field was interrupted", err)
+		}
+		return capability.ConstructionChoice{}, false, internal("catalog", "FIELD_PRESENTATION_CANDIDATE_PROOF_FAILED", "the raw field compiler proof failed", err)
+	}
+	choice, err := capability.NewFieldConstructionChoiceForRoute(snapshot.Token, route, proof.candidate)
+	if err != nil || len(choice.Options) == 0 {
+		return capability.ConstructionChoice{}, false, nil
+	}
+	return choice, true, nil
+}
+
+func (s *Service) resolveFieldPresentationReplacements(
+	ctx context.Context,
+	authorized AuthorizedCapability,
+	snapshot capability.Snapshot,
+	rootResourceType, semanticContextToken, buildID string,
+	current fieldPresentationCurrentContext,
+	references map[string]semanticPresentationReference,
+	proofCache map[string]semanticCandidateRouteProof,
+) (map[string]SemanticInventoryItem, bool, error) {
+	items := make(map[string]SemanticInventoryItem, len(references))
+	if len(references) == 0 {
+		return items, true, nil
+	}
+	if s.config.ResolveSemanticInventorySelections == nil {
+		return items, false, nil
+	}
+	keys := make([]string, 0, len(references))
+	for key := range references {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	exactReferences := make([]catalog.SemanticInventoryReference, 0, len(keys))
+	familyReferences := make([]catalog.SemanticInventoryFamilyReference, 0, len(keys))
+	for _, key := range keys {
+		reference := references[key]
+		if reference.exact != nil {
+			exactReferences = append(exactReferences, *reference.exact)
+		}
+		if reference.family != nil {
+			familyReferences = append(familyReferences, *reference.family)
+		}
+	}
+	unrestricted := authorized.Scope.Mode == authscope.ReadScopeUnrestricted
+	resolved, err := s.config.ResolveSemanticInventorySelections(ctx, catalog.SemanticInventoryResolveOptions{
+		Project: projectid.Legacy(snapshot.Identity.Project), DatasetGeneration: snapshot.Identity.Generation,
+		AuthResourcePathsUnrestricted: &unrestricted,
+		AuthResourcePaths:             append([]string(nil), authorized.Scope.AuthResourcePaths...),
+		References:                    exactReferences, FamilyReferences: familyReferences,
+	})
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+			return nil, false, unavailable("catalog", "FIELD_PRESENTATION_REPLACEMENT_READ_INTERRUPTED", "semantic replacement resolution was interrupted", err)
+		}
+		return nil, false, internal("catalog", "FIELD_PRESENTATION_REPLACEMENT_READ_FAILED", "authorized semantic replacements could not be read", err)
+	}
+	if resolved.State != catalog.SemanticInventoryComplete || resolved.Build.State != catalog.SemanticInventoryComplete || resolved.Build.BuildID != buildID {
+		return items, false, nil
+	}
+	exactEntries := make(map[string][]catalog.SemanticInventoryEntry, len(exactReferences))
+	for _, entry := range resolved.Entries {
+		key := "EXACT\x00" + entry.BindingID + "\x00" + entry.ConceptID
+		if _, requested := references[key]; requested {
+			exactEntries[key] = append(exactEntries[key], entry)
+		}
+	}
+	familyEntries := make(map[string][]catalog.SemanticInventoryFamily, len(familyReferences))
+	for _, family := range resolved.Families {
+		key := "FAMILY\x00" + family.BindingID + "\x00" + family.FamilyID
+		if _, requested := references[key]; requested {
+			familyEntries[key] = append(familyEntries[key], family)
+		}
+	}
+	for _, key := range keys {
+		reference := references[key]
+		var entry catalog.SemanticInventoryEntry
+		var family *catalog.SemanticInventoryFamily
+		if reference.exact != nil {
+			matches := exactEntries[key]
+			if len(matches) != 1 {
+				continue
+			}
+			entry = matches[0]
+		} else if reference.family != nil {
+			matches := familyEntries[key]
+			if len(matches) != 1 {
+				continue
+			}
+			copy := matches[0]
+			family = &copy
+			entry = semanticInventoryEntryForFamily(copy)
+		} else {
+			continue
+		}
+		item, available, _, itemErr := s.semanticFieldPresentationReplacement(
+			ctx, authorized, snapshot, rootResourceType, semanticContextToken, buildID,
+			current, entry, family, proofCache,
+		)
+		if itemErr != nil {
+			return nil, false, itemErr
+		}
+		if available {
+			items[key] = item
+		}
+	}
+	return items, true, nil
+}
+
+func (s *Service) semanticFieldPresentationReplacement(
+	ctx context.Context,
+	authorized AuthorizedCapability,
+	snapshot capability.Snapshot,
+	rootResourceType, semanticContextToken, buildID string,
+	current fieldPresentationCurrentContext,
+	entry catalog.SemanticInventoryEntry,
+	family *catalog.SemanticInventoryFamily,
+	proofCache map[string]semanticCandidateRouteProof,
+) (SemanticInventoryItem, bool, FieldPresentationReason, error) {
+	observation := entry.Observation
+	if !fieldPresentationRuleVisibleInCodedView(observation.RuleHint) {
+		return SemanticInventoryItem{}, false, FieldPresentationReplacementUnavailable, nil
+	}
+	if observation.Population <= 0 {
+		return SemanticInventoryItem{}, false, FieldPresentationCandidateNotPopulated, nil
+	}
+	if !authoringv2.ResolveSemanticSelectionPlan(observation).Readiness.Addable() {
+		return SemanticInventoryItem{}, false, FieldPresentationReplacementUnavailable, nil
+	}
+	candidate, found := semanticConstructionCandidate(snapshot, observation)
+	if !found || candidate.NodeID != current.sourceNodeID || !candidate.Populated {
+		return SemanticInventoryItem{}, false, FieldPresentationReplacementUnavailable, nil
+	}
+	proof, err := proveSemanticCandidateForRoute(ctx, authorized, rootResourceType, candidate, current.route, proofCache)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+			return SemanticInventoryItem{}, false, FieldPresentationReplacementUnavailable, unavailable("catalog", "FIELD_PRESENTATION_REPLACEMENT_PROOF_INTERRUPTED", "compiler proof for a semantic replacement was interrupted", err)
+		}
+		return SemanticInventoryItem{}, false, FieldPresentationReplacementUnavailable, internal("catalog", "FIELD_PRESENTATION_REPLACEMENT_PROOF_FAILED", "compiler proof for a semantic replacement failed", err)
+	}
+	fieldChoice, err := capability.NewFieldConstructionChoiceForRoute(snapshot.Token, current.route, proof.candidate)
+	if err != nil || len(fieldChoice.Options) == 0 {
+		return SemanticInventoryItem{}, false, FieldPresentationSourceFieldsInaccessible, nil
+	}
+	ownerRecordsProved := family == nil && proveOwnerRecordsForRoute(ctx, authorized, rootResourceType, observation, current.route)
+	var choice capability.ConstructionChoice
+	if family != nil {
+		choice, err = semanticCategoryConstructionChoiceForRoute(snapshot, semanticContextToken, buildID, current.route, *family, proof.candidate)
+	} else {
+		choice, err = semanticInventoryConstructionChoiceForRoute(snapshot, semanticContextToken, buildID, current.route, entry, proof.candidate, ownerRecordsProved)
+	}
+	if err != nil || !semanticChoiceFieldOptionsMatch(choice, fieldChoice) || len(choice.Options) == 0 {
+		return SemanticInventoryItem{}, false, FieldPresentationSourceFieldsInaccessible, nil
+	}
+	item := semanticInventoryItemForPresentation(entry, family, proof.candidate, choice)
+	return item, true, "", nil
+}
+
+func fieldPresentationRuleVisibleInCodedView(ruleHint string) bool {
+	switch ruleHint {
+	case catalog.SemanticRuleHintCodedValueV1, catalog.SemanticRuleHintCodedConceptV1, catalog.SemanticRuleHintCodedCategoryV1:
+		return true
+	default:
+		return false
+	}
+}
+
+func semanticInventoryItemForPresentation(
+	entry catalog.SemanticInventoryEntry,
+	family *catalog.SemanticInventoryFamily,
+	candidate capability.Candidate,
+	choice capability.ConstructionChoice,
+) SemanticInventoryItem {
+	observation := entry.Observation
+	plan := authoringv2.ResolveSemanticSelectionPlan(observation)
+	item := SemanticInventoryItem{
+		ConceptID: entry.ConceptID, BindingID: entry.BindingID, ResourceType: observation.Source.Type,
+		SourcePath: observation.Source.Path, System: observation.Key.System, Code: observation.Key.Code,
+		CodingVersion: observation.Key.Version, Display: observation.Key.Display,
+		ValueSelector: observation.Value.Selector, ValueType: observation.Value.Type,
+		OwningScope: observation.OwningScope, Occurrences: observation.Population,
+		Examples: append([]string(nil), observation.Examples...), ExamplesTruncated: observation.ExamplesTruncated,
+		ObservedUnits: append([]string(nil), observation.ObservedUnits...), ObservedUnitsTruncated: observation.ObservedUnitsTruncated,
+		Completeness: observation.Completeness, Readiness: plan.Readiness, ConstructionChoice: &choice,
+	}
+	if family != nil {
+		item.SelectionMode = string(catalog.SemanticInventorySystemVersionCategory)
+		item.FamilyID = family.FamilyID
+		item.Display = semanticCategoryLabel(*family, candidate)
+		item.Code = ""
+	} else if observation.RuleHint == "IDENTIFIER_SYSTEM_VALUE" {
+		item.Display = semanticIdentifierLabel(observation.Key.System)
+	}
+	return item
+}
+
+func (s *Service) fieldPresentationCurrentContext(
+	ctx context.Context,
+	request BrowseSemanticInventoryRequest,
+	snapshot capability.Snapshot,
+) (fieldPresentationCurrentContext, error) {
+	var current fieldPresentationCurrentContext
+	presentation := request.FieldPresentation
+	if presentation == nil {
+		return current, malformed("catalog", "fieldPresentation request is required", nil)
+	}
+	if s.store == nil {
+		return current, unavailable("catalog", "AUTHORING_STATE_UNAVAILABLE", "current Explorer drafts are not configured", nil)
+	}
+	owner, err := s.store.Get(ctx, projectid.Canonical(request.Project), request.ExplorerID)
+	if errors.Is(err, explorer.ErrNotFound) {
+		return current, notFound("catalog", "EXPLORER_NOT_FOUND", "Explorer not found", err)
+	}
+	if err != nil {
+		return current, internal("catalog", "EXPLORER_READ_FAILED", "the current Explorer draft could not be loaded", err)
+	}
+	if owner == nil || owner.ExplorerID != request.ExplorerID || projectid.Canonical(owner.Project) != projectid.Canonical(request.Project) {
+		return current, notFound("catalog", "EXPLORER_NOT_FOUND", "Explorer not found", explorer.ErrNotFound)
+	}
+	if owner.DraftVersion != presentation.ExpectedDraftVersion || owner.DraftDigest != presentation.ExpectedDraftDigest {
+		return current, conflict("catalog", "STALE_FIELD_PRESENTATION_CONTEXT", "the Explorer draft changed; reload before requesting field presentation", nil, explorer.ErrDraftConflict)
+	}
+	if len(owner.DraftConfig) == 0 {
+		return current, conflict("catalog", "STALE_FIELD_PRESENTATION_CONTEXT", "field presentation requires the current saved draft", nil, nil)
+	}
+	workspace, err := authoringv2.DecodeWorkspace(owner.DraftConfig)
+	if err != nil {
+		return current, conflict("catalog", "DRAFT_STATE_INVALID", "the saved Explorer draft is invalid", nil, err)
+	}
+	actualDigest, err := workspace.Digest()
+	if err != nil || actualDigest != owner.DraftDigest {
+		return current, conflict("catalog", "STALE_FIELD_PRESENTATION_CONTEXT", "the saved workspace does not match its draft digest", nil, err)
+	}
+	document := findSemanticOutput(workspace, request.OutputID)
+	if document == nil || document.RootResourceType != request.RowRoot {
+		return current, notFound("catalog", "OUTPUT_NOT_FOUND", "the output was not found for this row root", nil)
+	}
+	node, nodeFound := snapshot.Node(presentation.SourceNodeID)
+	if !nodeFound {
+		return current, conflict("catalog", "STALE_FIELD_PRESENTATION_CONTEXT", "the source node is not present in the authorized snapshot", nil, nil)
+	}
+	occurrencePath, occurrenceFound := routePathToOccurrence(document.Route, presentation.OccurrenceID)
+	if !occurrenceFound || len(occurrencePath) == 0 || occurrencePath[len(occurrencePath)-1].ResourceType != node.ResourceType {
+		return current, conflict("catalog", "STALE_FIELD_PRESENTATION_CONTEXT", "the selected occurrence is not present in the current output route", nil, nil)
+	}
+	candidates := make([]capability.Candidate, 0, len(presentation.CandidateIDs))
+	for _, candidateID := range presentation.CandidateIDs {
+		candidate, found := uniqueCapabilityCandidate(snapshot, candidateID)
+		if !found || candidate.NodeID != presentation.SourceNodeID || candidate.ResourceType != node.ResourceType {
+			return current, conflict("catalog", "STALE_FIELD_PRESENTATION_CONTEXT", "a requested raw candidate is not part of the selected current source node", nil, nil)
+		}
+		candidates = append(candidates, candidate)
+	}
+	route, err := constructionRouteForOccurrence(snapshot, document.RootResourceType, presentation.SourceNodeID, document.Route, presentation.OccurrenceID)
+	if err != nil {
+		return current, conflict("catalog", "STALE_FIELD_PRESENTATION_CONTEXT", "the exact selected output occurrence no longer resolves to the source node", nil, err)
+	}
+	stageID, stageSupported := "", true
+	if presentation.StageID != nil {
+		stageID = *presentation.StageID
+		if stageID != recipe.ConstructionSourceProjectionID {
+			found := false
+			if document.Construction != nil {
+				for _, step := range document.Construction.Steps {
+					if step.ID == stageID {
+						found = true
+						break
+					}
+				}
+			}
+			if !found {
+				return current, conflict("catalog", "STALE_FIELD_PRESENTATION_CONTEXT", "the selected construction stage is not part of the current output", nil, nil)
+			}
+			stageSupported = false
+		}
+	} else if document.Construction != nil && len(document.Construction.Steps) > 0 {
+		stageSupported = false
+	}
+	return fieldPresentationCurrentContext{
+		owner: *owner, document: *document, sourceNodeID: presentation.SourceNodeID, candidates: candidates, route: route,
+		stageID: stageID, stageSupported: stageSupported,
+	}, nil
 }
 
 type semanticInventoryRouteCandidate struct {
