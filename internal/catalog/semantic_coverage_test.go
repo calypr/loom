@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -466,6 +467,55 @@ func TestSemanticCoverageCensusRejectsMalformedJSON(t *testing.T) {
 	}
 	if _, err := semanticCoveragePresence(json.RawMessage(`{`)); err == nil {
 		t.Fatal("malformed occurrence JSON was classified as populated")
+	}
+}
+
+func TestSemanticCoverageIgnoresOnlyRootLoomMetadata(t *testing.T) {
+	index, err := schema.GeneratedIndex()
+	if err != nil {
+		t.Fatalf("load generated FHIR schema: %v", err)
+	}
+	payload := []byte(`{
+		"resourceType":"Observation",
+		"project_id":"project-a",
+		"auth_resource_path":"scope-a",
+		"dataset_generation":"generation-a",
+		"status":"final",
+		"identifier":[{"value":"nested","project_id":"nested-project"}],
+		"mystery":"retain as unknown"
+	}`)
+	original := append([]byte(nil), payload...)
+	census, err := CensusSemanticCoverage(index, "Observation", "metadata-source", payload)
+	if err != nil {
+		t.Fatalf("census root metadata fixture: %v", err)
+	}
+	if !bytes.Equal(payload, original) {
+		t.Fatalf("census mutated caller payload: %s", payload)
+	}
+	unknownPaths := map[string]bool{}
+	unknownCanonicalPaths := map[string]bool{}
+	for _, diagnostic := range census.Diagnostics {
+		if diagnostic.Code == fhirsemantic.WalkUnknownMember {
+			unknownPaths[diagnostic.OwnerPath] = true
+			unknownCanonicalPaths[diagnostic.CanonicalPath] = true
+		}
+	}
+	if unknownPaths["project_id"] || unknownPaths["auth_resource_path"] || unknownPaths["dataset_generation"] {
+		t.Fatalf("root Loom metadata leaked into unknown-member diagnostics: %v", unknownPaths)
+	}
+	if !unknownPaths["identifier[0].project_id"] || !unknownPaths["mystery"] {
+		t.Fatalf("nested same-name or unrelated unknown members were hidden: %v", unknownPaths)
+	}
+	if !unknownCanonicalPaths["identifier[].project_id"] || !unknownCanonicalPaths["mystery"] {
+		t.Fatalf("nested same-name or unrelated canonical paths were hidden: %v", unknownCanonicalPaths)
+	}
+	if census.Counts.UnknownStructureOccurrences != 2 {
+		t.Fatalf("unknown structure count = %d, want nested metadata-like and unrelated unknown only", census.Counts.UnknownStructureOccurrences)
+	}
+	for _, aggregate := range census.Paths {
+		if aggregate.CanonicalPath == "project_id" || aggregate.CanonicalPath == "auth_resource_path" || aggregate.CanonicalPath == "dataset_generation" {
+			t.Fatalf("root metadata was counted as a coverage path: %q", aggregate.CanonicalPath)
+		}
 	}
 }
 
@@ -1145,14 +1195,18 @@ func TestSemanticCoverageClassifiesIdentifierExtensionAndPrimitiveCode(t *testin
 	}
 }
 
-func TestSemanticCoverageRuleVersionChangesOnlyInventoryBuildIdentity(t *testing.T) {
+func TestCoverageVersionsChangeInventoryBuildIDOnly(t *testing.T) {
 	project, generation := "coverage-version-test", "generation-1"
 	currentBuildID := SemanticInventoryBuildID(project, generation)
-	nextCoverageBuildID := semanticInventoryBuildIDWithCoverageRuleVersion(project, generation, SemanticCoverageRuleVersion+1)
-	if currentBuildID == nextCoverageBuildID {
+	nextCoverageRuleBuildID := semanticInventoryBuildIDWithVersions(project, generation, SemanticCoverageRuleVersion+1, SemanticCoverageStorageFormatVersion)
+	if currentBuildID == nextCoverageRuleBuildID {
 		t.Fatal("coverage-rule version change did not invalidate the inventory build")
 	}
-	if currentBuildID != semanticInventoryBuildIDWithCoverageRuleVersion(project, generation, SemanticCoverageRuleVersion) {
+	nextStorageFormatBuildID := semanticInventoryBuildIDWithVersions(project, generation, SemanticCoverageRuleVersion, SemanticCoverageStorageFormatVersion+1)
+	if currentBuildID == nextStorageFormatBuildID {
+		t.Fatal("coverage storage format version change did not invalidate the inventory build")
+	}
+	if currentBuildID != semanticInventoryBuildIDWithVersions(project, generation, SemanticCoverageRuleVersion, SemanticCoverageStorageFormatVersion) {
 		t.Fatal("public inventory build ID does not use the declared coverage-rule version")
 	}
 	observation := SemanticObservation{
@@ -1169,6 +1223,14 @@ func TestSemanticCoverageRuleVersionChangesOnlyInventoryBuildIdentity(t *testing
 	}
 	if contribution.BindingID != "f023b734da3591fdc95dd4cb380e85db8f53c8aa3c3f9ce6109f36deda91a710" {
 		t.Fatalf("coverage-only update changed stable binding identity: %s", contribution.BindingID)
+	}
+	familyID := SemanticInventoryFamilyID(SemanticInventoryFamilyReference{
+		BindingID: contribution.BindingID, SourceKind: contribution.SourceKind,
+		ResourceType: contribution.Observation.Source.Type, SourcePath: contribution.Observation.Source.Path,
+		System: contribution.Observation.Key.System, Version: contribution.Observation.Key.Version,
+	})
+	if familyID != "5a1d0687a60a4bf110b1b1bdb1901cf8b59d172a26474881adf7991154e3204d" {
+		t.Fatalf("coverage-only update changed stable family identity: %s", familyID)
 	}
 	if contribution.BuildID != currentBuildID {
 		t.Fatalf("semantic contribution build ID = %q, want current coverage build %q", contribution.BuildID, currentBuildID)

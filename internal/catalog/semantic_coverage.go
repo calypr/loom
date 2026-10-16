@@ -15,6 +15,7 @@ import (
 type SemanticCoverageOccurrenceKind string
 
 const SemanticCoverageRuleVersion = 1
+const SemanticCoverageStorageFormatVersion = 1
 
 const (
 	SemanticCoverageCodeableConcept  SemanticCoverageOccurrenceKind = "CODEABLE_CONCEPT"
@@ -555,6 +556,28 @@ func joinCoveragePath(prefix, member string) string {
 	return prefix + "." + member
 }
 
+func semanticCoveragePayloadWithoutLoomRootMetadata(payload []byte) ([]byte, error) {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &root); err != nil || root == nil {
+		return payload, nil
+	}
+	filtered := false
+	for key := range root {
+		if isLoomMetadataField(key) {
+			delete(root, key)
+			filtered = true
+		}
+	}
+	if !filtered {
+		return payload, nil
+	}
+	filteredPayload, err := json.Marshal(root)
+	if err != nil {
+		return nil, fmt.Errorf("remove Loom root metadata before semantic coverage census: %w", err)
+	}
+	return filteredPayload, nil
+}
+
 // CensusSemanticCoverage counts concrete CodeableConcept and Coding owners
 // from generated schema facts. It runs independently of semantic emission.
 func CensusSemanticCoverage(index *schema.Index, resourceType, sourceID string, payload []byte) (SemanticCoverageCensus, error) {
@@ -566,6 +589,10 @@ func CensusSemanticCoverage(index *schema.Index, resourceType, sourceID string, 
 	}
 	if sourceID == "" {
 		return SemanticCoverageCensus{}, fmt.Errorf("census semantic coverage for %q: source ID is empty", resourceType)
+	}
+	walkPayload, err := semanticCoveragePayloadWithoutLoomRootMetadata(payload)
+	if err != nil {
+		return SemanticCoverageCensus{}, err
 	}
 	census := SemanticCoverageCensus{
 		ResourceType: resourceType,
@@ -586,7 +613,7 @@ func CensusSemanticCoverage(index *schema.Index, resourceType, sourceID string, 
 	diagnostics, walkErr := fhirsemantic.WalkMembersWithResourceTypes(
 		index,
 		schema.DefinitionName(resourceType),
-		payload,
+		walkPayload,
 		allowedResourceTypes,
 		func(fact fhirsemantic.MemberFact) error {
 			for _, boundary := range fact.ResourceBoundaries {
@@ -616,7 +643,7 @@ func CensusSemanticCoverage(index *schema.Index, resourceType, sourceID string, 
 		})
 	}
 	census.Diagnostics = diagnostics
-	if err := recordSemanticCoverageUnknownSubtrees(payload, diagnostics, &census, aggregates); err != nil {
+	if err := recordSemanticCoverageUnknownSubtrees(walkPayload, diagnostics, &census, aggregates); err != nil {
 		return SemanticCoverageCensus{}, fmt.Errorf("census unknown semantic coverage subtrees for %q source %q: %w", resourceType, sourceID, err)
 	}
 	census.Paths = make([]SemanticCoveragePathAggregate, 0, len(aggregates))
