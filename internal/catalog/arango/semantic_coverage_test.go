@@ -147,19 +147,16 @@ func TestWriteSemanticCoverageDocumentsValidatesBeforeWriting(t *testing.T) {
 	}
 }
 
-func TestEncodeSemanticCoverageContributionCreatesOneNestedEnvelope(t *testing.T) {
+func TestEncodeSemanticCoverageSourceEnvelopeCreatesOneNestedEnvelope(t *testing.T) {
 	contribution := semanticCoverageFixtureContribution()
 	contribution.DiagnosticLocatorsTruncated = true
-	documents, err := EncodeSemanticCoverageContribution(contribution.BuildID, contribution)
+	encoded, err := EncodeSemanticCoverageSourceEnvelope(contribution.BuildID, contribution)
 	if err != nil {
 		t.Fatalf("encode semantic coverage: %v", err)
 	}
-	if len(documents) != 1 {
-		t.Fatalf("encoded documents = %d, want one source envelope", len(documents))
-	}
 
 	var source semanticCoverageSourceEnvelope
-	if err := json.Unmarshal(documents[0], &source); err != nil {
+	if err := json.Unmarshal(encoded, &source); err != nil {
 		t.Fatal(err)
 	}
 	if source.RecordKind != semanticCoverageEnvelopeRecordKind || source.CoverageStorageFormatVersion != catalog.SemanticCoverageStorageFormatVersion || source.SourceRecordCount != 1 || source.BuildID != contribution.BuildID || source.SourceID != contribution.Identity.SourceID {
@@ -180,7 +177,7 @@ func TestEncodeSemanticCoverageContributionCreatesOneNestedEnvelope(t *testing.T
 	if len(source.Paths[0].Path.Facets) != 2 || source.Paths[0].Path.Facets[0].Path != "coding[].code" {
 		t.Fatalf("nested facet aggregates = %#v", source.Paths[0].Path.Facets)
 	}
-	serialized := string(documents[0])
+	serialized := string(encoded)
 	for _, forbidden := range []string{"clinical-value", "secret-code-value"} {
 		if strings.Contains(serialized, forbidden) {
 			t.Fatalf("coverage persistence retained raw value %q: %s", forbidden, serialized)
@@ -191,7 +188,7 @@ func TestEncodeSemanticCoverageContributionCreatesOneNestedEnvelope(t *testing.T
 	}
 }
 
-func TestEncodeSemanticCoverageContributionBlocksGroupingForProofTruncation(t *testing.T) {
+func TestEncodeSemanticCoverageSourceEnvelopeBlocksGroupingForProofTruncation(t *testing.T) {
 	for name, mutate := range map[string]func(*catalog.SemanticCoverageSourceContribution){
 		"source counts": func(contribution *catalog.SemanticCoverageSourceContribution) { contribution.CountsTruncated = true },
 		"source facets": func(contribution *catalog.SemanticCoverageSourceContribution) { contribution.FacetsTruncated = true },
@@ -211,12 +208,12 @@ func TestEncodeSemanticCoverageContributionBlocksGroupingForProofTruncation(t *t
 		t.Run(name, func(t *testing.T) {
 			contribution := semanticCoverageFixtureContribution()
 			mutate(&contribution)
-			documents, err := EncodeSemanticCoverageContribution(contribution.BuildID, contribution)
+			encoded, err := EncodeSemanticCoverageSourceEnvelope(contribution.BuildID, contribution)
 			if err != nil {
 				t.Fatalf("encode semantic coverage: %v", err)
 			}
 			var envelope semanticCoverageSourceEnvelope
-			if err := json.Unmarshal(documents[0], &envelope); err != nil {
+			if err := json.Unmarshal(encoded, &envelope); err != nil {
 				t.Fatal(err)
 			}
 			if len(envelope.Paths) != 1 || envelope.Paths[0].Groupable {
@@ -226,13 +223,13 @@ func TestEncodeSemanticCoverageContributionBlocksGroupingForProofTruncation(t *t
 	}
 }
 
-func TestEncodeSemanticCoverageContributionRequiresExactBuildAndSourceIdentity(t *testing.T) {
+func TestEncodeSemanticCoverageSourceEnvelopeRequiresExactBuildAndSourceIdentity(t *testing.T) {
 	contribution := semanticCoverageFixtureContribution()
-	if _, err := EncodeSemanticCoverageContribution("other-build", contribution); err == nil {
+	if _, err := EncodeSemanticCoverageSourceEnvelope("other-build", contribution); err == nil {
 		t.Fatal("contribution from another build was accepted")
 	}
 	contribution.SourceRecordCount = 0
-	if _, err := EncodeSemanticCoverageContribution(contribution.BuildID, contribution); err == nil {
+	if _, err := EncodeSemanticCoverageSourceEnvelope(contribution.BuildID, contribution); err == nil {
 		t.Fatal("source contribution without one source record was accepted")
 	}
 }
@@ -242,12 +239,12 @@ func TestEmptySchemaIdentityPersistsIncompleteSourceWithoutGrouping(t *testing.T
 	contribution.Identity.SchemaIdentity = ""
 	contribution.Complete = false
 	contribution.IncompleteGaps = []catalog.SemanticCoverageCensusGap{catalog.SemanticCoverageGapSchemaIdentity}
-	documents, err := EncodeSemanticCoverageContribution(contribution.BuildID, contribution)
+	encoded, err := EncodeSemanticCoverageSourceEnvelope(contribution.BuildID, contribution)
 	if err != nil {
 		t.Fatalf("encode incomplete empty-schema contribution: %v", err)
 	}
 	var source semanticCoverageSourceEnvelope
-	if err := json.Unmarshal(documents[0], &source); err != nil {
+	if err := json.Unmarshal(encoded, &source); err != nil {
 		t.Fatal(err)
 	}
 	if source.SchemaIdentity != "" || source.Complete || len(source.Paths) != 1 || source.Paths[0].Groupable {
@@ -255,18 +252,15 @@ func TestEmptySchemaIdentityPersistsIncompleteSourceWithoutGrouping(t *testing.T
 	}
 }
 
-func TestEncodeSemanticCoverageContributionKeepsZeroObservationSource(t *testing.T) {
+func TestEncodeSemanticCoverageSourceEnvelopeKeepsZeroObservationSource(t *testing.T) {
 	contribution := semanticCoverageFixtureContribution()
 	contribution.Paths = nil
-	documents, err := EncodeSemanticCoverageContribution(contribution.BuildID, contribution)
+	encoded, err := EncodeSemanticCoverageSourceEnvelope(contribution.BuildID, contribution)
 	if err != nil {
 		t.Fatalf("encode empty semantic coverage source: %v", err)
 	}
-	if len(documents) != 1 {
-		t.Fatalf("zero-observation source documents = %d, want one sentinel", len(documents))
-	}
 	var source semanticCoverageSourceEnvelope
-	if err := json.Unmarshal(documents[0], &source); err != nil {
+	if err := json.Unmarshal(encoded, &source); err != nil {
 		t.Fatal(err)
 	}
 	if source.RecordKind != semanticCoverageEnvelopeRecordKind || source.SourceRecordCount != 1 || source.SourceID != contribution.Identity.SourceID || len(source.Paths) != 0 {
@@ -698,6 +692,58 @@ func TestFacetProofTruncationKeepsExactCandidateRaw(t *testing.T) {
 	}
 }
 
+func TestSemanticCoverageExactFacetIgnoresRawSiblingAndOwnerDisposition(t *testing.T) {
+	client := newSemanticCoverageMemoryClient()
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buildID := catalog.SemanticInventoryBuildID("project", "generation")
+	identity := SemanticCoverageBuildIdentity{
+		Project: "project", DatasetGeneration: "generation", BuildID: buildID,
+		SchemaIdentity: "schema", SourceKind: catalog.SemanticInventorySourceRetained,
+	}
+	contribution := semanticCoverageFixtureContribution()
+	contribution.BuildID = buildID
+	contribution.Identity.SchemaIdentity = identity.SchemaIdentity
+	contribution.Paths[0].Disposition = catalog.SemanticCoverageRawRetainedDisposition
+	contribution.Paths[0].Reason = catalog.SemanticCoverageReasonUnrepresentedMetadata
+	display := contribution.Paths[0].Facets[0]
+	display.Path = "coding[].display"
+	display.Kind = "string"
+	contribution.Paths[0].Facets = append(contribution.Paths[0].Facets, display)
+	if _, err := adapter.WriteSemanticCoverageContributions(context.Background(), buildID, []catalog.SemanticCoverageSourceContribution{contribution}, 10); err != nil {
+		t.Fatal(err)
+	}
+	completeSemanticCoverageMemoryBuild(t, adapter, identity, contribution)
+
+	lookup := func(path string) SemanticCoverageCandidateResult {
+		t.Helper()
+		result, err := adapter.LookupSemanticCoverage(context.Background(), SemanticCoverageLookupOptions{
+			Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, BuildID: buildID,
+			SchemaIdentity: identity.SchemaIdentity, SourceKind: identity.SourceKind,
+			AuthResourcePaths: []string{contribution.Identity.AuthResourcePath},
+			Candidates:        []SemanticCoverageCandidatePath{{ResourceType: contribution.Identity.ResourceType, CanonicalPath: path}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result.Candidates[0]
+	}
+	code := lookup("coding[].code")
+	if code.Status != SemanticCoverageCandidateGroupable || len(code.References) == 0 {
+		t.Fatalf("semantic code facet = %+v, want GROUPABLE with exact refs despite raw owner/sibling", code)
+	}
+	displayResult := lookup("coding[].display")
+	if displayResult.Status != SemanticCoverageCandidateGroupable || len(displayResult.References) == 0 {
+		t.Fatalf("semantic display facet = %+v, want GROUPABLE with exact refs despite raw owner/sibling", displayResult)
+	}
+	userSelected := lookup("coding[].userSelected")
+	if userSelected.Status != SemanticCoverageCandidateKeepRaw || userSelected.Reason != catalog.SemanticCoverageReasonUnrepresentedMetadata || len(userSelected.References) != 0 {
+		t.Fatalf("raw userSelected sibling = %+v, want KEEP_RAW without inherited refs", userSelected)
+	}
+}
+
 func TestIncompletePathlessPartitionCannotBorrowProofFromAnotherAuthorizedPartition(t *testing.T) {
 	client := newSemanticCoverageMemoryClient()
 	adapter, err := New(client)
@@ -1045,6 +1091,29 @@ func TestSemanticCoverageLookupPropagatesErrorsAndSeparatesBuildStates(t *testin
 	client.queryErr = errors.New("injected query error")
 	if _, err := adapter.LookupSemanticCoverage(context.Background(), options); err == nil || !strings.Contains(err.Error(), "injected query error") {
 		t.Fatalf("query failure = %v, want propagated error", err)
+	}
+}
+
+func TestSemanticCoverageUnrestrictedLookupBindsAnEmptyAuthArray(t *testing.T) {
+	client := &semanticCoverageTestClient{}
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, generation := "project", "generation"
+	_, err = adapter.LookupSemanticCoverage(context.Background(), SemanticCoverageLookupOptions{
+		Project: project, DatasetGeneration: generation,
+		BuildID:        catalog.SemanticInventoryBuildID(project, generation),
+		SchemaIdentity: "schema", SourceKind: catalog.SemanticInventorySourceRetained,
+		AuthResourcePathsUnrestricted: true,
+		Candidates:                    []SemanticCoverageCandidatePath{{ResourceType: "Specimen", CanonicalPath: "status"}},
+	})
+	if err != nil {
+		t.Fatalf("unrestricted lookup: %v", err)
+	}
+	paths, ok := client.queryVars["auth_resource_paths"].([]string)
+	if !ok || paths == nil || len(paths) != 0 {
+		t.Fatalf("unrestricted auth bind = %#v, want non-nil empty string array", client.queryVars["auth_resource_paths"])
 	}
 }
 

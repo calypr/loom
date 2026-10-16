@@ -363,17 +363,6 @@ func SemanticCoverageCollectionSpec() store.CollectionSpec {
 	}
 }
 
-// EncodeSemanticCoverageContribution encodes one bounded source envelope. Its
-// key is the physical source locator and excludes authorization so replay can
-// atomically replace a changed auth path or source shape.
-func EncodeSemanticCoverageContribution(buildID string, contribution catalog.SemanticCoverageSourceContribution) ([]json.RawMessage, error) {
-	encoded, err := EncodeSemanticCoverageSourceEnvelope(buildID, contribution)
-	if err != nil {
-		return nil, err
-	}
-	return []json.RawMessage{encoded}, nil
-}
-
 func semanticCoveragePathAggregateKey(path catalog.SemanticCoveragePathAggregate) string {
 	return semanticCoverageDocumentKey(path.CanonicalPath, path.ResourceBoundarySignature, string(path.Kind), string(path.Disposition), string(path.Reason))
 }
@@ -438,11 +427,11 @@ func (s *Store) WriteSemanticCoverageContributions(ctx context.Context, buildID 
 			return err
 		}
 		for index, contribution := range chunk {
-			encoded, err := EncodeSemanticCoverageContribution(buildID, contribution)
+			encoded, err := EncodeSemanticCoverageSourceEnvelope(buildID, contribution)
 			if err != nil {
 				return stats, fmt.Errorf("encode semantic coverage source %d: %w", start+index, err)
 			}
-			document := encoded[0]
+			document := encoded
 			if len(batch) > 0 && (len(batch) >= batchSize || batchBytes+len(document) > semanticCoverageMaximumWriteBatchBytes) {
 				if err := flush(); err != nil {
 					return stats, fmt.Errorf("replace semantic coverage source envelopes: %w", err)
@@ -749,38 +738,6 @@ func (s *Store) FailSemanticCoverageBuild(ctx context.Context, identity Semantic
 		return err
 	}
 	return s.writeSemanticCoverageBuildMarker(ctx, identity, SemanticCoverageBuildFailed, boundedSemanticCoverageReason(reason), 0, 0, 0)
-}
-
-// CompleteSemanticCoverageBuild is retained for older callers, but source
-// counts alone cannot prove the complete resource set. It therefore cannot
-// publish a groupable build. New callers must use FinalizeSemanticCoverageBuild.
-func (s *Store) CompleteSemanticCoverageBuild(
-	ctx context.Context,
-	identity SemanticCoverageBuildIdentity,
-	expectedSourceCount int64,
-	sourceAvailabilityProven bool,
-	unavailableReason string,
-	_ int,
-) error {
-	if err := validateSemanticCoverageBuildIdentity(identity); err != nil {
-		return err
-	}
-	if expectedSourceCount < 0 {
-		return ErrInvalidSemanticCoverageRead
-	}
-	if identity.SchemaIdentity == "" {
-		return s.writeSemanticCoverageBuildMarker(ctx, identity, SemanticCoverageBuildUnavailable, "SOURCE_SCHEMA_IDENTITY_UNAVAILABLE", expectedSourceCount, 0, 0)
-	}
-	if !sourceAvailabilityProven {
-		if unavailableReason == "" {
-			unavailableReason = "SOURCE_AVAILABILITY_UNPROVEN"
-		}
-		return s.writeSemanticCoverageBuildMarker(ctx, identity, SemanticCoverageBuildUnavailable, boundedSemanticCoverageReason(unavailableReason), expectedSourceCount, 0, 0)
-	}
-	if unavailableReason == "" {
-		unavailableReason = "RESOURCE_CERTIFICATES_REQUIRED"
-	}
-	return s.writeSemanticCoverageBuildMarker(ctx, identity, SemanticCoverageBuildPartial, boundedSemanticCoverageReason(unavailableReason), expectedSourceCount, 0, 0)
 }
 
 // FinalizeSemanticCoverageBuild publishes the global build marker only after
@@ -1449,9 +1406,7 @@ func (m *semanticCoverageMaterializer) addEnvelope(source semanticCoverageStored
 				summaryKind: "facet",
 			}
 			facetDocument, found := facets[facetKey]
-			currentGroupable := envelopePath.Groupable && facet.ResourceBoundarySignature == "" &&
-				facet.Disposition == string(catalog.SemanticCoverageSemanticDisposition) &&
-				!facet.ReferencesTruncated && len(facet.References) > 0
+			currentGroupable := semanticCoverageFacetGroupable(source, path, facet)
 			if !found {
 				facetDocument = source
 				facetDocument.RecordKind = "facet"
@@ -1489,6 +1444,21 @@ func (m *semanticCoverageMaterializer) addEnvelope(source semanticCoverageStored
 		}
 	}
 	return nil
+}
+
+func semanticCoverageFacetGroupable(
+	source semanticCoverageStoredDocument,
+	ownerPath *semanticCoverageStoredPath,
+	facet semanticCoverageStoredFacet,
+) bool {
+	return source.Complete && source.SchemaIdentity != "" &&
+		!source.CountsTruncated && !source.FacetsTruncated && !source.ReferencesTruncated &&
+		!source.ReconciliationTruncated && len(source.IncompleteGaps) == 0 &&
+		ownerPath.ResourceBoundarySignature == "" &&
+		!ownerPath.CountsTruncated && !ownerPath.FacetsTruncated && !ownerPath.ReferencesTruncated &&
+		facet.ResourceBoundarySignature == "" &&
+		facet.Disposition == string(catalog.SemanticCoverageSemanticDisposition) &&
+		!facet.ReferencesTruncated && len(facet.References) > 0
 }
 
 func sortedSemanticCoverageSourceAggregateKeys(documents map[semanticCoverageSummaryKey]semanticCoverageStoredDocument) []semanticCoverageSummaryKey {
@@ -2263,7 +2233,8 @@ func (s *Store) LookupSemanticCoverage(ctx context.Context, options SemanticCove
 	}
 	sort.Strings(resourceTypes)
 	resourceTypes = compactAuthPaths(resourceTypes)
-	authPaths := append([]string(nil), options.AuthResourcePaths...)
+	authPaths := make([]string, 0, len(options.AuthResourcePaths))
+	authPaths = append(authPaths, options.AuthResourcePaths...)
 	sort.Strings(authPaths)
 	authPaths = compactAuthPaths(authPaths)
 	sourceProofLimit := semanticCoverageMaximumPartitions + 1
