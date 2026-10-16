@@ -1604,12 +1604,17 @@ export const registry = Object.freeze([
             command: [
               'vitest', 'run', '--config', 'vitest.config.ts',
               'ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx',
+              'ui/packages/loom-ui/src/api.unit.test.ts',
               'ui/packages/loom-ui/src/types.unit.test.ts',
             ],
             sourceFiles: [
               'ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts',
               'ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/components/CatalogSelectionOptions.tsx',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx',
+              'ui/packages/loom-ui/src/api.ts',
               'ui/packages/loom-ui/src/types.ts',
+              'testdata/semantic-field-presentation-ready.json',
             ],
           },
         ],
