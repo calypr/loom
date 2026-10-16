@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -54,6 +55,7 @@ const (
 	SemanticCoverageGapEmissionEvidence   SemanticCoverageCensusGap = "EMISSION_RECONCILIATION"
 	SemanticCoverageGapOccurrenceClassify SemanticCoverageCensusGap = "OCCURRENCE_DISPOSITION_CLASSIFICATION"
 	SemanticCoverageGapSchemaIdentity     SemanticCoverageCensusGap = "SOURCE_SCHEMA_IDENTITY"
+	SemanticCoverageGapWalkerLimit        SemanticCoverageCensusGap = "RESOURCE_WALK_LIMIT"
 )
 
 type SemanticCoverageDispositionKind string
@@ -141,8 +143,8 @@ type SemanticCoverageSourceIdentity struct {
 	ResourceType      string
 }
 
-// SemanticCoverageSourceContribution is aggregated by source and canonical
-// path. It contains a source sentinel even when Paths is empty.
+// SemanticCoverageSourceContribution is aggregated by source, canonical path,
+// and Resource boundary signature. It contains a source sentinel even when Paths is empty.
 type SemanticCoverageSourceContribution struct {
 	Identity                    SemanticCoverageSourceIdentity
 	BuildID                     string
@@ -350,8 +352,8 @@ type SemanticCodeableConceptTemplate struct {
 }
 
 // SemanticCoveragePathAggregate keeps the durable census shape aggregated by
-// generated canonical path. Concrete owner paths are bounded witnesses for
-// diagnostics and tests; source values are never retained.
+// generated canonical path and subtype boundary signature. Concrete owner paths
+// are bounded witnesses for diagnostics and tests; source values are never retained.
 type SemanticCoveragePathAggregate struct {
 	CanonicalPath             string
 	Kind                      SemanticCoverageOccurrenceKind
@@ -374,35 +376,38 @@ type SemanticCoveragePathAggregate struct {
 }
 
 type SemanticCoverageCensus struct {
-	ResourceType      string
-	SourceID          string `json:"-"`
-	Identity          SemanticCoverageSourceIdentity
-	Status            SemanticCoverageCensusStatus
-	IncompleteGaps    []SemanticCoverageCensusGap
-	Counts            SemanticCoverageCounts
-	EvidenceTruncated bool
-	Paths             []SemanticCoveragePathAggregate
-	Diagnostics       []fhirsemantic.WalkDiagnostic
-	occurrences       []semanticCoverageOccurrence
+	ResourceType       string
+	SourceID           string `json:"-"`
+	Identity           SemanticCoverageSourceIdentity
+	Status             SemanticCoverageCensusStatus
+	IncompleteGaps     []SemanticCoverageCensusGap
+	Counts             SemanticCoverageCounts
+	EvidenceTruncated  bool
+	Paths              []SemanticCoveragePathAggregate
+	Diagnostics        []fhirsemantic.WalkDiagnostic
+	resourceBoundaries map[string]fhirsemantic.ResourceBoundary
+	occurrences        []semanticCoverageOccurrence
 }
 
 type semanticCoverageOccurrence struct {
-	CanonicalPath string
-	OwnerPath     string
-	Kind          SemanticCoverageOccurrenceKind
-	Presence      SemanticCoveragePresence
-	System        string
-	Version       string
-	Code          string
-	Text          string
-	HasCoding     bool
-	HasValue      bool
-	Facets        map[string]map[SemanticCoveragePresence]int64
+	CanonicalPath      string
+	OwnerPath          string
+	ResourceBoundaries []fhirsemantic.ResourceBoundary
+	Kind               SemanticCoverageOccurrenceKind
+	Presence           SemanticCoveragePresence
+	System             string
+	Version            string
+	Code               string
+	Text               string
+	HasCoding          bool
+	HasValue           bool
+	Facets             map[string]map[SemanticCoveragePresence]int64
 }
 
 const semanticCoverageMaxOwnerPathWitnesses = 16
 const semanticCoverageMaxReferencesPerPath = 64
 const semanticCoverageMaxDiagnostics = 64
+const semanticCoverageMaxResourceBoundaries = fhirsemantic.WalkMembersWithResourceTypesMaxFacts
 
 // DiscoverSemanticCodeableConceptTemplates walks every generated concrete
 // resource root. Recursive definitions are recorded as cycle witnesses instead
@@ -569,14 +574,46 @@ func CensusSemanticCoverage(index *schema.Index, resourceType, sourceID string, 
 			SourceID:     sourceID,
 			ResourceType: resourceType,
 		},
-		Status: SemanticCoverageCensusComplete,
+		Status:             SemanticCoverageCensusComplete,
+		resourceBoundaries: make(map[string]fhirsemantic.ResourceBoundary),
 	}
 	aggregates := make(map[string]*SemanticCoveragePathAggregate)
-	diagnostics, err := fhirsemantic.WalkMembers(index, schema.DefinitionName(resourceType), payload, func(fact fhirsemantic.MemberFact) error {
-		return recordSemanticCoverageFact(index, fact, &census, aggregates)
-	})
-	if err != nil {
-		return SemanticCoverageCensus{}, fmt.Errorf("census semantic coverage for %q source %q: %w", resourceType, sourceID, err)
+	resourceTypes := schema.ResourceTypes()
+	allowedResourceTypes := make([]schema.ResourceType, len(resourceTypes))
+	for typeIndex, allowedType := range resourceTypes {
+		allowedResourceTypes[typeIndex] = schema.ResourceType(allowedType)
+	}
+	diagnostics, walkErr := fhirsemantic.WalkMembersWithResourceTypes(
+		index,
+		schema.DefinitionName(resourceType),
+		payload,
+		allowedResourceTypes,
+		func(fact fhirsemantic.MemberFact) error {
+			for _, boundary := range fact.ResourceBoundaries {
+				if _, exists := census.resourceBoundaries[boundary.OwnerPath]; exists {
+					continue
+				}
+				if len(census.resourceBoundaries) == semanticCoverageMaxResourceBoundaries {
+					census.EvidenceTruncated = true
+					continue
+				}
+				census.resourceBoundaries[boundary.OwnerPath] = boundary
+			}
+			return recordSemanticCoverageFact(index, fact, &census, aggregates)
+		},
+	)
+	if walkErr != nil {
+		var limitErr *fhirsemantic.WalkLimitError
+		if !errors.As(walkErr, &limitErr) {
+			return SemanticCoverageCensus{}, fmt.Errorf("census semantic coverage for %q source %q: %w", resourceType, sourceID, walkErr)
+		}
+		census.Status = SemanticCoverageCensusPartial
+		if !hasSemanticCoverageGap(census.IncompleteGaps, SemanticCoverageGapWalkerLimit) {
+			census.IncompleteGaps = append(census.IncompleteGaps, SemanticCoverageGapWalkerLimit)
+		}
+		diagnostics = append(diagnostics, fhirsemantic.WalkDiagnostic{
+			Code: fhirsemantic.WalkDiagnosticCode("WALK_LIMIT_" + string(limitErr.Kind)),
+		})
 	}
 	census.Diagnostics = diagnostics
 	if err := recordSemanticCoverageUnknownSubtrees(payload, diagnostics, &census, aggregates); err != nil {
@@ -594,7 +631,10 @@ func CensusSemanticCoverage(index *schema.Index, resourceType, sourceID string, 
 		if census.Paths[i].CanonicalPath != census.Paths[j].CanonicalPath {
 			return census.Paths[i].CanonicalPath < census.Paths[j].CanonicalPath
 		}
-		return census.Paths[i].Kind < census.Paths[j].Kind
+		if census.Paths[i].Kind != census.Paths[j].Kind {
+			return census.Paths[i].Kind < census.Paths[j].Kind
+		}
+		return census.Paths[i].ResourceBoundarySignature < census.Paths[j].ResourceBoundarySignature
 	})
 	return census, nil
 }
@@ -629,17 +669,20 @@ func recordSemanticCoverageFact(
 	if err != nil {
 		return fmt.Errorf("classify presence at %q: %w", fact.OwnerPath, err)
 	}
+	resourceBoundaries := append([]fhirsemantic.ResourceBoundary(nil), fact.ResourceBoundaries...)
+	resourceBoundarySignature := semanticCoverageResourceBoundarySignature(resourceBoundaries)
 	for _, kind := range kinds {
-		key := string(kind) + "\x00" + fact.CanonicalPath
+		key := strings.Join([]string{string(kind), fact.CanonicalPath, resourceBoundarySignature}, "\x00")
 		aggregate := aggregates[key]
 		if aggregate == nil {
 			aggregate = &SemanticCoveragePathAggregate{
-				CanonicalPath:       fact.CanonicalPath,
-				Kind:                kind,
-				PresenceCounts:      make(map[SemanticCoveragePresence]int64),
-				CollectionCounts:    make(map[SemanticCoveragePresence]int64),
-				FacetPresenceCounts: make(map[string]map[SemanticCoveragePresence]int64),
-				OwnerPathWitnesses:  make([]string, 0, semanticCoverageMaxOwnerPathWitnesses),
+				CanonicalPath:             fact.CanonicalPath,
+				Kind:                      kind,
+				ResourceBoundarySignature: resourceBoundarySignature,
+				PresenceCounts:            make(map[SemanticCoveragePresence]int64),
+				CollectionCounts:          make(map[SemanticCoveragePresence]int64),
+				FacetPresenceCounts:       make(map[string]map[SemanticCoveragePresence]int64),
+				OwnerPathWitnesses:        make([]string, 0, semanticCoverageMaxOwnerPathWitnesses),
 			}
 			aggregates[key] = aggregate
 		}
@@ -675,11 +718,12 @@ func recordSemanticCoverageFact(
 		}
 		incrementSemanticCoverageOccurrenceCount(&census.Counts, aggregate, kind, presence)
 		occurrence := semanticCoverageOccurrence{
-			CanonicalPath: fact.CanonicalPath,
-			OwnerPath:     fact.OwnerPath,
-			Kind:          kind,
-			Presence:      presence,
-			Facets:        make(map[string]map[SemanticCoveragePresence]int64),
+			CanonicalPath:      fact.CanonicalPath,
+			OwnerPath:          fact.OwnerPath,
+			ResourceBoundaries: resourceBoundaries,
+			Kind:               kind,
+			Presence:           presence,
+			Facets:             make(map[string]map[SemanticCoveragePresence]int64),
 		}
 		if kind == SemanticCoveragePrimitiveCode || kind == SemanticCoverageExtensionValue {
 			occurrence.HasValue = presence == SemanticCoveragePopulated || presence == SemanticCoverageBlank
@@ -815,16 +859,18 @@ func recordSemanticCoverageUnknownSubtrees(
 	aggregates map[string]*SemanticCoveragePathAggregate,
 ) error {
 	for _, diagnostic := range diagnostics {
-		if diagnostic.Code != fhirsemantic.WalkUnknownMember {
+		if diagnostic.Code != fhirsemantic.WalkUnknownMember && diagnostic.Code != fhirsemantic.WalkUnresolvedResourceType {
 			continue
 		}
 		raw, ok, err := rawJSONAtConcretePath(payload, diagnostic.OwnerPath)
 		if err != nil {
-			return fmt.Errorf("read unknown member at %q: %w", diagnostic.OwnerPath, err)
+			return fmt.Errorf("read unknown schema subtree at %q: %w", diagnostic.OwnerPath, err)
 		}
 		if !ok {
 			census.Status = SemanticCoverageCensusPartial
-			census.IncompleteGaps = append(census.IncompleteGaps, SemanticCoverageGapUnknownSubtrees)
+			if !hasSemanticCoverageGap(census.IncompleteGaps, SemanticCoverageGapUnknownSubtrees) {
+				census.IncompleteGaps = append(census.IncompleteGaps, SemanticCoverageGapUnknownSubtrees)
+			}
 			continue
 		}
 		presence, err := semanticCoveragePresence(raw)
@@ -832,15 +878,18 @@ func recordSemanticCoverageUnknownSubtrees(
 			return fmt.Errorf("classify unknown member at %q: %w", diagnostic.OwnerPath, err)
 		}
 		kind := SemanticCoverageUnknownStructure
-		key := string(kind) + "\x00" + diagnostic.CanonicalPath
+		resourceBoundaries := semanticCoverageResourceBoundariesAtPath(census.resourceBoundaries, diagnostic.OwnerPath)
+		resourceBoundarySignature := semanticCoverageResourceBoundarySignature(resourceBoundaries)
+		key := strings.Join([]string{string(kind), diagnostic.CanonicalPath, resourceBoundarySignature}, "\x00")
 		aggregate := aggregates[key]
 		if aggregate == nil {
 			aggregate = &SemanticCoveragePathAggregate{
-				CanonicalPath:       diagnostic.CanonicalPath,
-				Kind:                kind,
-				PresenceCounts:      make(map[SemanticCoveragePresence]int64),
-				FacetPresenceCounts: make(map[string]map[SemanticCoveragePresence]int64),
-				OwnerPathWitnesses:  make([]string, 0, semanticCoverageMaxOwnerPathWitnesses),
+				CanonicalPath:             diagnostic.CanonicalPath,
+				Kind:                      kind,
+				ResourceBoundarySignature: resourceBoundarySignature,
+				PresenceCounts:            make(map[SemanticCoveragePresence]int64),
+				FacetPresenceCounts:       make(map[string]map[SemanticCoveragePresence]int64),
+				OwnerPathWitnesses:        make([]string, 0, semanticCoverageMaxOwnerPathWitnesses),
 			}
 			aggregates[key] = aggregate
 		}
@@ -853,10 +902,11 @@ func recordSemanticCoverageUnknownSubtrees(
 		}
 		incrementSemanticCoverageOccurrenceCount(&census.Counts, aggregate, kind, presence)
 		occurrence := semanticCoverageOccurrence{
-			CanonicalPath: diagnostic.CanonicalPath,
-			OwnerPath:     diagnostic.OwnerPath,
-			Kind:          kind,
-			Presence:      presence,
+			CanonicalPath:      diagnostic.CanonicalPath,
+			OwnerPath:          diagnostic.OwnerPath,
+			ResourceBoundaries: resourceBoundaries,
+			Kind:               kind,
+			Presence:           presence,
 		}
 		if len(census.occurrences) < SemanticCoverageMaxReconciliationItemsPerSource {
 			census.occurrences = append(census.occurrences, occurrence)
@@ -869,8 +919,53 @@ func recordSemanticCoverageUnknownSubtrees(
 				census.IncompleteGaps = append(census.IncompleteGaps, SemanticCoverageGapUnknownSubtrees)
 			}
 		}
+		if diagnostic.Code == fhirsemantic.WalkUnresolvedResourceType {
+			census.Status = SemanticCoverageCensusPartial
+			if !hasSemanticCoverageGap(census.IncompleteGaps, SemanticCoverageGapUnknownSubtrees) {
+				census.IncompleteGaps = append(census.IncompleteGaps, SemanticCoverageGapUnknownSubtrees)
+			}
+		}
 	}
 	return nil
+}
+
+func semanticCoverageResourceBoundarySignature(boundaries []fhirsemantic.ResourceBoundary) string {
+	if len(boundaries) == 0 {
+		return ""
+	}
+	var signature strings.Builder
+	for _, boundary := range boundaries {
+		writeSemanticCoverageLengthPrefixed(&signature, boundary.CanonicalPath)
+		writeSemanticCoverageLengthPrefixed(&signature, string(boundary.ResourceType))
+	}
+	return signature.String()
+}
+
+func writeSemanticCoverageLengthPrefixed(builder *strings.Builder, value string) {
+	builder.WriteString(strconv.Itoa(len(value)))
+	builder.WriteByte(':')
+	builder.WriteString(value)
+}
+
+func semanticCoverageResourceBoundariesAtPath(
+	boundariesByOwner map[string]fhirsemantic.ResourceBoundary,
+	ownerPath string,
+) []fhirsemantic.ResourceBoundary {
+	var boundaries []fhirsemantic.ResourceBoundary
+	for candidate := ownerPath; candidate != ""; {
+		if boundary, ok := boundariesByOwner[candidate]; ok {
+			boundaries = append(boundaries, boundary)
+		}
+		separator := strings.LastIndex(candidate, ".")
+		if separator < 0 {
+			break
+		}
+		candidate = candidate[:separator]
+	}
+	for left, right := 0, len(boundaries)-1; left < right; left, right = left+1, right-1 {
+		boundaries[left], boundaries[right] = boundaries[right], boundaries[left]
+	}
+	return boundaries
 }
 
 func rawJSONAtConcretePath(payload []byte, path string) (json.RawMessage, bool, error) {
@@ -1071,11 +1166,13 @@ func ReconcileSemanticCoverage(
 	groups := make(map[string]*SemanticCoveragePathAggregate)
 	facetGroups := make(map[string]map[string]*SemanticCoverageFacetAggregate)
 	for _, occurrence := range census.occurrences {
+		resourceBoundarySignature := semanticCoverageResourceBoundarySignature(occurrence.ResourceBoundaries)
 		disposition, reason, references := reconcileCoverageOccurrence(
 			occurrence, census, evidenceByKeyOwner, evidenceByOwner, evidenceByValueOwner, occurrencesByOwner, rawPaths,
 		)
 		groupKey := strings.Join([]string{
 			occurrence.CanonicalPath,
+			resourceBoundarySignature,
 			string(occurrence.Kind),
 			string(disposition),
 			string(reason),
@@ -1083,14 +1180,15 @@ func ReconcileSemanticCoverage(
 		aggregate := groups[groupKey]
 		if aggregate == nil {
 			aggregate = &SemanticCoveragePathAggregate{
-				CanonicalPath:       occurrence.CanonicalPath,
-				Kind:                occurrence.Kind,
-				Disposition:         disposition,
-				Reason:              reason,
-				PresenceCounts:      make(map[SemanticCoveragePresence]int64),
-				CollectionCounts:    make(map[SemanticCoveragePresence]int64),
-				FacetPresenceCounts: make(map[string]map[SemanticCoveragePresence]int64),
-				OwnerPathWitnesses:  make([]string, 0, semanticCoverageMaxOwnerPathWitnesses),
+				CanonicalPath:             occurrence.CanonicalPath,
+				Kind:                      occurrence.Kind,
+				ResourceBoundarySignature: resourceBoundarySignature,
+				Disposition:               disposition,
+				Reason:                    reason,
+				PresenceCounts:            make(map[SemanticCoveragePresence]int64),
+				CollectionCounts:          make(map[SemanticCoveragePresence]int64),
+				FacetPresenceCounts:       make(map[string]map[SemanticCoveragePresence]int64),
+				OwnerPathWitnesses:        make([]string, 0, semanticCoverageMaxOwnerPathWitnesses),
 			}
 			groups[groupKey] = aggregate
 		}
@@ -1119,7 +1217,7 @@ func ReconcileSemanticCoverage(
 			facetDisposition, facetReason, facetReferences := reconcileCoverageFacet(
 				occurrence, census, occurrencesByOwner, member, presences, evidenceByKeyOwner, evidenceByOwner, evidenceByValueOwner, rawPaths,
 			)
-			facetKey := strings.Join([]string{member, string(facetDisposition), string(facetReason)}, "\x00")
+			facetKey := strings.Join([]string{member, resourceBoundarySignature, string(facetDisposition), string(facetReason)}, "\x00")
 			byFacetKey := facetGroups[groupKey]
 			if byFacetKey == nil {
 				byFacetKey = make(map[string]*SemanticCoverageFacetAggregate)
@@ -1128,8 +1226,10 @@ func ReconcileSemanticCoverage(
 			facet := byFacetKey[facetKey]
 			if facet == nil {
 				facet = &SemanticCoverageFacetAggregate{
-					Path: member, Kind: semanticCoverageFacetMember(member), Disposition: facetDisposition,
-					Reason: facetReason, PresenceCounts: make(map[SemanticCoveragePresence]int64),
+					Path: member, Kind: semanticCoverageFacetMember(member),
+					ResourceBoundarySignature: resourceBoundarySignature,
+					Disposition:               facetDisposition, Reason: facetReason,
+					PresenceCounts: make(map[SemanticCoveragePresence]int64),
 				}
 				byFacetKey[facetKey] = facet
 			}
@@ -1152,7 +1252,13 @@ func ReconcileSemanticCoverage(
 	referencesTruncated := false
 	diagnosticLocatorsTruncated := false
 	for _, aggregate := range groups {
-		groupKey := strings.Join([]string{aggregate.CanonicalPath, string(aggregate.Kind), string(aggregate.Disposition), string(aggregate.Reason)}, "\x00")
+		groupKey := strings.Join([]string{
+			aggregate.CanonicalPath,
+			aggregate.ResourceBoundarySignature,
+			string(aggregate.Kind),
+			string(aggregate.Disposition),
+			string(aggregate.Reason),
+		}, "\x00")
 		for _, facet := range facetGroups[groupKey] {
 			if len(facet.References) > semanticCoverageMaxReferencesPerPath {
 				facet.References = facet.References[:semanticCoverageMaxReferencesPerPath]
@@ -1164,6 +1270,9 @@ func ReconcileSemanticCoverage(
 		sort.Slice(aggregate.Facets, func(i, j int) bool {
 			if aggregate.Facets[i].Path != aggregate.Facets[j].Path {
 				return aggregate.Facets[i].Path < aggregate.Facets[j].Path
+			}
+			if aggregate.Facets[i].ResourceBoundarySignature != aggregate.Facets[j].ResourceBoundarySignature {
+				return aggregate.Facets[i].ResourceBoundarySignature < aggregate.Facets[j].ResourceBoundarySignature
 			}
 			if aggregate.Facets[i].Disposition != aggregate.Facets[j].Disposition {
 				return aggregate.Facets[i].Disposition < aggregate.Facets[j].Disposition
@@ -1182,6 +1291,9 @@ func ReconcileSemanticCoverage(
 	sort.Slice(paths, func(i, j int) bool {
 		if paths[i].CanonicalPath != paths[j].CanonicalPath {
 			return paths[i].CanonicalPath < paths[j].CanonicalPath
+		}
+		if paths[i].ResourceBoundarySignature != paths[j].ResourceBoundarySignature {
+			return paths[i].ResourceBoundarySignature < paths[j].ResourceBoundarySignature
 		}
 		if paths[i].Kind != paths[j].Kind {
 			return paths[i].Kind < paths[j].Kind
@@ -1245,11 +1357,16 @@ func semanticCoverageTruncatedContribution(
 	paths := append([]SemanticCoveragePathAggregate(nil), census.Paths...)
 	for index := range paths {
 		path := &paths[index]
-		path.Reason = SemanticCoverageReasonTruncatedEvidence
-		if _, retained := rawPaths[path.CanonicalPath]; retained {
-			path.Disposition = SemanticCoverageRawRetainedDisposition
-		} else {
+		if path.ResourceBoundarySignature != "" {
 			path.Disposition = SemanticCoverageUnsupportedDisposition
+			path.Reason = SemanticCoverageReasonUnsupportedSelector
+		} else {
+			path.Reason = SemanticCoverageReasonTruncatedEvidence
+			if _, retained := rawPaths[path.CanonicalPath]; retained {
+				path.Disposition = SemanticCoverageRawRetainedDisposition
+			} else {
+				path.Disposition = SemanticCoverageUnsupportedDisposition
+			}
 		}
 		path.References = nil
 		path.ReferencesTruncated = true
@@ -1257,7 +1374,8 @@ func semanticCoverageTruncatedContribution(
 		for member, presenceCounts := range path.FacetPresenceCounts {
 			path.Facets = append(path.Facets, SemanticCoverageFacetAggregate{
 				Path: member, Kind: semanticCoverageFacetMember(member),
-				Disposition: path.Disposition, Reason: path.Reason,
+				ResourceBoundarySignature: path.ResourceBoundarySignature,
+				Disposition:               path.Disposition, Reason: path.Reason,
 				OccurrenceCount: path.OccurrenceCount,
 				PresenceCounts:  cloneSemanticCoveragePresenceCounts(presenceCounts), ReferencesTruncated: true,
 			})
@@ -1317,6 +1435,9 @@ func reconcileCoverageOccurrence(
 	occurrencesByOwner map[string]semanticCoverageOccurrence,
 	rawPaths map[string]struct{},
 ) (SemanticCoverageDispositionKind, SemanticCoverageReason, []SemanticCoverageReference) {
+	if len(occurrence.ResourceBoundaries) != 0 {
+		return SemanticCoverageUnsupportedDisposition, SemanticCoverageReasonUnsupportedSelector, nil
+	}
 	var references []SemanticCoverageReference
 	referenceSet := make(map[string]struct{})
 	addReference := func(evidence SemanticCoverageEmissionEvidence) {
@@ -1415,6 +1536,9 @@ func reconcileCoverageFacet(
 	evidenceByValueOwner map[string][]SemanticCoverageEmissionEvidence,
 	rawPaths map[string]struct{},
 ) (SemanticCoverageDispositionKind, SemanticCoverageReason, []SemanticCoverageReference) {
+	if len(occurrence.ResourceBoundaries) != 0 {
+		return SemanticCoverageUnsupportedDisposition, SemanticCoverageReasonUnsupportedSelector, nil
+	}
 	member := semanticCoverageFacetMember(facetPath)
 	var matched []SemanticCoverageEmissionEvidence
 	var references []SemanticCoverageReference
