@@ -50,6 +50,7 @@ func (s *Store) PrepareSemanticInventoryBackfill(ctx context.Context) error {
 		{Name: catalog.SemanticInventoryBuildCollection, Indexes: [][]string{
 			{"project", "dataset_generation"},
 		}},
+		SemanticCoverageCollectionSpec(),
 	}})
 }
 

@@ -3,13 +3,16 @@ package ingest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/bmeg/jsonschemagraph/graph"
 	"github.com/calypr/loom/internal/catalog"
+	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -45,14 +48,14 @@ func TestLoadFilePersistsSemanticInventoryFromSharedEmitter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(inventoryDocs) != 1 || result.SemanticInventoryBatches != 1 {
+	if len(inventoryDocs) != 2 || result.SemanticInventoryBatches != 2 {
 		message := "no row error sample"
 		if len(result.RowErrors) > 0 {
 			message = result.RowErrors[0].Message
 		}
 		t.Fatalf("inventory docs=%d batches=%d rows=%d validation=%d sample=%s", len(inventoryDocs), result.SemanticInventoryBatches, result.Rows, result.ValidationErrors, message)
 	}
-	if len(inventoryOverwrite) != 1 || !inventoryOverwrite[0] {
+	if len(inventoryOverwrite) != 2 || !inventoryOverwrite[0] || !inventoryOverwrite[1] {
 		t.Fatalf("inventory overwrite modes = %v, want source-key replacement", inventoryOverwrite)
 	}
 	var contribution catalog.SemanticInventoryContribution
@@ -64,6 +67,102 @@ func TestLoadFilePersistsSemanticInventoryFromSharedEmitter(t *testing.T) {
 	}
 	if contribution.ConceptID == "" || contribution.BindingID == "" || contribution.Observation.Key.Version != "v1" {
 		t.Fatalf("inventory identity/observation = %+v", contribution)
+	}
+}
+
+func TestLoadFilePersistsCoverageSentinelBeforeReturningForCheckpoint(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "Patient.ndjson")
+	if err := os.WriteFile(file, []byte(`{"resourceType":"Patient","id":"patient-1"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	schema, err := graph.Load(repoPath(t, "schemas", "graph-fhir.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	buildID := catalog.SemanticInventoryBuildID("project", "generation-1")
+	coverageWriter := &coverageContributionWriterFake{}
+	identity := catalogarango.SemanticCoverageBuildIdentity{
+		Project: "project", DatasetGeneration: "generation-1", BuildID: buildID,
+		SchemaIdentity: strings.Repeat("a", 64), SourceKind: catalog.SemanticInventorySourceFile,
+	}
+	opts := normalizeLoadOptions(LoadOptions{Project: "project", MetaDir: root, BatchSize: 1, WorkerCount: 1, WriterCount: 1})
+	result, err := loadFile(context.Background(), opts, nil, schema, file, "generation-1", false, time.Now(), 0, 0,
+		func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error { return nil },
+		semanticCoverageLoadContext{Identity: identity, Writer: coverageWriter},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SemanticCoverageSources != 1 || result.SemanticCoverageBatches != 1 || result.SemanticInventoryBatches != 0 {
+		t.Fatalf("coverage file result = %+v, want one coverage source and no semantic emissions", result)
+	}
+	if len(coverageWriter.contributions) != 1 {
+		t.Fatalf("coverage contributions = %d, want one zero-emission source sentinel", len(coverageWriter.contributions))
+	}
+	contribution := coverageWriter.contributions[0]
+	if result.SemanticCoverageRows != int64(1+len(contribution.Paths)) {
+		var facetRows int
+		for _, path := range contribution.Paths {
+			facetRows += len(path.Facets)
+		}
+		if result.SemanticCoverageRows != int64(1+len(contribution.Paths)+facetRows) {
+			t.Fatalf("coverage rows=%d paths=%d facets=%d, want source/path/facet aggregates", result.SemanticCoverageRows, len(contribution.Paths), facetRows)
+		}
+	}
+	if contribution.Identity.SourceID != "Patient.ndjson#1" || contribution.Identity.SchemaIdentity != identity.SchemaIdentity || contribution.BuildID != buildID || contribution.SourceRecordCount != 1 {
+		t.Fatalf("coverage source identity = %+v build=%q, want exact file/build/schema identity", contribution.Identity, contribution.BuildID)
+	}
+}
+
+type coverageContributionWriterFake struct {
+	contributions []catalog.SemanticCoverageSourceContribution
+}
+
+func (f *coverageContributionWriterFake) WriteSemanticCoverageContributions(_ context.Context, buildID string, contributions []catalog.SemanticCoverageSourceContribution, _ int) (catalogarango.SemanticCoverageWriteStats, error) {
+	f.contributions = append(f.contributions, contributions...)
+	stats := catalogarango.SemanticCoverageWriteStats{}
+	for _, contribution := range contributions {
+		if contribution.BuildID != buildID {
+			return stats, errors.New("wrong semantic coverage build id")
+		}
+		stats.Rows += 1 + int64(len(contribution.Paths))
+		for _, path := range contribution.Paths {
+			stats.Rows += int64(len(path.Facets))
+		}
+	}
+	return stats, nil
+}
+
+func TestLoadFileMissingSchemaKeepsInventoryWorkerRunningWithIncompleteCoverage(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "Patient.ndjson")
+	if err := os.WriteFile(file, []byte(`{"resourceType":"Patient","id":"patient-1"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	schema, err := graph.Load(repoPath(t, "schemas", "graph-fhir.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	buildID := catalog.SemanticInventoryBuildID("project", "generation-1")
+	coverageWriter := &coverageContributionWriterFake{}
+	identity := catalogarango.SemanticCoverageBuildIdentity{
+		Project: "project", DatasetGeneration: "generation-1", BuildID: buildID,
+		SchemaIdentity: "", SourceKind: catalog.SemanticInventorySourceFile,
+	}
+	opts := normalizeLoadOptions(LoadOptions{Project: "project", MetaDir: root, BatchSize: 1, WorkerCount: 1, WriterCount: 1})
+	result, err := loadFile(context.Background(), opts, nil, schema, file, "generation-1", false, time.Now(), 0, 0,
+		func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error { return nil },
+		semanticCoverageLoadContext{Identity: identity, Writer: coverageWriter},
+	)
+	if err != nil {
+		t.Fatalf("load file with absent coverage schema identity: %v", err)
+	}
+	if result.Rows != 1 || result.SemanticCoverageSources != 1 || len(coverageWriter.contributions) != 1 {
+		t.Fatalf("worker result=%+v contributions=%d, want ordinary row and one incomplete coverage source", result, len(coverageWriter.contributions))
+	}
+	if contribution := coverageWriter.contributions[0]; contribution.Identity.SchemaIdentity != "" || contribution.Complete {
+		t.Fatalf("missing-schema contribution = %+v, want incomplete exact empty identity", contribution)
 	}
 }
 
