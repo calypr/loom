@@ -314,6 +314,25 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByRole('heading', { name: 'Turn categories into columns' })).toBeInTheDocument();
   });
 
+  it('shows concise row and column effects on every reshape choice card', () => {
+    renderEditor({});
+    const effects: ReadonlyArray<readonly [string, string, string]> = [
+      ['construction-reshape-choice-group', 'One per unique combination of chosen fields.', 'Keep group fields and add summary columns.'],
+      ['construction-reshape-choice-coded-group', 'One per observed code.', 'System, version, code, and source count.'],
+      ['construction-reshape-choice-expand', 'One per list item.', 'Replace the list with its item; optionally add its position.'],
+      ['construction-reshape-choice-related-expand', 'One per matching related record.', 'Keep current columns and add the related record ID.'],
+      ['construction-reshape-choice-coded-pivot', 'One per source record.', 'One per selected code, filled from its paired value.'],
+      ['construction-reshape-choice-pivot', 'One per unique combination of row values.', 'One per accepted category, filled from the chosen value field.'],
+      ['construction-reshape-choice-unpivot', 'One per selected column.', 'One source-name field and one value field.'],
+    ];
+
+    for (const [testId, rows, columns] of effects) {
+      const card = screen.getByTestId(testId);
+      expect(card).toHaveTextContent(`Rows: ${rows}`);
+      expect(card).toHaveTextContent(`Columns: ${columns}`);
+    }
+  });
+
   it('reports the current form kind when the user changes reshape operations', () => {
     const onFormKindChange = vi.fn<NonNullable<ConstructionReshapeEditorProps['onFormKindChange']>>();
     renderEditor({ initialKind: 'pivot', onFormKindChange });

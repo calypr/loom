@@ -1800,8 +1800,8 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           <ReshapeChoice
             testId="construction-reshape-choice-group"
             title="Summarize into groups"
-            rows="Count or summarize records by chosen fields."
-            columns="Keep the group fields and add counts or summaries of selected fields."
+            rows="One per unique combination of chosen fields."
+            columns="Keep group fields and add summary columns."
             supported={groupSupport.supported || groupCodedValuesSupported}
             reason={groupSupport.supported || groupCodedValuesSupported ? '' : groupSupport.reason}
             disabled={disabled}
@@ -1811,8 +1811,8 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           <ReshapeChoice
             testId="construction-reshape-choice-coded-group"
             title="Group by coded value"
-            rows="Count source records for each code."
-            columns="Replace current columns with system, version, code, and source record count."
+            rows="One per observed code."
+            columns="System, version, code, and source count."
             supported={codedGroupSupport.supported && Boolean(stage.codedGroupChoices?.length)}
             reason={!isSourceProjectionStage(stage) && !codedGroupSupport.supported
               ? 'Available on starting records before other table changes.'
@@ -1823,8 +1823,8 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           <ReshapeChoice
             testId="construction-reshape-choice-expand"
             title="Expand a repeated value"
-            rows="Make one row for each value in a list column."
-            columns="Replace the list with each item; optionally add the item's position."
+            rows="One per list item."
+            columns="Replace the list with its item; optionally add its position."
             supported={expandSupport.supported}
             reason={expandReason}
             disabled={disabled || expandColumns.length === 0}
@@ -1833,7 +1833,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           <ReshapeChoice
             testId="construction-reshape-choice-related-expand"
             title="Expand related records"
-            rows="Make one row for each matching related record."
+            rows="One per matching related record."
             columns="Keep current columns and add the related record ID."
             supported={relatedExpandSupport.supported && Boolean(props.relatedExpandContext)}
             reason={props.relatedExpandContext ? relatedExpandSupport.reason : 'Related path search is unavailable.'}
@@ -1843,8 +1843,8 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           <ReshapeChoice
             testId="construction-reshape-choice-coded-pivot"
             title="Coded values as columns"
-            rows="Keep one row per source record."
-            columns="Choose coded values and use their paired values as cells."
+            rows="One per source record."
+            columns="One per selected code, filled from its paired value."
             supported={codedPivotSupport.supported && Boolean(props.codedPivotContext)}
             reason={props.codedPivotContext ? codedPivotSupport.reason : 'Coded source discovery is unavailable.'}
             disabled={disabled}
@@ -1853,8 +1853,8 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           <ReshapeChoice
             testId="construction-reshape-choice-pivot"
             title="Turn categories into columns"
-            rows="Make one column for each category."
-            columns="Add one column for each accepted category, filled from a selected value field."
+            rows="One per unique combination of row values."
+            columns="One per accepted category, filled from the chosen value field."
             supported={newPivotSupport.supported}
             reason={newPivotSupport.reason}
             disabled={disabled}
@@ -1863,8 +1863,8 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           <ReshapeChoice
             testId="construction-reshape-choice-unpivot"
             title="Turn columns into rows"
-            rows="Make one row for each chosen column."
-            columns="Replace those columns with a source-name column and a value column."
+            rows="One per selected column."
+            columns="One source-name field and one value field."
             supported={unpivotSupport.supported}
             reason={unpivotSupport.reason}
             disabled={disabled}
@@ -2005,10 +2005,13 @@ const ReshapeChoice = (props: {
     aria-label={`${props.title}. ${props.rows} ${props.columns}${props.reason ? ` ${props.reason}` : ''}`}
     disabled={props.disabled || !props.supported}
     onClick={props.onChoose}
-    className="grid gap-0.5 rounded-lg border border-slate-200 px-3 py-2 text-left enabled:hover:border-blue-400 enabled:hover:bg-blue-50 disabled:cursor-not-allowed disabled:bg-slate-50"
+    className="grid gap-1 rounded-lg border border-slate-200 px-3 py-2 text-left enabled:hover:border-blue-400 enabled:hover:bg-blue-50 disabled:cursor-not-allowed disabled:bg-slate-50"
   >
     <span className="text-sm font-semibold text-slate-900">{props.title}</span>
-    <span className="text-xs text-slate-600">{props.rows}</span>
+    <span className="grid gap-x-3 gap-y-0.5 text-xs text-slate-600 sm:grid-cols-2">
+      <span><span className="font-medium text-slate-700">Rows:</span> {props.rows}</span>
+      <span><span className="font-medium text-slate-700">Columns:</span> {props.columns}</span>
+    </span>
     {!props.supported || props.reason ? <span className="text-xs text-amber-900">{props.reason}</span> : null}
   </button>
 );
