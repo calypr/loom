@@ -1,17 +1,20 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { createLoomClient as createFullLoomClient, LoomRequestError } from '../../../api';
 
 const createLoomClient = createFullLoomClient;
 import { LoomProvider } from '../../../react';
+import { semanticInventoryBrowseRequestSchema } from '../../../types';
 import type {
   AggregateTransformationCapability,
   ColumnValueTransformationCapabilities,
   ConstructionChoice,
   ExplorerBuilderCatalog,
   ExplorerBuilderCandidate,
+  FieldPresentation,
+  FieldPresentationRequest,
   SemanticInventoryBrowseResponse,
   SemanticInventoryItem,
 } from '../../../types';
@@ -229,6 +232,163 @@ const catalog: ExplorerBuilderCatalog = {
     },
   ],
 };
+
+const fieldPresentationCodeCandidate: ExplorerBuilderCandidate = {
+  ...rootId,
+  candidateId: 'candidate-condition-code',
+  fieldPath: 'condition.code',
+  label: 'Condition code',
+  logicalType: 'code',
+  constructionChoice: fieldChoice(
+    'field-choice-condition-code',
+    'candidate-condition-code',
+    'patient-node',
+    'Patient',
+    'condition.code',
+  ),
+};
+
+const fieldPresentationTextCandidate: ExplorerBuilderCandidate = {
+  ...rootId,
+  candidateId: 'candidate-clinical-note',
+  fieldPath: 'clinicalNote',
+  label: 'Clinical note',
+  logicalType: 'string',
+  constructionChoice: fieldChoice(
+    'field-choice-clinical-note',
+    'candidate-clinical-note',
+    'patient-node',
+    'Patient',
+    'clinicalNote',
+  ),
+};
+
+const fieldPresentationCatalog: ExplorerBuilderCatalog = {
+  ...catalog,
+  candidates: [fieldPresentationCodeCandidate, fieldPresentationTextCandidate],
+};
+
+const fieldPresentationContext = (
+  draftVersion = 3,
+  draftDigest = `draft-digest-${draftVersion}`,
+): Omit<FieldPresentationRequest, 'candidateIds'> => ({
+  expectedDraftVersion: draftVersion,
+  expectedDraftDigest: draftDigest,
+  sourceNodeId: 'patient-node',
+  occurrenceId: 'base',
+});
+
+const fieldPresentationReplacement = (
+  ruleHint = 'CODED_VALUE_V1',
+): SemanticInventoryItem => {
+  const base = item('tumor', 'Tumor', 5, 'Patient', ruleHint);
+  const choice = base.constructionChoice;
+  if (!choice || choice.source.kind !== 'SEMANTIC') {
+    throw new Error('The field-presentation fixture requires a compiler-issued semantic choice.');
+  }
+  const identity = { conceptId: 'concept-tumor', bindingId: 'binding-tumor' };
+  return {
+    ...base,
+    ...identity,
+    sourcePath: 'condition.code',
+    system: 'urn:condition-codes',
+    code: 'tumor',
+    codingVersion: '',
+    display: 'Tumor',
+    valueSelector: 'coding.code',
+    valueType: 'code',
+    constructionChoice: {
+      ...choice,
+      source: {
+        ...choice.source,
+        ...identity,
+        nodeId: 'patient-node',
+        resourceType: 'Patient',
+        sourcePath: 'condition.code',
+        fieldPath: 'condition.code',
+        valueSelector: 'coding.code',
+        system: 'urn:condition-codes',
+        code: 'tumor',
+        version: undefined,
+        logicalType: 'code',
+        ruleHint,
+      },
+    },
+  };
+};
+
+const readyFieldPresentation = (
+  request: FieldPresentationRequest,
+  options: {
+    readonly replacement?: SemanticInventoryItem;
+    readonly stale?: boolean;
+    readonly partial?: boolean;
+    readonly missingReplacement?: boolean;
+  } = {},
+): FieldPresentation => {
+  const replacement = options.replacement ?? fieldPresentationReplacement();
+  const identity = {
+    kind: 'EXACT_CONCEPT' as const,
+    conceptId: replacement.conceptId,
+    bindingId: replacement.bindingId,
+  };
+  const decisions: Extract<FieldPresentation, { readonly kind: 'READY' }>['decisions'] = [];
+  for (const candidateId of request.candidateIds) {
+    if (candidateId === fieldPresentationCodeCandidate.candidateId) {
+      decisions.push({
+        kind: 'GROUP_UNDER_SEMANTIC' as const,
+        candidateId,
+        coverageId: 'coverage-condition-code',
+        replacementIds: [identity],
+        access: 'SOURCE_FIELDS' as const,
+      });
+      continue;
+    }
+    if (options.partial) continue;
+    decisions.push({
+      kind: 'KEEP_RAW' as const,
+      candidateId,
+      reason: 'TEXT_ONLY' as const,
+    });
+  }
+  return {
+    kind: 'READY',
+    context: {
+      project: 'project-a',
+      authorizationScopeDigest: 'scope-a',
+      snapshotToken: 'snapshot-a',
+      datasetGeneration: 'generation-a',
+      inventoryBuildId: 'build-1',
+      coverageBuildId: 'coverage-build-1',
+      explorerId: 'explorer-a',
+      outputId: 'patients',
+      draftVersion: options.stale ? request.expectedDraftVersion - 1 : request.expectedDraftVersion,
+      draftDigest: options.stale ? 'stale-draft-digest' : request.expectedDraftDigest,
+      sourceNodeId: request.sourceNodeId,
+      occurrenceId: request.occurrenceId,
+      route: [],
+      ...(request.stageId ? { stageId: request.stageId } : {}),
+      presentationRevision: 'semantic-field-presentation/v1',
+      candidateBatchDigest: 'candidate-batch-digest',
+    },
+    decisions,
+    replacements: options.missingReplacement ? [] : [replacement],
+  };
+};
+
+const fieldPresentationRequestFromInit = (init: RequestInit | undefined): FieldPresentationRequest => {
+  const browseRequest = semanticInventoryBrowseRequestSchema.parse(JSON.parse(String(init?.body)));
+  if (!('fieldPresentation' in browseRequest) || !browseRequest.fieldPresentation) {
+    throw new Error('The semantic browse request did not include field-presentation context.');
+  }
+  return browseRequest.fieldPresentation;
+};
+
+const semanticBrowseResponse = (fieldPresentation?: FieldPresentation): Response =>
+  new Response(JSON.stringify({
+    ...page([]),
+    ...(fieldPresentation ? { fieldPresentation } : {}),
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
 
 const renderCatalog = (
   fetch: typeof globalThis.fetch,
@@ -835,7 +995,12 @@ describe('ConceptCatalog', () => {
 
     const client = createLoomClient({ fetch });
     const onAddSelected = vi.fn().mockResolvedValue(undefined);
-    const renderView = (view: 'coded' | 'fields') => <LoomProvider client={client}>
+    let renderedView: 'coded' | 'fields' = 'coded';
+    let viewRevision = 0;
+    const renderView = (view: 'coded' | 'fields') => {
+      if (view !== renderedView) viewRevision += 1;
+      renderedView = view;
+      return <LoomProvider client={client}>
       <ConceptCatalog
         project="project-a"
         explorerId="explorer-a"
@@ -844,9 +1009,11 @@ describe('ConceptCatalog', () => {
         rowRoot="Patient"
         catalog={catalog}
         view={view}
+        viewRevision={viewRevision}
         onAddSelected={onAddSelected}
       />
-    </LoomProvider>;
+      </LoomProvider>;
+    };
     const { rerender } = render(renderView('coded'));
 
     expect(await screen.findByText('No coded values on this page. Use Next to continue through the catalog.')).toBeInTheDocument();
@@ -957,6 +1124,10 @@ describe('ConceptCatalog', () => {
         ruleHint: 'CODED_CATEGORY_V1',
       },
     };
+    const familySemanticSource = familyChoice.source;
+    if (familySemanticSource.kind !== 'SEMANTIC') {
+      throw new Error('The category fixture requires a signed semantic choice source.');
+    }
     const family: SemanticInventoryItem = {
       ...base,
       conceptId: 'family-compound-name',
@@ -974,6 +1145,26 @@ describe('ConceptCatalog', () => {
       owningScope: 'Observation',
       constructionChoice: familyChoice,
     };
+    const familyVersion = (
+      version: string,
+      bindingId: string,
+      choiceId: string,
+    ): SemanticInventoryItem => ({
+      ...family,
+      bindingId,
+      codingVersion: version,
+      constructionChoice: {
+        ...familyChoice,
+        choiceId,
+        source: {
+          ...familySemanticSource,
+          bindingId,
+          version: version || undefined,
+        },
+      },
+    });
+    const familyV2 = familyVersion('v2', 'binding-compound-name-v2', 'signed-compound-family-choice-v2');
+    const familyUnversioned = familyVersion('', 'binding-compound-name-unversioned', 'signed-compound-family-choice-unversioned');
     const resolvedChoice: ConstructionChoice = {
       ...familyChoice,
       choiceId: 'route-compound-family-choice',
@@ -988,12 +1179,13 @@ describe('ConceptCatalog', () => {
           choices: [resolvedChoice],
         }), { status: 200, headers: { 'content-type': 'application/json' } });
       }
-      return new Response(JSON.stringify(page([family])), {
+      return new Response(JSON.stringify(page([family, familyV2, familyUnversioned])), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
     });
     const client = createLoomClient({ fetch });
+    const onAddSelected = vi.fn().mockResolvedValue(undefined);
     render(
       <LoomProvider client={client}>
         <ConceptCatalog
@@ -1005,12 +1197,19 @@ describe('ConceptCatalog', () => {
           catalog={catalog}
           view="coded"
           semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
-          onAddSelected={vi.fn().mockResolvedValue(undefined)}
+          onAddSelected={onAddSelected}
         />
       </LoomProvider>,
     );
 
-    expect(await screen.findByRole('button', { name: 'Select Compound name' })).toBeEnabled();
+    const familyLabel = 'Observation Code · system urn:compound-codes · version v1';
+    expect(await screen.findByRole('button', { name: `Select ${familyLabel}` })).toBeEnabled();
+    expect(screen.getByRole('button', {
+      name: 'Select Observation Code · system urn:compound-codes · version v2',
+    })).toBeEnabled();
+    expect(screen.getByRole('button', {
+      name: 'Select Observation Code · system urn:compound-codes · version unversioned',
+    })).toBeEnabled();
     const inventoryRequest = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
     expect(inventoryRequest).toMatchObject({
       rowRoot: 'Patient',
@@ -1018,11 +1217,15 @@ describe('ConceptCatalog', () => {
       selectionMode: 'SYSTEM_VERSION_CATEGORY',
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Select Compound name' }));
+    fireEvent.click(screen.getByRole('button', { name: `Select ${familyLabel}` }));
+    const selectedList = screen.getByRole('list', { name: 'Selected fields and coded values' });
+    const selectedRow = within(selectedList).getByRole('listitem', { name: `Selected ${familyLabel}` });
+    expect(selectedRow).toHaveTextContent('Compound name');
+    expect(selectedRow).toHaveAttribute('data-semantic-identity');
     fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
     const dialog = await screen.findByRole('region', { name: 'Advanced route and form choices' });
-    expect(within(dialog).getByRole('heading', { name: /Compound name/ })).toBeInTheDocument();
-    expect(within(dialog).getByRole('radio', { name: 'Compound name: Use the matching value' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('heading', { name: `Observation · ${familyLabel}` })).toBeInTheDocument();
+    expect(within(dialog).getByRole('radio', { name: `${familyLabel}: Use the matching value` })).toBeInTheDocument();
 
     const routeRequest = fetch.mock.calls.find(([input]) => String(input).endsWith('/construction-choices'));
     expect(routeRequest).toBeDefined();
@@ -1035,8 +1238,258 @@ describe('ConceptCatalog', () => {
         choiceId: 'signed-compound-family-choice',
       },
     });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
-    expect(screen.queryByRole('region', { name: 'Advanced route and form choices' })).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('radio', { name: `${familyLabel}: Use the matching value` }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 selected feature' }));
+    await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([expect.objectContaining({
+      title: 'Compound name',
+    })]));
+  });
+
+  it('groups a fully covered raw field under its semantic card and keeps the exact FIELD choice reachable', async () => {
+    const replacement = fieldPresentationReplacement();
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_input, init) => {
+      const request = fieldPresentationRequestFromInit(init);
+      return semanticBrowseResponse(readyFieldPresentation(request, { replacement }));
+    });
+    const onAddSelected = vi.fn().mockResolvedValue(undefined);
+    render(
+      <LoomProvider client={createLoomClient({ fetch })}>
+        <ConceptCatalog
+          project="project-a"
+          explorerId="explorer-a"
+          snapshotToken="snapshot-a"
+          outputId="patients"
+          rowRoot="Patient"
+          sourceNodeId="patient-node"
+          catalog={fieldPresentationCatalog}
+          view="coded"
+          semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
+          presentationContext={fieldPresentationContext()}
+          onAddSelected={onAddSelected}
+        />
+      </LoomProvider>,
+    );
+
+    const replacementLabel = 'Patient Condition Code · system urn:condition-codes · version unversioned';
+    expect(await screen.findByRole('button', { name: `Select ${replacementLabel}` })).toBeEnabled();
+    fireEvent.click(screen.getByText('Source fields'));
+    const rawField = await screen.findByRole('button', { name: 'Select Patient.condition.code' });
+    expect(screen.getAllByRole('button', { name: 'Select Patient.condition.code' })).toHaveLength(1);
+    expect(rawField).toBeEnabled();
+    fireEvent.click(rawField);
+
+    const selectedList = screen.getByRole('list', { name: 'Selected fields and coded values' });
+    const selectedRow = within(selectedList).getByRole('listitem', { name: 'Selected Condition code' });
+    expect(selectedRow).toHaveAttribute('data-semantic-identity', JSON.stringify(['FIELD', 'candidate-condition-code']));
+    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
+    await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([expect.objectContaining({
+      constructionChoice: { choiceId: 'field-choice-condition-code', form: 'VALUE' },
+      title: 'Condition code',
+    })]));
+  });
+
+  it('searches a raw path, follows Included in across tabs, and focuses the exact semantic identity', async () => {
+    const replacement = fieldPresentationReplacement();
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_input, init) => {
+      const request = fieldPresentationRequestFromInit(init);
+      return semanticBrowseResponse(readyFieldPresentation(request, { replacement }));
+    });
+    const client = createLoomClient({ fetch });
+    const Picker = () => {
+      const [view, setView] = React.useState<'coded' | 'fields'>('fields');
+      const [viewRevision, setViewRevision] = React.useState(0);
+      const switchView = (nextView: 'coded') => {
+        setView(nextView);
+        setViewRevision((revision) => revision + 1);
+      };
+      return (
+        <LoomProvider client={client}>
+          <ConceptCatalog
+            project="project-a"
+            explorerId="explorer-a"
+            snapshotToken="snapshot-a"
+            outputId="patients"
+            rowRoot="Patient"
+            sourceNodeId="patient-node"
+            catalog={fieldPresentationCatalog}
+            view={view}
+            viewRevision={viewRevision}
+            semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
+            presentationContext={fieldPresentationContext()}
+            onSwitchView={switchView}
+            onAddSelected={vi.fn().mockResolvedValue(undefined)}
+          />
+        </LoomProvider>
+      );
+    };
+    render(<Picker />);
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search dataset fields by name or type' }), {
+      target: { value: 'condition.code' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    const includedInLink = await screen.findByRole('button', {
+      name: 'Included in Patient Condition Code · system urn:condition-codes · version unversioned',
+    });
+    expect(includedInLink).toHaveAttribute('data-semantic-identity', JSON.stringify([
+      'EXACT_CONCEPT', 'concept-tumor', 'binding-tumor',
+    ]));
+    fireEvent.click(includedInLink);
+
+    const replacementCardButton = await screen.findByRole('button', {
+      name: 'Select Patient Condition Code · system urn:condition-codes · version unversioned',
+    });
+    const replacementCard = replacementCardButton.closest('article');
+    expect(replacementCard).toHaveAttribute('data-semantic-identity', JSON.stringify([
+      'EXACT_CONCEPT', 'concept-tumor', 'binding-tumor',
+    ]));
+    await waitFor(() => expect(document.activeElement).toBe(replacementCard));
+  });
+
+  it.each([
+    'unavailable',
+    'omitted',
+    'partial',
+    'stale',
+    'missing-replacement',
+    'filtered-extension',
+  ] as const)('keeps eligible raw fields available when field proof is %s', async (scenario) => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_input, init) => {
+      if (scenario === 'omitted') return semanticBrowseResponse();
+      const request = fieldPresentationRequestFromInit(init);
+      if (scenario === 'unavailable') {
+        return semanticBrowseResponse({ kind: 'UNAVAILABLE', reason: 'COVERAGE_UNAVAILABLE' });
+      }
+      const replacement = scenario === 'filtered-extension'
+        ? fieldPresentationReplacement('EXTENSION_URL_VALUE')
+        : fieldPresentationReplacement();
+      const ready = readyFieldPresentation(request, {
+        replacement,
+        stale: scenario === 'stale',
+        partial: scenario === 'partial',
+        missingReplacement: scenario === 'missing-replacement',
+      });
+      if (scenario === 'partial' && ready.kind === 'READY') {
+        return semanticBrowseResponse({
+          ...ready,
+          decisions: ready.decisions.filter((decision) =>
+            decision.candidateId === fieldPresentationCodeCandidate.candidateId,
+          ),
+        });
+      }
+      return semanticBrowseResponse(ready);
+    });
+    render(
+      <LoomProvider client={createLoomClient({ fetch })}>
+        <ConceptCatalog
+          project="project-a"
+          explorerId="explorer-a"
+          snapshotToken="snapshot-a"
+          outputId="patients"
+          rowRoot="Patient"
+          sourceNodeId="patient-node"
+          catalog={fieldPresentationCatalog}
+          view="fields"
+          semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
+          presentationContext={fieldPresentationContext()}
+          onAddSelected={vi.fn().mockResolvedValue(undefined)}
+        />
+      </LoomProvider>,
+    );
+
+    expect(await screen.findByRole('button', { name: 'Select Patient.condition.code' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Select Patient.clinicalNote' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: /Included in/ })).not.toBeInTheDocument();
+  });
+
+  it('does not apply a late field proof after the draft context changes', async () => {
+    const replacement = fieldPresentationReplacement();
+    let resolveFirst: ((response: Response) => void) | undefined;
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_input, init) => {
+      const request = fieldPresentationRequestFromInit(init);
+      if (request.expectedDraftVersion === 3) {
+        return new Promise<Response>((resolve) => { resolveFirst = resolve; });
+      }
+      return semanticBrowseResponse({ kind: 'UNAVAILABLE', reason: 'STALE_CONTEXT' });
+    });
+    const client = createLoomClient({ fetch });
+    const Picker = () => {
+      const [draftVersion, setDraftVersion] = React.useState(3);
+      return (
+        <LoomProvider client={client}>
+          <button type="button" onClick={() => setDraftVersion(4)}>Change draft</button>
+          <ConceptCatalog
+            project="project-a"
+            explorerId="explorer-a"
+            snapshotToken="snapshot-a"
+            outputId="patients"
+            tableContextKey={`${draftVersion}:draft-digest-${draftVersion}`}
+            rowRoot="Patient"
+            sourceNodeId="patient-node"
+            catalog={fieldPresentationCatalog}
+            view="fields"
+            semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
+            presentationContext={fieldPresentationContext(draftVersion)}
+            onAddSelected={vi.fn().mockResolvedValue(undefined)}
+          />
+        </LoomProvider>
+      );
+    };
+    render(<Picker />);
+    await waitFor(() => expect(resolveFirst).toBeDefined());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change draft' }));
+    expect(await screen.findByRole('button', { name: 'Select Patient.condition.code' })).toBeEnabled();
+    await act(async () => {
+      resolveFirst?.(semanticBrowseResponse(readyFieldPresentation({
+        ...fieldPresentationContext(),
+        candidateIds: [
+          fieldPresentationCodeCandidate.candidateId,
+          fieldPresentationTextCandidate.candidateId,
+        ],
+      }, { replacement })));
+    });
+    expect(screen.getByRole('button', { name: 'Select Patient.condition.code' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: /Included in/ })).not.toBeInTheDocument();
+  });
+
+  it('clears selected and advanced action state immediately when the table context changes', async () => {
+    const concept = item('draft-selection', 'Draft selection', 3);
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(page([concept])), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const client = createLoomClient({ fetch });
+    const Picker = () => {
+      const [tableContextKey, setTableContextKey] = React.useState('3:draft-digest-3');
+      return (
+        <LoomProvider client={client}>
+          <button type="button" onClick={() => setTableContextKey('4:draft-digest-4')}>Change table</button>
+          <ConceptCatalog
+            project="project-a"
+            explorerId="explorer-a"
+            snapshotToken="snapshot-a"
+            outputId="patients"
+            tableContextKey={tableContextKey}
+            rowRoot="Patient"
+            catalog={catalog}
+            view="coded"
+            onAddSelected={vi.fn().mockResolvedValue(undefined)}
+          />
+        </LoomProvider>
+      );
+    };
+    render(<Picker />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Draft selection' }));
+    expect(screen.getByLabelText('Selected feature action')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Advanced options' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change table' }));
+    expect(screen.queryByLabelText('Selected feature action')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Advanced options' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add selected features' })).not.toBeInTheDocument();
   });
 
   it('groups populated compiler fields by source and skips generated schema-only fields', async () => {

@@ -10,6 +10,7 @@ import {
   catalogChoiceIntent,
   catalogItemKey,
   catalogItemLabel,
+  catalogItemTitle,
   isRelatedFieldCatalogItem,
   type CatalogChoiceIntent,
   type CatalogChoiceGroup,
@@ -238,7 +239,7 @@ export const CatalogSelectionOptions = ({
               ? { rowValuePolicy: groupedRowValuePolicy.value }
               : {}),
           },
-          title: catalogItemLabel(group.item),
+          title: catalogItemTitle(group.item),
           ...(choice.source.kind === 'FIELD' && option?.contributorPredicateOperators?.includes('EXISTS') && condition?.mode === 'EXISTS'
             ? { contributorPredicate: { candidateId: choice.source.candidateId, operator: 'EXISTS' as const } }
             : choice.source.kind === 'FIELD' && option?.contributorPredicateOperators?.includes('EQUALS') && condition?.mode === 'EQUALS'

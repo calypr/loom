@@ -30,6 +30,7 @@ import type {
   ExplorerBuilderColumn,
   ExplorerBuilderPreviewResult,
   ExplorerBuilderState,
+  FieldPresentationRequest,
   ConstructionRouteStep,
   Construction,
   ConstructionOperation,
@@ -530,6 +531,7 @@ const BuilderWorkspaceContent = ({
     readonly entry: ConstructionReshapeEditorEntry;
   }>();
   const [addColumnsView, setAddColumnsView] = useState<Exclude<ConceptCatalogView, 'all'>>('coded');
+  const [addColumnsViewRevision, setAddColumnsViewRevision] = useState(0);
   const [addColumnsSource, setAddColumnsSource] = useState<{
     readonly context: string;
     readonly key: string;
@@ -1291,6 +1293,7 @@ const BuilderWorkspaceContent = ({
   const occurrence = occurrences.find(
     (candidate) => candidate.id === state.selectedOccurrenceId,
   );
+  const startingOccurrence = occurrences.find((candidate) => candidate.depth === 0);
   const selectedRouteContext = useMemo(() => {
     if (!occurrence) return undefined;
     return {
@@ -1298,6 +1301,18 @@ const BuilderWorkspaceContent = ({
       nodeId: occurrence.nodeId,
     };
   }, [occurrence]);
+  const fieldPresentationContext: Omit<FieldPresentationRequest, 'candidateIds'> | undefined =
+    table && startingOccurrence && state.draftVersion > 0 && state.draftDigest
+      ? {
+          expectedDraftVersion: state.draftVersion,
+          expectedDraftDigest: state.draftDigest,
+          sourceNodeId: startingOccurrence.nodeId,
+          occurrenceId: startingOccurrence.id,
+          ...(constructionLifecycle.capabilities.status === 'ready'
+            ? { stageId: constructionLifecycle.capabilities.response.selectedStage.id }
+            : {}),
+        }
+      : undefined;
   const addSourceOptions = useMemo(() => {
     const sources = catalogSourceOptions(
       state.catalog,
@@ -1350,6 +1365,7 @@ const BuilderWorkspaceContent = ({
       const rootSource = addSourceOptions.find((source) => source.kind === 'ROOT');
       if (rootSource) setAddColumnsSource({ context: addSourceContext, key: rootSource.key });
     }
+    if (addColumnsView !== view) setAddColumnsViewRevision((revision) => revision + 1);
     setAddColumnsView(view);
   };
   const handleAddColumnsTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
@@ -3538,6 +3554,9 @@ const BuilderWorkspaceContent = ({
                       routeContext={addSourceRouteContext}
                       layout="panel"
                       view={addColumnsView}
+                      viewRevision={addColumnsViewRevision}
+                      presentationContext={fieldPresentationContext}
+                      onSwitchView={selectAddColumnsView}
                       semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
                       sourceControls={addColumnsSourceControls}
                       catalog={state.catalog}
@@ -4352,6 +4371,7 @@ const BuilderWorkspaceContent = ({
                   outputId={table.outputId}
                   tableContextKey={`${state.draftVersion}:${state.draftDigest}`}
                   rowRoot={table.document.rootResourceType}
+                  presentationContext={fieldPresentationContext}
                   semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
                   catalog={state.catalog}
                   sourceProjectionAvailability={sourceAvailability}
@@ -4604,6 +4624,9 @@ const BuilderWorkspaceContent = ({
                       rowRoot={table.document.rootResourceType}
                       resourceType={occurrence.resourceType}
                       routeContext={selectedRouteContext}
+                      presentationContext={selectedRouteContext?.occurrenceId === startingOccurrence?.id
+                        ? fieldPresentationContext
+                        : undefined}
                       layout="panel"
                       catalog={state.catalog}
                       sourceProjectionAvailability={sourceAvailability}

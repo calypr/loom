@@ -1,10 +1,13 @@
-import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useLoomClient, useQuery } from '../../../react';
 import type {
   ConstructionChoice,
   ConstructionChoiceOption,
   ConstructionChoiceSearchSource,
   ExplorerBuilderCatalog,
+  FieldPresentation,
+  FieldPresentationRequest,
+  SemanticInventoryItemIdentity,
   FieldChoiceSource,
   SemanticInventoryBrowseResponse,
   SemanticInventoryItem,
@@ -16,12 +19,18 @@ import {
   catalogItemAvailability,
   catalogItemKey,
   catalogItemLabel,
+  catalogItemTitle,
   catalogItemConstructionChoice,
   catalogSourceOptions,
+  fieldPresentationMatchesRequest,
   fieldCatalogItems,
   isRelatedFieldCatalogItem,
   semanticCatalogItems,
+  semanticIdentityForItem,
+  semanticInventoryIdentityKey,
+  semanticItemMatchesIdentity,
   semanticItemMatchesAnyRule,
+  type SemanticSourceFieldLink,
   type CatalogChoiceGroup,
   type CatalogChoiceIntent,
   type CatalogItem,
@@ -65,6 +74,12 @@ type ChoiceDetailsState =
   | { readonly status: 'loading' }
   | { readonly status: 'ready'; readonly group: CatalogChoiceGroup }
   | { readonly status: 'error'; readonly message: string };
+
+type FieldPresentationCacheEntry = {
+  readonly request: FieldPresentationRequest;
+  readonly presentation: FieldPresentation;
+  readonly inventoryBuildId: string;
+};
 
 const semanticLabel = (item: SemanticInventoryItem): string =>
   item.display.trim() || item.code.trim() || item.sourcePath || item.resourceType;
@@ -116,6 +131,13 @@ type CatalogSourceGroup = {
   readonly items: ReadonlyArray<CatalogItem>;
 };
 
+type SemanticCatalogItem = Extract<CatalogItem, { readonly kind: 'SEMANTIC' }>;
+
+type SemanticPresentationGroup = {
+  readonly items: ReadonlyArray<SemanticCatalogItem>;
+  readonly sourceFields: ReadonlyArray<SemanticSourceFieldLink>;
+};
+
 const catalogSourceGroups = (
   items: ReadonlyArray<CatalogItem>,
   rowRoot: string,
@@ -138,6 +160,104 @@ const catalogSourceGroups = (
     if (left.resourceType !== right.resourceType) return left.resourceType < right.resourceType ? -1 : 1;
     return left.nodeId < right.nodeId ? -1 : left.nodeId > right.nodeId ? 1 : 0;
   });
+};
+
+const semanticPresentationGroups = (
+  items: ReadonlyArray<CatalogItem>,
+  sourceFieldLinks: ReadonlyArray<SemanticSourceFieldLink>,
+): ReadonlyArray<SemanticPresentationGroup> => {
+  const semanticItems = items.flatMap((item) => item.kind === 'SEMANTIC' ? [item] : []);
+  const semanticByIdentity = new Map<string, SemanticCatalogItem>();
+  for (const item of semanticItems) {
+    const identity = semanticIdentityForItem(item.item);
+    if (!identity) continue;
+    semanticByIdentity.set(semanticInventoryIdentityKey(identity), item);
+  }
+
+  const fieldByCandidateId = new Map<string, SemanticSourceFieldLink>();
+  const fieldsBySemanticIdentity = new Map<string, Set<string>>();
+  const semanticsByFieldCandidateId = new Map<string, Set<string>>();
+  for (const link of sourceFieldLinks) {
+    const candidateId = link.field.candidate.candidateId;
+    const previousLink = fieldByCandidateId.get(candidateId);
+    const combinedReplacements = new Map<string, SemanticCatalogItem>();
+    for (const replacement of [...(previousLink?.replacements ?? []), ...link.replacements]) {
+      const identity = semanticIdentityForItem(replacement.item);
+      if (identity) combinedReplacements.set(semanticInventoryIdentityKey(identity), replacement);
+    }
+    fieldByCandidateId.set(candidateId, {
+      field: link.field,
+      replacements: [...combinedReplacements.values()],
+      requestKey: link.requestKey,
+    });
+    for (const replacement of link.replacements) {
+      const identity = semanticIdentityForItem(replacement.item);
+      if (!identity) continue;
+      const identityKey = semanticInventoryIdentityKey(identity);
+      if (!semanticByIdentity.has(identityKey)) continue;
+      const semanticFields = fieldsBySemanticIdentity.get(identityKey) ?? new Set<string>();
+      semanticFields.add(candidateId);
+      fieldsBySemanticIdentity.set(identityKey, semanticFields);
+      const fieldSemantics = semanticsByFieldCandidateId.get(candidateId) ?? new Set<string>();
+      fieldSemantics.add(identityKey);
+      semanticsByFieldCandidateId.set(candidateId, fieldSemantics);
+    }
+  }
+
+  const visitedSemanticIdentities = new Set<string>();
+  const visitedCandidateIds = new Set<string>();
+  const groups: SemanticPresentationGroup[] = [];
+  for (const item of semanticItems) {
+    const identity = semanticIdentityForItem(item.item);
+    const identityKey = identity ? semanticInventoryIdentityKey(identity) : undefined;
+    if (!identityKey || visitedSemanticIdentities.has(identityKey)) {
+      if (!identityKey) groups.push({ items: [item], sourceFields: [] });
+      continue;
+    }
+    const groupSemanticIds = new Set<string>();
+    const groupCandidateIds = new Set<string>();
+    const pendingSemanticIds = [identityKey];
+    while (pendingSemanticIds.length > 0) {
+      const currentSemanticId = pendingSemanticIds.pop();
+      if (!currentSemanticId || groupSemanticIds.has(currentSemanticId)) continue;
+      groupSemanticIds.add(currentSemanticId);
+      visitedSemanticIdentities.add(currentSemanticId);
+      for (const candidateId of fieldsBySemanticIdentity.get(currentSemanticId) ?? []) {
+        if (groupCandidateIds.has(candidateId)) continue;
+        groupCandidateIds.add(candidateId);
+        visitedCandidateIds.add(candidateId);
+        for (const nextSemanticId of semanticsByFieldCandidateId.get(candidateId) ?? []) {
+          if (!groupSemanticIds.has(nextSemanticId)) pendingSemanticIds.push(nextSemanticId);
+        }
+      }
+    }
+    groups.push({
+      items: [...groupSemanticIds].flatMap((semanticId) => {
+        const semantic = semanticByIdentity.get(semanticId);
+        return semantic ? [semantic] : [];
+      }),
+      sourceFields: [...groupCandidateIds].flatMap((candidateId) => {
+        const link = fieldByCandidateId.get(candidateId);
+        return link ? [link] : [];
+      }),
+    });
+  }
+
+  for (const link of sourceFieldLinks) {
+    if (visitedCandidateIds.has(link.field.candidate.candidateId)) continue;
+    const replacementItems = link.replacements.flatMap((replacement) => {
+      const identity = semanticIdentityForItem(replacement.item);
+      if (!identity) return [];
+      const item = semanticByIdentity.get(semanticInventoryIdentityKey(identity));
+      return item ? [item] : [];
+    });
+    if (replacementItems.length > 0) {
+      groups.push({ items: replacementItems, sourceFields: [link] });
+      visitedCandidateIds.add(link.field.candidate.candidateId);
+    }
+  }
+
+  return groups;
 };
 
 const choiceGroupsForRelatedSource = (
@@ -170,7 +290,7 @@ const addActionMessage = (intents: ReadonlyArray<CatalogChoiceIntent>): string =
     : `${intents.length} ${intents.length === 1 ? 'feature was' : 'features were'} added to your table.`;
 
 const unavailableSelectionMessage = (items: ReadonlyArray<CatalogItem>): string => {
-  const labels = items.map(catalogItemLabel);
+  const labels = items.map((item) => catalogItemLabel(item));
   return labels.length === 1
     ? `${labels[0]} is not available for this table and was removed from your selection.`
     : `${labels.join(', ')} are not available for this table and were removed from your selection.`;
@@ -293,6 +413,7 @@ const ChoiceDetails = ({
 const CatalogItemRow = ({
   item,
   rowRoot,
+  semanticSelectionMode,
   currentResourceType,
   hasRouteContext,
   checked,
@@ -303,9 +424,11 @@ const CatalogItemRow = ({
   onToggle,
   choiceDetails,
   onInspectChoices,
+  focusOnMount = false,
 }: {
   readonly item: CatalogItem;
   readonly rowRoot: string;
+  readonly semanticSelectionMode?: SemanticInventorySelectionMode;
   readonly currentResourceType?: string;
   readonly hasRouteContext: boolean;
   readonly checked: boolean;
@@ -319,8 +442,9 @@ const CatalogItemRow = ({
     | { readonly status: 'ready'; readonly group: CatalogChoiceGroup }
     | { readonly status: 'error'; readonly message: string };
   readonly onInspectChoices: () => void;
+  readonly focusOnMount?: boolean;
 }) => {
-  const label = catalogItemLabel(item);
+  const label = catalogItemLabel(item, semanticSelectionMode);
   const selectionLabel = item.kind === 'FIELD'
     ? `Select ${item.constructionChoice.source.resourceType}.${item.candidate.fieldPath.replace(/^root\./, '')}`
     : `Select ${label}`;
@@ -344,6 +468,14 @@ const CatalogItemRow = ({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const detailsId = useId();
   const [detailsPosition, setDetailsPosition] = useState({ left: 0, top: 24, width: 320, maxHeight: 448 });
+  const semanticIdentity = item.kind === 'SEMANTIC'
+    ? semanticIdentityForItem(item.item)
+    : undefined;
+  const rowRef = useCallback((element: HTMLElement | null) => {
+    if (!element || !focusOnMount) return;
+    element.focus({ preventScroll: true });
+    element.scrollIntoView?.({ block: 'nearest' });
+  }, [focusOnMount]);
   const openDetails = (trigger: HTMLElement) => {
     const rect = trigger.getBoundingClientRect();
     const width = Math.max(0, Math.min(320, window.innerWidth - 32));
@@ -500,7 +632,13 @@ const CatalogItemRow = ({
       </div>
   );
   return (
-    <article className={`relative rounded-lg border p-3 transition-shadow hover:z-20 focus-within:z-20 ${checked
+    <article
+      ref={rowRef}
+      tabIndex={focusOnMount ? -1 : undefined}
+      data-source-node-id={item.kind === 'FIELD' ? item.candidate.nodeId : item.constructionChoice?.source.nodeId}
+      data-catalog-item-key={catalogItemKey(item)}
+      data-semantic-identity={semanticIdentity ? semanticInventoryIdentityKey(semanticIdentity) : undefined}
+      className={`relative rounded-lg border p-3 transition-shadow hover:z-20 focus-within:z-20 ${checked
       ? 'border-blue-500 bg-blue-50/60 shadow-sm'
       : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'}`}>
       <button
@@ -565,6 +703,9 @@ const ConceptCatalogContent = ({
   sourceProjectionAvailability,
   relatedSourceAvailability,
   view = 'all',
+  viewRevision = 0,
+  presentationContext,
+  onSwitchView,
   sourceControls,
   suppressUnavailableNotices = false,
   semanticSelectionMode,
@@ -593,6 +734,9 @@ const ConceptCatalogContent = ({
   readonly sourceProjectionAvailability?: CatalogSourceProjectionAvailability;
   readonly relatedSourceAvailability?: CatalogRelatedSourceAvailability;
   readonly view?: ConceptCatalogView;
+  readonly viewRevision?: number;
+  readonly presentationContext?: Omit<FieldPresentationRequest, 'candidateIds'>;
+  readonly onSwitchView?: (view: 'coded') => void;
   readonly sourceControls?: React.ReactNode;
   readonly suppressUnavailableNotices?: boolean;
   readonly semanticSelectionMode?: SemanticInventorySelectionMode;
@@ -607,8 +751,34 @@ const ConceptCatalogContent = ({
   readonly onInspectRouteCoverage?: (selection: CatalogChoiceIntent, signal: AbortSignal) => Promise<RouteCoverage>;
 }) => {
   const client = useLoomClient();
-  const [queryInput, setQueryInput] = useState('');
-  const [query, setQuery] = useState('');
+  const queryStateScopeKey = JSON.stringify([
+    tableContextKey,
+    view,
+    viewRevision,
+    presentationContext?.sourceNodeId ?? sourceNodeId ?? '',
+    presentationContext?.occurrenceId ?? routeContext?.occurrenceId ?? '',
+  ]);
+  const [queryState, setQueryState] = useState<{
+    readonly scopeKey: string;
+    readonly queryInput: string;
+    readonly query: string;
+    readonly searchGeneration: number;
+  }>(() => ({ scopeKey: queryStateScopeKey, queryInput: '', query: '', searchGeneration: 0 }));
+  const activeQueryState = queryState.scopeKey === queryStateScopeKey
+    ? queryState
+    : { scopeKey: queryStateScopeKey, queryInput: '', query: '', searchGeneration: 0 };
+  const { queryInput, query, searchGeneration } = activeQueryState;
+  const updateQueryState = (
+    update: (current: typeof activeQueryState) => typeof activeQueryState,
+  ) => setQueryState((current) => update(
+    current.scopeKey === queryStateScopeKey
+      ? current
+      : { scopeKey: queryStateScopeKey, queryInput: '', query: '', searchGeneration: 0 },
+  ));
+  const setQueryInput = (value: string) => updateQueryState((current) => ({ ...current, queryInput: value }));
+  const setQuery = (value: string) => updateQueryState((current) => ({ ...current, query: value }));
+  const setSearchGeneration = (update: (current: number) => number) =>
+    updateQueryState((current) => ({ ...current, searchGeneration: update(current.searchGeneration) }));
   const searchAcrossSources = query.trim().length > 0;
   const browseResourceType = searchAcrossSources ? undefined : resourceType;
   const browseSourceNodeId = searchAcrossSources ? undefined : sourceNodeId;
@@ -619,10 +789,15 @@ const ConceptCatalogContent = ({
     readonly cursors: ReadonlyArray<string | undefined>;
     readonly index: number;
   }>();
-  const [searchGeneration, setSearchGeneration] = useState(0);
-  const [selected, setSelected] = useState<ReadonlyMap<string, CatalogItem>>(
+  const [selectedState, setSelectedState] = useState<ReadonlyMap<string, CatalogItem>>(
     () => new Map(),
   );
+  const [initialFieldSelectionDismissed, setInitialFieldSelectionDismissed] = useState(false);
+  const [focusedPresentation, setFocusedPresentation] = useState<{
+    readonly scopeKey: string;
+    readonly requestKey: string;
+    readonly identity: SemanticInventoryItemIdentity;
+  }>();
   const [choiceDetails, setChoiceDetails] = useState<ReadonlyMap<string, ChoiceDetailsState>>(
     () => new Map(),
   );
@@ -645,14 +820,21 @@ const ConceptCatalogContent = ({
   } | undefined>(undefined);
   const currentTableContextKey = useRef(tableContextKey);
   currentTableContextKey.current = tableContextKey;
+  const canAddFromSourceProjection = sourceProjectionAvailability?.available ?? true;
+  const canAddCatalogItem = (item: CatalogItem): boolean => {
+    if (view !== 'all' && item.kind === 'SEMANTIC' &&
+      !semanticItemMatchesAnyRule(item.item, CODED_SEMANTIC_RULE_HINTS)) return false;
+    if (relatedSourceAvailability && isRelatedFieldCatalogItem(item, rowRoot)) {
+      return relatedSourceAvailability.supported;
+    }
+    return canAddFromSourceProjection;
+  };
   const selectionContext = useRef<string | undefined>(undefined);
   const semanticContextRef = useRef<{
     readonly scopeKey: string;
     readonly client: typeof client;
     readonly value?: { readonly contextToken: string; readonly buildId: string };
   }>({ scopeKey: '', client });
-  const previousView = useRef(view);
-  const previousTableContext = useRef(tableContextKey);
   const handledSuggestionRequests = useRef<Set<string>>(new Set());
   const cancelLoadMoreRoutes = () => {
     activeMoreRouteRequest.current?.controller.abort();
@@ -660,26 +842,6 @@ const ConceptCatalogContent = ({
     setLoadingMoreRoutes(undefined);
     setRouteLoadError(undefined);
   };
-  useEffect(() => {
-    if (previousView.current === view) return;
-    previousView.current = view;
-    setQuery('');
-    setQueryInput('');
-    setPageNavigation(undefined);
-  }, [view]);
-  useEffect(() => {
-    if (previousTableContext.current === tableContextKey) return;
-    previousTableContext.current = tableContextKey;
-    activeChoiceRequest.current?.abort();
-    activeChoiceRequest.current = undefined;
-    cancelLoadMoreRoutes();
-    setSelectionPhase('idle');
-    setSelected(new Map());
-    setChoiceDetails(new Map());
-    setPendingSelection(undefined);
-    setAdvancedOpen(false);
-    setActionMessage('The table changed. Choose fields for the current table.');
-  }, [tableContextKey]);
   const contextKey = JSON.stringify([
     project,
     explorerId,
@@ -698,6 +860,85 @@ const ConceptCatalogContent = ({
     relatedSourceAvailability?.supported ?? true,
     relatedSourceAvailability?.reason ?? '',
   ]);
+  const isFieldNormallyAddable = (item: CatalogItem): item is Extract<CatalogItem, { readonly kind: 'FIELD' }> => {
+    if (item.kind !== 'FIELD' || item.candidate.populated !== true ||
+      !canAddCatalogItem(item) || !catalogItemAvailability(item).selectable) return false;
+    const details = choiceDetails.get(JSON.stringify([contextKey, '', catalogItemKey(item)]));
+    if (details?.status !== 'ready') return true;
+    const supportedChoices = choiceGroupsForRelatedSource(
+      [details.group],
+      rowRoot,
+      relatedSourceAvailability,
+    )[0]?.choices ?? [];
+    return supportedChoices.length > 0 || !details.group.complete ||
+      details.group.truncated || details.group.nextCursor !== undefined;
+  };
+  const presentationSourceNode = presentationContext
+    ? catalog.nodes.find((node) => node.nodeId === presentationContext.sourceNodeId)
+    : undefined;
+  const hasExactPresentationOccurrence = Boolean(
+    presentationContext && presentationSourceNode && (
+      presentationSourceNode.resourceType === rowRoot && presentationContext.occurrenceId === 'base' ||
+      routeContext?.nodeId === presentationContext.sourceNodeId &&
+      routeContext.occurrenceId === presentationContext.occurrenceId
+    ),
+  );
+  const presentationFieldQuery = view === 'coded' ? '' : query;
+  const presentationCandidates = hasExactPresentationOccurrence && presentationContext && presentationSourceNode
+    ? fieldCatalogItems(
+        catalog,
+        rowRoot,
+        presentationSourceNode.resourceType,
+        presentationFieldQuery,
+        presentationContext.sourceNodeId,
+        presentationSourceNode.resourceType !== rowRoot,
+      ).filter((item): item is Extract<CatalogItem, { readonly kind: 'FIELD' }> => item.kind === 'FIELD' &&
+        item.candidate.nodeId === presentationContext.sourceNodeId &&
+        isFieldNormallyAddable(item))
+    : [];
+  const uniquePresentationCandidates = [...new Map(
+    presentationCandidates.map((item) => [item.candidate.candidateId, item] as const),
+  ).values()].slice(0, PAGE_SIZE);
+  const presentationRequest: FieldPresentationRequest | undefined =
+    presentationContext && uniquePresentationCandidates.length > 0
+      ? {
+          ...presentationContext,
+          candidateIds: uniquePresentationCandidates.map((item) => item.candidate.candidateId),
+        }
+      : undefined;
+  const presentationScopeKey = JSON.stringify([
+    project,
+    explorerId,
+    authResourcePath ?? '',
+    snapshotToken,
+    outputId,
+    tableContextKey,
+    rowRoot,
+    catalog.authorizationScopeDigest ?? '',
+    catalog.generation,
+    presentationContext?.expectedDraftVersion ?? 0,
+    presentationContext?.expectedDraftDigest ?? '',
+    presentationContext?.sourceNodeId ?? '',
+    presentationContext?.occurrenceId ?? '',
+    presentationContext?.stageId ?? '',
+  ]);
+  const presentationRequestKey = presentationRequest
+    ? JSON.stringify([presentationScopeKey, presentationRequest.candidateIds])
+    : 'none';
+  const presentationCache = useRef<{
+    readonly client: typeof client;
+    readonly scopeKey: string;
+    readonly entries: Map<string, FieldPresentationCacheEntry>;
+  }>({ client, scopeKey: presentationScopeKey, entries: new Map() });
+  if (presentationCache.current.client !== client || presentationCache.current.scopeKey !== presentationScopeKey) {
+    presentationCache.current = { client, scopeKey: presentationScopeKey, entries: new Map() };
+  }
+  const cachedPresentation = presentationRequest
+    ? presentationCache.current.entries.get(presentationRequestKey)
+    : undefined;
+  const presentationRequestToSend = presentationRequest && !cachedPresentation
+    ? presentationRequest
+    : undefined;
   const semanticContextScopeKey = JSON.stringify([
     project,
     explorerId,
@@ -715,12 +956,15 @@ const ConceptCatalogContent = ({
     explorerId,
     authResourcePath ?? '',
     snapshotToken,
+    tableContextKey,
     rowRoot,
     outputId,
     browseResourceType ?? '',
     semanticSelectionMode ?? '',
+    viewRevision,
     query,
     searchGeneration,
+    presentationRequestKey,
   ]);
   const currentPageNavigation = pageNavigation?.scopeKey === catalogRequestScopeKey
     ? pageNavigation
@@ -735,6 +979,8 @@ const ConceptCatalogContent = ({
     pageCache.current = { client, scopeKey: catalogRequestScopeKey, pages: new Map() };
   }
   const catalogPageCacheKey = JSON.stringify([catalogRequestScopeKey, cursor ?? null]);
+  const currentCatalogRequestScopeKey = useRef(catalogRequestScopeKey);
+  currentCatalogRequestScopeKey.current = catalogRequestScopeKey;
   const catalogQuery = useQuery(async (signal) => {
     if (signal.aborted) return undefined;
     const cached = pageCache.current.pages.get(catalogPageCacheKey);
@@ -752,11 +998,32 @@ const ConceptCatalogContent = ({
         query,
         cursor,
         limit: PAGE_SIZE,
+        ...(presentationRequestToSend ? { fieldPresentation: presentationRequestToSend } : {}),
         requestId: `feature-catalog-${window.crypto.randomUUID()}`,
       },
       signal,
     );
-    if (!signal.aborted) {
+    if (!signal.aborted && presentationRequestToSend && response.fieldPresentation &&
+      presentationCache.current.scopeKey === presentationScopeKey) {
+      if (response.fieldPresentation.kind === 'UNAVAILABLE' || fieldPresentationMatchesRequest({
+        presentation: response.fieldPresentation,
+        request: presentationRequestToSend,
+        project,
+        explorerId,
+        snapshotToken,
+        outputId,
+        datasetGeneration: catalog.generation,
+        inventoryBuildId: response.buildId,
+        authorizationScopeDigest: catalog.authorizationScopeDigest,
+      })) {
+        presentationCache.current.entries.set(presentationRequestKey, {
+          request: presentationRequestToSend,
+          presentation: response.fieldPresentation,
+          inventoryBuildId: response.buildId,
+        });
+      }
+    }
+    if (!signal.aborted && currentCatalogRequestScopeKey.current === catalogRequestScopeKey) {
       if (selectionContext.current && selectionContext.current !== response.contextToken) {
         setSelected(new Map());
         setPendingSelection(undefined);
@@ -777,9 +1044,10 @@ const ConceptCatalogContent = ({
     query,
     browseResourceType,
     rowRoot,
+    presentationRequestKey,
     searchGeneration,
     snapshotToken,
-  ], Boolean(snapshotToken && rowRoot && view !== 'fields'));
+  ], Boolean(snapshotToken && rowRoot && (view !== 'fields' || presentationRequestToSend)));
   const loadState: CatalogLoadState = !snapshotToken || !rowRoot
     ? { status: 'idle' }
     : catalogQuery.error
@@ -791,19 +1059,191 @@ const ConceptCatalogContent = ({
         : catalogQuery.data
           ? { status: 'ready' }
           : { status: 'idle' };
-  const canAddFromSourceProjection = sourceProjectionAvailability?.available ?? true;
   const sourceProjectionReason = sourceProjectionAvailability?.reason.trim();
   const relatedSourceAvailabilityId = useId();
-  const canAddCatalogItem = (item: CatalogItem): boolean => {
-    if (view !== 'all' && item.kind === 'SEMANTIC' &&
-      !semanticItemMatchesAnyRule(item.item, CODED_SEMANTIC_RULE_HINTS)) return false;
-    if (relatedSourceAvailability && isRelatedFieldCatalogItem(item, rowRoot)) {
-      return relatedSourceAvailability.supported;
-    }
-    return canAddFromSourceProjection;
+
+
+  const semanticResponse = catalogQuery.data ?? pageCache.current.pages.get(catalogPageCacheKey);
+  if (semanticResponse) {
+    semanticContextRef.current = {
+      scopeKey: semanticContextScopeKey,
+      client,
+      value: { contextToken: semanticResponse.contextToken, buildId: semanticResponse.buildId },
+    };
+  }
+  const response = view === 'fields' ? undefined : semanticResponse;
+  const pageIndex = currentPageNavigation.index;
+  const warning = response ? availabilityMessage(response) : undefined;
+  const canBrowseConcepts = response?.state === 'complete';
+  const choiceDetailsKey = (item: CatalogItem): string =>
+    JSON.stringify([
+      contextKey,
+      item.kind === 'SEMANTIC' ? semanticResponse?.contextToken ?? '' : '',
+      catalogItemKey(item),
+    ]);
+  const choicesForCurrentTable = (group: CatalogChoiceGroup): ReadonlyArray<ConstructionChoice> =>
+    choiceGroupsForRelatedSource([group], rowRoot, relatedSourceAvailability)[0]?.choices ?? [];
+  const hasNoCompilerRoute = (item: CatalogItem): boolean => {
+    const details = choiceDetails.get(choiceDetailsKey(item));
+    return details?.status === 'ready' && choicesForCurrentTable(details.group).length === 0 &&
+      details.group.complete && !details.group.truncated && !details.group.nextCursor;
   };
+  const fieldItems = useMemo(
+    () => {
+      if (view === 'coded') return [];
+      const reachableSourceNodeIds = new Set(catalogSourceOptions(catalog, rowRoot)
+        .flatMap((source) => source.kind === 'RELATED' ? [source.sourceNodeId] : []));
+      const catalogFields = fieldCatalogItems(
+        catalog,
+        rowRoot,
+        browseResourceType,
+        query,
+        browseSourceNodeId,
+        view === 'fields',
+      ).filter((item) => item.kind === 'FIELD' && item.candidate.populated === true);
+      return catalogFields.filter(
+        (item) => item.kind === 'FIELD' &&
+          !hasNoCompilerRoute(item) &&
+          (!browseRouteContext || item.candidate.nodeId === browseRouteContext.nodeId) &&
+          (browseRouteContext || item.constructionChoice.source.resourceType === rowRoot || reachableSourceNodeIds.has(item.candidate.nodeId)) &&
+          canAddCatalogItem(item) && catalogItemAvailability(item).selectable,
+      );
+    },
+    [browseResourceType, browseRouteContext, browseSourceNodeId, catalog, choiceDetails, contextKey, query, rowRoot, relatedSourceAvailability, sourceProjectionAvailability, view],
+  );
+  const initialFieldItem = initialFieldSource
+    ? fieldItems.find((candidate) => candidate.kind === 'FIELD' &&
+      candidate.candidate.candidateId === initialFieldSource.candidateId &&
+      candidate.candidate.nodeId === initialFieldSource.nodeId &&
+      candidate.candidate.fieldPath === initialFieldSource.path)
+    : undefined;
+  const selected = selectedState.size > 0 || initialFieldSelectionDismissed || !initialFieldItem
+    ? selectedState
+    : new Map([[catalogItemKey(initialFieldItem), initialFieldItem]]);
+  const setSelected: React.Dispatch<React.SetStateAction<ReadonlyMap<string, CatalogItem>>> = (update) => {
+    setInitialFieldSelectionDismissed(true);
+    setSelectedState((current) => {
+      const currentSelection = current.size > 0 || !initialFieldItem
+        ? current
+        : new Map([[catalogItemKey(initialFieldItem), initialFieldItem]]);
+      return typeof update === 'function' ? update(currentSelection) : update;
+    });
+  };
+  const catalogOwnerRef = useCallback((element: HTMLElement | null) => {
+    if (element) return;
+    activeChoiceRequest.current?.abort();
+    activeChoiceRequest.current = undefined;
+    activeMoreRouteRequest.current?.controller.abort();
+    activeMoreRouteRequest.current = undefined;
+  }, []);
+  const currentPresentationCandidates = presentationContext && presentationSourceNode
+    ? fieldCatalogItems(
+        catalog,
+        rowRoot,
+        presentationSourceNode.resourceType,
+        '',
+        presentationContext.sourceNodeId,
+        presentationSourceNode.resourceType !== rowRoot,
+      ).filter((item) => {
+        return isFieldNormallyAddable(item);
+      })
+    : [];
+  const currentPresentationCandidatesById = new Map(
+    currentPresentationCandidates.flatMap((item) => item.kind === 'FIELD'
+      ? [[item.candidate.candidateId, item] as const]
+      : []),
+  );
+  const presentationEntries = [
+    ...(presentationRequestKey !== 'none' && cachedPresentation
+      ? [{ requestKey: presentationRequestKey, entry: cachedPresentation }]
+      : []),
+    ...(focusedPresentation?.scopeKey === presentationScopeKey
+      ? [...presentationCache.current.entries.entries()]
+          .filter(([requestKey]) => requestKey === focusedPresentation.requestKey)
+          .map(([requestKey, entry]) => ({ requestKey, entry }))
+      : []),
+  ].filter((entry, index, all) =>
+    all.findIndex((candidate) => candidate.requestKey === entry.requestKey) === index,
+  );
+  const linksFromPresentation = (
+    requestKey: string,
+    entry: FieldPresentationCacheEntry,
+  ): ReadonlyArray<SemanticSourceFieldLink> => {
+    if (!fieldPresentationMatchesRequest({
+      presentation: entry.presentation,
+      request: entry.request,
+      project,
+      explorerId,
+      snapshotToken,
+      outputId,
+      datasetGeneration: catalog.generation,
+      inventoryBuildId: entry.inventoryBuildId,
+      authorizationScopeDigest: catalog.authorizationScopeDigest,
+    }) || entry.presentation.kind !== 'READY') return [];
 
+    const replacementFor = (identity: SemanticInventoryItemIdentity): SemanticCatalogItem | undefined => {
+      const matches = entry.presentation.kind === 'READY'
+        ? entry.presentation.replacements.filter((candidate) => semanticItemMatchesIdentity(candidate, identity))
+        : [];
+      const [replacement] = matches;
+      if (matches.length !== 1 || !replacement?.constructionChoice) return undefined;
+      const choiceSource = replacement.constructionChoice.source;
+      if (choiceSource.kind !== 'SEMANTIC' ||
+        choiceSource.nodeId !== entry.request.sourceNodeId ||
+        choiceSource.resourceType !== replacement.resourceType ||
+        choiceSource.conceptId !== replacement.conceptId ||
+        choiceSource.bindingId !== replacement.bindingId ||
+        choiceSource.sourcePath !== replacement.sourcePath ||
+        choiceSource.system !== replacement.system ||
+        (choiceSource.version ?? '') !== replacement.codingVersion ||
+        (choiceSource.code ?? '') !== replacement.code ||
+        choiceSource.valueSelector !== replacement.valueSelector) return undefined;
+      const item: SemanticCatalogItem = {
+        kind: 'SEMANTIC',
+        item: replacement,
+        constructionChoice: replacement.constructionChoice,
+      };
+      return semanticItemMatchesAnyRule(item.item, CODED_SEMANTIC_RULE_HINTS) &&
+        canAddCatalogItem(item) && catalogItemAvailability(item).selectable
+        ? item
+        : undefined;
+    };
 
+    return entry.presentation.decisions.flatMap((decision) => {
+      if (decision.kind !== 'GROUP_UNDER_SEMANTIC') return [];
+      const field = currentPresentationCandidatesById.get(decision.candidateId);
+      if (!field || field.kind !== 'FIELD') return [];
+      const replacements = decision.replacementIds.flatMap((identity) => {
+        const replacement = replacementFor(identity);
+        return replacement ? [replacement] : [];
+      });
+      return replacements.length === decision.replacementIds.length && replacements.length > 0
+        ? [{ field, replacements, requestKey }]
+        : [];
+    });
+  };
+  const sourceFieldLinks = presentationEntries.flatMap(({ requestKey, entry }) =>
+    linksFromPresentation(requestKey, entry),
+  );
+  const sourceFieldLinksByCandidateId = new Map<string, SemanticSourceFieldLink>();
+  for (const link of sourceFieldLinks) {
+    const candidateId = link.field.candidate.candidateId;
+    const previous = sourceFieldLinksByCandidateId.get(candidateId);
+    const replacements = new Map<string, SemanticCatalogItem>();
+    for (const replacement of [...(previous?.replacements ?? []), ...link.replacements]) {
+      const identity = semanticIdentityForItem(replacement.item);
+      if (identity) replacements.set(semanticInventoryIdentityKey(identity), replacement);
+    }
+    sourceFieldLinksByCandidateId.set(candidateId, {
+      field: link.field,
+      replacements: [...replacements.values()],
+      requestKey: link.requestKey,
+    });
+  }
+  const groupedCandidateIds = new Set(sourceFieldLinksByCandidateId.keys());
+  const focusedIdentityKey = focusedPresentation?.scopeKey === presentationScopeKey
+    ? semanticInventoryIdentityKey(focusedPresentation.identity)
+    : undefined;
   useEffect(() => {
     const suggestion = pairedColumnSuggestion;
     if (view === 'fields' || !suggestion || handledSuggestionRequests.current.has(suggestion.requestId)) return;
@@ -860,88 +1300,35 @@ const ConceptCatalogContent = ({
     onPairedColumnSuggestionHandled,
     outputId,
     pairedColumnSuggestion,
+    setSelected,
     snapshotToken,
     view,
   ]);
-
-  const semanticResponse = catalogQuery.data ?? pageCache.current.pages.get(catalogPageCacheKey);
-  if (semanticResponse) {
-    semanticContextRef.current = {
-      scopeKey: semanticContextScopeKey,
-      client,
-      value: { contextToken: semanticResponse.contextToken, buildId: semanticResponse.buildId },
-    };
-  }
-  const response = view === 'fields' ? undefined : semanticResponse;
-  const pageIndex = currentPageNavigation.index;
-  const warning = response ? availabilityMessage(response) : undefined;
-  const canBrowseConcepts = response?.state === 'complete';
-  const choiceDetailsKey = (item: CatalogItem): string =>
-    JSON.stringify([
-      contextKey,
-      item.kind === 'SEMANTIC' ? semanticResponse?.contextToken ?? '' : '',
-      catalogItemKey(item),
-    ]);
-  const choicesForCurrentTable = (group: CatalogChoiceGroup): ReadonlyArray<ConstructionChoice> =>
-    choiceGroupsForRelatedSource([group], rowRoot, relatedSourceAvailability)[0]?.choices ?? [];
-  const hasNoCompilerRoute = (item: CatalogItem): boolean => {
-    const details = choiceDetails.get(choiceDetailsKey(item));
-    return details?.status === 'ready' && choicesForCurrentTable(details.group).length === 0 &&
-      details.group.complete && !details.group.truncated && !details.group.nextCursor;
-  };
-  const fieldItems = useMemo(
-    () => {
-      if (view === 'coded') return [];
-      const reachableSourceNodeIds = new Set(catalogSourceOptions(catalog, rowRoot)
-        .flatMap((source) => source.kind === 'RELATED' ? [source.sourceNodeId] : []));
-      const catalogFields = fieldCatalogItems(
-        catalog,
-        rowRoot,
-        browseResourceType,
-        query,
-        browseSourceNodeId,
-        view === 'fields',
-      ).filter((item) => item.kind === 'FIELD' && item.candidate.populated === true);
-      return catalogFields.filter(
-        (item) => item.kind === 'FIELD' &&
-          !hasNoCompilerRoute(item) &&
-          (!browseRouteContext || item.candidate.nodeId === browseRouteContext.nodeId) &&
-          (browseRouteContext || item.constructionChoice.source.resourceType === rowRoot || reachableSourceNodeIds.has(item.candidate.nodeId)) &&
-          canAddCatalogItem(item) && catalogItemAvailability(item).selectable,
-      );
-    },
-    [browseResourceType, browseRouteContext, browseSourceNodeId, catalog, choiceDetails, contextKey, query, rowRoot, relatedSourceAvailability, sourceProjectionAvailability, view],
-  );
-  const appliedInitialSelection = useRef(false);
-  useEffect(() => {
-    if (appliedInitialSelection.current || !initialFieldSource) return;
-    const item = fieldItems.find((candidate) => candidate.kind === 'FIELD' &&
-      candidate.candidate.candidateId === initialFieldSource.candidateId &&
-      candidate.candidate.nodeId === initialFieldSource.nodeId &&
-      candidate.candidate.fieldPath === initialFieldSource.path);
-    if (!item) return;
-    appliedInitialSelection.current = true;
-    setSelected((current) => current.size > 0 ? current : new Map([[catalogItemKey(item), item]]));
-  }, [fieldItems, initialFieldSource]);
   const semanticItems = useMemo(
-    () => semanticCatalogItems(
+    () => {
+      const inventoryItems = semanticCatalogItems(
       response?.entries ?? [],
       browseResourceType,
       browseSourceNodeId,
       view === 'coded' ? CODED_SEMANTIC_RULE_HINTS : undefined,
-    )
-      .filter((item) => view !== 'fields')
-      .filter((item) => !hasNoCompilerRoute(item))
-      .filter((item) => canAddCatalogItem(item) && catalogItemAvailability(item).selectable),
-    [browseResourceType, browseSourceNodeId, canAddFromSourceProjection, choiceDetails, contextKey, view, relatedSourceAvailability, response?.entries, rowRoot],
+      ).filter((item): item is SemanticCatalogItem => item.kind === 'SEMANTIC' && view !== 'fields' &&
+        !hasNoCompilerRoute(item) && canAddCatalogItem(item) && catalogItemAvailability(item).selectable);
+      const itemsByIdentity = new Map<string, SemanticCatalogItem>();
+      for (const item of [...inventoryItems, ...sourceFieldLinks.flatMap((link) => link.replacements)]) {
+        const identity = semanticIdentityForItem(item.item);
+        if (identity) itemsByIdentity.set(semanticInventoryIdentityKey(identity), item);
+      }
+      return [...itemsByIdentity.values()];
+    },
+    [browseResourceType, browseSourceNodeId, canAddFromSourceProjection, choiceDetails, contextKey, view, relatedSourceAvailability, response?.entries, rowRoot, sourceFieldLinks],
   );
   const fieldGroups = useMemo(
     () => catalogSourceGroups(fieldItems, rowRoot),
     [fieldItems, rowRoot],
   );
   const semanticGroups = useMemo(
-    () => catalogSourceGroups(semanticItems, rowRoot),
-    [semanticItems, rowRoot],
+    () => semanticPresentationGroups(semanticItems, [...sourceFieldLinksByCandidateId.values()]),
+    [semanticItems, sourceFieldLinksByCandidateId],
   );
   const selectedItems = useMemo(() => selectedAsArray(selected), [selected]);
   const toggleSelection = (item: CatalogItem) => {
@@ -1402,6 +1789,11 @@ const ConceptCatalogContent = ({
         </div>
       ) : null}
       <div className="mt-3 divide-y divide-slate-200">
+        {view === 'fields' && cachedPresentation?.presentation.kind === 'UNAVAILABLE' ? (
+          <p className="mb-2 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600" role="status">
+            Semantic grouping could not be confirmed for this source. Eligible raw fields remain available.
+          </p>
+        ) : null}
         {fieldItems.length === 0 ? (
           <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
             {view === 'fields'
@@ -1413,28 +1805,74 @@ const ConceptCatalogContent = ({
             <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
               Fields from {group.resourceType}
             </h4>
-            {group.items.map((item) => (
-              <CatalogItemRow
-                key={catalogItemKey(item)}
-                item={item}
-                rowRoot={rowRoot}
-                currentResourceType={resourceType}
-                hasRouteContext={browseRouteContext !== undefined}
-                checked={selected.has(catalogItemKey(item))}
-                disabled={disabled || submitting || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
-                selectionDisabled={!canAddCatalogItem(item)}
-                disabledReasonId={visibleDisabledReasonId}
-                selectionDisabledReasonId={
-                  relatedSourceAvailability?.supported === false &&
-                  isRelatedFieldCatalogItem(item, rowRoot)
-                    ? relatedSourceAvailabilityId
-                    : undefined
-                }
-                onToggle={() => toggleSelection(item)}
-                choiceDetails={choiceDetails.get(choiceDetailsKey(item))}
-                onInspectChoices={() => inspectChoices(item)}
-              />
-            ))}
+            {group.items.map((item) => {
+              const sourceLink = item.kind === 'FIELD'
+                ? sourceFieldLinksByCandidateId.get(item.candidate.candidateId)
+                : undefined;
+              if (sourceLink && item.kind === 'FIELD') {
+                return (
+                  <article
+                    key={catalogItemKey(item)}
+                    data-source-node-id={item.candidate.nodeId}
+                    data-catalog-item-key={catalogItemKey(item)}
+                    className="rounded-lg border border-slate-200 bg-white p-3"
+                  >
+                    <p className="font-semibold text-slate-900">{catalogItemLabel(item, semanticSelectionMode)}</p>
+                    <p className="mt-1 text-xs text-slate-600">Included in:</p>
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      {sourceLink.replacements.map((replacement) => {
+                        const identity = semanticIdentityForItem(replacement.item);
+                        if (!identity) return null;
+                        const identityKey = semanticInventoryIdentityKey(identity);
+                        return (
+                          <button
+                            key={identityKey}
+                            type="button"
+                            aria-label={`Included in ${catalogItemLabel(replacement, semanticSelectionMode)}`}
+                            data-source-node-id={item.candidate.nodeId}
+                            data-semantic-identity={identityKey}
+                            onClick={() => {
+                              setFocusedPresentation({
+                                scopeKey: presentationScopeKey,
+                                requestKey: sourceLink.requestKey,
+                                identity,
+                              });
+                              if (view === 'fields') onSwitchView?.('coded');
+                            }}
+                            className="text-left text-sm font-medium text-blue-800 underline underline-offset-2"
+                          >
+                            Included in {catalogItemLabel(replacement, semanticSelectionMode)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </article>
+                );
+              }
+              return (
+                <CatalogItemRow
+                  key={catalogItemKey(item)}
+                  item={item}
+                  rowRoot={rowRoot}
+                  semanticSelectionMode={semanticSelectionMode}
+                  currentResourceType={resourceType}
+                  hasRouteContext={browseRouteContext !== undefined}
+                  checked={selected.has(catalogItemKey(item))}
+                  disabled={disabled || submitting || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
+                  selectionDisabled={!canAddCatalogItem(item)}
+                  disabledReasonId={visibleDisabledReasonId}
+                  selectionDisabledReasonId={
+                    relatedSourceAvailability?.supported === false &&
+                    isRelatedFieldCatalogItem(item, rowRoot)
+                      ? relatedSourceAvailabilityId
+                      : undefined
+                  }
+                  onToggle={() => toggleSelection(item)}
+                  choiceDetails={choiceDetails.get(choiceDetailsKey(item))}
+                  onInspectChoices={() => inspectChoices(item)}
+                />
+              );
+            })}
           </section>
         ))}
       </div>
@@ -1442,7 +1880,7 @@ const ConceptCatalogContent = ({
   );
 
   return (
-    <section className="min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm">
+    <section ref={catalogOwnerRef} className="min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm">
       <form className="flex gap-2 border-b border-slate-200 px-3 py-2" onSubmit={submitSearch}>
           <label className="sr-only" htmlFor="feature-catalog-search">
             {view === 'fields' ? 'Search dataset fields by name or type' : 'Search coded values by code or label'}
@@ -1584,29 +2022,70 @@ const ConceptCatalogContent = ({
                   : 'No concepts match this search.'}
               </p>
             ) : null}
-              {semanticGroups.map((group) => (
-                <section key={group.nodeId} data-source-node-id={group.nodeId} className="py-2 first:pt-0">
+                {semanticGroups.map((group) => {
+                const sourceNodeId = group.items[0]?.constructionChoice?.source.nodeId ??
+                  group.sourceFields[0]?.field.candidate.nodeId ?? '';
+                const groupResourceType = group.items[0]?.item.resourceType ??
+                  group.sourceFields[0]?.field.constructionChoice.source.resourceType ?? '';
+                return (
+                <section key={group.items.map((item) => catalogItemKey(item)).join('|')} data-source-node-id={sourceNodeId} className="py-2 first:pt-0">
                   <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Coded values from {group.resourceType}
+                    Coded values from {groupResourceType}
                   </h4>
-                  {group.items.map((item) => (
-                    <CatalogItemRow
-                      key={catalogItemKey(item)}
-                      item={item}
-                      rowRoot={rowRoot}
-                      currentResourceType={resourceType}
-                      hasRouteContext={browseRouteContext !== undefined}
-                      checked={selected.has(catalogItemKey(item))}
-                      disabled={disabled || submitting || !canBrowseConcepts || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
-                      selectionDisabled={!canAddCatalogItem(item)}
-                      disabledReasonId={visibleDisabledReasonId}
-                      onToggle={() => toggleSelection(item)}
-                      choiceDetails={choiceDetails.get(choiceDetailsKey(item))}
-                      onInspectChoices={() => inspectChoices(item)}
-                    />
-                  ))}
-                </section>
-              ))}
+                  {group.items.map((item) => {
+                    const identity = semanticIdentityForItem(item.item);
+                    return (
+                      <CatalogItemRow
+                        key={catalogItemKey(item)}
+                        item={item}
+                        rowRoot={rowRoot}
+                        semanticSelectionMode={semanticSelectionMode}
+                        currentResourceType={resourceType}
+                        hasRouteContext={browseRouteContext !== undefined}
+                        checked={selected.has(catalogItemKey(item))}
+                        disabled={disabled || submitting || !canBrowseConcepts || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
+                        selectionDisabled={!canAddCatalogItem(item)}
+                        disabledReasonId={visibleDisabledReasonId}
+                        onToggle={() => toggleSelection(item)}
+                        choiceDetails={choiceDetails.get(choiceDetailsKey(item))}
+                        onInspectChoices={() => inspectChoices(item)}
+                        focusOnMount={identity !== undefined && semanticInventoryIdentityKey(identity) === focusedIdentityKey}
+                      />
+                    );
+                  })}
+                  {group.sourceFields.length > 0 ? (
+                    <details className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2" data-source-node-id={sourceNodeId}>
+                      <summary className="cursor-pointer text-sm font-medium text-slate-700">Source fields</summary>
+                      <div className="mt-2 space-y-2">
+                        {group.sourceFields.map(({ field }) => (
+                          <CatalogItemRow
+                            key={catalogItemKey(field)}
+                            item={field}
+                            rowRoot={rowRoot}
+                            semanticSelectionMode={semanticSelectionMode}
+                            currentResourceType={resourceType}
+                            hasRouteContext={browseRouteContext !== undefined}
+                            checked={selected.has(catalogItemKey(field))}
+                            disabled={disabled || submitting || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(field))}
+                            selectionDisabled={!canAddCatalogItem(field)}
+                            disabledReasonId={visibleDisabledReasonId}
+                            selectionDisabledReasonId={
+                              relatedSourceAvailability?.supported === false &&
+                              isRelatedFieldCatalogItem(field, rowRoot)
+                                ? relatedSourceAvailabilityId
+                                : undefined
+                            }
+                            onToggle={() => toggleSelection(field)}
+                            choiceDetails={choiceDetails.get(choiceDetailsKey(field))}
+                            onInspectChoices={() => inspectChoices(field)}
+                          />
+                        ))}
+                      </div>
+                    </details>
+                  ) : null}
+                  </section>
+                  );
+              })}
           </div>
           <div className="mt-4 flex items-center justify-between border-t border-slate-200 pt-3">
             <button
@@ -1672,13 +2151,29 @@ const ConceptCatalogContent = ({
             {selectedItems.length > 0 ? (
               <ul aria-label="Selected fields and coded values" className="grid max-h-28 gap-1 overflow-auto rounded-md border border-slate-200 bg-slate-50 p-2 text-xs">
                 {selectedItems.map((item) => {
-                  const label = catalogItemLabel(item);
+                  const label = catalogItemLabel(item, semanticSelectionMode);
+                  const semanticIdentity = item.kind === 'SEMANTIC'
+                    ? semanticIdentityForItem(item.item)
+                    : undefined;
+                  const selectionIdentity = semanticIdentity
+                    ? semanticInventoryIdentityKey(semanticIdentity)
+                    : item.kind === 'FIELD'
+                      ? JSON.stringify(['FIELD', item.candidate.candidateId])
+                      : catalogItemKey(item);
                   return (
-                    <li key={catalogItemKey(item)} className="flex items-center gap-2">
+                    <li
+                      key={catalogItemKey(item)}
+                      aria-label={`Selected ${label}`}
+                      data-source-node-id={item.kind === 'FIELD'
+                        ? item.candidate.nodeId
+                        : item.constructionChoice?.source.nodeId}
+                      data-semantic-identity={selectionIdentity}
+                      className="flex items-center gap-2"
+                    >
                       <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-700">
                         {item.kind === 'SEMANTIC' ? 'Coded value' : 'Field'}
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-slate-800">{label}</span>
+                      <span className="min-w-0 flex-1 truncate text-slate-800">{catalogItemTitle(item)}</span>
                       <button
                         type="button"
                         aria-label={`Remove ${label} from selected features`}
@@ -1726,7 +2221,10 @@ export const ConceptCatalog = (props: React.ComponentProps<typeof ConceptCatalog
   <ConceptCatalogContent
     key={JSON.stringify([
       props.project, props.explorerId, props.authResourcePath ?? '', props.snapshotToken,
-      props.outputId, props.rowRoot,
+      props.outputId, props.rowRoot, props.tableContextKey ?? '',
+      props.initialFieldSource?.candidateId ?? '',
+      props.initialFieldSource?.nodeId ?? '',
+      props.initialFieldSource?.path ?? '',
     ])}
     {...props}
   />

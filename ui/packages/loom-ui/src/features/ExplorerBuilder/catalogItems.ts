@@ -6,7 +6,11 @@ import type {
   ExplorerBuilderCatalog,
   ExplorerBuilderCandidate,
   FieldChoiceSource,
+  FieldPresentation,
+  FieldPresentationRequest,
+  SemanticInventoryItemIdentity,
   SemanticInventoryItem,
+  SemanticInventorySelectionMode,
 } from '../../types';
 
 export type CatalogItem =
@@ -31,6 +35,99 @@ export type CatalogChoiceIntent = {
     readonly choice: ConstructionChoice;
     readonly candidate: ExplorerBuilderCandidate;
   };
+};
+
+export type SemanticSourceFieldLink = {
+  readonly field: Extract<CatalogItem, { readonly kind: 'FIELD' }>;
+  readonly replacements: ReadonlyArray<Extract<CatalogItem, { readonly kind: 'SEMANTIC' }>>;
+  readonly requestKey: string;
+};
+
+export const semanticInventoryIdentityKey = (
+  identity: SemanticInventoryItemIdentity,
+): string => {
+  switch (identity.kind) {
+    case 'EXACT_CONCEPT':
+      return JSON.stringify([identity.kind, identity.conceptId, identity.bindingId]);
+    case 'SYSTEM_VERSION_CATEGORY':
+      return JSON.stringify([identity.kind, identity.familyId, identity.bindingId]);
+    default: {
+      const exhaustive: never = identity;
+      return exhaustive;
+    }
+  }
+};
+
+export const semanticIdentityForItem = (
+  item: SemanticInventoryItem,
+): SemanticInventoryItemIdentity | undefined => {
+  if (item.selectionMode === 'SYSTEM_VERSION_CATEGORY' && item.familyId) {
+    return {
+      kind: 'SYSTEM_VERSION_CATEGORY',
+      familyId: item.familyId,
+      bindingId: item.bindingId,
+    };
+  }
+  if (item.selectionMode === undefined && item.familyId === undefined) {
+    return {
+      kind: 'EXACT_CONCEPT',
+      conceptId: item.conceptId,
+      bindingId: item.bindingId,
+    };
+  }
+  return undefined;
+};
+
+export const semanticItemMatchesIdentity = (
+  item: SemanticInventoryItem,
+  identity: SemanticInventoryItemIdentity,
+): boolean => {
+  const itemIdentity = semanticIdentityForItem(item);
+  return itemIdentity !== undefined &&
+    semanticInventoryIdentityKey(itemIdentity) === semanticInventoryIdentityKey(identity);
+};
+
+export const fieldPresentationMatchesRequest = ({
+  presentation,
+  request,
+  project,
+  explorerId,
+  snapshotToken,
+  outputId,
+  datasetGeneration,
+  inventoryBuildId,
+  authorizationScopeDigest,
+}: {
+  readonly presentation: FieldPresentation | undefined;
+  readonly request: FieldPresentationRequest;
+  readonly project: string;
+  readonly explorerId: string;
+  readonly snapshotToken: string;
+  readonly outputId: string;
+  readonly datasetGeneration: string;
+  readonly inventoryBuildId: string;
+  readonly authorizationScopeDigest?: string;
+}): boolean => {
+  if (presentation?.kind !== 'READY') return false;
+  const { context, decisions } = presentation;
+  const expectedCandidateIds = new Set(request.candidateIds);
+  const decisionCandidateIds = decisions.map((decision) => decision.candidateId);
+  const contextMatches = context.project === project &&
+    (authorizationScopeDigest === undefined || context.authorizationScopeDigest === authorizationScopeDigest) &&
+    context.explorerId === explorerId &&
+    context.snapshotToken === snapshotToken &&
+    context.datasetGeneration === datasetGeneration &&
+    context.inventoryBuildId === inventoryBuildId &&
+    context.outputId === outputId &&
+    context.draftVersion === request.expectedDraftVersion &&
+    context.draftDigest === request.expectedDraftDigest &&
+    context.sourceNodeId === request.sourceNodeId &&
+    context.occurrenceId === request.occurrenceId &&
+    context.stageId === request.stageId;
+  const decisionsMatch = decisions.length === expectedCandidateIds.size &&
+    new Set(decisionCandidateIds).size === expectedCandidateIds.size &&
+    decisionCandidateIds.every((candidateId) => expectedCandidateIds.has(candidateId));
+  return contextMatches && decisionsMatch;
 };
 
 export const CODED_VALUE_RULE_HINT = 'CODED_VALUE_V1';
@@ -184,7 +281,10 @@ const fieldPathLabel = (path: string): string => {
   return words.join(' ');
 };
 
-export const catalogItemLabel = (item: CatalogItem): string => {
+export const catalogItemLabel = (
+  item: CatalogItem,
+  selectionMode?: SemanticInventorySelectionMode,
+): string => {
   switch (item.kind) {
     case 'FIELD': {
       const label = item.candidate.label.trim();
@@ -195,7 +295,7 @@ export const catalogItemLabel = (item: CatalogItem): string => {
         : fieldPathLabel(path);
     }
     case 'SEMANTIC':
-      return semanticConceptLabel(item.item);
+      return semanticConceptLabel(item.item, selectionMode);
     default: {
       const exhaustive: never = item;
       return exhaustive;
@@ -203,12 +303,36 @@ export const catalogItemLabel = (item: CatalogItem): string => {
   }
 };
 
-export const semanticConceptLabel = (item: SemanticInventoryItem): string => {
+const semanticStructuralLabel = (item: SemanticInventoryItem): string => {
+  const structuralPath = fieldPathLabel(item.sourcePath);
+  return [item.resourceType, structuralPath].filter(Boolean).join(' ') || item.resourceType;
+};
+
+export const semanticConceptTitle = (item: SemanticInventoryItem): string => {
   const label = item.display.trim() || item.code.trim() || item.sourcePath;
   return /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/.test(label)
     ? label.replaceAll('_', ' ').replace(/^./, (first) => first.toUpperCase())
     : label;
 };
+
+export const semanticConceptLabel = (
+  item: SemanticInventoryItem,
+  selectionMode?: SemanticInventorySelectionMode,
+): string => {
+  if (item.selectionMode !== 'SYSTEM_VERSION_CATEGORY' && selectionMode !== 'SYSTEM_VERSION_CATEGORY') {
+    return semanticConceptTitle(item);
+  }
+  const systemQualifier = item.system.trim()
+    ? `system ${item.system.trim()}`
+    : 'system not specified';
+  const versionQualifier = item.codingVersion.trim()
+    ? `version ${item.codingVersion.trim()}`
+    : 'version unversioned';
+  return [semanticStructuralLabel(item), systemQualifier, versionQualifier].join(' · ');
+};
+
+export const catalogItemTitle = (item: CatalogItem): string =>
+  item.kind === 'SEMANTIC' ? semanticConceptTitle(item.item) : catalogItemLabel(item);
 
 const isRelatedFieldSource = (
   sourceResourceType: string,
@@ -266,7 +390,7 @@ export const catalogChoiceIntent = ({
       form,
       ...(rowValuePolicy === 'ONE' ? { rowValuePolicy } : {}),
     },
-    title: catalogItemLabel(item),
+    title: catalogItemTitle(item),
     ...(relatedSource ? { relatedSource } : {}),
   };
 };
