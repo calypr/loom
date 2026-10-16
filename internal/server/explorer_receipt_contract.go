@@ -255,6 +255,21 @@ func classifyReceiptRecipeError(err error) error {
 			Details: map[string]any{"stepId": invalidAnchor.StepID}, Cause: err,
 		}
 	}
+	var invalidRelatedSourceAnchor *lower.RelatedSourceAnchorError
+	if errors.As(err, &invalidRelatedSourceAnchor) {
+		message := "This related source does not match the current table rows. Reopen the step and choose a source for this table."
+		if invalidRelatedSourceAnchor.Reason == "root_resource_changed" {
+			message = "This related source belongs to a different table root. Choose a source for this table."
+		}
+		details := map[string]any{"stepId": invalidRelatedSourceAnchor.StepID, "reason": invalidRelatedSourceAnchor.Reason}
+		if invalidRelatedSourceAnchor.OutputID != "" {
+			details["outputId"] = invalidRelatedSourceAnchor.OutputID
+		}
+		return &explorercompilation.Error{
+			Stage: "construction", Code: "CONSTRUCTION_ANCHOR_INVALID",
+			Message: message, Details: details, Cause: err,
+		}
+	}
 	var reducerType *lower.PivotReducerTypeError
 	if errors.As(err, &reducerType) {
 		return &explorercompilation.Error{

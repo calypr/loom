@@ -374,7 +374,7 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 			return CompiledRecipeOutput{}, err
 		}
 	} else if output.Construction != nil {
-		reshapeSchema, stageDescriptors, finalStageIdentity, err = appendRecipeConstructionStages(&physical, output.Name, output.RootResourceType, *output.Construction, baseOutputSchema, policy, cohort, workspaceOutputSchemas)
+		reshapeSchema, stageDescriptors, finalStageIdentity, err = appendRecipeConstructionStages(&physical, output.Name, output.RootResourceType, output.RowExpansion != nil, *output.Construction, baseOutputSchema, policy, cohort, workspaceOutputSchemas)
 		if err != nil {
 			return CompiledRecipeOutput{}, err
 		}

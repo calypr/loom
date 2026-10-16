@@ -55,6 +55,22 @@ func TestClassifyReceiptRecipeErrorIdentifiesInvalidRelatedRowAnchor(t *testing.
 	}
 }
 
+func TestClassifyReceiptRecipeErrorSanitizesInvalidRelatedSourceAnchor(t *testing.T) {
+	cause := fmt.Errorf("compile output: %w", &lower.RelatedSourceAnchorError{
+		OutputID: "specimens", StepID: "related_status", Reason: "row_identity_changed",
+	})
+	classified := classifyReceiptRecipeError(cause)
+	var diagnostic *explorercompilation.Error
+	if !errors.As(classified, &diagnostic) || diagnostic.Code != "CONSTRUCTION_ANCHOR_INVALID" || diagnostic.Stage != "construction" {
+		t.Fatalf("classified error = %v, want related source anchor diagnostic", classified)
+	}
+	if diagnostic.Message != "This related source does not match the current table rows. Reopen the step and choose a source for this table." ||
+		diagnostic.Details["outputId"] != "specimens" || diagnostic.Details["stepId"] != "related_status" ||
+		diagnostic.Details["reason"] != "row_identity_changed" || !errors.Is(classified, cause) {
+		t.Fatalf("diagnostic did not retain safe table/step context and original cause: %#v", diagnostic)
+	}
+}
+
 func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())

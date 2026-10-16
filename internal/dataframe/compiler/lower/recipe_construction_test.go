@@ -1183,6 +1183,67 @@ func TestRelatedEligibilityKeepsRootAnchorAfterRowExpansion(t *testing.T) {
 	}
 }
 
+func TestRelatedSourceRebindsRootAnchorAfterSourceRowExpansion(t *testing.T) {
+	output := constructionTestOutput()
+	output.RootOccurrenceID = "patient-root"
+	output.RowGrain = "expanded"
+	output.Expand = &recipe.Expansion{
+		OwnerOccurrenceID: "patient-root", From: recipe.Expression{Select: "root.identifier[]"},
+		As: "item", Ordinality: "position", EmptyPolicy: recipe.ExpansionPreserveParent,
+	}
+	output.Identity = &recipe.Identity{Name: "row", Expansion: &recipe.ExpansionIdentity{}}
+	output.Construction = &recipe.Construction{
+		Version: 1,
+		SourceColumns: []recipe.StageColumn{
+			{ID: "group_id", Name: "group"},
+			{ID: "category_id", Name: "category"},
+			{ID: "amount_id", Name: "amount"},
+		},
+		Steps: []recipe.ConstructionStep{{
+			ID: "related_status", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedSourceOp, RelatedSource: &recipe.ConstructionRelatedSource{
+				AnchorColumnID: "_key", ChoiceID: "patient-observation-choice", SourceOccurrenceID: "observation-node",
+				Source: recipe.ConstructionRelatedFieldSource{
+					CandidateID: "observation-status", NodeID: "observation-node", ResourceType: "Observation",
+					Path: "Observation.status", Cardinality: "optional_one", LogicalType: "string",
+				},
+				Route: []recipe.ConstructionRelatedRouteStep{{
+					EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+					FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+					StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+				}},
+				ContributorPolicy: "ALL_MATCHES", Form: "ALL", OutputColumnID: "observation-status",
+			}},
+			Outputs: []recipe.StageColumn{
+				{ID: "group_id", Name: "group"},
+				{ID: "category_id", Name: "category"},
+				{ID: "amount_id", Name: "amount"},
+				{ID: "observation-status", Name: "observation_status"},
+			},
+		}},
+	}
+
+	compiled := compileDerivedTestOutput(t, output)
+	if got := compiled.Plan.StageSequence.SourceRowIdentity; got != "__loom_expansion_identity" {
+		t.Fatalf("source row identity = %q, want expanded-row identity", got)
+	}
+	stage := compiled.Plan.StageSequence.Stages[0]
+	if stage.Kind != ir.PhysicalStageRelatedSourceOp || stage.RowIdentityColumn != "__loom_expansion_identity" {
+		t.Fatalf("RELATED_SOURCE output identity = %q, want one row per source expansion", stage.RowIdentityColumn)
+	}
+	if stage.RelatedSource == nil || stage.RelatedSource.AnchorColumnID != "__loom_expansion_identity" ||
+		stage.RelatedSource.RootContributorColumn != "_key" || stage.RelatedSource.RootResourceType != "Patient" {
+		t.Fatalf("RELATED_SOURCE lost its expanded-row identity or Patient root correlation: %#v", stage.RelatedSource)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	if err != nil {
+		t.Fatalf("render expanded RELATED_SOURCE plan: %v", err)
+	}
+	if !strings.Contains(rendered.Query, "__loom_expansion_identity") || !strings.Contains(rendered.Query, "_key") {
+		t.Fatalf("rendered query lost expanded row identity or root contributor correlation:\n%s", rendered.Query)
+	}
+}
+
 func TestRelatedEligibilityUsesActiveRelatedRecordAnchor(t *testing.T) {
 	output := constructionTestOutput()
 	_, activeObservationID := relatedExpandIdentityColumnNames("expand_observations")

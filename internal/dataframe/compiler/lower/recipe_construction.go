@@ -17,6 +17,7 @@ import (
 )
 
 const constructionRowID = "__loom_row_id"
+const sourceExpansionIdentity = "__loom_expansion_identity"
 const rootContributorSetColumn = "__loom_root_contributor_keys"
 
 // CompiledStageDescriptor is the compiler-owned schema and capability view
@@ -125,7 +126,7 @@ type cohortGroupCompileInput struct {
 	AfterStepID string
 }
 
-func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResourceType string, construction recipe.Construction, sourceSchema []CompiledOutputColumn, policy ir.PhysicalOptimizationPolicy, cohort *cohortGroupCompileInput, workspaceOutputSchemas map[string][]CompiledOutputColumn) ([]CompiledOutputColumn, []CompiledStageDescriptor, string, error) {
+func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResourceType string, sourceRowExpansion bool, construction recipe.Construction, sourceSchema []CompiledOutputColumn, policy ir.PhysicalOptimizationPolicy, cohort *cohortGroupCompileInput, workspaceOutputSchemas map[string][]CompiledOutputColumn) ([]CompiledOutputColumn, []CompiledStageDescriptor, string, error) {
 	if plan == nil {
 		return nil, nil, "", fmt.Errorf("physical plan is required")
 	}
@@ -258,8 +259,18 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 				return nil, nil, "", err
 			}
 		}
+		if sourceRowExpansion && step.Operation.Kind == recipe.ConstructionRelatedSourceOp {
+			var err error
+			step, err = rebindExpandedRelatedSourceAnchor(step, priorSchema, priorIdentity, rootResourceType, plan.Source.ResourceType, outputName)
+			if err != nil {
+				return nil, nil, "", fmt.Errorf("construction step %q: %w", step.ID, err)
+			}
+		}
 		result, stageErr := lowerConstructionStep(plan, step, priorStageID, priorSchema, priorIdentity, rootResourceType, policy, usedVariables, index, rootContributorProvenance, lazyRootContributorAvailable, retainRootContributors, presenceCategoryIDs)
 		if stageErr != nil {
+			if anchorErr, ok := stageErr.(*RelatedSourceAnchorError); ok && anchorErr.OutputID == "" {
+				anchorErr.OutputID = outputName
+			}
 			return nil, nil, "", fmt.Errorf("construction step %q: %w", step.ID, stageErr)
 		}
 		sequence.Stages = append(sequence.Stages, result.physical)
@@ -285,6 +296,45 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 		return nil, nil, "", fmt.Errorf("validate typed construction sequence: %w", err)
 	}
 	return priorSchema, descriptors, priorIdentity, nil
+}
+
+type RelatedSourceAnchorError struct {
+	OutputID string
+	StepID   string
+	Reason   string
+}
+
+func (e *RelatedSourceAnchorError) Error() string {
+	return fmt.Sprintf("related source step %q has an invalid row anchor (%s)", e.StepID, e.Reason)
+}
+
+func rebindExpandedRelatedSourceAnchor(
+	step recipe.ConstructionStep,
+	inputSchema []CompiledOutputColumn,
+	inputIdentity, rootResourceType, sourceResourceType, outputID string,
+) (recipe.ConstructionStep, error) {
+	related := step.Operation.RelatedSource
+	if related == nil || related.AnchorColumnID == inputIdentity {
+		return step, nil
+	}
+	if rootResourceType != sourceResourceType {
+		return step, &RelatedSourceAnchorError{OutputID: outputID, StepID: step.ID, Reason: "root_resource_changed"}
+	}
+	if related.AnchorColumnID != "_key" || inputIdentity != sourceExpansionIdentity {
+		return step, &RelatedSourceAnchorError{OutputID: outputID, StepID: step.ID, Reason: "row_identity_changed"}
+	}
+	rootKey, ok := rootContributorInput(inputSchema, rootResourceType)
+	if !ok || rootKey.Name != "_key" || rootKey.RootContributorResourceType != rootResourceType ||
+		rootKey.Kind != string(expression.KindString) ||
+		(rootKey.Cardinality != string(expression.RequiredOne) && rootKey.Cardinality != string(expression.OptionalOne)) {
+		return step, &RelatedSourceAnchorError{OutputID: outputID, StepID: step.ID, Reason: "root_identity_unproven"}
+	}
+	updated := *related
+	updated.AnchorColumnID = inputIdentity
+	operation := step.Operation
+	operation.RelatedSource = &updated
+	step.Operation = operation
+	return step, nil
 }
 
 func constructionRootScan(plan *ir.PhysicalPlan) *ir.PhysicalRootScan {
@@ -670,7 +720,7 @@ func resolveConstructionSourceSchema(plan *ir.PhysicalPlan, declarations []recip
 }
 
 func constructionSourceIdentity(schema []CompiledOutputColumn) string {
-	for _, preferred := range []string{constructionRowID, "__loom_expansion_identity", "_key"} {
+	for _, preferred := range []string{constructionRowID, sourceExpansionIdentity, "_key"} {
 		if column, ok := schemaColumn(schema, preferred); ok && column.Internal && column.Identity {
 			return preferred
 		}
@@ -1265,11 +1315,15 @@ func lowerConstructionRelatedSource(
 	index int,
 ) ([]ir.PhysicalProjection, []CompiledOutputColumn, error) {
 	if related.AnchorColumnID != inputIdentity || rootResourceType == "" || rootResourceType != plan.Source.ResourceType {
-		return nil, nil, fmt.Errorf("related source anchor must be the exact preceding row identity for the compiled root")
+		reason := "row_identity_changed"
+		if rootResourceType == "" || rootResourceType != plan.Source.ResourceType {
+			reason = "root_resource_changed"
+		}
+		return nil, nil, &RelatedSourceAnchorError{StepID: step.ID, Reason: reason}
 	}
 	anchor, ok := inputByID[related.AnchorColumnID]
 	if !ok || !anchor.Internal || !anchor.Identity || anchor.Name != inputIdentity {
-		return nil, nil, fmt.Errorf("related source anchor is not the compiler-proven preceding row identity")
+		return nil, nil, &RelatedSourceAnchorError{StepID: step.ID, Reason: "row_identity_unproven"}
 	}
 	contributor, hasContributor := rootContributorInputFromMap(inputByID, rootResourceType)
 	directRootAnchor := anchor.Name == "_key" && anchor.RootContributorResourceType == rootResourceType &&
