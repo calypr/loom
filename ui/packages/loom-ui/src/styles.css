@@ -152,6 +152,23 @@
   background-color: #eff6ff;
 }
 
+.loom-ui-root .construction-reshape-pivot-editor p {
+  margin: 0;
+}
+
+.loom-ui-root .construction-reshape-pivot-editor p.mt-1 {
+  margin-top: 0.25rem;
+}
+
+.loom-ui-root .construction-reshape-pivot-editor p.mt-3 {
+  margin-top: 0.75rem;
+}
+
+.loom-ui-root .construction-reshape-pivot-editor select,
+.loom-ui-root .construction-reshape-pivot-editor input[type="search"] {
+  border: 1px solid #cbd5e1;
+}
+
 .loom-ui-root .construction-more-actions-menu,
 .loom-ui-root [data-testid="construction-table-actions-menu"] {
   border: 1px solid #e2e8f0;

@@ -1791,7 +1791,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
 
       {form.kind !== 'choose' && form.kind !== 'unsupported' ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
-          <h2 className="font-semibold text-slate-900">{reshapeFormLabels[form.kind]}</h2>
+          <h2 className="m-0 font-semibold text-slate-900">{reshapeFormLabels[form.kind]}</h2>
           {!editingStep ? <button type="button" disabled={disabled} onClick={() => updateForm({ kind: 'choose' })}
             className="font-medium text-blue-800 hover:underline disabled:opacity-50">Change row operation</button> : null}
         </div>
@@ -3252,7 +3252,7 @@ const PivotEditor = (props: {
   };
 
   return (
-    <section aria-label="Pivot categories into columns" data-testid="construction-reshape-pivot" className="grid gap-3 rounded-lg border border-slate-200 p-3">
+    <section aria-label="Pivot categories into columns" data-testid="construction-reshape-pivot" className="construction-reshape-pivot-editor grid gap-3 rounded-lg border border-slate-200 p-3">
       {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
       {columns.length === 0 && props.sourceChoices.length === 0 ? (
         <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">Loom has not returned scalar fields for this stage.</p>

@@ -3220,7 +3220,10 @@ const BuilderWorkspaceContent = ({
       removeStepIds: [stepId],
     });
     setConstructionHistorySelection({ kind: 'step', stepId });
-    setEditingConstructionStepId(undefined);
+    // Keep the saved-step input stage stable while its removal proposal is
+    // active. Closing the editor here changes the capabilities request key
+    // before the proposal can render; cancel/apply clears this state later.
+    if (editingConstructionStepId !== stepId) setEditingConstructionStepId(undefined);
     setActiveConstructionFamily(undefined);
   };
   const restorePreviousDraft = async () => {

@@ -3983,10 +3983,11 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(screen.queryByRole('button', { name: /preview/i })).not.toBeInTheDocument();
   });
 
-  it.each(['FILTER', 'CODED_PIVOT'] as const)(
+  it.each(['FILTER', 'CODED_PIVOT', 'PIVOT'] as const)(
     'automatically previews %s history removal, lets Cancel preserve the saved step, and applies only the exact proposal receipt',
     async (operationKind) => {
-      const stepId = operationKind === 'FILTER' ? 'saved-filter' : 'saved-coded-pivot';
+      const stepId = operationKind === 'FILTER' ? 'saved-filter'
+        : operationKind === 'PIVOT' ? 'saved-pivot' : 'saved-coded-pivot';
       const savedConstruction: Construction = {
         version: 1,
         steps: [operationKind === 'FILTER' ? {
@@ -3994,6 +3995,20 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
           inputs: [{ kind: 'SOURCE_PROJECTION' }],
           operation: { kind: 'FILTER', filter: { columnId: 'specimen_identifier_id', operator: 'EXISTS' } },
           outputs: [{ id: 'specimen_identifier_id', name: 'specimen_identifier', label: 'Specimen identifier' }],
+        } : operationKind === 'PIVOT' ? {
+          id: stepId,
+          inputs: [{ kind: 'SOURCE_PROJECTION' }],
+          operation: { kind: 'PIVOT', pivot: {
+            constructionId: stepId,
+            groupKeyIds: ['specimen_identifier_id'],
+            categoryColumnId: 'specimen_identifier_id',
+            valueColumnId: 'specimen_identifier_id',
+            categories: [{ key: { kind: 'STRING', string: 'baseline' }, outputColumnId: 'pivot-output' }],
+            duplicatePolicy: 'ERROR',
+            missingCellPolicy: 'NULL',
+            unlistedCategoryPolicy: 'ERROR',
+          } },
+          outputs: [{ id: 'pivot-output', name: 'baseline', label: 'Baseline' }],
         } : {
           id: stepId,
           inputs: [{ kind: 'SOURCE_PROJECTION' }],
