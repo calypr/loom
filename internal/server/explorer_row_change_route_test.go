@@ -88,7 +88,7 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertRowChangeWireArrays(t, []byte(assessed.Body), true)
-	if assessment.Status != loomapi.RowChangeAssessmentResponseStatusREADY || assessment.Mode != authoringv2.RowChangeModePreserve || assessment.Proposal == nil || assessment.CandidateReceiptId == nil || *assessment.CandidateReceiptId == "" || len(assessment.PreservedFeatureKeys) != 1 || assessment.PreservedFeatureKeys[0] != "patient_id" {
+	if assessment.Status != loomapi.RowChangeAssessmentResponseStatusREADY || assessment.Mode == nil || string(*assessment.Mode) != string(authoringv2.RowChangeModePreserve) || assessment.Proposal == nil || assessment.CandidateReceiptId == nil || *assessment.CandidateReceiptId == "" || len(assessment.PreservedFeatureKeys) != 1 || assessment.PreservedFeatureKeys[0] != "patient_id" {
 		t.Fatalf("assessment=%#v", assessment)
 	}
 	unknownMode := fmt.Sprintf(`{"mode":"MERGE","snapshotToken":%q,"draftVersion":1,"draftDigest":%q,"outputId":"patients","rootNodeId":"n_encounter"}`, snapshot.Token, digest)
@@ -105,7 +105,7 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 	if err := json.Unmarshal([]byte(blockedReplacementResponse.Body), &blockedReplacement); err != nil {
 		t.Fatal(err)
 	}
-	if blockedReplacement.Status != loomapi.RowChangeAssessmentResponseStatusBLOCKED || blockedReplacement.Mode != authoringv2.RowChangeModeReplace {
+	if blockedReplacement.Status != loomapi.RowChangeAssessmentResponseStatusBLOCKED || blockedReplacement.Mode == nil || string(*blockedReplacement.Mode) != string(authoringv2.RowChangeModeReplace) {
 		t.Fatalf("blocked replacement assessment omitted mode: %#v", blockedReplacement)
 	}
 	previewBody := fmt.Sprintf(`{"receiptId":%q,"outputId":"patients"}`, *assessment.CandidateReceiptId)
@@ -152,8 +152,8 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertRowChangeWireArrays(t, []byte(replacementAssessed.Body), false)
-	if replacementAssessment.Mode != authoringv2.RowChangeModeReplace || replacementAssessment.Proposal == nil || replacementAssessment.Proposal.Mode != authoringv2.RowChangeModeReplace ||
-		len(replacementAssessment.RemovedFeatureKeys) == 0 || replacementAssessment.Proposal.CatalogDigest == "" || replacementAssessment.Proposal.CatalogGeneration == "" {
+	if replacementAssessment.Mode == nil || string(*replacementAssessment.Mode) != string(authoringv2.RowChangeModeReplace) || replacementAssessment.Proposal == nil || replacementAssessment.Proposal.Mode == nil || string(*replacementAssessment.Proposal.Mode) != string(authoringv2.RowChangeModeReplace) ||
+		len(replacementAssessment.RemovedFeatureKeys) == 0 || replacementAssessment.Proposal.CatalogDigest == nil || *replacementAssessment.Proposal.CatalogDigest == "" || replacementAssessment.Proposal.CatalogGeneration == nil || *replacementAssessment.Proposal.CatalogGeneration == "" {
 		t.Fatalf("replacement assessment=%#v", replacementAssessment)
 	}
 	replacementPreviewBody := fmt.Sprintf(`{"receiptId":%q,"outputId":"patients"}`, *replacementAssessment.CandidateReceiptId)

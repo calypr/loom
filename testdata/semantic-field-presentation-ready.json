@@ -1,0 +1,92 @@
+{
+  "contextToken": "semantic-context-1",
+  "buildId": "build-1",
+  "state": "complete",
+  "sourceAvailability": "verified",
+  "entries": [],
+  "fieldPresentation": {
+    "kind": "READY",
+    "context": {
+      "project": "project-1",
+      "authorizationScopeDigest": "scope-1",
+      "snapshotToken": "snapshot-1",
+      "datasetGeneration": "generation-1",
+      "inventoryBuildId": "build-1",
+      "coverageBuildId": "coverage-build-1",
+      "explorerId": "default",
+      "outputId": "specimens",
+      "draftVersion": 3,
+      "draftDigest": "draft-digest-3",
+      "sourceNodeId": "specimen-node",
+      "occurrenceId": "base",
+      "route": [],
+      "presentationRevision": "semantic-field-presentation/v1",
+      "candidateBatchDigest": "candidate-batch-1"
+    },
+    "decisions": [
+      {
+        "kind": "GROUP_UNDER_SEMANTIC",
+        "candidateId": "raw-code",
+        "coverageId": "coverage-occurrence-1",
+        "replacementIds": [
+          { "kind": "EXACT_CONCEPT", "conceptId": "concept-1", "bindingId": "binding-1" }
+        ],
+        "access": "SOURCE_FIELDS"
+      }
+    ],
+    "replacements": [
+      {
+        "conceptId": "concept-1",
+        "bindingId": "binding-1",
+        "resourceType": "Specimen",
+        "sourcePath": "type.coding[]",
+        "system": "http://snomed.info/sct",
+        "code": "123",
+        "codingVersion": "",
+        "display": "Tumor",
+        "valueSelector": "type.coding[]",
+        "valueType": "code",
+        "owningScope": "Specimen",
+        "occurrences": 1,
+        "examplesTruncated": false,
+        "observedUnitsTruncated": false,
+        "readiness": {
+          "status": "READY",
+          "code": "READY",
+          "message": "This semantic field is ready to add."
+        },
+        "constructionChoice": {
+          "choiceId": "semantic-choice-1",
+          "source": {
+            "kind": "SEMANTIC",
+            "conceptId": "concept-1",
+            "bindingId": "binding-1",
+            "candidateId": "semantic-candidate-1",
+            "nodeId": "specimen-node",
+            "resourceType": "Specimen",
+            "sourcePath": "type.coding[]",
+            "fieldPath": "type",
+            "valueSelector": "type.coding[]",
+            "logicalType": "code",
+            "ruleVersion": "5",
+            "schemaVersion": 1,
+            "cardinality": "optional_one"
+          },
+          "route": [],
+          "presentation": { "summary": "Specimen type: Tumor", "facts": [] },
+          "options": [
+            {
+              "form": "VALUE",
+              "shape": "SCALAR",
+              "decision": "DEFAULT",
+              "preservation": "PRESERVING",
+              "rowEffect": "PRESERVES_ROW_GRAIN",
+              "support": "SUPPORTED",
+              "reason": "Current compiler choice is directly addable."
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

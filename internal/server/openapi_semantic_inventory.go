@@ -24,6 +24,20 @@ func (h *explorerHTTPHandlers) browseSemanticInventoryDirect(ctx context.Context
 	if body.OutputId != nil {
 		req.OutputID = *body.OutputId
 	}
+	if body.FieldPresentation != nil {
+		presentation := lifecycle.FieldPresentationRequest{
+			ExpectedDraftVersion: int64(body.FieldPresentation.ExpectedDraftVersion),
+			ExpectedDraftDigest:  body.FieldPresentation.ExpectedDraftDigest,
+			SourceNodeID:         body.FieldPresentation.SourceNodeId,
+			OccurrenceID:         body.FieldPresentation.OccurrenceId,
+			CandidateIDs:         append([]string(nil), body.FieldPresentation.CandidateIds...),
+		}
+		if body.FieldPresentation.StageId != nil {
+			stageID := *body.FieldPresentation.StageId
+			presentation.StageID = &stageID
+		}
+		req.FieldPresentation = &presentation
+	}
 	if body.FrameId != nil {
 		req.FrameID = *body.FrameId
 	}

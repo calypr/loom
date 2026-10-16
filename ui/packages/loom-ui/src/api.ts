@@ -1,5 +1,6 @@
 import {
   EXPLORER_AUTHORING_SEMANTICS_VERSION,
+  SEMANTIC_FIELD_PRESENTATION_REVISION,
   assertExplorerBuilderCompileResult,
   assertExplorerBuilderPreviewResult,
   assertExplorerBuilderPublishResult,
@@ -40,6 +41,7 @@ import {
   explorerBuilderPreviewResultSchema,
   rowChangeAssessmentSchema,
   semanticInventoryBrowseResponseSchema,
+  semanticInventoryBrowseRequestSchema,
   frameSourceOptionsResponseSchema,
   explorerBuilderRowLineageResponseSchema,
   type ExplorerBuilderCatalog,
@@ -78,7 +80,14 @@ import {
   type RowChangeAssessment,
   type RowChangeMode,
   type SemanticInventoryBrowseResponse,
-  type SemanticInventorySelectionMode,
+  type SemanticInventoryBrowseRequest,
+  type FieldPresentation,
+  type FieldPresentationRequest,
+  type FieldPresentationContext,
+  type FieldPresentationReason,
+  type ConstructionRouteStep,
+  type SemanticInventoryItem,
+  type SemanticInventoryItemIdentity,
   type FrameSourceOptionsResponse,
   type ExplorerBuilderRowLineageResponse,
 } from './types';
@@ -320,19 +329,10 @@ export interface SearchSchemaFieldsArgs extends ExplorerCandidateSuggestionsArgs
   readonly limit?: number;
 }
 
-export interface BrowseSemanticInventoryArgs extends ExplorerAuthoringStateArgs {
-  readonly snapshotToken: string;
-  readonly rowRoot: string;
-  readonly frameId?: string;
-  readonly sourceChoiceId?: string;
-  readonly selectionMode?: SemanticInventorySelectionMode;
-  readonly outputId?: string;
-  readonly resourceType?: string;
-  readonly query?: string;
-  readonly cursor?: string;
-  readonly limit?: number;
+export type BrowseSemanticInventoryArgs = ExplorerAuthoringStateArgs &
+  SemanticInventoryBrowseRequest & {
   readonly requestId?: string;
-}
+  };
 
 export interface BrowseFrameSourceOptionsArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
@@ -1084,6 +1084,154 @@ const materializationIdentity = (
     : undefined;
 };
 
+const presentationUnavailable = (reason: FieldPresentationReason): FieldPresentation => ({
+  kind: 'UNAVAILABLE',
+  reason,
+});
+
+const sameConstructionRoute = (
+  left: ReadonlyArray<ConstructionRouteStep>,
+  right: ReadonlyArray<ConstructionRouteStep>,
+): boolean => left.length === right.length && left.every((step, index) => {
+  const other = right[index];
+  return other !== undefined &&
+    step.edgeId === other.edgeId &&
+    step.fromNodeId === other.fromNodeId &&
+    step.toNodeId === other.toNodeId &&
+    step.fromResourceType === other.fromResourceType &&
+    step.toResourceType === other.toResourceType &&
+    step.relationship === other.relationship &&
+    step.storageDirection === other.storageDirection &&
+    step.matchMode === other.matchMode;
+});
+
+const identityForSemanticItem = (
+  item: SemanticInventoryItem,
+): SemanticInventoryItemIdentity | undefined => {
+  if (item.selectionMode === 'SYSTEM_VERSION_CATEGORY' && item.familyId) {
+    return {
+      kind: 'SYSTEM_VERSION_CATEGORY',
+      familyId: item.familyId,
+      bindingId: item.bindingId,
+    };
+  }
+  if (item.selectionMode === undefined && item.familyId === undefined) {
+    return { kind: 'EXACT_CONCEPT', conceptId: item.conceptId, bindingId: item.bindingId };
+  }
+  return undefined;
+};
+
+const semanticItemMatchesIdentity = (
+  item: SemanticInventoryItem,
+  identity: SemanticInventoryItemIdentity,
+): boolean => {
+  if (identity.kind === 'EXACT_CONCEPT') {
+    return item.selectionMode === undefined && item.familyId === undefined &&
+      item.conceptId === identity.conceptId && item.bindingId === identity.bindingId;
+  }
+  return item.selectionMode === 'SYSTEM_VERSION_CATEGORY' &&
+    item.familyId === identity.familyId && item.bindingId === identity.bindingId;
+};
+
+const sameSemanticItemIdentity = (
+  left: SemanticInventoryItemIdentity,
+  right: SemanticInventoryItemIdentity,
+): boolean => left.kind === right.kind && left.bindingId === right.bindingId &&
+  (left.kind === 'EXACT_CONCEPT'
+    ? right.kind === 'EXACT_CONCEPT' && left.conceptId === right.conceptId
+    : right.kind === 'SYSTEM_VERSION_CATEGORY' && left.familyId === right.familyId);
+
+const replacementIsAddableInContext = (
+  item: SemanticInventoryItem,
+  identity: SemanticInventoryItemIdentity,
+  context: FieldPresentationContext,
+): boolean => {
+  const choice = item.constructionChoice;
+  if (!choice || !['READY', 'READY_WITH_WARNING'].includes(item.readiness.status) ||
+    !sameConstructionRoute(choice.route, context.route)) {
+    return false;
+  }
+  const source = choice.source;
+  return source.kind === 'SEMANTIC' &&
+    source.nodeId === context.sourceNodeId &&
+    source.resourceType === item.resourceType &&
+    source.conceptId === item.conceptId &&
+    source.bindingId === item.bindingId &&
+    source.sourcePath === item.sourcePath &&
+    source.system === item.system &&
+    (source.version ?? '') === item.codingVersion &&
+    (source.code ?? '') === item.code &&
+    source.valueSelector === item.valueSelector &&
+    semanticItemMatchesIdentity(item, identity);
+};
+
+const bindPresentationResponseToRequest = (
+  response: SemanticInventoryBrowseResponse,
+  args: BrowseSemanticInventoryArgs & {
+    readonly outputId: string;
+    readonly fieldPresentation: FieldPresentationRequest;
+  },
+): SemanticInventoryBrowseResponse => {
+  const presentation = response.fieldPresentation;
+  if (!presentation) {
+    return { ...response, fieldPresentation: presentationUnavailable('COVERAGE_UNAVAILABLE') };
+  }
+  if (presentation.kind === 'UNAVAILABLE') return response;
+
+  const context = presentation.context;
+  const request = args.fieldPresentation;
+  const currentContext =
+    canonicalProject(context.project) === canonicalProject(args.project) &&
+    context.explorerId === args.explorerId &&
+    context.snapshotToken === args.snapshotToken &&
+    context.inventoryBuildId === response.buildId &&
+    context.outputId === args.outputId &&
+    context.draftVersion === request.expectedDraftVersion &&
+    context.draftDigest === request.expectedDraftDigest &&
+    context.sourceNodeId === request.sourceNodeId &&
+    context.occurrenceId === request.occurrenceId &&
+    (context.stageId ?? undefined) === request.stageId &&
+    context.presentationRevision === SEMANTIC_FIELD_PRESENTATION_REVISION;
+  if (!currentContext) {
+    return { ...response, fieldPresentation: presentationUnavailable('STALE_CONTEXT') };
+  }
+
+  const requested = new Set(request.candidateIds);
+  const decisionIds = presentation.decisions.map((decision) => decision.candidateId);
+  if (decisionIds.length !== requested.size || new Set(decisionIds).size !== requested.size ||
+    decisionIds.some((candidateId) => !requested.has(candidateId))) {
+    return { ...response, fieldPresentation: presentationUnavailable('INCOMPLETE_COVERAGE') };
+  }
+
+  const referencedReplacementIds: SemanticInventoryItemIdentity[] = [];
+  for (const decision of presentation.decisions) {
+    if (decision.kind === 'KEEP_RAW') continue;
+    for (const identity of decision.replacementIds) {
+      const matches = presentation.replacements.filter((item) => semanticItemMatchesIdentity(item, identity));
+      const [replacement] = matches;
+      if (matches.length !== 1 || !replacement ||
+        !replacementIsAddableInContext(replacement, identity, context)) {
+        return { ...response, fieldPresentation: presentationUnavailable('REPLACEMENT_UNAVAILABLE') };
+      }
+      referencedReplacementIds.push(identity);
+    }
+  }
+  const uniqueReferencedReplacementIds = referencedReplacementIds.filter((identity, index) =>
+    referencedReplacementIds.findIndex((candidate) => sameSemanticItemIdentity(identity, candidate)) === index,
+  );
+  const responseReplacementIds = presentation.replacements.map(identityForSemanticItem);
+  if (responseReplacementIds.some((identity) => identity === undefined) ||
+    responseReplacementIds.length !== uniqueReferencedReplacementIds.length ||
+    responseReplacementIds.some((identity) => identity === undefined ||
+      !uniqueReferencedReplacementIds.some((referenced) => sameSemanticItemIdentity(identity, referenced))) ||
+    uniqueReferencedReplacementIds.some((referenced) =>
+      responseReplacementIds.filter((identity) => identity !== undefined &&
+        sameSemanticItemIdentity(identity, referenced)).length !== 1)) {
+    return { ...response, fieldPresentation: presentationUnavailable('REPLACEMENT_UNAVAILABLE') };
+  }
+  return response;
+};
+
 export const createLoomClient = (options: LoomClientOptions = {}): LoomClient => {
   const fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
   const baseUrl = options.baseUrl ?? '/';
@@ -1325,8 +1473,9 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       ...(args.cursor ? { cursor: args.cursor } : {}),
       ...(args.limit === undefined ? {} : { limit: args.limit }),
     }, signal, args.requestId)).then((value) => explorerBuilderSchemaFieldsResultSchema.parse(value));
-  const browseSemanticInventory = (args: BrowseSemanticInventoryArgs, signal?: AbortSignal) =>
-    request(authoringPath(args, '/semantic-inventory'), withJson({
+  const browseSemanticInventory = (args: BrowseSemanticInventoryArgs, signal?: AbortSignal) => {
+    const fieldPresentation = args.fieldPresentation;
+    const body = semanticInventoryBrowseRequestSchema.parse({
       snapshotToken: args.snapshotToken,
       rowRoot: args.rowRoot,
       ...(args.selectionMode ? { selectionMode: args.selectionMode } : {}),
@@ -1337,7 +1486,25 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       ...(args.query ? { query: args.query } : {}),
       ...(args.cursor ? { cursor: args.cursor } : {}),
       ...(args.limit === undefined ? {} : { limit: args.limit }),
-    }, signal, args.requestId)).then((value) => semanticInventoryBrowseResponseSchema.parse(value));
+      ...(fieldPresentation ? { fieldPresentation } : {}),
+    });
+    return request(authoringPath(args, '/semantic-inventory'), withJson(
+      body,
+      signal,
+      args.requestId,
+    )).then((value) => {
+      const response = semanticInventoryBrowseResponseSchema.parse(value);
+      if (!fieldPresentation) return response;
+      if (!args.outputId) {
+        return { ...response, fieldPresentation: presentationUnavailable('STALE_CONTEXT') };
+      }
+      return bindPresentationResponseToRequest(response, {
+        ...args,
+        outputId: args.outputId,
+        fieldPresentation,
+      });
+    });
+  };
   const browseFrameSourceOptions = (args: BrowseFrameSourceOptionsArgs, signal?: AbortSignal) =>
     request(authoringPath(args, '/frame-source-options'), withJson({
       snapshotToken: args.snapshotToken,

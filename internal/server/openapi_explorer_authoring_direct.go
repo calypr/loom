@@ -386,7 +386,7 @@ func (h *explorerHTTPHandlers) assessAuthoringRowChangeDirect(ctx context.Contex
 		routeRebase = converted
 	}
 	value, err := h.application.AssessRowChange(ctx, lifecycle.AssessRowChangeRequest{
-		Project: project, ExplorerID: explorerID, Mode: optionalString(body.Mode), SnapshotToken: body.SnapshotToken,
+		Project: project, ExplorerID: explorerID, Mode: optionalEnumString(body.Mode), SnapshotToken: body.SnapshotToken,
 		DraftVersion: body.DraftVersion, DraftDigest: body.DraftDigest, OutputID: body.OutputId,
 		RootNodeID: body.RootNodeId, RootOccurrenceID: rootOccurrenceID, RouteRebase: routeRebase,
 	})
@@ -408,6 +408,13 @@ func (h *explorerHTTPHandlers) assessAuthoringRowChangeDirect(ctx context.Contex
 		CandidateReceiptID:  value.CandidateReceiptID,
 		Diagnostics:         []map[string]any{},
 	})
+}
+
+func optionalEnumString[T ~string](value *T) string {
+	if value == nil {
+		return ""
+	}
+	return string(*value)
 }
 
 func (h *explorerHTTPHandlers) reconcileAuthoringDirect(ctx context.Context, project, explorerID, authResourcePath string, body *loomapi.ReconcileExplorerBuilderJSONRequestBody) (loomapi.CompileResponse, error) {

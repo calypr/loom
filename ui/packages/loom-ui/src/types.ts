@@ -23,6 +23,7 @@ export const semanticInventorySelectionModeSchema = z.enum([
   'SYSTEM_VERSION_CATEGORY',
 ]);
 export type SemanticInventorySelectionMode = z.infer<typeof semanticInventorySelectionModeSchema>;
+export const SEMANTIC_FIELD_PRESENTATION_REVISION = 'semantic-field-presentation/v1';
 const unknownRecordSchema = z.record(z.string(), z.unknown());
 
 export const correlatedBindingSchema = z.object({
@@ -3200,6 +3201,142 @@ export const semanticInventoryItemSchema = z.object({
 });
 export type SemanticInventoryItem = z.infer<typeof semanticInventoryItemSchema>;
 
+export const fieldPresentationReasonSchema = z.enum([
+  'MISSING_SYSTEM',
+  'MISSING_CODE',
+  'TEXT_ONLY',
+  'AMBIGUOUS_ANCHOR',
+  'MIXED_CHOICE',
+  'UNSUPPORTED_VALUE_PROJECTION',
+  'UNSUPPORTED_VERSION',
+  'UNKNOWN_SCHEMA_MEMBER',
+  'UNKNOWN_CODE_CLASSIFICATION',
+  'UNSUPPORTED_SELECTOR',
+  'INCOMPLETE_SOURCE',
+  'WALK_FAILED',
+  'TRUNCATED_EVIDENCE',
+  'UNREPRESENTED_METADATA',
+  'COVERAGE_UNAVAILABLE',
+  'INCOMPLETE_COVERAGE',
+  'NO_EXACT_ROUTE',
+  'UNSUPPORTED_CURRENT_STAGE',
+  'STALE_CONTEXT',
+  'REPLACEMENT_UNAVAILABLE',
+  'SOURCE_FIELDS_INACCESSIBLE',
+  'CANDIDATE_NOT_POPULATED',
+  'CANDIDATE_NOT_ADDABLE',
+]);
+export type FieldPresentationReason = z.infer<typeof fieldPresentationReasonSchema>;
+
+export const fieldPresentationRequestSchema = z.object({
+  expectedDraftVersion: z.number().int().positive(),
+  expectedDraftDigest: opaqueIdSchema,
+  sourceNodeId: opaqueIdSchema,
+  occurrenceId: opaqueIdSchema,
+  stageId: opaqueIdSchema.optional(),
+  candidateIds: z.array(opaqueIdSchema).min(1).max(50).refine(
+    (candidateIds) => new Set(candidateIds).size === candidateIds.length,
+    'candidateIds must be unique',
+  ),
+}).strict();
+export type FieldPresentationRequest = z.infer<typeof fieldPresentationRequestSchema>;
+
+const semanticInventoryBrowseRequestBaseSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  rowRoot: opaqueIdSchema,
+  frameId: opaqueIdSchema.optional(),
+  sourceChoiceId: opaqueIdSchema.optional(),
+  selectionMode: semanticInventorySelectionModeSchema.optional(),
+  resourceType: z.string().optional(),
+  query: z.string().max(256).optional(),
+  cursor: z.string().max(4096).optional(),
+  limit: z.number().int().min(1).max(50).optional(),
+});
+export const semanticInventoryBrowseRequestSchema = z.union([
+  semanticInventoryBrowseRequestBaseSchema.extend({
+    outputId: opaqueIdSchema,
+    fieldPresentation: fieldPresentationRequestSchema,
+  }).strict(),
+  semanticInventoryBrowseRequestBaseSchema.extend({
+    outputId: opaqueIdSchema.optional(),
+    fieldPresentation: z.undefined().optional(),
+  }).strict(),
+]);
+export type SemanticInventoryBrowseRequest = z.infer<
+  typeof semanticInventoryBrowseRequestSchema
+>;
+
+export const semanticInventoryItemIdentitySchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('EXACT_CONCEPT'),
+    conceptId: opaqueIdSchema,
+    bindingId: opaqueIdSchema,
+  }).strict(),
+  z.object({
+    kind: z.literal('SYSTEM_VERSION_CATEGORY'),
+    familyId: opaqueIdSchema,
+    bindingId: opaqueIdSchema,
+  }).strict(),
+]);
+export type SemanticInventoryItemIdentity = z.infer<
+  typeof semanticInventoryItemIdentitySchema
+>;
+
+export const fieldPresentationContextSchema = z.object({
+  project: opaqueIdSchema,
+  authorizationScopeDigest: opaqueIdSchema,
+  snapshotToken: opaqueIdSchema,
+  datasetGeneration: opaqueIdSchema,
+  inventoryBuildId: opaqueIdSchema,
+  coverageBuildId: opaqueIdSchema,
+  explorerId: opaqueIdSchema,
+  outputId: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: opaqueIdSchema,
+  sourceNodeId: opaqueIdSchema,
+  occurrenceId: opaqueIdSchema,
+  route: z.array(constructionRouteStepSchema),
+  stageId: opaqueIdSchema.optional(),
+  presentationRevision: opaqueIdSchema,
+  candidateBatchDigest: opaqueIdSchema,
+}).strict();
+export type FieldPresentationContext = z.infer<typeof fieldPresentationContextSchema>;
+
+const fieldPresentationKeepRawSchema = z.object({
+  kind: z.literal('KEEP_RAW'),
+  candidateId: opaqueIdSchema,
+  reason: fieldPresentationReasonSchema,
+}).strict();
+const fieldPresentationGroupUnderSemanticSchema = z.object({
+  kind: z.literal('GROUP_UNDER_SEMANTIC'),
+  candidateId: opaqueIdSchema,
+  coverageId: opaqueIdSchema,
+  replacementIds: z.array(semanticInventoryItemIdentitySchema).min(1).max(100).refine(
+    (replacementIds) => new Set(replacementIds.map((identity) => JSON.stringify(identity))).size === replacementIds.length,
+    'replacementIds must be unique',
+  ),
+  access: z.literal('SOURCE_FIELDS'),
+}).strict();
+export const fieldPresentationDecisionSchema = z.discriminatedUnion('kind', [
+  fieldPresentationKeepRawSchema,
+  fieldPresentationGroupUnderSemanticSchema,
+]);
+export type FieldPresentationDecision = z.infer<typeof fieldPresentationDecisionSchema>;
+
+export const fieldPresentationSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('UNAVAILABLE'),
+    reason: fieldPresentationReasonSchema,
+  }).strict(),
+  z.object({
+    kind: z.literal('READY'),
+    context: fieldPresentationContextSchema,
+    decisions: z.array(fieldPresentationDecisionSchema).min(1).max(50),
+    replacements: z.array(semanticInventoryItemSchema).max(100),
+  }).strict(),
+]);
+export type FieldPresentation = z.infer<typeof fieldPresentationSchema>;
+
 export const semanticInventoryBrowseResponseSchema = z
   .object({
     frameId: opaqueIdSchema.optional(),
@@ -3217,6 +3354,7 @@ export const semanticInventoryBrowseResponseSchema = z
     sourceAvailability: z.enum(['unknown', 'verified', 'unproven']),
     entries: z.array(semanticInventoryItemSchema).max(50),
     nextCursor: z.string().min(1).optional(),
+    fieldPresentation: fieldPresentationSchema.optional(),
   })
   .strict();
 export type SemanticInventoryBrowseResponse = z.infer<

@@ -1,12 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
+import fieldPresentationReadyFixture from '../../../../testdata/semantic-field-presentation-ready.json?raw';
 import { canonicalProject, createLoomClient, LoomRequestError, populationMappingResponseSchema } from './api';
 import { cellTraceResponseSchema } from './cellTrace';
 import {
   EXPLORER_AUTHORING_API_VERSION,
   EXPLORER_AUTHORING_SEMANTICS_VERSION,
+  SEMANTIC_FIELD_PRESENTATION_REVISION,
   type Construction,
   type ExplorerBuilderCommand,
   constructionProposalRequestSchema,
+  fieldPresentationSchema,
+  semanticInventoryBrowseResponseSchema,
 } from './types';
 
 const tracedFeature = { outputId: 'patients', column: 'gender', authoredColumn: 'patient_gender', occurrenceId: 'base', label: 'Gender', logicalType: 'string', sourceResourceType: 'Patient', sourcePath: 'gender', projectionMode: 'VALUE', lossless: true, lossReasons: [] };
@@ -31,6 +35,31 @@ const constructionCapabilitiesResponse = {
   },
   workspaceInputs: [],
 } as const;
+const fieldPresentationContext = {
+  project: 'NCPI_ACCEPTANCE',
+  authorizationScopeDigest: 'scope-1',
+  snapshotToken: 'snapshot-1',
+  datasetGeneration: 'generation-1',
+  inventoryBuildId: 'build-1',
+  coverageBuildId: 'coverage-build-1',
+  explorerId: 'default',
+  outputId: 'specimens',
+  draftVersion: 3,
+  draftDigest: 'draft-digest-3',
+  sourceNodeId: 'specimen-node',
+  occurrenceId: 'base',
+  route: [],
+  presentationRevision: SEMANTIC_FIELD_PRESENTATION_REVISION,
+  candidateBatchDigest: 'candidate-batch-1',
+} as const;
+const fieldPresentationBrowseResponse = (fieldPresentation?: unknown) => ({
+  contextToken: 'semantic-context-1',
+  buildId: 'build-1',
+  state: 'complete',
+  sourceAvailability: 'verified',
+  entries: [],
+  ...(fieldPresentation === undefined ? {} : { fieldPresentation }),
+});
 
 describe('Loom project paths', () => {
   it('canonicalizes legacy program-project IDs consistently with the API boundary', () => {
@@ -692,6 +721,196 @@ describe('Loom project paths', () => {
       outputId: 'patients',
       limit: 50,
     });
+  });
+
+  it('sends the bounded field-presentation request and accepts a complete current batch', async () => {
+    const response = fieldPresentationBrowseResponse({
+      kind: 'READY',
+      context: fieldPresentationContext,
+      decisions: [
+        { kind: 'KEEP_RAW', candidateId: 'raw-code', reason: 'MISSING_SYSTEM' },
+        { kind: 'KEEP_RAW', candidateId: 'raw-text', reason: 'TEXT_ONLY' },
+      ],
+      replacements: [],
+    });
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } }),
+    );
+    const client = createLoomClient({ fetch });
+
+    await expect(client.browseSemanticInventory({
+      project: 'NCPI_ACCEPTANCE',
+      explorerId: 'default',
+      snapshotToken: 'snapshot-1',
+      rowRoot: 'Specimen',
+      outputId: 'specimens',
+      fieldPresentation: {
+        expectedDraftVersion: 3,
+        expectedDraftDigest: 'draft-digest-3',
+        sourceNodeId: 'specimen-node',
+        occurrenceId: 'base',
+        candidateIds: ['raw-code', 'raw-text'],
+      },
+    })).resolves.toMatchObject({ fieldPresentation: { kind: 'READY' } });
+
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
+      snapshotToken: 'snapshot-1',
+      rowRoot: 'Specimen',
+      outputId: 'specimens',
+      fieldPresentation: {
+        expectedDraftVersion: 3,
+        expectedDraftDigest: 'draft-digest-3',
+        sourceNodeId: 'specimen-node',
+        occurrenceId: 'base',
+        candidateIds: ['raw-code', 'raw-text'],
+      },
+    });
+  });
+
+  it('decodes an older server response without field presentation as unavailable', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(fieldPresentationBrowseResponse()), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const client = createLoomClient({ fetch });
+
+    const response = await client.browseSemanticInventory({
+      project: 'NCPI_ACCEPTANCE',
+      explorerId: 'default',
+      snapshotToken: 'snapshot-1',
+      rowRoot: 'Specimen',
+      outputId: 'specimens',
+      fieldPresentation: {
+        expectedDraftVersion: 3,
+        expectedDraftDigest: 'draft-digest-3',
+        sourceNodeId: 'specimen-node',
+        occurrenceId: 'base',
+        candidateIds: ['raw-code'],
+      },
+    });
+
+    expect(response.fieldPresentation).toEqual({ kind: 'UNAVAILABLE', reason: 'COVERAGE_UNAVAILABLE' });
+  });
+
+  it('downgrades partial, stale, and unknown-revision proofs to unavailable', async () => {
+    const partialResponse = fieldPresentationBrowseResponse({
+      kind: 'READY',
+      context: fieldPresentationContext,
+      decisions: [{ kind: 'KEEP_RAW', candidateId: 'raw-code', reason: 'MISSING_SYSTEM' }],
+      replacements: [],
+    });
+    const staleResponse = fieldPresentationBrowseResponse({
+      kind: 'READY',
+      context: { ...fieldPresentationContext, draftDigest: 'older-draft-digest' },
+      decisions: [{ kind: 'KEEP_RAW', candidateId: 'raw-code', reason: 'MISSING_SYSTEM' }],
+      replacements: [],
+    });
+    const unknownRevisionResponse = fieldPresentationBrowseResponse({
+      kind: 'READY',
+      context: { ...fieldPresentationContext, presentationRevision: 'semantic-field-presentation/v2' },
+      decisions: [{ kind: 'KEEP_RAW', candidateId: 'raw-code', reason: 'MISSING_SYSTEM' }],
+      replacements: [],
+    });
+    const responses = [partialResponse, staleResponse, unknownRevisionResponse];
+    for (const [index, expectedReason] of [
+      'INCOMPLETE_COVERAGE',
+      'STALE_CONTEXT',
+      'STALE_CONTEXT',
+    ].entries()) {
+      const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+        new Response(JSON.stringify(responses[index]), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+      const client = createLoomClient({ fetch });
+
+      const response = await client.browseSemanticInventory({
+        project: 'NCPI_ACCEPTANCE',
+        explorerId: 'default',
+        snapshotToken: 'snapshot-1',
+        rowRoot: 'Specimen',
+        outputId: 'specimens',
+        fieldPresentation: {
+          expectedDraftVersion: 3,
+          expectedDraftDigest: 'draft-digest-3',
+          sourceNodeId: 'specimen-node',
+          occurrenceId: 'base',
+          candidateIds: ['raw-code', 'raw-text'],
+        },
+      });
+
+      expect(response.fieldPresentation).toEqual({ kind: 'UNAVAILABLE', reason: expectedReason });
+    }
+  });
+
+  it('retains raw presentation when a grouped replacement record is absent', async () => {
+    const response = fieldPresentationBrowseResponse({
+      kind: 'READY',
+      context: fieldPresentationContext,
+      decisions: [{
+        kind: 'GROUP_UNDER_SEMANTIC',
+        candidateId: 'raw-code',
+        coverageId: 'coverage-occurrence-1',
+        replacementIds: [{ kind: 'EXACT_CONCEPT', conceptId: 'concept-1', bindingId: 'binding-1' }],
+        access: 'SOURCE_FIELDS',
+      }],
+      replacements: [],
+    });
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } }),
+    );
+    const client = createLoomClient({ fetch });
+
+    const result = await client.browseSemanticInventory({
+      project: 'NCPI_ACCEPTANCE',
+      explorerId: 'default',
+      snapshotToken: 'snapshot-1',
+      rowRoot: 'Specimen',
+      outputId: 'specimens',
+      fieldPresentation: {
+        expectedDraftVersion: 3,
+        expectedDraftDigest: 'draft-digest-3',
+        sourceNodeId: 'specimen-node',
+        occurrenceId: 'base',
+        candidateIds: ['raw-code'],
+      },
+    });
+
+    expect(result.fieldPresentation).toEqual({ kind: 'UNAVAILABLE', reason: 'REPLACEMENT_UNAVAILABLE' });
+  });
+
+  it('parses the shared field-presentation fixture and rejects empty replacement identities', () => {
+    const fixture: unknown = JSON.parse(fieldPresentationReadyFixture);
+    const response = semanticInventoryBrowseResponseSchema.parse(fixture);
+    const presentation = response.fieldPresentation;
+
+    expect(presentation?.kind).toBe('READY');
+    if (presentation?.kind !== 'READY') throw new Error('fixture must contain a ready presentation');
+    expect(presentation.context.presentationRevision).toBe(SEMANTIC_FIELD_PRESENTATION_REVISION);
+    expect(presentation.decisions).toEqual([{
+      kind: 'GROUP_UNDER_SEMANTIC',
+      candidateId: 'raw-code',
+      coverageId: 'coverage-occurrence-1',
+      replacementIds: [{ kind: 'EXACT_CONCEPT', conceptId: 'concept-1', bindingId: 'binding-1' }],
+      access: 'SOURCE_FIELDS',
+    }]);
+    expect(presentation.replacements[0]?.constructionChoice?.source).toMatchObject({
+      kind: 'SEMANTIC',
+      conceptId: 'concept-1',
+      bindingId: 'binding-1',
+      nodeId: 'specimen-node',
+    });
+
+    const emptyReplacementDecision = {
+      ...presentation,
+      decisions: presentation.decisions.map((decision) => decision.kind === 'GROUP_UNDER_SEMANTIC'
+        ? { ...decision, replacementIds: [] }
+        : decision),
+    };
+    expect(() => fieldPresentationSchema.parse(emptyReplacementDecision)).toThrow();
   });
 
   it('resolves a category family with its signed choice witness', async () => {
