@@ -51,7 +51,7 @@ func NewGeneratedRowBuilder(project, authResourcePath string) *GeneratedRowBuild
 }
 
 func (b *GeneratedRowBuilder) Build(resourceType string, line []byte, stageSeconds map[string]float64) (rowBuildResult, rowErrorType, error) {
-	vDoc, eDocs, errorType, err := loadRowGenerated(resourceType, line, b.project, stageSeconds)
+	vDoc, eDocs, payload, errorType, err := loadRowGeneratedWithPayload(resourceType, line, b.project, stageSeconds)
 	if err != nil {
 		return rowBuildResult{}, errorType, err
 	}
@@ -70,16 +70,6 @@ func (b *GeneratedRowBuilder) Build(resourceType string, line []byte, stageSecon
 	if err != nil {
 		return rowBuildResult{}, rowErrorValidation, err
 	}
-	var payload map[string]any
-	decodeStart := time.Now()
-	if err := sonic.ConfigFastest.Unmarshal(line, &payload); err != nil {
-		stageSeconds["payload_map_decode"] += time.Since(decodeStart).Seconds()
-		return rowBuildResult{}, rowErrorValidation, err
-	}
-	stageSeconds["payload_map_decode"] += time.Since(decodeStart).Seconds()
-	// Keep the load API's project identity in the raw payload as well as the
-	// Loom document envelope. This is the field consumed by Explorer flat rows.
-	payload["project_id"] = b.project
 	return rowBuildResult{
 		vertex:  json.RawMessage(vBytes),
 		edges:   eDocs,
