@@ -9,8 +9,7 @@ import (
 )
 
 const (
-	SemanticCoverageEnvelopeFormatVersion = 1
-	semanticCoverageEnvelopeRecordKind    = "source_envelope_v1"
+	semanticCoverageEnvelopeRecordKind = "source_envelope_v1"
 )
 
 // semanticCoverageSourceEnvelope is the sole persisted source-level coverage
@@ -68,7 +67,7 @@ func EncodeSemanticCoverageSourceEnvelope(buildID string, contribution catalog.S
 	document := semanticCoverageSourceEnvelope{
 		Key:                          semanticCoverageSourceEnvelopeKey(identity, buildID),
 		RecordKind:                   semanticCoverageEnvelopeRecordKind,
-		CoverageStorageFormatVersion: SemanticCoverageEnvelopeFormatVersion,
+		CoverageStorageFormatVersion: catalog.SemanticCoverageStorageFormatVersion,
 		Project:                      identity.Project,
 		DatasetGeneration:            catalog.NormalizeDatasetGeneration(identity.DatasetGeneration),
 		BuildID:                      buildID,
@@ -151,7 +150,8 @@ func semanticCoverageEnvelopeAggregateKey(path catalog.SemanticCoveragePathAggre
 
 func semanticCoverageSourceEnvelopeKey(identity catalog.SemanticCoverageSourceIdentity, buildID string) string {
 	return semanticCoverageDocumentKey(
-		"semantic-coverage-source-envelope/v1",
+		"semantic-coverage-source-envelope",
+		fmt.Sprint(catalog.SemanticCoverageStorageFormatVersion),
 		identity.Project,
 		catalog.NormalizeDatasetGeneration(identity.DatasetGeneration),
 		buildID,

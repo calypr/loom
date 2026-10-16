@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/calypr/loom/internal/catalog"
 	store "github.com/calypr/loom/internal/store/arango"
@@ -21,10 +22,11 @@ const (
 	semanticCoverageMaximumBatchSize            = 500
 	semanticCoverageMaximumPageSize             = 500
 	semanticCoverageMaximumRowBytes             = 1 << 20
-	semanticCoverageMaximumSourceScopesPerBatch = 10000
-	semanticCoverageMaximumSourceRowsPerBatch   = 100000
-	semanticCoverageMaximumSourceBytesPerBatch  = 64 << 20
+	semanticCoverageMaximumWriteBatchBytes      = 8 << 20
+	semanticCoverageMaximumEnvelopeReadBytes    = 8 << 20
+	semanticCoverageMaximumEnvelopeReadRows     = semanticCoverageMaximumEnvelopeReadBytes / semanticCoverageMaximumRowBytes
 	semanticCoverageMaximumPartitions           = 10000
+	semanticCoverageMaximumResourceTypes        = 1000
 	semanticCoverageMaximumSummaries            = 100000
 	semanticCoverageMaximumReferencesPerSummary = 1000
 )
@@ -36,6 +38,7 @@ var (
 	ErrSemanticCoverageLookupTooLarge       = errors.New("semantic coverage lookup exceeds its row limit")
 	ErrSemanticCoverageMaterializationLimit = errors.New("semantic coverage materialization exceeds its working-set limit")
 	ErrSemanticCoverageSourceBatchLimit     = errors.New("semantic coverage source batch exceeds its bounded write limit")
+	ErrSemanticCoverageResourceExpectation  = errors.New("semantic coverage resource source-set expectation is invalid or incomplete")
 )
 
 type SemanticCoverageBuildState string
@@ -45,6 +48,8 @@ const (
 	SemanticCoverageBuildFailed      SemanticCoverageBuildState = "FAILED"
 	SemanticCoverageBuildUnavailable SemanticCoverageBuildState = "UNAVAILABLE"
 	SemanticCoverageBuildComplete    SemanticCoverageBuildState = "COMPLETE"
+	SemanticCoverageBuildPartial     SemanticCoverageBuildState = "PARTIAL"
+	SemanticCoverageBuildMissing     SemanticCoverageBuildState = "MISSING"
 )
 
 type SemanticCoverageCandidateStatus string
@@ -72,12 +77,14 @@ type SemanticCoverageLookupOptions struct {
 }
 
 type SemanticCoverageCandidateResult struct {
-	ResourceType  string
-	CanonicalPath string
-	CoverageID    string
-	Status        SemanticCoverageCandidateStatus
-	Reason        catalog.SemanticCoverageReason
-	References    []catalog.SemanticCoverageReference
+	ResourceType   string
+	CanonicalPath  string
+	CoverageID     string
+	Status         SemanticCoverageCandidateStatus
+	ResourceState  SemanticCoverageBuildState
+	ResourceReason string
+	Reason         catalog.SemanticCoverageReason
+	References     []catalog.SemanticCoverageReference
 }
 
 type SemanticCoverageLookupResult struct {
@@ -94,6 +101,137 @@ type SemanticCoverageBuildIdentity struct {
 	SourceKind        string
 }
 
+type SemanticCoverageResourceExpectation struct {
+	ResourceType    string
+	SourceExists    bool
+	Terminal        bool
+	SourceCount     int64
+	SourceSetDigest string
+	Partitions      []SemanticCoverageSourcePartitionExpectation
+}
+
+type SemanticCoverageSourcePartitionExpectation struct {
+	AuthResourcePath string
+	SourceCount      int64
+	SourceSetDigest  string
+}
+
+// SemanticCoverageSourceSetAccumulator keeps fixed-size count and digest
+// state per authorization partition; it never retains source identifiers.
+type SemanticCoverageSourceSetAccumulator struct {
+	mu           sync.Mutex
+	resourceType string
+	sourceExists bool
+	sourceCount  int64
+	partitions   map[string]*semanticCoverageSourceSetDigest
+	failed       error
+}
+
+func NewSemanticCoverageSourceSetAccumulator(resourceType string, sourceExists bool) *SemanticCoverageSourceSetAccumulator {
+	return &SemanticCoverageSourceSetAccumulator{
+		resourceType: resourceType,
+		sourceExists: sourceExists,
+		partitions:   make(map[string]*semanticCoverageSourceSetDigest),
+	}
+}
+
+func (a *SemanticCoverageSourceSetAccumulator) AddSource(sourceID, authResourcePath string) error {
+	if a == nil {
+		return ErrSemanticCoverageResourceExpectation
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.failed != nil {
+		return a.failed
+	}
+	if strings.TrimSpace(a.resourceType) == "" || strings.TrimSpace(sourceID) == "" || !a.sourceExists {
+		a.failed = ErrSemanticCoverageResourceExpectation
+		return a.failed
+	}
+	partition := a.partitions[authResourcePath]
+	if partition == nil {
+		if len(a.partitions) >= semanticCoverageMaximumPartitions {
+			a.failed = fmt.Errorf("%w: authorization partition limit exceeded", ErrSemanticCoverageResourceExpectation)
+			return a.failed
+		}
+		partition = &semanticCoverageSourceSetDigest{}
+		a.partitions[authResourcePath] = partition
+	}
+	if a.sourceCount == int64(^uint64(0)>>1) || partition.count == int64(^uint64(0)>>1) {
+		a.failed = fmt.Errorf("%w: source count overflow", ErrSemanticCoverageResourceExpectation)
+		return a.failed
+	}
+	identityDigest := sha256.Sum256([]byte(semanticCoverageDocumentKey("resource-source-identity/v1", a.resourceType, sourceID, authResourcePath)))
+	addSemanticCoverageDigest(&partition.sum, identityDigest)
+	partition.count++
+	a.sourceCount++
+	return nil
+}
+
+func (a *SemanticCoverageSourceSetAccumulator) Snapshot(terminal bool) (SemanticCoverageResourceExpectation, error) {
+	if a == nil {
+		return SemanticCoverageResourceExpectation{}, ErrSemanticCoverageResourceExpectation
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.failed != nil {
+		return SemanticCoverageResourceExpectation{}, a.failed
+	}
+	if strings.TrimSpace(a.resourceType) == "" {
+		return SemanticCoverageResourceExpectation{}, ErrSemanticCoverageResourceExpectation
+	}
+	result := SemanticCoverageResourceExpectation{
+		ResourceType: a.resourceType, SourceExists: a.sourceExists, Terminal: terminal,
+		SourceCount: a.sourceCount, Partitions: make([]SemanticCoverageSourcePartitionExpectation, 0, len(a.partitions)),
+	}
+	if !a.sourceExists {
+		if a.sourceCount != 0 || len(a.partitions) != 0 {
+			return SemanticCoverageResourceExpectation{}, ErrSemanticCoverageResourceExpectation
+		}
+		return result, nil
+	}
+	for authPath, digest := range a.partitions {
+		result.Partitions = append(result.Partitions, SemanticCoverageSourcePartitionExpectation{
+			AuthResourcePath: authPath, SourceCount: digest.count,
+			SourceSetDigest: semanticCoveragePartitionDigest(a.resourceType, authPath, digest),
+		})
+	}
+	sort.Slice(result.Partitions, func(i, j int) bool {
+		return result.Partitions[i].AuthResourcePath < result.Partitions[j].AuthResourcePath
+	})
+	result.SourceSetDigest = semanticCoverageResourceDigest(result.ResourceType, result.Partitions)
+	return result, nil
+}
+
+type semanticCoverageSourceSetDigest struct {
+	count int64
+	sum   [sha256.Size]byte
+}
+
+func addSemanticCoverageDigest(target *[sha256.Size]byte, source [sha256.Size]byte) {
+	carry := uint16(0)
+	for index := len(target) - 1; index >= 0; index-- {
+		total := uint16(target[index]) + uint16(source[index]) + carry
+		target[index] = byte(total)
+		carry = total >> 8
+	}
+}
+
+func semanticCoveragePartitionDigest(resourceType, authPath string, digest *semanticCoverageSourceSetDigest) string {
+	return semanticCoverageDocumentKey(
+		"resource-source-partition/v1", resourceType, authPath,
+		fmt.Sprint(digest.count), hex.EncodeToString(digest.sum[:]),
+	)
+}
+
+func semanticCoverageResourceDigest(resourceType string, partitions []SemanticCoverageSourcePartitionExpectation) string {
+	parts := []string{"resource-source-set/v1", resourceType}
+	for _, partition := range partitions {
+		parts = append(parts, partition.AuthResourcePath, fmt.Sprint(partition.SourceCount), partition.SourceSetDigest)
+	}
+	return semanticCoverageDocumentKey(parts...)
+}
+
 type SemanticCoverageWriteStats struct {
 	Rows               int64
 	SourceSetsReplaced int64
@@ -108,40 +246,48 @@ type SemanticCoveragePage struct {
 }
 
 type semanticCoverageStoredDocument struct {
-	Key                         string                             `json:"_key"`
-	RecordKind                  string                             `json:"record_kind"`
-	BuildState                  SemanticCoverageBuildState         `json:"build_state,omitempty"`
-	BuildReason                 string                             `json:"build_reason,omitempty"`
-	CoverageRuleVersion         int                                `json:"coverage_rule_version,omitempty"`
-	SummaryKind                 string                             `json:"summary_kind,omitempty"`
-	OwnerCanonicalPath          string                             `json:"owner_canonical_path,omitempty"`
-	Project                     string                             `json:"project"`
-	DatasetGeneration           string                             `json:"dataset_generation"`
-	BuildID                     string                             `json:"build_id"`
-	SourceKind                  string                             `json:"source_kind"`
-	AuthResourcePath            string                             `json:"auth_resource_path"`
-	SchemaIdentity              string                             `json:"schema_identity"`
-	ResourceType                string                             `json:"resource_type"`
-	ResourceBoundarySignature   string                             `json:"resource_boundary_signature,omitempty"`
-	SourceID                    string                             `json:"source_id"`
-	CanonicalPath               string                             `json:"canonical_path"`
-	Counts                      map[string]int64                   `json:"counts,omitempty"`
-	Path                        *semanticCoverageStoredPath        `json:"path,omitempty"`
-	Diagnostics                 []semanticCoverageStoredDiagnostic `json:"diagnostics,omitempty"`
-	SourceRecordCount           int64                              `json:"source_record_count,omitempty"`
-	ExpectedSourceCount         int64                              `json:"expected_source_count,omitempty"`
-	MaterializedSourceCount     int64                              `json:"materialized_source_count,omitempty"`
-	SummaryCount                int64                              `json:"summary_count,omitempty"`
-	Complete                    bool                               `json:"complete"`
-	CountsTruncated             bool                               `json:"counts_truncated,omitempty"`
-	FacetsTruncated             bool                               `json:"facets_truncated,omitempty"`
-	ReferencesTruncated         bool                               `json:"references_truncated,omitempty"`
-	DiagnosticLocatorsTruncated bool                               `json:"diagnostic_locators_truncated,omitempty"`
-	ReconciliationTruncated     bool                               `json:"reconciliation_truncated,omitempty"`
-	IncompleteGaps              []string                           `json:"incomplete_gaps,omitempty"`
-	Groupable                   bool                               `json:"groupable,omitempty"`
-	Status                      SemanticCoverageCandidateStatus    `json:"status,omitempty"`
-	Reason                      string                             `json:"reason,omitempty"`
+	Key                          string                             `json:"_key"`
+	RecordKind                   string                             `json:"record_kind"`
+	BuildState                   SemanticCoverageBuildState         `json:"build_state,omitempty"`
+	ResourceState                SemanticCoverageBuildState         `json:"resource_state,omitempty"`
+	CoverageStorageFormatVersion int                                `json:"coverage_storage_format_version,omitempty"`
+	BuildReason                  string                             `json:"build_reason,omitempty"`
+	SourceSetDigest              string                             `json:"source_set_digest,omitempty"`
+	SourcePartitionCount         int64                              `json:"source_partition_count,omitempty"`
+	MaterializedPartitionCount   int64                              `json:"materialized_partition_count,omitempty"`
+	SourceEnumerationComplete    bool                               `json:"source_enumeration_complete,omitempty"`
+	CoverageRuleVersion          int                                `json:"coverage_rule_version,omitempty"`
+	SummaryKind                  string                             `json:"summary_kind,omitempty"`
+	OwnerCanonicalPath           string                             `json:"owner_canonical_path,omitempty"`
+	Project                      string                             `json:"project"`
+	DatasetGeneration            string                             `json:"dataset_generation"`
+	BuildID                      string                             `json:"build_id"`
+	SourceKind                   string                             `json:"source_kind"`
+	AuthResourcePath             string                             `json:"auth_resource_path"`
+	SchemaIdentity               string                             `json:"schema_identity"`
+	ResourceType                 string                             `json:"resource_type"`
+	ResourceBoundarySignature    string                             `json:"resource_boundary_signature,omitempty"`
+	SourceID                     string                             `json:"source_id"`
+	CanonicalPath                string                             `json:"canonical_path"`
+	ExpectedResourceTypes        []string                           `json:"expected_resource_types,omitempty"`
+	Counts                       map[string]int64                   `json:"counts,omitempty"`
+	Paths                        []semanticCoverageEnvelopePath     `json:"paths,omitempty"`
+	Path                         *semanticCoverageStoredPath        `json:"path,omitempty"`
+	Diagnostics                  []semanticCoverageStoredDiagnostic `json:"diagnostics,omitempty"`
+	SourceRecordCount            int64                              `json:"source_record_count,omitempty"`
+	ExpectedSourceCount          int64                              `json:"expected_source_count,omitempty"`
+	MaterializedSourceCount      int64                              `json:"materialized_source_count,omitempty"`
+	SummaryCount                 int64                              `json:"summary_count,omitempty"`
+	Complete                     bool                               `json:"complete"`
+	CountsTruncated              bool                               `json:"counts_truncated,omitempty"`
+	FacetsTruncated              bool                               `json:"facets_truncated,omitempty"`
+	ReferencesTruncated          bool                               `json:"references_truncated,omitempty"`
+	DiagnosticLocatorsTruncated  bool                               `json:"diagnostic_locators_truncated,omitempty"`
+	ReconciliationTruncated      bool                               `json:"reconciliation_truncated,omitempty"`
+	IncompleteGaps               []string                           `json:"incomplete_gaps,omitempty"`
+	Groupable                    bool                               `json:"groupable,omitempty"`
+	Status                       SemanticCoverageCandidateStatus    `json:"status,omitempty"`
+	Reason                       string                             `json:"reason,omitempty"`
 }
 
 type semanticCoverageStoredPath struct {
@@ -209,205 +355,27 @@ func SemanticCoverageCollectionSpec() store.CollectionSpec {
 	return store.CollectionSpec{
 		Name: SemanticCoverageCollection,
 		Indexes: [][]string{
-			{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "record_kind", "auth_resource_path", "resource_type", "canonical_path", "resource_boundary_signature", "source_id", "_key"},
-			{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "record_kind", "resource_type", "canonical_path", "resource_boundary_signature", "auth_resource_path"},
-			{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "record_kind", "auth_resource_path", "resource_type"},
-			{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "resource_type", "source_id", "record_kind"},
-			{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "record_kind", "auth_resource_path", "resource_type", "source_id"},
-			{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "record_kind"},
+			{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "record_kind", "resource_type", "_key"},
+			{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "record_kind", "summary_kind", "resource_type", "canonical_path", "resource_boundary_signature", "auth_resource_path"},
+			{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "record_kind", "resource_type", "auth_resource_path", "_key"},
+			{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "record_kind", "_key"},
 		},
 	}
 }
 
-// EncodeSemanticCoverageContribution expands one source contribution into a
-// source sentinel and durable path/facet aggregates keyed by canonical path,
-// disposition, reason, and resource-boundary signature.
-// The exact inventory build is repeated on every row and participates in its
-// deterministic key.
+// EncodeSemanticCoverageContribution encodes one bounded source envelope. Its
+// key is the physical source locator and excludes authorization so replay can
+// atomically replace a changed auth path or source shape.
 func EncodeSemanticCoverageContribution(buildID string, contribution catalog.SemanticCoverageSourceContribution) ([]json.RawMessage, error) {
-	if err := validateSemanticCoverageContribution(buildID, contribution); err != nil {
+	encoded, err := EncodeSemanticCoverageSourceEnvelope(buildID, contribution)
+	if err != nil {
 		return nil, err
 	}
-	identity := contribution.Identity
-	base := semanticCoverageStoredDocument{
-		Project:                     identity.Project,
-		DatasetGeneration:           catalog.NormalizeDatasetGeneration(identity.DatasetGeneration),
-		BuildID:                     buildID,
-		SourceKind:                  identity.SourceKind,
-		AuthResourcePath:            identity.AuthResourcePath,
-		SchemaIdentity:              identity.SchemaIdentity,
-		ResourceType:                identity.ResourceType,
-		SourceID:                    identity.SourceID,
-		Complete:                    contribution.Complete,
-		CountsTruncated:             contribution.CountsTruncated,
-		FacetsTruncated:             contribution.FacetsTruncated,
-		ReferencesTruncated:         contribution.ReferencesTruncated,
-		DiagnosticLocatorsTruncated: contribution.DiagnosticLocatorsTruncated,
-		ReconciliationTruncated:     contribution.ReconciliationTruncated,
-		IncompleteGaps:              semanticCoverageGapStrings(contribution.IncompleteGaps),
-	}
-	base.RecordKind = "source"
-	base.Counts = semanticCoverageCountsDocument(contribution.Counts)
-	base.Diagnostics = semanticCoverageDiagnosticsDocument(contribution.Diagnostics)
-	base.SourceRecordCount = contribution.SourceRecordCount
-	base.Key = semanticCoverageContributionKey(identity, buildID, "source", "", "", "", "", "")
-	encodedSource, err := json.Marshal(base)
-	if err != nil {
-		return nil, fmt.Errorf("encode semantic coverage source sentinel: %w", err)
-	}
-	if err := validateSemanticCoverageDocument(encodedSource); err != nil {
-		return nil, fmt.Errorf("validate semantic coverage source sentinel: %w", err)
-	}
-	sourceDocument := json.RawMessage(encodedSource)
-	documents := make([]json.RawMessage, 0, len(contribution.Paths)+1)
-	seenPaths := make(map[string]struct{}, len(contribution.Paths))
-	facetAggregates := make(map[semanticCoverageFacetKey]*semanticCoverageFacetSourceAggregate)
-	for _, path := range contribution.Paths {
-		if err := validateSemanticCoveragePath(path); err != nil {
-			return nil, err
-		}
-		pathKey := semanticCoverageDocumentKey(path.CanonicalPath, path.ResourceBoundarySignature, string(path.Kind), string(path.Disposition), string(path.Reason))
-		if _, exists := seenPaths[pathKey]; exists {
-			return nil, fmt.Errorf("duplicate semantic coverage path aggregate %q", path.CanonicalPath)
-		}
-		seenPaths[pathKey] = struct{}{}
-		pathDocument := base
-		pathDocument.RecordKind = "path"
-		pathDocument.CanonicalPath = path.CanonicalPath
-		pathDocument.ResourceBoundarySignature = path.ResourceBoundarySignature
-		pathDocument.Path = semanticCoveragePathDocument(path)
-		pathDocument.Counts = nil
-		pathDocument.Diagnostics = nil
-		pathDocument.SourceRecordCount = 0
-		pathDocument.Groupable = contribution.Complete && path.ResourceBoundarySignature == "" &&
-			!contribution.CountsTruncated && !contribution.FacetsTruncated && !contribution.ReferencesTruncated &&
-			!contribution.ReconciliationTruncated && len(contribution.IncompleteGaps) == 0 &&
-			!path.CountsTruncated && !path.FacetsTruncated && !path.ReferencesTruncated &&
-			path.Disposition == catalog.SemanticCoverageSemanticDisposition
-		pathDocument.Key = semanticCoverageContributionKey(
-			identity,
-			buildID,
-			"path",
-			path.CanonicalPath,
-			string(path.Kind),
-			string(path.Disposition),
-			string(path.Reason),
-			path.ResourceBoundarySignature,
-		)
-		if err := appendSemanticCoverageDocument(&documents, pathDocument); err != nil {
-			return nil, err
-		}
-		for _, facet := range path.Facets {
-			if strings.TrimSpace(facet.Path) == "" || strings.TrimSpace(facet.Kind) == "" || facet.OccurrenceCount < 0 {
-				return nil, errors.New("semantic coverage facet aggregate is incomplete")
-			}
-			key := semanticCoverageFacetKey{path: facet.Path, boundarySignature: facet.ResourceBoundarySignature, kind: facet.Kind, disposition: string(facet.Disposition), reason: string(facet.Reason)}
-			aggregate := facetAggregates[key]
-			if aggregate == nil {
-				aggregate = &semanticCoverageFacetSourceAggregate{references: make(map[string]catalog.SemanticCoverageReference)}
-				facetAggregates[key] = aggregate
-			}
-			aggregate.occurrenceCount += facet.OccurrenceCount
-			for presence, count := range facet.PresenceCounts {
-				aggregate.presenceCounts = ensureSemanticCoveragePresenceCounts(aggregate.presenceCounts)
-				aggregate.presenceCounts[string(presence)] += count
-			}
-			aggregate.countsTruncated = aggregate.countsTruncated || path.CountsTruncated
-			aggregate.facetsTruncated = aggregate.facetsTruncated || path.FacetsTruncated
-			aggregate.referencesTruncated = aggregate.referencesTruncated || facet.ReferencesTruncated || path.ReferencesTruncated
-			aggregate.groupable = aggregate.groupable || (contribution.Complete && path.ResourceBoundarySignature == "" && facet.ResourceBoundarySignature == "" && !contribution.CountsTruncated && !contribution.FacetsTruncated && !contribution.ReferencesTruncated && !contribution.ReconciliationTruncated && len(contribution.IncompleteGaps) == 0 && !path.CountsTruncated && !path.FacetsTruncated && !path.ReferencesTruncated && !facet.ReferencesTruncated && facet.Disposition == catalog.SemanticCoverageSemanticDisposition)
-			for _, reference := range facet.References {
-				if reference.Kind == catalog.SemanticCoverageNativeFieldReference {
-					continue
-				}
-				if converted, ok := semanticCoverageCatalogReferenceFromCatalog(reference); ok {
-					referenceKey := semanticCoverageReferenceKey(converted)
-					if _, exists := aggregate.references[referenceKey]; exists {
-						continue
-					}
-					if len(aggregate.references) >= semanticCoverageMaximumReferencesPerSummary {
-						aggregate.referencesTruncated = true
-						aggregate.groupable = false
-						continue
-					}
-					aggregate.references[referenceKey] = converted
-				}
-			}
-		}
-	}
-	facetKeys := make([]semanticCoverageFacetKey, 0, len(facetAggregates))
-	for key := range facetAggregates {
-		facetKeys = append(facetKeys, key)
-	}
-	sort.Slice(facetKeys, func(i, j int) bool {
-		return semanticCoverageFacetKeyString(facetKeys[i]) < semanticCoverageFacetKeyString(facetKeys[j])
-	})
-	for _, key := range facetKeys {
-		facetDocument := semanticCoverageFacetSourceDocument(identity, buildID, contribution, key, facetAggregates[key])
-		if err := appendSemanticCoverageDocument(&documents, facetDocument); err != nil {
-			return nil, err
-		}
-	}
-	documents = append(documents, sourceDocument)
-	return documents, nil
+	return []json.RawMessage{encoded}, nil
 }
 
-type semanticCoverageFacetKey struct {
-	path              string
-	boundarySignature string
-	kind              string
-	disposition       string
-	reason            string
-}
-
-type semanticCoverageFacetSourceAggregate struct {
-	occurrenceCount     int64
-	presenceCounts      map[string]int64
-	countsTruncated     bool
-	facetsTruncated     bool
-	referencesTruncated bool
-	groupable           bool
-	references          map[string]catalog.SemanticCoverageReference
-}
-
-func semanticCoverageFacetKeyString(key semanticCoverageFacetKey) string {
-	return semanticCoverageDocumentKey("facet", key.path, key.boundarySignature, key.kind, key.disposition, key.reason)
-}
-
-func ensureSemanticCoveragePresenceCounts(counts map[string]int64) map[string]int64 {
-	if counts == nil {
-		return make(map[string]int64)
-	}
-	return counts
-}
-
-func semanticCoverageFacetSourceDocument(identity catalog.SemanticCoverageSourceIdentity, buildID string, contribution catalog.SemanticCoverageSourceContribution, key semanticCoverageFacetKey, aggregate *semanticCoverageFacetSourceAggregate) semanticCoverageStoredDocument {
-	references := make([]catalog.SemanticCoverageReference, 0, len(aggregate.references))
-	for _, reference := range aggregate.references {
-		references = append(references, reference)
-	}
-	sort.Slice(references, func(i, j int) bool {
-		return semanticCoverageReferenceKey(references[i]) < semanticCoverageReferenceKey(references[j])
-	})
-	storedReferences := semanticCoverageStoredReferences(references)
-	groupable := aggregate.groupable && len(storedReferences) > 0 && !aggregate.countsTruncated && !aggregate.facetsTruncated && !aggregate.referencesTruncated
-	path := &semanticCoverageStoredPath{
-		ResourceBoundarySignature: key.boundarySignature, Kind: key.kind, Disposition: key.disposition, Reason: key.reason, OccurrenceCount: aggregate.occurrenceCount,
-		PresenceCounts: aggregate.presenceCounts, References: storedReferences,
-		CountsTruncated: aggregate.countsTruncated, FacetsTruncated: aggregate.facetsTruncated, ReferencesTruncated: aggregate.referencesTruncated,
-		Facets: []semanticCoverageStoredFacet{{Path: key.path, ResourceBoundarySignature: key.boundarySignature, Kind: key.kind, Disposition: key.disposition, Reason: key.reason, OccurrenceCount: aggregate.occurrenceCount, PresenceCounts: aggregate.presenceCounts, References: storedReferences, ReferencesTruncated: aggregate.referencesTruncated}},
-	}
-	return semanticCoverageStoredDocument{
-		Key:        semanticCoverageContributionKey(identity, buildID, "facet", key.path, key.kind, key.disposition, key.reason, key.boundarySignature),
-		RecordKind: "facet", Project: identity.Project, DatasetGeneration: catalog.NormalizeDatasetGeneration(identity.DatasetGeneration),
-		BuildID: buildID, SourceKind: identity.SourceKind, AuthResourcePath: identity.AuthResourcePath,
-		SchemaIdentity: identity.SchemaIdentity, ResourceType: identity.ResourceType,
-		ResourceBoundarySignature: key.boundarySignature, SourceID: identity.SourceID,
-		CanonicalPath: key.path, Complete: contribution.Complete, CountsTruncated: contribution.CountsTruncated || aggregate.countsTruncated,
-		FacetsTruncated: contribution.FacetsTruncated || aggregate.facetsTruncated, ReferencesTruncated: contribution.ReferencesTruncated || aggregate.referencesTruncated,
-		ReconciliationTruncated: contribution.ReconciliationTruncated, IncompleteGaps: semanticCoverageGapStrings(contribution.IncompleteGaps),
-		Groupable: groupable, Path: path,
-	}
+func semanticCoveragePathAggregateKey(path catalog.SemanticCoveragePathAggregate) string {
+	return semanticCoverageDocumentKey(path.CanonicalPath, path.ResourceBoundarySignature, string(path.Kind), string(path.Disposition), string(path.Reason))
 }
 
 func semanticCoverageStoredReferences(references []catalog.SemanticCoverageReference) []semanticCoverageStoredReference {
@@ -438,37 +406,7 @@ func (s *Store) WriteSemanticCoverageContributions(ctx context.Context, buildID 
 	for start := 0; start < len(contributions); start += batchSize {
 		end := min(start+batchSize, len(contributions))
 		chunk := contributions[start:end]
-		encodedSets := make([][]json.RawMessage, 0, len(chunk))
-		newScopes := make([]semanticCoverageSourceScope, 0, len(chunk))
-		seenSourceIDs := make(map[semanticCoverageSourceScopeKey]string, len(chunk))
-		encodedRows := 0
-		encodedBytes := int64(0)
-		for index, contribution := range chunk {
-			sourceKey := semanticCoverageSourceScopeKey{sourceID: contribution.Identity.SourceID, resourceType: contribution.Identity.ResourceType}
-			if previousAuthPath, exists := seenSourceIDs[sourceKey]; exists {
-				if previousAuthPath != contribution.Identity.AuthResourcePath {
-					return stats, fmt.Errorf("semantic coverage source ID %q is ambiguous across authorization paths", contribution.Identity.SourceID)
-				}
-				return stats, fmt.Errorf("duplicate semantic coverage source ID %q in one write batch", contribution.Identity.SourceID)
-			}
-			seenSourceIDs[sourceKey] = contribution.Identity.AuthResourcePath
-			encoded, err := EncodeSemanticCoverageContribution(buildID, contribution)
-			if err != nil {
-				return stats, fmt.Errorf("encode semantic coverage source %d: %w", start+index, err)
-			}
-			for _, document := range encoded {
-				encodedRows++
-				encodedBytes += int64(len(document))
-			}
-			if encodedRows > semanticCoverageMaximumSourceRowsPerBatch || encodedBytes > semanticCoverageMaximumSourceBytesPerBatch {
-				return stats, ErrSemanticCoverageSourceBatchLimit
-			}
-			identity := contribution.Identity
-			newScopes = append(newScopes, semanticCoverageSourceScope{
-				SourceID: identity.SourceID, ResourceType: identity.ResourceType, AuthResourcePath: identity.AuthResourcePath,
-			})
-			encodedSets = append(encodedSets, encoded)
-		}
+		seenSourceIDs := make(map[semanticCoverageLocatorKey]string, len(chunk))
 		for index, contribution := range chunk {
 			if contribution.Identity.Project != chunk[0].Identity.Project ||
 				contribution.Identity.DatasetGeneration != chunk[0].Identity.DatasetGeneration ||
@@ -476,147 +414,58 @@ func (s *Store) WriteSemanticCoverageContributions(ctx context.Context, buildID 
 				contribution.Identity.SchemaIdentity != chunk[0].Identity.SchemaIdentity {
 				return stats, fmt.Errorf("semantic coverage source %d has a mixed build partition", start+index)
 			}
+			sourceKey := semanticCoverageLocatorKey{sourceID: contribution.Identity.SourceID, resourceType: contribution.Identity.ResourceType}
+			if previousAuthPath, exists := seenSourceIDs[sourceKey]; exists {
+				if previousAuthPath != contribution.Identity.AuthResourcePath {
+					return stats, fmt.Errorf("semantic coverage source ID %q is ambiguous across authorization paths", contribution.Identity.SourceID)
+				}
+				return stats, fmt.Errorf("duplicate semantic coverage source ID %q in one write batch", contribution.Identity.SourceID)
+			}
+			seenSourceIDs[sourceKey] = contribution.Identity.AuthResourcePath
 		}
-		scopes, err := s.semanticCoverageSourceScopes(ctx, chunk[0].Identity, buildID, newScopes)
-		if err != nil {
-			return stats, fmt.Errorf("replace semantic coverage source batch: read existing source scopes: %w", err)
+		batch := make([]json.RawMessage, 0, min(batchSize, semanticCoverageMaximumEnvelopeReadRows))
+		batchBytes := 0
+		flush := func() error {
+			if len(batch) == 0 {
+				return nil
+			}
+			written, err := s.writeSemanticCoverageDocuments(ctx, batch, batchSize)
+			stats.Rows += written.Rows
+			stats.SourceSetsReplaced += written.Rows
+			stats.SerializedBytes += written.SerializedBytes
+			batch = batch[:0]
+			batchBytes = 0
+			return err
 		}
-		if err := s.client.ExecuteAQL(ctx, deleteSemanticCoverageSourceSetBatchAQL, map[string]interface{}{
-			"project":            chunk[0].Identity.Project,
-			"dataset_generation": catalog.NormalizeDatasetGeneration(chunk[0].Identity.DatasetGeneration),
-			"build_id":           buildID,
-			"source_kind":        chunk[0].Identity.SourceKind,
-			"schema_identity":    chunk[0].Identity.SchemaIdentity,
-			"source_scopes":      scopes,
-		}); err != nil {
-			return stats, fmt.Errorf("replace semantic coverage source batch: remove prior source sets: %w", err)
-		}
-		stats.SourceSetsReplaced += int64(len(chunk))
-
-		pathBatch := make([]json.RawMessage, 0, batchSize)
-		for _, encoded := range encodedSets {
-			for _, document := range encoded[:len(encoded)-1] {
-				pathBatch = append(pathBatch, document)
-				if len(pathBatch) == batchSize {
-					written, writeErr := s.writeSemanticCoverageDocuments(ctx, pathBatch, batchSize)
-					stats.Rows += written.Rows
-					stats.SerializedBytes += written.SerializedBytes
-					if writeErr != nil {
-						return stats, fmt.Errorf("replace semantic coverage source batch: write path rows: %w", writeErr)
-					}
-					pathBatch = pathBatch[:0]
+		for index, contribution := range chunk {
+			encoded, err := EncodeSemanticCoverageContribution(buildID, contribution)
+			if err != nil {
+				return stats, fmt.Errorf("encode semantic coverage source %d: %w", start+index, err)
+			}
+			document := encoded[0]
+			if len(batch) > 0 && (len(batch) >= batchSize || batchBytes+len(document) > semanticCoverageMaximumWriteBatchBytes) {
+				if err := flush(); err != nil {
+					return stats, fmt.Errorf("replace semantic coverage source envelopes: %w", err)
+				}
+			}
+			batch = append(batch, document)
+			batchBytes += len(document)
+			if len(batch) >= batchSize || batchBytes >= semanticCoverageMaximumWriteBatchBytes {
+				if err := flush(); err != nil {
+					return stats, fmt.Errorf("replace semantic coverage source envelopes: %w", err)
 				}
 			}
 		}
-		if len(pathBatch) > 0 {
-			written, writeErr := s.writeSemanticCoverageDocuments(ctx, pathBatch, batchSize)
-			stats.Rows += written.Rows
-			stats.SerializedBytes += written.SerializedBytes
-			if writeErr != nil {
-				return stats, fmt.Errorf("replace semantic coverage source batch: write path rows: %w", writeErr)
-			}
-		}
-
-		sourceDocuments := make([]json.RawMessage, 0, len(encodedSets))
-		for _, encoded := range encodedSets {
-			sourceDocuments = append(sourceDocuments, encoded[len(encoded)-1])
-		}
-		written, writeErr := s.writeSemanticCoverageDocuments(ctx, sourceDocuments, batchSize)
-		stats.Rows += written.Rows
-		stats.SerializedBytes += written.SerializedBytes
-		if writeErr != nil {
-			return stats, fmt.Errorf("replace semantic coverage source batch: write source sentinels: %w", writeErr)
+		if err := flush(); err != nil {
+			return stats, fmt.Errorf("replace semantic coverage source envelopes: %w", err)
 		}
 	}
 	return stats, nil
 }
 
-type semanticCoverageSourceScope struct {
-	SourceID         string `json:"source_id"`
-	ResourceType     string `json:"resource_type"`
-	AuthResourcePath string `json:"auth_resource_path"`
-}
-
-type semanticCoverageSourceScopeKey struct {
+type semanticCoverageLocatorKey struct {
 	sourceID     string
 	resourceType string
-}
-
-func (s *Store) semanticCoverageSourceScopes(ctx context.Context, first catalog.SemanticCoverageSourceIdentity, buildID string, current []semanticCoverageSourceScope) ([]semanticCoverageSourceScope, error) {
-	currentByID := make(map[semanticCoverageSourceScopeKey]struct{}, len(current))
-	resourceTypes := make(map[string]struct{}, len(current))
-	for _, scope := range current {
-		currentByID[semanticCoverageSourceScopeKey{sourceID: scope.SourceID, resourceType: scope.ResourceType}] = struct{}{}
-		resourceTypes[scope.ResourceType] = struct{}{}
-	}
-	sourceIDSet := make(map[string]struct{}, len(currentByID))
-	for scope := range currentByID {
-		sourceIDSet[scope.sourceID] = struct{}{}
-	}
-	sourceIDs := make([]string, 0, len(sourceIDSet))
-	for sourceID := range sourceIDSet {
-		sourceIDs = append(sourceIDs, sourceID)
-	}
-	resourceTypeList := make([]string, 0, len(resourceTypes))
-	for resourceType := range resourceTypes {
-		resourceTypeList = append(resourceTypeList, resourceType)
-	}
-	sort.Strings(sourceIDs)
-	sort.Strings(resourceTypeList)
-	rows := make([]semanticCoverageSourceScope, 0, len(current))
-	seen := make(map[string]struct{}, len(current))
-	oldAuthPaths := make(map[semanticCoverageSourceScopeKey]string, len(current))
-	queryErr := s.client.QueryRows(ctx, semanticCoverageSourceScopesAQL, semanticCoverageMaximumSourceScopesPerBatch+1, map[string]interface{}{
-		"project": first.Project, "dataset_generation": catalog.NormalizeDatasetGeneration(first.DatasetGeneration),
-		"build_id": buildID, "source_kind": first.SourceKind, "schema_identity": first.SchemaIdentity,
-		"source_ids": sourceIDs, "resource_types": resourceTypeList, "limit": semanticCoverageMaximumSourceScopesPerBatch + 1,
-	}, func(row map[string]any) error {
-		var scope semanticCoverageSourceScope
-		if err := decodeSemanticCoverageRow(row, &scope); err != nil {
-			return err
-		}
-		identity := semanticCoverageSourceScopeKey{sourceID: scope.SourceID, resourceType: scope.ResourceType}
-		if _, relevant := currentByID[identity]; !relevant {
-			return nil
-		}
-		if len(rows) >= semanticCoverageMaximumSourceScopesPerBatch {
-			return ErrSemanticCoverageSourceBatchLimit
-		}
-		if previousPath, exists := oldAuthPaths[identity]; exists && previousPath != scope.AuthResourcePath {
-			return fmt.Errorf("stored semantic coverage source %q is ambiguous across authorization paths", scope.SourceID)
-		}
-		oldAuthPaths[identity] = scope.AuthResourcePath
-		key := semanticCoverageDocumentKey(scope.SourceID, scope.ResourceType, scope.AuthResourcePath)
-		if _, exists := seen[key]; !exists {
-			seen[key] = struct{}{}
-			rows = append(rows, scope)
-		}
-		return nil
-	})
-	if queryErr != nil {
-		return nil, queryErr
-	}
-	for _, scope := range current {
-		key := semanticCoverageDocumentKey(scope.SourceID, scope.ResourceType, scope.AuthResourcePath)
-		if _, exists := seen[key]; exists {
-			continue
-		}
-		seen[key] = struct{}{}
-		rows = append(rows, scope)
-	}
-	if len(rows) > semanticCoverageMaximumSourceScopesPerBatch {
-		return nil, ErrSemanticCoverageSourceBatchLimit
-	}
-	sort.Slice(rows, func(i, j int) bool {
-		if rows[i].SourceID != rows[j].SourceID {
-			return rows[i].SourceID < rows[j].SourceID
-		}
-		if rows[i].ResourceType != rows[j].ResourceType {
-			return rows[i].ResourceType < rows[j].ResourceType
-		}
-		return rows[i].AuthResourcePath < rows[j].AuthResourcePath
-	})
-	return rows, nil
 }
 
 func validateSemanticCoverageContribution(buildID string, contribution catalog.SemanticCoverageSourceContribution) error {
@@ -640,38 +489,6 @@ func validateSemanticCoveragePath(path catalog.SemanticCoveragePathAggregate) er
 		return errors.New("semantic coverage path aggregate is incomplete")
 	}
 	return nil
-}
-
-func appendSemanticCoverageDocument(documents *[]json.RawMessage, document semanticCoverageStoredDocument) error {
-	encoded, err := json.Marshal(document)
-	if err != nil {
-		return fmt.Errorf("encode semantic coverage document: %w", err)
-	}
-	if err := validateSemanticCoverageDocument(encoded); err != nil {
-		return fmt.Errorf("validate semantic coverage document: %w", err)
-	}
-	*documents = append(*documents, encoded)
-	return nil
-}
-
-func semanticCoverageContributionKey(identity catalog.SemanticCoverageSourceIdentity, buildID, recordKind, canonicalPath, pathKind, disposition, reason, boundarySignature string) string {
-	return semanticCoverageDocumentKey(
-		"semantic-coverage/v1",
-		identity.Project,
-		catalog.NormalizeDatasetGeneration(identity.DatasetGeneration),
-		buildID,
-		identity.SourceKind,
-		identity.AuthResourcePath,
-		identity.SchemaIdentity,
-		identity.ResourceType,
-		identity.SourceID,
-		recordKind,
-		canonicalPath,
-		boundarySignature,
-		pathKind,
-		disposition,
-		reason,
-	)
 }
 
 func semanticCoverageGapStrings(gaps []catalog.SemanticCoverageCensusGap) []string {
@@ -828,29 +645,6 @@ func semanticCoverageStringCounts(counts map[catalog.SemanticCoveragePresence]in
 	return result
 }
 
-func semanticCoverageDiagnosticsDocument(diagnostics []catalog.SemanticCoverageDiagnostic) []semanticCoverageStoredDiagnostic {
-	result := make([]semanticCoverageStoredDiagnostic, 0, len(diagnostics))
-	for _, diagnostic := range diagnostics {
-		result = append(result, semanticCoverageStoredDiagnostic{
-			Code: diagnostic.Code, CanonicalPath: diagnostic.CanonicalPath,
-			OwnerPath: diagnostic.OwnerPath, Reason: string(diagnostic.Reason), Explanation: diagnostic.Explanation,
-		})
-	}
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].CanonicalPath != result[j].CanonicalPath {
-			return result[i].CanonicalPath < result[j].CanonicalPath
-		}
-		if result[i].OwnerPath != result[j].OwnerPath {
-			return result[i].OwnerPath < result[j].OwnerPath
-		}
-		if result[i].Code != result[j].Code {
-			return result[i].Code < result[j].Code
-		}
-		return result[i].Reason < result[j].Reason
-	})
-	return result
-}
-
 // writeSemanticCoverageDocuments replaces deterministic rows in bounded
 // batches, so replaying a source before its checkpoint advances is idempotent.
 func (s *Store) writeSemanticCoverageDocuments(ctx context.Context, documents []json.RawMessage, batchSize int) (SemanticCoverageWriteStats, error) {
@@ -865,16 +659,39 @@ func (s *Store) writeSemanticCoverageDocuments(ctx context.Context, documents []
 	}
 
 	stats := SemanticCoverageWriteStats{}
-	for start := 0; start < len(documents); start += batchSize {
-		end := min(start+batchSize, len(documents))
-		batch := documents[start:end]
+	batch := make([]json.RawMessage, 0, batchSize)
+	batchBytes := 0
+	flush := func(start int) error {
+		if len(batch) == 0 {
+			return nil
+		}
 		if err := s.client.InsertBatchRaw(ctx, SemanticCoverageCollection, batch, true, ""); err != nil {
-			return stats, fmt.Errorf("write semantic coverage rows %d-%d: %w", start, end-1, err)
+			return fmt.Errorf("write semantic coverage rows starting at %d: %w", start, err)
 		}
 		for _, document := range batch {
 			stats.SerializedBytes += int64(len(document))
 		}
 		stats.Rows += int64(len(batch))
+		batch = batch[:0]
+		batchBytes = 0
+		return nil
+	}
+	for index, document := range documents {
+		if len(batch) > 0 && (len(batch) >= batchSize || batchBytes+len(document) > semanticCoverageMaximumWriteBatchBytes) {
+			if err := flush(index - len(batch)); err != nil {
+				return stats, err
+			}
+		}
+		batch = append(batch, document)
+		batchBytes += len(document)
+		if len(batch) >= batchSize || batchBytes >= semanticCoverageMaximumWriteBatchBytes {
+			if err := flush(index - len(batch) + 1); err != nil {
+				return stats, err
+			}
+		}
+	}
+	if err := flush(len(documents) - len(batch)); err != nil {
+		return stats, err
 	}
 	return stats, nil
 }
@@ -892,13 +709,37 @@ func (s *Store) BeginSemanticCoverageBuild(ctx context.Context, identity Semanti
 	if err := validateSemanticCoverageBuildIdentity(identity); err != nil {
 		return err
 	}
-	if err := s.writeSemanticCoverageBuildMarker(ctx, identity, SemanticCoverageBuildBuilding, "", 0, 0, 0); err != nil {
+	return s.writeSemanticCoverageBuildMarker(ctx, identity, SemanticCoverageBuildBuilding, "", 0, 0, 0)
+}
+
+// BeginSemanticCoverageResource invalidates one resource publication before
+// its sources or summaries change. Other resource certificates remain stored,
+// but the enclosing global BUILDING marker keeps all lookups fail-closed.
+func (s *Store) BeginSemanticCoverageResource(ctx context.Context, identity SemanticCoverageBuildIdentity, resourceType string) error {
+	if err := validateSemanticCoverageBuildIdentity(identity); err != nil {
 		return err
 	}
-	if err := s.client.ExecuteAQL(ctx, deleteSemanticCoverageSummariesAQL, semanticCoverageBuildBindVars(identity)); err != nil {
-		return fmt.Errorf("clear prior semantic coverage summaries: %w", err)
+	if strings.TrimSpace(resourceType) == "" {
+		return ErrInvalidSemanticCoverageRead
+	}
+	if err := s.writeSemanticCoverageResourceMarker(ctx, identity, resourceType, SemanticCoverageBuildBuilding, "", SemanticCoverageResourceExpectation{}, 0, 0); err != nil {
+		return err
+	}
+	if err := s.client.ExecuteAQL(ctx, deleteSemanticCoverageResourceSummariesAQL, map[string]interface{}{
+		"project": identity.Project, "dataset_generation": identity.DatasetGeneration,
+		"build_id": identity.BuildID, "source_kind": identity.SourceKind,
+		"schema_identity": identity.SchemaIdentity, "resource_type": resourceType,
+	}); err != nil {
+		return fmt.Errorf("clear semantic coverage rows for resource %s: %w", resourceType, err)
 	}
 	return nil
+}
+
+func (s *Store) MarkSemanticCoverageResourceMissing(ctx context.Context, identity SemanticCoverageBuildIdentity, resourceType string) error {
+	if err := s.BeginSemanticCoverageResource(ctx, identity, resourceType); err != nil {
+		return err
+	}
+	return s.writeSemanticCoverageResourceMarker(ctx, identity, resourceType, SemanticCoverageBuildMissing, "SOURCE_COLLECTION_MISSING", SemanticCoverageResourceExpectation{ResourceType: resourceType}, 0, 0)
 }
 
 // FailSemanticCoverageBuild keeps execution failures distinct from missing
@@ -910,17 +751,16 @@ func (s *Store) FailSemanticCoverageBuild(ctx context.Context, identity Semantic
 	return s.writeSemanticCoverageBuildMarker(ctx, identity, SemanticCoverageBuildFailed, boundedSemanticCoverageReason(reason), 0, 0, 0)
 }
 
-// CompleteSemanticCoverageBuild materializes exact-build path summaries only
-// after every expected source sentinel exists and carries complete proof. A
-// source-availability gap is recorded as UNAVAILABLE and leaves raw choices
-// usable; database/query failures remain errors and callers mark FAILED.
+// CompleteSemanticCoverageBuild is retained for older callers, but source
+// counts alone cannot prove the complete resource set. It therefore cannot
+// publish a groupable build. New callers must use FinalizeSemanticCoverageBuild.
 func (s *Store) CompleteSemanticCoverageBuild(
 	ctx context.Context,
 	identity SemanticCoverageBuildIdentity,
 	expectedSourceCount int64,
 	sourceAvailabilityProven bool,
 	unavailableReason string,
-	batchSize int,
+	_ int,
 ) error {
 	if err := validateSemanticCoverageBuildIdentity(identity); err != nil {
 		return err
@@ -937,48 +777,382 @@ func (s *Store) CompleteSemanticCoverageBuild(
 		}
 		return s.writeSemanticCoverageBuildMarker(ctx, identity, SemanticCoverageBuildUnavailable, boundedSemanticCoverageReason(unavailableReason), expectedSourceCount, 0, 0)
 	}
+	if unavailableReason == "" {
+		unavailableReason = "RESOURCE_CERTIFICATES_REQUIRED"
+	}
+	return s.writeSemanticCoverageBuildMarker(ctx, identity, SemanticCoverageBuildPartial, boundedSemanticCoverageReason(unavailableReason), expectedSourceCount, 0, 0)
+}
+
+// FinalizeSemanticCoverageBuild publishes the global build marker only after
+// every expected resource certificate is present and valid. Resource
+// summaries and authorization partitions are written by
+// CompleteSemanticCoverageResource before their COMPLETE markers.
+func (s *Store) FinalizeSemanticCoverageBuild(
+	ctx context.Context,
+	identity SemanticCoverageBuildIdentity,
+	expectedResourceTypes []string,
+) error {
+	if err := validateSemanticCoverageBuildIdentity(identity); err != nil {
+		return err
+	}
+	resources, err := normalizeSemanticCoverageResourceTypes(expectedResourceTypes)
+	if err != nil {
+		return ErrSemanticCoverageResourceExpectation
+	}
+	if identity.SchemaIdentity == "" {
+		return s.writeSemanticCoverageBuildMarker(ctx, identity, SemanticCoverageBuildUnavailable, "SOURCE_SCHEMA_IDENTITY_UNAVAILABLE", 0, 0, 0, resources)
+	}
+	if len(resources) == 0 {
+		return s.writeSemanticCoverageBuildMarker(ctx, identity, SemanticCoverageBuildUnavailable, "EXPECTED_RESOURCE_SET_EMPTY", 0, 0, 0, resources)
+	}
+
+	markers := make(map[string]semanticCoverageStoredDocument, len(resources))
+	err = s.scanSemanticCoverageDocuments(ctx, identity, "resource", func(marker semanticCoverageStoredDocument) error {
+		if marker.RecordKind != "resource" || marker.ResourceType == "" || marker.Key != semanticCoverageResourceKey(identity, marker.ResourceType) ||
+			marker.Project != identity.Project || marker.DatasetGeneration != identity.DatasetGeneration || marker.BuildID != identity.BuildID ||
+			marker.SourceKind != identity.SourceKind || marker.SchemaIdentity != identity.SchemaIdentity ||
+			marker.CoverageRuleVersion != catalog.SemanticCoverageRuleVersion ||
+			marker.CoverageStorageFormatVersion != catalog.SemanticCoverageStorageFormatVersion {
+			return ErrSemanticCoverageResourceExpectation
+		}
+		if !containsSortedSemanticCoverageResource(resources, marker.ResourceType) {
+			return fmt.Errorf("%w: unexpected resource marker %q", ErrSemanticCoverageResourceExpectation, marker.ResourceType)
+		}
+		if _, duplicate := markers[marker.ResourceType]; duplicate {
+			return fmt.Errorf("%w: duplicate resource marker %q", ErrSemanticCoverageResourceExpectation, marker.ResourceType)
+		}
+		markers[marker.ResourceType] = marker
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("read semantic coverage resource certificates: %w", err)
+	}
+	partitionCounts := make(map[string]int64, len(resources))
+	incompletePartitions := make(map[string]string)
+	err = s.scanSemanticCoverageDocuments(ctx, identity, "partition", func(partition semanticCoverageStoredDocument) error {
+		if partition.RecordKind != "partition" || partition.ResourceType == "" ||
+			partition.Key != semanticCoveragePartitionDocumentKey(identity, partition.ResourceType, partition.AuthResourcePath) ||
+			partition.Project != identity.Project || partition.DatasetGeneration != identity.DatasetGeneration ||
+			partition.BuildID != identity.BuildID || partition.SourceKind != identity.SourceKind || partition.SchemaIdentity != identity.SchemaIdentity ||
+			partition.CoverageStorageFormatVersion != catalog.SemanticCoverageStorageFormatVersion {
+			return ErrSemanticCoverageResourceExpectation
+		}
+		if !containsSortedSemanticCoverageResource(resources, partition.ResourceType) {
+			return fmt.Errorf("%w: unexpected authorization partition for resource %q", ErrSemanticCoverageResourceExpectation, partition.ResourceType)
+		}
+		partitionCounts[partition.ResourceType]++
+		if !validSemanticCoveragePartition(partition) {
+			reason := partition.Reason
+			if reason == "" {
+				reason = "SOURCE_PARTITION_INCOMPLETE"
+			}
+			incompletePartitions[partition.ResourceType] = reason
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("read semantic coverage authorization partitions: %w", err)
+	}
+
+	state := SemanticCoverageBuildComplete
+	reason := ""
+	var expectedSources, materializedSources, summaryCount int64
+	for _, resourceType := range resources {
+		marker, found := markers[resourceType]
+		if !found {
+			state = SemanticCoverageBuildPartial
+			if reason == "" {
+				reason = "RESOURCE_CERTIFICATES_INCOMPLETE"
+			}
+			continue
+		}
+		if marker.ResourceState != SemanticCoverageBuildComplete || !marker.SourceEnumerationComplete ||
+			marker.SourceSetDigest == "" || marker.ExpectedSourceCount != marker.MaterializedSourceCount ||
+			marker.SourcePartitionCount != marker.MaterializedPartitionCount {
+			state = SemanticCoverageBuildPartial
+			if reason == "" {
+				reason = marker.BuildReason
+				if reason == "" {
+					reason = "RESOURCE_CERTIFICATES_INCOMPLETE"
+				}
+			}
+			continue
+		}
+		expectedSources += marker.ExpectedSourceCount
+		materializedSources += marker.MaterializedSourceCount
+		summaryCount += marker.SummaryCount
+		if partitionCounts[resourceType] != marker.MaterializedPartitionCount || partitionCounts[resourceType] != marker.SourcePartitionCount {
+			state = SemanticCoverageBuildPartial
+			if reason == "" {
+				reason = "RESOURCE_PARTITION_SET_MISMATCH"
+			}
+		}
+		if partitionReason := incompletePartitions[resourceType]; partitionReason != "" {
+			state = SemanticCoverageBuildPartial
+			if reason == "" {
+				reason = partitionReason
+			}
+		}
+	}
+	return s.writeSemanticCoverageBuildMarker(ctx, identity, state, reason, expectedSources, materializedSources, summaryCount, resources)
+}
+
+func normalizeSemanticCoverageResourceTypes(resourceTypes []string) ([]string, error) {
+	if len(resourceTypes) > semanticCoverageMaximumResourceTypes {
+		return nil, ErrSemanticCoverageResourceExpectation
+	}
+	result := append([]string(nil), resourceTypes...)
+	for _, resourceType := range result {
+		if strings.TrimSpace(resourceType) == "" {
+			return nil, ErrSemanticCoverageResourceExpectation
+		}
+	}
+	sort.Strings(result)
+	for index := 1; index < len(result); index++ {
+		if result[index] == result[index-1] {
+			return nil, ErrSemanticCoverageResourceExpectation
+		}
+	}
+	return result, nil
+}
+
+func containsSemanticCoverageResource(resources []string, candidate string) (int, bool) {
+	index := sort.SearchStrings(resources, candidate)
+	return index, index < len(resources) && resources[index] == candidate
+}
+
+func (s *Store) CompleteSemanticCoverageResource(
+	ctx context.Context,
+	identity SemanticCoverageBuildIdentity,
+	expectation SemanticCoverageResourceExpectation,
+	batchSize int,
+) (returnErr error) {
+	if err := validateSemanticCoverageBuildIdentity(identity); err != nil {
+		return err
+	}
+	if strings.TrimSpace(expectation.ResourceType) == "" {
+		return ErrSemanticCoverageResourceExpectation
+	}
+	if err := s.BeginSemanticCoverageResource(ctx, identity, expectation.ResourceType); err != nil {
+		return err
+	}
+	failureReason := ""
+	defer func() {
+		if returnErr == nil {
+			return
+		}
+		reason := failureReason
+		if reason == "" {
+			reason = returnErr.Error()
+		}
+		if failErr := s.FailSemanticCoverageResource(context.WithoutCancel(ctx), identity, expectation.ResourceType, reason); failErr != nil {
+			returnErr = errors.Join(returnErr, fmt.Errorf("mark semantic coverage resource failed: %w", failErr))
+		}
+	}()
+	if identity.SchemaIdentity == "" {
+		return s.writeSemanticCoverageResourceMarker(ctx, identity, expectation.ResourceType, SemanticCoverageBuildUnavailable, "SOURCE_SCHEMA_IDENTITY_UNAVAILABLE", expectation, 0, 0)
+	}
+	if !expectation.SourceExists {
+		if expectation.SourceCount != 0 || len(expectation.Partitions) != 0 {
+			return ErrSemanticCoverageResourceExpectation
+		}
+		return s.writeSemanticCoverageResourceMarker(ctx, identity, expectation.ResourceType, SemanticCoverageBuildMissing, "SOURCE_COLLECTION_MISSING", expectation, 0, 0)
+	}
+	if !expectation.Terminal {
+		return s.writeSemanticCoverageResourceMarker(ctx, identity, expectation.ResourceType, SemanticCoverageBuildUnavailable, "SOURCE_ENUMERATION_NOT_TERMINAL", expectation, 0, 0)
+	}
+	if err := validateSemanticCoverageResourceExpectation(expectation); err != nil {
+		failureReason = "SOURCE_EXPECTATION_INVALID"
+		return err
+	}
 
 	materializer := newSemanticCoverageMaterializer(identity)
-	var sourceCount int64
-	err := s.scanSemanticCoverageDocuments(ctx, identity, "source", func(source semanticCoverageStoredDocument) error {
-		sourceCount++
-		return materializer.addSource(source)
+	actual := NewSemanticCoverageSourceSetAccumulator(expectation.ResourceType, true)
+	var actualSourceCount int64
+	err := s.scanSemanticCoverageResourceDocuments(ctx, identity, expectation.ResourceType, semanticCoverageEnvelopeRecordKind, func(source semanticCoverageStoredDocument) error {
+		if source.RecordKind != semanticCoverageEnvelopeRecordKind ||
+			source.CoverageStorageFormatVersion != catalog.SemanticCoverageStorageFormatVersion ||
+			source.SourceID == "" || source.SourceRecordCount != 1 ||
+			source.Project != identity.Project || source.DatasetGeneration != identity.DatasetGeneration ||
+			source.BuildID != identity.BuildID || source.SourceKind != identity.SourceKind ||
+			source.SchemaIdentity != identity.SchemaIdentity || source.ResourceType != expectation.ResourceType {
+			return ErrSemanticCoverageSourceSetIncomplete
+		}
+		expectedKey := semanticCoverageSourceEnvelopeKey(catalog.SemanticCoverageSourceIdentity{
+			Project: source.Project, DatasetGeneration: source.DatasetGeneration, AuthResourcePath: source.AuthResourcePath,
+			SchemaIdentity: source.SchemaIdentity, SourceKind: source.SourceKind, SourceID: source.SourceID, ResourceType: source.ResourceType,
+		}, identity.BuildID)
+		if source.Key != expectedKey {
+			return ErrSemanticCoverageSourceSetIncomplete
+		}
+		if err := actual.AddSource(source.SourceID, source.AuthResourcePath); err != nil {
+			return err
+		}
+		actualSourceCount++
+		return materializer.addEnvelope(source)
 	})
-	if errors.Is(err, ErrSemanticCoverageMaterializationLimit) {
-		return s.writeSemanticCoverageBuildMarker(ctx, identity, SemanticCoverageBuildUnavailable, "MATERIALIZATION_LIMIT", expectedSourceCount, sourceCount, 0)
+	if err != nil {
+		if errors.Is(err, ErrSemanticCoverageSourceSetIncomplete) {
+			failureReason = "SOURCE_ENVELOPE_IDENTITY_MISMATCH"
+			return err
+		}
+		return fmt.Errorf("enumerate semantic coverage source sentinels for %s: %w", expectation.ResourceType, err)
 	}
+	actualExpectation, err := actual.Snapshot(true)
 	if err != nil {
 		return err
 	}
-	if sourceCount != expectedSourceCount {
-		return s.writeSemanticCoverageBuildMarker(ctx, identity, SemanticCoverageBuildUnavailable, "SOURCE_SET_COUNT_MISMATCH", expectedSourceCount, sourceCount, 0)
-	}
-	if err := s.scanSemanticCoverageDocuments(ctx, identity, "path", func(path semanticCoverageStoredDocument) error {
-		return materializer.addPath(path)
-	}); errors.Is(err, ErrSemanticCoverageMaterializationLimit) {
-		return s.writeSemanticCoverageBuildMarker(ctx, identity, SemanticCoverageBuildUnavailable, "MATERIALIZATION_LIMIT", expectedSourceCount, sourceCount, 0)
-	} else if err != nil {
-		return err
-	}
-	if err := s.scanSemanticCoverageDocuments(ctx, identity, "facet", func(facet semanticCoverageStoredDocument) error {
-		return materializer.addFacet(facet)
-	}); errors.Is(err, ErrSemanticCoverageMaterializationLimit) {
-		return s.writeSemanticCoverageBuildMarker(ctx, identity, SemanticCoverageBuildUnavailable, "MATERIALIZATION_LIMIT", expectedSourceCount, sourceCount, 0)
-	} else if err != nil {
-		return err
-	}
-	if err := s.client.ExecuteAQL(ctx, deleteSemanticCoverageSummariesAQL, semanticCoverageBuildBindVars(identity)); err != nil {
-		return fmt.Errorf("replace semantic coverage summaries: clear old rows: %w", err)
+	if !sameSemanticCoverageResourceSourceSet(expectation, actualExpectation) {
+		failureReason = "SOURCE_ENVELOPE_SET_MISMATCH"
+		return ErrSemanticCoverageSourceSetIncomplete
 	}
 	stats, err := s.writeSemanticCoverageSummaries(ctx, materializer, batchSize)
 	if err != nil {
-		return fmt.Errorf("write semantic coverage summaries: %w", err)
+		return fmt.Errorf("write semantic coverage resource summaries for %s: %w", expectation.ResourceType, err)
 	}
 	partitionStats, err := s.writeSemanticCoveragePartitions(ctx, materializer, batchSize)
 	if err != nil {
-		return fmt.Errorf("write semantic coverage partition markers: %w", err)
+		return fmt.Errorf("write semantic coverage resource partitions for %s: %w", expectation.ResourceType, err)
 	}
-	return s.writeSemanticCoverageBuildMarker(ctx, identity, SemanticCoverageBuildComplete, "", expectedSourceCount, sourceCount, stats.Rows+partitionStats.Rows)
+	return s.writeSemanticCoverageResourceMarker(
+		ctx, identity, expectation.ResourceType, SemanticCoverageBuildComplete, "", expectation,
+		actualSourceCount, int64(len(materializer.partitionSources)), stats.Rows+partitionStats.Rows,
+	)
+}
+
+func (s *Store) FailSemanticCoverageResource(ctx context.Context, identity SemanticCoverageBuildIdentity, resourceType, reason string) error {
+	if err := validateSemanticCoverageBuildIdentity(identity); err != nil {
+		return err
+	}
+	if strings.TrimSpace(resourceType) == "" {
+		return ErrInvalidSemanticCoverageRead
+	}
+	return s.writeSemanticCoverageResourceMarker(ctx, identity, resourceType, SemanticCoverageBuildFailed, boundedSemanticCoverageReason(reason), SemanticCoverageResourceExpectation{ResourceType: resourceType}, 0, 0)
+}
+
+func validateSemanticCoverageResourceExpectation(expectation SemanticCoverageResourceExpectation) error {
+	if strings.TrimSpace(expectation.ResourceType) == "" || !expectation.SourceExists || !expectation.Terminal || expectation.SourceCount < 0 || len(expectation.Partitions) > semanticCoverageMaximumPartitions {
+		return ErrSemanticCoverageResourceExpectation
+	}
+	var sourceCount int64
+	seen := make(map[string]struct{}, len(expectation.Partitions))
+	for _, partition := range expectation.Partitions {
+		if partition.SourceCount <= 0 || strings.TrimSpace(partition.SourceSetDigest) == "" {
+			return ErrSemanticCoverageResourceExpectation
+		}
+		if _, exists := seen[partition.AuthResourcePath]; exists {
+			return ErrSemanticCoverageResourceExpectation
+		}
+		seen[partition.AuthResourcePath] = struct{}{}
+		sourceCount += partition.SourceCount
+	}
+	if sourceCount != expectation.SourceCount || expectation.SourceSetDigest != semanticCoverageResourceDigest(expectation.ResourceType, expectation.Partitions) {
+		return ErrSemanticCoverageResourceExpectation
+	}
+	return nil
+}
+
+func sameSemanticCoverageResourceSourceSet(expected, actual SemanticCoverageResourceExpectation) bool {
+	if !expected.SourceExists || !expected.Terminal || !actual.SourceExists || !actual.Terminal ||
+		expected.ResourceType != actual.ResourceType || expected.SourceCount != actual.SourceCount ||
+		expected.SourceSetDigest != actual.SourceSetDigest || len(expected.Partitions) != len(actual.Partitions) {
+		return false
+	}
+	for index := range expected.Partitions {
+		if expected.Partitions[index] != actual.Partitions[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Store) CompleteRetainedSemanticCoverageResource(
+	ctx context.Context,
+	identity SemanticCoverageBuildIdentity,
+	resourceType string,
+	pageSize int,
+	batchSize int,
+) (int64, error) {
+	var certificationSourceRows int64
+	if identity.SourceKind != catalog.SemanticInventorySourceRetained {
+		return certificationSourceRows, ErrInvalidSemanticCoverageRead
+	}
+	if pageSize < 1 || pageSize > 1000 {
+		return certificationSourceRows, ErrInvalidSemanticInventoryPage
+	}
+	if err := s.BeginSemanticCoverageResource(ctx, identity, resourceType); err != nil {
+		return certificationSourceRows, err
+	}
+	if identity.SchemaIdentity == "" {
+		return certificationSourceRows, s.writeSemanticCoverageResourceMarker(ctx, identity, resourceType, SemanticCoverageBuildUnavailable, "SOURCE_SCHEMA_IDENTITY_UNAVAILABLE", SemanticCoverageResourceExpectation{ResourceType: resourceType}, 0, 0)
+	}
+	exists, err := s.client.CollectionExists(ctx, resourceType)
+	if err != nil {
+		return certificationSourceRows, errors.Join(fmt.Errorf("check retained source collection %s: %w", resourceType, err), s.FailSemanticCoverageResource(context.WithoutCancel(ctx), identity, resourceType, "SOURCE_COLLECTION_READ_FAILED"))
+	}
+	if !exists {
+		return certificationSourceRows, s.writeSemanticCoverageResourceMarker(ctx, identity, resourceType, SemanticCoverageBuildMissing, "SOURCE_COLLECTION_MISSING", SemanticCoverageResourceExpectation{ResourceType: resourceType}, 0, 0)
+	}
+	revisionBefore, err := semanticCoverageCollectionRevision(ctx, s.client, resourceType)
+	if err != nil {
+		return certificationSourceRows, errors.Join(fmt.Errorf("read retained source collection %s revision: %w", resourceType, err), s.FailSemanticCoverageResource(context.WithoutCancel(ctx), identity, resourceType, "SOURCE_COLLECTION_REVISION_FAILED"))
+	}
+	accumulator := NewSemanticCoverageSourceSetAccumulator(resourceType, true)
+	afterKey := ""
+	for {
+		page, readErr := s.ReadRetainedSemanticInventoryPage(ctx, identity.Project, identity.DatasetGeneration, resourceType, afterKey, pageSize)
+		if errors.Is(readErr, ErrRetainedSemanticSourceMissing) {
+			return certificationSourceRows, s.writeSemanticCoverageResourceMarker(ctx, identity, resourceType, SemanticCoverageBuildMissing, "SOURCE_COLLECTION_MISSING", SemanticCoverageResourceExpectation{ResourceType: resourceType}, 0, 0)
+		}
+		if readErr != nil {
+			return certificationSourceRows, errors.Join(fmt.Errorf("enumerate retained source collection %s: %w", resourceType, readErr), s.FailSemanticCoverageResource(context.WithoutCancel(ctx), identity, resourceType, "SOURCE_ENUMERATION_FAILED"))
+		}
+		if !page.SourceExists {
+			return certificationSourceRows, s.writeSemanticCoverageResourceMarker(ctx, identity, resourceType, SemanticCoverageBuildMissing, "SOURCE_COLLECTION_MISSING", SemanticCoverageResourceExpectation{ResourceType: resourceType}, 0, 0)
+		}
+		for _, source := range page.Rows {
+			certificationSourceRows++
+			authPath := ""
+			if source.AuthResourcePath != nil {
+				authPath = *source.AuthResourcePath
+			}
+			if err := accumulator.AddSource("retained:"+resourceType+"/"+source.Key, authPath); err != nil {
+				return certificationSourceRows, errors.Join(err, s.FailSemanticCoverageResource(context.WithoutCancel(ctx), identity, resourceType, "SOURCE_ENUMERATION_LIMIT"))
+			}
+			if source.Key <= afterKey {
+				return certificationSourceRows, errors.Join(fmt.Errorf("retained %s source enumeration cursor did not advance", resourceType), s.FailSemanticCoverageResource(context.WithoutCancel(ctx), identity, resourceType, "SOURCE_CURSOR_DID_NOT_ADVANCE"))
+			}
+			afterKey = source.Key
+		}
+		if !page.HasMore {
+			break
+		}
+		if len(page.Rows) == 0 {
+			return certificationSourceRows, errors.Join(fmt.Errorf("retained %s source enumeration reported more rows without advancing", resourceType), s.FailSemanticCoverageResource(context.WithoutCancel(ctx), identity, resourceType, "SOURCE_CURSOR_DID_NOT_ADVANCE"))
+		}
+	}
+	revisionAfter, err := semanticCoverageCollectionRevision(ctx, s.client, resourceType)
+	if err != nil {
+		return certificationSourceRows, errors.Join(fmt.Errorf("reread retained source collection %s revision: %w", resourceType, err), s.FailSemanticCoverageResource(context.WithoutCancel(ctx), identity, resourceType, "SOURCE_COLLECTION_REVISION_FAILED"))
+	}
+	if revisionAfter != revisionBefore {
+		return certificationSourceRows, s.CompleteSemanticCoverageResource(ctx, identity, SemanticCoverageResourceExpectation{ResourceType: resourceType, SourceExists: true, Terminal: false}, batchSize)
+	}
+	expectation, err := accumulator.Snapshot(true)
+	if err != nil {
+		return certificationSourceRows, errors.Join(err, s.FailSemanticCoverageResource(context.WithoutCancel(ctx), identity, resourceType, "SOURCE_EXPECTATION_INVALID"))
+	}
+	return certificationSourceRows, s.CompleteSemanticCoverageResource(ctx, identity, expectation, batchSize)
+}
+
+func semanticCoverageCollectionRevision(ctx context.Context, client any, collection string) (string, error) {
+	reader, ok := client.(interface {
+		CollectionRevision(context.Context, string) (string, error)
+	})
+	if !ok {
+		return "", errors.New("Arango client does not expose collection revision reads")
+	}
+	return reader.CollectionRevision(ctx, collection)
 }
 
 func validateSemanticCoverageBuildIdentity(identity SemanticCoverageBuildIdentity) error {
@@ -1005,12 +1179,17 @@ func (s *Store) writeSemanticCoverageBuildMarker(
 	state SemanticCoverageBuildState,
 	reason string,
 	expectedSources, materializedSources, summaryCount int64,
+	expectedResourceTypes ...[]string,
 ) error {
 	document := semanticCoverageStoredDocument{
 		Key: semanticCoverageBuildKey(identity), RecordKind: "build", BuildState: state, BuildReason: reason,
 		Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, BuildID: identity.BuildID,
 		SourceKind: identity.SourceKind, SchemaIdentity: identity.SchemaIdentity, CoverageRuleVersion: catalog.SemanticCoverageRuleVersion,
-		ExpectedSourceCount: expectedSources, MaterializedSourceCount: materializedSources, SummaryCount: summaryCount,
+		CoverageStorageFormatVersion: catalog.SemanticCoverageStorageFormatVersion,
+		ExpectedSourceCount:          expectedSources, MaterializedSourceCount: materializedSources, SummaryCount: summaryCount,
+	}
+	if len(expectedResourceTypes) > 0 {
+		document.ExpectedResourceTypes = append([]string(nil), expectedResourceTypes[0]...)
 	}
 	encoded, err := json.Marshal(document)
 	if err != nil {
@@ -1025,8 +1204,61 @@ func (s *Store) writeSemanticCoverageBuildMarker(
 	return nil
 }
 
+func (s *Store) writeSemanticCoverageResourceMarker(
+	ctx context.Context,
+	identity SemanticCoverageBuildIdentity,
+	resourceType string,
+	state SemanticCoverageBuildState,
+	reason string,
+	expectation SemanticCoverageResourceExpectation,
+	materializedSources int64,
+	materializedPartitions int64,
+	summaryCounts ...int64,
+) error {
+	document := semanticCoverageStoredDocument{
+		Key: semanticCoverageResourceKey(identity, resourceType), RecordKind: "resource",
+		ResourceState: state,
+		Project:       identity.Project, DatasetGeneration: identity.DatasetGeneration,
+		BuildID: identity.BuildID, SourceKind: identity.SourceKind, SchemaIdentity: identity.SchemaIdentity,
+		ResourceType: resourceType, CoverageRuleVersion: catalog.SemanticCoverageRuleVersion,
+		CoverageStorageFormatVersion: catalog.SemanticCoverageStorageFormatVersion,
+		SourceSetDigest:              expectation.SourceSetDigest, SourceEnumerationComplete: expectation.Terminal,
+	}
+	if strings.TrimSpace(reason) != "" {
+		document.BuildReason = boundedSemanticCoverageReason(reason)
+	}
+	if expectation.SourceExists {
+		document.ExpectedSourceCount = expectation.SourceCount
+		document.SourcePartitionCount = int64(len(expectation.Partitions))
+	}
+	document.MaterializedSourceCount = materializedSources
+	document.MaterializedPartitionCount = materializedPartitions
+	if len(summaryCounts) > 0 {
+		document.SummaryCount = summaryCounts[0]
+	}
+	encoded, err := json.Marshal(document)
+	if err != nil {
+		return fmt.Errorf("encode semantic coverage resource marker: %w", err)
+	}
+	if err := validateSemanticCoverageDocument(encoded); err != nil {
+		return fmt.Errorf("validate semantic coverage resource marker: %w", err)
+	}
+	if err := s.client.InsertBatchRaw(ctx, SemanticCoverageCollection, []json.RawMessage{encoded}, true, ""); err != nil {
+		return fmt.Errorf("write semantic coverage resource %s marker: %w", state, err)
+	}
+	return nil
+}
+
 func semanticCoverageBuildKey(identity SemanticCoverageBuildIdentity) string {
 	return semanticCoverageDocumentKey("semantic-coverage/v1", identity.Project, identity.DatasetGeneration, identity.BuildID, identity.SourceKind, identity.SchemaIdentity, "build")
+}
+
+func semanticCoverageResourceKey(identity SemanticCoverageBuildIdentity, resourceType string) string {
+	return semanticCoverageDocumentKey("semantic-coverage/v1", identity.Project, identity.DatasetGeneration, identity.BuildID, identity.SourceKind, identity.SchemaIdentity, "resource", resourceType)
+}
+
+func semanticCoveragePartitionDocumentKey(identity SemanticCoverageBuildIdentity, resourceType, authResourcePath string) string {
+	return semanticCoverageDocumentKey("semantic-coverage/v1", identity.Project, identity.DatasetGeneration, identity.BuildID, identity.SourceKind, identity.SchemaIdentity, "partition", authResourcePath, resourceType)
 }
 
 func boundedSemanticCoverageReason(reason string) string {
@@ -1066,6 +1298,54 @@ func (s *Store) scanSemanticCoverageDocuments(ctx context.Context, identity Sema
 	}
 }
 
+func (s *Store) scanSemanticCoverageResourceDocuments(
+	ctx context.Context,
+	identity SemanticCoverageBuildIdentity,
+	resourceType string,
+	recordKind string,
+	visit func(semanticCoverageStoredDocument) error,
+) error {
+	afterKey := ""
+	pageSize := semanticCoverageMaximumPageSize
+	if recordKind == semanticCoverageEnvelopeRecordKind {
+		pageSize = semanticCoverageMaximumEnvelopeReadRows
+	}
+	for {
+		page := SemanticCoveragePage{Rows: make([]map[string]any, 0, pageSize)}
+		err := s.client.QueryRows(ctx, semanticCoverageResourcePageAQL, pageSize, map[string]interface{}{
+			"project": identity.Project, "dataset_generation": identity.DatasetGeneration,
+			"build_id": identity.BuildID, "source_kind": identity.SourceKind,
+			"schema_identity": identity.SchemaIdentity, "resource_type": resourceType,
+			"record_kind": recordKind, "after_key": afterKey, "limit": pageSize,
+		}, func(row map[string]any) error {
+			page.Rows = append(page.Rows, row)
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("read semantic coverage %s page for %s: %w", recordKind, resourceType, err)
+		}
+		for _, row := range page.Rows {
+			var document semanticCoverageStoredDocument
+			if err := decodeSemanticCoverageRow(row, &document); err != nil {
+				return fmt.Errorf("decode semantic coverage %s row for %s: %w", recordKind, resourceType, err)
+			}
+			if document.Key == "" || document.ResourceType != resourceType {
+				return fmt.Errorf("semantic coverage %s row for %s has an invalid identity", recordKind, resourceType)
+			}
+			if err := visit(document); err != nil {
+				return err
+			}
+			if document.Key <= afterKey {
+				return fmt.Errorf("semantic coverage %s cursor did not advance for %s", recordKind, resourceType)
+			}
+			afterKey = document.Key
+		}
+		if len(page.Rows) < pageSize {
+			return nil
+		}
+	}
+}
+
 type semanticCoverageSummaryKey struct {
 	authResourcePath  string
 	resourceType      string
@@ -1087,6 +1367,7 @@ type semanticCoverageSummaryAggregate struct {
 type semanticCoverageMaterializer struct {
 	identity          SemanticCoverageBuildIdentity
 	partitionSources  map[string]int64
+	partitionDigests  map[string]*semanticCoverageSourceSetDigest
 	partitionIdentity map[string]semanticCoveragePartitionIdentity
 	partitionComplete map[string]bool
 	partitionReason   map[string]catalog.SemanticCoverageReason
@@ -1100,8 +1381,156 @@ type semanticCoveragePartitionIdentity struct {
 
 func newSemanticCoverageMaterializer(identity SemanticCoverageBuildIdentity) *semanticCoverageMaterializer {
 	return &semanticCoverageMaterializer{
-		identity: identity, partitionSources: make(map[string]int64), partitionIdentity: make(map[string]semanticCoveragePartitionIdentity), partitionComplete: make(map[string]bool),
+		identity: identity, partitionSources: make(map[string]int64), partitionDigests: make(map[string]*semanticCoverageSourceSetDigest), partitionIdentity: make(map[string]semanticCoveragePartitionIdentity), partitionComplete: make(map[string]bool),
 		partitionReason: make(map[string]catalog.SemanticCoverageReason), aggregates: make(map[semanticCoverageSummaryKey]*semanticCoverageSummaryAggregate),
+	}
+}
+
+// addEnvelope folds all rows for a path and all facets for an exact leaf path
+// within one source before updating build summaries. This keeps source counts
+// from multiplying when one source contributes several occurrence kinds.
+func (m *semanticCoverageMaterializer) addEnvelope(source semanticCoverageStoredDocument) error {
+	if err := m.addSource(source); err != nil {
+		return err
+	}
+	owners := make(map[semanticCoverageSummaryKey]semanticCoverageStoredDocument)
+	ownerGroupable := make(map[semanticCoverageSummaryKey]bool)
+	facets := make(map[semanticCoverageSummaryKey]semanticCoverageStoredDocument)
+	facetGroupable := make(map[semanticCoverageSummaryKey]bool)
+
+	for _, envelopePath := range source.Paths {
+		if envelopePath.Path == nil || strings.TrimSpace(envelopePath.CanonicalPath) == "" {
+			return ErrSemanticCoverageSourceSetIncomplete
+		}
+		path := cloneSemanticCoverageStoredPath(envelopePath.Path)
+		path.OwnerPathWitnesses = nil
+		ownerKey := semanticCoverageSummaryKey{
+			authResourcePath: source.AuthResourcePath, resourceType: source.ResourceType,
+			canonicalPath:     envelopePath.CanonicalPath,
+			boundarySignature: path.ResourceBoundarySignature,
+			summaryKind:       "owner",
+		}
+		owner, found := owners[ownerKey]
+		if !found {
+			owner = source
+			owner.RecordKind = "path"
+			owner.CanonicalPath = envelopePath.CanonicalPath
+			owner.ResourceBoundarySignature = path.ResourceBoundarySignature
+			owner.Path = path
+			owner.Paths = nil
+			owner.Groupable = envelopePath.Groupable
+			ownerGroupable[ownerKey] = envelopePath.Groupable
+		} else {
+			mergeSemanticCoverageStoredPath(owner.Path, path)
+			mergeSemanticCoverageStoredReferences(&owner.Path.References, path.References, &owner.Path.ReferencesTruncated)
+			ownerGroupable[ownerKey] = ownerGroupable[ownerKey] && envelopePath.Groupable
+			if path.Disposition != string(catalog.SemanticCoverageSemanticDisposition) {
+				owner.Path.Disposition = path.Disposition
+				owner.Path.Reason = path.Reason
+			}
+		}
+		owners[ownerKey] = owner
+
+		for _, facet := range path.Facets {
+			if strings.TrimSpace(facet.Path) == "" || strings.TrimSpace(facet.Kind) == "" || facet.OccurrenceCount < 0 {
+				return ErrSemanticCoverageSourceSetIncomplete
+			}
+			facetPath := &semanticCoverageStoredPath{
+				ResourceBoundarySignature: facet.ResourceBoundarySignature,
+				Kind:                      facet.Kind, Disposition: facet.Disposition, Reason: facet.Reason,
+				OccurrenceCount:     facet.OccurrenceCount,
+				PresenceCounts:      facet.PresenceCounts,
+				References:          facet.References,
+				ReferencesTruncated: facet.ReferencesTruncated,
+			}
+			facetKey := semanticCoverageSummaryKey{
+				authResourcePath: source.AuthResourcePath, resourceType: source.ResourceType,
+				canonicalPath: facet.Path, boundarySignature: facet.ResourceBoundarySignature,
+				summaryKind: "facet",
+			}
+			facetDocument, found := facets[facetKey]
+			currentGroupable := envelopePath.Groupable && facet.ResourceBoundarySignature == "" &&
+				facet.Disposition == string(catalog.SemanticCoverageSemanticDisposition) &&
+				!facet.ReferencesTruncated && len(facet.References) > 0
+			if !found {
+				facetDocument = source
+				facetDocument.RecordKind = "facet"
+				facetDocument.CanonicalPath = facet.Path
+				facetDocument.ResourceBoundarySignature = facet.ResourceBoundarySignature
+				facetDocument.Path = facetPath
+				facetDocument.Paths = nil
+				facetDocument.Groupable = currentGroupable
+				facetGroupable[facetKey] = currentGroupable
+			} else {
+				mergeSemanticCoverageStoredPath(facetDocument.Path, facetPath)
+				mergeSemanticCoverageStoredReferences(&facetDocument.Path.References, facetPath.References, &facetDocument.Path.ReferencesTruncated)
+				facetGroupable[facetKey] = facetGroupable[facetKey] && currentGroupable
+				if facetPath.Disposition != string(catalog.SemanticCoverageSemanticDisposition) {
+					facetDocument.Path.Disposition = facetPath.Disposition
+					facetDocument.Path.Reason = facetPath.Reason
+				}
+			}
+			facets[facetKey] = facetDocument
+		}
+	}
+
+	for _, key := range sortedSemanticCoverageSourceAggregateKeys(owners) {
+		document := owners[key]
+		document.Groupable = ownerGroupable[key]
+		if err := m.addPath(document); err != nil {
+			return err
+		}
+	}
+	for _, key := range sortedSemanticCoverageSourceAggregateKeys(facets) {
+		document := facets[key]
+		document.Groupable = facetGroupable[key]
+		if err := m.addFacet(document); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func sortedSemanticCoverageSourceAggregateKeys(documents map[semanticCoverageSummaryKey]semanticCoverageStoredDocument) []semanticCoverageSummaryKey {
+	keys := make([]semanticCoverageSummaryKey, 0, len(documents))
+	for key := range documents {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].canonicalPath != keys[j].canonicalPath {
+			return keys[i].canonicalPath < keys[j].canonicalPath
+		}
+		if keys[i].boundarySignature != keys[j].boundarySignature {
+			return keys[i].boundarySignature < keys[j].boundarySignature
+		}
+		return keys[i].summaryKind < keys[j].summaryKind
+	})
+	return keys
+}
+
+func mergeSemanticCoverageStoredReferences(target *[]semanticCoverageStoredReference, source []semanticCoverageStoredReference, truncated *bool) {
+	seen := make(map[string]struct{}, len(*target)+len(source))
+	for _, reference := range *target {
+		converted, ok := semanticCoverageCatalogReference(reference)
+		if ok {
+			seen[semanticCoverageReferenceKey(converted)] = struct{}{}
+		}
+	}
+	for _, reference := range source {
+		converted, ok := semanticCoverageCatalogReference(reference)
+		if !ok {
+			continue
+		}
+		key := semanticCoverageReferenceKey(converted)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		if len(*target) >= semanticCoverageMaximumReferencesPerSummary {
+			*truncated = true
+			continue
+		}
+		seen[key] = struct{}{}
+		*target = append(*target, reference)
 	}
 }
 
@@ -1112,6 +1541,14 @@ func (m *semanticCoverageMaterializer) addSource(source semanticCoverageStoredDo
 	}
 	m.partitionSources[partition]++
 	m.partitionIdentity[partition] = semanticCoveragePartitionIdentity{authResourcePath: source.AuthResourcePath, resourceType: source.ResourceType}
+	digest := m.partitionDigests[partition]
+	if digest == nil {
+		digest = &semanticCoverageSourceSetDigest{}
+		m.partitionDigests[partition] = digest
+	}
+	identityDigest := sha256.Sum256([]byte(semanticCoverageDocumentKey("resource-source-identity/v1", source.ResourceType, source.SourceID, source.AuthResourcePath)))
+	addSemanticCoverageDigest(&digest.sum, identityDigest)
+	digest.count++
 	if _, exists := m.partitionComplete[partition]; !exists {
 		m.partitionComplete[partition] = true
 	}
@@ -1150,9 +1587,9 @@ func (m *semanticCoverageMaterializer) addPath(sourcePath semanticCoverageStored
 	}
 	path := sourcePath.Path
 	aggregate.pathSources++
-	aggregate.document.CountsTruncated = aggregate.document.CountsTruncated || path.CountsTruncated
-	aggregate.document.FacetsTruncated = aggregate.document.FacetsTruncated || path.FacetsTruncated
-	aggregate.document.ReferencesTruncated = aggregate.document.ReferencesTruncated || path.ReferencesTruncated
+	aggregate.document.CountsTruncated = aggregate.document.CountsTruncated || sourcePath.CountsTruncated || path.CountsTruncated
+	aggregate.document.FacetsTruncated = aggregate.document.FacetsTruncated || sourcePath.FacetsTruncated || path.FacetsTruncated
+	aggregate.document.ReferencesTruncated = aggregate.document.ReferencesTruncated || sourcePath.ReferencesTruncated || path.ReferencesTruncated
 	if aggregate.document.Path == nil {
 		aggregate.document.Path = cloneSemanticCoverageStoredPath(path)
 		aggregate.document.Path.OwnerPathWitnesses = nil
@@ -1161,17 +1598,6 @@ func (m *semanticCoverageMaterializer) addPath(sourcePath semanticCoverageStored
 	}
 	if !sourcePath.Groupable || sourcePath.ResourceBoundarySignature != "" || path.Disposition != string(catalog.SemanticCoverageSemanticDisposition) || path.CountsTruncated || path.FacetsTruncated || path.ReferencesTruncated {
 		aggregate.allGroupable = false
-	}
-	for _, facet := range path.Facets {
-		if facet.Disposition != string(catalog.SemanticCoverageSemanticDisposition) || facet.ReferencesTruncated || len(facet.References) == 0 {
-			aggregate.allGroupable = false
-			if facet.Disposition != string(catalog.SemanticCoverageSemanticDisposition) {
-				aggregate.anyKeepRaw = true
-				if aggregate.reason == "" && facet.Reason != "" {
-					aggregate.reason = catalog.SemanticCoverageReason(facet.Reason)
-				}
-			}
-		}
 	}
 	if sourcePath.ResourceBoundarySignature != "" {
 		aggregate.anyKeepRaw = true
@@ -1410,8 +1836,9 @@ func (s *Store) writeSemanticCoveragePartitions(ctx context.Context, materialize
 			RecordKind: "partition", Project: materializer.identity.Project,
 			DatasetGeneration: materializer.identity.DatasetGeneration, BuildID: materializer.identity.BuildID,
 			SourceKind: materializer.identity.SourceKind, SchemaIdentity: materializer.identity.SchemaIdentity,
-			AuthResourcePath: partition.authResourcePath, ResourceType: partition.resourceType,
-			SourceRecordCount: materializer.partitionSources[partitionKey], Complete: complete, Groupable: complete,
+			CoverageStorageFormatVersion: catalog.SemanticCoverageStorageFormatVersion,
+			AuthResourcePath:             partition.authResourcePath, ResourceType: partition.resourceType,
+			SourceRecordCount: materializer.partitionSources[partitionKey], SourceSetDigest: semanticCoveragePartitionDigest(partition.resourceType, partition.authResourcePath, materializer.partitionDigests[partitionKey]), Complete: complete, Groupable: complete,
 		}
 		if complete {
 			document.Status = SemanticCoverageCandidateGroupable
@@ -1422,7 +1849,7 @@ func (s *Store) writeSemanticCoveragePartitions(ctx context.Context, materialize
 				document.Reason = string(catalog.SemanticCoverageReasonIncompleteSource)
 			}
 		}
-		document.Key = semanticCoverageDocumentKey("semantic-coverage/v1", materializer.identity.Project, materializer.identity.DatasetGeneration, materializer.identity.BuildID, materializer.identity.SourceKind, materializer.identity.SchemaIdentity, "partition", partition.authResourcePath, partition.resourceType)
+		document.Key = semanticCoveragePartitionDocumentKey(materializer.identity, partition.resourceType, partition.authResourcePath)
 		encoded, err := json.Marshal(document)
 		if err != nil {
 			return stats, fmt.Errorf("encode semantic coverage partition: %w", err)
@@ -1613,7 +2040,7 @@ func (s *Store) readSemanticCoveragePage(
 ) (SemanticCoveragePage, error) {
 	if strings.TrimSpace(project) == "" || strings.TrimSpace(datasetGeneration) == "" ||
 		strings.TrimSpace(buildID) == "" || strings.TrimSpace(sourceKind) == "" || strings.TrimSpace(schemaIdentity) == "" ||
-		(recordKind != "source" && recordKind != "path" && recordKind != "facet" && recordKind != "summary") ||
+		(recordKind != semanticCoverageEnvelopeRecordKind && recordKind != "summary" && recordKind != "resource" && recordKind != "partition" && recordKind != "build") ||
 		limit < 1 || limit > semanticCoverageMaximumPageSize ||
 		(!authResourcePathsUnrestricted && len(authResourcePaths) == 0) {
 		return SemanticCoveragePage{}, ErrInvalidSemanticCoverageRead
@@ -1665,26 +2092,11 @@ FOR d IN fhir_semantic_coverage
   FILTER d.record_kind == @record_kind
   FILTER @auth_resource_paths_unrestricted == true OR d.auth_resource_path IN @auth_resource_paths
   FILTER @after_key == "" OR d._key > @after_key
-  FILTER @record_kind NOT IN ["path", "facet"] OR LENGTH(
-    FOR source IN fhir_semantic_coverage
-      FILTER source.record_kind == "source"
-      FILTER source.project == d.project
-      FILTER source.dataset_generation == d.dataset_generation
-      FILTER source.build_id == d.build_id
-      FILTER source.source_kind == d.source_kind
-      FILTER source.schema_identity == d.schema_identity
-      FILTER source.auth_resource_path == d.auth_resource_path
-      FILTER source.resource_type == d.resource_type
-      FILTER source.source_id == d.source_id
-      FILTER source.complete == true
-      LIMIT 1
-      RETURN 1
-  ) > 0
   SORT d._key
   LIMIT @limit
   RETURN d`
 
-const deleteSemanticCoverageSourceSetAQL = `
+const semanticCoverageResourcePageAQL = `
 FOR d IN fhir_semantic_coverage
   FILTER d.project == @project
   FILTER d.dataset_generation == @dataset_generation
@@ -1692,55 +2104,139 @@ FOR d IN fhir_semantic_coverage
   FILTER d.source_kind == @source_kind
   FILTER d.schema_identity == @schema_identity
   FILTER d.resource_type == @resource_type
-  FILTER d.source_id == @source_id
-  FILTER d.record_kind IN ["source", "path", "facet"]
-  REMOVE d IN fhir_semantic_coverage`
-
-const semanticCoverageSourceScopesAQL = `
-FOR d IN fhir_semantic_coverage
-  FILTER d.project == @project
-  FILTER d.dataset_generation == @dataset_generation
-  FILTER d.build_id == @build_id
-  FILTER d.source_kind == @source_kind
-  FILTER d.schema_identity == @schema_identity
-  FILTER d.resource_type IN @resource_types
-  FILTER d.source_id IN @source_ids
-  FILTER d.record_kind IN ["source", "path", "facet"]
-  COLLECT source_id = d.source_id, resource_type = d.resource_type, auth_resource_path = NOT_NULL(d.auth_resource_path, "")
-  SORT source_id, resource_type, auth_resource_path
+  FILTER d.record_kind == @record_kind
+  FILTER @after_key == "" OR d._key > @after_key
+  SORT d._key
   LIMIT @limit
-  RETURN {source_id: source_id, resource_type: resource_type, auth_resource_path: auth_resource_path}`
+  RETURN d`
 
-const deleteSemanticCoverageSourceSetBatchAQL = `
+const deleteSemanticCoverageResourceSummariesAQL = `
 FOR d IN fhir_semantic_coverage
   FILTER d.project == @project
   FILTER d.dataset_generation == @dataset_generation
   FILTER d.build_id == @build_id
   FILTER d.source_kind == @source_kind
   FILTER d.schema_identity == @schema_identity
-  FILTER d.record_kind IN ["source", "path", "facet"]
-  FILTER LENGTH(
-    FOR source IN @source_scopes
-      FILTER source.source_id == d.source_id
-      FILTER source.resource_type == d.resource_type
-      FILTER source.auth_resource_path == NOT_NULL(d.auth_resource_path, "")
-      LIMIT 1
-      RETURN 1
-  ) > 0
-  REMOVE d IN fhir_semantic_coverage`
-
-const deleteSemanticCoverageSummariesAQL = `
-FOR d IN fhir_semantic_coverage
-  FILTER d.project == @project
-  FILTER d.dataset_generation == @dataset_generation
-  FILTER d.build_id == @build_id
-  FILTER d.source_kind == @source_kind
-  FILTER d.schema_identity == @schema_identity
+  FILTER d.resource_type == @resource_type
   FILTER d.record_kind IN ["summary", "partition"]
   REMOVE d IN fhir_semantic_coverage`
 
-// LookupSemanticCoverage returns exact-build summaries for a bounded set of
-// candidate paths under the caller's already-authorized auth path set.
+const semanticCoverageLookupSnapshotAQL = `
+LET build_docs = (
+  FOR d IN fhir_semantic_coverage
+    FILTER d.project == @project
+    FILTER d.dataset_generation == @dataset_generation
+    FILTER d.build_id == @build_id
+    FILTER d.source_kind == @source_kind
+    FILTER d.schema_identity == @schema_identity
+    FILTER d.record_kind == "build"
+    LIMIT 1
+    RETURN d
+)
+LET resource_docs = (
+  FOR resource_type IN @resource_types
+    FOR d IN fhir_semantic_coverage
+      FILTER d.project == @project
+      FILTER d.dataset_generation == @dataset_generation
+      FILTER d.build_id == @build_id
+      FILTER d.source_kind == @source_kind
+      FILTER d.schema_identity == @schema_identity
+      FILTER d.record_kind == "resource"
+      FILTER d.resource_type == resource_type
+  SORT d.resource_type
+  LIMIT @resource_limit
+  RETURN d
+)
+LET partition_docs = (
+  FOR resource_type IN @resource_types
+    FOR d IN fhir_semantic_coverage
+      FILTER d.project == @project
+      FILTER d.dataset_generation == @dataset_generation
+      FILTER d.build_id == @build_id
+      FILTER d.source_kind == @source_kind
+      FILTER d.schema_identity == @schema_identity
+      FILTER d.record_kind == "partition"
+      FILTER d.resource_type == resource_type
+      FILTER @auth_resource_paths_unrestricted == true OR d.auth_resource_path IN @auth_resource_paths
+  SORT d.resource_type, d.auth_resource_path
+  LIMIT @partition_limit
+  RETURN d
+)
+LET auth_scope_checks = @auth_resource_paths_unrestricted == true
+  ? (
+      FOR partition IN partition_docs
+        RETURN {resource_type: partition.resource_type, auth_resource_path: partition.auth_resource_path}
+    )
+  : (
+      FOR resource_type IN @resource_types
+        FOR auth_resource_path IN @auth_resource_paths
+          RETURN {resource_type: resource_type, auth_resource_path: auth_resource_path}
+    )
+LET source_proof = (
+  FOR check IN auth_scope_checks
+    LET source_exists = LENGTH(
+      FOR source IN fhir_semantic_coverage
+        FILTER source.project == @project
+        FILTER source.dataset_generation == @dataset_generation
+        FILTER source.build_id == @build_id
+        FILTER source.source_kind == @source_kind
+        FILTER source.schema_identity == @schema_identity
+        FILTER source.record_kind == "source_envelope_v1"
+        FILTER source.resource_type == check.resource_type
+        FILTER source.auth_resource_path == check.auth_resource_path
+        LIMIT 1
+        RETURN 1
+    ) > 0
+  SORT check.resource_type, check.auth_resource_path
+  LIMIT @source_proof_limit
+  RETURN {
+    resource_type: check.resource_type,
+    auth_resource_path: check.auth_resource_path,
+    source_exists: source_exists
+  }
+)
+LET facet_docs = (
+  FOR candidate IN @candidates
+    FOR d IN fhir_semantic_coverage
+      FILTER d.project == @project
+      FILTER d.dataset_generation == @dataset_generation
+      FILTER d.build_id == @build_id
+      FILTER d.source_kind == @source_kind
+      FILTER d.schema_identity == @schema_identity
+      FILTER d.record_kind == "summary"
+      FILTER d.summary_kind == "facet"
+      FILTER d.resource_type == candidate.resource_type
+      FILTER d.canonical_path == candidate.canonical_path
+      FILTER @auth_resource_paths_unrestricted == true OR d.auth_resource_path IN @auth_resource_paths
+  SORT d.resource_type, d.canonical_path, d.resource_boundary_signature, d.auth_resource_path
+  LIMIT @facet_limit
+  RETURN d
+)
+RETURN {
+  build: FIRST(build_docs),
+  resources: resource_docs,
+  partitions: partition_docs,
+  source_proof: source_proof,
+  facets: facet_docs
+}`
+
+type semanticCoverageLookupSnapshot struct {
+	Build       *semanticCoverageStoredDocument  `json:"build"`
+	Resources   []semanticCoverageStoredDocument `json:"resources"`
+	Partitions  []semanticCoverageStoredDocument `json:"partitions"`
+	SourceProof []semanticCoverageSourcePresence `json:"source_proof"`
+	Facets      []semanticCoverageStoredDocument `json:"facets"`
+}
+
+type semanticCoverageSourcePresence struct {
+	ResourceType     string `json:"resource_type"`
+	AuthResourcePath string `json:"auth_resource_path"`
+	SourceExists     bool   `json:"source_exists"`
+}
+
+// LookupSemanticCoverage reads build, resource, partition, source-presence and
+// exact facet proof in one bounded AQL snapshot. The caller's auth scope is
+// already resolved; no cross-build or cross-scope fallback is performed.
 func (s *Store) LookupSemanticCoverage(ctx context.Context, options SemanticCoverageLookupOptions) (SemanticCoverageLookupResult, error) {
 	result := SemanticCoverageLookupResult{State: SemanticCoverageBuildUnavailable, Candidates: unavailableSemanticCoverageCandidates(options.Candidates, catalog.SemanticCoverageReasonIncompleteSource)}
 	if err := validateSemanticCoverageLookupOptions(options); err != nil {
@@ -1758,141 +2254,227 @@ func (s *Store) LookupSemanticCoverage(ctx context.Context, options SemanticCove
 		result.Reason = "BUILD_ID_MISMATCH"
 		return result, nil
 	}
-	var marker semanticCoverageStoredDocument
+
+	resourceTypes := make([]string, 0, len(options.Candidates))
+	candidateBinds := make([]map[string]string, 0, len(options.Candidates))
+	for _, candidate := range options.Candidates {
+		resourceTypes = append(resourceTypes, candidate.ResourceType)
+		candidateBinds = append(candidateBinds, map[string]string{"resource_type": candidate.ResourceType, "canonical_path": candidate.CanonicalPath})
+	}
+	sort.Strings(resourceTypes)
+	resourceTypes = compactAuthPaths(resourceTypes)
+	authPaths := append([]string(nil), options.AuthResourcePaths...)
+	sort.Strings(authPaths)
+	authPaths = compactAuthPaths(authPaths)
+	sourceProofLimit := semanticCoverageMaximumPartitions + 1
+	if !options.AuthResourcePathsUnrestricted {
+		sourceProofLimit = semanticCoverageLookupMaximumCandidates*semanticCoverageLookupMaximumAuthPaths + 1
+	}
+	snapshotBinds := map[string]interface{}{
+		"project": identity.Project, "dataset_generation": identity.DatasetGeneration,
+		"build_id": identity.BuildID, "source_kind": identity.SourceKind, "schema_identity": identity.SchemaIdentity,
+		"resource_types": resourceTypes, "candidates": candidateBinds, "auth_resource_paths": authPaths,
+		"auth_resource_paths_unrestricted": options.AuthResourcePathsUnrestricted,
+		"resource_limit":                   len(resourceTypes) + 1,
+		"partition_limit":                  semanticCoverageLookupMaximumPartitions + 1,
+		"facet_limit":                      semanticCoverageLookupMaximumRows + 1,
+		"source_proof_limit":               sourceProofLimit,
+	}
+	var snapshot semanticCoverageLookupSnapshot
 	found := false
-	err := s.client.QueryRows(ctx, semanticCoverageBuildMarkerAQL, 1, semanticCoverageBuildBindVars(identity), func(row map[string]any) error {
-		if err := decodeSemanticCoverageRow(row, &marker); err != nil {
+	rows := 0
+	err := s.client.QueryRows(ctx, semanticCoverageLookupSnapshotAQL, 1, snapshotBinds, func(row map[string]any) error {
+		rows++
+		if rows > 1 {
+			return ErrSemanticCoverageLookupTooLarge
+		}
+		if err := decodeSemanticCoverageRow(row, &snapshot); err != nil {
 			return err
 		}
 		found = true
 		return nil
 	})
 	if err != nil {
-		return SemanticCoverageLookupResult{}, fmt.Errorf("read semantic coverage build marker: %w", err)
+		return SemanticCoverageLookupResult{}, fmt.Errorf("read semantic coverage lookup snapshot: %w", err)
 	}
-	if !found {
+	if !found || snapshot.Build == nil {
 		result.Reason = "COVERAGE_BUILD_MISSING"
+		return result, nil
+	}
+	marker := *snapshot.Build
+	if marker.RecordKind != "build" || marker.Key != semanticCoverageBuildKey(identity) || marker.Project != identity.Project ||
+		marker.DatasetGeneration != identity.DatasetGeneration || marker.BuildID != identity.BuildID || marker.SourceKind != identity.SourceKind || marker.SchemaIdentity != identity.SchemaIdentity {
+		result.Reason = "COVERAGE_BUILD_IDENTITY_MISMATCH"
 		return result, nil
 	}
 	result.State = marker.BuildState
 	result.Reason = marker.BuildReason
-	if marker.CoverageRuleVersion != catalog.SemanticCoverageRuleVersion {
+	if marker.CoverageRuleVersion != catalog.SemanticCoverageRuleVersion || marker.CoverageStorageFormatVersion != catalog.SemanticCoverageStorageFormatVersion {
 		result.State = SemanticCoverageBuildUnavailable
-		result.Reason = "COVERAGE_RULE_VERSION_MISMATCH"
+		result.Reason = "COVERAGE_FORMAT_VERSION_MISMATCH"
 		return result, nil
 	}
-	if result.State != SemanticCoverageBuildComplete {
+	if result.State != SemanticCoverageBuildComplete && result.State != SemanticCoverageBuildPartial {
 		return result, nil
 	}
-
-	paths := append([]string(nil), options.AuthResourcePaths...)
-	sort.Strings(paths)
-	paths = compactAuthPaths(paths)
-	resourceTypes := make([]string, 0, len(options.Candidates))
-	for _, candidate := range options.Candidates {
-		resourceTypes = append(resourceTypes, candidate.ResourceType)
-	}
-	sort.Strings(resourceTypes)
-	resourceTypes = compactAuthPaths(resourceTypes)
-	partitionsByResource := make(map[string][]semanticCoverageStoredDocument, len(resourceTypes))
-	partitionRows := 0
-	partitionErr := s.client.QueryRows(ctx, semanticCoveragePartitionLookupAQL, semanticCoverageLookupMaximumPartitions+1, map[string]interface{}{
-		"project": identity.Project, "dataset_generation": identity.DatasetGeneration,
-		"build_id": identity.BuildID, "source_kind": identity.SourceKind,
-		"schema_identity": identity.SchemaIdentity, "auth_resource_paths": paths,
-		"auth_resource_paths_unrestricted": options.AuthResourcePathsUnrestricted,
-		"resource_types":                   resourceTypes, "limit": semanticCoverageLookupMaximumPartitions + 1,
-	}, func(row map[string]any) error {
-		partitionRows++
-		if partitionRows > semanticCoverageLookupMaximumPartitions {
-			return nil
-		}
-		var document semanticCoverageStoredDocument
-		if err := decodeSemanticCoverageRow(row, &document); err != nil {
-			return err
-		}
-		partitionsByResource[document.ResourceType] = append(partitionsByResource[document.ResourceType], document)
-		return nil
-	})
-	if partitionErr != nil {
-		return SemanticCoverageLookupResult{}, fmt.Errorf("lookup semantic coverage source partitions: %w", partitionErr)
-	}
-	if partitionRows > semanticCoverageLookupMaximumPartitions {
-		result.Reason = "PARTITION_ROW_LIMIT"
-		result.Candidates = unavailableSemanticCoverageCandidates(options.Candidates, catalog.SemanticCoverageReasonIncompleteSource)
-		return result, nil
-	}
-	candidateBinds := make([]map[string]string, 0, len(options.Candidates))
-	for _, candidate := range options.Candidates {
-		candidateBinds = append(candidateBinds, map[string]string{"resource_type": candidate.ResourceType, "canonical_path": candidate.CanonicalPath})
-	}
-	rowsByCandidate := make(map[SemanticCoverageCandidatePath][]semanticCoverageStoredDocument, len(options.Candidates))
-	rowCount := 0
-	queryErr := s.client.QueryRows(ctx, semanticCoverageCandidateLookupAQL, semanticCoverageLookupMaximumRows+1, map[string]interface{}{
-		"project":                          identity.Project,
-		"dataset_generation":               identity.DatasetGeneration,
-		"build_id":                         identity.BuildID,
-		"source_kind":                      identity.SourceKind,
-		"schema_identity":                  identity.SchemaIdentity,
-		"auth_resource_paths":              paths,
-		"auth_resource_paths_unrestricted": options.AuthResourcePathsUnrestricted,
-		"candidates":                       candidateBinds,
-		"limit":                            semanticCoverageLookupMaximumRows + 1,
-	}, func(row map[string]any) error {
-		rowCount++
-		if rowCount > semanticCoverageLookupMaximumRows {
-			return nil
-		}
-		var document semanticCoverageStoredDocument
-		if err := decodeSemanticCoverageRow(row, &document); err != nil {
-			return err
-		}
-		key := SemanticCoverageCandidatePath{ResourceType: document.ResourceType, CanonicalPath: document.CanonicalPath}
-		rowsByCandidate[key] = append(rowsByCandidate[key], document)
-		return nil
-	})
-	if queryErr != nil {
-		return SemanticCoverageLookupResult{}, fmt.Errorf("lookup semantic coverage candidates: %w", queryErr)
-	}
-	if rowCount > semanticCoverageLookupMaximumRows {
+	if len(snapshot.Resources) > len(resourceTypes) || len(snapshot.Partitions) > semanticCoverageLookupMaximumPartitions || len(snapshot.Facets) > semanticCoverageLookupMaximumRows ||
+		len(snapshot.SourceProof) > semanticCoverageMaximumPartitions {
 		result.Reason = "LOOKUP_ROW_LIMIT"
 		return result, nil
 	}
+
+	resourceMarkers := make(map[string]semanticCoverageStoredDocument, len(snapshot.Resources))
+	for _, resource := range snapshot.Resources {
+		if resource.RecordKind != "resource" || resource.Key != semanticCoverageResourceKey(identity, resource.ResourceType) ||
+			resource.Project != identity.Project || resource.DatasetGeneration != identity.DatasetGeneration || resource.BuildID != identity.BuildID ||
+			resource.SourceKind != identity.SourceKind || resource.SchemaIdentity != identity.SchemaIdentity ||
+			resource.CoverageRuleVersion != catalog.SemanticCoverageRuleVersion ||
+			resource.CoverageStorageFormatVersion != catalog.SemanticCoverageStorageFormatVersion {
+			result.Reason = "RESOURCE_CERTIFICATE_IDENTITY_MISMATCH"
+			return result, nil
+		}
+		if _, duplicate := resourceMarkers[resource.ResourceType]; duplicate {
+			result.Reason = "RESOURCE_CERTIFICATE_DUPLICATE"
+			return result, nil
+		}
+		resourceMarkers[resource.ResourceType] = resource
+	}
+	partitionsByResource := make(map[string]map[string]semanticCoverageStoredDocument, len(resourceTypes))
+	for _, partition := range snapshot.Partitions {
+		if partition.RecordKind != "partition" || partition.Key != semanticCoveragePartitionDocumentKey(identity, partition.ResourceType, partition.AuthResourcePath) ||
+			partition.Project != identity.Project || partition.DatasetGeneration != identity.DatasetGeneration || partition.BuildID != identity.BuildID ||
+			partition.SourceKind != identity.SourceKind || partition.SchemaIdentity != identity.SchemaIdentity ||
+			partition.CoverageStorageFormatVersion != catalog.SemanticCoverageStorageFormatVersion {
+			result.Reason = "RESOURCE_PARTITION_IDENTITY_MISMATCH"
+			return result, nil
+		}
+		if partitionsByResource[partition.ResourceType] == nil {
+			partitionsByResource[partition.ResourceType] = make(map[string]semanticCoverageStoredDocument)
+		}
+		if _, duplicate := partitionsByResource[partition.ResourceType][partition.AuthResourcePath]; duplicate {
+			result.Reason = "RESOURCE_PARTITION_DUPLICATE"
+			return result, nil
+		}
+		partitionsByResource[partition.ResourceType][partition.AuthResourcePath] = partition
+	}
+	sourceProofByPartition := make(map[string]bool, len(snapshot.SourceProof))
+	for _, proof := range snapshot.SourceProof {
+		key := semanticCoveragePartitionKey(proof.AuthResourcePath, proof.ResourceType)
+		if _, duplicate := sourceProofByPartition[key]; duplicate {
+			result.Reason = "RESOURCE_SOURCE_PROOF_DUPLICATE"
+			return result, nil
+		}
+		sourceProofByPartition[key] = proof.SourceExists
+	}
+	expectedSourceProofs := len(snapshot.Partitions)
+	if !options.AuthResourcePathsUnrestricted {
+		expectedSourceProofs = len(resourceTypes) * len(authPaths)
+	}
+	if len(snapshot.SourceProof) != expectedSourceProofs {
+		result.Reason = "RESOURCE_SOURCE_PROOF_INCOMPLETE"
+		result.Candidates = unavailableSemanticCoverageCandidates(options.Candidates, catalog.SemanticCoverageReasonIncompleteSource)
+		return result, nil
+	}
+	facetsByCandidate := make(map[SemanticCoverageCandidatePath][]semanticCoverageStoredDocument, len(options.Candidates))
+	for _, facet := range snapshot.Facets {
+		key := SemanticCoverageCandidatePath{ResourceType: facet.ResourceType, CanonicalPath: facet.CanonicalPath}
+		if facet.RecordKind != "summary" || facet.SummaryKind != "facet" ||
+			facet.Key != semanticCoverageSummaryDocumentKey(identity, facet) ||
+			facet.Project != identity.Project || facet.DatasetGeneration != identity.DatasetGeneration || facet.BuildID != identity.BuildID ||
+			facet.SourceKind != identity.SourceKind || facet.SchemaIdentity != identity.SchemaIdentity {
+			result.Reason = "FACET_SUMMARY_IDENTITY_MISMATCH"
+			return result, nil
+		}
+		facetsByCandidate[key] = append(facetsByCandidate[key], facet)
+	}
+
 	result.Candidates = make([]SemanticCoverageCandidateResult, 0, len(options.Candidates))
 	for _, candidate := range options.Candidates {
-		partitions := partitionsByResource[candidate.ResourceType]
-		if len(partitions) == 0 {
-			result.Candidates = append(result.Candidates, unavailableSemanticCoverageCandidate(candidate, catalog.SemanticCoverageReasonIncompleteSource))
+		candidateResult := SemanticCoverageCandidateResult{ResourceType: candidate.ResourceType, CanonicalPath: candidate.CanonicalPath}
+		candidateResult.CoverageID = semanticCoverageDocumentKey("semantic-coverage-absent/v1", identity.Project, identity.DatasetGeneration, identity.BuildID, identity.SourceKind, identity.SchemaIdentity, candidate.ResourceType, candidate.CanonicalPath)
+		resource, exists := resourceMarkers[candidate.ResourceType]
+		if !containsSortedSemanticCoverageResource(marker.ExpectedResourceTypes, candidate.ResourceType) {
+			candidateResult.Status = SemanticCoverageCandidateUnavailable
+			candidateResult.ResourceState = SemanticCoverageBuildUnavailable
+			candidateResult.ResourceReason = "RESOURCE_NOT_IN_EXPECTED_MANIFEST"
+			candidateResult.Reason = catalog.SemanticCoverageReasonIncompleteSource
+			result.Candidates = append(result.Candidates, candidateResult)
 			continue
 		}
-		partitionIncomplete := false
-		partitionReason := catalog.SemanticCoverageReasonIncompleteSource
-		for _, partition := range partitions {
-			if !partition.Complete || partition.Status != SemanticCoverageCandidateGroupable || !partition.Groupable {
-				partitionIncomplete = true
-				if partition.Reason != "" {
-					partitionReason = catalog.SemanticCoverageReason(partition.Reason)
+		if !exists {
+			candidateResult.Status = SemanticCoverageCandidateUnavailable
+			candidateResult.ResourceState = SemanticCoverageBuildUnavailable
+			candidateResult.ResourceReason = "RESOURCE_CERTIFICATE_MISSING"
+			candidateResult.Reason = catalog.SemanticCoverageReasonIncompleteSource
+			result.Candidates = append(result.Candidates, candidateResult)
+			continue
+		}
+		candidateResult.ResourceState = resource.ResourceState
+		candidateResult.ResourceReason = resource.BuildReason
+		if resource.ResourceState != SemanticCoverageBuildComplete {
+			candidateResult.Status = SemanticCoverageCandidateUnavailable
+			if resource.BuildReason == "" {
+				candidateResult.ResourceReason = "RESOURCE_CERTIFICATE_INCOMPLETE"
+			}
+			candidateResult.Reason = catalog.SemanticCoverageReasonIncompleteSource
+			result.Candidates = append(result.Candidates, candidateResult)
+			continue
+		}
+		if !resource.SourceEnumerationComplete || resource.SourceSetDigest == "" ||
+			resource.ExpectedSourceCount != resource.MaterializedSourceCount ||
+			resource.SourcePartitionCount != resource.MaterializedPartitionCount {
+			candidateResult.Status = SemanticCoverageCandidateUnavailable
+			candidateResult.ResourceState = SemanticCoverageBuildFailed
+			candidateResult.ResourceReason = "RESOURCE_CERTIFICATE_INCOMPLETE"
+			candidateResult.Reason = catalog.SemanticCoverageReasonIncompleteSource
+			result.Candidates = append(result.Candidates, candidateResult)
+			continue
+		}
+		if options.AuthResourcePathsUnrestricted {
+			partitions := partitionsByResource[candidate.ResourceType]
+			if int64(len(partitions)) != resource.SourcePartitionCount {
+				candidateResult.Status = SemanticCoverageCandidateUnavailable
+				candidateResult.ResourceReason = "RESOURCE_PARTITION_CERTIFICATE_INCOMPLETE"
+				candidateResult.Reason = catalog.SemanticCoverageReasonIncompleteSource
+				result.Candidates = append(result.Candidates, candidateResult)
+				continue
+			}
+			for authPath, partition := range partitions {
+				if !validSemanticCoveragePartition(partition) || !sourceProofByPartition[semanticCoveragePartitionKey(authPath, candidate.ResourceType)] {
+					candidateResult.Status = SemanticCoverageCandidateUnavailable
+					candidateResult.ResourceReason = "RESOURCE_PARTITION_CERTIFICATE_INCOMPLETE"
+					candidateResult.Reason = catalog.SemanticCoverageReasonIncompleteSource
+					break
 				}
-				break
+			}
+		} else {
+			partitions := partitionsByResource[candidate.ResourceType]
+			for _, authPath := range authPaths {
+				partition, hasPartition := partitions[authPath]
+				sourceKey := semanticCoveragePartitionKey(authPath, candidate.ResourceType)
+				sourceExists, hasSourceProof := sourceProofByPartition[sourceKey]
+				if !hasSourceProof || sourceExists != hasPartition || (hasPartition && !validSemanticCoveragePartition(partition)) {
+					candidateResult.Status = SemanticCoverageCandidateUnavailable
+					candidateResult.ResourceReason = "RESOURCE_PARTITION_CERTIFICATE_INCOMPLETE"
+					candidateResult.Reason = catalog.SemanticCoverageReasonIncompleteSource
+					break
+				}
 			}
 		}
-		if partitionIncomplete {
-			result.Candidates = append(result.Candidates, unavailableSemanticCoverageCandidate(candidate, partitionReason))
+		if candidateResult.Status == SemanticCoverageCandidateUnavailable {
+			result.Candidates = append(result.Candidates, candidateResult)
 			continue
 		}
-		rows := rowsByCandidate[candidate]
+		candidateResult.Status = SemanticCoverageCandidateKeepRaw
+		candidateResult.Reason = catalog.SemanticCoverageReasonUnrepresentedMetadata
+		rows := facetsByCandidate[candidate]
 		if len(rows) == 0 {
-			result.Candidates = append(result.Candidates, SemanticCoverageCandidateResult{
-				ResourceType: candidate.ResourceType, CanonicalPath: candidate.CanonicalPath,
-				CoverageID: semanticCoverageDocumentKey("semantic-coverage-absent/v1", identity.Project, identity.DatasetGeneration, identity.BuildID, identity.SourceKind, identity.SchemaIdentity, candidate.ResourceType, candidate.CanonicalPath),
-				Status:     SemanticCoverageCandidateKeepRaw, Reason: catalog.SemanticCoverageReasonUnrepresentedMetadata,
-			})
+			result.Candidates = append(result.Candidates, candidateResult)
 			continue
 		}
-		candidateResult := SemanticCoverageCandidateResult{
-			ResourceType: candidate.ResourceType, CanonicalPath: candidate.CanonicalPath,
-			Status: SemanticCoverageCandidateGroupable, References: []catalog.SemanticCoverageReference{},
-		}
+		candidateResult.Status = SemanticCoverageCandidateGroupable
+		candidateResult.Reason = ""
+		candidateResult.References = []catalog.SemanticCoverageReference{}
 		ids := make([]string, 0, len(rows))
 		references := make(map[string]catalog.SemanticCoverageReference)
 		reasons := make(map[catalog.SemanticCoverageReason]struct{})
@@ -1950,6 +2532,24 @@ func (s *Store) LookupSemanticCoverage(ctx context.Context, options SemanticCove
 		result.Candidates = append(result.Candidates, candidateResult)
 	}
 	return result, nil
+}
+
+func validSemanticCoveragePartition(partition semanticCoverageStoredDocument) bool {
+	return partition.Complete && partition.Groupable && partition.Status == SemanticCoverageCandidateGroupable &&
+		partition.SourceRecordCount > 0 && partition.SourceSetDigest != ""
+}
+
+func containsSortedSemanticCoverageResource(resources []string, candidate string) bool {
+	index := sort.SearchStrings(resources, candidate)
+	return index < len(resources) && resources[index] == candidate
+}
+
+func semanticCoverageSummaryDocumentKey(identity SemanticCoverageBuildIdentity, document semanticCoverageStoredDocument) string {
+	return semanticCoverageDocumentKey(
+		"semantic-coverage/v1", identity.Project, identity.DatasetGeneration, identity.BuildID,
+		identity.SourceKind, identity.SchemaIdentity, "summary", document.SummaryKind,
+		document.AuthResourcePath, document.ResourceType, document.CanonicalPath, document.ResourceBoundarySignature,
+	)
 }
 
 const semanticCoverageLookupMaximumCandidates = 50

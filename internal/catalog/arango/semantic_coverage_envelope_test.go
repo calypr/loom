@@ -19,7 +19,7 @@ func TestEncodeSemanticCoverageSourceEnvelopeIsOneVersionedBoundedDocument(t *te
 	if err := json.Unmarshal(encoded, &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.RecordKind != semanticCoverageEnvelopeRecordKind || envelope.CoverageStorageFormatVersion != SemanticCoverageEnvelopeFormatVersion {
+	if envelope.RecordKind != semanticCoverageEnvelopeRecordKind || envelope.CoverageStorageFormatVersion != catalog.SemanticCoverageStorageFormatVersion {
 		t.Fatalf("envelope version = (%q, %d)", envelope.RecordKind, envelope.CoverageStorageFormatVersion)
 	}
 	if envelope.SourceRecordCount != 1 || len(envelope.Paths) != 1 || len(envelope.Paths[0].Path.Facets) != 1 {
