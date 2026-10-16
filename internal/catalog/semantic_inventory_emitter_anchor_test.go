@@ -64,8 +64,8 @@ func TestSemanticInventoryEmitterStillRejectsAmbiguousScalarConceptAnchors(t *te
 func TestSemanticInventoryEmitterVersionChangesBuildIdentityWithoutBindingIdentity(t *testing.T) {
 	const project = "loom_dev_cda_fhir"
 	const generation = "cda-fhir-v1"
-	const previousBuildID = "0399de4022829e8fa834e0d7fb6b22e7654bdb6aca977ad1138fa04f686cec8a"
-	const previousBuildKey = "sib_9c2b831f6516027e0b9019557525f5ae111b8af25691de1ea2a6c396ff1e6d27"
+	const previousBuildID = "ca8ea62fdb8cc19ecfae1c23e286ae2dd082c38a297200cfc46c2c3124cc1858"
+	const previousBuildKey = "sib_e3ee57e08f7504a36f0ae8c108ff6612b01cd05d63d955e4a945a85165ddcea0"
 
 	build := NewSemanticInventoryBuild(project, generation, "")
 	if build.BuildID == previousBuildID || build.BuildID != SemanticInventoryBuildID(project, generation) {
