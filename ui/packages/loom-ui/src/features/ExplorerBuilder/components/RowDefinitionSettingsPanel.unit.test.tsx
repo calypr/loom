@@ -337,6 +337,7 @@ const renderSettings = (overrides: {
   choicesValue?: RowDefinitionChoicesResponse;
   relatedRowsSupported?: boolean;
   relatedRowsReason?: string;
+  rootChangePreviewOpen?: boolean;
   groupSupported?: boolean;
   groupReason?: string;
   pivotSupported?: boolean;
@@ -349,6 +350,11 @@ const renderSettings = (overrides: {
   tableValue?: DraftTable;
   selection?: SelectionRevision;
   constructionHistory?: ReadonlyArray<ConstructionHistoryStep>;
+  rowOperationEditor?: ReactNode;
+  onChooseRelatedRows?: () => void;
+  onChooseReshape?: (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot') => void;
+  onSwitchRowIntent?: (intent: 'records' | 'reshape') => void;
+  onCloseRowIntentSession?: () => void;
   onEditConstructionStep?: (stepId: string) => void;
   onRemoveConstructionStep?: (stepId: string) => void;
   sourceCollectionAction?: ReactNode;
@@ -367,8 +373,10 @@ const renderSettings = (overrides: {
   const assessRowChange = vi.fn().mockResolvedValue(overrides.replacementAssessment ?? replacementAssessment);
   const preview = vi.fn().mockResolvedValue(overrides.replacementPreview ?? replacementPreview);
   const onApply = vi.fn().mockResolvedValue(true);
-  const onChooseRelatedRows = vi.fn();
-  const onChooseReshape = vi.fn();
+  const onChooseRelatedRows = overrides.onChooseRelatedRows ?? vi.fn();
+  const onChooseReshape = overrides.onChooseReshape ?? vi.fn();
+  const onSwitchRowIntent = overrides.onSwitchRowIntent ?? vi.fn();
+  const onCloseRowIntentSession = overrides.onCloseRowIntentSession ?? vi.fn();
   const onChangeRootSelection = overrides.onChangeRootSelection ?? vi.fn();
   const onApplyRootReplacement = overrides.onApplyRootReplacement ?? vi.fn().mockResolvedValue(true);
   const onEditConstructionStep = overrides.onEditConstructionStep ?? vi.fn();
@@ -379,6 +387,7 @@ const renderSettings = (overrides: {
       triggerLabel={overrides.triggerLabel}
       {...idleRootChangeProps()}
       {...relatedRowProps}
+      rootChangePreviewOpen={overrides.rootChangePreviewOpen ?? false}
       renderRootSettings={overrides.renderRootSettings ?? relatedRowProps.renderRootSettings}
       currentRowMeaning={overrides.currentRowMeaning ?? relatedRowProps.currentRowMeaning}
       onChangeRootSelection={onChangeRootSelection}
@@ -404,14 +413,17 @@ const renderSettings = (overrides: {
       workspaceTables={overrides.workspaceTables ?? [table]}
       constructionHistory={overrides.constructionHistory ?? []}
       selection={overrides.selection}
+      rowOperationEditor={overrides.rowOperationEditor}
       disabled={false}
       onApply={onApply}
       onApplyRootReplacement={onApplyRootReplacement}
+      onSwitchRowIntent={onSwitchRowIntent}
+      onCloseRowIntentSession={onCloseRowIntentSession}
       onEditConstructionStep={onEditConstructionStep}
       onRemoveConstructionStep={onRemoveConstructionStep}
     />,
   );
-  return { ...view, listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision, assessRowChange, preview, onApply, onApplyRootReplacement, onChooseRelatedRows, onChooseReshape, onChangeRootSelection, onEditConstructionStep, onRemoveConstructionStep };
+  return { ...view, listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision, assessRowChange, preview, onApply, onApplyRootReplacement, onChooseRelatedRows, onChooseReshape, onSwitchRowIntent, onCloseRowIntentSession, onChangeRootSelection, onEditConstructionStep, onRemoveConstructionStep };
 };
 
 afterEach(cleanup);
@@ -562,7 +574,7 @@ describe('RowDefinitionSettingsPanel', () => {
   });
 
   it('applies the exact ready replacement assessment after the review is complete', async () => {
-    const { onApplyRootReplacement } = renderSettings({
+    const { onApplyRootReplacement, onCloseRowIntentSession } = renderSettings({
       workspaceTables: [patientWorkspaceTable, reportWorkspaceTable],
     });
     fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
@@ -573,6 +585,7 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.click(applyButton);
     await waitFor(() => expect(onApplyRootReplacement).toHaveBeenCalledTimes(1));
     expect(onApplyRootReplacement).toHaveBeenCalledWith(replacementAssessment);
+    expect(onCloseRowIntentSession).toHaveBeenCalledOnce();
     expect(screen.queryByRole('dialog', { name: 'Replace this table’s current setup?' })).toBeNull();
   });
 
@@ -640,6 +653,54 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(screen.queryByTestId('construction-action-expand-rows')).toBeNull();
   });
 
+  it('calls the session switch callback for Records and Reshape without closing the dialog', async () => {
+    const editor = <div data-testid="row-operation-editor">Active operation editor</div>;
+    const { onSwitchRowIntent } = renderSettings({ rowOperationEditor: editor });
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+
+    fireEvent.click(within(dialog).getByTestId('construction-row-intent-reshape'));
+    expect(onSwitchRowIntent).toHaveBeenLastCalledWith('reshape');
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByTestId('construction-row-intent-reshape')).toHaveAttribute('aria-pressed', 'true');
+    expect(within(dialog).getByTestId('row-operation-editor')).toHaveTextContent('Active operation editor');
+
+    fireEvent.click(within(dialog).getByTestId('construction-row-intent-records'));
+    expect(onSwitchRowIntent).toHaveBeenLastCalledWith('records');
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByTestId('construction-row-intent-records')).toHaveAttribute('aria-pressed', 'true');
+    expect(within(dialog).getByTestId('construction-row-intent-reshape')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('notifies the parent when Back closes the row-intent session', async () => {
+    const { onCloseRowIntentSession } = renderSettings();
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    await screen.findByRole('dialog', { name: 'Row definition settings' });
+    fireEvent.click(screen.getByRole('button', { name: 'Back to table' }));
+
+    expect(onCloseRowIntentSession).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('dialog', { name: 'Row definition settings' })).toBeNull();
+  });
+
+  it('notifies the parent and cancels the pending row proposal when choosing a group', async () => {
+    const { proposeRowDefinition, onApply, onChooseReshape } = renderSettings();
+    proposeRowDefinition.mockImplementationOnce(() => new Promise(() => {}));
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Rows per starting record' }), {
+      target: { value: 'expanded:expanded-choice' },
+    });
+    await waitFor(() => expect(proposeRowDefinition).toHaveBeenCalledOnce());
+    const proposalSignal = proposeRowDefinition.mock.calls[0]?.[1] as AbortSignal;
+
+    fireEvent.click(screen.getByTestId('construction-action-group-rows'));
+
+    expect(proposalSignal.aborted).toBe(true);
+    expect(onApply).not.toHaveBeenCalled();
+    expect(onChooseReshape).toHaveBeenCalledWith('group');
+    expect(screen.getByRole('dialog', { name: 'Row definition settings' })).toBeInTheDocument();
+    expect(screen.getByTestId('construction-action-group-rows')).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('shows only Pivot categories and Stack columns with illustrative structural examples', async () => {
     renderSettings({ relatedRowsSupported: true });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
@@ -703,18 +764,24 @@ describe('RowDefinitionSettingsPanel', () => {
   });
 
   it('opens executable related rows from the Rows settings dialog', async () => {
-    const { onChooseRelatedRows } = renderSettings({ relatedRowsSupported: true });
+    const editor = <div data-testid="row-operation-editor">Related route editor</div>;
+    const { onChooseRelatedRows } = renderSettings({ relatedRowsSupported: true, rowOperationEditor: editor });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const related = await screen.findByRole('button', { name: /Make a row for each related record/ });
     expect(related).toHaveTextContent('Follow a relationship; make one row for each match.');
     expect(related.getAttribute('title')).toContain('unmatched rows follow the selected policy');
     fireEvent.click(related);
     expect(onChooseRelatedRows).toHaveBeenCalledOnce();
-    expect(screen.queryByRole('dialog')).toBeNull();
+    const dialog = screen.getByRole('dialog', { name: 'Row definition settings' });
+    expect(within(dialog).getByTestId('construction-row-intent-records')).toHaveAttribute('aria-pressed', 'true');
+    expect(within(dialog).getByTestId('construction-action-group-rows')).toHaveAttribute('aria-pressed', 'false');
+    expect(within(dialog).getByTestId('construction-row-intent-reshape')).toHaveAttribute('aria-pressed', 'false');
+    expect(within(dialog).getByTestId('row-operation-editor')).toHaveTextContent('Related route editor');
   });
 
   it('opens Stack columns from Reshape table even when the editor will explain missing prerequisites', async () => {
-    const { onChooseReshape } = renderSettings({ pivotSupported: false });
+    const editor = <div data-testid="row-operation-editor">Stack columns editor</div>;
+    const { onChooseReshape, onSwitchRowIntent } = renderSettings({ pivotSupported: false, rowOperationEditor: editor });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     fireEvent.click(await screen.findByTestId('construction-row-intent-reshape'));
     const unpivot = await screen.findByTestId('construction-action-unpivot-rows');
@@ -723,7 +790,12 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.click(unpivot);
 
     expect(onChooseReshape).toHaveBeenCalledWith('unpivot');
-    expect(screen.queryByRole('dialog')).toBeNull();
+    const dialog = screen.getByRole('dialog', { name: 'Row definition settings' });
+    expect(within(dialog).getByTestId('construction-row-intent-reshape')).toHaveAttribute('aria-pressed', 'true');
+    expect(within(dialog).getByTestId('construction-row-intent-records')).toHaveAttribute('aria-pressed', 'false');
+    expect(within(dialog).getByTestId('construction-action-group-rows')).toHaveAttribute('aria-pressed', 'false');
+    expect(within(dialog).getByTestId('row-operation-editor')).toHaveTextContent('Stack columns editor');
+    expect(onSwitchRowIntent).toHaveBeenCalledWith('reshape');
   });
 
   it('shows applied row changes and closes Define dataframe before editing the selected step', async () => {
@@ -751,7 +823,8 @@ describe('RowDefinitionSettingsPanel', () => {
   });
 
   it('opens the selected grouping editor directly from Rows', async () => {
-    const { onChooseReshape } = renderSettings();
+    const editor = <div data-testid="row-operation-editor">Group editor</div>;
+    const { onChooseReshape } = renderSettings({ rowOperationEditor: editor, selection: sourceSelection });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const group = await screen.findByTestId('construction-action-group-rows');
     expect(group).toHaveTextContent('Group and summarize');
@@ -759,7 +832,12 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(group).not.toHaveTextContent('Example:');
     fireEvent.click(group);
     expect(onChooseReshape).toHaveBeenCalledWith('group');
-    expect(screen.queryByRole('dialog')).toBeNull();
+    const dialog = screen.getByRole('dialog', { name: 'Row definition settings' });
+    expect(within(dialog).getByTestId('construction-action-group-rows')).toHaveAttribute('aria-pressed', 'true');
+    expect(within(dialog).getByTestId('construction-row-intent-records')).toHaveAttribute('aria-pressed', 'false');
+    expect(within(dialog).getByTestId('construction-row-intent-reshape')).toHaveAttribute('aria-pressed', 'false');
+    expect(within(dialog).getByTestId('row-operation-editor')).toHaveTextContent('Group editor');
+    expect(within(dialog).queryByRole('region', { name: 'Named cohorts' })).toBeNull();
   });
 
   it('opens grouping by a recorded code when the backend offers it', async () => {
@@ -771,6 +849,8 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(group).not.toHaveTextContent('Example:');
     fireEvent.click(group);
     expect(onChooseReshape).toHaveBeenCalledWith('coded-group');
+    expect(screen.getByRole('dialog', { name: 'Row definition settings' })).toBeInTheDocument();
+    expect(group).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('opens source-field grouping directly when coded grouping is the default', async () => {
@@ -778,16 +858,24 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     fireEvent.click(await screen.findByRole('button', { name: 'By source field' }));
     expect(onChooseReshape).toHaveBeenCalledWith('source-group');
-    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'Row definition settings' })).toBeInTheDocument();
+    expect(screen.getByTestId('construction-action-group-rows')).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('opens the neutral category-to-column entry directly from Rows', async () => {
-    const { onChooseReshape } = renderSettings();
+    const editor = <div data-testid="row-operation-editor">Pivot editor</div>;
+    const { onChooseReshape, onSwitchRowIntent } = renderSettings({ rowOperationEditor: editor });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     fireEvent.click(await screen.findByTestId('construction-row-intent-reshape'));
     fireEvent.click(await screen.findByTestId('construction-action-pivot-rows'));
     expect(onChooseReshape).toHaveBeenCalledWith('categories');
-    expect(screen.queryByRole('dialog')).toBeNull();
+    const dialog = screen.getByRole('dialog', { name: 'Row definition settings' });
+    expect(within(dialog).getByTestId('construction-row-intent-records')).toBeInTheDocument();
+    expect(within(dialog).getByTestId('construction-row-intent-records')).toHaveAttribute('aria-pressed', 'false');
+    expect(within(dialog).getByTestId('construction-action-group-rows')).toHaveAttribute('aria-pressed', 'false');
+    expect(within(dialog).getByTestId('construction-row-intent-reshape')).toHaveAttribute('aria-pressed', 'true');
+    expect(within(dialog).getByTestId('row-operation-editor')).toHaveTextContent('Pivot editor');
+    expect(onSwitchRowIntent).toHaveBeenCalledWith('reshape');
   });
 
   it('opens the neutral category entry when coded pivot is preferred', async () => {
@@ -798,6 +886,8 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(pivot).toBeEnabled();
     fireEvent.click(pivot);
     expect(onChooseReshape).toHaveBeenCalledWith('categories');
+    expect(screen.getByRole('dialog', { name: 'Row definition settings' })).toBeInTheDocument();
+    expect(screen.getByTestId('construction-row-intent-reshape')).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('disables category entry while matching Pivot capabilities are pending', async () => {
@@ -809,6 +899,7 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.click(pivot);
     expect(onChooseReshape).not.toHaveBeenCalled();
     expect(screen.getByRole('dialog', { name: 'Row definition settings' })).toBeInTheDocument();
+    expect(screen.getByTestId('construction-row-intent-reshape')).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('uses table columns when coded values are absent but table Pivot is available', async () => {
@@ -823,6 +914,8 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(pivot).toBeEnabled();
     fireEvent.click(await screen.findByTestId('construction-action-table-pivot-rows'));
     expect(onChooseReshape).toHaveBeenCalledWith('pivot');
+    expect(screen.getByRole('dialog', { name: 'Row definition settings' })).toBeInTheDocument();
+    expect(screen.getByTestId('construction-row-intent-reshape')).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('keeps the neutral category entry available after settled unsupported capabilities', async () => {
@@ -833,6 +926,8 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(pivot).toBeEnabled();
     fireEvent.click(pivot);
     expect(onChooseReshape).toHaveBeenCalledWith('categories');
+    expect(screen.getByRole('dialog', { name: 'Row definition settings' })).toBeInTheDocument();
+    expect(screen.getByTestId('construction-row-intent-reshape')).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('keeps row settings open while the parent starts a root assessment', async () => {
@@ -859,6 +954,15 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(onChangeRoot).toHaveBeenCalledWith({ kind: 'authored-occurrence', nodeId: 'observation', occurrenceId: 'patient-observation' });
     expect(dialog).toBeInTheDocument();
     expect(within(dialog).getAllByRole('combobox', { name: 'Record type' })).toHaveLength(1);
+  });
+
+  it('notifies the parent when a root preview automatically closes the row-intent session', async () => {
+    const { listRowDefinitionChoices, onCloseRowIntentSession } = renderSettings({ rootChangePreviewOpen: true });
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    await waitFor(() => expect(onCloseRowIntentSession).toHaveBeenCalledOnce());
+
+    expect(listRowDefinitionChoices).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('dialog', { name: 'Row definition settings' })).toBeNull();
   });
 
   it('explains when the backend has no executable related row path', async () => {
@@ -965,7 +1069,7 @@ describe('RowDefinitionSettingsPanel', () => {
   });
 
   it('previews and applies only the server-issued explicit-group proposal', async () => {
-    const { listRowDefinitionChoices, proposeRowDefinition, onApply } = renderSettings();
+    const { listRowDefinitionChoices, proposeRowDefinition, onApply, onCloseRowIntentSession } = renderSettings();
     expect(screen.getByTestId('construction-rows-settings-trigger')).toHaveTextContent('Change rows');
     fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
     const select = await screen.findByRole('combobox', { name: 'Rows per starting record' });
@@ -994,6 +1098,8 @@ describe('RowDefinitionSettingsPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Apply row definition' }));
     await waitFor(() => expect(onApply).toHaveBeenCalledWith('proposal-receipt-1'));
+    expect(onCloseRowIntentSession).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('dialog', { name: 'Row definition settings' })).toBeNull();
   });
 
   it('distinguishes repeated field choices with readable path breadcrumbs', async () => {
@@ -1287,7 +1393,7 @@ describe('RowDefinitionSettingsPanel', () => {
         examples: [],
       },
     };
-    const { proposeRowDefinition, onApply } = renderSettings({ proposalValue: unavailable });
+    const { proposeRowDefinition, onApply, onCloseRowIntentSession } = renderSettings({ proposalValue: unavailable });
     fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
     fireEvent.change(await screen.findByRole('combobox', { name: 'Rows per starting record' }), {
       target: { value: 'expanded:expanded-choice' },
@@ -1298,6 +1404,7 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(screen.getByRole('combobox', { name: 'Unmatched record policy' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'Back to table' }));
     expect(screen.queryByRole('dialog')).toBeNull();
+    expect(onCloseRowIntentSession).toHaveBeenCalledOnce();
     expect(proposeRowDefinition).toHaveBeenCalledTimes(1);
     expect(onApply).not.toHaveBeenCalled();
   });

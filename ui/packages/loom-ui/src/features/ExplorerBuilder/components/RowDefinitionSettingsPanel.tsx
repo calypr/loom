@@ -23,7 +23,7 @@ const rowChangingOperationKinds = new Set<ConstructionStep['operation']['kind']>
   'GROUP', 'CODED_GROUP', 'PIVOT', 'CODED_PIVOT', 'EXPAND', 'UNPIVOT', 'RELATED_EXPAND',
 ]);
 
-type RowChangeIntent = 'records' | 'reshape';
+type RowChangeIntent = 'records' | 'group' | 'reshape';
 
 type SelectionOption = {
   readonly value: string;
@@ -388,12 +388,15 @@ export const RowDefinitionSettingsPanel = ({
   selection,
   constructionHistory = [],
   workspaceTables,
+  rowOperationEditor,
   disabled,
   onApply,
   relatedRows,
   reshapeRows,
   onChooseRelatedRows,
   onChooseReshape,
+  onSwitchRowIntent,
+  onCloseRowIntentSession,
   sourceCollectionAction,
   onChangeRootSelection,
   onResolveRootSelection,
@@ -427,6 +430,7 @@ export const RowDefinitionSettingsPanel = ({
   readonly selection?: SelectionRevision;
   readonly constructionHistory?: ReadonlyArray<ConstructionHistoryStep>;
   readonly disabled: boolean;
+  readonly rowOperationEditor?: ReactNode;
   readonly onApply: (proposalId: string) => Promise<boolean>;
   readonly relatedRows: { readonly supported: boolean; readonly reason?: string };
   readonly reshapeRows: Record<'group' | 'pivot', { readonly supported: boolean; readonly reason?: string }> & {
@@ -441,6 +445,8 @@ export const RowDefinitionSettingsPanel = ({
   };
   readonly onChooseRelatedRows: () => void;
   readonly onChooseReshape: (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot') => void;
+  readonly onSwitchRowIntent?: (intent: 'records' | 'reshape') => void;
+  readonly onCloseRowIntentSession?: () => void;
   readonly sourceCollectionAction?: ReactNode;
   readonly onChangeRootSelection: (selection: RootChangeSelection) => void;
   readonly onResolveRootSelection: (referenceId: string, alternative: string) => void;
@@ -561,7 +567,14 @@ export const RowDefinitionSettingsPanel = ({
 
   useEffect(() => {
     if (rootChangePreviewOpen && settings.kind !== 'closed') {
+      settingsRequestEpoch.current += 1;
+      cancelPendingPreview();
+      cancelReplacementRequest();
+      setProposalState({ kind: 'none' });
+      setReplacementState({ kind: 'idle' });
+      setGroupAuthoringOpen(false);
       setSettings({ kind: 'closed' });
+      onCloseRowIntentSession?.();
     }
   }, [rootChangePreviewOpen, settings.kind]);
 
@@ -686,6 +699,8 @@ export const RowDefinitionSettingsPanel = ({
     if (await onApplyRootReplacement(assessment)) {
       setReplacementState({ kind: 'idle' });
       setSettings({ kind: 'closed' });
+      setGroupAuthoringOpen(false);
+      onCloseRowIntentSession?.();
     } else {
       setReplacementState({ kind: 'stale', rootNodeId: assessment.proposal.rootNodeId });
     }
@@ -712,6 +727,8 @@ export const RowDefinitionSettingsPanel = ({
     if (await onApply(proposalId)) {
       setSettings({ kind: 'closed' });
       setProposalState({ kind: 'none' });
+      setGroupAuthoringOpen(false);
+      onCloseRowIntentSession?.();
     } else {
       setProposalState({ kind: 'stale', selection: proposalState.selection });
     }
@@ -725,6 +742,22 @@ export const RowDefinitionSettingsPanel = ({
     settingsRequestEpoch.current += 1;
     setSettings({ kind: 'closed' });
     setProposalState({ kind: 'none' });
+    setGroupAuthoringOpen(false);
+    onCloseRowIntentSession?.();
+  };
+
+  const cancelLocalRowProposals = () => {
+    cancelPendingPreview();
+    cancelReplacementRequest();
+    setProposalState({ kind: 'none' });
+    setReplacementState({ kind: 'idle' });
+    setGroupAuthoringOpen(false);
+  };
+
+  const switchRowIntent = (intent: 'records' | 'reshape') => {
+    cancelLocalRowProposals();
+    setRowChangeIntent(intent);
+    onSwitchRowIntent?.(intent);
   };
 
   const beginRootChange = (next: RootChangeSelection) => {
@@ -739,11 +772,13 @@ export const RowDefinitionSettingsPanel = ({
   };
 
   const chooseRelatedRows = () => {
-    cancel();
+    cancelLocalRowProposals();
+    setRowChangeIntent('records');
     onChooseRelatedRows();
   };
   const chooseReshape = (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot') => {
-    cancel();
+    cancelLocalRowProposals();
+    setRowChangeIntent(kind === 'group' || kind === 'source-group' || kind === 'coded-group' ? 'group' : 'reshape');
     onChooseReshape(kind);
   };
   const editConstructionStep = (stepId: string) => {
@@ -828,13 +863,13 @@ export const RowDefinitionSettingsPanel = ({
             </header>
             <section aria-label="Choose a row intent" className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
               <button type="button" data-testid="construction-row-intent-records" aria-pressed={rowChangeIntent === 'records'}
-                onClick={() => setRowChangeIntent('records')}
+                onClick={() => switchRowIntent('records')}
                 className={`flex min-h-[4.5rem] min-w-0 flex-col justify-center rounded-lg border px-3 py-2 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 ${rowChangeIntent === 'records' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}>
                 <span className="block text-sm font-semibold text-slate-900">Use different records</span>
                 <span className="block text-xs text-slate-600">Choose a starting record type, row shape, or related records.</span>
               </button>
               <div className="min-w-0 rounded-lg border border-slate-200 bg-white">
-                <button type="button" data-testid="construction-action-group-rows" disabled={disabled || !reshapeRows.group.supported}
+                <button type="button" data-testid="construction-action-group-rows" aria-pressed={rowChangeIntent === 'group'} disabled={disabled || !reshapeRows.group.supported}
                   onClick={() => chooseReshape(reshapeRows.groupEntry)}
                   className="flex min-h-[4.5rem] w-full min-w-0 flex-col justify-center rounded-lg px-3 py-2 text-left hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
                   <span className="block text-sm font-semibold text-slate-900">Group and summarize</span>
@@ -865,7 +900,7 @@ export const RowDefinitionSettingsPanel = ({
                 ) : null}
               </div>
               <button type="button" data-testid="construction-row-intent-reshape" aria-pressed={rowChangeIntent === 'reshape'}
-                onClick={() => setRowChangeIntent('reshape')}
+                onClick={() => switchRowIntent('reshape')}
                 className={`flex min-h-[4.5rem] min-w-0 flex-col justify-center rounded-lg border px-3 py-2 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 ${rowChangeIntent === 'reshape' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}>
                 <span className="block text-sm font-semibold text-slate-900">Reshape table</span>
                 <span className="block text-xs text-slate-600">Pivot categories into columns or stack columns into rows.</span>
@@ -944,7 +979,7 @@ export const RowDefinitionSettingsPanel = ({
                   </details>
                 ) : null}
               </>
-            ) : (
+            ) : rowChangeIntent === 'reshape' ? (
               <section aria-label="Reshape table options" className="mt-3 grid gap-2 sm:grid-cols-2">
                 <div className="min-w-0 rounded-lg border border-slate-200 bg-white">
                   <button type="button" data-testid="construction-action-pivot-rows" disabled={disabled || reshapeRows.pivotPending === true}
@@ -981,7 +1016,7 @@ export const RowDefinitionSettingsPanel = ({
                   </p>
                 </div>
               </section>
-            )}
+            ) : null}
               {appliedRowSteps.length > 0 ? (
                 <section aria-label="Applied row changes" data-testid="construction-row-operation-history" className="mt-3 grid gap-2 border-t border-slate-200 pt-2">
                   <h4 className="text-sm font-semibold text-slate-900">Applied row changes</h4>
@@ -1021,6 +1056,11 @@ export const RowDefinitionSettingsPanel = ({
                   </ol>
                 </section>
               ) : null}
+              {rowOperationEditor !== undefined ? (
+                <div data-testid="construction-row-operation-editor" className="mt-2 min-w-0 space-y-2">
+                  {rowOperationEditor}
+                </div>
+              ) : (
               <div className="mt-2 min-w-0 space-y-2">
               {settings.kind === 'editing' ? (
                 <>
@@ -1087,6 +1127,7 @@ export const RowDefinitionSettingsPanel = ({
               </div>
                   ) : null}
               </div>
+              )}
               {startingCollectionSettings ? (
                 <details data-testid="construction-starting-collection-footer" className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
                   <summary className="flex cursor-pointer flex-wrap items-center gap-x-2 text-sm font-medium text-slate-800 hover:text-blue-800">
