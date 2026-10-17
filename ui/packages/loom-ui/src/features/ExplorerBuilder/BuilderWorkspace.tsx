@@ -3882,8 +3882,6 @@ const BuilderWorkspaceContent = ({
   const workspaceEditor = operationEditor || relatedSourceStepEditor || relatedFieldStepEditor || constructionLifecycle.proposal.status !== 'idle'
     ? <>{operationEditor}{relatedSourceStepEditor}{relatedFieldStepEditor}{proposalPanel}</>
     : undefined;
-  const rowIntentEditor = rowIntentSession ? workspaceEditor : undefined;
-  const externalWorkspaceEditor = rowIntentSession ? undefined : workspaceEditor;
   const candidatePreview = constructionLifecycle.proposal.status === 'ready' ||
     constructionLifecycle.proposal.status === 'applying'
     ? constructionLifecycle.proposal.preview
@@ -3900,9 +3898,20 @@ const BuilderWorkspaceContent = ({
         },
       }
     : undefined;
-  const workspacePreview = candidatePreview ?? tablePreview;
-  const workspacePreviewIsCurrent = Boolean(candidatePreview) || previewIsCurrent;
-  const workspacePreviewStatus = candidatePreview
+  const candidatePreviewElement = candidatePreview ? (
+    <ConstructionProposalPreview
+      preview={candidatePreview}
+      presentationTable={proposalPresentationTable}
+    />
+  ) : undefined;
+  const rowIntentEditor = rowIntentSession
+    ? <>{workspaceEditor}{candidatePreviewElement}</>
+    : undefined;
+  const externalWorkspaceEditor = rowIntentSession ? undefined : workspaceEditor;
+  const workspaceCandidatePreview = rowIntentSession ? undefined : candidatePreview;
+  const workspacePreview = workspaceCandidatePreview ?? tablePreview;
+  const workspacePreviewIsCurrent = Boolean(workspaceCandidatePreview) || previewIsCurrent;
+  const workspacePreviewStatus = workspaceCandidatePreview
     ? 'ready'
     : automaticPreviewQuery.error
       ? 'error'
@@ -3913,7 +3922,8 @@ const BuilderWorkspaceContent = ({
         : constructionLifecycle.proposal.status === 'error'
           ? 'error'
           : currentPreviewStatus;
-  const workspacePreviewProposalId = candidatePreview?.receiptId ?? proposalResponse?.proposalId;
+  const workspacePreviewProposalId = workspaceCandidatePreview?.receiptId ??
+    (!rowIntentSession ? proposalResponse?.proposalId : undefined);
   const tableCreatorPanel = (
     <section className="rounded-xl border border-blue-200 bg-white px-6 py-8 shadow-sm">
       <h2 className="text-xl font-semibold text-slate-900">
@@ -4311,7 +4321,7 @@ const BuilderWorkspaceContent = ({
                 onSelectFamily={selectConstructionFamily}
                 preview={
                   <>
-                    {!candidatePreview && currentPreviewStatus === 'stale' ? (
+                    {!workspaceCandidatePreview && currentPreviewStatus === 'stale' ? (
                       <p
                         role="status"
                         data-testid="construction-preview-stale-notice"
@@ -4321,11 +4331,8 @@ const BuilderWorkspaceContent = ({
                         The table refreshes automatically when your changes are saved.
                       </p>
                     ) : null}
-                    {candidatePreview ? (
-                      <ConstructionProposalPreview
-                        preview={candidatePreview}
-                        presentationTable={proposalPresentationTable}
-                      />
+                    {workspaceCandidatePreview ? (
+                      candidatePreviewElement
                     ) : (
                       <PreviewTable
                         preview={tablePreview}
