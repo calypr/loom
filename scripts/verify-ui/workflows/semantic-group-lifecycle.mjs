@@ -483,7 +483,7 @@ export async function semanticGroupLifecycle({ page, cda }) {
         await waitNextProposalPreview(previousReceipt);
       });
     const selected = await semanticSelect.locator('option:checked').textContent();
-    assert.equal(clean(selected), matches[0].label);
+    assert.equal(clean(selected), `${matches[0].label} (selected)`);
     return matches[0];
   };
 
