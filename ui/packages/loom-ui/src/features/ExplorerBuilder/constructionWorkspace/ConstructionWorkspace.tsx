@@ -470,9 +470,10 @@ export const ConstructionHistory = ({
               <details
                 open={group.steps.some((step) => selected.kind === 'step' && selected.stepId === step.id) || undefined}
                 data-testid={`construction-history-adjustment-group-${group.firstStepId}`}
-                className="min-w-0"
+                className="group min-w-0"
               >
                 <summary className="cursor-pointer list-none rounded px-2 py-1 text-left text-xs font-medium text-slate-700 hover:bg-blue-50">
+                  <span aria-hidden="true" className="mr-1 inline-block text-slate-500 transition-transform group-open:rotate-90">▸</span>
                   Column adjustments ({group.steps.length})
                 </summary>
                 <ol className="m-0 flex list-none items-center gap-1 p-0">

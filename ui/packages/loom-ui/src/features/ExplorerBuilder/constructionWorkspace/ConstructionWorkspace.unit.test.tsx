@@ -217,11 +217,14 @@ describe('ConstructionWorkspace', () => {
     );
 
     const adjustmentGroups = screen.getAllByTestId(/^construction-history-adjustment-group-/);
-    expect(adjustmentGroups.map((group) => group.querySelector('summary')?.textContent?.trim())).toEqual([
+    expect(adjustmentGroups.map((group) => group.querySelector('summary')?.textContent?.replace('▸', '').trim())).toEqual([
       'Column adjustments (2)',
       'Column adjustments (1)',
       'Column adjustments (1)',
     ]);
+    const marker = adjustmentGroups[0]?.querySelector('summary > [aria-hidden="true"]');
+    expect(marker).toHaveTextContent('▸');
+    expect(marker).toHaveClass('group-open:rotate-90');
     expect(adjustmentGroups[0]).not.toHaveAttribute('open');
     expect(adjustmentGroups[1]).toHaveAttribute('open');
     expect(adjustmentGroups[2]).not.toHaveAttribute('open');
