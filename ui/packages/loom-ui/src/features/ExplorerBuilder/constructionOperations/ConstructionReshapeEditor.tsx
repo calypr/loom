@@ -1078,8 +1078,10 @@ const unpivotStepFromForm = (args: {
   const { stage, editingStep, form } = args;
   const inputIDs = form.inputs.map((input) => input.columnId);
   const keys = form.inputs.map((input) => scalarIdentity(input.key));
+  const scalarInputIDs = new Set(scalarColumnsFor(stage).map((column) => column.id));
   const outputs = unpivotOutputsFor(form, stage);
   if (form.inputs.length === 0 || form.inputs.some((input) => !stage.columns.some((column) => column.id === input.columnId))) return undefined;
+  if (inputIDs.some((columnId) => !scalarInputIDs.has(columnId))) return undefined;
   if (form.inputs.some((input) => input.key.kind === 'NULL' || input.key.kind === 'MISSING')) return undefined;
   if (new Set(inputIDs).size !== inputIDs.length || new Set(keys).size !== keys.length) return undefined;
   if (inputIDs.includes(form.keyOutputColumnId) || inputIDs.includes(form.valueOutputColumnId)) return undefined;
@@ -1196,6 +1198,7 @@ const initialGroupForm = (
 const initialExpandForm = (
   stage: ReshapeStage,
   editingStep?: ConstructionReshapeStep,
+  preferredColumnId?: string,
 ): ExpandForm => {
   if (editingStep?.operation.kind === 'EXPAND') {
     const operation = editingStep.operation.expand;
@@ -1221,7 +1224,8 @@ const initialExpandForm = (
       savedOutputs: editingStep.outputs,
     };
   }
-  const firstList = listColumnsFor(stage)[0];
+  const listColumns = listColumnsFor(stage);
+  const firstList = listColumns.find((column) => column.id === preferredColumnId) ?? listColumns[0];
   return {
     kind: 'expand',
     stepId: createOpaqueId('expand'),
@@ -1320,7 +1324,8 @@ const initialUnpivotForm = (
       savedOutputs: editingStep.outputs,
     };
   }
-  const initialInputs = selectedColumns.reduce<UnpivotInputForm[]>((inputs, columnId) => {
+  const scalarIDs = new Set(scalarColumnsFor(stage).map((column) => column.id));
+  const initialInputs = selectedColumns.filter((columnId) => scalarIDs.has(columnId)).reduce<UnpivotInputForm[]>((inputs, columnId) => {
     const column = stage.columns.find((candidate) => candidate.id === columnId);
     if (column) inputs.push({ columnId, key: defaultKeyForColumn(column, inputs) });
     return inputs;
@@ -1692,6 +1697,11 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     onCandidateChange(evaluation.kind === 'ready' ? evaluation.intent : undefined);
   };
 
+  const expandListColumn = (columnId: string) => {
+    if (!expandSupport.supported || !listColumnsFor(stage).some((column) => column.id === columnId)) return;
+    updateForm(initialExpandForm(stage, undefined, columnId));
+  };
+
   const chooseSourceField = (choice: SourceInputChoice) => {
     const next = initialSourceGroupForm(construction, [choice, ...sourceGroupChoices.filter((candidate) => candidate.choiceId !== choice.choiceId)]);
     if (next) updateForm(next);
@@ -1910,7 +1920,10 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           codedPivotSupported={groupCodedValuesSupported}
           supported={groupSupport.supported || groupCodedValuesSupported}
           reason={groupSupport.supported || groupCodedValuesSupported ? '' : groupSupport.reason}
+          expandSupported={expandSupport.supported && groupStage.id === stage.id}
+          expandReason={groupStage.id === stage.id ? expandSupport.reason : 'Expand is unavailable from this saved operation stage.'}
           disabled={disabled}
+          onExpandColumn={groupStage.id === stage.id ? expandListColumn : undefined}
           onChange={(next) => updateForm(next)}
         />
       ) : null}
@@ -1974,7 +1987,10 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           stage={stage}
           supported={unpivotSupport.supported}
           reason={unpivotSupport.reason}
+          expandSupported={expandSupport.supported}
+          expandReason={expandSupport.reason}
           disabled={disabled}
+          onExpandColumn={expandListColumn}
           onChange={updateForm}
         />
       ) : null}
@@ -2187,6 +2203,45 @@ const CodedGroupEditor = (props: {
   </section>
 );
 
+const ListColumnExpandChoices = (props: {
+  readonly stage: ReshapeStage;
+  readonly disabled: boolean;
+  readonly supported: boolean;
+  readonly reason: string;
+  readonly instruction: string;
+  readonly onExpandColumn?: (columnId: string) => void;
+}) => {
+  const columns = listColumnsFor(props.stage);
+  if (columns.length === 0) return null;
+
+  return (
+    <section aria-label="Use list values" data-testid="construction-reshape-list-value-choices" className="grid content-start gap-1">
+      <p className="m-0 text-xs text-slate-600">
+        <span className="font-semibold text-slate-800">Use list values.</span> {props.instruction}
+      </p>
+      <ul className="m-0 flex list-none flex-wrap gap-1 p-0">
+        {columns.map((column) => (
+          <li key={column.id}>
+            <button
+              type="button"
+              aria-label={`Expand ${column.label}`}
+              title={column.label}
+              disabled={props.disabled || !props.supported || !props.onExpandColumn}
+              onClick={() => props.onExpandColumn?.(column.id)}
+              className="rounded px-2 py-1 text-left text-sm font-medium text-blue-800 hover:bg-blue-50 disabled:text-slate-400"
+            >
+              Expand {column.label}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {!props.supported && props.reason ? (
+        <p role="status" className="m-0 text-xs text-slate-600">{props.reason}</p>
+      ) : null}
+    </section>
+  );
+};
+
 const GroupEditor = (props: {
   readonly form: GroupForm;
   readonly stage: ReshapeStage;
@@ -2194,11 +2249,13 @@ const GroupEditor = (props: {
   readonly codedPivotSupported: boolean;
   readonly supported: boolean;
   readonly reason: string;
+  readonly expandSupported: boolean;
+  readonly expandReason: string;
   readonly disabled: boolean;
+  readonly onExpandColumn?: (columnId: string) => void;
   readonly onChange: (form: GroupForm) => void;
 }) => {
   const scalarColumns = scalarColumnsFor(props.stage);
-  const listColumns = listColumnsFor(props.stage);
   const usedNames = getUsedGroupNames(props.form);
   const changeKey = (index: number, update: Partial<GroupKey>) => {
     props.onChange({
@@ -2252,11 +2309,14 @@ const GroupEditor = (props: {
               })}
             </div>
           )}
-          {listColumns.length > 0 ? (
-            <p role="status" className="m-0 text-xs text-amber-900">
-              {listColumns.length} {listColumns.length === 1 ? 'list field cannot' : 'list fields cannot'} be grouped directly. Choose “Expand a repeated value” first to group by each item.
-            </p>
-          ) : null}
+          <ListColumnExpandChoices
+            stage={props.stage}
+            disabled={props.disabled}
+            supported={props.expandSupported}
+            reason={props.expandReason}
+            instruction="Expand one first to group by its individual values or summarize numeric items."
+            onExpandColumn={props.onExpandColumn}
+          />
           {props.codedPivotSupported && props.codedPivotContext ? (
             <GroupCodedValuePicker
               context={props.codedPivotContext}
@@ -3484,10 +3544,13 @@ const UnpivotEditor = (props: {
   readonly stage: ReshapeStage;
   readonly supported: boolean;
   readonly reason: string;
+  readonly expandSupported: boolean;
+  readonly expandReason: string;
   readonly disabled: boolean;
+  readonly onExpandColumn?: (columnId: string) => void;
   readonly onChange: (form: UnpivotForm) => void;
 }) => {
-  const inputIDs = new Set(props.form.inputs.map((input) => input.columnId));
+  const listColumns = listColumnsFor(props.stage);
   const outputNamesValid = outputNamesAreValid(unpivotOutputsFor(props.form, props.stage));
   const updateInputKey = (columnId: string, key: ConstructionTableScalar) => props.onChange({
     ...props.form,
@@ -3501,7 +3564,9 @@ const UnpivotEditor = (props: {
   };
   const inputCount = props.form.inputs.length;
   const rowEffect = inputCount === 0
-    ? 'Choose columns to see how many rows each original record will create. Rows with missing values stay in the table by default.'
+    ? listColumns.length > 0
+      ? 'Choose a single-value field or expand a repeated field above to work with its values.'
+      : 'Choose columns to see how many rows each original record will create. Rows with missing values stay in the table by default.'
     : `${props.form.nullRowPolicy === 'PRESERVE' ? '' : 'Up to '}${inputCount} new ${inputCount === 1 ? 'row' : 'rows'} per original row. ${props.form.nullRowPolicy === 'PRESERVE'
       ? 'Rows with missing values stay in the table.'
       : 'Rows with missing values are left out.'}`;
@@ -3523,6 +3588,14 @@ const UnpivotEditor = (props: {
           })}
         </div>
       </fieldset>
+      <ListColumnExpandChoices
+        stage={props.stage}
+        disabled={props.disabled}
+        supported={props.expandSupported}
+        reason={props.expandReason}
+        instruction="Unpivot needs one value per row. Expand one of these fields first to work with its items."
+        onExpandColumn={props.onExpandColumn}
+      />
       <p data-testid="construction-unpivot-effect" className="m-0 text-sm text-slate-600">
         {rowEffect}
       </p>
@@ -3557,7 +3630,7 @@ const UnpivotEditor = (props: {
           </label>
         </div>
       </details>
-      {props.form.inputs.length === 0 ? <p role="status" className="text-sm text-amber-900">Choose at least one input column.</p> : null}
+      {props.form.inputs.length === 0 && listColumns.length === 0 ? <p role="status" className="text-sm text-amber-900">Choose at least one input column.</p> : null}
       {!outputNamesValid ? <p role="status" className="text-sm text-amber-900">Give every output a unique column name using letters, numbers, or underscores, and add a label.</p> : null}
     </section>
   );

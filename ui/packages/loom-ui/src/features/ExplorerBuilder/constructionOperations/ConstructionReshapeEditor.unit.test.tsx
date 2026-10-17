@@ -346,7 +346,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getAllByRole('heading', { name: 'Turn columns into rows' })).toHaveLength(1);
     expect(screen.getByTestId('construction-reshape-unpivot')).not.toHaveClass('rounded-lg');
     expect(screen.getByLabelText('Unpivot Site')).toBeInTheDocument();
-    expect(screen.getByTestId('construction-unpivot-effect')).toHaveTextContent('Choose columns to see how many rows each original record will create.');
+    expect(screen.getByTestId('construction-unpivot-effect')).toHaveTextContent('Choose a single-value field or expand a repeated field above to work with its values.');
 
     cleanup();
     const sourceChoice = {
@@ -1530,7 +1530,8 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.queryByRole('checkbox', { name: 'Group by Tags' })).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: 'Group by Details' })).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: 'Group by Unknown' })).not.toBeInTheDocument();
-    expect(screen.getByText('1 list field cannot be grouped directly. Choose “Expand a repeated value” first to group by each item.')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Use list values' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Expand Tags' })).toBeEnabled();
 
     const intent = onCandidateChange.mock.lastCall?.[0];
     expect(intent?.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
@@ -2111,6 +2112,113 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByLabelText('Unpivot Observation value')).toHaveProperty('checked', true);
     const operation = onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0]?.operation;
     expect(operation?.kind).toBe('UNPIVOT');
+  });
+
+  it('routes repeated configured fields through Expand before Unpivot or Group', () => {
+    const configuredStage = {
+      ...sourceStage,
+      id: 'source_projection',
+      operation: 'SOURCE_PROJECTION',
+      columns: [
+        { id: 'patient-id', name: 'patient_id', label: 'Patient ID', type: 'string', cardinality: 'optional_one' as const },
+        { id: 'specimen-type', name: 'specimen_type', label: 'Specimen type', type: 'string', cardinality: 'many' as const },
+        { id: 'ajcc-category', name: 'ajcc_category', label: 'AJCC pathological N category allowable value', type: 'string', cardinality: 'many' as const },
+        { id: 'coding-code', name: 'coding_code', label: 'Type Coding Code', type: 'string', cardinality: 'many' as const },
+        { id: 'identifier-value', name: 'identifier_value', label: 'Identifier Value', type: 'string', cardinality: 'many' as const },
+        { id: 'research-status', name: 'research_status', label: 'ResearchSubject status', type: 'string', cardinality: 'many' as const },
+      ],
+      capabilities: sourceStage.capabilities.map((capability) => ({
+        ...capability,
+        supported: ['GROUP', 'EXPAND', 'UNPIVOT'].includes(capability.kind),
+      })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const capabilities = capabilitiesFor([configuredStage], configuredStage);
+    const configuredColumnIDs = configuredStage.columns.map((column) => column.id);
+    const listFieldLabels = configuredStage.columns.filter((column) => column.cardinality === 'many').map((column) => column.label);
+
+    const unpivotCandidate = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    renderEditor({ capabilities, initialKind: 'unpivot', selectedColumns: configuredColumnIDs, onCandidateChange: unpivotCandidate });
+    expect(screen.getByLabelText('Unpivot Patient ID')).toHaveProperty('checked', true);
+    expect(screen.getByRole('region', { name: 'Use list values' })).toBeInTheDocument();
+    for (const label of listFieldLabels) {
+      expect(screen.getByRole('button', { name: `Expand ${label}` })).toBeInTheDocument();
+      expect(screen.queryByLabelText(`Unpivot ${label}`)).not.toBeInTheDocument();
+    }
+    const initiallyEligible = unpivotCandidate.mock.lastCall?.[0]?.candidateConstruction.steps.at(-1)?.operation;
+    if (initiallyEligible?.kind !== 'UNPIVOT') throw new Error('Expected the scalar selection to remain Unpivotable');
+    expect(initiallyEligible.unpivot.inputs.map((input) => input.columnId)).toEqual(['patient-id']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Specimen type' }));
+    expect(screen.getByTestId('construction-reshape-expand')).toBeInTheDocument();
+    expect(controlValue('Repeated field')).toBe('specimen-type');
+    const expansion = unpivotCandidate.mock.lastCall?.[0]?.candidateConstruction;
+    const expandStep = expansion?.steps.at(-1);
+    if (!expandStep || expandStep.operation.kind !== 'EXPAND') throw new Error('Expected the chosen list field to open an Expand candidate');
+    expect(expandStep.operation.expand.inputColumnId).toBe('specimen-type');
+
+    const expandedColumnID = expandStep.operation.expand.outputColumnId;
+    const expandedStage = {
+      ...configuredStage,
+      id: expandStep.id,
+      inputStageId: configuredStage.id,
+      operation: 'EXPAND',
+      columns: expandStep.outputs.map((output) => {
+        const prior = configuredStage.columns.find((column) => column.id === output.id);
+        return {
+          id: output.id,
+          name: output.name,
+          label: output.label,
+          type: output.type ?? prior?.type,
+          cardinality: output.id === expandedColumnID ? 'optional_one' as const : prior?.cardinality ?? 'optional_one' as const,
+        };
+      }),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['stages'][number];
+    cleanup();
+
+    const reopenedUnpivotCandidate = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    renderEditor({
+      construction: expansion,
+      capabilities: { ...capabilitiesFor([configuredStage, expandedStage], expandedStage), baseConstruction: expansion },
+      initialKind: 'unpivot',
+      selectedColumns: ['patient-id', expandedColumnID],
+      onCandidateChange: reopenedUnpivotCandidate,
+    });
+    expect(screen.getByLabelText('Unpivot Patient ID')).toHaveProperty('checked', true);
+    expect(screen.getByLabelText('Unpivot Specimen type item')).toHaveProperty('checked', true);
+    expect(screen.queryByLabelText('Unpivot AJCC pathological N category allowable value')).not.toBeInTheDocument();
+    const reopenedOperation = reopenedUnpivotCandidate.mock.lastCall?.[0]?.candidateConstruction.steps.at(-1)?.operation;
+    if (reopenedOperation?.kind !== 'UNPIVOT') throw new Error('Expected the expanded scalar field to be stackable');
+    expect(reopenedOperation.unpivot.inputs.map((input) => input.columnId)).toEqual(['patient-id', expandedColumnID]);
+
+    cleanup();
+    const groupCandidate = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    renderEditor({ capabilities, initialKind: 'group', onCandidateChange: groupCandidate });
+    expect(screen.getByTestId('construction-reshape-group')).toBeInTheDocument();
+    for (const label of listFieldLabels) expect(screen.getByRole('button', { name: `Expand ${label}` })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand AJCC pathological N category allowable value' }));
+    expect(screen.getByTestId('construction-reshape-expand')).toBeInTheDocument();
+    expect(controlValue('Repeated field')).toBe('ajcc-category');
+    const groupExpansion = groupCandidate.mock.lastCall?.[0]?.candidateConstruction.steps.at(-1)?.operation;
+    expect(groupExpansion).toMatchObject({ kind: 'EXPAND', expand: { inputColumnId: 'ajcc-category' } });
+  });
+
+  it('keeps a useful list-expansion action instead of a missing-input error for an empty Unpivot selection', () => {
+    const configuredStage = {
+      ...sourceStage,
+      columns: [
+        { id: 'patient-id', name: 'patient_id', label: 'Patient ID', type: 'string', cardinality: 'optional_one' as const },
+        { id: 'specimen-type', name: 'specimen_type', label: 'Specimen type', type: 'string', cardinality: 'many' as const },
+      ],
+      capabilities: sourceStage.capabilities.map((capability) => ({
+        ...capability,
+        supported: ['EXPAND', 'UNPIVOT'].includes(capability.kind),
+      })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    renderEditor({ capabilities: capabilitiesFor([configuredStage], configuredStage), initialKind: 'unpivot' });
+
+    expect(screen.getByText('Choose a single-value field or expand a repeated field above to work with its values.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Expand Specimen type' })).toBeEnabled();
+    expect(screen.queryByText('Choose at least one input column.')).not.toBeInTheDocument();
   });
 
   it('opens direct Unpivot entry and explains an unsupported stage without hiding the editor', () => {
