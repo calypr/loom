@@ -447,7 +447,11 @@ export const ConstructionHistory = ({
       <ol className="m-0 flex list-none items-center gap-1 overflow-x-auto p-0">
         <li className="shrink-0">
           {sourceControl ? (
-            <div onClickCapture={() => onSelect({ kind: 'source' })}>
+            <div onClickCapture={(event) => {
+              if (event.target instanceof Element && event.target.closest('[data-testid="construction-rows-settings-trigger"]')) {
+                onSelect({ kind: 'source' });
+              }
+            }}>
               {sourceControl}
             </div>
           ) : <button

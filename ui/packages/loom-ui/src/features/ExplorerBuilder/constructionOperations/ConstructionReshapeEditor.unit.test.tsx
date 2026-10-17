@@ -6,6 +6,7 @@ import {
   type ConstructionReshapeEditorProps,
   type ConstructionReshapeStep,
 } from './ConstructionReshapeEditor';
+import { ConstructionHistory, type ConstructionHistorySelection } from '../constructionWorkspace/ConstructionWorkspace';
 import { constructionSchema } from '../../../types';
 import { ConstructionReshapeEditor, createReshapeEditorEntry, publicScalarListColumnIds } from './ConstructionReshapeEditor';
 
@@ -212,6 +213,105 @@ describe('ConstructionReshapeEditor', () => {
       kind: 'GROUP',
       group: { keys: [], aggregates: [{ operation: 'COUNT_ROWS' }] },
     });
+  });
+
+  it('keeps a Group editor mounted through a scalar key click and follows with the semantic proposal', () => {
+    const stage = {
+      ...sourceStage,
+      columns: [{
+        id: 'subject-reference-id',
+        name: 'subject_reference',
+        label: 'Subject reference',
+        type: 'string',
+        cardinality: 'required_one' as const,
+      }],
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const baseCapabilities = capabilitiesFor([stage], stage);
+    const capabilities: ConstructionReshapeEditorProps['capabilities'] = {
+      ...baseCapabilities,
+      semanticGroupChoices: [{
+        choiceId: 'specimen-type-choice',
+        bindingId: 'specimen-type-binding',
+        ruleVersion: 'rule-v1',
+        label: 'Specimen type',
+        scopeLabel: 'retained records · Specimen.type.coding[] · urn:example:specimen-type · versionless',
+        resourceType: 'Specimen',
+        sourcePath: 'type.coding',
+      }],
+      semanticGroupChoicesIncomplete: false,
+    };
+    const entry = createReshapeEditorEntry({
+      construction: capabilities.baseConstruction,
+      capabilities,
+      kind: 'group',
+      selectedColumns: [],
+    });
+    expect(entry).toBeDefined();
+    if (!entry || entry.form.kind !== 'group') throw new Error('Expected an empty-key Group entry');
+    expect(entry.candidateIntent.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
+      kind: 'GROUP',
+      group: { keys: [], aggregates: [{ operation: 'COUNT_ROWS' }] },
+    });
+
+    const onCandidateChange = vi.fn();
+    const onHistorySelect = vi.fn<(selection: ConstructionHistorySelection) => void>();
+    const RowIntentHost = () => {
+      const [editorOpen, setEditorOpen] = React.useState(true);
+      return editorOpen ? (
+        <ConstructionHistory
+          resourceType="Specimen"
+          steps={[]}
+          selected={{ kind: 'source' }}
+          onSelect={(selection) => {
+            onHistorySelect(selection);
+            if (selection.kind === 'source') setEditorOpen(false);
+          }}
+          sourceControl={(
+            <div>
+              <button type="button" data-testid="construction-rows-settings-trigger">Change current rows</button>
+              <ConstructionReshapeEditor
+                construction={capabilities.baseConstruction}
+                capabilities={capabilities}
+                initialKind="group"
+                initialEntry={entry}
+                disabled={false}
+                onCandidateChange={onCandidateChange}
+                onEditStep={vi.fn()}
+              />
+            </div>
+          )}
+        />
+      ) : <p data-testid="row-intent-closed">Source row settings selected</p>;
+    };
+
+    render(<RowIntentHost />);
+    expect(onCandidateChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Group by Subject reference' }));
+
+    expect(screen.getByTestId('construction-reshape-editor')).toBeInTheDocument();
+    expect(controlChecked('Group by Subject reference')).toBe(true);
+    expect(onHistorySelect).not.toHaveBeenCalled();
+    expect(onCandidateChange).toHaveBeenCalledOnce();
+    const scalarIntent = onCandidateChange.mock.lastCall?.[0];
+    expect(scalarIntent?.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
+      kind: 'GROUP',
+      group: { keys: [{ inputColumnId: 'subject-reference-id' }] },
+    });
+
+    fireEvent.change(screen.getByLabelText('Semantic category field'), { target: { value: 'choice:specimen-type-choice' } });
+    expect(onCandidateChange).toHaveBeenCalledTimes(2);
+    const semanticIntent = onCandidateChange.mock.lastCall?.[0];
+    expect(semanticIntent?.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
+      kind: 'GROUP',
+      group: {
+        keys: [
+          { inputColumnId: 'subject-reference-id' },
+          { semanticCategory: { kind: 'CHOICE', choiceId: 'specimen-type-choice' } },
+        ],
+      },
+    });
+    expect(semanticIntent?.candidateConstruction.steps.some((step) => step.operation.kind === 'CODED_PIVOT')).toBe(false);
   });
 
   it('adds one semantic category field to an ordinary GROUP alongside scalar keys', () => {
