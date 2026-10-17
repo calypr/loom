@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -567,6 +570,297 @@ func TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute(t *testing.T) {
 		proposal.CandidateConstruction.Steps[0].Operation.RelatedExpand.ChoiceId != choice.ChoiceId ||
 		proposal.CandidateConstruction.Steps[0].Operation.RelatedExpand.RelatedRecordColumnId != "observation_id" {
 		t.Fatalf("strict proposal contract did not preserve RELATED_EXPAND payload: %#v", proposal.CandidateConstruction)
+	}
+}
+
+func TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata(t *testing.T) {
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	snapshot := testAuthoringV2CapabilitySnapshot()
+	snapshot.Nodes = []capability.Node{{
+		ID: "n_specimen", ResourceType: "Specimen", RowRootEligible: true, RowGrain: "RESOURCE", Populated: true, DocumentCount: 12,
+	}}
+	snapshot.Edges = nil
+	snapshot.Candidates = []capability.Candidate{
+		{
+			ID: "c_specimen_id", NodeID: "n_specimen", ResourceType: "Specimen", FieldPath: "id", Label: "Specimen ID",
+			LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+			SupportedOperations: []capability.Operation{capability.OperationSelect}, Observed: true, Populated: true,
+		},
+		{
+			ID: "c_specimen_subject", NodeID: "n_specimen", ResourceType: "Specimen", FieldPath: "subject.reference", Label: "Subject reference",
+			LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+			SupportedOperations: []capability.Operation{capability.OperationSelect}, Observed: true, Populated: true,
+		},
+		{
+			ID: "c_specimen_type_display", NodeID: "n_specimen", ResourceType: "Specimen", FieldPath: "type.coding[].display", Label: "Specimen type display",
+			LogicalType: "string", Cardinality: "many", RepeatedBoundaries: []capability.RepeatedBoundary{{Path: "type.coding[]", MaxItems: 8}},
+			ProjectionModes: []capability.ProjectionMode{capability.ProjectionFirst, capability.ProjectionArray},
+		},
+		{
+			ID: "c_specimen_type_code", NodeID: "n_specimen", ResourceType: "Specimen", FieldPath: "type.coding[].code", Label: "Specimen type code",
+			LogicalType: "string", Cardinality: "many", RepeatedBoundaries: []capability.RepeatedBoundary{{Path: "type.coding[]", MaxItems: 8}},
+			ProjectionModes: []capability.ProjectionMode{capability.ProjectionFirst, capability.ProjectionArray},
+		},
+	}
+
+	familyReference := catalog.SemanticInventoryFamilyReference{
+		BindingID: "binding_specimen_type", SourceKind: catalog.SemanticInventorySourceRetained,
+		ResourceType: "Specimen", SourcePath: "Specimen.type.coding[]", System: "urn:example:specimen-type",
+	}
+	familyReference.FamilyID = catalog.SemanticInventoryFamilyID(familyReference)
+	family := catalog.SemanticInventoryFamily{
+		SemanticInventoryFamilyReference: familyReference,
+		Source:                           catalog.SemanticObservationSource{Type: "Specimen", Path: "Specimen.type.coding[]"},
+		KeySelector:                      "type.coding[]",
+		Value: catalog.SemanticObservationValue{
+			Selector: "type.coding[].display", Type: "string",
+			FallbackSelectors: []string{"type.coding[].code"}, FallbackOnBlankString: true,
+		},
+		LogicalType: "string", SchemaVersion: catalog.SemanticObservationSchemaVersion,
+		RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion), Completeness: catalog.SemanticComplete,
+		Status: "SUPPORTED", Population: 12,
+	}
+	buildID := catalog.SemanticInventoryBuildID("project-a", "generation-a")
+
+	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace.Documents[0].RootResourceType = "Specimen"
+	workspace.Documents[0].Route = authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Specimen"}
+	workspace.Documents[0].Output = authoringv2.Output{ID: "specimens", Title: "Specimens", RowLabel: "Specimens"}
+	workspace.Documents[0].Columns = []authoringv2.Column{
+		{Column: "specimen_id", Label: "Specimen ID", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
+			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}},
+		{Column: "subject_reference", Label: "Subject reference", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
+			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "subject.reference", ProjectionMode: "VALUE"}}},
+	}
+	workspace.Tabs[0].OutputID = "specimens"
+	workspace.Tabs[0].Title = "Specimens"
+	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace.Documents[0] = document
+	catalogSnapshot := authoringV2Catalog(snapshot, "specimen-explorer")
+	workspace, err = authoringv2.MigrateLegacyContributors(workspace, catalogSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace = authoringv2.MigrateLosslessDefaults(workspace, catalogSnapshot).NormalizePresentationOrders()
+	if err := workspace.Validate(); err != nil {
+		t.Fatalf("validate semantic Group source workspace: %v", err)
+	}
+	draft, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newTestExplorerStore()
+	if _, err := store.create(explorer.Explorer{
+		Project: "project-a", ExplorerID: "specimen-explorer", Title: "Specimens",
+		DraftConfig: draft, DraftVersion: 1, DraftDigest: digest,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service, err := explorer.NewService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
+		Registry:  compilerTestRegistry{},
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previewCalls := 0
+	var previewContractErr error
+	var resolvedFamilyReferences []catalog.SemanticInventoryFamilyReference
+	config := lifecycle.Config{
+		Capability: lifecycle.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
+				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+			},
+			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
+				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+			},
+			Catalog: authoringV2Catalog,
+		},
+		SemanticInventory: func(context.Context, catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error) {
+			return catalog.SemanticInventoryPage{
+				State:    catalog.SemanticInventoryComplete,
+				Build:    catalog.SemanticInventoryBuild{BuildID: buildID, State: catalog.SemanticInventoryComplete},
+				Families: []catalog.SemanticInventoryFamily{family},
+			}, nil
+		},
+		ResolveSemanticInventorySelections: func(_ context.Context, options catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error) {
+			resolvedFamilyReferences = append([]catalog.SemanticInventoryFamilyReference(nil), options.FamilyReferences...)
+			return catalog.SemanticInventoryResolveResult{
+				State:    catalog.SemanticInventoryComplete,
+				Build:    catalog.SemanticInventoryBuild{BuildID: buildID, State: catalog.SemanticInventoryComplete},
+				Families: []catalog.SemanticInventoryFamily{family},
+			}, nil
+		},
+		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)
+		},
+		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+			previewCalls++
+			if receipt == nil || receipt.ConstructionProposal == nil || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "specimens" {
+				previewContractErr = fmt.Errorf("semantic Group proposal did not reach compiled preview: receipt=%#v bindings=%#v", receipt, bindings)
+				return dataframeexecution.PreviewSummary{}, previewContractErr
+			}
+			if err := visit(map[string]any{"specimen_id": "specimen-1", "subject_reference": "Patient/patient-1", "specimen_type": "Tissue", "row_count": 1}); err != nil {
+				return dataframeexecution.PreviewSummary{}, err
+			}
+			return dataframeexecution.PreviewSummary{
+				Output: "specimens", Columns: []string{"specimen_id", "subject_reference", "specimen_type", "row_count"},
+				RowCount: 1, Complete: true, PartialValidation: true,
+			}, nil
+		},
+	}
+	app := fiber.New()
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	basePath := "/api/v1/projects/project-a/explorers/specimen-explorer/authoring/v2"
+	capabilitiesResponse := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"specimens","stageId":"source_projection"}`,
+		snapshot.Token, digest,
+	))
+	if capabilitiesResponse.StatusCode != http.StatusOK {
+		t.Fatalf("semantic Group capabilities status=%d body=%s", capabilitiesResponse.StatusCode, capabilitiesResponse.Body)
+	}
+	var capabilities struct {
+		SemanticGroupChoices []struct {
+			ChoiceID string `json:"choiceId"`
+		} `json:"semanticGroupChoices"`
+	}
+	if err := json.Unmarshal([]byte(capabilitiesResponse.Body), &capabilities); err != nil {
+		t.Fatal(err)
+	}
+	if len(capabilities.SemanticGroupChoices) != 1 || capabilities.SemanticGroupChoices[0].ChoiceID == "" {
+		t.Fatalf("semantic Group capability choice = %#v, want one current family choice", capabilities.SemanticGroupChoices)
+	}
+
+	stepID := "semantic_group"
+	var subjectColumnID string
+	for _, column := range document.Columns {
+		if column.Column == "subject_reference" {
+			subjectColumnID = column.ColumnID
+		}
+	}
+	if subjectColumnID == "" {
+		t.Fatal("source workspace did not retain a stable Subject reference column ID")
+	}
+	candidate := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+		{
+			ID: stepID, Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
+				ConstructionID: stepID, MissingKeyPolicy: authoringv2.ConstructionGroupMissingKeyGroup,
+				Keys: []authoringv2.ConstructionGroupKey{
+					{InputColumnID: subjectColumnID, OutputColumnID: "subject_reference_group"},
+					{OutputColumnID: "specimen_type_group", SemanticCategory: &authoringv2.ConstructionGroupSemanticCategory{Kind: "CHOICE", ChoiceID: capabilities.SemanticGroupChoices[0].ChoiceID}},
+				},
+				Aggregates: []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: "row_count"}},
+			}},
+			Outputs: []authoringv2.StageColumn{
+				{ID: "subject_reference_group", Name: "subject_reference_group", Label: "Subject reference", Type: "string"},
+				{ID: "specimen_type_group", Name: "specimen_type_group", Label: "Specimen type", Type: "string"},
+				{ID: "row_count", Name: "row_count", Label: "Count", Type: "integer"},
+			},
+		},
+	}}
+	candidateJSON, err := json.Marshal(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposalResponse := requestJSON(t, app, http.MethodPost, basePath+"/construction-proposals", fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"specimens","changedStepId":%q,"candidateConstruction":%s,"limit":100}`,
+		snapshot.Token, digest, stepID, candidateJSON,
+	))
+	if proposalResponse.StatusCode != http.StatusOK {
+		t.Fatalf("semantic Group proposal status=%d body=%s", proposalResponse.StatusCode, proposalResponse.Body)
+	}
+	if len(resolvedFamilyReferences) != 1 {
+		t.Fatalf("semantic Group proposal resolved unexpected inventory families: %#v", resolvedFamilyReferences)
+	}
+	resolvedFamily := resolvedFamilyReferences[0]
+	if resolvedFamily.FamilyID != familyReference.FamilyID || resolvedFamily.BindingID != familyReference.BindingID ||
+		resolvedFamily.SourceKind != familyReference.SourceKind || resolvedFamily.ResourceType != familyReference.ResourceType ||
+		resolvedFamily.System != familyReference.System || resolvedFamily.Version != familyReference.Version {
+		t.Fatalf("semantic Group proposal resolved unexpected inventory family: got %#v want stable scope %#v", resolvedFamily, familyReference)
+	}
+	var proposal loomapi.ConstructionProposalResponse
+	if err := json.Unmarshal([]byte(proposalResponse.Body), &proposal); err != nil {
+		t.Fatal(err)
+	}
+	if proposal.ProposalId == nil || proposal.PreviewStatus != "READY" || proposal.Preview == nil || proposal.Preview.RowCount != 1 || previewCalls != 1 || previewContractErr != nil {
+		t.Fatalf("semantic Group proposal did not complete compiled preview: response=%#v previewCalls=%d previewErr=%v", proposal, previewCalls, previewContractErr)
+	}
+	if len(proposal.CandidateConstruction.Steps) != 1 || proposal.CandidateConstruction.Steps[0].Operation.Group == nil ||
+		proposal.CandidateConstruction.Steps[0].Operation.Group.Keys == nil ||
+		len(*proposal.CandidateConstruction.Steps[0].Operation.Group.Keys) != 2 ||
+		(*proposal.CandidateConstruction.Steps[0].Operation.Group.Keys)[1].SemanticCategory == nil ||
+		(*proposal.CandidateConstruction.Steps[0].Operation.Group.Keys)[1].SemanticCategory.Kind != "BINDING" ||
+		((*proposal.CandidateConstruction.Steps[0].Operation.Group.Keys)[1].SemanticCategory.FamilyId == nil ||
+			*(*proposal.CandidateConstruction.Steps[0].Operation.Group.Keys)[1].SemanticCategory.FamilyId != family.FamilyID) {
+		t.Fatalf("semantic Group proposal did not retain exact server-resolved binding: %#v", proposal.CandidateConstruction)
+	}
+}
+
+func TestAuthoredSemanticGroupOutputCanBeRemovedByDownstreamUnpivot(t *testing.T) {
+	semanticPath := "construction_semantic_group:binding_specimen_type:family_specimen_type"
+	measureName := "specimen_type"
+	category := &authoringv2.ConstructionGroupSemanticCategory{
+		Kind: "BINDING", BindingID: "binding_specimen_type", FamilyID: "family_specimen_type",
+		ResourceType: "Specimen", CodingPath: "type.coding[]",
+	}
+	document := authoringv2.Document{
+		Output:  authoringv2.Output{ID: "specimens"},
+		Columns: []authoringv2.Column{{Column: "subject_reference", ColumnID: "source_subject_reference"}},
+		Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+			{
+				ID: "semantic_group",
+				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
+					ConstructionID: "semantic_group", MissingKeyPolicy: authoringv2.ConstructionGroupMissingKeyGroup,
+					Keys:       []authoringv2.ConstructionGroupKey{{OutputColumnID: "specimen_type_group", SemanticCategory: category}},
+					Aggregates: []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: "row_count"}},
+				}},
+				Outputs: []authoringv2.StageColumn{
+					{ID: "specimen_type_group", Name: "specimen_type_group", Label: "Specimen type", Type: "string"},
+					{ID: "row_count", Name: "row_count", Label: "Count", Type: "integer"},
+				},
+			},
+			{
+				ID: "unpivot_semantic_key", Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationUnpivot, Unpivot: &authoringv2.ConstructionUnpivot{
+					ConstructionID:    "unpivot_semantic_key",
+					Inputs:            []authoringv2.ConstructionUnpivotInput{{ColumnID: "specimen_type_group", Key: authoringv2.TableScalar{Kind: authoringv2.TableScalarString, String: &measureName}}},
+					KeyOutputColumnID: "measure_key", ValueOutputColumnID: "measure_value", NullRowPolicy: authoringv2.ConstructionUnpivotPreserve,
+				}},
+				Outputs: []authoringv2.StageColumn{
+					{ID: "row_count", Name: "row_count", Label: "Count", Type: "integer"},
+					{ID: "measure_key", Name: "measure", Label: "Measure", Type: "string"},
+					{ID: "measure_value", Name: "measure_value", Label: "Measure value", Type: "string"},
+				},
+			},
+		}},
+	}
+	compiled := lower.CompiledRecipeOutput{
+		OutputSchema: []lower.CompiledOutputColumn{
+			{ID: "row_count", Name: "row_count", Kind: "integer", Cardinality: "required_one"},
+			{ID: "measure_key", Name: "measure", Kind: "string", Cardinality: "required_one"},
+			{ID: "measure_value", Name: "measure_value", Kind: "string", Cardinality: "required_one"},
+		},
+		Stages: []lower.CompiledStageDescriptor{
+			{ID: "semantic_group", Operation: "GROUP", Columns: []lower.CompiledOutputColumn{{ID: "specimen_type_group", Name: "specimen_type_group", SemanticPath: semanticPath}}},
+			{ID: "unpivot_semantic_key", Operation: "UNPIVOT"},
+		},
+	}
+	if err := authoredConstructionOutputsWithCombineInputs(document, map[string]authoredOutputColumn{}, compiled, nil); err != nil {
+		t.Fatalf("reconcile semantic Group key removed by downstream UNPIVOT: %v", err)
 	}
 }
 

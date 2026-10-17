@@ -655,6 +655,42 @@ func authoredConstructionOutputsWithCombineInputs(
 				LossReasons:           []string{"TABLE_SHAPE_GROUP_CHANGES_ROW_GRAIN"},
 			}
 			for _, key := range group.Keys {
+				if key.SemanticCategory != nil {
+					category := key.SemanticCategory
+					if category.Kind != "BINDING" || strings.TrimSpace(category.BindingID) == "" ||
+						strings.TrimSpace(category.FamilyID) == "" || strings.TrimSpace(category.ResourceType) == "" ||
+						strings.TrimSpace(category.CodingPath) == "" {
+						return fmt.Errorf("step %q semantic Group output %q has no resolved binding identity", step.ID, key.OutputColumnID)
+					}
+					var compiledKey *lower.CompiledOutputColumn
+					for stageIndex := range compiledOutput.Stages {
+						stage := &compiledOutput.Stages[stageIndex]
+						if stage.ID != step.ID || stage.Operation != string(step.Operation.Kind) {
+							continue
+						}
+						for columnIndex := range stage.Columns {
+							column := &stage.Columns[columnIndex]
+							if column.ID == key.OutputColumnID {
+								if compiledKey != nil {
+									return fmt.Errorf("step %q semantic Group output %q has duplicate compiled schema identities", step.ID, key.OutputColumnID)
+								}
+								compiledKey = column
+							}
+						}
+					}
+					wantSemanticPath := "construction_semantic_group:" + category.BindingID + ":" + category.FamilyID
+					if compiledKey == nil || compiledKey.SemanticPath != wantSemanticPath {
+						return fmt.Errorf("step %q semantic Group output %q does not match its compiled binding metadata", step.ID, key.OutputColumnID)
+					}
+					if err := addOutput(key.OutputColumnID, group.ConstructionID, nil, quality); err != nil {
+						return err
+					}
+					metadata := nextAuthored[compiledKey.Name]
+					metadata.SourceResourceType = category.ResourceType
+					metadata.SourcePath = category.CodingPath
+					nextAuthored[compiledKey.Name] = metadata
+					continue
+				}
 				if err := addOutput(key.OutputColumnID, group.ConstructionID, []string{key.InputColumnID}, quality); err != nil {
 					return err
 				}
