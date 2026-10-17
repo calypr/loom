@@ -169,12 +169,16 @@ func (r *physicalPlanRenderer) renderUnnest(unnest ir.PhysicalUnnest, indent str
 	if parentVariable != unnest.Owner.OwnerVariable {
 		return nil, fmt.Errorf("unnest route terminates at %q, not owner %q", parentVariable, unnest.Owner.OwnerVariable)
 	}
+	rawSourceVariable := r.newInternalVariable(fmt.Sprintf("unnest_raw_source_%d", ordinal))
 	sourceVariable := r.newInternalVariable(fmt.Sprintf("unnest_source_%d", ordinal))
 	// Selector extraction preserves one array layer per repeated path. UNNEST
 	// consumes the resulting collection, so flatten exactly one layer here;
 	// otherwise a source such as root.member[] becomes [member[]] and emits one
 	// row per parent rather than one row per member.
-	lines = append(lines, fmt.Sprintf("%sLET %s = (%s == null ? [] : FLATTEN(%s))", baseIndent, sourceVariable, source, source))
+	lines = append(lines,
+		fmt.Sprintf("%sLET %s = %s", baseIndent, rawSourceVariable, source),
+		fmt.Sprintf("%sLET %s = (%s == null ? [] : FLATTEN(%s))", baseIndent, sourceVariable, rawSourceVariable, rawSourceVariable),
+	)
 	if unnest.EmptyPolicy == ir.PhysicalUnnestError {
 		errorBindKey := fmt.Sprintf("unnest_error_occurrence_%d", ordinal)
 		occurrenceID := unnest.Owner.OccurrenceID

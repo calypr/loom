@@ -17,7 +17,8 @@ func TestRenderPhysicalPlanExcludeUnnestUsesCanonicalCorrelatedLoop(t *testing.T
 		t.Fatalf("RenderPhysicalPlan() error = %v", err)
 	}
 	for _, want := range []string{
-		"LET __loom_physical_unnest_source_0 = (root.payload.identifier == null ? [] : FLATTEN(root.payload.identifier))",
+		"LET __loom_physical_unnest_raw_source_0 = root.payload.identifier",
+		"LET __loom_physical_unnest_source_0 = (__loom_physical_unnest_raw_source_0 == null ? [] : FLATTEN(__loom_physical_unnest_raw_source_0))",
 		"FOR __loom_physical_unnest_index_0 IN (LENGTH(__loom_physical_unnest_source_0) == 0 ? [] : RANGE(0, LENGTH(__loom_physical_unnest_source_0) - 1))",
 		"LET item = __loom_physical_unnest_index_0 == null ? null : __loom_physical_unnest_source_0[__loom_physical_unnest_index_0]",
 		"LET has_item = __loom_physical_unnest_index_0 != null",
@@ -26,6 +27,9 @@ func TestRenderPhysicalPlanExcludeUnnestUsesCanonicalCorrelatedLoop(t *testing.T
 		if !strings.Contains(rendered.Query, want) {
 			t.Fatalf("inner unnest query missing %q:\n%s", want, rendered.Query)
 		}
+	}
+	if got := strings.Count(rendered.Query, "root.payload.identifier"); got != 1 {
+		t.Fatalf("unnest source expression was emitted %d times, want once:\n%s", got, rendered.Query)
 	}
 	if strings.Contains(rendered.Query, "[null] : RANGE") {
 		t.Fatalf("INNER unnest emitted an OUTER sentinel:\n%s", rendered.Query)
