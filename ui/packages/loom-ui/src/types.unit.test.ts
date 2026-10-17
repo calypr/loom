@@ -11,6 +11,7 @@ import {
   constructionCapabilitiesResponseSchema,
   constructionInputsRequestSchema,
   constructionInputsResponseSchema,
+  constructionProposalResponseSchema,
   constructionSchema,
   explorerBuilderCandidateSchema,
   explorerBuilderCatalogEdgeSchema,
@@ -463,6 +464,72 @@ describe('staged construction contract', () => {
         },
       }],
     }).success).toBe(false);
+  });
+
+  it('normalizes omitted semantic Group binding versions in proposal responses', () => {
+    const semanticCategory = {
+      kind: 'BINDING',
+      bindingId: 'specimen-type-binding',
+      ruleVersion: 'rule-v1',
+      familyId: 'specimen-type-family',
+      sourceKind: 'retained_vertex',
+      system: 'urn:example:specimen-type',
+      resourceType: 'Specimen',
+      codingPath: 'type.coding[]',
+    } as const;
+    const response = {
+      proposalId: 'proposal-versionless-semantic-group',
+      outputId: 'specimens',
+      snapshotToken: 'snapshot-1',
+      draftVersion: 1,
+      draftDigest: 'draft-1',
+      baseDocumentDigest: 'document-1',
+      candidateWorkspaceDigest: 'workspace-1',
+      changedStepId: 'group-specimens',
+      candidateConstruction: {
+        version: 1,
+        steps: [{
+          id: 'group-specimens',
+          inputs: [{ kind: 'SOURCE_PROJECTION' }],
+          operation: {
+            kind: 'GROUP',
+            group: {
+              constructionId: 'group-specimens',
+              keys: [
+                { inputColumnId: 'subject-id', outputColumnId: 'grouped-subject' },
+                { semanticCategory, outputColumnId: 'specimen-type' },
+              ],
+              aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: 'row-count' }],
+            },
+          },
+          outputs: [
+            { id: 'grouped-subject', name: 'subject', label: 'Subject' },
+            { id: 'specimen-type', name: 'specimen_type', label: 'Specimen type' },
+            { id: 'row-count', name: 'row_count', label: 'Row count' },
+          ],
+        }],
+      },
+      dependencyImpact: { changedStepId: 'group-specimens', affectedStepIds: [] },
+      stages: [{
+        id: 'source_projection',
+        inputStageId: '',
+        columns: [],
+        capabilities: [{ kind: 'GROUP', supported: true }],
+      }],
+      previewStatus: 'READY',
+      previewDurationMs: 0,
+    } as const;
+
+    const parsed = constructionProposalResponseSchema.parse(response);
+    const operation = parsed.candidateConstruction.steps[0]?.operation;
+    if (operation?.kind !== 'GROUP') throw new Error('Expected a semantic Group proposal response');
+    expect(operation.group.keys).toEqual([
+      { inputColumnId: 'subject-id', outputColumnId: 'grouped-subject' },
+      {
+        semanticCategory: { ...semanticCategory, version: '' },
+        outputColumnId: 'specimen-type',
+      },
+    ]);
   });
 
   it('parses pinned Combine operations and optional output nullability', () => {

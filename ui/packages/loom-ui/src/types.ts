@@ -65,7 +65,7 @@ const constructionGroupSemanticCategorySchema = z.discriminatedUnion('kind', [
     familyId: opaqueIdSchema,
     sourceKind: z.enum(['file', 'retained_vertex']),
     system: z.string().min(1),
-    version: z.string(),
+    version: z.string().default(''),
     resourceType: opaqueIdSchema,
     codingPath: opaqueIdSchema,
   }).strict(),
