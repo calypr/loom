@@ -58,7 +58,7 @@ const formatStep = (
       const outputSummary = outputs.length > 3 ? `${outputs.length} columns` : outputs.join(', ') || 'columns';
       return {
         id: step.id,
-        title: 'Pivot',
+        title: `Pivot ${columnLabel(pivot.categoryColumnId)} from ${columnLabel(pivot.valueColumnId)}`,
         summary: `Group by ${groupKeys}; use ${columnLabel(pivot.categoryColumnId)} to create ${outputSummary} from ${columnLabel(pivot.valueColumnId)}.`,
         editable: true,
       };
@@ -128,13 +128,16 @@ const formatStep = (
     }
     case 'UNPIVOT': {
       const unpivot = step.operation.unpivot;
-      const inputs = unpivot.inputs.map(({ columnId, key }) => `${columnLabel(columnId)} as ${scalarLabel(key)}`);
+      const inputs = unpivot.inputs.map(({ columnId, key }) => ({
+        label: columnLabel(columnId),
+        key: scalarLabel(key),
+      }));
       const keyOutput = step.outputs.find((column) => column.id === unpivot.keyOutputColumnId)?.label ?? 'key';
       const valueOutput = step.outputs.find((column) => column.id === unpivot.valueOutputColumnId)?.label ?? 'value';
       return {
         id: step.id,
-        title: 'Unpivot',
-        summary: `Turn ${inputs.join(', ')} into ${keyOutput} and ${valueOutput}.`,
+        title: `Unpivot ${inputs.map(({ label }) => label).join(', ') || 'selected columns'}`,
+        summary: `Turn ${inputs.map(({ label, key }) => `${label} as ${key}`).join(', ')} into ${keyOutput} and ${valueOutput}.`,
         editable: true,
       };
     }
@@ -188,7 +191,7 @@ const formatStep = (
       const policy = expand.emptyPolicy ? ` Empty lists: ${expand.emptyPolicy.toLowerCase().replaceAll('_', ' ')}.` : '';
       return {
         id: step.id,
-        title: 'Expand',
+        title: `Expand ${input}`,
         summary: `Expand ${input} into rows with ${output}${ordinal} columns.${policy}`,
         editable: true,
       };
@@ -224,7 +227,7 @@ const formatStep = (
           : `Add all matching values from ${source}`;
       return {
         id: step.id,
-        title: 'Related source',
+        title: `Related ${related.source.resourceType}`,
         summary: `${action}${route}${contributorCondition(related.contributorRule.predicate, related.source.path)} as ${output}.`,
         editable: true,
       };
@@ -239,7 +242,7 @@ const formatStep = (
           : 'omit parents without a match';
       return {
         id: step.id,
-        title: 'Expand related records',
+        title: `Rows from ${expansion.targetResourceType}`,
         summary: `One row per distinct ${expansion.targetResourceType} via ${path}${contributorCondition(expansion.contributorRule.predicate, expansion.contributorSource?.path ?? 'the selected field')}; ${empty}.`,
         editable: true,
       };

@@ -411,7 +411,7 @@ export const ConstructionHistory = ({
                     : 'bg-transparent text-slate-700 hover:bg-blue-50 hover:text-slate-950'
                 }`}
               >
-                <span className="font-medium">{step.title}</span>
+                <span className="block max-w-48 truncate font-medium">{step.title}</span>
                 {selected.kind === 'step' && selected.stepId === step.id ? <span className="sr-only">{step.summary}</span> : null}
               </button>
               {selected.kind === 'step' && selected.stepId === step.id && ((onEditStep && step.editable) || onRemoveStep) ? (

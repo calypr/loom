@@ -114,6 +114,9 @@ describe('ConstructionWorkspace', () => {
 
     expect(constructionRowMeaning('One row per Observation record.', related, []))
       .toBe('For each Observation, one row per matching MedicationAdministration through the same Patient; existing row fields repeat on each match; keep one Observation row with an empty MedicationAdministration FHIR resource ID when no match exists.');
+    expect(constructionHistorySteps(related, [])).toMatchObject([
+      { id: 'related-medication-administration', title: 'Rows from MedicationAdministration' },
+    ]);
 
     const originalStep = related.steps[0]!;
     if (originalStep.operation.kind !== 'RELATED_EXPAND') throw new Error('Expected a related expansion');
@@ -493,9 +496,95 @@ describe('ConstructionWorkspace', () => {
         }],
       };
       expect(constructionHistorySteps(construction, [])).toEqual([
-        { id: 'related-observation', title: 'Related source', summary, editable: true },
+        { id: 'related-observation', title: 'Related Observation', summary, editable: true },
       ]);
     }
+  });
+
+  it('labels saved expansions from their exact chained input columns', () => {
+    const longFieldLabel = 'American Joint Committee on Cancer pathological N category allowable value';
+    const construction: Construction = {
+      version: 1,
+      steps: [
+        {
+          id: 'related-research-subject',
+          inputs: [{ kind: 'SOURCE_PROJECTION' }],
+          operation: {
+            kind: 'RELATED_SOURCE',
+            relatedSource: {
+              anchorColumnId: 'specimen-id',
+              choiceId: 'research-subject-status',
+              sourceOccurrenceId: 'research-subject',
+              source: {
+                kind: 'FIELD', candidateId: 'research-subject-status', nodeId: 'research-subject',
+                resourceType: 'ResearchSubject', path: 'status', cardinality: 'optional_one', logicalType: 'string',
+              },
+              route: [],
+              contributorRule: { policy: 'ALL_MATCHES' },
+              form: 'ALL',
+              outputColumnId: 'type-coding-code',
+            },
+          },
+          outputs: [{ id: 'type-coding-code', name: 'type_coding_code', label: 'Type Coding Code' }],
+        },
+        {
+          id: 'expand-type-coding-code',
+          inputs: [{ kind: 'STEP_OUTPUT', stepId: 'related-research-subject' }],
+          operation: { kind: 'EXPAND', expand: {
+            constructionId: 'expand-type-coding-code', inputColumnId: 'type-coding-code', outputColumnId: 'allowed-value',
+          } },
+          outputs: [{ id: 'allowed-value', name: 'allowed_value', label: longFieldLabel }],
+        },
+        {
+          id: 'expand-allowed-value',
+          inputs: [{ kind: 'STEP_OUTPUT', stepId: 'expand-type-coding-code' }],
+          operation: { kind: 'EXPAND', expand: {
+            constructionId: 'expand-allowed-value', inputColumnId: 'allowed-value', outputColumnId: 'identifier-value',
+          } },
+          outputs: [{ id: 'identifier-value', name: 'identifier_value', label: 'Identifier Value' }],
+        },
+        {
+          id: 'expand-identifier-value',
+          inputs: [{ kind: 'STEP_OUTPUT', stepId: 'expand-allowed-value' }],
+          operation: { kind: 'EXPAND', expand: {
+            constructionId: 'expand-identifier-value', inputColumnId: 'identifier-value', outputColumnId: 'identifier',
+          } },
+          outputs: [{ id: 'identifier', name: 'identifier', label: 'Identifier' }],
+        },
+      ],
+    };
+    const steps = constructionHistorySteps(construction, []);
+    const expectedTitles = [
+      'Related ResearchSubject',
+      'Expand Type Coding Code',
+      `Expand ${longFieldLabel}`,
+      'Expand Identifier Value',
+    ];
+
+    expect(steps.map(({ title }) => title)).toEqual(expectedTitles);
+    expect(new Set(expectedTitles.slice(1)).size).toBe(3);
+
+    render(
+      <ConstructionHistory
+        resourceType="Specimen"
+        steps={steps}
+        selected={{ kind: 'source' }}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    for (const step of steps) {
+      const button = screen.getByRole('button', { name: step.title });
+      expect(button).toHaveAttribute('data-testid', `construction-history-step-${step.id}`);
+    }
+
+    const longTitleButton = screen.getByTestId('construction-history-step-expand-allowed-value');
+    expect(within(longTitleButton).getByText(`Expand ${longFieldLabel}`))
+      .toHaveClass('block', 'max-w-48', 'truncate');
+    expect(longTitleButton).toHaveAttribute(
+      'title',
+      `Expand ${longFieldLabel} into rows with Identifier Value columns.`,
+    );
   });
 
   it('keeps a pivot with many categories readable in the step history', () => {
@@ -532,7 +621,38 @@ describe('ConstructionWorkspace', () => {
       { id: 'specimen', name: 'specimen', label: 'Specimen ID' },
       { id: 'value', name: 'value', label: 'Value' },
     ]);
+    expect(step?.title).toBe('Pivot Specimen ID from Value');
     expect(step?.summary).toBe('Group by Patient Reference; use Specimen ID to create 5 columns from Value.');
+  });
+
+  it('identifies configured input fields in the Unpivot history title', () => {
+    const construction: Construction = {
+      version: 1,
+      steps: [{
+        id: 'unpivot-visits',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: { kind: 'UNPIVOT', unpivot: {
+          constructionId: 'unpivot-visits',
+          inputs: [
+            { columnId: 'baseline', key: { kind: 'STRING', string: 'baseline' } },
+            { columnId: 'follow-up', key: { kind: 'INTEGER', integer: 2 } },
+          ],
+          keyOutputColumnId: 'visit',
+          valueOutputColumnId: 'result',
+          nullRowPolicy: 'PRESERVE',
+        } },
+        outputs: [
+          { id: 'visit', name: 'visit', label: 'Visit' },
+          { id: 'result', name: 'result', label: 'Result' },
+        ],
+      }],
+    };
+
+    const [step] = constructionHistorySteps(construction, [
+      { id: 'baseline', name: 'baseline', label: 'Baseline' },
+      { id: 'follow-up', name: 'follow_up', label: 'Follow up' },
+    ]);
+    expect(step?.title).toBe('Unpivot Baseline, Follow up');
   });
 
   it('summarizes and exposes saved Group and Expand steps while describing Combine inputs', () => {
@@ -606,7 +726,7 @@ describe('ConstructionWorkspace', () => {
       },
       {
         id: 'expand_items',
-        title: 'Expand',
+        title: 'Expand Items',
         summary: 'Expand Items into rows with Item and Position columns. Empty lists: exclude.',
         editable: true,
       },
