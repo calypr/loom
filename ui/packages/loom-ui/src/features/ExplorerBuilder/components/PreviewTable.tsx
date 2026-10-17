@@ -890,6 +890,7 @@ export const PreviewTable = ({
                   {visibleColumns.map((column, visibleColumnIndex) => {
                     const columnIndex = columnRange.start + visibleColumnIndex;
                     const rawValue = row[column.publicColumn];
+                    const arrayValue = Array.isArray(rawValue) ? rawValue : undefined;
                     const isOwnerRecords =
                       authoredColumnFor(column)?.source.kind === 'ownerRecords';
                     const recordCount = ownerRecordEntries(rawValue).length;
@@ -917,10 +918,31 @@ export const PreviewTable = ({
                           </button>
                         ) : (
                           <div
-                            className="truncate whitespace-nowrap"
+                            className={arrayValue
+                              ? 'flex min-w-0 items-center gap-1 whitespace-nowrap'
+                              : 'truncate whitespace-nowrap'}
                             title={titledCell(rowIndex, column, rawValue)}
                           >
-                            {formattedCell(rowIndex, column, rawValue)}
+                            {arrayValue?.length === 0 ? (
+                              <span
+                                data-testid="preview-array-indicator"
+                                className="inline-flex shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] leading-4 text-slate-600"
+                              >
+                                Empty list
+                              </span>
+                            ) : arrayValue ? (
+                              <>
+                                <span className="min-w-0 flex-1 truncate">
+                                  {formattedCell(rowIndex, column, rawValue)}
+                                </span>
+                                <span
+                                  data-testid="preview-array-indicator"
+                                  className="inline-flex shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] leading-4 text-slate-600"
+                                >
+                                  {arrayValue.length} {arrayValue.length === 1 ? 'value' : 'values'}
+                                </span>
+                              </>
+                            ) : formattedCell(rowIndex, column, rawValue)}
                           </div>
                         )}
                       </div>

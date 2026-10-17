@@ -181,6 +181,77 @@ describe('formatPreviewCell', () => {
   });
 });
 
+describe('PreviewTable ordinary array cells', () => {
+  const arrayColumn = column('array_value', 'Array value', 0);
+  const scalarColumn = column('scalar_value', 'Scalar value', 1);
+  const nullColumn = column('null_value', 'Null value', 2);
+  const missingColumn = column('missing_value', 'Missing value', 3);
+  const columns = [arrayColumn, scalarColumn, nullColumn, missingColumn];
+  const arrayTable: DraftTable = {
+    ...table,
+    document: { ...table.document, columns },
+  };
+  const renderArrayTable = (rows: ReadonlyArray<Record<string, unknown>>) => render(React.createElement(PreviewTable, {
+    preview: {
+      ...preview,
+      columns: columns.map((value) => ({
+        column: value.column,
+        label: value.label,
+        logicalType: 'string',
+        filterable: true,
+        chartable: false,
+        ...(value.column === arrayColumn.column
+          ? { shape: 'SCALAR', structuralSuitability: 'scalar' as const }
+          : {}),
+      })),
+      rows: [...rows],
+    },
+    table: arrayTable,
+    limit: 25,
+    onLimitChange: vi.fn(),
+    onColumnChange: vi.fn(),
+    onColumnsChange: vi.fn(),
+  }));
+
+  it('distinguishes a one-item array from the same scalar despite scalar column metadata', () => {
+    renderArrayTable([{ array_value: ['Specimen'], scalar_value: 'Specimen', null_value: null }]);
+
+    const [arrayCell, scalarCell, nullCell, missingCell] = screen.getAllByRole('cell');
+    expect(arrayCell).toHaveTextContent('Specimen');
+    expect(arrayCell).toHaveTextContent('1 value');
+    expect(arrayCell.querySelector('[title]')).toHaveAttribute('title', '["Specimen"]');
+    expect(arrayCell.querySelector('[data-testid="preview-array-indicator"]')).not.toBeNull();
+    expect(scalarCell.textContent?.trim()).toBe('Specimen');
+    expect(scalarCell.querySelector('[data-testid="preview-array-indicator"]')).toBeNull();
+    expect(nullCell.textContent?.trim()).toBe('—');
+    expect(missingCell.textContent?.trim()).toBe('—');
+    expect(nullCell.querySelector('[data-testid="preview-array-indicator"]')).toBeNull();
+    expect(missingCell.querySelector('[data-testid="preview-array-indicator"]')).toBeNull();
+  });
+
+  it('counts duplicate entries from the raw array while preserving the displayed values', () => {
+    renderArrayTable([{ array_value: ['shared', 'shared', 'other'], scalar_value: 'plain', null_value: null }]);
+
+    const [arrayCell] = screen.getAllByRole('cell');
+    expect(arrayCell).toHaveTextContent('shared; shared; other');
+    expect(arrayCell).toHaveTextContent('3 values');
+  });
+
+  it('labels an empty array while leaving null and missing cells as dashes', () => {
+    renderArrayTable([{ array_value: [], scalar_value: null, null_value: null }]);
+
+    const cells = screen.getAllByRole('cell');
+    expect(cells[0]).toHaveTextContent(/^Empty list$/);
+    expect(cells[0].querySelector('[title]')).toHaveAttribute('title', '[]');
+    expect(cells[1].textContent?.trim()).toBe('—');
+    expect(cells[1].querySelector('[data-testid="preview-array-indicator"]')).toBeNull();
+    expect(cells[2].textContent?.trim()).toBe('—');
+    expect(cells[2].querySelector('[data-testid="preview-array-indicator"]')).toBeNull();
+    expect(cells[3].textContent?.trim()).toBe('—');
+    expect(cells[3].querySelector('[data-testid="preview-array-indicator"]')).toBeNull();
+  });
+});
+
 describe('PreviewTable header controls', () => {
   it('keeps controls in the table header and opens column settings only on demand', () => {
     const onLimitChange = vi.fn();
