@@ -22,6 +22,7 @@ export interface ConstructionHistoryStep {
   readonly title: string;
   readonly summary: string;
   readonly editable?: boolean;
+  readonly hierarchy?: 'COLUMN_ADJUSTMENT';
 }
 
 export interface ConstructionHistoryProps {
@@ -105,7 +106,7 @@ export const ConstructionActionBar = ({
     family === 'ADD_COLUMNS' || family === 'KEEP_ROWS'
   );
   const secondaryFamilies = allOperationFamilies.filter(({ family }) =>
-    family === 'RESHAPE' || family === 'COMBINE' ||
+    family === 'COMBINE' ||
     (family === 'CALCULATE' && calculateAvailable)
   );
   const renderAction = (family: ConstructionOperationFamily, inMenu = false) => {
@@ -366,6 +367,79 @@ export const ConstructionHistory = ({
 }: ConstructionHistoryProps) => {
   if (steps.length === 0 && !sourceControl && !resourceType) return null;
 
+  type HistoryGroup =
+    | { readonly kind: 'step'; readonly step: ConstructionHistoryStep }
+    | {
+        readonly kind: 'column-adjustments';
+        readonly firstStepId: string;
+        readonly steps: ReadonlyArray<ConstructionHistoryStep>;
+      };
+
+  const historyGroups: HistoryGroup[] = [];
+  for (let index = 0; index < steps.length;) {
+    const step = steps[index];
+    if (!step) break;
+    if (step.hierarchy !== 'COLUMN_ADJUSTMENT') {
+      historyGroups.push({ kind: 'step', step });
+      index += 1;
+      continue;
+    }
+
+    const groupSteps: ConstructionHistoryStep[] = [step];
+    index += 1;
+    while (steps[index]?.hierarchy === 'COLUMN_ADJUSTMENT') {
+      const adjustment = steps[index];
+      if (!adjustment) break;
+      groupSteps.push(adjustment);
+      index += 1;
+    }
+    historyGroups.push({
+      kind: 'column-adjustments',
+      firstStepId: step.id,
+      steps: groupSteps,
+    });
+  }
+
+  const renderStep = (step: ConstructionHistoryStep, showArrow: boolean) => (
+    <li key={step.id} className="flex shrink-0 items-center gap-1">
+      {showArrow ? <span aria-hidden="true" className="px-1 text-xs text-slate-400">→</span> : null}
+      <div className={`construction-query-step flex items-center border-b-2 ${selected.kind === 'step' && selected.stepId === step.id ? 'border-blue-700' : 'border-transparent'}`}>
+        <button
+          type="button"
+          aria-pressed={selected.kind === 'step' && selected.stepId === step.id}
+          data-testid={`construction-history-step-${step.id}`}
+          disabled={disabled}
+          title={step.summary}
+          onClick={() => {
+            if (onEditStep && step.editable) {
+              onEditStep(step.id);
+            } else {
+              onSelect({ kind: 'step', stepId: step.id });
+            }
+          }}
+          className={`rounded px-2 py-1 text-left text-xs whitespace-nowrap ${
+            selected.kind === 'step' && selected.stepId === step.id
+              ? 'bg-blue-100 font-semibold text-blue-950'
+              : 'bg-transparent text-slate-700 hover:bg-blue-50 hover:text-slate-950'
+          }`}
+        >
+          <span className="block max-w-48 truncate font-medium">{step.title}</span>
+          {selected.kind === 'step' && selected.stepId === step.id ? <span className="sr-only">{step.summary}</span> : null}
+        </button>
+        {selected.kind === 'step' && selected.stepId === step.id && ((onEditStep && step.editable) || onRemoveStep) ? (
+          <div className="flex gap-1 border-l border-slate-200 px-1">
+            {onEditStep && step.editable ? (
+              <button type="button" disabled={disabled} data-testid={`construction-edit-step-${step.id}`} onClick={() => onEditStep(step.id)} className="rounded px-1.5 py-1 text-[11px] text-emerald-800 hover:bg-emerald-50 disabled:opacity-45">Edit</button>
+            ) : null}
+            {onRemoveStep ? (
+              <button type="button" disabled={disabled} data-testid={`construction-remove-step-${step.id}`} onClick={() => onRemoveStep(step.id)} className="rounded px-1.5 py-1 text-[11px] text-red-700 hover:bg-red-50 disabled:opacity-45">Remove</button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </li>
+  );
+
   return (
     <section aria-label="Row operations" data-testid="construction-history" className="min-w-0">
       <h2 className="sr-only">Row operations</h2>
@@ -388,45 +462,25 @@ export const ConstructionHistory = ({
             {resourceType}
           </button>}
         </li>
-        {steps.map((step) => (
-          <li key={step.id} className="flex shrink-0 items-center gap-1">
-            <span aria-hidden="true" className="px-1 text-xs text-slate-400">→</span>
-            <div className={`construction-query-step flex items-center border-b-2 ${selected.kind === 'step' && selected.stepId === step.id ? 'border-blue-700' : 'border-transparent'}`}>
-              <button
-                type="button"
-                aria-pressed={selected.kind === 'step' && selected.stepId === step.id}
-                data-testid={`construction-history-step-${step.id}`}
-                disabled={disabled}
-                title={step.summary}
-                onClick={() => {
-                  if (onEditStep && step.editable) {
-                    onEditStep(step.id);
-                  } else {
-                    onSelect({ kind: 'step', stepId: step.id });
-                  }
-                }}
-                className={`rounded px-2 py-1 text-left text-xs whitespace-nowrap ${
-                  selected.kind === 'step' && selected.stepId === step.id
-                    ? 'bg-blue-100 font-semibold text-blue-950'
-                    : 'bg-transparent text-slate-700 hover:bg-blue-50 hover:text-slate-950'
-                }`}
+        {historyGroups.map((group) => group.kind === 'step'
+          ? renderStep(group.step, true)
+          : (
+            <li key={`column-adjustments-${group.firstStepId}`} className="flex shrink-0 items-start gap-1">
+              <span aria-hidden="true" className="px-1 pt-1 text-xs text-slate-400">→</span>
+              <details
+                open={group.steps.some((step) => selected.kind === 'step' && selected.stepId === step.id) || undefined}
+                data-testid={`construction-history-adjustment-group-${group.firstStepId}`}
+                className="min-w-0"
               >
-                <span className="block max-w-48 truncate font-medium">{step.title}</span>
-                {selected.kind === 'step' && selected.stepId === step.id ? <span className="sr-only">{step.summary}</span> : null}
-              </button>
-              {selected.kind === 'step' && selected.stepId === step.id && ((onEditStep && step.editable) || onRemoveStep) ? (
-                <div className="flex gap-1 border-l border-slate-200 px-1">
-                  {onEditStep && step.editable ? (
-                    <button type="button" disabled={disabled} data-testid={`construction-edit-step-${step.id}`} onClick={() => onEditStep(step.id)} className="rounded px-1.5 py-1 text-[11px] text-emerald-800 hover:bg-emerald-50 disabled:opacity-45">Edit</button>
-                  ) : null}
-                  {onRemoveStep ? (
-                    <button type="button" disabled={disabled} data-testid={`construction-remove-step-${step.id}`} onClick={() => onRemoveStep(step.id)} className="rounded px-1.5 py-1 text-[11px] text-red-700 hover:bg-red-50 disabled:opacity-45">Remove</button>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          </li>
-        ))}
+                <summary className="cursor-pointer list-none rounded px-2 py-1 text-left text-xs font-medium text-slate-700 hover:bg-blue-50">
+                  Column adjustments ({group.steps.length})
+                </summary>
+                <ol className="m-0 flex list-none items-center gap-1 p-0">
+                  {group.steps.map((step, index) => renderStep(step, index > 0))}
+                </ol>
+              </details>
+            </li>
+          ))}
       </ol>
     </section>
   );

@@ -278,6 +278,18 @@ const formatStep = (
   }
 };
 
+const isColumnAdjustment = (operation: Construction['steps'][number]['operation']): boolean => {
+  switch (operation.kind) {
+    case 'EXPAND':
+    case 'RELATED_SOURCE':
+    case 'RELATED_FIELD':
+    case 'DERIVE':
+      return true;
+    default:
+      return false;
+  }
+};
+
 export const constructionHistorySteps = (
   construction: Construction | undefined,
   sourceColumns: ReadonlyArray<ConstructionStageColumn>,
@@ -295,7 +307,12 @@ export const constructionHistorySteps = (
     const input = inputRef?.kind === 'STEP_OUTPUT'
       ? stages.get(inputRef.stepId) ?? source
       : source;
-    if (!step.ownerStepId) result.push(formatStep(step, input));
+    if (!step.ownerStepId) {
+      const historyStep = formatStep(step, input);
+      result.push(isColumnAdjustment(step.operation)
+        ? { ...historyStep, hierarchy: 'COLUMN_ADJUSTMENT' }
+        : historyStep);
+    }
     stages.set(step.id, new Map(step.outputs.map((column) => [column.id, column] as const)));
   }
 

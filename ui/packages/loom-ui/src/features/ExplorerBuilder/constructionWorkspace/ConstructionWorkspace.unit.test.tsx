@@ -158,7 +158,7 @@ describe('ConstructionWorkspace', () => {
     ])).toBe('For each current row (one row per distinct combination of Status), one row per matching MedicationAdministration through the same Patient; existing row fields repeat on each match; keep the current row once with an empty MedicationAdministration FHIR resource ID when no match exists.');
   });
 
-  it('keeps Add columns and Filter rows visible and groups secondary actions under More actions', () => {
+  it('keeps row actions in More actions without reopening the reshape menu', () => {
     const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
 
     render(<ConstructionActionBar onSelect={onSelect} />);
@@ -187,9 +187,71 @@ describe('ConstructionWorkspace', () => {
     fireEvent.click(moreActions);
     const menu = screen.getByRole('group', { name: 'More table actions' });
     expect(within(menu).getByTestId('construction-action-combine')).toBeEnabled();
-    expect(within(menu).getByTestId('construction-action-reshape')).toBeEnabled();
+    expect(within(menu).queryByTestId('construction-action-reshape')).not.toBeInTheDocument();
     fireEvent.click(within(menu).getByTestId('construction-action-combine'));
     expect(onSelect).toHaveBeenLastCalledWith('COMBINE');
+  });
+
+  it('groups only contiguous column adjustments and opens the selected group', () => {
+    const steps = [
+      { id: 'expand-first', title: 'Expand diagnoses', summary: 'Expand summary', editable: true, hierarchy: 'COLUMN_ADJUSTMENT' as const },
+      { id: 'derive-first', title: 'Calculate risk', summary: 'Calculate summary', editable: true, hierarchy: 'COLUMN_ADJUSTMENT' as const },
+      { id: 'group-rows', title: 'Group by Patient', summary: 'Group summary', editable: true },
+      { id: 'related-field', title: 'Field from related record', summary: 'Related field summary', editable: true, hierarchy: 'COLUMN_ADJUSTMENT' as const },
+      { id: 'pivot-rows', title: 'Pivot Specimens', summary: 'Pivot summary', editable: true },
+      { id: 'related-source', title: 'Related Observation', summary: 'Related source summary', editable: true, hierarchy: 'COLUMN_ADJUSTMENT' as const },
+    ];
+    const onSelect = vi.fn();
+    const onEditStep = vi.fn();
+    const onRemoveStep = vi.fn();
+
+    render(
+      <ConstructionHistory
+        resourceType="Patient"
+        steps={steps}
+        selected={{ kind: 'step', stepId: 'related-field' }}
+        onSelect={onSelect}
+        onEditStep={onEditStep}
+        onRemoveStep={onRemoveStep}
+      />,
+    );
+
+    const adjustmentGroups = screen.getAllByTestId(/^construction-history-adjustment-group-/);
+    expect(adjustmentGroups.map((group) => group.querySelector('summary')?.textContent?.trim())).toEqual([
+      'Column adjustments (2)',
+      'Column adjustments (1)',
+      'Column adjustments (1)',
+    ]);
+    expect(adjustmentGroups[0]).not.toHaveAttribute('open');
+    expect(adjustmentGroups[1]).toHaveAttribute('open');
+    expect(adjustmentGroups[2]).not.toHaveAttribute('open');
+
+    const renderedStepIds = screen.getAllByTestId(/^construction-history-step-/)
+      .map((button) => button.getAttribute('data-testid'));
+    expect(renderedStepIds).toEqual([
+      'construction-history-step-expand-first',
+      'construction-history-step-derive-first',
+      'construction-history-step-group-rows',
+      'construction-history-step-related-field',
+      'construction-history-step-pivot-rows',
+      'construction-history-step-related-source',
+    ]);
+    for (const majorStepId of ['group-rows', 'pivot-rows']) {
+      expect(screen.getByTestId(`construction-history-step-${majorStepId}`).closest('details')).toBeNull();
+    }
+
+    const selectedStep = screen.getByTestId('construction-history-step-related-field');
+    expect(selectedStep).toHaveAttribute('title', 'Related field summary');
+    expect(selectedStep).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(selectedStep);
+    expect(onEditStep).toHaveBeenCalledWith('related-field');
+    fireEvent.click(screen.getByTestId('construction-edit-step-related-field'));
+    expect(onEditStep).toHaveBeenLastCalledWith('related-field');
+    fireEvent.click(screen.getByTestId('construction-remove-step-related-field'));
+    expect(onRemoveStep).toHaveBeenCalledWith('related-field');
+
+    fireEvent.click(screen.getByTestId('construction-history-source'));
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'source' });
   });
 
   it('offers calculations only when the selected constructed stage supports them', () => {
@@ -460,7 +522,7 @@ describe('ConstructionWorkspace', () => {
       { id: 'weight', name: 'weight', label: 'Weight', type: 'decimal' },
       { id: 'height', name: 'height', label: 'Height', type: 'decimal' },
     ])).toEqual([
-      { id: 'derive_bmi', title: 'Calculate', summary: 'BMI = Weight ÷ Height.', editable: true },
+      { id: 'derive_bmi', title: 'Calculate', summary: 'BMI = Weight ÷ Height.', editable: true, hierarchy: 'COLUMN_ADJUSTMENT' },
       { id: 'filter_bmi', title: 'Filter BMI', summary: 'Filter output rows where BMI is at least 25.', editable: true },
     ]);
   });
@@ -496,9 +558,44 @@ describe('ConstructionWorkspace', () => {
         }],
       };
       expect(constructionHistorySteps(construction, [])).toEqual([
-        { id: 'related-observation', title: 'Related Observation', summary, editable: true },
+        { id: 'related-observation', title: 'Related Observation', summary, editable: true, hierarchy: 'COLUMN_ADJUSTMENT' },
       ]);
     }
+  });
+
+  it('marks fields from a related record as column adjustments', () => {
+    const construction: Construction = {
+      version: 1,
+      steps: [{
+        id: 'related-observation-status',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: {
+          kind: 'RELATED_FIELD',
+          relatedField: {
+            choiceId: 'observation-status',
+            source: {
+              kind: 'FIELD',
+              candidateId: 'observation-status',
+              nodeId: 'observation-node',
+              resourceType: 'Observation',
+              path: 'status',
+              cardinality: 'optional_one',
+              logicalType: 'string',
+            },
+            outputColumnId: 'observation-status-output',
+          },
+        },
+        outputs: [{ id: 'observation-status-output', name: 'observation_status', label: 'Observation status' }],
+      }],
+    };
+
+    expect(constructionHistorySteps(construction, [])).toEqual([{
+      id: 'related-observation-status',
+      title: 'Field from this row’s related record',
+      summary: 'Add Observation.status as Observation status.',
+      editable: true,
+      hierarchy: 'COLUMN_ADJUSTMENT',
+    }]);
   });
 
   it('labels saved expansions from their exact chained input columns', () => {
@@ -729,6 +826,7 @@ describe('ConstructionWorkspace', () => {
         title: 'Expand Items',
         summary: "One row per value from Items; Item contains that value. Other fields repeat on each row. Position records each item's position. Empty lists: exclude.",
         editable: true,
+        hierarchy: 'COLUMN_ADJUSTMENT',
       },
       {
         id: 'append_visits',
