@@ -511,8 +511,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 }
 
 // groupSourceRowVariable returns the first Group input row variable when a
-// terminal COUNT_ROWS Group can consume its direct root source in scope. A
-// keyless Group uses this path only when it aggregates row values. The generic
+// terminal COUNT_ROWS Group can consume its source in scope. The generic
 // source RETURN is rendered as a LET before the Group COLLECT, so source rows
 // are never collected into an intermediate array.
 func groupSourceRowVariable(sourcePlan ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, stages []ir.PhysicalConstructionStage, options physicalRenderOptions) string {
@@ -553,9 +552,23 @@ func groupSourceRowVariable(sourcePlan ir.PhysicalPlan, sequence *ir.PhysicalSta
 				return ""
 			}
 		default:
-			if operation.Kind != ir.PhysicalFilterOp && operation.Kind != ir.PhysicalExpressionLetOp {
+			if operation.Kind != ir.PhysicalFilterOp && operation.Kind != ir.PhysicalExpressionLetOp && operation.Kind != ir.PhysicalUnnestOp {
 				return ""
 			}
+		}
+	}
+	layout, err := buildNavigationRenderLayout(sourcePlan)
+	if err != nil || len(layout.rootWindow) != 0 || len(layout.unnests) > 1 {
+		return ""
+	}
+	if len(layout.unnests) == 1 && (len(group.Keys) != 1 || len(group.Aggregates) != 1 ||
+		group.Aggregates[0].Operation != "COUNT_ROWS" || len(group.RowValues) != 0 ||
+		len(layout.unnests[0].Owner.Route) != 1) {
+		return ""
+	}
+	for _, item := range layout.postWindow {
+		if item.operation.Kind != ir.PhysicalExpressionLetOp {
+			return ""
 		}
 	}
 	if stage.InputRowVariable == "" {
