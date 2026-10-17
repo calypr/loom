@@ -583,7 +583,7 @@ describe('ConstructionWorkspace', () => {
       .toHaveClass('block', 'max-w-48', 'truncate');
     expect(longTitleButton).toHaveAttribute(
       'title',
-      `Expand ${longFieldLabel} into rows with Identifier Value columns.`,
+      `One row per value from ${longFieldLabel}; Identifier Value contains that value. Other fields repeat on each row.`,
     );
   });
 
@@ -727,7 +727,7 @@ describe('ConstructionWorkspace', () => {
       {
         id: 'expand_items',
         title: 'Expand Items',
-        summary: 'Expand Items into rows with Item and Position columns. Empty lists: exclude.',
+        summary: "One row per value from Items; Item contains that value. Other fields repeat on each row. Position records each item's position. Empty lists: exclude.",
         editable: true,
       },
       {

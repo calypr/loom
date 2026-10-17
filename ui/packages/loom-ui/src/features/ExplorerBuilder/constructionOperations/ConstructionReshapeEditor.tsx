@@ -2964,7 +2964,9 @@ const ExpandEditor = (props: {
 
   return (
     <section aria-label="Expand repeated values" data-testid="construction-reshape-expand" className="grid content-start gap-3">
-      <p className="m-0 text-sm text-slate-600">Each list item becomes a row; other columns stay with its parent.</p>
+      <p data-testid="construction-reshape-expand-effect" className="m-0 text-sm text-slate-600">
+        Each value in {input?.label ?? 'the selected list'} becomes one row for its input record. {props.form.outputLabel.trim() || 'The item column'} contains that value; other fields repeat.
+      </p>
       {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
       {columns.length === 0 ? (
         <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">Loom has not returned any list-valued columns for this stage.</p>

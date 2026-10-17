@@ -3804,6 +3804,9 @@ const BuilderWorkspaceContent = ({
     <ConstructionProposalPanel
       state={constructionLifecycle.proposal}
       baseConstruction={construction ?? (constructionLifecycle.capabilities.status === 'ready' ? constructionLifecycle.capabilities.response.baseConstruction : undefined)}
+      currentInput={previewIsCurrent && tablePreview && capabilityIsForAppendStage && capabilityStage
+        ? { preview: tablePreview, stageId: capabilityStage.id }
+        : undefined}
       canApply={canApplyConstructionProposal}
       onApply={() => void applyConstructionProposal()}
       onCancel={() => {

@@ -186,13 +186,13 @@ const formatStep = (
       const input = columnLabel(expand.inputColumnId);
       const output = step.outputs.find((column) => column.id === expand.outputColumnId)?.label ?? 'expanded values';
       const ordinal = expand.ordinalColumnId
-        ? ` and ${step.outputs.find((column) => column.id === expand.ordinalColumnId)?.label ?? 'an ordinal column'}`
-        : '';
+        ? step.outputs.find((column) => column.id === expand.ordinalColumnId)?.label ?? 'an ordinal column'
+        : undefined;
       const policy = expand.emptyPolicy ? ` Empty lists: ${expand.emptyPolicy.toLowerCase().replaceAll('_', ' ')}.` : '';
       return {
         id: step.id,
         title: `Expand ${input}`,
-        summary: `Expand ${input} into rows with ${output}${ordinal} columns.${policy}`,
+        summary: `One row per value from ${input}; ${output} contains that value. Other fields repeat on each row.${ordinal ? ` ${ordinal} records each item's position.` : ''}${policy}`,
         editable: true,
       };
     }

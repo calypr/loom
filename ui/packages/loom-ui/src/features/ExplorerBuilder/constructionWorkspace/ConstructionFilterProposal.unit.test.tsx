@@ -160,6 +160,145 @@ describe('construction filter proposal wiring', () => {
     expect(screen.getByRole('button', { name: 'Apply change' })).toBeInTheDocument();
   });
 
+  it('explains the configured Expand effect and samples only a fresh matching append-stage input preview', () => {
+    const expandSourceStage: ConstructionStageDescriptor = {
+      ...sourceStage,
+      columns: [...sourceStage.columns, {
+        id: 'tags-id', name: 'tags', label: 'Tags', type: 'string', cardinality: 'many',
+      }],
+    };
+    const expandStep: Construction['steps'][number] = {
+      id: 'expand-tags',
+      inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: { kind: 'EXPAND', expand: {
+        constructionId: 'expand-tags', inputColumnId: 'tags-id', outputColumnId: 'tag-item',
+        emptyPolicy: 'PRESERVE_PARENT',
+      } },
+      outputs: [{ id: 'tag-item', name: 'tag_item', label: 'Tag item', type: 'string' }],
+    };
+    const baseConstruction: Construction = { version: 1, steps: [] };
+    const response: ConstructionProposalResponse = {
+      proposalId: 'expand-tags-proposal', baseReceiptId: 'current-input-preview', outputId: capabilitiesRequest.outputId,
+      snapshotToken: 'snapshot-1', draftVersion: 4, draftDigest: 'draft-4',
+      baseDocumentDigest: 'document-4', candidateWorkspaceDigest: 'expanded-workspace', changedStepId: '',
+      candidateConstruction: { version: 1, steps: [expandStep] },
+      dependencyImpact: { affectedStepIds: [] },
+      stages: [expandSourceStage, {
+        id: 'expand-tags', inputStageId: 'source_projection', operation: 'EXPAND',
+        columns: [{ id: 'tag-item', name: 'tag_item', label: 'Tag item', type: 'string' }],
+        capabilities: [],
+      }],
+      previewStatus: 'READY', previewDurationMs: 12,
+    };
+    const candidatePreview: ExplorerBuilderPreviewResult = {
+      ...preview,
+      receiptId: 'expand-tags-proposal',
+      rows: [{ id: 'patient-1' }, { id: 'patient-2' }, { id: 'patient-2' }],
+      rowCount: 3,
+      sampled: true,
+    };
+    const currentInputPreview: ExplorerBuilderPreviewResult = {
+      ...preview,
+      receiptId: 'current-input-preview',
+      columns: [{ column: 'tags', label: 'Tags', logicalType: 'string', filterable: true, chartable: false }],
+      rows: [
+        { tags: ['Tumor'] },
+        { tags: ['Tumor', 'Normal'] },
+        { tags: null },
+      ],
+      rowCount: 100,
+      sampled: true,
+    };
+    const props = {
+      state: { status: 'ready' as const, response, preview: candidatePreview },
+      currentInput: { preview: currentInputPreview, stageId: 'source_projection' },
+      canApply: true,
+      onApply: () => undefined,
+      onCancel: () => undefined,
+      onRetry: () => undefined,
+    };
+    const { rerender } = render(<ConstructionProposalPanel {...props} baseConstruction={baseConstruction} />);
+
+    const outcome = screen.getByTestId('construction-expand-outcome');
+    expect(outcome).toHaveTextContent('Each value in Tags becomes one row for its input record. Tag item contains that value; other fields repeat.');
+    expect(outcome).toHaveTextContent('Among the 3 displayed input rows, 1 of the 2 lists in Tags has multiple items.');
+    expect(outcome).toHaveTextContent('Example: [Tumor] becomes Tumor on one output row for that record.');
+    expect(outcome).toHaveTextContent('Example: [Tumor, Normal] becomes 2 output rows for that record.');
+
+    rerender(<ConstructionProposalPanel
+      {...props}
+      state={{ ...props.state, response: { ...response, changedStepId: 'expand-tags' } }}
+      baseConstruction={baseConstruction}
+    />);
+    expect(screen.getByTestId('construction-expand-outcome')).toHaveTextContent('Among the 3 displayed input rows');
+
+    rerender(<ConstructionProposalPanel
+      {...props}
+      state={{ ...props.state, response: { ...response, baseReceiptId: 'stale-receipt' } }}
+      baseConstruction={baseConstruction}
+    />);
+    const staleReceiptOutcome = screen.getByTestId('construction-expand-outcome');
+    expect(staleReceiptOutcome).toHaveTextContent('Each value in Tags becomes one row for its input record.');
+    expect(staleReceiptOutcome).not.toHaveTextContent('displayed input rows');
+    expect(staleReceiptOutcome).not.toHaveTextContent('Example:');
+
+    rerender(<ConstructionProposalPanel
+      {...props}
+      currentInput={{
+        ...props.currentInput,
+        preview: { ...currentInputPreview, columns: [{ column: 'id', label: 'ID', logicalType: 'string', filterable: true, chartable: false }] },
+      }}
+      baseConstruction={baseConstruction}
+    />);
+    const unmappedOutcome = screen.getByTestId('construction-expand-outcome');
+    expect(unmappedOutcome).toHaveTextContent('Each value in Tags becomes one row for its input record.');
+    expect(unmappedOutcome).not.toHaveTextContent('displayed input rows');
+    expect(unmappedOutcome).not.toHaveTextContent('Example:');
+
+    const priorFilter: Construction['steps'][number] = {
+      id: 'filter-tags',
+      inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: { kind: 'FILTER', filter: { columnId: 'tags-id', operator: 'EXISTS' } },
+      outputs: [{ id: 'tags-id', name: 'tags', label: 'Tags', type: 'string' }],
+    };
+    const changedPriorFilter: Construction['steps'][number] = {
+      ...priorFilter,
+      operation: { kind: 'FILTER', filter: { columnId: 'tags-id', operator: 'MISSING' } },
+    };
+    const laterExpand: Construction['steps'][number] = {
+      ...expandStep,
+      inputs: [{ kind: 'STEP_OUTPUT', stepId: 'filter-tags' }],
+    };
+    const changedPrefixResponse: ConstructionProposalResponse = {
+      ...response,
+      candidateConstruction: { version: 1, steps: [changedPriorFilter, laterExpand] },
+      stages: [expandSourceStage, {
+        id: 'filter-tags', inputStageId: 'source_projection', operation: 'FILTER',
+        columns: [{ id: 'tags-id', name: 'tags', label: 'Tags', type: 'string' }], capabilities: [],
+      }, ...response.stages.slice(1)],
+    };
+    rerender(<ConstructionProposalPanel
+      {...props}
+      state={{ ...props.state, response: changedPrefixResponse }}
+      currentInput={{ preview: currentInputPreview, stageId: 'filter-tags' }}
+      baseConstruction={{ version: 1, steps: [priorFilter] }}
+    />);
+    const changedPrefixOutcome = screen.getByTestId('construction-expand-outcome');
+    expect(changedPrefixOutcome).toHaveTextContent('Each value in Tags becomes one row for its input record.');
+    expect(changedPrefixOutcome).not.toHaveTextContent('displayed input rows');
+    expect(changedPrefixOutcome).not.toHaveTextContent('Example:');
+
+    rerender(<ConstructionProposalPanel
+      {...props}
+      state={{ ...props.state, response: { ...response, changedStepId: 'expand-tags' } }}
+      baseConstruction={{ version: 1, steps: [expandStep] }}
+    />);
+    const editedOutcome = screen.getByTestId('construction-expand-outcome');
+    expect(editedOutcome).toHaveTextContent('Each value in Tags becomes one row for its input record.');
+    expect(editedOutcome).not.toHaveTextContent('displayed input rows');
+    expect(editedOutcome).not.toHaveTextContent('Example:');
+  });
+
   it('sends one typed gender equals female proposal and enables Apply only after its preview', async () => {
     const proposeConstruction = vi.fn(async (args: ProposeConstructionArgs): Promise<ConstructionProposalResponse> => {
       const step = args.candidateConstruction.steps[0];

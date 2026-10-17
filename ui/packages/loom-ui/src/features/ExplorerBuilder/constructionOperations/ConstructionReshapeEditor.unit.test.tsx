@@ -339,7 +339,9 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.queryByRole('heading', { name: 'Expand a list into rows' })).not.toBeInTheDocument();
     expect(screen.getByTestId('construction-reshape-expand')).not.toHaveClass('rounded-lg');
     expect(screen.getByLabelText('Repeated field')).toBeInTheDocument();
-    expect(screen.getByText('Each list item becomes a row; other columns stay with its parent.')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-reshape-expand-effect')).toHaveTextContent(
+      'Each value in Tags becomes one row for its input record. Tags item contains that value; other fields repeat.',
+    );
 
     cleanup();
     renderEditor({ initialKind: 'unpivot' });

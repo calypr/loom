@@ -4,6 +4,7 @@ import type {
   ConstructionProposalResponse,
   ExplorerBuilderPreviewResult,
 } from '../../../types';
+import { formatPreviewCell } from '../components/PreviewTable';
 import { PreviewValueCoverage } from './PreviewValueCoverage';
 import { constructionHistorySteps } from './constructionHistory';
 
@@ -46,6 +47,113 @@ export const constructionProposalIsApplicable = (
   state.preview.outputId === identity.outputId &&
   state.preview.rows !== null;
 
+const changedCandidateStep = (
+  response: ConstructionProposalResponse,
+  baseConstruction: Construction | undefined,
+) => {
+  const explicitChange = response.candidateConstruction.steps.find(
+    (step) => step.id === response.changedStepId,
+  );
+  if (explicitChange) return explicitChange;
+
+  const baseStepIds = new Set(baseConstruction?.steps.map((step) => step.id) ?? []);
+  const addedSteps = response.candidateConstruction.steps.filter((step) => !baseStepIds.has(step.id));
+  return addedSteps.length === 1 ? addedSteps[0] : undefined;
+};
+
+const isAppendedStep = (
+  stepId: string,
+  response: ConstructionProposalResponse,
+  baseConstruction: Construction | undefined,
+): boolean => {
+  if (!baseConstruction) return false;
+  const baseSteps = baseConstruction.steps;
+  const candidateSteps = response.candidateConstruction.steps;
+  return candidateSteps.length === baseSteps.length + 1 &&
+    candidateSteps.at(-1)?.id === stepId &&
+    JSON.stringify(candidateSteps.slice(0, -1)) === JSON.stringify(baseSteps) &&
+    JSON.stringify(response.candidateConstruction.sourceProjections ?? []) ===
+      JSON.stringify(baseConstruction.sourceProjections ?? []);
+};
+
+const inputStageIdForStep = (step: Construction['steps'][number]): string | undefined => {
+  const input = step.inputs[0];
+  if (input?.kind === 'SOURCE_PROJECTION') return 'source_projection';
+  return input?.kind === 'STEP_OUTPUT' ? input.stepId : undefined;
+};
+
+const formatListExample = (items: ReadonlyArray<unknown>): string => {
+  const shown = items.slice(0, 3).map(formatPreviewCell);
+  const more = items.length > shown.length ? `, plus ${items.length - shown.length} more` : '';
+  return `[${shown.join(', ')}${more}]`;
+};
+
+const expandOutcomeFor = (args: {
+  readonly response: ConstructionProposalResponse;
+  readonly baseConstruction: Construction | undefined;
+  readonly currentInput?: {
+    readonly preview: ExplorerBuilderPreviewResult;
+    readonly stageId: string;
+  };
+}) => {
+  const step = changedCandidateStep(args.response, args.baseConstruction);
+  if (!step || step.operation.kind !== 'EXPAND') return undefined;
+  const expand = step.operation.expand;
+
+  const inputStageId = inputStageIdForStep(step);
+  const inputStage = args.response.stages.find((stage) => stage.id === inputStageId);
+  const inputColumn = inputStage?.columns.find(
+    (column) => column.id === expand.inputColumnId,
+  );
+  const outputLabel = step.outputs.find(
+    (column) => column.id === expand.outputColumnId,
+  )?.label ?? 'the item column';
+  const inputLabel = inputColumn?.label ?? 'the selected list';
+  const effect = `Each value in ${inputLabel} becomes one row for its input record. ${outputLabel} contains that value; other fields repeat.`;
+
+  const currentInput = args.currentInput;
+  if (!currentInput ||
+      !inputColumn ||
+      !inputStageId ||
+      inputStageId !== currentInput.stageId ||
+      currentInput.preview.outputId !== args.response.outputId ||
+      (args.response.baseReceiptId !== undefined &&
+        currentInput.preview.receiptId !== args.response.baseReceiptId) ||
+      currentInput.preview.rows === null ||
+      !isAppendedStep(step.id, args.response, args.baseConstruction)) {
+    return { effect };
+  }
+
+  if (!currentInput.preview.columns.some((column) => column.column === inputColumn.name)) {
+    return { effect };
+  }
+
+  const inputRows = currentInput.preview.rows;
+  const lists = inputRows.flatMap((row) => {
+    const value = row[inputColumn.name];
+    return Array.isArray(value) ? [value] : [];
+  });
+  const multiple = lists.filter((items) => items.length > 1);
+  const scope = currentInput.preview.sampled === false
+    ? `In the complete input preview of ${inputRows.length} rows`
+    : `Among the ${inputRows.length} displayed input rows`;
+  const observation = lists.length === 0
+    ? `${scope}, no ${inputLabel} list values are present.`
+    : `${scope}, ${multiple.length} of the ${lists.length} lists in ${inputLabel} ${multiple.length === 1 ? 'has' : 'have'} multiple items.`;
+  const singleExample = lists.find((items) => items.length === 1);
+  const multipleExample = multiple[0];
+  const examples = [
+    singleExample
+      ? `Example: ${formatListExample(singleExample)} becomes ${formatPreviewCell(singleExample[0])} on one output row for that record.`
+      : undefined,
+    multipleExample
+      ? `Example: ${formatListExample(multipleExample)} becomes ${multipleExample.length} output rows for that record.`
+      : undefined,
+  ].filter((example): example is string => Boolean(example));
+
+  return { effect, observation, examples };
+};
+
 export const ConstructionProposalPanel = ({
   state,
   canApply,
@@ -53,6 +161,7 @@ export const ConstructionProposalPanel = ({
   onCancel,
   onRetry,
   baseConstruction,
+  currentInput,
 }: {
   readonly state: ConstructionProposalViewState;
   readonly canApply: boolean;
@@ -60,6 +169,10 @@ export const ConstructionProposalPanel = ({
   readonly onCancel: () => void;
   readonly onRetry: () => void;
   readonly baseConstruction?: Construction;
+  readonly currentInput?: {
+    readonly preview: ExplorerBuilderPreviewResult;
+    readonly stageId: string;
+  };
 }) => {
   if (state.status === 'idle') return null;
 
@@ -99,6 +212,9 @@ export const ConstructionProposalPanel = ({
   const changedStep = response?.candidateConstruction.steps.find(
     (step) => step.id === response.changedStepId,
   );
+  const expandOutcome = response
+    ? expandOutcomeFor({ response, baseConstruction, currentInput })
+    : undefined;
   const relatedOutputId = changedStep?.operation.kind === 'RELATED_SOURCE'
     ? changedStep.operation.relatedSource.outputColumnId
     : undefined;
@@ -158,6 +274,13 @@ export const ConstructionProposalPanel = ({
             {state.preview.rowCount.toLocaleString()} {state.preview.rowCount === 1 ? 'row' : 'rows'} and {state.preview.columns.length} {state.preview.columns.length === 1 ? 'column' : 'columns'}
             {' '}· checked in {state.response.previewDurationMs} ms.
           </p>
+          {expandOutcome ? (
+            <div data-testid="construction-expand-outcome" className="mt-2 border-t border-slate-200 pt-2 text-xs text-slate-700">
+              <p className="m-0">{expandOutcome.effect}</p>
+              {expandOutcome.observation ? <p className="m-0 mt-1">{expandOutcome.observation}</p> : null}
+              {expandOutcome.examples?.map((example) => <p key={example} className="m-0 mt-1">{example}</p>)}
+            </div>
+          ) : null}
           {relatedColumnId ? (
             <PreviewValueCoverage preview={state.preview} columnIds={[relatedColumnId]} resultForm={relatedForm} />
           ) : null}
