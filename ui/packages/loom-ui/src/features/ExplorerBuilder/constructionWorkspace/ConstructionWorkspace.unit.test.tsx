@@ -199,13 +199,13 @@ describe('ConstructionWorkspace', () => {
       { id: 'group-rows', title: 'Group by Patient', summary: 'Group summary', editable: true },
       { id: 'related-field', title: 'Field from related record', summary: 'Related field summary', editable: true, hierarchy: 'COLUMN_ADJUSTMENT' as const },
       { id: 'pivot-rows', title: 'Pivot Specimens', summary: 'Pivot summary', editable: true },
-      { id: 'related-source', title: 'Related Observation', summary: 'Related source summary', editable: true, hierarchy: 'COLUMN_ADJUSTMENT' as const },
+      { id: 'related-source', title: 'Related Observation', summary: 'Related source summary', removeActionLabel: 'Remove connection to Observation', editable: true, hierarchy: 'COLUMN_ADJUSTMENT' as const },
     ];
     const onSelect = vi.fn();
     const onEditStep = vi.fn();
     const onRemoveStep = vi.fn();
 
-    render(
+    const view = render(
       <ConstructionHistory
         resourceType="Patient"
         steps={steps}
@@ -252,6 +252,22 @@ describe('ConstructionWorkspace', () => {
     expect(onEditStep).toHaveBeenLastCalledWith('related-field');
     fireEvent.click(screen.getByTestId('construction-remove-step-related-field'));
     expect(onRemoveStep).toHaveBeenCalledWith('related-field');
+
+    view.rerender(
+      <ConstructionHistory
+        resourceType="Patient"
+        steps={steps}
+        selected={{ kind: 'step', stepId: 'related-source' }}
+        onSelect={onSelect}
+        onEditStep={onEditStep}
+        onRemoveStep={onRemoveStep}
+      />,
+    );
+    const removeConnection = screen.getByTestId('construction-remove-step-related-source');
+    expect(removeConnection).toHaveTextContent('Remove connection');
+    expect(removeConnection).toHaveAttribute('aria-label', 'Remove connection to Observation');
+    fireEvent.click(removeConnection);
+    expect(onRemoveStep).toHaveBeenLastCalledWith('related-source');
 
     fireEvent.click(screen.getByTestId('construction-history-source'));
     expect(onSelect).toHaveBeenCalledWith({ kind: 'source' });
@@ -561,7 +577,7 @@ describe('ConstructionWorkspace', () => {
         }],
       };
       expect(constructionHistorySteps(construction, [])).toEqual([
-        { id: 'related-observation', title: 'Related Observation', summary, editable: true, hierarchy: 'COLUMN_ADJUSTMENT' },
+        { id: 'related-observation', title: 'Related Observation', summary, removeActionLabel: 'Remove connection to Observation', editable: true, hierarchy: 'COLUMN_ADJUSTMENT' },
       ]);
     }
   });

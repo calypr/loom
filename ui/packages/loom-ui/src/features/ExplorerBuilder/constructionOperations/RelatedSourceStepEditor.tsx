@@ -348,7 +348,7 @@ export const RelatedSourceStepEditor = ({
       className="grid gap-4"
     >
       <div>
-        <h3 className="font-semibold text-slate-900">Edit related field</h3>
+        <h3 className="font-semibold text-slate-900">Edit connection to {relatedSource.source.resourceType}</h3>
         <p className="mt-1 text-sm text-slate-600">
           Keep the saved step in place. Loom will check a preview before you apply changes.
         </p>

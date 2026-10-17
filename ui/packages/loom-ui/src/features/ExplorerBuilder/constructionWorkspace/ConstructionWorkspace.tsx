@@ -21,6 +21,7 @@ export interface ConstructionHistoryStep {
   readonly id: string;
   readonly title: string;
   readonly summary: string;
+  readonly removeActionLabel?: string;
   readonly editable?: boolean;
   readonly hierarchy?: 'COLUMN_ADJUSTMENT';
 }
@@ -432,7 +433,7 @@ export const ConstructionHistory = ({
               <button type="button" disabled={disabled} data-testid={`construction-edit-step-${step.id}`} onClick={() => onEditStep(step.id)} className="rounded px-1.5 py-1 text-[11px] text-emerald-800 hover:bg-emerald-50 disabled:opacity-45">Edit</button>
             ) : null}
             {onRemoveStep ? (
-              <button type="button" disabled={disabled} data-testid={`construction-remove-step-${step.id}`} onClick={() => onRemoveStep(step.id)} className="rounded px-1.5 py-1 text-[11px] text-red-700 hover:bg-red-50 disabled:opacity-45">Remove</button>
+              <button type="button" disabled={disabled} data-testid={`construction-remove-step-${step.id}`} aria-label={step.removeActionLabel} title={step.removeActionLabel} onClick={() => onRemoveStep(step.id)} className="rounded px-1.5 py-1 text-[11px] text-red-700 hover:bg-red-50 disabled:opacity-45">{step.removeActionLabel ? 'Remove connection' : 'Remove'}</button>
             ) : null}
           </div>
         ) : null}

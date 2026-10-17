@@ -229,6 +229,7 @@ const formatStep = (
         id: step.id,
         title: `Related ${related.source.resourceType}`,
         summary: `${action}${route}${contributorCondition(related.contributorRule.predicate, related.source.path)} as ${output}.`,
+        removeActionLabel: `Remove connection to ${related.source.resourceType}`,
         editable: true,
       };
     }

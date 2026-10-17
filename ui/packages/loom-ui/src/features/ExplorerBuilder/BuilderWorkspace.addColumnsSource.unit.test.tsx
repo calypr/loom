@@ -2002,7 +2002,8 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(screen.getByTestId('construction-edit-step-related-observation')).toBeInTheDocument();
     expect(screen.getByTestId('construction-remove-step-related-observation')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('construction-edit-step-related-observation'));
-    expect(await screen.findByTestId('related-source-step-editor')).toBeInTheDocument();
+    const relatedSourceEditor = await screen.findByTestId('related-source-step-editor');
+    expect(within(relatedSourceEditor).getByRole('heading', { name: 'Edit connection to Observation' })).toBeInTheDocument();
     const outputName = screen.getByRole('textbox', { name: 'Output column name' });
     const outputLabel = screen.getByRole('textbox', { name: 'Output column label' });
     expect(outputName).toBeInstanceOf(HTMLInputElement);
