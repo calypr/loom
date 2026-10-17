@@ -23,6 +23,7 @@ const rowChangingOperationKinds = new Set<ConstructionStep['operation']['kind']>
   'GROUP', 'CODED_GROUP', 'PIVOT', 'CODED_PIVOT', 'EXPAND', 'UNPIVOT', 'RELATED_EXPAND',
 ]);
 
+type RowChangeIntent = 'records' | 'reshape';
 
 type SelectionOption = {
   readonly value: string;
@@ -451,6 +452,7 @@ export const RowDefinitionSettingsPanel = ({
   readonly onRemoveConstructionStep?: (stepId: string) => void;
 }) => {
   const [settings, setSettings] = useState<SettingsState>({ kind: 'closed' });
+  const [rowChangeIntent, setRowChangeIntent] = useState<RowChangeIntent>('records');
   const [proposalState, setProposalState] = useState<ProposalState>({ kind: 'none' });
   const [replacementState, setReplacementState] = useState<ReplacementState>({ kind: 'idle' });
   const [groupAuthoringOpen, setGroupAuthoringOpen] = useState(false);
@@ -512,6 +514,7 @@ export const RowDefinitionSettingsPanel = ({
   const openSettings = async () => {
     cancelPendingPreview();
     const requestEpoch = ++settingsRequestEpoch.current;
+    setRowChangeIntent('records');
     setSettings({ kind: 'loading' });
     setProposalState({ kind: 'none' });
     try {
@@ -824,137 +827,174 @@ export const RowDefinitionSettingsPanel = ({
               </div>
               <button type="button" className="shrink-0 whitespace-nowrap rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50" onClick={cancel}>Back to table</button>
             </header>
-            <div className="mt-3 grid min-w-0 gap-2 md:grid-cols-2">
-              {renderRootSettings(beginRootChange, beginRootResolution, (rootNodeId) => void assessReplacement(rootNodeId))}
-              <div className="min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2">
-                {settings.kind === 'loading' ? <p className="text-sm text-slate-600" role="status">Loading row choices…</p> : null}
-                {settings.kind === 'error' ? <p className="text-sm text-red-800" role="alert">{settings.message}</p> : null}
-                {settings.kind === 'editing' ? (
-                  <>
-                    <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-slate-800 sm:flex-row sm:items-center sm:gap-3">
-                      <span className="shrink-0">Rows per starting record</span>
-                      <select
-                        aria-label="Rows per starting record"
-                        className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm"
-                        value={selectedOption?.shapeValue ?? ''}
-                        disabled={disabled || proposalState.kind === 'applying'}
-                        onChange={(event) => {
-                          const next = settings.options.find((option) => option.shapeValue === event.currentTarget.value);
-                          if (!next) return;
-                          setSettings({ ...settings, selectionId: next.value });
-                          schedulePreview(next.selection);
-                        }}
-                      >
-                        <option value="" disabled>Choose a row shape</option>
-                        {shapeOptions(settings.options).map((option) => <option key={option.shapeValue} value={option.shapeValue}>{option.shapeLabel}</option>)}
-                      </select>
-                    </label>
-                    {selectedPolicies.length > 1 ? (
-                      <label className="mt-2 flex min-w-0 flex-col gap-1 border-t border-slate-100 pt-2 text-xs font-medium text-slate-700 sm:flex-row sm:items-center sm:gap-3">
-                        <span className="shrink-0">When a record has no values</span>
-                        <select
-                          aria-label="Unmatched record policy"
-                          className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm"
-                          value={settings.selectionId}
-                          disabled={disabled || proposalState.kind === 'applying'}
-                          onChange={(event) => {
-                            const next = selectedPolicies.find((option) => option.value === event.currentTarget.value);
-                            if (!next) return;
-                            setSettings({ ...settings, selectionId: next.value });
-                            schedulePreview(next.selection);
-                          }}
-                        >
-                          {selectedPolicies.map((option) => <option key={option.value} value={option.value}>{option.policyLabel}</option>)}
-                        </select>
-                      </label>
-                    ) : null}
-                  </>
+            <section aria-label="Choose a row intent" className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <button type="button" data-testid="construction-row-intent-records" aria-pressed={rowChangeIntent === 'records'}
+                onClick={() => setRowChangeIntent('records')}
+                className={`flex min-h-[4.5rem] min-w-0 flex-col justify-center rounded-lg border px-3 py-2 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 ${rowChangeIntent === 'records' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}>
+                <span className="block text-sm font-semibold text-slate-900">Use different records</span>
+                <span className="block text-xs text-slate-600">Choose a starting record type, row shape, or related records.</span>
+              </button>
+              <div className="min-w-0 rounded-lg border border-slate-200 bg-white">
+                <button type="button" data-testid="construction-action-group-rows" disabled={disabled || !reshapeRows.group.supported}
+                  onClick={() => chooseReshape(reshapeRows.groupEntry)}
+                  className="flex min-h-[4.5rem] w-full min-w-0 flex-col justify-center rounded-lg px-3 py-2 text-left hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
+                  <span className="block text-sm font-semibold text-slate-900">Group and summarize</span>
+                  <span className={`block text-xs text-slate-600 ${reshapeRows.group.supported ? 'truncate' : 'whitespace-normal'}`} title={reshapeRows.group.supported
+                    ? reshapeRows.groupEntry === 'coded-group'
+                      ? 'Make one row for each distinct recorded code. Rows with the same code become one group row.'
+                      : reshapeRows.groupEntry === 'source-group'
+                        ? 'Make one row for each combination of field values you choose, without adding columns first.'
+                        : 'Make one row for each combination of matching values in the fields you choose.'
+                    : reshapeRows.group.reason}>{reshapeRows.group.supported
+                    ? reshapeRows.groupEntry === 'coded-group'
+                      ? 'Group rows by one recorded code.'
+                      : reshapeRows.groupEntry === 'source-group'
+                        ? 'Group on source fields without adding columns.'
+                        : 'Group by matching values in selected fields.'
+                    : reshapeRows.group.reason}</span>
+                </button>
+                {reshapeRows.groupAlternatives.length > 0 ? (
+                  <div className="flex flex-wrap gap-1 border-t border-slate-200 px-2 py-1">
+                    {reshapeRows.groupAlternatives.map((alternative) => (
+                      <button key={alternative.kind} type="button" data-testid={`construction-action-${alternative.kind}-rows`}
+                        disabled={disabled} onClick={() => chooseReshape(alternative.kind)}
+                        className="rounded px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-50 disabled:opacity-50">
+                        {alternative.label}
+                      </button>
+                    ))}
+                  </div>
                 ) : null}
               </div>
-            </div>
-            <section aria-label="Choose a row change" className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                <div className="min-w-0 rounded-lg border border-slate-200 bg-white">
-                  <button type="button" data-testid="construction-action-group-rows" disabled={disabled || !reshapeRows.group.supported}
-                    onClick={() => chooseReshape(reshapeRows.groupEntry)}
-                    className="flex min-h-[4.5rem] w-full min-w-0 flex-col justify-center rounded-lg px-3 py-2 text-left hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
-                    <span className="block text-sm font-semibold text-slate-900">Combine rows into groups</span>
-                    <span className={`block text-xs text-slate-600 ${reshapeRows.group.supported ? 'truncate' : 'whitespace-normal'}`} title={reshapeRows.group.supported
-                      ? reshapeRows.groupEntry === 'coded-group'
-                        ? 'Make one row for each distinct recorded code. Rows with the same code become one group row.'
-                        : reshapeRows.groupEntry === 'source-group'
-                          ? 'Make one row for each combination of field values you choose, without adding columns first.'
-                          : 'Make one row for each combination of matching values in the fields you choose.'
-                      : reshapeRows.group.reason}>{reshapeRows.group.supported
-                      ? reshapeRows.groupEntry === 'coded-group'
-                        ? 'Group rows by one recorded code.'
-                        : reshapeRows.groupEntry === 'source-group'
-                          ? 'Group on source fields without adding columns.'
-                          : 'Group by matching values in selected fields.'
-                      : reshapeRows.group.reason}</span>
-                  </button>
-                  {reshapeRows.groupAlternatives.length > 0 ? (
-                    <div className="flex flex-wrap gap-1 border-t border-slate-200 px-2 py-1">
-                      {reshapeRows.groupAlternatives.map((alternative) => (
-                        <button key={alternative.kind} type="button" data-testid={`construction-action-${alternative.kind}-rows`}
-                          disabled={disabled} onClick={() => chooseReshape(alternative.kind)}
-                          className="rounded px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-50 disabled:opacity-50">
-                          {alternative.label}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
+              <button type="button" data-testid="construction-row-intent-reshape" aria-pressed={rowChangeIntent === 'reshape'}
+                onClick={() => setRowChangeIntent('reshape')}
+                className={`flex min-h-[4.5rem] min-w-0 flex-col justify-center rounded-lg border px-3 py-2 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 ${rowChangeIntent === 'reshape' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}>
+                <span className="block text-sm font-semibold text-slate-900">Reshape table</span>
+                <span className="block text-xs text-slate-600">Pivot categories into columns or stack columns into rows.</span>
+              </button>
+            </section>
+            {rowChangeIntent === 'records' ? (
+              <>
+                <div className="mt-3 grid min-w-0 gap-2 md:grid-cols-2">
+                  {renderRootSettings(beginRootChange, beginRootResolution, (rootNodeId) => void assessReplacement(rootNodeId))}
+                  <div className="min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                    {settings.kind === 'loading' ? <p className="text-sm text-slate-600" role="status">Loading row choices…</p> : null}
+                    {settings.kind === 'error' ? <p className="text-sm text-red-800" role="alert">{settings.message}</p> : null}
+                    {settings.kind === 'editing' ? (
+                      <>
+                        <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-slate-800 sm:flex-row sm:items-center sm:gap-3">
+                          <span className="shrink-0">Rows per starting record</span>
+                          <select
+                            aria-label="Rows per starting record"
+                            className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm"
+                            value={selectedOption?.shapeValue ?? ''}
+                            disabled={disabled || proposalState.kind === 'applying'}
+                            onChange={(event) => {
+                              const next = settings.options.find((option) => option.shapeValue === event.currentTarget.value);
+                              if (!next) return;
+                              setSettings({ ...settings, selectionId: next.value });
+                              schedulePreview(next.selection);
+                            }}
+                          >
+                            <option value="" disabled>Choose a row shape</option>
+                            {shapeOptions(settings.options).map((option) => <option key={option.shapeValue} value={option.shapeValue}>{option.shapeLabel}</option>)}
+                          </select>
+                        </label>
+                        {selectedPolicies.length > 1 ? (
+                          <label className="mt-2 flex min-w-0 flex-col gap-1 border-t border-slate-100 pt-2 text-xs font-medium text-slate-700 sm:flex-row sm:items-center sm:gap-3">
+                            <span className="shrink-0">When a record has no values</span>
+                            <select
+                              aria-label="Unmatched record policy"
+                              className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm"
+                              value={settings.selectionId}
+                              disabled={disabled || proposalState.kind === 'applying'}
+                              onChange={(event) => {
+                                const next = selectedPolicies.find((option) => option.value === event.currentTarget.value);
+                                if (!next) return;
+                                setSettings({ ...settings, selectionId: next.value });
+                                schedulePreview(next.selection);
+                              }}
+                            >
+                              {selectedPolicies.map((option) => <option key={option.value} value={option.value}>{option.policyLabel}</option>)}
+                            </select>
+                          </label>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </div>
                 </div>
+                <section aria-label="Related record rows" className="mt-3">
+                  <button type="button" data-testid="construction-action-related-rows" disabled={disabled || !relatedRows.supported}
+                    onClick={chooseRelatedRows}
+                    title={relatedRows.supported
+                      ? 'Follow a relationship to another record type. Existing values repeat for each match; unmatched rows follow the selected policy.'
+                      : relatedRows.reason}
+                    className="flex min-h-[4.5rem] min-w-0 w-full flex-col justify-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
+                    <span className="block text-sm font-semibold text-slate-900">Make a row for each related record</span>
+                    <span className={`block text-xs text-slate-600 ${relatedRows.supported ? 'truncate' : 'whitespace-normal'}`}>{relatedRows.supported
+                      ? 'Follow a relationship; make one row for each match.'
+                      : relatedRows.reason ?? 'Checking available related row paths…'}</span>
+                  </button>
+                </section>
+                <details data-testid="construction-advanced-row-operations" className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                  <summary className="cursor-pointer text-sm font-medium text-slate-700">Advanced row operations</summary>
+                  <div className="mt-2 grid gap-2">
+                    {sourceCollectionAction ? (
+                      <section aria-label="Starting-record rows" className="min-w-0 rounded-lg border border-slate-200 bg-white p-2">
+                        <p className="mb-1 text-xs font-medium text-slate-600">Repeat a source list as rows</p>
+                        {sourceCollectionAction}
+                      </section>
+                    ) : null}
+                    <button type="button" data-testid="construction-action-expand-rows"
+                      disabled={disabled || !reshapeRows.expand.supported}
+                      onClick={() => chooseReshape('expand')}
+                      title={listExpansionReason ?? 'Split a list column into one row per item.'}
+                      className="flex min-h-[4rem] min-w-0 flex-col justify-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
+                      <span className="block text-sm font-semibold text-slate-900">Expand a list column</span>
+                      <span className={`block text-xs text-slate-600 ${reshapeRows.expand.supported ? '' : 'whitespace-normal'}`}>{reshapeRows.expand.supported
+                        ? 'Make one row for each item in the selected list.'
+                        : listExpansionReason ?? 'List expansion is unavailable.'}</span>
+                    </button>
+                  </div>
+                </details>
+              </>
+            ) : (
+              <section aria-label="Reshape table options" className="mt-3 grid gap-2 sm:grid-cols-2">
                 <div className="min-w-0 rounded-lg border border-slate-200 bg-white">
                   <button type="button" data-testid="construction-action-pivot-rows" disabled={disabled || reshapeRows.pivotPending === true}
                     onClick={() => chooseReshape('categories')}
                     className="flex min-h-[4.5rem] w-full min-w-0 flex-col justify-center rounded-lg px-3 py-2 text-left hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
-                    <span className="block text-sm font-semibold text-slate-900">Turn categories into columns</span>
-                    <span className="block truncate text-xs text-slate-600" title="Make a column for each category. Choose which values fill those columns.">Make columns from distinct categories.</span>
+                    <span className="block text-sm font-semibold text-slate-900">Pivot categories</span>
+                    <span className="block text-xs text-slate-600">Make a column for each category. Choose which values fill those columns.</span>
                   </button>
+                  <p className="border-t border-slate-100 px-3 py-2 text-xs text-slate-600">
+                    Illustrative shape: <code>Patient | Type | Value</code> → <code>Patient | Tumor | Normal</code>
+                    <span className="block"><code>P1 | Tumor | 8; P1 | Normal | 3</code> → <code>P1 | 8 | 3</code></span>
+                  </p>
                   {reshapeRows.pivotAlternative ? (
                     <div className="flex flex-wrap gap-1 border-t border-slate-100 px-2 py-1">
                       <button type="button" data-testid="construction-action-table-pivot-rows"
-                      disabled={disabled} onClick={() => chooseReshape('pivot')}
-                      className="rounded px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-50 disabled:opacity-50">
-                      Choose category and value fields
+                        disabled={disabled} onClick={() => chooseReshape('pivot')}
+                        className="rounded px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-50 disabled:opacity-50">
+                        Choose category and value fields
                       </button>
                     </div>
                   ) : null}
                 </div>
-                <button type="button" data-testid="construction-action-related-rows" disabled={disabled || !relatedRows.supported}
-                  onClick={chooseRelatedRows}
-                  title={relatedRows.supported
-                    ? 'Follow a relationship to another record type. Existing values repeat for each match; unmatched rows follow the selected policy.'
-                    : relatedRows.reason}
-                  className="flex min-h-[4.5rem] min-w-0 flex-col justify-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
-                  <span className="block text-sm font-semibold text-slate-900">Make a row for each related record</span>
-                  <span className={`block text-xs text-slate-600 ${relatedRows.supported ? 'truncate' : 'whitespace-normal'}`}>{relatedRows.supported
-                    ? 'Follow a relationship; make one row for each match.'
-                    : relatedRows.reason ?? 'Checking available related row paths…'}</span>
-                </button>
-                <button type="button" data-testid="construction-action-unpivot-rows" disabled={disabled}
-                  onClick={() => chooseReshape('unpivot')}
-                  title="Move selected columns into a field-name column and a value column. Other columns repeat on each new row."
-                  className="flex min-h-[4.5rem] min-w-0 flex-col justify-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
-                  <span className="block text-sm font-semibold text-slate-900">Turn columns into rows</span>
-                  <span className="block truncate text-xs text-slate-600">Move selected columns into field and value rows.</span>
-                </button>
-                <button type="button" data-testid="construction-action-expand-rows"
-                  disabled={disabled || !reshapeRows.expand.supported}
-                  onClick={() => chooseReshape('expand')}
-                  title={reshapeRows.expand.reason ?? 'Split a list column into one row per item.'}
-                  className="flex min-h-[4.5rem] min-w-0 flex-col justify-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
-                  <span className="block text-sm font-semibold text-slate-900">Make one row per list value</span>
-                  <span className={`block text-xs text-slate-600 ${reshapeRows.expand.supported ? 'truncate' : 'whitespace-normal'}`}>{reshapeRows.expand.supported
-                    ? 'Split a list column into one row per item.'
-                    : listExpansionReason ?? 'List expansion is unavailable.'}</span>
-                </button>
-                {sourceCollectionAction ? (
-                  <section aria-label="Starting-record rows" className="min-w-0">
-                    {sourceCollectionAction}
-                  </section>
-                ) : null}
-            </section>
+                <div className="min-w-0 rounded-lg border border-slate-200 bg-white">
+                  <button type="button" data-testid="construction-action-unpivot-rows" disabled={disabled}
+                    onClick={() => chooseReshape('unpivot')}
+                    title="Move selected columns into a field-name column and a value column. Other columns repeat on each new row."
+                    className="flex min-h-[4.5rem] w-full min-w-0 flex-col justify-center rounded-lg px-3 py-2 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
+                    <span className="block text-sm font-semibold text-slate-900">Stack columns</span>
+                    <span className="block text-xs text-slate-600">Move selected columns into field and value rows.</span>
+                  </button>
+                  <p className="border-t border-slate-100 px-3 py-2 text-xs text-slate-600">
+                    Illustrative shape: <code>Patient | Jan | Feb</code> → <code>Patient | Month | Value</code>
+                    <span className="block"><code>P1 | 8 | 3</code> → <code>P1 | Jan | 8; P1 | Feb | 3</code></span>
+                  </p>
+                </div>
+              </section>
+            )}
               {appliedRowSteps.length > 0 ? (
                 <section aria-label="Applied row changes" data-testid="construction-row-operation-history" className="mt-3 grid gap-2 border-t border-slate-200 pt-2">
                   <h4 className="text-sm font-semibold text-slate-900">Applied row changes</h4>
