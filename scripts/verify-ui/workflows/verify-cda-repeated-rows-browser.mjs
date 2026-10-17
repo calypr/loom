@@ -183,12 +183,12 @@ const openTable = async (expectedRows, name) => measure(name, async startedAt =>
 
 const openRowSettings = async () => measure('row-definition-choice-discovery', async startedAt => {
   await click(page, '[data-testid="construction-rows-settings-trigger"]');
-  await fastWait(startedAt, () => document.querySelector('select[aria-label="What should each row represent?"]')?.disabled === false, [], 'Row definition choice discovery');
+  await fastWait(startedAt, () => document.querySelector('select[aria-label="Rows per starting record"]')?.disabled === false, [], 'Row definition choice discovery');
 });
 
 const selectAndPreview = async ({ kind, policy, expectedRows }) => measure(`row-definition-${kind.toLowerCase()}-preview`, async startedAt => {
   const requestStart = browserEvents.requests.length;
-  const shapeSelect = 'select[aria-label="What should each row represent?"]';
+  const shapeSelect = 'select[aria-label="Rows per starting record"]';
   await selectOption(page, shapeSelect, kind === 'RECORDS' ? 'records' : `expanded:${report.choice.choiceId}`);
   if (policy) {
     const policySelect = 'select[aria-label="Unmatched record policy"]';
@@ -251,9 +251,8 @@ const verifyPairs = preview => {
 
 const addFieldAndPreview = async () => {
   await click(page, '[data-testid="construction-action-add-columns"]');
-  await click(page, '[aria-label="Column types"] button', { includes: 'Fields and related data' });
+  await click(page, '[aria-label="Column types"] button', { includes: 'Other fields' });
   await waitForBrowser(page, () => Boolean(document.querySelector('[data-testid="construction-add-columns-source"]')), [], 5000);
-  await click(page, '[data-testid="feature-catalog-raw-fields"] > summary');
   const checkbox = 'input[aria-label="Select Observation.component[].valueString"]';
   await waitForBrowser(page, ([__arg0]) => Boolean(document.querySelector(__arg0)), [checkbox], 5000);
   const offered = await browserEval(page, ([__arg0]) => { const input=document.querySelector(__arg0);return {disabled:input?.disabled,checked:input?.checked,label:input?.getAttribute('aria-label')}; }, [checkbox]);
@@ -263,13 +262,16 @@ const addFieldAndPreview = async () => {
     const requestStart = browserEvents.requests.length;
     const checked = await browserEval(page, ([__arg0]) => { return document.querySelector(__arg0)?.checked; }, [checkbox]);
     if (!checked) await click(page, checkbox);
-    await click(page, '[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
-    await fastWait(startedAt, () => Boolean(document.querySelector('[role="dialog"] input[aria-label="Component Value String: Keep all matching values"]')), [], 'Field form choice discovery');
-    await click(page, '[role="dialog"] input[aria-label="Component Value String: Keep all matching values"]');
-    await click(page, '[role="dialog"] button', { name: 'Add 1 column' });
-    await fastWait(startedAt, () => ['ready','error'].includes(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus), [], 'Native component field preview');
-    const status = await browserEval(page, () => { return document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus; });
-    assert.equal(status, 'ready', await browserEval(page, () => { return document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.innerText; }));
+    await click(page, '[aria-label="Selected feature action"] button', { name: 'Advanced options' });
+    const formChoice = 'input[type="radio"][aria-label="Select Observation.component[].valueString: Keep all matching values"]';
+    await fastWait(startedAt, ([selector]) => Boolean(document.querySelector(selector)), [formChoice], 'All-values form discovery');
+    const formSelected = await browserEval(page, ([__arg0]) => { return document.querySelector(__arg0)?.checked; }, [formChoice]);
+    if (!formSelected) await click(page, formChoice);
+    await fastWait(startedAt, () => document.querySelector('[data-testid="catalog-selection-options"] button:last-of-type')?.disabled === false, [], 'Field choice confirmation');
+    await click(page, '[data-testid="catalog-selection-options"] button:last-of-type', { name: 'Add 1 selected feature' });
+    await fastWait(startedAt, () => ['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus), [], 'Native component field proposal');
+    const status = await browserEval(page, () => { return document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus; });
+    assert.equal(status, 'ready', await browserEval(page, () => { return document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText; }));
     const proposalRequest = await browserEvents.waitForResponse(entry => /construction.*proposals/.test(entry.path) && entry.method === 'POST' && entry.status === 200, { fromIndex: requestStart, timeoutMs: Math.max(1, 5000 - (Date.now() - startedAt)) });
     const preview = await fieldPreviewRows();
     const pairEvidence = verifyPairs(preview);
@@ -280,8 +282,8 @@ const addFieldAndPreview = async () => {
   const beforeCancel = (await api(`${base}/builder`)).body;
   const beforeCancelDigest = beforeCancel.draftDigest;
   await measure('native-component-field-cancel', async startedAt => {
-    await click(page, '[data-testid="construction-choice-proposal-panel"] button', { name: 'Cancel' });
-    await fastWait(startedAt, ([count]) => !document.querySelector('[data-testid="construction-choice-proposal-panel"]') &&
+    await click(page, '[data-testid="construction-cancel-proposal"]');
+    await fastWait(startedAt, ([count]) => !document.querySelector('[data-testid="construction-proposal-panel"]') &&
       document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === String(count + 1),
     [report.oracle.expectedRows.length], 'Canceled field preview restoration');
   });
@@ -290,8 +292,8 @@ const addFieldAndPreview = async () => {
 
   await propose('native-component-field-confirmed-preview');
   await measure('native-component-field-apply', async startedAt => {
-    await click(page, '[data-testid="construction-choice-proposal-panel"] button', { name: 'Apply columns' });
-    await fastWait(startedAt, ([count]) => !document.querySelector('[data-testid="construction-choice-proposal-panel"]') &&
+    await click(page, '[data-testid="construction-apply-proposal"]');
+    await fastWait(startedAt, ([count]) => !document.querySelector('[data-testid="construction-proposal-panel"]') &&
       document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === String(count + 1) &&
       [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].some(cell => /component.*value.?string/i.test(cell.innerText)),
     [report.oracle.expectedRows.length], 'Applied component field preview');
@@ -504,7 +506,7 @@ try {
     });
 
     await openRowSettings();
-    const shapeSelect = 'select[aria-label="What should each row represent?"]';
+    const shapeSelect = 'select[aria-label="Rows per starting record"]';
     const nativeOptions = await browserEval(page, ([__arg0]) => { return [...document.querySelector(__arg0).options].map(option=>({value:option.value,label:option.text,disabled:option.disabled})); }, [shapeSelect]);
     const nativeOption = nativeOptions.find(option => option.value === `expanded:${componentChoice.choiceId}` && option.label.startsWith('One row per value in Component'));
     assert(nativeOption, `Modern row selector did not offer the component[] option: ${JSON.stringify(nativeOptions)}`);
