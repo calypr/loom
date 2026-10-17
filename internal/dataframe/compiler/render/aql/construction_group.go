@@ -126,7 +126,7 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 		familyRule := r.newInternalBindKeyWithValue("construction_group_semantic_rule", semantic.RuleVersion)
 		familyID := r.newInternalBindKeyWithValue("construction_group_semantic_family", semantic.FamilyID)
 		familySystem := r.newInternalBindKeyWithValue("construction_group_semantic_system", semantic.System)
-		familyVersion := r.newInternalBindKeyWithValue("construction_group_semantic_version", semantic.Version)
+		familyVersion := r.newInternalBindKeyWithValue("construction_group_semantic_identity_version", semantic.Version)
 		familyPath := r.newInternalBindKeyWithValue("construction_group_semantic_path", semantic.CodingPath)
 		semanticOutputID := ""
 		for _, column := range stage.OutputColumns {

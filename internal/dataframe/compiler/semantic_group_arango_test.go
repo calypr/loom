@@ -89,6 +89,14 @@ func TestSemanticCategoryGroupPreservesExactMembershipAndRowMultiplicityAgainstA
 	if len(grouped) != 5 {
 		t.Fatalf("semantic Group rows = %#v, want four keyed groups plus one missing-key group", grouped)
 	}
+	unlimitedQuery, err := CompileRecipeOutputWithPolicy(groupedCompiled, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile unlimited semantic Group query: %v", err)
+	}
+	unlimitedRows := executeReshapeOracleQuery(t, ctx, client, unlimitedQuery)
+	if len(unlimitedRows) != 5 {
+		t.Fatalf("unlimited semantic Group rows = %#v, want the same five exact groups with compiler-returned bind vars unchanged", unlimitedRows)
+	}
 	var sharedDisplayIDs []string
 	got := make(map[string][]float64, len(grouped))
 	for _, row := range grouped {
