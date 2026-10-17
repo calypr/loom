@@ -1314,7 +1314,7 @@ try {
     report.removalPreview = appliedRemoval.visible;
     const removalRequest = appliedRemoval.request;
     await saveDOM('expand-remove-preview-restored-records');
-    const removalApplyRequestIndex = report.browserRequests.length;
+    const removalApplyRequestIndex = requestMonitor.requests.length;
     let removalApplySourceIdentity;
     await measure('native-EXPAND-remove-apply-restoration', async (startedAt) => {
       await click(page, '[data-testid="construction-apply-proposal"]');
@@ -1372,7 +1372,7 @@ try {
     };
     assert.deepEqual(removalReloadSourceIdentity, removalApplySourceIdentity,
       'Pre-reload capabilities must match the exact saved source identity');
-    const removalReloadRequestIndex = report.browserRequests.length;
+    const removalReloadRequestIndex = requestMonitor.requests.length;
     await openTable(sourceRecords.length, 'reload-after-expand-removal', async (startedAt) => {
       const capabilities = await waitForSourceCapabilities(requestMonitor, {
         fromIndex: removalReloadRequestIndex,

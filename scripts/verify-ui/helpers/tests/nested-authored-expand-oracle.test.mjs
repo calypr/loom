@@ -208,14 +208,22 @@ test('nested list DOM compares rendered text while leaving protocol arrays exact
 
 test('nested EXPAND removal waits for exact successor capabilities before and after reload', () => {
   const workflow = readFileSync(new URL('../../workflows/verify-cda-nested-authored-expand-browser.mjs', import.meta.url), 'utf8');
+  const capabilityWorkflow = readFileSync(new URL('../../workflows/verify-cda-authored-expand-browser.mjs', import.meta.url), 'utf8');
   assert(workflow.includes("import { waitForAppliedSourceCapabilities, waitForSourceCapabilities } from './verify-cda-authored-expand-browser.mjs';"));
+  assert(capabilityWorkflow.includes('requestMonitor.waitForResponse(entry =>'),
+    'Capability wait boundaries must index the scoped request monitor');
+  assert(workflow.includes('report.browserRequests.findLast((candidate, index) => index >= requestIndex && candidate.path.endsWith(\'/preview\'))'),
+    'Native preview boundaries must index the browser request array used by the preview helper');
+  assert(workflow.includes('const unpivotApplyPreviewRequestIndex = report.browserRequests.length;') &&
+    workflow.includes('const unpivotReloadRequestIndex = report.browserRequests.length;'),
+  'Unpivot proposal/apply/reload preview checks must use the browser-request census');
 
   const applyStart = workflow.indexOf("await measure('native-EXPAND-remove-apply-restoration'");
   const applyEnd = workflow.indexOf('\n    });\n    builder = (await api(`${base}/builder`)).body;', applyStart);
   assert(applyStart >= 0 && applyEnd > applyStart, 'Removal Apply must have a bounded measured action');
   const apply = workflow.slice(applyStart, applyEnd);
-  assert(workflow.lastIndexOf('const removalApplyRequestIndex = report.browserRequests.length;', applyStart) >= 0,
-    'Removal Apply must establish its own request census boundary before the click');
+  assert(workflow.lastIndexOf('const removalApplyRequestIndex = requestMonitor.requests.length;', applyStart) >= 0,
+    'Removal Apply must establish its boundary in the scoped request monitor before the click');
   assert(apply.includes("const removeApplyRequest = latestCommand('APPLY_CONSTRUCTION_PROPOSAL');"),
     'Pre-reload capabilities must follow the exact native Apply request');
   assert(apply.includes('await waitForAppliedSourceCapabilities(requestMonitor, {'),
@@ -230,7 +238,7 @@ test('nested EXPAND removal waits for exact successor capabilities before and af
     'The pre-reload capability receipt must be retained as workflow evidence');
 
   const identityCheck = workflow.indexOf('assert.deepEqual(removalReloadSourceIdentity, removalApplySourceIdentity', applyEnd);
-  const reloadBoundary = workflow.indexOf('const removalReloadRequestIndex = report.browserRequests.length;', applyEnd);
+  const reloadBoundary = workflow.indexOf('const removalReloadRequestIndex = requestMonitor.requests.length;', applyEnd);
   assert(identityCheck > applyEnd && reloadBoundary > identityCheck,
     'The saved identity must match the pre-reload capabilities before starting final reload');
   const start = workflow.indexOf("await openTable(sourceRecords.length, 'reload-after-expand-removal', async (startedAt) => {", reloadBoundary);
