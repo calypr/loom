@@ -108,6 +108,11 @@ const timing = (name, started) => {
 };
 const recordCheck = (index, dimension, passed, evidence = {}) => cda.check(dimension, requiredChecks[index], passed, evidence);
 const documentFor = state => state.workspace.documents.find(document => document.output.title === tableName);
+const tableTab = () => page.getByRole('navigation', { name: 'Tables' })
+  .getByRole('button', { name: tableName, exact: true });
+const waitForSelectedTableTab = () => waitNative(({ name }) =>
+  [...document.querySelectorAll('nav[aria-label="Tables"] button[data-testid^="construction-table-"][aria-current="page"]')]
+    .some(button => button.innerText.trim() === name), { name: tableName });
 const codedPivotBindingsFor = step => ({
   stepId: step.id,
   inputs: step.inputs,
@@ -221,14 +226,15 @@ try {
   await fill('Name the table', page.locator('#first-table-name'), tableName);
   await action('Choose Observation rows', page.getByRole('button', { name: 'Choose Observation rows', exact: true }));
   created = true;
-  await waitNative( ({ tableName: name }) => document.querySelector('[data-testid="construction-workspace"] header')?.innerText.includes(name), { tableName }, 5000);
+  await waitForSelectedTableTab();
   await waitNative( () => document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false, {}, 5000);
   await action('Open row settings', page.locator('[data-testid="construction-rows-settings-trigger"]'));
   await waitNative( () => Boolean(document.querySelector('[role="dialog"][aria-label="Row definition settings"]')), {}, 5000);
   await waitNative( () => [...document.querySelectorAll('[aria-label="Starting collection"] button')].some(button => button.innerText === 'Use selected resources' && !button.disabled), {}, 5000);
   const useSelected = page.getByRole('button', { name: 'Use selected resources', exact: true });
   await action('Use selected resources', useSelected);
-  await waitNative( () => document.querySelector('[aria-label="Starting collection settings"]')?.innerText.includes('1 Observation resources attached'), {}, 5000);
+  await waitNative(({ selectionId }) => document.querySelector('[role="dialog"][aria-label="Row definition settings"] section[aria-label="Starting collection"]')
+    ?.getAttribute('data-attached-selection-revision-id') === selectionId, { selectionId: selection.id });
   await action('Close row settings', page.getByRole('dialog', { name: 'Row definition settings' }).getByRole('button', { name: 'Back to table', exact: true }));
   await waitNative( () => document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false, {}, 5000);
   await action('Reopen row settings', page.locator('[data-testid="construction-rows-settings-trigger"]'));
@@ -372,9 +378,9 @@ try {
   timing('apply-to-render', applyStarted);
   const reloadStarted = Date.now();
   await cda.navigate( selectedURL);
-  await waitNative( ({ name }) => [...document.querySelectorAll('button')].some(button => button.innerText.trim().endsWith(name)), { name: tableName }, 5000);
+  await waitForSelectedTableTab();
   const previewStarted = Date.now();
-  await action('Open coded pivot table', page.locator('[data-testid^="construction-table-"]').filter({ hasText: tableName }));
+  await action('Open coded pivot table', tableTab());
   report.saved = await waitForRenderedTable(proposedCodedStep);
   assert.equal(report.saved.rows.length, 1, JSON.stringify(report.saved));
   report.savedOutputAssociation = codedPivotRenderedValuesFor(report.saved, proposedCodedStep, expected);
@@ -473,8 +479,8 @@ try {
     'Cancel must not send an authoring command');
   const cancelReloadStarted = Date.now();
   await cda.navigate( selectedURL);
-  await waitNative( ({ name }) => [...document.querySelectorAll('button')].some(button => button.innerText.trim().endsWith(name)), { name: tableName }, 5000);
-  await action('Reopen coded pivot table after Cancel', page.locator('[data-testid^="construction-table-"]').filter({ hasText: tableName }));
+  await waitForSelectedTableTab();
+  await action('Reopen coded pivot table after Cancel', tableTab());
   report.cancelReloadRows = await waitForRenderedTable(codedStep);
   report.cancelReloadAssociation = codedPivotRenderedValuesFor(report.cancelReloadRows, codedStep, expected);
   assert.deepEqual(report.cancelReloadAssociation, report.outputAssociation, 'Cancel reload must retain each exact coded header/value pair');
@@ -526,8 +532,8 @@ try {
   timing('edit-apply-to-render', editApplyStarted);
   const editReloadStarted = Date.now();
   await cda.navigate( selectedURL);
-  await waitNative( ({ name }) => [...document.querySelectorAll('button')].some(button => button.innerText.trim().endsWith(name)), { name: tableName }, 5000);
-  await action('Reopen coded pivot table', page.locator('[data-testid^="construction-table-"]').filter({ hasText: tableName }));
+  await waitForSelectedTableTab();
+  await action('Reopen coded pivot table', tableTab());
   await action('Select coded pivot history after reload', page.locator('[data-testid^="construction-history-step-"]'));
   await waitNative( () => Boolean(document.querySelector('[data-testid^="construction-edit-step-"]:not(:disabled)')), {}, 5000);
   await action('Reopen coded pivot editor', page.locator('[data-testid^="construction-edit-step-"]:not(:disabled)'));
@@ -583,8 +589,8 @@ try {
   timing('remove-apply-to-source-render', removalApplyStarted);
   const restorationReloadStarted = Date.now();
   await cda.navigate( selectedURL);
-  await waitNative( ({ name }) => [...document.querySelectorAll('button')].some(button => button.innerText.trim().endsWith(name)), { name: tableName }, 5000);
-  await action('Open restored table', page.locator('[data-testid^="construction-table-"]').filter({ hasText: tableName }));
+  await waitForSelectedTableTab();
+  await action('Open restored table', tableTab());
   report.restored = await cda.inspect( () => ({ historyCount: document.querySelectorAll('[data-testid^="construction-history-step-"]').length, body: document.body.innerText.slice(0, 900) }));
   assert.equal(report.restored.historyCount, 0);
   await waitNative(codedPivotRestoredSourceRowVisible, { id: observationId }, 5000);
@@ -645,13 +651,14 @@ try {
   if (created) {
     try {
       await cda.navigate( selectedURL);
-      await waitNative( ({ name }) => [...document.querySelectorAll('button')].some(button => button.innerText.trim().endsWith(name)), { name: tableName }, 5000);
-      await action('Open table for cleanup', page.locator('[data-testid^="construction-table-"]').filter({ hasText: tableName }));
-      await waitNative( ({ tableName: name }) => document.querySelector('[data-testid="construction-workspace"] header')?.innerText.includes(name), { tableName }, 5000);
-      await waitNative( () => document.querySelector('[data-testid="construction-delete-table"]')?.disabled === false, {}, 5000);
+      await waitForSelectedTableTab();
+      await action('Open table for cleanup', tableTab());
+      await action('Open table actions for cleanup', page.getByRole('button', { name: `Actions for ${tableName}`, exact: true }));
+      await waitNative(() => Boolean(document.querySelector('[data-testid="construction-table-actions-menu"] [data-testid="construction-delete-table"]:not(:disabled)')), {}, 5000);
       page.once('dialog', dialog => dialog.accept());
-      await action('Delete verifier table', page.locator('[data-testid="construction-delete-table"]'));
-      await waitNative( ({ name }) => ![...document.querySelectorAll('button')].some(button => button.innerText.trim().endsWith(name)), { name: tableName }, 5000);
+      await action('Delete verifier table', page.getByRole('button', { name: 'Delete table', exact: true }));
+      await waitNative(({ name }) => ![...document.querySelectorAll('nav[aria-label="Tables"] button[data-testid^="construction-table-"]')]
+        .some(button => button.innerText.trim() === name), { name: tableName });
       report.cleanup = 'deleted';
     } catch (error) {
       report.cleanup = 'failed';
