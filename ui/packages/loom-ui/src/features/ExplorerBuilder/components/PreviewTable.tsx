@@ -136,6 +136,8 @@ export const PreviewTable = ({
   onRowValuePolicyChange,
   onRowLineage,
   onRemoveColumn,
+  expandableColumnIds,
+  onExpandColumn,
   disabled = false,
 }: {
   readonly preview?: ExplorerBuilderPreviewResult;
@@ -159,6 +161,8 @@ export const PreviewTable = ({
     policy: ExplicitGroupRowValue['policy'],
   ) => void;
   readonly onRemoveColumn?: (column: string) => void;
+  readonly expandableColumnIds?: ReadonlySet<string>;
+  readonly onExpandColumn?: (columnId: string) => void;
   readonly disabled?: boolean;
   readonly onRowLineage?: (
     rowId: string,
@@ -545,6 +549,16 @@ export const PreviewTable = ({
               const authoredColumn = column.change.kind === 'AUTHORED_COLUMN'
                 ? column.change.column
                 : undefined;
+              const expandableColumnId = column.change.kind === 'AUTHORED_COLUMN'
+                ? column.change.column.columnId
+                : column.change.column.id;
+              const splitValuesIntoRows = expandableColumnId &&
+                expandableColumnIds?.has(expandableColumnId) && onExpandColumn
+                ? () => {
+                    setColumnsOpen(false);
+                    onExpandColumn(expandableColumnId);
+                  }
+                : undefined;
               const transformation = authoredColumn?.valueTransformation;
               const recodeCandidate = authoredColumn
                 ? candidateForColumn?.(authoredColumn)
@@ -712,6 +726,17 @@ export const PreviewTable = ({
                       />
                     ) : null}
                   </div>
+                  {splitValuesIntoRows ? (
+                    <button
+                      type="button"
+                      aria-label={`Split ${column.label} values into rows`}
+                      disabled={disabled}
+                      onClick={splitValuesIntoRows}
+                      className="shrink-0 rounded border border-slate-300 px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-50 disabled:opacity-50"
+                    >
+                      Split values into rows
+                    </button>
+                  ) : null}
                   {onRemoveColumn && removeTarget ? (
                     <button
                       type="button"

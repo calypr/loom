@@ -422,6 +422,156 @@ describe('PreviewTable construction output order', () => {
   });
 });
 
+describe('PreviewTable expand-column actions', () => {
+  const getMenuRow = (columnName: string): HTMLElement => {
+    const row = screen.getByRole('list', { name: 'Table columns' })
+      .querySelector(`[data-column-name="${columnName}"]`);
+    if (!(row instanceof HTMLElement)) throw new Error(`Missing Columns menu row for ${columnName}`);
+    return row;
+  };
+
+  it('shows the action only for listed authored list IDs when the callback is provided', () => {
+    const authoredList = (name: string, label: string, columnId: string, order: number): ExplorerBuilderColumn => ({
+      ...column(name, label, order),
+      columnId,
+      source: { kind: 'field', field: { path: name, projectionMode: 'ALL' } },
+    });
+    const expandable = authoredList('expandable_list', 'Expandable list', 'expandable-list-id', 0);
+    const unlisted = authoredList('unlisted_list', 'Unlisted list', 'unlisted-list-id', 1);
+    const scalar = { ...column('scalar_value', 'Scalar value', 2), columnId: 'scalar-value-id' };
+    const ownerRecords: ExplorerBuilderColumn = {
+      ...column('owner_records', 'Owner records', 3),
+      columnId: 'owner-records-id',
+      logicalType: 'object',
+      source: {
+        kind: 'ownerRecords',
+        ownerRecords: {
+          binding: {
+            ownerPath: 'component[]', keyPath: 'component[].code.coding[]', systemPath: 'system',
+            codePath: 'code', valuePath: 'valueQuantity.value', choiceArms: ['valueQuantity'],
+            logicalType: 'decimal', unitPath: 'valueQuantity.unit',
+          },
+          key: { system: 'http://loinc.org', code: '8302-2' },
+        },
+      },
+    };
+    const columns = [expandable, unlisted, scalar, ownerRecords];
+    const listTable: DraftTable = { ...table, document: { ...table.document, columns } };
+    const listPreview: ExplorerBuilderPreviewResult = {
+      ...preview,
+      columns: columns.map((value) => ({
+        column: value.column,
+        label: value.label,
+        logicalType: value.logicalType ?? 'string',
+        filterable: true,
+        chartable: false,
+      })),
+      rows: [{
+        expandable_list: ['a', 'b'],
+        unlisted_list: ['c'],
+        scalar_value: 'a',
+        owner_records: [{ source: { resourceType: 'Observation', resourceId: 'obs-1' } }],
+      }],
+    };
+    const onExpandColumn = vi.fn();
+    const props = {
+      preview: listPreview,
+      table: listTable,
+      limit: 25 as const,
+      onLimitChange: vi.fn(),
+      onColumnChange: vi.fn(),
+      onColumnsChange: vi.fn(),
+      expandableColumnIds: new Set(['expandable-list-id']),
+    };
+    const rendered = render(React.createElement(PreviewTable, props));
+    fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
+    expect(within(getMenuRow('expandable_list')).queryByRole('button', { name: 'Split Expandable list values into rows' }))
+      .not.toBeInTheDocument();
+
+    rendered.rerender(React.createElement(PreviewTable, { ...props, onExpandColumn }));
+    expect(within(getMenuRow('expandable_list')).getByRole('button', { name: 'Split Expandable list values into rows' }))
+      .toBeInTheDocument();
+    expect(within(getMenuRow('unlisted_list')).queryByRole('button', { name: 'Split Unlisted list values into rows' }))
+      .not.toBeInTheDocument();
+    expect(within(getMenuRow('scalar_value')).queryByRole('button', { name: 'Split Scalar value values into rows' }))
+      .not.toBeInTheDocument();
+    expect(within(getMenuRow('owner_records')).queryByRole('button', { name: 'Split Owner records values into rows' }))
+      .not.toBeInTheDocument();
+  });
+
+  it('sends the exact authored ID once, closes the menu, and leaves presentation callbacks alone', () => {
+    const authoredList: ExplorerBuilderColumn = {
+      ...column('component_codes', 'Component codes', 0),
+      columnId: 'component-codes-column-id',
+      source: { kind: 'field', field: { path: 'component[].code.coding[]', projectionMode: 'ALL' } },
+    };
+    const onExpandColumn = vi.fn();
+    const onColumnChange = vi.fn();
+    const onColumnsChange = vi.fn();
+    render(React.createElement(PreviewTable, {
+      preview: {
+        ...preview,
+        columns: [{ column: authoredList.column, label: authoredList.label, logicalType: 'string', filterable: true, chartable: false }],
+        rows: [{ [authoredList.column]: ['height', 'weight'] }],
+      },
+      table: { ...table, document: { ...table.document, columns: [authoredList] } },
+      limit: 25,
+      onLimitChange: vi.fn(),
+      onColumnChange,
+      onColumnsChange,
+      expandableColumnIds: new Set(['component-codes-column-id']),
+      onExpandColumn,
+    }));
+    fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
+    fireEvent.click(within(getMenuRow('component_codes')).getByRole('button', { name: 'Split Component codes values into rows' }));
+
+    expect(onExpandColumn).toHaveBeenCalledExactlyOnceWith('component-codes-column-id');
+    expect(screen.queryByRole('list', { name: 'Table columns' })).not.toBeInTheDocument();
+    expect(onColumnChange).not.toHaveBeenCalled();
+    expect(onColumnsChange).not.toHaveBeenCalled();
+  });
+
+  it('matches construction outputs by their exact output ID instead of their name', () => {
+    const constructedListPreview: ExplorerBuilderPreviewResult = {
+      ...relatedPatientPreview,
+      rows: [{ ...relatedPatientPreview.rows![0], patient_id: ['patient-1', 'patient-2'] }],
+    };
+    const constructedListTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        columns: specimenSourceColumns,
+        construction: relatedPatientConstruction,
+      },
+    };
+    const onExpandColumn = vi.fn();
+    const props = {
+      preview: constructedListPreview,
+      table: constructedListTable,
+      limit: 25 as const,
+      onLimitChange: vi.fn(),
+      onColumnChange: vi.fn(),
+      onColumnsChange: vi.fn(),
+      onExpandColumn,
+    };
+    const rendered = render(React.createElement(PreviewTable, {
+      ...props,
+      expandableColumnIds: new Set(['patient_id']),
+    }));
+    fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
+    expect(within(getMenuRow('patient_id')).queryByRole('button', { name: 'Split Patient ID values into rows' }))
+      .not.toBeInTheDocument();
+
+    rendered.rerender(React.createElement(PreviewTable, {
+      ...props,
+      expandableColumnIds: new Set(['patient-id']),
+    }));
+    fireEvent.click(within(getMenuRow('patient_id')).getByRole('button', { name: 'Split Patient ID values into rows' }));
+    expect(onExpandColumn).toHaveBeenCalledExactlyOnceWith('patient-id');
+    expect(screen.queryByRole('list', { name: 'Table columns' })).not.toBeInTheDocument();
+  });
+});
+
 describe('PreviewTable column controls', () => {
   it('edits exact category recoding from the ordinary Columns menu', () => {
     const recodeColumn: ExplorerBuilderColumn = {
