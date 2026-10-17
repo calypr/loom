@@ -10,6 +10,35 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
+func TestLowerSemanticGroupRejectsExpandedRootRows(t *testing.T) {
+	plan := &ir.PhysicalPlan{
+		Operations: []ir.PhysicalOperation{
+			{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
+			{Kind: ir.PhysicalUnnestOp},
+			{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{}},
+		},
+		BindVars: map[string]any{"root_collection": "Observation"},
+	}
+	group := recipe.ConstructionGroup{
+		ConstructionID: "group_semantic",
+		Keys: []recipe.ConstructionGroupKey{{
+			OutputColumnID: "category_id",
+			SemanticCategory: &recipe.ConstructionGroupSemanticCategory{
+				Kind: "BINDING", BindingID: "binding", RuleVersion: "1", FamilyID: "family",
+				System: "urn:category", ResourceType: "Observation", CodingPath: "code.coding[]",
+			},
+		}},
+	}
+	_, _, _, err := lowerConstructionGroup(
+		plan, group, nil, []recipe.StageColumn{{ID: "category_id", Name: "category"}}, nil,
+		"_key", recipe.ConstructionSourceProjectionID, "Observation",
+		map[string]recipe.StageColumn{"category_id": {ID: "category_id", Name: "category"}}, map[string]bool{}, 0,
+	)
+	if err == nil || !strings.Contains(err.Error(), "UNNEST") {
+		t.Fatalf("lower semantic Group with expanded roots error = %v, want source-grain rejection for UNNEST", err)
+	}
+}
+
 func TestConstructionExpandThenGroupUsesTypedIntermediateColumns(t *testing.T) {
 	output := recipe.Output{
 		Name: "construction_group_expand", RootResourceType: "Observation", RowGrain: "observation",

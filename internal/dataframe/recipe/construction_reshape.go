@@ -17,15 +17,42 @@ func validateConstructionGroup(group ConstructionGroup, input, output map[string
 	}
 	expected := make(map[string]bool, len(group.Keys)+len(group.Aggregates))
 	keyInputs := make(map[string]bool, len(group.Keys))
+	semanticKeys := 0
 	for index, key := range group.Keys {
-		if key.InputColumnID == "" || input[key.InputColumnID].ID == "" || keyInputs[key.InputColumnID] {
-			return fmt.Errorf("%s group keys[%d].inputColumnId is missing or duplicated", path, index)
+		if key.SemanticCategory == nil {
+			if key.InputColumnID == "" || input[key.InputColumnID].ID == "" || keyInputs[key.InputColumnID] {
+				return fmt.Errorf("%s group keys[%d].inputColumnId is missing or duplicated", path, index)
+			}
+			keyInputs[key.InputColumnID] = true
+		} else {
+			semanticKeys++
+			if key.InputColumnID != "" {
+				return fmt.Errorf("%s group keys[%d] must choose either inputColumnId or semanticCategory", path, index)
+			}
+			category := key.SemanticCategory
+			if category.Kind != "BINDING" || strings.TrimSpace(category.BindingID) == "" ||
+				strings.TrimSpace(category.RuleVersion) == "" || strings.TrimSpace(category.FamilyID) == "" ||
+				(category.SourceKind != "file" && category.SourceKind != "retained_vertex") ||
+				strings.TrimSpace(category.System) == "" || category.System != strings.TrimSpace(category.System) ||
+				category.Version != strings.TrimSpace(category.Version) || strings.TrimSpace(category.ResourceType) == "" ||
+				strings.TrimSpace(category.CodingPath) == "" || category.CodingPath != strings.TrimSpace(category.CodingPath) {
+				return fmt.Errorf("%s group keys[%d].semanticCategory is not a resolved BINDING", path, index)
+			}
+			if key.OutputColumnID == "" || output[key.OutputColumnID].ID == "" {
+				return fmt.Errorf("%s group keys[%d].outputColumnId is missing", path, index)
+			}
+			declared := output[key.OutputColumnID]
+			if declared.Type != "" && declared.Type != "INFER" && !strings.EqualFold(declared.Type, "string") {
+				return fmt.Errorf("%s group semantic category output %q must be a string", path, key.OutputColumnID)
+			}
 		}
 		if key.OutputColumnID == "" || expected[key.OutputColumnID] {
 			return fmt.Errorf("%s group keys[%d].outputColumnId is empty or duplicated", path, index)
 		}
-		keyInputs[key.InputColumnID] = true
 		expected[key.OutputColumnID] = true
+	}
+	if semanticKeys > 1 {
+		return fmt.Errorf("%s group supports at most one semantic category key", path)
 	}
 	for index, aggregate := range group.Aggregates {
 		if aggregate.OutputColumnID == "" || expected[aggregate.OutputColumnID] {

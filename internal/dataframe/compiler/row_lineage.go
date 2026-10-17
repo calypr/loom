@@ -76,6 +76,9 @@ func RowLineageCapabilityForOutput(output lower.CompiledRecipeOutput) RowLineage
 		return RowLineageCapability{Available: true}
 	}
 	stage := sequence.Stages[0]
+	if stage.Kind == ir.PhysicalStageGroupOp && stage.Group != nil && stage.Group.SemanticKey != nil && len(sequence.Stages) != 1 {
+		return RowLineageCapability{ReasonCode: "ROW_LINEAGE_SEMANTIC_GROUP_COMPOSITION_UNSUPPORTED", Operation: string(stage.Kind)}
+	}
 	if stage.InputStageID != sequence.SourceStageID {
 		return RowLineageCapability{ReasonCode: "ROW_LINEAGE_OPERATION_UNSUPPORTED", Operation: string(stage.Kind)}
 	}

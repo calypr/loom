@@ -214,6 +214,149 @@ describe('ConstructionReshapeEditor', () => {
     });
   });
 
+  it('adds one semantic category field to an ordinary GROUP alongside scalar keys', () => {
+    const baseCapabilities = capabilitiesFor();
+    const capabilities: ConstructionReshapeEditorProps['capabilities'] = {
+      ...baseCapabilities,
+      semanticGroupChoices: [{
+        choiceId: 'condition-category-choice',
+        bindingId: 'condition-code-binding',
+        ruleVersion: 'rule-v1',
+        label: 'Condition category',
+        scopeLabel: 'retained records · Condition.code.coding[] · urn:example:condition · versionless',
+        resourceType: 'Condition',
+        sourcePath: 'code.coding',
+      }],
+      semanticGroupChoicesIncomplete: true,
+    };
+    const entry = createReshapeEditorEntry({
+      construction: capabilities.baseConstruction,
+      capabilities,
+      kind: 'group',
+      selectedColumns: ['site-id'],
+    });
+    expect(entry).toBeDefined();
+    if (!entry || entry.form.kind !== 'group') throw new Error('Expected a supported standard GROUP entry');
+
+    const onCandidateChange = vi.fn();
+    renderEditor({ capabilities, initialKind: 'group', initialEntry: entry, onCandidateChange });
+
+    expect(screen.getByRole('group', { name: 'Group by' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Summaries' })).toBeInTheDocument();
+    expect(screen.getByText('Advanced options')).toBeInTheDocument();
+    expect(controlChecked('Group by Site')).toBe(true);
+    expect(screen.getByText('Semantic category fields are available only when grouping directly from the starting source stage.')).toBeInTheDocument();
+    expect(screen.getByText('More semantic fields may exist than the bounded list shown here.')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Semantic category field'), { target: { value: 'choice:condition-category-choice' } });
+
+    const intent = onCandidateChange.mock.lastCall?.[0];
+    expect(intent).toBeDefined();
+    if (!intent) throw new Error('Expected a semantic Group candidate construction');
+    const candidateConstruction = constructionSchema.parse(intent.candidateConstruction);
+    expect(candidateConstruction).toEqual(intent.candidateConstruction);
+    const steps = candidateConstruction.steps;
+    expect(steps).toHaveLength(1);
+    expect(steps[0]?.operation.kind).toBe('GROUP');
+    if (steps[0]?.operation.kind !== 'GROUP') throw new Error('Expected an ordinary GROUP operation');
+    expect(steps[0].operation.group.keys).toHaveLength(2);
+    expect(steps[0].operation.group.keys?.[0]).toEqual({
+      inputColumnId: 'site-id',
+      outputColumnId: expect.any(String),
+    });
+    expect(steps[0].operation.group.keys?.[1]).toEqual({
+      semanticCategory: { kind: 'CHOICE', choiceId: 'condition-category-choice' },
+      outputColumnId: expect.any(String),
+    });
+    expect(steps[0].operation.group.aggregates).toEqual([{
+      operation: 'COUNT_ROWS',
+      outputColumnId: expect.any(String),
+    }]);
+    expect(steps.some((step) => step.operation.kind === 'CODED_PIVOT')).toBe(false);
+  });
+
+  it('preserves a saved semantic BINDING while editing a GROUP', () => {
+    const savedGroup: ConstructionReshapeStep = {
+      id: 'saved-semantic-group',
+      inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: {
+        kind: 'GROUP',
+        group: {
+          constructionId: 'saved-semantic-group',
+          missingKeyPolicy: 'GROUP',
+          keys: [{
+            inputColumnId: 'site-id',
+            outputColumnId: 'site-group-id',
+          }, {
+            semanticCategory: {
+              kind: 'BINDING',
+              bindingId: 'condition-code-binding',
+              ruleVersion: 'rule-v1',
+              familyId: 'condition-code-family',
+              sourceKind: 'retained_vertex',
+              system: 'urn:example:condition',
+              version: '',
+              resourceType: 'Condition',
+              codingPath: 'code.coding',
+            },
+            outputColumnId: 'category-id',
+          }],
+          aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: 'count-id' }],
+        },
+      },
+      outputs: [
+        { id: 'site-group-id', name: 'site', label: 'Site', type: 'string' },
+        { id: 'category-id', name: 'condition_category', label: 'Condition category', type: 'string' },
+        { id: 'count-id', name: 'row_count', label: 'Rows', type: 'integer' },
+      ],
+    };
+    const capabilities = capabilitiesFor();
+    const onCandidateChange = vi.fn();
+    renderEditor({
+      construction: {
+        version: 1,
+        sourceProjections: [{
+          columnId: 'site-id', occurrenceId: 'root', fieldPath: 'site', fhirType: 'string', logicalType: 'string', label: 'Site',
+        }],
+        steps: [savedGroup],
+      },
+      capabilities,
+      editingStep: savedGroup,
+      onCandidateChange,
+    });
+
+    expect(controlChecked('Group by Site')).toBe(true);
+    expect(controlValue('Semantic category field')).toBe('binding:condition-code-binding:rule-v1');
+    fireEvent.change(screen.getByLabelText('Summary output label 1'), { target: { value: 'Input rows' } });
+
+    const intent = onCandidateChange.mock.lastCall?.[0];
+    expect(intent).toBeDefined();
+    if (!intent) throw new Error('Expected an edited Group candidate construction');
+    const candidateConstruction = constructionSchema.parse(intent.candidateConstruction);
+    expect(candidateConstruction).toEqual(intent.candidateConstruction);
+    const editedStep = candidateConstruction.steps.find((step) => step.id === savedGroup.id);
+    expect(editedStep?.operation.kind).toBe('GROUP');
+    if (editedStep?.operation.kind !== 'GROUP') throw new Error('Expected the saved GROUP operation');
+    expect(editedStep.operation.group.keys).toEqual([{
+      inputColumnId: 'site-id',
+      outputColumnId: 'site-group-id',
+    }, {
+      semanticCategory: {
+        kind: 'BINDING',
+        bindingId: 'condition-code-binding',
+        ruleVersion: 'rule-v1',
+        familyId: 'condition-code-family',
+        sourceKind: 'retained_vertex',
+        system: 'urn:example:condition',
+        version: '',
+        resourceType: 'Condition',
+        codingPath: 'code.coding',
+      },
+      outputColumnId: 'category-id',
+    }]);
+    expect(editedStep.operation.group.aggregates).toEqual([{ operation: 'COUNT_ROWS', outputColumnId: 'count-id' }]);
+  });
+
   it('offers only compiler-supported scalar fields as pivot inputs', () => {
     const stage = {
       ...sourceStage,

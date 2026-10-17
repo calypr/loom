@@ -143,7 +143,9 @@ const formatStep = (
     }
     case 'GROUP': {
       const group = step.operation.group;
-      const keys = (group.keys ?? []).map((key) => columnLabel(key.inputColumnId));
+      const keys = (group.keys ?? []).map((key) => 'inputColumnId' in key
+        ? columnLabel(key.inputColumnId)
+        : step.outputs.find((column) => column.id === key.outputColumnId)?.label ?? 'semantic category');
       const aggregates = (group.aggregates ?? []).map((aggregate) => {
         const output = step.outputs.find((column) => column.id === aggregate.outputColumnId)?.label ?? 'a value';
         switch (aggregate.operation) {
@@ -345,7 +347,9 @@ export const constructionRowMeaning = (
       case 'GROUP': {
         relatedExpandCount = 0;
         rowsStillRepresentStartingRecords = false;
-        const keys = (step.operation.group.keys ?? []).map((key) => column(key.inputColumnId));
+        const keys = (step.operation.group.keys ?? []).map((key) => 'inputColumnId' in key
+          ? column(key.inputColumnId)
+          : step.outputs.find((output) => output.id === key.outputColumnId)?.label ?? 'semantic category');
         meaning = keys.length > 0
           ? `One row per distinct combination of ${keys.join(', ')}.`
           : 'One row summarizing all input rows.';

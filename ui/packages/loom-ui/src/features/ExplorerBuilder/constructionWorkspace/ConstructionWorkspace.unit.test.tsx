@@ -39,6 +39,31 @@ describe('ConstructionWorkspace', () => {
     };
     expect(constructionRowMeaning('One row per Patient.', grouped, sourceColumns))
       .toBe('One row per distinct combination of Status.');
+    const semanticGrouped: Construction = {
+      version: 1,
+      steps: [{
+        id: 'group-specimen-type', inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: { kind: 'GROUP', group: {
+          constructionId: 'group-specimen-type',
+          keys: [
+            { inputColumnId: 'status', outputColumnId: 'grouped-status' },
+            { semanticCategory: {
+              kind: 'BINDING', bindingId: 'binding-specimen-type', ruleVersion: '5',
+              familyId: 'family-specimen-type', sourceKind: 'retained_vertex',
+              system: 'urn:specimen-type', version: '', resourceType: 'Specimen', codingPath: 'type.coding[]',
+            }, outputColumnId: 'specimen-type' },
+          ],
+        } },
+        outputs: [
+          { id: 'grouped-status', name: 'status', label: 'Status' },
+          { id: 'specimen-type', name: 'specimen_type', label: 'Specimen type' },
+        ],
+      }],
+    };
+    expect(constructionRowMeaning('One row per Patient.', semanticGrouped, sourceColumns))
+      .toBe('One row per distinct combination of Status, Specimen type.');
+    expect(constructionHistorySteps(semanticGrouped, sourceColumns)[0]?.summary)
+      .toBe('Group rows by Status, Specimen type.');
     const expanded: Construction = {
       version: 1,
       steps: [{

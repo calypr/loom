@@ -405,9 +405,18 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 			Aggregates:       make([]recipe.ConstructionGroupAggregate, 0, len(group.Aggregates)),
 		}
 		for _, key := range group.Keys {
-			mapped.Keys = append(mapped.Keys, recipe.ConstructionGroupKey{
+			mappedKey := recipe.ConstructionGroupKey{
 				InputColumnID: key.InputColumnID, OutputColumnID: key.OutputColumnID,
-			})
+			}
+			if key.SemanticCategory != nil {
+				category := key.SemanticCategory
+				mappedKey.SemanticCategory = &recipe.ConstructionGroupSemanticCategory{
+					Kind: category.Kind, BindingID: category.BindingID, RuleVersion: category.RuleVersion,
+					FamilyID: category.FamilyID, SourceKind: category.SourceKind, System: category.System, Version: category.Version,
+					ResourceType: category.ResourceType, CodingPath: category.CodingPath,
+				}
+			}
+			mapped.Keys = append(mapped.Keys, mappedKey)
 		}
 		for _, aggregate := range group.Aggregates {
 			mapped.Aggregates = append(mapped.Aggregates, recipe.ConstructionGroupAggregate{

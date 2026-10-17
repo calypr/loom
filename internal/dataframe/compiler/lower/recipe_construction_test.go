@@ -801,12 +801,28 @@ func TestDescribeConstructionSourceStageForZeroColumnOutput(t *testing.T) {
 	output.Construction = nil
 	compiled := compileDerivedTestOutput(t, output)
 
-	descriptor, err := DescribeConstructionSourceStage(compiled.OutputSchema, output.RootResourceType)
+	descriptor, err := DescribeConstructionSourceStage(compiled.OutputSchema, output.RootResourceType, &compiled.Plan)
 	if err != nil {
 		t.Fatalf("describe compiler-resolved source stage: %v", err)
 	}
-	if descriptor.ID != recipe.ConstructionSourceProjectionID || descriptor.RowIdentityColumn == "" {
+	if descriptor.ID != recipe.ConstructionSourceProjectionID || descriptor.RowIdentityColumn == "" ||
+		!compiledStageCapabilitySupported(descriptor.Capabilities, recipe.ConstructionCodedPivotOp) {
 		t.Fatalf("source descriptor identity = %#v", descriptor)
+	}
+	expandedPlan := compiled.Plan
+	expandedPlan.Operations = append([]ir.PhysicalOperation(nil), compiled.Plan.Operations...)
+	if len(expandedPlan.Operations) == 0 || expandedPlan.Operations[len(expandedPlan.Operations)-1].Kind != ir.PhysicalReturnOp {
+		t.Fatalf("source plan has no terminal RETURN: %#v", expandedPlan.Operations)
+	}
+	returnIndex := len(expandedPlan.Operations) - 1
+	expandedPlan.Operations = append(expandedPlan.Operations[:returnIndex], append(
+		[]ir.PhysicalOperation{{Kind: ir.PhysicalUnnestOp}}, expandedPlan.Operations[returnIndex:]...)...)
+	expanded, err := DescribeConstructionSourceStage(compiled.OutputSchema, output.RootResourceType, &expandedPlan)
+	if err != nil {
+		t.Fatalf("describe expanded source stage: %v", err)
+	}
+	if compiledStageCapabilitySupported(expanded.Capabilities, recipe.ConstructionCodedPivotOp) {
+		t.Fatalf("expanded source stage advertises direct-root coded operations: %#v", expanded)
 	}
 	publicColumns := 0
 	for _, column := range descriptor.Columns {
@@ -883,6 +899,15 @@ func TestDescribeConstructionSourceStageForZeroColumnOutput(t *testing.T) {
 	if compiled.Plan.StageSequence != nil {
 		t.Fatal("capability description introduced an executable construction stage sequence")
 	}
+}
+
+func compiledStageCapabilitySupported(capabilities []StageOperationCapability, operation recipe.ConstructionOperationKind) bool {
+	for _, capability := range capabilities {
+		if capability.Operation == operation {
+			return capability.Supported
+		}
+	}
+	return false
 }
 
 func TestCompileRelatedSourceMarksNonObservationListsWithCompilerSemanticPath(t *testing.T) {

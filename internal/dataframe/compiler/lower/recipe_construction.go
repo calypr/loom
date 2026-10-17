@@ -76,7 +76,7 @@ type StageOperationCapability struct {
 // discovery for a new, zero-column table: the physical compiler has still
 // resolved row identity and source columns, but the result is never treated
 // as an executable public output.
-func DescribeConstructionSourceStage(schema []CompiledOutputColumn, rootResourceType string) (CompiledStageDescriptor, error) {
+func DescribeConstructionSourceStage(schema []CompiledOutputColumn, rootResourceType string, sourcePlan *ir.PhysicalPlan) (CompiledStageDescriptor, error) {
 	identity := constructionSourceIdentity(schema)
 	if identity == "" {
 		return CompiledStageDescriptor{}, fmt.Errorf("construction source has no supported row identity projection")
@@ -105,7 +105,8 @@ func DescribeConstructionSourceStage(schema []CompiledOutputColumn, rootResource
 	}
 	descriptor.Capabilities = stageCapabilities(columns, false)
 	descriptor.Capabilities = withConstructionCapability(descriptor.Capabilities, codedGroupSourceCapability(columns, rootResourceType))
-	descriptor.Capabilities = withConstructionCapability(descriptor.Capabilities, codedPivotSourceCapability(columns, rootResourceType))
+	descriptor.Capabilities = withConstructionCapability(descriptor.Capabilities,
+		codedPivotSourceCapability(columns, rootResourceType, constructionDirectRootRowsUnique(sourcePlan, "CODED_PIVOT") == nil))
 	descriptor.RelatedExpandAnchors = relatedExpandAnchors(columns, rootResourceType, false)
 	return descriptor, nil
 }
@@ -177,7 +178,8 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 	lazyRootContributorAvailable := false
 	descriptors[0].Capabilities = stageCapabilities(resolvedSource, false)
 	descriptors[0].Capabilities = withConstructionCapability(descriptors[0].Capabilities, codedGroupSourceCapability(resolvedSource, rootResourceType))
-	descriptors[0].Capabilities = withConstructionCapability(descriptors[0].Capabilities, codedPivotSourceCapability(resolvedSource, rootResourceType))
+	descriptors[0].Capabilities = withConstructionCapability(descriptors[0].Capabilities,
+		codedPivotSourceCapability(resolvedSource, rootResourceType, constructionDirectRootRowsUnique(plan, "CODED_PIVOT") == nil))
 	descriptors[0].RelatedExpandAnchors = relatedExpandAnchors(resolvedSource, rootResourceType, false)
 	if len(construction.Steps) == 0 && cohort == nil {
 		return resolvedSource, descriptors, sourceIdentity, nil
@@ -1082,7 +1084,10 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 		outputIdentity = constructionRowID
 	case recipe.ConstructionGroupOp:
 		group := step.Operation.Group
-		physicalGroup, projections, compiled, err := lowerConstructionGroup(plan, *group, step.RowValues, step.Outputs, inputByID, outputByID, usedVariables, index)
+		physicalGroup, projections, compiled, err := lowerConstructionGroup(
+			plan, *group, step.RowValues, step.Outputs, inputByID, inputIdentity,
+			inputStageID, rootResourceType, outputByID, usedVariables, index,
+		)
 		if err != nil {
 			return constructionStageResult{}, err
 		}
@@ -1956,13 +1961,13 @@ func stageCapabilities(columns []CompiledOutputColumn, lazyRootContributorAvaila
 	}
 }
 
-func codedPivotSourceCapability(columns []CompiledOutputColumn, rootResourceType string) StageOperationCapability {
+func codedPivotSourceCapability(columns []CompiledOutputColumn, rootResourceType string, sourceRowsUnique bool) StageOperationCapability {
 	capability := StageOperationCapability{
 		Operation: recipe.ConstructionCodedPivotOp, ReasonCode: "SOURCE_ROW_NOT_ROOT",
 		Reason: "coded Pivot requires direct root rows with a retained root document identity",
 	}
 	identity, found := schemaColumn(columns, "_key")
-	if found && identity.Internal && identity.Identity && identity.Kind == string(expression.KindString) &&
+	if sourceRowsUnique && found && identity.Internal && identity.Identity && identity.Kind == string(expression.KindString) &&
 		identity.Cardinality == string(expression.RequiredOne) && fhirschema.HasResource(rootResourceType) {
 		capability.Supported, capability.ReasonCode, capability.Reason = true, "", ""
 	}

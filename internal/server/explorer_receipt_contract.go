@@ -58,7 +58,7 @@ func compileConstructionSourceStage(ctx context.Context, request lifecycle.Const
 		if output.Name != request.OutputID {
 			continue
 		}
-		descriptor, err := lower.DescribeConstructionSourceStage(output.OutputSchema, document.RootResourceType)
+		descriptor, err := lower.DescribeConstructionSourceStage(output.OutputSchema, document.RootResourceType, &output.Plan)
 		if err != nil {
 			return explorer.ReceiptConstructionStage{}, err
 		}

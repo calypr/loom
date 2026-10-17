@@ -98,6 +98,8 @@ func (FieldChoiceSource) constructionChoiceSource() {}
 // identity. Display text is deliberately excluded from computational identity.
 type SemanticBindingChoiceSource struct {
 	Kind                  ConstructionChoiceSourceKind `json:"kind"`
+	GroupOutputID         string                       `json:"groupOutputId,omitempty"`
+	GroupStageID          string                       `json:"groupStageId,omitempty"`
 	ConceptID             string                       `json:"conceptId"`
 	BindingID             string                       `json:"bindingId"`
 	CandidateID           string                       `json:"candidateId"`
@@ -522,6 +524,10 @@ func NewSemanticConstructionChoice(snapshotToken, semanticContextToken, buildID 
 // NewSemanticConstructionChoiceForRoute pins an observed semantic binding to
 // the exact compiler-proved route and terminal candidate.
 func NewSemanticConstructionChoiceForRoute(snapshotToken, semanticContextToken, buildID string, route []ConstructionRouteStep, source SemanticBindingChoiceSource, candidate Candidate, ownerRecordsProved ...bool) (ConstructionChoice, error) {
+	if (source.GroupOutputID == "") != (source.GroupStageID == "") ||
+		(source.GroupOutputID != "" && (strings.TrimSpace(source.GroupOutputID) != source.GroupOutputID || strings.TrimSpace(source.GroupStageID) != source.GroupStageID)) {
+		return ConstructionChoice{}, fmt.Errorf("semantic group choice must pin an exact output and stage together")
+	}
 	if strings.TrimSpace(snapshotToken) == "" || strings.TrimSpace(semanticContextToken) == "" || strings.TrimSpace(buildID) == "" ||
 		strings.TrimSpace(source.ConceptID) == "" || strings.TrimSpace(source.BindingID) == "" ||
 		strings.TrimSpace(source.ResourceType) == "" || strings.TrimSpace(source.SourcePath) == "" ||
@@ -748,6 +754,10 @@ func DecodeConstructionChoiceID(choiceID string) (ConstructionChoiceIdentity, er
 			strings.TrimSpace(source.FieldPath) == "" || strings.TrimSpace(source.ValueSelector) == "" ||
 			strings.TrimSpace(source.RuleVersion) == "" || source.SchemaVersion <= 0 {
 			return ConstructionChoiceIdentity{}, fmt.Errorf("semantic choice source identity is incomplete")
+		}
+		if (source.GroupOutputID == "") != (source.GroupStageID == "") ||
+			(source.GroupOutputID != "" && (strings.TrimSpace(source.GroupOutputID) != source.GroupOutputID || strings.TrimSpace(source.GroupStageID) != source.GroupStageID)) {
+			return ConstructionChoiceIdentity{}, fmt.Errorf("semantic group choice output/stage identity is incomplete")
 		}
 		if err := validateSemanticCategoryChoiceSource(source); err != nil {
 			return ConstructionChoiceIdentity{}, fmt.Errorf("semantic choice source identity is invalid: %w", err)

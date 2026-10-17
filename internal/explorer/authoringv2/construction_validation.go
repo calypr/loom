@@ -1503,17 +1503,38 @@ func validateConstructionGroup(step ConstructionStep, input map[string]StageColu
 	want := make([]string, 0, len(group.Keys)+len(group.Aggregates))
 	inputIDs := make(map[string]bool, len(group.Keys))
 	outputIDs := make(map[string]bool, len(group.Keys)+len(group.Aggregates))
+	semanticKeys := 0
 	for index, key := range group.Keys {
-		if !requiredID(key.InputColumnID) {
-			return fmt.Errorf("keys[%d].inputColumnId is required", index)
+		if key.SemanticCategory == nil {
+			if !requiredID(key.InputColumnID) {
+				return fmt.Errorf("keys[%d].inputColumnId is required", index)
+			}
+			if _, exists := input[key.InputColumnID]; !exists {
+				return missingConstructionColumn(fmt.Sprintf("keys[%d].inputColumnId", index), key.InputColumnID)
+			}
+			if inputIDs[key.InputColumnID] {
+				return fmt.Errorf("group keys contain duplicate input column id %q", key.InputColumnID)
+			}
+			inputIDs[key.InputColumnID] = true
+		} else {
+			semanticKeys++
+			if key.InputColumnID != "" {
+				return fmt.Errorf("keys[%d] must choose either inputColumnId or semanticCategory", index)
+			}
+			if err := validateConstructionGroupSemanticCategory(*key.SemanticCategory); err != nil {
+				return fmt.Errorf("keys[%d].semanticCategory: %w", index, err)
+			}
+			if len(step.Inputs) != 1 || step.Inputs[0].Kind != ConstructionInputSourceProjection || step.Inputs[0].StepID != "" {
+				return fmt.Errorf("semantic category grouping currently requires the direct source projection stage")
+			}
+			if key.OutputColumnID != "" {
+				for _, declaration := range step.Outputs {
+					if declaration.ID == key.OutputColumnID && declaration.Type != "" && declaration.Type != "INFER" && declaration.Type != "string" {
+						return fmt.Errorf("keys[%d].semanticCategory output must be a string column", index)
+					}
+				}
+			}
 		}
-		if _, exists := input[key.InputColumnID]; !exists {
-			return missingConstructionColumn(fmt.Sprintf("keys[%d].inputColumnId", index), key.InputColumnID)
-		}
-		if inputIDs[key.InputColumnID] {
-			return fmt.Errorf("group keys contain duplicate input column id %q", key.InputColumnID)
-		}
-		inputIDs[key.InputColumnID] = true
 		if !requiredID(key.OutputColumnID) || outputIDs[key.OutputColumnID] {
 			return fmt.Errorf("keys[%d].outputColumnId is empty or duplicated", index)
 		}
@@ -1542,7 +1563,31 @@ func validateConstructionGroup(step ConstructionStep, input map[string]StageColu
 		outputIDs[aggregate.OutputColumnID] = true
 		want = append(want, aggregate.OutputColumnID)
 	}
+	if semanticKeys > 1 {
+		return fmt.Errorf("group supports at most one semantic category key")
+	}
 	return validateDeclaredOutputIDs(step.Outputs, want)
+}
+
+func validateConstructionGroupSemanticCategory(category ConstructionGroupSemanticCategory) error {
+	switch category.Kind {
+	case "CHOICE":
+		if !requiredID(category.ChoiceID) || category.BindingID != "" || category.RuleVersion != "" || category.FamilyID != "" || category.SourceKind != "" ||
+			category.System != "" || category.Version != "" || category.ResourceType != "" || category.CodingPath != "" {
+			return fmt.Errorf("CHOICE requires only an exact choiceId")
+		}
+	case "BINDING":
+		if category.ChoiceID != "" || !requiredID(category.BindingID) || !requiredID(category.RuleVersion) || !requiredID(category.FamilyID) ||
+			(category.SourceKind != "file" && category.SourceKind != "retained_vertex") ||
+			!requiredID(category.System) || !requiredID(category.ResourceType) || !requiredID(category.CodingPath) ||
+			category.Version != strings.TrimSpace(category.Version) || category.System != strings.TrimSpace(category.System) ||
+			category.CodingPath != strings.TrimSpace(category.CodingPath) {
+			return fmt.Errorf("BINDING requires exact family, coding path, system, version, and rule identities")
+		}
+	default:
+		return fmt.Errorf("kind must be CHOICE or BINDING")
+	}
+	return nil
 }
 
 func validateConstructionCodedGroup(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {

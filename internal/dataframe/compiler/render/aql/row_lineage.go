@@ -30,6 +30,12 @@ func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, 
 	if group == nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("row lineage Group payload is required")
 	}
+	if group.SemanticKey != nil {
+		if len(stages) != 1 {
+			return RenderedPhysicalPlan{}, fmt.Errorf("semantic Group row lineage currently requires a terminal direct-source Group")
+		}
+		return r.renderSemanticGroupRowLineage(sourceQuery, stage, terminal)
+	}
 	input := r.newInternalVariable("row_lineage_group_input")
 	selected := r.newInternalVariable("row_lineage_selected_group")
 	identity := r.newInternalVariable("row_lineage_identity")
@@ -163,6 +169,182 @@ func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, 
 	)
 	query := strings.Join(lines, "\n") + "\n"
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(r.bindVars, query)}, nil
+}
+
+func (r *physicalPlanRenderer) renderSemanticGroupRowLineage(
+	sourceQuery string,
+	stage ir.PhysicalConstructionStage,
+	terminal ir.PhysicalRowLineageReturn,
+) (RenderedPhysicalPlan, error) {
+	group := stage.Group
+	if group == nil || group.SemanticKey == nil {
+		return RenderedPhysicalPlan{}, fmt.Errorf("semantic Group payload is required")
+	}
+	semantic := group.SemanticKey
+	lineageSemantic := *semantic
+	// The direct Group input row carries `_key`, but the row-lineage source
+	// projection exposes that same root identity under the hidden occurrence
+	// key column. Reuse the projected identity when rehydrating the resource.
+	lineageSemantic.SourceIdentityColumn = terminal.OccurrenceKeyColumn
+	input := r.newInternalVariable("row_lineage_semantic_group_input")
+	selected := r.newInternalVariable("row_lineage_semantic_selected_group")
+	identity := r.newInternalVariable("row_lineage_semantic_identity")
+	codeTuple := r.newInternalVariable("row_lineage_semantic_tuple")
+	keyVars := make([]string, len(group.Keys))
+	collectedVars := make([]string, len(group.Keys))
+	keyAliases := make([]string, len(group.Keys))
+	identityParts := []string{"[\"construction\", @" + group.ConstructionIDBindKey + "]", "[\"operation\", \"GROUP\"]"}
+	collect := make([]string, 0, len(group.Keys)+1)
+	sortKeys := make([]string, 0, len(group.Keys)+1)
+	selectedFields := make([]string, 0, len(group.Keys)+1)
+	filters := make([]string, 0, len(group.Keys)+1)
+	for index, key := range group.Keys {
+		keyVar := r.newInternalVariable(fmt.Sprintf("row_lineage_semantic_group_key_%d", index))
+		collectedVar := r.newInternalVariable(fmt.Sprintf("row_lineage_semantic_collected_key_%d", index))
+		keyVars[index], collectedVars[index] = keyVar, collectedVar
+		keyAliases[index] = fmt.Sprintf("key%d", index)
+		columnBind := r.newInternalBindKeyWithValue("row_lineage_semantic_group_input_column", key.InputColumn)
+		filters = append(filters, fmt.Sprintf("LET %s = %s[@%s]", keyVar, input, columnBind))
+		if group.MissingKeyPolicy == ir.PhysicalStageGroupMissingKeyExclude {
+			filters = append(filters, "FILTER "+keyVar+" != null")
+		} else if group.MissingKeyPolicy == ir.PhysicalStageGroupMissingKeyError {
+			filters = append(filters, fmt.Sprintf("FILTER ASSERT(%s != null, \"CONSTRUCTION_GROUP_MISSING_KEY\")", keyVar))
+		} else if group.MissingKeyPolicy != ir.PhysicalStageGroupMissingKeyGroup {
+			return RenderedPhysicalPlan{}, fmt.Errorf("unsupported Group missing-key policy %q", group.MissingKeyPolicy)
+		}
+		typeName, err := aqlTableScalarType(key.Kind)
+		if err != nil {
+			return RenderedPhysicalPlan{}, fmt.Errorf("Group key %q: %w", key.InputColumn, err)
+		}
+		typeBind := r.newInternalBindKeyWithValue("row_lineage_semantic_group_key_type", typeName)
+		filters = append(filters, fmt.Sprintf("FILTER ASSERT(%s == null OR TYPENAME(%s) == @%s, \"CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH\")", keyVar, keyVar, typeBind))
+		outputColumnID := ""
+		for _, column := range stage.OutputColumns {
+			if column.Name == key.OutputColumn {
+				outputColumnID = column.ID
+				break
+			}
+		}
+		if outputColumnID == "" {
+			return RenderedPhysicalPlan{}, fmt.Errorf("Group key output %q has no stable column ID", key.OutputColumn)
+		}
+		nameBind := r.newInternalBindKeyWithValue("row_lineage_semantic_group_identity_column", outputColumnID)
+		identityParts = append(identityParts, "[@"+nameBind+", "+collectedVar+"]")
+		collect = append(collect, collectedVar+" = "+keyVar)
+		sortKeys = append(sortKeys, collectedVar+" ASC")
+		selectedFields = append(selectedFields, keyAliases[index]+": "+collectedVar)
+	}
+	semanticMembershipLines, memberships, member, err := r.semanticGroupMembershipForLineage(input, &lineageSemantic)
+	if err != nil {
+		return RenderedPhysicalPlan{}, err
+	}
+	semanticTupleBind := r.newInternalBindKey("row_lineage_semantic_tuple_column")
+	for _, column := range stage.OutputColumns {
+		if column.Name == semantic.OutputColumn {
+			r.bindVars[semanticTupleBind] = column.ID
+			break
+		}
+	}
+	if r.bindVars[semanticTupleBind] == nil {
+		return RenderedPhysicalPlan{}, fmt.Errorf("semantic Group output %q has no stable column ID", semantic.OutputColumn)
+	}
+	collect = append(collect, codeTuple+" = ["+member+".system, "+member+".version, "+member+".code]")
+	sortKeys = append(sortKeys, codeTuple+" ASC")
+	selectedFields = append(selectedFields, "semanticTuple: "+codeTuple)
+	familyBinding := r.newInternalBindKeyWithValue("row_lineage_semantic_group_binding", semantic.BindingID)
+	familyRule := r.newInternalBindKeyWithValue("row_lineage_semantic_group_rule", semantic.RuleVersion)
+	familyID := r.newInternalBindKeyWithValue("row_lineage_semantic_group_family", semantic.FamilyID)
+	familySystem := r.newInternalBindKeyWithValue("row_lineage_semantic_group_system", semantic.System)
+	familyVersion := r.newInternalBindKeyWithValue("row_lineage_semantic_group_version", semantic.Version)
+	familyPath := r.newInternalBindKeyWithValue("row_lineage_semantic_group_path", semantic.CodingPath)
+	identityParts = append(identityParts, "[@"+semanticTupleBind+", \"semantic_family\", @"+familyBinding+", @"+familyRule+", @"+familyID+", @"+familySystem+", @"+familyVersion+", @"+familyPath+", "+codeTuple+"]")
+	semanticFilter := ""
+	switch group.MissingKeyPolicy {
+	case ir.PhysicalStageGroupMissingKeyGroup:
+	case ir.PhysicalStageGroupMissingKeyExclude:
+		semanticFilter = "FILTER " + member + ".code != null"
+	case ir.PhysicalStageGroupMissingKeyError:
+		semanticFilter = "FILTER ASSERT(" + member + ".code != null, \"CONSTRUCTION_GROUP_MISSING_KEY\")"
+	default:
+		return RenderedPhysicalPlan{}, fmt.Errorf("unsupported Group missing-key policy %q", group.MissingKeyPolicy)
+	}
+	matchLines := []string{
+		"LET " + selected + " = FIRST(",
+		"  FOR " + input + " IN (\n" + indentQuery(sourceQuery, "    ") + "\n  )",
+	}
+	matchLines = append(matchLines, filters...)
+	matchLines = append(matchLines, semanticMembershipLines...)
+	matchLines = append(matchLines, "  FOR "+member+" IN "+memberships)
+	if semanticFilter != "" {
+		matchLines = append(matchLines, "  "+semanticFilter)
+	}
+	matchLines = append(matchLines,
+		"  COLLECT "+strings.Join(collect, ", "),
+		"  SORT "+strings.Join(sortKeys, ", "),
+		"  LET "+identity+" = TO_STRING(["+strings.Join(identityParts, ", ")+"])",
+		"  FILTER "+identity+" == @"+terminal.RowIDBindKey,
+		"  RETURN {"+strings.Join(selectedFields, ", ")+"}",
+		")",
+	)
+
+	contributor := r.newInternalVariable("row_lineage_semantic_contributor")
+	contributorMembershipLines, contributorMemberships, contributorMember, err := r.semanticGroupMembershipForLineage(contributor, &lineageSemantic)
+	if err != nil {
+		return RenderedPhysicalPlan{}, err
+	}
+	contributorFilters := []string{selected + " != null"}
+	for index, key := range group.Keys {
+		columnBind := r.newInternalBindKeyWithValue("row_lineage_semantic_contributor_column", key.InputColumn)
+		value := fmt.Sprintf("%s[@%s]", contributor, columnBind)
+		if group.MissingKeyPolicy == ir.PhysicalStageGroupMissingKeyExclude {
+			contributorFilters = append(contributorFilters, value+" != null")
+		} else if group.MissingKeyPolicy == ir.PhysicalStageGroupMissingKeyError {
+			contributorFilters = append(contributorFilters, fmt.Sprintf("ASSERT(%s != null, \"CONSTRUCTION_GROUP_MISSING_KEY\")", value))
+		}
+		contributorFilters = append(contributorFilters, value+" == "+selected+"."+keyAliases[index])
+	}
+	if semanticFilter != "" {
+		if group.MissingKeyPolicy == ir.PhysicalStageGroupMissingKeyExclude {
+			contributorFilters = append(contributorFilters, contributorMember+".code != null")
+		} else if group.MissingKeyPolicy == ir.PhysicalStageGroupMissingKeyError {
+			contributorFilters = append(contributorFilters, "ASSERT("+contributorMember+".code != null, \"CONSTRUCTION_GROUP_MISSING_KEY\")")
+		}
+	}
+	contributorFilters = append(contributorFilters,
+		"["+contributorMember+".system, "+contributorMember+".version, "+contributorMember+".code] == "+selected+".semanticTuple")
+	resourceIDBind := r.newInternalBindKeyWithValue("row_lineage_semantic_resource_id_column", terminal.ResourceIDColumn)
+	occurrenceKeyBind := r.newInternalBindKeyWithValue("row_lineage_semantic_occurrence_key_column", terminal.OccurrenceKeyColumn)
+	resourceTypeBind := r.newInternalBindKeyWithValue("row_lineage_semantic_resource_type", terminal.ResourceType)
+	page := r.newInternalVariable("row_lineage_semantic_page")
+	lines := append([]string(nil), matchLines...)
+	lines = append(lines,
+		"LET "+page+" = (",
+		"  FOR "+contributor+" IN (\n"+indentQuery(sourceQuery, "    ")+"\n  )",
+	)
+	lines = append(lines, contributorMembershipLines...)
+	lines = append(lines,
+		"  FOR "+contributorMember+" IN "+contributorMemberships,
+		"  "+strings.Join(mapStrings(contributorFilters, "FILTER "), "\n  "),
+		"  SORT "+contributor+"[@"+occurrenceKeyBind+"] ASC",
+		"  LIMIT @"+terminal.OffsetBindKey+", @"+terminal.FetchLimitBindKey,
+		"  RETURN {resourceType: @"+resourceTypeBind+", resourceId: "+contributor+"[@"+resourceIDBind+"], occurrenceKey: "+contributor+"[@"+occurrenceKeyBind+"]}",
+		")",
+		"RETURN {found: "+selected+" != null, contributors: SLICE("+page+", 0, @"+terminal.LimitBindKey+"), hasMore: LENGTH("+page+") > @"+terminal.LimitBindKey+"}",
+	)
+	query := strings.Join(lines, "\n") + "\n"
+	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(r.bindVars, query)}, nil
+}
+
+func (r *physicalPlanRenderer) semanticGroupMembershipForLineage(
+	inputRow string,
+	semantic *ir.PhysicalStageGroupSemanticKey,
+) ([]string, string, string, error) {
+	lines, memberships, err := r.renderConstructionGroupSemanticMembership(semantic, constructionGroupInput{}, inputRow)
+	if err != nil {
+		return nil, "", "", err
+	}
+	membership := r.newInternalVariable("row_lineage_semantic_membership")
+	return lines, memberships, membership, nil
 }
 
 func lineagePassedCondition(variable string) string {

@@ -619,8 +619,25 @@ func (group ConstructionGroup) MarshalJSON() ([]byte, error) {
 }
 
 type ConstructionGroupKey struct {
-	InputColumnID  string `json:"inputColumnId"`
-	OutputColumnID string `json:"outputColumnId"`
+	InputColumnID    string                             `json:"inputColumnId,omitempty"`
+	OutputColumnID   string                             `json:"outputColumnId"`
+	SemanticCategory *ConstructionGroupSemanticCategory `json:"semanticCategory,omitempty"`
+}
+
+// ConstructionGroupSemanticCategory is either an ephemeral CHOICE supplied
+// by current stage capabilities or the durable server-resolved BINDING.
+// Version is an exact string; the empty string means versionless, not any.
+type ConstructionGroupSemanticCategory struct {
+	Kind         string `json:"kind"`
+	ChoiceID     string `json:"choiceId,omitempty"`
+	BindingID    string `json:"bindingId,omitempty"`
+	RuleVersion  string `json:"ruleVersion,omitempty"`
+	FamilyID     string `json:"familyId,omitempty"`
+	SourceKind   string `json:"sourceKind,omitempty"`
+	System       string `json:"system,omitempty"`
+	Version      string `json:"version,omitempty"`
+	ResourceType string `json:"resourceType,omitempty"`
+	CodingPath   string `json:"codingPath,omitempty"`
 }
 
 type ConstructionGroupAggregate struct {

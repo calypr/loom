@@ -384,6 +384,24 @@ func (group *ConstructionGroup) UnmarshalJSON(raw []byte) error {
 type ConstructionGroupKey struct {
 	InputColumnID  string `json:"inputColumnId"`
 	OutputColumnID string `json:"outputColumnId"`
+	// SemanticCategory is the server-resolved coded field family. It is
+	// mutually exclusive with InputColumnID so legacy scalar keys keep their
+	// original wire shape.
+	SemanticCategory *ConstructionGroupSemanticCategory `json:"semanticCategory,omitempty"`
+}
+
+// ConstructionGroupSemanticCategory pins one exact observed coding family.
+// Version is empty only for the versionless family; it is never a wildcard.
+type ConstructionGroupSemanticCategory struct {
+	Kind         string `json:"kind"`
+	BindingID    string `json:"bindingId,omitempty"`
+	RuleVersion  string `json:"ruleVersion,omitempty"`
+	FamilyID     string `json:"familyId,omitempty"`
+	SourceKind   string `json:"sourceKind,omitempty"`
+	System       string `json:"system,omitempty"`
+	Version      string `json:"version,omitempty"`
+	ResourceType string `json:"resourceType,omitempty"`
+	CodingPath   string `json:"codingPath,omitempty"`
 }
 
 type ConstructionGroupAggregate struct {

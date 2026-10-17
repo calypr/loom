@@ -549,7 +549,7 @@ func groupSourceRowVariable(sourcePlan ir.PhysicalPlan, sequence *ir.PhysicalSta
 	group := stage.Group
 	keylessRowValueGroup := group != nil && len(group.Keys) == 0 && len(group.RowValues) > 0
 	if stage.ID != sequence.FinalStageID || stage.InputStageID != sequence.SourceStageID ||
-		stage.Kind != ir.PhysicalStageGroupOp || group == nil || (len(group.Keys) == 0 && !keylessRowValueGroup) ||
+		stage.Kind != ir.PhysicalStageGroupOp || group == nil || (len(group.Keys) == 0 && group.SemanticKey == nil && !keylessRowValueGroup) ||
 		group.RootContributorInputColumn != "" ||
 		!constructionGroupCountsOnlyRows(group) ||
 		(len(group.RowValues) > 0 && !constructionGroupRowValuesCanAggregate(group.RowValues)) {

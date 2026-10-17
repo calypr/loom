@@ -11,8 +11,91 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
+
+func TestSemanticGroupUsesExactFamilyTupleAndReconstructsContributors(t *testing.T) {
+	output := lowerConstructionOutput(t, semanticGroupOutputForLineageTest(), recipe.RuntimeBindings{
+		Project: "row-lineage-project", DatasetGeneration: "row-lineage-generation",
+	})
+	capability := RowLineageCapabilityForOutput(output)
+	if !capability.Available {
+		t.Fatalf("direct semantic Group should retain contributor lineage: %#v", capability)
+	}
+	stage := output.Plan.StageSequence.Stages[0]
+	if stage.Group == nil || stage.Group.SemanticKey == nil || stage.Group.SemanticKey.SourceIdentityColumn != "_key" {
+		t.Fatalf("lowered semantic Group has no exact root-key family binding: %#v", stage.Group)
+	}
+	groupPlan, err := aql.RenderPhysicalPlan(output.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"construction_group_semantic_raw_codings",
+		"construction_group_semantic_coding.system == @",
+		"construction_group_semantic_coding.version",
+		"COLLECT __loom_physical_construction_construction_group_semantic_code =",
+		"MIN((TYPENAME(__loom_physical_construction_construction_group_semantic_matched_coding.display)",
+		"construction_group_semantic_label",
+		"__loom_construction_group_semantic_tuple_1[2]",
+	} {
+		if !strings.Contains(groupPlan.Query, want) {
+			t.Errorf("semantic Group AQL is missing %q:\n%s", want, groupPlan.Query)
+		}
+	}
+	if strings.Contains(groupPlan.Query, "group_semantic_tuple.code") {
+		t.Fatalf("display fallback must read the tuple's code slot, not an object attribute:\n%s", groupPlan.Query)
+	}
+
+	lineage, err := CompileRowLineageOutput(output, "semantic-row-id", 0, 5, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"row_lineage_semantic_selected_group",
+		"row_lineage_semantic_group_family",
+		"row_lineage_semantic_group_system",
+		"semanticTuple:",
+		"row_lineage_semantic_contributor",
+		"FILTER [__loom_physical_construction_row_lineage_semantic_membership_1.system, __loom_physical_construction_row_lineage_semantic_membership_1.version, __loom_physical_construction_row_lineage_semantic_membership_1.code] == __loom_physical_construction_row_lineage_semantic_selected_group.semanticTuple",
+		"LIMIT @row_lineage_offset, @row_lineage_fetch_limit",
+	} {
+		if !strings.Contains(lineage.Query, want) {
+			t.Errorf("semantic Group lineage query is missing %q:\n%s", want, lineage.Query)
+		}
+	}
+}
+
+func semanticGroupOutputForLineageTest() recipe.Output {
+	return recipe.Output{
+		Name: "specimen_semantic_group", RootResourceType: "Specimen", RowGrain: "specimen",
+		Fields: []recipe.Field{{Name: "specimen_id", ColumnID: "specimen_id", Expr: recipe.Expression{Select: "root.id"}}},
+		Construction: &recipe.Construction{
+			Version: 1, SourceColumns: []recipe.StageColumn{{ID: "specimen_id", Name: "specimen_id", Type: "string"}},
+			Steps: []recipe.ConstructionStep{{
+				ID: "group_type", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+					ConstructionID: "group_type", MissingKeyPolicy: recipe.ConstructionGroupMissingKeyGroup,
+					Keys: []recipe.ConstructionGroupKey{
+						{InputColumnID: "specimen_id", OutputColumnID: "specimen_id_group"},
+						{SemanticCategory: &recipe.ConstructionGroupSemanticCategory{
+							Kind: "BINDING", BindingID: "binding-specimen-type", RuleVersion: "5",
+							FamilyID: "family-specimen-type", SourceKind: "file", System: "urn:specimen-type",
+							Version: "", ResourceType: "Specimen", CodingPath: "type.coding[]",
+						}, OutputColumnID: "specimen_type"},
+					},
+					Aggregates: []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "rows"}},
+				}},
+				Outputs: []recipe.StageColumn{
+					{ID: "specimen_id_group", Name: "specimen_id", Type: "string"},
+					{ID: "specimen_type", Name: "specimen_type", Label: "Specimen type", Type: "string"},
+					{ID: "rows", Name: "rows", Type: "integer"},
+				},
+			}},
+		},
+	}
+}
 
 func TestCompileRowLineageUsesBoundedCanonicalGroupTerminal(t *testing.T) {
 	output := lowerConstructionOutput(t, constructionMissingKeyPolicyOutput(recipe.ConstructionGroupMissingKeyGroup), recipe.RuntimeBindings{

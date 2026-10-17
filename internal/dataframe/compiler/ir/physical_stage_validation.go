@@ -158,7 +158,12 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 			}
 			expected := make([]string, 0, len(stage.Group.Keys)+len(stage.Group.Aggregates)+len(stage.Group.RowValues)+2)
 			for _, key := range stage.Group.Keys {
-				expected = append(expected, key.OutputColumn)
+				if key.OutputColumn != "" {
+					expected = append(expected, key.OutputColumn)
+				}
+			}
+			if stage.Group.SemanticKey != nil {
+				expected = append(expected, stage.Group.SemanticKey.OutputColumn)
 			}
 			for _, aggregate := range stage.Group.Aggregates {
 				expected = append(expected, aggregate.Output)
@@ -1385,8 +1390,20 @@ func validatePhysicalStageCohortGroup(stage PhysicalConstructionStage, cohort Ph
 }
 
 func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalStageGroup, bindVars map[string]any) error {
-	if len(group.Keys) == 0 && len(group.Aggregates) == 0 && len(group.RowValues) == 0 {
+	if len(group.Keys) == 0 && group.SemanticKey == nil && len(group.Aggregates) == 0 && len(group.RowValues) == 0 {
 		return fmt.Errorf("requires at least one key or aggregate")
+	}
+	if group.SemanticKey != nil {
+		key := group.SemanticKey
+		if stage.InputStageID != "source_projection" || key.OutputColumn == "" ||
+			key.TupleVariable == "" || key.LabelVariable == "" || key.RootCollectionBindKey == "" ||
+			key.ResourceType == "" || key.CodingPath == "" || len(key.PathSegments) == 0 ||
+			key.BindingID == "" || key.RuleVersion == "" || key.FamilyID == "" || key.System == "" {
+			return fmt.Errorf("semantic key requires a direct-root stage and exact resolved family identity")
+		}
+		if bindVars[key.RootCollectionBindKey] != key.ResourceType {
+			return fmt.Errorf("semantic key root collection does not match resource type %q", key.ResourceType)
+		}
 	}
 	switch group.MissingKeyPolicy {
 	case PhysicalStageGroupMissingKeyGroup, PhysicalStageGroupMissingKeyExclude, PhysicalStageGroupMissingKeyError:
@@ -1436,6 +1453,18 @@ func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalS
 		}
 		if err := definePhysicalVariable(defined, key.Variable); err != nil {
 			return fmt.Errorf("key %d: %w", index, err)
+		}
+	}
+	if group.SemanticKey != nil {
+		semantic := group.SemanticKey
+		if _, exists := outputByName[semantic.OutputColumn]; !exists {
+			return fmt.Errorf("semantic key output column %q is missing", semantic.OutputColumn)
+		}
+		if err := definePhysicalVariable(defined, semantic.TupleVariable); err != nil {
+			return fmt.Errorf("semantic key tuple: %w", err)
+		}
+		if err := definePhysicalVariable(defined, semantic.LabelVariable); err != nil {
+			return fmt.Errorf("semantic key label: %w", err)
 		}
 	}
 	for index, aggregate := range group.Aggregates {

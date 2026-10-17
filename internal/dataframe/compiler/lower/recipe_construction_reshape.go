@@ -6,6 +6,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func lowerConstructionGroup(
@@ -14,6 +15,9 @@ func lowerConstructionGroup(
 	rowValues []recipe.ConstructionRowValue,
 	declarations []recipe.StageColumn,
 	input map[string]CompiledOutputColumn,
+	inputIdentity string,
+	inputStageID string,
+	rootResourceType string,
 	outputs map[string]recipe.StageColumn,
 	usedVariables map[string]bool,
 	stepIndex int,
@@ -29,6 +33,76 @@ func lowerConstructionGroup(
 	metadataByOutputID := make(map[string]CompiledOutputColumn, len(declarations))
 	projectionByOutputID := make(map[string]ir.PhysicalProjection, len(declarations))
 	for _, key := range group.Keys {
+		if key.SemanticCategory != nil {
+			if err := constructionDirectRootRowsUnique(plan, "semantic GROUP"); err != nil {
+				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("semantic Group requires row-preserving direct root input: %w", err)
+			}
+			if inputStageID != recipe.ConstructionSourceProjectionID || inputIdentity != "_key" {
+				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("semantic group keys require direct root rows identified by _key")
+			}
+			category := key.SemanticCategory
+			if category.Kind != "BINDING" || category.ResourceType != rootResourceType {
+				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("semantic group binding does not match direct root resource %q", rootResourceType)
+			}
+			if len(plan.Operations) == 0 || plan.Operations[0].Kind != ir.PhysicalRootScanOp || plan.Operations[0].RootScan == nil {
+				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("semantic group requires a direct root resource scan")
+			}
+			rootScan := plan.Operations[0].RootScan
+			if rootScan.CollectionBindKey == "" || plan.BindVars[rootScan.CollectionBindKey] != rootResourceType || rootScan.Variable == "" {
+				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("semantic group root collection does not match selected root resource %q", rootResourceType)
+			}
+			index, err := fhirschema.GeneratedIndex()
+			if err != nil {
+				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("load generated FHIR schema: %w", err)
+			}
+			facts, err := index.ResolveRowPath(fhirschema.DefinitionName(rootResourceType), category.CodingPath)
+			if err != nil || facts.ResourceType != fhirschema.DefinitionName(rootResourceType) ||
+				facts.CanonicalPath != category.CodingPath || facts.FHIRType != "Coding" ||
+				facts.Cardinality != fhirschema.RowCardinalityMany || facts.Shape != fhirschema.RowPathArray || facts.Reference {
+				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("semantic group path %q is not an executable generated repeated Coding path on %s", category.CodingPath, rootResourceType)
+			}
+			paths, err := index.RepeatedCodingPaths(fhirschema.DefinitionName(rootResourceType))
+			if err != nil {
+				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("enumerate generated Coding paths: %w", err)
+			}
+			pathFound := false
+			for _, path := range paths {
+				if path == category.CodingPath {
+					pathFound = true
+					break
+				}
+			}
+			if !pathFound {
+				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("semantic group path %q is not advertised by the generated FHIR schema", category.CodingPath)
+			}
+			segments, err := parseCodedGroupPath(category.CodingPath)
+			if err != nil {
+				return ir.PhysicalStageGroup{}, nil, nil, err
+			}
+			output, ok := outputs[key.OutputColumnID]
+			if !ok {
+				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("semantic group output column ID %q is missing from step schema", key.OutputColumnID)
+			}
+			if output.Type != "" && output.Type != "INFER" && output.Type != "string" {
+				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("semantic group output %q must be a string column", output.ID)
+			}
+			physical.SemanticKey = &ir.PhysicalStageGroupSemanticKey{
+				OutputColumn: output.Name, TupleVariable: allocateConstructionVariable(usedVariables, "group_semantic_tuple", stepIndex),
+				LabelVariable:      allocateConstructionVariable(usedVariables, "group_semantic_label", stepIndex),
+				SourceRootVariable: rootScan.Variable, SourceIdentityColumn: inputIdentity,
+				RootCollectionBindKey: rootScan.CollectionBindKey, ResourceType: rootResourceType,
+				CodingPath: category.CodingPath, PathSegments: segments, BindingID: category.BindingID,
+				RuleVersion: category.RuleVersion, FamilyID: category.FamilyID, System: category.System, Version: category.Version,
+			}
+			metadataByOutputID[output.ID] = CompiledOutputColumn{
+				ID: output.ID, Name: output.Name, Label: constructionFirstNonEmpty(output.Label, output.Name),
+				Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne),
+				Nullable:     group.MissingKeyPolicy.Normalized() == recipe.ConstructionGroupMissingKeyGroup,
+				SemanticPath: "construction_semantic_group:" + category.BindingID + ":" + category.FamilyID,
+			}
+			projectionByOutputID[output.ID] = ir.PhysicalProjection{Name: output.Name, Value: ir.PhysicalValue{Variable: physical.SemanticKey.LabelVariable}}
+			continue
+		}
 		inputColumn, ok := input[key.InputColumnID]
 		if !ok || inputColumn.Internal {
 			return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("group key input column ID %q is not public", key.InputColumnID)

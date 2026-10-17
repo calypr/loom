@@ -148,6 +148,7 @@ type PhysicalStageGroup struct {
 	RootContributorOutputColumn string
 	RootContributorVariable     string
 	Keys                        []PhysicalStageGroupKey
+	SemanticKey                 *PhysicalStageGroupSemanticKey
 	Aggregates                  []PhysicalStageGroupAggregate
 	RowValues                   []PhysicalStageRowValue
 }
@@ -223,6 +224,25 @@ type PhysicalStageGroupKey struct {
 	OutputColumn string
 	Variable     string
 	Kind         string
+}
+
+// PhysicalStageGroupSemanticKey expands one exact semantic coding family per
+// input row. Tuple identity is separate from the public display label.
+type PhysicalStageGroupSemanticKey struct {
+	OutputColumn          string
+	TupleVariable         string
+	LabelVariable         string
+	SourceRootVariable    string
+	SourceIdentityColumn  string
+	RootCollectionBindKey string
+	ResourceType          string
+	CodingPath            string
+	PathSegments          []PhysicalCodedGroupPathSegment
+	BindingID             string
+	RuleVersion           string
+	FamilyID              string
+	System                string
+	Version               string
 }
 
 type PhysicalStageGroupAggregate struct {

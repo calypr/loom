@@ -35,7 +35,7 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 		countRowsOnly = false
 	}
 	if input.SourceRowInScope && (input.RowsVariable != "" ||
-		(len(group.Keys) == 0 && !(countRowsOnly && aggregateRowValues))) {
+		(len(group.Keys) == 0 && group.SemanticKey == nil && !(countRowsOnly && aggregateRowValues))) {
 		return nil, fmt.Errorf("in-scope source row requires a keyed Group or a keyless COUNT_ROWS Group with row values")
 	}
 	lines := make([]string, 0, 8+len(group.Keys)*2+len(group.Aggregates)+len(group.RowValues))
@@ -66,8 +66,18 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 	}
 	if input.RowsVariable != "" {
 		lines = append(lines, fmt.Sprintf("  FOR %s IN %s", stage.InputRowVariable, rowSource))
-	} else if !input.SourceRowInScope && (!countRowsOnly || len(group.Keys) != 0) {
+	} else if !input.SourceRowInScope && (!countRowsOnly || len(group.Keys) != 0 || group.SemanticKey != nil) {
 		return nil, fmt.Errorf("only keyless COUNT_ROWS groups can consume the current source scope")
+	}
+	semanticMembershipVariable := ""
+	if group.SemanticKey != nil {
+		semanticLines, membershipsVariable, err := r.renderConstructionGroupSemanticMembership(group.SemanticKey, input, inputRowVariable)
+		if err != nil {
+			return nil, err
+		}
+		lines = append(lines, semanticLines...)
+		semanticMembershipVariable = r.newInternalVariable("construction_group_semantic_membership")
+		lines = append(lines, fmt.Sprintf("  FOR %s IN %s", semanticMembershipVariable, membershipsVariable))
 	}
 	collectKeys := make([]string, 0, len(group.Keys))
 	sortKeys := make([]string, 0, len(group.Keys))
@@ -104,13 +114,54 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 		}
 		identityParts = append(identityParts, "[@"+nameBind+", "+key.Variable+"]")
 	}
+	semanticDisplayVariable := ""
+	semanticDisplayAggregateVariable := ""
+	if group.SemanticKey != nil {
+		semantic := group.SemanticKey
+		collectKeys = append(collectKeys, fmt.Sprintf("%s = [%s.system, %s.version, %s.code]", semantic.TupleVariable, semanticMembershipVariable, semanticMembershipVariable, semanticMembershipVariable))
+		sortKeys = append(sortKeys, semantic.TupleVariable+" ASC")
+		semanticDisplayVariable = semanticMembershipVariable + ".display"
+		semanticDisplayAggregateVariable = r.newInternalVariable("construction_group_semantic_min_display")
+		familyBinding := r.newInternalBindKeyWithValue("construction_group_semantic_binding", semantic.BindingID)
+		familyRule := r.newInternalBindKeyWithValue("construction_group_semantic_rule", semantic.RuleVersion)
+		familyID := r.newInternalBindKeyWithValue("construction_group_semantic_family", semantic.FamilyID)
+		familySystem := r.newInternalBindKeyWithValue("construction_group_semantic_system", semantic.System)
+		familyVersion := r.newInternalBindKeyWithValue("construction_group_semantic_version", semantic.Version)
+		familyPath := r.newInternalBindKeyWithValue("construction_group_semantic_path", semantic.CodingPath)
+		semanticOutputID := ""
+		for _, column := range stage.OutputColumns {
+			if column.Name == semantic.OutputColumn {
+				semanticOutputID = column.ID
+				break
+			}
+		}
+		if semanticOutputID == "" {
+			return nil, fmt.Errorf("semantic Group output %q has no stable column ID", semantic.OutputColumn)
+		}
+		semanticOutputBind := r.newInternalBindKeyWithValue("construction_group_semantic_output_column", semanticOutputID)
+		identityParts = append(identityParts,
+			"[@"+semanticOutputBind+", \"semantic_family\", @"+familyBinding+", @"+familyRule+", @"+familyID+", @"+familySystem+", @"+familyVersion+", @"+familyPath+", "+semantic.TupleVariable+"]")
+		switch group.MissingKeyPolicy {
+		case ir.PhysicalStageGroupMissingKeyGroup:
+		case ir.PhysicalStageGroupMissingKeyExclude:
+			lines = append(lines, fmt.Sprintf("  FILTER %s.code != null", semanticMembershipVariable))
+		case ir.PhysicalStageGroupMissingKeyError:
+			lines = append(lines, fmt.Sprintf("  FILTER ASSERT(%s.code != null, \"CONSTRUCTION_GROUP_MISSING_KEY\")", semanticMembershipVariable))
+		default:
+			return nil, fmt.Errorf("unsupported missing-key policy %q", group.MissingKeyPolicy)
+		}
+	}
 	if countRowsOnly && !aggregateRowValues {
 		countVariable := r.newInternalVariable("construction_group_count_rows")
 		collect := "COLLECT"
 		if len(collectKeys) != 0 {
 			collect += " " + strings.Join(collectKeys, ", ")
 		}
-		lines = append(lines, fmt.Sprintf("  %s WITH COUNT INTO %s", collect, countVariable))
+		if group.SemanticKey != nil {
+			lines = append(lines, fmt.Sprintf("  %s AGGREGATE %s = SUM(1), %s = MIN(%s)", collect, countVariable, semanticDisplayAggregateVariable, semanticDisplayVariable))
+		} else {
+			lines = append(lines, fmt.Sprintf("  %s WITH COUNT INTO %s", collect, countVariable))
+		}
 		lines = append(lines, keyTypeAssertions...)
 		if len(sortKeys) != 0 {
 			lines = append(lines, "  SORT "+strings.Join(sortKeys, ", "))
@@ -118,9 +169,15 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 		for _, aggregate := range group.Aggregates {
 			lines = append(lines, fmt.Sprintf("  LET %s = %s", aggregate.Variable, countVariable))
 		}
+		if group.SemanticKey != nil {
+			lines = append(lines, fmt.Sprintf("  LET %s = (%s != null ? %s : %s[2])", group.SemanticKey.LabelVariable, semanticDisplayAggregateVariable, semanticDisplayAggregateVariable, group.SemanticKey.TupleVariable))
+		}
 	} else if aggregateRowValues {
 		countVariable := r.newInternalVariable("construction_group_count_rows")
 		aggregateParts := []string{fmt.Sprintf("%s = SUM(%s != null ? 1 : 0)", countVariable, inputRowVariable)}
+		if group.SemanticKey != nil {
+			aggregateParts = append(aggregateParts, fmt.Sprintf("%s = MIN(%s)", semanticDisplayAggregateVariable, semanticDisplayVariable))
+		}
 		rowValueVariables := make([]string, 0, len(group.RowValues))
 		for index, rowValue := range group.RowValues {
 			aggregateVariable, aggregateExpression, outputLine, err := r.renderConstructionGroupRowValueAggregate(rowValue, inputRowVariable, index)
@@ -142,9 +199,15 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 		for _, aggregate := range group.Aggregates {
 			lines = append(lines, fmt.Sprintf("  LET %s = %s", aggregate.Variable, countVariable))
 		}
+		if group.SemanticKey != nil {
+			lines = append(lines, fmt.Sprintf("  LET %s = (%s != null ? %s : %s[2])", group.SemanticKey.LabelVariable, semanticDisplayAggregateVariable, semanticDisplayAggregateVariable, group.SemanticKey.TupleVariable))
+		}
 		lines = append(lines, rowValueVariables...)
 	} else {
 		groupMembers := fmt.Sprintf("{row: %s, present: %s != null}", inputRowVariable, inputRowVariable)
+		if group.SemanticKey != nil {
+			groupMembers = fmt.Sprintf("{row: %s, present: %s != null, semanticDisplay: %s}", inputRowVariable, inputRowVariable, semanticDisplayVariable)
+		}
 		if len(collectKeys) == 0 {
 			allRowsVariable := r.newInternalVariable("construction_group_all_rows")
 			lines = append(lines, fmt.Sprintf("  COLLECT %s = null INTO %s = %s", allRowsVariable, group.GroupRowsVariable, groupMembers))
@@ -152,6 +215,14 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 			lines = append(lines, fmt.Sprintf("  COLLECT %s INTO %s = %s", strings.Join(collectKeys, ", "), group.GroupRowsVariable, groupMembers))
 			lines = append(lines, keyTypeAssertions...)
 			lines = append(lines, "  SORT "+strings.Join(sortKeys, ", "))
+		}
+		if group.SemanticKey != nil {
+			displays := r.newInternalVariable("construction_group_semantic_displays")
+			member := r.newInternalVariable("construction_group_semantic_display")
+			lines = append(lines,
+				fmt.Sprintf("  LET %s = (FOR %s IN %s FILTER %s.semanticDisplay != null RETURN %s.semanticDisplay)", displays, member, group.GroupRowsVariable, member, member),
+				fmt.Sprintf("  LET %s = (LENGTH(%s) != 0 ? MIN(%s) : %s[2])", group.SemanticKey.LabelVariable, displays, displays, group.SemanticKey.TupleVariable),
+			)
 		}
 		for index, aggregate := range group.Aggregates {
 			expression, err := r.renderConstructionGroupAggregate(group, aggregate, index)
@@ -187,6 +258,70 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 		"  RETURN "+stage.OutputRowVariable,
 	)
 	return lines, nil
+}
+
+func (r *physicalPlanRenderer) renderConstructionGroupSemanticMembership(
+	semantic *ir.PhysicalStageGroupSemanticKey,
+	input constructionGroupInput,
+	inputRowVariable string,
+) ([]string, string, error) {
+	if semantic == nil || semantic.RootCollectionBindKey == "" || semantic.SourceIdentityColumn == "" {
+		return nil, "", fmt.Errorf("semantic group key has no source identity")
+	}
+	root := semantic.SourceRootVariable
+	lines := make([]string, 0, len(semantic.PathSegments)+8)
+	if !input.SourceRowInScope {
+		identityColumn := r.newInternalBindKeyWithValue("construction_group_semantic_source_identity", semantic.SourceIdentityColumn)
+		root = r.newInternalVariable("construction_group_semantic_root")
+		lines = append(lines, fmt.Sprintf("  LET %s = DOCUMENT(@@%s, %s[@%s])", root, semantic.RootCollectionBindKey, inputRowVariable, identityColumn))
+	}
+	payload := r.newInternalVariable("construction_group_semantic_payload")
+	lines = append(lines, fmt.Sprintf("  LET %s = (%s == null ? {} : %s.payload)", payload, root, root))
+	rawCodings := r.newInternalVariable("construction_group_semantic_raw_codings")
+	rawLines := []string{fmt.Sprintf("  LET %s = (", rawCodings)}
+	pathExpression := payload
+	for index, segment := range semantic.PathSegments {
+		attribute := fmt.Sprintf("%s[%q]", pathExpression, segment.Name)
+		if !segment.Repeated {
+			pathExpression = attribute
+			continue
+		}
+		item := r.newInternalVariable(fmt.Sprintf("construction_group_semantic_path_%d", index))
+		rawLines = append(rawLines, fmt.Sprintf("    FOR %s IN (%s == null ? [] : (IS_ARRAY(%s) ? %s : []))", item, attribute, attribute, attribute))
+		pathExpression = item
+	}
+	rawLines = append(rawLines, "      RETURN "+pathExpression, "  )")
+	lines = append(lines, rawLines...)
+	matched := r.newInternalVariable("construction_group_semantic_matches")
+	codeSystemBind := r.newInternalBindKeyWithValue("construction_group_semantic_system", semantic.System)
+	codeVersionBind := r.newInternalBindKeyWithValue("construction_group_semantic_version", semantic.Version)
+	coding := r.newInternalVariable("construction_group_semantic_coding")
+	codingVersion := fmt.Sprintf("(TYPENAME(%s.version) == \"string\" AND TRIM(%s.version) != \"\" ? %s.version : null)", coding, coding, coding)
+	versionPredicate := fmt.Sprintf("%s == @%s", codingVersion, codeVersionBind)
+	if semantic.Version == "" {
+		versionPredicate = codingVersion + " == null"
+	}
+	lines = append(lines,
+		fmt.Sprintf("  LET %s = (FOR %s IN %s FILTER TYPENAME(%s) == \"object\" FILTER %s.system == @%s FILTER %s RETURN %s)",
+			matched, coding, rawCodings, coding, coding, codeSystemBind, versionPredicate, coding),
+	)
+	local := r.newInternalVariable("construction_group_semantic_row_memberships")
+	matchedCoding := r.newInternalVariable("construction_group_semantic_matched_coding")
+	code := r.newInternalVariable("construction_group_semantic_code")
+	display := r.newInternalVariable("construction_group_semantic_display")
+	localCode := fmt.Sprintf("(TYPENAME(%s.code) == \"string\" AND TRIM(%s.code) != \"\" ? %s.code : null)", matchedCoding, matchedCoding, matchedCoding)
+	localDisplay := fmt.Sprintf("(TYPENAME(%s.display) == \"string\" AND TRIM(%s.display) != \"\" ? %s.display : null)", matchedCoding, matchedCoding, matchedCoding)
+	matchedVersion := "null"
+	if semantic.Version != "" {
+		matchedVersion = "@" + codeVersionBind
+	}
+	lines = append(lines,
+		fmt.Sprintf("  LET %s = (LENGTH(%s) == 0 ? [{system: null, version: null, code: null, display: null}] : (FOR %s IN %s COLLECT %s = %s AGGREGATE %s = MIN(%s) RETURN {system: (%s != null ? @%s : null), version: (%s != null ? %s : null), code: %s, display: %s}))",
+			local, matched, matchedCoding, matched, code, localCode, display, localDisplay, code, codeSystemBind, code, matchedVersion, code, display),
+	)
+	// Local aggregation collapses duplicate Coding tuples within this one
+	// physical input row. The outer Group still sees every physical row.
+	return lines, local, nil
 }
 
 func (r *physicalPlanRenderer) renderRootContributorSet(

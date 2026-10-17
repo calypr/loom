@@ -32,18 +32,20 @@ type ConstructionCapabilitiesRequest struct {
 }
 
 type ConstructionCapabilitiesResponse struct {
-	SnapshotToken                string                                    `json:"snapshotToken"`
-	DraftVersion                 int64                                     `json:"draftVersion"`
-	DraftDigest                  string                                    `json:"draftDigest"`
-	OutputID                     string                                    `json:"outputId"`
-	StageID                      string                                    `json:"stageId"`
-	BaseConstruction             authoringv2.Construction                  `json:"baseConstruction"`
-	Stages                       []explorer.ReceiptConstructionStage       `json:"stages"`
-	SelectedStage                explorer.ReceiptConstructionStage         `json:"selectedStage"`
-	SourceInput                  ConstructionGroupSourceCapability         `json:"sourceInput"`
-	PivotSourceInput             ConstructionPivotSourceCapability         `json:"pivotSourceInput"`
-	SourceProjectionAvailability *ConstructionSourceProjectionAvailability `json:"sourceProjectionAvailability,omitempty"`
-	WorkspaceInputs              []ConstructionWorkspaceInput              `json:"workspaceInputs"`
+	SnapshotToken                  string                                    `json:"snapshotToken"`
+	DraftVersion                   int64                                     `json:"draftVersion"`
+	DraftDigest                    string                                    `json:"draftDigest"`
+	OutputID                       string                                    `json:"outputId"`
+	StageID                        string                                    `json:"stageId"`
+	BaseConstruction               authoringv2.Construction                  `json:"baseConstruction"`
+	Stages                         []explorer.ReceiptConstructionStage       `json:"stages"`
+	SelectedStage                  explorer.ReceiptConstructionStage         `json:"selectedStage"`
+	SourceInput                    ConstructionGroupSourceCapability         `json:"sourceInput"`
+	PivotSourceInput               ConstructionPivotSourceCapability         `json:"pivotSourceInput"`
+	SemanticGroupChoices           []ConstructionSemanticGroupChoice         `json:"semanticGroupChoices,omitempty"`
+	SemanticGroupChoicesIncomplete bool                                      `json:"semanticGroupChoicesIncomplete,omitempty"`
+	SourceProjectionAvailability   *ConstructionSourceProjectionAvailability `json:"sourceProjectionAvailability,omitempty"`
+	WorkspaceInputs                []ConstructionWorkspaceInput              `json:"workspaceInputs"`
 }
 
 // ConstructionSourceProjectionAvailability indicates whether root scalar
@@ -306,6 +308,10 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile coded-group choices: %w", err)
 	}
 	selected.CodedGroupChoices = choices
+	semanticGroupChoices, semanticGroupChoicesIncomplete, err := s.constructionSemanticGroupChoices(ctx, base, request.OutputID, *selected)
+	if err != nil {
+		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile semantic group choices: %w", err)
+	}
 	sourceInput, err := s.constructionGroupSourceCapability(ctx, base, request.OutputID, selected.ID)
 	if err != nil {
 		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile scalar group source choices: %w", err)
@@ -323,7 +329,9 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 		SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
 		OutputID: request.OutputID, StageID: request.StageID, BaseConstruction: base.construction,
 		Stages: stages, SelectedStage: *selected, SourceInput: sourceInput, PivotSourceInput: pivotSourceInput,
-		SourceProjectionAvailability: &sourceProjectionAvailability, WorkspaceInputs: workspaceInputs,
+		SemanticGroupChoices:           semanticGroupChoices,
+		SemanticGroupChoicesIncomplete: semanticGroupChoicesIncomplete,
+		SourceProjectionAvailability:   &sourceProjectionAvailability, WorkspaceInputs: workspaceInputs,
 	}, nil
 }
 
@@ -504,6 +512,10 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 		return ConstructionProposalResponse{}, err
 	}
 	candidateConstruction, err := s.constructionCandidateWithGroupSource(ctx, base, request)
+	if err != nil {
+		return ConstructionProposalResponse{}, err
+	}
+	candidateConstruction, err = s.resolveConstructionGroupSemanticCategories(ctx, base, request.OutputID, candidateConstruction)
 	if err != nil {
 		return ConstructionProposalResponse{}, err
 	}

@@ -53,6 +53,34 @@ const codedValueKeySchema = z.object({
   version: z.string().optional(),
 }).strict();
 
+const constructionGroupSemanticCategorySchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('CHOICE'),
+    choiceId: opaqueIdSchema,
+  }).strict(),
+  z.object({
+    kind: z.literal('BINDING'),
+    bindingId: opaqueIdSchema,
+    ruleVersion: opaqueIdSchema,
+    familyId: opaqueIdSchema,
+    sourceKind: z.enum(['file', 'retained_vertex']),
+    system: z.string().min(1),
+    version: z.string(),
+    resourceType: opaqueIdSchema,
+    codingPath: opaqueIdSchema,
+  }).strict(),
+]);
+
+const constructionSemanticGroupChoiceSchema = z.object({
+  choiceId: opaqueIdSchema,
+  bindingId: opaqueIdSchema,
+  ruleVersion: opaqueIdSchema,
+  label: z.string().min(1),
+  scopeLabel: z.string().min(1),
+  resourceType: opaqueIdSchema,
+  sourcePath: opaqueIdSchema,
+}).strict();
+
 export const conceptCandidateSchema = z.object({
   sourceResourceType: opaqueIdSchema,
   sourceCanonical: z.string().optional(),
@@ -1438,7 +1466,10 @@ const constructionOperationSchema = z.discriminatedUnion('kind', [
       keys: z.array(z.object({
         inputColumnId: opaqueIdSchema,
         outputColumnId: opaqueIdSchema,
-      }).strict()).optional(),
+      }).strict().or(z.object({
+        semanticCategory: constructionGroupSemanticCategorySchema,
+        outputColumnId: opaqueIdSchema,
+      }).strict())).optional(),
       aggregates: z.array(z.discriminatedUnion('operation', [
         z.object({
           operation: z.literal('COUNT_ROWS'),
@@ -1715,6 +1746,8 @@ export const constructionCapabilitiesResponseSchema = z.object({
   baseConstruction: constructionSchema,
   stages: z.array(constructionStageDescriptorSchema),
   selectedStage: constructionStageDescriptorSchema,
+  semanticGroupChoices: z.array(constructionSemanticGroupChoiceSchema).optional(),
+  semanticGroupChoicesIncomplete: z.boolean().optional(),
   sourceProjectionAvailability: constructionSourceProjectionAvailabilitySchema.optional(),
   sourceInput: constructionScalarSourceInputSchema.optional(),
   pivotSourceInput: constructionScalarSourceInputSchema.optional(),

@@ -3921,10 +3921,26 @@ components:
     ConstructionGroupKey:
       type: object
       additionalProperties: false
-      required: [inputColumnId, outputColumnId]
+      required: [outputColumnId]
       properties:
         inputColumnId: {type: string, minLength: 1}
         outputColumnId: {type: string, minLength: 1}
+        semanticCategory: {$ref: '#/components/schemas/ConstructionGroupSemanticCategory'}
+    ConstructionGroupSemanticCategory:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [CHOICE, BINDING]}
+        choiceId: {type: string, minLength: 1, description: Present only for a proposal choice.}
+        bindingId: {type: string, minLength: 1, description: Present only for a saved server-resolved family binding.}
+        ruleVersion: {type: string, minLength: 1}
+        familyId: {type: string, minLength: 1}
+        sourceKind: {type: string, enum: [file, retained_vertex]}
+        system: {type: string, minLength: 1}
+        version: {type: string, description: Empty means the exact versionless family.}
+        resourceType: {type: string, minLength: 1}
+        codingPath: {type: string, minLength: 1}
     ConstructionGroupAggregate:
       type: object
       additionalProperties: false
@@ -4204,12 +4220,28 @@ components:
           type: array
           items: {$ref: '#/components/schemas/ConstructionStageDescriptor'}
         selectedStage: {$ref: '#/components/schemas/ConstructionStageDescriptor'}
+        semanticGroupChoices:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionSemanticGroupChoice'}
+        semanticGroupChoicesIncomplete: {type: boolean}
         sourceInput: {$ref: '#/components/schemas/ConstructionSourceInput'}
         pivotSourceInput: {$ref: '#/components/schemas/ConstructionSourceInput'}
         sourceProjectionAvailability: {$ref: '#/components/schemas/ConstructionSourceProjectionAvailability'}
         workspaceInputs:
           type: array
           items: {$ref: '#/components/schemas/ConstructionWorkspaceInput'}
+    ConstructionSemanticGroupChoice:
+      type: object
+      additionalProperties: false
+      required: [choiceId, bindingId, ruleVersion, label, scopeLabel, resourceType, sourcePath]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        bindingId: {type: string, minLength: 1}
+        ruleVersion: {type: string, minLength: 1}
+        label: {type: string, minLength: 1}
+        scopeLabel: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        sourcePath: {type: string, minLength: 1}
     ConstructionSourceProjectionAvailability:
       type: object
       description: >-

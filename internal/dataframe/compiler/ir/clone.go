@@ -107,6 +107,11 @@ func clonePhysicalStageSequence(sequence *PhysicalStageSequence) *PhysicalStageS
 		if stage.Group != nil {
 			groupCopy := *stage.Group
 			groupCopy.Keys = append([]PhysicalStageGroupKey(nil), stage.Group.Keys...)
+			if stage.Group.SemanticKey != nil {
+				semanticCopy := *stage.Group.SemanticKey
+				semanticCopy.PathSegments = append([]PhysicalCodedGroupPathSegment(nil), stage.Group.SemanticKey.PathSegments...)
+				groupCopy.SemanticKey = &semanticCopy
+			}
 			groupCopy.Aggregates = append([]PhysicalStageGroupAggregate(nil), stage.Group.Aggregates...)
 			groupCopy.RowValues = append([]PhysicalStageRowValue(nil), stage.Group.RowValues...)
 			cloned.Group = &groupCopy
