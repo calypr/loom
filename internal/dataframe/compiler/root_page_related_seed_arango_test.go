@@ -231,6 +231,24 @@ func TestRootPageRelatedSeedFalsePositiveDoesNotConsumePageAgainstArango(t *test
 	if err != nil {
 		t.Fatalf("compile paged related construction output: %v", err)
 	}
+	keyBinds := rootPageRelatedSeedCloneBinds(page.RowsBindVars)
+	keyBinds[RootPageKeysBind] = []string{
+		falsePositiveRoot, firstEligibleRoot, firstEligibleRoot, secondEligibleRoot,
+		deniedRoot, staleRoot, foreignRoot, deniedEdgeRoot, staleEdgeRoot,
+		foreignEdgeRoot, deniedTargetRoot, staleTargetRoot, foreignTargetRoot,
+		"missing-root-page-key",
+	}
+	selectedRows := make([]map[string]any, 0, len(fullRows))
+	if err := client.QueryRows(ctx, page.RowsQuery, 100, keyBinds, func(row map[string]any) error {
+		selectedRows = append(selectedRows, row)
+		return nil
+	}); err != nil {
+		t.Fatalf("execute selected-root key-set with duplicate, missing, and out-of-scope keys: %v\n%s", err, page.RowsQuery)
+	}
+	if !reflect.DeepEqual(rootPageRelatedSeedRowSignatures(selectedRows), rootPageRelatedSeedRowSignatures(fullRows)) {
+		t.Fatalf("selected-root key-set changed exact scoped related rows: got %#v, want %#v", selectedRows, fullRows)
+	}
+
 	page1 := rootPageRelatedSeedReadPage(t, ctx, client, page, "")
 	wantPage1 := []string{project + "_observation_010_eligible_first"}
 	if !reflect.DeepEqual(page1.keys, wantPage1) {

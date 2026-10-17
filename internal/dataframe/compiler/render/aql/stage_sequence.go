@@ -144,6 +144,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	sourceOptions := physicalRenderOptions{
 		rootIndexHint:                   options.rootIndexHint,
 		disableRootIndex:                options.disableRootIndex,
+		previewRootKeyWindowVariable:    options.previewRootKeyWindowVariable,
 		storedPresenceOutputName:        storedPresenceOutputName,
 		storedPresenceParentPath:        storedPresenceParentPath,
 		pivotGroupTupleFilter:           options.pivotGroupTupleFilter,

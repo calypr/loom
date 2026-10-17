@@ -51,10 +51,15 @@ func TestCompileRecipeOutputPageSelectsRootsBeforeExpansion(t *testing.T) {
 	if strings.Contains(page.RootKeysQuery, "unnest") || strings.Contains(page.RootKeysQuery, "extension") {
 		t.Fatalf("root-key discovery crossed the expansion boundary:\n%s", page.RootKeysQuery)
 	}
-	keyFilter := strings.Index(page.RowsQuery, "root._key IN @"+RootPageKeysBind)
+	keyWindow := strings.Index(page.RowsQuery, "IN SORTED_UNIQUE(@"+RootPageKeysBind+")")
+	rootLookup := strings.Index(page.RowsQuery, "LET root = DOCUMENT(@@root_collection,")
+	nullGuard := strings.Index(page.RowsQuery, "FILTER root != null")
 	unnestIndex := strings.Index(page.RowsQuery, "LET item =")
-	if keyFilter < 0 || unnestIndex < 0 || keyFilter > unnestIndex {
-		t.Fatalf("selected-root filter was not rendered before UNNEST:\n%s", page.RowsQuery)
+	if keyWindow < 0 || rootLookup < keyWindow || nullGuard < rootLookup || unnestIndex < nullGuard {
+		t.Fatalf("sorted page-key lookup and missing-root guard must run before UNNEST:\n%s", page.RowsQuery)
+	}
+	if strings.Contains(page.RowsQuery, "root._key IN @"+RootPageKeysBind) {
+		t.Fatalf("selected-root rows still scan the root collection and filter its keys:\n%s", page.RowsQuery)
 	}
 	if !strings.Contains(page.RootKeysQuery, "root._key > @"+RootPageAfterKeyBind) {
 		t.Fatalf("root-key discovery is not a keyset query:\n%s", page.RootKeysQuery)
@@ -118,8 +123,23 @@ func TestCompileRecipeOutputPageKeepsRelatedStageOutOfRootKeyDiscovery(t *testin
 	if !strings.Contains(page.RootKeysQuery, "root._key > @"+RootPageAfterKeyBind) || page.RootKeysBindVars[RootPageSizeBind] != 2 {
 		t.Fatalf("root-key discovery lost its keyset window: query=%s binds=%#v", page.RootKeysQuery, page.RootKeysBindVars)
 	}
-	if !strings.Contains(page.RowsQuery, "root._key IN @"+RootPageKeysBind) || !strings.Contains(page.RowsQuery, "observation_status") || !strings.Contains(page.RowsQuery, "@@related_0_hop_1_edge_collection") {
+	if !strings.Contains(page.RowsQuery, "IN SORTED_UNIQUE(@"+RootPageKeysBind+")") ||
+		!strings.Contains(page.RowsQuery, "LET root = DOCUMENT(@@root_collection,") ||
+		!strings.Contains(page.RowsQuery, "observation_status") || !strings.Contains(page.RowsQuery, "@@related_0_hop_1_edge_collection") {
 		t.Fatalf("selected-root page did not retain the related-source stage:\n%s", page.RowsQuery)
+	}
+}
+
+func TestCompileRecipeOutputPageKeepsAggregationOnCollectionFilterPath(t *testing.T) {
+	bindings := recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"}
+	compiled := lowerConstructionOutput(t, constructionOracleOutput(), bindings)
+	page, err := CompileRecipeOutputPageWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile aggregated output page: %v", err)
+	}
+	if strings.Contains(page.RowsQuery, "IN SORTED_UNIQUE(@"+RootPageKeysBind+")") ||
+		!strings.Contains(page.RowsQuery, "root._key IN @"+RootPageKeysBind) {
+		t.Fatalf("aggregated Pivot/Unpivot output must keep the existing root collection filter path:\n%s", page.RowsQuery)
 	}
 }
 

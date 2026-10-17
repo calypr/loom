@@ -140,6 +140,33 @@ func RenderPhysicalPlanWithRelatedExpandPreviewLimit(plan ir.PhysicalPlan, limit
 	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{relatedExpandPreviewLimit: limit})
 }
 
+// RenderPhysicalPlanWithRootPageKeys resolves a sorted, unique page of exact
+// root keys by document lookup before running the unchanged scoped plan.
+// relatedExpandPreviewLimit is zero when no terminal related-expansion cap is
+// required.
+func RenderPhysicalPlanWithRootPageKeys(plan ir.PhysicalPlan, bindKey string, relatedExpandPreviewLimit int) (RenderedPhysicalPlan, error) {
+	if !previewSourcePathSegmentPattern.MatchString(bindKey) {
+		return RenderedPhysicalPlan{}, fmt.Errorf("root page key bind %q is not a safe bind name", bindKey)
+	}
+	if relatedExpandPreviewLimit < 0 {
+		return RenderedPhysicalPlan{}, fmt.Errorf("related expansion preview limit cannot be negative")
+	}
+	if len(plan.Operations) == 0 || plan.Operations[0].Kind != ir.PhysicalRootScanOp || plan.Operations[0].RootScan == nil {
+		return RenderedPhysicalPlan{}, fmt.Errorf("root page key lookup requires one direct root scan")
+	}
+	root := plan.Operations[0].RootScan
+	if root.Population != nil || root.CohortSource != nil || root.PageCandidateSeed != nil {
+		return RenderedPhysicalPlan{}, fmt.Errorf("root page key lookup requires an unmodified root scan")
+	}
+	if _, ok := plan.BindVars[bindKey].([]string); !ok {
+		return RenderedPhysicalPlan{}, fmt.Errorf("root page key bind %q must contain []string", bindKey)
+	}
+	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{
+		previewRootKeyWindowVariable: fmt.Sprintf("SORTED_UNIQUE(@%s)", bindKey),
+		relatedExpandPreviewLimit:    relatedExpandPreviewLimit,
+	})
+}
+
 // RenderPhysicalPlanWithCategoryScanPresenceMarker keeps the selected value
 // projection ordinary and carries its property-presence result in a separate
 // internal field. Category scans consume this marker after their source plan

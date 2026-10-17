@@ -78,6 +78,32 @@ func TestRenderPhysicalPlanRejectsUnnestAfterRootWindow(t *testing.T) {
 	}
 }
 
+func TestRenderPhysicalPlanWithRootPageKeysUsesSortedDocumentLookup(t *testing.T) {
+	plan := genericUnnestPlan(t, ir.PhysicalUnnestExclude, "")
+	plan.BindVars["root_page_keys"] = []string{"patient-1", "patient-2"}
+	rendered, err := aql.RenderPhysicalPlanWithRootPageKeys(plan, "root_page_keys", 0)
+	if err != nil {
+		t.Fatalf("RenderPhysicalPlanWithRootPageKeys() error = %v", err)
+	}
+	window := strings.Index(rendered.Query, "FOR __loom_physical_preview_root_key IN SORTED_UNIQUE(@root_page_keys)")
+	lookup := strings.Index(rendered.Query, "LET root = DOCUMENT(@@root_collection, __loom_physical_preview_root_key)")
+	missingGuard := strings.Index(rendered.Query, "FILTER root != null")
+	unnest := strings.Index(rendered.Query, "LET __loom_physical_unnest_source_0 =")
+	if window < 0 || lookup < window || missingGuard < lookup || unnest < missingGuard {
+		t.Fatalf("sorted root-key lookup and null guard must precede row-local expansion:\n%s", rendered.Query)
+	}
+	for _, want := range []string{
+		"FILTER root.project == @project",
+		"FILTER root.dataset_generation == @dataset_generation",
+		"auth_resource_paths_unrestricted",
+		"root.auth_resource_path IN @auth_resource_paths",
+	} {
+		if !strings.Contains(rendered.Query, want) {
+			t.Fatalf("root-key rendering dropped scope predicate %q:\n%s", want, rendered.Query)
+		}
+	}
+}
+
 func genericUnnestPlan(t *testing.T, policy ir.PhysicalUnnestEmptyPolicy, ordinality string) ir.PhysicalPlan {
 	t.Helper()
 	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(

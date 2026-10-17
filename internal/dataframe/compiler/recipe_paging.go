@@ -50,7 +50,7 @@ func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindin
 	if err != nil {
 		return CompiledOutputPage{}, fmt.Errorf("build root-key page: %w", err)
 	}
-	rowsPlan, err := selectedRootsPlan(physical)
+	rowsPlan, keyWindow, err := selectedRootsPlan(physical)
 	if err != nil {
 		return CompiledOutputPage{}, fmt.Errorf("build selected-root page: %w", err)
 	}
@@ -74,7 +74,13 @@ func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindin
 		return CompiledOutputPage{}, fmt.Errorf("render root-key page: %w", err)
 	}
 	var rows aql.RenderedPhysicalPlan
-	if bindings.PreviewLimit > 0 {
+	if keyWindow {
+		previewLimit := 0
+		if bindings.PreviewLimit > 0 {
+			previewLimit = bindings.PreviewLimit
+		}
+		rows, err = aql.RenderPhysicalPlanWithRootPageKeys(rowsPlan, RootPageKeysBind, previewLimit)
+	} else if bindings.PreviewLimit > 0 {
 		rows, err = aql.RenderPhysicalPlanWithRelatedExpandPreviewLimit(rowsPlan, bindings.PreviewLimit)
 	} else {
 		rows, err = aql.RenderPhysicalPlan(rowsPlan)
@@ -578,14 +584,17 @@ func rootPagePassThroughProjections(stage ir.PhysicalConstructionStage, projecti
 	return outputs
 }
 
-func selectedRootsPlan(plan ir.PhysicalPlan) (ir.PhysicalPlan, error) {
+func selectedRootsPlan(plan ir.PhysicalPlan) (ir.PhysicalPlan, bool, error) {
 	if _, exists := plan.BindVars[RootPageKeysBind]; exists {
-		return ir.PhysicalPlan{}, fmt.Errorf("root page bind %q is already defined", RootPageKeysBind)
+		return ir.PhysicalPlan{}, false, fmt.Errorf("root page bind %q is already defined", RootPageKeysBind)
 	}
 	out := clonePhysicalPlan(plan)
 	root := out.Operations[0].RootScan.Variable
 	insertAt := rootPageInsertionIndex(out.Operations)
 	out.BindVars[RootPageKeysBind] = []string{}
+	if rootPageKeyLookupSafe(out) {
+		return out, true, nil
+	}
 	left := ir.PhysicalValue{Variable: root, Path: []string{"_key"}}
 	right := ir.PhysicalValue{BindKey: RootPageKeysBind}
 	filter := ir.PhysicalOperation{
@@ -599,9 +608,64 @@ func selectedRootsPlan(plan ir.PhysicalPlan) (ir.PhysicalPlan, error) {
 	operations = append(operations, out.Operations[insertAt:]...)
 	out.Operations = operations
 	if err := ir.ValidateGenericPhysicalPlanScope(out); err != nil {
-		return ir.PhysicalPlan{}, err
+		return ir.PhysicalPlan{}, false, err
 	}
-	return out, nil
+	return out, false, nil
+}
+
+func rootPageKeyLookupSafe(plan ir.PhysicalPlan) bool {
+	if plan.PreviewSourceWindowByRootID {
+		return false
+	}
+	if len(plan.Operations) == 0 || plan.Operations[0].Kind != ir.PhysicalRootScanOp || plan.Operations[0].RootScan == nil {
+		return false
+	}
+	root := plan.Operations[0].RootScan
+	if root.Population != nil || root.CohortSource != nil || root.PageCandidateSeed != nil {
+		return false
+	}
+	if plan.StageSequence != nil {
+		sequence := plan.StageSequence
+		if sequence.PreviewSourceWindowByRootID || sequence.PreviewTerminalPivotWindow ||
+			sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil || sequence.PopulationMappingReturn != nil {
+			return false
+		}
+		for _, stage := range sequence.Stages {
+			switch stage.Kind {
+			case ir.PhysicalStageDeriveOp, ir.PhysicalStageFilterOp, ir.PhysicalStageUnpivotOp,
+				ir.PhysicalStageExpandOp, ir.PhysicalStageRelatedSourceOp, ir.PhysicalStageRelatedExpandOp,
+				ir.PhysicalStageRelatedEligibilityOp, ir.PhysicalStageRelatedFieldOp:
+				// These stages operate independently on each selected root row.
+			case ir.PhysicalStagePivotOp, ir.PhysicalStageGroupOp, ir.PhysicalStageCodedGroupOp,
+				ir.PhysicalStageCohortGroupOp:
+				// These stages combine rows from different roots, so root-local
+				// lookup would change their group or category semantics.
+				return false
+			default:
+				// A new stage kind must prove row-local semantics before using this
+				// optimization.
+				return false
+			}
+		}
+	}
+	for index, operation := range plan.Operations {
+		switch operation.Kind {
+		case ir.PhysicalRootScanOp:
+			if index != 0 {
+				return false
+			}
+		case ir.PhysicalTraversalOp, ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp, ir.PhysicalExpressionLetOp,
+			ir.PhysicalSetOp, ir.PhysicalUnnestOp, ir.PhysicalUnpivotOp, ir.PhysicalSortOp, ir.PhysicalLimitOp,
+			ir.PhysicalReturnOp:
+			// These operations preserve independent execution for each selected
+			// root, including row-local expansion and projection.
+		default:
+			// Unknown or specialized operations use the established collection
+			// filter path until their paging semantics are explicitly verified.
+			return false
+		}
+	}
+	return true
 }
 
 // rootPageInsertionIndex returns the boundary after scoped root predicates and
