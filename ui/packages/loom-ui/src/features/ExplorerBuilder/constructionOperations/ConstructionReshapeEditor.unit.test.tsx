@@ -7,7 +7,7 @@ import {
   type ConstructionReshapeStep,
 } from './ConstructionReshapeEditor';
 import { constructionSchema } from '../../../types';
-import { ConstructionReshapeEditor, createReshapeEditorEntry } from './ConstructionReshapeEditor';
+import { ConstructionReshapeEditor, createReshapeEditorEntry, publicScalarListColumnIds } from './ConstructionReshapeEditor';
 
 const sourceColumns: ConstructionReshapeEditorProps['capabilities']['selectedStage']['columns'] = [
   { id: 'site-id', name: 'site', label: 'Site', type: 'string', cardinality: 'required_one' },
@@ -92,6 +92,16 @@ const controlChecked = (label: string): boolean => {
   return control instanceof HTMLInputElement && control.checked;
 };
 
+const openReshapeIntent = (intent: 'group' | 'reshape') => {
+  const intentButton = screen.queryByTestId(`construction-reshape-intent-${intent}`);
+  if (intentButton) fireEvent.click(intentButton);
+};
+
+const chooseReshapeOperation = (intent: 'group' | 'reshape', operation: string) => {
+  openReshapeIntent(intent);
+  fireEvent.click(screen.getByTestId(`construction-reshape-choice-${operation}`));
+};
+
 const assertCandidateMatchesSchemaAnd = (
   onCandidateChange: ReturnType<typeof vi.fn>,
   expectedOperation: Record<string, unknown>,
@@ -112,9 +122,11 @@ describe('ConstructionReshapeEditor', () => {
       construction: capabilities.baseConstruction,
       capabilities,
       kind: 'expand',
+      selectedColumns: ['tags-id'],
     });
     expect(entry).toBeDefined();
     if (!entry || entry.form.kind !== 'expand') throw new Error('Expected a supported public scalar list column');
+    expect(entry.form.inputColumnId).toBe('tags-id');
     expect(entry.candidateIntent.candidateConstruction.steps.at(-1)?.id).toBe(entry.form.stepId);
 
     const onCandidateChange = vi.fn();
@@ -288,6 +300,39 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByText('Not needed in this test.')).toBeInTheDocument();
   });
 
+  it('requires and preserves the exact selected list column when creating Expand', () => {
+    const stage = {
+      ...sourceStage,
+      columns: [
+        ...sourceColumns,
+        { id: 'second-tags-id', name: 'second_tags', label: 'Second tags', type: 'string', cardinality: 'many' as const },
+      ],
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const capabilities = capabilitiesFor([stage], stage);
+    const entry = createReshapeEditorEntry({
+      construction: capabilities.baseConstruction,
+      capabilities,
+      kind: 'expand',
+      selectedColumns: ['second-tags-id'],
+    });
+
+    expect(publicScalarListColumnIds(stage)).toEqual(['tags-id', 'second-tags-id']);
+    expect(entry?.form.kind).toBe('expand');
+    if (!entry || entry.form.kind !== 'expand') throw new Error('Expected a seeded Expand entry');
+    expect(entry.form.inputColumnId).toBe('second-tags-id');
+    expect(entry.candidateIntent.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
+      kind: 'EXPAND',
+      expand: { inputColumnId: 'second-tags-id' },
+    });
+    expect(createReshapeEditorEntry({ construction: capabilities.baseConstruction, capabilities, kind: 'expand' })).toBeUndefined();
+    expect(createReshapeEditorEntry({
+      construction: capabilities.baseConstruction,
+      capabilities,
+      kind: 'expand',
+      selectedColumns: ['site-id'],
+    })).toBeUndefined();
+  });
+
   it('opens an unsupported table pivot and explains the capability limit inside the editor', () => {
     const unsupportedPivotStage = {
       ...sourceStage,
@@ -307,6 +352,7 @@ describe('ConstructionReshapeEditor', () => {
     renderEditor({ initialKind: 'group' });
     expect(screen.getByRole('region', { name: 'Summarize into groups' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Change row operation' }));
+    openReshapeIntent('reshape');
     expect(screen.getByTestId('construction-reshape-choice-pivot')).toBeInTheDocument();
     cleanup();
     renderEditor({ initialKind: 'pivot' });
@@ -314,27 +360,35 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByRole('heading', { name: 'Turn categories into columns' })).toBeInTheDocument();
   });
 
-  it('shows concise row and column effects on every reshape choice card', () => {
+  it('groups row transformations into group and reshape choices', () => {
     renderEditor({});
-    const effects: ReadonlyArray<readonly [string, string, string]> = [
-      ['construction-reshape-choice-group', 'One per unique combination of chosen fields.', 'Keep group fields and add summary columns.'],
-      ['construction-reshape-choice-coded-group', 'One per observed code.', 'System, version, code, and source count.'],
-      ['construction-reshape-choice-expand', 'One per list item.', 'Replace the list with its item; optionally add its position.'],
-      ['construction-reshape-choice-related-expand', 'One per matching related record.', 'Keep current columns and add the related record ID.'],
-      ['construction-reshape-choice-coded-pivot', 'One per source record.', 'One per selected code, filled from its paired value.'],
-      ['construction-reshape-choice-pivot', 'One per unique combination of row values.', 'One per accepted category, filled from the chosen value field.'],
-      ['construction-reshape-choice-unpivot', 'One per selected column.', 'One source-name field and one value field.'],
-    ];
-
-    for (const [testId, rows, columns] of effects) {
-      const card = screen.getByTestId(testId);
-      expect(card).toHaveTextContent(`Rows: ${rows}`);
-      expect(card).toHaveTextContent(`Columns: ${columns}`);
-    }
+    expect(screen.getByRole('region', { name: 'Group or reshape this table' })).toBeInTheDocument();
+    expect(screen.getByTestId('construction-reshape-intent-group')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-reshape-intent-reshape')).toBeInTheDocument();
+    expect(screen.queryByTestId('construction-reshape-choice-group')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('construction-reshape-choice-pivot')).not.toBeInTheDocument();
+    openReshapeIntent('group');
+    expect(screen.getByRole('heading', { name: 'Group and summarize' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Reshape table' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Back to row operations' }));
+    openReshapeIntent('reshape');
+    expect(screen.getByRole('heading', { name: 'Reshape table' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Group and summarize' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('construction-reshape-choice-pivot')).toHaveTextContent('Turn categories into columns');
+    expect(screen.getByTestId('construction-reshape-choice-unpivot')).toHaveTextContent('Turn columns into rows');
+    expect(screen.queryByTestId('construction-reshape-choice-expand')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('construction-reshape-choice-related-expand')).not.toBeInTheDocument();
   });
 
   it('keeps Expand, Unpivot, and source-group editors inline under one operation heading', () => {
-    renderEditor({ initialKind: 'expand' });
+    const expandCapabilities = capabilitiesFor();
+    const entry = createReshapeEditorEntry({
+      construction: expandCapabilities.baseConstruction,
+      capabilities: expandCapabilities,
+      kind: 'expand',
+      selectedColumns: ['tags-id'],
+    });
+    renderEditor({ capabilities: expandCapabilities, initialKind: 'expand', initialEntry: entry });
     expect(screen.getAllByRole('heading', { name: 'Expand repeated values' })).toHaveLength(1);
     expect(screen.queryByRole('heading', { name: 'Expand a list into rows' })).not.toBeInTheDocument();
     expect(screen.getByTestId('construction-reshape-expand')).not.toHaveClass('rounded-lg');
@@ -348,7 +402,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getAllByRole('heading', { name: 'Turn columns into rows' })).toHaveLength(1);
     expect(screen.getByTestId('construction-reshape-unpivot')).not.toHaveClass('rounded-lg');
     expect(screen.getByLabelText('Unpivot Site')).toBeInTheDocument();
-    expect(screen.getByTestId('construction-unpivot-effect')).toHaveTextContent('Choose a single-value field or expand a repeated field above to work with its values.');
+    expect(screen.getByTestId('construction-unpivot-effect')).toHaveTextContent('Choose single-value fields. Use the column menu or List column settings to split repeated values before stacking them.');
 
     cleanup();
     const sourceChoice = {
@@ -375,7 +429,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(onFormKindChange).toHaveBeenLastCalledWith('pivot');
     fireEvent.click(screen.getByRole('button', { name: 'Change row operation' }));
     expect(onFormKindChange).toHaveBeenLastCalledWith('choose');
-    fireEvent.click(screen.getByTestId('construction-reshape-choice-group'));
+    chooseReshapeOperation('group', 'group');
     expect(onFormKindChange).toHaveBeenLastCalledWith('group');
   });
 
@@ -543,7 +597,7 @@ describe('ConstructionReshapeEditor', () => {
     const capabilities = capabilitiesFor([codedStage], codedStage);
     const onCandidateChange = vi.fn();
     renderEditor({ capabilities, onCandidateChange });
-    fireEvent.click(screen.getByTestId('construction-reshape-choice-coded-group'));
+    chooseReshapeOperation('group', 'coded-group');
     const first = onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0];
     expect(first?.operation.kind).toBe('CODED_GROUP');
     if (first?.operation.kind !== 'CODED_GROUP') throw new Error('Expected coded grouping');
@@ -620,13 +674,14 @@ describe('ConstructionReshapeEditor', () => {
     const codedPivotContext = { rowRoot: 'Specimen' } as NonNullable<ConstructionReshapeEditorProps['codedPivotContext']>;
     const onCandidateChange = vi.fn();
     renderEditor({ capabilities, initialKind: 'choose', selectedColumns: ['site-id'], relatedExpandContext, codedPivotContext, onCandidateChange });
-    expect(screen.getByTestId('construction-reshape-choice-group')).toHaveTextContent('Summarize into groups');
+    openReshapeIntent('group');
+    expect(screen.getByTestId('construction-reshape-choice-group')).toHaveTextContent('Group by table fields');
     expect(screen.getByRole('region', { name: 'Available dataset fields' })).toBeInTheDocument();
     expect(screen.getByText('Status')).toBeInTheDocument();
     expect(screen.getByText('Gender')).toBeInTheDocument();
     expect(screen.getByText('Examples: active · complete · in-progress')).toBeInTheDocument();
     expect(screen.queryByText(/ignored|wrong-resource|wrong-path/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('construction-reshape-choice-group'));
+    chooseReshapeOperation('group', 'group');
     expect(screen.getByTestId('construction-reshape-group')).toBeInTheDocument();
     expect(screen.queryByTestId('construction-reshape-source-field-choices')).not.toBeInTheDocument();
     expect(controlChecked('Group by Site')).toBe(true);
@@ -638,6 +693,7 @@ describe('ConstructionReshapeEditor', () => {
       group: { keys: [{ inputColumnId: 'site-id' }], aggregates: [{ operation: 'COUNT_ROWS' }] },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Change row operation' }));
+    openReshapeIntent('group');
     expect(screen.getByTestId('construction-reshape-source-field-choices')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Group by Gender' }));
     expect(screen.getByTestId('construction-reshape-source-group')).toBeInTheDocument();
@@ -739,11 +795,17 @@ describe('ConstructionReshapeEditor', () => {
     const onCandidateChange = vi.fn();
     renderEditor({ capabilities: capabilitiesFor([unsupportedStage], unsupportedStage), onCandidateChange });
 
+    openReshapeIntent('group');
     expect(screen.getByTestId('construction-reshape-choice-group')).toBeDisabled();
     expect(screen.getByText('GROUP was rejected for this stage.')).toBeInTheDocument();
-    expect(screen.getByTestId('construction-reshape-choice-expand')).toBeDisabled();
-    expect(screen.getByText('EXPAND was rejected for this stage.')).toBeInTheDocument();
-    expect(screen.getByTestId('construction-reshape-choice-related-expand')).toBeDisabled();
+    expect(screen.queryByTestId('construction-reshape-choice-expand')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('construction-reshape-choice-related-expand')).not.toBeInTheDocument();
+    expect(createReshapeEditorEntry({
+      construction: capabilitiesFor([unsupportedStage], unsupportedStage).baseConstruction,
+      capabilities: capabilitiesFor([unsupportedStage], unsupportedStage),
+      kind: 'expand',
+      selectedColumns: ['tags-id'],
+    })).toBeUndefined();
     expect(onCandidateChange).not.toHaveBeenCalledWith(expect.objectContaining({ candidateConstruction: expect.anything() }));
   });
 
@@ -758,7 +820,7 @@ describe('ConstructionReshapeEditor', () => {
     });
 
     expect(screen.queryByText('Need a coded-value column first?')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('construction-reshape-choice-pivot'));
+    chooseReshapeOperation('reshape', 'pivot');
 
     expect(screen.getByLabelText('Pivot category field')).toBeInTheDocument();
     expect(screen.getByLabelText('Pivot values field')).toBeInTheDocument();
@@ -1477,7 +1539,7 @@ describe('ConstructionReshapeEditor', () => {
     const onCandidateChange = vi.fn();
     renderEditor({ onCandidateChange });
 
-    fireEvent.click(screen.getByTestId('construction-reshape-choice-group'));
+    chooseReshapeOperation('group', 'group');
     expect(screen.getByTestId('construction-reshape-group')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Change row operation' })).toBeInTheDocument();
     expect(screen.queryByLabelText('Group by Tags')).not.toBeInTheDocument();
@@ -1532,7 +1594,8 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.queryByRole('checkbox', { name: 'Group by Tags' })).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: 'Group by Details' })).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: 'Group by Unknown' })).not.toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Use list values' })).toBeInTheDocument();
+    expect(screen.getByTestId('construction-reshape-list-column-settings')).not.toHaveAttribute('open');
+    fireEvent.click(screen.getByText('List column settings'));
     expect(screen.getByRole('button', { name: 'Expand Tags' })).toBeEnabled();
 
     const intent = onCandidateChange.mock.lastCall?.[0];
@@ -1545,7 +1608,7 @@ describe('ConstructionReshapeEditor', () => {
   it('uses selected scalar columns as group keys and restricts numeric summaries by type', () => {
     const onCandidateChange = vi.fn();
     renderEditor({ selectedColumns: ['site-id'], onCandidateChange });
-    fireEvent.click(screen.getByTestId('construction-reshape-choice-group'));
+    chooseReshapeOperation('group', 'group');
 
     expect(controlChecked('Group by Site')).toBe(true);
     expect(screen.getByLabelText('Summary 1')).toBeInTheDocument();
@@ -1618,7 +1681,7 @@ describe('ConstructionReshapeEditor', () => {
       onCandidateChange,
     });
 
-    fireEvent.click(screen.getByTestId('construction-reshape-choice-group'));
+    chooseReshapeOperation('group', 'group');
     fireEvent.click(screen.getByText('Advanced options'));
     fireEvent.change(screen.getByLabelText('Summary output label 1'), { target: { value: 'Specimen rows' } });
     const firstIntent = onCandidateChange.mock.lastCall?.[0];
@@ -1647,7 +1710,7 @@ describe('ConstructionReshapeEditor', () => {
   it('requires a summary before proposing a group with no calculated outputs', () => {
     const onCandidateChange = vi.fn();
     renderEditor({ onCandidateChange });
-    fireEvent.click(screen.getByTestId('construction-reshape-choice-group'));
+    chooseReshapeOperation('group', 'group');
     fireEvent.click(screen.getByRole('button', { name: 'Remove summary 1' }));
 
     expect(screen.getByText('Add at least one summary before proposing this group.')).toBeInTheDocument();
@@ -1763,6 +1826,7 @@ describe('ConstructionReshapeEditor', () => {
       construction: capabilities.baseConstruction,
       capabilities,
       kind: 'expand',
+      selectedColumns: ['cohort-member-ids'],
     });
     expect(entry).toBeDefined();
     if (!entry || entry.form.kind !== 'expand') throw new Error('Expected the initial expansion entry');
@@ -1790,8 +1854,14 @@ describe('ConstructionReshapeEditor', () => {
 
   it('keeps empty-list parent rows by default and offers a zero-based position column in Advanced options', () => {
     const onCandidateChange = vi.fn();
-    renderEditor({ onCandidateChange });
-    fireEvent.click(screen.getByTestId('construction-reshape-choice-expand'));
+    const capabilities = capabilitiesFor();
+    const entry = createReshapeEditorEntry({
+      construction: capabilities.baseConstruction,
+      capabilities,
+      kind: 'expand',
+      selectedColumns: ['tags-id'],
+    });
+    renderEditor({ capabilities, initialKind: 'expand', initialEntry: entry, onCandidateChange });
 
     expect(controlValue('Repeated field')).toBe('tags-id');
     expect(controlValue('Empty list policy')).toBe('PRESERVE_PARENT');
@@ -1838,20 +1908,27 @@ describe('ConstructionReshapeEditor', () => {
       operation: 'FILTER',
     } satisfies ConstructionReshapeEditorProps['capabilities']['stages'][number];
     const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    const capabilities = capabilitiesFor([sourceStage, filteredStage], filteredStage);
+    const entry = createReshapeEditorEntry({
+      construction,
+      capabilities,
+      kind: 'expand',
+      selectedColumns: ['tags-id'],
+    });
     renderEditor({
       construction,
-      capabilities: capabilitiesFor([sourceStage, filteredStage], filteredStage),
+      capabilities,
+      initialKind: 'expand',
+      initialEntry: entry,
       onCandidateChange,
     });
 
-    fireEvent.click(screen.getByTestId('construction-reshape-choice-expand'));
     const repeatedField = screen.getByLabelText('Repeated field');
     expect(repeatedField.querySelectorAll('option')).toHaveLength(1);
     expect(controlValue('Repeated field')).toBe('tags-id');
-    const firstIntent = onCandidateChange.mock.lastCall?.[0];
-    expect(firstIntent).toBeDefined();
-    if (!firstIntent) throw new Error('Expected an expand proposal candidate');
-    const firstExpand = firstIntent.candidateConstruction.steps.at(-1);
+    expect(entry).toBeDefined();
+    if (!entry || entry.form.kind !== 'expand') throw new Error('Expected an initialized expansion entry');
+    const firstExpand = entry.candidateIntent.candidateConstruction.steps.at(-1);
     expect(firstExpand?.inputs).toEqual([{ kind: 'STEP_OUTPUT', stepId: priorStep.id }]);
     const firstExpandOutputId = firstExpand?.operation.kind === 'EXPAND'
       ? firstExpand.operation.expand.outputColumnId
@@ -1874,10 +1951,11 @@ describe('ConstructionReshapeEditor', () => {
       ...sourceStage,
       columns: sourceColumns.filter((column) => column.cardinality !== 'many'),
     } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
-    renderEditor({ capabilities: capabilitiesFor([scalarOnlyStage], scalarOnlyStage) });
-
-    expect(screen.getByTestId('construction-reshape-choice-expand')).toBeDisabled();
-    expect(screen.getByText('No list column is available in this table.')).toBeInTheDocument();
+    const capabilities = capabilitiesFor([scalarOnlyStage], scalarOnlyStage);
+    expect(publicScalarListColumnIds(scalarOnlyStage)).toEqual([]);
+    expect(createReshapeEditorEntry({ construction: capabilities.baseConstruction, capabilities, kind: 'expand', selectedColumns: ['site-id'] })).toBeUndefined();
+    renderEditor({ capabilities });
+    expect(screen.queryByTestId('construction-reshape-choice-expand')).not.toBeInTheDocument();
   });
 
   it('excludes object-valued lists from current-stage expansion', () => {
@@ -1885,10 +1963,11 @@ describe('ConstructionReshapeEditor', () => {
       ...sourceStage,
       columns: [{ id: 'component-list', name: 'component', label: 'Component', type: 'object', cardinality: 'many' }],
     } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
-    renderEditor({ capabilities: capabilitiesFor([objectListStage], objectListStage) });
-
-    expect(screen.getByTestId('construction-reshape-choice-expand')).toBeDisabled();
-    expect(screen.getByText('No list column is available in this table.')).toBeInTheDocument();
+    const capabilities = capabilitiesFor([objectListStage], objectListStage);
+    expect(publicScalarListColumnIds(objectListStage)).toEqual([]);
+    expect(createReshapeEditorEntry({ construction: capabilities.baseConstruction, capabilities, kind: 'expand', selectedColumns: ['component-list'] })).toBeUndefined();
+    renderEditor({ capabilities });
+    expect(screen.queryByTestId('construction-reshape-choice-expand')).not.toBeInTheDocument();
   });
 
   it('reopens an existing expand with its stable IDs, names, policy, and history edit action', () => {
@@ -2080,7 +2159,7 @@ describe('ConstructionReshapeEditor', () => {
       onCandidateChange,
     });
 
-    fireEvent.click(screen.getByTestId('construction-reshape-choice-unpivot'));
+    chooseReshapeOperation('reshape', 'unpivot');
     expect(screen.getByTestId('construction-unpivot-advanced')).not.toHaveAttribute('open');
     expect(screen.getByTestId('construction-unpivot-effect')).toHaveTextContent('Rows with missing values stay in the table.');
     const operation = onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0]?.operation;
@@ -2141,7 +2220,8 @@ describe('ConstructionReshapeEditor', () => {
     const unpivotCandidate = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
     renderEditor({ capabilities, initialKind: 'unpivot', selectedColumns: configuredColumnIDs, onCandidateChange: unpivotCandidate });
     expect(screen.getByLabelText('Unpivot Patient ID')).toHaveProperty('checked', true);
-    expect(screen.getByRole('region', { name: 'Use list values' })).toBeInTheDocument();
+    expect(screen.getByTestId('construction-reshape-list-column-settings')).not.toHaveAttribute('open');
+    fireEvent.click(screen.getByText('List column settings'));
     for (const label of listFieldLabels) {
       expect(screen.getByRole('button', { name: `Expand ${label}` })).toBeInTheDocument();
       expect(screen.queryByLabelText(`Unpivot ${label}`)).not.toBeInTheDocument();
@@ -2196,6 +2276,7 @@ describe('ConstructionReshapeEditor', () => {
     const groupCandidate = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
     renderEditor({ capabilities, initialKind: 'group', onCandidateChange: groupCandidate });
     expect(screen.getByTestId('construction-reshape-group')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('List column settings'));
     for (const label of listFieldLabels) expect(screen.getByRole('button', { name: `Expand ${label}` })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Expand AJCC pathological N category allowable value' }));
     expect(screen.getByTestId('construction-reshape-expand')).toBeInTheDocument();
@@ -2218,7 +2299,9 @@ describe('ConstructionReshapeEditor', () => {
     } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
     renderEditor({ capabilities: capabilitiesFor([configuredStage], configuredStage), initialKind: 'unpivot' });
 
-    expect(screen.getByText('Choose a single-value field or expand a repeated field above to work with its values.')).toBeInTheDocument();
+    expect(screen.getByText('Choose single-value fields. Use the column menu or List column settings to split repeated values before stacking them.')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-reshape-list-column-settings')).not.toHaveAttribute('open');
+    fireEvent.click(screen.getByText('List column settings'));
     expect(screen.getByRole('button', { name: 'Expand Specimen type' })).toBeEnabled();
     expect(screen.queryByText('Choose at least one input column.')).not.toBeInTheDocument();
   });
@@ -2370,7 +2453,7 @@ describe('ConstructionReshapeEditor', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('construction-reshape-choice-pivot'));
+    chooseReshapeOperation('reshape', 'pivot');
     expect(controlValue('Pivot category field')).toBe('');
     expect(screen.queryByRole('button', { name: 'Find category values' })).not.toBeInTheDocument();
     expect(onDiscoverCategories).not.toHaveBeenCalled();
@@ -2472,7 +2555,7 @@ describe('ConstructionReshapeEditor', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('construction-reshape-choice-pivot'));
+    chooseReshapeOperation('reshape', 'pivot');
     fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
     fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
 
@@ -2518,7 +2601,7 @@ describe('ConstructionReshapeEditor', () => {
         onDiscoverCategories={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByTestId('construction-reshape-choice-pivot'));
+    chooseReshapeOperation('reshape', 'pivot');
     fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
     fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
     expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 2 of 2 categories');
@@ -2551,7 +2634,7 @@ describe('ConstructionReshapeEditor', () => {
     };
     const view = render(<ConstructionReshapeEditor {...props} />);
 
-    fireEvent.click(screen.getByTestId('construction-reshape-choice-pivot'));
+    chooseReshapeOperation('reshape', 'pivot');
     fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
     fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
     view.rerender(
@@ -2610,7 +2693,7 @@ describe('ConstructionReshapeEditor', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('construction-reshape-choice-pivot'));
+    chooseReshapeOperation('reshape', 'pivot');
     fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
     fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
     expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 2 of 2 categories');
@@ -2658,7 +2741,7 @@ describe('ConstructionReshapeEditor', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('construction-reshape-choice-pivot'));
+    chooseReshapeOperation('reshape', 'pivot');
     fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
     fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
     expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent(

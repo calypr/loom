@@ -126,7 +126,7 @@ import {
 } from './constructionWorkspace/appliedChoicePreview';
 import { ConstructionOperationEditor } from './constructionOperations/ConstructionOperationEditor';
 import { FilterRowsEditor } from './constructionOperations/FilterRowsEditor';
-import { ConstructionReshapeEditor, createReshapeEditorEntry, hasPublicScalarListColumn, type ConstructionReshapeEditorEntry, type ReshapeEntryKind, type ReshapeForm } from './constructionOperations/ConstructionReshapeEditor';
+import { ConstructionReshapeEditor, createReshapeEditorEntry, publicScalarListColumnIds, type ConstructionReshapeEditorEntry, type ReshapeEntryKind, type ReshapeForm } from './constructionOperations/ConstructionReshapeEditor';
 import {
   RelatedSourceStepEditor,
   type RelatedSourceStep,
@@ -3140,7 +3140,45 @@ const BuilderWorkspaceContent = ({
     setReshapeEntry((current) => current + 1);
     setActiveConstructionFamily('RESHAPE');
   };
-  const chooseReshapeRows = (kind: 'group' | 'source-group' | 'coded-group' | 'expand' | 'categories' | 'pivot' | 'coded-pivot' | 'unpivot') => {
+  const chooseReshapeRows = (
+    kind: 'group' | 'source-group' | 'coded-group' | 'expand' | 'categories' | 'pivot' | 'coded-pivot' | 'unpivot',
+    preferredColumnIds?: ReadonlyArray<string>,
+  ) => {
+    if (kind === 'expand' && preferredColumnIds?.length !== 1) return;
+
+    let entry: ConstructionReshapeEditorEntry | undefined;
+    let entryStageId: string | undefined;
+    if ((kind === 'expand' || kind === 'group') && table && constructionLifecycle.capabilities.status === 'ready') {
+      const response = constructionLifecycle.capabilities.response;
+      const stage = response.selectedStage;
+      const appendStageId = constructionAppendStageFor(response.baseConstruction, table.document.rows);
+      const supported = stage.id === appendStageId && stage.capabilities.some((candidate) =>
+        candidate.kind === (kind === 'expand' ? 'EXPAND' : 'GROUP') && candidate.supported,
+      );
+      if (kind === 'expand') {
+        const requestedColumnId = preferredColumnIds?.[0];
+        if (!supported || !publicScalarListColumnIds(stage).includes(requestedColumnId ?? '')) return;
+        entry = createReshapeEditorEntry({
+          construction: construction ?? response.baseConstruction,
+          capabilities: response,
+          kind,
+          selectedColumns: preferredColumnIds,
+        });
+        if (!entry) return;
+        entryStageId = stage.id;
+      } else if (supported) {
+        entry = createReshapeEditorEntry({
+          construction: construction ?? response.baseConstruction,
+          capabilities: response,
+          kind,
+          selectedColumns: selectedColumnIds,
+        });
+        entryStageId = stage.id;
+      }
+    } else if (kind === 'expand') {
+      return;
+    }
+
     constructionLifecycle.cancel();
     cancelCombineCatalogRequest();
     setConstructionHistorySelection({ kind: 'source' });
@@ -3148,32 +3186,12 @@ const BuilderWorkspaceContent = ({
     setReshapeEntryKind(kind);
     setReshapeFormKind(kind === 'categories' ? 'choose' : kind);
     const nextEntry = reshapeEntry + 1;
-    if ((kind === 'expand' || kind === 'group') && table && constructionLifecycle.capabilities.status === 'ready') {
-      const response = constructionLifecycle.capabilities.response;
-      const appendStageId = constructionAppendStageFor(response.baseConstruction, table.document.rows);
-      const supported = kind === 'expand'
-        ? response.selectedStage.id === appendStageId
-          && response.selectedStage.capabilities.some((candidate) => candidate.kind === 'EXPAND' && candidate.supported)
-          && hasPublicScalarListColumn(response.selectedStage)
-        : response.selectedStage.id === appendStageId
-          && response.selectedStage.capabilities.some((candidate) => candidate.kind === 'GROUP' && candidate.supported);
-      const entry = supported
-        ? createReshapeEditorEntry({
-            construction: construction ?? response.baseConstruction,
-            capabilities: response,
-            kind,
-            selectedColumns: selectedColumnIds,
-          })
-        : undefined;
-      if (entry) {
-        constructionLifecycle.onCandidateChange(entry.candidateIntent);
-        setReshapeInitialEntry({
-          editorKey: reshapeEditorKeyFor(nextEntry, kind, response.selectedStage.id),
-          entry,
-        });
-      } else {
-        setReshapeInitialEntry(undefined);
-      }
+    if (entry && entryStageId) {
+      constructionLifecycle.onCandidateChange(entry.candidateIntent);
+      setReshapeInitialEntry({
+        editorKey: reshapeEditorKeyFor(nextEntry, kind, entryStageId),
+        entry,
+      });
     } else {
       setReshapeInitialEntry(undefined);
     }
@@ -3336,19 +3354,11 @@ const BuilderWorkspaceContent = ({
   const tablePivotAvailability = constructionLifecycle.capabilities.status === 'ready' && constructionLifecycle.capabilities.response.pivotSourceInput?.supported
     ? { supported: true } : reshapeAvailabilityFor('PIVOT');
   const expandCapability = capabilityStage?.capabilities.find((candidate) => candidate.kind === 'EXPAND');
-  const expandUnavailableReason = constructionLifecycle.capabilities.status === 'error'
-    ? constructionLifecycle.capabilities.message
-    : constructionLifecycle.capabilities.status !== 'ready' || !capabilityIsForAppendStage
-      ? 'Checking this table’s available row operations…'
-      : expandCapability?.reasonCode === 'NO_ARRAY_COLUMNS'
-        ? 'No list column in this table. Use a repeated source field before current row changes.'
-        : 'List expansion is unavailable for the current table.';
-  const expandRowsAvailability = capabilityIsForAppendStage && expandCapability?.supported && hasPublicScalarListColumn(capabilityStage)
-    ? { supported: true }
-    : {
-        supported: false,
-        reason: expandUnavailableReason,
-      };
+  const expandableColumnIds = new Set(
+    previewIsCurrent && capabilityIsForAppendStage && expandCapability?.supported
+      ? publicScalarListColumnIds(capabilityStage)
+      : [],
+  );
   const groupEntries = [
     ...(stageGroupingAvailability.supported || codedPivotAvailability.supported ? [{ kind: 'group' as const, label: 'By table column' }] : []),
     ...(sourceGroupingAvailable ? [{ kind: 'source-group' as const, label: 'By source fields' }] : []),
@@ -3359,7 +3369,6 @@ const BuilderWorkspaceContent = ({
     groupEntry: groupEntries[0]?.kind ?? 'group' as const,
     groupAlternatives: groupEntries.slice(1),
     pivot: codedPivotAvailability.supported ? codedPivotAvailability : tablePivotAvailability,
-    expand: expandRowsAvailability,
     pivotPending: Boolean(capabilitiesRequest) && constructionLifecycle.capabilities.status === 'loading',
     pivotEntry: codedPivotAvailability.supported ? 'coded-pivot' as const : 'pivot' as const,
     pivotAlternative: codedPivotAvailability.supported && tablePivotAvailability.supported ? 'pivot' as const : undefined,
@@ -4292,6 +4301,8 @@ const BuilderWorkspaceContent = ({
                         }}
                         onColumnChange={(change) => applyPresentationChanges([change])}
                         onColumnsChange={applyPresentationChanges}
+                        expandableColumnIds={expandableColumnIds}
+                        onExpandColumn={(columnId) => chooseReshapeRows('expand', [columnId])}
                         candidateForColumn={candidateForPreviewColumn}
                         onTransformationChange={(column, transformationChange) =>
                           table &&

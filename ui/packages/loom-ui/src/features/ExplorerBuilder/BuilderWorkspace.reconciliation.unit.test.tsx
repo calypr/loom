@@ -261,7 +261,22 @@ vi.mock('./components/ColumnSelector', () => ({
 }));
 
 vi.mock('./components/PreviewTable', () => ({
-  PreviewTable: () => <div>Preview table</div>,
+  PreviewTable: ({
+    expandableColumnIds,
+    onExpandColumn,
+  }: {
+    readonly expandableColumnIds?: ReadonlySet<string>;
+    readonly onExpandColumn?: (columnId: string) => void;
+  }) => (
+    <>
+      <div>Preview table</div>
+      {[...(expandableColumnIds ?? [])].map((columnId) => (
+        <button key={columnId} type="button" data-testid={`mock-expand-column-${columnId}`} onClick={() => onExpandColumn?.(columnId)}>
+          Expand {columnId}
+        </button>
+      ))}
+    </>
+  ),
   formatPreviewCell: (value: unknown) => String(value ?? ''),
   previewCellTitle: (value: unknown) => String(value ?? ''),
   sortByPresentationOrder: <T,>(values: ReadonlyArray<T>, orderOf: (value: T, index: number) => number) => values
@@ -1384,9 +1399,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         explorerId="test"
       />,
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
-    const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
-    const expandAction = await within(rowSettings).findByTestId('construction-action-expand-rows');
+    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
+    const expandAction = await screen.findByTestId('mock-expand-column-cohort-member-ids');
     expect(expandAction).toBeEnabled();
     fireEvent.click(expandAction);
 
@@ -1396,6 +1410,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     const proposalArgs = mockLoomClient.proposeConstruction.mock.calls[0]?.[0] as ProposeConstructionArgs | undefined;
     const expandStep = proposalArgs?.candidateConstruction.steps.at(-1);
     expect(expandStep?.operation.kind).toBe('EXPAND');
+    expect(expandStep?.operation).toMatchObject({ kind: 'EXPAND', expand: { inputColumnId: 'cohort-member-ids' } });
     expect(expandStep?.id).toBe(editor.getAttribute('data-initial-entry-step-id'));
     expect(editor.getAttribute('data-initial-candidate-step-id')).toBe(expandStep?.id);
     fireEvent.click(screen.getByRole('button', { name: 'Review dataset' }));
@@ -1450,9 +1465,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     const view = render(
       <BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />,
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
-    const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
-    fireEvent.click(await within(rowSettings).findByTestId('construction-action-expand-rows'));
+    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
+    fireEvent.click(await screen.findByTestId('mock-expand-column-cohort-member-ids'));
     await waitFor(() => expect(mockLoomClient.proposeConstruction).toHaveBeenCalledOnce());
     expect(proposalSignal).toBeDefined();
 

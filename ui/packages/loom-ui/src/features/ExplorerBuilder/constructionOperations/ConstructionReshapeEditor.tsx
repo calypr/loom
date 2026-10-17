@@ -346,8 +346,11 @@ const numericColumnsFor = (stage: ReshapeStage): ReadonlyArray<ReshapeColumn> =>
 const listColumnsFor = (stage: ReshapeStage): ReadonlyArray<ReshapeColumn> =>
   stage.columns.filter(isListColumn);
 
+export const publicScalarListColumnIds = (stage: ConstructionStageDescriptor | undefined): ReadonlyArray<string> =>
+  stage ? listColumnsFor(stage).map((column) => column.id) : [];
+
 export const hasPublicScalarListColumn = (stage: ConstructionStageDescriptor | undefined): boolean =>
-  Boolean(stage && listColumnsFor(stage).length > 0);
+  publicScalarListColumnIds(stage).length > 0;
 
 const codingPathLabel = (path: string): string => path.split('.').map((segment) => {
   const words = segment.replaceAll('[]', '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^_+/, '').trim();
@@ -1225,7 +1228,9 @@ const initialExpandForm = (
     };
   }
   const listColumns = listColumnsFor(stage);
-  const firstList = listColumns.find((column) => column.id === preferredColumnId) ?? listColumns[0];
+  const firstList = preferredColumnId === undefined
+    ? undefined
+    : listColumns.find((column) => column.id === preferredColumnId);
   return {
     kind: 'expand',
     stepId: createOpaqueId('expand'),
@@ -1550,11 +1555,16 @@ export const createReshapeEditorEntry = (args: {
   readonly selectedColumns?: ReadonlyArray<string>;
 }): ConstructionReshapeEditorEntry | undefined => {
   const stage = args.capabilities.selectedStage;
-  if (args.kind === 'expand' && (!capabilityFor(stage, 'EXPAND').supported || !hasPublicScalarListColumn(stage))) return undefined;
+  const selectedColumnId = args.selectedColumns?.length === 1 ? args.selectedColumns[0] : undefined;
+  if (args.kind === 'expand' && (
+      !capabilityFor(stage, 'EXPAND').supported ||
+      selectedColumnId === undefined ||
+      !listColumnsFor(stage).some((column) => column.id === selectedColumnId)
+    )) return undefined;
   if (args.kind === 'group' && !capabilityFor(stage, 'GROUP').supported) return undefined;
   const form = args.kind === 'group'
     ? initialGroupForm(stage, args.selectedColumns ?? [], undefined, args.construction)
-    : initialExpandForm(stage);
+    : initialExpandForm(stage, undefined, selectedColumnId);
   const evaluation = candidateFor({
     form,
     construction: args.construction,
@@ -1607,6 +1617,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const automaticallySelectedPivotPairs = useRef(new Set<string>());
   const manuallySelectedPivotPairs = useRef(new Set<string>());
   const requestedPivotDiscovery = useRef<string | undefined>(undefined);
+  const [choiceIntent, setChoiceIntent] = useState<'group' | 'reshape' | undefined>();
   const groupSupport = capabilityFor(groupStage, 'GROUP');
   const codedGroupSupport = capabilityFor(stage, 'CODED_GROUP');
   const expandSupport = capabilityFor(stage, 'EXPAND');
@@ -1615,10 +1626,6 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const pivotSupport = capabilities.pivotSourceInput?.supported ? { supported: true, reason: '' } : savedPivotSupport;
   const codedPivotSupport = capabilityFor(stage, 'CODED_PIVOT');
   const unpivotSupport = capabilityFor(stage, 'UNPIVOT');
-  const expandColumns = listColumnsFor(stage);
-  const expandReason = expandColumns.length === 0
-    ? 'No list column is available in this table.'
-    : expandSupport.supported ? '' : expandSupport.reason;
   const newPivotSupport = props.onDiscoverCategories
     ? pivotSupport
     : { supported: false, reason: pivotSupport.supported ? 'Stage-scoped category discovery is not available yet.' : pivotSupport.reason };
@@ -1627,6 +1634,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   useLayoutEffect(() => {
     if (props.initialEntry) return;
     const initialForm = formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind);
+    setChoiceIntent(undefined);
     setForm(initialForm);
     props.onFormKindChange?.(initialForm.kind);
     setFormContextKey(contextKey);
@@ -1690,6 +1698,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     ) {
       automaticallySelectedPivotPairs.current.delete(pivotSelectionIdentity(form, stage.id));
     }
+    if (next.kind !== 'choose') setChoiceIntent(undefined);
     setForm(next);
     props.onFormKindChange?.(next.kind);
     const evaluation = evaluate(next);
@@ -1797,93 +1806,102 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
       {form.kind !== 'choose' && form.kind !== 'unsupported' ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
           <h2 className="m-0 font-semibold text-slate-900">{reshapeFormLabels[form.kind]}</h2>
-          {!editingStep ? <button type="button" disabled={disabled} onClick={() => updateForm({ kind: 'choose' })}
+          {!editingStep ? <button type="button" disabled={disabled} onClick={() => { setChoiceIntent(undefined); updateForm({ kind: 'choose' }); }}
             className="font-medium text-blue-800 hover:underline disabled:opacity-50">Change row operation</button> : null}
         </div>
       ) : null}
 
       {!editingStep && form.kind === 'choose' ? (
-        <fieldset className="grid gap-2">
-          <legend className="mb-1 text-sm font-semibold text-slate-800">Choose how rows and columns change</legend>
-          <ReshapeChoice
-            testId="construction-reshape-choice-group"
-            title="Summarize into groups"
-            rows="One per unique combination of chosen fields."
-            columns="Keep group fields and add summary columns."
-            supported={groupSupport.supported || groupCodedValuesSupported}
-            reason={groupSupport.supported || groupCodedValuesSupported ? '' : groupSupport.reason}
-            disabled={disabled}
-            onChoose={() => updateForm(initialGroupForm(stage, props.selectedColumns ?? [], undefined, construction))}
-          />
-          <SourceFieldChoices fields={availableSourceFields} disabled={disabled} onChoose={chooseSourceField} />
-          <ReshapeChoice
-            testId="construction-reshape-choice-coded-group"
-            title="Group by coded value"
-            rows="One per observed code."
-            columns="System, version, code, and source count."
-            supported={codedGroupSupport.supported && Boolean(stage.codedGroupChoices?.length)}
-            reason={!isSourceProjectionStage(stage) && !codedGroupSupport.supported
-              ? 'Available on starting records before other table changes.'
-              : codedGroupSupport.reason || (stage.codedGroupChoices?.length ? '' : 'No Coding fields are available here.')}
-            disabled={disabled}
-            onChoose={() => updateForm(initialCodedGroupForm(stage))}
-          />
-          <ReshapeChoice
-            testId="construction-reshape-choice-expand"
-            title="Expand a repeated value"
-            rows="One per list item."
-            columns="Replace the list with its item; optionally add its position."
-            supported={expandSupport.supported}
-            reason={expandReason}
-            disabled={disabled || expandColumns.length === 0}
-            onChoose={() => updateForm(initialExpandForm(stage))}
-          />
-          <ReshapeChoice
-            testId="construction-reshape-choice-related-expand"
-            title="Expand related records"
-            rows="One per matching related record."
-            columns="Keep current columns and add the related record ID."
-            supported={relatedExpandSupport.supported && Boolean(props.relatedExpandContext)}
-            reason={props.relatedExpandContext ? relatedExpandSupport.reason : 'Related path search is unavailable.'}
-            disabled={disabled}
-            onChoose={() => updateForm({ kind: 'related-expand' })}
-          />
-          <ReshapeChoice
-            testId="construction-reshape-choice-coded-pivot"
-            title="Coded values as columns"
-            rows="One per source record."
-            columns="One per selected code, filled from its paired value."
-            supported={codedPivotSupport.supported && Boolean(props.codedPivotContext)}
-            reason={props.codedPivotContext ? codedPivotSupport.reason : 'Coded source discovery is unavailable.'}
-            disabled={disabled}
-            onChoose={() => updateForm({ kind: 'coded-pivot' })}
-          />
-          <ReshapeChoice
-            testId="construction-reshape-choice-pivot"
-            title="Turn categories into columns"
-            rows="One per unique combination of row values."
-            columns="One per accepted category, filled from the chosen value field."
-            supported={newPivotSupport.supported}
-            reason={newPivotSupport.reason}
-            disabled={disabled}
-            onChoose={() => updateForm(initialPivotForm(stage, props.selectedColumns ?? []))}
-          />
-          <ReshapeChoice
-            testId="construction-reshape-choice-unpivot"
-            title="Turn columns into rows"
-            rows="One per selected column."
-            columns="One source-name field and one value field."
-            supported={unpivotSupport.supported}
-            reason={unpivotSupport.reason}
-            disabled={disabled}
-            onChoose={() => updateForm(initialUnpivotForm(stage, props.selectedColumns ?? []))}
-          />
-          {form.kind === 'choose' && !groupSupport.supported && !codedGroupSupport.supported && !expandSupport.supported && !relatedExpandSupport.supported && !pivotSupport.supported && !unpivotSupport.supported ? (
-            <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">
-              Loom has not confirmed a reshape this stage can run. The operation choices stay unavailable until it returns support.
-            </p>
-          ) : null}
-        </fieldset>
+        <section aria-label="Group or reshape this table" className="grid gap-3">
+          {choiceIntent === undefined ? (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button type="button" data-testid="construction-reshape-intent-group" disabled={disabled}
+                onClick={() => setChoiceIntent('group')}
+                className="grid gap-1 rounded-lg border border-slate-200 px-3 py-2 text-left enabled:hover:border-blue-400 enabled:hover:bg-blue-50 disabled:opacity-50">
+                <span className="text-sm font-semibold text-slate-900">Group and summarize</span>
+                <span className="text-xs text-slate-600">Choose fields for each row and summaries to calculate.</span>
+              </button>
+              <button type="button" data-testid="construction-reshape-intent-reshape" disabled={disabled}
+                onClick={() => setChoiceIntent('reshape')}
+                className="grid gap-1 rounded-lg border border-slate-200 px-3 py-2 text-left enabled:hover:border-blue-400 enabled:hover:bg-blue-50 disabled:opacity-50">
+                <span className="text-sm font-semibold text-slate-900">Reshape table</span>
+                <span className="text-xs text-slate-600">Turn categories into columns or selected columns into rows.</span>
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="m-0 text-sm font-semibold text-slate-900">
+                  {choiceIntent === 'group' ? 'Group and summarize' : 'Reshape table'}
+                </h3>
+                <button type="button" disabled={disabled} onClick={() => setChoiceIntent(undefined)}
+                  className="text-xs font-medium text-blue-800 hover:underline disabled:opacity-50">Back to row operations</button>
+              </div>
+              {choiceIntent === 'group' ? (
+                <div className="grid gap-2">
+                  <ReshapeChoice
+                    testId="construction-reshape-choice-group"
+                    title="Group by table fields"
+                    rows="One per unique combination of chosen fields."
+                    columns="Keep group fields and add summary columns."
+                    supported={groupSupport.supported || groupCodedValuesSupported}
+                    reason={groupSupport.supported || groupCodedValuesSupported ? '' : groupSupport.reason}
+                    disabled={disabled}
+                    onChoose={() => updateForm(initialGroupForm(groupStage, props.selectedColumns ?? [], undefined, construction))}
+                  />
+                  <SourceFieldChoices fields={availableSourceFields} disabled={disabled} onChoose={chooseSourceField} />
+                  {codedGroupSupport.supported && Boolean(stage.codedGroupChoices?.length) ? (
+                    <ReshapeChoice
+                      testId="construction-reshape-choice-coded-group"
+                      title="Group by recorded code"
+                      rows="One per observed code."
+                      columns="Keep its system, code, and source count."
+                      supported={codedGroupSupport.supported}
+                      reason={codedGroupSupport.reason}
+                      disabled={disabled}
+                      onChoose={() => updateForm(initialCodedGroupForm(stage))}
+                    />
+                  ) : null}
+                </div>
+              ) : (
+                <div className="grid gap-2">
+                  {codedPivotSupport.supported && props.codedPivotContext ? (
+                    <ReshapeChoice
+                      testId="construction-reshape-choice-coded-pivot"
+                      title="Coded values as columns"
+                      rows="One per source record."
+                      columns="One per selected code, filled from its paired value."
+                      supported={codedPivotSupport.supported}
+                      reason={codedPivotSupport.reason}
+                      disabled={disabled}
+                      onChoose={() => updateForm({ kind: 'coded-pivot' })}
+                    />
+                  ) : null}
+                  <ReshapeChoice
+                    testId="construction-reshape-choice-pivot"
+                    title="Turn categories into columns"
+                    rows="One per unique combination of row values."
+                    columns="One per accepted category, filled from the chosen value field."
+                    supported={newPivotSupport.supported}
+                    reason={newPivotSupport.reason}
+                    disabled={disabled}
+                    onChoose={() => updateForm(initialPivotForm(stage, props.selectedColumns ?? []))}
+                  />
+                  <ReshapeChoice
+                    testId="construction-reshape-choice-unpivot"
+                    title="Turn columns into rows"
+                    rows="One per selected column."
+                    columns="One source-name field and one value field."
+                    supported={unpivotSupport.supported}
+                    reason={unpivotSupport.reason}
+                    disabled={disabled}
+                    onChoose={() => updateForm(initialUnpivotForm(stage, props.selectedColumns ?? []))}
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </section>
       ) : null}
 
       {form.kind === 'related-expand' && props.relatedExpandContext ? (
@@ -1920,10 +1938,9 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           codedPivotSupported={groupCodedValuesSupported}
           supported={groupSupport.supported || groupCodedValuesSupported}
           reason={groupSupport.supported || groupCodedValuesSupported ? '' : groupSupport.reason}
-          expandSupported={expandSupport.supported && groupStage.id === stage.id}
-          expandReason={groupStage.id === stage.id ? expandSupport.reason : 'Expand is unavailable from this saved operation stage.'}
           disabled={disabled}
-          onExpandColumn={groupStage.id === stage.id ? expandListColumn : undefined}
+          expandSupported={groupStage.id === stage.id && expandSupport.supported}
+          onExpandListColumn={groupStage.id === stage.id ? expandListColumn : undefined}
           onChange={(next) => updateForm(next)}
         />
       ) : null}
@@ -1987,10 +2004,9 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           stage={stage}
           supported={unpivotSupport.supported}
           reason={unpivotSupport.reason}
-          expandSupported={expandSupport.supported}
-          expandReason={expandSupport.reason}
           disabled={disabled}
-          onExpandColumn={expandListColumn}
+          expandSupported={expandSupport.supported}
+          onExpandListColumn={expandListColumn}
           onChange={updateForm}
         />
       ) : null}
@@ -2046,6 +2062,30 @@ const SourceFieldChoices = (props: {
       ))}
     </ul>
   </section>
+) : null;
+
+const ListColumnExpandChoices = (props: {
+  readonly columns: ReadonlyArray<ReshapeColumn>;
+  readonly supported: boolean;
+  readonly disabled: boolean;
+  readonly onExpand?: (columnId: string) => void;
+}) => props.columns.length > 0 ? (
+  <details data-testid="construction-reshape-list-column-settings" className="rounded border border-slate-200 px-2 py-1.5">
+    <summary className="cursor-pointer text-xs font-medium text-blue-800">List column settings</summary>
+    {props.supported && props.onExpand ? (
+      <ul className="m-0 mt-2 grid list-none gap-1 p-0 sm:grid-cols-2">
+        {props.columns.map((column) => (
+          <li key={column.id}>
+            <button type="button" aria-label={`Expand ${column.label}`} disabled={props.disabled}
+              onClick={() => props.onExpand?.(column.id)}
+              className="w-full rounded px-2 py-1 text-left text-xs text-slate-700 hover:bg-blue-50 disabled:opacity-50">
+              Split {column.label} into rows
+            </button>
+          </li>
+        ))}
+      </ul>
+    ) : <p className="m-0 mt-2 text-xs text-slate-600">These repeated fields can’t be split into rows at this stage.</p>}
+  </details>
 ) : null;
 
 const SourceFieldDescription = ({ field }: { readonly field: AvailableSourceField }) => (
@@ -2203,45 +2243,6 @@ const CodedGroupEditor = (props: {
   </section>
 );
 
-const ListColumnExpandChoices = (props: {
-  readonly stage: ReshapeStage;
-  readonly disabled: boolean;
-  readonly supported: boolean;
-  readonly reason: string;
-  readonly instruction: string;
-  readonly onExpandColumn?: (columnId: string) => void;
-}) => {
-  const columns = listColumnsFor(props.stage);
-  if (columns.length === 0) return null;
-
-  return (
-    <section aria-label="Use list values" data-testid="construction-reshape-list-value-choices" className="grid content-start gap-1">
-      <p className="m-0 text-xs text-slate-600">
-        <span className="font-semibold text-slate-800">Use list values.</span> {props.instruction}
-      </p>
-      <ul className="m-0 flex list-none flex-wrap gap-1 p-0">
-        {columns.map((column) => (
-          <li key={column.id}>
-            <button
-              type="button"
-              aria-label={`Expand ${column.label}`}
-              title={column.label}
-              disabled={props.disabled || !props.supported || !props.onExpandColumn}
-              onClick={() => props.onExpandColumn?.(column.id)}
-              className="rounded px-2 py-1 text-left text-sm font-medium text-blue-800 hover:bg-blue-50 disabled:text-slate-400"
-            >
-              Expand {column.label}
-            </button>
-          </li>
-        ))}
-      </ul>
-      {!props.supported && props.reason ? (
-        <p role="status" className="m-0 text-xs text-slate-600">{props.reason}</p>
-      ) : null}
-    </section>
-  );
-};
-
 const GroupEditor = (props: {
   readonly form: GroupForm;
   readonly stage: ReshapeStage;
@@ -2249,10 +2250,9 @@ const GroupEditor = (props: {
   readonly codedPivotSupported: boolean;
   readonly supported: boolean;
   readonly reason: string;
-  readonly expandSupported: boolean;
-  readonly expandReason: string;
   readonly disabled: boolean;
-  readonly onExpandColumn?: (columnId: string) => void;
+  readonly expandSupported: boolean;
+  readonly onExpandListColumn?: (columnId: string) => void;
   readonly onChange: (form: GroupForm) => void;
 }) => {
   const scalarColumns = scalarColumnsFor(props.stage);
@@ -2309,14 +2309,14 @@ const GroupEditor = (props: {
               })}
             </div>
           )}
-          <ListColumnExpandChoices
-            stage={props.stage}
-            disabled={props.disabled}
-            supported={props.expandSupported}
-            reason={props.expandReason}
-            instruction="Expand one first to group by its individual values or summarize numeric items."
-            onExpandColumn={props.onExpandColumn}
-          />
+          {listColumnsFor(props.stage).length > 0 ? (
+            <ListColumnExpandChoices
+              columns={listColumnsFor(props.stage)}
+              supported={props.expandSupported}
+              disabled={props.disabled}
+              onExpand={props.onExpandListColumn}
+            />
+          ) : null}
           {props.codedPivotSupported && props.codedPivotContext ? (
             <GroupCodedValuePicker
               context={props.codedPivotContext}
@@ -3546,10 +3546,9 @@ const UnpivotEditor = (props: {
   readonly stage: ReshapeStage;
   readonly supported: boolean;
   readonly reason: string;
-  readonly expandSupported: boolean;
-  readonly expandReason: string;
   readonly disabled: boolean;
-  readonly onExpandColumn?: (columnId: string) => void;
+  readonly expandSupported: boolean;
+  readonly onExpandListColumn: (columnId: string) => void;
   readonly onChange: (form: UnpivotForm) => void;
 }) => {
   const listColumns = listColumnsFor(props.stage);
@@ -3567,7 +3566,7 @@ const UnpivotEditor = (props: {
   const inputCount = props.form.inputs.length;
   const rowEffect = inputCount === 0
     ? listColumns.length > 0
-      ? 'Choose a single-value field or expand a repeated field above to work with its values.'
+      ? 'Choose single-value fields. Use the column menu or List column settings to split repeated values before stacking them.'
       : 'Choose columns to see how many rows each original record will create. Rows with missing values stay in the table by default.'
     : `${props.form.nullRowPolicy === 'PRESERVE' ? '' : 'Up to '}${inputCount} new ${inputCount === 1 ? 'row' : 'rows'} per original row. ${props.form.nullRowPolicy === 'PRESERVE'
       ? 'Rows with missing values stay in the table.'
@@ -3590,14 +3589,14 @@ const UnpivotEditor = (props: {
           })}
         </div>
       </fieldset>
-      <ListColumnExpandChoices
-        stage={props.stage}
-        disabled={props.disabled}
-        supported={props.expandSupported}
-        reason={props.expandReason}
-        instruction="Unpivot needs one value per row. Expand one of these fields first to work with its items."
-        onExpandColumn={props.onExpandColumn}
-      />
+      {listColumns.length > 0 ? (
+        <ListColumnExpandChoices
+          columns={listColumns}
+          supported={props.expandSupported}
+          disabled={props.disabled}
+          onExpand={props.onExpandListColumn}
+        />
+      ) : null}
       <p data-testid="construction-unpivot-effect" className="m-0 text-sm text-slate-600">
         {rowEffect}
       </p>
