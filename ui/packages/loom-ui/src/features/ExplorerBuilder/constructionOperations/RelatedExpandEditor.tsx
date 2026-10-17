@@ -354,6 +354,7 @@ export const RelatedExpandEditor = ({
   const error = routeQuery.error instanceof Error
     ? routeQuery.error.message
     : routeQuery.error ? 'Could not load related paths.' : '';
+  const staleRouteSearch = error === 'The available paths changed. Reload this table before expanding records.';
 
 
   const emit = (
@@ -409,6 +410,9 @@ export const RelatedExpandEditor = ({
       {anchors.length === 0 ? <p role="status" className="text-sm text-slate-600">
         Loom has not confirmed a starting record for this stage. Reload the table to check available paths.
       </p> : null}
+      {anchors.length > 0 && !targetResourceType ? <p role="status" className="text-sm text-slate-600">
+        Choose a related record type to find supported paths from {selectedAnchor?.label ?? 'the starting record'}.
+      </p> : null}
       {anchors.length > 1 ? (
         <label className="grid gap-1 text-sm font-medium text-slate-800">
           Start from
@@ -451,6 +455,10 @@ export const RelatedExpandEditor = ({
       </label>
       {loading ? <p role="status" className="text-sm text-slate-600">Finding supported paths…</p> : null}
       {error ? <p role="alert" className="text-sm text-red-800">{error}</p> : null}
+      {error && !loading && !staleRouteSearch ? <button type="button" disabled={disabled}
+        onClick={() => void routeQuery.refetch()} className="justify-self-start text-sm text-blue-800 underline">
+        Retry finding paths
+      </button> : null}
       {routeSearchTruncated && !loading ? <p role="status" data-testid="construction-related-route-truncation" className="text-sm text-amber-900">
         Showing {choices.length.toLocaleString()} paths found before the search limit; additional paths may exist.
       </p> : null}

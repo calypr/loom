@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import type { LoomClient } from '../../../api';
+import { LoomRequestError, type LoomClient } from '../../../api';
 import type {
   ExplorerRowDefinition,
   RowDefinitionChoice,
@@ -27,19 +27,32 @@ type SourceSelection = {
   readonly emptyCollectionPolicy: EmptyCollectionPolicy;
 };
 
-type SourceDialogState =
-  | { readonly kind: 'closed' }
-  | { readonly kind: 'loading'; readonly identity: string }
-  | { readonly kind: 'load-error'; readonly identity: string; readonly message: string }
+type SourceEditingState =
   | {
       readonly kind: 'editing';
       readonly identity: string;
       readonly choices: ReadonlyArray<ExpandedChoice>;
       readonly selection?: SourceSelection;
-      readonly proposalState: 'idle' | 'proposing' | 'ready' | 'error' | 'applying';
+      readonly proposalState: 'idle' | 'proposing' | 'ready' | 'applying';
       readonly proposal?: RowDefinitionProposal;
-      readonly message?: string;
+    }
+  | {
+      readonly kind: 'editing';
+      readonly identity: string;
+      readonly choices: ReadonlyArray<ExpandedChoice>;
+      readonly selection: SourceSelection;
+      readonly proposalState: 'error';
+      readonly proposal?: RowDefinitionProposal;
+      readonly message: string;
+      readonly retryable: boolean;
     };
+
+type SourceDialogState =
+  | { readonly kind: 'closed' }
+  | { readonly kind: 'loading'; readonly identity: string }
+  | { readonly kind: 'load-error'; readonly identity: string; readonly message: string; readonly retryable: boolean }
+  | { readonly kind: 'empty'; readonly identity: string; readonly message: string }
+  | SourceEditingState;
 
 const contextIdentity = (context: SourceCollectionExpandContext): string => JSON.stringify([
   context.project,
@@ -121,12 +134,12 @@ export const SourceCollectionExpandEditor = ({
       if (!latest || contextIdentity(latest) !== identity
         || response.outputId !== current.outputId
         || response.snapshotToken !== current.snapshotToken) {
-        setState({ kind: 'load-error', identity, message: 'The table or catalog changed while repeated fields were loading. Close this panel and try again.' });
+        setState({ kind: 'load-error', identity, retryable: false, message: 'The table or catalog changed while repeated fields were loading. Close this panel and try again.' });
         return;
       }
       const choices = response.choices.filter((choice): choice is ExpandedChoice => choice.kind === 'EXPANDED');
       if (choices.length === 0) {
-        setState({ kind: 'load-error', identity, message: 'No repeated fields are available for this table.' });
+        setState({ kind: 'empty', identity, message: 'No repeated source fields are available for this table.' });
         return;
       }
       setState({ kind: 'editing', identity, choices, proposalState: 'idle' });
@@ -135,6 +148,7 @@ export const SourceCollectionExpandEditor = ({
       setState({
         kind: 'load-error',
         identity,
+        retryable: error instanceof LoomRequestError && error.retryable === true,
         message: error instanceof Error ? error.message : 'Repeated fields could not be loaded.',
       });
     } finally {
@@ -147,7 +161,7 @@ export const SourceCollectionExpandEditor = ({
     const epoch = requestEpoch.current;
     const current = latestContext.current;
     if (!current || contextIdentity(current) !== identity || current.rowsKind === 'GROUPS') {
-      setState({ kind: 'load-error', identity, message: 'Source expansion is unavailable for the current grouped rows. Keep or change the group row definition separately.' });
+      setState({ kind: 'load-error', identity, retryable: false, message: 'Source expansion is unavailable for the current grouped rows. Keep or change the group row definition separately.' });
       return;
     }
     const controller = new AbortController();
@@ -169,6 +183,7 @@ export const SourceCollectionExpandEditor = ({
       if (!latest || contextIdentity(latest) !== identity || !isCurrentProposal(proposal, latest)) {
         setState({
           kind: 'editing', identity, choices, selection, proposalState: 'error',
+          retryable: false,
           message: 'The table changed while source expansion was being previewed. Close this panel and choose it again.',
         });
         return;
@@ -176,6 +191,7 @@ export const SourceCollectionExpandEditor = ({
       if (proposal.comparison.status !== 'AVAILABLE' || !proposal.proposalId) {
         setState({
           kind: 'editing', identity, choices, selection, proposalState: 'error',
+          retryable: false,
           message: proposal.comparison.status === 'UNAVAILABLE'
             ? proposal.comparison.reason
             : 'Loom returned an incomplete source-expansion preview. The saved table was not changed.',
@@ -187,6 +203,7 @@ export const SourceCollectionExpandEditor = ({
       if (controller.signal.aborted || epoch !== requestEpoch.current) return;
       setState({
         kind: 'editing', identity, choices, selection, proposalState: 'error',
+        retryable: error instanceof LoomRequestError && error.retryable === true,
         message: error instanceof Error ? error.message : 'Source expansion could not be previewed. The saved table was not changed.',
       });
     } finally {
@@ -213,11 +230,17 @@ export const SourceCollectionExpandEditor = ({
     void propose(state.choices, { ...state.selection, emptyCollectionPolicy }, state.identity);
   };
 
+  const retryPreview = () => {
+    if (state.kind !== 'editing' || state.proposalState !== 'error' || !state.retryable) return;
+    void propose(state.choices, state.selection, state.identity);
+  };
+
   const apply = async () => {
-    if (state.kind !== 'editing' || state.proposalState !== 'ready' || !state.proposal?.proposalId) return;
+    if (state.kind !== 'editing' || state.proposalState !== 'ready' || !state.proposal?.proposalId || !state.selection) return;
+    const selection = state.selection;
     const current = latestContext.current;
     if (!current || contextIdentity(current) !== state.identity || !isCurrentProposal(state.proposal, current)) {
-      setState({ ...state, proposalState: 'error', message: 'The table changed before source expansion could be applied. Close this panel and choose it again.' });
+      setState({ ...state, selection, proposalState: 'error', retryable: false, message: 'The table changed before source expansion could be applied. Close this panel and choose it again.' });
       return;
     }
     setState({ ...state, proposalState: 'applying' });
@@ -226,7 +249,8 @@ export const SourceCollectionExpandEditor = ({
       applied = await current.onApply(state.proposal.proposalId);
     } catch (error) {
       setState({
-        ...state, proposalState: 'error',
+        ...state, selection, proposalState: 'error',
+        retryable: false,
         message: error instanceof Error ? error.message : 'Source expansion could not be applied. The saved table was not changed.',
       });
       return;
@@ -235,7 +259,8 @@ export const SourceCollectionExpandEditor = ({
       close();
     } else {
       setState({
-        ...state, proposalState: 'error',
+        ...state, selection, proposalState: 'error',
+        retryable: false,
         message: 'The source-expansion proposal is no longer current. The saved table was not changed.',
       });
     }
@@ -272,7 +297,14 @@ export const SourceCollectionExpandEditor = ({
               <button type="button" className="shrink-0 rounded-md border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-50" disabled={applying} onClick={close}>Cancel</button>
             </header>
             {state.kind === 'loading' ? <p className="mt-5" role="status">Loading repeated fields…</p> : null}
-            {state.kind === 'load-error' ? <p className="mt-5 text-sm text-red-800" role="alert">{state.message}</p> : null}
+            {state.kind === 'load-error' ? (
+              <div className="mt-5 grid justify-items-start gap-2 text-sm text-red-800" role="alert">
+                <p className="m-0">{state.message}</p>
+                {state.retryable ? <button type="button" disabled={disabled} onClick={() => void open()}
+                  className="text-blue-800 underline">Retry loading repeated fields</button> : null}
+              </div>
+            ) : null}
+            {state.kind === 'empty' ? <p className="mt-5 text-sm text-slate-700" role="status">{state.message}</p> : null}
             {state.kind === 'editing' ? (() => {
                   const selectedChoice = state.choices.find((choice) => choice.choiceId === state.selection?.rowChoiceId);
                   const selectedPolicies = selectedChoice?.policies[0]?.options ?? [];
@@ -310,7 +342,13 @@ export const SourceCollectionExpandEditor = ({
                     </select>
                   </label>
                   {state.proposalState === 'proposing' ? <p role="status">Previewing source row changes…</p> : null}
-                  {state.proposalState === 'error' ? <p role="alert" className="text-sm text-red-800">{state.message}</p> : null}
+                  {state.proposalState === 'error' ? (
+                    <div role="alert" className="grid justify-items-start gap-2 text-sm text-red-800">
+                      <p className="m-0">{state.message}</p>
+                      {state.retryable ? <button type="button" disabled={disabled} onClick={retryPreview}
+                        className="text-blue-800 underline">Retry preview</button> : null}
+                    </div>
+                  ) : null}
                   {state.proposalState === 'applying' ? <p role="status">Applying source expansion…</p> : null}
                   {comparison?.status === 'AVAILABLE' ? (
                     <section aria-label="Source expansion preview" className="rounded-lg border border-slate-200 bg-slate-50 p-3">

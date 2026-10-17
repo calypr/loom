@@ -2,6 +2,7 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { LoomRequestError } from '../../../api';
 import type { RowDefinitionChoicesResponse, RowDefinitionProposal } from '../../../types';
 import {
   SourceCollectionExpandEditor,
@@ -84,6 +85,9 @@ describe('SourceCollectionExpandEditor', () => {
     }, expect.any(AbortSignal));
     expect(screen.getByText('Start rows from a repeated field before current row changes.')).toBeInTheDocument();
     expect(screen.getByText("This changes the table's source rows. Review the preview before applying.")).toBeInTheDocument();
+    expect(screen.getByRole('option', {
+      name: 'Observation component · Starting Observation (component[])',
+    })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Repeated source field'), { target: { value: 'component-scope-choice' } });
     await waitFor(() => expect(screen.getByTestId('construction-source-expand-apply')).toBeEnabled());
@@ -115,6 +119,113 @@ describe('SourceCollectionExpandEditor', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Cancel' }).at(-1)!);
     expect(screen.queryByRole('dialog', { name: 'Expand a repeated source field' })).not.toBeInTheDocument();
     expect(context.onApply).not.toHaveBeenCalled();
+  });
+
+  it('retries a failed repeated-field lookup inside the open panel', async () => {
+    const context = contextFor();
+    vi.mocked(context.client.listRowDefinitionChoices)
+      .mockRejectedValueOnce(new LoomRequestError({
+        status: 'FETCH_ERROR', message: 'Temporary repeated-field lookup failure', retryable: true,
+      }))
+      .mockResolvedValue(choices);
+    render(<SourceCollectionExpandEditor context={context} disabled={false} />);
+
+    fireEvent.click(screen.getByTestId('construction-reshape-expand-source'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Temporary repeated-field lookup failure');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry loading repeated fields' }));
+
+    expect(await screen.findByRole('option', {
+      name: 'Observation component · Starting Observation (component[])',
+    })).toBeInTheDocument();
+    expect(context.client.listRowDefinitionChoices).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry a response bound to a different table snapshot', async () => {
+    const context = contextFor();
+    vi.mocked(context.client.listRowDefinitionChoices).mockResolvedValue({
+      ...choices,
+      snapshotToken: 'stale-snapshot',
+    });
+    render(<SourceCollectionExpandEditor context={context} disabled={false} />);
+
+    fireEvent.click(screen.getByTestId('construction-reshape-expand-source'));
+
+    expect(await screen.findByRole('alert'))
+      .toHaveTextContent('The table or catalog changed while repeated fields were loading.');
+    expect(screen.queryByRole('button', { name: 'Retry loading repeated fields' })).not.toBeInTheDocument();
+  });
+
+  it('does not retry an HTTP stale-snapshot response', async () => {
+    const context = contextFor();
+    vi.mocked(context.client.listRowDefinitionChoices).mockRejectedValueOnce(new LoomRequestError({
+      status: 409,
+      code: 'STALE_SNAPSHOT',
+      message: 'The catalog snapshot changed. Reload the table.',
+      retryable: false,
+    }));
+    render(<SourceCollectionExpandEditor context={context} disabled={false} />);
+
+    fireEvent.click(screen.getByTestId('construction-reshape-expand-source'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The catalog snapshot changed. Reload the table.');
+    expect(screen.queryByRole('button', { name: 'Retry loading repeated fields' })).not.toBeInTheDocument();
+  });
+
+  it('shows a clear empty state when the current table has no supported repeated fields', async () => {
+    const context = contextFor();
+    vi.mocked(context.client.listRowDefinitionChoices).mockResolvedValue({ ...choices, choices: [] });
+    render(<SourceCollectionExpandEditor context={context} disabled={false} />);
+
+    fireEvent.click(screen.getByTestId('construction-reshape-expand-source'));
+
+    expect(await screen.findByText('No repeated source fields are available for this table.'))
+      .toHaveAttribute('role', 'status');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Repeated source field')).not.toBeInTheDocument();
+  });
+
+  it('retries a transient source-expansion preview failure without discarding the field choice', async () => {
+    const context = contextFor();
+    vi.mocked(context.client.proposeRowDefinition)
+      .mockRejectedValueOnce(new LoomRequestError({
+        status: 'FETCH_ERROR', message: 'Temporary preview failure', retryable: true,
+      }));
+    render(<SourceCollectionExpandEditor context={context} disabled={false} />);
+
+    fireEvent.click(screen.getByTestId('construction-reshape-expand-source'));
+    await screen.findByRole('dialog', { name: 'Expand a repeated source field' });
+    fireEvent.change(await screen.findByLabelText('Repeated source field'), {
+      target: { value: 'component-scope-choice' },
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Temporary preview failure');
+    expect(screen.getByTestId('construction-source-expand-apply')).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry preview' }));
+
+    await waitFor(() => expect(screen.getByTestId('construction-source-expand-apply')).toBeEnabled());
+    const repeatedField = screen.getByLabelText('Repeated source field');
+    if (!(repeatedField instanceof HTMLSelectElement)) throw new Error('Expected a repeated-field select.');
+    expect(repeatedField.value).toBe('component-scope-choice');
+    expect(context.client.proposeRowDefinition).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry a stale source-expansion preview', async () => {
+    const context = contextFor();
+    vi.mocked(context.client.proposeRowDefinition).mockRejectedValueOnce(new LoomRequestError({
+      status: 409,
+      code: 'STALE_DRAFT',
+      message: 'The draft changed. Reload the table.',
+      retryable: false,
+    }));
+    render(<SourceCollectionExpandEditor context={context} disabled={false} />);
+
+    fireEvent.click(screen.getByTestId('construction-reshape-expand-source'));
+    await screen.findByRole('dialog', { name: 'Expand a repeated source field' });
+    fireEvent.change(await screen.findByLabelText('Repeated source field'), {
+      target: { value: 'component-scope-choice' },
+    });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The draft changed. Reload the table.');
+    expect(screen.queryByRole('button', { name: 'Retry preview' })).not.toBeInTheDocument();
   });
 
   it('applies only the fresh row-definition proposal for the current table identity', async () => {

@@ -80,6 +80,7 @@ export const RelatedExpandContributorEditor = ({
 }) => {
   const client = useLoomClient();
   const [query, setQuery] = useState('');
+  const [searchAttempt, setSearchAttempt] = useState(0);
   const [choices, setChoices] = useState<ReadonlyArray<ContributorChoice>>([]);
   const [cursor, setCursor] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
@@ -89,6 +90,16 @@ export const RelatedExpandContributorEditor = ({
   const selected = (condition.kind === 'EXISTS' || condition.kind === 'EQUALS')
     && (allowRepeatedFields || condition.choice.source.cardinality !== 'many')
     ? condition.choice : undefined;
+  const staleSearch = error?.message === 'Available conditions changed. Reload this table before expanding records.';
+
+  const retrySearch = () => {
+    requestVersion.current += 1;
+    moreController.current?.abort();
+    setChoices([]);
+    setCursor(undefined);
+    setError(undefined);
+    setSearchAttempt((attempt) => attempt + 1);
+  };
 
   useEffect(() => () => moreController.current?.abort(), [routeChoiceId]);
   useEffect(() => {
@@ -120,7 +131,7 @@ export const RelatedExpandContributorEditor = ({
     }, query ? 180 : 0);
     return () => { globalThis.clearTimeout(timeout); controller.abort(); };
   }, [client, project, explorerId, authResourcePath, snapshotToken, draftVersion, draftDigest,
-    outputId, stageId, routeChoiceId, targetNodeId, targetResourceType, allowRepeatedFields, query, condition.kind === 'ALL']);
+    outputId, stageId, routeChoiceId, targetNodeId, targetResourceType, allowRepeatedFields, query, condition.kind === 'ALL', searchAttempt]);
 
   const loadMore = async () => {
     if (!cursor || loading) return;
@@ -175,6 +186,7 @@ export const RelatedExpandContributorEditor = ({
               setQuery(event.target.value);
               setChoices([]);
               setCursor(undefined);
+              setError(undefined);
             }} placeholder="Search field name or path" className="rounded border border-slate-300 px-3 py-2 font-normal" />
           </label>
           {error ? (
@@ -189,6 +201,12 @@ export const RelatedExpandContributorEditor = ({
             </div>
           ) : null}
           {loading ? <p role="status" className="text-slate-600">Finding supported fields…</p> : null}
+          {error && !loading && !cursor && !staleSearch ? (
+            <button type="button" disabled={disabled} onClick={retrySearch}
+              className="justify-self-start text-blue-800 underline">
+              Retry field search
+            </button>
+          ) : null}
           <div role="group" aria-label="Fields for related-record condition" className="max-h-56 space-y-2 overflow-auto">
             {[...choices, ...(selected && !choices.some((choice) => choice.choiceId === selected.choiceId) ? [selected] : [])].map((choice) => (
               <button key={choice.choiceId} type="button" disabled={disabled}
@@ -196,12 +214,16 @@ export const RelatedExpandContributorEditor = ({
                 onClick={() => onChange({ kind: 'EXISTS', choice })}
                 className={`block w-full rounded border p-2 text-left ${selected?.choiceId === choice.choiceId ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:border-blue-300'}`}>
                 <span className="block font-medium">{choice.label}</span>
-                <span className="block text-xs text-slate-600">{choice.source.path} · {choice.source.logicalType}</span>
+                <span className="block text-xs text-slate-600">{choice.source.path} · {choice.source.logicalType}
+                  {choice.source.cardinality === 'many' ? ' · Repeated values (any item can match)' : ''}
+                </span>
               </button>
             ))}
             {!loading && choices.length === 0 && !selected && !error ? <p className="text-slate-600">No supported fields match this search.</p> : null}
           </div>
-          {cursor ? <button type="button" disabled={disabled || loading} onClick={() => void loadMore()} className="justify-self-start text-blue-800">Load more fields</button> : null}
+          {cursor && !staleSearch ? <button type="button" disabled={disabled || loading} onClick={() => void loadMore()} className="justify-self-start text-blue-800">
+            {error ? 'Retry loading more fields' : 'Load more fields'}
+          </button> : null}
           {selected ? (
             <>
               <label className="grid gap-1 font-medium text-slate-800">Condition

@@ -116,6 +116,30 @@ describe('RelatedExpandEditor', () => {
     expect(searchRelatedExpandChoices).not.toHaveBeenCalled();
   });
 
+  it('makes the initial path search explicit and retries a failed lookup in place', async () => {
+    searchRelatedExpandChoices.mockReset()
+      .mockRejectedValueOnce(new Error('Temporary route search failure'))
+      .mockResolvedValue({
+        snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1',
+        outputId: 'patients', stageId: 'source_projection', anchorColumnId: '_key',
+        complete: true, truncated: false,
+        choices: [{ ...rootAnchor, choiceId: 'retry-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
+      });
+    render(<RelatedExpandEditor
+      project="project" explorerId="explorer" snapshotToken="snapshot-1" outputId="patients"
+      catalog={catalog} construction={capabilities.baseConstruction} capabilities={capabilities}
+      disabled={false} onCandidateChange={vi.fn()}
+    />);
+
+    expect(screen.getByText(/Choose a related record type to find supported paths/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Temporary route search failure');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry finding paths' }));
+
+    expect(await screen.findByRole('radio', { name: 'Patient <-[subject]- Encounter' })).toBeInTheDocument();
+    expect(searchRelatedExpandChoices).toHaveBeenCalledTimes(2);
+  });
+
   it('shows the only starting record even when there is no anchor choice', () => {
     searchRelatedExpandChoices.mockReset();
     render(<RelatedExpandEditor
@@ -433,6 +457,40 @@ describe('RelatedExpandEditor', () => {
     expect(screen.queryByText('No supported scalar fields match this search.')).not.toBeInTheDocument();
   });
 
+  it('retries an initial related-field lookup without changing the selected condition', async () => {
+    searchRelatedExpandChoices.mockReset().mockResolvedValue({
+      snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1',
+      outputId: 'patients', stageId: 'source_projection', complete: true, truncated: false,
+      choices: [{ ...rootAnchor, choiceId: 'signed-choice', targetNodeId: 'encounter-node',
+        targetResourceType: 'Encounter', route }],
+    });
+    searchRelatedExpandContributors.mockReset()
+      .mockRejectedValueOnce(new Error('Temporary contributor lookup failure'))
+      .mockImplementation(async (args) => ({
+        snapshotToken: args.snapshotToken, draftVersion: args.expectedDraftVersion, draftDigest: args.expectedDraftDigest,
+        outputId: args.outputId, stageId: args.stageId, routeChoiceId: args.routeChoiceId,
+        complete: true, truncated: false,
+        choices: [{ choiceId: 'signed-status-choice', label: 'Status',
+          source: { kind: 'FIELD', candidateId: 'encounter-status', nodeId: 'encounter-node',
+            resourceType: 'Encounter', path: 'Encounter.status', cardinality: 'optional_one', logicalType: 'string' },
+          operators: ['EXISTS', 'EQUALS'], suggestedValues: [], suggestionsComplete: true,
+          suggestionsTruncated: false, suggestionsSource: 'catalog' }],
+      }));
+    render(<RelatedExpandEditor
+      project="project" explorerId="explorer" snapshotToken="snapshot-1" outputId="patients"
+      catalog={catalog} construction={capabilities.baseConstruction} capabilities={capabilities}
+      disabled={false} onCandidateChange={vi.fn()}
+    />);
+    fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
+    fireEvent.click(await screen.findByRole('radio', { name: 'Patient <-[subject]- Encounter' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Only records meeting a condition' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Temporary contributor lookup failure');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry field search' }));
+    expect(await screen.findByRole('button', { name: /Status/ })).toBeInTheDocument();
+    expect(searchRelatedExpandContributors).toHaveBeenCalledTimes(2);
+  });
+
   it('shows a field-list load failure and preserves schema diagnostics under technical details', async () => {
     searchRelatedExpandChoices.mockReset().mockResolvedValue({
       snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1',
@@ -518,7 +576,9 @@ describe('RelatedExpandEditor', () => {
     await waitFor(() => expect(searchRelatedExpandContributors).toHaveBeenCalledWith(
       expect.objectContaining({ routeChoiceId: 'observation-route' }), expect.any(AbortSignal),
     ));
-    fireEvent.click(await screen.findByRole('button', { name: /Category coding code/ }));
+    const repeatedField = await screen.findByRole('button', { name: /Category coding code.*Repeated values \(any item can match\)/ });
+    expect(repeatedField).toBeInTheDocument();
+    fireEvent.click(repeatedField);
     expect(screen.queryByLabelText(/quantifier/i)).not.toBeInTheDocument();
     expect(screen.getByRole('note')).toHaveTextContent('matches when any value in the repeated field is present.');
     expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0].operation.relatedExpand)
