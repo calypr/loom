@@ -530,6 +530,31 @@ describe('staged construction contract', () => {
         outputColumnId: 'specimen-type',
       },
     ]);
+
+    const choiceResponse = {
+      ...response,
+      candidateConstruction: {
+        ...response.candidateConstruction,
+        steps: [{
+          ...response.candidateConstruction.steps[0],
+          operation: {
+            kind: 'GROUP' as const,
+            group: {
+              constructionId: 'group-specimens',
+              keys: [
+                { inputColumnId: 'subject-id', outputColumnId: 'grouped-subject' },
+                {
+                  semanticCategory: { kind: 'CHOICE' as const, choiceId: 'specimen-type-choice' },
+                  outputColumnId: 'specimen-type',
+                },
+              ],
+              aggregates: [{ operation: 'COUNT_ROWS' as const, outputColumnId: 'row-count' }],
+            },
+          },
+        }],
+      },
+    };
+    expect(constructionProposalResponseSchema.safeParse(choiceResponse).success).toBe(true);
   });
 
   it('parses pinned Combine operations and optional output nullability', () => {
