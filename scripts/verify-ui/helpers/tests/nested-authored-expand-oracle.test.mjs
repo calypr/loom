@@ -250,7 +250,7 @@ test('native workflow binds each witness mode to its own registered lifecycle ca
   const scenario = getScenario('cda-authored-nested-expand');
   assert.equal(scenario.cases['nested-coding-expand-lifecycle'].witnessMode, 'multi-coding-component');
   assert.equal(scenario.cases['nested-coding-expand-lifecycle-single-per-component'].witnessMode, 'single-coding-per-component');
-  assert.equal(scenario.cases['nested-coding-expand-lifecycle'].requiredChecks.length, 17);
+  assert.equal(scenario.cases['nested-coding-expand-lifecycle'].requiredChecks.length, 21);
   assert.deepEqual(
     scenario.cases['nested-coding-expand-lifecycle-single-per-component'].requiredChecks,
     scenario.cases['nested-coding-expand-lifecycle'].requiredChecks,

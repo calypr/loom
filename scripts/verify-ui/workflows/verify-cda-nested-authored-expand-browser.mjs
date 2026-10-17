@@ -357,6 +357,47 @@ const expectedExpandTuples = () => report.oracle.expectedRows
   .map(({ id, ordinal, code }) => [id, ordinal, code])
   .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
 
+const expectedUnpivotTuples = () => {
+  const selectedByID = new Map(report.oracle.selected.map((record) => [record.id, record]));
+  return report.oracle.expectedRows.flatMap((item) => {
+    const source = selectedByID.get(item.id);
+    assert(source, `Raw source oracle omitted Observation ${item.id}`);
+    return [
+      { key: 'Observation ID', value: item.id, ordinal: item.ordinal, labels: source.componentLabels },
+      { key: expandedItemLabel, value: item.code, ordinal: item.ordinal, labels: source.componentLabels },
+    ];
+  }).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+};
+
+const nullableScalarCell = (cell, description) => {
+  const value = parseCell(cell);
+  if (value === '—' || value === '') return null;
+  if (Array.isArray(value)) {
+    assert.equal(value.length, 1, `${description} should be one scalar value per Unpivot row`);
+    return value[0];
+  }
+  return value;
+};
+
+const verifyUnpivotRows = (preview, phase) => {
+  assert(preview, `${phase} omitted its rendered Unpivot preview`);
+  const keyIndex = headerIndex(preview, 'Variable');
+  const valueIndex = headerIndex(preview, 'Value');
+  const labelsIndex = headerIndex(preview, labelColumnLabel);
+  const ordinalIndex = headerIndex(preview, positionLabel);
+  const expected = expectedUnpivotTuples();
+  assert(expected.length <= 25, 'The complete native Unpivot preview must remain within its row window');
+  assert.equal(preview.rows.length, expected.length, `${phase} row count must contain both selected scalar values per expanded row`);
+  const actual = preview.rows.map((row) => ({
+    key: String(nullableScalarCell(row[keyIndex], 'Variable')),
+    value: nullableScalarCell(row[valueIndex], 'Value'),
+    ordinal: nullableScalarCell(row[ordinalIndex], positionLabel),
+    labels: parseCell(row[labelsIndex]),
+  })).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  assert.deepEqual(actual, expected, `${phase} must preserve exact raw Observation IDs, code values, list context, and ordinals`);
+  return { headers: preview.headers, rowCount: preview.rows.length, tuples: actual };
+};
+
 const verifyExpandedRows = (preview, expectedLabel, phase) => {
   assert(preview, `${phase} omitted its rendered EXPAND preview`);
   const idIndex = headerIndex(preview, 'Observation ID');
@@ -639,12 +680,53 @@ const openExpandChoice = async () => measure('native-EXPAND-editor-discovery', a
   await fastWait(startedAt, { kind: 'enabled', selector: '[data-testid="construction-reshape-choice-expand"]' }, 'EXPAND choice discovery');
 });
 
+const ensureUnpivotEditor = async (startedAt) => {
+  const editorAlreadyOpen = await inspectPage(page, `return Boolean(document.querySelector('[data-testid="construction-reshape-editor"]'));`);
+  if (!editorAlreadyOpen) {
+    await click(page, '[data-testid="construction-rows-settings-trigger"]');
+    await fastWait(startedAt, { kind: 'present', selector: '[role="dialog"][aria-label="Row definition settings"]' }, 'Row settings discovery');
+    await fastWait(startedAt, { kind: 'enabled', selector: '[data-testid="construction-action-unpivot-rows"]' }, 'Unpivot availability');
+    await click(page, '[data-testid="construction-action-unpivot-rows"]');
+  } else if (!await inspectPage(page, `return Boolean(document.querySelector('[data-testid="construction-reshape-unpivot"]'));`)) {
+    const changeOperation = await inspectPage(page, `return Boolean([...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Change row operation'));`);
+    if (changeOperation) await click(page, 'button', { name: 'Change row operation' });
+    await fastWait(startedAt, { kind: 'enabled', selector: '[data-testid="construction-reshape-choice-unpivot"]' }, 'Unpivot choice discovery');
+    await click(page, '[data-testid="construction-reshape-choice-unpivot"]');
+  }
+  await fastWait(startedAt, { kind: 'present', selector: '[data-testid="construction-reshape-unpivot"]' }, 'Unpivot editor discovery');
+};
+
+const openUnpivotListExpand = async () => measure('native-Unpivot-list-to-Expand-choice', async (startedAt) => {
+  await ensureUnpivotEditor(startedAt);
+  const choiceState = await inspectPage(page, `return {
+    listChoices:[...document.querySelectorAll('[aria-label="Use list values"] button')].map(button=>({label:button.textContent.trim(),aria:button.getAttribute('aria-label'),disabled:button.disabled})),
+    scalarChoices:[...document.querySelectorAll('[data-testid="construction-reshape-unpivot"] input[type="checkbox"]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled})),
+  };`);
+  assert(choiceState.listChoices.some((choice) => choice.aria === `Expand ${labelColumnLabel}` && !choice.disabled),
+    `Unpivot must name the outer-label list as an Expand choice: ${JSON.stringify(choiceState)}`);
+  assert(choiceState.listChoices.some((choice) => choice.aria === `Expand ${codeColumnLabel}` && !choice.disabled),
+    `Unpivot must name the nested-code list as an Expand choice: ${JSON.stringify(choiceState)}`);
+  assert(choiceState.scalarChoices.some((choice) => choice.label === 'Unpivot Observation ID' && !choice.disabled),
+    `Unpivot must keep its compatible scalar ID choice visible: ${JSON.stringify(choiceState)}`);
+  assert(!choiceState.scalarChoices.some((choice) => choice.label === `Unpivot ${codeColumnLabel}`),
+    'The source list itself must not be offered as a scalar Unpivot input');
+  await click(page, `button[aria-label=${JSON.stringify(`Expand ${codeColumnLabel}`)}]`);
+  await fastWait(startedAt, { kind: 'present', selector: '[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]' }, 'Seeded EXPAND editor');
+  const seeded = await inspectPage(page, `const select=document.querySelector('[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]');return {value:select?.value??null,option:select?.selectedOptions?.[0]?.textContent?.trim()??null};`);
+  assert.equal(seeded.value, listColumnId, 'The Unpivot list action must seed the exact compiler-owned nested-code column');
+  assert(seeded.option?.startsWith(codeColumnLabel), `The seeded field must be the selected nested-code list: ${JSON.stringify(seeded)}`);
+  recordAssertion('Unpivot names both populated list fields and seeds Expand from the selected list action', {
+    listChoices: choiceState.listChoices, scalarChoices: choiceState.scalarChoices, seeded,
+  });
+});
+
 const setInput = (label, value) => fill(page, `input[aria-label=${JSON.stringify(label)}]`, value);
 
-const configureExpand = async (expectedLabel) => {
-  await openExpandChoice();
+const configureExpand = async (expectedLabel, { fromUnpivotList = false } = {}) => {
+  if (fromUnpivotList) await openUnpivotListExpand();
+  else await openExpandChoice();
   const startedAt = Date.now();
-  await click(page, '[data-testid="construction-reshape-choice-expand"]');
+  if (!fromUnpivotList) await click(page, '[data-testid="construction-reshape-choice-expand"]');
   await waitForBrowser(page, { kind: 'present', selector: '[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]' }, 5000);
   const choices = await inspectPage(page, `return [...document.querySelector('[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]').options].map(option=>({value:option.value,label:option.text,disabled:option.disabled}));`);
   const matching = choices.filter((option) => option.label.startsWith(codeColumnLabel) && !option.disabled);
@@ -836,7 +918,7 @@ try {
     await saveDOM('expand-canceled-records-restored');
     recordAssertion('Cancel restores the exact source records and leaves RECORDS unchanged', { draftDigest: builder.draftDigest, preview: report.canceledSource });
 
-    const configuredPreview = await configureExpand(expandedItemLabel);
+    const configuredPreview = await configureExpand(expandedItemLabel, { fromUnpivotList: true });
     report.expansionPreview = verifyExpandedRows(configuredPreview, expandedItemLabel, 'Confirmed native nested EXPAND preview');
     const configuredProposal = await assertExpandRequest(expandedItemLabel, listColumnId);
     const authoredIdentityMapping = verifyProtocolExpandIdentities(
@@ -911,6 +993,165 @@ try {
     const appliedPersistence = persistenceEvidence(appliedPersistenceBefore, appliedPersistenceAfter);
     cda.check('persistence', 'Reload preserves native EXPAND output and unchanged RECORDS row definition',
       appliedPersistence.unchangedSavedState, { ...appliedPersistence, stepId: appliedStep.id });
+
+    await ensureUnpivotEditor(Date.now());
+    const unpivotChoices = await inspectPage(page, `return {
+      listChoices:[...document.querySelectorAll('[aria-label="Use list values"] button')].map(button=>button.getAttribute('aria-label')),
+      scalarChoices:[...document.querySelectorAll('[data-testid="construction-reshape-unpivot"] input[type="checkbox"]')].map(input=>({label:input.getAttribute('aria-label'),disabled:input.disabled})),
+    };`);
+    const itemLabel = appliedStep.outputs.find((column) => column.id === appliedStep.operation.expand.outputColumnId);
+    const idStageColumn = appliedStep.outputs.find((column) => column.label === 'Observation ID');
+    assert(itemLabel, 'The applied EXPAND stage must expose its generated scalar item');
+    assert(idStageColumn, 'The applied EXPAND stage must retain the compatible Observation ID scalar');
+    const idChoiceLabel = 'Unpivot Observation ID';
+    const itemChoiceLabel = `Unpivot ${itemLabel.label}`;
+    assert(unpivotChoices.listChoices.includes(`Expand ${labelColumnLabel}`),
+      `A remaining list must stay named and actionable after EXPAND: ${JSON.stringify(unpivotChoices)}`);
+    assert(unpivotChoices.scalarChoices.some((choice) => choice.label === idChoiceLabel && !choice.disabled),
+      `The compatible ID scalar must be available after EXPAND: ${JSON.stringify(unpivotChoices)}`);
+    assert(unpivotChoices.scalarChoices.some((choice) => choice.label === itemChoiceLabel && !choice.disabled),
+      `The generated nested-code item must be available after EXPAND: ${JSON.stringify(unpivotChoices)}`);
+
+    for (const label of [idChoiceLabel, itemChoiceLabel]) {
+      const state = await inspectPage(page, `const input=document.querySelector('input[aria-label='+JSON.stringify(${JSON.stringify(label)})+']');return {checked:input?.checked??false,disabled:input?.disabled??true};`);
+      assert.equal(state.disabled, false, `${label} must remain enabled for the same Unpivot operation`);
+      if (!state.checked) await click(page, `input[aria-label=${JSON.stringify(label)}]`);
+    }
+    const nullPolicy = await inspectPage(page, `return document.querySelector('select[aria-label="Unpivot null row policy"]')?.value??null;`);
+    assert.equal(nullPolicy, 'PRESERVE', 'The native path must retain the existing null-row policy');
+
+    const unpivotStartedAt = Date.now();
+    const unpivotProposalPreview = await waitForProposal(unpivotStartedAt, 'Value');
+    const unpivotPreviewDurationMs = Date.now() - unpivotStartedAt;
+    report.workflowTimings.push({ name: 'native-Unpivot-expanded-item-and-ID-to-preview', durationMs: unpivotPreviewDurationMs, limitMs: 5000 });
+    assert(unpivotPreviewDurationMs <= 5000, `Expanded-item Unpivot preview took ${unpivotPreviewDurationMs}ms`);
+    report.unpivotPreview = verifyUnpivotRows(unpivotProposalPreview, 'Native list-expanded Unpivot proposal');
+    const unpivotProposalEntry = report.browserRequests.findLast((entry) =>
+      entry.path.endsWith('/construction-proposals') &&
+      entry.request?.candidateConstruction?.steps?.some((step) => step.operation?.kind === 'UNPIVOT'));
+    assert(unpivotProposalEntry, 'Selecting the expanded item and ID must submit a native Unpivot proposal');
+    const unpivotCandidateStep = unpivotProposalEntry.request.candidateConstruction.steps.findLast((step) => step.operation?.kind === 'UNPIVOT');
+    assert(unpivotCandidateStep, 'Native Unpivot proposal must contain the selected operation');
+    const selectedUnpivotInputs = unpivotCandidateStep.operation.unpivot.inputs.map((input) => ({
+      columnId: input.columnId,
+      key: input.key?.string,
+    })).sort((left, right) => left.columnId.localeCompare(right.columnId));
+    const expectedUnpivotInputs = [
+      { columnId: idStageColumn.id, key: 'Observation ID' },
+      { columnId: itemLabel.id, key: itemLabel.label },
+    ].sort((left, right) => left.columnId.localeCompare(right.columnId));
+    assert.deepEqual(selectedUnpivotInputs, expectedUnpivotInputs,
+      'The proposal must bind exactly the generated scalar item and the compatible ID, with readable source keys');
+    assert.equal(unpivotCandidateStep.operation.unpivot.nullRowPolicy, 'PRESERVE');
+    const unpivotProposalResponse = await waitForCapturedResponse(unpivotProposalEntry);
+    const unpivotTypedPreview = protocolPreview(unpivotProposalResponse);
+    assert.equal(unpivotTypedPreview.rowCount, expectedUnpivotTuples().length,
+      'The typed native preview must return both selected scalar values for every expanded source row');
+    assert.notEqual(unpivotTypedPreview.sampled, true, 'The native Unpivot oracle must be complete, not sampled');
+    const typedColumn = (label) => unpivotTypedPreview.columns.find((column) => column.label === label)?.column;
+    const typedKey = typedColumn('Variable');
+    const typedValue = typedColumn('Value');
+    const typedLabels = typedColumn(labelColumnLabel);
+    const typedOrdinal = typedColumn(positionLabel);
+    assert(typedKey && typedValue && typedLabels && typedOrdinal,
+      'The typed Unpivot preview must retain key/value outputs, list context, and expanded ordinal');
+    const typedTuples = unpivotTypedPreview.rows.map((row) => ({
+      key: String(row[typedKey]),
+      value: row[typedValue],
+      ordinal: row[typedOrdinal],
+      labels: row[typedLabels],
+    })).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+    assert.deepEqual(typedTuples, expectedUnpivotTuples(),
+      'The typed native Unpivot preview must preserve exact raw IDs, nested codes, list context, and item ordinals');
+    await saveDOM('unpivot-expanded-code-and-id-preview');
+
+    const unpivotRowCount = expectedUnpivotTuples().length;
+    await measure('native-Unpivot-apply-expanded-item-and-ID', async (startedAt) => {
+      await click(page, '[data-testid="construction-apply-proposal"]');
+      await fastWait(startedAt, { kind: 'all', conditions: [
+        { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' },
+        rowsReady(unpivotRowCount),
+        { kind: 'count', selector: '[data-testid^="construction-history-step-"]', count: 2 },
+      ] }, 'Applied native Unpivot over expanded item and ID');
+    });
+    builder = (await api(`${base}/builder`)).body;
+    const appliedUnpivotStep = document().construction.steps.find((step) => step.operation.kind === 'UNPIVOT');
+    assert(appliedUnpivotStep, 'Apply must persist the downstream native Unpivot operation');
+    assert.equal(appliedUnpivotStep.id, unpivotCandidateStep.id, 'Applied Unpivot must keep the previewed operation identity');
+    assert.deepEqual(document().construction.steps.map((step) => step.id), [appliedStep.id, appliedUnpivotStep.id],
+      'Unpivot must compose after the saved Expand without dropping or reordering the source operation');
+    assert.deepEqual(appliedUnpivotStep.operation.unpivot.inputs.map((input) => ({ columnId: input.columnId, key: input.key.string }))
+      .sort((left, right) => left.columnId.localeCompare(right.columnId)), expectedUnpivotInputs);
+    assert.equal(appliedUnpivotStep.operation.unpivot.nullRowPolicy, 'PRESERVE');
+    report.unpivotAppliedPreview = verifyUnpivotRows(await previewRows(), 'Applied native list-expanded Unpivot table');
+    await saveDOM('unpivot-expanded-code-and-id-applied');
+    recordAssertion('Expanded list item and compatible ID can be stacked with exact raw values in Unpivot', {
+      expandStepID: appliedStep.id, unpivotStep: appliedUnpivotStep,
+      selectedInputs: selectedUnpivotInputs, preview: report.unpivotPreview,
+    });
+
+    const unpivotReloadRequestIndex = report.browserRequests.length;
+    await openTable(unpivotRowCount, 'reload-applied-list-expanded-unpivot');
+    report.unpivotReloadPreview = verifyUnpivotRows(await previewRows(), 'Reloaded native list-expanded Unpivot table');
+    const unpivotReloadProtocol = await nativePreviewAfter(unpivotReloadRequestIndex, 'Reloaded native Unpivot');
+    const reloadedUnpivotPreview = protocolPreview(unpivotReloadProtocol.response);
+    const reloadedTypedColumn = (label) => reloadedUnpivotPreview.columns.find((column) => column.label === label)?.column;
+    const reloadedTypedColumns = {
+      key: reloadedTypedColumn('Variable'),
+      value: reloadedTypedColumn('Value'),
+      labels: reloadedTypedColumn(labelColumnLabel),
+      ordinal: reloadedTypedColumn(positionLabel),
+    };
+    assert.deepEqual(reloadedTypedColumns, { key: typedKey, value: typedValue, labels: typedLabels, ordinal: typedOrdinal },
+      'Reload must retain the exact preview output column identities');
+    const reloadedTypedTuples = reloadedUnpivotPreview.rows.map((row) => ({
+      key: String(row[reloadedTypedColumns.key]), value: row[reloadedTypedColumns.value],
+      ordinal: row[reloadedTypedColumns.ordinal], labels: row[reloadedTypedColumns.labels],
+    })).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+    assert.deepEqual(reloadedTypedTuples, expectedUnpivotTuples(), 'Reload must retain the exact Unpivot values and row context');
+    builder = (await api(`${base}/builder`)).body;
+    const reloadedUnpivotStep = document().construction.steps.find((step) => step.id === appliedUnpivotStep.id);
+    assert(reloadedUnpivotStep, 'Builder reload must preserve the exact Unpivot step identity');
+    assert.deepEqual(reloadedUnpivotStep.operation.unpivot.inputs, appliedUnpivotStep.operation.unpivot.inputs,
+      'Builder reload must preserve the exact expanded-item and ID input bindings');
+    assert.equal(document().construction.steps.find((step) => step.id === appliedStep.id)?.operation.kind, 'EXPAND',
+      'Builder reload must preserve the preceding list Expand');
+    recordAssertion('Reload preserves exact list-to-Expand-to-Unpivot outputs and input bindings', {
+      stepIDs: document().construction.steps.map((step) => step.id),
+      unpivotStep: reloadedUnpivotStep, preview: report.unpivotReloadPreview,
+    });
+    await saveDOM('unpivot-expanded-code-and-id-reloaded');
+
+    await click(page, `[data-testid="construction-history-step-${appliedUnpivotStep.id}"]`);
+    await fastWait(Date.now(), { kind: 'enabled', selector: `[data-testid="construction-remove-step-${appliedUnpivotStep.id}"]` }, 'Saved Unpivot removal');
+    const unpivotRemovalStartedAt = Date.now();
+    await click(page, `[data-testid="construction-remove-step-${appliedUnpivotStep.id}"]`);
+    await fastWait(unpivotRemovalStartedAt, { kind: 'status-in', selector: '[data-testid="construction-proposal-panel"]', statuses: ['ready'] }, 'Unpivot removal proposal');
+    const unpivotRemovalEntry = report.browserRequests.findLast((entry) =>
+      entry.path.endsWith('/construction-proposals') && entry.request?.removeStepIds?.includes(appliedUnpivotStep.id));
+    assert(unpivotRemovalEntry, 'Removing Unpivot must request the exact saved downstream step');
+    const unpivotRemovalResponse = await waitForCapturedResponse(unpivotRemovalEntry);
+    const removalCandidateSteps = unpivotRemovalEntry.request.candidateConstruction.steps;
+    assert.deepEqual(removalCandidateSteps.map((step) => step.id), [appliedStep.id],
+      'Removing downstream Unpivot must retain the exact saved Expand operation');
+    assert.equal(protocolPreview(unpivotRemovalResponse).rowCount, report.oracle.expectedRows.length,
+      'Unpivot removal preview must restore the expanded-row count');
+    report.unpivotRemovalPreview = verifyExpandedRows(await previewRows(), expandedItemLabel, 'Unpivot removal restores expanded rows');
+    await measure('native-Unpivot-remove-apply-restores-Expand-stage', async (startedAt) => {
+      await click(page, '[data-testid="construction-apply-proposal"]');
+      await fastWait(startedAt, { kind: 'all', conditions: [
+        { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' },
+        rowsReady(report.oracle.expectedRows.length),
+        { kind: 'count', selector: '[data-testid^="construction-history-step-"]', count: 1 },
+      ] }, 'Applied Unpivot removal');
+    });
+    builder = (await api(`${base}/builder`)).body;
+    assert.deepEqual(document().construction.steps.map((step) => step.id), [appliedStep.id],
+      'Applying Unpivot removal must restore the saved Expand edit stage');
+    report.unpivotRemovalAppliedRows = verifyExpandedRows(await previewRows(), expandedItemLabel, 'Applied Unpivot removal result');
+    recordAssertion('Removing downstream Unpivot restores the exact saved Expand stage', {
+      retainedExpandStepID: appliedStep.id, preview: report.unpivotRemovalAppliedRows,
+    });
 
     const beforeEditCancel = await captureSavedCancelState(builder, expandedItemLabel, 'Saved EXPAND before edit Cancel');
     await openSavedExpandEditor('native-EXPAND-edit-editor-discovery');
@@ -1073,7 +1314,7 @@ try {
     report.removalPreview = appliedRemoval.visible;
     const removalRequest = appliedRemoval.request;
     await saveDOM('expand-remove-preview-restored-records');
-    const removalApplyRequestIndex = requestMonitor.requests.length;
+    const removalApplyRequestIndex = report.browserRequests.length;
     let removalApplySourceIdentity;
     await measure('native-EXPAND-remove-apply-restoration', async (startedAt) => {
       await click(page, '[data-testid="construction-apply-proposal"]');
@@ -1131,7 +1372,7 @@ try {
     };
     assert.deepEqual(removalReloadSourceIdentity, removalApplySourceIdentity,
       'Pre-reload capabilities must match the exact saved source identity');
-    const removalReloadRequestIndex = requestMonitor.requests.length;
+    const removalReloadRequestIndex = report.browserRequests.length;
     await openTable(sourceRecords.length, 'reload-after-expand-removal', async (startedAt) => {
       const capabilities = await waitForSourceCapabilities(requestMonitor, {
         fromIndex: removalReloadRequestIndex,
