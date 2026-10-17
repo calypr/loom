@@ -339,10 +339,8 @@ const renderSettings = (overrides: {
   relatedRowsReason?: string;
   groupSupported?: boolean;
   groupReason?: string;
-  expandReason?: string;
   pivotSupported?: boolean;
   pivotPending?: boolean;
-  expandSupported?: boolean;
   codedPivotDefault?: boolean;
   tablePivotAlternative?: boolean;
   codedGroupDefault?: boolean;
@@ -390,7 +388,7 @@ const renderSettings = (overrides: {
         pivotEntry: overrides.codedPivotDefault ? 'coded-pivot' : 'pivot', pivot: {
         supported: overrides.pivotSupported ?? true,
         reason: 'No executable category-to-column operation',
-      }, expand: { supported: overrides.expandSupported ?? true, reason: overrides.expandReason ?? 'No list column in this table. Use a repeated source field before current row changes.' },
+      }, expand: { supported: true, reason: 'List expansion requires an exact list column.' },
       pivotPending: overrides.pivotPending ?? false, ...(overrides.tablePivotAlternative ? { pivotAlternative: 'pivot' as const } : {}) }}
       onChooseRelatedRows={onChooseRelatedRows}
       onChooseReshape={onChooseReshape}
@@ -578,7 +576,7 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(screen.queryByRole('dialog', { name: 'Replace this table’s current setup?' })).toBeNull();
   });
 
-  it('keeps source-field expansion in advanced record options as a separate action', async () => {
+  it('keeps repeated source-list expansion in advanced options without a generic list action', async () => {
     const onExpandSource = vi.fn();
     const { onChooseReshape } = renderSettings({
       sourceCollectionAction: (
@@ -587,66 +585,20 @@ describe('RowDefinitionSettingsPanel', () => {
         </button>
       ),
     });
-    expect(table.document.columns).toHaveLength(0);
-
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
-    const rowChanges = await screen.findByRole('region', { name: 'Choose a row intent' });
+    await screen.findByRole('region', { name: 'Choose a row intent' });
+    const advanced = screen.getByTestId('construction-advanced-row-operations');
+    expect(advanced).not.toHaveAttribute('open');
+    expect(screen.queryByTestId('construction-action-expand-rows')).toBeNull();
     fireEvent.click(screen.getByText('Advanced row operations'));
     const startingRecordRows = screen.getByRole('region', { name: 'Starting-record rows' });
-    const sourceExpansion = await within(startingRecordRows).findByTestId('construction-reshape-expand-source');
-    const tableExpansion = screen.getByTestId('construction-action-expand-rows');
-    expect(startingRecordRows.contains(sourceExpansion)).toBe(true);
-    expect(startingRecordRows.contains(tableExpansion)).toBe(false);
+    const sourceExpansion = within(startingRecordRows).getByTestId('construction-reshape-expand-source');
+    expect(sourceExpansion).toHaveTextContent('Expand a repeated source field');
+    expect(screen.queryByTestId('construction-action-expand-rows')).toBeNull();
+
     fireEvent.click(sourceExpansion);
     expect(onExpandSource).toHaveBeenCalledOnce();
     expect(onChooseReshape).not.toHaveBeenCalled();
-  });
-
-  it('opens authored list expansion separately from source collection expansion', async () => {
-    const onExpandSource = vi.fn();
-    const { onChooseReshape } = renderSettings({
-      sourceCollectionAction: (
-        <button type="button" data-testid="construction-reshape-expand-source" onClick={onExpandSource}>
-          Expand a repeated source field
-        </button>
-      ),
-    });
-    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
-    const rowChanges = await screen.findByRole('region', { name: 'Choose a row intent' });
-    fireEvent.click(screen.getByText('Advanced row operations'));
-    const tableExpansion = screen.getByTestId('construction-action-expand-rows');
-    const startingRecordRows = screen.getByRole('region', { name: 'Starting-record rows' });
-    const sourceExpansion = within(startingRecordRows).getByTestId('construction-reshape-expand-source');
-    expect(tableExpansion).toHaveTextContent('Expand a list column');
-    expect(sourceExpansion).toHaveTextContent('Expand a repeated source field');
-    expect(startingRecordRows.contains(tableExpansion)).toBe(false);
-
-    fireEvent.click(sourceExpansion);
-    expect(onExpandSource).toHaveBeenCalledOnce();
-    fireEvent.click(tableExpansion);
-    expect(onChooseReshape).toHaveBeenCalledWith('expand');
-  });
-
-  it('disables authored list expansion when the current stage has no expansion support', async () => {
-    renderSettings({ expandSupported: false });
-    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
-    fireEvent.click(await screen.findByText('Advanced row operations'));
-    const expand = await screen.findByTestId('construction-action-expand-rows');
-
-    expect(expand).toBeDisabled();
-    expect(expand).toHaveTextContent('No list column in this table. Use a repeated source field before current row changes.');
-    expect(expand.querySelector('.sr-only')).toBeNull();
-    expect(expand.querySelector('span.text-xs')).not.toHaveClass('truncate');
-  });
-
-  it('shows non-array capability errors in the disabled table expansion action', async () => {
-    renderSettings({ expandSupported: false, expandReason: 'Capability lookup failed. Retry after refreshing row capabilities.' });
-    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
-    fireEvent.click(await screen.findByText('Advanced row operations'));
-    const expand = await screen.findByTestId('construction-action-expand-rows');
-    expect(expand).toBeDisabled();
-    expect(expand).toHaveTextContent('Capability lookup failed. Retry after refreshing row capabilities.');
-    expect(expand.querySelector('span.text-xs')).not.toHaveClass('truncate');
   });
 
   it('shows one compact Rows card and opens its row and starting-collection settings', async () => {
@@ -665,12 +617,12 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(dialog.contains(screen.getByRole('region', { name: 'Choose a row intent' }))).toBe(true);
     expect(screen.queryByText('All authorized Patient records')).not.toBeInTheDocument();
     expect(within(dialog).queryByTestId('construction-starting-collection-footer')).not.toBeInTheDocument();
-    expect(dialog.querySelectorAll('details')).toHaveLength(1);
+    expect(dialog.querySelectorAll('details')).toHaveLength(0);
     expect(dialog.contains(await screen.findByRole('combobox', { name: 'Rows per starting record' }))).toBe(true);
   });
 
-  it('shows exactly three primary row intents and keeps list expansion under advanced record options', async () => {
-    renderSettings({ relatedRowsSupported: true });
+  it('shows exactly three primary row intents and keeps source-list expansion under advanced record options', async () => {
+    renderSettings({ relatedRowsSupported: true, sourceCollectionAction: <button type="button">Expand a repeated source field</button> });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
 
     const intents = await screen.findByRole('region', { name: 'Choose a row intent' });
@@ -685,7 +637,7 @@ describe('RowDefinitionSettingsPanel', () => {
 
     const advanced = screen.getByTestId('construction-advanced-row-operations');
     expect(advanced).not.toHaveAttribute('open');
-    expect(screen.queryByRole('button', { name: 'Expand a list column' })).toBeNull();
+    expect(screen.queryByTestId('construction-action-expand-rows')).toBeNull();
   });
 
   it('shows only Pivot categories and Stack columns with illustrative structural examples', async () => {

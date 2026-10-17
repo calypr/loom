@@ -778,7 +778,6 @@ export const RowDefinitionSettingsPanel = ({
     : [];
   const explicitGroupRootMatches = selection?.resourceType === table.document.rootResourceType;
   const startingCollectionDescription = startingCollectionSummary.replace(/^Starting collection:\s*/, '');
-  const listExpansionReason = reshapeRows.expand.reason;
   const historyByStepId = new Map(constructionHistory.map((step) => [step.id, step] as const));
   const appliedRowSteps = (table.document.construction?.steps ?? [])
     .filter((step) => rowChangingOperationKinds.has(step.operation.kind));
@@ -935,27 +934,15 @@ export const RowDefinitionSettingsPanel = ({
                       : relatedRows.reason ?? 'Checking available related row paths…'}</span>
                   </button>
                 </section>
-                <details data-testid="construction-advanced-row-operations" className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                  <summary className="cursor-pointer text-sm font-medium text-slate-700">Advanced row operations</summary>
-                  <div className="mt-2 grid gap-2">
-                    {sourceCollectionAction ? (
-                      <section aria-label="Starting-record rows" className="min-w-0 rounded-lg border border-slate-200 bg-white p-2">
-                        <p className="mb-1 text-xs font-medium text-slate-600">Repeat a source list as rows</p>
-                        {sourceCollectionAction}
-                      </section>
-                    ) : null}
-                    <button type="button" data-testid="construction-action-expand-rows"
-                      disabled={disabled || !reshapeRows.expand.supported}
-                      onClick={() => chooseReshape('expand')}
-                      title={listExpansionReason ?? 'Split a list column into one row per item.'}
-                      className="flex min-h-[4rem] min-w-0 flex-col justify-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
-                      <span className="block text-sm font-semibold text-slate-900">Expand a list column</span>
-                      <span className={`block text-xs text-slate-600 ${reshapeRows.expand.supported ? '' : 'whitespace-normal'}`}>{reshapeRows.expand.supported
-                        ? 'Make one row for each item in the selected list.'
-                        : listExpansionReason ?? 'List expansion is unavailable.'}</span>
-                    </button>
-                  </div>
-                </details>
+                {sourceCollectionAction ? (
+                  <details data-testid="construction-advanced-row-operations" className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <summary className="cursor-pointer text-sm font-medium text-slate-700">Advanced row operations</summary>
+                    <section aria-label="Starting-record rows" className="mt-2 min-w-0 rounded-lg border border-slate-200 bg-white p-2">
+                      <p className="mb-1 text-xs font-medium text-slate-600">Repeat a source list as rows</p>
+                      {sourceCollectionAction}
+                    </section>
+                  </details>
+                ) : null}
               </>
             ) : (
               <section aria-label="Reshape table options" className="mt-3 grid gap-2 sm:grid-cols-2">
