@@ -696,7 +696,7 @@ const ensureUnpivotEditor = async (startedAt) => {
   await fastWait(startedAt, { kind: 'present', selector: '[data-testid="construction-reshape-unpivot"]' }, 'Unpivot editor discovery');
 };
 
-const openUnpivotListExpand = async () => measure('native-Unpivot-list-to-Expand-choice', async (startedAt) => {
+const openUnpivotListExpand = async (expectedColumnId) => measure('native-Unpivot-list-to-Expand-choice', async (startedAt) => {
   await ensureUnpivotEditor(startedAt);
   const choiceState = await inspectPage(page, `return {
     listChoices:[...document.querySelectorAll('[aria-label="Use list values"] button')].map(button=>({label:button.textContent.trim(),aria:button.getAttribute('aria-label'),disabled:button.disabled})),
@@ -713,7 +713,7 @@ const openUnpivotListExpand = async () => measure('native-Unpivot-list-to-Expand
   await click(page, `button[aria-label=${JSON.stringify(`Expand ${codeColumnLabel}`)}]`);
   await fastWait(startedAt, { kind: 'present', selector: '[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]' }, 'Seeded EXPAND editor');
   const seeded = await inspectPage(page, `const select=document.querySelector('[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]');return {value:select?.value??null,option:select?.selectedOptions?.[0]?.textContent?.trim()??null};`);
-  assert.equal(seeded.value, listColumnId, 'The Unpivot list action must seed the exact compiler-owned nested-code column');
+  assert.equal(seeded.value, expectedColumnId, 'The Unpivot list action must seed the exact compiler-owned nested-code column');
   assert(seeded.option?.startsWith(codeColumnLabel), `The seeded field must be the selected nested-code list: ${JSON.stringify(seeded)}`);
   recordAssertion('Unpivot names both populated list fields and seeds Expand from the selected list action', {
     listChoices: choiceState.listChoices, scalarChoices: choiceState.scalarChoices, seeded,
@@ -722,8 +722,8 @@ const openUnpivotListExpand = async () => measure('native-Unpivot-list-to-Expand
 
 const setInput = (label, value) => fill(page, `input[aria-label=${JSON.stringify(label)}]`, value);
 
-const configureExpand = async (expectedLabel, { fromUnpivotList = false } = {}) => {
-  if (fromUnpivotList) await openUnpivotListExpand();
+const configureExpand = async (expectedLabel, { fromUnpivotList = false, expectedListColumnId } = {}) => {
+  if (fromUnpivotList) await openUnpivotListExpand(expectedListColumnId);
   else await openExpandChoice();
   const startedAt = Date.now();
   if (!fromUnpivotList) await click(page, '[data-testid="construction-reshape-choice-expand"]');
@@ -918,7 +918,10 @@ try {
     await saveDOM('expand-canceled-records-restored');
     recordAssertion('Cancel restores the exact source records and leaves RECORDS unchanged', { draftDigest: builder.draftDigest, preview: report.canceledSource });
 
-    const configuredPreview = await configureExpand(expandedItemLabel, { fromUnpivotList: true });
+    const configuredPreview = await configureExpand(expandedItemLabel, {
+      fromUnpivotList: true,
+      expectedListColumnId: listColumnId,
+    });
     report.expansionPreview = verifyExpandedRows(configuredPreview, expandedItemLabel, 'Confirmed native nested EXPAND preview');
     const configuredProposal = await assertExpandRequest(expandedItemLabel, listColumnId);
     const authoredIdentityMapping = verifyProtocolExpandIdentities(
