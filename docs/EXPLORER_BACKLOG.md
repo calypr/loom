@@ -20,6 +20,35 @@ do not make further harness polish a prerequisite for product work.
 
 ## Delivery order
 
+### 2026-10-16 row-operation backend gaps
+
+These are observed contract gaps, not implementation priorities. The current
+frontend work adds supported Expand paths and does not change backend behavior.
+
+- Direct list-aware Unpivot is unsupported: the capability catalog supplies
+  scalar-compatible inputs, and resolution validates those compiler-owned
+  scalar columns. Expanding one list into a scalar item column and then
+  Unpivoting compatible scalar columns is supported. Direct list inputs need a
+  new contract for item pairing, cardinality, nulls, and row identity before
+  backend work is proposed.
+- Coded Group is currently bound to the direct source projection. Choice
+  discovery returns no choices at later stages, and proposal authorization
+  rejects inputs from any other stage (`internal/explorer/lifecycle/construction_proposal.go`).
+  Grouping coded fields after an authored operation needs an explicit
+  stage/identity contract.
+- Versioned coded Pivot categories remain unsupported. The UI filters them,
+  and the backend rejects a non-empty coding version while it reauthorizes the
+  category against its exact frame and source identity
+  (`constructionOperations/CodedPivotEditor.tsx`;
+  `internal/explorer/lifecycle/construction_coded_pivot.go`).
+- Repeated object source expansion is already tracked under “Repeated-value
+  source expansion design” below: it is compiled before authored steps and
+  cannot yet compose mid-sequence or with a `GROUPS` row source. Keep that
+  existing entry as the detailed contract gap rather than duplicating it here.
+
+No backend change was made for these gaps. Any such implementation needs a
+separate scoped design and approval.
+
 ### Preserve editable Pivot names that are AQL keywords
 
 The real-Arango Pivot fixture exposed an unquoted attribute path for the
