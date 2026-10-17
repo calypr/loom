@@ -926,7 +926,7 @@ export const PreviewTable = ({
                             {arrayValue?.length === 0 ? (
                               <span
                                 data-testid="preview-array-indicator"
-                                className="inline-flex shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] leading-4 text-slate-600"
+                                className="inline-flex shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-xs leading-4 text-slate-600"
                               >
                                 Empty list
                               </span>
@@ -937,7 +937,7 @@ export const PreviewTable = ({
                                 </span>
                                 <span
                                   data-testid="preview-array-indicator"
-                                  className="inline-flex shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] leading-4 text-slate-600"
+                                  className="inline-flex shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-xs leading-4 text-slate-600"
                                 >
                                   {arrayValue.length} {arrayValue.length === 1 ? 'value' : 'values'}
                                 </span>
