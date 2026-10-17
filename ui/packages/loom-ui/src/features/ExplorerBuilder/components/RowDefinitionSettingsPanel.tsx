@@ -837,6 +837,7 @@ export const RowDefinitionSettingsPanel = ({
       <button
         type="button"
         data-testid="construction-rows-settings-trigger"
+        data-construction-source-selection-trigger
         aria-label={triggerPresentation === 'source-chip'
           ? `Change starting records for ${triggerLabel || table.document.rootResourceType || 'this table'}`
           : 'Change current rows'}

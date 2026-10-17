@@ -448,7 +448,7 @@ export const ConstructionHistory = ({
         <li className="shrink-0">
           {sourceControl ? (
             <div onClickCapture={(event) => {
-              if (event.target instanceof Element && event.target.closest('[data-testid="construction-rows-settings-trigger"]')) {
+              if (event.target instanceof Element && event.target.closest('[data-construction-source-selection-trigger]')) {
                 onSelect({ kind: 'source' });
               }
             }}>

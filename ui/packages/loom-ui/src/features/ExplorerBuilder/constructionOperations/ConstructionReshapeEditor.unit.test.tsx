@@ -268,7 +268,7 @@ describe('ConstructionReshapeEditor', () => {
           }}
           sourceControl={(
             <div>
-              <button type="button" data-testid="construction-rows-settings-trigger">Change current rows</button>
+              <button type="button" data-construction-source-selection-trigger>Change current rows</button>
               <ConstructionReshapeEditor
                 construction={capabilities.baseConstruction}
                 capabilities={capabilities}
