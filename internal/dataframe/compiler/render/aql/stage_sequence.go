@@ -58,6 +58,14 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		// do not inline this source directly into the Group stage.
 		inlineGroupSourceRow = ""
 	}
+	sourceGroupWindowPlan := ir.PhysicalPlan{}
+	sourceGroupWindowShape := sourceGroupPreviewShape{}
+	hasSourceGroupWindow := false
+	if inlineGroupSourceRow != "" {
+		sourceGroupWindowPlan, sourceGroupWindowShape, hasSourceGroupWindow = terminalSourceGroupPreviewWindowFor(
+			plan, sourcePlan, sequence, stages, options, hasRelatedGroupPreview,
+		)
+	}
 	if sequence.PopulationMappingReturn != nil {
 		inlineCodedGroupRoot = ""
 		inlineGroupSourceRow = ""
@@ -100,6 +108,15 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		)
 		if err != nil {
 			return RenderedPhysicalPlan{}, fmt.Errorf("render terminal Group row-value preview frontier: %w", err)
+		}
+	}
+	sourceGroupFrontier := sourceGroupPreviewFrontier{}
+	if hasSourceGroupWindow {
+		sourceGroupFrontier, err = renderSourceGroupPreviewFrontier(
+			sourceGroupWindowPlan, sourceGroupWindowShape, sequence, collectionKeys,
+		)
+		if err != nil {
+			return RenderedPhysicalPlan{}, fmt.Errorf("render terminal source Group preview frontier: %w", err)
 		}
 	}
 	selectedGroupKeysVariable := ""
@@ -154,6 +171,9 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	if hasGroupRowValueWindow {
 		sourceOptions.previewRootKeyWindowVariable = groupRowValueFrontier.rootKeysVariable
 	}
+	if hasSourceGroupWindow {
+		sourceOptions.previewRootKeyWindowVariable = sourceGroupFrontier.rootKeysVariable
+	}
 	if inlineGroupSourceRow != "" {
 		sourceOptions.terminalReturnVariable = inlineGroupSourceRow
 	} else if inlineSourceIntoFirstStage {
@@ -183,7 +203,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 			groupPreviewFrontier.boundedVariable, groupPreviewWindow.Query, source.Query,
 		)
 	}
-	bindVars := make(map[string]any, len(source.BindVars)+len(mappingSource.BindVars)+len(groupPreviewWindow.BindVars)+len(groupPreviewFrontier.bindVars)+len(groupRowValueFrontier.bindVars)+len(groupKeyQuery.BindVars)+len(plan.BindVars))
+	bindVars := make(map[string]any, len(source.BindVars)+len(mappingSource.BindVars)+len(groupPreviewWindow.BindVars)+len(groupPreviewFrontier.bindVars)+len(groupRowValueFrontier.bindVars)+len(sourceGroupFrontier.bindVars)+len(groupKeyQuery.BindVars)+len(plan.BindVars))
 	for _, values := range []map[string]any{
 		groupKeyQuery.BindVars,
 		source.BindVars,
@@ -191,6 +211,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		groupPreviewWindow.BindVars,
 		groupPreviewFrontier.bindVars,
 		groupRowValueFrontier.bindVars,
+		sourceGroupFrontier.bindVars,
 		runtimePhysicalBindVars(plan.BindVars, collectionKeys),
 	} {
 		if err := mergeRenderedBindVars(bindVars, values); err != nil {
@@ -245,6 +266,8 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		lines = append(lines, strings.Split(strings.TrimSuffix(groupPreviewFrontier.query, "\n"), "\n")...)
 	} else if hasGroupRowValueWindow {
 		lines = append(lines, strings.Split(strings.TrimSuffix(groupRowValueFrontier.query, "\n"), "\n")...)
+	} else if hasSourceGroupWindow {
+		lines = append(lines, strings.Split(strings.TrimSuffix(sourceGroupFrontier.query, "\n"), "\n")...)
 	}
 	if options.twoScanPivotPreview {
 		pivot, _ := terminalPreviewPivot(sequence)
