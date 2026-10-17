@@ -971,6 +971,9 @@ func pruneUnusedSourceGroupProjections(plan *ir.PhysicalPlan, sequence *ir.Physi
 	for _, rowValue := range groupStage.Group.RowValues {
 		required[rowValue.InputColumn] = true
 	}
+	if groupStage.Group.SemanticKey != nil {
+		required[groupStage.Group.SemanticKey.SourceIdentityColumn] = true
+	}
 	if groupStage.Group.RootContributorInputColumn != "" {
 		required[groupStage.Group.RootContributorInputColumn] = true
 	}

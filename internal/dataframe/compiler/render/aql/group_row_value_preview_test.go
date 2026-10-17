@@ -160,6 +160,20 @@ func TestTerminalGroupRowValuePreviewRequiresDeferredProjectionWork(t *testing.T
 	}
 }
 
+func TestTerminalGroupRowValuePreviewKeepsHintedOrdinaryGroupOnGenericPath(t *testing.T) {
+	plan := groupRowValuePreviewTestPlan("ALL")
+	rendered, err := renderPhysicalStageSequence(plan, physicalRenderOptions{rootIndexHint: "loom_pivot_preview_test"})
+	if err != nil {
+		t.Fatalf("renderPhysicalStageSequence() error = %v", err)
+	}
+	if strings.Contains(rendered.Query, "group_preview_selected_root_keys") {
+		t.Fatalf("ordinary row-value Group changed its preexisting hinted render path:\n%s", rendered.Query)
+	}
+	if !strings.Contains(rendered.Query, `OPTIONS { indexHint: "loom_pivot_preview_test", forceIndexHint: false }`) {
+		t.Fatalf("ordinary Group lost its existing non-forcing root-index hint:\n%s", rendered.Query)
+	}
+}
+
 func TestTerminalGroupRowValuePreviewRejectsPostScopeSourceFilter(t *testing.T) {
 	plan := groupRowValuePreviewTestPlan("ALL")
 	last := len(plan.Operations) - 1
@@ -180,6 +194,138 @@ func TestTerminalGroupRowValuePreviewRejectsPostScopeSourceFilter(t *testing.T) 
 	if !strings.Contains(rendered.Query, "FILTER root.payload.active == @active") {
 		t.Fatalf("canonical source FILTER was dropped from fallback:\n%s", rendered.Query)
 	}
+}
+
+func TestTerminalSemanticGroupPreviewWindowsByLeadingScalarKey(t *testing.T) {
+	plan := semanticGroupPreviewTestPlan(ir.PhysicalStageGroupMissingKeyGroup)
+	rendered, err := renderPhysicalStageSequence(plan, physicalRenderOptions{rootIndexHint: "loom_pivot_preview_test"})
+	if err != nil {
+		t.Fatalf("renderPhysicalStageSequence() error = %v", err)
+	}
+	query := rendered.Query
+	frontier := strings.Index(query, "LET __loom_physical_construction_group_preview_source_rows = (")
+	keyAssertion := strings.Index(query, "FILTER ASSERT(__loom_physical_construction_group_preview_group_key == null OR TYPENAME(__loom_physical_construction_group_preview_group_key)")
+	frontierLimit := strings.Index(query, "LIMIT @preview_limit")
+	selectedRoots := strings.Index(query, "LET __loom_physical_construction_group_preview_selected_root_keys = FLATTEN(")
+	rootWindow := strings.Index(query, "LET root = DOCUMENT(@@root_collection, __loom_physical_preview_root_key)")
+	semanticMembership := strings.Index(query, "[{system: null, version: null, code: null, display: null}]")
+	groupStage := strings.Index(query, "LET __loom_construction_stage_1 = (")
+	groupCollect := strings.LastIndex(query, "COLLECT ")
+	finalLimit := strings.LastIndex(query, "LIMIT @preview_limit")
+	if frontier < 0 || keyAssertion < frontier || keyAssertion > frontierLimit || selectedRoots < frontierLimit ||
+		rootWindow < selectedRoots || groupStage < rootWindow || semanticMembership < groupStage ||
+		groupCollect < semanticMembership || finalLimit < groupCollect || finalLimit == frontierLimit {
+		t.Fatalf("semantic membership and final Group must run only after the complete scalar-key frontier, with key errors checked before its limit (frontier=%d key-assert=%d frontier-limit=%d selected-roots=%d root-window=%d semantic=%d stage=%d collect=%d final-limit=%d):\n%s",
+			frontier, keyAssertion, frontierLimit, selectedRoots, rootWindow, semanticMembership, groupStage, groupCollect, finalLimit, query)
+	}
+	if !strings.Contains(query, "SORT __loom_physical_construction_group_preview_group_key ASC") {
+		t.Fatalf("frontier changed the leading ordinary Group-key ordering:\n%s", query)
+	}
+	if strings.Count(query, "FILTER root.project == @project") != 2 ||
+		strings.Count(query, "FILTER root.dataset_generation == @dataset_generation") != 2 ||
+		strings.Count(query, "root.auth_resource_path IN @auth_resource_paths") != 2 {
+		t.Fatalf("frontier or canonical source dropped a scope predicate:\n%s", query)
+	}
+	hint := `OPTIONS { indexHint: "loom_pivot_preview_test", forceIndexHint: false }`
+	if strings.Count(query, hint) != 1 || strings.Index(query, hint) > rootWindow {
+		t.Fatalf("the non-forcing hint must remain on the frontier scan and must not alter the DOCUMENT root window:\n%s", query)
+	}
+}
+
+func TestTerminalSemanticGroupPreviewKeepsUnsupportedShapesOnGenericPath(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*ir.PhysicalPlan)
+	}{
+		{
+			name: "exclude missing policy",
+			mutate: func(plan *ir.PhysicalPlan) {
+				plan.StageSequence.Stages[0].Group.MissingKeyPolicy = ir.PhysicalStageGroupMissingKeyExclude
+			},
+		},
+		{
+			name: "error missing policy",
+			mutate: func(plan *ir.PhysicalPlan) {
+				plan.StageSequence.Stages[0].Group.MissingKeyPolicy = ir.PhysicalStageGroupMissingKeyError
+			},
+		},
+		{
+			name: "semantic key is not bound to the direct root",
+			mutate: func(plan *ir.PhysicalPlan) {
+				plan.StageSequence.Stages[0].Group.SemanticKey.SourceRootVariable = "other_root"
+			},
+		},
+		{
+			name: "semantic root identity is not projected",
+			mutate: func(plan *ir.PhysicalPlan) {
+				last := len(plan.Operations) - 1
+				projections := plan.Operations[last].Return.Projections[:0]
+				for _, projection := range plan.Operations[last].Return.Projections {
+					if projection.Name != "_key" {
+						projections = append(projections, projection)
+					}
+				}
+				plan.Operations[last].Return.Projections = projections
+			},
+		},
+		{
+			name: "semantic collection does not match root scan",
+			mutate: func(plan *ir.PhysicalPlan) {
+				plan.StageSequence.Stages[0].Group.SemanticKey.RootCollectionBindKey = "other_collection"
+			},
+		},
+		{
+			name: "no leading scalar key",
+			mutate: func(plan *ir.PhysicalPlan) {
+				plan.StageSequence.Stages[0].Group.Keys = nil
+			},
+		},
+		{
+			name: "population root source",
+			mutate: func(plan *ir.PhysicalPlan) {
+				plan.Operations[0].RootScan.Population = &ir.PhysicalPopulationRootSource{}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			plan := semanticGroupPreviewTestPlan(ir.PhysicalStageGroupMissingKeyGroup)
+			test.mutate(&plan)
+			sourcePlan := ir.ClonePhysicalPlan(plan)
+			sourcePlan.StageSequence = nil
+			if _, _, ok := terminalGroupRowValuePreviewWindowFor(plan, sourcePlan, plan.StageSequence, physicalRenderOptions{}, false); ok {
+				t.Fatal("unsupported semantic Group entered the direct-root key frontier")
+			}
+		})
+	}
+}
+
+func semanticGroupPreviewTestPlan(policy ir.PhysicalStageGroupMissingKeyPolicy) ir.PhysicalPlan {
+	plan := groupRowValuePreviewTestPlan("ALL")
+	stage := &plan.StageSequence.Stages[0]
+	stage.Group.RowValues = nil
+	stage.Group.MissingKeyPolicy = policy
+	stage.Group.SemanticKey = &ir.PhysicalStageGroupSemanticKey{
+		OutputColumn: "category", TupleVariable: "semantic_tuple", LabelVariable: "semantic_label",
+		SourceRootVariable: "root", SourceIdentityColumn: "_key", RootCollectionBindKey: "root_collection",
+		ResourceType: "Specimen", CodingPath: "type.coding[]",
+		PathSegments: []ir.PhysicalCodedGroupPathSegment{{Name: "type"}, {Name: "coding", Repeated: true}},
+		BindingID:    "binding", RuleVersion: "1", FamilyID: "family", System: "urn:test", Version: "v1",
+	}
+	stage.OutputColumns = []ir.PhysicalStageColumn{
+		{ID: "group-key-output", Name: "group_key", Kind: "string", Cardinality: "optional_one"},
+		{ID: "category-output", Name: "category", Kind: "string", Cardinality: "optional_one"},
+		{ID: "row-count", Name: "source_records", Kind: "integer", Cardinality: "required_one"},
+		{ID: "group-identity", Name: "row_id", Kind: "string", Cardinality: "required_one", Internal: true, Identity: true},
+	}
+	stage.OutputProjections = []ir.PhysicalProjection{
+		{Name: "group_key", Value: ir.PhysicalValue{Variable: "group_key_value"}},
+		{Name: "category", Value: ir.PhysicalValue{Variable: "semantic_label"}},
+		{Name: "source_records", Value: ir.PhysicalValue{Variable: "source_count"}},
+		{Name: "row_id", Hidden: true, Value: ir.PhysicalValue{Variable: "group_identity"}},
+	}
+	plan.StageSequence.FinalColumns = append([]ir.PhysicalStageColumn(nil), stage.OutputColumns...)
+	return plan
 }
 
 func groupRowValuePreviewTestPlan(policy string) ir.PhysicalPlan {

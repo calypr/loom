@@ -22,11 +22,11 @@ type groupRowValuePreviewShape struct {
 	keyType string
 }
 
-// terminalGroupRowValuePreviewWindowFor proves the narrow source-Group shape
-// whose row values can be computed only after selecting complete groups. The
-// key frontier scans the same scoped roots, groups and orders by the exact
-// direct-root key, and retains every root key for the selected groups. The
-// canonical source and Group then run unchanged over those roots.
+// terminalGroupRowValuePreviewWindowFor proves narrow direct-root Group shapes
+// whose row values or semantic memberships can be deferred until the first
+// ordinary group keys are selected. The frontier scans the same scoped roots,
+// groups and orders by the exact direct-root key, and retains every root key
+// for those groups. The canonical source and Group then run over those roots.
 func terminalGroupRowValuePreviewWindowFor(
 	plan, sourcePlan ir.PhysicalPlan,
 	sequence *ir.PhysicalStageSequence,
@@ -38,7 +38,7 @@ func terminalGroupRowValuePreviewWindowFor(
 		sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil || sequence.PopulationMappingReturn != nil ||
 		sequence.OutputAuthResourcePathBindKey != "" || options.omitTerminalRowSort || options.omitTerminalReturn ||
 		options.terminalReturnVariable != "" || options.terminalProjectionColumn != "" ||
-		options.rootIndexHint != "" || options.disableRootIndex ||
+		options.disableRootIndex ||
 		options.projectionPresenceMarkerColumn != "" || len(options.preserveProjectionPresenceNames) != 0 ||
 		options.twoScanPivotPreview || options.dynamicPivotPreview || options.streamingMissingCategoryPivotPreview ||
 		options.storedPresenceObject || options.previewRootKeyWindowVariable != "" || options.previewGroupIdentityFilter != nil ||
@@ -54,20 +54,30 @@ func terminalGroupRowValuePreviewWindowFor(
 	}
 	stage := sequence.Stages[0]
 	group := stage.Group
+	semanticGroup := group != nil && group.SemanticKey != nil
+	// This frontier intentionally keeps the existing no-hint gate for ordinary
+	// row-value Groups; only a proven semantic Group may carry a non-forcing
+	// root hint into its direct-key scan.
+	if options.rootIndexHint != "" && !semanticGroup {
+		return ir.PhysicalPlan{}, groupRowValuePreviewShape{}, false
+	}
 	if stage.ID != sequence.FinalStageID || stage.InputStageID != sequence.SourceStageID ||
 		stage.Kind != ir.PhysicalStageGroupOp || group == nil || len(group.Keys) != 1 ||
 		group.MissingKeyPolicy != ir.PhysicalStageGroupMissingKeyGroup ||
 		group.RootContributorInputColumn != "" || group.RootContributorOutputColumn != "" || group.RootContributorVariable != "" ||
 		group.RootContributorInputMany || len(group.Aggregates) != 1 || group.Aggregates[0].Operation != "COUNT_ROWS" ||
-		group.Aggregates[0].InputColumn != "" || group.Aggregates[0].InputKind != "" || len(group.RowValues) == 0 {
+		group.Aggregates[0].InputColumn != "" || group.Aggregates[0].InputKind != "" ||
+		(semanticGroup && len(group.RowValues) != 0) || (!semanticGroup && len(group.RowValues) == 0) {
 		return ir.PhysicalPlan{}, groupRowValuePreviewShape{}, false
 	}
 	if group.Keys[0].Kind != "STRING" {
 		return ir.PhysicalPlan{}, groupRowValuePreviewShape{}, false
 	}
-	for _, rowValue := range group.RowValues {
-		if rowValue.Policy != "ALL" || !rowValue.InputMany || rowValue.InputKind != "STRING" {
-			return ir.PhysicalPlan{}, groupRowValuePreviewShape{}, false
+	if !semanticGroup {
+		for _, rowValue := range group.RowValues {
+			if rowValue.Policy != "ALL" || !rowValue.InputMany || rowValue.InputKind != "STRING" {
+				return ir.PhysicalPlan{}, groupRowValuePreviewShape{}, false
+			}
 		}
 	}
 	keyColumn := ir.PhysicalStageColumn{}
@@ -145,7 +155,26 @@ func terminalGroupRowValuePreviewWindowFor(
 		}
 	}
 	keyPath, keyProjectionIsDirectRootScalar := directRootProjectionPath(keyProjection, rootVariable)
-	if keyProjectionIndex < 0 || keyProjection.Name == "" || keyProjection.PresenceOutput || !rowValueWorkCanBeDeferred || !keyProjectionIsDirectRootScalar {
+	semanticGroupWorkCanBeDeferred := false
+	if semantic := group.SemanticKey; semantic != nil {
+		rootScan := sourcePlan.Operations[0].RootScan
+		semanticRootIdentityPresent := false
+		for _, projection := range sourcePlan.Operations[last].Return.Projections {
+			if projection.Name == semantic.SourceIdentityColumn && !projection.PresenceOutput &&
+				projection.Value.Variable == rootVariable && len(projection.Value.Path) == 1 && projection.Value.Path[0] == "_key" &&
+				projection.Presence == nil && projection.Expression == nil {
+				semanticRootIdentityPresent = true
+				break
+			}
+		}
+		semanticGroupWorkCanBeDeferred = semantic.SourceRootVariable == rootVariable &&
+			semantic.SourceIdentityColumn == "_key" && semantic.RootCollectionBindKey == rootScan.CollectionBindKey &&
+			semantic.ResourceType != "" && semantic.ResourceType == sourcePlan.Source.ResourceType &&
+			sourcePlan.BindVars[semantic.RootCollectionBindKey] == semantic.ResourceType &&
+			semantic.CodingPath != "" && len(semantic.PathSegments) != 0 && semanticRootIdentityPresent
+	}
+	if keyProjectionIndex < 0 || keyProjection.Name == "" || keyProjection.PresenceOutput ||
+		(!rowValueWorkCanBeDeferred && !semanticGroupWorkCanBeDeferred) || !keyProjectionIsDirectRootScalar {
 		return ir.PhysicalPlan{}, groupRowValuePreviewShape{}, false
 	}
 	if keyProjection.Expression != nil {
@@ -194,6 +223,9 @@ func renderGroupRowValuePreviewFrontier(
 	sequence *ir.PhysicalStageSequence,
 	options physicalRenderOptions,
 ) (groupRowValuePreviewFrontier, error) {
+	// Root hints are non-forcing. Apply the same hint to the key scan when one
+	// was selected; the canonical source later resolves the selected keys with
+	// DOCUMENT, so its root-window scan does not use or require that hint.
 	source, err := renderPhysicalPlanWithOptions(frontierPlan, physicalRenderOptions{
 		rootIndexHint:    options.rootIndexHint,
 		disableRootIndex: options.disableRootIndex,
