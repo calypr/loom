@@ -306,7 +306,7 @@ const relatedRowProps = {
   ),
   startingCollectionSettings: null,
   relatedRows: { supported: false, reason: 'No executable route' },
-  reshapeRows: { group: { supported: true }, groupEntry: 'group' as const, groupAlternatives: [], pivot: { supported: true }, expand: { supported: true } },
+  reshapeRows: { group: { supported: true }, groupEntry: 'group' as const, groupAlternatives: [], pivot: { supported: true } },
   onChooseRelatedRows: vi.fn(),
   onChooseReshape: vi.fn(),
   onChangeRootSelection: vi.fn(),
@@ -388,7 +388,7 @@ const renderSettings = (overrides: {
         pivotEntry: overrides.codedPivotDefault ? 'coded-pivot' : 'pivot', pivot: {
         supported: overrides.pivotSupported ?? true,
         reason: 'No executable category-to-column operation',
-      }, expand: { supported: true, reason: 'List expansion requires an exact list column.' },
+      },
       pivotPending: overrides.pivotPending ?? false, ...(overrides.tablePivotAlternative ? { pivotAlternative: 'pivot' as const } : {}) }}
       onChooseRelatedRows={onChooseRelatedRows}
       onChooseReshape={onChooseReshape}

@@ -429,7 +429,7 @@ export const RowDefinitionSettingsPanel = ({
   readonly disabled: boolean;
   readonly onApply: (proposalId: string) => Promise<boolean>;
   readonly relatedRows: { readonly supported: boolean; readonly reason?: string };
-  readonly reshapeRows: Record<'group' | 'pivot' | 'expand', { readonly supported: boolean; readonly reason?: string }> & {
+  readonly reshapeRows: Record<'group' | 'pivot', { readonly supported: boolean; readonly reason?: string }> & {
     readonly pivotPending?: boolean;
     readonly groupEntry: 'group' | 'source-group' | 'coded-group';
     readonly groupAlternatives: ReadonlyArray<{
@@ -440,7 +440,7 @@ export const RowDefinitionSettingsPanel = ({
     readonly pivotAlternative?: 'pivot';
   };
   readonly onChooseRelatedRows: () => void;
-  readonly onChooseReshape: (kind: 'group' | 'source-group' | 'coded-group' | 'expand' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot') => void;
+  readonly onChooseReshape: (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot') => void;
   readonly sourceCollectionAction?: ReactNode;
   readonly onChangeRootSelection: (selection: RootChangeSelection) => void;
   readonly onResolveRootSelection: (referenceId: string, alternative: string) => void;
@@ -742,7 +742,7 @@ export const RowDefinitionSettingsPanel = ({
     cancel();
     onChooseRelatedRows();
   };
-  const chooseReshape = (kind: 'group' | 'source-group' | 'coded-group' | 'expand' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot') => {
+  const chooseReshape = (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot') => {
     cancel();
     onChooseReshape(kind);
   };
