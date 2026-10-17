@@ -8,7 +8,7 @@ import { requireUnique } from '../helpers/playwright-actions.mjs';
 import { waitForCondition } from '../helpers/playwright-observations.mjs';
 import { buildArangoShellInvocation, buildBoundedArangoQueryScript, summarizeArangoShellResult } from '../helpers/owned-arangosh-command.mjs';
 import { waitForAppliedSourceCapabilities, waitForSourceCapabilities } from './verify-cda-authored-expand-browser.mjs';
-import { assertVisibleListCell, buildFullScopeMultiCodingWitnessQuery, selectNestedAuthoredExpandWitnesses } from '../helpers/nested-authored-expand-oracle.mjs';
+import { assertVisibleListCell, buildFullScopeMultiCodingWitnessQuery, expectedVisibleListText, selectNestedAuthoredExpandWitnesses } from '../helpers/nested-authored-expand-oracle.mjs';
 import { selectCanceledSavedPreviewRequest } from '../helpers/saved-preview-binding.mjs';
 
 export async function nestedAuthoredExpandWorkflow({ page, cda }) {
@@ -369,16 +369,6 @@ const expectedUnpivotTuples = () => {
   }).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
 };
 
-const nullableScalarCell = (cell, description) => {
-  const value = parseCell(cell);
-  if (value === '—' || value === '') return null;
-  if (Array.isArray(value)) {
-    assert.equal(value.length, 1, `${description} should be one scalar value per Unpivot row`);
-    return value[0];
-  }
-  return value;
-};
-
 const verifyUnpivotRows = (preview, phase) => {
   assert(preview, `${phase} omitted its rendered Unpivot preview`);
   const keyIndex = headerIndex(preview, 'Variable');
@@ -388,14 +378,44 @@ const verifyUnpivotRows = (preview, phase) => {
   const expected = expectedUnpivotTuples();
   assert(expected.length <= 25, 'The complete native Unpivot preview must remain within its row window');
   assert.equal(preview.rows.length, expected.length, `${phase} row count must contain both selected scalar values per expanded row`);
-  const actual = preview.rows.map((row) => ({
-    key: String(nullableScalarCell(row[keyIndex], 'Variable')),
-    value: nullableScalarCell(row[valueIndex], 'Value'),
-    ordinal: nullableScalarCell(row[ordinalIndex], positionLabel),
-    labels: parseCell(row[labelsIndex]),
+  const visibleText = (value) => value === null || value === undefined ? '—' : String(value);
+  const expectedVisible = expected.map(({ key, value, ordinal, labels }) => ({
+    key: visibleText(key), value: visibleText(value), ordinal: visibleText(ordinal),
+    labels: expectedVisibleListText(labels),
   })).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
-  assert.deepEqual(actual, expected, `${phase} must preserve exact raw Observation IDs, code values, list context, and ordinals`);
-  return { headers: preview.headers, rowCount: preview.rows.length, tuples: actual };
+  const actualVisible = preview.rows.map((row) => ({
+    key: row[keyIndex].text,
+    value: row[valueIndex].text,
+    ordinal: row[ordinalIndex].text,
+    labels: row[labelsIndex].text,
+  })).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  assert.deepEqual(actualVisible, expectedVisible,
+    `${phase} must render exact Variable/Value strings, list context, and ordinal text from raw CDA`);
+  return { headers: preview.headers, rowCount: preview.rows.length, tuples: actualVisible };
+};
+
+const verifyTypedUnpivotPreview = (response, phase) => {
+  const preview = protocolPreview(response);
+  assert(preview?.columns && Array.isArray(preview.rows), `${phase} omitted typed native Unpivot rows`);
+  assert.equal(preview.rowCount, expectedUnpivotTuples().length,
+    `${phase} typed row count must contain both selected scalar values for every expanded source row`);
+  assert.notEqual(preview.sampled, true, `${phase} typed native preview must be complete, not sampled`);
+  const typedColumn = (label) => preview.columns.find((column) => column.label === label)?.column;
+  const columns = {
+    key: typedColumn('Variable'),
+    value: typedColumn('Value'),
+    labels: typedColumn(labelColumnLabel),
+    ordinal: typedColumn(positionLabel),
+  };
+  assert(Object.values(columns).every(Boolean),
+    `${phase} typed Unpivot preview must retain key/value outputs, list context, and expanded ordinal`);
+  const tuples = preview.rows.map((row) => ({
+    key: row[columns.key], value: row[columns.value],
+    ordinal: row[columns.ordinal], labels: row[columns.labels],
+  })).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  assert.deepEqual(tuples, expectedUnpivotTuples(),
+    `${phase} typed native Unpivot preview must preserve exact raw IDs, nested codes, list arrays, nulls, and numeric ordinals`);
+  return { preview, columns, tuples };
 };
 
 const verifyExpandedRows = (preview, expectedLabel, phase) => {
@@ -1047,28 +1067,11 @@ try {
       'The proposal must bind exactly the generated scalar item and the compatible ID, with readable source keys');
     assert.equal(unpivotCandidateStep.operation.unpivot.nullRowPolicy, 'PRESERVE');
     const unpivotProposalResponse = await waitForCapturedResponse(unpivotProposalEntry);
-    const unpivotTypedPreview = protocolPreview(unpivotProposalResponse);
-    assert.equal(unpivotTypedPreview.rowCount, expectedUnpivotTuples().length,
-      'The typed native preview must return both selected scalar values for every expanded source row');
-    assert.notEqual(unpivotTypedPreview.sampled, true, 'The native Unpivot oracle must be complete, not sampled');
-    const typedColumn = (label) => unpivotTypedPreview.columns.find((column) => column.label === label)?.column;
-    const typedKey = typedColumn('Variable');
-    const typedValue = typedColumn('Value');
-    const typedLabels = typedColumn(labelColumnLabel);
-    const typedOrdinal = typedColumn(positionLabel);
-    assert(typedKey && typedValue && typedLabels && typedOrdinal,
-      'The typed Unpivot preview must retain key/value outputs, list context, and expanded ordinal');
-    const typedTuples = unpivotTypedPreview.rows.map((row) => ({
-      key: String(row[typedKey]),
-      value: row[typedValue],
-      ordinal: row[typedOrdinal],
-      labels: row[typedLabels],
-    })).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
-    assert.deepEqual(typedTuples, expectedUnpivotTuples(),
-      'The typed native Unpivot preview must preserve exact raw IDs, nested codes, list context, and item ordinals');
+    const unpivotTypedResult = verifyTypedUnpivotPreview(unpivotProposalResponse, 'Proposed native Unpivot');
     await saveDOM('unpivot-expanded-code-and-id-preview');
 
     const unpivotRowCount = expectedUnpivotTuples().length;
+    const unpivotApplyPreviewRequestIndex = report.browserRequests.length;
     await measure('native-Unpivot-apply-expanded-item-and-ID', async (startedAt) => {
       await click(page, '[data-testid="construction-apply-proposal"]');
       await fastWait(startedAt, { kind: 'all', conditions: [
@@ -1087,31 +1090,24 @@ try {
       .sort((left, right) => left.columnId.localeCompare(right.columnId)), expectedUnpivotInputs);
     assert.equal(appliedUnpivotStep.operation.unpivot.nullRowPolicy, 'PRESERVE');
     report.unpivotAppliedPreview = verifyUnpivotRows(await previewRows(), 'Applied native list-expanded Unpivot table');
+    const unpivotAppliedProtocol = await nativePreviewAfter(unpivotApplyPreviewRequestIndex, 'Applied native Unpivot');
+    const appliedTypedResult = verifyTypedUnpivotPreview(unpivotAppliedProtocol.response, 'Applied native Unpivot');
+    assert.deepEqual(appliedTypedResult.columns, unpivotTypedResult.columns,
+      'Apply must retain the exact proposed Unpivot output column identities');
     await saveDOM('unpivot-expanded-code-and-id-applied');
     recordAssertion('Expanded list item and compatible ID can be stacked with exact raw values in Unpivot', {
       expandStepID: appliedStep.id, unpivotStep: appliedUnpivotStep,
       selectedInputs: selectedUnpivotInputs, preview: report.unpivotPreview,
+      typedColumns: appliedTypedResult.columns, typedTuples: appliedTypedResult.tuples,
     });
 
     const unpivotReloadRequestIndex = report.browserRequests.length;
     await openTable(unpivotRowCount, 'reload-applied-list-expanded-unpivot');
     report.unpivotReloadPreview = verifyUnpivotRows(await previewRows(), 'Reloaded native list-expanded Unpivot table');
     const unpivotReloadProtocol = await nativePreviewAfter(unpivotReloadRequestIndex, 'Reloaded native Unpivot');
-    const reloadedUnpivotPreview = protocolPreview(unpivotReloadProtocol.response);
-    const reloadedTypedColumn = (label) => reloadedUnpivotPreview.columns.find((column) => column.label === label)?.column;
-    const reloadedTypedColumns = {
-      key: reloadedTypedColumn('Variable'),
-      value: reloadedTypedColumn('Value'),
-      labels: reloadedTypedColumn(labelColumnLabel),
-      ordinal: reloadedTypedColumn(positionLabel),
-    };
-    assert.deepEqual(reloadedTypedColumns, { key: typedKey, value: typedValue, labels: typedLabels, ordinal: typedOrdinal },
+    const reloadedTypedResult = verifyTypedUnpivotPreview(unpivotReloadProtocol.response, 'Reloaded native Unpivot');
+    assert.deepEqual(reloadedTypedResult.columns, unpivotTypedResult.columns,
       'Reload must retain the exact preview output column identities');
-    const reloadedTypedTuples = reloadedUnpivotPreview.rows.map((row) => ({
-      key: String(row[reloadedTypedColumns.key]), value: row[reloadedTypedColumns.value],
-      ordinal: row[reloadedTypedColumns.ordinal], labels: row[reloadedTypedColumns.labels],
-    })).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
-    assert.deepEqual(reloadedTypedTuples, expectedUnpivotTuples(), 'Reload must retain the exact Unpivot values and row context');
     builder = (await api(`${base}/builder`)).body;
     const reloadedUnpivotStep = document().construction.steps.find((step) => step.id === appliedUnpivotStep.id);
     assert(reloadedUnpivotStep, 'Builder reload must preserve the exact Unpivot step identity');
@@ -1122,6 +1118,7 @@ try {
     recordAssertion('Reload preserves exact list-to-Expand-to-Unpivot outputs and input bindings', {
       stepIDs: document().construction.steps.map((step) => step.id),
       unpivotStep: reloadedUnpivotStep, preview: report.unpivotReloadPreview,
+      typedColumns: reloadedTypedResult.columns, typedTuples: reloadedTypedResult.tuples,
     });
     await saveDOM('unpivot-expanded-code-and-id-reloaded');
 
