@@ -230,6 +230,7 @@ try {
   await waitNative( () => document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false, {}, 5000);
   await action('Open row settings', page.locator('[data-testid="construction-rows-settings-trigger"]'));
   await waitNative( () => Boolean(document.querySelector('[role="dialog"][aria-label="Row definition settings"]')), {}, 5000);
+  await action('Open starting collection settings', page.locator('[data-testid="construction-starting-collection-footer"] summary'));
   await waitNative( () => [...document.querySelectorAll('[aria-label="Starting collection"] button')].some(button => button.innerText === 'Use selected resources' && !button.disabled), {}, 5000);
   const useSelected = page.getByRole('button', { name: 'Use selected resources', exact: true });
   await action('Use selected resources', useSelected);
