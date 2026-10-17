@@ -250,10 +250,11 @@ const verifyPairs = preview => {
 };
 
 const addFieldAndPreview = async () => {
+  const operationEditor = '[data-testid="construction-operation-editor"]';
   await click(page, '[data-testid="construction-action-add-columns"]');
-  await click(page, '[aria-label="Column types"] button', { includes: 'Other fields' });
-  await waitForBrowser(page, () => Boolean(document.querySelector('[data-testid="construction-add-columns-source"]')), [], 5000);
-  const checkbox = 'input[aria-label="Select Observation.component[].valueString"]';
+  await click(page, `${operationEditor} #add-columns-tab-fields`);
+  await waitForBrowser(page, ([selector]) => Boolean(document.querySelector(selector)), [`${operationEditor} [data-testid="construction-add-columns-source"]`], 5000);
+  const checkbox = `${operationEditor} [data-testid="feature-catalog-raw-fields"] input[aria-label="Select Observation.component[].valueString"]`;
   await waitForBrowser(page, ([__arg0]) => Boolean(document.querySelector(__arg0)), [checkbox], 5000);
   const offered = await browserEval(page, ([__arg0]) => { const input=document.querySelector(__arg0);return {disabled:input?.disabled,checked:input?.checked,label:input?.getAttribute('aria-label')}; }, [checkbox]);
   assert.equal(offered?.disabled, false, 'The sibling component[].valueString field must be natively addable after expansion');
@@ -262,13 +263,13 @@ const addFieldAndPreview = async () => {
     const requestStart = browserEvents.requests.length;
     const checked = await browserEval(page, ([__arg0]) => { return document.querySelector(__arg0)?.checked; }, [checkbox]);
     if (!checked) await click(page, checkbox);
-    await click(page, '[aria-label="Selected feature action"] button', { name: 'Advanced options' });
-    const formChoice = 'input[type="radio"][aria-label="Select Observation.component[].valueString: Keep all matching values"]';
+    await click(page, `${operationEditor} [aria-label="Selected feature action"] button`, { name: 'Advanced options' });
+    const formChoice = `${operationEditor} [data-testid="catalog-selection-options"] input[type="radio"][aria-label="Select Observation.component[].valueString: Keep all matching values"]`;
     await fastWait(startedAt, ([selector]) => Boolean(document.querySelector(selector)), [formChoice], 'All-values form discovery');
     const formSelected = await browserEval(page, ([__arg0]) => { return document.querySelector(__arg0)?.checked; }, [formChoice]);
     if (!formSelected) await click(page, formChoice);
-    await fastWait(startedAt, () => document.querySelector('[data-testid="catalog-selection-options"] button:last-of-type')?.disabled === false, [], 'Field choice confirmation');
-    await click(page, '[data-testid="catalog-selection-options"] button:last-of-type', { name: 'Add 1 selected feature' });
+    await fastWait(startedAt, ([selector]) => document.querySelector(selector)?.disabled === false, [`${operationEditor} [data-testid="catalog-selection-options"] button:last-of-type`], 'Field choice confirmation');
+    await click(page, `${operationEditor} [data-testid="catalog-selection-options"] button:last-of-type`, { name: 'Add 1 selected feature' });
     await fastWait(startedAt, () => ['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus), [], 'Native component field proposal');
     const status = await browserEval(page, () => { return document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus; });
     assert.equal(status, 'ready', await browserEval(page, () => { return document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText; }));
