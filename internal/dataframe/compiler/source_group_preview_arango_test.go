@@ -150,11 +150,11 @@ func TestSourceGroupPreviewMatchesGenericScopedExpandedGroupAgainstArango(t *tes
 		rootPayload(map[string]any{"unexpected": "eligible-object"}, true)))
 	// A key without any route is excluded from both the scoped source rows and
 	// the preview frontier.
-	roots = append(roots, resource("no_eligible_route", "Specimen", project, generation, "/allowed", rootPayload("zz-no-route", true)))
+	roots = append(roots, resource("no_eligible_route", "Specimen", project, generation, "/allowed", rootPayload("00-no-route", true)))
 
 	addInvalidRoute := func(rootID, observationID, relation string, edgeProject, edgeGeneration, edgeAuth, targetProject, targetGeneration, targetAuth string) {
 		t.Helper()
-		roots = append(roots, resource(rootID, "Specimen", project, generation, "/allowed", rootPayload("zz-"+rootID, true)))
+		roots = append(roots, resource(rootID, "Specimen", project, generation, "/allowed", rootPayload("00-"+rootID, true)))
 		observations = append(observations, resource(observationID, "Observation", targetProject, targetGeneration, targetAuth, observationPayload("one")))
 		edges = append(edges, edge(relation, rootID, observationID, edgeProject, edgeGeneration, edgeAuth))
 	}
@@ -180,10 +180,10 @@ func TestSourceGroupPreviewMatchesGenericScopedExpandedGroupAgainstArango(t *tes
 		t.Fatalf("null/missing and duplicate-edge/coding multiplicities = %#v / %#v, want 3 / 4", previewRows[0], previewRows[1])
 	}
 	for _, row := range fullRows {
-		if row["subject_reference"] == "zz-no-route" || row["subject_reference"] == "zz-edge_auth_denied" ||
-			row["subject_reference"] == "zz-edge_foreign_project" || row["subject_reference"] == "zz-edge_foreign_generation" ||
-			row["subject_reference"] == "zz-target_auth_denied" || row["subject_reference"] == "zz-target_foreign_project" ||
-			row["subject_reference"] == "zz-target_foreign_generation" {
+		if row["subject_reference"] == "00-no-route" || row["subject_reference"] == "00-edge_auth_denied" ||
+			row["subject_reference"] == "00-edge_foreign_project" || row["subject_reference"] == "00-edge_foreign_generation" ||
+			row["subject_reference"] == "00-target_auth_denied" || row["subject_reference"] == "00-target_foreign_project" ||
+			row["subject_reference"] == "00-target_foreign_generation" {
 			t.Errorf("ineligible scoped route entered canonical Group output: %#v", row)
 		}
 	}
