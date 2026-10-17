@@ -868,7 +868,7 @@ export const RowDefinitionSettingsPanel = ({
                 <span className="block text-sm font-semibold text-slate-900">Use different records</span>
                 <span className="block text-xs text-slate-600">Choose a starting record type, row shape, or related records.</span>
               </button>
-              <div className="min-w-0 rounded-lg border border-slate-200 bg-white">
+              <div className={`min-w-0 rounded-lg border ${rowChangeIntent === 'group' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}>
                 <button type="button" data-testid="construction-action-group-rows" aria-pressed={rowChangeIntent === 'group'} disabled={disabled || !reshapeRows.group.supported}
                   onClick={() => chooseReshape(reshapeRows.groupEntry)}
                   className="flex min-h-[4.5rem] w-full min-w-0 flex-col justify-center rounded-lg px-3 py-2 text-left hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
@@ -1017,6 +1017,11 @@ export const RowDefinitionSettingsPanel = ({
                 </div>
               </section>
             ) : null}
+              {rowOperationEditor !== undefined ? (
+                <div data-testid="construction-row-operation-editor" className="mt-2 min-w-0 space-y-2">
+                  {rowOperationEditor}
+                </div>
+              ) : null}
               {appliedRowSteps.length > 0 ? (
                 <section aria-label="Applied row changes" data-testid="construction-row-operation-history" className="mt-3 grid gap-2 border-t border-slate-200 pt-2">
                   <h4 className="text-sm font-semibold text-slate-900">Applied row changes</h4>
@@ -1056,11 +1061,7 @@ export const RowDefinitionSettingsPanel = ({
                   </ol>
                 </section>
               ) : null}
-              {rowOperationEditor !== undefined ? (
-                <div data-testid="construction-row-operation-editor" className="mt-2 min-w-0 space-y-2">
-                  {rowOperationEditor}
-                </div>
-              ) : (
+              {rowOperationEditor === undefined ? (
               <div className="mt-2 min-w-0 space-y-2">
               {settings.kind === 'editing' ? (
                 <>
@@ -1127,7 +1128,7 @@ export const RowDefinitionSettingsPanel = ({
               </div>
                   ) : null}
               </div>
-              )}
+              ) : null}
               {startingCollectionSettings ? (
                 <details data-testid="construction-starting-collection-footer" className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
                   <summary className="flex cursor-pointer flex-wrap items-center gap-x-2 text-sm font-medium text-slate-800 hover:text-blue-800">

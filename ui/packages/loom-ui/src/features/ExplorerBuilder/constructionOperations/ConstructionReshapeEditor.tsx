@@ -248,6 +248,7 @@ export interface ConstructionReshapeEditorProps {
   readonly editingStep?: ConstructionReshapeStep;
   readonly initialKind?: ReshapeEntryKind;
   readonly initialEntry?: ConstructionReshapeEditorEntry;
+  readonly hideChangeRowOperation?: boolean;
   readonly selectedColumns?: ReadonlyArray<string>;
   readonly onFormKindChange?: (kind: ReshapeForm['kind']) => void;
   readonly pivotDiscovery?: ConstructionReshapePivotDiscovery;
@@ -1806,7 +1807,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
       {form.kind !== 'choose' && form.kind !== 'unsupported' ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
           <h2 className="m-0 font-semibold text-slate-900">{reshapeFormLabels[form.kind]}</h2>
-          {!editingStep ? <button type="button" disabled={disabled} onClick={() => { setChoiceIntent(undefined); updateForm({ kind: 'choose' }); }}
+          {!editingStep && !props.hideChangeRowOperation ? <button type="button" disabled={disabled} onClick={() => { setChoiceIntent(undefined); updateForm({ kind: 'choose' }); }}
             className="font-medium text-blue-800 hover:underline disabled:opacity-50">Change row operation</button> : null}
         </div>
       ) : null}

@@ -23,6 +23,7 @@ import type {
   ConstructionCategoryDiscoveryResponse,
   Construction,
   ConstructionProposalResponse,
+  ConstructionCapabilitiesResponse,
   ExplorerBuilderCompileResult,
   ExplorerBuilderDocument,
   ExplorerBuilderPreviewResult,
@@ -293,6 +294,7 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', async (importOrigi
     construction,
     capabilities,
     initialEntry,
+    hideChangeRowOperation,
     pivotDiscovery,
     onDiscoverCategories,
     onFormKindChange,
@@ -307,6 +309,7 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', async (importOrigi
       readonly form: { readonly kind: string; readonly stepId?: string };
       readonly candidateIntent: ConstructionCandidateIntent;
     };
+    readonly hideChangeRowOperation?: boolean;
     readonly pivotDiscovery?: { readonly status: string };
     readonly onDiscoverCategories?: (request: { readonly stageId: string; readonly categoryColumnId: string; readonly valueColumnId: string }) => void;
     readonly onFormKindChange?: (kind: string) => void;
@@ -324,6 +327,7 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', async (importOrigi
         data-editing-step-id={editingStep?.id ?? ''}
         data-editing-operation={editingStep?.operation.kind ?? ''}
         data-initial-kind={initialKind ?? ''}
+        data-hide-change-row-operation={hideChangeRowOperation ? 'true' : 'false'}
         data-initial-entry-step-id={initialEntry?.form.stepId ?? ''}
         data-initial-candidate-step-id={initialEntry?.candidateIntent.changedStepId ?? ''}
         data-construction-step-count={construction.steps.length}
@@ -1260,7 +1264,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
     const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
     fireEvent.click(within(rowSettings).getByTestId('construction-row-edit-group_specimens'));
 
@@ -1268,10 +1272,90 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       expect(screen.getByTestId('construction-reshape-editor')).toHaveAttribute('data-editing-step-id', 'group_specimens');
       expect(screen.getByTestId('construction-reshape-editor')).toHaveAttribute('data-editing-operation', 'GROUP');
     });
+    expect(screen.queryByRole('dialog', { name: 'Row definition settings' })).not.toBeInTheDocument();
     expect(mockLoomClient.getConstructionCapabilities).toHaveBeenCalledWith(
       expect.objectContaining({ outputId: 'specimens', stageId: 'source_projection' }),
       expect.any(AbortSignal),
     );
+  });
+
+  it('keeps the three row intents above Group, Pivot, Stack, and related editors until Back', async () => {
+    const stage = {
+      id: 'source_projection',
+      inputStageId: '',
+      rowIdentityColumn: 'source-row-id',
+      columns: [{ id: 'specimen-id', name: 'id', label: 'Specimen ID', type: 'string', cardinality: 'optional_one' as const }],
+      capabilities: [
+        { kind: 'GROUP' as const, supported: true },
+        { kind: 'PIVOT' as const, supported: true },
+        { kind: 'UNPIVOT' as const, supported: true },
+        { kind: 'RELATED_EXPAND' as const, supported: true },
+        { kind: 'FILTER' as const, supported: true },
+      ],
+      relatedExpandAnchors: [{ anchorColumnId: 'specimen-id', kind: 'root' as const, resourceType: 'Specimen', label: 'Specimen' }],
+    };
+    const capabilities = {
+      snapshotToken: 'snapshot-1',
+      draftVersion: 1,
+      draftDigest: 'sha256:draft-1',
+      outputId: 'specimens',
+      stageId: 'source_projection',
+      baseConstruction: { version: 1, steps: [] },
+      stages: [stage],
+      selectedStage: stage,
+      workspaceInputs: [],
+    } satisfies ConstructionCapabilitiesResponse;
+    mockLoomClient.getConstructionCapabilities.mockResolvedValue(capabilities);
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
+    const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    const intentGroup = within(rowSettings).getByTestId('construction-action-group-rows');
+    const intentRecords = within(rowSettings).getByTestId('construction-row-intent-records');
+    const intentReshape = within(rowSettings).getByTestId('construction-row-intent-reshape');
+    const assertMountedInsideDialog = async (initialKind: string) => {
+      const editor = await within(rowSettings).findByTestId('construction-operation-editor');
+      expect(editor).toHaveAttribute('data-operation-family', 'RESHAPE');
+      expect(within(editor).getByTestId('construction-reshape-editor')).toHaveAttribute('data-initial-kind', initialKind);
+      expect(within(editor).getByTestId('construction-reshape-editor')).toHaveAttribute('data-hide-change-row-operation', 'true');
+      expect(screen.getAllByTestId('construction-operation-editor')).toHaveLength(1);
+      expect(within(rowSettings).getByRole('region', { name: 'Choose a row intent' })).toBeInTheDocument();
+    };
+
+    await waitFor(() => expect(intentGroup).toBeEnabled());
+    fireEvent.click(intentGroup);
+    await assertMountedInsideDialog('group');
+    expect(rowSettings).toBeInTheDocument();
+    expect(intentGroup).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(intentReshape);
+    await waitFor(() => expect(screen.queryByTestId('construction-operation-editor')).not.toBeInTheDocument());
+    expect(intentReshape).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(within(rowSettings).getByTestId('construction-action-pivot-rows'));
+    await assertMountedInsideDialog('categories');
+
+    fireEvent.click(intentReshape);
+    await waitFor(() => expect(screen.queryByTestId('construction-operation-editor')).not.toBeInTheDocument());
+    fireEvent.click(within(rowSettings).getByTestId('construction-action-unpivot-rows'));
+    await assertMountedInsideDialog('unpivot');
+
+    fireEvent.click(intentRecords);
+    await waitFor(() => expect(screen.queryByTestId('construction-operation-editor')).not.toBeInTheDocument());
+    expect(intentRecords).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(within(rowSettings).getByTestId('construction-action-related-rows'));
+    await assertMountedInsideDialog('related-expand');
+
+    fireEvent.click(within(rowSettings).getByRole('button', { name: 'Back to table' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Row definition settings' })).not.toBeInTheDocument());
+    expect(screen.queryByTestId('construction-operation-editor')).not.toBeInTheDocument();
+    expect(applyCommands).not.toHaveBeenCalled();
   });
 
   it('waits for capability support before offering generic source Pivot with one materialized column', async () => {

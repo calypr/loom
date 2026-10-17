@@ -527,6 +527,7 @@ const BuilderWorkspaceContent = ({
   const [reshapeEntry, setReshapeEntry] = useState(0);
   const [reshapeEntryKind, setReshapeEntryKind] = useState<ReshapeEntryKind>('choose');
   const [reshapeFormKind, setReshapeFormKind] = useState<ReshapeForm['kind']>('choose');
+  const [rowIntentSession, setRowIntentSession] = useState(false);
   const [reshapeInitialEntry, setReshapeInitialEntry] = useState<{
     readonly editorKey: string;
     readonly entry: ConstructionReshapeEditorEntry;
@@ -1101,6 +1102,7 @@ const BuilderWorkspaceContent = ({
     setColumnSelection({ kind: 'empty' });
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
+    setRowIntentSession(false);
   }, [ownerKey, state.explorerId, table?.outputId]);
   const tablePreview =
     state.preview?.outputId === table?.outputId ? state.preview : undefined;
@@ -3116,6 +3118,7 @@ const BuilderWorkspaceContent = ({
 
   const selectConstructionFamily = (family: ConstructionOperationFamily) => {
     const willOpen = activeConstructionFamily !== family;
+    setRowIntentSession(false);
     if (family === 'ADD_COLUMNS' && willOpen) selectAddColumnsView('coded');
     if (family === 'COMBINE' && willOpen) {
       if (!canStartCombine) return;
@@ -3135,6 +3138,7 @@ const BuilderWorkspaceContent = ({
     cancelCombineCatalogRequest();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
+    setRowIntentSession(true);
     setReshapeEntryKind('related-expand');
     setReshapeFormKind('related-expand');
     setReshapeEntry((current) => current + 1);
@@ -3145,6 +3149,7 @@ const BuilderWorkspaceContent = ({
     preferredColumnIds?: ReadonlyArray<string>,
   ) => {
     if (kind === 'expand' && preferredColumnIds?.length !== 1) return;
+    if (kind !== 'expand') setRowIntentSession(true);
 
     let entry: ConstructionReshapeEditorEntry | undefined;
     let entryStageId: string | undefined;
@@ -3201,6 +3206,7 @@ const BuilderWorkspaceContent = ({
   const selectConstructionHistory = (selection: ConstructionHistorySelection) => {
     constructionLifecycle.cancel();
     cancelCombineCatalogRequest();
+    setRowIntentSession(false);
     setConstructionHistorySelection(selection);
     setEditingConstructionStepId(undefined);
     setActiveConstructionFamily(undefined);
@@ -3217,6 +3223,7 @@ const BuilderWorkspaceContent = ({
     }
     const family = editableConstructionFamily(step.operation);
     if (!family) return;
+    setRowIntentSession(false);
     constructionLifecycle.cancel();
     if (family === 'COMBINE') {
       void loadCombineCatalogPage();
@@ -3227,6 +3234,29 @@ const BuilderWorkspaceContent = ({
     setEditingConstructionStepId(stepId);
     setActiveConstructionFamily(family);
     if (family === 'RESHAPE') setReshapeFormKind('choose');
+  };
+  const switchRowIntent = (_intent: 'records' | 'reshape') => {
+    if (!rowIntentSession) return;
+    constructionLifecycle.cancel();
+    cancelCombineCatalogRequest();
+    setConstructionHistorySelection({ kind: 'source' });
+    setEditingConstructionStepId(undefined);
+    setReshapeEntryKind('choose');
+    setReshapeFormKind('choose');
+    setReshapeInitialEntry(undefined);
+    setActiveConstructionFamily(undefined);
+  };
+  const closeRowIntentSession = () => {
+    if (!rowIntentSession) return;
+    constructionLifecycle.cancel();
+    cancelCombineCatalogRequest();
+    setConstructionHistorySelection({ kind: 'source' });
+    setEditingConstructionStepId(undefined);
+    setReshapeEntryKind('choose');
+    setReshapeFormKind('choose');
+    setReshapeInitialEntry(undefined);
+    setActiveConstructionFamily(undefined);
+    setRowIntentSession(false);
   };
   const removeConstructionStep = (stepId: string) => {
     if (!construction?.steps.some((step) => step.id === stepId)) return;
@@ -3453,7 +3483,7 @@ const BuilderWorkspaceContent = ({
       data-output-id={table.outputId}
       className="overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-sm"
     >
-      <header className="border-b border-slate-200 px-3 py-2.5">
+      {!rowIntentSession ? <header className="border-b border-slate-200 px-3 py-2.5">
         <div className="flex items-center justify-between gap-3">
           <div>
             {activeOperation.family !== 'RESHAPE' ? <h2 className="text-base font-semibold text-slate-950">{activeOperation.label}</h2> : null}
@@ -3495,7 +3525,7 @@ const BuilderWorkspaceContent = ({
             </span>
           </p>
         ) : null}
-      </header>
+      </header> : null}
 
       <div className="p-3">
         {activeOperation.family === 'ADD_COLUMNS' ? (
@@ -3677,6 +3707,7 @@ const BuilderWorkspaceContent = ({
               editingStep={editingConstructionStep}
               initialKind={activeReshapeInitialKind}
               initialEntry={activeReshapeInitialEntry}
+              hideChangeRowOperation={rowIntentSession}
               selectedColumns={selectedColumnIds}
               onFormKindChange={setReshapeFormKind}
               pivotDiscovery={constructionLifecycle.pivotDiscovery}
@@ -3851,6 +3882,8 @@ const BuilderWorkspaceContent = ({
   const workspaceEditor = operationEditor || relatedSourceStepEditor || relatedFieldStepEditor || constructionLifecycle.proposal.status !== 'idle'
     ? <>{operationEditor}{relatedSourceStepEditor}{relatedFieldStepEditor}{proposalPanel}</>
     : undefined;
+  const rowIntentEditor = rowIntentSession ? workspaceEditor : undefined;
+  const externalWorkspaceEditor = rowIntentSession ? undefined : workspaceEditor;
   const candidatePreview = constructionLifecycle.proposal.status === 'ready' ||
     constructionLifecycle.proposal.status === 'applying'
     ? constructionLifecycle.proposal.preview
@@ -4198,6 +4231,9 @@ const BuilderWorkspaceContent = ({
                     reshapeRows={reshapeRowsAvailability}
                     onChooseRelatedRows={chooseRelatedRows}
                     onChooseReshape={chooseReshapeRows}
+                    rowOperationEditor={rowIntentEditor}
+                    onSwitchRowIntent={switchRowIntent}
+                    onCloseRowIntentSession={closeRowIntentSession}
                     sourceCollectionAction={table.document.rootResourceType ? (
                       <SourceCollectionExpandEditor
                         key={JSON.stringify([
@@ -4338,7 +4374,7 @@ const BuilderWorkspaceContent = ({
                     )}
                   </>
                 }
-                editor={workspaceEditor}
+                editor={externalWorkspaceEditor}
                 previewStatus={workspacePreviewStatus}
                 previewReceiptId={workspacePreview?.receiptId}
                 previewOutputId={workspacePreview?.outputId ?? table?.outputId}
