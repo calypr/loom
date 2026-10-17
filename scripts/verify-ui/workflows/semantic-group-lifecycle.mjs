@@ -479,7 +479,7 @@ export async function semanticGroupLifecycle({ page, cda }) {
     assert.match(semanticOutputLabel, /specimen\s*type/i,
       'The Group key output must retain a readable Specimen type label.');
     await action('select visible Specimen type semantic family', semanticSelect,
-      () => semanticSelect.selectOption(choiceId, { timeout: ACTION_BUDGET_MS }), async () => {
+      () => semanticSelect.selectOption(matches[0].value, { timeout: ACTION_BUDGET_MS }), async () => {
         await waitNextProposalPreview(previousReceipt);
       });
     const selected = await semanticSelect.locator('option:checked').textContent();
