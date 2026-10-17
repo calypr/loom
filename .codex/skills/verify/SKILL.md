@@ -536,6 +536,40 @@ workflow libraries; do not invoke them with Node or the old reuse flags.
 See `docs/PLAYWRIGHT_TEST_MIGRATION.md` for checkpoint status. Source conversion
 and test discovery do not establish runtime or lifecycle passes.
 
+For the read-only capability conflict probe, set `LOOM_CDA_PROJECT`,
+`LOOM_CDA_EXPLORER_ID`, `LOOM_CDA_UI_ORIGIN`, and `LOOM_CDA_API_ORIGIN` to an
+owned Builder target that supports grouping populated source fields, then run
+both native probes directly. Health-check the target first. Give every run a
+fresh report and artifact directory using `PLAYWRIGHT_JSON_OUTPUT_FILE` and
+Playwright's `--output` option so later attempts preserve earlier failures.
+
+```bash
+REPORT_DIR=$(mktemp -d /private/tmp/loom-capability-probe.XXXXXX)
+LOOM_CDA_PROJECT=<owned-project> \
+LOOM_CDA_EXPLORER_ID=<owned-explorer> \
+LOOM_CDA_UI_ORIGIN=<owned-ui-origin> \
+LOOM_CDA_API_ORIGIN=<owned-api-origin> \
+PLAYWRIGHT_JSON_OUTPUT_FILE="$REPORT_DIR/results.json" \
+./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs \
+  scripts/verify-ui/specs/read-only-capability-conflict.spec.mjs \
+  --output "$REPORT_DIR/artifacts"
+```
+
+The route guard blocks writes at both owned origins. One test proves that a
+ready proposal is visible and Cancel leaves the saved draft identity unchanged;
+the other injects one read-only `DRAFT_CONFLICT` and expects current-identity
+recovery. A failure there is a product gap, not a passing lifecycle. The tests
+do not establish complete authoring coverage. The injected conflict leaves the
+server draft unchanged; it does not prove recovery from a real concurrent edit
+or a command-acknowledgement race. Those require separate disposable-Explorer
+cases. A manual page reload is not automatic conflict recovery.
+
+This narrow read-only probe does not replace the registered lifecycle's source
+and API-build checks or waive them for a production image. If that image lacks
+the development build stamp, report full lifecycle and iteration coverage as
+blocked. Do not relabel a successful health check as a fresh-build proof.
+
+
 ## Launch
 
 Start or attach to the isolated stack:
