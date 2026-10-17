@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useId, useMemo, useState } from 'react';
 import type { LoomClient } from '../../../api';
 import { useQuery } from '../../../react';
 import type {
@@ -84,6 +84,7 @@ const CodedPivotEditorBody = ({
   const [sourceCursor, setSourceCursor] = useState<string>();
   const [sourceNextCursor, setSourceNextCursor] = useState<string>();
   const [sources, setSources] = useState<ReadonlyArray<FrameSourceOption>>([]);
+  const sourceDetailsId = useId();
   const [sourcesLoading, setSourcesLoading] = useState(true);
   const [sourceError, setSourceError] = useState<string>();
   const [source, setSource] = useState<FrameSourceOption>();
@@ -214,6 +215,31 @@ const CodedPivotEditorBody = ({
   const available = useMemo(() => inventory.filter((item) =>
     isAvailableCodedValue(item),
   ), [inventory]);
+  const inventoryCategoryContexts = useMemo(() => {
+    const itemsByLabel = new Map<string, SemanticInventoryItem[]>();
+    for (const item of inventory) {
+      const label = semanticConceptLabel(item);
+      const items = itemsByLabel.get(label) ?? [];
+      items.push(item);
+      itemsByLabel.set(label, items);
+    }
+    const contexts = new Map<string, { readonly showCode: boolean; readonly showSystem: boolean }>();
+    for (const items of itemsByLabel.values()) {
+      const systemsByCode = new Map<string, Set<string>>();
+      for (const item of items) {
+        const systems = systemsByCode.get(item.code) ?? new Set<string>();
+        systems.add(item.system);
+        systemsByCode.set(item.code, systems);
+      }
+      for (const item of items) {
+        contexts.set(categoryKey(item.system, item.code), {
+          showCode: items.length > 1,
+          showSystem: (systemsByCode.get(item.code)?.size ?? 0) > 1,
+        });
+      }
+    }
+    return contexts;
+  }, [inventory]);
   const displayedInventory = useMemo(() => [...inventory].sort((left, right) =>
     Number(isAvailableCodedValue(right)) - Number(isAvailableCodedValue(left))), [inventory]);
   const visibleSources = source && !sources.some((option) => option.choiceId === source.choiceId)
@@ -295,11 +321,24 @@ const CodedPivotEditorBody = ({
       }</p> : null}
       {visibleSources.length > 0 ? <fieldset className="grid max-h-60 gap-2 overflow-y-auto sm:grid-cols-2">
         <legend className="mb-1 text-sm font-medium text-slate-800">Source of coded values</legend>
-        {visibleSources.map((option) => <label key={option.choiceId} className="flex gap-2 rounded border border-slate-200 p-2 text-sm hover:bg-slate-50">
-          <input type="radio" name="coded-pivot-source" checked={source?.choiceId === option.choiceId}
-            onChange={() => chooseSource(option.choiceId)} disabled={disabled} />
-          <span><strong className="block">{option.title}</strong><span className="text-xs text-slate-600">{option.description}</span></span>
-        </label>)}
+        {visibleSources.map((option, index) => {
+          const detailsId = `${sourceDetailsId}-source-${index}`;
+          return (
+            <div key={option.choiceId} className="rounded border border-slate-200 p-2 hover:bg-slate-50">
+              <label className="flex gap-2 text-sm">
+                <input type="radio" name="coded-pivot-source" checked={source?.choiceId === option.choiceId}
+                  onChange={() => chooseSource(option.choiceId)} disabled={disabled} aria-describedby={detailsId} />
+                <span>
+                  <strong className="block">{option.title}</strong>
+                  <span className="block text-xs text-slate-600">{option.description}</span>
+                </span>
+              </label>
+              <span id={detailsId} className="block pl-6 text-xs leading-tight text-slate-500">
+                Value type {option.logicalType} · example {option.exampleConcept} · {option.observedOccurrences.toLocaleString()} observed source occurrences
+              </span>
+            </div>
+          );
+        })}
       </fieldset> : null}
       {sourceNextCursor ? <button type="button" disabled={sourcesLoading} onClick={() => setSourceCursor(sourceNextCursor)}
         className="rounded border border-slate-300 px-2 py-1 text-sm text-blue-800 disabled:opacity-50">More coded sources</button> : null}
@@ -318,11 +357,18 @@ const CodedPivotEditorBody = ({
           {displayedInventory.map((item) => {
             const key = categoryKey(item.system, item.code);
             const canSelect = available.includes(item);
+            const context = inventoryCategoryContexts.get(key);
             return <label key={key} className={`flex items-start gap-2 rounded border border-slate-200 px-2 py-1.5 text-sm ${canSelect ? 'hover:bg-slate-50' : 'opacity-60'}`}>
               <input type="checkbox" checked={selected.some((category) => category.key === key)}
                 disabled={disabled || !canSelect || selected.length >= 50 && !selected.some((category) => category.key === key)}
                 onChange={() => toggleCategory(item)} />
-              <span><strong className="block">{semanticConceptLabel(item)}</strong>
+              <span>
+                <strong className="block">{semanticConceptLabel(item)}</strong>
+                {context?.showSystem ? <span className="block break-all text-xs leading-tight text-slate-500">
+                  System {item.system || 'not specified'} · Code {item.code || 'not specified'}
+                </span> : context?.showCode ? <span className="block break-all text-xs leading-tight text-slate-500">
+                  Code {item.code || 'not specified'}
+                </span> : null}
                 <span className="text-xs text-slate-500">{canSelect
                   ? `${item.occurrences.toLocaleString()} observed source occurrences`
                   : item.codingVersion ? 'Versioned codes are not supported in this row operation.' : item.readiness.message}</span></span>
@@ -351,8 +397,8 @@ const CodedPivotEditorBody = ({
               title={`${category.label}; ${identity}`}
               className="max-w-72 rounded bg-emerald-50 px-2 py-1 text-xs text-emerald-950">
               <span className="block truncate font-medium">{category.label}</span>
-              {context.showSystem ? <span className="block break-all text-[10px] leading-tight text-emerald-800">System {system} · Code {code}</span>
-                : context.showCode ? <span className="block break-all text-[10px] leading-tight text-emerald-800">Code {code}</span> : null}
+              {context.showSystem ? <span className="block break-all text-xs leading-tight text-emerald-800">System {system} · Code {code}</span>
+                : context.showCode ? <span className="block break-all text-xs leading-tight text-emerald-800">Code {code}</span> : null}
             </li>
           );
         })}</ul> : null}

@@ -3,17 +3,20 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { LoomClient } from '../../../api';
-import type { Construction } from '../../../types';
+import type { Construction, FrameSourceOption } from '../../../types';
 import { CodedPivotEditor } from './CodedPivotEditor';
 
+const directSourceOption = (overrides: Partial<FrameSourceOption> = {}): FrameSourceOption => ({
+  choiceId: 'signed-family', title: 'Observation components', description: 'Codes and paired values',
+  resourceType: 'Observation', sourcePath: 'component[]', bindingId: 'component-binding',
+  owningScope: 'component[]', keyPath: 'component[].code.coding[]', valuePath: 'component[].valueString',
+  logicalType: 'string', exampleConcept: 'specimen_type', observedOccurrences: 12, route: [],
+  forms: [{ form: 'VALUE', zeroPolicy: 'NULL', manyPolicy: 'INVALID_MULTIPLE_VALUES', decision: 'one value' }], defaultForm: 'VALUE',
+  ...overrides,
+});
+
 const browseDirectSourceOptions = () => vi.fn().mockResolvedValue({
-  sources: [{
-    choiceId: 'signed-family', title: 'Observation components', description: 'Codes and paired values',
-    resourceType: 'Observation', sourcePath: 'component[]', bindingId: 'component-binding',
-    owningScope: 'component[]', keyPath: 'component[].code.coding[]', valuePath: 'component[].valueString',
-    logicalType: 'string', exampleConcept: 'specimen_type', observedOccurrences: 12, route: [],
-    forms: [{ form: 'VALUE', zeroPolicy: 'NULL', manyPolicy: 'INVALID_MULTIPLE_VALUES', decision: 'one value' }], defaultForm: 'VALUE',
-  }],
+  sources: [directSourceOption()],
 });
 
 describe('CodedPivotEditor', () => {
@@ -84,7 +87,39 @@ describe('CodedPivotEditor', () => {
     }), expect.any(AbortSignal));
   });
 
-  it('shows only the context needed to distinguish selected labels without changing their outputs', async () => {
+  it('distinguishes coded sources that share a path by paired value type and example', async () => {
+    const stringSource = directSourceOption({
+      choiceId: 'string-family',
+      exampleConcept: 'specimen_type',
+      logicalType: 'string',
+    });
+    const integerSource = directSourceOption({
+      choiceId: 'integer-family',
+      exampleConcept: 'days_to_collection',
+      logicalType: 'integer',
+      valuePath: 'component[].valueInteger',
+    });
+    const browseFrameSourceOptions = vi.fn().mockResolvedValue({ sources: [stringSource, integerSource] });
+    render(<CodedPivotEditor
+      client={{ browseFrameSourceOptions, browseSemanticInventory: vi.fn() } as unknown as Pick<LoomClient, 'browseFrameSourceOptions' | 'browseSemanticInventory'>}
+      project="cda" explorerId="builder" snapshotToken="snapshot" outputId="observations"
+      rowRoot="Observation" construction={{ version: 1, steps: [] } satisfies Construction}
+      disabled={false} onCandidateChange={vi.fn()}
+    />);
+
+    const sourceChoices = await screen.findAllByRole('radio', { name: /Observation components/ });
+    expect(sourceChoices).toHaveLength(2);
+    const stringDescription = screen.getByText('Value type string · example specimen_type · 12 observed source occurrences');
+    const integerDescription = screen.getByText('Value type integer · example days_to_collection · 12 observed source occurrences');
+    expect(stringDescription.id.length).toBeGreaterThan(0);
+    expect(integerDescription.id.length).toBeGreaterThan(0);
+    expect(sourceChoices[0]?.getAttribute('aria-describedby')).toBe(stringDescription.id);
+    expect(sourceChoices[1]?.getAttribute('aria-describedby')).toBe(integerDescription.id);
+    expect(screen.queryByText('component[].valueString')).not.toBeInTheDocument();
+    expect(screen.queryByText('component[].valueInteger')).not.toBeInTheDocument();
+  });
+
+  it('shows code identity before selecting ambiguous labels and preserves the same output labels', async () => {
     const browseFrameSourceOptions = browseDirectSourceOptions();
     const categories = [
       {
@@ -127,13 +162,16 @@ describe('CodedPivotEditor', () => {
 
     const categoryChoices = await screen.findAllByRole('checkbox', { name: /Specimen type/ });
     expect(categoryChoices).toHaveLength(3);
+    expect(screen.getByText('System https://example.org/observation-codes · Code specimen_type')).toBeInTheDocument();
+    expect(screen.getByText('System https://example.org/panel-codes · Code specimen_type')).toBeInTheDocument();
+    expect(screen.getByText('Code specimen-type')).toBeInTheDocument();
     fireEvent.click(categoryChoices[0]!);
     fireEvent.click((await screen.findAllByRole('checkbox', { name: /Specimen type/ }))[1]!);
     fireEvent.click((await screen.findAllByRole('checkbox', { name: /Specimen type/ }))[2]!);
 
-    expect(await screen.findByText('System https://example.org/observation-codes · Code specimen_type')).toBeInTheDocument();
-    expect(screen.getByText('System https://example.org/panel-codes · Code specimen_type')).toBeInTheDocument();
-    expect(screen.getByText('Code specimen-type')).toBeInTheDocument();
+    expect(screen.getAllByText('System https://example.org/observation-codes · Code specimen_type')).toHaveLength(2);
+    expect(screen.getAllByText('System https://example.org/panel-codes · Code specimen_type')).toHaveLength(2);
+    expect(screen.getAllByText('Code specimen-type')).toHaveLength(2);
     await waitFor(() => expect(onCandidateChange).toHaveBeenLastCalledWith(expect.objectContaining({
       candidateConstruction: expect.objectContaining({ steps: [expect.objectContaining({
         operation: expect.objectContaining({ codedPivot: expect.objectContaining({
