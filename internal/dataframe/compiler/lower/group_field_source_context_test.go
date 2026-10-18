@@ -163,8 +163,8 @@ func TestGroupFieldSourceUsesFHIRPrimitiveMappingForURIAndDateTime(t *testing.T)
 		path string
 		want string
 	}{
-		{path: "implicitRules", want: "STRING"},
-		{path: "issued", want: "STRING"},
+		{path: "implicitRules", want: "string"},
+		{path: "issued", want: "date_time"},
 	} {
 		t.Run(test.path, func(t *testing.T) {
 			localPlan := ir.ClonePhysicalPlan(plan)

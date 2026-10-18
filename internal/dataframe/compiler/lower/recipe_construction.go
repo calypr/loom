@@ -292,8 +292,18 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 		return resolvedSource, descriptors, sourceIdentity, nil
 	}
 	usedVariables := physicalPlanVariables(plan.Operations)
-	retainRootContributors := constructionNeedsRetainedRootContributors(construction.Steps) || cohortNeedsRetainedRootContributors(construction, cohort) ||
-		populationConstructionNeedsRetainedRootContributors(construction.Steps, cohort, populationRootSourceAvailable)
+	retainForLaterOperations := constructionNeedsRetainedRootContributors(construction.Steps) || cohortNeedsRetainedRootContributors(construction, cohort)
+	retainForPopulation := populationConstructionNeedsRetainedRootContributors(construction.Steps, cohort, populationRootSourceAvailable)
+	retainRootContributors := retainForLaterOperations || retainForPopulation
+	if retainForPopulation && !retainForLaterOperations && constructionTerminalCodingGroupRequeriesExpandedPreimage(
+		construction.Steps, plan, sourceIdentity, rootResourceType,
+	) {
+		// The terminal expanded CODING_IDENTITY Group's exact occurrence preimage
+		// is re-queried for row lineage. Its typed root key remains in the source
+		// schema, while a per-group contributor array would defeat streaming and
+		// duplicate the exact preimage lookup.
+		retainRootContributors = false
+	}
 	priorSchema, priorIdentity := resolvedSource, sourceIdentity
 	priorStageID := recipe.ConstructionSourceProjectionID
 	cohortAnchorIndex, err := constructionCohortAnchorIndex(construction, cohort)
@@ -557,6 +567,44 @@ func populationConstructionNeedsRetainedRootContributors(steps []recipe.Construc
 		}
 	}
 	return false
+}
+
+func constructionTerminalCodingGroupRequeriesExpandedPreimage(
+	steps []recipe.ConstructionStep,
+	plan *ir.PhysicalPlan,
+	sourceIdentity, rootResourceType string,
+) bool {
+	if len(steps) != 1 || steps[0].Operation.Kind != recipe.ConstructionGroupOp || steps[0].Operation.Group == nil ||
+		sourceIdentity != sourceExpansionIdentity || rootResourceType == "" {
+		return false
+	}
+	group := steps[0].Operation.Group
+	if len(group.Aggregates) != 1 || group.Aggregates[0].Operation != recipe.ConstructionGroupCountRows ||
+		group.Aggregates[0].InputColumnID != "" {
+		return false
+	}
+	var codingSource *recipe.ConstructionGroupFieldSource
+	for _, key := range group.Keys {
+		if key.SemanticCategory != nil {
+			return false
+		}
+		if key.FieldSource == nil || key.FieldSource.ValueKind != "CODING_IDENTITY" {
+			continue
+		}
+		if codingSource != nil {
+			return false
+		}
+		codingSource = key.FieldSource
+	}
+	if codingSource == nil {
+		return false
+	}
+	context, err := describeGroupFieldSourceContext(recipe.ConstructionSourceProjectionID, rootResourceType, sourceIdentity, plan)
+	if err != nil || context == nil || context.SourceExpansion == nil {
+		return false
+	}
+	_, err = validateGroupCodingIdentitySource(plan, *codingSource, context, recipe.ConstructionSourceProjectionID)
+	return err == nil
 }
 
 func populationRootContributorAvailable(plan *ir.PhysicalPlan, schema []CompiledOutputColumn, rootResourceType string) bool {

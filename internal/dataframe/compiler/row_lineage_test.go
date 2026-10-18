@@ -175,6 +175,10 @@ func TestExpandedCodingGroupLineageReusesRoutedAncestorOccurrence(t *testing.T) 
 		stage.Group.CodingKey.SourceUnnest.Owner.Route[0].OccurrenceID != "observation-owner" {
 		t.Fatalf("Coding Group did not retain the exact Patient-to-Observation owner route: %#v", stage.Group.CodingKey.SourceUnnest.Owner.Route)
 	}
+	var operationKinds []string
+	for _, operation := range output.Plan.Operations {
+		operationKinds = append(operationKinds, string(operation.Kind))
+	}
 	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
 		t.Fatalf("routed expanded Coding Group row lineage is unavailable: %#v", capability)
 	}
@@ -182,7 +186,7 @@ func TestExpandedCodingGroupLineageReusesRoutedAncestorOccurrence(t *testing.T) 
 	if err != nil {
 		t.Fatalf("compile routed expanded Coding Group lineage: %v", err)
 	}
-	if strings.Count(compiled.Query, "FOR root IN @@root_collection") != 2 ||
+	if strings.Count(compiled.Query, "FOR population_member IN @@population_members_collection") != 2 ||
 		strings.Count(compiled.Query, "FOR __loom_physical_unnest_index_0") != 2 {
 		t.Fatalf("routed lineage must requery the same root/route/UNNEST preimage twice:\n%s", compiled.Query)
 	}
@@ -201,10 +205,167 @@ func TestExpandedCodingGroupLineageReusesRoutedAncestorOccurrence(t *testing.T) 
 	}
 }
 
+func TestExpandedCodingGroupLineageCapabilityAcceptsExactPopulationRouteFixture(t *testing.T) {
+	output := expandedCodingGroupFixtureLineageOutput(t)
+	stage := output.Plan.StageSequence.Stages[0]
+	if stage.Group == nil || stage.Group.CodingKey == nil || stage.Group.RootContributorInputColumn != "" {
+		t.Fatalf("exact occurrence lineage should replace the terminal Group root contributor array: %#v", stage.Group)
+	}
+	rootKeyRetained := false
+	for _, column := range output.Plan.StageSequence.SourceColumns {
+		if column.Name == "_key" && column.Internal && column.RootContributorResourceType == "Patient" {
+			rootKeyRetained = true
+		}
+	}
+	if !rootKeyRetained {
+		t.Fatal("source preimage lost the typed Patient root key needed for exact occurrence lineage")
+	}
+	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
+		t.Fatalf("exact population/route/UNNEST Coding Group lineage capability = %#v", capability)
+	}
+	groupQuery, err := CompileRecipeOutputWithPolicy(output, recipe.RuntimeBindings{
+		Project: "row-lineage-project", SelectionProject: "row-lineage-project",
+		SelectionMembersCollection: "loom_explorer_selection_members", DatasetGeneration: "row-lineage-generation",
+	}, 100, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile exact fixture Group query: %v", err)
+	}
+	if !strings.HasPrefix(groupQuery.Query, "LET __loom_construction_stage_1 = (\n  FOR population_member IN @@population_members_collection") ||
+		strings.Count(groupQuery.Query, "FOR population_member IN @@population_members_collection") != 1 ||
+		strings.Count(groupQuery.Query, "FOR __loom_expansion_edge_1 IN @@expansion_route_1_edge_collection") != 1 ||
+		strings.Count(groupQuery.Query, "FOR __loom_physical_unnest_index_0") != 1 ||
+		strings.Contains(groupQuery.Query, "LET __loom_construction_source_projection = (") ||
+		strings.Contains(groupQuery.Query, " INTO __loom_construction_group_rows") ||
+		strings.Contains(groupQuery.Query, "__loom_root_contributor_keys") ||
+		strings.Contains(groupQuery.Query, "__loom_construction_root_contributors") {
+		t.Fatalf("exact fixture Group did not stream its scoped population/route/UNNEST into COLLECT:\n%s", groupQuery.Query)
+	}
+	if !strings.Contains(groupQuery.Query, "COLLECT __loom_construction_group_key_1 =") ||
+		!strings.Contains(groupQuery.Query, " AGGREGATE __loom_physical_construction_construction_group_count_rows = SUM(") ||
+		strings.Contains(groupQuery.Query, " INTO ") {
+		t.Fatalf("exact fixture Group did not aggregate rows directly without materializing Group rows:\n%s", groupQuery.Query)
+	}
+	inputStart := strings.Index(groupQuery.Query, "LET __loom_construction_input_1 = {")
+	if inputStart < 0 {
+		t.Fatalf("exact fixture Group has no narrow per-row source projection:\n%s", groupQuery.Query)
+	}
+	inputEnd := strings.Index(groupQuery.Query[inputStart:], "LET __loom_physical_construction_construction_group_coding_membership =")
+	if inputEnd < 0 {
+		t.Fatalf("exact fixture Group has no narrow per-row source projection:\n%s", groupQuery.Query)
+	}
+	inputProjection := groupQuery.Query[inputStart : inputStart+inputEnd]
+	for _, want := range []string{
+		"__loom_expansion_node_1.payload.id", "__loom_expansion_node_1.payload.status",
+		"coding_item.code", "coding_item.display", "coding_item.system", "coding_item.version",
+		"__loom_expansion_edge_1._id", "__loom_has_expanded_item", "coding_ordinal", "root._id",
+	} {
+		if !strings.Contains(inputProjection, want) {
+			t.Errorf("exact fixture Group projection omitted selected scalar/occurrence fact %q:\n%s", want, inputProjection)
+		}
+	}
+	if strings.Contains(inputProjection, "coding_item,") || !strings.Contains(groupQuery.Query, "construction_group_row_value_arrays_0 = UNIQUE(") {
+		t.Fatalf("Group input must project compact Coding fields and only the requested ALL RowValue, not whole Coding payloads:\nprojection=%s\nquery=%s", inputProjection, groupQuery.Query)
+	}
+	compiled, err := CompileRowLineageOutput(output, "fixture-expanded-coded-group-row", 0, 20, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile exact fixture Coding Group lineage: %v", err)
+	}
+	if strings.Count(compiled.Query, "FOR population_member IN @@population_members_collection") != 2 ||
+		strings.Count(compiled.Query, "FOR __loom_physical_unnest_index_0") != 2 {
+		t.Fatalf("fixture lineage must requery the exact population/route/UNNEST preimage twice:\n%s", compiled.Query)
+	}
+	for _, want := range []string{"population_selection_id", "subject_Patient", "ordinal", "occurrenceKey:"} {
+		if !strings.Contains(fmt.Sprint(compiled.BindVars), want) && !strings.Contains(compiled.Query, want) {
+			t.Errorf("fixture lineage omitted exact source fact %q from AQL and binds", want)
+		}
+	}
+}
+
+func TestExpandedCodingGroupPopulationNonCountRowsRetainsRootContributors(t *testing.T) {
+	output := expandedCodingGroupFixtureLineageOutputWithAggregate(t, recipe.ConstructionGroupAggregate{
+		Operation: recipe.ConstructionGroupCountNonNull, InputColumnID: "owner_id", OutputColumnID: "occurrences_id",
+	})
+	group := output.Plan.StageSequence.Stages[0].Group
+	if group == nil || group.RootContributorInputColumn != "_key" || group.RootContributorOutputColumn != "__loom_root_contributor_keys" {
+		t.Fatalf("non-COUNT_ROWS expanded Group must keep the ordinary population contributor path: %#v", group)
+	}
+}
+
+func expandedCodingGroupFixtureLineageOutput(t *testing.T) lower.CompiledRecipeOutput {
+	return expandedCodingGroupFixtureLineageOutputWithAggregate(t, recipe.ConstructionGroupAggregate{
+		Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "occurrences_id",
+	})
+}
+
+func expandedCodingGroupFixtureLineageOutputWithAggregate(t *testing.T, aggregate recipe.ConstructionGroupAggregate) lower.CompiledRecipeOutput {
+	t.Helper()
+	selectionID := "row-lineage-selection"
+	output := recipe.Output{
+		Name: "expanded_coding_field_source", RootResourceType: "Patient", RootOccurrenceID: "patient-root", RowGrain: "expanded",
+		TraversalColumnNaming: recipe.TraversalColumnNamingExact,
+		Expand: &recipe.Expansion{
+			OwnerOccurrenceID: "observation-owner", From: recipe.Expression{Select: "observation.valueCodeableConcept.coding[]"},
+			As: "coding_item", Ordinality: "coding_ordinal", EmptyPolicy: recipe.ExpansionPreserveParent,
+		},
+		Identity: &recipe.Identity{Name: "row", Expansion: &recipe.ExpansionIdentity{}},
+		Traversals: []recipe.Traversal{{
+			Name: "subject_Patient", OccurrenceID: "observation-owner", Alias: "observation", ToResourceType: "Observation", MatchMode: recipe.MatchRequired,
+			Fields: []recipe.Field{
+				{Name: "owner_id", ColumnID: "owner_id", Expr: recipe.Expression{Select: "observation.id"}},
+				{Name: "status", ColumnID: "status_id", Expr: recipe.Expression{Select: "observation.status"}},
+			},
+		}},
+		Population: &recipe.PopulationConstraint{
+			SelectionRevisionID: selectionID, MembershipDigest: selectionID + "-membership", MemberCount: 1, ResourceType: "Patient",
+		},
+	}
+	bindings := recipe.RuntimeBindings{
+		Project: "row-lineage-project", SelectionProject: "row-lineage-project",
+		SelectionMembersCollection: "loom_explorer_selection_members", DatasetGeneration: "row-lineage-generation",
+	}
+	source := lowerConstructionOutput(t, output, bindings)
+	descriptor, err := lower.DescribeConstructionSourceStage(source.OutputSchema, output.RootResourceType, &source.Plan)
+	if err != nil || descriptor.GroupFieldSourceContext == nil || descriptor.GroupFieldSourceContext.SourceExpansion == nil {
+		t.Fatalf("describe exact fixture Group source context: descriptor=%#v err=%v", descriptor, err)
+	}
+	context := descriptor.GroupFieldSourceContext
+	output.Construction = &recipe.Construction{
+		Version:       1,
+		SourceColumns: []recipe.StageColumn{{ID: "owner_id", Name: "owner_id", Type: "string"}, {ID: "status_id", Name: "status", Type: "string"}},
+		Steps: []recipe.ConstructionStep{{
+			ID: "group_expanded_coding", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+				ConstructionID: "group_expanded_coding", MissingKeyPolicy: recipe.ConstructionGroupMissingKeyGroup,
+				Keys: []recipe.ConstructionGroupKey{
+					{InputColumnID: "status_id", OutputColumnID: "group_status_id"},
+					{OutputColumnID: "coding_id", FieldSource: &recipe.ConstructionGroupFieldSource{
+						Kind: "BINDING", ValueKind: "CODING_IDENTITY", SourceStageID: context.SourceStageID,
+						SourceShapeID: context.SourceShapeID, SourceRole: "CURRENT_ITEM",
+						OccurrenceID: context.SourceExpansion.OwnerOccurrenceID, OwnerResourceType: context.SourceExpansion.OwnerResourceType,
+						ResourceType: "Coding", CanonicalPath: context.SourceExpansion.Selector,
+					}},
+				},
+				Aggregates: []recipe.ConstructionGroupAggregate{aggregate},
+			}},
+			RowValues: []recipe.ConstructionRowValue{{InputColumnID: "owner_id", OutputColumnID: "owners_id", Policy: recipe.ConstructionRowValueAll}},
+			Outputs: []recipe.StageColumn{
+				{ID: "group_status_id", Name: "status", Type: "string"},
+				{ID: "coding_id", Name: "coding", Type: "string", Nullable: true},
+				{ID: "occurrences_id", Name: "occurrences", Type: "integer"},
+				{ID: "owners_id", Name: "owners", Type: "array"},
+			},
+		}},
+	}
+	return lowerConstructionOutput(t, output, bindings)
+}
+
 func routedAncestorCodingRowLineageOutput(t *testing.T) lower.CompiledRecipeOutput {
 	t.Helper()
 	output := recipe.Output{
 		Name: "routed_ancestor_coding_lineage", RootResourceType: "Patient", RootOccurrenceID: "patient-root", RowGrain: "expanded",
+		Population: &recipe.PopulationConstraint{
+			SelectionRevisionID: "lineage-selection", MembershipDigest: "sha256:lineage-members", MemberCount: 1, ResourceType: "Patient",
+		},
 		Traversals: []recipe.Traversal{{
 			Name: "subject_Patient", OccurrenceID: "observation-owner", Alias: "observation", ToResourceType: "Observation",
 		}},
@@ -214,7 +375,10 @@ func routedAncestorCodingRowLineageOutput(t *testing.T) lower.CompiledRecipeOutp
 		},
 		Identity: &recipe.Identity{Name: "row", Expansion: &recipe.ExpansionIdentity{}},
 	}
-	bindings := recipe.RuntimeBindings{Project: "row-lineage-project", DatasetGeneration: "row-lineage-generation"}
+	bindings := recipe.RuntimeBindings{
+		Project: "row-lineage-project", SelectionProject: "row-lineage-project",
+		SelectionMembersCollection: "loom_explorer_selection_members", DatasetGeneration: "row-lineage-generation",
+	}
 	source := lowerConstructionOutput(t, output, bindings)
 	descriptor, err := lower.DescribeConstructionSourceStage(source.OutputSchema, output.RootResourceType, &source.Plan)
 	if err != nil || descriptor.GroupFieldSourceContext == nil || descriptor.GroupFieldSourceContext.SourceExpansion == nil {
