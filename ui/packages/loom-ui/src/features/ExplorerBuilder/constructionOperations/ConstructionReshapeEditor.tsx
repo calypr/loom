@@ -2380,19 +2380,6 @@ const GroupEditor = (props: {
   const selectedSemanticChoiceId = semanticCategory?.kind === 'CHOICE'
     ? semanticCategory.choiceId
     : undefined;
-  const semanticLabelCounts = new Map<string, number>();
-  for (const column of scalarColumns) {
-    const label = column.label.trim().toLocaleLowerCase();
-    semanticLabelCounts.set(label, (semanticLabelCounts.get(label) ?? 0) + 1);
-  }
-  for (const choice of props.semanticGroupChoices) {
-    const label = choice.label.trim().toLocaleLowerCase();
-    semanticLabelCounts.set(label, (semanticLabelCounts.get(label) ?? 0) + 1);
-  }
-  if (semanticKey && !selectedSemanticChoice) {
-    const label = semanticKey.displayLabel.trim().toLocaleLowerCase();
-    semanticLabelCounts.set(label, (semanticLabelCounts.get(label) ?? 0) + 1);
-  }
   const selectedScalarColumns = scalarColumns.filter((column) => props.form.keys.some((key) => key.inputColumnId === column.id));
   const visibleScalarColumns = scalarColumns.filter((column) =>
     !props.form.keys.some((key) => key.inputColumnId === column.id) &&
@@ -2402,6 +2389,19 @@ const GroupEditor = (props: {
     : props.semanticGroupChoices.filter((choice) => choice.choiceId !== selectedSemanticChoiceId &&
       (!normalizedGroupSearch || `${choice.label} ${choice.resourceType}`.toLocaleLowerCase().includes(normalizedGroupSearch)));
   const showSavedSemanticKey = Boolean(semanticKey && (semanticCategory?.kind === 'BINDING' || !selectedSemanticChoice));
+  const semanticLabelCounts = new Map<string, number>();
+  for (const column of [...selectedScalarColumns, ...visibleScalarColumns]) {
+    const label = column.label.trim().toLocaleLowerCase();
+    semanticLabelCounts.set(label, (semanticLabelCounts.get(label) ?? 0) + 1);
+  }
+  for (const choice of [...(selectedSemanticChoice ? [selectedSemanticChoice] : []), ...visibleSemanticChoices]) {
+    const label = choice.label.trim().toLocaleLowerCase();
+    semanticLabelCounts.set(label, (semanticLabelCounts.get(label) ?? 0) + 1);
+  }
+  if (semanticKey && showSavedSemanticKey) {
+    const label = semanticKey.displayLabel.trim().toLocaleLowerCase();
+    semanticLabelCounts.set(label, (semanticLabelCounts.get(label) ?? 0) + 1);
+  }
   const selectedGroupLabels = [
     ...scalarColumns.filter((column) => props.form.keys.some((key) => key.inputColumnId === column.id)).map((column) => column.label),
     ...(semanticKey ? [semanticKey.displayLabel] : []),

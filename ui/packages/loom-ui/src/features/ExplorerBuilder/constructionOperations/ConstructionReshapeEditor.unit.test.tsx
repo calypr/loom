@@ -431,7 +431,7 @@ describe('ConstructionReshapeEditor', () => {
         { id: 'count-id', name: 'row_count', label: 'Rows', type: 'integer' },
       ],
     };
-    const groupInputStage: ConstructionReshapeEditorProps['capabilities']['selectedStage'] = {
+    const groupInputStageWithDuplicateLabel: ConstructionReshapeEditorProps['capabilities']['selectedStage'] = {
       ...sourceStage,
       columns: [...sourceStage.columns, {
         id: 'condition-category-id', name: 'condition_category', label: 'Condition category', type: 'string', cardinality: 'optional_one',
@@ -450,7 +450,7 @@ describe('ConstructionReshapeEditor', () => {
       capabilities: [{ kind: 'GROUP', supported: true }],
     };
     const capabilities: ConstructionReshapeEditorProps['capabilities'] = {
-      ...capabilitiesFor([groupInputStage, groupOutputStage], groupOutputStage),
+      ...capabilitiesFor([groupInputStageWithDuplicateLabel, groupOutputStage], groupOutputStage),
       stageId: sourceStage.id,
       baseConstruction: { version: 1, steps: [savedGroup] },
       semanticGroupChoices: [{
@@ -465,7 +465,7 @@ describe('ConstructionReshapeEditor', () => {
       semanticGroupChoicesIncomplete: false,
     };
     const onCandidateChange = vi.fn();
-    renderEditor({
+    const duplicateLabelEditor = renderEditor({
       construction: {
         version: 1,
         sourceProjections: [{
@@ -483,6 +483,24 @@ describe('ConstructionReshapeEditor', () => {
     expect(within(savedSemanticOption).getByRole('checkbox')).toHaveProperty('value', 'binding:condition-code-binding:rule-v1');
     expect(within(savedSemanticOption).getByRole('checkbox')).toHaveAttribute('aria-label', 'Group by Condition category (urn:example:condition · versionless)');
     expect(within(savedSemanticOption).getByRole('checkbox')).toHaveProperty('checked', true);
+
+    duplicateLabelEditor.view.unmount();
+    const uniqueLabelCapabilities = { ...capabilities, stages: [sourceStage, groupOutputStage] };
+    renderEditor({
+      construction: {
+        version: 1,
+        sourceProjections: [{
+          columnId: 'site-id', occurrenceId: 'root', fieldPath: 'site', fhirType: 'string', logicalType: 'string', label: 'Site',
+        }],
+        steps: [savedGroup],
+      },
+      capabilities: uniqueLabelCapabilities,
+      editingStep: savedGroup,
+      onCandidateChange,
+    });
+    const uniqueSavedSemanticOption = screen.getByTestId('construction-group-semantic-option');
+    expect(within(uniqueSavedSemanticOption).getByRole('checkbox')).toHaveAttribute('aria-label', 'Group by Condition category');
+    expect(within(uniqueSavedSemanticOption).getByRole('checkbox')).toHaveProperty('checked', true);
     fireEvent.change(screen.getByLabelText('Summary output label 1'), { target: { value: 'Input rows' } });
 
     const intent = onCandidateChange.mock.lastCall?.[0];
