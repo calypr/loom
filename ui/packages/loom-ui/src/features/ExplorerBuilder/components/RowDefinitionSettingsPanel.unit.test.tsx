@@ -344,7 +344,7 @@ const renderSettings = (overrides: {
   pivotPending?: boolean;
   codedPivotDefault?: boolean;
   tablePivotAlternative?: boolean;
-  codedGroupDefault?: boolean;
+  codedGroupAlternative?: boolean;
   sourceGroupAlternative?: boolean;
   onChangeRootSelection?: (selection: RootChangeSelection) => void;
   tableValue?: DraftTable;
@@ -392,8 +392,11 @@ const renderSettings = (overrides: {
       currentRowMeaning={overrides.currentRowMeaning ?? relatedRowProps.currentRowMeaning}
       onChangeRootSelection={onChangeRootSelection}
       relatedRows={{ supported: overrides.relatedRowsSupported ?? false, reason: overrides.relatedRowsReason ?? 'No executable route' }}
-      reshapeRows={{ group: { supported: overrides.groupSupported ?? true, reason: overrides.groupReason ?? 'No executable grouping operation' }, groupEntry: overrides.codedGroupDefault ? 'coded-group' : 'group',
-        groupAlternatives: overrides.sourceGroupAlternative ? [{ kind: 'source-group', label: 'By source field' }] : [],
+      reshapeRows={{ group: { supported: overrides.groupSupported ?? true, reason: overrides.groupReason ?? 'No executable grouping operation' }, groupEntry: 'group',
+        groupAlternatives: [
+          ...(overrides.sourceGroupAlternative ? [{ kind: 'source-group' as const, label: 'Source fields' }] : []),
+          ...(overrides.codedGroupAlternative ? [{ kind: 'coded-group' as const, label: 'Recorded code' }] : []),
+        ],
         pivotEntry: overrides.codedPivotDefault ? 'coded-pivot' : 'pivot', pivot: {
         supported: overrides.pivotSupported ?? true,
         reason: 'No executable category-to-column operation',
@@ -828,7 +831,7 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const group = await screen.findByTestId('construction-action-group-rows');
     expect(group).toHaveTextContent('Group and summarize');
-    expect(group).toHaveTextContent('Group by matching values in selected fields.');
+    expect(group).toHaveTextContent('Choose fields that define each output row.');
     expect(group).not.toHaveTextContent('Example:');
     fireEvent.click(group);
     expect(onChooseReshape).toHaveBeenCalledWith('group');
@@ -840,23 +843,32 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(within(dialog).queryByRole('region', { name: 'Named cohorts' })).toBeNull();
   });
 
-  it('opens grouping by a recorded code when the backend offers it', async () => {
-    const { onChooseReshape } = renderSettings({ codedGroupDefault: true });
+  it('keeps ordinary Group primary and places recorded-code grouping in Advanced', async () => {
+    const { onChooseReshape } = renderSettings({ codedGroupAlternative: true });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const group = await screen.findByTestId('construction-action-group-rows');
     expect(group).toHaveTextContent('Group and summarize');
-    expect(group).toHaveTextContent('Group rows by one recorded code.');
+    expect(group).toHaveTextContent('Choose fields that define each output row.');
     expect(group).not.toHaveTextContent('Example:');
     fireEvent.click(group);
-    expect(onChooseReshape).toHaveBeenCalledWith('coded-group');
+    expect(onChooseReshape).toHaveBeenCalledWith('group');
+    const advancedModes = screen.getByText('Advanced grouping modes').closest('details');
+    expect(advancedModes).not.toBeNull();
+    expect(advancedModes).not.toHaveAttribute('open');
+    expect(within(advancedModes as HTMLDetailsElement).getByTestId('construction-action-coded-group-rows')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Advanced grouping modes'));
+    expect(advancedModes).toHaveAttribute('open');
+    fireEvent.click(screen.getByTestId('construction-action-coded-group-rows'));
+    expect(onChooseReshape).toHaveBeenLastCalledWith('coded-group');
     expect(screen.getByRole('dialog', { name: 'Row definition settings' })).toBeInTheDocument();
     expect(group).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('opens source-field grouping directly when coded grouping is the default', async () => {
-    const { onChooseReshape } = renderSettings({ codedGroupDefault: true, sourceGroupAlternative: true });
+  it('keeps source-field grouping reachable in Advanced', async () => {
+    const { onChooseReshape } = renderSettings({ codedGroupAlternative: true, sourceGroupAlternative: true });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
-    fireEvent.click(await screen.findByRole('button', { name: 'By source field' }));
+    fireEvent.click(await screen.findByText('Advanced grouping modes'));
+    fireEvent.click(screen.getByTestId('construction-action-source-group-rows'));
     expect(onChooseReshape).toHaveBeenCalledWith('source-group');
     expect(screen.getByRole('dialog', { name: 'Row definition settings' })).toBeInTheDocument();
     expect(screen.getByTestId('construction-action-group-rows')).toHaveAttribute('aria-pressed', 'true');

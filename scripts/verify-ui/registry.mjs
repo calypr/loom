@@ -6899,9 +6899,12 @@ export const registry = Object.freeze([
             'vitest', 'run', '--config', 'vitest.config.ts',
             'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.unit.test.tsx',
             'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.unit.test.tsx',
+            'ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.unit.test.tsx',
           ],
           sourceFiles: [
             'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx',
+            'ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx',
+            'ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx',
             'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx',
             'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionHistory.ts',
             'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx',

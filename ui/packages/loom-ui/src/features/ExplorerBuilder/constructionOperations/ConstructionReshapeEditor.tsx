@@ -1931,26 +1931,34 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
                 <div className="grid gap-2">
                   <ReshapeChoice
                     testId="construction-reshape-choice-group"
-                    title="Group by table fields"
-                    rows="One per unique combination of chosen fields."
+                    title="Group by selected fields"
+                    rows="One per unique combination of the values you choose."
                     columns="Keep group fields and add summary columns."
                     supported={groupSupport.supported || groupCodedValuesSupported}
                     reason={groupSupport.supported || groupCodedValuesSupported ? '' : groupSupport.reason}
                     disabled={disabled}
                     onChoose={() => updateForm(initialGroupForm(groupStage, props.selectedColumns ?? [], undefined, construction, semanticGroupChoicesForStage(capabilities, groupStage)))}
                   />
-                  <SourceFieldChoices fields={availableSourceFields} disabled={disabled} onChoose={chooseSourceField} />
-                  {codedGroupSupport.supported && Boolean(stage.codedGroupChoices?.length) ? (
-                    <ReshapeChoice
-                      testId="construction-reshape-choice-coded-group"
-                      title="Group by recorded code"
-                      rows="One per observed code."
-                      columns="Keep its system, code, and source count."
-                      supported={codedGroupSupport.supported}
-                      reason={codedGroupSupport.reason}
-                      disabled={disabled}
-                      onChoose={() => updateForm(initialCodedGroupForm(stage))}
-                    />
+                  {availableSourceFields.length > 0 || codedGroupSupport.supported && Boolean(stage.codedGroupChoices?.length) ? (
+                    <details data-testid="construction-reshape-advanced-grouping" className="rounded border border-slate-200 p-2">
+                      <summary className="cursor-pointer text-sm font-medium text-blue-800">Advanced grouping modes</summary>
+                      <p className="mb-2 mt-1 text-xs text-slate-600">These separate modes use only source fields or recorded-code paths available for this table.</p>
+                      <div className="grid gap-2">
+                        <SourceFieldChoices fields={availableSourceFields} disabled={disabled} onChoose={chooseSourceField} />
+                        {codedGroupSupport.supported && Boolean(stage.codedGroupChoices?.length) ? (
+                          <ReshapeChoice
+                            testId="construction-reshape-choice-coded-group"
+                            title="Group by recorded code"
+                            rows="One per observed code."
+                            columns="Keep its system, code, and source count."
+                            supported={codedGroupSupport.supported}
+                            reason={codedGroupSupport.reason}
+                            disabled={disabled}
+                            onChoose={() => updateForm(initialCodedGroupForm(stage))}
+                          />
+                        ) : null}
+                      </div>
+                    </details>
                   ) : null}
                 </div>
               ) : (
@@ -2282,6 +2290,14 @@ const SourceGroupEditor = (props: {
   );
 };
 
+const readableFieldCombination = (labels: ReadonlyArray<string>): string => {
+  if (labels.length < 2) return labels[0] ?? '';
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+  return `${labels.slice(0, -1).join(', ')}, and ${labels.at(-1)}`;
+};
+
+const compactSemanticScope = (scopeLabel: string): string => scopeLabel.split(' · ').slice(-2).join(' · ');
+
 const CodedGroupEditor = (props: {
   readonly form: CodedGroupForm;
   readonly stage: ReshapeStage;
@@ -2353,23 +2369,44 @@ const GroupEditor = (props: {
 }) => {
   const scalarColumns = scalarColumnsFor(props.stage);
   const usedNames = getUsedGroupNames(props.form);
+  const [groupSearch, setGroupSearch] = useState('');
+  const normalizedGroupSearch = groupSearch.trim().toLocaleLowerCase();
   const semanticKey = props.form.semanticKey;
   const semanticCategory = semanticKey?.semanticCategory;
   const directSourceStage = isSourceProjectionStage(props.stage);
   const selectedSemanticChoice = semanticCategory?.kind === 'CHOICE'
     ? props.semanticGroupChoices.find((choice) => choice.choiceId === semanticCategory.choiceId)
     : undefined;
-  const selectedSemanticValue = semanticCategory
-    ? semanticCategory.kind === 'CHOICE'
-      ? `choice:${semanticCategory.choiceId}`
-      : `binding:${semanticCategory.bindingId}:${semanticCategory.ruleVersion}`
-    : '';
-  const availableSemanticChoices = props.semanticGroupChoices.filter((choice) => {
-    if (!semanticCategory) return true;
-    return semanticCategory.kind === 'CHOICE'
-      ? choice.choiceId !== semanticCategory.choiceId
-      : true;
-  });
+  const selectedSemanticChoiceId = semanticCategory?.kind === 'CHOICE'
+    ? semanticCategory.choiceId
+    : undefined;
+  const semanticLabelCounts = new Map<string, number>();
+  for (const column of scalarColumns) {
+    const label = column.label.trim().toLocaleLowerCase();
+    semanticLabelCounts.set(label, (semanticLabelCounts.get(label) ?? 0) + 1);
+  }
+  for (const choice of props.semanticGroupChoices) {
+    const label = choice.label.trim().toLocaleLowerCase();
+    semanticLabelCounts.set(label, (semanticLabelCounts.get(label) ?? 0) + 1);
+  }
+  if (semanticKey && !selectedSemanticChoice) {
+    const label = semanticKey.displayLabel.trim().toLocaleLowerCase();
+    semanticLabelCounts.set(label, (semanticLabelCounts.get(label) ?? 0) + 1);
+  }
+  const selectedScalarColumns = scalarColumns.filter((column) => props.form.keys.some((key) => key.inputColumnId === column.id));
+  const visibleScalarColumns = scalarColumns.filter((column) =>
+    !props.form.keys.some((key) => key.inputColumnId === column.id) &&
+    (!normalizedGroupSearch || column.label.toLocaleLowerCase().includes(normalizedGroupSearch)));
+  const visibleSemanticChoices = semanticCategory?.kind === 'BINDING'
+    ? []
+    : props.semanticGroupChoices.filter((choice) => choice.choiceId !== selectedSemanticChoiceId &&
+      (!normalizedGroupSearch || `${choice.label} ${choice.resourceType}`.toLocaleLowerCase().includes(normalizedGroupSearch)));
+  const showSavedSemanticKey = Boolean(semanticKey && (semanticCategory?.kind === 'BINDING' || !selectedSemanticChoice));
+  const selectedGroupLabels = [
+    ...scalarColumns.filter((column) => props.form.keys.some((key) => key.inputColumnId === column.id)).map((column) => column.label),
+    ...(semanticKey ? [semanticKey.displayLabel] : []),
+    ...props.form.codedCategories.map((category) => category.display),
+  ];
   const changeKey = (index: number, update: Partial<GroupKey>) => {
     props.onChange({
       ...props.form,
@@ -2395,6 +2432,96 @@ const GroupEditor = (props: {
       } : {}),
     });
   };
+  const removeSemanticKey = () => {
+    const { semanticKey: _removed, ...formWithoutSemanticKey } = props.form;
+    props.onChange(formWithoutSemanticKey);
+  };
+  const renderScalarChoice = (column: ReshapeColumn, checked: boolean) => (
+    <label key={`scalar:${column.id}`} className="flex min-w-0 items-center gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
+      <input
+        type="checkbox"
+        value={column.id}
+        checked={checked}
+        aria-label={`Group by ${column.label}`}
+            disabled={props.disabled || !props.supported}
+        onChange={() => props.onChange(checked
+          ? { ...props.form, keys: props.form.keys.filter((key) => key.inputColumnId !== column.id) }
+          : addGroupKey(props.form, props.stage, column.id))}
+      />
+      <span className="min-w-0 truncate" title={column.label}>{column.label}</span>
+    </label>
+  );
+  const renderSemanticChoice = (choice: SemanticGroupChoice, checked: boolean) => {
+    const duplicateLabel = (semanticLabelCounts.get(choice.label.trim().toLocaleLowerCase()) ?? 0) > 1;
+    const disambiguation = duplicateLabel ? compactSemanticScope(choice.scopeLabel) : undefined;
+    const disabled = props.disabled || !props.supported || !directSourceStage || !props.semanticGroupSupported ||
+      props.form.codedCategories.length > 0 && !checked || Boolean(semanticKey) && !checked;
+    return (
+      <div key={`semantic:${choice.choiceId}`} data-testid="construction-group-semantic-option" className="rounded px-2 py-1.5 hover:bg-slate-50">
+        <label className="flex min-w-0 items-start gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            value={choice.choiceId}
+            data-semantic-choice-id={choice.choiceId}
+            data-testid={`construction-group-semantic-choice-${choice.choiceId}`}
+            checked={checked}
+            aria-label={`Group by ${choice.label}${disambiguation ? ` (${disambiguation})` : ''}`}
+            disabled={disabled}
+            aria-describedby={semanticKey && !checked ? 'construction-group-coded-key-limit' : undefined}
+            onChange={(event) => {
+              if (!event.currentTarget.checked) {
+                removeSemanticKey();
+                return;
+              }
+              if (!semanticKey && props.form.codedCategories.length === 0) {
+                props.onChange({ ...props.form, semanticKey: groupSemanticKeyForChoice(props.form, choice) });
+              }
+            }}
+          />
+          <span className="min-w-0 flex-1">
+            <span className="block font-medium text-slate-800">{choice.label}</span>
+            {disambiguation ? <span className="block truncate text-xs text-slate-500" title={choice.scopeLabel}>{disambiguation}</span> : null}
+          </span>
+        </label>
+        <details className="ml-6 mt-1 text-xs text-slate-600" data-testid={`construction-group-field-details-${choice.choiceId}`}>
+          <summary className="cursor-pointer">Details</summary>
+          <p className="mb-0 mt-1 break-words">{choice.scopeLabel}</p>
+        </details>
+      </div>
+    );
+  };
+  const renderSavedSemanticKey = () => {
+    if (!semanticKey || !semanticCategory) return null;
+    const semanticValue = semanticCategory.kind === 'BINDING'
+      ? `binding:${semanticCategory.bindingId}:${semanticCategory.ruleVersion}`
+      : semanticCategory.choiceId;
+    const labelKey = semanticKey.displayLabel.trim().toLocaleLowerCase();
+    const disambiguation = (semanticLabelCounts.get(labelKey) ?? 0) > 1
+      ? compactSemanticScope(semanticKey.scopeLabel)
+      : undefined;
+    return (
+      <div data-testid="construction-group-semantic-option" className="rounded px-2 py-1.5 hover:bg-slate-50">
+        <label className="flex min-w-0 items-start gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            value={semanticValue}
+            checked
+            aria-label={`Group by ${semanticKey.displayLabel}${disambiguation ? ` (${disambiguation})` : ''}`}
+            disabled={props.disabled || !props.supported || !directSourceStage || !props.semanticGroupSupported}
+            onChange={removeSemanticKey}
+          />
+          <span className="min-w-0 flex-1">
+            <span className="block font-medium text-slate-800">{semanticKey.displayLabel}</span>
+            {disambiguation ? <span className="block truncate text-xs text-slate-500" title={semanticKey.scopeLabel}>{disambiguation}</span> : null}
+          </span>
+        </label>
+        <details className="ml-6 mt-1 text-xs text-slate-600" data-testid="construction-group-saved-field-details">
+          <summary className="cursor-pointer">Details</summary>
+          <p className="mb-0 mt-1 break-words">{semanticKey.scopeLabel}</p>
+        </details>
+      </div>
+    );
+  };
 
   return (
     <section aria-label="Summarize into groups" data-testid="construction-reshape-group" className="construction-reshape-group-editor grid content-start gap-3 rounded-lg border border-slate-200 p-3">
@@ -2403,84 +2530,56 @@ const GroupEditor = (props: {
       <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
         <fieldset className="grid min-w-0 content-start gap-2 rounded-lg border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
           <legend className="m-0 px-1 text-sm font-semibold text-slate-800">Group by</legend>
-          <p className="m-0 text-xs text-slate-600">Choose values that define each output row.</p>
-          {scalarColumns.length === 0 ? (
-            <p role="status" className="m-0 text-sm text-slate-600">No scalar fields are available to group by. You can still summarize the whole table.</p>
-          ) : (
-            <div className="grid max-h-56 gap-1 overflow-y-auto sm:grid-cols-2">
-              {scalarColumns.map((column) => {
-                const checked = props.form.keys.some((key) => key.inputColumnId === column.id);
-                return (
-                  <label key={column.id} className="flex min-w-0 items-center gap-2 rounded px-2 py-1 text-sm text-slate-700 hover:bg-slate-50">
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      aria-label={`Group by ${column.label}`}
-                      disabled={props.disabled || !props.supported}
-                      onChange={() => props.onChange(checked
-                        ? { ...props.form, keys: props.form.keys.filter((key) => key.inputColumnId !== column.id) }
-                        : addGroupKey(props.form, props.stage, column.id))}
-                    />
-                    <span className="min-w-0 truncate" title={column.label}>{column.label}</span>
-                  </label>
-                );
-              })}
-            </div>
-          )}
-          <div data-testid="construction-group-semantic-category" className="grid gap-1 rounded border border-slate-200 bg-slate-50 p-2">
-            <p className="m-0 text-xs text-slate-600">Semantic category fields are available only when grouping directly from the starting source stage.</p>
-            {directSourceStage ? (
-              props.semanticGroupChoices.length > 0 || semanticKey ? (
-                <label className="grid gap-1 text-sm font-medium text-slate-800">
-                  Semantic category field
-                  <select
-                    aria-label="Semantic category field"
-                    data-testid="construction-group-semantic-choice"
-                    value={selectedSemanticValue}
-                    disabled={props.disabled || !props.supported || !props.semanticGroupSupported || props.form.codedCategories.length > 0}
-                    onChange={(event) => {
-                      const selected = event.currentTarget.value;
-                      if (selected === '') {
-                        const { semanticKey: _removed, ...formWithoutSemanticKey } = props.form;
-                        props.onChange(formWithoutSemanticKey);
-                        return;
-                      }
-                      const choice = props.semanticGroupChoices.find((candidate) => `choice:${candidate.choiceId}` === selected);
-                      if (choice) props.onChange({ ...props.form, semanticKey: groupSemanticKeyForChoice(props.form, choice) });
-                    }}
-                    className="rounded border border-slate-300 bg-white px-2 py-1.5"
-                  >
-                    <option value="">No semantic category field</option>
-                    {semanticKey ? (
-                      <option value={selectedSemanticValue}>
-                        {selectedSemanticChoice
-                          ? `${selectedSemanticChoice.label} (${selectedSemanticChoice.scopeLabel})`
-                          : `${semanticKey.displayLabel} (${semanticKey.scopeLabel})`} (selected)
-                      </option>
-                    ) : null}
-                    {availableSemanticChoices.map((choice) => (
-                      <option key={choice.choiceId} value={`choice:${choice.choiceId}`}>
-                        {choice.label} ({choice.scopeLabel})
-                      </option>
-                    ))}
-                  </select>
-                  <span className="text-xs font-normal text-slate-500">One semantic field can be combined with the scalar fields above.</span>
-                  {props.semanticGroupChoicesIncomplete ? (
-                    <span role="status" className="text-xs font-normal text-amber-800">More semantic fields may exist than the bounded list shown here.</span>
-                  ) : null}
-                </label>
-              ) : (
-                <p role="status" className="m-0 text-xs text-slate-600">{props.semanticGroupChoicesIncomplete
-                  ? 'More semantic fields may exist than the bounded list checked here.'
-                  : 'No semantic category fields are available directly from this source stage.'}</p>
-              )
-            ) : semanticKey ? (
-              <p role="status" className="m-0 text-xs text-amber-900">The saved semantic category field is available only from the starting source stage.</p>
+          <p className="m-0 text-xs text-slate-600">Select the fields that define each output row.</p>
+          <label className="grid gap-1 text-xs font-medium text-slate-700">
+            Search fields
+            <input
+              type="search"
+              aria-label="Search fields to group by"
+              data-testid="construction-group-by-search"
+              value={groupSearch}
+              onChange={(event) => setGroupSearch(event.currentTarget.value)}
+              className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
+            />
+          </label>
+          {groupSearch ? (
+            <button type="button" data-testid="construction-group-by-clear-search" onClick={() => setGroupSearch('')}
+              className="justify-self-start text-xs font-medium text-blue-800 hover:underline">Clear search</button>
+          ) : null}
+          <div data-testid="construction-group-by-field-list" className="grid max-h-64 gap-1 overflow-y-auto">
+            {selectedScalarColumns.map((column) => renderScalarChoice(column, true))}
+            {selectedSemanticChoice ? renderSemanticChoice(selectedSemanticChoice, true) : null}
+            {showSavedSemanticKey ? renderSavedSemanticKey() : null}
+            {visibleScalarColumns.map((column) => {
+              return renderScalarChoice(column, false);
+            })}
+            {visibleSemanticChoices.map((choice) => renderSemanticChoice(choice, false))}
+            {normalizedGroupSearch && visibleScalarColumns.length === 0 && visibleSemanticChoices.length === 0 ? (
+              <p role="status" className="m-0 px-2 py-1 text-sm text-slate-600">No other fields match this search.</p>
             ) : null}
-            {props.form.codedCategories.length > 0 ? (
-              <p role="status" className="m-0 text-xs text-slate-600">Remove the existing coded-value keys before choosing a semantic category field.</p>
+            {!normalizedGroupSearch && selectedScalarColumns.length === 0 && !selectedSemanticChoice && !showSavedSemanticKey &&
+              visibleScalarColumns.length === 0 && visibleSemanticChoices.length === 0 ? (
+              <p role="status" className="m-0 px-2 py-1 text-sm text-slate-600">
+                No eligible fields are available to group by. You can still summarize all input rows.
+              </p>
             ) : null}
           </div>
+          {props.semanticGroupChoicesIncomplete ? (
+            <p role="status" className="m-0 text-xs text-amber-800">Some coded fields may be missing from this list; search only covers the fields currently available.</p>
+          ) : null}
+          {semanticKey ? (
+            <p id="construction-group-coded-key-limit" role="status" className="m-0 text-xs text-slate-600">
+              A Group can use one coded field. Remove {semanticKey.displayLabel} before choosing a different coded field.
+            </p>
+          ) : null}
+          {props.form.codedCategories.length > 0 ? (
+            <p role="status" className="m-0 text-xs text-slate-600">Remove the selected recorded-code values before choosing a coded field.</p>
+          ) : null}
+          <p data-testid="construction-group-grain-summary" role="status" aria-live="polite" className="m-0 rounded bg-blue-50 px-2 py-1.5 text-sm text-slate-700">
+            {selectedGroupLabels.length > 0
+              ? `One row per unique combination of ${readableFieldCombination(selectedGroupLabels)}.`
+              : 'With no fields selected, one row summarizes all input rows.'}
+          </p>
           {listColumnsFor(props.stage).length > 0 ? (
             <ListColumnExpandChoices
               columns={listColumnsFor(props.stage)}
@@ -2490,13 +2589,17 @@ const GroupEditor = (props: {
             />
           ) : null}
           {props.codedPivotSupported && props.codedPivotContext ? (
-            <GroupCodedValuePicker
-              context={props.codedPivotContext}
-              form={props.form}
-              stage={props.stage}
-              disabled={props.disabled || !props.supported || Boolean(props.form.semanticKey)}
-              onChange={props.onChange}
-            />
+            <details data-testid="construction-group-recorded-values-advanced" className="rounded border border-slate-200 p-2">
+              <summary className="cursor-pointer text-sm font-medium text-blue-800">Advanced: choose specific recorded values</summary>
+              <p className="mb-2 mt-1 text-xs text-slate-600">Use this when you need selected code values rather than grouping by the full coded field.</p>
+              <GroupCodedValuePicker
+                context={props.codedPivotContext}
+                form={props.form}
+                stage={props.stage}
+                disabled={props.disabled || !props.supported || Boolean(props.form.semanticKey)}
+                onChange={props.onChange}
+              />
+            </details>
           ) : null}
           {props.form.keys.length > 0 || props.form.semanticKey ? (
             <p data-testid="construction-reshape-group-missing-key-effect" className="m-0 text-xs text-slate-600">

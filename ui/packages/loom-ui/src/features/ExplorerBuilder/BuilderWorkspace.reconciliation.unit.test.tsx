@@ -1376,9 +1376,10 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('construction-reshape-editor')).toBeInTheDocument();
-      expect(screen.getByLabelText('Semantic category field')).toHaveProperty(
+      expect(screen.getByRole('checkbox', { name: 'Group by Specimen type' })).toHaveProperty(
         'value', `binding:${semanticCategory.bindingId}:${semanticCategory.ruleVersion}`,
       );
+      expect(screen.getByRole('checkbox', { name: 'Group by Specimen type' })).toHaveProperty('checked', true);
       expect(screen.getByRole('checkbox', { name: 'Group by Specimen identifier' })).toHaveProperty('checked', true);
     });
     expect(screen.queryByRole('dialog', { name: 'Row definition settings' })).not.toBeInTheDocument();

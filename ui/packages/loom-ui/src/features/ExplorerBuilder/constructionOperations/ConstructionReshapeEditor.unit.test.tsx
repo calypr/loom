@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   type ConstructionReshapeEditorProps,
@@ -299,7 +299,7 @@ describe('ConstructionReshapeEditor', () => {
       group: { keys: [{ inputColumnId: 'subject-reference-id' }] },
     });
 
-    fireEvent.change(screen.getByLabelText('Semantic category field'), { target: { value: 'choice:specimen-type-choice' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Group by Specimen type' }));
     expect(onCandidateChange).toHaveBeenCalledTimes(2);
     const semanticIntent = onCandidateChange.mock.lastCall?.[0];
     expect(semanticIntent?.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
@@ -326,6 +326,14 @@ describe('ConstructionReshapeEditor', () => {
         scopeLabel: 'retained records · Condition.code.coding[] · urn:example:condition · versionless',
         resourceType: 'Condition',
         sourcePath: 'code.coding',
+      }, {
+        choiceId: 'specimen-type-choice',
+        bindingId: 'specimen-type-binding',
+        ruleVersion: 'rule-v1',
+        label: 'Specimen type',
+        scopeLabel: 'retained records · Specimen.type.coding[] · urn:example:specimen · versionless',
+        resourceType: 'Specimen',
+        sourcePath: 'type.coding',
       }],
       semanticGroupChoicesIncomplete: true,
     };
@@ -345,10 +353,9 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByRole('group', { name: 'Summaries' })).toBeInTheDocument();
     expect(screen.getByText('Advanced options')).toBeInTheDocument();
     expect(controlChecked('Group by Site')).toBe(true);
-    expect(screen.getByText('Semantic category fields are available only when grouping directly from the starting source stage.')).toBeInTheDocument();
-    expect(screen.getByText('More semantic fields may exist than the bounded list shown here.')).toBeInTheDocument();
+    expect(screen.getByText('Some coded fields may be missing from this list; search only covers the fields currently available.')).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText('Semantic category field'), { target: { value: 'choice:condition-category-choice' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Group by Condition category' }));
 
     const intent = onCandidateChange.mock.lastCall?.[0];
     expect(intent).toBeDefined();
@@ -368,6 +375,20 @@ describe('ConstructionReshapeEditor', () => {
       semanticCategory: { kind: 'CHOICE', choiceId: 'condition-category-choice' },
       outputColumnId: expect.any(String),
     });
+    const otherSemanticChoice = screen.getByRole('checkbox', { name: 'Group by Specimen type' });
+    expect(otherSemanticChoice).toBeDisabled();
+    expect(otherSemanticChoice).toHaveAttribute('aria-describedby', 'construction-group-coded-key-limit');
+    expect(screen.getByRole('checkbox', { name: 'Group by Site' })).not.toBeDisabled();
+    expect(screen.getByTestId('construction-group-grain-summary')).toHaveTextContent('One row per unique combination of Site and Condition category.');
+    const candidateCount = onCandidateChange.mock.calls.length;
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search fields to group by' }), { target: { value: 'no matching field' } });
+    expect(screen.getByRole('checkbox', { name: 'Group by Site' })).toHaveProperty('checked', true);
+    expect(screen.getByRole('checkbox', { name: 'Group by Condition category' })).toHaveProperty('checked', true);
+    expect(screen.getByText('No other fields match this search.')).toBeInTheDocument();
+    expect(onCandidateChange).toHaveBeenCalledTimes(candidateCount);
+    fireEvent.click(screen.getByTestId('construction-group-by-clear-search'));
+    expect(screen.getByRole('checkbox', { name: 'Group by Site' })).toHaveProperty('checked', true);
+    expect(screen.getByRole('checkbox', { name: 'Group by Specimen type' })).toBeDisabled();
     expect(steps[0].operation.group.aggregates).toEqual([{
       operation: 'COUNT_ROWS',
       outputColumnId: expect.any(String),
@@ -410,6 +431,12 @@ describe('ConstructionReshapeEditor', () => {
         { id: 'count-id', name: 'row_count', label: 'Rows', type: 'integer' },
       ],
     };
+    const groupInputStage: ConstructionReshapeEditorProps['capabilities']['selectedStage'] = {
+      ...sourceStage,
+      columns: [...sourceStage.columns, {
+        id: 'condition-category-id', name: 'condition_category', label: 'Condition category', type: 'string', cardinality: 'optional_one',
+      }],
+    };
     const groupOutputStage: ConstructionReshapeEditorProps['capabilities']['selectedStage'] = {
       id: savedGroup.id,
       inputStageId: sourceStage.id,
@@ -423,7 +450,7 @@ describe('ConstructionReshapeEditor', () => {
       capabilities: [{ kind: 'GROUP', supported: true }],
     };
     const capabilities: ConstructionReshapeEditorProps['capabilities'] = {
-      ...capabilitiesFor([sourceStage, groupOutputStage], groupOutputStage),
+      ...capabilitiesFor([groupInputStage, groupOutputStage], groupOutputStage),
       stageId: sourceStage.id,
       baseConstruction: { version: 1, steps: [savedGroup] },
       semanticGroupChoices: [{
@@ -452,7 +479,10 @@ describe('ConstructionReshapeEditor', () => {
     });
 
     expect(controlChecked('Group by Site')).toBe(true);
-    expect(controlValue('Semantic category field')).toBe('binding:condition-code-binding:rule-v1');
+    const savedSemanticOption = screen.getByTestId('construction-group-semantic-option');
+    expect(within(savedSemanticOption).getByRole('checkbox')).toHaveProperty('value', 'binding:condition-code-binding:rule-v1');
+    expect(within(savedSemanticOption).getByRole('checkbox')).toHaveAttribute('aria-label', 'Group by Condition category (urn:example:condition · versionless)');
+    expect(within(savedSemanticOption).getByRole('checkbox')).toHaveProperty('checked', true);
     fireEvent.change(screen.getByLabelText('Summary output label 1'), { target: { value: 'Input rows' } });
 
     const intent = onCandidateChange.mock.lastCall?.[0];
@@ -969,8 +999,12 @@ describe('ConstructionReshapeEditor', () => {
     const onCandidateChange = vi.fn();
     renderEditor({ capabilities, initialKind: 'choose', selectedColumns: ['site-id'], relatedExpandContext, codedPivotContext, onCandidateChange });
     openReshapeIntent('group');
-    expect(screen.getByTestId('construction-reshape-choice-group')).toHaveTextContent('Group by table fields');
-    expect(screen.getByRole('region', { name: 'Available dataset fields' })).toBeInTheDocument();
+    expect(screen.getByTestId('construction-reshape-choice-group')).toHaveTextContent('Group by selected fields');
+    const advancedGroupModes = screen.getByTestId('construction-reshape-advanced-grouping');
+    expect(advancedGroupModes).not.toHaveAttribute('open');
+    expect(within(advancedGroupModes).getByRole('region', { name: 'Available dataset fields', hidden: true })).toBeInTheDocument();
+    fireEvent.click(within(advancedGroupModes).getByText('Advanced grouping modes'));
+    expect(advancedGroupModes).toHaveAttribute('open');
     expect(screen.getByText('Status')).toBeInTheDocument();
     expect(screen.getByText('Gender')).toBeInTheDocument();
     expect(screen.getByText('Examples: active · complete · in-progress')).toBeInTheDocument();
@@ -988,6 +1022,7 @@ describe('ConstructionReshapeEditor', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Change row operation' }));
     openReshapeIntent('group');
+    fireEvent.click(within(screen.getByTestId('construction-reshape-advanced-grouping')).getByText('Advanced grouping modes'));
     expect(screen.getByTestId('construction-reshape-source-field-choices')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Group by Gender' }));
     expect(screen.getByTestId('construction-reshape-source-group')).toBeInTheDocument();
@@ -1008,7 +1043,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.queryByRole('region', { name: 'Available dataset fields' })).not.toBeInTheDocument();
     expect(controlChecked('Group by Site')).toBe(true);
     expect(controlValue('Summary 1')).toBe('COUNT_ROWS');
-    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
+    expect(screen.getByRole('searchbox', { name: 'Search fields to group by' })).toBeInTheDocument();
     expect(groupPreview.mock.lastCall?.[0]).toBeUndefined();
 
     cleanup();

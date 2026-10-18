@@ -3381,6 +3381,7 @@ const BuilderWorkspaceContent = ({
     constructionLifecycle.capabilities.response.sourceInput.choices.some((choice) => choice.isPopulated);
   const stageGroupingAvailability = reshapeAvailabilityFor('GROUP');
   const codedPivotAvailability = reshapeAvailabilityFor('CODED_PIVOT');
+  const ordinaryGroupAvailable = stageGroupingAvailability.supported || codedPivotAvailability.supported;
   const tablePivotAvailability = constructionLifecycle.capabilities.status === 'ready' && constructionLifecycle.capabilities.response.pivotSourceInput?.supported
     ? { supported: true } : reshapeAvailabilityFor('PIVOT');
   const expandCapability = capabilityStage?.capabilities.find((candidate) => candidate.kind === 'EXPAND');
@@ -3389,15 +3390,14 @@ const BuilderWorkspaceContent = ({
       ? publicScalarListColumnIds(capabilityStage)
       : [],
   );
-  const groupEntries = [
-    ...(stageGroupingAvailability.supported || codedPivotAvailability.supported ? [{ kind: 'group' as const, label: 'By table column' }] : []),
-    ...(sourceGroupingAvailable ? [{ kind: 'source-group' as const, label: 'By source fields' }] : []),
-    ...(codedGroupingAvailable ? [{ kind: 'coded-group' as const, label: 'By recorded code' }] : []),
+  const groupAlternatives = [
+    ...(sourceGroupingAvailable ? [{ kind: 'source-group' as const, label: 'Source fields' }] : []),
+    ...(codedGroupingAvailable ? [{ kind: 'coded-group' as const, label: 'Recorded code' }] : []),
   ];
   const reshapeRowsAvailability = {
-    group: groupEntries.length > 0 ? { supported: true } : stageGroupingAvailability,
-    groupEntry: groupEntries[0]?.kind ?? 'group' as const,
-    groupAlternatives: groupEntries.slice(1),
+    group: ordinaryGroupAvailable ? { supported: true } : stageGroupingAvailability,
+    groupEntry: 'group' as const,
+    groupAlternatives,
     pivot: codedPivotAvailability.supported ? codedPivotAvailability : tablePivotAvailability,
     pivotPending: Boolean(capabilitiesRequest) && constructionLifecycle.capabilities.status === 'loading',
     pivotEntry: codedPivotAvailability.supported ? 'coded-pivot' as const : 'pivot' as const,

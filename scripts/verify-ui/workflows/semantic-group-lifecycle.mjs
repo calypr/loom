@@ -507,13 +507,6 @@ export async function semanticGroupLifecycle({ page, cda, testInfo }) {
     const selectedCheckbox = page.getByTestId(`construction-group-semantic-choice-${choiceId}`);
     assert.equal(await selectedCheckbox.getAttribute('data-semantic-choice-id'), choiceId);
     assert.equal(await selectedCheckbox.isChecked(), true, 'The exact Specimen type semantic checkbox must be checked.');
-    const scopeDetails = page.getByTestId(`construction-group-field-details-${choiceId}`);
-    const scopeText = scopeDetails.locator('p');
-    await action('show selected Specimen type family scope Details', scopeDetails.locator('summary'),
-      () => scopeDetails.locator('summary').click(),
-      () => scopeText.waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS }));
-    assert.equal(clean(await scopeText.textContent()), match.scopeLabel,
-      'The selected semantic family Details must display its exact source scope.');
     return { choiceId, label: semanticOutputLabel, scopeLabel: match.scopeLabel };
   };
 
@@ -538,10 +531,19 @@ export async function semanticGroupLifecycle({ page, cda, testInfo }) {
   assert(grainSummary.includes(scalarLabel), 'The Group screen must show the selected scalar grain.');
   assert(grainSummary.includes(semanticOutputLabel), 'The Group screen must show the selected Specimen type grain.');
   assert.equal(typeof testInfo?.attach, 'function', 'The native semantic Group test must provide Playwright testInfo for its screenshot.');
+  const selectedScopeDetails = page.getByTestId(`construction-group-field-details-${selectedFamily.choiceId}`);
+  assert.equal(await selectedScopeDetails.getAttribute('open'), null,
+    'The primary picker screenshot must show the selected field with its technical Details collapsed.');
   await testInfo.attach('semantic-group-initial-picker.png', {
     body: await page.screenshot({ fullPage: true }),
     contentType: 'image/png',
   });
+  const selectedScopeText = selectedScopeDetails.locator('p');
+  await action('show selected Specimen type family scope Details', selectedScopeDetails.locator('summary'),
+    () => selectedScopeDetails.locator('summary').click(),
+    () => selectedScopeText.waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS }));
+  assert.equal(clean(await selectedScopeText.textContent()), selectedFamily.scopeLabel,
+    'The selected semantic family Details must display its exact source scope.');
   const typedCandidateRequest = await typedRequest;
   const proposed = assertProposal(typedCandidateRequest, { scalar: true });
   const keyOutput = proposed.step.outputs?.find(output => output.id === proposed.semanticKey.outputColumnId);

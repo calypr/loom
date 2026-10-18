@@ -435,9 +435,9 @@ export const RowDefinitionSettingsPanel = ({
   readonly relatedRows: { readonly supported: boolean; readonly reason?: string };
   readonly reshapeRows: Record<'group' | 'pivot', { readonly supported: boolean; readonly reason?: string }> & {
     readonly pivotPending?: boolean;
-    readonly groupEntry: 'group' | 'source-group' | 'coded-group';
+    readonly groupEntry: 'group';
     readonly groupAlternatives: ReadonlyArray<{
-      readonly kind: 'group' | 'source-group' | 'coded-group';
+      readonly kind: 'source-group' | 'coded-group';
       readonly label: string;
     }>;
     readonly pivotEntry?: 'pivot' | 'coded-pivot';
@@ -875,29 +875,25 @@ export const RowDefinitionSettingsPanel = ({
                   className="flex min-h-[4.5rem] w-full min-w-0 flex-col justify-center rounded-lg px-3 py-2 text-left hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
                   <span className="block text-sm font-semibold text-slate-900">Group and summarize</span>
                   <span className={`block text-xs text-slate-600 ${reshapeRows.group.supported ? 'truncate' : 'whitespace-normal'}`} title={reshapeRows.group.supported
-                    ? reshapeRows.groupEntry === 'coded-group'
-                      ? 'Make one row for each distinct recorded code. Rows with the same code become one group row.'
-                      : reshapeRows.groupEntry === 'source-group'
-                        ? 'Make one row for each combination of field values you choose, without adding columns first.'
-                        : 'Make one row for each combination of matching values in the fields you choose.'
+                    ? 'Make one row for each unique combination of the fields you choose.'
                     : reshapeRows.group.reason}>{reshapeRows.group.supported
-                    ? reshapeRows.groupEntry === 'coded-group'
-                      ? 'Group rows by one recorded code.'
-                      : reshapeRows.groupEntry === 'source-group'
-                        ? 'Group on source fields without adding columns.'
-                        : 'Group by matching values in selected fields.'
+                    ? 'Choose fields that define each output row.'
                     : reshapeRows.group.reason}</span>
                 </button>
                 {reshapeRows.groupAlternatives.length > 0 ? (
-                  <div className="flex flex-wrap gap-1 border-t border-slate-200 px-2 py-1">
-                    {reshapeRows.groupAlternatives.map((alternative) => (
-                      <button key={alternative.kind} type="button" data-testid={`construction-action-${alternative.kind}-rows`}
-                        disabled={disabled} onClick={() => chooseReshape(alternative.kind)}
-                        className="rounded px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-50 disabled:opacity-50">
-                        {alternative.label}
-                      </button>
-                    ))}
-                  </div>
+                  <details className="border-t border-slate-200 px-3 py-2">
+                    <summary className="cursor-pointer text-xs font-medium text-blue-800">Advanced grouping modes</summary>
+                    <p className="mb-2 mt-1 text-xs text-slate-600">These methods use only the source fields or recorded-code choices available for this table.</p>
+                    <div className="flex flex-wrap gap-1">
+                      {reshapeRows.groupAlternatives.map((alternative) => (
+                        <button key={alternative.kind} type="button" data-testid={`construction-action-${alternative.kind}-rows`}
+                          disabled={disabled} onClick={() => chooseReshape(alternative.kind)}
+                          className="rounded px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-50 disabled:opacity-50">
+                          {alternative.label}
+                        </button>
+                      ))}
+                    </div>
+                  </details>
                 ) : null}
               </div>
               <button type="button" data-testid="construction-row-intent-reshape" aria-pressed={rowChangeIntent === 'reshape'}
