@@ -15,6 +15,9 @@ import { validatedArangoContainer } from '../helpers/native-cda-workflow-tools.m
 
 const ACTION_BUDGET_MS = 5_000;
 const clean = value => String(value ?? '').replace(/\s+/g, ' ').trim();
+const renderCell = value => Array.isArray(value)
+  ? value.map(item => clean(item)).join('; ')
+  : typeof value === 'string' ? clean(value) : value;
 const encode = value => encodeURIComponent(value);
 
 function readRawCodingRows(container, database, project, generation) {
@@ -61,36 +64,84 @@ function groupStepFor(state, outputId) {
   return documentFor(state, outputId).construction?.steps?.find(step => step.operation?.kind === 'GROUP');
 }
 
-function codingGroupKey(step) {
-  return (step?.operation?.group?.keys ?? []).find(key => key.fieldSource?.valueKind === 'CODING_IDENTITY');
+function codingGroupKey(step, { sourceKind, choiceId } = {}) {
+  return (step?.operation?.group?.keys ?? []).find(key => sourceKind === 'CHOICE'
+    ? key.fieldSource?.kind === 'CHOICE' && key.fieldSource.choiceId === choiceId
+    : key.fieldSource?.kind === 'BINDING' && key.fieldSource.valueKind === 'CODING_IDENTITY');
 }
 
-function scalarGroupKey(step) {
-  return (step?.operation?.group?.keys ?? []).find(key =>
-    key.fieldSource?.valueKind !== 'CODING_IDENTITY' && key.inputColumnId);
+function scalarGroupKey(step, { sourceKind, choiceId, canonicalPath = 'subject.reference' } = {}) {
+  return (step?.operation?.group?.keys ?? []).find(key => sourceKind === 'CHOICE'
+    ? key.fieldSource?.kind === 'CHOICE' && key.fieldSource.choiceId === choiceId
+    : key.fieldSource?.kind === 'BINDING' && key.fieldSource.valueKind === 'SCALAR' &&
+      key.fieldSource.canonicalPath === canonicalPath);
 }
 
-function assertCodingGroupKey(step, rowChoice, { scalar } = {}) {
+function assertCodingGroupKey(step, rowChoice, {
+  scalar,
+  sourceKind,
+  codingChoiceId,
+  scalarChoiceId,
+  subjectCandidate,
+} = {}) {
   assert.equal(step?.operation?.kind, 'GROUP', 'Expanded Coding identity must use ordinary GROUP.');
   const keys = step.operation.group?.keys ?? [];
-  const codingKey = codingGroupKey(step);
-  assert(codingKey, 'GROUP proposal must encode the current Coding item as fieldSource CODING_IDENTITY.');
-  const source = codingKey.fieldSource;
-  assert.equal(source.valueKind, 'CODING_IDENTITY');
-  const serializedSource = JSON.stringify(source);
-  assert(!serializedSource.includes('Observation.code.coding[]'),
-    'GROUP must not substitute the unrelated root Observation.code.coding[] path.');
-  if (source.path !== undefined) assert.equal(source.path, VALUE_CODEABLE_CONCEPT_CODING_PATH);
-  if (source.sourcePath !== undefined) assert.equal(source.sourcePath, VALUE_CODEABLE_CONCEPT_CODING_PATH);
-  if (source.codingPath !== undefined) assert.equal(source.codingPath, VALUE_CODEABLE_CONCEPT_CODING_PATH);
-  if (source.occurrenceId !== undefined) assert.equal(source.occurrenceId, 'base');
   assert.equal(keys.some(key => key.semanticCategory !== undefined), false,
     'The expanded current Coding item is a field source, not a root-wide semantic-inventory category.');
+  const codingKey = codingGroupKey(step, { sourceKind, choiceId: codingChoiceId });
+  assert(codingKey, `GROUP ${sourceKind} must bind the exact current Coding source choice.`);
+  const source = codingKey.fieldSource;
+  if (sourceKind === 'CHOICE') {
+    assert.equal(source.kind, 'CHOICE');
+    assert.equal(source.choiceId, codingChoiceId);
+  } else {
+    assert.equal(source.kind, 'BINDING');
+    assert.equal(source.valueKind, 'CODING_IDENTITY');
+    assert.equal(source.sourceStageId, 'source_projection');
+    assert.equal(typeof source.sourceShapeId, 'string');
+    assert(source.sourceShapeId.trim());
+    assert.equal(source.sourceRole, 'CURRENT_ITEM');
+    assert.equal(source.occurrenceId, 'base');
+    assert.equal(source.resourceType, 'Coding');
+    assert.equal(source.ownerOccurrenceId, 'base');
+    assert.equal(source.ownerResourceType, 'Observation');
+    assert.equal(source.canonicalPath, VALUE_CODEABLE_CONCEPT_CODING_PATH);
+    assert.equal(source.boundarySelector, undefined);
+    assert.equal(source.candidateId, undefined,
+      'The current Coding item BINDING must derive from the selected row occurrence, not a root field candidate.');
+    assert(!JSON.stringify(source).includes('Observation.code.coding[]'),
+      'GROUP must not substitute the unrelated root Observation.code.coding[] path.');
+  }
   assert(codingKey.outputColumnId, 'The current Coding identity must have a stable Group output.');
-  const scalarKey = scalarGroupKey(step);
+  const scalarKey = scalarGroupKey(step, { sourceKind, choiceId: scalarChoiceId,
+    canonicalPath: subjectCandidate?.fieldPath ?? 'subject.reference' });
   assert.equal(keys.length, scalar ? 2 : 1,
     `Expected ${scalar ? 'the exact scalar plus Coding identity' : 'Coding identity alone'} in the Group grain.`);
-  if (scalar) assert(scalarKey, 'Group proposal must include its selected scalar key.');
+  if (scalar) {
+    assert(scalarKey, `GROUP ${sourceKind} must include the exact scalar field-source choice.`);
+    const scalarSource = scalarKey.fieldSource;
+    if (sourceKind === 'CHOICE') {
+      assert.equal(scalarSource.kind, 'CHOICE');
+      assert.equal(scalarSource.choiceId, scalarChoiceId);
+    } else {
+      assert.equal(scalarSource.kind, 'BINDING');
+      assert.equal(scalarSource.valueKind, 'SCALAR');
+      assert.equal(scalarSource.sourceStageId, 'source_projection');
+      assert.equal(typeof scalarSource.sourceShapeId, 'string');
+      assert(scalarSource.sourceShapeId.trim());
+      assert(['OWNER', 'ROOT'].includes(scalarSource.sourceRole),
+        'The direct Observation.subject.reference key must resolve against the Observation owner/root.');
+      assert.equal(scalarSource.occurrenceId, 'base');
+      assert.equal(scalarSource.resourceType, 'Observation');
+      assert.equal(scalarSource.ownerOccurrenceId, 'base');
+      assert.equal(scalarSource.ownerResourceType, 'Observation');
+      assert.equal(typeof scalarSource.candidateId, 'string');
+      assert(scalarSource.candidateId.trim());
+      assert.equal(scalarSource.canonicalPath, subjectCandidate?.fieldPath ?? 'subject.reference');
+      assert.equal(scalarSource.boundarySelector, undefined);
+    }
+    assert(scalarKey.outputColumnId, 'The scalar Group output must have a stable binding.');
+  }
   else assert.equal(scalarKey, undefined);
   const aggregate = (step.operation.group.aggregates ?? []).find(item => item.operation === 'COUNT_ROWS');
   assert(aggregate, 'Expanded Coding Group must count source occurrences with COUNT_ROWS.');
@@ -103,13 +154,16 @@ function assertCodingGroupKey(step, rowChoice, { scalar } = {}) {
   return { codingKey, scalarKey, aggregate, keyOutput, aggregateOutput };
 }
 
-function expectedGroupGrid(step, records, { scalar } = {}) {
-  const { codingKey, scalarKey, aggregate, keyOutput, aggregateOutput } = assertCodingGroupKey(step, undefined, { scalar });
+function expectedGroupGrid(step, records, context = {}) {
+  const { scalar, sourceKind, codingChoiceId, scalarChoiceId, subjectCandidate } = context;
+  const { codingKey, scalarKey, aggregate, keyOutput, aggregateOutput } = assertCodingGroupKey(step, undefined, {
+    scalar, sourceKind, codingChoiceId, scalarChoiceId, subjectCandidate,
+  });
   const outputs = step.outputs ?? [];
   const headers = outputs.map(output => output.label);
   const rows = records.map(record => outputs.map(output => {
-    if (output.id === codingKey.outputColumnId) return record.display;
-    if (scalar && output.id === scalarKey.outputColumnId) return record.subjectReference;
+    if (output.id === codingKey.outputColumnId) return clean(record.display);
+    if (scalar && output.id === scalarKey.outputColumnId) return clean(record.subjectReference);
     if (output.id === aggregate.outputColumnId) return String(record.count);
     const rowValue = (step.rowValues ?? []).find(candidate => candidate.outputColumnId === output.id);
     if (rowValue) return record.ownerIDs.join('; ');
@@ -222,9 +276,8 @@ function requestHasGroupShape(request, { scalar, outputId }) {
     const step = body.candidateConstruction?.steps?.at(-1);
     if (step?.operation?.kind !== 'GROUP') return false;
     const keys = step.operation.group?.keys ?? [];
-    return Boolean(codingGroupKey(step) && keys.length === (scalar ? 2 : 1) &&
-      keys.some(key => key.fieldSource?.valueKind === 'CODING_IDENTITY') &&
-      Boolean(scalarGroupKey(step)) === scalar);
+    return keys.length === (scalar ? 2 : 1) &&
+      keys.every(key => key.fieldSource?.kind === 'CHOICE' && typeof key.fieldSource.choiceId === 'string');
   } catch {
     return false;
   }
@@ -358,6 +411,12 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
   cda.check('usability',
     'native source-row chooser exposes the exact Value Codeable Concept → Coding expansion on Observation',
     true, report.rowChoice);
+
+  let codingChoiceId;
+  let scalarChoiceId;
+  const assertGroupKey = (step, { scalar, sourceKind = 'BINDING' } = {}) => assertCodingGroupKey(step, rowChoice, {
+    scalar, sourceKind, codingChoiceId, scalarChoiceId, subjectCandidate,
+  });
 
   const uiURL = `${uiOrigin}/?project=${encode(project)}&explorer=${encode(explorer)}&mode=builder`;
   const proposalPath = `${authoringPath}/construction-proposals`;
@@ -590,14 +649,15 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
   const assertCandidate = (request, { scalar }) => {
     const step = groupProposalStep(request);
     const keys = step?.operation?.group?.keys ?? [];
-    assertCodingGroupKey(step, rowChoice, { scalar });
-    const codingKey = codingGroupKey(step);
-    assert.equal(JSON.stringify(codingKey.fieldSource).includes('Observation.code.coding[]'), false);
-    return { step, codingKey, scalarKey: keys.find(key => key.inputColumnId) };
+    const { codingKey, scalarKey } = assertGroupKey(step, { scalar, sourceKind: 'CHOICE' });
+    assert.equal(keys.filter(key => key.fieldSource?.kind === 'CHOICE').length, keys.length);
+    return { step, codingKey, scalarKey };
   };
-  const gridFor = (step, records, { scalar } = {}) => expectedGroupGrid(step, records, { scalar });
+  const gridFor = (step, records, { scalar, sourceKind }) => expectedGroupGrid(step, records, {
+    scalar, sourceKind, codingChoiceId, scalarChoiceId, subjectCandidate,
+  });
   const assertProposalGrid = async (step, records, { scalar, phase }) => {
-    const expected = gridFor(step, records, { scalar });
+    const expected = gridFor(step, records, { scalar, sourceKind: 'CHOICE' });
     await waitGridMatch(page, 'proposal', expected.headers, expected.rows);
     const actual = await readPreviewGrid(page, 'proposal');
     assert.deepEqual(actual.headers, expected.headers, `${phase} changed the exact Group output labels.`);
@@ -606,7 +666,7 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
     return { expected, actual };
   };
   const assertSavedGrid = async (step, records, { scalar, phase } = {}) => {
-    const expected = gridFor(step, records, { scalar });
+    const expected = gridFor(step, records, { scalar, sourceKind: 'BINDING' });
     await waitGridMatch(page, 'saved', expected.headers, expected.rows);
     const actual = await readPreviewGrid(page, 'saved');
     assert.deepEqual(actual.headers, expected.headers, `${phase} changed the exact saved Group output labels.`);
@@ -622,7 +682,13 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
     `Group must offer the expanded current Coding identity ${VALUE_CODEABLE_CONCEPT_CODING_PATH}: ${JSON.stringify(initialOptions)}`);
   const scalarOption = initialOptions.filter(option => isSubjectScalarChoice(option, subjectCandidate));
   assert.equal(scalarOption.length, 1, 'The Group editor must expose the exact source scalar key.');
+  codingChoiceId = sourceOption[0].value;
+  scalarChoiceId = scalarOption[0].value;
+  assert(codingChoiceId.trim(), 'The Coding source must expose its signed Group choice ID.');
+  assert(scalarChoiceId.trim(), 'The scalar source must expose its signed Group choice ID.');
   const selected = await chooseGroupOptions(initialGroupBox, { scalar: true, expectedShape: 'with-scalar' });
+  assert.equal(selected.codingOption.value, codingChoiceId);
+  assert.equal(selected.scalarOption.value, scalarChoiceId);
   const firstRequest = selected.finalRequest;
   const initialCandidate = assertCandidate(firstRequest, { scalar: true });
   const firstPreview = await assertProposalGrid(initialCandidate.step, oracle.expectedSubjectGroups, {
@@ -681,7 +747,11 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
   let savedGroup = getGroupStep(builder);
   assert(savedGroup?.id);
   assert.equal(savedGroup.id, firstStepID);
-  assertCodingGroupKey(savedGroup, rowChoice, { scalar: true });
+  assertGroupKey(savedGroup, { scalar: true });
+  const codingSourceBinding = codingGroupKey(savedGroup, { sourceKind: 'BINDING' }).fieldSource;
+  const scalarSourceBinding = scalarGroupKey(savedGroup, {
+    sourceKind: 'BINDING', canonicalPath: subjectCandidate.fieldPath,
+  }).fieldSource;
   assert.equal(getDocument(builder).columns.length, 0,
     'The Group operation must apply before a public source column is selected.');
   const appliedBeforeReload = await assertSavedGrid(savedGroup, oracle.expectedSubjectGroups, {
@@ -693,6 +763,22 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
       groupStepId: savedGroup.id,
       outputCount: savedGroup.outputs.length,
       groupRowCount: appliedBeforeReload.actual.rows.length,
+      codingBinding: {
+        kind: codingSourceBinding.kind,
+        valueKind: codingSourceBinding.valueKind,
+        sourceRole: codingSourceBinding.sourceRole,
+        occurrenceId: codingSourceBinding.occurrenceId,
+        ownerResourceType: codingSourceBinding.ownerResourceType,
+        canonicalPath: codingSourceBinding.canonicalPath,
+      },
+      scalarBinding: {
+        kind: scalarSourceBinding.kind,
+        valueKind: scalarSourceBinding.valueKind,
+        sourceRole: scalarSourceBinding.sourceRole,
+        occurrenceId: scalarSourceBinding.occurrenceId,
+        ownerResourceType: scalarSourceBinding.ownerResourceType,
+        canonicalPath: scalarSourceBinding.canonicalPath,
+      },
       oracleDigest: oracleSummary.digest,
     });
 
@@ -700,7 +786,7 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
   builder = await readBuilder();
   savedGroup = getGroupStep(builder);
   assert.equal(savedGroup?.id, firstStepID);
-  assertCodingGroupKey(savedGroup, rowChoice, { scalar: true });
+  assertGroupKey(savedGroup, { scalar: true });
   const reloadedBeforeEdit = await assertSavedGrid(savedGroup, oracle.expectedSubjectGroups, {
     scalar: true, phase: 'reloaded expanded Coding Group',
   });
@@ -730,6 +816,9 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
   assert.equal(editScalar.length, 1, 'Saved Group edit must rehydrate the exact subject scalar key.');
   assert.equal(editCoding[0].checked, true);
   assert.equal(editScalar[0].checked, true);
+  codingChoiceId = editCoding[0].value;
+  scalarChoiceId = editScalar[0].value;
+  assert(codingChoiceId.trim() && scalarChoiceId.trim(), 'Saved Group edit choices must retain exact capability-issued IDs.');
   const editRequest = proposalRequest('coding-only');
   const editReceipt = await proposalReceipt();
   const scalarCheckbox = page.getByTestId('construction-reshape-group')
@@ -761,7 +850,7 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
   assert.deepEqual(afterEditCancel.workspace, beforeEditCancel.workspace);
   assert.equal(afterEditCancel.draftVersion, beforeEditCancel.draftVersion);
   assert.equal(afterEditCancel.draftDigest, beforeEditCancel.draftDigest);
-  assertCodingGroupKey(getGroupStep(afterEditCancel), rowChoice, { scalar: true });
+  assertGroupKey(getGroupStep(afterEditCancel), { scalar: true });
   cda.check('persistence', 'Cancel preserves saved Coding Group scalar key, tuple counts, and draft identity', true, {
     draftVersion: afterEditCancel.draftVersion, draftDigest: afterEditCancel.draftDigest,
   });
@@ -775,9 +864,15 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
       await waitProposalPreview();
     });
   const reapplyOptions = await readCodingGroupOptions(page.getByTestId('construction-reshape-group'));
+  const reapplyCoding = reapplyOptions.filter(isExactCodingSourceChoice);
   const reapplyScalar = reapplyOptions.filter(option => isSubjectScalarChoice(option, subjectCandidate));
+  assert.equal(reapplyCoding.length, 1);
   assert.equal(reapplyScalar.length, 1);
+  assert.equal(reapplyCoding[0].checked, true);
   assert.equal(reapplyScalar[0].checked, true);
+  codingChoiceId = reapplyCoding[0].value;
+  scalarChoiceId = reapplyScalar[0].value;
+  assert(codingChoiceId.trim() && scalarChoiceId.trim());
   const reapplyRequest = proposalRequest('coding-only');
   const reapplyReceipt = await proposalReceipt();
   const reapplyCheckbox = page.getByTestId('construction-reshape-group')
@@ -797,7 +892,7 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
   builder = await readBuilder();
   savedGroup = getGroupStep(builder);
   assert.equal(savedGroup?.id, editedStepID);
-  assertCodingGroupKey(savedGroup, rowChoice, { scalar: false });
+  assertGroupKey(savedGroup, { scalar: false });
   const editedSavedGrid = await assertSavedGrid(savedGroup, oracle.expectedIdentityGroups, {
     scalar: false, phase: 'saved Coding-only Group edit',
   });
@@ -807,7 +902,7 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
   await reloadToTable(editedSavedGrid.expected);
   builder = await readBuilder();
   savedGroup = getGroupStep(builder);
-  assertCodingGroupKey(savedGroup, rowChoice, { scalar: false });
+  assertGroupKey(savedGroup, { scalar: false });
   const beforeColumnsGrid = await assertSavedGrid(savedGroup, oracle.expectedIdentityGroups, {
     scalar: false, phase: 'reloaded Coding-only Group',
   });
@@ -834,6 +929,9 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
   assert.equal(addScalarCoding[0].checked, true);
   assert.equal(addScalarSubject[0].checked, false,
     'The applied Coding-only edit must leave its scalar owner key unchecked before it is restored.');
+  codingChoiceId = addScalarCoding[0].value;
+  scalarChoiceId = addScalarSubject[0].value;
+  assert(codingChoiceId.trim() && scalarChoiceId.trim());
   const restoreScalarRequest = proposalRequest('with-scalar');
   const restoreScalarReceipt = await proposalReceipt();
   const restoreScalarCheckbox = page.getByTestId('construction-reshape-group')
@@ -851,7 +949,7 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
     });
   builder = await readBuilder();
   savedGroup = getGroupStep(builder);
-  assertCodingGroupKey(savedGroup, rowChoice, { scalar: true });
+  assertGroupKey(savedGroup, { scalar: true });
   const restoredScalarGrid = await assertSavedGrid(savedGroup, oracle.expectedSubjectGroups, {
     scalar: true, phase: 'saved Coding Group with restored scalar owner key',
   });
@@ -866,7 +964,7 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
   await reloadToTable(restoredScalarGrid.expected);
   builder = await readBuilder();
   savedGroup = getGroupStep(builder);
-  assertCodingGroupKey(savedGroup, rowChoice, { scalar: true });
+  assertGroupKey(savedGroup, { scalar: true });
   await assertSavedGrid(savedGroup, oracle.expectedSubjectGroups, {
     scalar: true, phase: 'reloaded Coding Group with restored scalar owner key',
   });
@@ -964,7 +1062,7 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
   const firstGroup = firstAdd.group;
   const { scalarKey: firstScalarKey,
     keyOutput: firstCodingOutput, aggregateOutput: firstCountOutput } =
-    assertCodingGroupKey(firstGroup, rowChoice, { scalar: true });
+    assertGroupKey(firstGroup, { scalar: true });
   const codingColumn = firstAdd.preview.columns.find(column =>
     column.column === firstCodingOutput.name || column.label === firstCodingOutput.label);
   const countColumn = firstAdd.preview.columns.find(column =>
@@ -988,8 +1086,7 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
   }));
   assertExactRows(firstAdd.preview.rows.map(row => firstAdd.preview.columns.map(column => row[column.column])), expectedAddRows,
     'Add columns contributor rehydration must match exact unique owner IDs and COUNT_ROWS multiplicity for each subject and Coding identity');
-  assertExactRows(firstAdd.previewRows.rows, expectedAddRows.map(row => row.map(value =>
-    Array.isArray(value) ? value.join('; ') : value)),
+  assertExactRows(firstAdd.previewRows.rows, expectedAddRows.map(row => row.map(renderCell)),
   'The visible Add columns proposal must display exact owner IDs and multiplicity-matched counts');
   cda.check('correctness',
     'Add columns rehydrates exact Observation owner IDs from pre-Group Coding occurrences with matching counts',
@@ -1022,8 +1119,7 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
   assertExactRows(appliedAdd.preview.rows.map(row =>
     appliedAdd.preview.columns.map(column => row[column.column])), expectedAddRows,
   'The fresh Add columns Apply proposal must reproduce exact subject-plus-Coding contributor values and occurrence counts');
-  assertExactRows(appliedAdd.previewRows.rows, expectedAddRows.map(row => row.map(value =>
-    Array.isArray(value) ? value.join('; ') : value)),
+  assertExactRows(appliedAdd.previewRows.rows, expectedAddRows.map(row => row.map(renderCell)),
   'The fresh Add columns Apply proposal must display the exact contributor values and counts');
   const applyColumns = page.getByTestId('construction-choice-proposal-panel').getByRole('button', { name: 'Apply columns', exact: true });
   await action('Apply exact Observation.id contributor column', applyColumns,
@@ -1033,7 +1129,7 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
     });
   builder = await readBuilder();
   savedGroup = getGroupStep(builder);
-  assertCodingGroupKey(savedGroup, rowChoice, { scalar: true });
+  assertGroupKey(savedGroup, { scalar: true });
   const savedIDColumn = getDocument(builder).columns.find(column => column.source?.field?.path === 'id');
   assert(savedIDColumn, 'Apply must save the exact Observation.id source column.');
   assert.equal(savedIDColumn.occurrenceId, 'base');
@@ -1045,8 +1141,8 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
   assert(savedRowValueOutput?.name && savedRowValueOutput?.label);
   const appliedContributorHeaders = savedGroup.outputs.map(output => output.label);
   const appliedContributorRows = oracle.expectedSubjectGroups.map(group => savedGroup.outputs.map(output => {
-    if (output.id === codingGroupKey(savedGroup).outputColumnId) return group.display;
-    if (output.id === scalarGroupKey(savedGroup).outputColumnId) return group.subjectReference;
+    if (output.id === codingGroupKey(savedGroup, { sourceKind: 'BINDING' }).outputColumnId) return clean(group.display);
+    if (output.id === scalarGroupKey(savedGroup, { sourceKind: 'BINDING', canonicalPath: subjectCandidate.fieldPath }).outputColumnId) return clean(group.subjectReference);
     if (output.id === savedGroup.operation.group.aggregates.find(item => item.operation === 'COUNT_ROWS')?.outputColumnId) return String(group.count);
     if (output.id === savedRowValue.outputColumnId) return group.ownerIDs.join('; ');
     assert.fail(`Applied Group output ${output.id} is not mapped to the exact raw Coding oracle.`);
@@ -1071,7 +1167,7 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
   await reloadToTable({ headers: appliedContributorHeaders, rows: appliedContributorRows });
   builder = await readBuilder();
   savedGroup = getGroupStep(builder);
-  assertCodingGroupKey(savedGroup, rowChoice, { scalar: true });
+  assertGroupKey(savedGroup, { scalar: true });
   const reloadedIDColumn = getDocument(builder).columns.find(column => column.columnId === savedIDColumn.columnId);
   assert(reloadedIDColumn);
   assert.equal(reloadedIDColumn.occurrenceId, savedIDColumn.occurrenceId);
@@ -1132,7 +1228,7 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
   assert.deepEqual(afterRemovalCancel.workspace, beforeRemovalCancel.workspace);
   assert.equal(afterRemovalCancel.draftVersion, beforeRemovalCancel.draftVersion);
   assert.equal(afterRemovalCancel.draftDigest, beforeRemovalCancel.draftDigest);
-  assertCodingGroupKey(getGroupStep(afterRemovalCancel), rowChoice, { scalar: false });
+  assertGroupKey(getGroupStep(afterRemovalCancel), { scalar: false });
   cda.check('persistence', 'Cancel preserves the expanded Coding Group and exact contributor values', true, {
     draftVersion: afterRemovalCancel.draftVersion, draftDigest: afterRemovalCancel.draftDigest,
   });

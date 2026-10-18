@@ -34,11 +34,11 @@ function normalizeSourceRows(rawRows, project, generation) {
     const codings = raw.codings.map((coding, index) => {
       assert.equal(coding.ordinal, index,
         `Coding ordinal ${coding.ordinal} does not preserve source-array order.`);
-      const system = typeof coding.system === 'string' && coding.system.trim() ? coding.system : null;
+      const system = typeof coding.system === 'string' ? coding.system : null;
       const version = typeof coding.version === 'string' && coding.version.trim() ? coding.version : null;
       assert.equal(typeof coding.code, 'string', `Coding item ${index} has no exact string code.`);
       assert(coding.code.trim(), `Coding item ${index} has a blank code.`);
-      const display = typeof coding.display === 'string' && coding.display.trim() ? clean(coding.display) : null;
+      const display = typeof coding.display === 'string' && coding.display.trim() ? coding.display : null;
       return { ordinal: index, system, version, code: coding.code, display };
     });
     if (codings.length === 0) return [];
@@ -77,7 +77,7 @@ function tupleBuckets(rows) {
 
 function selectRoots(rows) {
   const candidates = tupleBuckets(rows).filter(bucket => bucket.rows.size >= 2 && bucket.labels.size === 1 &&
-    bucket.coding.display && bucket.coding.display !== bucket.coding.code);
+    bucket.coding.display && clean(bucket.coding.display) !== clean(bucket.coding.code));
   const seed = candidates[0];
   assert(seed,
     'The bounded Observation source has no shared Coding identity with one useful display label across two distinct owners.');

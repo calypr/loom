@@ -92,6 +92,26 @@ test('expanded semantic Group oracle refuses a source row from another project o
   })), { project, generation }), /useful display label/);
 });
 
+test('oracle preserves exact string systems and raw nonblank display while blanking only version', () => {
+  const sourceRows = rows.map(row => ({
+    ...row,
+    codings: [...row.codings, {
+      ordinal: row.codings.length,
+      system: '',
+      version: '  ',
+      code: 'blank-system-code',
+      display: '  Raw  display  ',
+    }],
+  }));
+  const oracle = buildSemanticGroupExpandedOracle(sourceRows, { project, generation });
+  const exactTuple = oracle.familyTuples.find(tuple => tuple.code === 'blank-system-code');
+
+  assert.deepEqual(exactTuple, { system: '', version: null, code: 'blank-system-code' });
+  assert(oracle.occurrenceRows.every(row => row.identity.code !== 'blank-system-code' ||
+    (row.identity.system === '' && row.identity.version === null && row.display === '  Raw  display  ')));
+  assert(oracle.expectedSubjectGroups.some(group => group.display === '  Raw  display  '));
+});
+
 test('expanded Coding Group lifecycle is registered on the owned CDA scenario', () => {
   const scenario = registry.find(entry => entry.id === 'cda-workspace-combine');
   const registeredCase = scenario?.cases?.['semantic-group-expanded'];
