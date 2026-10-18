@@ -166,6 +166,7 @@ func lowerConstructionGroup(
 			physical.Keys = append(physical.Keys, physicalKey)
 			inputColumn.ID, inputColumn.Name = output.ID, output.Name
 			inputColumn.Label = constructionFirstNonEmpty(output.Label, output.Name)
+			inputColumn.Internal = false
 			metadataByOutputID[output.ID] = inputColumn
 			projectionByOutputID[output.ID] = inputProjection
 			projectionByOutputID[output.ID] = ir.PhysicalProjection{Name: output.Name, Value: ir.PhysicalValue{Variable: physicalKey.Variable}}

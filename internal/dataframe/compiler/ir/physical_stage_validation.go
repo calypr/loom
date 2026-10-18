@@ -1446,7 +1446,14 @@ func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalS
 	}
 	for index, key := range group.Keys {
 		input, ok := inputByName[key.InputColumn]
-		if !ok || input.Internal || input.Cardinality == "many" {
+		if !ok || input.Cardinality == "many" {
+			return fmt.Errorf("key %d column %q is not a public scalar input", index, key.InputColumn)
+		}
+		if key.FieldSource != nil {
+			if !key.InputInternal || !input.Internal || !validPhysicalGroupFieldSource(key.FieldSource, stage.InputStageID) {
+				return fmt.Errorf("key %d hidden input column %q has no exact source-stage authority", index, key.InputColumn)
+			}
+		} else if key.InputInternal || input.Internal {
 			return fmt.Errorf("key %d column %q is not a public scalar input", index, key.InputColumn)
 		}
 		kind, ok := physicalStageScalarKind(input.Kind)
@@ -1827,6 +1834,16 @@ func validatePhysicalStageRowValues(
 		seenOutputs[rowValue.Output] = true
 	}
 	return nil
+}
+
+func validPhysicalGroupFieldSource(source *PhysicalStageGroupFieldSource, inputStageID string) bool {
+	if source == nil || inputStageID == "" || source.SourceStageID != inputStageID || source.SourceShapeID == "" ||
+		(source.Role != "ROOT" && source.Role != "OWNER" && source.Role != "ANCESTOR" && source.Role != "CURRENT_ITEM") ||
+		source.OccurrenceID == "" || source.OwnerResourceType == "" || source.ResourceType == "" ||
+		source.CandidateID == "" || source.CanonicalPath == "" || source.SourceVariable == "" {
+		return false
+	}
+	return source.Role == "ANCESTOR" && source.BoundarySelector != "" || source.Role != "ANCESTOR" && source.BoundarySelector == ""
 }
 
 func physicalProjectionNameSet(projections []PhysicalProjection) map[string]bool {

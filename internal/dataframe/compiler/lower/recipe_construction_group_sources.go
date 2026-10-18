@@ -139,8 +139,9 @@ func lowerConstructionGroupScalarSource(
 	}
 	field := &ir.PhysicalStageGroupFieldSource{
 		SourceStageID: source.SourceStageID, SourceShapeID: source.SourceShapeID,
-		Role: source.SourceRole, OccurrenceID: source.OccurrenceID, ResourceType: source.ResourceType,
-		CandidateID: source.CandidateID, CanonicalPath: source.CanonicalPath,
+		Role: source.SourceRole, OccurrenceID: source.OccurrenceID, OwnerResourceType: source.OwnerResourceType,
+		ResourceType: source.ResourceType,
+		CandidateID:  source.CandidateID, CanonicalPath: source.CanonicalPath,
 		BoundarySelector: owner.BoundarySelector, SourceVariable: sourceVariable,
 	}
 	projection := ir.PhysicalProjection{Name: name, Hidden: true, Expression: &physicalExpression}
