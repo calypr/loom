@@ -231,7 +231,7 @@ function groupStepFor(builder, outputId) {
   return documentFor(builder, outputId).construction?.steps?.find(step => step.operation?.kind === 'GROUP');
 }
 
-function expectedGrid(step, oracle, choices, rowValueChoice) {
+function expectedGrid(step, oracle, choices, rowValueChoice, { includeArrayIndicators = false } = {}) {
   const rootKey = step.operation.group.keys.find(key =>
     key.fieldSource?.kind === 'CHOICE' ? key.fieldSource.choiceId === choices.patientID.fieldSource.choiceId
       : key.fieldSource?.valueKind === 'SCALAR' && key.fieldSource?.input?.currentStage?.canonicalPath === 'id');
@@ -248,7 +248,12 @@ function expectedGrid(step, oracle, choices, rowValueChoice) {
     if (output.id === rootKey.outputColumnId) return group.patientID;
     if (output.id === codingKey.outputColumnId) return group.display ?? '';
     if (output.id === count.outputColumnId) return String(group.count);
-    if (rowValue && output.id === rowValue.outputColumnId) return group.ownerIDs.join('; ');
+    if (rowValue && output.id === rowValue.outputColumnId) {
+      if (!includeArrayIndicators) return group.ownerIDs.join('; ');
+      if (group.ownerIDs.length === 0) return 'Empty list';
+      const countLabel = group.ownerIDs.length === 1 ? 'value' : 'values';
+      return `${group.ownerIDs.join('; ')} ${group.ownerIDs.length} ${countLabel}`;
+    }
     assert.fail(`Group output ${output.id} is not an exact key, COUNT_ROWS aggregate, or related RowValue.`);
   }));
   return { headers, rows: rows.map(row => row.map(displayCell)) };
@@ -786,7 +791,10 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
   assert.deepEqual(relatedRouteBindingIdentity(savedOwnerValue.fieldSource), relatedRouteBindingIdentity(savedCodingKeyAfterRowValue.fieldSource),
     'The related owner RowValue and Coding key must retain the same exact saved route and private occurrence continuity.');
   const finalExpected = expectedGrid(savedGroup, oracle, { patientID: patientIDChoice, coding: specimenCodingChoice }, specimenIDChoice);
-  const finalActual = await assertGrid(page, 'saved', finalExpected, 'saved connected Group with exact related-owner RowValue');
+  const finalSavedExpected = expectedGrid(savedGroup, oracle,
+    { patientID: patientIDChoice, coding: specimenCodingChoice }, specimenIDChoice, { includeArrayIndicators: true });
+  const finalActual = await assertGrid(page, 'saved', finalSavedExpected,
+    'saved connected Group with exact related-owner RowValue');
   cda.check('persistence',
     'Add columns rehydrates only the exact connected Specimen.id Group contributors and retains the route-bound source across reload',
     true, {
@@ -804,7 +812,7 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
   if (!await page.locator('[data-testid="preview-table-scroll"] [role="table"]').isVisible().catch(() => false)) {
     await page.getByTestId(`construction-table-${outputId}`).click({ timeout: ACTION_BUDGET_MS });
   }
-  const reloadedActual = await assertGrid(page, 'saved', finalExpected, 'reloaded connected Group RowValue');
+  const reloadedActual = await assertGrid(page, 'saved', finalSavedExpected, 'reloaded connected Group RowValue');
   builder = await api(`${authoringPath}/builder`);
   assert.equal(builder.draftDigest, beforeGroupReload.draftDigest,
     'Reload must preserve the exact connected Group RowValue draft digest.');
@@ -910,7 +918,7 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
   const groupAfterEditCancel = groupStepFor(builder, outputId);
   assert.deepEqual(groupAfterEditCancel, reloadedSavedGroup,
     'Canceling the saved Group edit must leave the exact Group keys and RowValue binding unchanged.');
-  await assertGrid(page, 'saved', finalExpected, 'connected Group after edit Cancel');
+  await assertGrid(page, 'saved', finalSavedExpected, 'connected Group after edit Cancel');
   cda.check('persistence',
     'Canceling connected Group edit preserves the saved exact route, Coding keys, contributor values, and draft identity',
     true, { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest, groupStepID: groupAfterEditCancel.id });
