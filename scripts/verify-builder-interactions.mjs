@@ -262,7 +262,11 @@ function runControllerTests() {
     ' todo. Report: ' + reportPath,
   );
   for (const suite of report.testResults.filter((entry) => entry.status !== 'passed')) {
-    console.error(suite.message);
+    if (suite.message?.trim()) console.error(suite.message);
+    for (const assertion of suite.assertionResults.filter((entry) => entry.status === 'failed')) {
+      console.error('Failed assertion: ' + assertion.fullName);
+      for (const message of assertion.failureMessages || []) console.error(message);
+    }
   }
   return {
     ...tests,
