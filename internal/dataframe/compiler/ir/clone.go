@@ -124,7 +124,24 @@ func clonePhysicalStageSequence(sequence *PhysicalStageSequence) *PhysicalStageS
 						Kind: PhysicalUnnestOp, Unnest: stage.Group.CodingKey.SourceUnnest,
 					}).Unnest
 				}
+				if stage.Group.CodingKey.RelatedSource != nil {
+					relatedCopy := *stage.Group.CodingKey.RelatedSource
+					relatedCopy.Route = append([]PhysicalStageGroupRelatedRouteStep(nil), stage.Group.CodingKey.RelatedSource.Route...)
+					codingCopy.RelatedSource = &relatedCopy
+				}
 				groupCopy.CodingKey = &codingCopy
+			}
+			if stage.Group.RelatedOccurrence != nil {
+				adapterCopy := *stage.Group.RelatedOccurrence
+				adapterCopy.RelatedRecords.RelatedRecords = clonePhysicalSubplan(stage.Group.RelatedOccurrence.RelatedRecords.RelatedRecords)
+				adapterCopy.RelatedRecords.Route = append([]PhysicalStageRelatedRouteStep(nil), stage.Group.RelatedOccurrence.RelatedRecords.Route...)
+				adapterCopy.ScalarProjections = append([]PhysicalStageGroupRelatedProjection(nil), stage.Group.RelatedOccurrence.ScalarProjections...)
+				if stage.Group.RelatedOccurrence.CodingUnnest != nil {
+					adapterCopy.CodingUnnest = clonePhysicalOperation(PhysicalOperation{
+						Kind: PhysicalUnnestOp, Unnest: stage.Group.RelatedOccurrence.CodingUnnest,
+					}).Unnest
+				}
+				groupCopy.RelatedOccurrence = &adapterCopy
 			}
 			groupCopy.Aggregates = append([]PhysicalStageGroupAggregate(nil), stage.Group.Aggregates...)
 			groupCopy.RowValues = clonePhysicalStageRowValues(stage.Group.RowValues)
@@ -196,17 +213,6 @@ func clonePhysicalStageGroupFieldSource(source *PhysicalStageGroupFieldSource) *
 	if source.RelatedOccurrence != nil {
 		related := *source.RelatedOccurrence
 		related.Route = append([]PhysicalStageGroupRelatedRouteStep(nil), source.RelatedOccurrence.Route...)
-		if source.RelatedOccurrence.RelatedRecords != nil {
-			relatedRecords := *source.RelatedOccurrence.RelatedRecords
-			relatedRecords.RelatedRecords = clonePhysicalSubplan(source.RelatedOccurrence.RelatedRecords.RelatedRecords)
-			relatedRecords.Route = append([]PhysicalStageRelatedRouteStep(nil), source.RelatedOccurrence.RelatedRecords.Route...)
-			related.RelatedRecords = &relatedRecords
-		}
-		if source.RelatedOccurrence.CodingUnnest != nil {
-			related.CodingUnnest = clonePhysicalOperation(PhysicalOperation{
-				Kind: PhysicalUnnestOp, Unnest: source.RelatedOccurrence.CodingUnnest,
-			}).Unnest
-		}
 		copy.RelatedOccurrence = &related
 	}
 	return &copy

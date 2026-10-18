@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperations []PhysicalOperation, bindVars map[string]any) error {
@@ -1448,6 +1450,29 @@ func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalS
 		return fmt.Errorf("input projections: %w", err)
 	}
 	defined := map[string]bool{stage.InputRowVariable: true}
+	if group.RelatedOccurrence != nil {
+		for _, variable := range []string{
+			group.RelatedOccurrence.RelatedRecords.RelatedRecordsVariable,
+			group.RelatedOccurrence.RelatedRecords.IndexVariable,
+			group.RelatedOccurrence.RelatedRecords.ItemVariable,
+			group.RelatedOccurrence.RouteHasItemVariable,
+		} {
+			if variable != "" {
+				if err := definePhysicalVariable(defined, variable); err != nil {
+					return fmt.Errorf("related route variable: %w", err)
+				}
+			}
+		}
+		if unnest := group.RelatedOccurrence.CodingUnnest; unnest != nil {
+			for _, variable := range []string{unnest.OutputVariable, unnest.HasItemVariable, unnest.Ordinality} {
+				if variable != "" {
+					if err := definePhysicalVariable(defined, variable); err != nil {
+						return fmt.Errorf("related Coding unnest variable: %w", err)
+					}
+				}
+			}
+		}
+	}
 	for index, projection := range stage.InputProjections {
 		if err := validatePhysicalProjection(projection, defined, bindVars); err != nil {
 			return fmt.Errorf("input projection %d (%q): %w", index, projection.Name, err)
@@ -1564,6 +1589,9 @@ func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalS
 	); err != nil {
 		return fmt.Errorf("row values: %w", err)
 	}
+	if err := validatePhysicalGroupRelatedOccurrenceAdapter(group, stage); err != nil {
+		return fmt.Errorf("related occurrence adapter: %w", err)
+	}
 	if err := definePhysicalVariable(defined, group.IdentityVariable); err != nil {
 		return fmt.Errorf("identity: %w", err)
 	}
@@ -1590,6 +1618,9 @@ func validatePhysicalStageCodingKey(
 	sourceIdentity string,
 	sourceOperations []PhysicalOperation,
 ) error {
+	if coding.RelatedSource != nil {
+		return validatePhysicalStageRelatedCodingKey(stage, coding, outputs, inputs, defined, sourceIdentity)
+	}
 	if stage.InputStageID != "source_projection" || sourceIdentity != "__loom_expansion_identity" ||
 		coding.SourceStageID != stage.InputStageID || coding.SourceShapeID == "" || coding.SourceOccurrenceKeyColumn == "" ||
 		coding.OwnerOccurrenceID == "" || coding.OwnerResourceType == "" || coding.CodingPath == "" ||
@@ -1642,6 +1673,69 @@ func validatePhysicalStageCodingKey(
 	occurrenceProjection, ok := sourceReturnProjection(sourceOperations, coding.SourceOccurrenceKeyColumn)
 	if !ok || !isExactExpansionOccurrenceProjection(occurrenceProjection, *unnest, bindVars) {
 		return fmt.Errorf("occurrence projection is not the exact root/route/owner/item/ordinal identity")
+	}
+	if err := definePhysicalVariable(defined, coding.InputTupleVariable); err != nil {
+		return fmt.Errorf("input tuple: %w", err)
+	}
+	if err := definePhysicalVariable(defined, coding.TupleVariable); err != nil {
+		return fmt.Errorf("tuple: %w", err)
+	}
+	if err := definePhysicalVariable(defined, coding.LabelVariable); err != nil {
+		return fmt.Errorf("label: %w", err)
+	}
+	return nil
+}
+
+func validatePhysicalStageRelatedCodingKey(
+	stage PhysicalConstructionStage,
+	coding PhysicalStageGroupCodingKey,
+	outputs, inputs map[string]PhysicalStageColumn,
+	defined map[string]bool,
+	sourceIdentity string,
+) error {
+	related := coding.RelatedSource
+	if stage.Group == nil {
+		return fmt.Errorf("Group payload is missing")
+	}
+	adapter := stage.Group.RelatedOccurrence
+	if related == nil || adapter == nil || stage.InputStageID != "source_projection" || sourceIdentity != "_key" ||
+		coding.SourceStageID != stage.InputStageID || coding.SourceShapeID != related.SourceShapeID ||
+		coding.SourceOccurrenceKeyColumn == "" || coding.SourceOccurrenceKeyColumn != adapter.OccurrenceKeyColumn ||
+		coding.SourceUnnest != nil || coding.OwnerOccurrenceID != related.TargetOccurrenceID ||
+		coding.OwnerResourceType != related.TargetResourceType || coding.CodingPath != related.CodingSelector ||
+		coding.MembershipColumn != related.MembershipColumn || coding.MembershipColumn != adapter.CodingMembershipColumn {
+		return fmt.Errorf("requires the exact Group-owned related target, Coding selector, and occurrence identity")
+	}
+	if related.RouteID != adapter.RouteID || related.EmptyPolicy != string(adapter.RelatedRecords.EmptyPolicy) ||
+		len(adapter.RelatedRecords.Route) == 0 ||
+		related.TargetOccurrenceID != adapter.RelatedRecords.Route[len(adapter.RelatedRecords.Route)-1].ToOccurrenceID ||
+		related.TargetNodeID != adapter.RelatedRecords.TargetNodeID || related.TargetResourceType != adapter.RelatedRecords.TargetResourceType ||
+		!physicalGroupRelatedRouteMatches(related.Route, adapter.RelatedRecords.Route) {
+		return fmt.Errorf("related Coding source differs from the exact Group-owned route")
+	}
+	if coding.OutputColumn == "" || coding.InputTupleVariable == "" || coding.TupleVariable == "" || coding.LabelVariable == "" ||
+		coding.MembershipColumn == "" || adapter.CodingSelector != coding.CodingPath || adapter.CodingUnnest == nil ||
+		adapter.CodingArrayColumn == "" || adapter.CodingUnnest.Ordinality == "" ||
+		adapter.CodingUnnest.EmptyPolicy != adapter.CodingEmptyPolicy ||
+		adapter.CodingUnnest.Expression.Kind != PhysicalValueExpression || adapter.CodingUnnest.Expression.Value == nil ||
+		adapter.CodingUnnest.Expression.Value.Variable != adapter.RelatedRecords.ItemVariable ||
+		!reflect.DeepEqual(adapter.CodingUnnest.Expression.Value.Path, []string{adapter.CodingArrayColumn}) {
+		return fmt.Errorf("related Coding selector has no exact typed array and ordinal operation")
+	}
+	output, ok := outputs[coding.OutputColumn]
+	if !ok || output.Internal || output.Kind != "string" || output.Cardinality != "required_one" {
+		return fmt.Errorf("output column %q must be a public scalar string", coding.OutputColumn)
+	}
+	membership, ok := inputs[coding.MembershipColumn]
+	if !ok || !membership.Internal || membership.Kind != "object" || membership.Cardinality != "optional_one" || !membership.Nullable {
+		return fmt.Errorf("membership column %q must be a hidden nullable Coding tuple object", coding.MembershipColumn)
+	}
+	occurrence, ok := inputs[coding.SourceOccurrenceKeyColumn]
+	if !ok || !occurrence.Internal || occurrence.Kind != "object" || occurrence.Cardinality != "required_one" {
+		return fmt.Errorf("occurrence column %q must be the hidden exact related target/Coding ordinal identity", coding.SourceOccurrenceKeyColumn)
+	}
+	if !stageInputRowProjection(stage, coding.MembershipColumn) || !stageInputRowProjection(stage, coding.SourceOccurrenceKeyColumn) {
+		return fmt.Errorf("membership and occurrence columns must be projected into the Group input")
 	}
 	if err := definePhysicalVariable(defined, coding.InputTupleVariable); err != nil {
 		return fmt.Errorf("input tuple: %w", err)
@@ -1891,7 +1985,8 @@ func validPhysicalGroupFieldSource(source *PhysicalStageGroupFieldSource, inputS
 			related.SourceStageID != inputStageID || related.SourceShapeID == "" || related.AnchorOccurrenceID == "" ||
 			related.AnchorNodeID == "" || related.AnchorResourceType == "" || related.TargetOccurrenceID == "" ||
 			related.TargetNodeID == "" || related.TargetResourceType == "" || related.ResourceType == "" ||
-			related.EmptyPolicy == "" || related.Multiplicity != "DISTINCT_TARGET_PER_INPUT" || len(related.Route) == 0 {
+			(related.EmptyPolicy != "PRESERVE_PARENT" && related.EmptyPolicy != "EXCLUDE" && related.EmptyPolicy != "ERROR") ||
+			related.RouteID == "" || related.Multiplicity != "DISTINCT_TARGET_PER_INPUT" || len(related.Route) == 0 {
 			return false
 		}
 		fromOccurrence, fromNode, fromResource := related.AnchorOccurrenceID, related.AnchorNodeID, related.AnchorResourceType
@@ -1907,12 +2002,160 @@ func validPhysicalGroupFieldSource(source *PhysicalStageGroupFieldSource, inputS
 			return false
 		}
 		if related.CodingSelector == "" {
-			return related.CandidateID != "" && related.CanonicalPath != "" && related.CodingEmptyPolicy == "" && related.OrdinalSemantics == ""
+			return related.CandidateID != "" && related.CanonicalPath != "" && related.CodingEmptyPolicy == "" &&
+				related.OrdinalSemantics == "" && related.ProjectionColumn != "" && related.MembershipColumn == ""
 		}
-		return related.CandidateID == "" && related.CanonicalPath == "" && related.OrdinalSemantics == "ZERO_BASED_POSITION_IN_FLATTENED_EXPANSION_ARRAY" &&
-			(related.CodingEmptyPolicy == "PRESERVE_PARENT" || related.CodingEmptyPolicy == "EXCLUDE" || related.CodingEmptyPolicy == "ERROR")
+		return related.CandidateID == "" && related.CanonicalPath == "" && related.ProjectionColumn == "" &&
+			related.MembershipColumn != "" && related.OrdinalSemantics == "ZERO_BASED_POSITION_IN_FLATTENED_EXPANSION_ARRAY" &&
+			(related.CodingEmptyPolicy == "GROUP" || related.CodingEmptyPolicy == "EXCLUDE" || related.CodingEmptyPolicy == "ERROR")
 	default:
 		return false
+	}
+}
+
+func physicalGroupRelatedRouteMatches(source []PhysicalStageGroupRelatedRouteStep, actual []PhysicalStageRelatedRouteStep) bool {
+	if len(source) == 0 || len(source) != len(actual) {
+		return false
+	}
+	for index, route := range source {
+		step := actual[index]
+		if route.StepIndex != index || route.StepIndex != step.StepIndex ||
+			route.FromOccurrenceID != step.FromOccurrenceID || route.ToOccurrenceID != step.ToOccurrenceID ||
+			route.EdgeID != step.EdgeID || route.FromNodeID != step.FromNodeID ||
+			route.ToNodeID != step.ToNodeID || route.FromResourceType != step.FromResourceType ||
+			route.ToResourceType != step.ToResourceType || route.Relationship != step.Relationship ||
+			route.StorageDirection != step.StorageDirection || route.MatchMode != step.MatchMode {
+			return false
+		}
+	}
+	return true
+}
+
+func physicalGroupRelatedReturnSelector(records *PhysicalStageRelatedExpand, output, resourceType, canonicalPath string) bool {
+	if records == nil || strings.TrimSpace(canonicalPath) == "" ||
+		records.RelatedRecords.Return.Kind != PhysicalObjectExpression || records.RelatedRecords.Return.Object == nil {
+		return false
+	}
+	for _, field := range records.RelatedRecords.Return.Object.Fields {
+		if field.Name != output || field.Expression.Kind != PhysicalExtractExpression || field.Expression.Extract == nil ||
+			field.Expression.Extract.ResourceType != resourceType ||
+			physicalSelectorCanonicalPath(field.Expression.Extract.Selector) != canonicalPath {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func physicalSelectorCanonicalPath(selector spec.Selector) string {
+	parts := make([]string, 0, len(selector.Steps))
+	for _, step := range selector.Steps {
+		part := step.Field
+		if step.Iterate {
+			part += "[]"
+		} else if step.Index != nil {
+			part += fmt.Sprintf("[%d]", *step.Index)
+		}
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, ".")
+}
+
+func validatePhysicalGroupRelatedOccurrenceAdapter(group PhysicalStageGroup, stage PhysicalConstructionStage) error {
+	var sources []*PhysicalStageGroupRelatedOccurrenceFieldSource
+	for index := range group.Keys {
+		if group.Keys[index].FieldSource != nil && group.Keys[index].FieldSource.RelatedOccurrence != nil {
+			sources = append(sources, group.Keys[index].FieldSource.RelatedOccurrence)
+		}
+	}
+	for index := range group.RowValues {
+		if group.RowValues[index].FieldSource != nil && group.RowValues[index].FieldSource.RelatedOccurrence != nil {
+			sources = append(sources, group.RowValues[index].FieldSource.RelatedOccurrence)
+		}
+	}
+	if group.CodingKey != nil && group.CodingKey.RelatedSource != nil {
+		sources = append(sources, group.CodingKey.RelatedSource)
+	}
+	if len(sources) == 0 {
+		if group.RelatedOccurrence != nil {
+			return fmt.Errorf("unreferenced related route adapter")
+		}
+		return nil
+	}
+	adapter := group.RelatedOccurrence
+	if adapter == nil || adapter.RouteID == "" || adapter.RelatedRecords.RouteID != adapter.RouteID ||
+		adapter.RelatedRecords.Multiplicity != "DISTINCT_TARGET_PER_INPUT" ||
+		len(adapter.RelatedRecords.Route) == 0 ||
+		adapter.RelatedRecords.RelatedRecords.Unique != true || adapter.RelatedRecords.RelatedRecords.Sort == nil ||
+		adapter.RelatedRecords.EmptyPolicy == "" {
+		return fmt.Errorf("missing or incomplete exact route adapter")
+	}
+	projections := make(map[string]PhysicalStageGroupRelatedProjection, len(adapter.ScalarProjections))
+	for _, projection := range adapter.ScalarProjections {
+		if projection.InputColumn == "" || projection.ResultField == "" || projection.OwnerResourceType == "" || projection.ValueResourceType == "" ||
+			projection.CandidateID == "" || projection.CanonicalPath == "" || projections[projection.InputColumn].InputColumn != "" ||
+			!physicalGroupRelatedReturnSelector(&adapter.RelatedRecords, projection.ResultField, projection.OwnerResourceType, projection.CanonicalPath) {
+			return fmt.Errorf("scalar route projection %q is not an exact selected target field", projection.InputColumn)
+		}
+		projections[projection.InputColumn] = projection
+	}
+	codingSources := 0
+	for _, source := range sources {
+		related := source
+		if related.RouteID != adapter.RouteID || related.EmptyPolicy != string(adapter.RelatedRecords.EmptyPolicy) ||
+			related.TargetOccurrenceID != adapter.RelatedRecords.Route[len(adapter.RelatedRecords.Route)-1].ToOccurrenceID ||
+			related.TargetNodeID != adapter.RelatedRecords.TargetNodeID || related.TargetResourceType != adapter.RelatedRecords.TargetResourceType ||
+			!physicalGroupRelatedRouteMatches(related.Route, adapter.RelatedRecords.Route) {
+			return fmt.Errorf("bound field does not match the Group-owned related route")
+		}
+		if related.CodingSelector == "" {
+			projection, ok := projections[related.ProjectionColumn]
+			if !ok || projection.CandidateID != related.CandidateID || projection.CanonicalPath != related.CanonicalPath || projection.ValueResourceType != related.ResourceType {
+				return fmt.Errorf("bound scalar is missing its exact route projection")
+			}
+			continue
+		}
+		codingSources++
+		wantCodingEmptyPolicy, policyOK := physicalGroupCodingEmptyPolicy(related.CodingEmptyPolicy)
+		if adapter.CodingSelector != related.CodingSelector || adapter.CodingArrayColumn == "" || !policyOK ||
+			adapter.CodingEmptyPolicy != wantCodingEmptyPolicy ||
+			adapter.OrdinalSemantics != related.OrdinalSemantics || adapter.CodingMembershipColumn != related.MembershipColumn ||
+			adapter.CodingUnnest == nil || adapter.CodingUnnest.Ordinality == "" ||
+			adapter.CodingUnnest.EmptyPolicy != adapter.CodingEmptyPolicy ||
+			adapter.CodingUnnest.Expression.Kind != PhysicalValueExpression || adapter.CodingUnnest.Expression.Value == nil ||
+			adapter.CodingUnnest.Expression.Value.Variable != adapter.RelatedRecords.ItemVariable ||
+			len(adapter.CodingUnnest.Expression.Value.Path) != 1 || adapter.CodingUnnest.Expression.Value.Path[0] != adapter.CodingArrayColumn ||
+			!physicalGroupRelatedReturnSelector(&adapter.RelatedRecords, adapter.CodingArrayColumn, related.TargetResourceType, related.CodingSelector) {
+			return fmt.Errorf("bound Coding selector lacks its exact typed target projection and ordinal operation")
+		}
+	}
+	if codingSources > 1 {
+		return fmt.Errorf("Group supports one Coding identity route source")
+	}
+	if (adapter.CodingSelector == "") != (adapter.CodingUnnest == nil) {
+		return fmt.Errorf("Coding route projection and ordinal operation disagree")
+	}
+	if adapter.RelatedRecords.EmptyPolicy != PhysicalUnnestPreserveParent && adapter.RelatedRecords.EmptyPolicy != PhysicalUnnestExclude && adapter.RelatedRecords.EmptyPolicy != PhysicalUnnestError {
+		return fmt.Errorf("route empty policy %q is unsupported", adapter.RelatedRecords.EmptyPolicy)
+	}
+	for _, source := range sources {
+		if !validPhysicalGroupFieldSource(&PhysicalStageGroupFieldSource{Kind: PhysicalStageGroupFieldSourceRelatedOccurrence, RelatedOccurrence: source}, stage.InputStageID) {
+			return fmt.Errorf("related field authority is malformed")
+		}
+	}
+	return nil
+}
+
+func physicalGroupCodingEmptyPolicy(policy string) (PhysicalUnnestEmptyPolicy, bool) {
+	switch policy {
+	case "GROUP":
+		return PhysicalUnnestPreserveParent, true
+	case "EXCLUDE":
+		return PhysicalUnnestExclude, true
+	case "ERROR":
+		return PhysicalUnnestError, true
+	default:
+		return "", false
 	}
 }
 

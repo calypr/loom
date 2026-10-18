@@ -150,6 +150,7 @@ type PhysicalStageGroup struct {
 	Keys                        []PhysicalStageGroupKey
 	SemanticKey                 *PhysicalStageGroupSemanticKey
 	CodingKey                   *PhysicalStageGroupCodingKey
+	RelatedOccurrence           *PhysicalStageGroupRelatedOccurrenceAdapter
 	Aggregates                  []PhysicalStageGroupAggregate
 	RowValues                   []PhysicalStageRowValue
 }
@@ -261,6 +262,7 @@ type PhysicalStageGroupCurrentStageFieldSource struct {
 }
 
 type PhysicalStageGroupRelatedOccurrenceFieldSource struct {
+	RouteID            string
 	SourceStageID      string
 	SourceShapeID      string
 	AnchorOccurrenceID string
@@ -278,9 +280,34 @@ type PhysicalStageGroupRelatedOccurrenceFieldSource struct {
 	CodingSelector     string
 	CodingEmptyPolicy  string
 	OrdinalSemantics   string
-	AnchorVariable     string
-	RelatedRecords     *PhysicalStageRelatedExpand
-	CodingUnnest       *PhysicalUnnest
+	ProjectionColumn   string
+	MembershipColumn   string
+}
+
+// PhysicalStageGroupRelatedOccurrenceAdapter is the one Group-owned route
+// expansion shared by every key and RowValue bound to the same related route.
+// Its target projection contains only selected scalars or one Coding array.
+type PhysicalStageGroupRelatedOccurrenceAdapter struct {
+	RouteID                string
+	RelatedRecords         PhysicalStageRelatedExpand
+	ScalarProjections      []PhysicalStageGroupRelatedProjection
+	CodingSelector         string
+	CodingArrayColumn      string
+	CodingEmptyPolicy      PhysicalUnnestEmptyPolicy
+	OrdinalSemantics       string
+	CodingUnnest           *PhysicalUnnest
+	CodingMembershipColumn string
+	OccurrenceKeyColumn    string
+	RouteHasItemVariable   string
+}
+
+type PhysicalStageGroupRelatedProjection struct {
+	InputColumn       string
+	ResultField       string
+	OwnerResourceType string
+	ValueResourceType string
+	CandidateID       string
+	CanonicalPath     string
 }
 
 type PhysicalStageGroupRelatedRouteStep struct {
@@ -312,6 +339,7 @@ type PhysicalStageGroupCodingKey struct {
 	OwnerResourceType         string
 	CodingPath                string
 	SourceUnnest              *PhysicalUnnest
+	RelatedSource             *PhysicalStageGroupRelatedOccurrenceFieldSource
 }
 
 // PhysicalStageGroupSemanticKey expands one exact semantic coding family per
@@ -376,8 +404,11 @@ type PhysicalStageRelatedSource struct {
 // resource reached from a retained root key. The terminal _id and parent row
 // identity are retained as hidden columns for downstream related-field stages.
 type PhysicalStageRelatedExpand struct {
+	RouteID                string
+	Multiplicity           string
 	AnchorColumnID         string
 	AnchorKind             string
+	AnchorOccurrenceID     string
 	AnchorNodeID           string
 	AnchorResourceType     string
 	RootContributorColumn  string
@@ -410,9 +441,12 @@ type PhysicalStageRelatedField struct {
 }
 
 type PhysicalStageRelatedRouteStep struct {
+	StepIndex        int
+	FromOccurrenceID string
 	EdgeID           string
 	FromNodeID       string
 	ToNodeID         string
+	ToOccurrenceID   string
 	FromResourceType string
 	ToResourceType   string
 	Relationship     string
