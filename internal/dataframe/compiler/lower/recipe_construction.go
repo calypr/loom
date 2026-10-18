@@ -187,6 +187,29 @@ func appendGroupSourceProjectionColumns(schema []CompiledOutputColumn, additiona
 	return result
 }
 
+func constructionFirstGroupHasBoundFieldSource(construction recipe.Construction) bool {
+	if len(construction.Steps) == 0 || construction.Steps[0].Operation.Kind != recipe.ConstructionGroupOp || construction.Steps[0].Operation.Group == nil {
+		return false
+	}
+	valid := func(source *recipe.ConstructionGroupFieldSource) bool {
+		return source != nil && source.Kind == "BINDING" && source.SourceStageID == recipe.ConstructionSourceProjectionID &&
+			source.SourceShapeID != "" && source.SourceRole != "" && source.OccurrenceID != "" &&
+			source.OwnerResourceType != "" && source.ResourceType != "" && source.CanonicalPath != "" &&
+			(source.ValueKind == "SCALAR" || source.ValueKind == "CODING_IDENTITY")
+	}
+	for _, key := range construction.Steps[0].Operation.Group.Keys {
+		if valid(key.FieldSource) {
+			return true
+		}
+	}
+	for _, rowValue := range construction.Steps[0].RowValues {
+		if valid(rowValue.FieldSource) {
+			return true
+		}
+	}
+	return false
+}
+
 type constructionStageResult struct {
 	physical                     ir.PhysicalConstructionStage
 	schema                       []CompiledOutputColumn
@@ -218,8 +241,10 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 		construction.Steps[0].Operation.RelatedExpand != nil && construction.Steps[0].Operation.RelatedExpand.AnchorColumnID == "_key" &&
 		len(publicCompiledSchema(sourceSchema)) == 0 && constructionSourceIdentity(sourceSchema) != "" &&
 		rootResourceType != "" && rootResourceType == plan.Source.ResourceType
+	allowEmptyBoundGroupSource := len(construction.SourceColumns) == 0 && constructionFirstGroupHasBoundFieldSource(construction) &&
+		constructionSourceIdentity(sourceSchema) != "" && rootResourceType != "" && rootResourceType == plan.Source.ResourceType
 	allowEmptyIdentitySource := len(construction.SourceColumns) == 0 && constructionSourceIdentity(sourceSchema) != "" &&
-		(len(construction.Steps) == 0 || allowEmptyRootRelatedExpandSource)
+		(len(construction.Steps) == 0 || allowEmptyRootRelatedExpandSource || allowEmptyBoundGroupSource)
 	if len(construction.SourceColumns) == 0 && !allowEmptyIdentitySource &&
 		(len(construction.Steps) == 0 || construction.Steps[0].Operation.Kind != recipe.ConstructionCodedPivotOp) {
 		return nil, nil, "", fmt.Errorf("construction source schema must be supplied by the resolved source compiler")
