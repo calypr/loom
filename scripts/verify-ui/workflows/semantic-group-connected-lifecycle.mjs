@@ -494,10 +494,7 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
   const groupStarted = Date.now();
   await groupAction.click({ timeout: ACTION_BUDGET_MS });
   await page.getByTestId('construction-reshape-group').waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
-  await waitProposalReady(page);
   const groupCapabilitiesResponse = await groupCapabilitiesPromise;
-  assert(Date.now() - groupStarted <= ACTION_BUDGET_MS,
-    'Opening Group and loading its exact source capabilities exceeded five seconds.');
   assert(groupCapabilitiesResponse.ok(), `Group capabilities returned HTTP ${groupCapabilitiesResponse.status()}.`);
   const groupCapabilities = await groupCapabilitiesResponse.json();
   assert.equal(groupCapabilities.outputId, outputId);
@@ -516,6 +513,11 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
     `Group field capabilities must offer exactly the routed Specimen.type.coding[] identity: ${JSON.stringify(groupChoices)}.`);
   const patientIDChoice = patientIDChoices[0];
   const specimenCodingChoice = specimenCodingChoices[0];
+  const groupBox = page.getByTestId('construction-reshape-group');
+  await groupBox.getByTestId(`construction-group-field-choice-${patientIDChoice.fieldSource.choiceId}`)
+    .waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
+  assert(Date.now() - groupStarted <= ACTION_BUDGET_MS,
+    'Opening Group and loading its exact source capabilities exceeded five seconds.');
   const codingRoute = relatedFacts(specimenCodingChoice);
   assert(codingRoute?.routeId, 'The Coding Group choice must carry its exact relatedOccurrence.routeId.');
   for (const choice of [patientIDChoice, specimenCodingChoice]) {
@@ -538,7 +540,6 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
       oracleDigest: oracleEvidence.digest,
     });
 
-  const groupBox = page.getByTestId('construction-reshape-group');
   const receipt = () => page.getByTestId('construction-proposal-preview').getAttribute('data-preview-receipt-id').catch(() => null);
   const groupRequest = async choice => {
     const requestPromise = page.waitForRequest(request => {
