@@ -281,10 +281,11 @@ func lowerConstructionGroupCodingKey(
 		})
 	}
 	key := ir.PhysicalStageGroupCodingKey{
-		OutputColumn:     output.Name,
-		TupleVariable:    allocateConstructionVariable(usedVariables, "group_coding_tuple", stepIndex),
-		LabelVariable:    allocateConstructionVariable(usedVariables, "group_coding_label", stepIndex),
-		MembershipColumn: membershipColumn, SourceStageID: source.SourceStageID,
+		OutputColumn:       output.Name,
+		InputTupleVariable: allocateConstructionVariable(usedVariables, "group_coding_input_tuple", stepIndex),
+		TupleVariable:      allocateConstructionVariable(usedVariables, "group_coding_tuple", stepIndex),
+		LabelVariable:      allocateConstructionVariable(usedVariables, "group_coding_label", stepIndex),
+		MembershipColumn:   membershipColumn, SourceStageID: source.SourceStageID,
 		SourceShapeID: source.SourceShapeID, SourceOccurrenceKeyColumn: occurrenceKey,
 		OwnerOccurrenceID: unnest.Owner.OccurrenceID, OwnerResourceType: unnest.Owner.ResourceType,
 		CodingPath:   source.CanonicalPath,

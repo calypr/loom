@@ -1621,6 +1621,9 @@ func validatePhysicalStageCodingKey(
 	if !ok || !isExactExpansionOccurrenceProjection(occurrenceProjection, *unnest, bindVars) {
 		return fmt.Errorf("occurrence projection is not the exact root/route/owner/item/ordinal identity")
 	}
+	if err := definePhysicalVariable(defined, coding.InputTupleVariable); err != nil {
+		return fmt.Errorf("input tuple: %w", err)
+	}
 	if err := definePhysicalVariable(defined, coding.TupleVariable); err != nil {
 		return fmt.Errorf("tuple: %w", err)
 	}

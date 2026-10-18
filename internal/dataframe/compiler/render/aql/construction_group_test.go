@@ -353,7 +353,7 @@ func TestCodingIdentityGroupStreamsTupleCountAndNullableDisplayMin(t *testing.T)
 					GroupRowsVariable: "group_rows", IdentityVariable: "row_id", ConstructionIDBindKey: "construction_id",
 					MissingKeyPolicy: policy,
 					CodingKey: &ir.PhysicalStageGroupCodingKey{
-						OutputColumn: "coding_label", TupleVariable: "coding_tuple", LabelVariable: "coding_label_value",
+						OutputColumn: "coding_label", InputTupleVariable: "coding_input_tuple", TupleVariable: "coding_tuple", LabelVariable: "coding_label_value",
 						MembershipColumn: "coding_membership", SourceOccurrenceKeyColumn: "coding_occurrence",
 						SourceStageID: "source_projection", SourceShapeID: "group-source-shape-v1:test",
 						OwnerOccurrenceID: "root-observation", OwnerResourceType: "Observation", CodingPath: "valueCodeableConcept.coding[]",
@@ -370,9 +370,9 @@ func TestCodingIdentityGroupStreamsTupleCountAndNullableDisplayMin(t *testing.T)
 				"FILTER ASSERT(__loom_physical_test_construction_group_coding_membership.system == null OR TYPENAME(__loom_physical_test_construction_group_coding_membership.system) == \"string\", \"CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH\")",
 				"FILTER ASSERT(__loom_physical_test_construction_group_coding_membership.version == null OR TYPENAME(__loom_physical_test_construction_group_coding_membership.version) == \"string\", \"CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH\")",
 				"FILTER ASSERT(__loom_physical_test_construction_group_coding_membership.display == null OR TYPENAME(__loom_physical_test_construction_group_coding_membership.display) == \"string\", \"CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH\")",
-				"LET coding_tuple = [__loom_physical_test_construction_group_coding_membership.system, (TRIM(__loom_physical_test_construction_group_coding_membership.version) != \"\" ? __loom_physical_test_construction_group_coding_membership.version : null)",
+				"LET coding_input_tuple = [__loom_physical_test_construction_group_coding_membership.system, (TRIM(__loom_physical_test_construction_group_coding_membership.version) != \"\" ? __loom_physical_test_construction_group_coding_membership.version : null)",
 				"TRIM(__loom_physical_test_construction_group_coding_membership.code) != \"\" ? __loom_physical_test_construction_group_coding_membership.code : null",
-				"COLLECT coding_tuple = coding_tuple AGGREGATE __loom_physical_test_construction_group_count_rows = SUM(1), __loom_physical_test_construction_group_coding_min_display = MIN(__loom_physical_test_construction_group_coding_display)",
+				"COLLECT coding_tuple = coding_input_tuple AGGREGATE __loom_physical_test_construction_group_count_rows = SUM(1), __loom_physical_test_construction_group_coding_min_display = MIN(__loom_physical_test_construction_group_coding_display)",
 				"coding_label_value = (__loom_physical_test_construction_group_coding_min_display != null ? __loom_physical_test_construction_group_coding_min_display : coding_tuple[2])",
 			} {
 				if !strings.Contains(query, want) {
@@ -381,15 +381,15 @@ func TestCodingIdentityGroupStreamsTupleCountAndNullableDisplayMin(t *testing.T)
 			}
 			switch policy {
 			case ir.PhysicalStageGroupMissingKeyGroup:
-				if strings.Contains(query, "FILTER ASSERT(coding_tuple[2]") || strings.Contains(query, "FILTER coding_tuple[2]") {
+				if strings.Contains(query, "FILTER ASSERT(coding_input_tuple[2]") || strings.Contains(query, "FILTER coding_input_tuple[2]") {
 					t.Fatalf("GROUP missing-key policy unexpectedly filters missing code:\n%s", query)
 				}
 			case ir.PhysicalStageGroupMissingKeyExclude:
-				if !strings.Contains(query, "FILTER coding_tuple[2] != null") {
+				if !strings.Contains(query, "FILTER coding_input_tuple[2] != null") {
 					t.Fatalf("EXCLUDE policy did not filter missing code:\n%s", query)
 				}
 			case ir.PhysicalStageGroupMissingKeyError:
-				if !strings.Contains(query, "FILTER ASSERT(coding_tuple[2] != null, \"CONSTRUCTION_GROUP_MISSING_KEY\")") {
+				if !strings.Contains(query, "FILTER ASSERT(coding_input_tuple[2] != null, \"CONSTRUCTION_GROUP_MISSING_KEY\")") {
 					t.Fatalf("ERROR policy did not assert missing code:\n%s", query)
 				}
 			}

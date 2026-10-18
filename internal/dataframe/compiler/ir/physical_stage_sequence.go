@@ -232,21 +232,23 @@ type PhysicalStageGroupKey struct {
 // PhysicalStageGroupFieldSource retains the exact selector owner used to
 // produce one private scalar Group input projection.
 type PhysicalStageGroupFieldSource struct {
-	SourceStageID    string
-	SourceShapeID    string
-	Role             string
-	OccurrenceID     string
-	ResourceType     string
-	CandidateID      string
-	CanonicalPath    string
-	BoundarySelector string
-	SourceVariable   string
+	SourceStageID     string
+	SourceShapeID     string
+	Role              string
+	OccurrenceID      string
+	OwnerResourceType string
+	ResourceType      string
+	CandidateID       string
+	CanonicalPath     string
+	BoundarySelector  string
+	SourceVariable    string
 }
 
 // PhysicalStageGroupCodingKey groups one compiler-proven Coding item by its
 // exact system/version/code tuple while keeping display as a separate label.
 type PhysicalStageGroupCodingKey struct {
 	OutputColumn              string
+	InputTupleVariable        string
 	TupleVariable             string
 	LabelVariable             string
 	MembershipColumn          string

@@ -155,7 +155,7 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 	codingDisplayAggregateVariable := ""
 	if group.CodingKey != nil {
 		coding := group.CodingKey
-		if group.SemanticKey != nil || coding.MembershipColumn == "" || coding.TupleVariable == "" || coding.LabelVariable == "" {
+		if group.SemanticKey != nil || coding.MembershipColumn == "" || coding.InputTupleVariable == "" || coding.TupleVariable == "" || coding.LabelVariable == "" {
 			return nil, fmt.Errorf("CODING_IDENTITY Group key is incomplete or conflicts with a semantic family key")
 		}
 		membershipBind := r.newInternalBindKey("construction_group_coding_membership_column")
@@ -173,19 +173,19 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 		codingDisplayVariable = r.newInternalVariable("construction_group_coding_display")
 		codingDisplayAggregateVariable = r.newInternalVariable("construction_group_coding_min_display")
 		lines = append(lines,
-			fmt.Sprintf("  LET %s = [%s, %s, %s]", coding.TupleVariable, system, version, code),
+			fmt.Sprintf("  LET %s = [%s, %s, %s]", coding.InputTupleVariable, system, version, code),
 			fmt.Sprintf("  LET %s = %s", codingDisplayVariable, display),
 		)
 		switch group.MissingKeyPolicy {
 		case ir.PhysicalStageGroupMissingKeyGroup:
 		case ir.PhysicalStageGroupMissingKeyExclude:
-			lines = append(lines, fmt.Sprintf("  FILTER %s[2] != null", coding.TupleVariable))
+			lines = append(lines, fmt.Sprintf("  FILTER %s[2] != null", coding.InputTupleVariable))
 		case ir.PhysicalStageGroupMissingKeyError:
-			lines = append(lines, fmt.Sprintf("  FILTER ASSERT(%s[2] != null, \"CONSTRUCTION_GROUP_MISSING_KEY\")", coding.TupleVariable))
+			lines = append(lines, fmt.Sprintf("  FILTER ASSERT(%s[2] != null, \"CONSTRUCTION_GROUP_MISSING_KEY\")", coding.InputTupleVariable))
 		default:
 			return nil, fmt.Errorf("unsupported missing-key policy %q", group.MissingKeyPolicy)
 		}
-		collectKeys = append(collectKeys, fmt.Sprintf("%s = %s", coding.TupleVariable, coding.TupleVariable))
+		collectKeys = append(collectKeys, fmt.Sprintf("%s = %s", coding.TupleVariable, coding.InputTupleVariable))
 		sortKeys = append(sortKeys, coding.TupleVariable+" ASC")
 		outputID := ""
 		for _, column := range stage.OutputColumns {

@@ -582,12 +582,7 @@ func groupSourceRowVariable(sourcePlan ir.PhysicalPlan, sequence *ir.PhysicalSta
 		return ""
 	}
 	if len(layout.unnests) == 1 {
-		if group.CodingKey != nil {
-			if len(group.Keys) != 0 || len(group.Aggregates) != 1 || group.Aggregates[0].Operation != "COUNT_ROWS" || len(group.RowValues) != 0 {
-				return ""
-			}
-		} else if len(group.Keys) != 1 || len(group.Aggregates) != 1 ||
-			group.Aggregates[0].Operation != "COUNT_ROWS" || len(group.RowValues) != 0 {
+		if group.SemanticKey != nil || group.CodingKey == nil && len(group.Keys) == 0 && len(group.RowValues) == 0 {
 			return ""
 		}
 	}
