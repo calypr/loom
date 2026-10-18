@@ -31,11 +31,12 @@ frontend work adds supported Expand paths and does not change backend behavior.
   Unpivoting compatible scalar columns is supported. Direct list inputs need a
   new contract for item pairing, cardinality, nulls, and row identity before
   backend work is proposed.
-- Coded Group is currently bound to the direct source projection. Choice
-  discovery returns no choices at later stages, and proposal authorization
-  rejects inputs from any other stage (`internal/explorer/lifecycle/construction_proposal.go`).
-  Grouping coded fields after an authored operation needs an explicit
-  stage/identity contract.
+- Connected Group now supports an observed scalar or Coding field on one
+  canonical route from the direct root, plus a scalar RowValue from the exact
+  saved contributor route after Group. The compiler owns that expansion; the
+  public source shape is unchanged. Arbitrary later-stage routes and combining
+  independent relationship branches remain unsupported. See “Connected Group
+  related Coding lifecycle and scale limit” for the runtime boundary and follow-ups.
 - Versioned coded Pivot categories remain unsupported. The UI filters them,
   and the backend rejects a non-empty coding version while it reauthorizes the
   category against its exact frame and source identity
@@ -628,3 +629,13 @@ Full lifecycle closure remains unproven: `/tmp/loom-append-binding-fixed-native-
 ### Combine architecture review after product lifecycle closure
 
 Review ownership of `clickHouseArtifactIdentityFromChartifact` in dataframe execution and `RenderWorkspaceClickHouseCombine` in the ClickHouse renderer. The user flagged repeated identity translation and the workspace renderer boundary in commit `017e64030` as architectural debt. Passing behavior tests do not resolve that concern. Keep product lifecycle verification first; then assess whether a shared identity contract and clearer rendering ownership can remove unnecessary translation without weakening scope, authorization, or generation guarantees.
+
+## Connected Group related Coding lifecycle and scale limit — verified 2026-10-18
+
+The connected Group implementation is integrated on `feature/construction-workspace` at merge commit `73b12a5ee9f160477da64e704db2ce6513860464`. The registered real-CDA case `cda-workspace-combine / semantic-group-connected` passed 10/10 required checks and 12 report assertions. It selected two Patient roots, grouped the observed inbound `subject_Patient` Specimen `type.coding[]` tuples with exact system/version/code identity, added `Specimen.id` from the saved contributors after Group, and verified preview/apply, edit/cancel, removal, reload, and restoration. Both picker and applied-grid screenshots are retained with run `M6k7Sv`; the source and API fingerprints stayed unchanged during the run. This proves this supported route and workflow, not every FHIR relationship or semantic-coverage objective.
+
+The full-scope Patient → inbound Specimen `type.coding[]` `COUNT_ROWS` preview remains unresolved under the existing 8-second/256-MiB limits. The reviewed root-reuse candidate selected an existing scoped index in EXPLAIN but its one execution was killed at 8,111 ms (HTTP 410 / Arango error 1500), returning no rows or execution counters. AQL SHA-256 `2e0e15b36dd96ca64a3d19dfc78f2fc4bfca49dffa13583d429d013c15b3d097`; bind SHA-256 `5513a5b9946aceaeaf68be95668e9ba8377facf4b2b571bca59af8814f98af0`. Do not report a speedup or raise the limit. A broader streamed route/target/Coding aggregation plan needs separate review.
+
+Separate baseline failure: `TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP` still fails on pre-reconciliation base `d9b7253a2` because the CURRENT_ITEM Coding key requires exact source-projection expansion identity and compiler source-shape binding. The connected RELATED_OCCURRENCE lifecycle does not cover or claim to fix that path.
+
+UI follow-up: the applied screenshot shows both Patient.id and Specimen.id as “Logical id of this artifact.” Add a resource/route prefix so the two available identities are distinguishable. This is a label-clarity follow-up; it did not block or alter the passing lifecycle.
