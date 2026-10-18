@@ -140,7 +140,10 @@ func (s *Service) appendRelatedGroupFieldChoices(
 				}
 			}
 			for _, selector := range observed.codingSelectors {
-				related, sourceShapeID, resolveErr := resolveRelatedGroupSource(compilerContext, "CODING_IDENTITY", anchor, resolvedRoute, "Coding", "", "", selector.path, "PRESERVE_PARENT")
+				related, sourceShapeID, resolveErr := resolveRelatedGroupSource(
+					compilerContext, "CODING_IDENTITY", anchor, resolvedRoute, "Coding", "", "", selector.path,
+					string(recipe.ConstructionGroupCodingEmptyPolicyGroup),
+				)
 				if resolveErr != nil {
 					continue
 				}

@@ -395,7 +395,7 @@ func (source *GroupFieldChoiceSource) normalizeAndValidateInput() error {
 			related.CodingEmptyPolicy == "" || related.OrdinalSemantics == "" || source.RowChoiceID == "" {
 			return fmt.Errorf("Coding identity RELATED_OCCURRENCE choice requires exact observed Coding selector facts")
 		}
-		if related.CodingEmptyPolicy != "" && related.CodingEmptyPolicy != "PRESERVE_PARENT" && related.CodingEmptyPolicy != "EXCLUDE" && related.CodingEmptyPolicy != "ERROR" {
+		if related.CodingEmptyPolicy != "" && related.CodingEmptyPolicy != "GROUP" && related.CodingEmptyPolicy != "EXCLUDE" && related.CodingEmptyPolicy != "ERROR" {
 			return fmt.Errorf("RELATED_OCCURRENCE Coding empty policy is unsupported")
 		}
 		source.SourceRole = "RELATED_OCCURRENCE"

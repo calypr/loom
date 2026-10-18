@@ -982,7 +982,7 @@ func (source ConstructionGroupFieldSource) Validate() error {
 		} else if related.CandidateID != "" || related.CanonicalPath != "" || related.CodingSelector == "" || related.OrdinalSemantics == "" || related.CodingEmptyPolicy == "" {
 			return fmt.Errorf("Coding identity RELATED_OCCURRENCE binding requires Coding selector, empty policy, and ordinal semantics")
 		}
-		if related.CodingEmptyPolicy != "" && related.CodingEmptyPolicy != "PRESERVE_PARENT" && related.CodingEmptyPolicy != "EXCLUDE" && related.CodingEmptyPolicy != "ERROR" {
+		if related.CodingEmptyPolicy != "" && related.CodingEmptyPolicy != "GROUP" && related.CodingEmptyPolicy != "EXCLUDE" && related.CodingEmptyPolicy != "ERROR" {
 			return fmt.Errorf("unsupported Coding identity empty policy %q", related.CodingEmptyPolicy)
 		}
 	default:

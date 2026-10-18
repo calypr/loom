@@ -91,7 +91,7 @@ func TestRecipeConstructionStepCopiesRelatedFieldSourceRouteForGroupKeyAndRowVal
 			}},
 			TargetOccurrenceID: "related-observation", TargetNodeID: "observation-node", TargetResourceType: "Observation",
 			ResourceType: "Coding", EmptyPolicy: "PRESERVE_PARENT", Multiplicity: "DISTINCT_TARGET_PER_INPUT",
-			CodingSelector: "type.coding[]", CodingEmptyPolicy: "PRESERVE_PARENT",
+			CodingSelector: "type.coding[]", CodingEmptyPolicy: "GROUP",
 			OrdinalSemantics: recipe.ConstructionGroupRelatedOrdinalSemanticsZeroBasedPosition,
 		}},
 	}

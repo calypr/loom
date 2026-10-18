@@ -2,11 +2,13 @@ package lifecycle
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -313,6 +315,93 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 		relatedID.RelatedOccurrence.RouteID == "" || relatedID.RelatedOccurrence.RouteID != coding.RelatedOccurrence.RouteID {
 		t.Fatalf("scalar and Coding choices do not share the exact route identity: scalar=%#v coding=%#v", relatedID.RelatedOccurrence, coding.RelatedOccurrence)
 	}
+	identity, err := capability.DecodeConstructionChoiceID(coding.FieldSource.ChoiceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codingChoiceSource := identity.Source.(capability.GroupFieldChoiceSource)
+	if got := codingChoiceSource.Input.RelatedOccurrence.CodingEmptyPolicy; got != "GROUP" {
+		t.Fatalf("signed related Coding choice empty policy = %q, want recipe GROUP policy", got)
+	}
+
+	base.stages = []explorer.ReceiptConstructionStage{stage}
+	service := &Service{}
+	proposal := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+		ID: "group", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
+			ConstructionID: "group", MissingKeyPolicy: authoringv2.ConstructionGroupMissingKeyGroup,
+			Keys: []authoringv2.ConstructionGroupKey{
+				{FieldSource: rootID.FieldSource, OutputColumnID: "patient-id"},
+				{FieldSource: coding.FieldSource, OutputColumnID: "specimen-type"},
+			},
+			Aggregates: []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: "row-count"}},
+		}},
+		Outputs: []authoringv2.StageColumn{
+			{ID: "patient-id", Name: "patient_id", Type: "string"},
+			{ID: "specimen-type", Name: "specimen_type", Type: "string"},
+			{ID: "row-count", Name: "row_count", Type: "integer"},
+		},
+	}}}
+	resolved, err := service.resolveConstructionGroupFieldSources(context.Background(), base, "patients", proposal)
+	if err != nil {
+		t.Fatalf("resolve Patient.id and related Coding choices: %v", err)
+	}
+	resolvedKeys := resolved.Steps[0].Operation.Group.Keys
+	if len(resolvedKeys) != 2 || resolvedKeys[1].FieldSource == nil || resolvedKeys[1].FieldSource.Kind != "BINDING" {
+		t.Fatalf("resolved Group keys = %#v, want scalar plus related Coding BINDING", resolvedKeys)
+	}
+	encoded, err := json.Marshal(resolvedKeys[1].FieldSource)
+	if err != nil {
+		t.Fatalf("marshal resolved Coding BINDING: %v", err)
+	}
+	var recipeCoding recipe.ConstructionGroupFieldSource
+	if err := json.Unmarshal(encoded, &recipeCoding); err != nil {
+		t.Fatalf("decode compiler recipe Coding BINDING: %v", err)
+	}
+	if recipeCoding.Input == nil || recipeCoding.Input.Kind != "RELATED_OCCURRENCE" || recipeCoding.Input.RelatedOccurrence == nil {
+		t.Fatalf("resolved related Coding recipe input = %#v, want RELATED_OCCURRENCE", recipeCoding.Input)
+	}
+	relatedBinding := recipeCoding.Input.RelatedOccurrence
+	if relatedBinding.CandidateID != "" || relatedBinding.CanonicalPath != "" || relatedBinding.CodingSelector != "type.coding[]" ||
+		relatedBinding.CodingEmptyPolicy != recipe.ConstructionGroupCodingEmptyPolicyGroup ||
+		relatedBinding.OrdinalSemantics != recipe.ConstructionGroupRelatedOrdinalSemanticsZeroBasedPosition {
+		t.Fatalf("resolved related Coding identity facts = %#v, want exact selector/ordinal and no scalar candidate", relatedBinding)
+	}
+	encoded, err = json.Marshal(resolvedKeys[0].FieldSource)
+	if err != nil {
+		t.Fatalf("marshal resolved Patient.id BINDING: %v", err)
+	}
+	var recipePatientID recipe.ConstructionGroupFieldSource
+	if err := json.Unmarshal(encoded, &recipePatientID); err != nil {
+		t.Fatalf("decode compiler recipe Patient.id BINDING: %v", err)
+	}
+	recipeConstruction := recipe.Construction{Version: 1, Steps: []recipe.ConstructionStep{{
+		ID: "group", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+			ConstructionID: "group", MissingKeyPolicy: recipe.ConstructionGroupMissingKeyGroup,
+			Keys: []recipe.ConstructionGroupKey{
+				{FieldSource: &recipePatientID, OutputColumnID: "patient-id"},
+				{FieldSource: &recipeCoding, OutputColumnID: "specimen-type"},
+			},
+			Aggregates: []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "row-count"}},
+		}},
+		Outputs: []recipe.StageColumn{
+			{ID: "patient-id", Name: "patient_id", Type: "string"},
+			{ID: "specimen-type", Name: "specimen_type", Type: "string"},
+			{ID: "row-count", Name: "row_count", Type: "integer"},
+		},
+	}}}
+	if err := recipeConstruction.Validate(nil); err != nil {
+		t.Fatalf("validate resolved related Coding recipe BINDING: %v", err)
+	}
+	compilerContext, err := groupFieldCompilerContext(base, stage, stage.GroupFieldSourceContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lower.BindGroupRelatedOccurrenceSource(compilerContext, recipeCoding); err != nil {
+		t.Fatalf("compiler rebind of resolved Coding BINDING: %v", err)
+	}
+
 	for _, choice := range []*ConstructionGroupFieldChoice{relatedID, coding} {
 		identity, decodeErr := capability.DecodeConstructionChoiceID(choice.FieldSource.ChoiceID)
 		if decodeErr != nil {
