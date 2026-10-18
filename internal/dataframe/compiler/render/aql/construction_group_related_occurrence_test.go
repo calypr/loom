@@ -88,6 +88,54 @@ func TestRelatedOccurrenceGroupRequiresExactCodingArrayProjection(t *testing.T) 
 	}
 }
 
+func TestRelatedGroupAdapterRouteCollectionBindSurvivesRenderedBindPruning(t *testing.T) {
+	stage := relatedOccurrenceGroupStage(ir.PhysicalUnnestPreserveParent)
+	adapter := stage.Group.RelatedOccurrence
+	if err := validateConstructionGroupRelatedOccurrenceRendererShape(adapter); err != nil {
+		t.Fatalf("validate related Group adapter: %v", err)
+	}
+	const edgeCollectionBindKey = "related_expand_0_hop_1_edge_collection"
+	const edgeCollectionValue = "subject_Patient_edge_collection"
+	adapter.RelatedRecords.RelatedRecords.Operations = []ir.PhysicalOperation{{
+		Kind: ir.PhysicalCollectionScanOp,
+		CollectionScan: &ir.PhysicalCollectionScan{
+			Variable: "related_target", CollectionBindKey: edgeCollectionBindKey,
+		},
+	}}
+	bindVars := map[string]any{edgeCollectionBindKey: edgeCollectionValue}
+	plan := ir.PhysicalPlan{
+		BindVars:      bindVars,
+		StageSequence: &ir.PhysicalStageSequence{Stages: []ir.PhysicalConstructionStage{stage}},
+	}
+	collectionKeys, err := collectionBindKeys(plan)
+	if err != nil {
+		t.Fatalf("collect Group adapter collection binds: %v", err)
+	}
+	if _, ok := collectionKeys[edgeCollectionBindKey]; !ok {
+		t.Fatalf("Group adapter route bind %q was omitted from collection keys: %#v", edgeCollectionBindKey, collectionKeys)
+	}
+	renderer := &physicalPlanRenderer{
+		bindVars:       runtimePhysicalBindVars(bindVars, collectionKeys),
+		collectionKeys: collectionKeys,
+		reservedVars:   map[string]struct{}{},
+		internalPrefix: "test_",
+	}
+	lines, err := renderer.renderConstructionGroupStage(stage, constructionGroupInput{SourceRowInScope: true})
+	if err != nil {
+		t.Fatalf("render related Group adapter: %v", err)
+	}
+	query := strings.Join(lines, "\n")
+	if !strings.Contains(query, "@@"+edgeCollectionBindKey) {
+		t.Fatalf("related Group query omitted its adapter edge collection bind:\n%s", query)
+	}
+	rendered := RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(renderer.bindVars, query)}
+	collection, ok := rendered.BindVars["@"+edgeCollectionBindKey]
+	if !ok || collection != edgeCollectionValue {
+		t.Fatalf("related Group rendered bind %q = %#v, present=%v; want adapter collection value %#v; binds=%#v",
+			"@"+edgeCollectionBindKey, collection, ok, edgeCollectionValue, rendered.BindVars)
+	}
+}
+
 func TestRelatedScalarGroupOmitsCodingExpansionAndRetainsNullOrdinalIdentity(t *testing.T) {
 	renderer := &physicalPlanRenderer{
 		bindVars:       map[string]any{"construction_id": "group"},
