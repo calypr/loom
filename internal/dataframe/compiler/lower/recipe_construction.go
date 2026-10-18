@@ -187,15 +187,66 @@ func appendGroupSourceProjectionColumns(schema []CompiledOutputColumn, additiona
 	return result
 }
 
+func physicalGroupRelatedAdapterInputColumn(group *ir.PhysicalStageGroup, name string) bool {
+	if group == nil || group.RelatedOccurrence == nil || name == "" {
+		return false
+	}
+	adapter := group.RelatedOccurrence
+	if name == adapter.CodingMembershipColumn || name == adapter.OccurrenceKeyColumn {
+		return true
+	}
+	for _, projection := range adapter.ScalarProjections {
+		if projection.InputColumn == name {
+			return true
+		}
+	}
+	return false
+}
+
 func constructionFirstGroupHasBoundFieldSource(construction recipe.Construction) bool {
 	if len(construction.Steps) == 0 || construction.Steps[0].Operation.Kind != recipe.ConstructionGroupOp || construction.Steps[0].Operation.Group == nil {
 		return false
 	}
 	valid := func(source *recipe.ConstructionGroupFieldSource) bool {
-		return source != nil && source.Kind == "BINDING" && source.SourceStageID == recipe.ConstructionSourceProjectionID &&
-			source.SourceShapeID != "" && source.SourceRole != "" && source.OccurrenceID != "" &&
-			source.OwnerResourceType != "" && source.ResourceType != "" && source.CanonicalPath != "" &&
-			(source.ValueKind == "SCALAR" || source.ValueKind == "CODING_IDENTITY")
+		if source == nil || source.Kind != "BINDING" || source.ChoiceID != "" ||
+			source.SourceStageID != recipe.ConstructionSourceProjectionID || source.SourceShapeID == "" ||
+			(source.ValueKind != "SCALAR" && source.ValueKind != "CODING_IDENTITY") {
+			return false
+		}
+		input := source.Input
+		if input == nil {
+			if source.SourceRole == "" && source.OccurrenceID == "" && source.OwnerResourceType == "" && source.ResourceType == "" && source.CandidateID == "" && source.CanonicalPath == "" {
+				return false
+			}
+			input = &recipe.ConstructionGroupFieldSourceInput{Kind: "CURRENT_STAGE", CurrentStage: &recipe.ConstructionGroupCurrentStageFieldSource{
+				SourceRole: source.SourceRole, OccurrenceID: source.OccurrenceID, OwnerResourceType: source.OwnerResourceType,
+				ResourceType: source.ResourceType, CandidateID: source.CandidateID, CanonicalPath: source.CanonicalPath,
+				BoundarySelector: source.BoundarySelector,
+			}}
+		}
+		if input.Kind == "CURRENT_STAGE" && (input.CurrentStage == nil || input.RelatedOccurrence != nil) ||
+			input.Kind == "RELATED_OCCURRENCE" && (input.RelatedOccurrence == nil || input.CurrentStage != nil) {
+			return false
+		}
+		switch input.Kind {
+		case "CURRENT_STAGE":
+			current := input.CurrentStage
+			return current != nil && current.SourceRole != "" && current.OccurrenceID != "" &&
+				current.OwnerResourceType != "" && current.ResourceType != "" && current.CanonicalPath != ""
+		case "RELATED_OCCURRENCE":
+			related := input.RelatedOccurrence
+			if related == nil || related.AnchorOccurrenceID == "" || related.AnchorResourceType == "" ||
+				related.TargetOccurrenceID == "" || related.TargetResourceType == "" || len(related.Route) == 0 ||
+				related.Multiplicity != recipe.ConstructionGroupRelatedMultiplicityDistinctTargetPerInput || related.EmptyPolicy == "" {
+				return false
+			}
+			if source.ValueKind == "CODING_IDENTITY" {
+				return related.ResourceType == "Coding" && related.CodingSelector != "" && related.CodingEmptyPolicy != "" && related.OrdinalSemantics != ""
+			}
+			return related.ResourceType != "" && related.CandidateID != "" && related.CanonicalPath != ""
+		default:
+			return false
+		}
 	}
 	for _, key := range construction.Steps[0].Operation.Group.Keys {
 		if valid(key.FieldSource) {
@@ -295,9 +346,8 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 	retainForLaterOperations := constructionNeedsRetainedRootContributors(construction.Steps) || cohortNeedsRetainedRootContributors(construction, cohort)
 	retainForPopulation := populationConstructionNeedsRetainedRootContributors(construction.Steps, cohort, populationRootSourceAvailable)
 	retainRootContributors := retainForLaterOperations || retainForPopulation
-	if retainForPopulation && !retainForLaterOperations && constructionTerminalCodingGroupRequeriesExpandedPreimage(
-		construction.Steps, plan, sourceIdentity, rootResourceType,
-	) {
+	if retainForPopulation && !retainForLaterOperations && (constructionTerminalCodingGroupRequeriesExpandedPreimage(construction.Steps, plan, sourceIdentity, rootResourceType) ||
+		constructionTerminalRelatedCodingGroupRequeriesPreimage(construction.Steps, plan, sourceIdentity, rootResourceType)) {
 		// The terminal expanded CODING_IDENTITY Group's exact occurrence preimage
 		// is re-queried for row lineage. Its typed root key remains in the source
 		// schema, while a per-group contributor array would defeat streaming and
@@ -393,9 +443,18 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 			return nil, nil, "", fmt.Errorf("construction step %q: %w", step.ID, stageErr)
 		}
 		if result.physical.InputStageID == sequence.SourceStageID && len(result.physical.InputColumns) > len(sequence.SourceColumns) {
-			resolvedSource = appendGroupSourceProjectionColumns(resolvedSource, result.physical.InputColumns[len(sequence.SourceColumns):])
-			sequence.SourceColumns = toPhysicalStageColumns(resolvedSource)
-			descriptors[0].Columns = cloneCompiledSchema(resolvedSource)
+			extra := result.physical.InputColumns[len(sequence.SourceColumns):]
+			sourceProjectionColumns := make([]ir.PhysicalStageColumn, 0, len(extra))
+			for _, column := range extra {
+				if !physicalGroupRelatedAdapterInputColumn(result.physical.Group, column.Name) {
+					sourceProjectionColumns = append(sourceProjectionColumns, column)
+				}
+			}
+			if len(sourceProjectionColumns) != 0 {
+				resolvedSource = appendGroupSourceProjectionColumns(resolvedSource, sourceProjectionColumns)
+				sequence.SourceColumns = toPhysicalStageColumns(resolvedSource)
+				descriptors[0].Columns = cloneCompiledSchema(resolvedSource)
+			}
 		}
 		sequence.Stages = append(sequence.Stages, result.physical)
 		descriptors = append(descriptors, result.descriptor)
@@ -605,6 +664,65 @@ func constructionTerminalCodingGroupRequeriesExpandedPreimage(
 	}
 	_, err = validateGroupCodingIdentitySource(plan, *codingSource, context, recipe.ConstructionSourceProjectionID)
 	return err == nil
+}
+
+func constructionTerminalRelatedCodingGroupRequeriesPreimage(
+	steps []recipe.ConstructionStep,
+	plan *ir.PhysicalPlan,
+	sourceIdentity, rootResourceType string,
+) bool {
+	if len(steps) != 1 || steps[0].Operation.Kind != recipe.ConstructionGroupOp || steps[0].Operation.Group == nil ||
+		sourceIdentity != "_key" || rootResourceType == "" {
+		return false
+	}
+	group := steps[0].Operation.Group
+	if len(group.Aggregates) != 1 || group.Aggregates[0].Operation != recipe.ConstructionGroupCountRows || group.Aggregates[0].InputColumnID != "" {
+		return false
+	}
+	context, err := describeGroupFieldSourceContext(recipe.ConstructionSourceProjectionID, rootResourceType, sourceIdentity, plan)
+	if err != nil || context == nil || context.SourceExpansion != nil {
+		return false
+	}
+	var selectedRouteID string
+	bind := func(source *recipe.ConstructionGroupFieldSource) bool {
+		if source == nil || source.Input == nil || source.Input.Kind != "RELATED_OCCURRENCE" {
+			return true
+		}
+		resolved, err := BindGroupRelatedOccurrenceSource(context, *source)
+		if err != nil || resolved.Input == nil || resolved.Input.RelatedOccurrence == nil {
+			return false
+		}
+		routeID := resolved.Input.RelatedOccurrence.RouteID
+		if selectedRouteID == "" {
+			selectedRouteID = routeID
+			return true
+		}
+		return selectedRouteID == routeID
+	}
+	var codedRelated *recipe.ConstructionGroupFieldSource
+	for _, key := range group.Keys {
+		if key.SemanticCategory != nil {
+			return false
+		}
+		if key.FieldSource != nil && key.FieldSource.ValueKind == "CODING_IDENTITY" {
+			if key.FieldSource.Input == nil || key.FieldSource.Input.Kind != "RELATED_OCCURRENCE" || codedRelated != nil {
+				return false
+			}
+			codedRelated = key.FieldSource
+		}
+		if !bind(key.FieldSource) {
+			return false
+		}
+	}
+	if codedRelated == nil {
+		return false
+	}
+	for _, rowValue := range steps[0].RowValues {
+		if !bind(rowValue.FieldSource) {
+			return false
+		}
+	}
+	return selectedRouteID != ""
 }
 
 func populationRootContributorAvailable(plan *ir.PhysicalPlan, schema []CompiledOutputColumn, rootResourceType string) bool {
@@ -1246,7 +1364,7 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 		group := step.Operation.Group
 		physicalGroup, projections, compiled, err := lowerConstructionGroup(
 			plan, *group, step.RowValues, step.Outputs, inputByID, inputIdentity,
-			inputStageID, rootResourceType, outputByID, usedVariables, index, &base,
+			inputStageID, rootResourceType, outputByID, usedVariables, index, &base, policy,
 		)
 		if err != nil {
 			return constructionStageResult{}, err

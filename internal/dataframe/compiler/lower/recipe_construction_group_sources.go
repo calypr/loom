@@ -13,6 +13,11 @@ import (
 
 const groupSourceOccurrenceKeyColumn = "__loom_group_source_occurrence_key"
 
+type constructionGroupFieldSourceLoweringOptions struct {
+	RelatedAdapterSlot **ir.PhysicalStageGroupRelatedOccurrenceAdapter
+	Policy             ir.PhysicalOptimizationPolicy
+}
+
 func lowerConstructionGroupScalarSource(
 	plan *ir.PhysicalPlan,
 	source recipe.ConstructionGroupFieldSource,
@@ -20,7 +25,17 @@ func lowerConstructionGroupScalarSource(
 	stepIndex, keyIndex int,
 	usedVariables map[string]bool,
 	stage *ir.PhysicalConstructionStage,
+	options ...constructionGroupFieldSourceLoweringOptions,
 ) (CompiledOutputColumn, ir.PhysicalProjection, *ir.PhysicalStageGroupFieldSource, error) {
+	if source.Input != nil && source.Input.Kind == "RELATED_OCCURRENCE" {
+		if len(options) != 1 || options[0].RelatedAdapterSlot == nil {
+			return CompiledOutputColumn{}, ir.PhysicalProjection{}, nil, fmt.Errorf("related Group scalar source requires one shared Group-owned route adapter")
+		}
+		return lowerConstructionGroupRelatedScalarSource(
+			plan, source, context, stepIndex, keyIndex, usedVariables, stage,
+			options[0].RelatedAdapterSlot, options[0].Policy,
+		)
+	}
 	var normalizeErr error
 	source, normalizeErr = normalizeConstructionCurrentGroupFieldSource(source)
 	if normalizeErr != nil {

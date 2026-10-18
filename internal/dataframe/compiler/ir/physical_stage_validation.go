@@ -62,7 +62,7 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 		if err := validatePhysicalStageColumns(stage.InputColumns, priorRowIdentity); err != nil {
 			return fmt.Errorf("%s input schema: %w", path, err)
 		}
-		if !samePhysicalStageColumns(stage.InputColumns, priorColumns) {
+		if !samePhysicalStageColumns(stage.InputColumns, priorColumns) && !physicalGroupInputColumnsExtendSource(stage, priorColumns) {
 			return fmt.Errorf("%s input schema differs from preceding stage output", path)
 		}
 		if err := validatePhysicalStageColumns(stage.OutputColumns, stage.RowIdentityColumn); err != nil {
@@ -1734,8 +1734,11 @@ func validatePhysicalStageRelatedCodingKey(
 	if !ok || !occurrence.Internal || occurrence.Kind != "object" || occurrence.Cardinality != "required_one" {
 		return fmt.Errorf("occurrence column %q must be the hidden exact related target/Coding ordinal identity", coding.SourceOccurrenceKeyColumn)
 	}
-	if !stageInputRowProjection(stage, coding.MembershipColumn) || !stageInputRowProjection(stage, coding.SourceOccurrenceKeyColumn) {
-		return fmt.Errorf("membership and occurrence columns must be projected into the Group input")
+	membershipProjection, membershipProjected := stageInputProjection(stage, coding.MembershipColumn)
+	occurrenceProjection, occurrenceProjected := stageInputProjection(stage, coding.SourceOccurrenceKeyColumn)
+	if !membershipProjected || !membershipProjection.Hidden || membershipProjection.Expression == nil ||
+		!occurrenceProjected || !occurrenceProjection.Hidden || occurrenceProjection.Expression == nil {
+		return fmt.Errorf("membership and occurrence columns must be projected from the related Group adapter")
 	}
 	if err := definePhysicalVariable(defined, coding.InputTupleVariable); err != nil {
 		return fmt.Errorf("input tuple: %w", err)
@@ -1779,6 +1782,15 @@ func stageInputRowProjection(stage PhysicalConstructionStage, name string) bool 
 		}
 	}
 	return false
+}
+
+func stageInputProjection(stage PhysicalConstructionStage, name string) (PhysicalProjection, bool) {
+	for _, projection := range stage.InputProjections {
+		if projection.Name == name {
+			return projection, true
+		}
+	}
+	return PhysicalProjection{}, false
 }
 
 func sourceReturnProjection(operations []PhysicalOperation, name string) (PhysicalProjection, bool) {
@@ -2091,13 +2103,30 @@ func validatePhysicalGroupRelatedOccurrenceAdapter(group PhysicalStageGroup, sta
 		return fmt.Errorf("missing or incomplete exact route adapter")
 	}
 	projections := make(map[string]PhysicalStageGroupRelatedProjection, len(adapter.ScalarProjections))
+	inputColumns := physicalStageColumnMap(stage.InputColumns)
 	for _, projection := range adapter.ScalarProjections {
 		if projection.InputColumn == "" || projection.ResultField == "" || projection.OwnerResourceType == "" || projection.ValueResourceType == "" ||
 			projection.CandidateID == "" || projection.CanonicalPath == "" || projections[projection.InputColumn].InputColumn != "" ||
 			!physicalGroupRelatedReturnSelector(&adapter.RelatedRecords, projection.ResultField, projection.OwnerResourceType, projection.CanonicalPath) {
 			return fmt.Errorf("scalar route projection %q is not an exact selected target field", projection.InputColumn)
 		}
+		input, ok := inputColumns[projection.InputColumn]
+		inputProjection, projectionFound := stageInputProjection(stage, projection.InputColumn)
+		if !ok || !input.Internal || input.Cardinality == "many" || !projectionFound || !inputProjection.Hidden || inputProjection.Value.Variable == "" ||
+			inputProjection.Value.Variable != adapter.RelatedRecords.ItemVariable ||
+			!reflect.DeepEqual(inputProjection.Value.Path, []string{projection.ResultField}) {
+			return fmt.Errorf("scalar route input %q is not projected from its exact related target result", projection.InputColumn)
+		}
 		projections[projection.InputColumn] = projection
+	}
+	if adapter.OccurrenceKeyColumn == "" {
+		return fmt.Errorf("related Group adapter lacks its exact occurrence key")
+	}
+	occurrence, occurrenceOK := inputColumns[adapter.OccurrenceKeyColumn]
+	occurrenceProjection, occurrenceProjected := stageInputProjection(stage, adapter.OccurrenceKeyColumn)
+	if !occurrenceOK || !occurrence.Internal || occurrence.Kind != "object" || occurrence.Cardinality != "required_one" ||
+		!occurrenceProjected || !occurrenceProjection.Hidden || occurrenceProjection.Expression == nil {
+		return fmt.Errorf("related Group occurrence key is not a hidden required object input")
 	}
 	codingSources := 0
 	for _, source := range sources {
@@ -2573,6 +2602,43 @@ func samePhysicalStageColumns(left, right []PhysicalStageColumn) bool {
 		}
 	}
 	return true
+}
+
+func physicalGroupInputColumnsExtendSource(stage PhysicalConstructionStage, prior []PhysicalStageColumn) bool {
+	if stage.Kind != PhysicalStageGroupOp || stage.Group == nil || stage.Group.RelatedOccurrence == nil || len(stage.InputColumns) <= len(prior) ||
+		!samePhysicalStageColumns(stage.InputColumns[:len(prior)], prior) {
+		return false
+	}
+	adapter := stage.Group.RelatedOccurrence
+	expected := make(map[string]bool, len(adapter.ScalarProjections)+2)
+	for _, projection := range adapter.ScalarProjections {
+		if projection.InputColumn == "" || expected[projection.InputColumn] {
+			return false
+		}
+		expected[projection.InputColumn] = true
+	}
+	if adapter.CodingMembershipColumn != "" {
+		if expected[adapter.CodingMembershipColumn] {
+			return false
+		}
+		expected[adapter.CodingMembershipColumn] = true
+	}
+	if adapter.OccurrenceKeyColumn != "" {
+		if expected[adapter.OccurrenceKeyColumn] {
+			return false
+		}
+		expected[adapter.OccurrenceKeyColumn] = true
+	}
+	if len(stage.InputColumns)-len(prior) != len(expected) {
+		return false
+	}
+	for _, column := range stage.InputColumns[len(prior):] {
+		if !expected[column.Name] || !column.Internal || column.ID != column.Name {
+			return false
+		}
+		delete(expected, column.Name)
+	}
+	return len(expected) == 0
 }
 
 func validateStageVariables(stage PhysicalConstructionStage) error {

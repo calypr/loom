@@ -12,7 +12,19 @@ func TestPhysicalGroupRelatedCodingSourceRequiresExactRouteAndSelector(t *testin
 		t.Fatal("exact related Coding source did not validate")
 	}
 	valid := PhysicalStageGroup{RelatedOccurrence: adapter, Keys: []PhysicalStageGroupKey{{FieldSource: field}}}
-	stage := PhysicalConstructionStage{InputStageID: "source_projection"}
+	stage := PhysicalConstructionStage{
+		InputStageID: "source_projection",
+		InputColumns: []PhysicalStageColumn{
+			{ID: "related_status", Name: "related_status", Kind: "string", Cardinality: "optional_one", Internal: true},
+			{ID: "membership", Name: "membership", Kind: "object", Cardinality: "optional_one", Internal: true},
+			{ID: "occurrence", Name: "occurrence", Kind: "object", Cardinality: "required_one", Internal: true},
+		},
+		InputProjections: []PhysicalProjection{
+			{Name: "related_status", Hidden: true, Value: PhysicalValue{Variable: "related_item", Path: []string{"status"}}},
+			{Name: "membership", Hidden: true, Expression: &PhysicalExpression{Kind: PhysicalObjectExpression, Cardinality: PhysicalObjectCardinality, NullBehavior: PhysicalPreserveNull, Object: &PhysicalObject{}}},
+			{Name: "occurrence", Hidden: true, Expression: &PhysicalExpression{Kind: PhysicalObjectExpression, Cardinality: PhysicalObjectCardinality, NullBehavior: PhysicalPreserveNull, Object: &PhysicalObject{}}},
+		},
+	}
 	if err := validatePhysicalGroupRelatedOccurrenceAdapter(valid, stage); err != nil {
 		t.Fatalf("exact embedded route and selector did not validate: %v", err)
 	}
@@ -86,7 +98,7 @@ func groupRelatedCodingFieldSourceForTest(t *testing.T) (*PhysicalStageGroupFiel
 		RouteID: "related-route-test", RelatedRecords: relatedRecords,
 		CodingSelector: "valueCodeableConcept.coding[]", CodingArrayColumn: "__loom_group_related_codings",
 		CodingEmptyPolicy: PhysicalUnnestExclude, OrdinalSemantics: "ZERO_BASED_POSITION_IN_FLATTENED_EXPANSION_ARRAY",
-		CodingUnnest: unnest, CodingMembershipColumn: "membership",
+		CodingUnnest: unnest, CodingMembershipColumn: "membership", OccurrenceKeyColumn: "occurrence",
 	}
 	field := &PhysicalStageGroupFieldSource{
 		Kind: PhysicalStageGroupFieldSourceRelatedOccurrence,

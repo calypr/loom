@@ -23,6 +23,7 @@ func lowerConstructionGroup(
 	usedVariables map[string]bool,
 	stepIndex int,
 	stage *ir.PhysicalConstructionStage,
+	policy ir.PhysicalOptimizationPolicy,
 ) (ir.PhysicalStageGroup, []ir.PhysicalProjection, []CompiledOutputColumn, error) {
 	constructionBind := nextTableReshapeBindKey(plan.BindVars, "construction_group_id")
 	plan.BindVars[constructionBind] = group.ConstructionID
@@ -140,6 +141,21 @@ func lowerConstructionGroup(
 				if physical.SemanticKey != nil || physical.CodingKey != nil {
 					return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("Group supports at most one coded identity key")
 				}
+				if source.Input != nil && source.Input.Kind == "RELATED_OCCURRENCE" {
+					codingKey, column, projection, membershipColumn, membershipProjection, err := lowerConstructionGroupRelatedCodingKey(
+						plan, source, groupFieldContext, output, group.MissingKeyPolicy, usedVariables, stepIndex, len(physical.Keys), stage,
+						&physical.RelatedOccurrence, policy,
+					)
+					if err != nil {
+						return ir.PhysicalStageGroup{}, nil, nil, err
+					}
+					physical.CodingKey = &codingKey
+					metadataByOutputID[output.ID] = column
+					projectionByOutputID[output.ID] = projection
+					_ = membershipColumn
+					_ = membershipProjection
+					continue
+				}
 				codingKey, column, projection, _, _, err := lowerConstructionGroupCodingKey(
 					plan, source, groupFieldContext, output, group.MissingKeyPolicy, usedVariables, stepIndex, stage,
 				)
@@ -153,6 +169,7 @@ func lowerConstructionGroup(
 			}
 			inputColumn, inputProjection, fieldSource, err := lowerConstructionGroupScalarSource(
 				plan, source, groupFieldContext, stepIndex, len(physical.Keys), usedVariables, stage,
+				constructionGroupFieldSourceLoweringOptions{RelatedAdapterSlot: &physical.RelatedOccurrence, Policy: policy},
 			)
 			if err != nil {
 				return ir.PhysicalStageGroup{}, nil, nil, err
@@ -264,7 +281,7 @@ func lowerConstructionGroup(
 	}
 	rowValueSource := &constructionGroupRowValueSourceContext{
 		Plan: plan, SourceContext: groupFieldContext, InputStageID: inputStageID,
-		Stage: stage, FirstSourceIndex: len(group.Keys),
+		Stage: stage, FirstSourceIndex: len(group.Keys), RelatedAdapterSlot: &physical.RelatedOccurrence, Policy: policy,
 	}
 	physicalRowValues, rowValueColumns, err := lowerConstructionRowValues(
 		rowValues, input, outputs, group.ConstructionID, usedVariables, stepIndex, rowValueSource,
@@ -330,6 +347,7 @@ func lowerConstructionRowValues(
 			inputColumn, projection, sourceBinding, err = lowerConstructionGroupScalarSource(
 				groupSourceContext.Plan, *rowValue.FieldSource, groupSourceContext.SourceContext,
 				stepIndex, groupSourceContext.FirstSourceIndex+index, usedVariables, groupSourceContext.Stage,
+				constructionGroupFieldSourceLoweringOptions{RelatedAdapterSlot: groupSourceContext.RelatedAdapterSlot, Policy: groupSourceContext.Policy},
 			)
 			if err != nil {
 				return nil, nil, fmt.Errorf("row value fieldSource: %w", err)
@@ -383,11 +401,13 @@ func lowerConstructionRowValues(
 }
 
 type constructionGroupRowValueSourceContext struct {
-	Plan             *ir.PhysicalPlan
-	SourceContext    *CompiledGroupFieldSourceContext
-	InputStageID     string
-	Stage            *ir.PhysicalConstructionStage
-	FirstSourceIndex int
+	Plan               *ir.PhysicalPlan
+	SourceContext      *CompiledGroupFieldSourceContext
+	InputStageID       string
+	Stage              *ir.PhysicalConstructionStage
+	FirstSourceIndex   int
+	RelatedAdapterSlot **ir.PhysicalStageGroupRelatedOccurrenceAdapter
+	Policy             ir.PhysicalOptimizationPolicy
 }
 
 func constructionRowValueKind(kind string) (string, bool) {

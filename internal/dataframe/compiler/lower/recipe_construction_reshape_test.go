@@ -32,7 +32,7 @@ func TestLowerSemanticGroupRejectsExpandedRootRows(t *testing.T) {
 	_, _, _, err := lowerConstructionGroup(
 		plan, group, nil, []recipe.StageColumn{{ID: "category_id", Name: "category"}}, nil,
 		"_key", recipe.ConstructionSourceProjectionID, "Observation",
-		map[string]recipe.StageColumn{"category_id": {ID: "category_id", Name: "category"}}, map[string]bool{}, 0, nil,
+		map[string]recipe.StageColumn{"category_id": {ID: "category_id", Name: "category"}}, map[string]bool{}, 0, nil, ir.DefaultPhysicalOptimizationPolicy(),
 	)
 	if err == nil || !strings.Contains(err.Error(), "UNNEST") {
 		t.Fatalf("lower semantic Group with expanded roots error = %v, want source-grain rejection for UNNEST", err)
@@ -695,7 +695,7 @@ func TestOrdinaryGroupCannotReuseCodingIdentityDisplayAsScalarKey(t *testing.T) 
 		map[string]recipe.StageColumn{
 			"label_key": {ID: "label_key", Name: "label_key", Type: "string"},
 			"rows":      {ID: "rows", Name: "rows", Type: "integer"},
-		}, map[string]bool{}, 1, nil,
+		}, map[string]bool{}, 1, nil, ir.DefaultPhysicalOptimizationPolicy(),
 	)
 	if err == nil || !strings.Contains(err.Error(), "CODING_IDENTITY display label") {
 		t.Fatalf("ordinary Group accepted Coding identity display as scalar key: %v", err)

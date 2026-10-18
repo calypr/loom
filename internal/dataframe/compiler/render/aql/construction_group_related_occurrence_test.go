@@ -190,9 +190,14 @@ func relatedOccurrenceGroupStage(policy ir.PhysicalUnnestEmptyPolicy) ir.Physica
 	}
 	return ir.PhysicalConstructionStage{
 		ID: "group-1", InputRowVariable: "input_row", OutputRowVariable: "output_row",
-		InputProjections: []ir.PhysicalProjection{{
-			Name: "related_status", Value: ir.PhysicalValue{Variable: "related_item", Path: []string{"status"}},
+		InputColumns: []ir.PhysicalStageColumn{{
+			ID: "_key", Name: "_key", Kind: "string", Cardinality: "required_one", Internal: true,
+			RootContributorResourceType: "Observation",
 		}},
+		InputProjections: []ir.PhysicalProjection{
+			{Name: "_key", Hidden: true, Value: ir.PhysicalValue{Variable: "input_row", Path: []string{"_key"}}},
+			{Name: "related_status", Hidden: true, Value: ir.PhysicalValue{Variable: "related_item", Path: []string{"status"}}},
+		},
 		OutputColumns: []ir.PhysicalStageColumn{
 			{ID: "status-id", Name: "status"}, {ID: "coding-id", Name: "coding"},
 		},

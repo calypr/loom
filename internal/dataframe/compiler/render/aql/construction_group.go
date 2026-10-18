@@ -22,6 +22,11 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 		if err := validateConstructionGroupRelatedOccurrenceRendererShape(group.RelatedOccurrence); err != nil {
 			return nil, err
 		}
+		if input.SourceRowInScope {
+			if err := validateConstructionGroupRelatedRootKeyInput(stage, group.RelatedOccurrence); err != nil {
+				return nil, err
+			}
+		}
 	}
 	countRowsOnly := len(group.Aggregates) != 0
 	for _, aggregate := range group.Aggregates {
@@ -391,6 +396,46 @@ func validateConstructionGroupRelatedOccurrenceRendererShape(adapter *ir.Physica
 	}
 	if adapter.CodingUnnest.EmptyPolicy != adapter.CodingEmptyPolicy {
 		return fmt.Errorf("related Group Coding expansion policy does not match its typed unnest")
+	}
+	return nil
+}
+
+func validateConstructionGroupRelatedRootKeyInput(
+	stage ir.PhysicalConstructionStage,
+	adapter *ir.PhysicalStageGroupRelatedOccurrenceAdapter,
+) error {
+	if stage.InputRowVariable == "" || adapter == nil || adapter.RelatedRecords.AnchorResourceType == "" {
+		return fmt.Errorf("related Group source scope has no typed root identity")
+	}
+	columnFound := false
+	for _, column := range stage.InputColumns {
+		if column.Name != "_key" {
+			continue
+		}
+		if column.Kind != "string" || column.Cardinality != "required_one" || !column.Internal ||
+			column.RootContributorResourceType != adapter.RelatedRecords.AnchorResourceType {
+			return fmt.Errorf("related Group source _key is not the exact typed root identity")
+		}
+		columnFound = true
+		break
+	}
+	if !columnFound {
+		return fmt.Errorf("related Group source scope is missing its typed root _key input")
+	}
+	projectionFound := false
+	for _, projection := range stage.InputProjections {
+		if projection.Name != "_key" {
+			continue
+		}
+		if !projection.Hidden || projection.Expression != nil || projection.Value.Variable != stage.InputRowVariable ||
+			len(projection.Value.Path) != 1 || projection.Value.Path[0] != "_key" {
+			return fmt.Errorf("related Group source _key projection is not the exact input identity")
+		}
+		projectionFound = true
+		break
+	}
+	if !projectionFound {
+		return fmt.Errorf("related Group source scope is missing its typed _key input projection")
 	}
 	return nil
 }
