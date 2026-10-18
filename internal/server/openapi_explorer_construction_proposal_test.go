@@ -1293,6 +1293,11 @@ func TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP(t *
 			SupportedOperations: []capability.Operation{capability.OperationSelect}, Observed: true, Populated: true,
 		},
 		{
+			ID: "c_specimen_id", NodeID: "n_specimen", ResourceType: "Specimen", FieldPath: "id", Label: "Specimen ID",
+			LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+			SupportedOperations: []capability.Operation{capability.OperationSelect}, Observed: true, Populated: true,
+		},
+		{
 			ID: "c_specimen_type_code", NodeID: "n_specimen", ResourceType: "Specimen", FieldPath: "type.coding[].code", Label: "Specimen type",
 			LogicalType: "string", Cardinality: "many", RepeatedBoundaries: []capability.RepeatedBoundary{{Path: "type.coding[]", MaxItems: 8}},
 			ProjectionModes:     []capability.ProjectionMode{capability.ProjectionArray},
@@ -1362,11 +1367,21 @@ func TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP(t *
 			if receipt == nil || receipt.ConstructionProposal == nil {
 				return dataframeexecution.PreviewSummary{}, fmt.Errorf("related Group did not reach receipt preview")
 			}
-			if err := visit(map[string]any{"patient_id_group": "patient-1", "specimen_type": "tissue", "row_count": 1}); err != nil {
+			row := map[string]any{"patient_id_group": "patient-1", "specimen_type": "tissue", "row_count": 1}
+			columns := []string{"patient_id_group", "specimen_type", "row_count"}
+			for _, stage := range receipt.ConstructionStages["patients"] {
+				for _, column := range stage.Columns {
+					if column.ID == "specimen_ids" {
+						row["specimen_ids"] = []any{"specimen-1"}
+						columns = append(columns, "specimen_ids")
+					}
+				}
+			}
+			if err := visit(row); err != nil {
 				return dataframeexecution.PreviewSummary{}, err
 			}
 			return dataframeexecution.PreviewSummary{
-				Output: "patients", Columns: []string{"patient_id_group", "specimen_type", "row_count"},
+				Output: "patients", Columns: columns,
 				RowCount: 1, Complete: true, PartialValidation: true,
 			}, nil
 		},
@@ -1488,6 +1503,149 @@ func TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP(t *
 		codingBinding.Input.RelatedOccurrence.CodingEmptyPolicy != "GROUP" ||
 		codingBinding.Input.RelatedOccurrence.OrdinalSemantics != recipe.ConstructionGroupRelatedOrdinalSemanticsZeroBasedPosition {
 		t.Fatalf("returned related Specimen Coding BINDING = %#v", codingBinding)
+	}
+
+	applyGroup := requestJSON(t, app, http.MethodPost, basePath+"/commands", fmt.Sprintf(
+		`{"commandId":"apply-related-coded-group","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_CONSTRUCTION_PROPOSAL","outputId":"patients","proposalId":%q}]}`,
+		authoringv2.CurrentSemanticsVersion, snapshot.Token, digest, *proposal.ProposalId,
+	))
+	if applyGroup.StatusCode != http.StatusOK {
+		t.Fatalf("apply related Group status=%d body=%s", applyGroup.StatusCode, applyGroup.Body)
+	}
+	updated, err := service.Get(context.Background(), "project-a", "patient-specimen-related-group")
+	if err != nil {
+		t.Fatal(err)
+	}
+	acceptedWorkspace, err := authoringv2.DecodeWorkspace(updated.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.DraftVersion != 2 || len(acceptedWorkspace.Documents) != 1 || acceptedWorkspace.Documents[0].Construction == nil {
+		t.Fatalf("related Group was not durably applied: version=%d workspace=%#v", updated.DraftVersion, acceptedWorkspace)
+	}
+	rowValueCapabilitiesResponse := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":"patients","stageId":"source_projection","groupStepId":%q}`,
+		snapshot.Token, updated.DraftVersion, updated.DraftDigest, stepID,
+	))
+	if rowValueCapabilitiesResponse.StatusCode != http.StatusOK {
+		t.Fatalf("saved Group row-value capabilities status=%d body=%s", rowValueCapabilitiesResponse.StatusCode, rowValueCapabilitiesResponse.Body)
+	}
+	var rowValueCapabilities struct {
+		GroupRowValueChoices []struct {
+			Kind              string `json:"kind"`
+			ValueKind         string `json:"valueKind"`
+			Label             string `json:"label"`
+			SourceRole        string `json:"sourceRole"`
+			SourceStageID     string `json:"sourceStageId"`
+			SourceShapeID     string `json:"sourceShapeId"`
+			OccurrenceID      string `json:"occurrenceId"`
+			ResourceType      string `json:"resourceType"`
+			OwnerOccurrenceID string `json:"ownerOccurrenceId"`
+			OwnerResourceType string `json:"ownerResourceType"`
+			CandidateID       string `json:"candidateId"`
+			CanonicalPath     string `json:"canonicalPath"`
+			FieldSource       struct {
+				ChoiceID string `json:"choiceId"`
+			} `json:"fieldSource"`
+			RelatedOccurrence *struct {
+				RouteID string `json:"routeId"`
+			} `json:"relatedOccurrence"`
+		} `json:"groupRowValueChoices"`
+	}
+	if err := json.Unmarshal([]byte(rowValueCapabilitiesResponse.Body), &rowValueCapabilities); err != nil {
+		t.Fatal(err)
+	}
+	var specimenIDChoice *struct {
+		Kind              string `json:"kind"`
+		ValueKind         string `json:"valueKind"`
+		Label             string `json:"label"`
+		SourceRole        string `json:"sourceRole"`
+		SourceStageID     string `json:"sourceStageId"`
+		SourceShapeID     string `json:"sourceShapeId"`
+		OccurrenceID      string `json:"occurrenceId"`
+		ResourceType      string `json:"resourceType"`
+		OwnerOccurrenceID string `json:"ownerOccurrenceId"`
+		OwnerResourceType string `json:"ownerResourceType"`
+		CandidateID       string `json:"candidateId"`
+		CanonicalPath     string `json:"canonicalPath"`
+		FieldSource       struct {
+			ChoiceID string `json:"choiceId"`
+		} `json:"fieldSource"`
+		RelatedOccurrence *struct {
+			RouteID string `json:"routeId"`
+		} `json:"relatedOccurrence"`
+	}
+	for index := range rowValueCapabilities.GroupRowValueChoices {
+		choice := &rowValueCapabilities.GroupRowValueChoices[index]
+		if choice.SourceRole == "RELATED_OCCURRENCE" && choice.CandidateID == "c_specimen_id" && choice.CanonicalPath == "id" {
+			specimenIDChoice = choice
+			break
+		}
+	}
+	if specimenIDChoice == nil || specimenIDChoice.Kind != "FIELD_SOURCE" || specimenIDChoice.ValueKind != "SCALAR" ||
+		specimenIDChoice.FieldSource.ChoiceID == "" || specimenIDChoice.SourceStageID != "source_projection" ||
+		specimenIDChoice.SourceShapeID == "" || specimenIDChoice.OccurrenceID == "" || specimenIDChoice.ResourceType != "string" ||
+		specimenIDChoice.OwnerOccurrenceID != specimenIDChoice.OccurrenceID || specimenIDChoice.OwnerResourceType != "Specimen" ||
+		specimenIDChoice.RelatedOccurrence == nil || specimenIDChoice.RelatedOccurrence.RouteID != codingChoice.RelatedOccurrence.RouteID {
+		t.Fatalf("saved related Group row-value choices = %#v; want exact Specimen.id choice on saved Coding route", rowValueCapabilities.GroupRowValueChoices)
+	}
+	if len(rowValueCapabilities.GroupRowValueChoices) != 2 {
+		t.Fatalf("saved Group row-value choices = %d, want Patient.id and Specimen.id only", len(rowValueCapabilities.GroupRowValueChoices))
+	}
+
+	rowValueCandidate := *acceptedWorkspace.Documents[0].Construction
+	rowValueCandidate.Steps = append([]authoringv2.ConstructionStep(nil), rowValueCandidate.Steps...)
+	rowValueCandidate.Steps[0].RowValues = []authoringv2.ConstructionRowValue{{
+		FieldSource:    &authoringv2.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: specimenIDChoice.FieldSource.ChoiceID},
+		OutputColumnID: "specimen_ids", Policy: authoringv2.ConstructionRowValueAll,
+	}}
+	rowValueCandidate.Steps[0].Outputs = append(append([]authoringv2.StageColumn(nil), rowValueCandidate.Steps[0].Outputs...),
+		authoringv2.StageColumn{ID: "specimen_ids", Name: "specimen_ids", Label: "Specimen IDs", Type: "array"},
+	)
+	rowValueCandidateJSON, err := json.Marshal(rowValueCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rowValueProposalResponse := requestJSON(t, app, http.MethodPost, basePath+"/construction-proposals", fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":"patients","changedStepId":%q,"candidateConstruction":%s,"limit":100}`,
+		snapshot.Token, updated.DraftVersion, updated.DraftDigest, stepID, rowValueCandidateJSON,
+	))
+	if rowValueProposalResponse.StatusCode != http.StatusOK {
+		t.Fatalf("saved related Group Specimen.id RowValue proposal status=%d body=%s", rowValueProposalResponse.StatusCode, rowValueProposalResponse.Body)
+	}
+	var rowValueProposal loomapi.ConstructionProposalResponse
+	if err := json.Unmarshal([]byte(rowValueProposalResponse.Body), &rowValueProposal); err != nil {
+		t.Fatalf("parse saved Group RowValue proposal response: %v", err)
+	}
+	if rowValueProposal.ProposalId == nil || string(rowValueProposal.PreviewStatus) != "READY" || rowValueProposal.Preview == nil || rowValueProposal.Preview.RowCount != 1 {
+		t.Fatalf("saved related Group RowValue did not return READY preview: %#v", rowValueProposal)
+	}
+	if len(rowValueProposal.Preview.Rows) != 1 || !reflect.DeepEqual(rowValueProposal.Preview.Rows[0]["specimen_ids"], []interface{}{"specimen-1"}) {
+		t.Fatalf("saved related Group RowValue preview rows = %#v; want specimen_ids [specimen-1]", rowValueProposal.Preview.Rows)
+	}
+	resolvedRowValueJSON, err := json.Marshal(rowValueProposal.CandidateConstruction)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resolvedRowValue authoringv2.Construction
+	if err := json.Unmarshal(resolvedRowValueJSON, &resolvedRowValue); err != nil {
+		t.Fatalf("parse resolved related Group RowValue: %v", err)
+	}
+	if len(resolvedRowValue.Steps) != 1 || len(resolvedRowValue.Steps[0].RowValues) != 1 ||
+		resolvedRowValue.Steps[0].RowValues[0].InputColumnID != "" || resolvedRowValue.Steps[0].RowValues[0].FieldSource == nil {
+		t.Fatalf("resolved related Group RowValue = %#v", resolvedRowValue.Steps)
+	}
+	rowValueBinding := resolvedRowValue.Steps[0].RowValues[0].FieldSource
+	if rowValueBinding.Kind != "BINDING" || rowValueBinding.ValueKind != "SCALAR" || rowValueBinding.SourceStageID != "source_projection" ||
+		rowValueBinding.SourceShapeID != specimenIDChoice.SourceShapeID || rowValueBinding.Input == nil ||
+		rowValueBinding.Input.Kind != "RELATED_OCCURRENCE" || rowValueBinding.Input.RelatedOccurrence == nil ||
+		rowValueBinding.Input.RelatedOccurrence.TargetResourceType != "Specimen" ||
+		rowValueBinding.Input.RelatedOccurrence.TargetOccurrenceID != specimenIDChoice.OwnerOccurrenceID ||
+		rowValueBinding.Input.RelatedOccurrence.CandidateID != "c_specimen_id" ||
+		rowValueBinding.Input.RelatedOccurrence.CanonicalPath != "id" ||
+		rowValueBinding.Input.RelatedOccurrence.Route[0].EdgeID != "e_patient_specimen" ||
+		rowValueBinding.Input.RelatedOccurrence.Route[0].MatchMode != "OPTIONAL" {
+		t.Fatalf("resolved Specimen.id RowValue did not retain the saved Group route: %#v", rowValueBinding)
 	}
 }
 

@@ -550,7 +550,7 @@ func TestConstructionGroupRelatedFieldChoicesSkipExpandedSource(t *testing.T) {
 	}
 	choices := map[string]ConstructionGroupFieldChoice{}
 	incomplete, err := service.appendRelatedGroupFieldChoices(
-		context.Background(), constructionBase{}, explorer.ReceiptConstructionStage{}, fieldContext, nil, choices, "",
+		context.Background(), constructionBase{}, explorer.ReceiptConstructionStage{}, fieldContext, nil, choices, "", "",
 	)
 	if err != nil {
 		t.Fatalf("related choices for expanded source: %v", err)
@@ -567,7 +567,7 @@ func TestConstructionGroupRelatedFieldChoicesStopCanceledRequest(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err := (&Service{}).appendRelatedGroupFieldChoices(ctx, constructionBase{}, explorer.ReceiptConstructionStage{},
-		&explorer.ReceiptConstructionGroupFieldSourceContext{}, nil, map[string]ConstructionGroupFieldChoice{}, "")
+		&explorer.ReceiptConstructionGroupFieldSourceContext{}, nil, map[string]ConstructionGroupFieldChoice{}, "", "")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled discovery error = %v, want context cancellation before route work", err)
 	}

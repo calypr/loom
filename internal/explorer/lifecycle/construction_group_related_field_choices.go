@@ -33,6 +33,7 @@ func (s *Service) appendRelatedGroupFieldChoices(
 	fieldContext *explorer.ReceiptConstructionGroupFieldSourceContext,
 	index *fhirschema.Index,
 	choicesByID map[string]ConstructionGroupFieldChoice,
+	targetGroupStepID string,
 	selectedGroupStepID string,
 ) (bool, error) {
 	if fieldContext == nil || fieldContext.SourceExpansion != nil {
@@ -124,6 +125,7 @@ func (s *Service) appendRelatedGroupFieldChoices(
 				related, sourceShapeID, resolveErr := resolveRelatedGroupSource(compilerContext, "SCALAR", anchor, resolvedRoute, valueType, candidate.ID, candidate.FieldPath, "", "")
 				if resolveErr == nil {
 					source := groupFieldSourceChoiceFromRelated(fieldContext, related, sourceShapeID, candidate.NodeID, valueType, "ONE", "SCALAR", "", "")
+					source.TargetGroupStepID = targetGroupStepID
 					choice, choiceErr := capability.NewGroupFieldConstructionChoice(base.snapshot.Token, resolvedRoute, source, candidate)
 					if choiceErr == nil {
 						label := firstNonEmpty(observed.scalarFacts.Title, candidate.Label, constructionGroupFieldLabel(candidate.FieldPath))
@@ -138,6 +140,9 @@ func (s *Service) appendRelatedGroupFieldChoices(
 						}
 					}
 				}
+			}
+			if targetGroupStepID != "" {
+				continue
 			}
 			for _, selector := range observed.codingSelectors {
 				related, sourceShapeID, resolveErr := resolveRelatedGroupSource(
@@ -170,10 +175,17 @@ func (s *Service) appendRelatedGroupFieldChoices(
 		return resolvedRoute, true, nil
 	}
 
-	for _, savedRoute := range savedRelatedGroupRoutes(base, selectedGroupStepID, fieldContext, anchor) {
+	savedRouteGroupStepID := selectedGroupStepID
+	if targetGroupStepID != "" {
+		savedRouteGroupStepID = targetGroupStepID
+	}
+	for _, savedRoute := range savedRelatedGroupRoutes(base, savedRouteGroupStepID, fieldContext, anchor) {
 		if _, _, err := processRoute(savedRoute.targetNodeID, savedRoute.steps); err != nil {
 			return incomplete, err
 		}
+	}
+	if targetGroupStepID != "" {
+		return incomplete, nil
 	}
 
 	for _, targetNodeID := range targetNodeIDs {

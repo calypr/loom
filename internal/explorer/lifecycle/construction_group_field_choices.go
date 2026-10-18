@@ -160,8 +160,8 @@ func (s *Service) constructionGroupFieldChoices(
 		}
 	}
 	relatedChoicesIncomplete := false
-	if targetGroupStepID == "" && context.SourceExpansion == nil {
-		relatedChoicesIncomplete, err = s.appendRelatedGroupFieldChoices(ctx, base, stage, context, index, choicesByID, selectedGroupStepID)
+	if context.SourceExpansion == nil {
+		relatedChoicesIncomplete, err = s.appendRelatedGroupFieldChoices(ctx, base, stage, context, index, choicesByID, targetGroupStepID, selectedGroupStepID)
 		if err != nil {
 			return nil, false, err
 		}
