@@ -259,26 +259,31 @@ function expectedGrid(step, oracle, choices, rowValueChoice, { includeArrayIndic
   return { headers, rows: rows.map(row => row.map(displayCell)) };
 }
 
+function previewGridSnapshot({ kind, expected }) {
+  const proposal = kind === 'proposal'
+    ? document.querySelector('[data-testid="construction-proposal-preview"][data-preview-status="ready"]') : null;
+  if (kind === 'proposal' && !proposal) return expected ? false : { ready: false, headers: [], rows: [] };
+  const table = kind === 'proposal' ? proposal.querySelector('table')
+    : document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+  if (!table) return expected ? false : { ready: false, headers: [], rows: [] };
+  const tidy = value => String(value ?? '').replace(/\s+/g, ' ').trim();
+  const headers = proposal
+    ? [...table.querySelectorAll('thead th')].map(cell => tidy(cell.querySelector('span')?.textContent ?? cell.textContent))
+    : [...table.querySelectorAll('[role="columnheader"]')].map(cell => tidy(cell.textContent));
+  const rows = proposal
+    ? [...table.querySelectorAll('tbody tr[data-testid="construction-proposal-preview-row"]')]
+      .map(row => [...row.querySelectorAll('td')].map(cell => tidy(cell.innerText)))
+    : [...table.querySelectorAll('[role="row"]')].slice(1)
+      .filter(row => row.querySelector('[role="cell"]'))
+      .map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => tidy(cell.innerText)));
+  if (!expected) return { ready: true, headers, rows };
+  const stable = values => values.map(value => JSON.stringify(value)).sort();
+  return JSON.stringify(headers) === JSON.stringify(expected.headers) &&
+    JSON.stringify(stable(rows)) === JSON.stringify(stable(expected.rows));
+}
+
 function readPreviewGrid(page, kind) {
-  return page.evaluate(({ kind }) => {
-    const proposal = kind === 'proposal'
-      ? document.querySelector('[data-testid="construction-proposal-preview"][data-preview-status="ready"]') : null;
-    if (kind === 'proposal' && !proposal) return { ready: false, headers: [], rows: [] };
-    const table = kind === 'proposal' ? proposal.querySelector('table')
-      : document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
-    if (!table) return { ready: false, headers: [], rows: [] };
-    const tidy = value => String(value ?? '').replace(/\s+/g, ' ').trim();
-    const headers = proposal
-      ? [...table.querySelectorAll('thead th')].map(cell => tidy(cell.querySelector('span')?.textContent ?? cell.textContent))
-      : [...table.querySelectorAll('[role="columnheader"]')].map(cell => tidy(cell.textContent));
-    const rows = proposal
-      ? [...table.querySelectorAll('tbody tr[data-testid="construction-proposal-preview-row"]')]
-        .map(row => [...row.querySelectorAll('td')].map(cell => tidy(cell.innerText)))
-      : [...table.querySelectorAll('[role="row"]')].slice(1)
-        .filter(row => row.querySelector('[role="cell"]'))
-        .map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => tidy(cell.innerText)));
-    return { ready: true, headers, rows };
-  }, { kind });
+  return page.evaluate(previewGridSnapshot, { kind });
 }
 
 function stableRows(rows) {
@@ -286,27 +291,7 @@ function stableRows(rows) {
 }
 
 async function assertGrid(page, kind, expected, phase) {
-  await page.waitForFunction(({ kind, expected }) => {
-    const proposal = kind === 'proposal'
-      ? document.querySelector('[data-testid="construction-proposal-preview"][data-preview-status="ready"]') : null;
-    if (kind === 'proposal' && !proposal) return false;
-    const table = kind === 'proposal' ? proposal.querySelector('table')
-      : document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
-    if (!table) return false;
-    const tidy = value => String(value ?? '').replace(/\s+/g, ' ').trim();
-    const headers = proposal
-      ? [...table.querySelectorAll('thead th')].map(cell => tidy(cell.querySelector('span')?.textContent ?? cell.textContent))
-      : [...table.querySelectorAll('[role="columnheader"]')].map(cell => tidy(cell.textContent));
-    const rows = proposal
-      ? [...table.querySelectorAll('tbody tr[data-testid="construction-proposal-preview-row"]')]
-        .map(row => [...row.querySelectorAll('td')].map(cell => tidy(cell.innerText)))
-      : [...table.querySelectorAll('[role="row"]')].slice(1)
-        .filter(row => row.querySelector('[role="cell"]'))
-        .map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => tidy(cell.textContent)));
-    const stable = values => values.map(value => JSON.stringify(value)).sort();
-    return JSON.stringify(headers) === JSON.stringify(expected.headers) &&
-      JSON.stringify(stable(rows)) === JSON.stringify(stable(expected.rows));
-  }, { kind, expected }, { timeout: ACTION_BUDGET_MS });
+  await page.waitForFunction(previewGridSnapshot, { kind, expected }, { timeout: ACTION_BUDGET_MS });
   const actual = await readPreviewGrid(page, kind);
   assert.deepEqual(actual.headers, expected.headers, `${phase} changed the Group output labels.`);
   assert.deepEqual(stableRows(actual.rows), stableRows(expected.rows), `${phase} differs from the complete selected-root oracle.`);
