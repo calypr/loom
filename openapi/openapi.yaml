@@ -3957,6 +3957,7 @@ components:
         - $ref: '#/components/schemas/ConstructionGroupFieldSourceChoice'
         - $ref: '#/components/schemas/ConstructionGroupFieldSourceScalarBinding'
         - $ref: '#/components/schemas/ConstructionGroupFieldSourceCodingIdentityBinding'
+        - $ref: '#/components/schemas/ConstructionGroupFieldSourceInputBinding'
     ConstructionGroupFieldSourceChoice:
       type: object
       additionalProperties: false
@@ -3996,6 +3997,90 @@ components:
         ownerOccurrenceId: {type: string, minLength: 1}
         ownerResourceType: {type: string, minLength: 1}
         canonicalPath: {type: string, minLength: 1}
+    ConstructionGroupFieldSourceInputBinding:
+      type: object
+      additionalProperties: false
+      required: [kind, valueKind, sourceStageId, sourceShapeId, input]
+      properties:
+        kind: {type: string, enum: [BINDING]}
+        valueKind: {type: string, enum: [SCALAR, CODING_IDENTITY]}
+        sourceStageId: {type: string, minLength: 1}
+        sourceShapeId: {type: string, minLength: 1}
+        input: {$ref: '#/components/schemas/ConstructionGroupFieldSourceInput'}
+    ConstructionGroupFieldSourceInput:
+      oneOf:
+        - $ref: '#/components/schemas/ConstructionGroupFieldSourceCurrentStageInput'
+        - $ref: '#/components/schemas/ConstructionGroupFieldSourceRelatedOccurrenceInput'
+      discriminator:
+        propertyName: kind
+        mapping:
+          CURRENT_STAGE: '#/components/schemas/ConstructionGroupFieldSourceCurrentStageInput'
+          RELATED_OCCURRENCE: '#/components/schemas/ConstructionGroupFieldSourceRelatedOccurrenceInput'
+    ConstructionGroupFieldSourceCurrentStageInput:
+      type: object
+      additionalProperties: false
+      required: [kind, currentStage]
+      properties:
+        kind: {type: string, enum: [CURRENT_STAGE]}
+        currentStage: {$ref: '#/components/schemas/ConstructionGroupFieldCurrentStage'}
+    ConstructionGroupFieldSourceRelatedOccurrenceInput:
+      type: object
+      additionalProperties: false
+      required: [kind, relatedOccurrence]
+      properties:
+        kind: {type: string, enum: [RELATED_OCCURRENCE]}
+        relatedOccurrence: {$ref: '#/components/schemas/ConstructionGroupFieldRelatedOccurrence'}
+    ConstructionGroupFieldCurrentStage:
+      type: object
+      additionalProperties: false
+      required: [sourceRole, occurrenceId, ownerResourceType, resourceType]
+      properties:
+        sourceRole: {type: string, enum: [ROOT, OWNER, ANCESTOR, CURRENT_ITEM]}
+        occurrenceId: {type: string, minLength: 1}
+        ownerResourceType: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        candidateId: {type: string, minLength: 1}
+        canonicalPath: {type: string, minLength: 1}
+        boundarySelector: {type: string, minLength: 1}
+    ConstructionGroupFieldRelatedOccurrence:
+      type: object
+      additionalProperties: false
+      required: [anchorOccurrenceId, anchorNodeId, anchorResourceType, route, targetOccurrenceId, targetNodeId, targetResourceType, resourceType, emptyPolicy, multiplicity]
+      properties:
+        anchorOccurrenceId: {type: string, minLength: 1}
+        anchorNodeId: {type: string, minLength: 1}
+        anchorResourceType: {type: string, minLength: 1}
+        route:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/ConstructionGroupFieldRelatedRouteStep'}
+        targetOccurrenceId: {type: string, minLength: 1}
+        targetNodeId: {type: string, minLength: 1}
+        targetResourceType: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        candidateId: {type: string, minLength: 1}
+        canonicalPath: {type: string, minLength: 1}
+        emptyPolicy: {type: string, enum: [PRESERVE_PARENT, EXCLUDE, ERROR]}
+        multiplicity: {type: string, enum: [DISTINCT_TARGET_PER_INPUT]}
+        codingSelector: {type: string, minLength: 1}
+        codingEmptyPolicy: {type: string, enum: [GROUP, EXCLUDE, ERROR]}
+        ordinalSemantics: {type: string, enum: [ZERO_BASED_POSITION_IN_FLATTENED_EXPANSION_ARRAY]}
+    ConstructionGroupFieldRelatedRouteStep:
+      type: object
+      additionalProperties: false
+      required: [stepIndex, fromOccurrenceId, fromNodeId, fromResourceType, edgeId, relationship, storageDirection, matchMode, toOccurrenceId, toNodeId, toResourceType]
+      properties:
+        stepIndex: {type: integer, minimum: 0}
+        fromOccurrenceId: {type: string, minLength: 1}
+        fromNodeId: {type: string, minLength: 1}
+        fromResourceType: {type: string, minLength: 1}
+        edgeId: {type: string, minLength: 1}
+        relationship: {type: string, minLength: 1}
+        storageDirection: {type: string, enum: [INBOUND, OUTBOUND]}
+        matchMode: {type: string, enum: [OPTIONAL, REQUIRED]}
+        toOccurrenceId: {type: string, minLength: 1}
+        toNodeId: {type: string, minLength: 1}
+        toResourceType: {type: string, minLength: 1}
     ConstructionGroupSemanticCategory:
       type: object
       additionalProperties: false
@@ -4380,6 +4465,7 @@ components:
         kind: {type: string, enum: [FIELD_SOURCE]}
         valueKind: {type: string, enum: [SCALAR]}
         fieldSource: {$ref: '#/components/schemas/ConstructionGroupFieldSourceChoice'}
+        matchedOutputKeyId: {type: string, minLength: 1, description: Present only when this authorized choice exactly matches a saved key in the requested Group.}
         label: {type: string, minLength: 1}
         scopeLabel: {type: string}
         valueType: {type: string}
@@ -4394,6 +4480,7 @@ components:
         ownerResourceType: {type: string, minLength: 1}
         canonicalPath: {type: string, minLength: 1}
         boundarySelector: {type: string, minLength: 1}
+        relatedOccurrence: {$ref: '#/components/schemas/ConstructionGroupFieldChoiceRelatedOccurrence'}
     ConstructionGroupCodingIdentitySourceOption:
       type: object
       additionalProperties: false
@@ -4402,6 +4489,7 @@ components:
         kind: {type: string, enum: [FIELD_SOURCE]}
         valueKind: {type: string, enum: [CODING_IDENTITY]}
         fieldSource: {$ref: '#/components/schemas/ConstructionGroupFieldSourceChoice'}
+        matchedOutputKeyId: {type: string, minLength: 1, description: Present only when this authorized choice exactly matches a saved key in the requested Group.}
         label: {type: string, minLength: 1}
         scopeLabel: {type: string}
         valueType: {type: string}
@@ -4413,6 +4501,14 @@ components:
         ownerOccurrenceId: {type: string, minLength: 1}
         ownerResourceType: {type: string, minLength: 1}
         canonicalPath: {type: string, minLength: 1}
+        relatedOccurrence: {$ref: '#/components/schemas/ConstructionGroupFieldChoiceRelatedOccurrence'}
+    ConstructionGroupFieldChoiceRelatedOccurrence:
+      type: object
+      additionalProperties: false
+      required: [routeId]
+      properties:
+        routeId: {type: string, minLength: 1, description: Opaque equality key for keeping one related route selected in the Group editor. It is not authorization.}
+        routeLabel: {type: string, minLength: 1, description: Human-readable route detail for secondary disclosure.}
     ConstructionGroupSemanticCategoryChoice:
       type: object
       additionalProperties: false
