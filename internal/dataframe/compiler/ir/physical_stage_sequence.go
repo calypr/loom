@@ -232,9 +232,22 @@ type PhysicalStageGroupKey struct {
 	FieldSource   *PhysicalStageGroupFieldSource
 }
 
-// PhysicalStageGroupFieldSource retains the exact selector owner used to
-// produce one private scalar Group input projection.
+// PhysicalStageGroupFieldSource is a tagged sum for local/current source
+// selectors and an exact related occurrence expansion.
 type PhysicalStageGroupFieldSource struct {
+	Kind PhysicalStageGroupFieldSourceKind
+	PhysicalStageGroupCurrentStageFieldSource
+	RelatedOccurrence *PhysicalStageGroupRelatedOccurrenceFieldSource
+}
+
+type PhysicalStageGroupFieldSourceKind string
+
+const (
+	PhysicalStageGroupFieldSourceCurrentStage      PhysicalStageGroupFieldSourceKind = "CURRENT_STAGE"
+	PhysicalStageGroupFieldSourceRelatedOccurrence PhysicalStageGroupFieldSourceKind = "RELATED_OCCURRENCE"
+)
+
+type PhysicalStageGroupCurrentStageFieldSource struct {
 	SourceStageID     string
 	SourceShapeID     string
 	Role              string
@@ -245,6 +258,43 @@ type PhysicalStageGroupFieldSource struct {
 	CanonicalPath     string
 	BoundarySelector  string
 	SourceVariable    string
+}
+
+type PhysicalStageGroupRelatedOccurrenceFieldSource struct {
+	SourceStageID      string
+	SourceShapeID      string
+	AnchorOccurrenceID string
+	AnchorNodeID       string
+	AnchorResourceType string
+	Route              []PhysicalStageGroupRelatedRouteStep
+	TargetOccurrenceID string
+	TargetNodeID       string
+	TargetResourceType string
+	ResourceType       string
+	CandidateID        string
+	CanonicalPath      string
+	EmptyPolicy        string
+	Multiplicity       string
+	CodingSelector     string
+	CodingEmptyPolicy  string
+	OrdinalSemantics   string
+	AnchorVariable     string
+	RelatedRecords     *PhysicalStageRelatedExpand
+	CodingUnnest       *PhysicalUnnest
+}
+
+type PhysicalStageGroupRelatedRouteStep struct {
+	StepIndex        int
+	FromOccurrenceID string
+	FromNodeID       string
+	FromResourceType string
+	EdgeID           string
+	Relationship     string
+	StorageDirection string
+	MatchMode        string
+	ToOccurrenceID   string
+	ToNodeID         string
+	ToResourceType   string
 }
 
 // PhysicalStageGroupCodingKey groups one compiler-proven Coding item by its

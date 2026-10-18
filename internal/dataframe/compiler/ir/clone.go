@@ -109,8 +109,7 @@ func clonePhysicalStageSequence(sequence *PhysicalStageSequence) *PhysicalStageS
 			groupCopy.Keys = append([]PhysicalStageGroupKey(nil), stage.Group.Keys...)
 			for keyIndex := range groupCopy.Keys {
 				if stage.Group.Keys[keyIndex].FieldSource != nil {
-					fieldSource := *stage.Group.Keys[keyIndex].FieldSource
-					groupCopy.Keys[keyIndex].FieldSource = &fieldSource
+					groupCopy.Keys[keyIndex].FieldSource = clonePhysicalStageGroupFieldSource(stage.Group.Keys[keyIndex].FieldSource)
 				}
 			}
 			if stage.Group.SemanticKey != nil {
@@ -183,11 +182,34 @@ func clonePhysicalStageRowValues(values []PhysicalStageRowValue) []PhysicalStage
 	copy := append([]PhysicalStageRowValue(nil), values...)
 	for index := range copy {
 		if values[index].FieldSource != nil {
-			source := *values[index].FieldSource
-			copy[index].FieldSource = &source
+			copy[index].FieldSource = clonePhysicalStageGroupFieldSource(values[index].FieldSource)
 		}
 	}
 	return copy
+}
+
+func clonePhysicalStageGroupFieldSource(source *PhysicalStageGroupFieldSource) *PhysicalStageGroupFieldSource {
+	if source == nil {
+		return nil
+	}
+	copy := *source
+	if source.RelatedOccurrence != nil {
+		related := *source.RelatedOccurrence
+		related.Route = append([]PhysicalStageGroupRelatedRouteStep(nil), source.RelatedOccurrence.Route...)
+		if source.RelatedOccurrence.RelatedRecords != nil {
+			relatedRecords := *source.RelatedOccurrence.RelatedRecords
+			relatedRecords.RelatedRecords = clonePhysicalSubplan(source.RelatedOccurrence.RelatedRecords.RelatedRecords)
+			relatedRecords.Route = append([]PhysicalStageRelatedRouteStep(nil), source.RelatedOccurrence.RelatedRecords.Route...)
+			related.RelatedRecords = &relatedRecords
+		}
+		if source.RelatedOccurrence.CodingUnnest != nil {
+			related.CodingUnnest = clonePhysicalOperation(PhysicalOperation{
+				Kind: PhysicalUnnestOp, Unnest: source.RelatedOccurrence.CodingUnnest,
+			}).Unnest
+		}
+		copy.RelatedOccurrence = &related
+	}
+	return &copy
 }
 
 func clonePhysicalStageColumns(columns []PhysicalStageColumn) []PhysicalStageColumn {

@@ -1,6 +1,7 @@
 package recipe
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -26,40 +27,27 @@ func validateConstructionGroup(group ConstructionGroup, input, output map[string
 				return fmt.Errorf("%s group keys[%d] must choose exactly one source representation", path, index)
 			}
 			source := key.FieldSource
-			if source.Kind != "BINDING" || strings.TrimSpace(source.SourceStageID) == "" || source.SourceStageID != strings.TrimSpace(source.SourceStageID) ||
-				strings.TrimSpace(source.SourceShapeID) == "" || source.SourceShapeID != strings.TrimSpace(source.SourceShapeID) ||
-				(source.SourceRole != "ROOT" && source.SourceRole != "OWNER" && source.SourceRole != "ANCESTOR" && source.SourceRole != "CURRENT_ITEM") ||
-				strings.TrimSpace(source.OccurrenceID) == "" || source.OccurrenceID != strings.TrimSpace(source.OccurrenceID) ||
-				strings.TrimSpace(source.OwnerResourceType) == "" || source.OwnerResourceType != strings.TrimSpace(source.OwnerResourceType) ||
-				strings.TrimSpace(source.ResourceType) == "" || source.ResourceType != strings.TrimSpace(source.ResourceType) ||
-				strings.TrimSpace(source.CanonicalPath) == "" || source.CanonicalPath != strings.TrimSpace(source.CanonicalPath) {
-				return fmt.Errorf("%s group keys[%d].fieldSource is not a resolved BINDING", path, index)
+			if err := validateConstructionGroupFieldSourceBinding(*source, fmt.Sprintf("%s group keys[%d].fieldSource", path, index), true); err != nil {
+				return err
 			}
-			switch source.ValueKind {
-			case "SCALAR":
-				if strings.TrimSpace(source.CandidateID) == "" || source.CandidateID != strings.TrimSpace(source.CandidateID) {
-					return fmt.Errorf("%s group keys[%d].fieldSource SCALAR requires candidateId", path, index)
-				}
-				if source.SourceRole == "ANCESTOR" {
-					if strings.TrimSpace(source.BoundarySelector) == "" || source.BoundarySelector != strings.TrimSpace(source.BoundarySelector) {
-						return fmt.Errorf("%s group keys[%d].fieldSource ANCESTOR requires an exact boundarySelector", path, index)
-					}
-				} else if source.BoundarySelector != "" {
-					return fmt.Errorf("%s group keys[%d].fieldSource boundarySelector is only valid for ANCESTOR", path, index)
-				}
-			case "CODING_IDENTITY":
+			if source.ValueKind == "CODING_IDENTITY" {
 				codingIdentityKeys++
-				if source.CandidateID != "" || source.SourceRole != "CURRENT_ITEM" || source.ResourceType != "Coding" || source.BoundarySelector != "" {
-					return fmt.Errorf("%s group keys[%d].fieldSource CODING_IDENTITY must bind the current Coding item without candidateId", path, index)
-				}
-			default:
-				return fmt.Errorf("%s group keys[%d].fieldSource has unsupported valueKind %q", path, index, source.ValueKind)
 			}
-			sourceKey := strings.Join([]string{source.SourceStageID, source.SourceShapeID, source.SourceRole, source.OccurrenceID, source.OwnerResourceType, source.ResourceType, source.CandidateID, source.CanonicalPath, source.BoundarySelector}, "\x00")
+			sourceJSON, err := json.Marshal(source)
+			if err != nil {
+				return fmt.Errorf("%s group keys[%d].fieldSource cannot be encoded: %w", path, index, err)
+			}
+			sourceKey := string(sourceJSON)
 			if fieldSources[sourceKey] {
 				return fmt.Errorf("%s group keys[%d].fieldSource is duplicated", path, index)
 			}
 			fieldSources[sourceKey] = true
+			if source.ValueKind == "CODING_IDENTITY" {
+				declared := output[key.OutputColumnID]
+				if declared.Type != "" && declared.Type != "INFER" && !strings.EqualFold(declared.Type, "string") {
+					return fmt.Errorf("%s group Coding identity output %q must be a string", path, key.OutputColumnID)
+				}
+			}
 		} else if key.SemanticCategory == nil {
 			if key.InputColumnID == "" || input[key.InputColumnID].ID == "" || keyInputs[key.InputColumnID] {
 				return fmt.Errorf("%s group keys[%d].inputColumnId is missing or duplicated", path, index)

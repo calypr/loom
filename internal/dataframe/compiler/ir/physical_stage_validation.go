@@ -1873,13 +1873,47 @@ func validatePhysicalStageRowValues(
 }
 
 func validPhysicalGroupFieldSource(source *PhysicalStageGroupFieldSource, inputStageID string) bool {
-	if source == nil || inputStageID == "" || source.SourceStageID != inputStageID || source.SourceShapeID == "" ||
-		(source.Role != "ROOT" && source.Role != "OWNER" && source.Role != "ANCESTOR" && source.Role != "CURRENT_ITEM") ||
-		source.OccurrenceID == "" || source.OwnerResourceType == "" || source.ResourceType == "" ||
-		source.CandidateID == "" || source.CanonicalPath == "" || source.SourceVariable == "" {
+	if source == nil || inputStageID == "" {
 		return false
 	}
-	return source.Role == "ANCESTOR" && source.BoundarySelector != "" || source.Role != "ANCESTOR" && source.BoundarySelector == ""
+	switch source.Kind {
+	case PhysicalStageGroupFieldSourceCurrentStage:
+		if source.RelatedOccurrence != nil || source.SourceStageID != inputStageID || source.SourceShapeID == "" ||
+			(source.Role != "ROOT" && source.Role != "OWNER" && source.Role != "ANCESTOR" && source.Role != "CURRENT_ITEM") ||
+			source.OccurrenceID == "" || source.OwnerResourceType == "" || source.ResourceType == "" ||
+			source.CandidateID == "" || source.CanonicalPath == "" || source.SourceVariable == "" {
+			return false
+		}
+		return source.Role == "ANCESTOR" && source.BoundarySelector != "" || source.Role != "ANCESTOR" && source.BoundarySelector == ""
+	case PhysicalStageGroupFieldSourceRelatedOccurrence:
+		related := source.RelatedOccurrence
+		if related == nil || source.PhysicalStageGroupCurrentStageFieldSource != (PhysicalStageGroupCurrentStageFieldSource{}) ||
+			related.SourceStageID != inputStageID || related.SourceShapeID == "" || related.AnchorOccurrenceID == "" ||
+			related.AnchorNodeID == "" || related.AnchorResourceType == "" || related.TargetOccurrenceID == "" ||
+			related.TargetNodeID == "" || related.TargetResourceType == "" || related.ResourceType == "" ||
+			related.EmptyPolicy == "" || related.Multiplicity != "DISTINCT_TARGET_PER_INPUT" || len(related.Route) == 0 {
+			return false
+		}
+		fromOccurrence, fromNode, fromResource := related.AnchorOccurrenceID, related.AnchorNodeID, related.AnchorResourceType
+		for index, hop := range related.Route {
+			if hop.StepIndex != index || hop.FromOccurrenceID != fromOccurrence || hop.FromNodeID != fromNode || hop.FromResourceType != fromResource ||
+				hop.EdgeID == "" || hop.Relationship == "" || (hop.StorageDirection != "INBOUND" && hop.StorageDirection != "OUTBOUND") ||
+				(hop.MatchMode != "OPTIONAL" && hop.MatchMode != "REQUIRED") || hop.ToOccurrenceID == "" || hop.ToNodeID == "" || hop.ToResourceType == "" {
+				return false
+			}
+			fromOccurrence, fromNode, fromResource = hop.ToOccurrenceID, hop.ToNodeID, hop.ToResourceType
+		}
+		if fromOccurrence != related.TargetOccurrenceID || fromNode != related.TargetNodeID || fromResource != related.TargetResourceType {
+			return false
+		}
+		if related.CodingSelector == "" {
+			return related.CandidateID != "" && related.CanonicalPath != "" && related.CodingEmptyPolicy == "" && related.OrdinalSemantics == ""
+		}
+		return related.CandidateID == "" && related.CanonicalPath == "" && related.OrdinalSemantics == "ZERO_BASED_POSITION_IN_FLATTENED_EXPANSION_ARRAY" &&
+			(related.CodingEmptyPolicy == "PRESERVE_PARENT" || related.CodingEmptyPolicy == "EXCLUDE" || related.CodingEmptyPolicy == "ERROR")
+	default:
+		return false
+	}
 }
 
 func physicalProjectionNameSet(projections []PhysicalProjection) map[string]bool {

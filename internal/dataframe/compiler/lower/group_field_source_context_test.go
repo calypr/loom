@@ -40,6 +40,30 @@ func TestGroupFieldSourceContextPinsExactRouteAndCodingSelector(t *testing.T) {
 	}
 }
 
+func TestGroupFieldSourceTaggedCurrentStageLowersToTypedCurrentVariant(t *testing.T) {
+	plan := groupSourceTestPlan(t, "valueCodeableConcept.coding[]", nil, "", "")
+	context, err := describeGroupFieldSourceContext("source_projection", "Observation", "__loom_expansion_identity", &plan)
+	if err != nil || context == nil {
+		t.Fatalf("describe Group source context: context=%#v err=%v", context, err)
+	}
+	source := recipe.ConstructionGroupFieldSource{
+		Kind: "BINDING", ValueKind: "SCALAR", SourceStageID: context.SourceStageID, SourceShapeID: context.SourceShapeID,
+		Input: &recipe.ConstructionGroupFieldSourceInput{Kind: "CURRENT_STAGE", CurrentStage: &recipe.ConstructionGroupCurrentStageFieldSource{
+			SourceRole: "ROOT", OccurrenceID: "root-observation", OwnerResourceType: "Observation", ResourceType: "Observation",
+			CandidateID: "observation-status", CanonicalPath: "status",
+		}},
+	}
+	column, _, fieldSource, err := lowerConstructionGroupScalarSource(&plan, source, context, 0, 0, map[string]bool{}, nil)
+	if err != nil {
+		t.Fatalf("lower tagged current-stage source: %v", err)
+	}
+	if !column.Internal || fieldSource == nil || fieldSource.Kind != ir.PhysicalStageGroupFieldSourceCurrentStage ||
+		fieldSource.RelatedOccurrence != nil || fieldSource.Role != "ROOT" ||
+		fieldSource.SourceStageID != context.SourceStageID || fieldSource.SourceShapeID != context.SourceShapeID {
+		t.Fatalf("typed current-stage source = %#v, column=%#v", fieldSource, column)
+	}
+}
+
 func TestGroupFieldSourceContextRejectsGroupedAndUnprovenSourceRows(t *testing.T) {
 	grouped := groupSourceTestPlan(t, "identifier[]", nil, "", "")
 	grouped.Operations = append(grouped.Operations[:1], append([]ir.PhysicalOperation{{Kind: ir.PhysicalGroupRowsOp, GroupRows: &ir.PhysicalGroupRows{}}}, grouped.Operations[1:]...)...)

@@ -21,6 +21,11 @@ func lowerConstructionGroupScalarSource(
 	usedVariables map[string]bool,
 	stage *ir.PhysicalConstructionStage,
 ) (CompiledOutputColumn, ir.PhysicalProjection, *ir.PhysicalStageGroupFieldSource, error) {
+	var normalizeErr error
+	source, normalizeErr = normalizeConstructionCurrentGroupFieldSource(source)
+	if normalizeErr != nil {
+		return CompiledOutputColumn{}, ir.PhysicalProjection{}, nil, normalizeErr
+	}
 	if context == nil || source.SourceStageID != context.SourceStageID || source.SourceShapeID != context.SourceShapeID {
 		return CompiledOutputColumn{}, ir.PhysicalProjection{}, nil, fmt.Errorf("Group fieldSource does not match the compiler-proven source stage and shape")
 	}
@@ -137,13 +142,13 @@ func lowerConstructionGroupScalarSource(
 		Cardinality: "optional_one", Nullable: true, Internal: true,
 		SemanticPath: "construction_group_field_source:" + source.SourceShapeID + ":" + source.SourceRole + ":" + source.CanonicalPath,
 	}
-	field := &ir.PhysicalStageGroupFieldSource{
+	field := &ir.PhysicalStageGroupFieldSource{Kind: ir.PhysicalStageGroupFieldSourceCurrentStage, PhysicalStageGroupCurrentStageFieldSource: ir.PhysicalStageGroupCurrentStageFieldSource{
 		SourceStageID: source.SourceStageID, SourceShapeID: source.SourceShapeID,
 		Role: source.SourceRole, OccurrenceID: source.OccurrenceID, OwnerResourceType: source.OwnerResourceType,
 		ResourceType: source.ResourceType,
 		CandidateID:  source.CandidateID, CanonicalPath: source.CanonicalPath,
 		BoundarySelector: owner.BoundarySelector, SourceVariable: sourceVariable,
-	}
+	}}
 	projection := ir.PhysicalProjection{Name: name, Hidden: true, Expression: &physicalExpression}
 	if err := appendSourceGroupInputProjection(plan, projection); err != nil {
 		return CompiledOutputColumn{}, ir.PhysicalProjection{}, nil, err
@@ -155,6 +160,21 @@ func lowerConstructionGroupScalarSource(
 		})
 	}
 	return column, projection, field, nil
+}
+
+func normalizeConstructionCurrentGroupFieldSource(source recipe.ConstructionGroupFieldSource) (recipe.ConstructionGroupFieldSource, error) {
+	if source.Input == nil {
+		return source, nil
+	}
+	if source.Input.Kind != "CURRENT_STAGE" || source.Input.CurrentStage == nil || source.Input.RelatedOccurrence != nil {
+		return recipe.ConstructionGroupFieldSource{}, fmt.Errorf("Group fieldSource requires a CURRENT_STAGE input")
+	}
+	current := source.Input.CurrentStage
+	source.SourceRole, source.OccurrenceID = current.SourceRole, current.OccurrenceID
+	source.OwnerResourceType, source.ResourceType = current.OwnerResourceType, current.ResourceType
+	source.CandidateID, source.CanonicalPath = current.CandidateID, current.CanonicalPath
+	source.BoundarySelector = current.BoundarySelector
+	return source, nil
 }
 
 func groupSourcePrimitiveExpressionKind(primitive fhirschema.PrimitiveKind) (expression.ValueKind, bool) {
@@ -182,6 +202,11 @@ func validateGroupCodingIdentitySource(
 	context *CompiledGroupFieldSourceContext,
 	inputStageID string,
 ) (*ir.PhysicalUnnest, error) {
+	var normalizeErr error
+	source, normalizeErr = normalizeConstructionCurrentGroupFieldSource(source)
+	if normalizeErr != nil {
+		return nil, normalizeErr
+	}
 	if context == nil || source.SourceStageID != inputStageID || source.SourceStageID != context.SourceStageID ||
 		source.SourceShapeID != context.SourceShapeID || context.SourceExpansion == nil ||
 		source.SourceRole != "CURRENT_ITEM" || source.ResourceType != "Coding" ||

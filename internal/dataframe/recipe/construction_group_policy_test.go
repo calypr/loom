@@ -93,3 +93,102 @@ func TestConstructionRowValueFieldSourceIsGroupOnlyAndMutuallyExclusive(t *testi
 		t.Fatalf("conflicting row value source error = %v", err)
 	}
 }
+
+func TestConstructionGroupFieldSourceUsesTaggedCurrentOrRelatedInput(t *testing.T) {
+	currentJSON := `{"kind":"BINDING","valueKind":"SCALAR","sourceStageId":"source_projection","sourceShapeId":"shape-current","input":{"kind":"CURRENT_STAGE","currentStage":{"sourceRole":"ROOT","occurrenceId":"base","ownerResourceType":"Observation","resourceType":"Observation","candidateId":"status","canonicalPath":"status"}}}`
+	var current ConstructionGroupFieldSource
+	if err := json.Unmarshal([]byte(currentJSON), &current); err != nil {
+		t.Fatalf("decode tagged current source: %v", err)
+	}
+	if err := validateConstructionGroupFieldSourceBinding(current, "fieldSource", false); err != nil {
+		t.Fatalf("validate tagged current source: %v", err)
+	}
+
+	legacyJSON := `{"kind":"BINDING","valueKind":"SCALAR","sourceStageId":"source_projection","sourceShapeId":"shape-current","sourceRole":"ROOT","occurrenceId":"base","ownerResourceType":"Observation","resourceType":"Observation","candidateId":"status","canonicalPath":"status"}`
+	var legacy ConstructionGroupFieldSource
+	if err := json.Unmarshal([]byte(legacyJSON), &legacy); err != nil {
+		t.Fatalf("decode legacy current source: %v", err)
+	}
+	legacyInput, err := normalizedConstructionGroupFieldSourceInput(legacy, "fieldSource")
+	if err != nil || legacyInput.Kind != "CURRENT_STAGE" || legacyInput.CurrentStage == nil {
+		t.Fatalf("legacy source normalization = %#v, %v", legacyInput, err)
+	}
+	if err := validateConstructionGroupFieldSourceBinding(legacy, "fieldSource", false); err != nil {
+		t.Fatalf("validate legacy current source: %v", err)
+	}
+
+	related := ConstructionGroupFieldSource{
+		Kind: "BINDING", ValueKind: "SCALAR", SourceStageID: ConstructionSourceProjectionID, SourceShapeID: "shape-related",
+		Input: &ConstructionGroupFieldSourceInput{Kind: "RELATED_OCCURRENCE", RelatedOccurrence: &ConstructionGroupRelatedOccurrenceFieldSource{
+			AnchorOccurrenceID: "observation-a", AnchorNodeID: "node-observation-a", AnchorResourceType: "Observation",
+			Route: []ConstructionGroupRelatedRouteStep{{
+				StepIndex: 0, FromOccurrenceID: "observation-a", FromNodeID: "node-observation-a", FromResourceType: "Observation",
+				EdgeID: "edge-device", Relationship: "device_Reference", StorageDirection: "OUTBOUND", MatchMode: "OPTIONAL",
+				ToOccurrenceID: "device-device-a", ToNodeID: "node-device-a", ToResourceType: "Device",
+			}},
+			TargetOccurrenceID: "device-device-a", TargetNodeID: "node-device-a", TargetResourceType: "Device",
+			ResourceType: "Device", CandidateID: "device-status", CanonicalPath: "status",
+			EmptyPolicy: ExpansionPreserveParent, Multiplicity: ConstructionGroupRelatedMultiplicityDistinctTargetPerInput,
+		}},
+	}
+	if err := validateConstructionGroupFieldSourceBinding(related, "fieldSource", true); err != nil {
+		t.Fatalf("validate related occurrence source: %v", err)
+	}
+
+	encoded, err := json.Marshal(related)
+	if err != nil {
+		t.Fatalf("marshal related occurrence source: %v", err)
+	}
+	var roundTrip ConstructionGroupFieldSource
+	if err := json.Unmarshal(encoded, &roundTrip); err != nil {
+		t.Fatalf("decode related occurrence source: %v", err)
+	}
+	if err := validateConstructionGroupFieldSourceBinding(roundTrip, "fieldSource", true); err != nil {
+		t.Fatalf("validate related occurrence round trip: %v", err)
+	}
+
+	badTag := related
+	badTag.Input = &ConstructionGroupFieldSourceInput{Kind: "CURRENT_STAGE", RelatedOccurrence: related.Input.RelatedOccurrence}
+	if err := validateConstructionGroupFieldSourceBinding(badTag, "fieldSource", true); err == nil {
+		t.Fatal("related payload with CURRENT_STAGE discriminator was accepted")
+	}
+	badRoute := related
+	badRoute.Input = &ConstructionGroupFieldSourceInput{Kind: "RELATED_OCCURRENCE", RelatedOccurrence: related.Input.RelatedOccurrence}
+	badRelated := *related.Input.RelatedOccurrence
+	badRoute.Input.RelatedOccurrence = &badRelated
+	badRoute.Input.RelatedOccurrence.Route = append([]ConstructionGroupRelatedRouteStep(nil), related.Input.RelatedOccurrence.Route...)
+	badRoute.Input.RelatedOccurrence.Route[0].FromOccurrenceID = "another-owner"
+	if err := validateConstructionGroupFieldSourceBinding(badRoute, "fieldSource", true); err == nil {
+		t.Fatal("discontinuous related route was accepted")
+	}
+}
+
+func TestConstructionGroupRelatedCodingIdentityRequiresExactSelectorAndPolicies(t *testing.T) {
+	source := ConstructionGroupFieldSource{
+		Kind: "BINDING", ValueKind: "CODING_IDENTITY", SourceStageID: ConstructionSourceProjectionID, SourceShapeID: "shape-related-coding",
+		Input: &ConstructionGroupFieldSourceInput{Kind: "RELATED_OCCURRENCE", RelatedOccurrence: &ConstructionGroupRelatedOccurrenceFieldSource{
+			AnchorOccurrenceID: "observation-a", AnchorNodeID: "node-observation-a", AnchorResourceType: "Observation",
+			Route: []ConstructionGroupRelatedRouteStep{{
+				StepIndex: 0, FromOccurrenceID: "observation-a", FromNodeID: "node-observation-a", FromResourceType: "Observation",
+				EdgeID: "edge-device", Relationship: "device_Reference", StorageDirection: "OUTBOUND", MatchMode: "OPTIONAL",
+				ToOccurrenceID: "device-device-a", ToNodeID: "node-device-a", ToResourceType: "Device",
+			}},
+			TargetOccurrenceID: "device-device-a", TargetNodeID: "node-device-a", TargetResourceType: "Device",
+			ResourceType: "Device", EmptyPolicy: ExpansionPreserveParent,
+			Multiplicity:   ConstructionGroupRelatedMultiplicityDistinctTargetPerInput,
+			CodingSelector: "udiCarrier.carrierHRF", CodingEmptyPolicy: ExpansionExclude,
+			OrdinalSemantics: ConstructionGroupRelatedOrdinalSemanticsZeroBasedPosition,
+		}},
+	}
+	if err := validateConstructionGroupFieldSourceBinding(source, "fieldSource", true); err != nil {
+		t.Fatalf("validate related Coding identity: %v", err)
+	}
+	bad := source
+	bad.Input = &ConstructionGroupFieldSourceInput{Kind: "RELATED_OCCURRENCE", RelatedOccurrence: source.Input.RelatedOccurrence}
+	badRelated := *source.Input.RelatedOccurrence
+	bad.Input.RelatedOccurrence = &badRelated
+	bad.Input.RelatedOccurrence.CandidateID = "fake-candidate"
+	if err := validateConstructionGroupFieldSourceBinding(bad, "fieldSource", true); err == nil {
+		t.Fatal("related Coding identity accepted a candidate ID")
+	}
+}
