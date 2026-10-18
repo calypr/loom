@@ -646,7 +646,7 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
   const specimenOwnerChoices = (rowCapabilities.groupRowValueChoices ?? []).filter(choice =>
     choice.kind === 'FIELD_SOURCE' && choice.valueKind === 'SCALAR' &&
     choice.candidateId === specimenIDCandidate.candidateId && choice.canonicalPath === 'id' &&
-    choice.resourceType === 'Specimen' && choice.ownerResourceType === 'Specimen' && choice.fieldSource?.kind === 'CHOICE');
+    choice.resourceType === 'string' && choice.ownerResourceType === 'Specimen' && choice.fieldSource?.kind === 'CHOICE');
   assert.equal(specimenOwnerChoices.length, 1,
     `The exact active Group preimage must issue one Specimen.id related RowValue choice: ${JSON.stringify(rowCapabilities.groupRowValueChoices)}.`);
   let specimenIDChoice = specimenOwnerChoices[0];
@@ -730,7 +730,7 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
   const reopenedSpecimenOwnerChoices = (reopenedRowCapabilities.groupRowValueChoices ?? []).filter(choice =>
     choice.kind === 'FIELD_SOURCE' && choice.valueKind === 'SCALAR' &&
     choice.candidateId === specimenIDCandidate.candidateId && choice.canonicalPath === 'id' &&
-    choice.resourceType === 'Specimen' && choice.ownerResourceType === 'Specimen' && choice.fieldSource?.kind === 'CHOICE');
+    choice.resourceType === 'string' && choice.ownerResourceType === 'Specimen' && choice.fieldSource?.kind === 'CHOICE');
   assert.equal(reopenedSpecimenOwnerChoices.length, 1,
     'Cancel must leave exactly one compiler-issued Specimen.id RowValue choice for the same Group.');
   specimenIDChoice = reopenedSpecimenOwnerChoices[0];
