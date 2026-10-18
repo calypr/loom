@@ -382,12 +382,29 @@ func (group *ConstructionGroup) UnmarshalJSON(raw []byte) error {
 }
 
 type ConstructionGroupKey struct {
-	InputColumnID  string `json:"inputColumnId"`
-	OutputColumnID string `json:"outputColumnId"`
+	InputColumnID  string                        `json:"inputColumnId,omitempty"`
+	OutputColumnID string                        `json:"outputColumnId"`
+	FieldSource    *ConstructionGroupFieldSource `json:"fieldSource,omitempty"`
 	// SemanticCategory is the server-resolved coded field family. It is
 	// mutually exclusive with InputColumnID so legacy scalar keys keep their
 	// original wire shape.
 	SemanticCategory *ConstructionGroupSemanticCategory `json:"semanticCategory,omitempty"`
+}
+
+// ConstructionGroupFieldSource binds a scalar selector to one exact compiler
+// source context. It is private input to Group, not a public stage column.
+type ConstructionGroupFieldSource struct {
+	Kind              string `json:"kind"`
+	ValueKind         string `json:"valueKind"`
+	SourceStageID     string `json:"sourceStageId"`
+	SourceShapeID     string `json:"sourceShapeId"`
+	SourceRole        string `json:"sourceRole"`
+	OccurrenceID      string `json:"occurrenceId"`
+	OwnerResourceType string `json:"ownerResourceType"`
+	ResourceType      string `json:"resourceType"`
+	CandidateID       string `json:"candidateId,omitempty"`
+	CanonicalPath     string `json:"canonicalPath"`
+	BoundarySelector  string `json:"boundarySelector,omitempty"`
 }
 
 // ConstructionGroupSemanticCategory pins one exact observed coding family.

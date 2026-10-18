@@ -32,7 +32,7 @@ func TestLowerSemanticGroupRejectsExpandedRootRows(t *testing.T) {
 	_, _, _, err := lowerConstructionGroup(
 		plan, group, nil, []recipe.StageColumn{{ID: "category_id", Name: "category"}}, nil,
 		"_key", recipe.ConstructionSourceProjectionID, "Observation",
-		map[string]recipe.StageColumn{"category_id": {ID: "category_id", Name: "category"}}, map[string]bool{}, 0,
+		map[string]recipe.StageColumn{"category_id": {ID: "category_id", Name: "category"}}, map[string]bool{}, 0, nil,
 	)
 	if err == nil || !strings.Contains(err.Error(), "UNNEST") {
 		t.Fatalf("lower semantic Group with expanded roots error = %v, want source-grain rejection for UNNEST", err)

@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
@@ -21,6 +22,7 @@ func lowerConstructionGroup(
 	outputs map[string]recipe.StageColumn,
 	usedVariables map[string]bool,
 	stepIndex int,
+	stage *ir.PhysicalConstructionStage,
 ) (ir.PhysicalStageGroup, []ir.PhysicalProjection, []CompiledOutputColumn, error) {
 	constructionBind := nextTableReshapeBindKey(plan.BindVars, "construction_group_id")
 	plan.BindVars[constructionBind] = group.ConstructionID
@@ -29,6 +31,25 @@ func lowerConstructionGroup(
 		IdentityVariable:      allocateConstructionVariable(usedVariables, "group_identity", stepIndex),
 		ConstructionIDBindKey: constructionBind,
 		MissingKeyPolicy:      ir.PhysicalStageGroupMissingKeyPolicy(group.MissingKeyPolicy.Normalized()),
+	}
+	var groupFieldContext *CompiledGroupFieldSourceContext
+	for _, key := range group.Keys {
+		if key.FieldSource == nil {
+			continue
+		}
+		if inputStageID != recipe.ConstructionSourceProjectionID {
+			return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("Group fieldSource must bind the exact source_projection stage")
+		}
+		if groupFieldContext == nil {
+			var err error
+			groupFieldContext, err = describeGroupFieldSourceContext(inputStageID, rootResourceType, inputIdentity, plan)
+			if err != nil {
+				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("recompute Group field source context: %w", err)
+			}
+		}
+		if groupFieldContext == nil {
+			return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("Group fieldSource has no exact compiler-proven source shape")
+		}
 	}
 	metadataByOutputID := make(map[string]CompiledOutputColumn, len(declarations))
 	projectionByOutputID := make(map[string]ir.PhysicalProjection, len(declarations))
@@ -101,6 +122,53 @@ func lowerConstructionGroup(
 				SemanticPath: "construction_semantic_group:" + category.BindingID + ":" + category.FamilyID,
 			}
 			projectionByOutputID[output.ID] = ir.PhysicalProjection{Name: output.Name, Value: ir.PhysicalValue{Variable: physical.SemanticKey.LabelVariable}}
+			continue
+		}
+		if key.FieldSource != nil {
+			source := *key.FieldSource
+			output, ok := outputs[key.OutputColumnID]
+			if !ok {
+				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("Group fieldSource output column ID %q is missing from step schema", key.OutputColumnID)
+			}
+			if source.ValueKind == "CODING_IDENTITY" {
+				if physical.SemanticKey != nil || physical.CodingKey != nil {
+					return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("Group supports at most one coded identity key")
+				}
+				codingKey, column, projection, _, _, err := lowerConstructionGroupCodingKey(
+					plan, source, groupFieldContext, output, group.MissingKeyPolicy, usedVariables, stepIndex, stage,
+				)
+				if err != nil {
+					return ir.PhysicalStageGroup{}, nil, nil, err
+				}
+				physical.CodingKey = &codingKey
+				metadataByOutputID[output.ID] = column
+				projectionByOutputID[output.ID] = projection
+				continue
+			}
+			inputColumn, inputProjection, fieldSource, err := lowerConstructionGroupScalarSource(
+				plan, source, groupFieldContext, stepIndex, len(physical.Keys), usedVariables, stage,
+			)
+			if err != nil {
+				return ir.PhysicalStageGroup{}, nil, nil, err
+			}
+			kind, scalar := tableReshapeScalarKind(inputColumn.Kind)
+			if !scalar {
+				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("Group fieldSource %q is not a supported scalar", source.CanonicalPath)
+			}
+			if output.Type != "" && output.Type != "INFER" && !strings.EqualFold(output.Type, inputColumn.Kind) {
+				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("Group fieldSource output %q must preserve scalar type %q", output.ID, inputColumn.Kind)
+			}
+			physicalKey := ir.PhysicalStageGroupKey{
+				InputColumn: inputColumn.Name, OutputColumn: output.Name,
+				Variable: allocateConstructionVariable(usedVariables, "group_key", stepIndex), Kind: kind,
+				InputInternal: true, FieldSource: fieldSource,
+			}
+			physical.Keys = append(physical.Keys, physicalKey)
+			inputColumn.ID, inputColumn.Name = output.ID, output.Name
+			inputColumn.Label = constructionFirstNonEmpty(output.Label, output.Name)
+			metadataByOutputID[output.ID] = inputColumn
+			projectionByOutputID[output.ID] = inputProjection
+			projectionByOutputID[output.ID] = ir.PhysicalProjection{Name: output.Name, Value: ir.PhysicalValue{Variable: physicalKey.Variable}}
 			continue
 		}
 		inputColumn, ok := input[key.InputColumnID]

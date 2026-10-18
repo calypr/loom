@@ -17,17 +17,58 @@ func validateConstructionGroup(group ConstructionGroup, input, output map[string
 	}
 	expected := make(map[string]bool, len(group.Keys)+len(group.Aggregates))
 	keyInputs := make(map[string]bool, len(group.Keys))
+	fieldSources := make(map[string]bool, len(group.Keys))
 	semanticKeys := 0
+	codingIdentityKeys := 0
 	for index, key := range group.Keys {
-		if key.SemanticCategory == nil {
+		if key.FieldSource != nil {
+			if key.InputColumnID != "" || key.SemanticCategory != nil {
+				return fmt.Errorf("%s group keys[%d] must choose exactly one source representation", path, index)
+			}
+			source := key.FieldSource
+			if source.Kind != "BINDING" || strings.TrimSpace(source.SourceStageID) == "" || source.SourceStageID != strings.TrimSpace(source.SourceStageID) ||
+				strings.TrimSpace(source.SourceShapeID) == "" || source.SourceShapeID != strings.TrimSpace(source.SourceShapeID) ||
+				(source.SourceRole != "ROOT" && source.SourceRole != "OWNER" && source.SourceRole != "ANCESTOR" && source.SourceRole != "CURRENT_ITEM") ||
+				strings.TrimSpace(source.OccurrenceID) == "" || source.OccurrenceID != strings.TrimSpace(source.OccurrenceID) ||
+				strings.TrimSpace(source.OwnerResourceType) == "" || source.OwnerResourceType != strings.TrimSpace(source.OwnerResourceType) ||
+				strings.TrimSpace(source.ResourceType) == "" || source.ResourceType != strings.TrimSpace(source.ResourceType) ||
+				strings.TrimSpace(source.CanonicalPath) == "" || source.CanonicalPath != strings.TrimSpace(source.CanonicalPath) {
+				return fmt.Errorf("%s group keys[%d].fieldSource is not a resolved BINDING", path, index)
+			}
+			switch source.ValueKind {
+			case "SCALAR":
+				if strings.TrimSpace(source.CandidateID) == "" || source.CandidateID != strings.TrimSpace(source.CandidateID) {
+					return fmt.Errorf("%s group keys[%d].fieldSource SCALAR requires candidateId", path, index)
+				}
+				if source.SourceRole == "ANCESTOR" {
+					if strings.TrimSpace(source.BoundarySelector) == "" || source.BoundarySelector != strings.TrimSpace(source.BoundarySelector) {
+						return fmt.Errorf("%s group keys[%d].fieldSource ANCESTOR requires an exact boundarySelector", path, index)
+					}
+				} else if source.BoundarySelector != "" {
+					return fmt.Errorf("%s group keys[%d].fieldSource boundarySelector is only valid for ANCESTOR", path, index)
+				}
+			case "CODING_IDENTITY":
+				codingIdentityKeys++
+				if source.CandidateID != "" || source.SourceRole != "CURRENT_ITEM" || source.ResourceType != "Coding" || source.BoundarySelector != "" {
+					return fmt.Errorf("%s group keys[%d].fieldSource CODING_IDENTITY must bind the current Coding item without candidateId", path, index)
+				}
+			default:
+				return fmt.Errorf("%s group keys[%d].fieldSource has unsupported valueKind %q", path, index, source.ValueKind)
+			}
+			sourceKey := strings.Join([]string{source.SourceStageID, source.SourceShapeID, source.SourceRole, source.OccurrenceID, source.OwnerResourceType, source.ResourceType, source.CandidateID, source.CanonicalPath, source.BoundarySelector}, "\x00")
+			if fieldSources[sourceKey] {
+				return fmt.Errorf("%s group keys[%d].fieldSource is duplicated", path, index)
+			}
+			fieldSources[sourceKey] = true
+		} else if key.SemanticCategory == nil {
 			if key.InputColumnID == "" || input[key.InputColumnID].ID == "" || keyInputs[key.InputColumnID] {
 				return fmt.Errorf("%s group keys[%d].inputColumnId is missing or duplicated", path, index)
 			}
 			keyInputs[key.InputColumnID] = true
 		} else {
 			semanticKeys++
-			if key.InputColumnID != "" {
-				return fmt.Errorf("%s group keys[%d] must choose either inputColumnId or semanticCategory", path, index)
+			if key.InputColumnID != "" || key.FieldSource != nil {
+				return fmt.Errorf("%s group keys[%d] must choose exactly one source representation", path, index)
 			}
 			category := key.SemanticCategory
 			if category.Kind != "BINDING" || strings.TrimSpace(category.BindingID) == "" ||
@@ -51,7 +92,7 @@ func validateConstructionGroup(group ConstructionGroup, input, output map[string
 		}
 		expected[key.OutputColumnID] = true
 	}
-	if semanticKeys > 1 {
+	if semanticKeys > 1 || codingIdentityKeys > 1 || semanticKeys > 0 && codingIdentityKeys > 0 {
 		return fmt.Errorf("%s group supports at most one semantic category key", path)
 	}
 	for index, aggregate := range group.Aggregates {

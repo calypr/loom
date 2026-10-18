@@ -149,6 +149,7 @@ type PhysicalStageGroup struct {
 	RootContributorVariable     string
 	Keys                        []PhysicalStageGroupKey
 	SemanticKey                 *PhysicalStageGroupSemanticKey
+	CodingKey                   *PhysicalStageGroupCodingKey
 	Aggregates                  []PhysicalStageGroupAggregate
 	RowValues                   []PhysicalStageRowValue
 }
@@ -220,10 +221,42 @@ const (
 )
 
 type PhysicalStageGroupKey struct {
-	InputColumn  string
-	OutputColumn string
-	Variable     string
-	Kind         string
+	InputColumn   string
+	OutputColumn  string
+	Variable      string
+	Kind          string
+	InputInternal bool
+	FieldSource   *PhysicalStageGroupFieldSource
+}
+
+// PhysicalStageGroupFieldSource retains the exact selector owner used to
+// produce one private scalar Group input projection.
+type PhysicalStageGroupFieldSource struct {
+	SourceStageID    string
+	SourceShapeID    string
+	Role             string
+	OccurrenceID     string
+	ResourceType     string
+	CandidateID      string
+	CanonicalPath    string
+	BoundarySelector string
+	SourceVariable   string
+}
+
+// PhysicalStageGroupCodingKey groups one compiler-proven Coding item by its
+// exact system/version/code tuple while keeping display as a separate label.
+type PhysicalStageGroupCodingKey struct {
+	OutputColumn              string
+	TupleVariable             string
+	LabelVariable             string
+	MembershipColumn          string
+	SourceStageID             string
+	SourceShapeID             string
+	SourceOccurrenceKeyColumn string
+	OwnerOccurrenceID         string
+	OwnerResourceType         string
+	CodingPath                string
+	SourceUnnest              *PhysicalUnnest
 }
 
 // PhysicalStageGroupSemanticKey expands one exact semantic coding family per

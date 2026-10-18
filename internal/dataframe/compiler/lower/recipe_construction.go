@@ -23,15 +23,60 @@ const rootContributorSetColumn = "__loom_root_contributor_keys"
 // CompiledStageDescriptor is the compiler-owned schema and capability view
 // for one exact stage reference. Columns describe the stage output.
 type CompiledStageDescriptor struct {
-	ID                   string
-	InputStageID         string
-	Operation            string
-	Columns              []CompiledOutputColumn
-	RowIdentityColumn    string
-	Capabilities         []StageOperationCapability
-	RelatedExpandAnchors []CompiledRelatedExpandAnchor
-	RelatedExpand        *CompiledRelatedExpandStage
-	ActiveRelatedRecord  *CompiledActiveRelatedRecordStage
+	ID                      string
+	InputStageID            string
+	Operation               string
+	Columns                 []CompiledOutputColumn
+	RowIdentityColumn       string
+	Capabilities            []StageOperationCapability
+	RelatedExpandAnchors    []CompiledRelatedExpandAnchor
+	RelatedExpand           *CompiledRelatedExpandStage
+	ActiveRelatedRecord     *CompiledActiveRelatedRecordStage
+	GroupFieldSourceContext *CompiledGroupFieldSourceContext
+}
+
+// CompiledGroupFieldSourceContext is the compiler-owned, immutable source
+// shape offered to Group capability discovery and rechecked during lowering.
+type CompiledGroupFieldSourceContext struct {
+	SourceStageID        string
+	SourceShapeID        string
+	SourceIdentityColumn string
+	SourceExpansion      *CompiledGroupFieldSourceExpansion
+	FieldOwners          []CompiledGroupFieldOwner
+}
+
+type CompiledGroupFieldSourceExpansion struct {
+	OwnerOccurrenceID string
+	OwnerResourceType string
+	Selector          string
+	Route             []CompiledGroupFieldSourceRouteStep
+	Ancestors         []CompiledGroupFieldSourceAncestor
+	OrdinalSemantics  string
+	IdentitySemantics string
+	EmptyPolicy       string
+}
+
+type CompiledGroupFieldSourceRouteStep struct {
+	OccurrenceID string
+	FromType     string
+	EdgeLabel    string
+	ToType       string
+	Direction    string
+}
+
+type CompiledGroupFieldSourceAncestor struct {
+	StepIndex        int
+	BoundarySelector string
+	ResourceType     string
+}
+
+type CompiledGroupFieldOwner struct {
+	Role              string
+	OccurrenceID      string
+	OwnerResourceType string
+	ResourceType      string
+	BoundarySelector  string
+	StepIndex         int
 }
 
 type CompiledRelatedExpandAnchor struct {
@@ -108,6 +153,11 @@ func DescribeConstructionSourceStage(schema []CompiledOutputColumn, rootResource
 	descriptor.Capabilities = withConstructionCapability(descriptor.Capabilities,
 		codedPivotSourceCapability(columns, rootResourceType, constructionDirectRootRowsUnique(sourcePlan, "CODED_PIVOT") == nil))
 	descriptor.RelatedExpandAnchors = relatedExpandAnchors(columns, rootResourceType, false)
+	groupFieldContext, err := describeGroupFieldSourceContext(recipe.ConstructionSourceProjectionID, rootResourceType, identity, sourcePlan)
+	if err != nil {
+		return CompiledStageDescriptor{}, fmt.Errorf("describe Group field source context: %w", err)
+	}
+	descriptor.GroupFieldSourceContext = groupFieldContext
 	return descriptor, nil
 }
 
@@ -181,6 +231,12 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 	descriptors[0].Capabilities = withConstructionCapability(descriptors[0].Capabilities,
 		codedPivotSourceCapability(resolvedSource, rootResourceType, constructionDirectRootRowsUnique(plan, "CODED_PIVOT") == nil))
 	descriptors[0].RelatedExpandAnchors = relatedExpandAnchors(resolvedSource, rootResourceType, false)
+	descriptors[0].GroupFieldSourceContext, err = describeGroupFieldSourceContext(
+		recipe.ConstructionSourceProjectionID, rootResourceType, sourceIdentity, plan,
+	)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("describe Group field source context: %w", err)
+	}
 	if len(construction.Steps) == 0 && cohort == nil {
 		return resolvedSource, descriptors, sourceIdentity, nil
 	}
@@ -1086,7 +1142,7 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 		group := step.Operation.Group
 		physicalGroup, projections, compiled, err := lowerConstructionGroup(
 			plan, *group, step.RowValues, step.Outputs, inputByID, inputIdentity,
-			inputStageID, rootResourceType, outputByID, usedVariables, index,
+			inputStageID, rootResourceType, outputByID, usedVariables, index, &base,
 		)
 		if err != nil {
 			return constructionStageResult{}, err
