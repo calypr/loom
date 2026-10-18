@@ -59,7 +59,7 @@ func lowerConstructionGroupScalarSource(
 	if !metadataOK || metadata.Repeated || !primitiveOK {
 		return CompiledOutputColumn{}, ir.PhysicalProjection{}, nil, fmt.Errorf("Group fieldSource path %q has unsupported scalar primitive %q", source.CanonicalPath, metadata.Primitive)
 	}
-	outputKind, supported := tableReshapeScalarKind(string(expressionKind))
+	_, supported := tableReshapeScalarKind(string(expressionKind))
 	if !supported {
 		return CompiledOutputColumn{}, ir.PhysicalProjection{}, nil, fmt.Errorf("Group fieldSource path %q has unsupported scalar primitive %q", source.CanonicalPath, metadata.Primitive)
 	}
@@ -133,7 +133,7 @@ func lowerConstructionGroupScalarSource(
 	}
 	name := fmt.Sprintf("__loom_group_field_%d_%d", stepIndex, keyIndex)
 	column := CompiledOutputColumn{
-		ID: name, Name: name, Label: name, Kind: outputKind,
+		ID: name, Name: name, Label: name, Kind: string(expressionKind),
 		Cardinality: "optional_one", Nullable: true, Internal: true,
 		SemanticPath: "construction_group_field_source:" + source.SourceShapeID + ":" + source.SourceRole + ":" + source.CanonicalPath,
 	}

@@ -54,10 +54,23 @@ func TestBoundScalarAndCodingKeysCompileFromZeroPublicSourceColumns(t *testing.T
 	if stage.Group == nil || len(stage.Group.Keys) != 1 || !stage.Group.Keys[0].InputInternal || stage.Group.Keys[0].FieldSource == nil {
 		t.Fatalf("scalar Group key did not retain its exact hidden field-source authority: %#v", stage.Group)
 	}
+	if stage.Group.Keys[0].Kind != "STRING" {
+		t.Fatalf("typed scalar Group key kind = %q, want physical STRING", stage.Group.Keys[0].Kind)
+	}
 	if stage.Group.Keys[0].FieldSource.SourceStageID != stage.InputStageID ||
 		stage.Group.Keys[0].FieldSource.SourceShapeID != context.SourceShapeID ||
 		stage.Group.Keys[0].FieldSource.OwnerResourceType != "Observation" {
 		t.Fatalf("scalar Group key binding differs from its exact input context: %#v", stage.Group.Keys[0].FieldSource)
+	}
+	var publicStatus *CompiledOutputColumn
+	for index := range compiled.OutputSchema {
+		if compiled.OutputSchema[index].Name == "status" {
+			publicStatus = &compiled.OutputSchema[index]
+			break
+		}
+	}
+	if publicStatus == nil || publicStatus.Kind != "string" {
+		t.Fatalf("compiled public Group key schema = %#v, want canonical logical string", publicStatus)
 	}
 	for _, column := range compiled.Stages[0].Columns {
 		if !column.Internal {
