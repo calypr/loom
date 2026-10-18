@@ -21,11 +21,13 @@ import {
 } from '../../react';
 import type { ResourceRef, SelectionRevision } from '../../selection';
 import { canonicalProject, type ExplorerAuthoringApiError } from '../../api';
+import { explorerBuilderAcceptedConstructionSchema } from '../../types';
 import type {
   ExplorerAuthoringDiagnostic,
   ExplorerBuilderCatalog,
   ExplorerBuilderCommand,
   ExplorerBuilderCompileResult,
+  ExplorerBuilderCommandsResult,
   ExplorerBuilderCandidate,
   ExplorerBuilderColumn,
   ExplorerBuilderPreviewResult,
@@ -121,8 +123,8 @@ import {
   type ConstructionCandidateIntent,
 } from './constructionWorkspace/useConstructionLifecycle';
 import {
-  matchesAcceptedChoicePreview,
-  type AppliedChoicePreview,
+  matchesAcceptedPreviewHandoff,
+  type AppliedPreviewHandoff,
 } from './constructionWorkspace/appliedChoicePreview';
 import { ConstructionOperationEditor } from './constructionOperations/ConstructionOperationEditor';
 import { FilterRowsEditor } from './constructionOperations/FilterRowsEditor';
@@ -290,6 +292,61 @@ type PreviewRequest = {
   readonly outputId: string;
   readonly limit: PreviewLimit;
   readonly receiptRefreshes: number;
+};
+
+type ConstructionApplyPreviewIdentity = {
+  readonly ownerKey: string;
+  readonly snapshotToken: string;
+  readonly draftVersion: number;
+  readonly draftDigest: string;
+  readonly previewRequestVersion: number;
+  readonly outputId: string;
+  readonly proposalId: string;
+  readonly limit: PreviewLimit;
+};
+
+const acceptedConstructionForApply = (
+  value: ExplorerBuilderCommandsResult,
+  request: ConstructionApplyPreviewIdentity,
+  command: ExplorerBuilderCommand | undefined,
+  current: BuilderAuthoringState,
+  currentPreviewIdentity: AutomaticPreviewIdentity | undefined,
+): { readonly receipt: ExplorerBuilderCompileResult; readonly preview: ExplorerBuilderPreviewResult } | undefined => {
+  if (!currentPreviewIdentity) return undefined;
+  if (
+    command?.type !== 'APPLY_CONSTRUCTION_PROPOSAL' ||
+    command.proposalId !== request.proposalId ||
+    command.outputId !== request.outputId ||
+    currentPreviewIdentity.ownerKey !== request.ownerKey ||
+    currentPreviewIdentity.snapshotToken !== request.snapshotToken ||
+    currentPreviewIdentity.draftVersion !== request.draftVersion ||
+    currentPreviewIdentity.draftDigest !== request.draftDigest ||
+    currentPreviewIdentity.previewRequestVersion !== request.previewRequestVersion ||
+    currentPreviewIdentity.outputId !== request.outputId ||
+    currentPreviewIdentity.limit !== request.limit ||
+    current.catalog.snapshotToken !== request.snapshotToken ||
+    current.draftVersion !== request.draftVersion ||
+    current.draftDigest !== request.draftDigest ||
+    selectedTable(current)?.outputId !== request.outputId
+  ) return undefined;
+  const parsed = explorerBuilderAcceptedConstructionSchema.safeParse(value.acceptedConstruction);
+  if (!parsed.success) return undefined;
+  const receipt: ExplorerBuilderCompileResult = {
+    ...parsed.data.receipt,
+    builder: value.workspace,
+  };
+  const { preview } = parsed.data;
+  if (
+    parsed.data.previewLimit !== request.limit ||
+    receipt.receiptId !== request.proposalId ||
+    receipt.intentDigest !== value.draftDigest ||
+    receipt.snapshotToken !== request.snapshotToken ||
+    !receipt.outputs.some((output) => output.outputId === request.outputId) ||
+    preview.receiptId !== receipt.receiptId ||
+    preview.outputId !== request.outputId ||
+    preview.rows === null
+  ) return undefined;
+  return { receipt, preview };
 };
 
 type AutomaticPreviewExecution = {
@@ -507,7 +564,7 @@ const BuilderWorkspaceContent = ({
     useState<FirstTableProgress>({ kind: 'idle' });
   const [previewLimit, setPreviewLimit] = useState<PreviewLimit>(25);
   const addColumnsRequest = useRef<AbortController | undefined>(undefined);
-  const appliedChoicePreview = useRef<AppliedChoicePreview | undefined>(undefined);
+  const appliedChoicePreview = useRef<AppliedPreviewHandoff | undefined>(undefined);
   const [featureMode, setFeatureMode] = useState<'catalog' | 'graph'>('catalog');
   const [sourceSetupOpen, setSourceSetupOpen] = useState(false);
   const [activeConstructionSelection, setActiveConstructionSelection] = useState<{
@@ -719,8 +776,15 @@ const BuilderWorkspaceContent = ({
   );
 
   const applyCommandsWithResult = useCallback(
-    (commands: ReadonlyArray<ExplorerBuilderCommand>, proposedCommandId?: string) => {
+    (
+      commands: ReadonlyArray<ExplorerBuilderCommand>,
+      proposedCommandId?: string,
+      constructionApplyIdentity?: ConstructionApplyPreviewIdentity,
+    ) => {
       cancelAutomaticPreview();
+      const applyPreviewEpoch = constructionApplyIdentity
+        ? automaticPreviewGeneration.current
+        : undefined;
       compileGeneration.current += 1;
       previewGeneration.current += 1;
       activeCompile.current?.abort();
@@ -754,9 +818,34 @@ const BuilderWorkspaceContent = ({
             revisionId: value.previousDraftRevisionId,
           });
           serverDraftKey.current = builderDataKey;
+          const acceptedConstruction = constructionApplyIdentity &&
+            applyPreviewEpoch === automaticPreviewGeneration.current &&
+            commands.length === 1
+            ? acceptedConstructionForApply(
+                value,
+                constructionApplyIdentity,
+                commands[0],
+                latestState.current,
+                automaticPreviewRequest.current,
+              )
+            : undefined;
+          if (acceptedConstruction && constructionApplyIdentity) {
+            appliedChoicePreview.current = {
+              ownerKey: constructionApplyIdentity.ownerKey,
+              draftVersion: value.draftVersion,
+              previewRequestVersion: constructionApplyIdentity.previewRequestVersion,
+              outputId: constructionApplyIdentity.outputId,
+              limit: constructionApplyIdentity.limit,
+              snapshotToken: constructionApplyIdentity.snapshotToken,
+              candidateWorkspaceDigest: value.draftDigest,
+              receipt: acceptedConstruction.receipt,
+              preview: acceptedConstruction.preview,
+            };
+          }
           const next = builderAuthoringReducer(latestState.current, {
             type: 'commandsApplied',
             value,
+            ...(acceptedConstruction ? { acceptedReceipt: acceptedConstruction.receipt } : {}),
           });
           const selectsTableThroughCommand = commands.some((command) =>
             command.type === 'CREATE_TABLE' ||
@@ -1721,11 +1810,17 @@ const BuilderWorkspaceContent = ({
       if (fromColumnPicker) constructionLifecycle.cancel();
       return false;
     }
-    const applied = await applyCommands([{
+    appliedChoicePreview.current = undefined;
+    const previewIdentity = automaticPreviewRequest.current;
+    const constructionApplyIdentity = previewIdentity && previewIdentity.outputId === table.outputId
+      ? { ...previewIdentity, proposalId }
+      : undefined;
+    const appliedResult = await applyCommandsWithResult([{
       type: 'APPLY_CONSTRUCTION_PROPOSAL',
       outputId: table.outputId,
       proposalId,
-    }]);
+    }], undefined, constructionApplyIdentity);
+    const applied = Boolean(appliedResult);
     constructionLifecycle.finishApply(applied);
     if (applied) {
       const closeEditor = !fromColumnPicker || activeConstructionFamily === 'ADD_COLUMNS';
@@ -1808,18 +1903,20 @@ const BuilderWorkspaceContent = ({
       if (response.preview.rows === null || response.preview.outputId !== table.outputId) {
         throw new Error('Loom did not render rows for these columns. The table was not changed.');
       }
-      const applied = await applyCommands(response.constructionChoices.map((choice) => ({
+      const appliedResult = await applyCommandsWithResult(response.constructionChoices.map((choice) => ({
         type: 'APPLY_CONSTRUCTION_CHOICE',
         outputId: response.outputId,
         constructionChoice: { choiceId: choice.choiceId, form: choice.form, ...(choice.frameId ? { frameId: choice.frameId } : {}), ...(choice.rowValuePolicy ? { rowValuePolicy: choice.rowValuePolicy } : {}) },
         ...(choice.title ? { title: choice.title } : {}),
       } satisfies ExplorerBuilderCommand)), response.commandId);
-      if (!applied) {
+      if (!appliedResult) {
         appliedChoicePreview.current = undefined;
         throw new Error('Loom could not save these coded-value columns. The table was not changed.');
       }
       appliedChoicePreview.current = {
         ownerKey: proposalOwnerKey,
+        draftVersion: appliedResult.draftVersion,
+        previewRequestVersion: latestState.current.previewRequestVersion,
         outputId: response.outputId,
         limit: proposalLimit,
         snapshotToken: response.snapshotToken,
@@ -2822,8 +2919,10 @@ const BuilderWorkspaceContent = ({
         if (execution.cancelled || !receipt || !identityIsCurrent()) return undefined;
         const candidate = appliedChoicePreview.current;
         appliedChoicePreview.current = undefined;
-        if (matchesAcceptedChoicePreview(candidate, {
+        if (matchesAcceptedPreviewHandoff(candidate, {
           ownerKey: identity.ownerKey,
+          draftVersion: identity.draftVersion,
+          previewRequestVersion: identity.previewRequestVersion,
           outputId: identity.outputId,
           limit: identity.limit,
           snapshotToken: identity.snapshotToken,

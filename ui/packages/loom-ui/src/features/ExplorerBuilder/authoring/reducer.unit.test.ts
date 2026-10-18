@@ -1,4 +1,4 @@
-import type { ExplorerBuilderState } from '../../../types';
+import type { ExplorerBuilderCompileResult, ExplorerBuilderState } from '../../../types';
 import {
   derivedOccurrences,
   nextRouteOccurrenceId,
@@ -765,6 +765,50 @@ describe('semantic Builder hydration', () => {
     });
     expect(requested.reconciliation).toBe('pending');
     expect(requested.dirty).toBe(false);
+  });
+
+  it('adopts a validated Apply receipt at the returned draft and invalidates it on edit', () => {
+    const state = stateFromBuilder(ready, {
+      project: 'project',
+      explorerId: 'default',
+    });
+    const workspace = ready.workspace;
+    if (!workspace) throw new Error('The READY test fixture must include its workspace.');
+    const acceptedReceipt: ExplorerBuilderCompileResult = {
+      apiVersion: 'loom.calypr.org/explorer-authoring/v2',
+      kind: 'ExplorerBuilderReceipt',
+      receiptId: 'proposal-1',
+      snapshotToken: ready.catalog.snapshotToken,
+      intentDigest: 'sha256:next',
+      builder: workspace,
+      outputs: [{ outputId: 'Specimen', columns: [] }],
+      diagnostics: [],
+    };
+    const applied = builderAuthoringReducer(state, {
+      type: 'commandsApplied',
+      value: {
+        commandId: 'apply-command',
+        workspace,
+        draftVersion: 2,
+        draftDigest: 'sha256:next',
+        results: [{ type: 'TABLE_CHANGED', outputId: 'Specimen' }],
+        diagnostics: [],
+      },
+      acceptedReceipt,
+    });
+
+    expect(applied.receipt).toEqual({ ...acceptedReceipt, builder: workspace });
+    expect(applied.draftVersion).toBe(2);
+    expect(applied.draftDigest).toBe('sha256:next');
+    expect(applied.reconciliation).toBe('resolved');
+
+    const edited = builderAuthoringReducer(applied, {
+      type: 'renameTable',
+      outputId: 'Specimen',
+      title: 'Renamed specimen table',
+    });
+    expect(edited.receipt).toBeUndefined();
+    expect(edited.reconciliation).toBe('idle');
   });
 
   it('preserves the selected traversal node after a table presentation update', () => {
