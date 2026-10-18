@@ -19,6 +19,7 @@ import { CodedPivotEditor } from './CodedPivotEditor';
 import { semanticConceptLabel } from '../catalogItems';
 import {
   constructionInputForStage,
+  constructionInputStageFor,
   isSourceProjectionStage,
   sourceInputMatchesStage,
 } from '../constructionWorkspace/constructionStages';
@@ -1657,12 +1658,24 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const { construction, capabilities, editingStep, disabled, onCandidateChange } = props;
   const stage = capabilities.selectedStage;
   const rootStage = capabilities.stages.find(isSourceProjectionStage) ?? stage;
+  const savedGroupInputStageId = editingStep?.operation.kind === 'GROUP'
+    ? constructionInputStageFor(construction, editingStep.id)
+    : undefined;
+  const savedGroupInputStage = savedGroupInputStageId === undefined
+    ? undefined
+    : capabilities.stages.find((candidate) => candidate.id === savedGroupInputStageId);
+  const savedGroupInputStageAvailable = savedGroupInputStageId === undefined ||
+    (capabilities.stageId === savedGroupInputStageId && savedGroupInputStage !== undefined);
   const savedOwnedCodedInput = editingStep?.operation.kind === 'GROUP'
     ? construction.steps.find((candidate) => candidate.ownerStepId === editingStep.id
       && candidate.operation.kind === 'CODED_PIVOT'
       && candidate.inputs[0]?.kind === 'SOURCE_PROJECTION')
     : undefined;
-  const groupStage = savedOwnedCodedInput ? rootStage : stage;
+  const groupStage = savedOwnedCodedInput
+    ? rootStage
+    : savedGroupInputStageAvailable && savedGroupInputStage
+      ? savedGroupInputStage
+      : stage;
   const sourceInput = capabilities.sourceInput;
   const sourceGroupChoices = sourceInput?.choices ?? [];
   const sourceGroupStageMatches = sourceInputMatchesStage(sourceInput?.stageId, groupStage);
@@ -1693,7 +1706,9 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const manuallySelectedPivotPairs = useRef(new Set<string>());
   const requestedPivotDiscovery = useRef<string | undefined>(undefined);
   const [choiceIntent, setChoiceIntent] = useState<'group' | 'reshape' | undefined>();
-  const groupSupport = capabilityFor(groupStage, 'GROUP');
+  const groupSupport = savedGroupInputStageAvailable
+    ? capabilityFor(groupStage, 'GROUP')
+    : { supported: false, reason: 'The saved Group input stage is not the active capabilities stage. Reload this table before editing.' };
   const codedGroupSupport = capabilityFor(stage, 'CODED_GROUP');
   const expandSupport = capabilityFor(stage, 'EXPAND');
   const relatedExpandSupport = capabilityFor(stage, 'RELATED_EXPAND');

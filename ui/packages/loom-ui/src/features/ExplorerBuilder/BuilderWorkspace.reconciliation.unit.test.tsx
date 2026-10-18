@@ -65,6 +65,16 @@ const mockRelatedExpandQueryOwner = vi.hoisted(() => ({
   resume: vi.fn(),
 }));
 
+const savedSemanticBindingId = (step: Construction['steps'][number] | undefined): string => {
+  if (!step || step.operation.kind !== 'GROUP') return '';
+  for (const key of step.operation.group.keys ?? []) {
+    if ('semanticCategory' in key && key.semanticCategory.kind === 'BINDING') {
+      return key.semanticCategory.bindingId;
+    }
+  }
+  return '';
+};
+
 vi.mock('../../react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../react')>();
   return {
@@ -301,10 +311,10 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', async (importOrigi
     onCandidateChange,
     relatedExpandQueryOwnerRef,
   }: {
-    readonly editingStep?: { readonly id: string; readonly operation: { readonly kind: string } };
+    readonly editingStep?: Construction['steps'][number];
     readonly initialKind?: string;
     readonly construction: { readonly steps: ReadonlyArray<unknown> };
-    readonly capabilities: { readonly selectedStage: { readonly id: string } };
+    readonly capabilities: Pick<ConstructionCapabilitiesResponse, 'selectedStage'> & Partial<Pick<ConstructionCapabilitiesResponse, 'semanticGroupChoices'>>;
     readonly initialEntry?: {
       readonly form: { readonly kind: string; readonly stepId?: string };
       readonly candidateIntent: ConstructionCandidateIntent;
@@ -332,6 +342,9 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', async (importOrigi
         data-initial-candidate-step-id={initialEntry?.candidateIntent.changedStepId ?? ''}
         data-construction-step-count={construction.steps.length}
         data-discovery-status={pivotDiscovery?.status ?? 'none'}
+        data-capability-stage-id={capabilities.selectedStage.id}
+        data-semantic-choice-count={capabilities.semanticGroupChoices?.length ?? 0}
+        data-saved-semantic-binding-id={savedSemanticBindingId(editingStep)}
       >
         {onFormKindChange ? <>
           <button type="button" data-testid="mock-reshape-form-choose" onClick={() => onFormKindChange('choose')}>Use reshape chooser</button>
@@ -1226,6 +1239,17 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
   });
 
   it('routes saved Group history edits to the typed Reshape editor', async () => {
+    const semanticCategory = {
+      kind: 'BINDING' as const,
+      bindingId: 'specimen-type-binding',
+      ruleVersion: 'rule-v2',
+      familyId: 'specimen-type-family',
+      sourceKind: 'retained_vertex' as const,
+      system: 'https://example.test/specimen-type',
+      version: '',
+      resourceType: 'Specimen',
+      codingPath: 'type.coding[]',
+    };
     const groupStep = {
       id: 'group_specimens',
       inputs: [{ kind: 'SOURCE_PROJECTION' as const }],
@@ -1233,12 +1257,16 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         kind: 'GROUP' as const,
         group: {
           constructionId: 'group_specimens',
-          keys: [{ inputColumnId: 'specimen_identifier_id', outputColumnId: 'specimen_identifier_group' }],
+          keys: [
+            { inputColumnId: 'specimen_identifier_id', outputColumnId: 'specimen_identifier_group' },
+            { semanticCategory, outputColumnId: 'specimen_type_group' },
+          ],
           aggregates: [{ operation: 'COUNT_ROWS' as const, outputColumnId: 'specimen_count' }],
         },
       },
       outputs: [
         { id: 'specimen_identifier_group', name: 'specimen_identifier_group', label: 'Specimen identifier' },
+        { id: 'specimen_type_group', name: 'specimen_type', label: 'Specimen type' },
         { id: 'specimen_count', name: 'specimen_count', label: 'Specimen count', type: 'integer' },
       ],
     };
@@ -1255,6 +1283,53 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       refetch: vi.fn(),
     });
     reconcile.mockReturnValue(resolvedRequest({ ...receipt, builder: groupWorkspace }));
+    const sourceStage = {
+      id: 'source_projection',
+      inputStageId: '',
+      operation: 'SOURCE_PROJECTION' as const,
+      rowIdentityColumn: 'specimen_identifier_id',
+      columns: [
+        { id: 'specimen_identifier_id', name: 'specimen_identifier', label: 'Specimen identifier', type: 'string' },
+      ],
+      capabilities: [{ kind: 'GROUP' as const, supported: true }],
+    };
+    const groupStage = {
+      id: 'group_specimens',
+      inputStageId: 'source_projection',
+      operation: 'GROUP' as const,
+      columns: [
+        { id: 'specimen_identifier_group', name: 'specimen_identifier_group', label: 'Specimen identifier', type: 'string' },
+        { id: 'specimen_type_group', name: 'specimen_type', label: 'Specimen type', type: 'string' },
+        { id: 'specimen_count', name: 'specimen_count', label: 'Specimen count', type: 'integer' },
+      ],
+      capabilities: [{ kind: 'GROUP' as const, supported: true }],
+    };
+    mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+      readonly outputId: string;
+      readonly stageId: string;
+    }) => ({
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      stageId: args.stageId,
+      baseConstruction: groupWorkspace.documents[0]!.construction!,
+      stages: [sourceStage, groupStage],
+      selectedStage: args.stageId === 'source_projection' ? sourceStage : groupStage,
+      semanticGroupChoices: args.stageId === 'source_projection' ? [{
+        choiceId: 'specimen-type-choice',
+        bindingId: semanticCategory.bindingId,
+        ruleVersion: semanticCategory.ruleVersion,
+        label: 'Specimen type',
+        scopeLabel: 'retained records · Specimen.type.coding[] · https://example.test/specimen-type · versionless',
+        resourceType: 'Specimen',
+        sourcePath: 'type.coding[]',
+      }] : [],
+      workspaceInputs: [],
+    }));
 
     render(
       <BuilderWorkspace
@@ -1271,6 +1346,9 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     await waitFor(() => {
       expect(screen.getByTestId('construction-reshape-editor')).toHaveAttribute('data-editing-step-id', 'group_specimens');
       expect(screen.getByTestId('construction-reshape-editor')).toHaveAttribute('data-editing-operation', 'GROUP');
+      expect(screen.getByTestId('construction-reshape-editor')).toHaveAttribute('data-capability-stage-id', 'source_projection');
+      expect(screen.getByTestId('construction-reshape-editor')).toHaveAttribute('data-semantic-choice-count', '1');
+      expect(screen.getByTestId('construction-reshape-editor')).toHaveAttribute('data-saved-semantic-binding-id', semanticCategory.bindingId);
     });
     expect(screen.queryByRole('dialog', { name: 'Row definition settings' })).not.toBeInTheDocument();
     expect(mockLoomClient.getConstructionCapabilities).toHaveBeenCalledWith(

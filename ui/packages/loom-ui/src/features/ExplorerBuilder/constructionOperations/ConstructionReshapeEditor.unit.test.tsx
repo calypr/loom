@@ -410,7 +410,33 @@ describe('ConstructionReshapeEditor', () => {
         { id: 'count-id', name: 'row_count', label: 'Rows', type: 'integer' },
       ],
     };
-    const capabilities = capabilitiesFor();
+    const groupOutputStage: ConstructionReshapeEditorProps['capabilities']['selectedStage'] = {
+      id: savedGroup.id,
+      inputStageId: sourceStage.id,
+      operation: 'GROUP',
+      columns: savedGroup.outputs.map((output) => ({
+        id: output.id,
+        name: output.name,
+        label: output.label,
+        type: output.type ?? 'string',
+      })),
+      capabilities: [{ kind: 'GROUP', supported: true }],
+    };
+    const capabilities: ConstructionReshapeEditorProps['capabilities'] = {
+      ...capabilitiesFor([sourceStage, groupOutputStage], groupOutputStage),
+      stageId: sourceStage.id,
+      baseConstruction: { version: 1, steps: [savedGroup] },
+      semanticGroupChoices: [{
+        choiceId: 'condition-code-choice',
+        bindingId: 'condition-code-binding',
+        ruleVersion: 'rule-v1',
+        label: 'Condition category',
+        scopeLabel: 'retained records · Condition.code.coding · urn:example:condition · versionless',
+        resourceType: 'Condition',
+        sourcePath: 'code.coding',
+      }],
+      semanticGroupChoicesIncomplete: false,
+    };
     const onCandidateChange = vi.fn();
     renderEditor({
       construction: {
@@ -437,6 +463,7 @@ describe('ConstructionReshapeEditor', () => {
     const editedStep = candidateConstruction.steps.find((step) => step.id === savedGroup.id);
     expect(editedStep?.operation.kind).toBe('GROUP');
     if (editedStep?.operation.kind !== 'GROUP') throw new Error('Expected the saved GROUP operation');
+    expect(editedStep.inputs).toEqual([{ kind: 'SOURCE_PROJECTION' }]);
     expect(editedStep.operation.group.keys).toEqual([{
       inputColumnId: 'site-id',
       outputColumnId: 'site-group-id',
