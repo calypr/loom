@@ -563,8 +563,10 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
       return { status: 'failed' };
     });
     const started = Date.now();
-    await groupBox.getByTestId(`construction-group-field-choice-${choice.fieldSource.choiceId}`)
-      .check({ timeout: ACTION_BUDGET_MS });
+    const choiceControl = groupBox.getByTestId(`construction-group-field-choice-${choice.fieldSource.choiceId}`);
+    assert.equal(await choiceControl.isChecked(), false,
+      `Connected Group choice ${choice.fieldSource.choiceId} must start unselected.`);
+    await choiceControl.click({ timeout: ACTION_BUDGET_MS });
     await waitNewProposalReceipt(page, previous);
     const requestCapture = await requestCapturePromise;
     assert.equal(requestCapture.status, 'captured', 'Selecting a connected Group field must issue its exact Group proposal request.');
@@ -674,6 +676,7 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
   let rowValueControl = contributorSection.getByTestId(`construction-group-add-column-choice-${specimenIDChoice.fieldSource.choiceId}`);
   assert.equal(await rowValueControl.getAttribute('aria-label'), `Add column ${specimenIDChoice.label}`);
   const proposeSpecimenIDRowValue = async () => {
+    const previousReceipt = await receipt();
     const rowValueRequestPromise = page.waitForRequest(request => {
       try {
         if (request.method() !== 'POST' || !new URL(request.url()).pathname.endsWith('/construction-proposals')) return false;
@@ -684,9 +687,10 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
             value.fieldSource.choiceId === specimenIDChoice.fieldSource.choiceId);
       } catch { return false; }
     }, { timeout: ACTION_BUDGET_MS });
-    const previousReceipt = await receipt();
     const started = Date.now();
-    await rowValueControl.check({ timeout: ACTION_BUDGET_MS });
+    assert.equal(await rowValueControl.isChecked(), false,
+      'The connected Specimen.id RowValue choice must start unselected.');
+    await rowValueControl.click({ timeout: ACTION_BUDGET_MS });
     await waitNewProposalReceipt(page, previousReceipt);
     const rowValueRequest = await rowValueRequestPromise;
     const body = rowValueRequest.postDataJSON();
