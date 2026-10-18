@@ -1090,16 +1090,28 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
   }
   builder = await api(`${authoringPath}/builder`);
   const restoredAfterReload = documentFor(builder, outputId);
+  assert.equal(restoredAfterReload.rootResourceType, 'Patient');
   assert.deepEqual(restoredAfterReload.columns, sourceDocumentBeforeGroup.columns);
   assert.deepEqual(restoredAfterReload.population, sourceDocumentBeforeGroup.population);
+  assert.equal(restoredAfterReload.population.selectionRevisionId, selection.id,
+    'Reload must preserve the exact selected Patient root set after Group removal.');
+  assert.deepEqual(restoredAfterReload.population.route, [],
+    'Reload must preserve the direct Patient root route after Group removal.');
   assert.equal(restoredAfterReload.construction?.steps?.length ?? 0, 0);
-  const restoredReceipt = await page.getByTestId('construction-preview').getAttribute('data-preview-receipt-id');
-  assert(restoredReceipt, 'Reloaded source preview must expose its current receipt.');
-  const restoredReloadPreview = await api(`${authoringPath}/preview`, { receiptId: restoredReceipt, outputId, limit: ROOT_SAMPLE_SIZE + 1 });
-  assert.equal(restoredReloadPreview.rowCount, ROOT_SAMPLE_SIZE);
-  assert.deepEqual(restoredReloadPreview.rowSources.map(source => source.id).sort(), [...selectedRootIDs].sort());
+  await page.getByText('Add a column to see your table.', { exact: true })
+    .waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
+  assert.equal(await page.locator('[data-testid="preview-table-scroll"] [role="table"]').count(), 0,
+    'Reloaded source-only table must remain in its empty-column state without a preview grid.');
+  const restoredAddColumns = page.getByTestId('construction-action-add-columns');
+  assert.equal(await restoredAddColumns.isVisible(), true,
+    'Reloaded Patient source table must keep its row settings available.');
+  assert.equal(await restoredAddColumns.isEnabled(), true,
+    'Reloaded Patient source table must keep Add columns enabled.');
   cda.check('persistence',
-    'reloaded Group removal preserves the exact Patient source row identities, public columns, and empty construction',
-    true, { rowCount: restoredReloadPreview.rowCount, rowSources: restoredReloadPreview.rowSources,
-      columns: restoredAfterReload.columns, constructionSteps: restoredAfterReload.construction?.steps?.length ?? 0 });
+    'reloaded Group removal preserves the exact Patient root selection, public columns, empty construction, and empty table state',
+    true, { rootResourceType: restoredAfterReload.rootResourceType,
+      selectionRevisionId: restoredAfterReload.population.selectionRevisionId,
+      sourceRootIDs: restoredPreviewRoots, columns: restoredAfterReload.columns,
+      constructionSteps: restoredAfterReload.construction?.steps?.length ?? 0,
+      emptyTablePrompt: 'Add a column to see your table.' });
 }
