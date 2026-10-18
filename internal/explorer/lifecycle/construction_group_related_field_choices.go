@@ -78,6 +78,9 @@ func (s *Service) appendRelatedGroupFieldChoices(
 	cursor := ""
 	incomplete := false
 	for pageIndex := 0; pageIndex < 82; pageIndex++ {
+		if err := ctx.Err(); err != nil {
+			return incomplete, err
+		}
 		page, planErr := capability.PlanConstructionRoutes(capability.ConstructionRouteSearch{
 			Snapshot: base.snapshot, RootNodeID: anchor.nodeID, TargetNodeIDs: targetNodeIDs,
 			SourceKey: sourceKey, Cursor: cursor, Limit: capability.ConstructionRouteMaxLimit,
@@ -86,14 +89,20 @@ func (s *Service) appendRelatedGroupFieldChoices(
 			return false, conflict("construction-capabilities", "STALE_OR_INVALID_ROUTE_CURSOR", "the exact Group related route set could not be resolved", nil, planErr)
 		}
 		for _, plannedRoute := range page.Routes {
+			if err := ctx.Err(); err != nil {
+				return incomplete, err
+			}
 			if len(plannedRoute) == 0 {
 				continue
 			}
 			targetNodeID := plannedRoute[len(plannedRoute)-1].ToNodeID
+			resolvedRoute, routeErr := reauthorizeConstructionRouteFromAnchor(base.snapshot, anchor.nodeID, targetNodeID, plannedRoute)
+			if routeErr != nil || !constructionRouteHasCompilerProof(ctx, base.authorized, resolvedRoute) {
+				continue
+			}
 			for _, observed := range candidatesByNode[targetNodeID] {
-				resolvedRoute, routeErr := reauthorizeConstructionRouteFromAnchor(base.snapshot, anchor.nodeID, targetNodeID, plannedRoute)
-				if routeErr != nil || !constructionRouteHasCompilerProof(ctx, base.authorized, resolvedRoute) {
-					continue
+				if err := ctx.Err(); err != nil {
+					return incomplete, err
 				}
 				candidate, proofErr := proveConstructionCandidate(ctx, base.authorized, anchor.resourceType, observed.candidate, resolvedRoute)
 				if proofErr != nil || candidate.ID != observed.candidate.ID || candidate.NodeID != targetNodeID ||
