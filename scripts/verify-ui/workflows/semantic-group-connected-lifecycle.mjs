@@ -290,8 +290,38 @@ function stableRows(rows) {
   return rows.map(row => JSON.stringify(row)).sort();
 }
 
-async function assertGrid(page, kind, expected, phase) {
-  await page.waitForFunction(previewGridSnapshot, { kind, expected }, { timeout: ACTION_BUDGET_MS });
+function gridDifference(expected, actual) {
+  const expectedRows = stableRows(expected.rows);
+  const actualRows = stableRows(actual.rows);
+  let rowIndex = 0;
+  while (rowIndex < expectedRows.length && expectedRows[rowIndex] === actualRows[rowIndex]) rowIndex += 1;
+  const expectedRow = rowIndex < expectedRows.length ? JSON.parse(expectedRows[rowIndex]) : null;
+  const actualRow = rowIndex < actualRows.length ? JSON.parse(actualRows[rowIndex]) : null;
+  let cellIndex = 0;
+  while (expectedRow && actualRow && cellIndex < expectedRow.length && expectedRow[cellIndex] === actualRow[cellIndex]) cellIndex += 1;
+  const expectedCell = expectedRow && cellIndex < expectedRow.length ? expectedRow[cellIndex] : null;
+  const actualCell = actualRow && cellIndex < actualRow.length ? actualRow[cellIndex] : null;
+  return {
+    headersMatch: JSON.stringify(expected.headers) === JSON.stringify(actual.headers),
+    firstDifferentRow: rowIndex < Math.max(expectedRows.length, actualRows.length) ? rowIndex + 1 : null,
+    firstDifferentCell: cellIndex < Math.max(expectedRow?.length ?? 0, actualRow?.length ?? 0) ? cellIndex + 1 : null,
+    expectedCell,
+    actualCell,
+    expectedCellCodePoints: expectedCell === null ? [] : Array.from(expectedCell, character => character.codePointAt(0)),
+    actualCellCodePoints: actualCell === null ? [] : Array.from(actualCell, character => character.codePointAt(0)),
+  };
+}
+
+async function assertGrid(page, kind, expected, phase, onMismatch) {
+  try {
+    await page.waitForFunction(previewGridSnapshot, { kind, expected }, { timeout: ACTION_BUDGET_MS });
+  } catch (error) {
+    const actual = await readPreviewGrid(page, kind);
+    const diagnostic = { phase, expected, actual, firstDifference: gridDifference(expected, actual) };
+    onMismatch?.(diagnostic);
+    if (error instanceof Error) error.message = `${error.message}\nGrid diagnostic: ${JSON.stringify(diagnostic)}`;
+    throw error;
+  }
   const actual = await readPreviewGrid(page, kind);
   assert.deepEqual(actual.headers, expected.headers, `${phase} changed the Group output labels.`);
   assert.deepEqual(stableRows(actual.rows), stableRows(expected.rows), `${phase} differs from the complete selected-root oracle.`);
@@ -778,8 +808,18 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
   const finalExpected = expectedGrid(savedGroup, oracle, { patientID: patientIDChoice, coding: specimenCodingChoice }, specimenIDChoice);
   const finalSavedExpected = expectedGrid(savedGroup, oracle,
     { patientID: patientIDChoice, coding: specimenCodingChoice }, specimenIDChoice, { includeArrayIndicators: true });
-  const finalActual = await assertGrid(page, 'saved', finalSavedExpected,
-    'saved connected Group with exact related-owner RowValue');
+  let finalActual;
+  try {
+    finalActual = await assertGrid(page, 'saved', finalSavedExpected,
+      'saved connected Group with exact related-owner RowValue', diagnostic => { report.savedGridDiagnostic = diagnostic; });
+  } catch (error) {
+    try {
+      await captureBuilderScreenshot({ page, cda, report, name: 'connected-group-applied-diagnostic.png' });
+    } catch (captureError) {
+      report.savedGridDiagnosticScreenshotError = clean(captureError instanceof Error ? captureError.message : captureError);
+    }
+    throw error;
+  }
   cda.check('persistence',
     'Add columns rehydrates only the exact connected Specimen.id Group contributors and retains the route-bound source across reload',
     true, {
