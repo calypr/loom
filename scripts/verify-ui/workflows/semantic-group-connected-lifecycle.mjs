@@ -540,9 +540,13 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
       oracleDigest: oracleEvidence.digest,
     });
 
-  const receipt = () => page.getByTestId('construction-proposal-preview').getAttribute('data-preview-receipt-id').catch(() => null);
+  const receipt = () => page.evaluate(() =>
+    document.querySelector('[data-testid="construction-proposal-preview"]')?.getAttribute('data-preview-receipt-id') ?? null,
+  );
   const groupRequest = async choice => {
-    const requestPromise = page.waitForRequest(request => {
+    const requestCaptureState = { status: 'pending' };
+    const previous = await receipt();
+    const requestCapturePromise = page.waitForRequest(request => {
       try {
         if (request.method() !== 'POST' || !new URL(request.url()).pathname.endsWith('/construction-proposals')) return false;
         const body = request.postDataJSON();
@@ -550,14 +554,22 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
         return body.outputId === outputId && step?.operation?.group?.keys?.some(key =>
           key.fieldSource?.kind === 'CHOICE' && key.fieldSource.choiceId === choice.fieldSource.choiceId);
       } catch { return false; }
-    }, { timeout: ACTION_BUDGET_MS });
-    const previous = await receipt();
+    }, { timeout: ACTION_BUDGET_MS }).then(request => {
+      requestCaptureState.status = 'captured';
+      return { status: 'captured', request };
+    }, error => {
+      requestCaptureState.status = 'failed';
+      requestCaptureState.error = clean(error instanceof Error ? error.message : error).slice(0, 300);
+      return { status: 'failed' };
+    });
     const started = Date.now();
     await groupBox.getByTestId(`construction-group-field-choice-${choice.fieldSource.choiceId}`)
       .check({ timeout: ACTION_BUDGET_MS });
     await waitNewProposalReceipt(page, previous);
+    const requestCapture = await requestCapturePromise;
+    assert.equal(requestCapture.status, 'captured', 'Selecting a connected Group field must issue its exact Group proposal request.');
     assert(Date.now() - started <= ACTION_BUDGET_MS, 'Selecting a connected Group field exceeded five seconds.');
-    return requestPromise;
+    return requestCapture.request;
   };
   await groupRequest(patientIDChoice);
   const finalGroupRequestPromise = groupRequest(specimenCodingChoice);

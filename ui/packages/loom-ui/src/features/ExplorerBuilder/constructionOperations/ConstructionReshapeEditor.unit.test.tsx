@@ -2167,6 +2167,136 @@ describe('ConstructionReshapeEditor', () => {
     expect(edited.outputs.find((column) => column.id === 'status-group-id')).toMatchObject({ name: 'status_key', label: 'Status group' });
   });
 
+  it('shows owner, role, and path for saved nested current-stage and related Group bindings', () => {
+    const route = [{
+      stepIndex: 0,
+      fromOccurrenceId: 'base',
+      fromNodeId: 'patient-node',
+      fromResourceType: 'Patient',
+      edgeId: 'patient-specimen',
+      relationship: 'subject_Patient',
+      storageDirection: 'INBOUND' as const,
+      matchMode: 'OPTIONAL' as const,
+      toOccurrenceId: 'specimen-occurrence',
+      toNodeId: 'specimen-node',
+      toResourceType: 'Specimen',
+    }];
+    const currentScalarBinding = {
+      kind: 'BINDING' as const,
+      valueKind: 'SCALAR' as const,
+      sourceStageId: 'source_projection',
+      sourceShapeId: 'current-stage-shape',
+      input: {
+        kind: 'CURRENT_STAGE' as const,
+        currentStage: {
+          sourceRole: 'ROOT' as const,
+          occurrenceId: 'base',
+          ownerResourceType: 'Patient',
+          resourceType: 'Patient',
+          candidateId: 'patient-id-candidate',
+          canonicalPath: 'id',
+        },
+      },
+    };
+    const relatedScalarBinding = {
+      kind: 'BINDING' as const,
+      valueKind: 'SCALAR' as const,
+      sourceStageId: 'source_projection',
+      sourceShapeId: 'related-scalar-shape',
+      input: {
+        kind: 'RELATED_OCCURRENCE' as const,
+        relatedOccurrence: {
+          anchorOccurrenceId: 'base',
+          anchorNodeId: 'patient-node',
+          anchorResourceType: 'Patient',
+          route,
+          targetOccurrenceId: 'specimen-occurrence',
+          targetNodeId: 'specimen-node',
+          targetResourceType: 'Specimen',
+          resourceType: 'string',
+          candidateId: 'specimen-id-candidate',
+          canonicalPath: 'id',
+          emptyPolicy: 'PRESERVE_PARENT' as const,
+          multiplicity: 'DISTINCT_TARGET_PER_INPUT' as const,
+        },
+      },
+    };
+    const relatedCodingBinding = {
+      kind: 'BINDING' as const,
+      valueKind: 'CODING_IDENTITY' as const,
+      sourceStageId: 'source_projection',
+      sourceShapeId: 'related-coding-shape',
+      input: {
+        kind: 'RELATED_OCCURRENCE' as const,
+        relatedOccurrence: {
+          anchorOccurrenceId: 'base',
+          anchorNodeId: 'patient-node',
+          anchorResourceType: 'Patient',
+          route,
+          targetOccurrenceId: 'specimen-occurrence',
+          targetNodeId: 'specimen-node',
+          targetResourceType: 'Specimen',
+          resourceType: 'Coding',
+          codingSelector: 'type.coding[]',
+          emptyPolicy: 'PRESERVE_PARENT' as const,
+          multiplicity: 'DISTINCT_TARGET_PER_INPUT' as const,
+          codingEmptyPolicy: 'GROUP' as const,
+          ordinalSemantics: 'ZERO_BASED_POSITION_IN_FLATTENED_EXPANSION_ARRAY' as const,
+        },
+      },
+    };
+    const savedGroup: ConstructionReshapeStep = {
+      id: 'saved-nested-group',
+      inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: {
+        kind: 'GROUP',
+        group: {
+          constructionId: 'saved-nested-group',
+          missingKeyPolicy: 'GROUP',
+          keys: [
+            { fieldSource: currentScalarBinding, outputColumnId: 'patient-id-key' },
+            { fieldSource: relatedScalarBinding, outputColumnId: 'specimen-id-key' },
+            { fieldSource: relatedCodingBinding, outputColumnId: 'specimen-type-key' },
+          ],
+          aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: 'row-count' }],
+        },
+      },
+      outputs: [
+        { id: 'patient-id-key', name: 'patient_id', label: 'Patient ID', type: 'string' },
+        { id: 'specimen-id-key', name: 'specimen_id', label: 'Specimen ID', type: 'string' },
+        { id: 'specimen-type-key', name: 'specimen_type', label: 'Specimen type', type: 'string' },
+        { id: 'row-count', name: 'row_count', label: 'Rows', type: 'integer' },
+      ],
+    };
+    renderEditor({
+      construction: { version: 1, steps: [savedGroup] },
+      capabilities: capabilitiesFor(),
+      editingStep: savedGroup,
+    });
+
+    const sourceOption = (label: string) => {
+      const checkbox = screen.getByRole('checkbox', { name: `Group by ${label}` });
+      const option = checkbox.closest('[data-testid="construction-group-field-source-option"]');
+      if (!(option instanceof HTMLElement)) throw new Error(`Expected the saved ${label} field row`);
+      return within(option);
+    };
+
+    const patientOption = sourceOption('Patient ID');
+    expect(patientOption.getByText('Patient')).toBeInTheDocument();
+    fireEvent.click(patientOption.getByText('Details'));
+    expect(patientOption.getByText('ROOT · Patient.id')).toBeInTheDocument();
+
+    const specimenIDOption = sourceOption('Specimen ID');
+    expect(specimenIDOption.getByText('Specimen')).toBeInTheDocument();
+    fireEvent.click(specimenIDOption.getByText('Details'));
+    expect(specimenIDOption.getByText('RELATED_OCCURRENCE · Specimen.id')).toBeInTheDocument();
+
+    const specimenCodingOption = sourceOption('Specimen type');
+    expect(specimenCodingOption.getByText('Specimen')).toBeInTheDocument();
+    fireEvent.click(specimenCodingOption.getByText('Details'));
+    expect(specimenCodingOption.getByText('RELATED_OCCURRENCE · Specimen.type.coding[]')).toBeInTheDocument();
+  });
+
   it('keeps an unmatched saved field visible and blocks Group proposals until it is removed', () => {
     const staleBinding = {
       kind: 'BINDING' as const,
@@ -2205,6 +2335,10 @@ describe('ConstructionReshapeEditor', () => {
       onCandidateChange,
     });
 
+    const staleField = screen.getByTestId('construction-group-field-source-option');
+    expect(within(staleField).getByText('Observation')).toBeInTheDocument();
+    fireEvent.click(within(staleField).getByText('Details'));
+    expect(within(staleField).getByText('ROOT · Observation.status')).toBeInTheDocument();
     expect(screen.getByTestId('construction-group-stale-binding-warning')).toHaveTextContent('Apply is blocked');
     expect(screen.getByTestId('construction-group-stale-field-stale-status-key')).toHaveTextContent('no current capability match');
     expect(screen.getByRole('checkbox', { name: 'Group by Saved status grouping' })).toHaveProperty('checked', true);

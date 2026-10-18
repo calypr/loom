@@ -1374,13 +1374,14 @@ const initialGroupForm = (
       ));
       const valueKind = key.fieldSource.kind === 'BINDING' ? key.fieldSource.valueKind : choice?.valueKind;
       if (key.fieldSource.kind === 'BINDING' && !choice) unmatchedSourceKeyOutputIds.push(key.outputColumnId);
+      const savedSource = groupFieldSourcePresentation(key.fieldSource);
       const displayLabel = choice
         ? choice.label
         : output?.label ?? (valueKind === 'CODING_IDENTITY' ? 'Coding identity' : 'Saved source field');
       const scopeLabel = choice
         ? choice.scopeLabel ?? ''
-        : key.fieldSource.kind === 'BINDING'
-          ? `${key.fieldSource.sourceRole} · ${key.fieldSource.ownerResourceType}.${key.fieldSource.canonicalPath}`
+        : savedSource
+          ? `${savedSource.sourceRole} · ${savedSource.ownerResourceType}${savedSource.canonicalPath ? `.${savedSource.canonicalPath}` : ''}`
           : 'Current field choice';
       const common = {
         outputColumnId: key.outputColumnId,
@@ -1804,6 +1805,44 @@ const scalarGroupFieldSource = (source: GroupFieldSource): GroupScalarFieldSourc
   if (source.kind === 'CHOICE') return source;
   if (source.valueKind === 'SCALAR') return source;
   return undefined;
+};
+
+type GroupFieldSourcePresentation = {
+  readonly sourceRole: string;
+  readonly ownerResourceType: string;
+  readonly canonicalPath?: string;
+};
+
+const groupFieldSourcePresentation = (source: GroupFieldSource): GroupFieldSourcePresentation | undefined => {
+  if (source.kind !== 'BINDING') return undefined;
+  if (!('input' in source)) {
+    return {
+      sourceRole: source.sourceRole,
+      ownerResourceType: source.ownerResourceType,
+      canonicalPath: source.canonicalPath,
+    };
+  }
+  switch (source.input.kind) {
+    case 'CURRENT_STAGE':
+      return {
+        sourceRole: source.input.currentStage.sourceRole,
+        ownerResourceType: source.input.currentStage.ownerResourceType,
+        canonicalPath: source.input.currentStage.canonicalPath,
+      };
+    case 'RELATED_OCCURRENCE': {
+      const related = source.input.relatedOccurrence;
+      const canonicalPath = 'canonicalPath' in related ? related.canonicalPath : related.codingSelector;
+      return {
+        sourceRole: 'RELATED_OCCURRENCE',
+        ownerResourceType: related.targetResourceType,
+        canonicalPath,
+      };
+    }
+    default: {
+      const _exhaustive: never = source.input;
+      return _exhaustive;
+    }
+  }
 };
 
 const codingGroupFieldSource = (source: GroupFieldSource): GroupCodingFieldSource | undefined => {
@@ -3007,7 +3046,7 @@ const GroupEditor = (props: {
     const unmatchedBinding = key.fieldSource.kind === 'BINDING' && !matchedChoice;
     const sourceDescription = matchedChoice
       ? matchedChoice.ownerResourceType
-      : key.fieldSource.kind === 'BINDING' ? key.fieldSource.ownerResourceType : undefined;
+      : groupFieldSourcePresentation(key.fieldSource)?.ownerResourceType;
     const detailDescription = matchedChoice
       ? [matchedChoice.relatedOccurrence?.routeLabel, matchedChoice.scopeLabel].filter((part): part is string => Boolean(part)).join(' · ')
       : key.scopeLabel;

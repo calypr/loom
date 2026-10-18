@@ -81,6 +81,84 @@ const constructionSemanticGroupChoiceSchema = z.object({
   sourcePath: opaqueIdSchema,
 }).strict();
 
+const constructionGroupFieldCurrentStageScalarSchema = z.object({
+  sourceRole: z.enum(['ROOT', 'OWNER', 'ANCESTOR', 'CURRENT_ITEM']),
+  occurrenceId: opaqueIdSchema,
+  ownerResourceType: opaqueIdSchema,
+  resourceType: opaqueIdSchema,
+  candidateId: opaqueIdSchema.optional(),
+  canonicalPath: opaqueIdSchema.optional(),
+  boundarySelector: opaqueIdSchema.optional(),
+}).strict();
+
+const constructionGroupFieldCurrentStageCodingIdentitySchema = z.object({
+  sourceRole: z.literal('CURRENT_ITEM'),
+  occurrenceId: opaqueIdSchema,
+  ownerResourceType: opaqueIdSchema,
+  resourceType: opaqueIdSchema,
+  canonicalPath: opaqueIdSchema,
+}).strict();
+
+const constructionGroupFieldRelatedRouteStepSchema = z.object({
+  stepIndex: z.number().int().nonnegative(),
+  fromOccurrenceId: opaqueIdSchema,
+  fromNodeId: opaqueIdSchema,
+  fromResourceType: opaqueIdSchema,
+  edgeId: opaqueIdSchema,
+  relationship: opaqueIdSchema,
+  storageDirection: z.enum(['INBOUND', 'OUTBOUND']),
+  matchMode: z.enum(['OPTIONAL', 'REQUIRED']),
+  toOccurrenceId: opaqueIdSchema,
+  toNodeId: opaqueIdSchema,
+  toResourceType: opaqueIdSchema,
+}).strict();
+
+const constructionGroupRelatedOccurrenceBaseSchema = {
+  anchorOccurrenceId: opaqueIdSchema,
+  anchorNodeId: opaqueIdSchema,
+  anchorResourceType: opaqueIdSchema,
+  route: z.array(constructionGroupFieldRelatedRouteStepSchema).min(1),
+  targetOccurrenceId: opaqueIdSchema,
+  targetNodeId: opaqueIdSchema,
+  targetResourceType: opaqueIdSchema,
+  resourceType: opaqueIdSchema,
+  emptyPolicy: z.enum(['PRESERVE_PARENT', 'EXCLUDE', 'ERROR']),
+  multiplicity: z.literal('DISTINCT_TARGET_PER_INPUT'),
+};
+
+const constructionGroupFieldRelatedScalarSchema = z.object({
+  ...constructionGroupRelatedOccurrenceBaseSchema,
+  candidateId: opaqueIdSchema,
+  canonicalPath: opaqueIdSchema,
+}).strict();
+
+const constructionGroupFieldRelatedCodingIdentitySchema = z.object({
+  ...constructionGroupRelatedOccurrenceBaseSchema,
+  codingSelector: opaqueIdSchema,
+  codingEmptyPolicy: z.enum(['GROUP', 'EXCLUDE', 'ERROR']),
+  ordinalSemantics: z.literal('ZERO_BASED_POSITION_IN_FLATTENED_EXPANSION_ARRAY'),
+}).strict();
+
+const constructionGroupFieldCurrentStageScalarInputSchema = z.object({
+  kind: z.literal('CURRENT_STAGE'),
+  currentStage: constructionGroupFieldCurrentStageScalarSchema,
+}).strict();
+
+const constructionGroupFieldRelatedScalarInputSchema = z.object({
+  kind: z.literal('RELATED_OCCURRENCE'),
+  relatedOccurrence: constructionGroupFieldRelatedScalarSchema,
+}).strict();
+
+const constructionGroupFieldCurrentStageCodingIdentityInputSchema = z.object({
+  kind: z.literal('CURRENT_STAGE'),
+  currentStage: constructionGroupFieldCurrentStageCodingIdentitySchema,
+}).strict();
+
+const constructionGroupFieldRelatedCodingIdentityInputSchema = z.object({
+  kind: z.literal('RELATED_OCCURRENCE'),
+  relatedOccurrence: constructionGroupFieldRelatedCodingIdentitySchema,
+}).strict();
+
 const constructionGroupFieldSourceSchema = z.union([
   z.object({
     kind: z.literal('CHOICE'),
@@ -111,6 +189,26 @@ const constructionGroupFieldSourceSchema = z.union([
     ownerOccurrenceId: opaqueIdSchema,
     ownerResourceType: opaqueIdSchema,
     canonicalPath: opaqueIdSchema,
+  }).strict(),
+  z.object({
+    kind: z.literal('BINDING'),
+    valueKind: z.literal('SCALAR'),
+    sourceStageId: opaqueIdSchema,
+    sourceShapeId: opaqueIdSchema,
+    input: z.discriminatedUnion('kind', [
+      constructionGroupFieldCurrentStageScalarInputSchema,
+      constructionGroupFieldRelatedScalarInputSchema,
+    ]),
+  }).strict(),
+  z.object({
+    kind: z.literal('BINDING'),
+    valueKind: z.literal('CODING_IDENTITY'),
+    sourceStageId: opaqueIdSchema,
+    sourceShapeId: opaqueIdSchema,
+    input: z.discriminatedUnion('kind', [
+      constructionGroupFieldCurrentStageCodingIdentityInputSchema,
+      constructionGroupFieldRelatedCodingIdentityInputSchema,
+    ]),
   }).strict(),
 ]);
 
