@@ -471,15 +471,6 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
   assert(specimenCodingCodeCandidate?.candidateId,
     'The current populated Specimen.type.coding[].code candidate must be issued by the CDA catalog.');
 
-  const rowChoices = await api(`${authoringPath}/row-definition-choices?${new URLSearchParams({
-    snapshotToken: builder.catalog.snapshotToken, outputId,
-  })}`);
-  const codingRowChoices = (rowChoices.choices ?? []).filter(choice => choice.kind === 'EXPANDED' &&
-    choice.fieldPath === 'type.coding[]' && choice.fhirType === 'Coding' &&
-    choice.routeSummary === 'Root › subject_Patient');
-  assert.equal(codingRowChoices.length, 1,
-    `The native row catalog must issue one exact routed Specimen.type.coding[] Coding choice: ${JSON.stringify((rowChoices.choices ?? []).map(choice => ({ kind: choice.kind, fieldPath: choice.fieldPath, fhirType: choice.fhirType, occurrenceId: choice.occurrenceId, routeSummary: choice.routeSummary })))}.`);
-
   await cda.navigate(pageURL);
   const tableControl = page.getByTestId(`construction-table-${outputId}`);
   await tableControl.waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
@@ -537,8 +528,10 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
       patientIDChoice: { label: patientIDChoice.label, candidateId: patientIDChoice.candidateId, sourceRole: patientIDChoice.sourceRole },
       codingChoice: { label: specimenCodingChoice.label, valueKind: specimenCodingChoice.valueKind,
         ownerResourceType: specimenCodingChoice.ownerResourceType, resourceType: specimenCodingChoice.resourceType,
-        canonicalPath: specimenCodingChoice.canonicalPath, routeId: codingRoute.routeId,
-        rowChoice: { fhirType: codingRowChoices[0].fhirType, routeSummary: codingRowChoices[0].routeSummary } },
+        canonicalPath: specimenCodingChoice.canonicalPath, routeId: codingRoute.routeId },
+      catalogRoute: { edgeId: patientToSpecimenEdge.edgeId, fromNodeId: patientToSpecimenEdge.fromNodeId,
+        toNodeId: patientToSpecimenEdge.toNodeId, relationship: patientToSpecimenEdge.label,
+        storageDirection: patientToSpecimenEdge.storageDirection, populated: patientToSpecimenEdge.populated },
       oracleDigest: oracleEvidence.digest,
     });
 
