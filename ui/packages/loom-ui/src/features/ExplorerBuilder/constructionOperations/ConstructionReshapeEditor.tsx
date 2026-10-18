@@ -1866,10 +1866,61 @@ const fieldChoiceIdentity = (choice: GroupFieldSourceChoice): string | undefined
 
 const groupRowValueBindingIdentity = (source: GroupRowValueFieldSource): string | undefined => {
   if (source.kind !== 'BINDING' || source.valueKind !== 'SCALAR') return undefined;
+  let sourceRole: string;
+  let occurrenceId: string;
+  let resourceType: string;
+  let ownerOccurrenceId: string;
+  let ownerResourceType: string;
+  let candidateId: string | undefined;
+  let canonicalPath: string | undefined;
+  let boundarySelector: string | undefined;
+
+  if ('input' in source) {
+    switch (source.input.kind) {
+      case 'CURRENT_STAGE': {
+        const current = source.input.currentStage;
+        sourceRole = current.sourceRole;
+        occurrenceId = current.occurrenceId;
+        resourceType = current.resourceType;
+        ownerOccurrenceId = current.occurrenceId;
+        ownerResourceType = current.ownerResourceType;
+        candidateId = current.candidateId;
+        canonicalPath = current.canonicalPath;
+        boundarySelector = current.boundarySelector;
+        break;
+      }
+      case 'RELATED_OCCURRENCE': {
+        const related = source.input.relatedOccurrence;
+        sourceRole = 'RELATED_OCCURRENCE';
+        occurrenceId = related.targetOccurrenceId;
+        resourceType = related.resourceType;
+        ownerOccurrenceId = related.targetOccurrenceId;
+        ownerResourceType = related.targetResourceType;
+        candidateId = related.candidateId;
+        canonicalPath = related.canonicalPath;
+        break;
+      }
+      default: {
+        const _exhaustive: never = source.input;
+        return _exhaustive;
+      }
+    }
+  } else {
+    sourceRole = source.sourceRole;
+    occurrenceId = source.occurrenceId;
+    resourceType = source.resourceType;
+    ownerOccurrenceId = source.ownerOccurrenceId;
+    ownerResourceType = source.ownerResourceType;
+    candidateId = source.candidateId;
+    canonicalPath = source.canonicalPath;
+    boundarySelector = source.boundarySelector;
+  }
+  if (!source.sourceStageId || !source.sourceShapeId || !occurrenceId || !resourceType ||
+      !ownerOccurrenceId || !ownerResourceType || !candidateId || !canonicalPath) return undefined;
   return JSON.stringify([
-    source.valueKind, source.sourceStageId, source.sourceShapeId, source.sourceRole,
-    source.occurrenceId, source.resourceType, source.ownerOccurrenceId, source.ownerResourceType,
-    source.candidateId, source.canonicalPath, source.boundarySelector ?? '',
+    source.valueKind, source.sourceStageId, source.sourceShapeId, sourceRole,
+    occurrenceId, resourceType, ownerOccurrenceId, ownerResourceType,
+    candidateId, canonicalPath, boundarySelector ?? '',
   ]);
 };
 

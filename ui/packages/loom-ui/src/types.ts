@@ -159,57 +159,73 @@ const constructionGroupFieldRelatedCodingIdentityInputSchema = z.object({
   relatedOccurrence: constructionGroupFieldRelatedCodingIdentitySchema,
 }).strict();
 
+const constructionGroupFieldSourceChoiceSchema = z.object({
+  kind: z.literal('CHOICE'),
+  choiceId: opaqueIdSchema,
+}).strict();
+
+const constructionGroupFieldSourceLegacyScalarBindingSchema = z.object({
+  kind: z.literal('BINDING'),
+  valueKind: z.literal('SCALAR'),
+  sourceStageId: opaqueIdSchema,
+  sourceShapeId: opaqueIdSchema,
+  sourceRole: z.enum(['ROOT', 'OWNER', 'ANCESTOR', 'CURRENT_ITEM']),
+  occurrenceId: opaqueIdSchema,
+  resourceType: opaqueIdSchema,
+  ownerOccurrenceId: opaqueIdSchema,
+  ownerResourceType: opaqueIdSchema,
+  candidateId: opaqueIdSchema,
+  canonicalPath: opaqueIdSchema,
+  boundarySelector: opaqueIdSchema.optional(),
+}).strict();
+
+const constructionGroupFieldSourceNestedScalarBindingSchema = z.object({
+  kind: z.literal('BINDING'),
+  valueKind: z.literal('SCALAR'),
+  sourceStageId: opaqueIdSchema,
+  sourceShapeId: opaqueIdSchema,
+  input: z.discriminatedUnion('kind', [
+    constructionGroupFieldCurrentStageScalarInputSchema,
+    constructionGroupFieldRelatedScalarInputSchema,
+  ]),
+}).strict();
+
+const constructionGroupFieldSourceScalarOptions = [
+  constructionGroupFieldSourceChoiceSchema,
+  constructionGroupFieldSourceLegacyScalarBindingSchema,
+  constructionGroupFieldSourceNestedScalarBindingSchema,
+] as const;
+
+const constructionGroupFieldSourceScalarSchema = z.union(constructionGroupFieldSourceScalarOptions);
+
+const constructionGroupFieldSourceLegacyCodingIdentityBindingSchema = z.object({
+  kind: z.literal('BINDING'),
+  valueKind: z.literal('CODING_IDENTITY'),
+  sourceStageId: opaqueIdSchema,
+  sourceShapeId: opaqueIdSchema,
+  sourceRole: z.literal('CURRENT_ITEM'),
+  occurrenceId: opaqueIdSchema,
+  resourceType: opaqueIdSchema,
+  ownerOccurrenceId: opaqueIdSchema,
+  ownerResourceType: opaqueIdSchema,
+  canonicalPath: opaqueIdSchema,
+}).strict();
+
+const constructionGroupFieldSourceNestedCodingIdentityBindingSchema = z.object({
+  kind: z.literal('BINDING'),
+  valueKind: z.literal('CODING_IDENTITY'),
+  sourceStageId: opaqueIdSchema,
+  sourceShapeId: opaqueIdSchema,
+  input: z.discriminatedUnion('kind', [
+    constructionGroupFieldCurrentStageCodingIdentityInputSchema,
+    constructionGroupFieldRelatedCodingIdentityInputSchema,
+  ]),
+}).strict();
+
 const constructionGroupFieldSourceSchema = z.union([
-  z.object({
-    kind: z.literal('CHOICE'),
-    choiceId: opaqueIdSchema,
-  }).strict(),
-  z.object({
-    kind: z.literal('BINDING'),
-    valueKind: z.literal('SCALAR'),
-    sourceStageId: opaqueIdSchema,
-    sourceShapeId: opaqueIdSchema,
-    sourceRole: z.enum(['ROOT', 'OWNER', 'ANCESTOR', 'CURRENT_ITEM']),
-    occurrenceId: opaqueIdSchema,
-    resourceType: opaqueIdSchema,
-    ownerOccurrenceId: opaqueIdSchema,
-    ownerResourceType: opaqueIdSchema,
-    candidateId: opaqueIdSchema,
-    canonicalPath: opaqueIdSchema,
-    boundarySelector: opaqueIdSchema.optional(),
-  }).strict(),
-  z.object({
-    kind: z.literal('BINDING'),
-    valueKind: z.literal('CODING_IDENTITY'),
-    sourceStageId: opaqueIdSchema,
-    sourceShapeId: opaqueIdSchema,
-    sourceRole: z.literal('CURRENT_ITEM'),
-    occurrenceId: opaqueIdSchema,
-    resourceType: opaqueIdSchema,
-    ownerOccurrenceId: opaqueIdSchema,
-    ownerResourceType: opaqueIdSchema,
-    canonicalPath: opaqueIdSchema,
-  }).strict(),
-  z.object({
-    kind: z.literal('BINDING'),
-    valueKind: z.literal('SCALAR'),
-    sourceStageId: opaqueIdSchema,
-    sourceShapeId: opaqueIdSchema,
-    input: z.discriminatedUnion('kind', [
-      constructionGroupFieldCurrentStageScalarInputSchema,
-      constructionGroupFieldRelatedScalarInputSchema,
-    ]),
-  }).strict(),
-  z.object({
-    kind: z.literal('BINDING'),
-    valueKind: z.literal('CODING_IDENTITY'),
-    sourceStageId: opaqueIdSchema,
-    sourceShapeId: opaqueIdSchema,
-    input: z.discriminatedUnion('kind', [
-      constructionGroupFieldCurrentStageCodingIdentityInputSchema,
-      constructionGroupFieldRelatedCodingIdentityInputSchema,
-    ]),
-  }).strict(),
+  ...constructionGroupFieldSourceScalarSchema.options,
+  constructionGroupFieldSourceLegacyCodingIdentityBindingSchema,
+  constructionGroupFieldSourceNestedCodingIdentityBindingSchema,
 ]);
 
 const constructionRelatedOccurrenceSchema = z.object({
@@ -1565,23 +1581,7 @@ const relatedExpandContributorSourceSchema = relatedFieldSourceSchema.extend({
 });
 
 const constructionRowValuePolicySchema = z.enum(['ALL', 'ONE']);
-const constructionRowValueFieldSourceSchema = z.union([
-  z.object({ kind: z.literal('CHOICE'), choiceId: opaqueIdSchema }).strict(),
-  z.object({
-    kind: z.literal('BINDING'),
-    valueKind: z.literal('SCALAR'),
-    sourceStageId: opaqueIdSchema,
-    sourceShapeId: opaqueIdSchema,
-    sourceRole: z.enum(['ROOT', 'OWNER', 'ANCESTOR', 'CURRENT_ITEM']),
-    occurrenceId: opaqueIdSchema,
-    resourceType: opaqueIdSchema,
-    ownerOccurrenceId: opaqueIdSchema,
-    ownerResourceType: opaqueIdSchema,
-    candidateId: opaqueIdSchema,
-    canonicalPath: opaqueIdSchema,
-    boundarySelector: opaqueIdSchema.optional(),
-  }).strict(),
-]);
+const constructionRowValueFieldSourceSchema = constructionGroupFieldSourceScalarSchema;
 const constructionRowValueSchema = z.union([
   z.object({
     inputColumnId: opaqueIdSchema,

@@ -434,6 +434,11 @@ describe('Loom project paths', () => {
         },
       },
     };
+    const rowValueChoice = {
+      fieldSource: { kind: 'CHOICE', choiceId: 'specimen-id-row-choice' },
+      outputColumnId: 'specimen-ids',
+      policy: 'ALL',
+    } as const;
     const candidateConstruction = {
       version: 1,
       steps: [{
@@ -450,11 +455,24 @@ describe('Loom project paths', () => {
             aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: 'row-count' }],
           },
         },
+        rowValues: [rowValueChoice],
         outputs: [
           { id: 'specimen-id', name: 'specimen_id', label: 'Specimen ID' },
           { id: 'specimen-type', name: 'specimen_type', label: 'Specimen type' },
           { id: 'row-count', name: 'row_count', label: 'Rows' },
+          { id: 'specimen-ids', name: 'specimen_ids', label: 'Specimen IDs', type: 'array' },
         ],
+      }],
+    };
+    const resolvedCandidateConstruction = {
+      ...candidateConstruction,
+      steps: [{
+        ...candidateConstruction.steps[0],
+        rowValues: [{
+          fieldSource: scalarFieldSource,
+          outputColumnId: rowValueChoice.outputColumnId,
+          policy: rowValueChoice.policy,
+        }],
       }],
     };
     const proposal = {
@@ -466,7 +484,7 @@ describe('Loom project paths', () => {
       baseDocumentDigest: 'document-7',
       candidateWorkspaceDigest: 'workspace-8',
       changedStepId: 'group-specimens',
-      candidateConstruction,
+      candidateConstruction: resolvedCandidateConstruction,
       dependencyImpact: { changedStepId: 'group-specimens', affectedStepIds: [] },
       stages: [{
         id: 'source_projection', inputStageId: '', columns: [],
@@ -492,7 +510,7 @@ describe('Loom project paths', () => {
       explorerId: 'explorer-a',
       ...request,
     });
-    expect(response.candidateConstruction).toEqual(candidateConstruction);
+    expect(response.candidateConstruction).toEqual(resolvedCandidateConstruction);
     expect(constructionProposalResponseSchema.parse(structuredClone(response))).toEqual(response);
     expect(fetch).toHaveBeenCalledWith(
       '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2/construction-proposals',
@@ -531,6 +549,22 @@ describe('Loom project paths', () => {
       },
     };
     expect(constructionProposalResponseSchema.safeParse(malformedCodingResponse).success).toBe(false);
+
+    const codingRowValueResponse = {
+      ...proposal,
+      candidateConstruction: {
+        ...resolvedCandidateConstruction,
+        steps: [{
+          ...resolvedCandidateConstruction.steps[0],
+          rowValues: [{
+            fieldSource: codingFieldSource,
+            outputColumnId: 'coding-row-values',
+            policy: 'ALL',
+          }],
+        }],
+      },
+    };
+    expect(constructionProposalResponseSchema.safeParse(codingRowValueResponse).success).toBe(false);
   });
 
   it('lists exact published revisions with draft identity and pagination', async () => {

@@ -2541,13 +2541,35 @@ describe('ConstructionReshapeEditor', () => {
     expect(edited?.outputs).toContainEqual(expect.objectContaining({ name: 'status', type: 'array' }));
   });
 
-  it('preserves a saved Group row-value BINDING when editing other settings', () => {
+  it('matches an exact related scalar capability when reopening a saved Group RowValue', () => {
     const fieldSource = {
       kind: 'BINDING' as const, valueKind: 'SCALAR' as const,
-      sourceStageId: 'source_projection', sourceShapeId: 'shape-component', sourceRole: 'ANCESTOR' as const,
-      occurrenceId: 'component-occurrence', resourceType: 'ObservationComponent',
-      ownerOccurrenceId: 'observation-occurrence', ownerResourceType: 'Observation',
-      candidateId: 'component-value', canonicalPath: 'valueQuantity.value', boundarySelector: 'component[]',
+      sourceStageId: 'source_projection', sourceShapeId: 'related-specimen-id-shape',
+      input: {
+        kind: 'RELATED_OCCURRENCE' as const,
+        relatedOccurrence: {
+          anchorOccurrenceId: 'patient-occurrence', anchorNodeId: 'patient-node', anchorResourceType: 'Patient',
+          route: [{
+            stepIndex: 0, fromOccurrenceId: 'patient-occurrence', fromNodeId: 'patient-node', fromResourceType: 'Patient',
+            edgeId: 'patient-specimen', relationship: 'subject_Patient', storageDirection: 'INBOUND' as const,
+            matchMode: 'OPTIONAL' as const, toOccurrenceId: 'specimen-occurrence', toNodeId: 'specimen-node', toResourceType: 'Specimen',
+          }],
+          targetOccurrenceId: 'specimen-occurrence', targetNodeId: 'specimen-node', targetResourceType: 'Specimen',
+          resourceType: 'string', candidateId: 'specimen-id', canonicalPath: 'id',
+          emptyPolicy: 'PRESERVE_PARENT' as const, multiplicity: 'DISTINCT_TARGET_PER_INPUT' as const,
+        },
+      },
+    };
+    const currentStageFieldSource = {
+      kind: 'BINDING' as const, valueKind: 'SCALAR' as const,
+      sourceStageId: 'source_projection', sourceShapeId: 'current-patient-id-shape',
+      input: {
+        kind: 'CURRENT_STAGE' as const,
+        currentStage: {
+          sourceRole: 'ROOT' as const, occurrenceId: 'patient-occurrence', ownerResourceType: 'Patient',
+          resourceType: 'string', candidateId: 'patient-id', canonicalPath: 'id',
+        },
+      },
     };
     const savedGroup: ConstructionReshapeStep = {
       id: 'group-step',
@@ -2559,37 +2581,66 @@ describe('ConstructionReshapeEditor', () => {
           aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: 'count-id' }],
         },
       },
-      rowValues: [{ fieldSource, outputColumnId: 'component-value-id', policy: 'ALL' }],
+      rowValues: [
+        { fieldSource: currentStageFieldSource, outputColumnId: 'patient-id-list', policy: 'ALL' },
+        { fieldSource, outputColumnId: 'specimen-id-list', policy: 'ALL' },
+      ],
       outputs: [
         { id: 'count-id', name: 'row_count', label: 'Rows', type: 'integer' },
-        { id: 'component-value-id', name: 'component_value', label: 'Component value', type: 'array' },
+        { id: 'patient-id-list', name: 'patient_ids', label: 'Patient IDs', type: 'array' },
+        { id: 'specimen-id-list', name: 'specimen_ids', label: 'Specimen IDs', type: 'array' },
       ],
     };
     const capabilities: ConstructionReshapeEditorProps['capabilities'] = {
       ...capabilitiesFor(),
       baseConstruction: { version: 1, steps: [savedGroup] },
       groupRowValueChoices: [{
+        kind: 'FIELD_SOURCE', valueKind: 'SCALAR', fieldSource: { kind: 'CHOICE', choiceId: 'same-patient-choice' },
+        label: 'Patient ID', scopeLabel: 'Patient · id',
+        valueType: 'string', sourceStageId: 'source_projection', sourceShapeId: 'current-patient-id-shape',
+        candidateId: 'patient-id', sourceRole: 'ROOT', occurrenceId: 'patient-occurrence',
+        resourceType: 'string', ownerOccurrenceId: 'patient-occurrence', ownerResourceType: 'Patient', canonicalPath: 'id',
+      }, {
         kind: 'FIELD_SOURCE', valueKind: 'SCALAR', fieldSource: { kind: 'CHOICE', choiceId: 'same-component-choice' },
-        label: 'Component value', scopeLabel: 'Observation · component[] · ObservationComponent.valueQuantity.value',
-        valueType: 'decimal', sourceStageId: 'source_projection', sourceShapeId: 'shape-component',
-        candidateId: 'component-value', sourceRole: 'ANCESTOR', occurrenceId: 'component-occurrence',
-        resourceType: 'ObservationComponent', ownerOccurrenceId: 'observation-occurrence',
-        ownerResourceType: 'Observation', canonicalPath: 'valueQuantity.value', boundarySelector: 'component[]',
+        label: 'Specimen ID', scopeLabel: 'Patient · subject_Patient → Specimen · one target per input row',
+        valueType: 'string', sourceStageId: 'source_projection', sourceShapeId: 'related-specimen-id-shape',
+        candidateId: 'specimen-id', sourceRole: 'RELATED_OCCURRENCE', occurrenceId: 'specimen-occurrence',
+        resourceType: 'string', ownerOccurrenceId: 'specimen-occurrence',
+        ownerResourceType: 'Specimen', canonicalPath: 'id',
+        relatedOccurrence: { routeId: 'patient-specimen-route', routeLabel: 'Patient → Specimen' },
+      }, {
+        kind: 'FIELD_SOURCE', valueKind: 'SCALAR', fieldSource: { kind: 'CHOICE', choiceId: 'other-route-choice' },
+        label: 'Specimen ID', scopeLabel: 'Patient · alternate route → Specimen · one target per input row',
+        valueType: 'string', sourceStageId: 'source_projection', sourceShapeId: 'alternate-specimen-id-shape',
+        candidateId: 'specimen-id', sourceRole: 'RELATED_OCCURRENCE', occurrenceId: 'specimen-occurrence',
+        resourceType: 'string', ownerOccurrenceId: 'specimen-occurrence',
+        ownerResourceType: 'Specimen', canonicalPath: 'id',
+        relatedOccurrence: { routeId: 'alternate-patient-specimen-route', routeLabel: 'Patient → alternate route → Specimen' },
       }],
     };
     const onCandidateChange = vi.fn();
     renderEditor({ construction: { version: 1, steps: [savedGroup] }, editingStep: savedGroup, capabilities, onCandidateChange });
 
-    expect(screen.getByTestId('construction-group-row-value')).toHaveTextContent('Component value');
+    const savedRowValues = screen.getAllByTestId('construction-group-row-value');
+    expect(savedRowValues).toHaveLength(2);
+    expect(savedRowValues[0]).toHaveTextContent('Patient · id');
+    expect(savedRowValues[1]).toHaveTextContent('Patient · subject_Patient → Specimen · one target per input row');
+    expect(screen.queryByTestId('construction-group-add-column-choice-same-patient-choice')).not.toBeInTheDocument();
     expect(screen.queryByTestId('construction-group-add-column-choice-same-component-choice')).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Added column name 1'), { target: { value: 'component_value_copy' } });
+    expect(screen.getByTestId('construction-group-add-column-choice-other-route-choice')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Added column name 1'), { target: { value: 'patient_ids_copy' } });
+    fireEvent.change(screen.getByLabelText('Added column name 2'), { target: { value: 'specimen_ids_copy' } });
     const intent = onCandidateChange.mock.lastCall?.[0];
     expect(intent).toBeDefined();
     if (!intent) throw new Error('Expected an edited Group row-value candidate');
     const candidate = constructionSchema.parse(intent.candidateConstruction);
     const edited = candidate.steps.find((step) => step.id === savedGroup.id);
-    expect(edited?.rowValues).toEqual([{ fieldSource, outputColumnId: 'component-value-id', policy: 'ALL' }]);
-    expect(edited?.outputs.find((column) => column.id === 'component-value-id')).toMatchObject({ name: 'component_value_copy', type: 'array' });
+    expect(edited?.rowValues).toEqual([
+      { fieldSource: currentStageFieldSource, outputColumnId: 'patient-id-list', policy: 'ALL' },
+      { fieldSource, outputColumnId: 'specimen-id-list', policy: 'ALL' },
+    ]);
+    expect(edited?.outputs.find((column) => column.id === 'patient-id-list')).toMatchObject({ name: 'patient_ids_copy', type: 'array' });
+    expect(edited?.outputs.find((column) => column.id === 'specimen-id-list')).toMatchObject({ name: 'specimen_ids_copy', type: 'array' });
   });
 
   it('keeps every eligible scalar available for Group by and explains excluded list fields', () => {
