@@ -358,11 +358,68 @@ func (h *explorerHTTPHandlers) applyAuthoringCommandsDirect(ctx context.Context,
 	if err != nil {
 		return result, malformedRouteError("commands", err)
 	}
+	if len(request.Commands) == 1 && request.Commands[0].Type == authoringv2.CommandApplyConstructionProposal {
+		var encoder *previewResponseEncoder
+		sinkFactory := func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
+			var err error
+			encoder, err = newPreviewResponseEncoder(receipt, request.Commands[0].OutputID, columns, maxExplorerPreviewResponseBytes)
+			if err != nil {
+				return nil, err
+			}
+			return encoder.Visit, nil
+		}
+		applied, err := h.application.ApplyCommandsWithConstructionPreview(ctx, project, explorerID, request, subjectFromContext(ctx), sinkFactory)
+		if err != nil {
+			return result, err
+		}
+		if applied == nil || applied.Commands == nil {
+			return result, explorerUnavailable("commands", "AUTHORING_UNAVAILABLE", "construction Apply returned no command response")
+		}
+		result, err = directAuthoringJSON[loomapi.ApplyCommandsResponse](applied.Commands)
+		if err != nil {
+			return result, err
+		}
+		if applied.Accepted == nil || encoder == nil || applied.Accepted.Preview.Receipt == nil {
+			return result, nil
+		}
+		preview, err := previewResponseFromEncoder(encoder, applied.Accepted.Preview.Summary)
+		if err != nil {
+			return result, nil
+		}
+		receipt := v2ReceiptResponse(applied.Accepted.Preview.Receipt, applied.Commands.Workspace)
+		result.AcceptedConstruction = &loomapi.AcceptedConstruction{
+			Receipt:      acceptedConstructionReceiptResponse(receipt),
+			Preview:      preview,
+			PreviewLimit: applied.Accepted.PreviewLimit,
+		}
+		return result, nil
+	}
 	value, err := h.application.ApplyCommands(ctx, project, explorerID, request, subjectFromContext(ctx))
 	if err != nil {
 		return result, err
 	}
 	return directAuthoringJSON[loomapi.ApplyCommandsResponse](value)
+}
+
+func acceptedConstructionReceiptResponse(receipt loomapi.CompileResponse) loomapi.AcceptedConstructionReceipt {
+	return loomapi.AcceptedConstructionReceipt{
+		ApiVersion:               receipt.ApiVersion,
+		AuthorizationScopeDigest: receipt.AuthorizationScopeDigest,
+		CapabilitySchemaDigest:   receipt.CapabilitySchemaDigest,
+		CompilerVersion:          receipt.CompilerVersion,
+		Diagnostics:              receipt.Diagnostics,
+		Generation:               receipt.Generation,
+		IntentDigest:             receipt.IntentDigest,
+		Kind:                     receipt.Kind,
+		OutputContractDigest:     receipt.OutputContractDigest,
+		Outputs:                  receipt.Outputs,
+		ReceiptId:                receipt.ReceiptId,
+		RecipeDigest:             receipt.RecipeDigest,
+		ResolvedRecipeDigest:     receipt.ResolvedRecipeDigest,
+		ResolvedSchemaDigest:     receipt.ResolvedSchemaDigest,
+		ShapeDigest:              receipt.ShapeDigest,
+		SnapshotToken:            receipt.SnapshotToken,
+	}
 }
 
 func (h *explorerHTTPHandlers) assessAuthoringRowChangeDirect(ctx context.Context, project, explorerID string, body *loomapi.AssessExplorerRowChangeJSONRequestBody) (loomapi.RowChangeAssessmentResponse, error) {
@@ -453,32 +510,40 @@ func (h *explorerHTTPHandlers) previewAuthoringDirectWithTimeout(ctx context.Con
 	}
 	previewCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	var finish func() ([]byte, error)
+	var encoder *previewResponseEncoder
 	preview, err := h.application.Preview(previewCtx, lifecycle.PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, OutputID: body.OutputId, Limit: limit, SinkFactory: func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
-		encoder, encoderErr := newPreviewResponseEncoder(receipt, body.OutputId, columns, maxExplorerPreviewResponseBytes)
+		var encoderErr error
+		encoder, encoderErr = newPreviewResponseEncoder(receipt, body.OutputId, columns, maxExplorerPreviewResponseBytes)
 		if encoderErr != nil {
 			return nil, encoderErr
 		}
-		finish = encoder.Finish
 		return encoder.Visit, nil
 	}})
 	if err != nil {
 		return result, previewRouteError(err)
 	}
-	if finish == nil {
+	if encoder == nil {
 		return result, previewRouteError(errors.New("native preview response sink was not configured"))
 	}
-	encoded, err := finish()
+	return previewResponseFromEncoder(encoder, preview.Summary)
+}
+
+func previewResponseFromEncoder(encoder *previewResponseEncoder, summary dataframeexecution.PreviewSummary) (loomapi.PreviewResponse, error) {
+	var result loomapi.PreviewResponse
+	if encoder == nil {
+		return result, errors.New("native preview response sink was not configured")
+	}
+	encoded, err := encoder.Finish()
 	if err != nil {
 		return result, previewRouteError(err)
 	}
 	if err := json.Unmarshal(encoded, &result); err != nil {
 		return result, err
 	}
-	result.Sampled = !preview.Summary.Complete || preview.Summary.Truncated
-	partialValidation := preview.Summary.PartialValidation
+	result.Sampled = !summary.Complete || summary.Truncated
+	partialValidation := summary.PartialValidation
 	result.PartialValidation = &partialValidation
-	capability := preview.Summary.RowLineageCapability
+	capability := summary.RowLineageCapability
 	result.RowLineageCapability.Status = loomapi.RowLineageCapabilityStatusAVAILABLE
 	if !capability.Available {
 		result.RowLineageCapability.Status = loomapi.RowLineageCapabilityStatusUNAVAILABLE
