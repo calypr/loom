@@ -3265,29 +3265,6 @@ export const explorerBuilderReceiptOutputSchema = z
     columns: z.array(explorerBuilderContractColumnSchema),
   })
   .strict();
-export const explorerBuilderAcceptedConstructionReceiptSchema = z
-  .object({
-    apiVersion: z.literal(EXPLORER_AUTHORING_API_VERSION),
-    kind: z.literal('ExplorerBuilderReceipt'),
-    receiptId: opaqueIdSchema,
-    snapshotToken: opaqueIdSchema,
-    generation: opaqueIdSchema,
-    intentDigest: opaqueIdSchema,
-    compilerVersion: opaqueIdSchema,
-    shapeDigest: opaqueIdSchema.optional(),
-    recipeDigest: opaqueIdSchema.optional(),
-    resolvedRecipeDigest: opaqueIdSchema.optional(),
-    resolvedSchemaDigest: opaqueIdSchema.optional(),
-    outputContractDigest: opaqueIdSchema.optional(),
-    authorizationScopeDigest: opaqueIdSchema.optional(),
-    capabilitySchemaDigest: opaqueIdSchema.optional(),
-    outputs: z.array(explorerBuilderReceiptOutputSchema),
-    diagnostics: z.array(explorerAuthoringDiagnosticSchema),
-  })
-  .strict();
-export type ExplorerBuilderAcceptedConstructionReceipt = z.infer<
-  typeof explorerBuilderAcceptedConstructionReceiptSchema
->;
 export const explorerBuilderCompileResultSchema = z
   .object({
     apiVersion: z.literal(EXPLORER_AUTHORING_API_VERSION),
@@ -3312,6 +3289,16 @@ export const explorerBuilderCompileResultSchema = z
   .strict();
 export type ExplorerBuilderCompileResult = z.infer<
   typeof explorerBuilderCompileResultSchema
+>;
+export const explorerBuilderAcceptedConstructionReceiptSchema = explorerBuilderCompileResultSchema
+  .omit({ builder: true })
+  .extend({
+    generation: opaqueIdSchema,
+    intentDigest: opaqueIdSchema,
+    compilerVersion: opaqueIdSchema,
+  });
+export type ExplorerBuilderAcceptedConstructionReceipt = z.infer<
+  typeof explorerBuilderAcceptedConstructionReceiptSchema
 >;
 
 export const explorerBuilderPreviewColumnSchema =
