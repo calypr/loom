@@ -634,6 +634,14 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
       oracleDigest: oracleEvidence.digest,
     });
 
+  const returnToTableStarted = Date.now();
+  const rowSettingsDialog = page.getByRole('dialog', { name: 'Row definition settings', exact: true });
+  await rowSettingsDialog.getByRole('button', { name: 'Back to table', exact: true })
+    .click({ timeout: ACTION_BUDGET_MS });
+  await rowSettingsDialog.waitFor({ state: 'hidden', timeout: ACTION_BUDGET_MS });
+  assert(Date.now() - returnToTableStarted <= ACTION_BUDGET_MS,
+    'Returning to the table after applying the connected Group exceeded five seconds.');
+
   const capabilitiesPromise = page.waitForResponse(response => {
     try {
       const body = response.request().postDataJSON();
