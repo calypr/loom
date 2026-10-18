@@ -32,7 +32,7 @@ func TestLowerSemanticGroupRejectsExpandedRootRows(t *testing.T) {
 	_, _, _, err := lowerConstructionGroup(
 		plan, group, nil, []recipe.StageColumn{{ID: "category_id", Name: "category"}}, nil,
 		"_key", recipe.ConstructionSourceProjectionID, "Observation",
-		map[string]recipe.StageColumn{"category_id": {ID: "category_id", Name: "category"}}, map[string]bool{}, 0,
+		map[string]recipe.StageColumn{"category_id": {ID: "category_id", Name: "category"}}, map[string]bool{}, 0, nil, ir.DefaultPhysicalOptimizationPolicy(),
 	)
 	if err == nil || !strings.Contains(err.Error(), "UNNEST") {
 		t.Fatalf("lower semantic Group with expanded roots error = %v, want source-grain rejection for UNNEST", err)
@@ -476,5 +476,311 @@ func TestConstructionGroupMissingKeyPoliciesLowerToTypedIRAndAQL(t *testing.T) {
 				t.Fatalf("query has missing-key filter = %t, want %t:\n%s", hasMissingFilter, test.wantFilter, rendered.Query)
 			}
 		})
+	}
+}
+
+func TestCodingIdentityGroupCompilesTypedSourceSchemaAndRenders(t *testing.T) {
+	output := recipe.Output{
+		Name: "coding_identity_group", RootResourceType: "Observation", RootOccurrenceID: "root-observation", RowGrain: "expanded",
+		Expand: &recipe.Expansion{
+			OwnerOccurrenceID: "root-observation", From: recipe.Expression{Select: "root.valueCodeableConcept.coding[]"},
+			As: "coding", Ordinality: "coding_ordinal", EmptyPolicy: recipe.ExpansionExclude,
+		},
+		Identity: &recipe.Identity{Name: "row", Expansion: &recipe.ExpansionIdentity{}},
+	}
+	compiledSource := compileDerivedTestOutput(t, output)
+	sourceDescriptor, err := DescribeConstructionSourceStage(compiledSource.OutputSchema, output.RootResourceType, &compiledSource.Plan)
+	if err != nil {
+		t.Fatalf("describe expanded source projection: %v", err)
+	}
+	if sourceDescriptor.GroupFieldSourceContext == nil || sourceDescriptor.GroupFieldSourceContext.SourceExpansion == nil {
+		t.Fatal("compiler did not expose the exact expanded source context")
+	}
+	context := sourceDescriptor.GroupFieldSourceContext
+	output.Construction = &recipe.Construction{
+		Version: 1,
+		Steps: []recipe.ConstructionStep{{
+			ID: "group_codings", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+				ConstructionID: "group_coding_identity", MissingKeyPolicy: recipe.ConstructionGroupMissingKeyGroup,
+				Keys: []recipe.ConstructionGroupKey{{
+					OutputColumnID: "coding_label_id",
+					FieldSource: &recipe.ConstructionGroupFieldSource{
+						Kind: "BINDING", ValueKind: "CODING_IDENTITY", SourceStageID: context.SourceStageID,
+						SourceShapeID: context.SourceShapeID, SourceRole: "CURRENT_ITEM",
+						OccurrenceID: context.SourceExpansion.OwnerOccurrenceID, OwnerResourceType: context.SourceExpansion.OwnerResourceType,
+						ResourceType: "Coding", CanonicalPath: context.SourceExpansion.Selector,
+					},
+				}},
+				Aggregates: []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "rows_id"}},
+			}},
+			RowValues: []recipe.ConstructionRowValue{{
+				FieldSource: &recipe.ConstructionGroupFieldSource{
+					Kind: "BINDING", ValueKind: "SCALAR", SourceStageID: context.SourceStageID,
+					SourceShapeID: context.SourceShapeID, SourceRole: "ROOT",
+					OccurrenceID: "root-observation", OwnerResourceType: "Observation", ResourceType: "Observation",
+					CandidateID: "observation-issued", CanonicalPath: "issued",
+				},
+				OutputColumnID: "issued_values_id", Policy: recipe.ConstructionRowValueAll,
+			}},
+			Outputs: []recipe.StageColumn{
+				{ID: "coding_label_id", Name: "coding_label", Type: "string"},
+				{ID: "rows_id", Name: "rows", Type: "integer"},
+				{ID: "issued_values_id", Name: "issued_values", Type: "array"},
+			},
+		}},
+	}
+	compiled := compileDerivedTestOutput(t, output)
+	sequence := compiled.Plan.StageSequence
+	if sequence == nil || len(sequence.Stages) != 1 || sequence.Stages[0].Group == nil || sequence.Stages[0].Group.CodingKey == nil {
+		t.Fatalf("compiled expanded Coding Group stages = %#v", sequence)
+	}
+	stage := sequence.Stages[0]
+	var codingDisplay *CompiledOutputColumn
+	for stageIndex := range compiled.Stages {
+		if compiled.Stages[stageIndex].ID != "group_codings" {
+			continue
+		}
+		for columnIndex := range compiled.Stages[stageIndex].Columns {
+			column := &compiled.Stages[stageIndex].Columns[columnIndex]
+			if column.ID == "coding_label_id" {
+				codingDisplay = column
+			}
+		}
+	}
+	if codingDisplay == nil || codingDisplay.SemanticValueKind != CompiledSemanticValueCodingIdentityDisplay {
+		t.Fatalf("Coding identity display output has no compiler-authored semantic marker: %#v", codingDisplay)
+	}
+	if len(stage.InputColumns) != len(stage.InputProjections) || len(sequence.SourceColumns) != len(stage.InputColumns) {
+		t.Fatalf("source input schema/projection counts diverged: source=%d group input=%d projections=%d", len(sequence.SourceColumns), len(stage.InputColumns), len(stage.InputProjections))
+	}
+	occurrenceInputFound := false
+	for _, column := range stage.InputColumns {
+		if column.Name == "__loom_group_source_occurrence_key" && column.Internal && column.Kind == "object" {
+			occurrenceInputFound = true
+		}
+	}
+	if !occurrenceInputFound {
+		t.Fatalf("exact occurrence identity was not retained as a hidden source input: %#v", stage.InputColumns)
+	}
+	rowValue := stage.Group.RowValues[0]
+	if rowValue.FieldSource == nil || rowValue.FieldSource.SourceStageID != stage.InputStageID ||
+		rowValue.FieldSource.SourceShapeID != context.SourceShapeID || rowValue.InputColumn == "" {
+		t.Fatalf("Group RowValue did not bind its exact input source context: %#v", rowValue)
+	}
+	rowValueInput, foundRowValueInput := func() (ir.PhysicalStageColumn, bool) {
+		for _, column := range stage.InputColumns {
+			if column.Name == rowValue.InputColumn {
+				return column, true
+			}
+		}
+		return ir.PhysicalStageColumn{}, false
+	}()
+	if !foundRowValueInput || !rowValueInput.Internal {
+		t.Fatalf("Group RowValue source projection is not hidden/internal: %#v", rowValueInput)
+	}
+	if err := compiled.Plan.Validate(); err != nil {
+		t.Fatalf("validate compiled expanded Coding Group: %v", err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	if err != nil {
+		t.Fatalf("render compiled expanded Coding Group: %v", err)
+	}
+	for _, want := range []string{
+		"LET __loom_construction_group_coding_input_tuple_1 = [",
+		"COLLECT __loom_construction_group_coding_tuple_1 = __loom_construction_group_coding_input_tuple_1",
+		"SUM(",
+		"MIN(",
+		"__loom_construction_group_coding_tuple_1[2]",
+		"construction_group_source_occurrence",
+		"coding_ordinal",
+		"__loom_has_expanded_item",
+		"FOR __loom_physical_unnest_index_0",
+	} {
+		if !strings.Contains(rendered.Query, want) {
+			t.Errorf("compiled Group AQL missing %q:\n%s", want, rendered.Query)
+		}
+	}
+	if strings.Count(rendered.Query, "FOR root IN @@root_collection") != 1 {
+		t.Errorf("expanded Group should inline one scoped root and existing UNNEST pipeline:\n%s", rendered.Query)
+	}
+	if strings.Contains(rendered.Query, "LET __loom_construction_source_projection = (") {
+		t.Errorf("expanded Group materialized the complete source-row array instead of streaming into COLLECT:\n%s", rendered.Query)
+	}
+	for _, forbidden := range []string{"DOCUMENT(", "codingPath"} {
+		if strings.Contains(rendered.Query, forbidden) {
+			t.Errorf("compiled item Group unexpectedly rescanned source through %q:\n%s", forbidden, rendered.Query)
+		}
+	}
+}
+
+func TestCodingIdentityGroupRejectsChangedRowValueSourceShape(t *testing.T) {
+	output := recipe.Output{
+		Name: "coding_identity_group", RootResourceType: "Observation", RootOccurrenceID: "root-observation", RowGrain: "expanded",
+		Expand: &recipe.Expansion{
+			OwnerOccurrenceID: "root-observation", From: recipe.Expression{Select: "root.valueCodeableConcept.coding[]"},
+			As: "coding", Ordinality: "coding_ordinal", EmptyPolicy: recipe.ExpansionExclude,
+		},
+		Identity: &recipe.Identity{Name: "row", Expansion: &recipe.ExpansionIdentity{}},
+	}
+	compiledSource := compileDerivedTestOutput(t, output)
+	sourceDescriptor, err := DescribeConstructionSourceStage(compiledSource.OutputSchema, output.RootResourceType, &compiledSource.Plan)
+	if err != nil || sourceDescriptor.GroupFieldSourceContext == nil {
+		t.Fatalf("describe source context: context=%#v err=%v", sourceDescriptor.GroupFieldSourceContext, err)
+	}
+	context := sourceDescriptor.GroupFieldSourceContext
+	output.Construction = &recipe.Construction{Version: 1, Steps: []recipe.ConstructionStep{{
+		ID: "group_codings", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+			ConstructionID: "group_coding_identity", MissingKeyPolicy: recipe.ConstructionGroupMissingKeyGroup,
+			Keys: []recipe.ConstructionGroupKey{{
+				OutputColumnID: "coding_label_id",
+				FieldSource: &recipe.ConstructionGroupFieldSource{
+					Kind: "BINDING", ValueKind: "CODING_IDENTITY", SourceStageID: context.SourceStageID,
+					SourceShapeID: context.SourceShapeID, SourceRole: "CURRENT_ITEM",
+					OccurrenceID: context.SourceExpansion.OwnerOccurrenceID, OwnerResourceType: context.SourceExpansion.OwnerResourceType,
+					ResourceType: "Coding", CanonicalPath: context.SourceExpansion.Selector,
+				},
+			}},
+			Aggregates: []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "rows_id"}},
+		}},
+		RowValues: []recipe.ConstructionRowValue{{
+			FieldSource: &recipe.ConstructionGroupFieldSource{
+				Kind: "BINDING", ValueKind: "SCALAR", SourceStageID: context.SourceStageID,
+				SourceShapeID: context.SourceShapeID, SourceRole: "ROOT", OccurrenceID: "root-observation",
+				OwnerResourceType: "Observation", ResourceType: "Observation", CandidateID: "observation-issued", CanonicalPath: "issued",
+			},
+			OutputColumnID: "issued_values_id", Policy: recipe.ConstructionRowValueAll,
+		}},
+		Outputs: []recipe.StageColumn{
+			{ID: "coding_label_id", Name: "coding_label", Type: "string"},
+			{ID: "rows_id", Name: "rows", Type: "integer"},
+			{ID: "issued_values_id", Name: "issued_values", Type: "array"},
+		},
+	}}}
+	badConstruction := *output.Construction
+	badConstruction.Steps = append([]recipe.ConstructionStep(nil), output.Construction.Steps...)
+	badStep := badConstruction.Steps[0]
+	badGroup := *badStep.Operation.Group
+	badGroup.Keys = append([]recipe.ConstructionGroupKey(nil), badGroup.Keys...)
+	badStep.Operation.Group = &badGroup
+	badStep.RowValues = append([]recipe.ConstructionRowValue(nil), badStep.RowValues...)
+	badRowValue := badStep.RowValues[0]
+	badSource := *badRowValue.FieldSource
+	badSource.SourceShapeID = "group-source-shape-v1:changed"
+	badRowValue.FieldSource = &badSource
+	badStep.RowValues[0] = badRowValue
+	badConstruction.Steps[0] = badStep
+	output.Construction = &badConstruction
+	if _, err := compileDerivedTestBundle(t, output); err == nil || !strings.Contains(err.Error(), "source stage and shape") {
+		t.Fatalf("changed Group RowValue source shape error = %v", err)
+	}
+}
+
+func TestOrdinaryGroupCannotReuseCodingIdentityDisplayAsScalarKey(t *testing.T) {
+	_, _, _, err := lowerConstructionGroup(
+		&ir.PhysicalPlan{BindVars: map[string]any{}},
+		recipe.ConstructionGroup{
+			ConstructionID: "regroup", MissingKeyPolicy: recipe.ConstructionGroupMissingKeyGroup,
+			Keys:       []recipe.ConstructionGroupKey{{InputColumnID: "coding_label", OutputColumnID: "label_key"}},
+			Aggregates: []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "rows"}},
+		}, nil,
+		[]recipe.StageColumn{{ID: "label_key", Name: "label_key", Type: "string"}, {ID: "rows", Name: "rows", Type: "integer"}},
+		map[string]CompiledOutputColumn{
+			"coding_label": {
+				ID: "coding_label", Name: "coding_label", Kind: "string", Cardinality: "required_one",
+				SemanticValueKind: CompiledSemanticValueCodingIdentityDisplay,
+			},
+		}, "row", "group_codings", "Observation",
+		map[string]recipe.StageColumn{
+			"label_key": {ID: "label_key", Name: "label_key", Type: "string"},
+			"rows":      {ID: "rows", Name: "rows", Type: "integer"},
+		}, map[string]bool{}, 1, nil, ir.DefaultPhysicalOptimizationPolicy(),
+	)
+	if err == nil || !strings.Contains(err.Error(), "CODING_IDENTITY display label") {
+		t.Fatalf("ordinary Group accepted Coding identity display as scalar key: %v", err)
+	}
+}
+
+func TestCodingIdentityDisplayMarkerSurvivesRenameAndBlocksRegrouping(t *testing.T) {
+	output := recipe.Output{
+		Name: "coding_identity_display_marker", RootResourceType: "Observation", RootOccurrenceID: "root-observation", RowGrain: "expanded",
+		Expand: &recipe.Expansion{
+			OwnerOccurrenceID: "root-observation", From: recipe.Expression{Select: "root.valueCodeableConcept.coding[]"},
+			As: "coding", Ordinality: "coding_ordinal", EmptyPolicy: recipe.ExpansionExclude,
+		},
+		Identity: &recipe.Identity{Name: "row", Expansion: &recipe.ExpansionIdentity{}},
+	}
+	compiledSource := compileDerivedTestOutput(t, output)
+	descriptor, err := DescribeConstructionSourceStage(compiledSource.OutputSchema, output.RootResourceType, &compiledSource.Plan)
+	if err != nil || descriptor.GroupFieldSourceContext == nil || descriptor.GroupFieldSourceContext.SourceExpansion == nil {
+		t.Fatalf("describe source context: descriptor=%#v err=%v", descriptor, err)
+	}
+	context := descriptor.GroupFieldSourceContext
+	construction := recipe.Construction{Version: 1, Steps: []recipe.ConstructionStep{
+		{
+			ID: "group_codings", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+				ConstructionID: "group_coding_identity", MissingKeyPolicy: recipe.ConstructionGroupMissingKeyGroup,
+				Keys: []recipe.ConstructionGroupKey{{
+					OutputColumnID: "coding_label_id",
+					FieldSource: &recipe.ConstructionGroupFieldSource{
+						Kind: "BINDING", ValueKind: "CODING_IDENTITY", SourceStageID: context.SourceStageID,
+						SourceShapeID: context.SourceShapeID, SourceRole: "CURRENT_ITEM",
+						OccurrenceID: context.SourceExpansion.OwnerOccurrenceID, OwnerResourceType: context.SourceExpansion.OwnerResourceType,
+						ResourceType: "Coding", CanonicalPath: context.SourceExpansion.Selector,
+					},
+				}},
+				Aggregates: []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "rows_id"}},
+			}},
+			Outputs: []recipe.StageColumn{
+				{ID: "coding_label_id", Name: "coding_label", Type: "string"},
+				{ID: "rows_id", Name: "rows", Type: "integer"},
+			},
+		},
+		{
+			ID: "rename_filter", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "group_codings"}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{ColumnID: "coding_label_id", Operator: recipe.FilterExists}},
+			Outputs: []recipe.StageColumn{
+				{ID: "coding_label_id", Name: "renamed_label", Type: "string"},
+				{ID: "rows_id", Name: "rows", Type: "integer"},
+			},
+		},
+	}}
+	output.Construction = &construction
+	compiled, err := compileDerivedTestBundle(t, output)
+	if err != nil {
+		t.Fatalf("compile Group and identity-preserving rename: %v", err)
+	}
+	var renamedLabel *CompiledOutputColumn
+	for stageIndex := range compiled.Stages {
+		stage := &compiled.Stages[stageIndex]
+		if stage.ID != "rename_filter" {
+			continue
+		}
+		for columnIndex := range stage.Columns {
+			column := &stage.Columns[columnIndex]
+			if column.ID == "coding_label_id" {
+				renamedLabel = column
+			}
+		}
+	}
+	if renamedLabel == nil || renamedLabel.Name != "renamed_label" || renamedLabel.SemanticValueKind != CompiledSemanticValueCodingIdentityDisplay {
+		t.Fatalf("renamed display lost its semantic identity marker: %#v", renamedLabel)
+	}
+
+	regroup := recipe.ConstructionStep{
+		ID: "regroup_display", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "rename_filter"}},
+		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+			ConstructionID: "regroup_display", MissingKeyPolicy: recipe.ConstructionGroupMissingKeyGroup,
+			Keys:       []recipe.ConstructionGroupKey{{InputColumnID: "coding_label_id", OutputColumnID: "regrouped_id"}},
+			Aggregates: []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "regrouped_rows"}},
+		}},
+		Outputs: []recipe.StageColumn{{ID: "regrouped_id", Name: "regrouped", Type: "string"}, {ID: "regrouped_rows", Name: "rows", Type: "integer"}},
+	}
+	construction.Steps = append(append([]recipe.ConstructionStep(nil), construction.Steps...), regroup)
+	output.Construction = &construction
+	if _, err := compileDerivedTestBundle(t, output); err == nil || !strings.Contains(err.Error(), "CODING_IDENTITY display label") {
+		t.Fatalf("ordinary Group regrouped a renamed Coding display label: %v", err)
 	}
 }

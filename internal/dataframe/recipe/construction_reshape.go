@@ -1,6 +1,7 @@
 package recipe
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -17,17 +18,45 @@ func validateConstructionGroup(group ConstructionGroup, input, output map[string
 	}
 	expected := make(map[string]bool, len(group.Keys)+len(group.Aggregates))
 	keyInputs := make(map[string]bool, len(group.Keys))
+	fieldSources := make(map[string]bool, len(group.Keys))
 	semanticKeys := 0
+	codingIdentityKeys := 0
 	for index, key := range group.Keys {
-		if key.SemanticCategory == nil {
+		if key.FieldSource != nil {
+			if key.InputColumnID != "" || key.SemanticCategory != nil {
+				return fmt.Errorf("%s group keys[%d] must choose exactly one source representation", path, index)
+			}
+			source := key.FieldSource
+			if err := validateConstructionGroupFieldSourceBinding(*source, fmt.Sprintf("%s group keys[%d].fieldSource", path, index), true); err != nil {
+				return err
+			}
+			if source.ValueKind == "CODING_IDENTITY" {
+				codingIdentityKeys++
+			}
+			sourceJSON, err := json.Marshal(source)
+			if err != nil {
+				return fmt.Errorf("%s group keys[%d].fieldSource cannot be encoded: %w", path, index, err)
+			}
+			sourceKey := string(sourceJSON)
+			if fieldSources[sourceKey] {
+				return fmt.Errorf("%s group keys[%d].fieldSource is duplicated", path, index)
+			}
+			fieldSources[sourceKey] = true
+			if source.ValueKind == "CODING_IDENTITY" {
+				declared := output[key.OutputColumnID]
+				if declared.Type != "" && declared.Type != "INFER" && !strings.EqualFold(declared.Type, "string") {
+					return fmt.Errorf("%s group Coding identity output %q must be a string", path, key.OutputColumnID)
+				}
+			}
+		} else if key.SemanticCategory == nil {
 			if key.InputColumnID == "" || input[key.InputColumnID].ID == "" || keyInputs[key.InputColumnID] {
 				return fmt.Errorf("%s group keys[%d].inputColumnId is missing or duplicated", path, index)
 			}
 			keyInputs[key.InputColumnID] = true
 		} else {
 			semanticKeys++
-			if key.InputColumnID != "" {
-				return fmt.Errorf("%s group keys[%d] must choose either inputColumnId or semanticCategory", path, index)
+			if key.InputColumnID != "" || key.FieldSource != nil {
+				return fmt.Errorf("%s group keys[%d] must choose exactly one source representation", path, index)
 			}
 			category := key.SemanticCategory
 			if category.Kind != "BINDING" || strings.TrimSpace(category.BindingID) == "" ||
@@ -51,7 +80,7 @@ func validateConstructionGroup(group ConstructionGroup, input, output map[string
 		}
 		expected[key.OutputColumnID] = true
 	}
-	if semanticKeys > 1 {
+	if semanticKeys > 1 || codingIdentityKeys > 1 || semanticKeys > 0 && codingIdentityKeys > 0 {
 		return fmt.Errorf("%s group supports at most one semantic category key", path)
 	}
 	for index, aggregate := range group.Aggregates {

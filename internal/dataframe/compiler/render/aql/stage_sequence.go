@@ -548,16 +548,16 @@ func groupSourceRowVariable(sourcePlan ir.PhysicalPlan, sequence *ir.PhysicalSta
 	stage := stages[0]
 	group := stage.Group
 	keylessRowValueGroup := group != nil && len(group.Keys) == 0 && len(group.RowValues) > 0
+	hasGroupKey := group != nil && (len(group.Keys) != 0 || group.SemanticKey != nil || group.CodingKey != nil)
 	if stage.ID != sequence.FinalStageID || stage.InputStageID != sequence.SourceStageID ||
-		stage.Kind != ir.PhysicalStageGroupOp || group == nil || (len(group.Keys) == 0 && group.SemanticKey == nil && !keylessRowValueGroup) ||
+		stage.Kind != ir.PhysicalStageGroupOp || group == nil || (!hasGroupKey && !keylessRowValueGroup) ||
 		group.RootContributorInputColumn != "" ||
 		!constructionGroupCountsOnlyRows(group) ||
 		(len(group.RowValues) > 0 && !constructionGroupRowValuesCanAggregate(group.RowValues)) {
 		return ""
 	}
-	if len(sourcePlan.Operations) < 6 || sourcePlan.PreviewSourceWindowByRootID ||
-		sourcePlan.Operations[0].Kind != ir.PhysicalRootScanOp || sourcePlan.Operations[0].RootScan == nil ||
-		sourcePlan.Operations[0].RootScan.Population != nil {
+	if len(sourcePlan.Operations) < 2 || sourcePlan.PreviewSourceWindowByRootID ||
+		sourcePlan.Operations[0].Kind != ir.PhysicalRootScanOp || sourcePlan.Operations[0].RootScan == nil {
 		return ""
 	}
 	last := len(sourcePlan.Operations) - 1
@@ -565,29 +565,26 @@ func groupSourceRowVariable(sourcePlan ir.PhysicalPlan, sequence *ir.PhysicalSta
 		return ""
 	}
 	for index, operation := range sourcePlan.Operations[:last] {
-		switch {
-		case index == 0:
+		if index == 0 {
 			if operation.Kind != ir.PhysicalRootScanOp || operation.RootScan == nil {
 				return ""
 			}
-		case index < 5:
-			if operation.Kind != ir.PhysicalFilterOp && operation.Kind != ir.PhysicalDerivedLetOp {
-				return ""
-			}
+			continue
+		}
+		switch operation.Kind {
+		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp, ir.PhysicalExpressionLetOp, ir.PhysicalSetOp, ir.PhysicalUnnestOp:
 		default:
-			if operation.Kind != ir.PhysicalFilterOp && operation.Kind != ir.PhysicalExpressionLetOp && operation.Kind != ir.PhysicalUnnestOp {
-				return ""
-			}
+			return ""
 		}
 	}
 	layout, err := buildNavigationRenderLayout(sourcePlan)
 	if err != nil || len(layout.rootWindow) != 0 || len(layout.unnests) > 1 {
 		return ""
 	}
-	if len(layout.unnests) == 1 && (len(group.Keys) != 1 || len(group.Aggregates) != 1 ||
-		group.Aggregates[0].Operation != "COUNT_ROWS" || len(group.RowValues) != 0 ||
-		len(layout.unnests[0].Owner.Route) != 1) {
-		return ""
+	if len(layout.unnests) == 1 {
+		if group.SemanticKey != nil || group.CodingKey == nil && len(group.Keys) == 0 && len(group.RowValues) == 0 {
+			return ""
+		}
 	}
 	for _, item := range layout.postWindow {
 		if item.operation.Kind != ir.PhysicalExpressionLetOp {
@@ -1248,7 +1245,7 @@ func terminalKeylessCountRowsOnly(sequence *ir.PhysicalStageSequence) bool {
 		stage.InputStageID == sequence.SourceStageID &&
 		stage.Kind == ir.PhysicalStageGroupOp &&
 		stage.Group != nil &&
-		len(stage.Group.Keys) == 0 &&
+		len(stage.Group.Keys) == 0 && stage.Group.CodingKey == nil &&
 		stage.Group.RootContributorInputColumn == "" &&
 		constructionGroupCountsOnlyRows(stage.Group)
 }

@@ -1,8 +1,10 @@
 package recipe
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"strings"
 
@@ -44,9 +46,10 @@ type ConstructionStep struct {
 // ConstructionRowValue collects distinct source values from rows that
 // contribute to a grouped or pivoted output row.
 type ConstructionRowValue struct {
-	InputColumnID  string                     `json:"inputColumnId"`
-	OutputColumnID string                     `json:"outputColumnId"`
-	Policy         ConstructionRowValuePolicy `json:"policy"`
+	InputColumnID  string                        `json:"inputColumnId,omitempty"`
+	FieldSource    *ConstructionGroupFieldSource `json:"fieldSource,omitempty"`
+	OutputColumnID string                        `json:"outputColumnId"`
+	Policy         ConstructionRowValuePolicy    `json:"policy"`
 }
 
 type ConstructionRowValuePolicy string
@@ -382,13 +385,137 @@ func (group *ConstructionGroup) UnmarshalJSON(raw []byte) error {
 }
 
 type ConstructionGroupKey struct {
-	InputColumnID  string `json:"inputColumnId"`
-	OutputColumnID string `json:"outputColumnId"`
+	InputColumnID  string                        `json:"inputColumnId,omitempty"`
+	OutputColumnID string                        `json:"outputColumnId"`
+	FieldSource    *ConstructionGroupFieldSource `json:"fieldSource,omitempty"`
 	// SemanticCategory is the server-resolved coded field family. It is
 	// mutually exclusive with InputColumnID so legacy scalar keys keep their
 	// original wire shape.
 	SemanticCategory *ConstructionGroupSemanticCategory `json:"semanticCategory,omitempty"`
 }
+
+// ConstructionGroupFieldSource binds one source variant to one exact compiler
+// source context. It is private input to Group, not a public stage column.
+type ConstructionGroupFieldSource struct {
+	Kind          string                             `json:"kind"`
+	ChoiceID      string                             `json:"choiceId,omitempty"`
+	ValueKind     string                             `json:"valueKind,omitempty"`
+	SourceStageID string                             `json:"sourceStageId,omitempty"`
+	SourceShapeID string                             `json:"sourceShapeId,omitempty"`
+	Input         *ConstructionGroupFieldSourceInput `json:"input,omitempty"`
+
+	// These flattened fields are accepted only for durable local bindings
+	// written before the source sum was introduced. Validation normalizes them
+	// to Input.Kind=CURRENT_STAGE and rejects them alongside Input.
+	SourceRole        string `json:"sourceRole,omitempty"`
+	OccurrenceID      string `json:"occurrenceId,omitempty"`
+	OwnerResourceType string `json:"ownerResourceType,omitempty"`
+	ResourceType      string `json:"resourceType,omitempty"`
+	CandidateID       string `json:"candidateId,omitempty"`
+	CanonicalPath     string `json:"canonicalPath,omitempty"`
+	BoundarySelector  string `json:"boundarySelector,omitempty"`
+}
+
+func (source *ConstructionGroupFieldSource) UnmarshalJSON(raw []byte) error {
+	type wire ConstructionGroupFieldSource
+	var decoded wire
+	if err := decodeStrictGroupFieldSourceJSON(raw, &decoded); err != nil {
+		return err
+	}
+	*source = ConstructionGroupFieldSource(decoded)
+	return nil
+}
+
+// ConstructionGroupFieldSourceInput is a tagged sum. Exactly one payload is
+// present and it must match Kind.
+type ConstructionGroupFieldSourceInput struct {
+	Kind              string                                         `json:"kind"`
+	CurrentStage      *ConstructionGroupCurrentStageFieldSource      `json:"currentStage,omitempty"`
+	RelatedOccurrence *ConstructionGroupRelatedOccurrenceFieldSource `json:"relatedOccurrence,omitempty"`
+}
+
+func (input *ConstructionGroupFieldSourceInput) UnmarshalJSON(raw []byte) error {
+	type wire ConstructionGroupFieldSourceInput
+	var decoded wire
+	if err := decodeStrictGroupFieldSourceJSON(raw, &decoded); err != nil {
+		return err
+	}
+	*input = ConstructionGroupFieldSourceInput(decoded)
+	return nil
+}
+
+func decodeStrictGroupFieldSourceJSON(raw []byte, destination any) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(destination); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("fieldSource contains trailing JSON")
+		}
+		return fmt.Errorf("fieldSource contains invalid trailing JSON: %w", err)
+	}
+	return nil
+}
+
+type ConstructionGroupCurrentStageFieldSource struct {
+	SourceRole        string `json:"sourceRole"`
+	OccurrenceID      string `json:"occurrenceId"`
+	OwnerResourceType string `json:"ownerResourceType"`
+	ResourceType      string `json:"resourceType"`
+	CandidateID       string `json:"candidateId,omitempty"`
+	CanonicalPath     string `json:"canonicalPath"`
+	BoundarySelector  string `json:"boundarySelector,omitempty"`
+}
+
+type ConstructionGroupRelatedOccurrenceFieldSource struct {
+	// RouteID is compiler/capability metadata. It is intentionally omitted from
+	// the durable recipe because the route facts and sourceShapeId already bind
+	// the exact traversal.
+	RouteID            string                              `json:"-"`
+	AnchorOccurrenceID string                              `json:"anchorOccurrenceId"`
+	AnchorNodeID       string                              `json:"anchorNodeId"`
+	AnchorResourceType string                              `json:"anchorResourceType"`
+	Route              []ConstructionGroupRelatedRouteStep `json:"route"`
+	TargetOccurrenceID string                              `json:"targetOccurrenceId"`
+	TargetNodeID       string                              `json:"targetNodeId"`
+	TargetResourceType string                              `json:"targetResourceType"`
+	ResourceType       string                              `json:"resourceType"`
+	CandidateID        string                              `json:"candidateId,omitempty"`
+	CanonicalPath      string                              `json:"canonicalPath,omitempty"`
+	EmptyPolicy        ExpansionEmptyPolicy                `json:"emptyPolicy"`
+	Multiplicity       string                              `json:"multiplicity"`
+	CodingSelector     string                              `json:"codingSelector,omitempty"`
+	CodingEmptyPolicy  ConstructionGroupCodingEmptyPolicy  `json:"codingEmptyPolicy,omitempty"`
+	OrdinalSemantics   string                              `json:"ordinalSemantics,omitempty"`
+}
+
+type ConstructionGroupRelatedRouteStep struct {
+	StepIndex        int    `json:"stepIndex"`
+	FromOccurrenceID string `json:"fromOccurrenceId"`
+	FromNodeID       string `json:"fromNodeId"`
+	FromResourceType string `json:"fromResourceType"`
+	EdgeID           string `json:"edgeId"`
+	Relationship     string `json:"relationship"`
+	StorageDirection string `json:"storageDirection"`
+	MatchMode        string `json:"matchMode"`
+	ToOccurrenceID   string `json:"toOccurrenceId"`
+	ToNodeID         string `json:"toNodeId"`
+	ToResourceType   string `json:"toResourceType"`
+}
+
+const ConstructionGroupRelatedMultiplicityDistinctTargetPerInput = "DISTINCT_TARGET_PER_INPUT"
+const ConstructionGroupRelatedOrdinalSemanticsZeroBasedPosition = "ZERO_BASED_POSITION_IN_FLATTENED_EXPANSION_ARRAY"
+
+type ConstructionGroupCodingEmptyPolicy string
+
+const (
+	ConstructionGroupCodingEmptyPolicyGroup   ConstructionGroupCodingEmptyPolicy = "GROUP"
+	ConstructionGroupCodingEmptyPolicyExclude ConstructionGroupCodingEmptyPolicy = "EXCLUDE"
+	ConstructionGroupCodingEmptyPolicyError   ConstructionGroupCodingEmptyPolicy = "ERROR"
+)
 
 // ConstructionGroupSemanticCategory pins one exact observed coding family.
 // Version is empty only for the versionless family; it is never a wildcard.
@@ -477,8 +604,9 @@ func (construction Construction) validate(sourceFields []Field, groupRows *Group
 	allowEmptyRootRelatedExpandSource := len(construction.Steps) > 0 &&
 		construction.Steps[0].Operation.Kind == ConstructionRelatedExpandOp &&
 		construction.Steps[0].Operation.RelatedExpand != nil && construction.Steps[0].Operation.RelatedExpand.AnchorColumnID == "_key"
+	allowEmptyBoundGroupSource := len(construction.Steps) > 0 && constructionFirstGroupHasResolvedFieldSource(construction.Steps[0])
 	allowEmptyIdentitySource := len(sourceColumns) == 0 && len(sourceFields) == 0 &&
-		(len(construction.Steps) == 0 || allowEmptyRootRelatedExpandSource)
+		(len(construction.Steps) == 0 || allowEmptyRootRelatedExpandSource || allowEmptyBoundGroupSource)
 	if len(sourceColumns) == 0 && !allowEmptyCodedPivotSource && !allowEmptyIdentitySource {
 		return fmt.Errorf("source projection must contain at least one column")
 	}
@@ -570,6 +698,164 @@ func (construction Construction) validate(sourceFields []Field, groupRows *Group
 		if _, err := cohortGroupStageColumns(sourceFields, groupRows); err != nil {
 			return fmt.Errorf("group rows stage: %w", err)
 		}
+	}
+	return nil
+}
+
+func constructionFirstGroupHasResolvedFieldSource(step ConstructionStep) bool {
+	if step.Operation.Kind != ConstructionGroupOp || step.Operation.Group == nil {
+		return false
+	}
+	isCompilerBoundSource := func(source *ConstructionGroupFieldSource) bool {
+		return source != nil && source.Kind == "BINDING" &&
+			source.SourceStageID == ConstructionSourceProjectionID && source.SourceShapeID != "" &&
+			validateConstructionGroupFieldSourceBinding(*source, "fieldSource", true) == nil
+	}
+	for _, key := range step.Operation.Group.Keys {
+		if isCompilerBoundSource(key.FieldSource) {
+			return true
+		}
+	}
+	for _, rowValue := range step.RowValues {
+		if isCompilerBoundSource(rowValue.FieldSource) {
+			return true
+		}
+	}
+	return false
+}
+
+func validateConstructionGroupScalarFieldSource(source ConstructionGroupFieldSource, path string) error {
+	if source.ValueKind != "SCALAR" {
+		return fmt.Errorf("%s must bind a scalar fieldSource", path)
+	}
+	return validateConstructionGroupFieldSourceBinding(source, path, false)
+}
+
+func validateConstructionGroupFieldSourceBinding(source ConstructionGroupFieldSource, path string, allowCodingIdentity bool) error {
+	if source.Kind != "BINDING" || source.ChoiceID != "" ||
+		!validConstructionColumnID(source.SourceStageID) || !validConstructionColumnID(source.SourceShapeID) {
+		return fmt.Errorf("%s is not a resolved BINDING", path)
+	}
+	input, err := normalizedConstructionGroupFieldSourceInput(source, path)
+	if err != nil {
+		return err
+	}
+	switch source.ValueKind {
+	case "SCALAR":
+	case "CODING_IDENTITY":
+		if !allowCodingIdentity {
+			return fmt.Errorf("%s CODING_IDENTITY is not supported for this source", path)
+		}
+	default:
+		return fmt.Errorf("%s has unsupported valueKind %q", path, source.ValueKind)
+	}
+	switch input.Kind {
+	case "CURRENT_STAGE":
+		current := input.CurrentStage
+		if current == nil || input.RelatedOccurrence != nil {
+			return fmt.Errorf("%s input CURRENT_STAGE requires only currentStage", path)
+		}
+		if source.ValueKind == "SCALAR" {
+			if (current.SourceRole != "ROOT" && current.SourceRole != "OWNER" && current.SourceRole != "ANCESTOR" && current.SourceRole != "CURRENT_ITEM") ||
+				!validConstructionColumnID(current.OccurrenceID) || !validConstructionColumnID(current.OwnerResourceType) ||
+				!validConstructionColumnID(current.ResourceType) || !validConstructionColumnID(current.CandidateID) ||
+				!validConstructionColumnID(current.CanonicalPath) {
+				return fmt.Errorf("%s is not a resolved current-stage scalar BINDING", path)
+			}
+			if current.SourceRole == "ANCESTOR" {
+				if !validConstructionColumnID(current.BoundarySelector) {
+					return fmt.Errorf("%s ANCESTOR requires an exact boundarySelector", path)
+				}
+			} else if current.BoundarySelector != "" {
+				return fmt.Errorf("%s boundarySelector is only valid for ANCESTOR", path)
+			}
+			return nil
+		}
+		if current.SourceRole != "CURRENT_ITEM" || !validConstructionColumnID(current.OccurrenceID) ||
+			!validConstructionColumnID(current.OwnerResourceType) || current.ResourceType != "Coding" ||
+			current.CandidateID != "" || !validConstructionColumnID(current.CanonicalPath) || current.BoundarySelector != "" {
+			return fmt.Errorf("%s CODING_IDENTITY must bind the exact current Coding item without candidateId", path)
+		}
+		return nil
+	case "RELATED_OCCURRENCE":
+		related := input.RelatedOccurrence
+		if related == nil || input.CurrentStage != nil {
+			return fmt.Errorf("%s input RELATED_OCCURRENCE requires only relatedOccurrence", path)
+		}
+		return validateConstructionGroupRelatedOccurrenceSource(source.ValueKind, *related, path, allowCodingIdentity)
+	default:
+		return fmt.Errorf("%s input kind %q is unsupported", path, input.Kind)
+	}
+}
+
+func normalizedConstructionGroupFieldSourceInput(source ConstructionGroupFieldSource, path string) (ConstructionGroupFieldSourceInput, error) {
+	legacy := ConstructionGroupCurrentStageFieldSource{
+		SourceRole: source.SourceRole, OccurrenceID: source.OccurrenceID,
+		OwnerResourceType: source.OwnerResourceType, ResourceType: source.ResourceType,
+		CandidateID: source.CandidateID, CanonicalPath: source.CanonicalPath,
+		BoundarySelector: source.BoundarySelector,
+	}
+	hasLegacy := source.SourceRole != "" || source.OccurrenceID != "" || source.OwnerResourceType != "" ||
+		source.ResourceType != "" || source.CandidateID != "" || source.CanonicalPath != "" || source.BoundarySelector != ""
+	if source.Input != nil {
+		if hasLegacy {
+			return ConstructionGroupFieldSourceInput{}, fmt.Errorf("%s cannot combine nested input with legacy flat source fields", path)
+		}
+		if source.Input.Kind == "CURRENT_STAGE" && (source.Input.CurrentStage == nil || source.Input.RelatedOccurrence != nil) ||
+			source.Input.Kind == "RELATED_OCCURRENCE" && (source.Input.RelatedOccurrence == nil || source.Input.CurrentStage != nil) ||
+			source.Input.Kind != "CURRENT_STAGE" && source.Input.Kind != "RELATED_OCCURRENCE" {
+			return ConstructionGroupFieldSourceInput{}, fmt.Errorf("%s input must match exactly one tagged source variant", path)
+		}
+		return *source.Input, nil
+	}
+	if !hasLegacy {
+		return ConstructionGroupFieldSourceInput{}, fmt.Errorf("%s requires an input source variant", path)
+	}
+	return ConstructionGroupFieldSourceInput{Kind: "CURRENT_STAGE", CurrentStage: &legacy}, nil
+}
+
+func validateConstructionGroupRelatedOccurrenceSource(valueKind string, source ConstructionGroupRelatedOccurrenceFieldSource, path string, allowCodingIdentity bool) error {
+	for name, value := range map[string]string{
+		"anchorOccurrenceId": source.AnchorOccurrenceID, "anchorNodeId": source.AnchorNodeID,
+		"anchorResourceType": source.AnchorResourceType, "targetOccurrenceId": source.TargetOccurrenceID,
+		"targetNodeId": source.TargetNodeID, "targetResourceType": source.TargetResourceType,
+		"resourceType": source.ResourceType,
+	} {
+		if !validConstructionColumnID(value) {
+			return fmt.Errorf("%s relatedOccurrence.%s is empty or invalid", path, name)
+		}
+	}
+	if len(source.Route) == 0 || source.Multiplicity != ConstructionGroupRelatedMultiplicityDistinctTargetPerInput {
+		return fmt.Errorf("%s relatedOccurrence requires an exact route and DISTINCT_TARGET_PER_INPUT multiplicity", path)
+	}
+	if source.EmptyPolicy != ExpansionPreserveParent && source.EmptyPolicy != ExpansionExclude && source.EmptyPolicy != ExpansionError {
+		return fmt.Errorf("%s relatedOccurrence emptyPolicy is required and unsupported", path)
+	}
+	fromOccurrence, fromNode, fromResource := source.AnchorOccurrenceID, source.AnchorNodeID, source.AnchorResourceType
+	for index, hop := range source.Route {
+		if hop.StepIndex != index || hop.FromOccurrenceID != fromOccurrence || hop.FromNodeID != fromNode || hop.FromResourceType != fromResource ||
+			!validConstructionColumnID(hop.EdgeID) || !validConstructionColumnID(hop.Relationship) ||
+			(hop.StorageDirection != "INBOUND" && hop.StorageDirection != "OUTBOUND") ||
+			(hop.MatchMode != "OPTIONAL" && hop.MatchMode != "REQUIRED") ||
+			!validConstructionColumnID(hop.ToOccurrenceID) || !validConstructionColumnID(hop.ToNodeID) || !validConstructionColumnID(hop.ToResourceType) {
+			return fmt.Errorf("%s relatedOccurrence route[%d] is incomplete or discontinuous", path, index)
+		}
+		fromOccurrence, fromNode, fromResource = hop.ToOccurrenceID, hop.ToNodeID, hop.ToResourceType
+	}
+	if fromOccurrence != source.TargetOccurrenceID || fromNode != source.TargetNodeID || fromResource != source.TargetResourceType {
+		return fmt.Errorf("%s relatedOccurrence route does not end at its exact target occurrence", path)
+	}
+	if valueKind == "SCALAR" {
+		if !validConstructionColumnID(source.CandidateID) || !validConstructionColumnID(source.CanonicalPath) ||
+			source.CodingSelector != "" || source.CodingEmptyPolicy != "" || source.OrdinalSemantics != "" {
+			return fmt.Errorf("%s relatedOccurrence SCALAR requires candidateId/path and no Coding ordinal facts", path)
+		}
+		return nil
+	}
+	if !allowCodingIdentity || valueKind != "CODING_IDENTITY" || source.CandidateID != "" || source.CanonicalPath != "" ||
+		!validConstructionColumnID(source.CodingSelector) || source.OrdinalSemantics != ConstructionGroupRelatedOrdinalSemanticsZeroBasedPosition ||
+		(source.CodingEmptyPolicy != ConstructionGroupCodingEmptyPolicyGroup && source.CodingEmptyPolicy != ConstructionGroupCodingEmptyPolicyExclude && source.CodingEmptyPolicy != ConstructionGroupCodingEmptyPolicyError) {
+		return fmt.Errorf("%s relatedOccurrence CODING_IDENTITY requires exact Coding selector and ordinal policy without candidateId", path)
 	}
 	return nil
 }
@@ -722,8 +1008,17 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 	}
 	inputColumns, outputColumns := stageColumnMap(input), stageColumnMap(output)
 	for index, rowValue := range rowValues {
-		if !validConstructionColumnID(rowValue.InputColumnID) || inputColumns[rowValue.InputColumnID].ID == "" {
-			return fmt.Errorf("%s.rowValues[%d].inputColumnId is missing from the input schema", path, index)
+		if rowValue.FieldSource == nil {
+			if !validConstructionColumnID(rowValue.InputColumnID) || inputColumns[rowValue.InputColumnID].ID == "" {
+				return fmt.Errorf("%s.rowValues[%d].inputColumnId is missing from the input schema", path, index)
+			}
+		} else {
+			if operation.Kind != ConstructionGroupOp || rowValue.InputColumnID != "" {
+				return fmt.Errorf("%s.rowValues[%d] must choose exactly one source representation and fieldSource is only supported on GROUP", path, index)
+			}
+			if err := validateConstructionGroupScalarFieldSource(*rowValue.FieldSource, fmt.Sprintf("%s.rowValues[%d].fieldSource", path, index)); err != nil {
+				return err
+			}
 		}
 		if !validConstructionColumnID(rowValue.OutputColumnID) || inputColumns[rowValue.OutputColumnID].ID != "" || rowValueIDs[rowValue.OutputColumnID] {
 			return fmt.Errorf("%s.rowValues[%d].outputColumnId is empty, duplicated, or collides with the input schema", path, index)

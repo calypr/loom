@@ -456,6 +456,7 @@ export type ConstructionAuthoringStateArgs = ExplorerAuthoringStateArgs & {
 
 export interface GetConstructionCapabilitiesArgs extends ConstructionAuthoringStateArgs {
   readonly stageId: string;
+  readonly groupStepId?: string;
 }
 
 export interface DiscoverConstructionCategoriesArgs extends ConstructionAuthoringStateArgs {
@@ -1656,6 +1657,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
         outputId: args.outputId,
         snapshotToken: args.snapshotToken,
         stageId: args.stageId,
+        ...(args.groupStepId ? { groupStepId: args.groupStepId } : {}),
       }), signal, args.requestId ?? `construction-capabilities-${globalThis.crypto.randomUUID()}`,
     )).then((value) => constructionCapabilitiesResponseSchema.parse(value));
   const discoverConstructionCategories = (args: DiscoverConstructionCategoriesArgs, signal?: AbortSignal) =>

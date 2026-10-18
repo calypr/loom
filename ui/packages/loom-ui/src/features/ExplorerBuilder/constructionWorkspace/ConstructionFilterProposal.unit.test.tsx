@@ -51,6 +51,8 @@ const capabilities: ConstructionCapabilitiesResponse = {
   baseConstruction: { version: 1, steps: [] },
   stages: [sourceStage],
   selectedStage: sourceStage,
+  groupFieldChoices: [],
+    groupRowValueChoices: [],
   workspaceInputs: [],
 };
 

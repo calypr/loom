@@ -107,19 +107,50 @@ func clonePhysicalStageSequence(sequence *PhysicalStageSequence) *PhysicalStageS
 		if stage.Group != nil {
 			groupCopy := *stage.Group
 			groupCopy.Keys = append([]PhysicalStageGroupKey(nil), stage.Group.Keys...)
+			for keyIndex := range groupCopy.Keys {
+				if stage.Group.Keys[keyIndex].FieldSource != nil {
+					groupCopy.Keys[keyIndex].FieldSource = clonePhysicalStageGroupFieldSource(stage.Group.Keys[keyIndex].FieldSource)
+				}
+			}
 			if stage.Group.SemanticKey != nil {
 				semanticCopy := *stage.Group.SemanticKey
 				semanticCopy.PathSegments = append([]PhysicalCodedGroupPathSegment(nil), stage.Group.SemanticKey.PathSegments...)
 				groupCopy.SemanticKey = &semanticCopy
 			}
+			if stage.Group.CodingKey != nil {
+				codingCopy := *stage.Group.CodingKey
+				if stage.Group.CodingKey.SourceUnnest != nil {
+					codingCopy.SourceUnnest = clonePhysicalOperation(PhysicalOperation{
+						Kind: PhysicalUnnestOp, Unnest: stage.Group.CodingKey.SourceUnnest,
+					}).Unnest
+				}
+				if stage.Group.CodingKey.RelatedSource != nil {
+					relatedCopy := *stage.Group.CodingKey.RelatedSource
+					relatedCopy.Route = append([]PhysicalStageGroupRelatedRouteStep(nil), stage.Group.CodingKey.RelatedSource.Route...)
+					codingCopy.RelatedSource = &relatedCopy
+				}
+				groupCopy.CodingKey = &codingCopy
+			}
+			if stage.Group.RelatedOccurrence != nil {
+				adapterCopy := *stage.Group.RelatedOccurrence
+				adapterCopy.RelatedRecords.RelatedRecords = clonePhysicalSubplan(stage.Group.RelatedOccurrence.RelatedRecords.RelatedRecords)
+				adapterCopy.RelatedRecords.Route = append([]PhysicalStageRelatedRouteStep(nil), stage.Group.RelatedOccurrence.RelatedRecords.Route...)
+				adapterCopy.ScalarProjections = append([]PhysicalStageGroupRelatedProjection(nil), stage.Group.RelatedOccurrence.ScalarProjections...)
+				if stage.Group.RelatedOccurrence.CodingUnnest != nil {
+					adapterCopy.CodingUnnest = clonePhysicalOperation(PhysicalOperation{
+						Kind: PhysicalUnnestOp, Unnest: stage.Group.RelatedOccurrence.CodingUnnest,
+					}).Unnest
+				}
+				groupCopy.RelatedOccurrence = &adapterCopy
+			}
 			groupCopy.Aggregates = append([]PhysicalStageGroupAggregate(nil), stage.Group.Aggregates...)
-			groupCopy.RowValues = append([]PhysicalStageRowValue(nil), stage.Group.RowValues...)
+			groupCopy.RowValues = clonePhysicalStageRowValues(stage.Group.RowValues)
 			cloned.Group = &groupCopy
 		}
 		if stage.CodedGroup != nil {
 			codedGroupCopy := *stage.CodedGroup
 			codedGroupCopy.PathSegments = append([]PhysicalCodedGroupPathSegment(nil), stage.CodedGroup.PathSegments...)
-			codedGroupCopy.RowValues = append([]PhysicalStageRowValue(nil), stage.CodedGroup.RowValues...)
+			codedGroupCopy.RowValues = clonePhysicalStageRowValues(stage.CodedGroup.RowValues)
 			codedGroupCopy.RowValueProjections = clonePhysicalProjections(stage.CodedGroup.RowValueProjections)
 			cloned.CodedGroup = &codedGroupCopy
 		}
@@ -160,6 +191,29 @@ func clonePhysicalStageSequence(sequence *PhysicalStageSequence) *PhysicalStageS
 			cloned.Unpivot = clonePhysicalOperation(PhysicalOperation{Kind: PhysicalUnpivotOp, Unpivot: stage.Unpivot}).Unpivot
 		}
 		copy.Stages[index] = cloned
+	}
+	return &copy
+}
+
+func clonePhysicalStageRowValues(values []PhysicalStageRowValue) []PhysicalStageRowValue {
+	copy := append([]PhysicalStageRowValue(nil), values...)
+	for index := range copy {
+		if values[index].FieldSource != nil {
+			copy[index].FieldSource = clonePhysicalStageGroupFieldSource(values[index].FieldSource)
+		}
+	}
+	return copy
+}
+
+func clonePhysicalStageGroupFieldSource(source *PhysicalStageGroupFieldSource) *PhysicalStageGroupFieldSource {
+	if source == nil {
+		return nil
+	}
+	copy := *source
+	if source.RelatedOccurrence != nil {
+		related := *source.RelatedOccurrence
+		related.Route = append([]PhysicalStageGroupRelatedRouteStep(nil), source.RelatedOccurrence.Route...)
+		copy.RelatedOccurrence = &related
 	}
 	return &copy
 }
@@ -637,7 +691,7 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 		pivotCopy.GroupKeys = append([]PhysicalGroupedPivotKey(nil), operation.GroupedPivot.GroupKeys...)
 		pivotCopy.Categories = append([]PhysicalGroupedPivotCategory(nil), operation.GroupedPivot.Categories...)
 		pivotCopy.CodedCategories = append([]PhysicalGroupedCodedPivotCategory(nil), operation.GroupedPivot.CodedCategories...)
-		pivotCopy.RowValues = append([]PhysicalStageRowValue(nil), operation.GroupedPivot.RowValues...)
+		pivotCopy.RowValues = clonePhysicalStageRowValues(operation.GroupedPivot.RowValues)
 		pivotCopy.CodedCorrelation = clonePhysicalCorrelation(operation.GroupedPivot.CodedCorrelation)
 		if operation.GroupedPivot.CategoryPresence != nil {
 			presence := clonePhysicalProjectionPresence(*operation.GroupedPivot.CategoryPresence)

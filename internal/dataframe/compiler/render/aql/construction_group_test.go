@@ -325,3 +325,82 @@ func TestGroupKeyTypeAssertionFollowsCollectBeforeSort(t *testing.T) {
 		}
 	}
 }
+
+func TestCodingIdentityGroupStreamsTupleCountAndNullableDisplayMin(t *testing.T) {
+	for _, policy := range []ir.PhysicalStageGroupMissingKeyPolicy{
+		ir.PhysicalStageGroupMissingKeyGroup,
+		ir.PhysicalStageGroupMissingKeyExclude,
+		ir.PhysicalStageGroupMissingKeyError,
+	} {
+		t.Run(string(policy), func(t *testing.T) {
+			renderer := &physicalPlanRenderer{
+				bindVars:       map[string]any{"construction_id": "group"},
+				reservedVars:   map[string]struct{}{},
+				internalPrefix: "test_",
+			}
+			stage := ir.PhysicalConstructionStage{
+				InputRowVariable:  "input_row",
+				OutputRowVariable: "output_row",
+				OutputColumns: []ir.PhysicalStageColumn{
+					{ID: "coding_label_id", Name: "coding_label", Kind: "string", Cardinality: "required_one"},
+					{ID: "rows_id", Name: "rows", Kind: "integer", Cardinality: "required_one"},
+				},
+				OutputProjections: []ir.PhysicalProjection{
+					{Name: "coding_label", Value: ir.PhysicalValue{Variable: "coding_label_value"}},
+					{Name: "rows", Value: ir.PhysicalValue{Variable: "row_count"}},
+				},
+				Group: &ir.PhysicalStageGroup{
+					GroupRowsVariable: "group_rows", IdentityVariable: "row_id", ConstructionIDBindKey: "construction_id",
+					MissingKeyPolicy: policy,
+					CodingKey: &ir.PhysicalStageGroupCodingKey{
+						OutputColumn: "coding_label", InputTupleVariable: "coding_input_tuple", TupleVariable: "coding_tuple", LabelVariable: "coding_label_value",
+						MembershipColumn: "coding_membership", SourceOccurrenceKeyColumn: "coding_occurrence",
+						SourceStageID: "source_projection", SourceShapeID: "group-source-shape-v1:test",
+						OwnerOccurrenceID: "root-observation", OwnerResourceType: "Observation", CodingPath: "valueCodeableConcept.coding[]",
+					},
+					Aggregates: []ir.PhysicalStageGroupAggregate{{Operation: "COUNT_ROWS", Output: "rows", Variable: "row_count"}},
+				},
+			}
+			lines, err := renderer.renderConstructionGroupStage(stage, constructionGroupInput{SourceRowInScope: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			query := strings.Join(lines, "\n")
+			for _, want := range []string{
+				"FILTER ASSERT(__loom_physical_test_construction_group_coding_membership.system == null OR TYPENAME(__loom_physical_test_construction_group_coding_membership.system) == \"string\", \"CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH\")",
+				"FILTER ASSERT(__loom_physical_test_construction_group_coding_membership.version == null OR TYPENAME(__loom_physical_test_construction_group_coding_membership.version) == \"string\", \"CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH\")",
+				"FILTER ASSERT(__loom_physical_test_construction_group_coding_membership.display == null OR TYPENAME(__loom_physical_test_construction_group_coding_membership.display) == \"string\", \"CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH\")",
+				"LET coding_input_tuple = [__loom_physical_test_construction_group_coding_membership.system, (TRIM(__loom_physical_test_construction_group_coding_membership.version) != \"\" ? __loom_physical_test_construction_group_coding_membership.version : null)",
+				"TRIM(__loom_physical_test_construction_group_coding_membership.code) != \"\" ? __loom_physical_test_construction_group_coding_membership.code : null",
+				"COLLECT coding_tuple = coding_input_tuple AGGREGATE __loom_physical_test_construction_group_count_rows = SUM(1), __loom_physical_test_construction_group_coding_min_display = MIN(__loom_physical_test_construction_group_coding_display)",
+				"coding_label_value = (__loom_physical_test_construction_group_coding_min_display != null ? __loom_physical_test_construction_group_coding_min_display : coding_tuple[2])",
+			} {
+				if !strings.Contains(query, want) {
+					t.Errorf("Coding identity Group query missing %q:\n%s", want, query)
+				}
+			}
+			switch policy {
+			case ir.PhysicalStageGroupMissingKeyGroup:
+				if strings.Contains(query, "FILTER ASSERT(coding_input_tuple[2]") || strings.Contains(query, "FILTER coding_input_tuple[2]") {
+					t.Fatalf("GROUP missing-key policy unexpectedly filters missing code:\n%s", query)
+				}
+			case ir.PhysicalStageGroupMissingKeyExclude:
+				if !strings.Contains(query, "FILTER coding_input_tuple[2] != null") {
+					t.Fatalf("EXCLUDE policy did not filter missing code:\n%s", query)
+				}
+			case ir.PhysicalStageGroupMissingKeyError:
+				if !strings.Contains(query, "FILTER ASSERT(coding_input_tuple[2] != null, \"CONSTRUCTION_GROUP_MISSING_KEY\")") {
+					t.Fatalf("ERROR policy did not assert missing code:\n%s", query)
+				}
+			}
+			for _, forbidden := range []string{"DOCUMENT(", "UNNEST", "codingPath", "semantic_family", "UNIQUE(__loom_physical_test_construction_group_coding_display)"} {
+				if strings.Contains(query, forbidden) {
+					t.Errorf("item-mode Group unexpectedly rescanned source or collected display arrays (%q):\n%s", forbidden, query)
+				}
+			}
+			if !strings.Contains(query, "SUM(1)") || strings.Contains(query, "SORTED_UNIQUE(") {
+				t.Fatalf("COUNT_ROWS must count each existing source ordinal without tuple deduplication:\n%s", query)
+			}
+		})
+	}
+}

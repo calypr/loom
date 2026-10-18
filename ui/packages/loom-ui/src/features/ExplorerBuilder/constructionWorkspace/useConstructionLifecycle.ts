@@ -75,6 +75,7 @@ const capabilitiesIdentity = (
       args.expectedDraftDigest,
       args.outputId,
       args.stageId,
+      args.groupStepId ?? '',
     ])
   : '';
 

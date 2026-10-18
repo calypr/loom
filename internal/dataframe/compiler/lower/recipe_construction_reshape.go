@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
@@ -21,6 +22,8 @@ func lowerConstructionGroup(
 	outputs map[string]recipe.StageColumn,
 	usedVariables map[string]bool,
 	stepIndex int,
+	stage *ir.PhysicalConstructionStage,
+	policy ir.PhysicalOptimizationPolicy,
 ) (ir.PhysicalStageGroup, []ir.PhysicalProjection, []CompiledOutputColumn, error) {
 	constructionBind := nextTableReshapeBindKey(plan.BindVars, "construction_group_id")
 	plan.BindVars[constructionBind] = group.ConstructionID
@@ -29,6 +32,31 @@ func lowerConstructionGroup(
 		IdentityVariable:      allocateConstructionVariable(usedVariables, "group_identity", stepIndex),
 		ConstructionIDBindKey: constructionBind,
 		MissingKeyPolicy:      ir.PhysicalStageGroupMissingKeyPolicy(group.MissingKeyPolicy.Normalized()),
+	}
+	var groupFieldContext *CompiledGroupFieldSourceContext
+	needsGroupFieldContext := false
+	for _, key := range group.Keys {
+		if key.FieldSource != nil {
+			needsGroupFieldContext = true
+		}
+	}
+	for _, rowValue := range rowValues {
+		if rowValue.FieldSource != nil {
+			needsGroupFieldContext = true
+		}
+	}
+	if needsGroupFieldContext {
+		if inputStageID != recipe.ConstructionSourceProjectionID {
+			return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("Group fieldSource must bind the exact input stage")
+		}
+		var err error
+		groupFieldContext, err = describeGroupFieldSourceContext(inputStageID, rootResourceType, inputIdentity, plan)
+		if err != nil {
+			return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("recompute Group field source context: %w", err)
+		}
+		if groupFieldContext == nil {
+			return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("Group fieldSource has no exact compiler-proven source shape")
+		}
 	}
 	metadataByOutputID := make(map[string]CompiledOutputColumn, len(declarations))
 	projectionByOutputID := make(map[string]ir.PhysicalProjection, len(declarations))
@@ -103,9 +131,76 @@ func lowerConstructionGroup(
 			projectionByOutputID[output.ID] = ir.PhysicalProjection{Name: output.Name, Value: ir.PhysicalValue{Variable: physical.SemanticKey.LabelVariable}}
 			continue
 		}
+		if key.FieldSource != nil {
+			source := *key.FieldSource
+			output, ok := outputs[key.OutputColumnID]
+			if !ok {
+				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("Group fieldSource output column ID %q is missing from step schema", key.OutputColumnID)
+			}
+			if source.ValueKind == "CODING_IDENTITY" {
+				if physical.SemanticKey != nil || physical.CodingKey != nil {
+					return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("Group supports at most one coded identity key")
+				}
+				if source.Input != nil && source.Input.Kind == "RELATED_OCCURRENCE" {
+					codingKey, column, projection, membershipColumn, membershipProjection, err := lowerConstructionGroupRelatedCodingKey(
+						plan, source, groupFieldContext, output, group.MissingKeyPolicy, usedVariables, stepIndex, len(physical.Keys), stage,
+						&physical.RelatedOccurrence, policy,
+					)
+					if err != nil {
+						return ir.PhysicalStageGroup{}, nil, nil, err
+					}
+					physical.CodingKey = &codingKey
+					metadataByOutputID[output.ID] = column
+					projectionByOutputID[output.ID] = projection
+					_ = membershipColumn
+					_ = membershipProjection
+					continue
+				}
+				codingKey, column, projection, _, _, err := lowerConstructionGroupCodingKey(
+					plan, source, groupFieldContext, output, group.MissingKeyPolicy, usedVariables, stepIndex, stage,
+				)
+				if err != nil {
+					return ir.PhysicalStageGroup{}, nil, nil, err
+				}
+				physical.CodingKey = &codingKey
+				metadataByOutputID[output.ID] = column
+				projectionByOutputID[output.ID] = projection
+				continue
+			}
+			inputColumn, inputProjection, fieldSource, err := lowerConstructionGroupScalarSource(
+				plan, source, groupFieldContext, stepIndex, len(physical.Keys), usedVariables, stage,
+				constructionGroupFieldSourceLoweringOptions{RelatedAdapterSlot: &physical.RelatedOccurrence, Policy: policy},
+			)
+			if err != nil {
+				return ir.PhysicalStageGroup{}, nil, nil, err
+			}
+			kind, scalar := tableReshapeScalarKind(inputColumn.Kind)
+			if !scalar {
+				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("Group fieldSource %q is not a supported scalar", source.CanonicalPath)
+			}
+			if output.Type != "" && output.Type != "INFER" && !strings.EqualFold(output.Type, inputColumn.Kind) {
+				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("Group fieldSource output %q must preserve scalar type %q", output.ID, inputColumn.Kind)
+			}
+			physicalKey := ir.PhysicalStageGroupKey{
+				InputColumn: inputColumn.Name, OutputColumn: output.Name,
+				Variable: allocateConstructionVariable(usedVariables, "group_key", stepIndex), Kind: kind,
+				InputInternal: true, FieldSource: fieldSource,
+			}
+			physical.Keys = append(physical.Keys, physicalKey)
+			inputColumn.ID, inputColumn.Name = output.ID, output.Name
+			inputColumn.Label = constructionFirstNonEmpty(output.Label, output.Name)
+			inputColumn.Internal = false
+			metadataByOutputID[output.ID] = inputColumn
+			projectionByOutputID[output.ID] = inputProjection
+			projectionByOutputID[output.ID] = ir.PhysicalProjection{Name: output.Name, Value: ir.PhysicalValue{Variable: physicalKey.Variable}}
+			continue
+		}
 		inputColumn, ok := input[key.InputColumnID]
 		if !ok || inputColumn.Internal {
 			return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("group key input column ID %q is not public", key.InputColumnID)
+		}
+		if inputColumn.SemanticValueKind == CompiledSemanticValueCodingIdentityDisplay {
+			return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("group key input column ID %q is a CODING_IDENTITY display label and cannot be reused as scalar identity", key.InputColumnID)
 		}
 		kind, scalar := tableReshapeScalarKind(inputColumn.Kind)
 		if !scalar || inputColumn.Cardinality == string(expression.Many) {
@@ -184,8 +279,12 @@ func lowerConstructionGroup(
 		projectionByOutputID[output.ID] = ir.PhysicalProjection{Name: output.Name, Value: ir.PhysicalValue{Variable: physicalAggregate.Variable}}
 		physical.Aggregates = append(physical.Aggregates, physicalAggregate)
 	}
+	rowValueSource := &constructionGroupRowValueSourceContext{
+		Plan: plan, SourceContext: groupFieldContext, InputStageID: inputStageID,
+		Stage: stage, FirstSourceIndex: len(group.Keys), RelatedAdapterSlot: &physical.RelatedOccurrence, Policy: policy,
+	}
 	physicalRowValues, rowValueColumns, err := lowerConstructionRowValues(
-		rowValues, input, outputs, group.ConstructionID, usedVariables, stepIndex,
+		rowValues, input, outputs, group.ConstructionID, usedVariables, stepIndex, rowValueSource,
 	)
 	if err != nil {
 		return ir.PhysicalStageGroup{}, nil, nil, err
@@ -223,13 +322,43 @@ func lowerConstructionRowValues(
 	constructionID string,
 	usedVariables map[string]bool,
 	stepIndex int,
+	groupSourceContexts ...*constructionGroupRowValueSourceContext,
 ) ([]ir.PhysicalStageRowValue, []CompiledOutputColumn, error) {
+	var groupSourceContext *constructionGroupRowValueSourceContext
+	if len(groupSourceContexts) > 1 {
+		return nil, nil, fmt.Errorf("row value lowering received multiple Group source contexts")
+	}
+	if len(groupSourceContexts) == 1 {
+		groupSourceContext = groupSourceContexts[0]
+	}
 	physical := make([]ir.PhysicalStageRowValue, 0, len(rowValues))
 	compiled := make([]CompiledOutputColumn, 0, len(rowValues))
-	for _, rowValue := range rowValues {
-		inputColumn, ok := input[rowValue.InputColumnID]
-		if !ok || inputColumn.Internal {
-			return nil, nil, fmt.Errorf("row value input column ID %q is not public", rowValue.InputColumnID)
+	for index, rowValue := range rowValues {
+		var inputColumn CompiledOutputColumn
+		var sourceBinding *ir.PhysicalStageGroupFieldSource
+		if rowValue.FieldSource != nil {
+			if rowValue.InputColumnID != "" || rowValue.FieldSource.ValueKind != "SCALAR" || groupSourceContext == nil ||
+				groupSourceContext.Plan == nil || groupSourceContext.SourceContext == nil || groupSourceContext.InputStageID == "" ||
+				groupSourceContext.Stage == nil || rowValue.FieldSource.SourceStageID != groupSourceContext.InputStageID {
+				return nil, nil, fmt.Errorf("row value fieldSource must bind the owning Group's exact input stage and source shape")
+			}
+			var projection ir.PhysicalProjection
+			var err error
+			inputColumn, projection, sourceBinding, err = lowerConstructionGroupScalarSource(
+				groupSourceContext.Plan, *rowValue.FieldSource, groupSourceContext.SourceContext,
+				stepIndex, groupSourceContext.FirstSourceIndex+index, usedVariables, groupSourceContext.Stage,
+				constructionGroupFieldSourceLoweringOptions{RelatedAdapterSlot: groupSourceContext.RelatedAdapterSlot, Policy: groupSourceContext.Policy},
+			)
+			if err != nil {
+				return nil, nil, fmt.Errorf("row value fieldSource: %w", err)
+			}
+			_ = projection // The exact source projection is installed by the shared helper.
+		} else {
+			var ok bool
+			inputColumn, ok = input[rowValue.InputColumnID]
+			if !ok || inputColumn.Internal {
+				return nil, nil, fmt.Errorf("row value input column ID %q is not public", rowValue.InputColumnID)
+			}
 		}
 		inputKind, scalar := constructionRowValueKind(inputColumn.Kind)
 		if !scalar {
@@ -258,7 +387,8 @@ func lowerConstructionRowValues(
 		}
 		physical = append(physical, ir.PhysicalStageRowValue{
 			InputColumn: inputColumn.Name, InputKind: inputKind, InputMany: many,
-			Output: output.Name, Policy: string(rowValue.Policy),
+			FieldSource: sourceBinding,
+			Output:      output.Name, Policy: string(rowValue.Policy),
 			Variable: allocateConstructionVariable(usedVariables, "row_value", stepIndex),
 		})
 		compiled = append(compiled, CompiledOutputColumn{
@@ -268,6 +398,16 @@ func lowerConstructionRowValues(
 		})
 	}
 	return physical, compiled, nil
+}
+
+type constructionGroupRowValueSourceContext struct {
+	Plan               *ir.PhysicalPlan
+	SourceContext      *CompiledGroupFieldSourceContext
+	InputStageID       string
+	Stage              *ir.PhysicalConstructionStage
+	FirstSourceIndex   int
+	RelatedAdapterSlot **ir.PhysicalStageGroupRelatedOccurrenceAdapter
+	Policy             ir.PhysicalOptimizationPolicy
 }
 
 func constructionRowValueKind(kind string) (string, bool) {

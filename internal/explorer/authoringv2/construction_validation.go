@@ -1503,9 +1503,19 @@ func validateConstructionGroup(step ConstructionStep, input map[string]StageColu
 	want := make([]string, 0, len(group.Keys)+len(group.Aggregates))
 	inputIDs := make(map[string]bool, len(group.Keys))
 	outputIDs := make(map[string]bool, len(group.Keys)+len(group.Aggregates))
-	semanticKeys := 0
+	codedKeys := 0
 	for index, key := range group.Keys {
-		if key.SemanticCategory == nil {
+		if key.FieldSource != nil {
+			if key.InputColumnID != "" || key.SemanticCategory != nil {
+				return fmt.Errorf("keys[%d] must choose exactly one Group key source", index)
+			}
+			if err := validateConstructionGroupFieldSource(*key.FieldSource); err != nil {
+				return fmt.Errorf("keys[%d].fieldSource: %w", index, err)
+			}
+			if key.FieldSource.ValueKind == "CODING_IDENTITY" {
+				codedKeys++
+			}
+		} else if key.SemanticCategory == nil {
 			if !requiredID(key.InputColumnID) {
 				return fmt.Errorf("keys[%d].inputColumnId is required", index)
 			}
@@ -1517,9 +1527,9 @@ func validateConstructionGroup(step ConstructionStep, input map[string]StageColu
 			}
 			inputIDs[key.InputColumnID] = true
 		} else {
-			semanticKeys++
-			if key.InputColumnID != "" {
-				return fmt.Errorf("keys[%d] must choose either inputColumnId or semanticCategory", index)
+			codedKeys++
+			if key.InputColumnID != "" || key.FieldSource != nil {
+				return fmt.Errorf("keys[%d] must choose exactly one Group key source", index)
 			}
 			if err := validateConstructionGroupSemanticCategory(*key.SemanticCategory); err != nil {
 				return fmt.Errorf("keys[%d].semanticCategory: %w", index, err)
@@ -1563,10 +1573,38 @@ func validateConstructionGroup(step ConstructionStep, input map[string]StageColu
 		outputIDs[aggregate.OutputColumnID] = true
 		want = append(want, aggregate.OutputColumnID)
 	}
-	if semanticKeys > 1 {
-		return fmt.Errorf("group supports at most one semantic category key")
+	if codedKeys > 1 {
+		return fmt.Errorf("group supports at most one coded identity key")
 	}
 	return validateDeclaredOutputIDs(step.Outputs, want)
+}
+
+func validateConstructionGroupFieldSource(source ConstructionGroupFieldSource) error {
+	switch source.Kind {
+	case "CHOICE":
+		if !requiredID(source.ChoiceID) || source.ValueKind != "" || source.SourceStageID != "" || source.SourceShapeID != "" || source.Input != nil ||
+			source.SourceRole != "" || source.OccurrenceID != "" || source.ResourceType != "" || source.OwnerOccurrenceID != "" ||
+			source.OwnerResourceType != "" || source.CandidateID != "" || source.CanonicalPath != "" || source.BoundarySelector != "" {
+			return fmt.Errorf("CHOICE requires only an exact server-issued choiceId")
+		}
+	case "BINDING":
+		if source.ChoiceID != "" {
+			return fmt.Errorf("BINDING cannot carry choiceId")
+		}
+		return source.Validate()
+	default:
+		return fmt.Errorf("kind must be CHOICE or BINDING")
+	}
+	return nil
+}
+
+func validConstructionGroupSourceRole(role string) bool {
+	switch role {
+	case "ROOT", "OWNER", "ANCESTOR", "CURRENT_ITEM":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateConstructionGroupSemanticCategory(category ConstructionGroupSemanticCategory) error {

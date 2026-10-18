@@ -8,7 +8,9 @@ import {
   SEMANTIC_FIELD_PRESENTATION_REVISION,
   type Construction,
   type ExplorerBuilderCommand,
+  constructionCapabilitiesRequestSchema,
   constructionProposalRequestSchema,
+  constructionProposalResponseSchema,
   fieldPresentationSchema,
   semanticInventoryBrowseResponseSchema,
 } from './types';
@@ -33,6 +35,8 @@ const constructionCapabilitiesResponse = {
     columns: [{ id: 'column_patient_id', name: 'patient_id', label: 'Patient ID', type: 'string' }],
     capabilities: [{ kind: 'FILTER', supported: true }],
   },
+  groupFieldChoices: [],
+  groupRowValueChoices: [],
   workspaceInputs: [],
 } as const;
 const fieldPresentationContext = {
@@ -132,6 +136,27 @@ describe('Loom project paths', () => {
     expect(fetch).toHaveBeenCalledWith(endpoint, expect.objectContaining({
       headers: expect.objectContaining({ 'X-Request-ID': requestId }),
     }));
+  });
+
+  it('binds Group row-value capabilities to the owning Group step', async () => {
+    const endpoint = '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2/construction-capabilities';
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValue(new Response(JSON.stringify(constructionCapabilitiesResponse), { status: 200 }));
+    const client = createLoomClient({ fetch });
+
+    await client.getConstructionCapabilities({
+      project: 'project-a', explorerId: 'explorer-a', snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 7, expectedDraftDigest: 'draft-7', outputId: 'patients',
+      stageId: 'source_projection', groupStepId: 'group-component-values',
+    });
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith(endpoint, expect.objectContaining({ method: 'POST' }));
+    const requestInit = fetch.mock.calls[0]?.[1];
+    if (!requestInit) throw new Error('Expected construction capabilities request options');
+    expect(constructionCapabilitiesRequestSchema.parse(JSON.parse(String(requestInit.body)))).toMatchObject({
+      stageId: 'source_projection', groupStepId: 'group-component-values',
+    });
   });
 
   it('preserves schema-field HTTP error provenance without changing success or aborts', async () => {
@@ -242,6 +267,8 @@ describe('Loom project paths', () => {
       baseConstruction: construction,
       stages: [selectedStage],
       selectedStage,
+      groupFieldChoices: [],
+      groupRowValueChoices: [],
       workspaceInputs: [],
     } as const;
     const proposal = {
@@ -344,6 +371,200 @@ describe('Loom project paths', () => {
         }),
       }),
     );
+  });
+
+  it('parses connected scalar and Coding Group bindings from proposal responses and clones', async () => {
+    const route = [{
+      stepIndex: 0,
+      fromOccurrenceId: 'base',
+      fromNodeId: 'patient-node',
+      fromResourceType: 'Patient',
+      edgeId: 'patient-specimen',
+      relationship: 'subject_Patient',
+      storageDirection: 'INBOUND',
+      matchMode: 'OPTIONAL',
+      toOccurrenceId: 'specimen-occurrence',
+      toNodeId: 'specimen-node',
+      toResourceType: 'Specimen',
+    }];
+    const relatedBase = {
+      sourceStageId: 'source_projection',
+      sourceShapeId: 'group-related-source-shape',
+      input: {
+        kind: 'RELATED_OCCURRENCE',
+        relatedOccurrence: {
+          anchorOccurrenceId: 'base',
+          anchorNodeId: 'patient-node',
+          anchorResourceType: 'Patient',
+          route,
+          targetOccurrenceId: 'specimen-occurrence',
+          targetNodeId: 'specimen-node',
+          targetResourceType: 'Specimen',
+          emptyPolicy: 'PRESERVE_PARENT',
+          multiplicity: 'DISTINCT_TARGET_PER_INPUT',
+        },
+      },
+    };
+    const scalarFieldSource = {
+      kind: 'BINDING',
+      valueKind: 'SCALAR',
+      ...relatedBase,
+      input: {
+        ...relatedBase.input,
+        relatedOccurrence: {
+          ...relatedBase.input.relatedOccurrence,
+          resourceType: 'string',
+          candidateId: 'specimen-id-candidate',
+          canonicalPath: 'id',
+        },
+      },
+    };
+    const codingFieldSource = {
+      kind: 'BINDING',
+      valueKind: 'CODING_IDENTITY',
+      ...relatedBase,
+      input: {
+        ...relatedBase.input,
+        relatedOccurrence: {
+          ...relatedBase.input.relatedOccurrence,
+          resourceType: 'Coding',
+          codingSelector: 'type.coding[]',
+          codingEmptyPolicy: 'GROUP',
+          ordinalSemantics: 'ZERO_BASED_POSITION_IN_FLATTENED_EXPANSION_ARRAY',
+        },
+      },
+    };
+    const rowValueChoice = {
+      fieldSource: { kind: 'CHOICE', choiceId: 'specimen-id-row-choice' },
+      outputColumnId: 'specimen-ids',
+      policy: 'ALL',
+    } as const;
+    const candidateConstruction = {
+      version: 1,
+      steps: [{
+        id: 'group-specimens',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: {
+          kind: 'GROUP',
+          group: {
+            constructionId: 'group-specimens',
+            keys: [
+              { fieldSource: scalarFieldSource, outputColumnId: 'specimen-id' },
+              { fieldSource: codingFieldSource, outputColumnId: 'specimen-type' },
+            ],
+            aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: 'row-count' }],
+          },
+        },
+        rowValues: [rowValueChoice],
+        outputs: [
+          { id: 'specimen-id', name: 'specimen_id', label: 'Specimen ID' },
+          { id: 'specimen-type', name: 'specimen_type', label: 'Specimen type' },
+          { id: 'row-count', name: 'row_count', label: 'Rows' },
+          { id: 'specimen-ids', name: 'specimen_ids', label: 'Specimen IDs', type: 'array' },
+        ],
+      }],
+    };
+    const resolvedCandidateConstruction = {
+      ...candidateConstruction,
+      steps: [{
+        ...candidateConstruction.steps[0],
+        rowValues: [{
+          fieldSource: scalarFieldSource,
+          outputColumnId: rowValueChoice.outputColumnId,
+          policy: rowValueChoice.policy,
+        }],
+      }],
+    };
+    const proposal = {
+      proposalId: 'proposal-related-group',
+      outputId: 'specimens',
+      snapshotToken: 'snapshot-1',
+      draftVersion: 7,
+      draftDigest: 'draft-7',
+      baseDocumentDigest: 'document-7',
+      candidateWorkspaceDigest: 'workspace-8',
+      changedStepId: 'group-specimens',
+      candidateConstruction: resolvedCandidateConstruction,
+      dependencyImpact: { changedStepId: 'group-specimens', affectedStepIds: [] },
+      stages: [{
+        id: 'source_projection', inputStageId: '', columns: [],
+        capabilities: [{ kind: 'GROUP', supported: true }],
+      }],
+      previewStatus: 'READY',
+      previewDurationMs: 0,
+    };
+    const request = constructionProposalRequestSchema.parse({
+      snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 7,
+      expectedDraftDigest: 'draft-7',
+      outputId: 'specimens',
+      changedStepId: 'group-specimens',
+      candidateConstruction,
+    });
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValue(new Response(JSON.stringify(proposal), { status: 200 }));
+    const client = createLoomClient({ fetch });
+
+    const response = await client.proposeConstruction({
+      project: 'project-a',
+      explorerId: 'explorer-a',
+      ...request,
+    });
+    expect(response.candidateConstruction).toEqual(resolvedCandidateConstruction);
+    expect(constructionProposalResponseSchema.parse(structuredClone(response))).toEqual(response);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2/construction-proposals',
+      expect.objectContaining({ method: 'POST' }),
+    );
+
+    const malformedCodingResponse = {
+      ...proposal,
+      candidateConstruction: {
+        ...candidateConstruction,
+        steps: [{
+          ...candidateConstruction.steps[0],
+          operation: {
+            ...candidateConstruction.steps[0].operation,
+            group: {
+              ...candidateConstruction.steps[0].operation.group,
+              keys: [
+                { fieldSource: scalarFieldSource, outputColumnId: 'specimen-id' },
+                {
+                  fieldSource: {
+                    ...codingFieldSource,
+                    input: {
+                      ...codingFieldSource.input,
+                      relatedOccurrence: {
+                        ...codingFieldSource.input.relatedOccurrence,
+                        candidateId: 'coding-must-not-have-candidate-id',
+                      },
+                    },
+                  },
+                  outputColumnId: 'specimen-type',
+                },
+              ],
+            },
+          },
+        }],
+      },
+    };
+    expect(constructionProposalResponseSchema.safeParse(malformedCodingResponse).success).toBe(false);
+
+    const codingRowValueResponse = {
+      ...proposal,
+      candidateConstruction: {
+        ...resolvedCandidateConstruction,
+        steps: [{
+          ...resolvedCandidateConstruction.steps[0],
+          rowValues: [{
+            fieldSource: codingFieldSource,
+            outputColumnId: 'coding-row-values',
+            policy: 'ALL',
+          }],
+        }],
+      },
+    };
+    expect(constructionProposalResponseSchema.safeParse(codingRowValueResponse).success).toBe(false);
   });
 
   it('lists exact published revisions with draft identity and pagination', async () => {

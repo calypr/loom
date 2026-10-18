@@ -19,10 +19,14 @@ func (h *explorerHTTPHandlers) getConstructionCapabilitiesDirect(ctx context.Con
 	if body == nil {
 		return result, malformedRouteError("construction-capabilities", nil)
 	}
+	groupStepID := ""
+	if body.GroupStepId != nil {
+		groupStepID = *body.GroupStepId
+	}
 	value, err := h.application.GetConstructionCapabilities(ctx, lifecycle.ConstructionCapabilitiesRequest{
 		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
 		ExpectedDraftVersion: int64(body.ExpectedDraftVersion), ExpectedDraftDigest: body.ExpectedDraftDigest,
-		OutputID: body.OutputId, StageID: body.StageId,
+		OutputID: body.OutputId, StageID: body.StageId, GroupStepID: groupStepID,
 	})
 	if err != nil {
 		return result, err

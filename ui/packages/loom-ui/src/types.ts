@@ -81,6 +81,214 @@ const constructionSemanticGroupChoiceSchema = z.object({
   sourcePath: opaqueIdSchema,
 }).strict();
 
+const constructionGroupFieldCurrentStageScalarSchema = z.object({
+  sourceRole: z.enum(['ROOT', 'OWNER', 'ANCESTOR', 'CURRENT_ITEM']),
+  occurrenceId: opaqueIdSchema,
+  ownerResourceType: opaqueIdSchema,
+  resourceType: opaqueIdSchema,
+  candidateId: opaqueIdSchema.optional(),
+  canonicalPath: opaqueIdSchema.optional(),
+  boundarySelector: opaqueIdSchema.optional(),
+}).strict();
+
+const constructionGroupFieldCurrentStageCodingIdentitySchema = z.object({
+  sourceRole: z.literal('CURRENT_ITEM'),
+  occurrenceId: opaqueIdSchema,
+  ownerResourceType: opaqueIdSchema,
+  resourceType: opaqueIdSchema,
+  canonicalPath: opaqueIdSchema,
+}).strict();
+
+const constructionGroupFieldRelatedRouteStepSchema = z.object({
+  stepIndex: z.number().int().nonnegative(),
+  fromOccurrenceId: opaqueIdSchema,
+  fromNodeId: opaqueIdSchema,
+  fromResourceType: opaqueIdSchema,
+  edgeId: opaqueIdSchema,
+  relationship: opaqueIdSchema,
+  storageDirection: z.enum(['INBOUND', 'OUTBOUND']),
+  matchMode: z.enum(['OPTIONAL', 'REQUIRED']),
+  toOccurrenceId: opaqueIdSchema,
+  toNodeId: opaqueIdSchema,
+  toResourceType: opaqueIdSchema,
+}).strict();
+
+const constructionGroupRelatedOccurrenceBaseSchema = {
+  anchorOccurrenceId: opaqueIdSchema,
+  anchorNodeId: opaqueIdSchema,
+  anchorResourceType: opaqueIdSchema,
+  route: z.array(constructionGroupFieldRelatedRouteStepSchema).min(1),
+  targetOccurrenceId: opaqueIdSchema,
+  targetNodeId: opaqueIdSchema,
+  targetResourceType: opaqueIdSchema,
+  resourceType: opaqueIdSchema,
+  emptyPolicy: z.enum(['PRESERVE_PARENT', 'EXCLUDE', 'ERROR']),
+  multiplicity: z.literal('DISTINCT_TARGET_PER_INPUT'),
+};
+
+const constructionGroupFieldRelatedScalarSchema = z.object({
+  ...constructionGroupRelatedOccurrenceBaseSchema,
+  candidateId: opaqueIdSchema,
+  canonicalPath: opaqueIdSchema,
+}).strict();
+
+const constructionGroupFieldRelatedCodingIdentitySchema = z.object({
+  ...constructionGroupRelatedOccurrenceBaseSchema,
+  codingSelector: opaqueIdSchema,
+  codingEmptyPolicy: z.enum(['GROUP', 'EXCLUDE', 'ERROR']),
+  ordinalSemantics: z.literal('ZERO_BASED_POSITION_IN_FLATTENED_EXPANSION_ARRAY'),
+}).strict();
+
+const constructionGroupFieldCurrentStageScalarInputSchema = z.object({
+  kind: z.literal('CURRENT_STAGE'),
+  currentStage: constructionGroupFieldCurrentStageScalarSchema,
+}).strict();
+
+const constructionGroupFieldRelatedScalarInputSchema = z.object({
+  kind: z.literal('RELATED_OCCURRENCE'),
+  relatedOccurrence: constructionGroupFieldRelatedScalarSchema,
+}).strict();
+
+const constructionGroupFieldCurrentStageCodingIdentityInputSchema = z.object({
+  kind: z.literal('CURRENT_STAGE'),
+  currentStage: constructionGroupFieldCurrentStageCodingIdentitySchema,
+}).strict();
+
+const constructionGroupFieldRelatedCodingIdentityInputSchema = z.object({
+  kind: z.literal('RELATED_OCCURRENCE'),
+  relatedOccurrence: constructionGroupFieldRelatedCodingIdentitySchema,
+}).strict();
+
+const constructionGroupFieldSourceChoiceSchema = z.object({
+  kind: z.literal('CHOICE'),
+  choiceId: opaqueIdSchema,
+}).strict();
+
+const constructionGroupFieldSourceLegacyScalarBindingSchema = z.object({
+  kind: z.literal('BINDING'),
+  valueKind: z.literal('SCALAR'),
+  sourceStageId: opaqueIdSchema,
+  sourceShapeId: opaqueIdSchema,
+  sourceRole: z.enum(['ROOT', 'OWNER', 'ANCESTOR', 'CURRENT_ITEM']),
+  occurrenceId: opaqueIdSchema,
+  resourceType: opaqueIdSchema,
+  ownerOccurrenceId: opaqueIdSchema,
+  ownerResourceType: opaqueIdSchema,
+  candidateId: opaqueIdSchema,
+  canonicalPath: opaqueIdSchema,
+  boundarySelector: opaqueIdSchema.optional(),
+}).strict();
+
+const constructionGroupFieldSourceNestedScalarBindingSchema = z.object({
+  kind: z.literal('BINDING'),
+  valueKind: z.literal('SCALAR'),
+  sourceStageId: opaqueIdSchema,
+  sourceShapeId: opaqueIdSchema,
+  input: z.discriminatedUnion('kind', [
+    constructionGroupFieldCurrentStageScalarInputSchema,
+    constructionGroupFieldRelatedScalarInputSchema,
+  ]),
+}).strict();
+
+const constructionGroupFieldSourceScalarOptions = [
+  constructionGroupFieldSourceChoiceSchema,
+  constructionGroupFieldSourceLegacyScalarBindingSchema,
+  constructionGroupFieldSourceNestedScalarBindingSchema,
+] as const;
+
+const constructionGroupFieldSourceScalarSchema = z.union(constructionGroupFieldSourceScalarOptions);
+
+const constructionGroupFieldSourceLegacyCodingIdentityBindingSchema = z.object({
+  kind: z.literal('BINDING'),
+  valueKind: z.literal('CODING_IDENTITY'),
+  sourceStageId: opaqueIdSchema,
+  sourceShapeId: opaqueIdSchema,
+  sourceRole: z.literal('CURRENT_ITEM'),
+  occurrenceId: opaqueIdSchema,
+  resourceType: opaqueIdSchema,
+  ownerOccurrenceId: opaqueIdSchema,
+  ownerResourceType: opaqueIdSchema,
+  canonicalPath: opaqueIdSchema,
+}).strict();
+
+const constructionGroupFieldSourceNestedCodingIdentityBindingSchema = z.object({
+  kind: z.literal('BINDING'),
+  valueKind: z.literal('CODING_IDENTITY'),
+  sourceStageId: opaqueIdSchema,
+  sourceShapeId: opaqueIdSchema,
+  input: z.discriminatedUnion('kind', [
+    constructionGroupFieldCurrentStageCodingIdentityInputSchema,
+    constructionGroupFieldRelatedCodingIdentityInputSchema,
+  ]),
+}).strict();
+
+const constructionGroupFieldSourceSchema = z.union([
+  ...constructionGroupFieldSourceScalarSchema.options,
+  constructionGroupFieldSourceLegacyCodingIdentityBindingSchema,
+  constructionGroupFieldSourceNestedCodingIdentityBindingSchema,
+]);
+
+const constructionRelatedOccurrenceSchema = z.object({
+  routeId: opaqueIdSchema,
+  routeLabel: z.string().optional(),
+}).strict();
+
+const constructionGroupFieldScalarChoiceSchema = z.object({
+    kind: z.literal('FIELD_SOURCE'),
+    valueKind: z.literal('SCALAR'),
+    fieldSource: z.object({ kind: z.literal('CHOICE'), choiceId: opaqueIdSchema }).strict(),
+    matchedOutputKeyId: opaqueIdSchema.optional(),
+    label: z.string().min(1),
+    sourceStageId: opaqueIdSchema,
+    sourceShapeId: opaqueIdSchema,
+    candidateId: opaqueIdSchema,
+    sourceRole: z.enum(['ROOT', 'OWNER', 'ANCESTOR', 'CURRENT_ITEM', 'RELATED_OCCURRENCE']),
+    occurrenceId: opaqueIdSchema,
+    resourceType: opaqueIdSchema,
+    ownerOccurrenceId: opaqueIdSchema,
+    ownerResourceType: opaqueIdSchema,
+    canonicalPath: opaqueIdSchema,
+    scopeLabel: z.string().optional(),
+    valueType: z.string().optional(),
+    inputColumnId: opaqueIdSchema.optional(),
+    boundarySelector: opaqueIdSchema.optional(),
+    relatedOccurrence: constructionRelatedOccurrenceSchema.optional(),
+}).strict();
+
+const constructionGroupCodingIdentityChoiceSchema = z.object({
+    kind: z.literal('FIELD_SOURCE'),
+    valueKind: z.literal('CODING_IDENTITY'),
+    fieldSource: z.object({ kind: z.literal('CHOICE'), choiceId: opaqueIdSchema }).strict(),
+    matchedOutputKeyId: opaqueIdSchema.optional(),
+    label: z.string().min(1),
+    sourceStageId: opaqueIdSchema,
+    sourceShapeId: opaqueIdSchema,
+    sourceRole: z.enum(['CURRENT_ITEM', 'RELATED_OCCURRENCE']),
+    occurrenceId: opaqueIdSchema,
+    resourceType: opaqueIdSchema,
+    ownerOccurrenceId: opaqueIdSchema,
+    ownerResourceType: opaqueIdSchema,
+    canonicalPath: opaqueIdSchema,
+    scopeLabel: z.string().optional(),
+    valueType: z.string().optional(),
+    relatedOccurrence: constructionRelatedOccurrenceSchema.optional(),
+}).strict();
+
+const constructionSemanticGroupFieldChoiceSchema = z.object({
+    kind: z.literal('SEMANTIC_CATEGORY'),
+    semanticCategory: constructionGroupSemanticCategorySchema,
+    label: z.string().min(1),
+    scopeLabel: z.string().optional(),
+    resourceType: opaqueIdSchema.optional(),
+    canonicalPath: opaqueIdSchema.optional(),
+}).strict();
+
+const constructionGroupFieldChoiceSchema = z.union([
+  constructionGroupFieldScalarChoiceSchema,
+  constructionGroupCodingIdentityChoiceSchema,
+  constructionSemanticGroupFieldChoiceSchema,
+]);
+
 export const conceptCandidateSchema = z.object({
   sourceResourceType: opaqueIdSchema,
   sourceCanonical: z.string().optional(),
@@ -1373,6 +1581,19 @@ const relatedExpandContributorSourceSchema = relatedFieldSourceSchema.extend({
 });
 
 const constructionRowValuePolicySchema = z.enum(['ALL', 'ONE']);
+const constructionRowValueFieldSourceSchema = constructionGroupFieldSourceScalarSchema;
+const constructionRowValueSchema = z.union([
+  z.object({
+    inputColumnId: opaqueIdSchema,
+    outputColumnId: opaqueIdSchema,
+    policy: constructionRowValuePolicySchema,
+  }).strict(),
+  z.object({
+    fieldSource: constructionRowValueFieldSourceSchema,
+    outputColumnId: opaqueIdSchema,
+    policy: constructionRowValuePolicySchema,
+  }).strict(),
+]);
 
 const relatedSourceSchema = z.object({
   anchorColumnId: opaqueIdSchema,
@@ -1467,6 +1688,9 @@ const constructionOperationSchema = z.discriminatedUnion('kind', [
         inputColumnId: opaqueIdSchema,
         outputColumnId: opaqueIdSchema,
       }).strict().or(z.object({
+        fieldSource: constructionGroupFieldSourceSchema,
+        outputColumnId: opaqueIdSchema,
+      }).strict()).or(z.object({
         semanticCategory: constructionGroupSemanticCategorySchema,
         outputColumnId: opaqueIdSchema,
       }).strict())).optional(),
@@ -1588,7 +1812,7 @@ const constructionOperationSchema = z.discriminatedUnion('kind', [
 export type ConstructionOperation = z.infer<typeof constructionOperationSchema>;
 
 const constructionStepSchema = z.object({
-  rowValues: z.array(z.object({ inputColumnId: opaqueIdSchema, outputColumnId: opaqueIdSchema, policy: constructionRowValuePolicySchema }).strict()).optional(),
+  rowValues: z.array(constructionRowValueSchema).optional(),
   id: opaqueIdSchema,
   ownerStepId: opaqueIdSchema.optional(),
   inputs: z.array(constructionInputRefSchema),
@@ -1644,6 +1868,39 @@ const constructionRelatedExpandAnchorSchema = z.object({
   resourceType: opaqueIdSchema,
   label: z.string().min(1),
 }).strict();
+const constructionGroupFieldSourceContextSchema = z.object({
+  sourceStageId: opaqueIdSchema,
+  sourceShapeId: opaqueIdSchema,
+  sourceIdentityColumn: opaqueIdSchema,
+  sourceExpansion: z.object({
+    ownerOccurrenceId: opaqueIdSchema,
+    ownerResourceType: opaqueIdSchema,
+    selector: opaqueIdSchema,
+    route: z.array(z.object({
+      occurrenceId: opaqueIdSchema,
+      fromType: opaqueIdSchema,
+      edgeLabel: opaqueIdSchema,
+      toType: opaqueIdSchema,
+      direction: z.enum(['INBOUND', 'OUTBOUND']),
+    }).strict()),
+    ancestors: z.array(z.object({
+      stepIndex: z.number().int().nonnegative(),
+      boundarySelector: opaqueIdSchema,
+      resourceType: opaqueIdSchema,
+    }).strict()),
+    ordinalSemantics: opaqueIdSchema,
+    identitySemantics: opaqueIdSchema,
+    emptyPolicy: opaqueIdSchema,
+  }).strict().optional(),
+  fieldOwners: z.array(z.object({
+    role: z.enum(['ROOT', 'OWNER', 'ANCESTOR', 'CURRENT_ITEM']),
+    occurrenceId: opaqueIdSchema,
+    ownerResourceType: opaqueIdSchema,
+    resourceType: opaqueIdSchema,
+    boundarySelector: opaqueIdSchema.optional(),
+    stepIndex: z.number().int(),
+  }).strict()),
+}).strict();
 const constructionStageDescriptorSchema = z.object({
   id: opaqueIdSchema,
   inputStageId: z.string(),
@@ -1661,6 +1918,7 @@ const constructionStageDescriptorSchema = z.object({
     codingPath: opaqueIdSchema,
     label: z.string().min(1),
   }).strict()).optional(),
+  groupFieldSourceContext: constructionGroupFieldSourceContextSchema.optional(),
 }).strict();
 export type ConstructionStageDescriptor = z.infer<typeof constructionStageDescriptorSchema>;
 
@@ -1682,6 +1940,7 @@ export const constructionCapabilitiesRequestSchema = z.object({
   expectedDraftDigest: z.string().min(1),
   outputId: opaqueIdSchema,
   stageId: opaqueIdSchema,
+  groupStepId: opaqueIdSchema.optional(),
 }).strict();
 export type ConstructionCapabilitiesRequest = z.infer<typeof constructionCapabilitiesRequestSchema>;
 
@@ -1748,6 +2007,9 @@ export const constructionCapabilitiesResponseSchema = z.object({
   selectedStage: constructionStageDescriptorSchema,
   semanticGroupChoices: z.array(constructionSemanticGroupChoiceSchema).optional(),
   semanticGroupChoicesIncomplete: z.boolean().optional(),
+  groupFieldChoices: z.array(constructionGroupFieldChoiceSchema),
+  groupRowValueChoices: z.array(constructionGroupFieldScalarChoiceSchema),
+  groupFieldChoicesIncomplete: z.boolean().optional(),
   sourceProjectionAvailability: constructionSourceProjectionAvailabilitySchema.optional(),
   sourceInput: constructionScalarSourceInputSchema.optional(),
   pivotSourceInput: constructionScalarSourceInputSchema.optional(),

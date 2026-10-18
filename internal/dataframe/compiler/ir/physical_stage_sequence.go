@@ -149,6 +149,8 @@ type PhysicalStageGroup struct {
 	RootContributorVariable     string
 	Keys                        []PhysicalStageGroupKey
 	SemanticKey                 *PhysicalStageGroupSemanticKey
+	CodingKey                   *PhysicalStageGroupCodingKey
+	RelatedOccurrence           *PhysicalStageGroupRelatedOccurrenceAdapter
 	Aggregates                  []PhysicalStageGroupAggregate
 	RowValues                   []PhysicalStageRowValue
 }
@@ -171,6 +173,9 @@ type PhysicalStageRowValue struct {
 	InputColumn string
 	InputKind   string
 	InputMany   bool
+	// FieldSource authorizes a hidden scalar input projection from one exact
+	// source context. Ordinary row values still require a public input column.
+	FieldSource *PhysicalStageGroupFieldSource
 	Output      string
 	Policy      string
 	Variable    string
@@ -220,10 +225,121 @@ const (
 )
 
 type PhysicalStageGroupKey struct {
-	InputColumn  string
-	OutputColumn string
-	Variable     string
-	Kind         string
+	InputColumn   string
+	OutputColumn  string
+	Variable      string
+	Kind          string
+	InputInternal bool
+	FieldSource   *PhysicalStageGroupFieldSource
+}
+
+// PhysicalStageGroupFieldSource is a tagged sum for local/current source
+// selectors and an exact related occurrence expansion.
+type PhysicalStageGroupFieldSource struct {
+	Kind PhysicalStageGroupFieldSourceKind
+	PhysicalStageGroupCurrentStageFieldSource
+	RelatedOccurrence *PhysicalStageGroupRelatedOccurrenceFieldSource
+}
+
+type PhysicalStageGroupFieldSourceKind string
+
+const (
+	PhysicalStageGroupFieldSourceCurrentStage      PhysicalStageGroupFieldSourceKind = "CURRENT_STAGE"
+	PhysicalStageGroupFieldSourceRelatedOccurrence PhysicalStageGroupFieldSourceKind = "RELATED_OCCURRENCE"
+)
+
+type PhysicalStageGroupCurrentStageFieldSource struct {
+	SourceStageID     string
+	SourceShapeID     string
+	Role              string
+	OccurrenceID      string
+	OwnerResourceType string
+	ResourceType      string
+	CandidateID       string
+	CanonicalPath     string
+	BoundarySelector  string
+	SourceVariable    string
+}
+
+type PhysicalStageGroupRelatedOccurrenceFieldSource struct {
+	RouteID            string
+	SourceStageID      string
+	SourceShapeID      string
+	AnchorOccurrenceID string
+	AnchorNodeID       string
+	AnchorResourceType string
+	Route              []PhysicalStageGroupRelatedRouteStep
+	TargetOccurrenceID string
+	TargetNodeID       string
+	TargetResourceType string
+	ResourceType       string
+	CandidateID        string
+	CanonicalPath      string
+	EmptyPolicy        string
+	Multiplicity       string
+	CodingSelector     string
+	CodingEmptyPolicy  string
+	OrdinalSemantics   string
+	ProjectionColumn   string
+	MembershipColumn   string
+}
+
+// PhysicalStageGroupRelatedOccurrenceAdapter is the one Group-owned route
+// expansion shared by every key and RowValue bound to the same related route.
+// Its target projection contains only selected scalars or one Coding array.
+type PhysicalStageGroupRelatedOccurrenceAdapter struct {
+	RouteID                string
+	RelatedRecords         PhysicalStageRelatedExpand
+	ScalarProjections      []PhysicalStageGroupRelatedProjection
+	CodingSelector         string
+	CodingArrayColumn      string
+	CodingEmptyPolicy      PhysicalUnnestEmptyPolicy
+	OrdinalSemantics       string
+	CodingUnnest           *PhysicalUnnest
+	CodingMembershipColumn string
+	OccurrenceKeyColumn    string
+	RouteHasItemVariable   string
+}
+
+type PhysicalStageGroupRelatedProjection struct {
+	InputColumn       string
+	ResultField       string
+	OwnerResourceType string
+	ValueResourceType string
+	CandidateID       string
+	CanonicalPath     string
+}
+
+type PhysicalStageGroupRelatedRouteStep struct {
+	StepIndex        int
+	FromOccurrenceID string
+	FromNodeID       string
+	FromResourceType string
+	EdgeID           string
+	Relationship     string
+	StorageDirection string
+	MatchMode        string
+	ToOccurrenceID   string
+	ToNodeID         string
+	ToResourceType   string
+}
+
+// PhysicalStageGroupCodingKey groups one compiler-proven Coding item by its
+// exact system/version/code tuple while keeping display as a separate label.
+type PhysicalStageGroupCodingKey struct {
+	OutputColumn              string
+	InputTupleVariable        string
+	TupleVariable             string
+	LabelVariable             string
+	MembershipColumn          string
+	SourceStageID             string
+	SourceShapeID             string
+	SourceOccurrenceKeyColumn string
+	OwnerOccurrenceID         string
+	OwnerResourceType         string
+	CodingPath                string
+	SourceUnnest              *PhysicalUnnest
+	RelatedSource             *PhysicalStageGroupRelatedOccurrenceFieldSource
 }
 
 // PhysicalStageGroupSemanticKey expands one exact semantic coding family per
@@ -288,8 +404,11 @@ type PhysicalStageRelatedSource struct {
 // resource reached from a retained root key. The terminal _id and parent row
 // identity are retained as hidden columns for downstream related-field stages.
 type PhysicalStageRelatedExpand struct {
+	RouteID                string
+	Multiplicity           string
 	AnchorColumnID         string
 	AnchorKind             string
+	AnchorOccurrenceID     string
 	AnchorNodeID           string
 	AnchorResourceType     string
 	RootContributorColumn  string
@@ -322,9 +441,12 @@ type PhysicalStageRelatedField struct {
 }
 
 type PhysicalStageRelatedRouteStep struct {
+	StepIndex        int
+	FromOccurrenceID string
 	EdgeID           string
 	FromNodeID       string
 	ToNodeID         string
+	ToOccurrenceID   string
 	FromResourceType string
 	ToResourceType   string
 	Relationship     string

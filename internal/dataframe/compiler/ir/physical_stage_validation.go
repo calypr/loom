@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperations []PhysicalOperation, bindVars map[string]any) error {
@@ -60,7 +62,7 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 		if err := validatePhysicalStageColumns(stage.InputColumns, priorRowIdentity); err != nil {
 			return fmt.Errorf("%s input schema: %w", path, err)
 		}
-		if !samePhysicalStageColumns(stage.InputColumns, priorColumns) {
+		if !samePhysicalStageColumns(stage.InputColumns, priorColumns) && !physicalGroupInputColumnsExtendSource(stage, priorColumns) {
 			return fmt.Errorf("%s input schema differs from preceding stage output", path)
 		}
 		if err := validatePhysicalStageColumns(stage.OutputColumns, stage.RowIdentityColumn); err != nil {
@@ -128,7 +130,7 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 			}
 			if err := validatePhysicalStageRowValues(
 				stage.GroupedPivot.RowValues, stage.InputColumns, stage.OutputColumns,
-				physicalProjectionNameSet(stage.GroupedPivot.InputProjections), groupedPivotBaseOutputs(*stage.GroupedPivot), nil,
+				physicalProjectionNameSet(stage.GroupedPivot.InputProjections), groupedPivotBaseOutputs(*stage.GroupedPivot), nil, "",
 			); err != nil {
 				return fmt.Errorf("%s grouped pivot row values: %w", path, err)
 			}
@@ -153,7 +155,7 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 			if stage.Group == nil || stage.Filter != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil || len(stage.DerivedLets) != 0 {
 				return fmt.Errorf("%s GROUP requires only a group payload", path)
 			}
-			if err := validatePhysicalStageGroup(stage, *stage.Group, bindVars); err != nil {
+			if err := validatePhysicalStageGroup(stage, *stage.Group, bindVars, sequence.SourceRowIdentity, sourceOperations); err != nil {
 				return fmt.Errorf("%s group: %w", path, err)
 			}
 			expected := make([]string, 0, len(stage.Group.Keys)+len(stage.Group.Aggregates)+len(stage.Group.RowValues)+2)
@@ -164,6 +166,9 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 			}
 			if stage.Group.SemanticKey != nil {
 				expected = append(expected, stage.Group.SemanticKey.OutputColumn)
+			}
+			if stage.Group.CodingKey != nil {
+				expected = append(expected, stage.Group.CodingKey.OutputColumn)
 			}
 			for _, aggregate := range stage.Group.Aggregates {
 				expected = append(expected, aggregate.Output)
@@ -434,6 +439,34 @@ func validatePhysicalStageRowLineage(sequence PhysicalStageSequence, terminal Ph
 			if stage.Group == nil {
 				return fmt.Errorf("row lineage Group payload is invalid")
 			}
+			if stage.Group.CodingKey != nil {
+				coding := stage.Group.CodingKey
+				if coding.RelatedSource != nil {
+					if err := validatePhysicalRelatedCodingGroupRowLineage(sequence, terminal, stage, sourceOperations, bindVars); err != nil {
+						return err
+					}
+				} else {
+					if len(sequence.Stages) != 1 || sequence.SourceRowIdentity != "__loom_expansion_identity" ||
+						coding.SourceStageID != sequence.SourceStageID || coding.SourceOccurrenceKeyColumn != terminal.OccurrenceKeyColumn {
+						return fmt.Errorf("row lineage CODING_IDENTITY Group requires its exact expanded input occurrence key")
+					}
+					rootType := ""
+					rootScans := 0
+					for _, operation := range sourceOperations {
+						if operation.Kind != PhysicalRootScanOp {
+							continue
+						}
+						if operation.RootScan == nil {
+							return fmt.Errorf("row lineage Coding Group root scan is invalid")
+						}
+						rootScans++
+						rootType, _ = bindVars[operation.RootScan.CollectionBindKey].(string)
+					}
+					if rootScans != 1 || rootType == "" || rootType != terminal.ResourceType {
+						return fmt.Errorf("row lineage Coding Group requires one root source of its declared resource type")
+					}
+				}
+			}
 			if err := validatePhysicalGroupFilterLineage(sequence.Stages); err != nil {
 				return err
 			}
@@ -466,6 +499,52 @@ func validatePhysicalStageRowLineage(sequence PhysicalStageSequence, terminal Ph
 	fetchLimit, fetchOK := bindVars[terminal.FetchLimitBindKey].(int)
 	if !offsetOK || offset < 0 || !limitOK || limit < 1 || limit > 100 || !fetchOK || fetchLimit != limit+1 {
 		return fmt.Errorf("row lineage requires a nonnegative offset and a page of 1 through 100 plus one row")
+	}
+	return nil
+}
+
+func validatePhysicalRelatedCodingGroupRowLineage(
+	sequence PhysicalStageSequence,
+	terminal PhysicalRowLineageReturn,
+	stage PhysicalConstructionStage,
+	sourceOperations []PhysicalOperation,
+	bindVars map[string]any,
+) error {
+	if len(sequence.Stages) != 1 || sequence.SourceRowIdentity != "_key" ||
+		stage.Kind != PhysicalStageGroupOp || stage.InputStageID != sequence.SourceStageID ||
+		stage.Group == nil || stage.Group.CodingKey == nil || stage.Group.RelatedOccurrence == nil {
+		return fmt.Errorf("row lineage related Coding Group requires one terminal direct-root Group")
+	}
+	group := stage.Group
+	coding := group.CodingKey
+	related := coding.RelatedSource
+	adapter := group.RelatedOccurrence
+	if related == nil || coding.SourceUnnest != nil || coding.SourceStageID != sequence.SourceStageID ||
+		coding.SourceShapeID == "" || coding.SourceShapeID != related.SourceShapeID ||
+		coding.SourceOccurrenceKeyColumn == "" || coding.SourceOccurrenceKeyColumn != adapter.OccurrenceKeyColumn ||
+		terminal.OccurrenceKeyColumn != adapter.OccurrenceKeyColumn ||
+		coding.MembershipColumn != adapter.CodingMembershipColumn || group.SemanticKey != nil ||
+		group.RootContributorInputColumn != "" || group.RootContributorOutputColumn != "" || group.RootContributorVariable != "" {
+		return fmt.Errorf("row lineage related Coding Group requires its exact route and occurrence identity without contributor arrays")
+	}
+	if len(group.Aggregates) == 0 {
+		return fmt.Errorf("row lineage related Coding Group requires COUNT_ROWS")
+	}
+	for _, aggregate := range group.Aggregates {
+		if aggregate.Operation != "COUNT_ROWS" || aggregate.InputColumn != "" {
+			return fmt.Errorf("row lineage related Coding Group supports only COUNT_ROWS")
+		}
+	}
+	if err := validatePhysicalGroupRelatedOccurrenceAdapter(*group, stage); err != nil {
+		return fmt.Errorf("row lineage related Coding Group adapter: %w", err)
+	}
+	_, rootType, err := validateCodedPivotSourceRoot(sourceOperations, bindVars)
+	if err != nil {
+		return fmt.Errorf("row lineage related Coding Group source: %w", err)
+	}
+	if rootType != terminal.ResourceType || related.AnchorOccurrenceID != adapter.RelatedRecords.AnchorOccurrenceID ||
+		related.AnchorResourceType != rootType {
+		return fmt.Errorf("row lineage related Coding Group must anchor the declared direct root resource")
 	}
 	return nil
 }
@@ -1389,9 +1468,12 @@ func validatePhysicalStageCohortGroup(stage PhysicalConstructionStage, cohort Ph
 	return nil
 }
 
-func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalStageGroup, bindVars map[string]any) error {
+func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalStageGroup, bindVars map[string]any, sourceIdentity string, sourceOperations []PhysicalOperation) error {
 	if len(group.Keys) == 0 && group.SemanticKey == nil && len(group.Aggregates) == 0 && len(group.RowValues) == 0 {
 		return fmt.Errorf("requires at least one key or aggregate")
+	}
+	if group.SemanticKey != nil && group.CodingKey != nil {
+		return fmt.Errorf("Group cannot combine a semantic family key with CODING_IDENTITY")
 	}
 	if group.SemanticKey != nil {
 		key := group.SemanticKey
@@ -1420,6 +1502,29 @@ func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalS
 		return fmt.Errorf("input projections: %w", err)
 	}
 	defined := map[string]bool{stage.InputRowVariable: true}
+	if group.RelatedOccurrence != nil {
+		for _, variable := range []string{
+			group.RelatedOccurrence.RelatedRecords.RelatedRecordsVariable,
+			group.RelatedOccurrence.RelatedRecords.IndexVariable,
+			group.RelatedOccurrence.RelatedRecords.ItemVariable,
+			group.RelatedOccurrence.RouteHasItemVariable,
+		} {
+			if variable != "" {
+				if err := definePhysicalVariable(defined, variable); err != nil {
+					return fmt.Errorf("related route variable: %w", err)
+				}
+			}
+		}
+		if unnest := group.RelatedOccurrence.CodingUnnest; unnest != nil {
+			for _, variable := range []string{unnest.OutputVariable, unnest.HasItemVariable, unnest.Ordinality} {
+				if variable != "" {
+					if err := definePhysicalVariable(defined, variable); err != nil {
+						return fmt.Errorf("related Coding unnest variable: %w", err)
+					}
+				}
+			}
+		}
+	}
 	for index, projection := range stage.InputProjections {
 		if err := validatePhysicalProjection(projection, defined, bindVars); err != nil {
 			return fmt.Errorf("input projection %d (%q): %w", index, projection.Name, err)
@@ -1440,7 +1545,14 @@ func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalS
 	}
 	for index, key := range group.Keys {
 		input, ok := inputByName[key.InputColumn]
-		if !ok || input.Internal || input.Cardinality == "many" {
+		if !ok || input.Cardinality == "many" {
+			return fmt.Errorf("key %d column %q is not a public scalar input", index, key.InputColumn)
+		}
+		if key.FieldSource != nil {
+			if !key.InputInternal || !input.Internal || !validPhysicalGroupFieldSource(key.FieldSource, stage.InputStageID) {
+				return fmt.Errorf("key %d hidden input column %q has no exact source-stage authority", index, key.InputColumn)
+			}
+		} else if key.InputInternal || input.Internal {
 			return fmt.Errorf("key %d column %q is not a public scalar input", index, key.InputColumn)
 		}
 		kind, ok := physicalStageScalarKind(input.Kind)
@@ -1453,6 +1565,11 @@ func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalS
 		}
 		if err := definePhysicalVariable(defined, key.Variable); err != nil {
 			return fmt.Errorf("key %d: %w", index, err)
+		}
+	}
+	if group.CodingKey != nil {
+		if err := validatePhysicalStageCodingKey(stage, *group.CodingKey, outputByName, inputByName, defined, bindVars, sourceIdentity, sourceOperations); err != nil {
+			return fmt.Errorf("CODING_IDENTITY key: %w", err)
 		}
 	}
 	if group.SemanticKey != nil {
@@ -1520,9 +1637,12 @@ func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalS
 	}
 	if err := validatePhysicalStageRowValues(
 		group.RowValues, stage.InputColumns, stage.OutputColumns,
-		physicalProjectionNameSet(stage.InputProjections), reservedOutputs, defined,
+		physicalProjectionNameSet(stage.InputProjections), reservedOutputs, defined, stage.InputStageID,
 	); err != nil {
 		return fmt.Errorf("row values: %w", err)
+	}
+	if err := validatePhysicalGroupRelatedOccurrenceAdapter(group, stage); err != nil {
+		return fmt.Errorf("related occurrence adapter: %w", err)
 	}
 	if err := definePhysicalVariable(defined, group.IdentityVariable); err != nil {
 		return fmt.Errorf("identity: %w", err)
@@ -1539,6 +1659,280 @@ func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalS
 		return fmt.Errorf("output projections: %w", err)
 	}
 	return nil
+}
+
+func validatePhysicalStageCodingKey(
+	stage PhysicalConstructionStage,
+	coding PhysicalStageGroupCodingKey,
+	outputs, inputs map[string]PhysicalStageColumn,
+	defined map[string]bool,
+	bindVars map[string]any,
+	sourceIdentity string,
+	sourceOperations []PhysicalOperation,
+) error {
+	if coding.RelatedSource != nil {
+		return validatePhysicalStageRelatedCodingKey(stage, coding, outputs, inputs, defined, sourceIdentity)
+	}
+	if stage.InputStageID != "source_projection" || sourceIdentity != "__loom_expansion_identity" ||
+		coding.SourceStageID != stage.InputStageID || coding.SourceShapeID == "" || coding.SourceOccurrenceKeyColumn == "" ||
+		coding.OwnerOccurrenceID == "" || coding.OwnerResourceType == "" || coding.CodingPath == "" ||
+		coding.OutputColumn == "" || coding.TupleVariable == "" || coding.LabelVariable == "" || coding.MembershipColumn == "" {
+		return fmt.Errorf("requires exact source_projection expansion identity and compiler source-shape binding")
+	}
+	if sourceIdentity != "__loom_expansion_identity" {
+		return fmt.Errorf("source identity is not the exact expansion occurrence")
+	}
+	var unnest *PhysicalUnnest
+	for _, operation := range sourceOperations {
+		if operation.Kind != PhysicalUnnestOp {
+			continue
+		}
+		if operation.Unnest == nil || unnest != nil {
+			return fmt.Errorf("source must contain exactly one typed PhysicalUnnest")
+		}
+		unnest = operation.Unnest
+	}
+	if unnest == nil || coding.SourceUnnest == nil {
+		return fmt.Errorf("does not carry both the source and compiled exact PhysicalUnnest")
+	}
+	if !PhysicalUnnestExactGroupShapeEqual(*unnest, *coding.SourceUnnest) {
+		return fmt.Errorf("compiled Group unnest differs from the exact source operation")
+	}
+	if unnest.Ordinality == "" || unnest.Expression.Extract == nil ||
+		unnest.Owner.OccurrenceID != coding.OwnerOccurrenceID || unnest.Owner.ResourceType != coding.OwnerResourceType ||
+		unnest.Expression.Extract.Selector.CanonicalPath() != coding.CodingPath {
+		return fmt.Errorf("does not match owner %q/%q, Coding selector %q, and ordinal %q", coding.OwnerOccurrenceID, coding.OwnerResourceType, coding.CodingPath, unnest.Ordinality)
+	}
+	output, ok := outputs[coding.OutputColumn]
+	if !ok || output.Internal || output.Kind != "string" || output.Cardinality != "required_one" {
+		return fmt.Errorf("output column %q must be a public scalar string", coding.OutputColumn)
+	}
+	membership, ok := inputs[coding.MembershipColumn]
+	if !ok || !membership.Internal || membership.Kind != "object" || membership.Cardinality != "optional_one" || !membership.Nullable {
+		return fmt.Errorf("membership column %q must be a hidden nullable Coding tuple object", coding.MembershipColumn)
+	}
+	occurrence, ok := inputs[coding.SourceOccurrenceKeyColumn]
+	if !ok || !occurrence.Internal || occurrence.Kind != "object" || occurrence.Cardinality != "required_one" {
+		return fmt.Errorf("occurrence column %q must be the hidden exact expansion identity object", coding.SourceOccurrenceKeyColumn)
+	}
+	if !stageInputRowProjection(stage, coding.MembershipColumn) || !stageInputRowProjection(stage, coding.SourceOccurrenceKeyColumn) {
+		return fmt.Errorf("membership and occurrence columns must be projected from the exact source row")
+	}
+	membershipProjection, ok := sourceReturnProjection(sourceOperations, coding.MembershipColumn)
+	if !ok || !isCodingMembershipProjection(membershipProjection, *unnest) {
+		return fmt.Errorf("membership projection does not contain only the selected Coding system/version/code/display fields")
+	}
+	occurrenceProjection, ok := sourceReturnProjection(sourceOperations, coding.SourceOccurrenceKeyColumn)
+	if !ok || !isExactExpansionOccurrenceProjection(occurrenceProjection, *unnest, bindVars) {
+		return fmt.Errorf("occurrence projection is not the exact root/route/owner/item/ordinal identity")
+	}
+	if err := definePhysicalVariable(defined, coding.InputTupleVariable); err != nil {
+		return fmt.Errorf("input tuple: %w", err)
+	}
+	if err := definePhysicalVariable(defined, coding.TupleVariable); err != nil {
+		return fmt.Errorf("tuple: %w", err)
+	}
+	if err := definePhysicalVariable(defined, coding.LabelVariable); err != nil {
+		return fmt.Errorf("label: %w", err)
+	}
+	return nil
+}
+
+func validatePhysicalStageRelatedCodingKey(
+	stage PhysicalConstructionStage,
+	coding PhysicalStageGroupCodingKey,
+	outputs, inputs map[string]PhysicalStageColumn,
+	defined map[string]bool,
+	sourceIdentity string,
+) error {
+	related := coding.RelatedSource
+	if stage.Group == nil {
+		return fmt.Errorf("Group payload is missing")
+	}
+	adapter := stage.Group.RelatedOccurrence
+	if related == nil || adapter == nil || stage.InputStageID != "source_projection" || sourceIdentity != "_key" ||
+		coding.SourceStageID != stage.InputStageID || coding.SourceShapeID != related.SourceShapeID ||
+		coding.SourceOccurrenceKeyColumn == "" || coding.SourceOccurrenceKeyColumn != adapter.OccurrenceKeyColumn ||
+		coding.SourceUnnest != nil || coding.OwnerOccurrenceID != related.TargetOccurrenceID ||
+		coding.OwnerResourceType != related.TargetResourceType || coding.CodingPath != related.CodingSelector ||
+		coding.MembershipColumn != related.MembershipColumn || coding.MembershipColumn != adapter.CodingMembershipColumn {
+		return fmt.Errorf("requires the exact Group-owned related target, Coding selector, and occurrence identity")
+	}
+	if related.RouteID != adapter.RouteID || related.EmptyPolicy != string(adapter.RelatedRecords.EmptyPolicy) ||
+		len(adapter.RelatedRecords.Route) == 0 ||
+		related.TargetOccurrenceID != adapter.RelatedRecords.Route[len(adapter.RelatedRecords.Route)-1].ToOccurrenceID ||
+		related.TargetNodeID != adapter.RelatedRecords.TargetNodeID || related.TargetResourceType != adapter.RelatedRecords.TargetResourceType ||
+		!physicalGroupRelatedRouteMatches(related.Route, adapter.RelatedRecords.Route) {
+		return fmt.Errorf("related Coding source differs from the exact Group-owned route")
+	}
+	if coding.OutputColumn == "" || coding.InputTupleVariable == "" || coding.TupleVariable == "" || coding.LabelVariable == "" ||
+		coding.MembershipColumn == "" || adapter.CodingSelector != coding.CodingPath || adapter.CodingUnnest == nil ||
+		adapter.CodingArrayColumn == "" || adapter.CodingUnnest.Ordinality == "" ||
+		adapter.CodingUnnest.EmptyPolicy != adapter.CodingEmptyPolicy ||
+		adapter.CodingUnnest.Expression.Kind != PhysicalValueExpression || adapter.CodingUnnest.Expression.Value == nil ||
+		adapter.CodingUnnest.Expression.Value.Variable != adapter.RelatedRecords.ItemVariable ||
+		!reflect.DeepEqual(adapter.CodingUnnest.Expression.Value.Path, []string{adapter.CodingArrayColumn}) {
+		return fmt.Errorf("related Coding selector has no exact typed array and ordinal operation")
+	}
+	output, ok := outputs[coding.OutputColumn]
+	if !ok || output.Internal || output.Kind != "string" || output.Cardinality != "required_one" {
+		return fmt.Errorf("output column %q must be a public scalar string", coding.OutputColumn)
+	}
+	membership, ok := inputs[coding.MembershipColumn]
+	if !ok || !membership.Internal || membership.Kind != "object" || membership.Cardinality != "optional_one" || !membership.Nullable {
+		return fmt.Errorf("membership column %q must be a hidden nullable Coding tuple object", coding.MembershipColumn)
+	}
+	occurrence, ok := inputs[coding.SourceOccurrenceKeyColumn]
+	if !ok || !occurrence.Internal || occurrence.Kind != "object" || occurrence.Cardinality != "required_one" {
+		return fmt.Errorf("occurrence column %q must be the hidden exact related target/Coding ordinal identity", coding.SourceOccurrenceKeyColumn)
+	}
+	membershipProjection, membershipProjected := stageInputProjection(stage, coding.MembershipColumn)
+	occurrenceProjection, occurrenceProjected := stageInputProjection(stage, coding.SourceOccurrenceKeyColumn)
+	if !membershipProjected || !membershipProjection.Hidden || membershipProjection.Expression == nil ||
+		!occurrenceProjected || !occurrenceProjection.Hidden || occurrenceProjection.Expression == nil {
+		return fmt.Errorf("membership and occurrence columns must be projected from the related Group adapter")
+	}
+	if err := definePhysicalVariable(defined, coding.InputTupleVariable); err != nil {
+		return fmt.Errorf("input tuple: %w", err)
+	}
+	if err := definePhysicalVariable(defined, coding.TupleVariable); err != nil {
+		return fmt.Errorf("tuple: %w", err)
+	}
+	if err := definePhysicalVariable(defined, coding.LabelVariable); err != nil {
+		return fmt.Errorf("label: %w", err)
+	}
+	return nil
+}
+
+// PhysicalUnnestExactGroupShapeEqual compares compiler-owned shape facts while
+// allowing cloned runtime bindings and operation-local references to differ.
+func PhysicalUnnestExactGroupShapeEqual(left, right PhysicalUnnest) bool {
+	if left.Owner.OccurrenceID != right.Owner.OccurrenceID || left.Owner.ResourceType != right.Owner.ResourceType ||
+		left.Owner.RootVariable != right.Owner.RootVariable || left.Owner.OwnerVariable != right.Owner.OwnerVariable ||
+		len(left.Owner.Route) != len(right.Owner.Route) || left.OutputVariable != right.OutputVariable ||
+		left.Ordinality != right.Ordinality || left.HasItemVariable != right.HasItemVariable ||
+		!reflect.DeepEqual(left.Ancestors, right.Ancestors) || left.EmptyPolicy != right.EmptyPolicy ||
+		left.Expression.Kind != right.Expression.Kind || left.Expression.Cardinality != right.Expression.Cardinality ||
+		left.Expression.Extract == nil || right.Expression.Extract == nil {
+		return false
+	}
+	for index := range left.Owner.Route {
+		a, b := left.Owner.Route[index], right.Owner.Route[index]
+		if a.OccurrenceID != b.OccurrenceID || !reflect.DeepEqual(a.Traversal, b.Traversal) {
+			return false
+		}
+	}
+	return reflect.DeepEqual(left.Expression.Extract.Source, right.Expression.Extract.Source) &&
+		left.Expression.Extract.ResourceType == right.Expression.Extract.ResourceType &&
+		left.Expression.Extract.Selector.CanonicalPath() == right.Expression.Extract.Selector.CanonicalPath()
+}
+
+func stageInputRowProjection(stage PhysicalConstructionStage, name string) bool {
+	for _, projection := range stage.InputProjections {
+		if projection.Name == name && projection.Hidden && projection.Value.Variable == stage.InputRowVariable && reflect.DeepEqual(projection.Value.Path, []string{name}) {
+			return true
+		}
+	}
+	return false
+}
+
+func stageInputProjection(stage PhysicalConstructionStage, name string) (PhysicalProjection, bool) {
+	for _, projection := range stage.InputProjections {
+		if projection.Name == name {
+			return projection, true
+		}
+	}
+	return PhysicalProjection{}, false
+}
+
+func sourceReturnProjection(operations []PhysicalOperation, name string) (PhysicalProjection, bool) {
+	for index := len(operations) - 1; index >= 0; index-- {
+		operation := operations[index]
+		if operation.Kind != PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Name == name {
+				return projection, true
+			}
+		}
+		return PhysicalProjection{}, false
+	}
+	return PhysicalProjection{}, false
+}
+
+func isCodingMembershipProjection(projection PhysicalProjection, unnest PhysicalUnnest) bool {
+	if !projection.Hidden || projection.Expression == nil || projection.Expression.Kind != PhysicalObjectExpression || projection.Expression.Object == nil ||
+		len(projection.Expression.Object.Fields) != 4 {
+		return false
+	}
+	wanted := []string{"system", "version", "code", "display"}
+	for index, field := range projection.Expression.Object.Fields {
+		if field.Name != wanted[index] || field.Expression.Kind != PhysicalValueExpression || field.Expression.Value == nil ||
+			field.Expression.Value.Variable != unnest.OutputVariable || !reflect.DeepEqual(field.Expression.Value.Path, []string{wanted[index]}) {
+			return false
+		}
+	}
+	return true
+}
+
+func isExactExpansionOccurrenceProjection(projection PhysicalProjection, unnest PhysicalUnnest, bindVars map[string]any) bool {
+	if !projection.Hidden || projection.Expression == nil || projection.Expression.Kind != PhysicalObjectExpression || projection.Expression.Object == nil {
+		return false
+	}
+	wantedNames := []string{"root_id", "occurrence_id"}
+	for index := range unnest.Owner.Route {
+		wantedNames = append(wantedNames, fmt.Sprintf("edge_%02d_id", index))
+	}
+	wantedNames = append(wantedNames, "owner_id", "item_present", "ordinal")
+	fields := projection.Expression.Object.Fields
+	if len(fields) != len(wantedNames) {
+		return false
+	}
+	for index, field := range fields {
+		if field.Name != wantedNames[index] {
+			return false
+		}
+		switch field.Name {
+		case "occurrence_id":
+			if field.Expression.Kind != PhysicalLiteralExpression || field.Expression.Literal == nil {
+				return false
+			}
+			value, ok := bindVars[field.Expression.Literal.BindKey].(string)
+			if !ok || value != unnest.Owner.OccurrenceID {
+				return false
+			}
+		default:
+			wantVariable, wantPath := "", "_id"
+			switch {
+			case field.Name == "root_id":
+				wantVariable = unnest.Owner.RootVariable
+			case field.Name == "owner_id":
+				wantVariable = unnest.Owner.OwnerVariable
+			case field.Name == "item_present":
+				wantVariable, wantPath = unnest.HasItemVariable, ""
+			case field.Name == "ordinal":
+				wantVariable, wantPath = unnest.Ordinality, ""
+			default:
+				routeIndex := index - 2
+				if routeIndex < 0 || routeIndex >= len(unnest.Owner.Route) {
+					return false
+				}
+				wantVariable = unnest.Owner.Route[routeIndex].Traversal.EdgeVariable
+			}
+			if field.Expression.Kind != PhysicalValueExpression || field.Expression.Value == nil ||
+				field.Expression.Value.Variable != wantVariable ||
+				!reflect.DeepEqual(field.Expression.Value.Path, func() []string {
+					if wantPath == "" {
+						return nil
+					}
+					return []string{wantPath}
+				}()) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func validateRootContributorReduction(
@@ -1584,6 +1978,7 @@ func validatePhysicalStageRowValues(
 	inputColumns, outputColumns []PhysicalStageColumn,
 	projectedInputs, reservedOutputs map[string]bool,
 	defined map[string]bool,
+	inputStageID string,
 ) error {
 	inputs, outputs := physicalStageColumnMap(inputColumns), physicalStageColumnMap(outputColumns)
 	seenOutputs := make(map[string]bool, len(rowValues))
@@ -1593,7 +1988,15 @@ func validatePhysicalStageRowValues(
 		if input.Kind == "object" {
 			inputKind, scalar = "OBJECT", true
 		}
-		if !ok || input.Internal || !scalar || inputKind != rowValue.InputKind ||
+		boundSource := rowValue.FieldSource
+		if boundSource != nil {
+			if !input.Internal || !validPhysicalGroupFieldSource(boundSource, inputStageID) {
+				return fmt.Errorf("row value %d hidden input column %q has no exact source-stage authority", index, rowValue.InputColumn)
+			}
+		} else if input.Internal {
+			return fmt.Errorf("row value %d input column %q is internal without a bound source authority", index, rowValue.InputColumn)
+		}
+		if !ok || (!input.Internal && boundSource != nil) || !scalar || inputKind != rowValue.InputKind ||
 			(rowValue.InputMany != (input.Cardinality == "many")) {
 			return fmt.Errorf("row value %d input column %q is not a supported scalar or scalar array", index, rowValue.InputColumn)
 		}
@@ -1625,6 +2028,216 @@ func validatePhysicalStageRowValues(
 		seenOutputs[rowValue.Output] = true
 	}
 	return nil
+}
+
+func validPhysicalGroupFieldSource(source *PhysicalStageGroupFieldSource, inputStageID string) bool {
+	if source == nil || inputStageID == "" {
+		return false
+	}
+	switch source.Kind {
+	case PhysicalStageGroupFieldSourceCurrentStage:
+		if source.RelatedOccurrence != nil || source.SourceStageID != inputStageID || source.SourceShapeID == "" ||
+			(source.Role != "ROOT" && source.Role != "OWNER" && source.Role != "ANCESTOR" && source.Role != "CURRENT_ITEM") ||
+			source.OccurrenceID == "" || source.OwnerResourceType == "" || source.ResourceType == "" ||
+			source.CandidateID == "" || source.CanonicalPath == "" || source.SourceVariable == "" {
+			return false
+		}
+		return source.Role == "ANCESTOR" && source.BoundarySelector != "" || source.Role != "ANCESTOR" && source.BoundarySelector == ""
+	case PhysicalStageGroupFieldSourceRelatedOccurrence:
+		related := source.RelatedOccurrence
+		if related == nil || source.PhysicalStageGroupCurrentStageFieldSource != (PhysicalStageGroupCurrentStageFieldSource{}) ||
+			related.SourceStageID != inputStageID || related.SourceShapeID == "" || related.AnchorOccurrenceID == "" ||
+			related.AnchorNodeID == "" || related.AnchorResourceType == "" || related.TargetOccurrenceID == "" ||
+			related.TargetNodeID == "" || related.TargetResourceType == "" || related.ResourceType == "" ||
+			(related.EmptyPolicy != "PRESERVE_PARENT" && related.EmptyPolicy != "EXCLUDE" && related.EmptyPolicy != "ERROR") ||
+			related.RouteID == "" || related.Multiplicity != "DISTINCT_TARGET_PER_INPUT" || len(related.Route) == 0 {
+			return false
+		}
+		fromOccurrence, fromNode, fromResource := related.AnchorOccurrenceID, related.AnchorNodeID, related.AnchorResourceType
+		for index, hop := range related.Route {
+			if hop.StepIndex != index || hop.FromOccurrenceID != fromOccurrence || hop.FromNodeID != fromNode || hop.FromResourceType != fromResource ||
+				hop.EdgeID == "" || hop.Relationship == "" || (hop.StorageDirection != "INBOUND" && hop.StorageDirection != "OUTBOUND") ||
+				(hop.MatchMode != "OPTIONAL" && hop.MatchMode != "REQUIRED") || hop.ToOccurrenceID == "" || hop.ToNodeID == "" || hop.ToResourceType == "" {
+				return false
+			}
+			fromOccurrence, fromNode, fromResource = hop.ToOccurrenceID, hop.ToNodeID, hop.ToResourceType
+		}
+		if fromOccurrence != related.TargetOccurrenceID || fromNode != related.TargetNodeID || fromResource != related.TargetResourceType {
+			return false
+		}
+		if related.CodingSelector == "" {
+			return related.CandidateID != "" && related.CanonicalPath != "" && related.CodingEmptyPolicy == "" &&
+				related.OrdinalSemantics == "" && related.ProjectionColumn != "" && related.MembershipColumn == ""
+		}
+		return related.CandidateID == "" && related.CanonicalPath == "" && related.ProjectionColumn == "" &&
+			related.MembershipColumn != "" && related.OrdinalSemantics == "ZERO_BASED_POSITION_IN_FLATTENED_EXPANSION_ARRAY" &&
+			(related.CodingEmptyPolicy == "GROUP" || related.CodingEmptyPolicy == "EXCLUDE" || related.CodingEmptyPolicy == "ERROR")
+	default:
+		return false
+	}
+}
+
+func physicalGroupRelatedRouteMatches(source []PhysicalStageGroupRelatedRouteStep, actual []PhysicalStageRelatedRouteStep) bool {
+	if len(source) == 0 || len(source) != len(actual) {
+		return false
+	}
+	for index, route := range source {
+		step := actual[index]
+		if route.StepIndex != index || route.StepIndex != step.StepIndex ||
+			route.FromOccurrenceID != step.FromOccurrenceID || route.ToOccurrenceID != step.ToOccurrenceID ||
+			route.EdgeID != step.EdgeID || route.FromNodeID != step.FromNodeID ||
+			route.ToNodeID != step.ToNodeID || route.FromResourceType != step.FromResourceType ||
+			route.ToResourceType != step.ToResourceType || route.Relationship != step.Relationship ||
+			route.StorageDirection != step.StorageDirection || route.MatchMode != step.MatchMode {
+			return false
+		}
+	}
+	return true
+}
+
+func physicalGroupRelatedReturnSelector(records *PhysicalStageRelatedExpand, output, resourceType, canonicalPath string) bool {
+	if records == nil || strings.TrimSpace(canonicalPath) == "" ||
+		records.RelatedRecords.Return.Kind != PhysicalObjectExpression || records.RelatedRecords.Return.Object == nil {
+		return false
+	}
+	for _, field := range records.RelatedRecords.Return.Object.Fields {
+		if field.Name != output || field.Expression.Kind != PhysicalExtractExpression || field.Expression.Extract == nil ||
+			field.Expression.Extract.ResourceType != resourceType ||
+			physicalSelectorCanonicalPath(field.Expression.Extract.Selector) != canonicalPath {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func physicalSelectorCanonicalPath(selector spec.Selector) string {
+	parts := make([]string, 0, len(selector.Steps))
+	for _, step := range selector.Steps {
+		part := step.Field
+		if step.Iterate {
+			part += "[]"
+		} else if step.Index != nil {
+			part += fmt.Sprintf("[%d]", *step.Index)
+		}
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, ".")
+}
+
+func validatePhysicalGroupRelatedOccurrenceAdapter(group PhysicalStageGroup, stage PhysicalConstructionStage) error {
+	var sources []*PhysicalStageGroupRelatedOccurrenceFieldSource
+	for index := range group.Keys {
+		if group.Keys[index].FieldSource != nil && group.Keys[index].FieldSource.RelatedOccurrence != nil {
+			sources = append(sources, group.Keys[index].FieldSource.RelatedOccurrence)
+		}
+	}
+	for index := range group.RowValues {
+		if group.RowValues[index].FieldSource != nil && group.RowValues[index].FieldSource.RelatedOccurrence != nil {
+			sources = append(sources, group.RowValues[index].FieldSource.RelatedOccurrence)
+		}
+	}
+	if group.CodingKey != nil && group.CodingKey.RelatedSource != nil {
+		sources = append(sources, group.CodingKey.RelatedSource)
+	}
+	if len(sources) == 0 {
+		if group.RelatedOccurrence != nil {
+			return fmt.Errorf("unreferenced related route adapter")
+		}
+		return nil
+	}
+	adapter := group.RelatedOccurrence
+	if adapter == nil || adapter.RouteID == "" || adapter.RelatedRecords.RouteID != adapter.RouteID ||
+		adapter.RelatedRecords.Multiplicity != "DISTINCT_TARGET_PER_INPUT" ||
+		len(adapter.RelatedRecords.Route) == 0 ||
+		adapter.RelatedRecords.RelatedRecords.Unique != true || adapter.RelatedRecords.RelatedRecords.Sort == nil ||
+		adapter.RelatedRecords.EmptyPolicy == "" {
+		return fmt.Errorf("missing or incomplete exact route adapter")
+	}
+	projections := make(map[string]PhysicalStageGroupRelatedProjection, len(adapter.ScalarProjections))
+	inputColumns := physicalStageColumnMap(stage.InputColumns)
+	for _, projection := range adapter.ScalarProjections {
+		if projection.InputColumn == "" || projection.ResultField == "" || projection.OwnerResourceType == "" || projection.ValueResourceType == "" ||
+			projection.CandidateID == "" || projection.CanonicalPath == "" || projections[projection.InputColumn].InputColumn != "" ||
+			!physicalGroupRelatedReturnSelector(&adapter.RelatedRecords, projection.ResultField, projection.OwnerResourceType, projection.CanonicalPath) {
+			return fmt.Errorf("scalar route projection %q is not an exact selected target field", projection.InputColumn)
+		}
+		input, ok := inputColumns[projection.InputColumn]
+		inputProjection, projectionFound := stageInputProjection(stage, projection.InputColumn)
+		if !ok || !input.Internal || input.Cardinality == "many" || !projectionFound || !inputProjection.Hidden || inputProjection.Value.Variable == "" ||
+			inputProjection.Value.Variable != adapter.RelatedRecords.ItemVariable ||
+			!reflect.DeepEqual(inputProjection.Value.Path, []string{projection.ResultField}) {
+			return fmt.Errorf("scalar route input %q is not projected from its exact related target result", projection.InputColumn)
+		}
+		projections[projection.InputColumn] = projection
+	}
+	if adapter.OccurrenceKeyColumn == "" {
+		return fmt.Errorf("related Group adapter lacks its exact occurrence key")
+	}
+	occurrence, occurrenceOK := inputColumns[adapter.OccurrenceKeyColumn]
+	occurrenceProjection, occurrenceProjected := stageInputProjection(stage, adapter.OccurrenceKeyColumn)
+	if !occurrenceOK || !occurrence.Internal || occurrence.Kind != "object" || occurrence.Cardinality != "required_one" ||
+		!occurrenceProjected || !occurrenceProjection.Hidden || occurrenceProjection.Expression == nil {
+		return fmt.Errorf("related Group occurrence key is not a hidden required object input")
+	}
+	codingSources := 0
+	for _, source := range sources {
+		related := source
+		if related.RouteID != adapter.RouteID || related.EmptyPolicy != string(adapter.RelatedRecords.EmptyPolicy) ||
+			related.TargetOccurrenceID != adapter.RelatedRecords.Route[len(adapter.RelatedRecords.Route)-1].ToOccurrenceID ||
+			related.TargetNodeID != adapter.RelatedRecords.TargetNodeID || related.TargetResourceType != adapter.RelatedRecords.TargetResourceType ||
+			!physicalGroupRelatedRouteMatches(related.Route, adapter.RelatedRecords.Route) {
+			return fmt.Errorf("bound field does not match the Group-owned related route")
+		}
+		if related.CodingSelector == "" {
+			projection, ok := projections[related.ProjectionColumn]
+			if !ok || projection.CandidateID != related.CandidateID || projection.CanonicalPath != related.CanonicalPath || projection.ValueResourceType != related.ResourceType {
+				return fmt.Errorf("bound scalar is missing its exact route projection")
+			}
+			continue
+		}
+		codingSources++
+		wantCodingEmptyPolicy, policyOK := physicalGroupCodingEmptyPolicy(related.CodingEmptyPolicy)
+		if adapter.CodingSelector != related.CodingSelector || adapter.CodingArrayColumn == "" || !policyOK ||
+			adapter.CodingEmptyPolicy != wantCodingEmptyPolicy ||
+			adapter.OrdinalSemantics != related.OrdinalSemantics || adapter.CodingMembershipColumn != related.MembershipColumn ||
+			adapter.CodingUnnest == nil || adapter.CodingUnnest.Ordinality == "" ||
+			adapter.CodingUnnest.EmptyPolicy != adapter.CodingEmptyPolicy ||
+			adapter.CodingUnnest.Expression.Kind != PhysicalValueExpression || adapter.CodingUnnest.Expression.Value == nil ||
+			adapter.CodingUnnest.Expression.Value.Variable != adapter.RelatedRecords.ItemVariable ||
+			len(adapter.CodingUnnest.Expression.Value.Path) != 1 || adapter.CodingUnnest.Expression.Value.Path[0] != adapter.CodingArrayColumn ||
+			!physicalGroupRelatedReturnSelector(&adapter.RelatedRecords, adapter.CodingArrayColumn, related.TargetResourceType, related.CodingSelector) {
+			return fmt.Errorf("bound Coding selector lacks its exact typed target projection and ordinal operation")
+		}
+	}
+	if codingSources > 1 {
+		return fmt.Errorf("Group supports one Coding identity route source")
+	}
+	if (adapter.CodingSelector == "") != (adapter.CodingUnnest == nil) {
+		return fmt.Errorf("Coding route projection and ordinal operation disagree")
+	}
+	if adapter.RelatedRecords.EmptyPolicy != PhysicalUnnestPreserveParent && adapter.RelatedRecords.EmptyPolicy != PhysicalUnnestExclude && adapter.RelatedRecords.EmptyPolicy != PhysicalUnnestError {
+		return fmt.Errorf("route empty policy %q is unsupported", adapter.RelatedRecords.EmptyPolicy)
+	}
+	for _, source := range sources {
+		if !validPhysicalGroupFieldSource(&PhysicalStageGroupFieldSource{Kind: PhysicalStageGroupFieldSourceRelatedOccurrence, RelatedOccurrence: source}, stage.InputStageID) {
+			return fmt.Errorf("related field authority is malformed")
+		}
+	}
+	return nil
+}
+
+func physicalGroupCodingEmptyPolicy(policy string) (PhysicalUnnestEmptyPolicy, bool) {
+	switch policy {
+	case "GROUP":
+		return PhysicalUnnestPreserveParent, true
+	case "EXCLUDE":
+		return PhysicalUnnestExclude, true
+	case "ERROR":
+		return PhysicalUnnestError, true
+	default:
+		return "", false
+	}
 }
 
 func physicalProjectionNameSet(projections []PhysicalProjection) map[string]bool {
@@ -1741,7 +2354,7 @@ func validatePhysicalStageCodedGroup(stage PhysicalConstructionStage, coded Phys
 		coded.CodeOutputColumn: true, coded.CountOutputColumn: true, "__loom_row_id": true,
 	}
 	projectionNames := physicalProjectionNameSet(coded.RowValueProjections)
-	if err := validatePhysicalStageRowValues(coded.RowValues, stage.InputColumns, stage.OutputColumns, projectionNames, reservedOutputs, seenVariables); err != nil {
+	if err := validatePhysicalStageRowValues(coded.RowValues, stage.InputColumns, stage.OutputColumns, projectionNames, reservedOutputs, seenVariables, ""); err != nil {
 		return fmt.Errorf("row values: %w", err)
 	}
 	if len(coded.RowValueProjections) != len(projectionNames) {
@@ -1844,7 +2457,7 @@ func physicalStageColumnMap(columns []PhysicalStageColumn) map[string]PhysicalSt
 
 func physicalStageScalarKind(kind string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
-	case "string", "date", "datetime", "code", "uuid":
+	case "string", "date", "datetime", "date_time", "code", "uuid":
 		return "STRING", true
 	case "integer":
 		return "INTEGER", true
@@ -2041,6 +2654,43 @@ func samePhysicalStageColumns(left, right []PhysicalStageColumn) bool {
 		}
 	}
 	return true
+}
+
+func physicalGroupInputColumnsExtendSource(stage PhysicalConstructionStage, prior []PhysicalStageColumn) bool {
+	if stage.Kind != PhysicalStageGroupOp || stage.Group == nil || stage.Group.RelatedOccurrence == nil || len(stage.InputColumns) <= len(prior) ||
+		!samePhysicalStageColumns(stage.InputColumns[:len(prior)], prior) {
+		return false
+	}
+	adapter := stage.Group.RelatedOccurrence
+	expected := make(map[string]bool, len(adapter.ScalarProjections)+2)
+	for _, projection := range adapter.ScalarProjections {
+		if projection.InputColumn == "" || expected[projection.InputColumn] {
+			return false
+		}
+		expected[projection.InputColumn] = true
+	}
+	if adapter.CodingMembershipColumn != "" {
+		if expected[adapter.CodingMembershipColumn] {
+			return false
+		}
+		expected[adapter.CodingMembershipColumn] = true
+	}
+	if adapter.OccurrenceKeyColumn != "" {
+		if expected[adapter.OccurrenceKeyColumn] {
+			return false
+		}
+		expected[adapter.OccurrenceKeyColumn] = true
+	}
+	if len(stage.InputColumns)-len(prior) != len(expected) {
+		return false
+	}
+	for _, column := range stage.InputColumns[len(prior):] {
+		if !expected[column.Name] || !column.Internal || column.ID != column.Name {
+			return false
+		}
+		delete(expected, column.Name)
+	}
+	return len(expected) == 0
 }
 
 func validateStageVariables(stage PhysicalConstructionStage) error {

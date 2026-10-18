@@ -4,11 +4,12 @@ package ir
 // semantic planning. AQL operation graphs retain lexical variable scope;
 // ClickHouse construction plans use their own closed typed payload.
 type PhysicalPlan struct {
-	Version    int
-	Engine     PhysicalEngine
-	Source     PhysicalSource
-	BindVars   map[string]any
-	Operations []PhysicalOperation
+	Version          int
+	Engine           PhysicalEngine
+	Source           PhysicalSource
+	RootOccurrenceID string
+	BindVars         map[string]any
+	Operations       []PhysicalOperation
 	// ClickHouseCombine is present only for a terminal exact-revision combine
 	// plan. It is immutable after lowering and executed by the ClickHouse
 	// renderer/stream path, never by the AQL renderer.

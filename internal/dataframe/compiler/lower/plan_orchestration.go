@@ -27,8 +27,9 @@ func buildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context s
 		return ir.PhysicalPlan{}, err
 	}
 	physical := ir.PhysicalPlan{
-		Version: 1,
-		Engine:  ir.PhysicalEngineAQL,
+		Version:          1,
+		Engine:           ir.PhysicalEngineAQL,
+		RootOccurrenceID: output.Root.OccurrenceID,
 		Source: ir.PhysicalSource{
 			SemanticNode: output.Root.Alias,
 			ResourceType: output.Root.ResourceType,

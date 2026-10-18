@@ -438,6 +438,34 @@ describe('staged construction contract', () => {
     };
 
     expect(constructionSchema.parse(construction)).toEqual(construction);
+    const scalarBinding = {
+      kind: 'BINDING', valueKind: 'SCALAR', sourceStageId: 'source_projection', sourceShapeId: 'shape-component',
+      sourceRole: 'ANCESTOR', occurrenceId: 'base', resourceType: 'ObservationComponent',
+      ownerOccurrenceId: 'base', ownerResourceType: 'Observation', candidateId: 'component-value',
+      canonicalPath: 'valueQuantity.value', boundarySelector: 'component[]',
+    };
+    const withRowValue = {
+      ...construction,
+      steps: [
+        { ...construction.steps[0], rowValues: [{ fieldSource: scalarBinding, outputColumnId: 'component-values', policy: 'ALL' }] },
+        construction.steps[1],
+      ],
+    };
+    expect(constructionSchema.parse(withRowValue)).toEqual(withRowValue);
+    expect(constructionSchema.safeParse({
+      ...construction,
+      steps: [{
+        ...construction.steps[0],
+        rowValues: [{ inputColumnId: 'source', fieldSource: scalarBinding, outputColumnId: 'invalid', policy: 'ALL' }],
+      }, construction.steps[1]],
+    }).success).toBe(false);
+    expect(constructionSchema.safeParse({
+      ...construction,
+      steps: [{
+        ...construction.steps[0],
+        rowValues: [{ fieldSource: { kind: 'BINDING', valueKind: 'CODING_IDENTITY' }, outputColumnId: 'invalid', policy: 'ALL' }],
+      }, construction.steps[1]],
+    }).success).toBe(false);
     expect(constructionSchema.safeParse({
       ...construction,
       steps: [{
@@ -464,6 +492,151 @@ describe('staged construction contract', () => {
         },
       }],
     }).success).toBe(false);
+  });
+
+  it('parses strict nested related Group bindings while retaining legacy flat bindings', () => {
+    const route = [{
+      stepIndex: 0,
+      fromOccurrenceId: 'base',
+      fromNodeId: 'patient-node',
+      fromResourceType: 'Patient',
+      edgeId: 'patient-specimen',
+      relationship: 'subject_Patient',
+      storageDirection: 'INBOUND',
+      matchMode: 'OPTIONAL',
+      toOccurrenceId: 'specimen-occurrence',
+      toNodeId: 'specimen-node',
+      toResourceType: 'Specimen',
+    }];
+    const relatedBindingBase = {
+      sourceStageId: 'source_projection',
+      sourceShapeId: 'related-shape-v1',
+      input: {
+        kind: 'RELATED_OCCURRENCE',
+        relatedOccurrence: {
+          anchorOccurrenceId: 'base',
+          anchorNodeId: 'patient-node',
+          anchorResourceType: 'Patient',
+          route,
+          targetOccurrenceId: 'specimen-occurrence',
+          targetNodeId: 'specimen-node',
+          targetResourceType: 'Specimen',
+          emptyPolicy: 'PRESERVE_PARENT',
+          multiplicity: 'DISTINCT_TARGET_PER_INPUT',
+        },
+      },
+    } as const;
+    const relatedScalarBinding = {
+      kind: 'BINDING',
+      valueKind: 'SCALAR',
+      ...relatedBindingBase,
+      input: {
+        ...relatedBindingBase.input,
+        relatedOccurrence: {
+          ...relatedBindingBase.input.relatedOccurrence,
+          resourceType: 'string',
+          candidateId: 'specimen-id',
+          canonicalPath: 'id',
+        },
+      },
+    } as const;
+    const relatedCodingBinding = {
+      kind: 'BINDING',
+      valueKind: 'CODING_IDENTITY',
+      ...relatedBindingBase,
+      input: {
+        ...relatedBindingBase.input,
+        relatedOccurrence: {
+          ...relatedBindingBase.input.relatedOccurrence,
+          resourceType: 'Coding',
+          codingSelector: 'type.coding[]',
+          codingEmptyPolicy: 'GROUP',
+          ordinalSemantics: 'ZERO_BASED_POSITION_IN_FLATTENED_EXPANSION_ARRAY',
+        },
+      },
+    } as const;
+    const legacyScalarBinding = {
+      kind: 'BINDING',
+      valueKind: 'SCALAR',
+      sourceStageId: 'source_projection',
+      sourceShapeId: 'source-shape-v1',
+      sourceRole: 'ROOT',
+      occurrenceId: 'base',
+      resourceType: 'Patient',
+      ownerOccurrenceId: 'base',
+      ownerResourceType: 'Patient',
+      candidateId: 'patient-id',
+      canonicalPath: 'id',
+    } as const;
+    const legacyCodingBinding = {
+      kind: 'BINDING',
+      valueKind: 'CODING_IDENTITY',
+      sourceStageId: 'source_projection',
+      sourceShapeId: 'expanded-shape-v1',
+      sourceRole: 'CURRENT_ITEM',
+      occurrenceId: 'observation-owner',
+      resourceType: 'Coding',
+      ownerOccurrenceId: 'observation-owner',
+      ownerResourceType: 'Observation',
+      canonicalPath: 'valueCodeableConcept.coding[]',
+    } as const;
+    const construction = {
+      version: 1,
+      steps: [{
+        id: 'group-specimens',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: {
+          kind: 'GROUP',
+          group: {
+            constructionId: 'group-specimens',
+            keys: [
+              { fieldSource: relatedScalarBinding, outputColumnId: 'specimen-id' },
+              { fieldSource: relatedCodingBinding, outputColumnId: 'specimen-type' },
+              { fieldSource: legacyScalarBinding, outputColumnId: 'patient-id' },
+              { fieldSource: legacyCodingBinding, outputColumnId: 'coding-key' },
+            ],
+            aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: 'row-count' }],
+          },
+        },
+        outputs: [
+          { id: 'specimen-id', name: 'specimen_id', label: 'Specimen ID' },
+          { id: 'specimen-type', name: 'specimen_type', label: 'Specimen type' },
+          { id: 'patient-id', name: 'patient_id', label: 'Patient ID' },
+          { id: 'coding-key', name: 'coding_key', label: 'Coding key' },
+          { id: 'row-count', name: 'row_count', label: 'Rows' },
+        ],
+      }],
+    } as const;
+
+    expect(constructionSchema.parse(construction)).toEqual(construction);
+
+    const malformedCodingBinding = {
+      ...relatedCodingBinding,
+      input: {
+        ...relatedCodingBinding.input,
+        relatedOccurrence: {
+          ...relatedCodingBinding.input.relatedOccurrence,
+          candidateId: 'must-not-exist-for-coding-identity',
+        },
+      },
+    };
+    const malformedConstruction = {
+      ...construction,
+      steps: [{
+        ...construction.steps[0],
+        operation: {
+          ...construction.steps[0].operation,
+          group: {
+            ...construction.steps[0].operation.group,
+            keys: [
+              { fieldSource: relatedScalarBinding, outputColumnId: 'specimen-id' },
+              { fieldSource: malformedCodingBinding, outputColumnId: 'specimen-type' },
+            ],
+          },
+        },
+      }],
+    };
+    expect(constructionSchema.safeParse(malformedConstruction).success).toBe(false);
   });
 
   it('normalizes omitted semantic Group binding versions in proposal responses', () => {
@@ -721,6 +894,8 @@ describe('staged construction contract', () => {
       baseConstruction: { version: 1, steps: [] },
       stages: [stage],
       selectedStage: stage,
+      groupFieldChoices: [],
+      groupRowValueChoices: [],
       workspaceInputs: [],
     };
 
@@ -787,6 +962,7 @@ describe('staged construction contract', () => {
       snapshotToken: 'snapshot', draftVersion: 1, draftDigest: 'sha256:draft',
       outputId: 'patients', stageId: stage.id,
       baseConstruction: { version: 1, steps: [] }, stages: [stage], selectedStage: stage,
+      groupFieldChoices: [], groupRowValueChoices: [],
       workspaceInputs: [],
     };
 

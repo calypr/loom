@@ -188,6 +188,11 @@ func fhirNonGroupableSourcePath(path string) bool {
 	return fhirIdentifierPath(path) || canonicalRowPath(path) == "resourceType"
 }
 
+func fhirNonGroupableGroupFieldPath(path string) bool {
+	path = canonicalRowPath(path)
+	return path == "resourceType" || (fhirIdentifierPath(path) && path != "id")
+}
+
 func containsSourceProjectionMode(modes []capability.ProjectionMode, want capability.ProjectionMode) bool {
 	for _, mode := range modes {
 		if mode == want {

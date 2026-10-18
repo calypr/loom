@@ -94,6 +94,9 @@ type CompiledOutputColumn struct {
 	ID    string
 	Name  string
 	Label string
+	// SemanticValueKind distinguishes public labels whose row identity is
+	// carried by hidden semantic tuples rather than by the display scalar.
+	SemanticValueKind string
 	// SemanticPath is the stable FHIR/provenance identity for this column.
 	// Physical names are deliberately excluded so storage renames do not
 	// invalidate Explorer configuration.
@@ -118,6 +121,8 @@ type CompiledOutputColumn struct {
 	// hidden, globally deduplicated set of contributing root identities.
 	RootContributorResourceType string
 }
+
+const CompiledSemanticValueCodingIdentityDisplay = "CODING_IDENTITY_DISPLAY"
 
 type CompiledRelatedRecordAnchor struct {
 	TargetNodeID       string

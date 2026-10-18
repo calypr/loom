@@ -37,7 +37,7 @@ func CanPopulateConstructionRows(construction *Construction) bool {
 func (s ConstructionStep) inputColumnIDs() []string {
 	ids := s.Operation.inputColumnIDs()
 	for _, value := range s.RowValues {
-		if !containsConstructionColumnID(ids, value.InputColumnID) {
+		if value.InputColumnID != "" && !containsConstructionColumnID(ids, value.InputColumnID) {
 			ids = append(ids, value.InputColumnID)
 		}
 	}
@@ -69,17 +69,33 @@ func validateConstructionRowValues(step ConstructionStep, input map[string]Stage
 	if !constructionShapesRows(step.Operation.Kind) {
 		return fmt.Errorf("rowValues require a grouping or pivot step")
 	}
+	if step.Operation.Kind != ConstructionOperationGroup {
+		for index, value := range step.RowValues {
+			if value.FieldSource != nil {
+				return fmt.Errorf("rowValues[%d].fieldSource is supported only by GROUP", index)
+			}
+		}
+	}
 	outputs := make(map[string]StageColumn, len(step.Outputs))
 	for _, column := range step.Outputs {
 		outputs[column.ID] = column
 	}
 	seen := make(map[string]bool, len(step.RowValues))
-	for _, value := range step.RowValues {
-		if !requiredID(value.InputColumnID) || !requiredID(value.OutputColumnID) || seen[value.OutputColumnID] {
-			return fmt.Errorf("rowValues require distinct outputColumnId and exact inputColumnId")
+	for index, value := range step.RowValues {
+		hasColumn := requiredID(value.InputColumnID)
+		hasFieldSource := value.FieldSource != nil
+		if hasColumn == hasFieldSource || !requiredID(value.OutputColumnID) || seen[value.OutputColumnID] {
+			return fmt.Errorf("rowValues[%d] requires exactly one inputColumnId or fieldSource and a distinct outputColumnId", index)
 		}
 		seen[value.OutputColumnID] = true
-		if _, found := input[value.InputColumnID]; !found {
+		if value.FieldSource != nil {
+			if err := validateConstructionGroupFieldSource(*value.FieldSource); err != nil {
+				return fmt.Errorf("rowValues[%d].fieldSource: %w", index, err)
+			}
+			if value.FieldSource.ValueKind == "CODING_IDENTITY" {
+				return fmt.Errorf("rowValues[%d].fieldSource supports SCALAR values only", index)
+			}
+		} else if _, found := input[value.InputColumnID]; !found {
 			return missingConstructionColumn("rowValues.inputColumnId", value.InputColumnID)
 		}
 		if _, collision := input[value.OutputColumnID]; collision {

@@ -68,6 +68,8 @@ const capabilities: ConstructionCapabilitiesResponse = {
   baseConstruction: construction,
   stages: [sourceStage, intermediateStage],
   selectedStage: intermediateStage,
+  groupFieldChoices: [],
+  groupRowValueChoices: [],
   workspaceInputs: [],
 };
 

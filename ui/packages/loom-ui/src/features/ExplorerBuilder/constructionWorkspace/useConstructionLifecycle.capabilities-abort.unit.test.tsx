@@ -31,6 +31,8 @@ const capabilitiesFor = (args: GetConstructionCapabilitiesArgs): ConstructionCap
     baseConstruction: { version: 1, steps: [] },
     stages: [stage],
     selectedStage: stage,
+    groupFieldChoices: [],
+    groupRowValueChoices: [],
     workspaceInputs: [],
   };
 };
