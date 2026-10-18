@@ -478,3 +478,89 @@ func TestConstructionGroupMissingKeyPoliciesLowerToTypedIRAndAQL(t *testing.T) {
 		})
 	}
 }
+
+func TestCodingIdentityGroupCompilesTypedSourceSchemaAndRenders(t *testing.T) {
+	output := recipe.Output{
+		Name: "coding_identity_group", RootResourceType: "Observation", RootOccurrenceID: "root-observation", RowGrain: "expanded",
+		Fields: []recipe.Field{{Name: "source_code", ColumnID: "source_code_id", Expr: recipe.Expression{Select: "coding.code"}}},
+		Expand: &recipe.Expansion{
+			OwnerOccurrenceID: "root-observation", From: recipe.Expression{Select: "root.valueCodeableConcept.coding[]"},
+			As: "coding", Ordinality: "coding_ordinal", EmptyPolicy: recipe.ExpansionExclude,
+		},
+		Identity: &recipe.Identity{Name: "row", Expansion: &recipe.ExpansionIdentity{}},
+	}
+	compiledSource := compileDerivedTestOutput(t, output)
+	sourceDescriptor, err := DescribeConstructionSourceStage(compiledSource.OutputSchema, output.RootResourceType, &compiledSource.Plan)
+	if err != nil {
+		t.Fatalf("describe expanded source projection: %v", err)
+	}
+	if sourceDescriptor.GroupFieldSourceContext == nil || sourceDescriptor.GroupFieldSourceContext.SourceExpansion == nil {
+		t.Fatal("compiler did not expose the exact expanded source context")
+	}
+	context := sourceDescriptor.GroupFieldSourceContext
+	output.Construction = &recipe.Construction{
+		Version:       1,
+		SourceColumns: []recipe.StageColumn{{ID: "source_code_id", Name: "source_code"}},
+		Steps: []recipe.ConstructionStep{{
+			ID: "group_codings", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+				ConstructionID: "group_coding_identity", MissingKeyPolicy: recipe.ConstructionGroupMissingKeyGroup,
+				Keys: []recipe.ConstructionGroupKey{{
+					OutputColumnID: "coding_label_id",
+					FieldSource: &recipe.ConstructionGroupFieldSource{
+						Kind: "BINDING", ValueKind: "CODING_IDENTITY", SourceStageID: context.SourceStageID,
+						SourceShapeID: context.SourceShapeID, SourceRole: "CURRENT_ITEM",
+						OccurrenceID: context.SourceExpansion.OwnerOccurrenceID, OwnerResourceType: context.SourceExpansion.OwnerResourceType,
+						ResourceType: "Coding", CanonicalPath: context.SourceExpansion.Selector,
+					},
+				}},
+				Aggregates: []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "rows_id"}},
+			}},
+			Outputs: []recipe.StageColumn{
+				{ID: "coding_label_id", Name: "coding_label", Type: "string"},
+				{ID: "rows_id", Name: "rows", Type: "integer"},
+			},
+		}},
+	}
+	compiled := compileDerivedTestOutput(t, output)
+	sequence := compiled.Plan.StageSequence
+	if sequence == nil || len(sequence.Stages) != 1 || sequence.Stages[0].Group == nil || sequence.Stages[0].Group.CodingKey == nil {
+		t.Fatalf("compiled expanded Coding Group stages = %#v", sequence)
+	}
+	stage := sequence.Stages[0]
+	if len(stage.InputColumns) != len(stage.InputProjections) || len(sequence.SourceColumns) != len(stage.InputColumns) {
+		t.Fatalf("source input schema/projection counts diverged: source=%d group input=%d projections=%d", len(sequence.SourceColumns), len(stage.InputColumns), len(stage.InputProjections))
+	}
+	if !stage.InputColumns[len(stage.InputColumns)-1].Internal || stage.InputColumns[len(stage.InputColumns)-1].Name != "__loom_group_source_occurrence_key" {
+		t.Fatalf("exact occurrence identity was not retained as a hidden source input: %#v", stage.InputColumns)
+	}
+	if err := compiled.Plan.Validate(); err != nil {
+		t.Fatalf("validate compiled expanded Coding Group: %v", err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	if err != nil {
+		t.Fatalf("render compiled expanded Coding Group: %v", err)
+	}
+	for _, want := range []string{
+		"COLLECT __loom_construction_group_coding_tuple_1 = __loom_construction_group_coding_tuple_1",
+		"SUM(1)",
+		"MIN(",
+		"__loom_construction_group_coding_tuple_1[2]",
+		"construction_group_source_occurrence",
+		"coding_ordinal",
+		"__loom_has_expanded_item",
+		"FOR __loom_physical_unnest_index_0",
+	} {
+		if !strings.Contains(rendered.Query, want) {
+			t.Errorf("compiled Group AQL missing %q:\n%s", want, rendered.Query)
+		}
+	}
+	if strings.Count(rendered.Query, "FOR root IN @@root_collection") != 1 {
+		t.Errorf("expanded Group should inline one scoped root and existing UNNEST pipeline:\n%s", rendered.Query)
+	}
+	for _, forbidden := range []string{"DOCUMENT(", "codingPath"} {
+		if strings.Contains(rendered.Query, forbidden) {
+			t.Errorf("compiled item Group unexpectedly rescanned source through %q:\n%s", forbidden, rendered.Query)
+		}
+	}
+}

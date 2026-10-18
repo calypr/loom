@@ -149,7 +149,9 @@ func lowerConstructionGroupScalarSource(
 	}
 	if stage != nil {
 		stage.InputColumns = append(stage.InputColumns, toPhysicalStageColumns([]CompiledOutputColumn{column})...)
-		stage.InputProjections = append(stage.InputProjections, projection)
+		stage.InputProjections = append(stage.InputProjections, ir.PhysicalProjection{
+			Name: name, Hidden: true, Value: ir.PhysicalValue{Variable: stage.InputRowVariable, Path: []string{name}},
+		})
 	}
 	return column, projection, field, nil
 }
@@ -235,7 +237,7 @@ func lowerConstructionGroupCodingKey(
 		ordinal = allocateConstructionVariable(usedVariables, "group_item_ordinal", stepIndex)
 		unnest.Ordinality = ordinal
 	}
-	occurrenceKey, occurrenceProjection, err := ensureGroupSourceOccurrenceIdentity(plan, *unnest)
+	occurrenceKey, _, err := ensureGroupSourceOccurrenceIdentity(plan, *unnest)
 	if err != nil {
 		return ir.PhysicalStageGroupCodingKey{}, CompiledOutputColumn{}, ir.PhysicalProjection{}, CompiledOutputColumn{}, ir.PhysicalProjection{}, err
 	}
@@ -264,14 +266,18 @@ func lowerConstructionGroupCodingKey(
 	}
 	if stage != nil {
 		stage.InputColumns = append(stage.InputColumns, toPhysicalStageColumns([]CompiledOutputColumn{inputColumn})...)
-		stage.InputProjections = append(stage.InputProjections, inputProjection)
+		stage.InputProjections = append(stage.InputProjections, ir.PhysicalProjection{
+			Name: membershipColumn, Hidden: true, Value: ir.PhysicalValue{Variable: stage.InputRowVariable, Path: []string{membershipColumn}},
+		})
 		occurrenceColumn := CompiledOutputColumn{
 			ID: occurrenceKey, Name: occurrenceKey, Label: occurrenceKey, Kind: "object",
 			Cardinality: "required_one", Internal: true,
 			SemanticPath: "construction_group_occurrence_identity:" + source.SourceShapeID,
 		}
 		stage.InputColumns = append(stage.InputColumns, toPhysicalStageColumns([]CompiledOutputColumn{occurrenceColumn})...)
-		stage.InputProjections = append(stage.InputProjections, occurrenceProjection)
+		stage.InputProjections = append(stage.InputProjections, ir.PhysicalProjection{
+			Name: occurrenceKey, Hidden: true, Value: ir.PhysicalValue{Variable: stage.InputRowVariable, Path: []string{occurrenceKey}},
+		})
 	}
 	key := ir.PhysicalStageGroupCodingKey{
 		OutputColumn:     output.Name,

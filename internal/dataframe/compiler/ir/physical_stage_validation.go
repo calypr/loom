@@ -153,7 +153,7 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 			if stage.Group == nil || stage.Filter != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil || len(stage.DerivedLets) != 0 {
 				return fmt.Errorf("%s GROUP requires only a group payload", path)
 			}
-			if err := validatePhysicalStageGroup(stage, *stage.Group, bindVars); err != nil {
+			if err := validatePhysicalStageGroup(stage, *stage.Group, bindVars, sequence.SourceRowIdentity, sourceOperations); err != nil {
 				return fmt.Errorf("%s group: %w", path, err)
 			}
 			expected := make([]string, 0, len(stage.Group.Keys)+len(stage.Group.Aggregates)+len(stage.Group.RowValues)+2)
@@ -164,6 +164,9 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 			}
 			if stage.Group.SemanticKey != nil {
 				expected = append(expected, stage.Group.SemanticKey.OutputColumn)
+			}
+			if stage.Group.CodingKey != nil {
+				expected = append(expected, stage.Group.CodingKey.OutputColumn)
 			}
 			for _, aggregate := range stage.Group.Aggregates {
 				expected = append(expected, aggregate.Output)
@@ -1389,9 +1392,12 @@ func validatePhysicalStageCohortGroup(stage PhysicalConstructionStage, cohort Ph
 	return nil
 }
 
-func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalStageGroup, bindVars map[string]any) error {
+func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalStageGroup, bindVars map[string]any, sourceIdentity string, sourceOperations []PhysicalOperation) error {
 	if len(group.Keys) == 0 && group.SemanticKey == nil && len(group.Aggregates) == 0 && len(group.RowValues) == 0 {
 		return fmt.Errorf("requires at least one key or aggregate")
+	}
+	if group.SemanticKey != nil && group.CodingKey != nil {
+		return fmt.Errorf("Group cannot combine a semantic family key with CODING_IDENTITY")
 	}
 	if group.SemanticKey != nil {
 		key := group.SemanticKey
@@ -1453,6 +1459,11 @@ func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalS
 		}
 		if err := definePhysicalVariable(defined, key.Variable); err != nil {
 			return fmt.Errorf("key %d: %w", index, err)
+		}
+	}
+	if group.CodingKey != nil {
+		if err := validatePhysicalStageCodingKey(stage, *group.CodingKey, outputByName, inputByName, defined, bindVars, sourceIdentity, sourceOperations); err != nil {
+			return fmt.Errorf("CODING_IDENTITY key: %w", err)
 		}
 	}
 	if group.SemanticKey != nil {
@@ -1539,6 +1550,197 @@ func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalS
 		return fmt.Errorf("output projections: %w", err)
 	}
 	return nil
+}
+
+func validatePhysicalStageCodingKey(
+	stage PhysicalConstructionStage,
+	coding PhysicalStageGroupCodingKey,
+	outputs, inputs map[string]PhysicalStageColumn,
+	defined map[string]bool,
+	bindVars map[string]any,
+	sourceIdentity string,
+	sourceOperations []PhysicalOperation,
+) error {
+	if stage.InputStageID != "source_projection" || sourceIdentity != "__loom_expansion_identity" ||
+		coding.SourceStageID != stage.InputStageID || coding.SourceShapeID == "" || coding.SourceOccurrenceKeyColumn == "" ||
+		coding.OwnerOccurrenceID == "" || coding.OwnerResourceType == "" || coding.CodingPath == "" ||
+		coding.OutputColumn == "" || coding.TupleVariable == "" || coding.LabelVariable == "" || coding.MembershipColumn == "" {
+		return fmt.Errorf("requires exact source_projection expansion identity and compiler source-shape binding")
+	}
+	if sourceIdentity != "__loom_expansion_identity" {
+		return fmt.Errorf("source identity is not the exact expansion occurrence")
+	}
+	var unnest *PhysicalUnnest
+	for _, operation := range sourceOperations {
+		if operation.Kind != PhysicalUnnestOp {
+			continue
+		}
+		if operation.Unnest == nil || unnest != nil {
+			return fmt.Errorf("source must contain exactly one typed PhysicalUnnest")
+		}
+		unnest = operation.Unnest
+	}
+	if unnest == nil || coding.SourceUnnest == nil {
+		return fmt.Errorf("does not carry both the source and compiled exact PhysicalUnnest")
+	}
+	if !physicalUnnestExactGroupShapeEqual(*unnest, *coding.SourceUnnest) {
+		return fmt.Errorf("compiled Group unnest differs from the exact source operation")
+	}
+	if unnest.Ordinality == "" || unnest.Expression.Extract == nil ||
+		unnest.Owner.OccurrenceID != coding.OwnerOccurrenceID || unnest.Owner.ResourceType != coding.OwnerResourceType ||
+		unnest.Expression.Extract.Selector.CanonicalPath() != coding.CodingPath {
+		return fmt.Errorf("does not match owner %q/%q, Coding selector %q, and ordinal %q", coding.OwnerOccurrenceID, coding.OwnerResourceType, coding.CodingPath, unnest.Ordinality)
+	}
+	output, ok := outputs[coding.OutputColumn]
+	if !ok || output.Internal || output.Kind != "string" || output.Cardinality != "required_one" {
+		return fmt.Errorf("output column %q must be a public scalar string", coding.OutputColumn)
+	}
+	membership, ok := inputs[coding.MembershipColumn]
+	if !ok || !membership.Internal || membership.Kind != "object" || membership.Cardinality != "optional_one" || !membership.Nullable {
+		return fmt.Errorf("membership column %q must be a hidden nullable Coding tuple object", coding.MembershipColumn)
+	}
+	occurrence, ok := inputs[coding.SourceOccurrenceKeyColumn]
+	if !ok || !occurrence.Internal || occurrence.Kind != "object" || occurrence.Cardinality != "required_one" {
+		return fmt.Errorf("occurrence column %q must be the hidden exact expansion identity object", coding.SourceOccurrenceKeyColumn)
+	}
+	if !stageInputRowProjection(stage, coding.MembershipColumn) || !stageInputRowProjection(stage, coding.SourceOccurrenceKeyColumn) {
+		return fmt.Errorf("membership and occurrence columns must be projected from the exact source row")
+	}
+	membershipProjection, ok := sourceReturnProjection(sourceOperations, coding.MembershipColumn)
+	if !ok || !isCodingMembershipProjection(membershipProjection, *unnest) {
+		return fmt.Errorf("membership projection does not contain only the selected Coding system/version/code/display fields")
+	}
+	occurrenceProjection, ok := sourceReturnProjection(sourceOperations, coding.SourceOccurrenceKeyColumn)
+	if !ok || !isExactExpansionOccurrenceProjection(occurrenceProjection, *unnest, bindVars) {
+		return fmt.Errorf("occurrence projection is not the exact root/route/owner/item/ordinal identity")
+	}
+	if err := definePhysicalVariable(defined, coding.TupleVariable); err != nil {
+		return fmt.Errorf("tuple: %w", err)
+	}
+	if err := definePhysicalVariable(defined, coding.LabelVariable); err != nil {
+		return fmt.Errorf("label: %w", err)
+	}
+	return nil
+}
+
+func physicalUnnestExactGroupShapeEqual(left, right PhysicalUnnest) bool {
+	if left.Owner.OccurrenceID != right.Owner.OccurrenceID || left.Owner.ResourceType != right.Owner.ResourceType ||
+		left.Owner.RootVariable != right.Owner.RootVariable || left.Owner.OwnerVariable != right.Owner.OwnerVariable ||
+		len(left.Owner.Route) != len(right.Owner.Route) || left.OutputVariable != right.OutputVariable ||
+		left.Ordinality != right.Ordinality || left.HasItemVariable != right.HasItemVariable ||
+		!reflect.DeepEqual(left.Ancestors, right.Ancestors) || left.EmptyPolicy != right.EmptyPolicy ||
+		left.Expression.Kind != right.Expression.Kind || left.Expression.Cardinality != right.Expression.Cardinality ||
+		left.Expression.Extract == nil || right.Expression.Extract == nil {
+		return false
+	}
+	for index := range left.Owner.Route {
+		a, b := left.Owner.Route[index], right.Owner.Route[index]
+		if a.OccurrenceID != b.OccurrenceID || !reflect.DeepEqual(a.Traversal, b.Traversal) {
+			return false
+		}
+	}
+	return reflect.DeepEqual(left.Expression.Extract.Source, right.Expression.Extract.Source) &&
+		left.Expression.Extract.ResourceType == right.Expression.Extract.ResourceType &&
+		left.Expression.Extract.Selector.CanonicalPath() == right.Expression.Extract.Selector.CanonicalPath()
+}
+
+func stageInputRowProjection(stage PhysicalConstructionStage, name string) bool {
+	for _, projection := range stage.InputProjections {
+		if projection.Name == name && projection.Hidden && projection.Value.Variable == stage.InputRowVariable && reflect.DeepEqual(projection.Value.Path, []string{name}) {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceReturnProjection(operations []PhysicalOperation, name string) (PhysicalProjection, bool) {
+	for index := len(operations) - 1; index >= 0; index-- {
+		operation := operations[index]
+		if operation.Kind != PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Name == name {
+				return projection, true
+			}
+		}
+		return PhysicalProjection{}, false
+	}
+	return PhysicalProjection{}, false
+}
+
+func isCodingMembershipProjection(projection PhysicalProjection, unnest PhysicalUnnest) bool {
+	if !projection.Hidden || projection.Expression == nil || projection.Expression.Kind != PhysicalObjectExpression || projection.Expression.Object == nil ||
+		len(projection.Expression.Object.Fields) != 4 {
+		return false
+	}
+	wanted := []string{"system", "version", "code", "display"}
+	for index, field := range projection.Expression.Object.Fields {
+		if field.Name != wanted[index] || field.Expression.Kind != PhysicalValueExpression || field.Expression.Value == nil ||
+			field.Expression.Value.Variable != unnest.OutputVariable || !reflect.DeepEqual(field.Expression.Value.Path, []string{wanted[index]}) {
+			return false
+		}
+	}
+	return true
+}
+
+func isExactExpansionOccurrenceProjection(projection PhysicalProjection, unnest PhysicalUnnest, bindVars map[string]any) bool {
+	if !projection.Hidden || projection.Expression == nil || projection.Expression.Kind != PhysicalObjectExpression || projection.Expression.Object == nil {
+		return false
+	}
+	wantedNames := []string{"root_id", "occurrence_id"}
+	for index := range unnest.Owner.Route {
+		wantedNames = append(wantedNames, fmt.Sprintf("edge_%02d_id", index))
+	}
+	wantedNames = append(wantedNames, "owner_id", "item_present", "ordinal")
+	fields := projection.Expression.Object.Fields
+	if len(fields) != len(wantedNames) {
+		return false
+	}
+	for index, field := range fields {
+		if field.Name != wantedNames[index] {
+			return false
+		}
+		switch field.Name {
+		case "occurrence_id":
+			if field.Expression.Kind != PhysicalLiteralExpression || field.Expression.Literal == nil {
+				return false
+			}
+			value, ok := bindVars[field.Expression.Literal.BindKey].(string)
+			if !ok || value != unnest.Owner.OccurrenceID {
+				return false
+			}
+		default:
+			wantVariable, wantPath := "", "_id"
+			switch {
+			case field.Name == "root_id":
+				wantVariable = unnest.Owner.RootVariable
+			case field.Name == "owner_id":
+				wantVariable = unnest.Owner.OwnerVariable
+			case field.Name == "item_present":
+				wantVariable, wantPath = unnest.HasItemVariable, ""
+			case field.Name == "ordinal":
+				wantVariable, wantPath = unnest.Ordinality, ""
+			default:
+				routeIndex := index - 2
+				if routeIndex < 0 || routeIndex >= len(unnest.Owner.Route) {
+					return false
+				}
+				wantVariable = unnest.Owner.Route[routeIndex].Traversal.EdgeVariable
+			}
+			if field.Expression.Kind != PhysicalValueExpression || field.Expression.Value == nil ||
+				field.Expression.Value.Variable != wantVariable ||
+				!reflect.DeepEqual(field.Expression.Value.Path, func() []string {
+					if wantPath == "" {
+						return nil
+					}
+					return []string{wantPath}
+				}()) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func validateRootContributorReduction(

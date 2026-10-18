@@ -35,7 +35,7 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 		countRowsOnly = false
 	}
 	if input.SourceRowInScope && (input.RowsVariable != "" ||
-		(len(group.Keys) == 0 && group.SemanticKey == nil && !(countRowsOnly && aggregateRowValues))) {
+		(len(group.Keys) == 0 && group.SemanticKey == nil && group.CodingKey == nil && !(countRowsOnly && aggregateRowValues))) {
 		return nil, fmt.Errorf("in-scope source row requires a keyed Group or a keyless COUNT_ROWS Group with row values")
 	}
 	lines := make([]string, 0, 8+len(group.Keys)*2+len(group.Aggregates)+len(group.RowValues))
@@ -66,7 +66,7 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 	}
 	if input.RowsVariable != "" {
 		lines = append(lines, fmt.Sprintf("  FOR %s IN %s", stage.InputRowVariable, rowSource))
-	} else if !input.SourceRowInScope && (!countRowsOnly || len(group.Keys) != 0 || group.SemanticKey != nil) {
+	} else if !input.SourceRowInScope && (!countRowsOnly || len(group.Keys) != 0 || group.SemanticKey != nil || group.CodingKey != nil) {
 		return nil, fmt.Errorf("only keyless COUNT_ROWS groups can consume the current source scope")
 	}
 	semanticMembershipVariable := ""
@@ -151,6 +151,55 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 			return nil, fmt.Errorf("unsupported missing-key policy %q", group.MissingKeyPolicy)
 		}
 	}
+	codingDisplayVariable := ""
+	codingDisplayAggregateVariable := ""
+	if group.CodingKey != nil {
+		coding := group.CodingKey
+		if group.SemanticKey != nil || coding.MembershipColumn == "" || coding.TupleVariable == "" || coding.LabelVariable == "" {
+			return nil, fmt.Errorf("CODING_IDENTITY Group key is incomplete or conflicts with a semantic family key")
+		}
+		membershipBind := r.newInternalBindKey("construction_group_coding_membership_column")
+		r.bindVars[membershipBind] = coding.MembershipColumn
+		membership := r.newInternalVariable("construction_group_coding_membership")
+		lines = append(lines, fmt.Sprintf("  LET %s = %s[@%s]", membership, inputRowVariable, membershipBind))
+		for _, field := range []string{"system", "version", "display"} {
+			value := fmt.Sprintf("%s.%s", membership, field)
+			lines = append(lines, fmt.Sprintf("  FILTER ASSERT(%s == null OR TYPENAME(%s) == \"string\", \"CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH\")", value, value))
+		}
+		system := fmt.Sprintf("%s.system", membership)
+		version := fmt.Sprintf("(TRIM(%s.version) != \"\" ? %s.version : null)", membership, membership)
+		code := fmt.Sprintf("(TYPENAME(%s.code) == \"string\" AND TRIM(%s.code) != \"\" ? %s.code : null)", membership, membership, membership)
+		display := fmt.Sprintf("(TRIM(%s.display) != \"\" ? %s.display : null)", membership, membership)
+		codingDisplayVariable = r.newInternalVariable("construction_group_coding_display")
+		codingDisplayAggregateVariable = r.newInternalVariable("construction_group_coding_min_display")
+		lines = append(lines,
+			fmt.Sprintf("  LET %s = [%s, %s, %s]", coding.TupleVariable, system, version, code),
+			fmt.Sprintf("  LET %s = %s", codingDisplayVariable, display),
+		)
+		switch group.MissingKeyPolicy {
+		case ir.PhysicalStageGroupMissingKeyGroup:
+		case ir.PhysicalStageGroupMissingKeyExclude:
+			lines = append(lines, fmt.Sprintf("  FILTER %s[2] != null", coding.TupleVariable))
+		case ir.PhysicalStageGroupMissingKeyError:
+			lines = append(lines, fmt.Sprintf("  FILTER ASSERT(%s[2] != null, \"CONSTRUCTION_GROUP_MISSING_KEY\")", coding.TupleVariable))
+		default:
+			return nil, fmt.Errorf("unsupported missing-key policy %q", group.MissingKeyPolicy)
+		}
+		collectKeys = append(collectKeys, fmt.Sprintf("%s = %s", coding.TupleVariable, coding.TupleVariable))
+		sortKeys = append(sortKeys, coding.TupleVariable+" ASC")
+		outputID := ""
+		for _, column := range stage.OutputColumns {
+			if column.Name == coding.OutputColumn {
+				outputID = column.ID
+				break
+			}
+		}
+		if outputID == "" {
+			return nil, fmt.Errorf("CODING_IDENTITY Group output %q has no stable column ID", coding.OutputColumn)
+		}
+		outputBind := r.newInternalBindKeyWithValue("construction_group_coding_output_column", outputID)
+		identityParts = append(identityParts, "[@"+outputBind+", \"coding_identity\", "+coding.TupleVariable+"]")
+	}
 	if countRowsOnly && !aggregateRowValues {
 		countVariable := r.newInternalVariable("construction_group_count_rows")
 		collect := "COLLECT"
@@ -159,6 +208,8 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 		}
 		if group.SemanticKey != nil {
 			lines = append(lines, fmt.Sprintf("  %s AGGREGATE %s = SUM(1), %s = MIN(%s)", collect, countVariable, semanticDisplayAggregateVariable, semanticDisplayVariable))
+		} else if group.CodingKey != nil {
+			lines = append(lines, fmt.Sprintf("  %s AGGREGATE %s = SUM(1), %s = MIN(%s)", collect, countVariable, codingDisplayAggregateVariable, codingDisplayVariable))
 		} else {
 			lines = append(lines, fmt.Sprintf("  %s WITH COUNT INTO %s", collect, countVariable))
 		}
@@ -172,11 +223,17 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 		if group.SemanticKey != nil {
 			lines = append(lines, fmt.Sprintf("  LET %s = (%s != null ? %s : %s[2])", group.SemanticKey.LabelVariable, semanticDisplayAggregateVariable, semanticDisplayAggregateVariable, group.SemanticKey.TupleVariable))
 		}
+		if group.CodingKey != nil {
+			lines = append(lines, fmt.Sprintf("  LET %s = (%s != null ? %s : %s[2])", group.CodingKey.LabelVariable, codingDisplayAggregateVariable, codingDisplayAggregateVariable, group.CodingKey.TupleVariable))
+		}
 	} else if aggregateRowValues {
 		countVariable := r.newInternalVariable("construction_group_count_rows")
 		aggregateParts := []string{fmt.Sprintf("%s = SUM(%s != null ? 1 : 0)", countVariable, inputRowVariable)}
 		if group.SemanticKey != nil {
 			aggregateParts = append(aggregateParts, fmt.Sprintf("%s = MIN(%s)", semanticDisplayAggregateVariable, semanticDisplayVariable))
+		}
+		if group.CodingKey != nil {
+			aggregateParts = append(aggregateParts, fmt.Sprintf("%s = MIN(%s)", codingDisplayAggregateVariable, codingDisplayVariable))
 		}
 		rowValueVariables := make([]string, 0, len(group.RowValues))
 		for index, rowValue := range group.RowValues {
@@ -202,11 +259,16 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 		if group.SemanticKey != nil {
 			lines = append(lines, fmt.Sprintf("  LET %s = (%s != null ? %s : %s[2])", group.SemanticKey.LabelVariable, semanticDisplayAggregateVariable, semanticDisplayAggregateVariable, group.SemanticKey.TupleVariable))
 		}
+		if group.CodingKey != nil {
+			lines = append(lines, fmt.Sprintf("  LET %s = (%s != null ? %s : %s[2])", group.CodingKey.LabelVariable, codingDisplayAggregateVariable, codingDisplayAggregateVariable, group.CodingKey.TupleVariable))
+		}
 		lines = append(lines, rowValueVariables...)
 	} else {
 		groupMembers := fmt.Sprintf("{row: %s, present: %s != null}", inputRowVariable, inputRowVariable)
 		if group.SemanticKey != nil {
 			groupMembers = fmt.Sprintf("{row: %s, present: %s != null, semanticDisplay: %s}", inputRowVariable, inputRowVariable, semanticDisplayVariable)
+		} else if group.CodingKey != nil {
+			groupMembers = fmt.Sprintf("{row: %s, present: %s != null, codingDisplay: %s}", inputRowVariable, inputRowVariable, codingDisplayVariable)
 		}
 		if len(collectKeys) == 0 {
 			allRowsVariable := r.newInternalVariable("construction_group_all_rows")
@@ -222,6 +284,13 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 			lines = append(lines,
 				fmt.Sprintf("  LET %s = (FOR %s IN %s FILTER %s.semanticDisplay != null RETURN %s.semanticDisplay)", displays, member, group.GroupRowsVariable, member, member),
 				fmt.Sprintf("  LET %s = (LENGTH(%s) != 0 ? MIN(%s) : %s[2])", group.SemanticKey.LabelVariable, displays, displays, group.SemanticKey.TupleVariable),
+			)
+		} else if group.CodingKey != nil {
+			displays := r.newInternalVariable("construction_group_coding_displays")
+			member := r.newInternalVariable("construction_group_coding_display")
+			lines = append(lines,
+				fmt.Sprintf("  LET %s = (FOR %s IN %s FILTER %s.codingDisplay != null RETURN %s.codingDisplay)", displays, member, group.GroupRowsVariable, member, member),
+				fmt.Sprintf("  LET %s = (LENGTH(%s) != 0 ? MIN(%s) : %s[2])", group.CodingKey.LabelVariable, displays, displays, group.CodingKey.TupleVariable),
 			)
 		}
 		for index, aggregate := range group.Aggregates {

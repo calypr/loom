@@ -161,6 +161,32 @@ func DescribeConstructionSourceStage(schema []CompiledOutputColumn, rootResource
 	return descriptor, nil
 }
 
+func appendGroupSourceProjectionColumns(schema []CompiledOutputColumn, additional []ir.PhysicalStageColumn) []CompiledOutputColumn {
+	result := append([]CompiledOutputColumn(nil), schema...)
+	seen := make(map[string]bool, len(result)+len(additional))
+	for _, column := range result {
+		seen[column.Name] = true
+	}
+	for _, column := range additional {
+		if seen[column.Name] {
+			continue
+		}
+		compiled := CompiledOutputColumn{
+			ID: column.ID, Name: column.Name, Label: column.Label, Kind: column.Kind,
+			Cardinality: column.Cardinality, Nullable: column.Nullable, Internal: column.Internal,
+			Identity: column.Identity, RootContributorResourceType: column.RootContributorResourceType,
+			SemanticPath: "construction_group_source_projection:" + column.Name,
+		}
+		if column.RelatedRecordAnchor != nil {
+			compiled.RelatedRecordAnchor = &CompiledRelatedRecordAnchor{TargetNodeID: column.RelatedRecordAnchor.NodeID, TargetResourceType: column.RelatedRecordAnchor.ResourceType}
+		}
+		compiled.NormalizedUnit = cloneUnitIdentity(column.NormalizedUnit)
+		result = append(result, compiled)
+		seen[column.Name] = true
+	}
+	return result
+}
+
 type constructionStageResult struct {
 	physical                     ir.PhysicalConstructionStage
 	schema                       []CompiledOutputColumn
@@ -330,6 +356,11 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 				anchorErr.OutputID = outputName
 			}
 			return nil, nil, "", fmt.Errorf("construction step %q: %w", step.ID, stageErr)
+		}
+		if result.physical.InputStageID == sequence.SourceStageID && len(result.physical.InputColumns) > len(sequence.SourceColumns) {
+			resolvedSource = appendGroupSourceProjectionColumns(resolvedSource, result.physical.InputColumns[len(sequence.SourceColumns):])
+			sequence.SourceColumns = toPhysicalStageColumns(resolvedSource)
+			descriptors[0].Columns = cloneCompiledSchema(resolvedSource)
 		}
 		sequence.Stages = append(sequence.Stages, result.physical)
 		descriptors = append(descriptors, result.descriptor)
@@ -1324,7 +1355,9 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 	}
 	base.InputRowVariable = inputRow
 	base.RowIdentityColumn = outputIdentity
-	base.InputColumns = inputColumns
+	if len(base.InputColumns) == len(inputColumns) {
+		base.InputColumns = inputColumns
+	}
 	base.OutputColumns = toPhysicalStageColumns(outputSchema)
 	if base.Kind == ir.PhysicalStageDeriveOp || base.Kind == ir.PhysicalStageFilterOp || base.Kind == ir.PhysicalStageRelatedEligibilityOp || base.Kind == ir.PhysicalStageRelatedSourceOp || base.Kind == ir.PhysicalStageRelatedFieldOp {
 		base.InputProjections = inputProjections
