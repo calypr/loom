@@ -44,9 +44,10 @@ type ConstructionStep struct {
 // ConstructionRowValue collects distinct source values from rows that
 // contribute to a grouped or pivoted output row.
 type ConstructionRowValue struct {
-	InputColumnID  string                     `json:"inputColumnId"`
-	OutputColumnID string                     `json:"outputColumnId"`
-	Policy         ConstructionRowValuePolicy `json:"policy"`
+	InputColumnID  string                        `json:"inputColumnId,omitempty"`
+	FieldSource    *ConstructionGroupFieldSource `json:"fieldSource,omitempty"`
+	OutputColumnID string                        `json:"outputColumnId"`
+	Policy         ConstructionRowValuePolicy    `json:"policy"`
 }
 
 type ConstructionRowValuePolicy string
@@ -494,8 +495,9 @@ func (construction Construction) validate(sourceFields []Field, groupRows *Group
 	allowEmptyRootRelatedExpandSource := len(construction.Steps) > 0 &&
 		construction.Steps[0].Operation.Kind == ConstructionRelatedExpandOp &&
 		construction.Steps[0].Operation.RelatedExpand != nil && construction.Steps[0].Operation.RelatedExpand.AnchorColumnID == "_key"
+	allowEmptyBoundGroupSource := len(construction.Steps) > 0 && constructionFirstGroupHasResolvedFieldSource(construction.Steps[0])
 	allowEmptyIdentitySource := len(sourceColumns) == 0 && len(sourceFields) == 0 &&
-		(len(construction.Steps) == 0 || allowEmptyRootRelatedExpandSource)
+		(len(construction.Steps) == 0 || allowEmptyRootRelatedExpandSource || allowEmptyBoundGroupSource)
 	if len(sourceColumns) == 0 && !allowEmptyCodedPivotSource && !allowEmptyIdentitySource {
 		return fmt.Errorf("source projection must contain at least one column")
 	}
@@ -587,6 +589,49 @@ func (construction Construction) validate(sourceFields []Field, groupRows *Group
 		if _, err := cohortGroupStageColumns(sourceFields, groupRows); err != nil {
 			return fmt.Errorf("group rows stage: %w", err)
 		}
+	}
+	return nil
+}
+
+func constructionFirstGroupHasResolvedFieldSource(step ConstructionStep) bool {
+	if step.Operation.Kind != ConstructionGroupOp || step.Operation.Group == nil {
+		return false
+	}
+	isCompilerBoundSource := func(source *ConstructionGroupFieldSource) bool {
+		return source != nil && source.Kind == "BINDING" &&
+			source.SourceStageID == ConstructionSourceProjectionID && source.SourceShapeID != "" &&
+			(source.ValueKind == "SCALAR" || source.ValueKind == "CODING_IDENTITY") &&
+			source.SourceRole != "" && source.OccurrenceID != "" && source.OwnerResourceType != "" &&
+			source.ResourceType != "" && source.CanonicalPath != ""
+	}
+	for _, key := range step.Operation.Group.Keys {
+		if isCompilerBoundSource(key.FieldSource) {
+			return true
+		}
+	}
+	for _, rowValue := range step.RowValues {
+		if isCompilerBoundSource(rowValue.FieldSource) {
+			return true
+		}
+	}
+	return false
+}
+
+func validateConstructionGroupScalarFieldSource(source ConstructionGroupFieldSource, path string) error {
+	if source.Kind != "BINDING" || source.ValueKind != "SCALAR" ||
+		!validConstructionColumnID(source.SourceStageID) || !validConstructionColumnID(source.SourceShapeID) ||
+		(source.SourceRole != "ROOT" && source.SourceRole != "OWNER" && source.SourceRole != "ANCESTOR" && source.SourceRole != "CURRENT_ITEM") ||
+		!validConstructionColumnID(source.OccurrenceID) || !validConstructionColumnID(source.OwnerResourceType) ||
+		!validConstructionColumnID(source.ResourceType) || !validConstructionColumnID(source.CandidateID) ||
+		!validConstructionColumnID(source.CanonicalPath) {
+		return fmt.Errorf("%s is not a resolved scalar BINDING", path)
+	}
+	if source.SourceRole == "ANCESTOR" {
+		if !validConstructionColumnID(source.BoundarySelector) {
+			return fmt.Errorf("%s ANCESTOR requires an exact boundarySelector", path)
+		}
+	} else if source.BoundarySelector != "" {
+		return fmt.Errorf("%s boundarySelector is only valid for ANCESTOR", path)
 	}
 	return nil
 }
@@ -739,8 +784,17 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 	}
 	inputColumns, outputColumns := stageColumnMap(input), stageColumnMap(output)
 	for index, rowValue := range rowValues {
-		if !validConstructionColumnID(rowValue.InputColumnID) || inputColumns[rowValue.InputColumnID].ID == "" {
-			return fmt.Errorf("%s.rowValues[%d].inputColumnId is missing from the input schema", path, index)
+		if rowValue.FieldSource == nil {
+			if !validConstructionColumnID(rowValue.InputColumnID) || inputColumns[rowValue.InputColumnID].ID == "" {
+				return fmt.Errorf("%s.rowValues[%d].inputColumnId is missing from the input schema", path, index)
+			}
+		} else {
+			if operation.Kind != ConstructionGroupOp || rowValue.InputColumnID != "" {
+				return fmt.Errorf("%s.rowValues[%d] must choose exactly one source representation and fieldSource is only supported on GROUP", path, index)
+			}
+			if err := validateConstructionGroupScalarFieldSource(*rowValue.FieldSource, fmt.Sprintf("%s.rowValues[%d].fieldSource", path, index)); err != nil {
+				return err
+			}
 		}
 		if !validConstructionColumnID(rowValue.OutputColumnID) || inputColumns[rowValue.OutputColumnID].ID != "" || rowValueIDs[rowValue.OutputColumnID] {
 			return fmt.Errorf("%s.rowValues[%d].outputColumnId is empty, duplicated, or collides with the input schema", path, index)
