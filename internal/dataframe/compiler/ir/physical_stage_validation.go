@@ -441,24 +441,30 @@ func validatePhysicalStageRowLineage(sequence PhysicalStageSequence, terminal Ph
 			}
 			if stage.Group.CodingKey != nil {
 				coding := stage.Group.CodingKey
-				if len(sequence.Stages) != 1 || sequence.SourceRowIdentity != "__loom_expansion_identity" ||
-					coding.SourceStageID != sequence.SourceStageID || coding.SourceOccurrenceKeyColumn != terminal.OccurrenceKeyColumn {
-					return fmt.Errorf("row lineage CODING_IDENTITY Group requires its exact expanded input occurrence key")
-				}
-				rootType := ""
-				rootScans := 0
-				for _, operation := range sourceOperations {
-					if operation.Kind != PhysicalRootScanOp {
-						continue
+				if coding.RelatedSource != nil {
+					if err := validatePhysicalRelatedCodingGroupRowLineage(sequence, terminal, stage, sourceOperations, bindVars); err != nil {
+						return err
 					}
-					if operation.RootScan == nil {
-						return fmt.Errorf("row lineage Coding Group root scan is invalid")
+				} else {
+					if len(sequence.Stages) != 1 || sequence.SourceRowIdentity != "__loom_expansion_identity" ||
+						coding.SourceStageID != sequence.SourceStageID || coding.SourceOccurrenceKeyColumn != terminal.OccurrenceKeyColumn {
+						return fmt.Errorf("row lineage CODING_IDENTITY Group requires its exact expanded input occurrence key")
 					}
-					rootScans++
-					rootType, _ = bindVars[operation.RootScan.CollectionBindKey].(string)
-				}
-				if rootScans != 1 || rootType == "" || rootType != terminal.ResourceType {
-					return fmt.Errorf("row lineage Coding Group requires one root source of its declared resource type")
+					rootType := ""
+					rootScans := 0
+					for _, operation := range sourceOperations {
+						if operation.Kind != PhysicalRootScanOp {
+							continue
+						}
+						if operation.RootScan == nil {
+							return fmt.Errorf("row lineage Coding Group root scan is invalid")
+						}
+						rootScans++
+						rootType, _ = bindVars[operation.RootScan.CollectionBindKey].(string)
+					}
+					if rootScans != 1 || rootType == "" || rootType != terminal.ResourceType {
+						return fmt.Errorf("row lineage Coding Group requires one root source of its declared resource type")
+					}
 				}
 			}
 			if err := validatePhysicalGroupFilterLineage(sequence.Stages); err != nil {
@@ -493,6 +499,52 @@ func validatePhysicalStageRowLineage(sequence PhysicalStageSequence, terminal Ph
 	fetchLimit, fetchOK := bindVars[terminal.FetchLimitBindKey].(int)
 	if !offsetOK || offset < 0 || !limitOK || limit < 1 || limit > 100 || !fetchOK || fetchLimit != limit+1 {
 		return fmt.Errorf("row lineage requires a nonnegative offset and a page of 1 through 100 plus one row")
+	}
+	return nil
+}
+
+func validatePhysicalRelatedCodingGroupRowLineage(
+	sequence PhysicalStageSequence,
+	terminal PhysicalRowLineageReturn,
+	stage PhysicalConstructionStage,
+	sourceOperations []PhysicalOperation,
+	bindVars map[string]any,
+) error {
+	if len(sequence.Stages) != 1 || sequence.SourceRowIdentity != "_key" ||
+		stage.Kind != PhysicalStageGroupOp || stage.InputStageID != sequence.SourceStageID ||
+		stage.Group == nil || stage.Group.CodingKey == nil || stage.Group.RelatedOccurrence == nil {
+		return fmt.Errorf("row lineage related Coding Group requires one terminal direct-root Group")
+	}
+	group := stage.Group
+	coding := group.CodingKey
+	related := coding.RelatedSource
+	adapter := group.RelatedOccurrence
+	if related == nil || coding.SourceUnnest != nil || coding.SourceStageID != sequence.SourceStageID ||
+		coding.SourceShapeID == "" || coding.SourceShapeID != related.SourceShapeID ||
+		coding.SourceOccurrenceKeyColumn == "" || coding.SourceOccurrenceKeyColumn != adapter.OccurrenceKeyColumn ||
+		terminal.OccurrenceKeyColumn != adapter.OccurrenceKeyColumn ||
+		coding.MembershipColumn != adapter.CodingMembershipColumn || group.SemanticKey != nil ||
+		group.RootContributorInputColumn != "" || group.RootContributorOutputColumn != "" || group.RootContributorVariable != "" {
+		return fmt.Errorf("row lineage related Coding Group requires its exact route and occurrence identity without contributor arrays")
+	}
+	if len(group.Aggregates) == 0 {
+		return fmt.Errorf("row lineage related Coding Group requires COUNT_ROWS")
+	}
+	for _, aggregate := range group.Aggregates {
+		if aggregate.Operation != "COUNT_ROWS" || aggregate.InputColumn != "" {
+			return fmt.Errorf("row lineage related Coding Group supports only COUNT_ROWS")
+		}
+	}
+	if err := validatePhysicalGroupRelatedOccurrenceAdapter(*group, stage); err != nil {
+		return fmt.Errorf("row lineage related Coding Group adapter: %w", err)
+	}
+	_, rootType, err := validateCodedPivotSourceRoot(sourceOperations, bindVars)
+	if err != nil {
+		return fmt.Errorf("row lineage related Coding Group source: %w", err)
+	}
+	if rootType != terminal.ResourceType || related.AnchorOccurrenceID != adapter.RelatedRecords.AnchorOccurrenceID ||
+		related.AnchorResourceType != rootType {
+		return fmt.Errorf("row lineage related Coding Group must anchor the declared direct root resource")
 	}
 	return nil
 }
