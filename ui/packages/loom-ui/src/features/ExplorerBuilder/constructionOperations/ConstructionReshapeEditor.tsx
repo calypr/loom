@@ -311,6 +311,7 @@ export interface ConstructionReshapeEditorProps {
   readonly construction: Construction;
   readonly capabilities: ReshapeCapabilities;
   readonly editingStep?: ConstructionReshapeStep;
+  readonly rowValuesOnly?: boolean;
   readonly initialKind?: ReshapeEntryKind;
   readonly initialEntry?: ConstructionReshapeEditorEntry;
   readonly hideChangeRowOperation?: boolean;
@@ -2147,7 +2148,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   }, [disabled, form, formContextKey, contextKey, pivotSupport.supported, props.onDiscoverCategories, stage.id, pivotDiscovery]);
 
   return (
-    <section aria-label="Reshape editor" data-testid="construction-reshape-editor" className="grid content-start gap-3">
+    <section aria-label={props.rowValuesOnly ? 'Add columns from Group contributors' : 'Reshape editor'} data-testid="construction-reshape-editor" className="grid content-start gap-3">
 
       {form.kind === 'unsupported' ? (
         <p role="status" data-testid="construction-reshape-edit-unavailable" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{form.message}</p>
@@ -2159,7 +2160,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
         <p role="status" data-testid="construction-reshape-schema-unavailable" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">The construction schema did not accept this reshape, so Loom has not previewed it.</p>
       ) : null}
 
-      {form.kind !== 'choose' && form.kind !== 'unsupported' ? (
+      {!props.rowValuesOnly && form.kind !== 'choose' && form.kind !== 'unsupported' ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
           <h2 className="m-0 font-semibold text-slate-900">{reshapeFormLabels[form.kind]}</h2>
           {!editingStep && !props.hideChangeRowOperation ? <button type="button" disabled={disabled} onClick={() => { setChoiceIntent(undefined); updateForm({ kind: 'choose' }); }}
@@ -2300,6 +2301,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           stage={groupStage}
           groupFieldChoices={groupFieldChoicesForStage(capabilities, groupStage)}
           groupRowValueChoices={groupRowValueChoicesForStage(capabilities, groupStage)}
+          rowValuesOnly={props.rowValuesOnly}
           semanticGroupChoices={semanticGroupChoicesForStage(capabilities, groupStage)}
           semanticGroupChoicesIncomplete={capabilities.semanticGroupChoicesIncomplete ?? false}
           semanticGroupSupported={groupSupport.supported}
@@ -2620,11 +2622,149 @@ const CodedGroupEditor = (props: {
   </section>
 );
 
+const GroupRowValuesEditor = (props: {
+  readonly form: GroupForm;
+  readonly groupRowValueChoices: ReadonlyArray<GroupRowValueChoice>;
+  readonly disabled: boolean;
+  readonly supported: boolean;
+  readonly onChange: (form: GroupForm) => void;
+}) => {
+  const [rowValueSearch, setRowValueSearch] = useState('');
+  const normalizedRowValueSearch = rowValueSearch.trim().toLocaleLowerCase();
+  const selectedRowValueChoiceIds = new Set(props.form.rowValues.flatMap((value) =>
+    'fieldSource' in value && value.fieldSource.kind === 'CHOICE' ? [value.fieldSource.choiceId] : [],
+  ));
+  const selectedRowValueBindingIdentities = new Set(props.form.rowValues.flatMap((value) => {
+    if (!('fieldSource' in value)) return [];
+    const identity = groupRowValueBindingIdentity(value.fieldSource);
+    return identity ? [identity] : [];
+  }));
+  const selectedRowValueInputIDs = new Set(props.form.rowValues.flatMap((value) =>
+    'inputColumnId' in value ? [value.inputColumnId] : [],
+  ));
+  const visibleRowValueChoices = props.groupRowValueChoices.filter((choice) =>
+    choice.fieldSource.kind === 'CHOICE' && !selectedRowValueChoiceIds.has(choice.fieldSource.choiceId) &&
+    !(choice.inputColumnId && selectedRowValueInputIDs.has(choice.inputColumnId)) &&
+    !(fieldChoiceIdentity(choice) && selectedRowValueBindingIdentities.has(fieldChoiceIdentity(choice)!)) &&
+    (!normalizedRowValueSearch || `${choice.label} ${choice.scopeLabel ?? ''} ${choice.canonicalPath} ${choice.sourceRole}`.toLocaleLowerCase().includes(normalizedRowValueSearch)));
+  const changeRowValue = (outputColumnId: string, update: Partial<Pick<GroupRowValue, 'name' | 'label' | 'policy'>>) => {
+    props.onChange({
+      ...props.form,
+      rowValues: props.form.rowValues.map((value) => value.outputColumnId === outputColumnId ? { ...value, ...update } : value),
+    });
+  };
+  const addGroupRowValue = (choice: GroupRowValueChoice) => {
+    if (choice.fieldSource.kind !== 'CHOICE' || props.form.codedCategories.length > 0) return;
+    const name = uniqueName(normalizedName(choice.label), getUsedGroupNames(props.form));
+    const common = {
+      outputColumnId: createOpaqueId('group-row-value'), policy: 'ALL' as const,
+      name, label: choice.label, displayLabel: choice.label,
+      scopeLabel: choice.scopeLabel ?? 'Current Group input', valueType: choice.valueType ?? 'string',
+    };
+    const rowValue: GroupRowValue = choice.inputColumnId
+      ? { inputColumnId: choice.inputColumnId, ...common }
+      : { fieldSource: choice.fieldSource, ...common };
+    props.onChange({ ...props.form, rowValues: [...props.form.rowValues, rowValue] });
+  };
+  const removeGroupRowValue = (outputColumnId: string) => props.onChange({
+    ...props.form,
+    rowValues: props.form.rowValues.filter((value) => value.outputColumnId !== outputColumnId),
+  });
+
+  return (
+    <fieldset data-testid="construction-group-add-columns" className="grid gap-2 rounded-lg border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
+      <legend className="m-0 px-1 text-sm font-semibold text-slate-800">Add columns</legend>
+      <p className="m-0 text-xs text-slate-600">Choose values from the records that contributed to each group. Group keys stay ahead of these columns.</p>
+      <label className="grid max-w-xl gap-1 text-xs font-medium text-slate-700">
+        Search fields to add
+        <input
+          type="search"
+          aria-label="Search fields to add"
+          data-testid="construction-group-add-columns-search"
+          value={rowValueSearch}
+          onChange={(event) => setRowValueSearch(event.currentTarget.value)}
+          className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
+        />
+      </label>
+      {rowValueSearch ? (
+        <button type="button" data-testid="construction-group-add-columns-clear-search" onClick={() => setRowValueSearch('')}
+          className="justify-self-start text-xs font-medium text-blue-800 hover:underline">Clear search</button>
+      ) : null}
+      <div data-testid="construction-group-add-columns-field-list" className="grid max-h-52 gap-1 overflow-y-auto">
+        {props.form.rowValues.map((value, index) => (
+          <div key={value.outputColumnId} data-testid="construction-group-row-value" className="grid gap-2 rounded bg-slate-50 p-2 sm:grid-cols-[minmax(0,1fr)_8rem_8rem_auto]">
+            <div className="min-w-0">
+              <p className="m-0 truncate text-sm font-medium text-slate-800" title={value.displayLabel}>{value.displayLabel}</p>
+              <p className="m-0 truncate text-xs text-slate-500" title={value.scopeLabel}>{value.scopeLabel}</p>
+            </div>
+            <label className="grid min-w-0 gap-1 text-xs font-medium text-slate-700">
+              Keep values
+              <select
+                aria-label={`Keep values ${index + 1}`}
+                value={value.policy}
+                disabled={props.disabled || !props.supported}
+                onChange={(event) => {
+                  const policy = event.currentTarget.value;
+                  if (policy === 'ALL' || policy === 'ONE') changeRowValue(value.outputColumnId, { policy });
+                }}
+                className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
+              >
+                <option value="ALL">All values</option>
+                <option value="ONE">One value</option>
+              </select>
+            </label>
+            <label className="grid min-w-0 gap-1 text-xs font-medium text-slate-700">
+              Output name
+              <input
+                aria-label={`Added column name ${index + 1}`}
+                value={value.name}
+                disabled={props.disabled || !props.supported}
+                onChange={(event) => changeRowValue(value.outputColumnId, { name: event.currentTarget.value })}
+                className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
+              />
+            </label>
+            <button type="button" aria-label={`Remove added column ${index + 1}`} disabled={props.disabled || !props.supported}
+              onClick={() => removeGroupRowValue(value.outputColumnId)}
+              className="mb-0.5 justify-self-start whitespace-nowrap rounded px-2 py-1 text-sm font-medium text-red-700 hover:bg-red-50">Remove</button>
+          </div>
+        ))}
+        {visibleRowValueChoices.map((choice) => {
+          const choiceId = choice.fieldSource.kind === 'CHOICE' ? choice.fieldSource.choiceId : '';
+          return (
+            <label key={`row-value:${choiceId}`} className="flex min-w-0 items-start gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
+              <input
+                type="checkbox"
+                value={choiceId}
+                data-testid={`construction-group-add-column-choice-${choiceId}`}
+                aria-label={`Add column ${choice.label}`}
+                checked={false}
+                disabled={props.disabled || !props.supported || props.form.codedCategories.length > 0}
+                onChange={(event) => { if (event.currentTarget.checked) addGroupRowValue(choice); }}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">{choice.label}</span>
+                <span className="block truncate text-xs text-slate-500" title={choice.scopeLabel}>{choice.scopeLabel ?? `${choice.sourceRole} · ${choice.resourceType}.${choice.canonicalPath}`}</span>
+              </span>
+            </label>
+          );
+        })}
+        {normalizedRowValueSearch && visibleRowValueChoices.length === 0 ? (
+          <p role="status" className="m-0 px-2 py-1 text-sm text-slate-600">No other fields match this search.</p>
+        ) : null}
+        {!normalizedRowValueSearch && props.form.rowValues.length === 0 && visibleRowValueChoices.length === 0 ? (
+          <p role="status" className="m-0 px-2 py-1 text-sm text-slate-600">No additional scalar fields are available for this Group input.</p>
+        ) : null}
+      </div>
+    </fieldset>
+  );
+};
+
 const GroupEditor = (props: {
   readonly form: GroupForm;
   readonly stage: ReshapeStage;
   readonly groupFieldChoices: ReadonlyArray<GroupFieldChoice>;
   readonly groupRowValueChoices: ReadonlyArray<GroupRowValueChoice>;
+  readonly rowValuesOnly?: boolean;
   readonly semanticGroupChoices: ReadonlyArray<SemanticGroupChoice>;
   readonly semanticGroupChoicesIncomplete: boolean;
   readonly semanticGroupSupported: boolean;
@@ -2641,8 +2781,15 @@ const GroupEditor = (props: {
   const usedNames = getUsedGroupNames(props.form);
   const [groupSearch, setGroupSearch] = useState('');
   const normalizedGroupSearch = groupSearch.trim().toLocaleLowerCase();
-  const [rowValueSearch, setRowValueSearch] = useState('');
-  const normalizedRowValueSearch = rowValueSearch.trim().toLocaleLowerCase();
+  if (props.rowValuesOnly) {
+    return <GroupRowValuesEditor
+      form={props.form}
+      groupRowValueChoices={props.groupRowValueChoices}
+      disabled={props.disabled}
+      supported={props.supported}
+      onChange={props.onChange}
+    />;
+  }
   const semanticKey = props.form.semanticKey;
   const semanticCategory = semanticKey?.semanticCategory;
   const codingIdentityKey = props.form.fieldKeys.find((key) => key.kind === 'CODING_IDENTITY');
@@ -2674,22 +2821,6 @@ const GroupEditor = (props: {
     !(choice.valueKind === 'SCALAR' && choice.inputColumnId && scalarColumns.some((column) => column.id === choice.inputColumnId)) &&
     !(fieldChoiceIdentity(choice) && savedFieldBindingIdentities.has(fieldChoiceIdentity(choice)!)) &&
     (!normalizedGroupSearch || `${choice.label} ${choice.scopeLabel ?? ''} ${choice.canonicalPath ?? ''} ${choice.sourceRole ?? ''}`.toLocaleLowerCase().includes(normalizedGroupSearch)));
-  const selectedRowValueChoiceIds = new Set(props.form.rowValues.flatMap((value) =>
-    'fieldSource' in value && value.fieldSource.kind === 'CHOICE' ? [value.fieldSource.choiceId] : [],
-  ));
-  const selectedRowValueBindingIdentities = new Set(props.form.rowValues.flatMap((value) => {
-    if (!('fieldSource' in value)) return [];
-    const identity = groupRowValueBindingIdentity(value.fieldSource);
-    return identity ? [identity] : [];
-  }));
-  const selectedRowValueInputIDs = new Set(props.form.rowValues.flatMap((value) =>
-    'inputColumnId' in value ? [value.inputColumnId] : [],
-  ));
-  const visibleRowValueChoices = props.groupRowValueChoices.filter((choice) =>
-    choice.fieldSource.kind === 'CHOICE' && !selectedRowValueChoiceIds.has(choice.fieldSource.choiceId) &&
-    !(choice.inputColumnId && selectedRowValueInputIDs.has(choice.inputColumnId)) &&
-    !(fieldChoiceIdentity(choice) && selectedRowValueBindingIdentities.has(fieldChoiceIdentity(choice)!)) &&
-    (!normalizedRowValueSearch || `${choice.label} ${choice.scopeLabel ?? ''} ${choice.canonicalPath} ${choice.sourceRole}`.toLocaleLowerCase().includes(normalizedRowValueSearch)));
   const semanticLabelCounts = new Map<string, number>();
   for (const column of [...selectedScalarColumns, ...visibleScalarColumns]) {
     const label = column.label.trim().toLocaleLowerCase();
@@ -2734,12 +2865,6 @@ const GroupEditor = (props: {
     if (!current) return;
     props.onChange({ ...props.form, semanticKey: { ...current, ...update } });
   };
-  const changeRowValue = (outputColumnId: string, update: Partial<Pick<GroupRowValue, 'name' | 'label' | 'policy'>>) => {
-    props.onChange({
-      ...props.form,
-      rowValues: props.form.rowValues.map((value) => value.outputColumnId === outputColumnId ? { ...value, ...update } : value),
-    });
-  };
   const changeAggregate = (index: number, aggregate: GroupAggregate) => {
     const aggregates = props.form.aggregates.map((current, aggregateIndex) => aggregateIndex === index ? aggregate : current);
     props.onChange({
@@ -2768,23 +2893,6 @@ const GroupEditor = (props: {
     if (!key) return;
     props.onChange({ ...props.form, fieldKeys: [...props.form.fieldKeys, key], keyOrder: [...props.form.keyOrder, key.outputColumnId] });
   };
-  const addGroupRowValue = (choice: GroupRowValueChoice) => {
-    if (choice.fieldSource.kind !== 'CHOICE' || props.form.codedCategories.length > 0) return;
-    const name = uniqueName(normalizedName(choice.label), getUsedGroupNames(props.form));
-    const common = {
-      outputColumnId: createOpaqueId('group-row-value'), policy: 'ALL' as const,
-      name, label: choice.label, displayLabel: choice.label,
-      scopeLabel: choice.scopeLabel ?? 'Current Group input', valueType: choice.valueType ?? 'string',
-    };
-    const rowValue: GroupRowValue = choice.inputColumnId
-      ? { inputColumnId: choice.inputColumnId, ...common }
-      : { fieldSource: choice.fieldSource, ...common };
-    props.onChange({ ...props.form, rowValues: [...props.form.rowValues, rowValue] });
-  };
-  const removeGroupRowValue = (outputColumnId: string) => props.onChange({
-    ...props.form,
-    rowValues: props.form.rowValues.filter((value) => value.outputColumnId !== outputColumnId),
-  });
   const renderScalarChoice = (column: ReshapeColumn, checked: boolean) => (
     <label key={`scalar:${column.id}`} className="flex min-w-0 items-center gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
       <input
@@ -3116,90 +3224,13 @@ const GroupEditor = (props: {
         </fieldset>
       </div>
 
-      <fieldset data-testid="construction-group-add-columns" className="grid gap-2 rounded-lg border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
-        <legend className="m-0 px-1 text-sm font-semibold text-slate-800">Add columns</legend>
-        <p className="m-0 text-xs text-slate-600">Choose values from the records that contributed to each group. Group keys stay ahead of these columns.</p>
-        <label className="grid max-w-xl gap-1 text-xs font-medium text-slate-700">
-          Search fields to add
-          <input
-            type="search"
-            aria-label="Search fields to add"
-            data-testid="construction-group-add-columns-search"
-            value={rowValueSearch}
-            onChange={(event) => setRowValueSearch(event.currentTarget.value)}
-            className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
-          />
-        </label>
-        {rowValueSearch ? (
-          <button type="button" data-testid="construction-group-add-columns-clear-search" onClick={() => setRowValueSearch('')}
-            className="justify-self-start text-xs font-medium text-blue-800 hover:underline">Clear search</button>
-        ) : null}
-        <div data-testid="construction-group-add-columns-field-list" className="grid max-h-52 gap-1 overflow-y-auto">
-          {props.form.rowValues.map((value, index) => (
-            <div key={value.outputColumnId} data-testid="construction-group-row-value" className="grid gap-2 rounded bg-slate-50 p-2 sm:grid-cols-[minmax(0,1fr)_8rem_8rem_auto]">
-              <div className="min-w-0">
-                <p className="m-0 truncate text-sm font-medium text-slate-800" title={value.displayLabel}>{value.displayLabel}</p>
-                <p className="m-0 truncate text-xs text-slate-500" title={value.scopeLabel}>{value.scopeLabel}</p>
-              </div>
-              <label className="grid min-w-0 gap-1 text-xs font-medium text-slate-700">
-                Keep values
-                <select
-                  aria-label={`Keep values ${index + 1}`}
-                  value={value.policy}
-                  disabled={props.disabled || !props.supported}
-                  onChange={(event) => {
-                    const policy = event.currentTarget.value;
-                    if (policy === 'ALL' || policy === 'ONE') changeRowValue(value.outputColumnId, { policy });
-                  }}
-                  className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
-                >
-                  <option value="ALL">All values</option>
-                  <option value="ONE">One value</option>
-                </select>
-              </label>
-              <label className="grid min-w-0 gap-1 text-xs font-medium text-slate-700">
-                Output name
-                <input
-                  aria-label={`Added column name ${index + 1}`}
-                  value={value.name}
-                  disabled={props.disabled || !props.supported}
-                  onChange={(event) => changeRowValue(value.outputColumnId, { name: event.currentTarget.value })}
-                  className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
-                />
-              </label>
-              <button type="button" aria-label={`Remove added column ${index + 1}`} disabled={props.disabled || !props.supported}
-                onClick={() => removeGroupRowValue(value.outputColumnId)}
-                className="mb-0.5 justify-self-start whitespace-nowrap rounded px-2 py-1 text-sm font-medium text-red-700 hover:bg-red-50">Remove</button>
-            </div>
-          ))}
-          {visibleRowValueChoices.map((choice) => {
-            const choiceId = choice.fieldSource.kind === 'CHOICE' ? choice.fieldSource.choiceId : '';
-            return (
-              <label key={`row-value:${choiceId}`} className="flex min-w-0 items-start gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
-                <input
-                  type="checkbox"
-                  value={choiceId}
-                  data-testid={`construction-group-add-column-choice-${choiceId}`}
-                  aria-label={`Add column ${choice.label}`}
-                  checked={false}
-                  disabled={props.disabled || !props.supported || props.form.codedCategories.length > 0}
-                  onChange={(event) => { if (event.currentTarget.checked) addGroupRowValue(choice); }}
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium">{choice.label}</span>
-                  <span className="block truncate text-xs text-slate-500" title={choice.scopeLabel}>{choice.scopeLabel ?? `${choice.sourceRole} · ${choice.resourceType}.${choice.canonicalPath}`}</span>
-                </span>
-              </label>
-            );
-          })}
-          {normalizedRowValueSearch && visibleRowValueChoices.length === 0 ? (
-            <p role="status" className="m-0 px-2 py-1 text-sm text-slate-600">No other fields match this search.</p>
-          ) : null}
-          {!normalizedRowValueSearch && props.form.rowValues.length === 0 && visibleRowValueChoices.length === 0 ? (
-            <p role="status" className="m-0 px-2 py-1 text-sm text-slate-600">No additional scalar fields are available for this Group input.</p>
-          ) : null}
-        </div>
-      </fieldset>
+      <GroupRowValuesEditor
+        form={props.form}
+        groupRowValueChoices={props.groupRowValueChoices}
+        disabled={props.disabled}
+        supported={props.supported}
+        onChange={props.onChange}
+      />
 
       <details data-testid="construction-reshape-group-advanced" className="rounded-lg border border-slate-200">
         <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-slate-700">Advanced options</summary>

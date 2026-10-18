@@ -18,6 +18,7 @@ import {
 } from '../../react';
 import type {
   Construction,
+  ConstructionCapabilitiesResponse,
   ConstructionChoice,
   ConstructionProposalResponse,
   ConstructionStageDescriptor,
@@ -601,6 +602,202 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(await screen.findByRole('heading', { name: 'Build your first table' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Choose Patient rows' })).toBeInTheDocument();
     expect(mockLoomClient.getConstructionCapabilities).not.toHaveBeenCalled();
+  });
+
+  it('keeps Add columns catalog and adds scalar contributor choices for a terminal Group', async () => {
+    const savedFieldSource: NonNullable<Construction['steps'][number]['rowValues']>[number] = {
+      fieldSource: {
+        kind: 'BINDING',
+        valueKind: 'SCALAR',
+        sourceStageId: 'source_projection',
+        sourceShapeId: 'group-input-shape',
+        sourceRole: 'OWNER',
+        occurrenceId: 'patient-owner',
+        resourceType: 'Patient',
+        ownerOccurrenceId: 'patient-owner',
+        ownerResourceType: 'Patient',
+        candidateId: 'saved-patient-status-candidate',
+        canonicalPath: 'active',
+      },
+      outputColumnId: 'saved-active-value',
+      policy: 'ONE',
+    };
+    const groupConstruction: Construction = {
+      version: 1,
+      steps: [{
+        id: 'group-rows',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: { kind: 'GROUP', group: {
+          constructionId: 'group-rows',
+          missingKeyPolicy: 'GROUP',
+          keys: [{ inputColumnId: 'patient-id', outputColumnId: 'patient-id-key' }],
+          aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: 'row-count' }],
+        } },
+        rowValues: [savedFieldSource],
+        outputs: [
+          { id: 'patient-id-key', name: 'patient_id', label: 'Patient ID', type: 'string' },
+          { id: 'row-count', name: 'row_count', label: 'Row count', type: 'integer' },
+          { id: 'saved-active-value', name: 'active', label: 'Active', type: 'boolean' },
+        ],
+      }],
+    };
+    const groupedWorkspace: ExplorerBuilderWorkspace = {
+      ...workspace,
+      documents: [{ ...workspace.documents[0]!, construction: groupConstruction }],
+    };
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, workspace: groupedWorkspace },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    const sourceStage: ConstructionStageDescriptor = {
+      id: 'source_projection',
+      inputStageId: '',
+      operation: 'SOURCE_PROJECTION',
+      rowIdentityColumn: '__loom_expansion_identity',
+      columns: [{ id: 'patient-id', name: 'patient_id', label: 'Patient ID', type: 'string', cardinality: 'required_one' }],
+      capabilities: [{ kind: 'GROUP', supported: true }, { kind: 'ROW_VALUES', supported: true }],
+    };
+    const groupStage: ConstructionStageDescriptor = {
+      id: 'group-rows',
+      inputStageId: 'source_projection',
+      operation: 'GROUP',
+      rowIdentityColumn: 'group-row-id',
+      columns: [
+        { id: 'patient-id-key', name: 'patient_id', label: 'Patient ID', type: 'string', cardinality: 'required_one' },
+        { id: 'row-count', name: 'row_count', label: 'Row count', type: 'integer', cardinality: 'required_one' },
+        { id: 'saved-active-value', name: 'active', label: 'Active', type: 'boolean', cardinality: 'optional_one' },
+      ],
+      capabilities: [{ kind: 'ROW_VALUES', supported: true }],
+    };
+    const groupRowValueChoice = {
+      kind: 'FIELD_SOURCE',
+      valueKind: 'SCALAR',
+      fieldSource: { kind: 'CHOICE', choiceId: 'group-component-value-choice' },
+      label: 'Component value',
+      sourceStageId: 'source_projection',
+      sourceShapeId: 'group-input-shape',
+      candidateId: 'component-value-candidate',
+      sourceRole: 'ANCESTOR',
+      occurrenceId: 'patient-observation-owner',
+      resourceType: 'ObservationComponent',
+      ownerOccurrenceId: 'patient-observation-owner',
+      ownerResourceType: 'Observation',
+      canonicalPath: 'valueQuantity.value',
+      scopeLabel: 'Observation component · component[].valueQuantity.value',
+      valueType: 'decimal',
+      boundarySelector: 'component[]',
+    } satisfies ConstructionCapabilitiesResponse['groupRowValueChoices'][number];
+    mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+      readonly outputId: string;
+      readonly stageId: string;
+      readonly groupStepId?: string;
+    }) => ({
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      stageId: args.stageId,
+      baseConstruction: groupConstruction,
+      stages: [sourceStage, groupStage],
+      selectedStage: args.stageId === sourceStage.id ? sourceStage : groupStage,
+      groupFieldChoices: [],
+      groupRowValueChoices: args.groupStepId === 'group-rows' ? [groupRowValueChoice] : [],
+      workspaceInputs: [],
+    } satisfies ConstructionCapabilitiesResponse));
+    mockLoomClient.proposeConstruction.mockImplementation(async (args: {
+      readonly candidateConstruction: Construction;
+      readonly changedStepId?: string;
+      readonly requestId: string;
+    }): Promise<ConstructionProposalResponse> => {
+      const preview: ExplorerBuilderPreviewResult = {
+        apiVersion,
+        kind: 'ExplorerBuilderPreview',
+        rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
+        receiptId: 'group-rowvalue-proposal',
+        outputId: 'patients',
+        columns: [],
+        rows: [{}],
+        rowCount: 1,
+        diagnostics: [],
+      };
+      return {
+        proposalId: 'group-rowvalue-proposal',
+        outputId: 'patients',
+        snapshotToken: 'snapshot-1',
+        draftVersion: 1,
+        draftDigest: 'sha256:draft-1',
+        baseDocumentDigest: 'document-1',
+        candidateWorkspaceDigest: 'sha256:group-rowvalue-candidate',
+        changedStepId: args.changedStepId ?? '',
+        candidateConstruction: args.candidateConstruction,
+        dependencyImpact: { affectedStepIds: [] },
+        stages: [sourceStage, groupStage],
+        previewStatus: 'READY',
+        previewDurationMs: 1,
+        preview,
+      };
+    });
+    const receipt: ExplorerBuilderCompileResult = {
+      apiVersion,
+      kind: 'ExplorerBuilderReceipt',
+      receiptId: 'grouped-table-receipt',
+      snapshotToken: 'snapshot-1',
+      builder: groupedWorkspace,
+      outputs: [{ outputId: 'patients', columns: [] }],
+      diagnostics: [],
+    };
+    const reconcile = vi.fn().mockReturnValue({
+      unwrap: vi.fn().mockResolvedValue(receipt),
+    });
+    (useReconcileExplorerBuilderV2Mutation as Mock).mockReturnValue([
+      reconcile,
+      { isLoading: false },
+    ]);
+
+    const { unmount } = render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
+    const contributorChoices = await screen.findByRole('region', { name: 'Add columns from Group contributors' });
+    expect(screen.getByRole('tab', { name: 'Coded values' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Other fields' })).toBeInTheDocument();
+    expect(screen.queryByTestId('construction-reshape-add-summary')).not.toBeInTheDocument();
+    expect(await screen.findByText('No concepts match this search.')).toBeInTheDocument();
+    expect(mockLoomClient.getConstructionCapabilities).toHaveBeenLastCalledWith(
+      expect.objectContaining({ stageId: 'source_projection', groupStepId: 'group-rows' }),
+      expect.any(AbortSignal),
+    );
+
+    fireEvent.click(within(contributorChoices).getByTestId('construction-group-add-column-choice-group-component-value-choice'));
+    await waitFor(() => expect(mockLoomClient.proposeConstruction).toHaveBeenCalled());
+    const proposalArgs = mockLoomClient.proposeConstruction.mock.calls.at(-1)?.[0];
+    const proposedGroup = proposalArgs?.candidateConstruction.steps.find((step) => step.id === 'group-rows');
+    if (!proposedGroup || proposedGroup.operation.kind !== 'GROUP') {
+      throw new Error('The Add columns choice did not propose an update to the active Group step.');
+    }
+    expect(proposedGroup.operation.group.keys).toEqual([
+      { inputColumnId: 'patient-id', outputColumnId: 'patient-id-key' },
+    ]);
+    expect(proposedGroup.rowValues).toEqual([
+      savedFieldSource,
+      expect.objectContaining({
+        fieldSource: { kind: 'CHOICE', choiceId: 'group-component-value-choice' },
+        policy: 'ALL',
+      }),
+    ]);
+    unmount();
+    await act(async () => {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+    });
   });
 
   it('shows separate Coded values and Other fields tabs with shared source scopes', async () => {

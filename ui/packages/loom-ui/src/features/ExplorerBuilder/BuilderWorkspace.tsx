@@ -3119,6 +3119,10 @@ const BuilderWorkspaceContent = ({
 
   const selectConstructionFamily = (family: ConstructionOperationFamily) => {
     const willOpen = activeConstructionFamily !== family;
+    const terminalConstructionStep = construction?.steps.at(-1);
+    const rowValueGroupStep = family === 'ADD_COLUMNS' && willOpen && terminalConstructionStep?.operation.kind === 'GROUP'
+      ? terminalConstructionStep
+      : undefined;
     setRowIntentSession(false);
     if (family === 'ADD_COLUMNS' && willOpen) selectAddColumnsView('coded');
     if (family === 'COMBINE' && willOpen) {
@@ -3128,8 +3132,10 @@ const BuilderWorkspaceContent = ({
     }
     constructionLifecycle.cancel();
     cancelCombineCatalogRequest();
-    setConstructionHistorySelection({ kind: 'source' });
-    setEditingConstructionStepId(undefined);
+    setConstructionHistorySelection(rowValueGroupStep
+      ? { kind: 'step', stepId: rowValueGroupStep.id }
+      : { kind: 'source' });
+    setEditingConstructionStepId(rowValueGroupStep?.id);
     setReshapeEntryKind('choose');
     setReshapeFormKind('choose');
     setActiveConstructionFamily((current) => current === family ? undefined : family);
@@ -3531,6 +3537,19 @@ const BuilderWorkspaceContent = ({
       <div className="p-3">
         {activeOperation.family === 'ADD_COLUMNS' ? (
           <div className="grid gap-4">
+            {editingConstructionStep?.operation.kind === 'GROUP' && constructionLifecycle.capabilities.status === 'ready' ? (
+              <ConstructionReshapeEditor
+                key={`${ownerKey}:${state.catalog.snapshotToken}:${table?.outputId ?? ''}:${editingConstructionStep.id}:${constructionLifecycle.capabilities.response.selectedStage.id}`}
+                construction={construction ?? constructionLifecycle.capabilities.response.baseConstruction}
+                capabilities={constructionLifecycle.capabilities.response}
+                editingStep={editingConstructionStep}
+                initialKind="group"
+                rowValuesOnly
+                disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+                onCandidateChange={constructionLifecycle.onCandidateChange}
+                onEditStep={editConstructionStep}
+              />
+            ) : null}
             {rowValuesSupported ? (
               <label className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
                 Values from each row's contributing records
