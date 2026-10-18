@@ -161,7 +161,7 @@ func (s *Service) constructionGroupFieldChoices(
 	}
 	relatedChoicesIncomplete := false
 	if targetGroupStepID == "" && context.SourceExpansion == nil {
-		relatedChoicesIncomplete, err = s.appendRelatedGroupFieldChoices(ctx, base, stage, context, index, choicesByID)
+		relatedChoicesIncomplete, err = s.appendRelatedGroupFieldChoices(ctx, base, stage, context, index, choicesByID, selectedGroupStepID)
 		if err != nil {
 			return nil, false, err
 		}
@@ -307,7 +307,7 @@ func (s *Service) resolveConstructionGroupFieldSources(
 			continue
 		}
 		groupRelatedRouteID := ""
-		currentChoices, _, err := s.constructionGroupFieldChoices(ctx, base, outputID, *stage, nil, false, "", "")
+		currentChoices, _, err := s.constructionGroupFieldChoices(ctx, base, outputID, *stage, nil, false, "", step.ID)
 		if err != nil {
 			return candidate, err
 		}

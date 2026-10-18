@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -323,6 +324,78 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 			t.Fatalf("signed related choice lost route/value-owner distinction: %#v", identity.Source)
 		}
 	}
+	t.Run("canonical discovery and saved alternative", func(t *testing.T) {
+		nodes := append(append([]capability.Node(nil), snapshot.Nodes...), capability.Node{ID: "substance-node", ResourceType: "Substance", Populated: true})
+		edges := append([]capability.Edge(nil), snapshot.Edges...)
+		alternative := edges[0]
+		alternative.ID = "zz-patient-specimen"
+		edges = append(edges, alternative)
+		allCandidates := append(append([]capability.Candidate(nil), candidates...), capability.Candidate{
+			ID: "substance-id", NodeID: "substance-node", ResourceType: "Substance", FieldPath: "id",
+			LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Observed: true, Populated: true,
+		})
+		base.snapshot = capability.NewSnapshot(seed.Identity, seed.Policy, capability.StatusReady, true, false, nodes, edges, allCandidates, nil)
+		base.authorized.Snapshot = base.snapshot
+		service := &Service{}
+		canonical, incomplete, err := service.constructionGroupFieldChoices(context.Background(), base, "patients", stage, nil, false, "", "")
+		if err != nil || incomplete {
+			t.Fatalf("canonical discovery: incomplete=%t error=%v", incomplete, err)
+		}
+		relatedCount := 0
+		for _, choice := range canonical {
+			if choice.SourceRole != "RELATED_OCCURRENCE" {
+				continue
+			}
+			relatedCount++
+			identity, err := capability.DecodeConstructionChoiceID(choice.FieldSource.ChoiceID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := identity.Source.(capability.GroupFieldChoiceSource)
+			if source.Input.RelatedOccurrence.Route[0].EdgeID != "patient-specimen" || choice.OwnerResourceType != "Specimen" {
+				t.Fatalf("unexpected canonical route/owner: %#v", source.Input.RelatedOccurrence)
+			}
+		}
+		if relatedCount != 2 {
+			t.Fatalf("related fields = %d, want scalar and Coding once each despite alternate and unreachable nodes", relatedCount)
+		}
+		anchor, err := constructionGroupRelatedAnchorForStage(base, stage.GroupFieldSourceContext)
+		if err != nil {
+			t.Fatal(err)
+		}
+		compilerContext, err := groupFieldCompilerContext(base, stage, stage.GroupFieldSourceContext)
+		if err != nil {
+			t.Fatal(err)
+		}
+		route := []capability.ConstructionRouteStep{{EdgeID: alternative.ID, FromNodeID: "patient-node", ToNodeID: "specimen-node", FromResourceType: "Patient", ToResourceType: "Specimen", Relationship: "subject_Patient", StorageDirection: "INBOUND", MatchMode: "OPTIONAL"}}
+		related, shapeID, err := resolveRelatedGroupSource(compilerContext, "SCALAR", anchor, route, "string", "specimen-id", "id", "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		source := groupFieldSourceChoiceFromRelated(stage.GroupFieldSourceContext, related, shapeID, "specimen-node", "string", "ONE", "SCALAR", "", "")
+		base.construction = authoringv2.Construction{Steps: []authoringv2.ConstructionStep{{
+			ID: "saved-group", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
+				Keys: []authoringv2.ConstructionGroupKey{{OutputColumnID: "saved-specimen", FieldSource: constructionGroupFieldBinding(source)}},
+			}},
+		}}}
+		edited, _, err := service.constructionGroupFieldChoices(context.Background(), base, "patients", stage, nil, false, "", "saved-group")
+		if err != nil {
+			t.Fatal(err)
+		}
+		matched := 0
+		for _, choice := range edited {
+			if choice.MatchedOutputKeyID == "saved-specimen" {
+				matched++
+				if !groupFieldChoiceMatchesBinding(choice, *base.construction.Steps[0].Operation.Group.Keys[0].FieldSource) {
+					t.Fatal("saved alternate route was rewritten")
+				}
+			}
+		}
+		if matched != 1 {
+			t.Fatalf("saved alternate route matches = %d, want exactly one", matched)
+		}
+	})
 }
 
 func TestConstructionGroupRelatedRouteLabelExplainsMatchAndMultiplicity(t *testing.T) {
@@ -388,7 +461,7 @@ func TestConstructionGroupRelatedFieldChoicesSkipExpandedSource(t *testing.T) {
 	}
 	choices := map[string]ConstructionGroupFieldChoice{}
 	incomplete, err := service.appendRelatedGroupFieldChoices(
-		context.Background(), constructionBase{}, explorer.ReceiptConstructionStage{}, fieldContext, nil, choices,
+		context.Background(), constructionBase{}, explorer.ReceiptConstructionStage{}, fieldContext, nil, choices, "",
 	)
 	if err != nil {
 		t.Fatalf("related choices for expanded source: %v", err)
@@ -398,6 +471,16 @@ func TestConstructionGroupRelatedFieldChoicesSkipExpandedSource(t *testing.T) {
 	}
 	if len(choices) != 0 {
 		t.Fatalf("expanded source related choices = %#v, want none", choices)
+	}
+}
+
+func TestConstructionGroupRelatedFieldChoicesStopCanceledRequest(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := (&Service{}).appendRelatedGroupFieldChoices(ctx, constructionBase{}, explorer.ReceiptConstructionStage{},
+		&explorer.ReceiptConstructionGroupFieldSourceContext{}, nil, map[string]ConstructionGroupFieldChoice{}, "")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled discovery error = %v, want context cancellation before route work", err)
 	}
 }
 
