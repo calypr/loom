@@ -156,7 +156,7 @@ func TestConstructionGroupRelatedOccurrenceCodingFieldSourceAgainstArango(t *tes
 	bEmpty := connectedGroupRow(t, groupRows, "B", "empty-coding", []any{nil, nil, nil})
 	assertConnectedGroupRow(t, bEmpty, "B", "empty-coding", []any{nil, nil, nil}, 1, nil, []string{"B-empty"})
 	cMissingRoute := connectedGroupRow(t, groupRows, "C", nil, []any{nil, nil, nil})
-	assertConnectedGroupRow(t, cMissingRoute, "C", nil, []any{nil, nil, nil}, 1, nil, nil)
+	assertConnectedGroupRow(t, cMissingRoute, "C", nil, []any{nil, nil, nil}, 1, nil, []string{})
 	if bEmpty["__loom_row_id"] == cMissingRoute["__loom_row_id"] {
 		t.Fatalf("present empty-Coding target and absent Specimen route reused identity: empty=%#v absent=%#v", bEmpty, cMissingRoute)
 	}
@@ -200,7 +200,7 @@ func TestConstructionGroupRelatedOccurrenceCodingFieldSourceAgainstArango(t *tes
 		connectedGroupRow(t, excludedRows, "B", "B-two", []any{"urn:sysB", "v2", "code-same"}),
 		"B", "B-two", []any{"urn:sysB", "v2", "code-same"}, 1, "B-two", []string{"B2"})
 	cExcluded := connectedGroupRow(t, excludedRows, "C", nil, []any{nil, nil, nil})
-	assertConnectedGroupRow(t, cExcluded, "C", nil, []any{nil, nil, nil}, 1, nil, nil)
+	assertConnectedGroupRow(t, cExcluded, "C", nil, []any{nil, nil, nil}, 1, nil, []string{})
 	if cExcluded["__loom_row_id"] != cMissingRoute["__loom_row_id"] {
 		t.Fatalf("connected EXCLUDE changed the absent-route Patient C identity: GROUP=%#v EXCLUDE=%#v", cMissingRoute, cExcluded)
 	}
@@ -224,7 +224,7 @@ func TestConstructionGroupRelatedOccurrenceCodingFieldSourceAgainstArango(t *tes
 		t.Fatalf("connected ERROR rows without matched empty-Coding owner = %#v, want eight coded groups plus absent-route Patient C", errorWithoutEmptyRows)
 	}
 	cAfterRemovingEmpty := connectedGroupRow(t, errorWithoutEmptyRows, "C", nil, []any{nil, nil, nil})
-	assertConnectedGroupRow(t, cAfterRemovingEmpty, "C", nil, []any{nil, nil, nil}, 1, nil, nil)
+	assertConnectedGroupRow(t, cAfterRemovingEmpty, "C", nil, []any{nil, nil, nil}, 1, nil, []string{})
 	if cAfterRemovingEmpty["__loom_row_id"] != cMissingRoute["__loom_row_id"] {
 		t.Fatalf("connected ERROR changed the absent-route Patient C identity after removing B-empty: GROUP=%#v ERROR=%#v", cMissingRoute, cAfterRemovingEmpty)
 	}
