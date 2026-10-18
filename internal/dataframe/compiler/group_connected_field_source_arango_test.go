@@ -511,12 +511,16 @@ func assertConnectedGroupRow(t *testing.T, row map[string]any, patient string, s
 
 func assertConnectedSpecimenRowValues(t *testing.T, row map[string]any, want []string) {
 	t.Helper()
-	values, ok := row["specimen_ids"].([]any)
+	raw, exists := row["specimen_ids"]
+	if want == nil && exists && raw == nil {
+		return
+	}
+	values, ok := raw.([]any)
 	if !ok {
-		if len(want) == 0 && row["specimen_ids"] == nil {
-			return
-		}
-		t.Fatalf("connected Specimen RowValues = %#v, want array %v; row=%#v", row["specimen_ids"], want, row)
+		t.Fatalf("connected Specimen RowValues = %#v, want JSON array %v; row=%#v", raw, want, row)
+	}
+	if want == nil {
+		t.Fatalf("connected Specimen RowValues = %#v, want null; row=%#v", raw, row)
 	}
 	got := make([]string, 0, len(values))
 	for _, value := range values {
@@ -530,7 +534,7 @@ func assertConnectedSpecimenRowValues(t *testing.T, row map[string]any, want []s
 		got = append(got, id)
 	}
 	sort.Strings(got)
-	want = append([]string(nil), want...)
+	want = append([]string{}, want...)
 	sort.Strings(want)
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("connected Specimen RowValues = %#v, want %#v; row=%#v", got, want, row)
