@@ -64,6 +64,62 @@ func TestGroupFieldSourceTaggedCurrentStageLowersToTypedCurrentVariant(t *testin
 	}
 }
 
+func TestBindGroupRelatedOccurrenceSourceDerivesPrefixScopedOccurrenceIDs(t *testing.T) {
+	plan := ir.PhysicalPlan{
+		RootOccurrenceID: "patient-occ", Source: ir.PhysicalSource{SemanticNode: "root", ResourceType: "Patient"},
+		BindVars: map[string]any{"root_collection": "Patient"},
+		Operations: []ir.PhysicalOperation{
+			{Kind: ir.PhysicalRootScanOp, Source: ir.PhysicalSource{SemanticNode: "root", ResourceType: "Patient"}, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
+			{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{}},
+		},
+	}
+	context, err := describeGroupFieldSourceContext("source_projection", "Patient", "_key", &plan)
+	if err != nil || context == nil {
+		t.Fatalf("describe root context: context=%#v err=%v", context, err)
+	}
+	source := recipe.ConstructionGroupFieldSource{
+		Kind: "BINDING", ValueKind: "SCALAR",
+		Input: &recipe.ConstructionGroupFieldSourceInput{Kind: "RELATED_OCCURRENCE", RelatedOccurrence: &recipe.ConstructionGroupRelatedOccurrenceFieldSource{
+			AnchorNodeID: "catalog-patient-node", AnchorResourceType: "Patient",
+			Route: []recipe.ConstructionGroupRelatedRouteStep{{
+				StepIndex: 0, FromNodeID: "catalog-patient-node", FromResourceType: "Patient", EdgeID: "subject-edge",
+				Relationship: "subject_Reference", StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+				ToNodeID: "observation-node", ToResourceType: "Observation",
+			}},
+			TargetNodeID: "observation-node", TargetResourceType: "Observation", ResourceType: "string",
+			CandidateID: "status", CanonicalPath: "status", EmptyPolicy: recipe.ExpansionPreserveParent,
+			Multiplicity: recipe.ConstructionGroupRelatedMultiplicityDistinctTargetPerInput,
+		}},
+	}
+	first, err := BindGroupRelatedOccurrenceSource(context, source)
+	if err != nil {
+		t.Fatalf("bind related occurrence source: %v", err)
+	}
+	second, err := BindGroupRelatedOccurrenceSource(context, source)
+	if err != nil {
+		t.Fatalf("bind identical related occurrence source: %v", err)
+	}
+	if first.SourceShapeID == "" || first.SourceShapeID != second.SourceShapeID ||
+		first.Input.RelatedOccurrence.Route[0].ToOccurrenceID == "" ||
+		first.Input.RelatedOccurrence.TargetOccurrenceID != first.Input.RelatedOccurrence.Route[0].ToOccurrenceID {
+		t.Fatalf("resolved binding has unstable or incomplete route identity: %#v", first)
+	}
+	changed := source
+	changed.Input = &recipe.ConstructionGroupFieldSourceInput{Kind: "RELATED_OCCURRENCE", RelatedOccurrence: source.Input.RelatedOccurrence}
+	changedRoute := *source.Input.RelatedOccurrence
+	changed.Input.RelatedOccurrence = &changedRoute
+	changed.Input.RelatedOccurrence.Route = append([]recipe.ConstructionGroupRelatedRouteStep(nil), changedRoute.Route...)
+	changed.Input.RelatedOccurrence.Route[0].EdgeID = "different-edge"
+	changedBinding, err := BindGroupRelatedOccurrenceSource(context, changed)
+	if err != nil {
+		t.Fatalf("bind changed route: %v", err)
+	}
+	if changedBinding.SourceShapeID == first.SourceShapeID ||
+		changedBinding.Input.RelatedOccurrence.TargetOccurrenceID == first.Input.RelatedOccurrence.TargetOccurrenceID {
+		t.Fatalf("changed route shared occurrence authority: first=%#v changed=%#v", first, changedBinding)
+	}
+}
+
 func TestGroupFieldSourceContextRejectsGroupedAndUnprovenSourceRows(t *testing.T) {
 	grouped := groupSourceTestPlan(t, "identifier[]", nil, "", "")
 	grouped.Operations = append(grouped.Operations[:1], append([]ir.PhysicalOperation{{Kind: ir.PhysicalGroupRowsOp, GroupRows: &ir.PhysicalGroupRows{}}}, grouped.Operations[1:]...)...)

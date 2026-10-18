@@ -471,6 +471,10 @@ type ConstructionGroupCurrentStageFieldSource struct {
 }
 
 type ConstructionGroupRelatedOccurrenceFieldSource struct {
+	// RouteID is compiler/capability metadata. It is intentionally omitted from
+	// the durable recipe because the route facts and sourceShapeId already bind
+	// the exact traversal.
+	RouteID            string                              `json:"-"`
 	AnchorOccurrenceID string                              `json:"anchorOccurrenceId"`
 	AnchorNodeID       string                              `json:"anchorNodeId"`
 	AnchorResourceType string                              `json:"anchorResourceType"`
@@ -484,7 +488,7 @@ type ConstructionGroupRelatedOccurrenceFieldSource struct {
 	EmptyPolicy        ExpansionEmptyPolicy                `json:"emptyPolicy"`
 	Multiplicity       string                              `json:"multiplicity"`
 	CodingSelector     string                              `json:"codingSelector,omitempty"`
-	CodingEmptyPolicy  ExpansionEmptyPolicy                `json:"codingEmptyPolicy,omitempty"`
+	CodingEmptyPolicy  ConstructionGroupCodingEmptyPolicy  `json:"codingEmptyPolicy,omitempty"`
 	OrdinalSemantics   string                              `json:"ordinalSemantics,omitempty"`
 }
 
@@ -504,6 +508,14 @@ type ConstructionGroupRelatedRouteStep struct {
 
 const ConstructionGroupRelatedMultiplicityDistinctTargetPerInput = "DISTINCT_TARGET_PER_INPUT"
 const ConstructionGroupRelatedOrdinalSemanticsZeroBasedPosition = "ZERO_BASED_POSITION_IN_FLATTENED_EXPANSION_ARRAY"
+
+type ConstructionGroupCodingEmptyPolicy string
+
+const (
+	ConstructionGroupCodingEmptyPolicyGroup   ConstructionGroupCodingEmptyPolicy = "GROUP"
+	ConstructionGroupCodingEmptyPolicyExclude ConstructionGroupCodingEmptyPolicy = "EXCLUDE"
+	ConstructionGroupCodingEmptyPolicyError   ConstructionGroupCodingEmptyPolicy = "ERROR"
+)
 
 // ConstructionGroupSemanticCategory pins one exact observed coding family.
 // Version is empty only for the versionless family; it is never a wildcard.
@@ -842,7 +854,7 @@ func validateConstructionGroupRelatedOccurrenceSource(valueKind string, source C
 	}
 	if !allowCodingIdentity || valueKind != "CODING_IDENTITY" || source.CandidateID != "" || source.CanonicalPath != "" ||
 		!validConstructionColumnID(source.CodingSelector) || source.OrdinalSemantics != ConstructionGroupRelatedOrdinalSemanticsZeroBasedPosition ||
-		(source.CodingEmptyPolicy != ExpansionPreserveParent && source.CodingEmptyPolicy != ExpansionExclude && source.CodingEmptyPolicy != ExpansionError) {
+		(source.CodingEmptyPolicy != ConstructionGroupCodingEmptyPolicyGroup && source.CodingEmptyPolicy != ConstructionGroupCodingEmptyPolicyExclude && source.CodingEmptyPolicy != ConstructionGroupCodingEmptyPolicyError) {
 		return fmt.Errorf("%s relatedOccurrence CODING_IDENTITY requires exact Coding selector and ordinal policy without candidateId", path)
 	}
 	return nil

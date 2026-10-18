@@ -70,6 +70,7 @@ func describeGroupFieldSourceContext(sourceStageID, rootResourceType, sourceIden
 	}
 	context := &CompiledGroupFieldSourceContext{
 		SourceStageID: sourceStageID, SourceIdentityColumn: sourceIdentity,
+		RootOccurrenceID: rootOccurrenceID, RootResourceType: rootResourceType,
 		FieldOwners: []CompiledGroupFieldOwner{{Role: "ROOT", OccurrenceID: rootOccurrenceID, OwnerResourceType: rootResourceType, ResourceType: rootResourceType}},
 	}
 	shape := canonicalGroupSourceShape{

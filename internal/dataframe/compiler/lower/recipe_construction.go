@@ -41,6 +41,8 @@ type CompiledGroupFieldSourceContext struct {
 	SourceStageID        string
 	SourceShapeID        string
 	SourceIdentityColumn string
+	RootOccurrenceID     string
+	RootResourceType     string
 	SourceExpansion      *CompiledGroupFieldSourceExpansion
 	FieldOwners          []CompiledGroupFieldOwner
 }

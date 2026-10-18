@@ -120,6 +120,7 @@ func TestConstructionGroupFieldSourceUsesTaggedCurrentOrRelatedInput(t *testing.
 	related := ConstructionGroupFieldSource{
 		Kind: "BINDING", ValueKind: "SCALAR", SourceStageID: ConstructionSourceProjectionID, SourceShapeID: "shape-related",
 		Input: &ConstructionGroupFieldSourceInput{Kind: "RELATED_OCCURRENCE", RelatedOccurrence: &ConstructionGroupRelatedOccurrenceFieldSource{
+			RouteID:            "related-route-test",
 			AnchorOccurrenceID: "observation-a", AnchorNodeID: "node-observation-a", AnchorResourceType: "Observation",
 			Route: []ConstructionGroupRelatedRouteStep{{
 				StepIndex: 0, FromOccurrenceID: "observation-a", FromNodeID: "node-observation-a", FromResourceType: "Observation",
@@ -127,7 +128,7 @@ func TestConstructionGroupFieldSourceUsesTaggedCurrentOrRelatedInput(t *testing.
 				ToOccurrenceID: "device-device-a", ToNodeID: "node-device-a", ToResourceType: "Device",
 			}},
 			TargetOccurrenceID: "device-device-a", TargetNodeID: "node-device-a", TargetResourceType: "Device",
-			ResourceType: "Device", CandidateID: "device-status", CanonicalPath: "status",
+			ResourceType: "code", CandidateID: "device-status", CanonicalPath: "status",
 			EmptyPolicy: ExpansionPreserveParent, Multiplicity: ConstructionGroupRelatedMultiplicityDistinctTargetPerInput,
 		}},
 	}
@@ -167,16 +168,17 @@ func TestConstructionGroupRelatedCodingIdentityRequiresExactSelectorAndPolicies(
 	source := ConstructionGroupFieldSource{
 		Kind: "BINDING", ValueKind: "CODING_IDENTITY", SourceStageID: ConstructionSourceProjectionID, SourceShapeID: "shape-related-coding",
 		Input: &ConstructionGroupFieldSourceInput{Kind: "RELATED_OCCURRENCE", RelatedOccurrence: &ConstructionGroupRelatedOccurrenceFieldSource{
-			AnchorOccurrenceID: "observation-a", AnchorNodeID: "node-observation-a", AnchorResourceType: "Observation",
+			RouteID:            "related-route-test",
+			AnchorOccurrenceID: "patient-a", AnchorNodeID: "node-patient-a", AnchorResourceType: "Patient",
 			Route: []ConstructionGroupRelatedRouteStep{{
-				StepIndex: 0, FromOccurrenceID: "observation-a", FromNodeID: "node-observation-a", FromResourceType: "Observation",
-				EdgeID: "edge-device", Relationship: "device_Reference", StorageDirection: "OUTBOUND", MatchMode: "OPTIONAL",
-				ToOccurrenceID: "device-device-a", ToNodeID: "node-device-a", ToResourceType: "Device",
+				StepIndex: 0, FromOccurrenceID: "patient-a", FromNodeID: "node-patient-a", FromResourceType: "Patient",
+				EdgeID: "edge-observation", Relationship: "subject_Reference", StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+				ToOccurrenceID: "observation-a", ToNodeID: "node-observation-a", ToResourceType: "Observation",
 			}},
-			TargetOccurrenceID: "device-device-a", TargetNodeID: "node-device-a", TargetResourceType: "Device",
-			ResourceType: "Device", EmptyPolicy: ExpansionPreserveParent,
+			TargetOccurrenceID: "observation-a", TargetNodeID: "node-observation-a", TargetResourceType: "Observation",
+			ResourceType: "Coding", EmptyPolicy: ExpansionPreserveParent,
 			Multiplicity:   ConstructionGroupRelatedMultiplicityDistinctTargetPerInput,
-			CodingSelector: "udiCarrier.carrierHRF", CodingEmptyPolicy: ExpansionExclude,
+			CodingSelector: "valueCodeableConcept.coding[]", CodingEmptyPolicy: ConstructionGroupCodingEmptyPolicyExclude,
 			OrdinalSemantics: ConstructionGroupRelatedOrdinalSemanticsZeroBasedPosition,
 		}},
 	}
