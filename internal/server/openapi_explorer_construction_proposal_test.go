@@ -1275,6 +1275,222 @@ func TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP(t *tes
 	}
 }
 
+func TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP(t *testing.T) {
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	snapshot := testAuthoringV2CapabilitySnapshot()
+	snapshot.Nodes = []capability.Node{
+		{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true, RowGrain: "RESOURCE", Populated: true, DocumentCount: 3},
+		{ID: "n_specimen", ResourceType: "Specimen", Populated: true, DocumentCount: 3},
+	}
+	snapshot.Edges = []capability.Edge{{
+		ID: "e_patient_specimen", FromNodeID: "n_patient", ToNodeID: "n_specimen",
+		SourceResourceType: "Patient", TargetResourceType: "Specimen", Label: "subject_Patient", StorageDirection: "INBOUND",
+	}}
+	snapshot.Candidates = []capability.Candidate{
+		{
+			ID: "c_patient_id", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "id", Label: "Patient ID",
+			LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar, capability.ProjectionFirst},
+			SupportedOperations: []capability.Operation{capability.OperationSelect}, Observed: true, Populated: true,
+		},
+		{
+			ID: "c_specimen_type_code", NodeID: "n_specimen", ResourceType: "Specimen", FieldPath: "type.coding[].code", Label: "Specimen type",
+			LogicalType: "string", Cardinality: "many", RepeatedBoundaries: []capability.RepeatedBoundary{{Path: "type.coding[]", MaxItems: 8}},
+			ProjectionModes:     []capability.ProjectionMode{capability.ProjectionArray},
+			SupportedOperations: []capability.Operation{capability.OperationSelect}, Observed: true, Populated: true,
+		},
+	}
+	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace.Documents[0] = document
+	catalogSnapshot := authoringV2Catalog(snapshot, "patient-specimen-related-group")
+	workspace, err = authoringv2.MigrateLegacyContributors(workspace, catalogSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace = authoringv2.MigrateLosslessDefaults(workspace, catalogSnapshot).NormalizePresentationOrders()
+	if err := workspace.Validate(); err != nil {
+		t.Fatalf("validate Patient source workspace: %v", err)
+	}
+	draft, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newTestExplorerStore()
+	if _, err := store.create(explorer.Explorer{
+		Project: "project-a", ExplorerID: "patient-specimen-related-group", Title: "Patients",
+		DraftConfig: draft, DraftVersion: 1, DraftDigest: digest,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service, err := explorer.NewService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
+		Registry: compilerTestRegistry{}, QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := lifecycle.Config{
+		Capability: lifecycle.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
+				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+			},
+			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
+				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+			},
+			Catalog: authoringV2Catalog,
+		},
+		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+			return compileConstructionSourceStage(ctx, request, recipeEngine)
+		},
+		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)
+		},
+		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+			if receipt == nil || receipt.ConstructionProposal == nil {
+				return dataframeexecution.PreviewSummary{}, fmt.Errorf("related Group did not reach receipt preview")
+			}
+			if err := visit(map[string]any{"patient_id_group": "patient-1", "specimen_type": "tissue", "row_count": 1}); err != nil {
+				return dataframeexecution.PreviewSummary{}, err
+			}
+			return dataframeexecution.PreviewSummary{
+				Output: "patients", Columns: []string{"patient_id_group", "specimen_type", "row_count"},
+				RowCount: 1, Complete: true, PartialValidation: true,
+			}, nil
+		},
+	}
+	app := fiber.New()
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	basePath := "/api/v1/projects/project-a/explorers/patient-specimen-related-group/authoring/v2"
+	capabilitiesResponse := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","stageId":"source_projection"}`,
+		snapshot.Token, digest,
+	))
+	if capabilitiesResponse.StatusCode != http.StatusOK {
+		t.Fatalf("related Group capabilities status=%d body=%s", capabilitiesResponse.StatusCode, capabilitiesResponse.Body)
+	}
+	var capabilities struct {
+		GroupFieldChoices []struct {
+			Kind          string `json:"kind"`
+			ValueKind     string `json:"valueKind"`
+			Label         string `json:"label"`
+			SourceRole    string `json:"sourceRole"`
+			CanonicalPath string `json:"canonicalPath"`
+			FieldSource   struct {
+				ChoiceID string `json:"choiceId"`
+			} `json:"fieldSource"`
+			RelatedOccurrence *struct {
+				RouteID string `json:"routeId"`
+			} `json:"relatedOccurrence"`
+		} `json:"groupFieldChoices"`
+	}
+	if err := json.Unmarshal([]byte(capabilitiesResponse.Body), &capabilities); err != nil {
+		t.Fatal(err)
+	}
+	var patientIDChoice, codingChoice *struct {
+		Kind          string `json:"kind"`
+		ValueKind     string `json:"valueKind"`
+		Label         string `json:"label"`
+		SourceRole    string `json:"sourceRole"`
+		CanonicalPath string `json:"canonicalPath"`
+		FieldSource   struct {
+			ChoiceID string `json:"choiceId"`
+		} `json:"fieldSource"`
+		RelatedOccurrence *struct {
+			RouteID string `json:"routeId"`
+		} `json:"relatedOccurrence"`
+	}
+	for index := range capabilities.GroupFieldChoices {
+		choice := &capabilities.GroupFieldChoices[index]
+		if choice.Kind != "FIELD_SOURCE" {
+			continue
+		}
+		if choice.SourceRole == "ROOT" && choice.CanonicalPath == "id" {
+			patientIDChoice = choice
+		}
+		if choice.ValueKind == "CODING_IDENTITY" && choice.RelatedOccurrence != nil {
+			codingChoice = choice
+		}
+	}
+	if patientIDChoice == nil || patientIDChoice.FieldSource.ChoiceID == "" || codingChoice == nil || codingChoice.FieldSource.ChoiceID == "" ||
+		codingChoice.CanonicalPath != "type.coding[]" || codingChoice.RelatedOccurrence.RouteID == "" {
+		t.Fatalf("expected Patient.id and related Specimen Coding choices, got %#v", capabilities.GroupFieldChoices)
+	}
+	stepID := "group_patient_specimen"
+	candidate := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+		ID: stepID, Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
+			ConstructionID: stepID, MissingKeyPolicy: authoringv2.ConstructionGroupMissingKeyGroup,
+			Keys: []authoringv2.ConstructionGroupKey{
+				{OutputColumnID: "patient_id_group", FieldSource: &authoringv2.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: patientIDChoice.FieldSource.ChoiceID}},
+				{OutputColumnID: "specimen_type", FieldSource: &authoringv2.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: codingChoice.FieldSource.ChoiceID}},
+			},
+			Aggregates: []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: "row_count"}},
+		}},
+		Outputs: []authoringv2.StageColumn{
+			{ID: "patient_id_group", Name: "patient_id_group", Label: "Patient ID", Type: "string"},
+			{ID: "specimen_type", Name: "specimen_type", Label: "Specimen type", Type: "string"},
+			{ID: "row_count", Name: "row_count", Label: "Count", Type: "integer"},
+		},
+	}}}
+	candidateJSON, err := json.Marshal(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposalResponse := requestJSON(t, app, http.MethodPost, basePath+"/construction-proposals", fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","changedStepId":%q,"candidateConstruction":%s,"limit":100}`,
+		snapshot.Token, digest, stepID, candidateJSON,
+	))
+	if proposalResponse.StatusCode != http.StatusOK {
+		t.Fatalf("related Coding Group proposal status=%d body=%s", proposalResponse.StatusCode, proposalResponse.Body)
+	}
+	var proposal loomapi.ConstructionProposalResponse
+	if err := json.Unmarshal([]byte(proposalResponse.Body), &proposal); err != nil {
+		t.Fatalf("parse ConstructionProposalResponse OpenAPI shape: %v", err)
+	}
+	if proposal.ProposalId == nil || string(proposal.PreviewStatus) != "READY" || proposal.Preview == nil || proposal.Preview.RowCount != 1 {
+		t.Fatalf("related Coding Group proposal did not return READY receipt preview: %#v", proposal)
+	}
+	resolvedJSON, err := json.Marshal(proposal.CandidateConstruction)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resolved authoringv2.Construction
+	if err := json.Unmarshal(resolvedJSON, &resolved); err != nil {
+		t.Fatalf("parse returned candidate construction source bindings: %v", err)
+	}
+	if len(resolved.Steps) != 1 || resolved.Steps[0].Operation.Group == nil || len(resolved.Steps[0].Operation.Group.Keys) != 2 {
+		t.Fatalf("returned related Group construction = %#v", resolved)
+	}
+	patientBinding := resolved.Steps[0].Operation.Group.Keys[0].FieldSource
+	codingBinding := resolved.Steps[0].Operation.Group.Keys[1].FieldSource
+	if patientBinding == nil || patientBinding.Kind != "BINDING" || patientBinding.ValueKind != "SCALAR" ||
+		patientBinding.Input == nil || patientBinding.Input.Kind != "CURRENT_STAGE" || patientBinding.Input.CurrentStage == nil ||
+		patientBinding.Input.CurrentStage.CanonicalPath != "id" {
+		t.Fatalf("returned Patient.id BINDING = %#v", patientBinding)
+	}
+	if codingBinding == nil || codingBinding.Kind != "BINDING" || codingBinding.ValueKind != "CODING_IDENTITY" ||
+		codingBinding.Input == nil || codingBinding.Input.Kind != "RELATED_OCCURRENCE" || codingBinding.Input.RelatedOccurrence == nil ||
+		codingBinding.Input.RelatedOccurrence.TargetResourceType != "Specimen" ||
+		codingBinding.Input.RelatedOccurrence.CodingSelector != "type.coding[]" ||
+		codingBinding.Input.RelatedOccurrence.CodingEmptyPolicy != "GROUP" ||
+		codingBinding.Input.RelatedOccurrence.OrdinalSemantics != recipe.ConstructionGroupRelatedOrdinalSemanticsZeroBasedPosition {
+		t.Fatalf("returned related Specimen Coding BINDING = %#v", codingBinding)
+	}
+}
+
 func TestAuthoredSemanticGroupOutputCanBeRemovedByDownstreamUnpivot(t *testing.T) {
 	semanticPath := "construction_semantic_group:binding_specimen_type:family_specimen_type"
 	measureName := "specimen_type"

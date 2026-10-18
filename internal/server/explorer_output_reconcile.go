@@ -32,6 +32,69 @@ type authoredOutputColumn struct {
 	Quality                 constructedOutputQuality
 }
 
+type groupFieldSourceOutputIdentity struct {
+	CandidateID        string
+	OccurrenceID       string
+	SourceResourceType string
+	SourcePath         string
+}
+
+func groupFieldSourceOutputIdentityForReconcile(
+	binding *authoringv2.ConstructionGroupFieldSource,
+) (groupFieldSourceOutputIdentity, bool) {
+	if binding == nil || binding.Kind != "BINDING" || binding.SourceStageID == "" || binding.SourceShapeID == "" {
+		return groupFieldSourceOutputIdentity{}, false
+	}
+	if err := binding.Validate(); err != nil {
+		return groupFieldSourceOutputIdentity{}, false
+	}
+	identity := groupFieldSourceOutputIdentity{}
+	switch {
+	case binding.Input != nil && binding.Input.Kind == "CURRENT_STAGE" && binding.Input.CurrentStage != nil:
+		current := binding.Input.CurrentStage
+		identity.CandidateID = current.CandidateID
+		identity.OccurrenceID = current.OccurrenceID
+		identity.SourceResourceType = current.ResourceType
+		identity.SourcePath = current.CanonicalPath
+		if binding.ValueKind == "CODING_IDENTITY" {
+			identity.CandidateID = ""
+			identity.SourceResourceType = current.OwnerResourceType
+		}
+	case binding.Input != nil && binding.Input.Kind == "RELATED_OCCURRENCE" && binding.Input.RelatedOccurrence != nil:
+		related := binding.Input.RelatedOccurrence
+		identity.CandidateID = related.CandidateID
+		identity.OccurrenceID = related.TargetOccurrenceID
+		identity.SourceResourceType = related.TargetResourceType
+		identity.SourcePath = related.CanonicalPath
+		if binding.ValueKind == "CODING_IDENTITY" {
+			identity.CandidateID = ""
+			identity.SourcePath = related.CodingSelector
+		}
+	case binding.Input == nil:
+		// Saved flat bindings are retained for direct-stage recipes written before
+		// the tagged source input was added.
+		identity.CandidateID = binding.CandidateID
+		identity.OccurrenceID = binding.OccurrenceID
+		identity.SourceResourceType = binding.ResourceType
+		identity.SourcePath = binding.CanonicalPath
+		if binding.ValueKind == "CODING_IDENTITY" {
+			identity.CandidateID = ""
+			identity.SourceResourceType = binding.OwnerResourceType
+			if binding.OwnerOccurrenceID != "" {
+				identity.OccurrenceID = binding.OwnerOccurrenceID
+			}
+		}
+	default:
+		return groupFieldSourceOutputIdentity{}, false
+	}
+	if identity.OccurrenceID == "" || identity.SourceResourceType == "" || identity.SourcePath == "" ||
+		(binding.ValueKind == "SCALAR" && identity.CandidateID == "") ||
+		(binding.ValueKind != "SCALAR" && binding.ValueKind != "CODING_IDENTITY") {
+		return groupFieldSourceOutputIdentity{}, false
+	}
+	return identity, true
+}
+
 type constructedOutputQuality struct {
 	Lossless              bool
 	Shape                 string
@@ -693,14 +756,9 @@ func authoredConstructionOutputsWithCombineInputs(
 				}
 				if key.FieldSource != nil {
 					binding := key.FieldSource
-					if binding.Kind != "BINDING" || binding.SourceStageID == "" || binding.SourceShapeID == "" ||
-						binding.OccurrenceID == "" || binding.OwnerOccurrenceID == "" || binding.ResourceType == "" ||
-						binding.OwnerResourceType == "" || binding.CanonicalPath == "" {
+					identity, ok := groupFieldSourceOutputIdentityForReconcile(binding)
+					if !ok {
 						return fmt.Errorf("step %q Group output %q has no resolved field-source binding identity", step.ID, key.OutputColumnID)
-					}
-					if binding.ValueKind == "SCALAR" && binding.CandidateID == "" ||
-						binding.ValueKind != "SCALAR" && binding.ValueKind != "CODING_IDENTITY" {
-						return fmt.Errorf("step %q Group output %q has an invalid field-source value kind", step.ID, key.OutputColumnID)
 					}
 					if err := addOutput(key.OutputColumnID, group.ConstructionID, nil, quality); err != nil {
 						return err
@@ -710,14 +768,10 @@ func authoredConstructionOutputsWithCombineInputs(
 							continue
 						}
 						metadata := nextAuthored[output.Name]
-						metadata.CandidateID = binding.CandidateID
-						metadata.OccurrenceID = binding.OccurrenceID
-						metadata.SourceResourceType = binding.ResourceType
-						metadata.SourcePath = binding.CanonicalPath
-						if binding.ValueKind == "CODING_IDENTITY" {
-							metadata.SourceResourceType = binding.OwnerResourceType
-							metadata.OccurrenceID = binding.OwnerOccurrenceID
-						}
+						metadata.CandidateID = identity.CandidateID
+						metadata.OccurrenceID = identity.OccurrenceID
+						metadata.SourceResourceType = identity.SourceResourceType
+						metadata.SourcePath = identity.SourcePath
 						nextAuthored[output.Name] = metadata
 						break
 					}
@@ -751,11 +805,12 @@ func authoredConstructionOutputsWithCombineInputs(
 					rowQuality.Shape = "array"
 				}
 				inputs := []string(nil)
+				var fieldSourceIdentity groupFieldSourceOutputIdentity
 				if rowValue.FieldSource != nil {
 					binding := rowValue.FieldSource
-					if binding.Kind != "BINDING" || binding.ValueKind != "SCALAR" || binding.SourceStageID == "" ||
-						binding.SourceShapeID == "" || binding.OccurrenceID == "" || binding.OwnerOccurrenceID != binding.OccurrenceID ||
-						binding.ResourceType == "" || binding.OwnerResourceType == "" || binding.CandidateID == "" || binding.CanonicalPath == "" {
+					var ok bool
+					fieldSourceIdentity, ok = groupFieldSourceOutputIdentityForReconcile(binding)
+					if !ok || binding.ValueKind != "SCALAR" {
 						return fmt.Errorf("step %q Group row-value output %q has no resolved scalar field-source binding identity", step.ID, rowValue.OutputColumnID)
 					}
 				} else {
@@ -772,10 +827,10 @@ func authoredConstructionOutputsWithCombineInputs(
 						continue
 					}
 					metadata := nextAuthored[output.Name]
-					metadata.CandidateID = rowValue.FieldSource.CandidateID
-					metadata.OccurrenceID = rowValue.FieldSource.OccurrenceID
-					metadata.SourceResourceType = rowValue.FieldSource.ResourceType
-					metadata.SourcePath = rowValue.FieldSource.CanonicalPath
+					metadata.CandidateID = fieldSourceIdentity.CandidateID
+					metadata.OccurrenceID = fieldSourceIdentity.OccurrenceID
+					metadata.SourceResourceType = fieldSourceIdentity.SourceResourceType
+					metadata.SourcePath = fieldSourceIdentity.SourcePath
 					nextAuthored[output.Name] = metadata
 					break
 				}
