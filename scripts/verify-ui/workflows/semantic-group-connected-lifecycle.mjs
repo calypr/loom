@@ -992,7 +992,7 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
   assert.deepEqual(editExpected.headers, finalExpected.headers,
     'The proposal headers must be derived from the returned candidate output labels.');
   await assertGrid(page, 'proposal', editExpected, 'saved connected Group edit rehydration and summary-name preview');
-  cda.check('edit',
+  cda.check('correctness',
     'saved connected Group edit rehydrates its exact keys and RowValue, previews a summary-name edit, and keeps the full oracle',
     true, {
       matched: matchedChoices.map(({ key, choice }) => ({ outputColumnId: key.outputColumnId, choiceId: choice.fieldSource.choiceId,
@@ -1078,7 +1078,7 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
     'Group removal must restore the exact selected-root population and route.');
   assert.equal(restoredDocument.construction?.steps?.length ?? 0, 0,
     'Group removal must leave no Group or private preparation step.');
-  cda.check('restoration',
+  cda.check('correctness',
     'removing connected Group restores exact Patient source grain, prior columns, population, and no private preparation step',
     true, { restoredRootResourceType: restoredDocument.rootResourceType, rowCount: removalPreview.rowCount,
       rowSources: restoredPreviewRoots, columns: restoredDocument.columns, constructionSteps: restoredDocument.construction?.steps?.length ?? 0 });
@@ -1098,7 +1098,7 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
   const restoredReloadPreview = await api(`${authoringPath}/preview`, { receiptId: restoredReceipt, outputId, limit: ROOT_SAMPLE_SIZE + 1 });
   assert.equal(restoredReloadPreview.rowCount, ROOT_SAMPLE_SIZE);
   assert.deepEqual(restoredReloadPreview.rowSources.map(source => source.id).sort(), [...selectedRootIDs].sort());
-  cda.check('reload',
+  cda.check('persistence',
     'reloaded Group removal preserves the exact Patient source row identities, public columns, and empty construction',
     true, { rowCount: restoredReloadPreview.rowCount, rowSources: restoredReloadPreview.rowSources,
       columns: restoredAfterReload.columns, constructionSteps: restoredAfterReload.construction?.steps?.length ?? 0 });
