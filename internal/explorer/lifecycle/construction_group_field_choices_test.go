@@ -325,6 +325,21 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 	}
 }
 
+func TestConstructionGroupRelatedRouteLabelExplainsMatchAndMultiplicity(t *testing.T) {
+	got := constructionGroupRelatedRouteLabel("Patient", []capability.ConstructionRouteStep{
+		{
+			Relationship: "subject_Patient", ToResourceType: "Specimen", MatchMode: "OPTIONAL",
+		},
+		{
+			Relationship: "derivedFrom", ToResourceType: "Observation", MatchMode: "REQUIRED",
+		},
+	})
+	want := "Patient · subject_Patient → Specimen (Optional: parent row is kept when unmatched) · derivedFrom → Observation (Required: unmatched parents are excluded) · One distinct target per input row; duplicate paths to the same target do not multiply it"
+	if got != want {
+		t.Fatalf("related route label = %q, want %q", got, want)
+	}
+}
+
 type countingGroupRowChoicePlanner struct {
 	calls int
 }

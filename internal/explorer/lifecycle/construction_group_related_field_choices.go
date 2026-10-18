@@ -303,8 +303,13 @@ func observedRelatedCodingSelectors(candidate capability.Candidate, index *fhirs
 func constructionGroupRelatedRouteLabel(anchorResource string, route []capability.ConstructionRouteStep) string {
 	parts := []string{anchorResource}
 	for _, step := range route {
-		parts = append(parts, step.Relationship+" → "+step.ToResourceType)
+		matchSemantics := "Optional: parent row is kept when unmatched"
+		if step.MatchMode == "REQUIRED" {
+			matchSemantics = "Required: unmatched parents are excluded"
+		}
+		parts = append(parts, step.Relationship+" → "+step.ToResourceType+" ("+matchSemantics+")")
 	}
+	parts = append(parts, "One distinct target per input row; duplicate paths to the same target do not multiply it")
 	return strings.Join(parts, " · ")
 }
 
