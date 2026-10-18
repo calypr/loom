@@ -329,8 +329,11 @@ export async function semanticGroupLifecycle({ page, cda }) {
     document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus === 'ready' &&
     document.querySelector('[data-testid="construction-proposal-preview"]')?.dataset.previewStatus === 'ready',
   undefined, { timeout: ACTION_BUDGET_MS });
-  const proposalReceipt = async () => page.locator('[data-testid="construction-proposal-preview"]')
-    .getAttribute('data-preview-receipt-id').catch(() => null);
+  const proposalReceipt = async () => {
+    const preview = page.locator('[data-testid="construction-proposal-preview"]');
+    if (await preview.count() === 0) return null;
+    return preview.getAttribute('data-preview-receipt-id').catch(() => null);
+  };
   const waitNextProposalPreview = previousReceipt => page.waitForFunction(previous => {
     const preview = document.querySelector('[data-testid="construction-proposal-preview"]');
     const receipt = preview?.getAttribute('data-preview-receipt-id') ?? '';
@@ -398,7 +401,8 @@ export async function semanticGroupLifecycle({ page, cda }) {
         'The ordinary Group candidate must bind the exact visibly selected family choice.');
     } else {
       assert.equal(expectedKind, 'BINDING');
-      assert.deepEqual(semanticKey.semanticCategory, expectedBinding,
+      const versionlessIdentity = binding => ({ ...binding, version: binding.version ?? '' });
+      assert.deepEqual(versionlessIdentity(semanticKey.semanticCategory), versionlessIdentity(expectedBinding),
         'Saved Group edit candidates must retain the exact durable semantic family binding.');
     }
     assert.equal(semanticKey.inputColumnId, undefined,
@@ -595,13 +599,19 @@ export async function semanticGroupLifecycle({ page, cda }) {
         () => history.waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS }));
     }
     const edit = page.getByTestId(`construction-row-edit-${reloadedBinding.step.id}`);
-    await action('open saved semantic Group editor', edit, () => edit.click(), async () => {
-      await page.getByTestId('construction-group-semantic-choice').waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
-      await waitProposalReady();
-    });
     const select = page.getByTestId('construction-group-semantic-choice');
+    const savedBindingValue = `binding:${reloadedBinding.key.semanticCategory.bindingId}:${reloadedBinding.key.semanticCategory.ruleVersion}`;
+    await action('open saved semantic Group editor', edit, () => edit.click(), async () => {
+      await select.waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
+      await page.waitForFunction(({ bindingValue, scalarLabel }) => {
+        const select = document.querySelector('[data-testid="construction-group-semantic-choice"]');
+        const scalarKey = [...document.querySelectorAll('input[type="checkbox"]')]
+          .find(input => input.getAttribute('aria-label') === `Group by ${scalarLabel}`);
+        return select instanceof HTMLSelectElement && select.value === bindingValue && scalarKey?.checked === true;
+      }, { bindingValue: savedBindingValue, scalarLabel }, { timeout: ACTION_BUDGET_MS });
+    });
     const selectedValue = await select.inputValue();
-    assert(selectedValue, 'The saved semantic binding must select its current stage-bound choice.');
+    assert.equal(selectedValue, savedBindingValue, 'The saved semantic binding must rehydrate by its durable binding and rule version.');
     const selectedLabel = clean(await select.locator('option:checked').textContent());
     assert.match(selectedLabel, /specimen\s*type/i);
     assert(selectedLabel.includes(oracle.family.system));
@@ -738,7 +748,7 @@ export async function semanticGroupLifecycle({ page, cda }) {
   if (!await history.isVisible().catch(() => false)) {
     await page.getByTestId('construction-rows-settings-trigger').click({ timeout: ACTION_BUDGET_MS });
   }
-  await page.getByTestId(removalSelector.slice(1, -1)).waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
+  await page.locator(removalSelector).waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
   await action('reopen semantic Group removal', page.locator(removalSelector),
     () => page.locator(removalSelector).click(),
     () => page.waitForFunction(() => document.querySelector('[data-testid="construction-removal-summary"]') !== null,

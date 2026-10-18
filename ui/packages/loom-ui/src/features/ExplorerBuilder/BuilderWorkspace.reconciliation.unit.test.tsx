@@ -32,6 +32,7 @@ import type {
 } from '../../types';
 import type { RelatedExpandQueryOwner } from './constructionOperations/RelatedExpandEditor';
 import type { ConstructionCandidateIntent } from './constructionWorkspace/useConstructionLifecycle';
+import { createLoomClient } from '../../api';
 import type { LoomClient } from '../../api';
 import type {
   ProposeConstructionArgs,
@@ -58,6 +59,7 @@ const mockLoomClient = vi.hoisted(() => ({
 }));
 const mockLoomClientReference = vi.hoisted(() => ({ current: undefined as unknown }));
 const mockRelatedExpandOwnerState = vi.hoisted(() => ({ enabled: false }));
+const mockUseActualReshapeEditor = vi.hoisted(() => ({ enabled: false }));
 const mockRelatedExpandQueryOwner = vi.hoisted(() => ({
   draftVersion: 1,
   draftDigest: 'sha256:draft-1',
@@ -296,9 +298,9 @@ vi.mock('./components/PreviewTable', () => ({
     .map(({ value }) => value),
 }));
 
-vi.mock('./constructionOperations/ConstructionReshapeEditor', async (importOriginal) => ({
-  ...await importOriginal<typeof import('./constructionOperations/ConstructionReshapeEditor')>(),
-  ConstructionReshapeEditor: ({
+vi.mock('./constructionOperations/ConstructionReshapeEditor', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./constructionOperations/ConstructionReshapeEditor')>();
+  const MockConstructionReshapeEditor = ({
     editingStep,
     initialKind,
     construction,
@@ -310,22 +312,7 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', async (importOrigi
     onFormKindChange,
     onCandidateChange,
     relatedExpandQueryOwnerRef,
-  }: {
-    readonly editingStep?: Construction['steps'][number];
-    readonly initialKind?: string;
-    readonly construction: { readonly steps: ReadonlyArray<unknown> };
-    readonly capabilities: Pick<ConstructionCapabilitiesResponse, 'selectedStage'> & Partial<Pick<ConstructionCapabilitiesResponse, 'semanticGroupChoices'>>;
-    readonly initialEntry?: {
-      readonly form: { readonly kind: string; readonly stepId?: string };
-      readonly candidateIntent: ConstructionCandidateIntent;
-    };
-    readonly hideChangeRowOperation?: boolean;
-    readonly pivotDiscovery?: { readonly status: string };
-    readonly onDiscoverCategories?: (request: { readonly stageId: string; readonly categoryColumnId: string; readonly valueColumnId: string }) => void;
-    readonly onFormKindChange?: (kind: string) => void;
-    readonly onCandidateChange?: (intent: ConstructionCandidateIntent | undefined) => void;
-    readonly relatedExpandQueryOwnerRef?: React.RefObject<RelatedExpandQueryOwner | null>;
-  }) => {
+  }: Parameters<typeof actual.ConstructionReshapeEditor>[0]) => {
     React.useImperativeHandle<RelatedExpandQueryOwner | null, RelatedExpandQueryOwner | null>(
       relatedExpandQueryOwnerRef ?? null,
       () => mockRelatedExpandOwnerState.enabled ? mockRelatedExpandQueryOwner : null,
@@ -383,8 +370,15 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', async (importOrigi
         })}>Emit Pivot presentation proposal</button> : null}
       </div>
     );
-  },
-}));
+  };
+  return {
+    ...actual,
+    ConstructionReshapeEditor: (props: Parameters<typeof actual.ConstructionReshapeEditor>[0]) =>
+      mockUseActualReshapeEditor.enabled
+        ? <actual.ConstructionReshapeEditor {...props} />
+        : <MockConstructionReshapeEditor {...props} />,
+  };
+});
 
 const apiVersion = 'loom.calypr.org/explorer-authoring/v2' as const;
 const column = {
@@ -775,6 +769,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     window.sessionStorage.clear();
     mockLoomClientReference.current = undefined;
     mockRelatedExpandOwnerState.enabled = false;
+    mockUseActualReshapeEditor.enabled = false;
     mockRelatedExpandQueryOwner.pauseAndDrain.mockReset().mockResolvedValue(undefined);
     mockRelatedExpandQueryOwner.resume.mockReset();
     mockLoomClient.getSelection.mockReset();
@@ -1274,7 +1269,14 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       ...workspace,
       documents: [{
         ...workspace.documents[0],
-        construction: { version: 1, steps: [groupStep] },
+        construction: {
+          version: 1,
+          sourceProjections: [{
+            columnId: 'specimen_identifier_id', occurrenceId: 'root', fieldPath: 'identifier',
+            fhirType: 'string', logicalType: 'string', label: 'Specimen identifier',
+          }],
+          steps: [groupStep],
+        },
       }],
     };
     (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
@@ -1289,7 +1291,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       operation: 'SOURCE_PROJECTION' as const,
       rowIdentityColumn: 'specimen_identifier_id',
       columns: [
-        { id: 'specimen_identifier_id', name: 'specimen_identifier', label: 'Specimen identifier', type: 'string' },
+        { id: 'specimen_identifier_id', name: 'specimen_identifier', label: 'Specimen identifier', type: 'string', cardinality: 'optional_one' as const },
       ],
       capabilities: [{ kind: 'GROUP' as const, supported: true }],
     };
@@ -1330,6 +1332,35 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       }] : [],
       workspaceInputs: [],
     }));
+    mockLoomClient.proposeConstruction.mockClear().mockImplementation(async (
+      args: ProposeConstructionArgs,
+    ): Promise<ConstructionProposalResponse> => ({
+      proposalId: 'semantic-only-group-proposal',
+      outputId: args.outputId,
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      baseDocumentDigest: 'document-1',
+      candidateWorkspaceDigest: 'sha256:semantic-only-group-candidate',
+      changedStepId: args.changedStepId ?? '',
+      candidateConstruction: args.candidateConstruction,
+      dependencyImpact: { affectedStepIds: [] },
+      stages: [sourceStage],
+      previewStatus: 'READY',
+      previewDurationMs: 1,
+    }));
+    mockLoomClient.preview.mockResolvedValue({
+      apiVersion,
+      kind: 'ExplorerBuilderPreview',
+      rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
+      receiptId: 'semantic-only-group-proposal',
+      outputId: 'specimens',
+      columns: [],
+      rows: [],
+      rowCount: 0,
+      diagnostics: [],
+    });
+    mockUseActualReshapeEditor.enabled = true;
 
     render(
       <BuilderWorkspace
@@ -1344,17 +1375,54 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     fireEvent.click(within(rowSettings).getByTestId('construction-row-edit-group_specimens'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('construction-reshape-editor')).toHaveAttribute('data-editing-step-id', 'group_specimens');
-      expect(screen.getByTestId('construction-reshape-editor')).toHaveAttribute('data-editing-operation', 'GROUP');
-      expect(screen.getByTestId('construction-reshape-editor')).toHaveAttribute('data-capability-stage-id', 'source_projection');
-      expect(screen.getByTestId('construction-reshape-editor')).toHaveAttribute('data-semantic-choice-count', '1');
-      expect(screen.getByTestId('construction-reshape-editor')).toHaveAttribute('data-saved-semantic-binding-id', semanticCategory.bindingId);
+      expect(screen.getByTestId('construction-reshape-editor')).toBeInTheDocument();
+      expect(screen.getByLabelText('Semantic category field')).toHaveProperty(
+        'value', `binding:${semanticCategory.bindingId}:${semanticCategory.ruleVersion}`,
+      );
+      expect(screen.getByRole('checkbox', { name: 'Group by Specimen identifier' })).toHaveProperty('checked', true);
     });
     expect(screen.queryByRole('dialog', { name: 'Row definition settings' })).not.toBeInTheDocument();
     expect(mockLoomClient.getConstructionCapabilities).toHaveBeenCalledWith(
       expect.objectContaining({ outputId: 'specimens', stageId: 'source_projection' }),
       expect.any(AbortSignal),
     );
+    const scalarKey = await screen.findByRole('checkbox', { name: 'Group by Specimen identifier' });
+    expect(scalarKey).toHaveProperty('checked', true);
+    fireEvent.click(scalarKey);
+    await waitFor(() => expect(mockLoomClient.proposeConstruction).toHaveBeenCalledOnce());
+    await screen.findByTestId('construction-proposal-ready');
+    const proposalArgs = mockLoomClient.proposeConstruction.mock.calls[0]?.[0] as ProposeConstructionArgs | undefined;
+    const proposedGroup = proposalArgs?.candidateConstruction.steps.find((step) => step.id === groupStep.id);
+    expect(proposedGroup?.operation.kind).toBe('GROUP');
+    if (proposedGroup?.operation.kind !== 'GROUP') throw new Error('Expected the saved GROUP operation');
+    expect(proposedGroup.operation.group.keys).toEqual([{
+      semanticCategory,
+      outputColumnId: 'specimen_type_group',
+    }]);
+    if (!proposalArgs) throw new Error('Expected the saved-edit proposal arguments');
+    let serializedBody: unknown;
+    const serializedFetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
+      serializedBody = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({
+        proposalId: 'serialized-semantic-only-group-proposal',
+        outputId: proposalArgs.outputId,
+        snapshotToken: proposalArgs.snapshotToken,
+        draftVersion: proposalArgs.expectedDraftVersion,
+        draftDigest: proposalArgs.expectedDraftDigest,
+        baseDocumentDigest: 'document-1',
+        candidateWorkspaceDigest: 'sha256:semantic-only-group-serialized',
+        changedStepId: proposalArgs.changedStepId,
+        candidateConstruction: proposalArgs.candidateConstruction,
+        dependencyImpact: { changedStepId: proposalArgs.changedStepId, affectedStepIds: [] },
+        stages: [sourceStage],
+        previewStatus: 'READY',
+        previewDurationMs: 1,
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    await createLoomClient({ fetch: serializedFetch }).proposeConstruction(proposalArgs);
+    expect(serializedBody).toEqual(expect.objectContaining({
+      candidateConstruction: proposalArgs.candidateConstruction,
+    }));
   });
 
   it('keeps the three row intents above Group, Pivot, Stack, and related editors until Back', async () => {

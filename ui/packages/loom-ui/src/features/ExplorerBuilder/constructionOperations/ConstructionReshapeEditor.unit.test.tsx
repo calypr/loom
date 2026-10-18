@@ -482,6 +482,30 @@ describe('ConstructionReshapeEditor', () => {
       outputColumnId: 'category-id',
     }]);
     expect(editedStep.operation.group.aggregates).toEqual([{ operation: 'COUNT_ROWS', outputColumnId: 'count-id' }]);
+
+    fireEvent.click(screen.getByLabelText('Group by Site'));
+    expect(controlChecked('Group by Site')).toBe(false);
+    const semanticOnlyIntent = onCandidateChange.mock.lastCall?.[0];
+    expect(semanticOnlyIntent).toBeDefined();
+    if (!semanticOnlyIntent) throw new Error('Expected a semantic-only saved Group candidate');
+    const semanticOnlyConstruction = constructionSchema.parse(semanticOnlyIntent.candidateConstruction);
+    const semanticOnlyStep = semanticOnlyConstruction.steps.find((step) => step.id === savedGroup.id);
+    expect(semanticOnlyStep?.operation.kind).toBe('GROUP');
+    if (semanticOnlyStep?.operation.kind !== 'GROUP') throw new Error('Expected the saved GROUP operation');
+    expect(semanticOnlyStep.operation.group.keys).toEqual([{
+      semanticCategory: {
+        kind: 'BINDING',
+        bindingId: 'condition-code-binding',
+        ruleVersion: 'rule-v1',
+        familyId: 'condition-code-family',
+        sourceKind: 'retained_vertex',
+        system: 'urn:example:condition',
+        version: '',
+        resourceType: 'Condition',
+        codingPath: 'code.coding',
+      },
+      outputColumnId: 'category-id',
+    }]);
   });
 
   it('offers only compiler-supported scalar fields as pivot inputs', () => {
